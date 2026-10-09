@@ -1,7 +1,12 @@
+/** The Transak product that the challenge opens: a buy of USDC, or a sell of USDCx. */
+export type TransakChallengeSide = 'buy' | 'sell';
+
 export interface TransakChallengeInput {
-  fiatAmount: string;
+  side: TransakChallengeSide;
+  /** Buy: the USD amount. Sell: the USDCx amount. */
+  amount: string;
   address: string;
-  /** The Miden account that receives the bridged funds: lower case `0x` + 30 hex. */
+  /** The Miden account that receives the bridged funds (buy) or sells them (sell): lower case `0x` + 30 hex. */
   midenAccountHex: string;
   nonce: string;
   expiresAt: number;
@@ -14,12 +19,19 @@ export interface TransakChallengeInput {
  * share code. If you change one, change the other, else the wallet refuses every challenge.
  */
 export function buildChallengeMessage({
-  fiatAmount,
+  side,
+  amount,
   address,
   midenAccountHex,
   nonce,
   expiresAt
 }: TransakChallengeInput): string {
   const expires = new Date(expiresAt * 1000).toISOString();
-  return `Buy ${fiatAmount} USD of USDC on Ethereum to ${address} for Miden account ${midenAccountHex} via Transak. Nonce ${nonce}, expires ${expires}.`;
+  const tail = `for Miden account ${midenAccountHex} via Transak. Nonce ${nonce}, expires ${expires}.`;
+  switch (side) {
+    case 'buy':
+      return `Buy ${amount} USD of USDC on Ethereum to ${address} ${tail}`;
+    case 'sell':
+      return `Sell ${amount} USDCx as USDC on Ethereum from ${address} ${tail}`;
+  }
 }

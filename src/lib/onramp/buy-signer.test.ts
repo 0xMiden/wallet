@@ -56,6 +56,7 @@ function goodPrepare(): BuyOrderPrepare {
 function orderWith(prepare: Partial<BuyOrderPrepare> = {}, order: Partial<BuyOrder> = {}): BuyOrder {
   return {
     id: 'order-1',
+    side: 'buy',
     state: 'awaiting_signature',
     transakStatus: 'PROCESSING',
     tokenAddress: TOKEN,

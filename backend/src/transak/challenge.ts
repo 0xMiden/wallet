@@ -5,10 +5,15 @@ import { verifyMessage, type Address, type Hex } from 'viem';
 /** A challenge stays valid for this number of seconds. */
 export const CHALLENGE_TTL_SECONDS = 300;
 
+/** The Transak product that the challenge opens: a buy of USDC, or a sell of USDCx. */
+export type ChallengeSide = 'buy' | 'sell';
+
 export interface ChallengeMessageInput {
-  fiatAmount: string;
+  side: ChallengeSide;
+  /** Buy: the USD amount. Sell: the USDCx amount. */
+  amount: string;
   address: Address;
-  /** The Miden account that receives the bridged funds: lower case `0x` + 30 hex. */
+  /** The Miden account that receives the bridged funds (buy) or sells them (sell): lower case `0x` + 30 hex. */
   midenAccountHex: string;
   nonce: string;
   /** Unix time in seconds. */
@@ -21,21 +26,29 @@ export interface ChallengeMessageInput {
  * If you change this text, change the twin at the same time.
  */
 export function buildChallengeMessage({
-  fiatAmount,
+  side,
+  amount,
   address,
   midenAccountHex,
   nonce,
   expiresAt
 }: ChallengeMessageInput): string {
   const expires = new Date(expiresAt * 1000).toISOString();
-  return `Buy ${fiatAmount} USD of USDC on Ethereum to ${address} for Miden account ${midenAccountHex} via Transak. Nonce ${nonce}, expires ${expires}.`;
+  const tail = `for Miden account ${midenAccountHex} via Transak. Nonce ${nonce}, expires ${expires}.`;
+  switch (side) {
+    case 'buy':
+      return `Buy ${amount} USD of USDC on Ethereum to ${address} ${tail}`;
+    case 'sell':
+      return `Sell ${amount} USDCx as USDC on Ethereum from ${address} ${tail}`;
+  }
 }
 
 export interface ChallengeEntry {
+  side: ChallengeSide;
   /** Checksummed address. */
   address: Address;
   /** The amount string exactly as the client sent it. */
-  fiatAmount: string;
+  amount: string;
   /** Lower case `0x` + 30 hex. */
   midenAccountHex: string;
   /** Unix time in seconds. */
@@ -60,15 +73,15 @@ export class ChallengeStore {
   }
 
   /** `midenAccountHex` must already be lower case. */
-  issue(address: Address, fiatAmount: string, midenAccountHex: string): IssuedChallenge {
+  issue(side: ChallengeSide, address: Address, amount: string, midenAccountHex: string): IssuedChallenge {
     this.prune();
     const nonce = randomBytes(16).toString('hex');
     const expiresAt = this.nowSeconds() + CHALLENGE_TTL_SECONDS;
-    this.entries.set(nonce, { address, fiatAmount, midenAccountHex, expiresAt });
+    this.entries.set(nonce, { side, address, amount, midenAccountHex, expiresAt });
     return {
       nonce,
       expiresAt,
-      message: buildChallengeMessage({ fiatAmount, address, midenAccountHex, nonce, expiresAt })
+      message: buildChallengeMessage({ side, amount, address, midenAccountHex, nonce, expiresAt })
     };
   }
 

@@ -77,6 +77,7 @@ const logEntrySchema = z.object({
   eventName: z.string().optional(),
   status: z.string().optional(),
   cryptoAmount: z.number().optional(),
+  transakOrderId: z.string().optional(),
   from: z.string().optional(),
   to: z.string().optional()
 });
@@ -150,6 +151,13 @@ describe('createTransakFeed', () => {
       cryptoAmount: 9.5
     });
     assert.deepEqual(logged[1], { event: 'pusher_event', orderId: 'a', eventName: 'ORDER_FAILED' });
+  });
+
+  it('logs the Transak order ID of the payload', () => {
+    feed.add('a');
+    pusher.channel('a').emit('ORDER_CREATED', { id: 'transak-1', status: 'AWAITING_PAYMENT_FROM_USER' });
+    assert.deepEqual(events, ['a']);
+    assert.equal(entries('pusher_event')[0]?.transakOrderId, 'transak-1');
   });
 
   it('keeps a lenient log when a payload field has an unexpected type', () => {

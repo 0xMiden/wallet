@@ -3,7 +3,7 @@
  */
 import { buildVaultEvmWalletClient } from 'lib/epoch/evm-account';
 
-import { TransakSessionError, createTransakBuySession } from './transak-client';
+import { TransakSessionError, createTransakBuySession, createTransakSellSession } from './transak-client';
 import { buildChallengeMessage } from './transak-message';
 
 const mockSignMessage = jest.fn();
@@ -34,11 +34,39 @@ interface WidgetParamsFixture {
   walletAddress?: string;
   disableWalletAddressForm?: boolean;
   fiatAmount?: number;
+  cryptoAmount?: number;
   fiatCurrency?: string;
   cryptoCurrencyCode?: string;
   network?: string;
   productsAvailed?: string;
+  walletRedirection?: boolean;
   partnerOrderId?: string;
+}
+
+function goodSellWidgetParams(): WidgetParamsFixture {
+  return {
+    referrerDomain: 'wallet.miden.io',
+    walletAddress: EVM_ADDRESS,
+    disableWalletAddressForm: true,
+    cryptoAmount: 12.5,
+    fiatCurrency: 'USD',
+    cryptoCurrencyCode: 'USDC',
+    network: 'ethereum',
+    productsAvailed: 'SELL',
+    walletRedirection: true,
+    partnerOrderId: NONCE
+  };
+}
+
+function goodSellMessage(expiresAt: number): string {
+  return buildChallengeMessage({
+    side: 'sell',
+    amount: '12.5',
+    address: EVM_ADDRESS,
+    midenAccountHex: MIDEN_HEX,
+    nonce: NONCE,
+    expiresAt
+  });
 }
 
 function goodWidgetParams(): WidgetParamsFixture {
@@ -61,7 +89,8 @@ function jsonResponse(body: object, status = 200): Response {
 
 function goodMessage(expiresAt: number): string {
   return buildChallengeMessage({
-    fiatAmount: '50',
+    side: 'buy',
+    amount: '50',
     address: EVM_ADDRESS,
     midenAccountHex: MIDEN_HEX,
     nonce: NONCE,
@@ -157,7 +186,8 @@ describe('createTransakBuySession', () => {
     mockServer({
       challenge: challengeBody(
         buildChallengeMessage({
-          fiatAmount: '50',
+          side: 'buy',
+          amount: '50',
           address: OTHER_ADDRESS,
           midenAccountHex: MIDEN_HEX,
           nonce: NONCE,
@@ -174,7 +204,8 @@ describe('createTransakBuySession', () => {
     mockServer({
       challenge: challengeBody(
         buildChallengeMessage({
-          fiatAmount: '50',
+          side: 'buy',
+          amount: '50',
           address: EVM_ADDRESS,
           midenAccountHex: OTHER_MIDEN_HEX,
           nonce: NONCE,
@@ -293,5 +324,134 @@ describe('createTransakBuySession', () => {
   it('gives request-failed on an invalid challenge body', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ nonce: 'short', expiresAt: EXPIRES_AT, message: 'x' }));
     await expectFailure('request-failed');
+  });
+});
+
+describe('createTransakSellSession', () => {
+  let dateNow: jest.SpyInstance<number, []>;
+
+  const sellInput = {
+    apiUrl: 'https://backend.example/',
+    midenAccountPublicKey: 'miden-pk',
+    evmAddress: EVM_ADDRESS,
+    midenAccountHex: MIDEN_HEX,
+    cryptoAmount: '12.5'
+  } satisfies Parameters<typeof createTransakSellSession>[0];
+
+  function mockSellServer(options: { challenge?: object; widgetParams?: WidgetParamsFixture } = {}) {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(options.challenge ?? { nonce: NONCE, expiresAt: EXPIRES_AT, message: goodSellMessage(EXPIRES_AT) })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ widgetUrl: WIDGET_URL, widgetParams: options.widgetParams ?? goodSellWidgetParams() })
+      );
+  }
+
+  async function expectSellFailure(reason: 'request-failed' | 'mismatch'): Promise<void> {
+    const error = await createTransakSellSession(sellInput).then(
+      () => null,
+      (caught: Error) => caught
+    );
+    expect(error).toBeInstanceOf(TransakSessionError);
+    expect(error instanceof TransakSessionError ? error.reason : null).toBe(reason);
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    dateNow = jest.spyOn(Date, 'now').mockReturnValue(NOW_SECONDS * 1000);
+    fetchMock.mockReset();
+    global.fetch = fetchMock;
+    signMessage.mockResolvedValue(SIGNATURE);
+  });
+
+  afterEach(() => {
+    dateNow.mockRestore();
+  });
+
+  it('posts the crypto amount to the sell routes, signs the sell message and returns the widget URL', async () => {
+    mockSellServer();
+
+    const session = await createTransakSellSession(sellInput);
+
+    expect(session).toEqual({ widgetUrl: WIDGET_URL, partnerOrderId: NONCE });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://backend.example/transak/sell/challenge',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ evmAddress: EVM_ADDRESS, midenAccountHex: MIDEN_HEX, cryptoAmount: '12.5' })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://backend.example/transak/sell/session',
+      expect.objectContaining({ body: JSON.stringify({ nonce: NONCE, signature: SIGNATURE }) })
+    );
+    expect(signMessage).toHaveBeenCalledWith(expect.objectContaining({ message: goodSellMessage(EXPIRES_AT) }));
+  });
+
+  it('refuses a buy message for the same amount, before it signs', async () => {
+    mockSellServer({
+      challenge: {
+        nonce: NONCE,
+        expiresAt: EXPIRES_AT,
+        message: buildChallengeMessage({
+          side: 'buy',
+          amount: '12.5',
+          address: EVM_ADDRESS,
+          midenAccountHex: MIDEN_HEX,
+          nonce: NONCE,
+          expiresAt: EXPIRES_AT
+        })
+      }
+    });
+    await expectSellFailure('mismatch');
+    expect(signMessage).not.toHaveBeenCalled();
+  });
+
+  it('refuses a mirrored source walletAddress for another address, and accepts another case', async () => {
+    mockSellServer({ widgetParams: { ...goodSellWidgetParams(), walletAddress: OTHER_ADDRESS } });
+    await expectSellFailure('mismatch');
+    mockSellServer({ widgetParams: { ...goodSellWidgetParams(), walletAddress: EVM_ADDRESS.toLowerCase() } });
+    await expect(createTransakSellSession(sellInput)).resolves.toEqual({
+      widgetUrl: WIDGET_URL,
+      partnerOrderId: NONCE
+    });
+  });
+
+  it.each([
+    'walletAddress',
+    'disableWalletAddressForm',
+    'cryptoAmount',
+    'fiatCurrency',
+    'cryptoCurrencyCode',
+    'network',
+    'productsAvailed',
+    'walletRedirection',
+    'partnerOrderId'
+  ] satisfies (keyof WidgetParamsFixture)[])('refuses a missing mirrored %s', async field => {
+    const widgetParams = goodSellWidgetParams();
+    delete widgetParams[field];
+    mockSellServer({ widgetParams });
+    await expectSellFailure('mismatch');
+  });
+
+  it.each<[string, WidgetParamsFixture]>([
+    ['amount', { cryptoAmount: 12.6 }],
+    ['token', { cryptoCurrencyCode: 'ETH' }],
+    ['network', { network: 'polygon' }],
+    ['product', { productsAvailed: 'BUY' }],
+    ['redirection', { walletRedirection: false }],
+    ['address lock', { disableWalletAddressForm: false }]
+  ])('refuses a changed %s', async (_label, change) => {
+    mockSellServer({ widgetParams: { ...goodSellWidgetParams(), ...change } });
+    await expectSellFailure('mismatch');
+  });
+
+  it('gives request-failed on HTTP 500', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'boom' }, 500));
+    await expectSellFailure('request-failed');
+    expect(signMessage).not.toHaveBeenCalled();
   });
 });

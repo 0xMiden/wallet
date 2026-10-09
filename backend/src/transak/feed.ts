@@ -46,6 +46,7 @@ export interface TransakFeedOptions {
 
 // Only for the log. The payload shape can change, so each field is optional and a bad value becomes absent.
 const eventLogSchema = z.object({
+  id: z.string().optional().catch(undefined),
   status: z.string().optional().catch(undefined),
   cryptoAmount: z.number().optional().catch(undefined)
 });
@@ -88,6 +89,7 @@ export function createTransakFeed({ pusher, apiKey, onEvent }: TransakFeedOption
       logEvent('info', 'pusher_event', {
         orderId,
         eventName,
+        transakOrderId: payload.success ? payload.data.id : undefined,
         status: payload.success ? payload.data.status : undefined,
         cryptoAmount: payload.success ? payload.data.cryptoAmount : undefined
       });

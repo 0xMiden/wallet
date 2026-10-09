@@ -27,8 +27,16 @@ export const SEPOLIA_CHAIN_ID = 11155111;
 export const CALIBUR_SEPOLIA_ADDRESS: Address = '0x00000cAbFc76478C1537dd418aB00967cBbE4AE6';
 /** The Calibur nonce key of the on-ramp. The batch nonce is `key << 64 | sequence`. */
 export const ONRAMP_NONCE_KEY = BigInt(keccak256(stringToHex('miden.onramp'))) >> 64n;
+/** The Calibur nonce key of the off-ramp. Its own key, so a sell and a buy of one address never share a sequence. */
+export const OFFRAMP_NONCE_KEY = BigInt(keccak256(stringToHex('miden.offramp'))) >> 64n;
 /** A signed batch stays valid for this number of seconds. */
 export const BUY_BATCH_TTL_SECONDS = 86_400;
+/**
+ * TEMPORARY, testnet only: the relay of a sell sends `cryptoAmount / 100` of the token, so a 100 USDCx test sale
+ * moves 1 USDC. The backend has the same constant (`SELL_RELAY_AMOUNT_DIVISOR` in `chain-testnet/offramp.ts`).
+ * Set both to 1 when the sell relays the full amount.
+ */
+export const SELL_RELAY_AMOUNT_DIVISOR = 100n;
 
 // The Agglayer bridge on Sepolia and the Agglayer network ID of Miden testnet (not an EVM chain ID).
 export const AGGLAYER_BRIDGE_ADDRESS: Address = '0x1348947e282138d8f377b467f7d9c2eb0f335d1f';
@@ -45,6 +53,7 @@ export const CALIBUR_ABI = parseAbi([
 
 export const ERC20_ABI = parseAbi([
   'function approve(address spender, uint256 amount) returns (bool)',
+  'function transfer(address to, uint256 amount) returns (bool)',
   'function balanceOf(address account) view returns (uint256)'
 ]);
 
@@ -180,4 +189,66 @@ export function encodeBuyExecution(input: BuyBatchInput, signature: Hex): Hex {
     functionName: 'execute',
     args: [buildBuyBatch(input), encodeAbiParameters([{ type: 'bytes' }, { type: 'bytes' }], [signature, '0x'])]
   });
+}
+
+/**
+ * The Calibur signed batch for a sell: one ERC-20 `transfer` of the token to Transak's deposit address.
+ * Twin of `buildSellBatch` in `backend/src/chain-testnet/offramp.ts`. Same domain and types as the buy batch.
+ */
+export interface SellBatchInput {
+  /** The EOA that delegates to Calibur. It is the verifying contract of the domain. */
+  evmAddress: Address;
+  token: Address;
+  /** Transak's deposit address of the order. */
+  depositAddress: Address;
+  /** Token base units. */
+  amount: bigint;
+  batchNonce: bigint;
+  salt: Hex;
+  executor: Address;
+  /** Unix time in seconds. */
+  deadline: bigint;
+}
+
+export function buildSellBatch(input: SellBatchInput) {
+  return {
+    batchedCall: {
+      calls: [
+        {
+          to: input.token,
+          value: 0n,
+          data: encodeFunctionData({
+            abi: ERC20_ABI,
+            functionName: 'transfer',
+            args: [input.depositAddress, input.amount]
+          })
+        }
+      ],
+      revertOnFailure: true
+    },
+    nonce: input.batchNonce,
+    keyHash: zeroHash,
+    executor: input.executor,
+    deadline: input.deadline
+  };
+}
+
+export function sellBatchTypedData(input: SellBatchInput) {
+  const primaryType: 'SignedBatchedCall' = 'SignedBatchedCall';
+  return {
+    domain: {
+      name: 'Calibur',
+      version: '1.0.0',
+      chainId: SEPOLIA_CHAIN_ID,
+      verifyingContract: input.evmAddress,
+      salt: input.salt
+    },
+    types: batchTypes,
+    primaryType,
+    message: buildSellBatch(input)
+  };
+}
+
+export function sellBatchDigest(input: SellBatchInput): Hex {
+  return hashTypedData(sellBatchTypedData(input));
 }

@@ -3,12 +3,12 @@ import type { Address, Hex } from 'viem';
 import {
   BUY_BATCH_TTL_SECONDS,
   CALIBUR_SEPOLIA_ADDRESS,
-  ONRAMP_NONCE_KEY,
+  nonceKeyOf,
   SEPOLIA_CHAIN_ID,
-  type BuyBatchInput
+  type BatchInput
 } from './calibur.js';
 import type { AccountState } from './sepolia.js';
-import { ONRAMP_TOKEN } from './token.js';
+import { tokenOf } from './token.js';
 import type { Order } from '../orders/store.js';
 
 /** The values that the wallet signs. `GET /orders/:id` returns this object in `awaiting_signature`. */
@@ -27,15 +27,29 @@ export interface Preparation {
   authorizationNonce: number;
   /** Token base units, decimal string. */
   tokenAmount: string;
+  /** Sell only: Transak's deposit address, the recipient of the transfer. Null for a buy. */
+  depositAddress: Address | null;
 }
 
-export function batchNonceOf(sequence: bigint): bigint {
-  return (ONRAMP_NONCE_KEY << 64n) | sequence;
+/** The order fields that the batch and the prepare values read. */
+export type BatchOrder = Pick<Order, 'side' | 'evmAddress' | 'midenAccountHex' | 'depositAddress' | 'autoExpiresAt'>;
+
+export function batchNonceOf(side: Order['side'], sequence: bigint): bigint {
+  return (nonceKeyOf(side) << 64n) | sequence;
+}
+
+/**
+ * The latest deadline of a signed batch, in unix seconds: 1 day, or the Transak expiry of a sell when that comes
+ * first, so the signature dies with the order.
+ */
+export function latestDeadline(order: Pick<Order, 'autoExpiresAt'>, nowMs: number): number {
+  const oneDay = Math.floor(nowMs / 1000) + BUY_BATCH_TTL_SECONDS;
+  return order.autoExpiresAt === null ? oneDay : Math.min(oneDay, order.autoExpiresAt);
 }
 
 /** Build the fresh prepare values of an order. `nowMs` is the time in milliseconds. */
 export function buildPreparation(
-  order: Pick<Order, 'evmAddress' | 'midenAccountHex'>,
+  order: BatchOrder,
   tokenAmount: string,
   state: AccountState,
   executor: Address,
@@ -47,25 +61,28 @@ export function buildPreparation(
     evmAddress: order.evmAddress,
     midenAccountHex: order.midenAccountHex,
     executor,
-    batchNonce: batchNonceOf(state.sequence).toString(),
+    batchNonce: batchNonceOf(order.side, state.sequence).toString(),
     salt: state.salt,
-    deadline: Math.floor(nowMs / 1000) + BUY_BATCH_TTL_SECONDS,
+    deadline: latestDeadline(order, nowMs),
     needsAuthorization: state.needsAuthorization,
     authorizationNonce: state.authorizationNonce,
-    tokenAmount
+    tokenAmount,
+    depositAddress: order.side === 'sell' ? order.depositAddress : null
   };
 }
 
 /** The batch input of an order with its signed values. */
 export function batchInputOf(
-  order: Pick<Order, 'evmAddress' | 'midenAccountHex'>,
+  order: BatchOrder,
   signed: { tokenAmount: string; batchNonce: string; salt: Hex; deadline: number },
   executor: Address
-): BuyBatchInput {
+): BatchInput {
   return {
+    side: order.side,
     evmAddress: order.evmAddress,
     midenAccountHex: order.midenAccountHex,
-    token: ONRAMP_TOKEN.address,
+    token: tokenOf(order.side).address,
+    depositAddress: order.side === 'sell' ? order.depositAddress : null,
     amount: BigInt(signed.tokenAmount),
     batchNonce: BigInt(signed.batchNonce),
     salt: signed.salt,

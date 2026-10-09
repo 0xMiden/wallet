@@ -6,22 +6,28 @@ import { generatePrivateKey, privateKeyToAccount, type PrivateKeyAccount } from 
 import { z } from 'zod';
 
 import { createApp } from './app.js';
-import { buyBatchTypedData, CALIBUR_SEPOLIA_ADDRESS, SEPOLIA_CHAIN_ID } from './chain-testnet/calibur.js';
+import { batchTypedData, CALIBUR_SEPOLIA_ADDRESS, SEPOLIA_CHAIN_ID } from './chain-testnet/calibur.js';
 import { batchInputOf } from './chain-testnet/preparation.js';
 import type { OrderStore } from './orders/store.js';
 import { captureLogs, CALIBUR_SALT, EXECUTOR, FakeChain, memoryStore, MIDEN_ACCOUNT, TOKEN } from './test/support.js';
-import { TransakError, type TransakClient, type TransakOrder, type WidgetParamsMirror } from './transak/client.js';
+import {
+  TransakError,
+  type SellWidgetParamsMirror,
+  type TransakClient,
+  type TransakOrder,
+  type WidgetParamsMirror
+} from './transak/client.js';
 
 const WIDGET_URL = 'https://global-stg.transak.com?apiKey=k&sessionId=s';
 const MIDEN_UPPER = `0x${'0A'.repeat(15)}`;
 
 /** A fake Transak client. It records each params object it gets. */
 class FakeTransak implements TransakClient {
-  received: WidgetParamsMirror[] = [];
+  received: (WidgetParamsMirror | SellWidgetParamsMirror)[] = [];
   userIps: string[] = [];
   fail = false;
 
-  async createWidgetSession(params: WidgetParamsMirror, userIp: string): Promise<string> {
+  async createWidgetSession(params: WidgetParamsMirror | SellWidgetParamsMirror, userIp: string): Promise<string> {
     this.received.push(params);
     this.userIps.push(userIp);
     if (this.fail) {
@@ -31,6 +37,10 @@ class FakeTransak implements TransakClient {
   }
 
   async getOrderByPartnerId(): Promise<TransakOrder | null> {
+    return null;
+  }
+
+  async getOrderById(): Promise<TransakOrder | null> {
     return null;
   }
 }
@@ -59,6 +69,7 @@ const prepareSchema = z.object({
 
 const orderResponseSchema = z.object({
   id: z.string(),
+  side: z.enum(['buy', 'sell']),
   state: z.string(),
   transakStatus: z.string().nullable(),
   tokenAddress: z.string(),
@@ -66,6 +77,9 @@ const orderResponseSchema = z.object({
   tokenAmount: z.string().nullable(),
   relayTxHash: z.string().nullable(),
   error: z.string().nullable(),
+  depositAddress: z.string().nullable(),
+  depositAmount: z.number().nullable(),
+  autoExpiresAt: z.number().nullable(),
   prepare: prepareSchema.nullable()
 });
 
@@ -107,7 +121,8 @@ before(async () => {
   // One proxy object of each fake, so each test can swap the fake.
   const proxy: TransakClient = {
     createWidgetSession: (params, userIp) => transak.createWidgetSession(params, userIp),
-    getOrderByPartnerId: () => transak.getOrderByPartnerId()
+    getOrderByPartnerId: () => transak.getOrderByPartnerId(),
+    getOrderById: () => transak.getOrderById()
   };
   const app = createApp({
     config: {
@@ -281,7 +296,8 @@ describe('POST /transak/session', () => {
     assert.equal(order.state, 'checkout');
     assert.equal(order.evmAddress, account.address);
     assert.equal(order.midenAccountHex, MIDEN_ACCOUNT);
-    assert.equal(order.fiatAmount, '10');
+    assert.equal(order.side, 'buy');
+    assert.equal(order.amount, '10');
     assert.equal(Object.hasOwn(order, 'tokenAddress'), false);
     assert.equal(Object.hasOwn(order, 'tokenDecimals'), false);
 
@@ -343,6 +359,144 @@ describe('POST /transak/session', () => {
   });
 });
 
+async function sellChallenge(address: string, cryptoAmount: string) {
+  const result = await post('/transak/sell/challenge', {
+    evmAddress: address,
+    cryptoAmount,
+    midenAccountHex: MIDEN_ACCOUNT
+  });
+  assert.equal(result.status, 200);
+  return challengeResponseSchema.parse(result.body);
+}
+
+/** Open a sell through the routes. Return the order ID. */
+async function openSell(account: PrivateKeyAccount, cryptoAmount = '100'): Promise<string> {
+  const { nonce, message } = await sellChallenge(account.address, cryptoAmount);
+  const result = await post('/transak/sell/session', { nonce, signature: await account.signMessage({ message }) });
+  assert.equal(result.status, 200);
+  return nonce;
+}
+
+describe('POST /transak/sell/challenge', () => {
+  it('returns a sell message with up to 6 decimals', async () => {
+    const address = privateKeyToAccount(generatePrivateKey()).address;
+    const { nonce, message } = await sellChallenge(address, '12.123456');
+    assert.match(nonce, /^[0-9a-f]{32}$/);
+    assert.match(message, new RegExp(`^Sell 12\\.123456 USDCx as USDC on Ethereum from ${address} `));
+  });
+
+  it('refuses a bad amount and an amount over the USD maximum', async () => {
+    const address = privateKeyToAccount(generatePrivateKey()).address;
+    for (const cryptoAmount of ['0', '1.1234567', '-1', 'ten', '1000.000001']) {
+      await expectError(
+        await post('/transak/sell/challenge', { evmAddress: address, cryptoAmount, midenAccountHex: MIDEN_ACCOUNT }),
+        400
+      );
+    }
+    await expectError(
+      await post('/transak/sell/challenge', { evmAddress: address, midenAccountHex: MIDEN_ACCOUNT }),
+      400
+    );
+  });
+});
+
+describe('POST /transak/sell/session', () => {
+  it('returns the widget URL and the exact sell params, stores a sell and no buy order, and watches it', async () => {
+    const account = privateKeyToAccount(generatePrivateKey());
+    const { nonce, message } = await sellChallenge(account.address, '12.5');
+    const signature = await account.signMessage({ message });
+
+    const result = await post('/transak/sell/session', { nonce, signature });
+    assert.equal(result.status, 200);
+    const expected: SellWidgetParamsMirror = {
+      referrerDomain: 'wallet.miden.xyz',
+      walletAddress: account.address,
+      disableWalletAddressForm: true,
+      cryptoAmount: 12.5,
+      fiatCurrency: 'USD',
+      cryptoCurrencyCode: 'USDC',
+      network: 'ethereum',
+      productsAvailed: 'SELL',
+      walletRedirection: true,
+      partnerOrderId: nonce
+    };
+    assert.deepEqual(result.body, { widgetUrl: WIDGET_URL, widgetParams: expected });
+    assert.deepEqual(transak.received, [expected]);
+    assert.deepEqual(transak.userIps, ['203.0.113.7']);
+    const sell = orders.get(nonce);
+    assert.ok(sell);
+    assert.equal(sell.side, 'sell');
+    assert.equal(sell.state, 'checkout');
+    assert.equal(sell.evmAddress, account.address);
+    assert.equal(sell.midenAccountHex, MIDEN_ACCOUNT);
+    assert.equal(sell.amount, '12.5');
+    assert.equal(sell.depositAddress, null);
+    // The server watches the Transak feed of the sell and reads it at once.
+    assert.deepEqual(created, [nonce]);
+
+    const status = await get(`/orders/${nonce}`);
+    assert.equal(status.status, 200);
+    const view = orderResponseSchema.parse(status.body);
+    assert.equal(view.side, 'sell');
+    assert.equal(view.state, 'checkout');
+    assert.equal(view.tokenAddress.toLowerCase(), '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238');
+    assert.equal(view.tokenDecimals, 6);
+    assert.equal(view.depositAddress, null);
+    assert.equal(view.autoExpiresAt, null);
+  });
+
+  it('keeps an open buy of the same address, and cancels only the earlier open sell', async () => {
+    const account = privateKeyToAccount(generatePrivateKey());
+    const buy = await openCheckout(account);
+    const first = await openSell(account);
+    assert.equal(orders.get(buy)?.state, 'checkout');
+    assert.equal(orders.get(first)?.state, 'checkout');
+    const second = await openSell(account);
+    assert.equal(orders.get(first)?.state, 'cancelled');
+    assert.equal(orders.get(second)?.state, 'checkout');
+    assert.equal(orders.get(buy)?.state, 'checkout');
+  });
+
+  it('stores no order when Transak fails', async () => {
+    transak.fail = true;
+    const account = privateKeyToAccount(generatePrivateKey());
+    const { nonce, message } = await sellChallenge(account.address, '10');
+    await expectError(
+      await post('/transak/sell/session', { nonce, signature: await account.signMessage({ message }) }),
+      502
+    );
+    assert.equal(orders.get(nonce), null);
+    assert.deepEqual(created, []);
+  });
+
+  it('refuses a buy nonce on the sell route and burns it', async () => {
+    const account = privateKeyToAccount(generatePrivateKey());
+    const { nonce, message } = await challenge(account.address, '10');
+    const signature = await account.signMessage({ message });
+    await expectError(await post('/transak/sell/session', { nonce, signature }), 401);
+    await expectError(await post('/transak/session', { nonce, signature }), 401);
+    assert.deepEqual(transak.received, []);
+  });
+
+  it('refuses a sell nonce on the buy route', async () => {
+    const account = privateKeyToAccount(generatePrivateKey());
+    const { nonce, message } = await sellChallenge(account.address, '10');
+    const signature = await account.signMessage({ message });
+    await expectError(await post('/transak/session', { nonce, signature }), 401);
+    assert.equal(orders.get(nonce), null);
+  });
+
+  it('refuses a signature from another key', async () => {
+    const account = privateKeyToAccount(generatePrivateKey());
+    const other = privateKeyToAccount(generatePrivateKey());
+    const { nonce, message } = await sellChallenge(account.address, '10');
+    await expectError(
+      await post('/transak/sell/session', { nonce, signature: await other.signMessage({ message }) }),
+      401
+    );
+  });
+});
+
 /** Open a checkout and move it to `awaiting_signature` with 10 tokens. */
 async function awaitingOrder(account: PrivateKeyAccount): Promise<string> {
   const id = await openCheckout(account);
@@ -371,8 +525,14 @@ async function signedBody(
     salt: prepare.salt,
     deadline: prepare.deadline
   };
-  const order = { evmAddress: owner.address, midenAccountHex: MIDEN_ACCOUNT };
-  const signature = await signer.signTypedData(buyBatchTypedData(batchInputOf(order, signed, EXECUTOR)));
+  const order = {
+    side: 'buy' as const,
+    evmAddress: owner.address,
+    midenAccountHex: MIDEN_ACCOUNT,
+    depositAddress: null,
+    autoExpiresAt: null
+  };
+  const signature = await signer.signTypedData(batchTypedData(batchInputOf(order, signed, EXECUTOR)));
   const authorization = await authorizationSigner.signAuthorization({
     address: CALIBUR_SEPOLIA_ADDRESS,
     chainId: SEPOLIA_CHAIN_ID,
@@ -404,6 +564,7 @@ describe('GET /orders/:id', () => {
     assert.equal(result.status, 200);
     assert.deepEqual(result.body, {
       id,
+      side: 'buy',
       state: 'checkout',
       transakStatus: null,
       tokenAddress: TOKEN,
@@ -411,6 +572,9 @@ describe('GET /orders/:id', () => {
       tokenAmount: null,
       relayTxHash: null,
       error: null,
+      depositAddress: null,
+      depositAmount: null,
+      autoExpiresAt: null,
       prepare: null
     });
   });

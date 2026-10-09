@@ -1,6 +1,7 @@
 import { parseUnits } from 'viem';
 
 import type { OrderDeps } from './advance.js';
+import { addressFields, autoExpiresAtOf, findDepositAddress } from './deposit-address.js';
 import type { Order, OrderPatch } from './store.js';
 import { ONRAMP_TOKEN } from '../chain-testnet/token.js';
 import { logEvent } from '../log.js';
@@ -67,23 +68,8 @@ function transakCallDue(order: Order, deps: OrderDeps): boolean {
   return deps.now() - lastCallAt >= deps.transakPoll.intervalMs;
 }
 
-/**
- * Read the Transak order and keep its ID, status and first COMPLETED time on the row.
- * When the slow poll skips the call, return the stored row values: `status` is the stored `transakStatus`, and
- * `transakCompletedAt` stays on the row.
- */
-export async function syncTransak(order: Order, deps: OrderDeps): Promise<TransakSync> {
-  if (!transakCallDue(order, deps)) {
-    return { order, called: false, transak: null, status: order.transakStatus };
-  }
-  // Record the call before it starts. A feed event during the call marks the order dirty again.
-  // A failed call also waits for the interval, so a Transak outage does not get a call on each tick.
-  deps.transakPoll.dirty.delete(order.id);
-  deps.transakPoll.lastCallAt.set(order.id, deps.now());
-  const transak = await deps.transak.getOrderByPartnerId(order.id);
-  if (transak === null) {
-    return { order, called: true, transak, status: null };
-  }
+/** The buy-only part of a sync: the log of each new amount, and the settled amount at COMPLETED. */
+function syncBuy(order: Order, transak: TransakOrder, patch: OrderPatch, deps: OrderDeps): TransakSync | null {
   // Transak can change the amount at settlement with no status change. Log each new amount.
   if (!deps.loggedCryptoAmounts.has(order.id) || deps.loggedCryptoAmounts.get(order.id) !== transak.cryptoAmount) {
     logEvent('info', 'transak_crypto_amount', {
@@ -99,20 +85,6 @@ export async function syncTransak(order: Order, deps: OrderDeps): Promise<Transa
       signedTokenAmount: order.tokenAmount
     });
     deps.loggedCryptoAmounts.set(order.id, transak.cryptoAmount);
-  }
-  const patch: OrderPatch = {};
-  if (transak.id !== order.transakOrderId) {
-    patch.transakOrderId = transak.id;
-  }
-  if (transak.status !== order.transakStatus) {
-    patch.transakStatus = transak.status;
-    logEvent('info', 'transak_status', {
-      orderId: order.id,
-      transakOrderId: transak.id,
-      from: order.transakStatus,
-      to: transak.status,
-      cryptoAmount: transak.cryptoAmount
-    });
   }
   if (transak.status === 'COMPLETED' && order.transakCompletedAt === null) {
     patch.transakCompletedAt = deps.now();
@@ -134,6 +106,77 @@ export async function syncTransak(order: Order, deps: OrderDeps): Promise<Transa
         return { order: fresh, called: true, transak, status: transak.status };
       }
     }
+  }
+  return null;
+}
+
+/**
+ * The sell-only part of a sync: the deposit address, the deposit amount and the expiry of the Transak order. The
+ * order fields are logged on each status change, with every address and its path: the shape of a sell order is not
+ * documented, so the log is how the deposit rule was pinned and how a change would show.
+ */
+function syncSell(order: Order, transak: TransakOrder, patch: OrderPatch): void {
+  const deposit = findDepositAddress(transak.raw, order.evmAddress);
+  if (deposit !== null && deposit.address.toLowerCase() !== order.depositAddress?.toLowerCase()) {
+    patch.depositAddress = deposit.address;
+  }
+  if (transak.cryptoAmount !== order.depositAmount) patch.depositAmount = transak.cryptoAmount;
+  const autoExpiresAt = autoExpiresAtOf(transak.raw);
+  if (autoExpiresAt !== null && autoExpiresAt !== order.autoExpiresAt) patch.autoExpiresAt = autoExpiresAt;
+  if (patch.transakStatus !== undefined) {
+    logEvent('info', 'sell_order_fields', {
+      orderId: order.id,
+      transakOrderId: transak.id,
+      status: transak.status,
+      keys: typeof transak.raw === 'object' && transak.raw !== null ? Object.keys(transak.raw).join(',') : '',
+      addresses: JSON.stringify(addressFields(transak.raw)),
+      depositPath: deposit?.path ?? null,
+      depositAddress: deposit?.address ?? null,
+      autoExpiresAt
+    });
+  }
+}
+
+/**
+ * Read the Transak order and keep its ID, status and side-specific values on the row.
+ * When the slow poll skips the call, return the stored row values: `status` is the stored `transakStatus`, and
+ * `transakCompletedAt` stays on the row.
+ */
+export async function syncTransak(order: Order, deps: OrderDeps): Promise<TransakSync> {
+  if (!transakCallDue(order, deps)) {
+    return { order, called: false, transak: null, status: order.transakStatus };
+  }
+  // Record the call before it starts. A feed event during the call marks the order dirty again.
+  // A failed call also waits for the interval, so a Transak outage does not get a call on each tick.
+  deps.transakPoll.dirty.delete(order.id);
+  deps.transakPoll.lastCallAt.set(order.id, deps.now());
+  const transak = await deps.transak.getOrderByPartnerId(order.id);
+  if (transak === null) {
+    return { order, called: true, transak, status: null };
+  }
+  const patch: OrderPatch = {};
+  if (transak.id !== order.transakOrderId) {
+    patch.transakOrderId = transak.id;
+  }
+  if (transak.status !== order.transakStatus) {
+    patch.transakStatus = transak.status;
+    logEvent('info', 'transak_status', {
+      orderId: order.id,
+      transakOrderId: transak.id,
+      from: order.transakStatus,
+      to: transak.status,
+      cryptoAmount: transak.cryptoAmount
+    });
+  }
+  switch (order.side) {
+    case 'buy': {
+      const resigned = syncBuy(order, transak, patch, deps);
+      if (resigned !== null) return resigned;
+      break;
+    }
+    case 'sell':
+      syncSell(order, transak, patch);
+      break;
   }
   if (Object.keys(patch).length === 0) {
     return { order, called: true, transak, status: transak.status };

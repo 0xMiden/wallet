@@ -173,13 +173,23 @@ describe('getOrderByPartnerId', () => {
       partnerOrderId: PARTNER_ORDER_ID,
       cryptoAmount: 9.87,
       walletAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
-      transactionHash: null
+      transactionHash: null,
+      raw: {
+        id: 'order-1',
+        status: 'PROCESSING',
+        partnerOrderId: PARTNER_ORDER_ID,
+        cryptoAmount: 9.87,
+        walletAddress: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+        fiatAmount: 10,
+        extra: { nested: true }
+      }
     });
     const request = calls[1];
     assert.ok(request);
     assert.equal(
       request.url,
-      `https://api-stg.transak.com/partners/api/v2/orders?filter%5BpartnerOrderId%5D=${PARTNER_ORDER_ID}`
+      `https://api-stg.transak.com/partners/api/v2/orders?filter%5BpartnerOrderId%5D=${PARTNER_ORDER_ID}` +
+        '&filter%5BproductsAvailed%5D=%5B%22BUY%22%2C%22SELL%22%5D'
     );
     assert.equal(request.method, 'GET');
     assert.equal(request.headers['access-token'], 'token-1');
@@ -191,6 +201,59 @@ describe('getOrderByPartnerId', () => {
     const { fetch } = stubOrders([]);
     const client = createTransakClient({ apiKey: 'KEY', apiSecret: 'SECRET', env: 'staging', fetch, now: () => 0 });
     assert.equal(await client.getOrderByPartnerId(PARTNER_ORDER_ID), null);
+  });
+
+  it('reads a 400 "order not found" as no order', async () => {
+    const calls: RecordedCall[] = [];
+    const fetch: FetchLike = async (url, init) => {
+      calls.push({ url, method: init.method, headers: headersOf(init), body: bodyOf(init) });
+      if (url.endsWith('/partners/api/v2/refresh-token')) {
+        return jsonResponse(200, { data: { accessToken: 'token-1', expiresAt: 10_000_000 } });
+      }
+      return jsonResponse(400, {
+        error: { statusCode: 400, name: 'Bad Request', message: 'Invalid partnerOrderId or order not found' }
+      });
+    };
+    const client = createTransakClient({ apiKey: 'KEY', apiSecret: 'SECRET', env: 'staging', fetch, now: () => 0 });
+    assert.equal(await client.getOrderByPartnerId(PARTNER_ORDER_ID), null);
+    assert.equal(await client.getOrderById('transak-1'), null);
+    // Another 400 is still a failed call.
+    const other = createTransakClient({
+      apiKey: 'KEY',
+      apiSecret: 'SECRET',
+      env: 'staging',
+      fetch: async (url, init) =>
+        url.endsWith('/refresh-token')
+          ? fetch(url, init)
+          : jsonResponse(400, { error: { statusCode: 400, message: 'Bad filter' } }),
+      now: () => 0
+    });
+    await assert.rejects(other.getOrderByPartnerId(PARTNER_ORDER_ID), TransakError);
+  });
+
+  it('reads one order by its Transak ID and keeps the raw object', async () => {
+    const calls: RecordedCall[] = [];
+    const order = { id: 'order-1', status: 'AWAITING_PAYMENT_FROM_USER', cryptoAmount: 100, cryptoPaymentData: {} };
+    const fetch: FetchLike = async (url, init) => {
+      calls.push({ url, method: init.method, headers: headersOf(init), body: bodyOf(init) });
+      if (url.endsWith('/partners/api/v2/refresh-token')) {
+        return jsonResponse(200, { data: { accessToken: 'token-1', expiresAt: 10_000_000 } });
+      }
+      return url.endsWith('/order/order-1') ? jsonResponse(200, { data: order }) : jsonResponse(404, {});
+    };
+    const client = createTransakClient({ apiKey: 'KEY', apiSecret: 'SECRET', env: 'staging', fetch, now: () => 0 });
+    assert.deepEqual(await client.getOrderById('order-1'), {
+      id: 'order-1',
+      status: 'AWAITING_PAYMENT_FROM_USER',
+      partnerOrderId: '',
+      cryptoAmount: 100,
+      walletAddress: null,
+      transactionHash: null,
+      raw: order
+    });
+    assert.equal(calls[1]?.url, 'https://api-stg.transak.com/partners/api/v2/order/order-1');
+    assert.equal(calls[1]?.headers['access-token'], 'token-1');
+    assert.equal(await client.getOrderById('order-2'), null);
   });
 
   it('drops the token after a 401, so the next call refreshes it', async () => {

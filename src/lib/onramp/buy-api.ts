@@ -39,6 +39,10 @@ const stateSchema = z.enum([
 
 export type BuyOrderState = z.infer<typeof stateSchema>;
 
+const sideSchema = z.enum(['buy', 'sell']);
+
+export type OrderSide = z.infer<typeof sideSchema>;
+
 const prepareSchema = z.object({
   chainId: z.number().int(),
   calibur: addressSchema,
@@ -50,13 +54,17 @@ const prepareSchema = z.object({
   deadline: z.number().int(),
   needsAuthorization: z.boolean(),
   authorizationNonce: z.number().int().min(0),
-  tokenAmount: baseUnitsSchema
+  tokenAmount: baseUnitsSchema,
+  /** Sell only: Transak's deposit address, as the backend read it from the Transak order. */
+  depositAddress: addressSchema.nullable().optional()
 });
 
 export type BuyOrderPrepare = z.infer<typeof prepareSchema>;
 
 const orderSchema = z.object({
   id: z.string(),
+  // Absent from a backend that predates sells: a buy.
+  side: sideSchema.optional().default('buy'),
   state: stateSchema,
   transakStatus: z.string().nullable(),
   tokenAddress: addressSchema,
@@ -64,10 +72,17 @@ const orderSchema = z.object({
   tokenAmount: baseUnitsSchema.nullable(),
   relayTxHash: hexSchema(32).nullable(),
   error: z.string().nullable(),
+  /** Sell only: Transak's deposit address and the crypto amount it asks for, once its order shows them. */
+  depositAddress: addressSchema.nullable().optional(),
+  depositAmount: z.number().nullable().optional(),
+  /** Sell only: unix seconds at which Transak expires an unpaid order. */
+  autoExpiresAt: z.number().int().nullable().optional(),
   prepare: prepareSchema.nullable()
 });
 
-export type BuyOrder = z.infer<typeof orderSchema>;
+/** A backend order: a buy or a sell. */
+export type BackendOrder = z.infer<typeof orderSchema>;
+export type BuyOrder = BackendOrder;
 
 const signatureResponseSchema = z.object({ state: stateSchema });
 
@@ -129,9 +144,11 @@ async function requestJson<T>(url: string, init: RequestInit, schema: z.ZodType<
   return parsed.data;
 }
 
-export function getBuyOrder(orderId: string): Promise<BuyOrder> {
+export function getOrder(orderId: string): Promise<BackendOrder> {
   return requestJson(orderUrl(orderId), { method: 'GET' }, orderSchema);
 }
+
+export const getBuyOrder = getOrder;
 
 export function postBuySignature(orderId: string, body: BuySignatureBody): Promise<{ state: BuyOrderState }> {
   return requestJson(

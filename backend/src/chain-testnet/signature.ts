@@ -9,8 +9,8 @@ import {
 import { recoverAuthorizationAddress } from 'viem/utils';
 import { z } from 'zod';
 
-import { BUY_BATCH_TTL_SECONDS, buyBatchTypedData, CALIBUR_SEPOLIA_ADDRESS, SEPOLIA_CHAIN_ID } from './calibur.js';
-import { batchInputOf, type Preparation } from './preparation.js';
+import { batchTypedData, CALIBUR_SEPOLIA_ADDRESS, SEPOLIA_CHAIN_ID } from './calibur.js';
+import { batchInputOf, latestDeadline, type BatchOrder, type Preparation } from './preparation.js';
 import type { Order } from '../orders/store.js';
 
 const hexOfBytes = (bytes: number) =>
@@ -66,7 +66,7 @@ export function toSignedAuthorization(body: AuthorizationBody): SignedAuthorizat
  * `nowMs` is the time in milliseconds. Throw `SignatureCheckError` when a check fails.
  */
 export async function verifySignedBatch(
-  order: Pick<Order, 'evmAddress' | 'midenAccountHex' | 'tokenAmount'>,
+  order: BatchOrder & Pick<Order, 'tokenAmount'>,
   body: SignatureBody,
   current: Preparation,
   nowMs: number
@@ -81,11 +81,14 @@ export async function verifySignedBatch(
   if (body.salt.toLowerCase() !== current.salt.toLowerCase()) {
     throw new SignatureCheckError('salt is not the Calibur domain salt');
   }
-  if (body.deadline <= nowSeconds || body.deadline > nowSeconds + BUY_BATCH_TTL_SECONDS + 60) {
+  if (body.deadline <= nowSeconds || body.deadline > latestDeadline(order, nowMs) + 60) {
     throw new SignatureCheckError('deadline is not in the permitted window');
   }
+  if (order.side === 'sell' && order.depositAddress === null) {
+    throw new SignatureCheckError('the order has no deposit address yet');
+  }
 
-  const typedData = buyBatchTypedData(batchInputOf(order, body, current.executor));
+  const typedData = batchTypedData(batchInputOf(order, body, current.executor));
   let signer: Address;
   try {
     signer = await recoverTypedDataAddress({ ...typedData, signature: body.signature });

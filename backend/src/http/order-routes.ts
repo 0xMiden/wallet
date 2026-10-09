@@ -3,9 +3,10 @@ import { Router } from 'express';
 import { HttpError } from './errors.js';
 import { NONCE_PATTERN } from './transak-routes.js';
 import type { AppDeps } from '../app.js';
+import { nonceKeyOf } from '../chain-testnet/calibur.js';
 import { buildPreparation, type Preparation } from '../chain-testnet/preparation.js';
 import { signatureBodySchema, verifySignedBatch } from '../chain-testnet/signature.js';
-import { ONRAMP_TOKEN } from '../chain-testnet/token.js';
+import { tokenOf } from '../chain-testnet/token.js';
 import { errorText, logEvent } from '../log.js';
 import type { Order } from '../orders/store.js';
 
@@ -15,6 +16,7 @@ const ORDER_ID_PATTERN = NONCE_PATTERN;
 /** The public status of an order. `GET /orders/:id` sends this object. */
 interface OrderView {
   id: string;
+  side: Order['side'];
   state: Order['state'];
   transakStatus: string | null;
   tokenAddress: string;
@@ -22,19 +24,29 @@ interface OrderView {
   tokenAmount: string | null;
   relayTxHash: string | null;
   error: string | null;
+  /** Sell only; null for a buy. */
+  depositAddress: string | null;
+  depositAmount: number | null;
+  /** Unix seconds. Sell only; null for a buy. */
+  autoExpiresAt: number | null;
   prepare: Preparation | null;
 }
 
 function orderView(order: Order, prepare: Preparation | null, relayTxHash: string | null): OrderView {
+  const token = tokenOf(order.side);
   return {
     id: order.id,
+    side: order.side,
     state: order.state,
     transakStatus: order.transakStatus,
-    tokenAddress: ONRAMP_TOKEN.address,
-    tokenDecimals: ONRAMP_TOKEN.decimals,
+    tokenAddress: token.address,
+    tokenDecimals: token.decimals,
     tokenAmount: order.tokenAmount,
     relayTxHash,
     error: order.error,
+    depositAddress: order.depositAddress,
+    depositAmount: order.depositAmount,
+    autoExpiresAt: order.autoExpiresAt,
     prepare
   };
 }
@@ -53,12 +65,16 @@ export function createOrderRouter({ orders, chain, now }: OrderRoutesDeps): Rout
     return order;
   }
 
+  function readAccount(order: Order) {
+    return chain.readAccount(order.evmAddress, tokenOf(order.side).address, nonceKeyOf(order.side));
+  }
+
   router.get('/:id', async (req, res) => {
     const order = findOrder(req.params.id);
     let prepare: Preparation | null = null;
     if (order.state === 'awaiting_signature' && order.tokenAmount !== null) {
       try {
-        const account = await chain.readAccount(order.evmAddress, ONRAMP_TOKEN.address);
+        const account = await readAccount(order);
         prepare = buildPreparation(order, order.tokenAmount, account, chain.executor, now());
       } catch (error) {
         // The wallet asks again on its next poll. The status is still correct without the prepare values.
@@ -76,7 +92,7 @@ export function createOrderRouter({ orders, chain, now }: OrderRoutesDeps): Rout
     if (order.state !== 'awaiting_signature' || order.tokenAmount === null) {
       throw new HttpError(409, 'Order does not wait for a signature');
     }
-    const account = await chain.readAccount(order.evmAddress, ONRAMP_TOKEN.address);
+    const account = await readAccount(order);
     const current = buildPreparation(order, order.tokenAmount, account, chain.executor, now());
     await verifySignedBatch(order, body, current, now());
     const changed = orders.transition(

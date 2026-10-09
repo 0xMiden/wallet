@@ -21,7 +21,8 @@ async function fixture(trustedProxies: string[]) {
         userIps.push(ip);
         return 'https://global-stg.transak.com/';
       },
-      getOrderByPartnerId: async () => null
+      getOrderByPartnerId: async () => null,
+      getOrderById: async () => null
     },
     resolveUserIp: passCallerIp,
     orders: memoryStore(Date.now),

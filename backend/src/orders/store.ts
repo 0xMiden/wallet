@@ -4,20 +4,29 @@ import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import type { Address, Hex } from 'viem';
 import { z } from 'zod';
 
-import { NONCE_STATES, ORDER_STATES, WORKER_STATES, type OrderState } from './states.js';
+import { NONCE_STATES, ORDER_SIDES, ORDER_STATES, WORKER_STATES, type OrderSide, type OrderState } from './states.js';
 import { logEvent } from '../log.js';
 import { RELAY_SCHEMA, RelayStore, type NewRelay } from '../relays/store.js';
 
 export interface Order {
   /** The Transak `partnerOrderId`, which is the challenge nonce. */
   id: string;
+  side: OrderSide;
+  /** Buy: the address Transak delivers to. Sell: the source wallet Transak expects the deposit from. */
   evmAddress: Address;
   midenAccountHex: string;
-  fiatAmount: string;
+  /** The amount the user asked for, as the client sent it: USD for a buy, USDCx for a sell. */
+  amount: string;
   transakOrderId: string | null;
   transakStatus: string | null;
-  /** Unix ms of the first COMPLETED status from Transak. */
+  /** Unix ms of the first COMPLETED status from Transak. Buy only. */
   transakCompletedAt: number | null;
+  /** Sell only: the address Transak tells the user to pay to, once its order shows it. */
+  depositAddress: Address | null;
+  /** Sell only: the crypto amount Transak asks for, in token units (not base units). */
+  depositAmount: number | null;
+  /** Sell only: unix seconds at which Transak expires an unpaid order. */
+  autoExpiresAt: number | null;
   /** Token base units. */
   tokenAmount: string | null;
   batchNonce: string | null;
@@ -27,7 +36,7 @@ export interface Order {
   signature: Hex | null;
   /** The signed EIP-7702 authorization as JSON. */
   authorization: string | null;
-  /** Last completed amount from Transak, before any balance adjustment. */
+  /** Last completed amount from Transak, before any balance adjustment. Buy only. */
   settledTokenAmount: string | null;
   state: OrderState;
   error: string | null;
@@ -42,6 +51,9 @@ export interface OrderPatch {
   transakOrderId?: string | null;
   transakStatus?: string | null;
   transakCompletedAt?: number | null;
+  depositAddress?: Address | null;
+  depositAmount?: number | null;
+  autoExpiresAt?: number | null;
   tokenAmount?: string | null;
   batchNonce?: string | null;
   salt?: Hex | null;
@@ -56,6 +68,9 @@ const PATCH_COLUMNS: { [K in keyof OrderPatch]-?: string } = {
   transakOrderId: 'transak_order_id',
   transakStatus: 'transak_status',
   transakCompletedAt: 'transak_completed_at',
+  depositAddress: 'deposit_address',
+  depositAmount: 'deposit_amount',
+  autoExpiresAt: 'auto_expires_at',
   tokenAmount: 'token_amount',
   batchNonce: 'batch_nonce',
   salt: 'salt',
@@ -73,12 +88,16 @@ function isPatchKey(key: string): key is keyof OrderPatch {
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS orders (
   id TEXT PRIMARY KEY,
+  side TEXT NOT NULL CHECK (side IN (${ORDER_SIDES.map(side => `'${side}'`).join(', ')})),
   evm_address TEXT NOT NULL,
   miden_account_hex TEXT NOT NULL,
-  fiat_amount TEXT NOT NULL,
+  amount TEXT NOT NULL,
   transak_order_id TEXT,
   transak_status TEXT,
   transak_completed_at INTEGER,
+  deposit_address TEXT,
+  deposit_amount REAL,
+  auto_expires_at INTEGER,
   token_amount TEXT,
   batch_nonce TEXT,
   salt TEXT,
@@ -92,8 +111,8 @@ CREATE TABLE IF NOT EXISTS orders (
   updated_at INTEGER NOT NULL,
   state_changed_at INTEGER NOT NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS orders_one_nonce_order_per_address
-  ON orders (evm_address) WHERE state IN (${NONCE_STATES.map(state => `'${state}'`).join(', ')});
+CREATE UNIQUE INDEX IF NOT EXISTS orders_one_nonce_order_per_address_and_side
+  ON orders (evm_address, side) WHERE state IN (${NONCE_STATES.map(state => `'${state}'`).join(', ')});
 CREATE INDEX IF NOT EXISTS orders_by_state ON orders (state);
 `;
 
@@ -104,12 +123,16 @@ const integer = z.union([z.number(), z.bigint()]).transform(value => Number(valu
 const rowSchema = z
   .object({
     id: z.string(),
+    side: z.enum(ORDER_SIDES),
     evm_address: addressSchema,
     miden_account_hex: z.string(),
-    fiat_amount: z.string(),
+    amount: z.string(),
     transak_order_id: z.string().nullable(),
     transak_status: z.string().nullable(),
     transak_completed_at: integer.nullable(),
+    deposit_address: addressSchema.nullable(),
+    deposit_amount: z.number().nullable(),
+    auto_expires_at: integer.nullable(),
     token_amount: z.string().nullable(),
     batch_nonce: z.string().nullable(),
     salt: hexSchema.nullable(),
@@ -126,12 +149,16 @@ const rowSchema = z
   .transform(
     (row): Order => ({
       id: row.id,
+      side: row.side,
       evmAddress: row.evm_address,
       midenAccountHex: row.miden_account_hex,
-      fiatAmount: row.fiat_amount,
+      amount: row.amount,
       transakOrderId: row.transak_order_id,
       transakStatus: row.transak_status,
       transakCompletedAt: row.transak_completed_at,
+      depositAddress: row.deposit_address,
+      depositAmount: row.deposit_amount,
+      autoExpiresAt: row.auto_expires_at,
       tokenAmount: row.token_amount,
       batchNonce: row.batch_nonce,
       salt: row.salt,
@@ -161,15 +188,16 @@ export function openDatabase(path: string): DatabaseSync {
 
 export interface NewOrder {
   id: string;
+  side: OrderSide;
   evmAddress: Address;
   midenAccountHex: string;
-  fiatAmount: string;
+  amount: string;
 }
 
-/** A different order of the same address holds the Calibur nonce, and it can not be cancelled now. */
+/** A different order of the same address and side holds the Calibur nonce, and it can not be cancelled now. */
 export class OrderConflictError extends Error {
   constructor(readonly orderId: string) {
-    super('An earlier buy is being relayed. Try again in a minute.');
+    super('An earlier order is being relayed. Try again in a minute.');
     this.name = 'OrderConflictError';
   }
 }
@@ -202,7 +230,7 @@ export class OrderStore {
   }
 
   /**
-   * Insert a `checkout` order. First cancel the other orders of the address that hold the nonce.
+   * Insert a `checkout` order. First cancel the other orders of the address and side that hold the nonce.
    * Both steps run in one SQL transaction.
    */
   createCheckout(input: NewOrder): Order {
@@ -211,8 +239,8 @@ export class OrderStore {
     try {
       const placeholders = NONCE_STATES.map(() => '?').join(', ');
       const others = this.db
-        .prepare(`SELECT * FROM orders WHERE evm_address = ? AND state IN (${placeholders})`)
-        .all(input.evmAddress, ...NONCE_STATES)
+        .prepare(`SELECT * FROM orders WHERE evm_address = ? AND side = ? AND state IN (${placeholders})`)
+        .all(input.evmAddress, input.side, ...NONCE_STATES)
         .map(row => rowSchema.parse(row));
       for (const other of others) {
         if (!CANCELLABLE_STATES.includes(other.state)) {
@@ -224,17 +252,17 @@ export class OrderStore {
       }
       this.db
         .prepare(
-          `INSERT INTO orders (id, evm_address, miden_account_hex, fiat_amount,
+          `INSERT INTO orders (id, side, evm_address, miden_account_hex, amount,
              state, created_at, updated_at, state_changed_at)
-           VALUES (?, ?, ?, ?, 'checkout', ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, 'checkout', ?, ?, ?)`
         )
-        .run(input.id, input.evmAddress, input.midenAccountHex, input.fiatAmount, at, at, at);
+        .run(input.id, input.side, input.evmAddress, input.midenAccountHex, input.amount, at, at, at);
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
       throw error;
     }
-    logEvent('info', 'order_created', { orderId: input.id, to: 'checkout' });
+    logEvent('info', 'order_created', { orderId: input.id, side: input.side, to: 'checkout' });
     const created = this.get(input.id);
     if (created === null) {
       throw new Error(`Order ${input.id} is missing after insert`);

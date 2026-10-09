@@ -46,6 +46,55 @@ export function buildWidgetParams({
   };
 }
 
+/**
+ * The exact widget params of a sell, without `apiKey`. On a sell `walletAddress` is the SOURCE wallet, the one the
+ * user sends from: the wallet's own EVM address, locked, which also answers Transak's "where are you sending funds
+ * from" step. Transak gives its deposit address in the order, and the wallet reads it from the widget events.
+ * `walletRedirection` makes the widget send `TRANSAK_WALLET_REDIRECTION` with that address when the user starts
+ * the transfer.
+ */
+export interface SellWidgetParamsMirror {
+  referrerDomain: string;
+  walletAddress: Address;
+  disableWalletAddressForm: true;
+  cryptoAmount: number;
+  fiatCurrency: 'USD';
+  cryptoCurrencyCode: 'USDC';
+  network: 'ethereum';
+  productsAvailed: 'SELL';
+  walletRedirection: true;
+  partnerOrderId: string;
+}
+
+export interface SellWidgetParamsInput {
+  referrerDomain: string;
+  /** The source wallet: the wallet's EVM address from the signed challenge. */
+  walletAddress: Address;
+  /** The decimal USDCx amount string from the signed challenge. */
+  cryptoAmount: string;
+  partnerOrderId: string;
+}
+
+export function buildSellWidgetParams({
+  referrerDomain,
+  walletAddress,
+  cryptoAmount,
+  partnerOrderId
+}: SellWidgetParamsInput): SellWidgetParamsMirror {
+  return {
+    referrerDomain,
+    walletAddress,
+    disableWalletAddressForm: true,
+    cryptoAmount: Number(cryptoAmount),
+    fiatCurrency: 'USD',
+    cryptoCurrencyCode: 'USDC',
+    network: 'ethereum',
+    productsAvailed: 'SELL',
+    walletRedirection: true,
+    partnerOrderId
+  };
+}
+
 /** The order fields that the worker uses. Transak sends more fields; the parser ignores them. */
 export interface TransakOrder {
   id: string;
@@ -55,17 +104,23 @@ export interface TransakOrder {
   cryptoAmount: number | null;
   walletAddress: string | null;
   transactionHash: string | null;
+  /** The order object as Transak sent it. A sell reads its deposit address from it. */
+  raw: unknown;
 }
 
 export interface TransakClient {
   /** Create a single-use widget session for the user at `userIp`. Return the widget URL. */
-  createWidgetSession(params: WidgetParamsMirror, userIp: string): Promise<string>;
+  createWidgetSession(params: WidgetParamsMirror | SellWidgetParamsMirror, userIp: string): Promise<string>;
   /** Find the order with this `partnerOrderId`. Return null when Transak has no order for it yet. */
   getOrderByPartnerId(partnerOrderId: string): Promise<TransakOrder | null>;
+  /** Read one order by its Transak ID (from the feed event). Return null when Transak has no such order. */
+  getOrderById(transakOrderId: string): Promise<TransakOrder | null>;
 }
 
 /** The path of the Transak Get Orders API, on the partner API host. */
 export const TRANSAK_ORDERS_PATH = '/partners/api/v2/orders';
+/** The path of the Transak Get Order By ID API, on the partner API host. */
+export const TRANSAK_ORDER_PATH = '/partners/api/v2/order';
 
 /** A Transak call that takes longer than this number of milliseconds fails. */
 const TRANSAK_TIMEOUT_MS = 15_000;
@@ -130,6 +185,11 @@ const orderSchema = z.object({
 const ordersResponseSchema = z.object({
   data: z.array(z.unknown())
 });
+
+const orderResponseSchema = z.object({ data: z.unknown() });
+
+/** The by-ID response can omit `partnerOrderId`. */
+const orderByIdSchema = orderSchema.extend({ partnerOrderId: z.string().optional() });
 
 export interface TransakClientOptions {
   apiKey: string;
@@ -222,7 +282,10 @@ export function createTransakClient({
     return inFlight;
   }
 
-  async function createWidgetSession(params: WidgetParamsMirror, userIp: string): Promise<string> {
+  async function createWidgetSession(
+    params: WidgetParamsMirror | SellWidgetParamsMirror,
+    userIp: string
+  ): Promise<string> {
     const accessToken = await getAccessToken();
     let response: Response;
     try {
@@ -253,7 +316,12 @@ export function createTransakClient({
 
   async function getOrderByPartnerId(partnerOrderId: string): Promise<TransakOrder | null> {
     const accessToken = await getAccessToken();
-    const query = new URLSearchParams({ 'filter[partnerOrderId]': partnerOrderId });
+    // The API lists BUY orders only unless `productsAvailed` names SELL too (a JSON array, as the `meta.filter` of
+    // its response shows). Without it a sell's `partnerOrderId` is "not found".
+    const query = new URLSearchParams({
+      'filter[partnerOrderId]': partnerOrderId,
+      'filter[productsAvailed]': JSON.stringify(['BUY', 'SELL'])
+    });
     let response: Response;
     try {
       response = await fetch(`${hosts.api}${TRANSAK_ORDERS_PATH}?${query.toString()}`, {
@@ -268,17 +336,52 @@ export function createTransakClient({
       // The token is not valid any more. The next call gets a new token.
       cached = null;
     }
+    // Transak answers 400 "order not found" for an ID it does not list, which a sell order is until the order is
+    // read by its own ID. That is "no order", not a failed call.
+    if (response.status === 400 && (await isNotFound(response))) return null;
     const body = await readJson(response, 'orders');
     const parsed = parseWith('orders', ordersResponseSchema, body);
     // Parse each item alone, so one item with an unexpected shape does not hide the match.
     for (const item of parsed.data) {
       const order = orderSchema.safeParse(item);
       if (order.success && order.data.partnerOrderId === partnerOrderId) {
-        return order.data;
+        return { ...order.data, raw: item };
       }
     }
     return null;
   }
 
-  return { createWidgetSession, getOrderByPartnerId };
+  async function getOrderById(transakOrderId: string): Promise<TransakOrder | null> {
+    const accessToken = await getAccessToken();
+    let response: Response;
+    try {
+      response = await fetch(`${hosts.api}${TRANSAK_ORDER_PATH}/${encodeURIComponent(transakOrderId)}`, {
+        method: 'GET',
+        headers: { 'access-token': accessToken, 'x-api-key': apiKey, accept: 'application/json' },
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+    } catch (error) {
+      throw new TransakError(`order: network error: ${String(error)}`);
+    }
+    if (response.status === 401) {
+      cached = null;
+    }
+    if (response.status === 404 || (response.status === 400 && (await isNotFound(response)))) return null;
+    const body = await readJson(response, 'order');
+    const parsed = parseWith('order', orderResponseSchema, body);
+    const order = parseWith('order', orderByIdSchema, parsed.data);
+    return { ...order, partnerOrderId: order.partnerOrderId ?? '', raw: parsed.data };
+  }
+
+  return { createWidgetSession, getOrderByPartnerId, getOrderById };
+}
+
+/** True when a 400 body says the order is not found. The body is read once: the caller does not read it again. */
+async function isNotFound(response: Response): Promise<boolean> {
+  try {
+    const text = await response.clone().text();
+    return /order not found/i.test(text);
+  } catch {
+    return false;
+  }
 }

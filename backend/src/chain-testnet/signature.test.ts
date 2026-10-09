@@ -3,25 +3,47 @@ import { describe, it } from 'node:test';
 import type { Address } from 'viem';
 import { generatePrivateKey, privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 
-import { buyBatchTypedData, CALIBUR_SEPOLIA_ADDRESS, ONRAMP_NONCE_KEY, SEPOLIA_CHAIN_ID } from './calibur.js';
-import { batchInputOf, buildPreparation, type Preparation } from './preparation.js';
+import {
+  batchTypedData,
+  CALIBUR_SEPOLIA_ADDRESS,
+  OFFRAMP_NONCE_KEY,
+  ONRAMP_NONCE_KEY,
+  SEPOLIA_CHAIN_ID
+} from './calibur.js';
+import { batchInputOf, buildPreparation, type BatchOrder, type Preparation } from './preparation.js';
 import type { AccountState } from './sepolia.js';
 import { SignatureCheckError, verifySignedBatch, type AuthorizationBody, type SignatureBody } from './signature.js';
 import { CALIBUR_SALT, EXECUTOR, MIDEN_ACCOUNT } from '../test/support.js';
 
 const NOW_MS = 1_800_000_000_000;
 const AMOUNT = '1500000000000000000';
+const DEPOSIT = '0x57359A5071a83D3b5640BDcb7Ad17c70F40088A4';
 
-function orderOf(account: PrivateKeyAccount) {
+function orderOf(account: PrivateKeyAccount): BatchOrder & { tokenAmount: string } {
   return {
+    side: 'buy',
     evmAddress: account.address,
     midenAccountHex: MIDEN_ACCOUNT,
+    depositAddress: null,
+    autoExpiresAt: null,
     tokenAmount: AMOUNT
   };
 }
 
-function prepare(evmAddress: Address, state: Partial<AccountState> = {}): Preparation {
-  const account: AccountState = {
+/** A sell that Transak expires 30 min after NOW. */
+function sellOrderOf(account: PrivateKeyAccount): BatchOrder & { tokenAmount: string } {
+  return {
+    side: 'sell',
+    evmAddress: account.address,
+    midenAccountHex: MIDEN_ACCOUNT,
+    depositAddress: DEPOSIT,
+    autoExpiresAt: NOW_MS / 1000 + 1800,
+    tokenAmount: '1000000'
+  };
+}
+
+function accountState(state: Partial<AccountState> = {}): AccountState {
+  return {
     needsAuthorization: true,
     authorizationNonce: 4,
     sequence: 7n,
@@ -29,7 +51,16 @@ function prepare(evmAddress: Address, state: Partial<AccountState> = {}): Prepar
     balance: 0n,
     ...state
   };
-  return buildPreparation({ evmAddress, midenAccountHex: MIDEN_ACCOUNT }, AMOUNT, account, EXECUTOR, NOW_MS);
+}
+
+function prepare(evmAddress: Address, state: Partial<AccountState> = {}): Preparation {
+  return buildPreparation(
+    { side: 'buy', evmAddress, midenAccountHex: MIDEN_ACCOUNT, depositAddress: null, autoExpiresAt: null },
+    AMOUNT,
+    accountState(state),
+    EXECUTOR,
+    NOW_MS
+  );
 }
 
 async function signAuthorization(signer: PrivateKeyAccount, nonce: number): Promise<AuthorizationBody> {
@@ -43,7 +74,8 @@ async function signBody(
   signer: PrivateKeyAccount,
   owner: PrivateKeyAccount,
   current: Preparation,
-  authorization?: AuthorizationBody
+  authorization?: AuthorizationBody,
+  order: BatchOrder = orderOf(owner)
 ): Promise<SignatureBody> {
   const signed = {
     tokenAmount: current.tokenAmount,
@@ -51,9 +83,7 @@ async function signBody(
     salt: current.salt,
     deadline: current.deadline
   };
-  const signature = await signer.signTypedData(
-    buyBatchTypedData(batchInputOf(orderOf(owner), signed, current.executor))
-  );
+  const signature = await signer.signTypedData(batchTypedData(batchInputOf(order, signed, current.executor)));
   return { ...signed, signature, authorization };
 }
 
@@ -68,6 +98,61 @@ describe('buildPreparation', () => {
     assert.equal(current.deadline, NOW_MS / 1000 + 86_400);
     assert.equal(current.chainId, 11155111);
     assert.equal(current.calibur, CALIBUR_SEPOLIA_ADDRESS);
+    assert.equal(current.depositAddress, null);
+  });
+
+  it('uses the off-ramp key, the Transak expiry as the deadline and the deposit address for a sell', () => {
+    const owner = privateKeyToAccount(generatePrivateKey());
+    const order = sellOrderOf(owner);
+    const current = buildPreparation(order, order.tokenAmount, accountState(), EXECUTOR, NOW_MS);
+    assert.equal(current.batchNonce, ((OFFRAMP_NONCE_KEY << 64n) | 7n).toString());
+    assert.equal(current.deadline, NOW_MS / 1000 + 1800);
+    assert.equal(current.depositAddress, DEPOSIT);
+  });
+});
+
+describe('verifySignedBatch for a sell', () => {
+  const owner = privateKeyToAccount(generatePrivateKey());
+
+  it('accepts the transfer signature, and refuses a deadline past the Transak expiry', async () => {
+    const order = sellOrderOf(owner);
+    const current = buildPreparation(
+      order,
+      order.tokenAmount,
+      accountState({ needsAuthorization: false }),
+      EXECUTOR,
+      NOW_MS
+    );
+    const body = await signBody(owner, owner, current, undefined, order);
+    await verifySignedBatch(order, body, current, NOW_MS);
+    const late = { ...body, deadline: current.deadline + 120 };
+    await rejects(verifySignedBatch(order, late, current, NOW_MS), /deadline/);
+  });
+
+  it('refuses a sell with no deposit address yet', async () => {
+    const order = sellOrderOf(owner);
+    const current = buildPreparation(
+      order,
+      order.tokenAmount,
+      accountState({ needsAuthorization: false }),
+      EXECUTOR,
+      NOW_MS
+    );
+    const body = await signBody(owner, owner, current, undefined, order);
+    await rejects(verifySignedBatch({ ...order, depositAddress: null }, body, current, NOW_MS), /no deposit address/);
+  });
+
+  it('refuses a buy signature on a sell of the same values', async () => {
+    const order = sellOrderOf(owner);
+    const current = buildPreparation(
+      order,
+      order.tokenAmount,
+      accountState({ needsAuthorization: false }),
+      EXECUTOR,
+      NOW_MS
+    );
+    const body = await signBody(owner, owner, current, undefined, { ...order, side: 'buy' });
+    await rejects(verifySignedBatch(order, body, current, NOW_MS), /not from the order address/);
   });
 });
 

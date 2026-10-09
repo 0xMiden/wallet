@@ -1,10 +1,11 @@
 import type { Order, OrderPatch, OrderStore } from './store.js';
 import { syncTransak, toBaseUnits, transakPhase, type TransakPollState } from './transak-sync.js';
-import { encodeBuyExecution } from '../chain-testnet/calibur.js';
+import { encodeExecution, nonceKeyOf } from '../chain-testnet/calibur.js';
+import { SELL_RELAY_AMOUNT_DIVISOR } from '../chain-testnet/offramp.js';
 import { batchInputOf, batchNonceOf } from '../chain-testnet/preparation.js';
 import type { Chain } from '../chain-testnet/sepolia.js';
 import { authorizationSchema, toSignedAuthorization } from '../chain-testnet/signature.js';
-import { ONRAMP_TOKEN } from '../chain-testnet/token.js';
+import { ONRAMP_TOKEN, tokenOf } from '../chain-testnet/token.js';
 import { logEvent } from '../log.js';
 import type { TransakClient } from '../transak/client.js';
 
@@ -20,6 +21,11 @@ export const RECEIPT_WARNING_MS = 15 * 60 * 1000;
 export const MAX_RELAY_ATTEMPTS = 3;
 /** The worker does not send a batch with less than this number of seconds before its deadline. */
 const DEADLINE_MARGIN_SECONDS = 60;
+/** The worker does not send a sell relay with less than this number of seconds before Transak expires the order. */
+export const SELL_EXPIRY_MARGIN_SECONDS = 120;
+
+/** The Transak statuses of a sell order in which Transak still accepts the deposit. */
+const SELL_PAYABLE_STATUSES = new Set(['AWAITING_PAYMENT_FROM_USER', 'PAYMENT_DONE_MARKED_BY_USER']);
 
 export interface OrderDeps {
   store: OrderStore;
@@ -81,18 +87,24 @@ async function handleUnderdelivery(order: Order, deps: OrderDeps, balance: bigin
   }
 }
 
-async function advanceCheckout(order: Order, deps: OrderDeps): Promise<void> {
-  const { order: synced, called, transak } = await syncTransak(order, deps);
-  if (!called) {
-    // A checkout changes only on Transak data. The next call does the expiry check too.
-    return;
-  }
-  if (transak === null) {
-    if (deps.now() - synced.createdAt > CHECKOUT_TIMEOUT_MS) {
-      deps.store.transition(synced.id, 'checkout', 'expired', {}, 'no Transak order after 1 h');
-    }
-    return;
-  }
+/** The base units the relay of a sell transfers for the crypto amount Transak asks for. */
+export function sellRelayTokenAmount(depositAmount: number): bigint {
+  return toBaseUnits(depositAmount, tokenOf('sell').decimals) / SELL_RELAY_AMOUNT_DIVISOR;
+}
+
+/** True when Transak expires the sell order in less than the margin, so a relay could land too late. */
+function sellExpiryNear(order: Order, deps: OrderDeps): boolean {
+  return (
+    order.autoExpiresAt !== null && order.autoExpiresAt - Math.floor(deps.now() / 1000) < SELL_EXPIRY_MARGIN_SECONDS
+  );
+}
+
+/** A buy at checkout waits for Transak to deliver, then asks for the bridge signature. */
+function advanceBuyCheckout(
+  synced: Order,
+  transak: NonNullable<Awaited<ReturnType<typeof syncTransak>>['transak']>,
+  deps: OrderDeps
+): void {
   switch (transakPhase(transak.status)) {
     case 'failed':
       deps.store.transition(synced.id, 'checkout', 'failed', { error: `Transak order ${transak.status}` }, 'transak');
@@ -127,6 +139,62 @@ async function advanceCheckout(order: Order, deps: OrderDeps): Promise<void> {
   }
 }
 
+/**
+ * A sell at checkout waits for the Transak order to show its deposit address and amount, then asks for the
+ * transfer signature. The order is payable until Transak expires it.
+ */
+function advanceSellCheckout(synced: Order, status: string, deps: OrderDeps): void {
+  if (transakPhase(status) === 'failed') {
+    deps.store.transition(synced.id, 'checkout', 'failed', { error: `Transak order ${status}` }, 'transak');
+    return;
+  }
+  if (!SELL_PAYABLE_STATUSES.has(status)) return;
+  if (sellExpiryNear(synced, deps)) {
+    deps.store.transition(synced.id, 'checkout', 'expired', {}, 'Transak order expiry near');
+    return;
+  }
+  if (synced.depositAddress === null || synced.depositAmount === null || synced.depositAmount <= 0) return;
+  const tokenAmount = sellRelayTokenAmount(synced.depositAmount);
+  if (tokenAmount <= 0n) return;
+  logEvent('info', 'order_token_amount', {
+    orderId: synced.id,
+    transakStatus: status,
+    cryptoAmount: synced.depositAmount,
+    tokenAmount,
+    tokenDecimals: tokenOf('sell').decimals,
+    divisor: SELL_RELAY_AMOUNT_DIVISOR
+  });
+  deps.store.transition(
+    synced.id,
+    'checkout',
+    'awaiting_signature',
+    { tokenAmount: tokenAmount.toString() },
+    `transak ${status}`
+  );
+}
+
+async function advanceCheckout(order: Order, deps: OrderDeps): Promise<void> {
+  const { order: synced, called, transak } = await syncTransak(order, deps);
+  if (!called) {
+    // A checkout changes only on Transak data. The next call does the expiry check too.
+    return;
+  }
+  if (transak === null) {
+    if (deps.now() - synced.createdAt > CHECKOUT_TIMEOUT_MS) {
+      deps.store.transition(synced.id, 'checkout', 'expired', {}, 'no Transak order after 1 h');
+    }
+    return;
+  }
+  switch (synced.side) {
+    case 'buy':
+      advanceBuyCheckout(synced, transak, deps);
+      return;
+    case 'sell':
+      advanceSellCheckout(synced, transak.status, deps);
+      return;
+  }
+}
+
 async function advanceAwaitingSignature(order: Order, deps: OrderDeps): Promise<void> {
   const { order: synced, status } = await syncTransak(order, deps);
   if (synced.state !== 'awaiting_signature') {
@@ -140,7 +208,16 @@ async function advanceAwaitingSignature(order: Order, deps: OrderDeps): Promise<
     deps.store.transition(synced.id, 'awaiting_signature', 'expired', {}, 'no signature after 24 h');
     return;
   }
-  await handleUnderdelivery(synced, deps, null);
+  switch (synced.side) {
+    case 'buy':
+      await handleUnderdelivery(synced, deps, null);
+      return;
+    case 'sell':
+      if (sellExpiryNear(synced, deps)) {
+        deps.store.transition(synced.id, 'awaiting_signature', 'expired', {}, 'Transak order expiry near');
+      }
+      return;
+  }
 }
 
 /** The reason why the stored signed batch can not be sent now, or null when it can. */
@@ -151,7 +228,7 @@ function staleReason(
   authorizationNonce: number | null
 ): string | null {
   switch (true) {
-    case order.batchNonce !== batchNonceOf(fresh.sequence).toString():
+    case order.batchNonce !== batchNonceOf(order.side, fresh.sequence).toString():
       return 'batch nonce changed';
     case order.salt === null || order.salt.toLowerCase() !== fresh.salt.toLowerCase():
       return 'domain salt changed';
@@ -161,6 +238,26 @@ function staleReason(
       return 'authorization nonce changed';
     default:
       return null;
+  }
+}
+
+/**
+ * The gate of a signed order: true when the relay may go now. A buy relays once Transak settled the delivery. A
+ * sell relays while Transak still accepts the deposit, and not within the expiry margin. On false the order waits
+ * or has moved on.
+ */
+async function relayGateOpen(synced: Order, status: string | null, deps: OrderDeps): Promise<boolean> {
+  switch (synced.side) {
+    case 'buy':
+      // A provisional quote must not spend an existing wallet balance.
+      return status === 'COMPLETED' && synced.settledTokenAmount !== null;
+    case 'sell':
+      if (status === null || !SELL_PAYABLE_STATUSES.has(status)) return false;
+      if (sellExpiryNear(synced, deps)) {
+        deps.store.transition(synced.id, 'signed', 'expired', CLEAR_SIGNATURE, 'Transak order expiry near');
+        return false;
+      }
+      return true;
   }
 }
 
@@ -183,17 +280,17 @@ async function advanceSigned(order: Order, deps: OrderDeps): Promise<void> {
     );
     return;
   }
-  // A provisional quote must not spend an existing wallet balance.
-  if (status !== 'COMPLETED' || synced.settledTokenAmount === null) {
+  if (!(await relayGateOpen(synced, status, deps))) {
     return;
   }
-  const balance = await deps.chain.readBalance(synced.evmAddress, ONRAMP_TOKEN.address);
+  const token = tokenOf(synced.side);
+  const balance = await deps.chain.readBalance(synced.evmAddress, token.address);
   if (balance < BigInt(synced.tokenAmount)) {
-    await handleUnderdelivery(synced, deps, balance);
+    if (synced.side === 'buy') await handleUnderdelivery(synced, deps, balance);
     return;
   }
 
-  const fresh = await deps.chain.readAccount(synced.evmAddress, ONRAMP_TOKEN.address);
+  const fresh = await deps.chain.readAccount(synced.evmAddress, token.address, nonceKeyOf(synced.side));
   const storedAuthorization =
     synced.authorization === null ? null : authorizationSchema.parse(JSON.parse(synced.authorization));
   const reason = staleReason(
@@ -224,7 +321,7 @@ async function advanceSigned(order: Order, deps: OrderDeps): Promise<void> {
   const sent = await deps.chain.prepareRelay(
     {
       to: synced.evmAddress,
-      data: encodeBuyExecution(input, synced.signature),
+      data: encodeExecution(input, synced.signature),
       authorization
     },
     deps.store.relays.nextNonce(deps.chain.executor)
@@ -242,6 +339,7 @@ async function advanceSigned(order: Order, deps: OrderDeps): Promise<void> {
   await deps.chain.broadcastRelay(sent.serializedTransaction);
   logEvent('info', 'relay_sent', {
     orderId: synced.id,
+    side: synced.side,
     hash: sent.hash,
     relayerNonce: sent.nonce,
     type4: sent.type4,
@@ -265,7 +363,7 @@ async function advanceRelaySent(order: Order, deps: OrderDeps): Promise<void> {
   }
   switch (status) {
     case 'success':
-      // The wallet tracks the Miden claim after this deposit.
+      // A buy: the wallet tracks the Miden claim after this deposit. A sell: Transak pays out after this deposit.
       deps.store.completeRelay(order.id, relay.txHash, status, 'deposited', {
         signature: null,
         authorization: null

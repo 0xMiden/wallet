@@ -12,11 +12,13 @@ import {
 } from 'viem';
 
 import { agglayerBridgeCalls } from './agglayer.js';
+import { offrampTransferCalls } from './offramp.js';
+import type { OrderSide } from '../orders/states.js';
 
 /**
- * The Calibur signed batch for a fiat buy. The calls of the batch are the Agglayer bridge calls (`agglayer.ts`).
- * The wallet has a byte-identical twin in `src/lib/onramp/buy-batch.ts`.
- * If you change the batch, the types or the domain, change the twin at the same time.
+ * The Calibur signed batch of an order. A buy batches the Agglayer bridge calls (`agglayer.ts`); a sell batches one
+ * transfer to Transak's deposit address (`offramp.ts`). The wallet has a byte-identical twin in
+ * `src/lib/onramp/buy-batch.ts`. If you change a batch, the types or the domain, change the twin at the same time.
  */
 
 export const SEPOLIA_CHAIN_ID = 11155111;
@@ -28,8 +30,19 @@ export const CALIBUR_RUNTIME_HASH: Hex = '0xd8f2157116f6901840d009511732cb247c1c
 export const CALIBUR_DELEGATION: Hex = `0xef0100${CALIBUR_SEPOLIA_ADDRESS.slice(2).toLowerCase()}`;
 /** The Calibur nonce key of the on-ramp. The batch nonce is `key << 64 | sequence`. */
 export const ONRAMP_NONCE_KEY = BigInt(keccak256(stringToHex('miden.onramp'))) >> 64n;
-/** A signed batch stays valid for this number of seconds. */
+/** The Calibur nonce key of the off-ramp. Its own key, so a sell and a buy of one address never share a sequence. */
+export const OFFRAMP_NONCE_KEY = BigInt(keccak256(stringToHex('miden.offramp'))) >> 64n;
+/** A signed batch stays valid for at most this number of seconds. */
 export const BUY_BATCH_TTL_SECONDS = 86_400;
+
+export function nonceKeyOf(side: OrderSide): bigint {
+  switch (side) {
+    case 'buy':
+      return ONRAMP_NONCE_KEY;
+    case 'sell':
+      return OFFRAMP_NONCE_KEY;
+  }
+}
 
 export const CALIBUR_ABI = parseAbi([
   'struct Call { address to; uint256 value; bytes data; }',
@@ -66,11 +79,14 @@ const batchTypes = {
   ]
 } satisfies TypedData;
 
-export interface BuyBatchInput {
+export interface BatchInput {
+  side: OrderSide;
   /** The EOA that delegates to Calibur. It is the verifying contract of the domain. */
   evmAddress: Address;
   midenAccountHex: string;
   token: Address;
+  /** Sell only: Transak's deposit address. Null for a buy. */
+  depositAddress: Address | null;
   /** Token base units. */
   amount: bigint;
   batchNonce: bigint;
@@ -82,10 +98,20 @@ export interface BuyBatchInput {
   deadline: bigint;
 }
 
-export function buildBuyBatch(input: BuyBatchInput) {
+function batchCalls(input: BatchInput): BatchCall[] {
+  switch (input.side) {
+    case 'buy':
+      return agglayerBridgeCalls(input.token, input.amount, input.midenAccountHex);
+    case 'sell':
+      if (input.depositAddress === null) throw new Error('A sell batch needs the deposit address');
+      return offrampTransferCalls(input.token, input.amount, input.depositAddress);
+  }
+}
+
+export function buildBatch(input: BatchInput) {
   return {
     batchedCall: {
-      calls: agglayerBridgeCalls(input.token, input.amount, input.midenAccountHex),
+      calls: batchCalls(input),
       revertOnFailure: true
     },
     nonce: input.batchNonce,
@@ -96,7 +122,7 @@ export function buildBuyBatch(input: BuyBatchInput) {
   };
 }
 
-export function buyBatchTypedData(input: BuyBatchInput) {
+export function batchTypedData(input: BatchInput) {
   const primaryType: 'SignedBatchedCall' = 'SignedBatchedCall';
   return {
     domain: {
@@ -108,19 +134,19 @@ export function buyBatchTypedData(input: BuyBatchInput) {
     },
     types: batchTypes,
     primaryType,
-    message: buildBuyBatch(input)
+    message: buildBatch(input)
   };
 }
 
-export function buyBatchDigest(input: BuyBatchInput): Hex {
-  return hashTypedData(buyBatchTypedData(input));
+export function batchDigest(input: BatchInput): Hex {
+  return hashTypedData(batchTypedData(input));
 }
 
 /** The calldata of `execute` on the EOA. The wrapped signature is `abi.encode(bytes signature, bytes hookData)`. */
-export function encodeBuyExecution(input: BuyBatchInput, signature: Hex): Hex {
+export function encodeExecution(input: BatchInput, signature: Hex): Hex {
   return encodeFunctionData({
     abi: CALIBUR_ABI,
     functionName: 'execute',
-    args: [buildBuyBatch(input), encodeAbiParameters([{ type: 'bytes' }, { type: 'bytes' }], [signature, '0x'])]
+    args: [buildBatch(input), encodeAbiParameters([{ type: 'bytes' }, { type: 'bytes' }], [signature, '0x'])]
   });
 }

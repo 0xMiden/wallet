@@ -17,7 +17,6 @@ import {
   CALIBUR_DELEGATION,
   CALIBUR_RUNTIME_HASH,
   CALIBUR_SEPOLIA_ADDRESS,
-  ONRAMP_NONCE_KEY,
   SEPOLIA_CHAIN_ID
 } from './calibur.js';
 import { ERC20_ABI } from './erc20.js';
@@ -28,7 +27,7 @@ export interface AccountState {
   needsAuthorization: boolean;
   /** The pending transaction count of the EOA. An authorization must use this nonce. */
   authorizationNonce: number;
-  /** The Calibur sequence for `ONRAMP_NONCE_KEY`. */
+  /** The Calibur sequence for the nonce key of the order side. */
   sequence: bigint;
   /** The `salt` of the Calibur `eip712Domain` of the EOA. */
   salt: Hex;
@@ -58,7 +57,8 @@ export interface PreparedRelay {
 export interface Chain {
   /** The relayer address. It is the `executor` of each batch. */
   executor: Address;
-  readAccount(evmAddress: Address, token: Address): Promise<AccountState>;
+  /** `nonceKey` selects the Calibur sequence to read: the on-ramp key or the off-ramp key. */
+  readAccount(evmAddress: Address, token: Address, nonceKey: bigint): Promise<AccountState>;
   readBalance(evmAddress: Address, token: Address): Promise<bigint>;
   /** Sign locally. This method must not broadcast. */
   prepareRelay(transaction: RelayTransaction, minimumNonce: number): Promise<PreparedRelay>;
@@ -87,7 +87,7 @@ export function createSepoliaChain({ rpcUrl, relayerPrivateKey }: SepoliaChainOp
     return publicClient.readContract({ address: token, abi: ERC20_ABI, functionName: 'balanceOf', args: [evmAddress] });
   }
 
-  async function readAccount(evmAddress: Address, token: Address): Promise<AccountState> {
+  async function readAccount(evmAddress: Address, token: Address, nonceKey: bigint): Promise<AccountState> {
     if (isAddressEqual(evmAddress, account.address)) {
       throw new Error('The relayer must be a different account from the buyer');
     }
@@ -114,7 +114,7 @@ export function createSepoliaChain({ rpcUrl, relayerPrivateKey }: SepoliaChainOp
         address: evmAddress,
         abi: CALIBUR_ABI,
         functionName: 'getSeq',
-        args: [ONRAMP_NONCE_KEY],
+        args: [nonceKey],
         stateOverride
       }),
       publicClient.readContract({ address: evmAddress, abi: CALIBUR_ABI, functionName: 'eip712Domain', stateOverride })

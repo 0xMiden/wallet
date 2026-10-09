@@ -57,7 +57,7 @@ async function open() {
   const onClosed = jest.fn();
   await openTransakWidget({
     url: WIDGET_URL,
-    expected: { evmAddress: EVM_ADDRESS, fiatAmount: '50' },
+    expected: { side: 'buy', evmAddress: EVM_ADDRESS, fiatAmount: '50' },
     onMismatch,
     onClosed
   });
@@ -122,6 +122,11 @@ describe('openTransakWidget', () => {
     expect(onClosed).toHaveBeenCalledTimes(1);
     expect(capturedTags()).toEqual(['transak-address-mismatch']);
     expect(JSON.stringify(mockCaptureCrash.mock.calls)).not.toMatch(/0x/i);
+    // The report names the event and the field, so a staging mismatch can be read without the values.
+    const [reported] = mockCaptureCrash.mock.calls[0] ?? [];
+    expect(reported instanceof Error ? reported.message : '').toBe(
+      'transak-address-mismatch: TRANSAK_ORDER_CREATED walletAddress'
+    );
   });
 
   it('does nothing on an event for the expected wallet', async () => {

@@ -13,6 +13,7 @@ import { Pill } from 'components/ui/Pill';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { goBack as leavePage } from 'lib/woozie';
 
+import { useSellRelay } from './cash/useSellRelay';
 import CashProviders, { CashAction } from './CashProviders';
 
 // A token symbol is a name, not copy: it is not translated.
@@ -34,12 +35,16 @@ const CashFlow = ({ action }: CashProps) => {
   const label = t(action === 'buy' ? 'cashPayAmount' : 'cashSellAmount');
   const { navigateTo, goBack, cardStack } = useNavigator();
   const canContinue = Number(amount) > 0;
+  const sellRelay = useSellRelay();
+  const { back: sellOverlayBack } = sellRelay;
 
+  // The sell overlay goes first: while it is up, back acts as its Cancel, not as a step back.
   useMobileBackHandler(() => {
+    if (sellOverlayBack()) return true;
     if (cardStack.length < 2) return false;
     goBack();
     return true;
-  }, [cardStack.length, goBack]);
+  }, [cardStack.length, goBack, sellOverlayBack]);
 
   const updateAmount = (value = '') => {
     const normalized = value.replace(/^0+(?=\d)/, '');
@@ -101,7 +106,11 @@ const CashFlow = ({ action }: CashProps) => {
     <HomeGroupPaneRoot testId="cash-page">
       <Navigator
         renderRoute={route =>
-          route.name === 'providers' ? <CashProviders action={action} amount={amount} onBack={goBack} /> : amountStep
+          route.name === 'providers' ? (
+            <CashProviders action={action} amount={amount} onBack={goBack} sellRelay={sellRelay} />
+          ) : (
+            amountStep
+          )
         }
       />
     </HomeGroupPaneRoot>

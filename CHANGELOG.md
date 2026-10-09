@@ -2,6 +2,11 @@
 
 ## 1.17.2 (TBD)
 
+### Features
+
+- [FEATURE][mobile] Sell USDCx through Transak: the backend gains `POST /transak/sell/challenge` and `POST /transak/sell/session`, which open a SELL session for USDC on Ethereum with the amount and the source wallet locked, and sells join the `orders` table with a `side`. The worker follows each sell on the Transak feed and API, records the deposit address and expiry Transak names, and relays a signed transfer of Circle USDC to that address while Transak awaits the payment. The wallet signs that transfer against the address and amount the Transak widget named (its `TRANSAK_WALLET_REDIRECTION` event, or its deposit page as the fallback), under its own Calibur nonce key, and the widget event guard checks a sell by its token, network and amount and names the failing field on a mismatch. The bridge-out of the sold USDCx is mocked and the relay sends a hundredth of the amount for now.
+- [CHANGE][backend] The `orders` table gains `side`, `deposit_address`, `deposit_amount` and `auto_expires_at`, and `fiat_amount` is `amount`. The schema needs a new database file.
+
 ### Changes
 
 - [CHANGE][backend] Move the per-IP rate limits from the server to an nginx reverse proxy (`backend/nginx.conf`) that also terminates TLS, installed with `make generate-nginx-conf DOMAIN=<domain>`. The server has no rate limit of its own.

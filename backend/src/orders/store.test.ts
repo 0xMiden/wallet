@@ -11,7 +11,7 @@ import { EXECUTOR, MIDEN_ACCOUNT } from '../test/support.js';
 const relayInput: NewRelay = { txHash: '0x1234', rawTransaction: '0xabcd', nonce: 7, sender: EXECUTOR };
 
 function signedOrder(store: OrderStore, id = 'a'.repeat(32)) {
-  store.createCheckout({ id, evmAddress: EXECUTOR, midenAccountHex: MIDEN_ACCOUNT, fiatAmount: '10' });
+  store.createCheckout({ id, side: 'buy', evmAddress: EXECUTOR, midenAccountHex: MIDEN_ACCOUNT, amount: '10' });
   store.transition(id, 'checkout', 'signed', { tokenAmount: '100' }, 'test');
   return id;
 }
@@ -97,9 +97,10 @@ it('retains orders, relay bytes and reserved nonces after reopen', () => {
     const oldStore = new OrderStore(db, Date.now);
     const order = oldStore.createCheckout({
       id: 'a'.repeat(32),
+      side: 'buy',
       evmAddress: EXECUTOR,
       midenAccountHex: MIDEN_ACCOUNT,
-      fiatAmount: '10'
+      amount: '10'
     });
     const row = db.prepare('SELECT * FROM orders WHERE id = ?').get(order.id);
     assert.ok(row);

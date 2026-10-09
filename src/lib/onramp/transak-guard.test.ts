@@ -1,9 +1,12 @@
-import { type TransakExpectation, checkTransakEvent, parseTransakEvent } from './transak-guard';
+import { type TransakExpectation, checkTransakEvent, findTransakMismatch, parseTransakEvent } from './transak-guard';
 
 const EVM_ADDRESS = '0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed';
 const OTHER_ADDRESS = '0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359';
 
-const expected: TransakExpectation = { evmAddress: EVM_ADDRESS, fiatAmount: '50' };
+const expected: TransakExpectation = { side: 'buy', evmAddress: EVM_ADDRESS, fiatAmount: '50' };
+const expectedSell: TransakExpectation = { side: 'sell', cryptoAmount: '12.5' };
+/** Transak's deposit address of a sell order. The wallet does not know it in advance. */
+const TRANSAK_DEPOSIT_ADDRESS = '0x1234567890AbcdEF1234567890aBcdef12345678';
 
 // SYNTHETIC fixtures, made from the field names in the Transak order payload docs. The spike replaces them with
 // payloads captured from the staging widget in the iOS and Android InAppBrowser.
@@ -141,5 +144,71 @@ describe('checkTransakEvent', () => {
       'TRANSAK_ORDER_SUCCESSFUL'
     );
     expect(checkTransakEvent(event, expected)).toBe('mismatch');
+  });
+
+  it('refuses a buy order that says it is a sell', () => {
+    expect(checkTransakEvent(orderEvent({ ...SYNTHETIC_ORDER, isBuyOrSell: 'SELL' }), expected)).toBe('mismatch');
+  });
+
+  describe('for a sell', () => {
+    // SYNTHETIC: the sell order names Transak's deposit address, not the wallet.
+    const SYNTHETIC_SELL_ORDER = {
+      ...SYNTHETIC_ORDER,
+      walletAddress: TRANSAK_DEPOSIT_ADDRESS,
+      isBuyOrSell: 'SELL',
+      fiatAmount: 12.4,
+      cryptoAmount: 12.5
+    };
+
+    it('accepts the order with any deposit address and the expected crypto amount', () => {
+      expect(checkTransakEvent(orderEvent(SYNTHETIC_SELL_ORDER), expectedSell)).toBe('ok');
+      expect(
+        checkTransakEvent(orderEvent({ ...SYNTHETIC_SELL_ORDER, walletAddress: OTHER_ADDRESS }), expectedSell)
+      ).toBe('ok');
+    });
+
+    it('does not compare the fiat amount', () => {
+      expect(checkTransakEvent(orderEvent({ ...SYNTHETIC_SELL_ORDER, fiatAmount: 1 }), expectedSell)).toBe('ok');
+    });
+
+    it.each([
+      ['cryptoAmount', { cryptoAmount: 12.6 }],
+      ['isBuyOrSell', { isBuyOrSell: 'BUY' }],
+      ['cryptoCurrency', { cryptoCurrency: 'ETH' }],
+      ['network', { network: 'polygon' }],
+      ['walletAddress', { walletAddress: 'bc1qattacker' }]
+    ])('refuses a changed %s', (_label, change) => {
+      expect(checkTransakEvent(orderEvent({ ...SYNTHETIC_SELL_ORDER, ...change }), expectedSell)).toBe('mismatch');
+    });
+
+    it('accepts TRANSAK_ORDER_CREATED without a wallet address: a sell names the deposit elsewhere', () => {
+      const { walletAddress: _dropped, ...order } = SYNTHETIC_SELL_ORDER;
+      expect(checkTransakEvent(orderEvent(order), expectedSell)).toBe('ok');
+    });
+
+    it('accepts TRANSAK_WALLET_REDIRECTION with the deposit address, and refuses a changed amount in it', () => {
+      // The payload of the docs: the deposit address under `walletAddress`, the side spelled "Sell".
+      const redirection = { ...SYNTHETIC_SELL_ORDER, orderId: 'synthetic-order-id', isBuyOrSell: 'Sell' };
+      expect(checkTransakEvent(orderEvent(redirection, 'TRANSAK_WALLET_REDIRECTION'), expectedSell)).toBe('ok');
+      expect(
+        checkTransakEvent(orderEvent({ ...redirection, cryptoAmount: 1 }, 'TRANSAK_WALLET_REDIRECTION'), expectedSell)
+      ).toBe('mismatch');
+    });
+  });
+});
+
+describe('findTransakMismatch', () => {
+  it('names the failing field, a nested one with its path, and a missing address', () => {
+    expect(findTransakMismatch(orderEvent(SYNTHETIC_ORDER), expected)).toBeNull();
+    expect(findTransakMismatch(orderEvent({ ...SYNTHETIC_ORDER, network: 'polygon' }), expected)).toBe('network');
+    expect(
+      findTransakMismatch(
+        orderEvent({ status: { ...SYNTHETIC_ORDER, walletAddress: OTHER_ADDRESS } }, 'TRANSAK_ORDER_SUCCESSFUL'),
+        expected
+      )
+    ).toBe('status.walletAddress');
+    expect(findTransakMismatch({ eventName: 'TRANSAK_ORDER_CREATED', data: null }, expected)).toBe(
+      'walletAddress (missing)'
+    );
   });
 });

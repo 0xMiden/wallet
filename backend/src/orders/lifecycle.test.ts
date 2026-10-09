@@ -28,6 +28,7 @@ import {
 import { TransakError } from '../transak/client.js';
 
 const BUYER = '0x1111111111111111111111111111111111111111';
+const DEPOSIT = '0x5A3a5f32490d24Cc420d8A5F9c64F9ccd38F06bB';
 const ONE = 10n ** 18n;
 const AUTHORIZATION = JSON.stringify({
   address: '0x00000cAbFc76478C1537dd418aB00967cBbE4AE6',
@@ -112,10 +113,50 @@ function checkout(evmAddress: `0x${string}` = BUYER): string {
   const id = newId();
   store.createCheckout({
     id,
+    side: 'buy',
     evmAddress,
     midenAccountHex: MIDEN_ACCOUNT,
-    fiatAmount: '10'
+    amount: '10'
   });
+  return id;
+}
+
+/** A sell of 100 USDCx at checkout. */
+function sellCheckout(evmAddress: `0x${string}` = BUYER): string {
+  const id = newId();
+  store.createCheckout({ id, side: 'sell', evmAddress, midenAccountHex: MIDEN_ACCOUNT, amount: '100' });
+  return id;
+}
+
+/** The Transak order object of a sell, as staging sends it: the deposit address and the expiry. */
+function sellRaw(expiresInSeconds = 3600): object {
+  return {
+    cryptoPaymentData: { paymentAddress: DEPOSIT },
+    autoExpiresAt: new Date(now + expiresInSeconds * 1000).toISOString(),
+    tokenContractAddress: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
+  };
+}
+
+/** A sell that signed its transfer: 100 USDCx shown, 1 USDC relayed (the test divisor). */
+async function signedSell(): Promise<string> {
+  const id = sellCheckout();
+  transak.set(id, 'AWAITING_PAYMENT_FROM_USER', 100, sellRaw());
+  assertState(await step(id), 'awaiting_signature');
+  assert.ok(
+    store.transition(
+      id,
+      'awaiting_signature',
+      'signed',
+      {
+        batchNonce: batchNonceOf('sell', 0n).toString(),
+        salt: CALIBUR_SALT,
+        deadline: Math.floor(now / 1000) + 3600,
+        signature: SIGNATURE,
+        authorization: AUTHORIZATION
+      },
+      'test'
+    )
+  );
   return id;
 }
 
@@ -134,7 +175,7 @@ function signed(tokenAmount: bigint = 10n * ONE): string {
       'awaiting_signature',
       'signed',
       {
-        batchNonce: batchNonceOf(0n).toString(),
+        batchNonce: batchNonceOf('buy', 0n).toString(),
         salt: CALIBUR_SALT,
         deadline: Math.floor(now / 1000) + 86_400,
         signature: SIGNATURE,
@@ -165,6 +206,7 @@ const logEntrySchema = z.object({
   from: z.string().nullable().optional(),
   to: z.string().optional(),
   type4: z.boolean().optional(),
+  side: z.string().optional(),
   error: z.string().optional(),
   detail: z.string().optional()
 });
@@ -196,6 +238,85 @@ describe('createCheckout', () => {
     const first = checkout('0x3333333333333333333333333333333333333333');
     checkout();
     assertState(current(first), 'checkout');
+  });
+});
+
+describe('sell', () => {
+  it('keeps a buy and a sell of one address open at the same time', () => {
+    const buy = awaiting();
+    const sell = sellCheckout();
+    assertState(current(buy), 'awaiting_signature');
+    assertState(current(sell), 'checkout');
+    const again = sellCheckout();
+    assertState(current(sell), 'cancelled');
+    assertState(current(again), 'checkout');
+    assertState(current(buy), 'awaiting_signature');
+  });
+
+  it('asks for the transfer signature once the Transak order shows the deposit address', async () => {
+    const id = sellCheckout();
+    transak.set(id, 'AWAITING_PAYMENT_FROM_USER', 100, { tokenContractAddress: DEPOSIT.replace('5A3a', '0000') });
+    assertState(await step(id), 'checkout');
+    transak.set(id, 'AWAITING_PAYMENT_FROM_USER', 100, sellRaw());
+    const order = await step(id);
+    assertState(order, 'awaiting_signature');
+    assert.equal(order.depositAddress, DEPOSIT);
+    assert.equal(order.depositAmount, 100);
+    assert.equal(order.autoExpiresAt, Math.floor(now / 1000) + 3600);
+    // 100 USDC shown, divided by the test divisor, in 6 decimals.
+    assert.equal(order.tokenAmount, '1000000');
+    assert.equal(entries('sell_order_fields').length, 1);
+  });
+
+  it('fails when Transak expires or cancels the order', async () => {
+    const id = sellCheckout();
+    transak.set(id, 'EXPIRED', 100, sellRaw());
+    const order = await step(id);
+    assertState(order, 'failed');
+    assert.equal(order.error, 'Transak order EXPIRED');
+  });
+
+  it('expires before the relay when the Transak expiry is near', async () => {
+    const id = sellCheckout();
+    transak.set(id, 'AWAITING_PAYMENT_FROM_USER', 100, sellRaw(60));
+    assertState(await step(id), 'expired');
+
+    const signed = await signedSell();
+    chain.account.balance = 1_000_000n;
+    now += 3600 * 1000 - 60 * 1000;
+    transak.set(signed, 'AWAITING_PAYMENT_FROM_USER', 100, sellRaw(60));
+    deps.transakPoll.dirty.add(signed);
+    const order = await step(signed);
+    assertState(order, 'expired');
+    assert.equal(order.signature, null);
+    assert.equal(chain.sent.length, 0);
+  });
+
+  it('relays the transfer while Transak awaits the payment and the balance covers it', async () => {
+    const id = await signedSell();
+    assertState(await step(id), 'signed');
+    assert.equal(chain.sent.length, 0);
+    chain.account.balance = 1_000_000n;
+    const order = await step(id);
+    assertState(order, 'relay_sent');
+    const sent = chain.sent[0];
+    assert.ok(sent);
+    assert.equal(sent.to, BUYER);
+    const decoded = decodeFunctionData({ abi: CALIBUR_ABI, data: sent.data });
+    assert.equal(decoded.functionName, 'execute');
+    assert.equal(entries('relay_sent')[0]?.side, 'sell');
+
+    chain.receipts.set(relayOf(id).txHash, 'success');
+    assertState(await step(id), 'deposited');
+  });
+
+  it('does not relay once Transak moved the order on', async () => {
+    const id = await signedSell();
+    chain.account.balance = 1_000_000n;
+    transak.set(id, 'PENDING_DELIVERY_FROM_TRANSAK', 100, sellRaw());
+    deps.transakPoll.dirty.add(id);
+    assertState(await step(id), 'signed');
+    assert.equal(chain.sent.length, 0);
   });
 });
 
@@ -405,7 +526,7 @@ describe('relay_sent', () => {
           'awaiting_signature',
           'signed',
           {
-            batchNonce: batchNonceOf(0n).toString(),
+            batchNonce: batchNonceOf('buy', 0n).toString(),
             salt: CALIBUR_SALT,
             deadline: Math.floor(now / 1000) + 86_400,
             signature: SIGNATURE,

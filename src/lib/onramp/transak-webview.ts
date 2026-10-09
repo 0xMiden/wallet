@@ -4,7 +4,7 @@ import { InAppBrowser, ToolBarType } from '@miden/dapp-browser';
 import { addWebviewCloseListener, isWebviewEventFor } from 'lib/mobile/external-browser';
 import { captureCrash } from 'lib/telemetry/crash';
 
-import { type TransakExpectation, checkTransakEvent, parseTransakEvent } from './transak-guard';
+import { type TransakEvent, type TransakExpectation, findTransakMismatch, parseTransakEvent } from './transak-guard';
 
 export const TRANSAK_INSTANCE_ID = 'transak-webview';
 
@@ -44,6 +44,8 @@ export interface OpenTransakWidgetInput {
   expected: TransakExpectation;
   onMismatch: () => void;
   onClosed: () => void;
+  /** Called with each widget event that passed the guard. A sell uses `TRANSAK_ORDER_CREATED` to start its overlay. */
+  onEvent?: (event: TransakEvent) => void;
 }
 
 function isTransakUrl(url: string): boolean {
@@ -55,9 +57,9 @@ function isTransakUrl(url: string): boolean {
   }
 }
 
-/** Send a Sentry event. The error has no address values. */
-function reportGuardEvent(tag: 'transak-address-mismatch' | 'transak-guard-no-events'): void {
-  const error = new Error(tag);
+/** Send a Sentry event. The error has no address values: `detail` is a field name, never a value. */
+function reportGuardEvent(tag: 'transak-address-mismatch' | 'transak-guard-no-events', detail?: string): void {
+  const error = new Error(detail === undefined ? tag : `${tag}: ${detail}`);
   error.name = tag;
   captureCrash(error);
 }
@@ -70,7 +72,8 @@ export async function openTransakWidget({
   url,
   expected,
   onMismatch,
-  onClosed
+  onClosed,
+  onEvent
 }: OpenTransakWidgetInput): Promise<void> {
   const handles: PluginListenerHandle[] = [];
   let lastUrl = url;
@@ -106,15 +109,22 @@ export async function openTransakWidget({
       const transakEvent = parseTransakEvent(event.detail?.transak);
       if (transakEvent === null) return;
       sawEvent = true;
-      if (checkTransakEvent(transakEvent, expected) === 'ok') return;
+      const mismatch = findTransakMismatch(transakEvent, expected);
+      if (mismatch === null) {
+        onEvent?.(transakEvent);
+        return;
+      }
 
       mismatched = true;
+      // The field name only. The values stay out of the log: a deposit address is not a secret, but a
+      // mismatch is the one case where the values are not trusted.
+      console.warn('[transak]', 'guard mismatch', { eventName: transakEvent.eventName, field: mismatch });
       try {
         await InAppBrowser.close({ id: TRANSAK_INSTANCE_ID });
       } catch {
         // The widget can be closed already. The error screen must show all the same.
       }
-      reportGuardEvent('transak-address-mismatch');
+      reportGuardEvent('transak-address-mismatch', `${transakEvent.eventName} ${mismatch}`);
       onMismatch();
     })
   );

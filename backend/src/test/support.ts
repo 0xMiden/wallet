@@ -91,14 +91,15 @@ export class FakeTransakOrders {
   /** When set, each call waits for this promise. A test uses it to hold a tick open. */
   gate: Promise<void> | null = null;
 
-  set(partnerOrderId: string, status: string, cryptoAmount: number | null): void {
+  set(partnerOrderId: string, status: string, cryptoAmount: number | null, raw: unknown = {}): void {
     this.orders.set(partnerOrderId, {
       id: `transak-${partnerOrderId}`,
       status,
       partnerOrderId,
       cryptoAmount,
       walletAddress: null,
-      transactionHash: null
+      transactionHash: null,
+      raw
     });
   }
 
@@ -111,5 +112,19 @@ export class FakeTransakOrders {
       throw new Error('Transak is down');
     }
     return this.orders.get(partnerOrderId) ?? null;
+  }
+
+  /** The `transakOrderId` of each by-ID call, in order. */
+  idCalls: string[] = [];
+
+  async getOrderById(transakOrderId: string): Promise<TransakOrder | null> {
+    this.idCalls.push(transakOrderId);
+    if (this.fail) {
+      throw new Error('Transak is down');
+    }
+    for (const order of this.orders.values()) {
+      if (order.id === transakOrderId) return order;
+    }
+    return null;
   }
 }

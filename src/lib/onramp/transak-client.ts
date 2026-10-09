@@ -1,5 +1,5 @@
 /**
- * Get a Transak Buy widget URL from the wallet backend.
+ * Get a Transak Buy or Sell widget URL from the wallet backend.
  *
  * The Transak URL has only `apiKey` and `sessionId`. Transak keeps the locked params (wallet, amount, token) in its
  * session, so the wallet cannot read them from the URL. The backend returns the exact `widgetParams` it sent to
@@ -14,7 +14,7 @@ import { z } from 'zod';
 
 import { buildVaultEvmWalletClient } from 'lib/epoch/evm-account';
 
-import { buildChallengeMessage } from './transak-message';
+import { buildChallengeMessage, TransakChallengeSide } from './transak-message';
 
 export type TransakSessionFailure = 'request-failed' | 'mismatch';
 
@@ -28,18 +28,29 @@ export class TransakSessionError extends Error {
   }
 }
 
-export interface TransakBuySession {
+export interface TransakSession {
   widgetUrl: string;
   partnerOrderId: string;
 }
 
-export interface CreateTransakBuySessionInput {
+/** @deprecated Use `TransakSession`. */
+export type TransakBuySession = TransakSession;
+
+interface CreateTransakSessionInput {
   apiUrl: string;
   midenAccountPublicKey: string;
   evmAddress: `0x${string}`;
-  /** The Miden account that receives the bridged funds, from `midenAccountIdToHex` in `buy-batch.ts`. */
+  /** The Miden account of the buy or sell, from `midenAccountIdToHex` in `buy-batch.ts`. */
   midenAccountHex: string;
+}
+
+export interface CreateTransakBuySessionInput extends CreateTransakSessionInput {
   fiatAmount: string;
+}
+
+export interface CreateTransakSellSessionInput extends CreateTransakSessionInput {
+  /** The USDCx amount to sell, as a decimal string with at most 6 decimals. */
+  cryptoAmount: string;
 }
 
 const MIDEN_ACCOUNT_HEX = /^0x[0-9a-f]{30}$/;
@@ -53,7 +64,7 @@ const challengeSchema = z.object({
   message: z.string()
 });
 
-// The params stay loose here. `checkWidgetParams` reads them, so a bad field is a mismatch, not a failed request.
+// The params stay loose here. The mirror check reads them, so a bad field is a mismatch, not a failed request.
 const sessionSchema = z.object({
   widgetUrl: z.string(),
   widgetParams: z.looseObject({})
@@ -64,12 +75,16 @@ const widgetParamsSchema = z.object({
   walletAddress: z.string().optional(),
   disableWalletAddressForm: z.boolean().optional(),
   fiatAmount: z.number().optional(),
+  cryptoAmount: z.number().optional(),
   fiatCurrency: z.string().optional(),
   cryptoCurrencyCode: z.string().optional(),
   network: z.string().optional(),
   productsAvailed: z.string().optional(),
+  walletRedirection: z.boolean().optional(),
   partnerOrderId: z.string().optional()
 });
+
+type WidgetParams = z.infer<typeof widgetParamsSchema>;
 
 const errorSchema = z.object({ error: z.string() });
 
@@ -125,7 +140,7 @@ function checkWidgetUrl(widgetUrl: string): void {
   }
 }
 
-function parseWidgetParams(widgetParams: object) {
+function parseWidgetParams(widgetParams: object): WidgetParams {
   const parsed = widgetParamsSchema.safeParse(widgetParams);
   if (!parsed.success) {
     throw mismatch('Transak widget params have a wrong type');
@@ -133,7 +148,26 @@ function parseWidgetParams(widgetParams: object) {
   return parsed.data;
 }
 
-function checkWidgetParams(
+type ParamCheck = readonly [string, boolean];
+
+function assertChecks(checks: readonly ParamCheck[]): void {
+  const failed = checks.find(([, ok]) => !ok);
+  if (failed) {
+    throw mismatch(`Transak widget param ${failed[0]} does not match`);
+  }
+}
+
+/** The checks that a buy and a sell share: the token, the network and the order id. */
+function commonChecks(params: WidgetParams, nonce: string): ParamCheck[] {
+  return [
+    ['fiatCurrency', params.fiatCurrency === 'USD'],
+    ['cryptoCurrencyCode', params.cryptoCurrencyCode === 'USDC'],
+    ['network', params.network === 'ethereum'],
+    ['partnerOrderId', params.partnerOrderId === nonce]
+  ];
+}
+
+function checkBuyWidgetParams(
   widgetParams: object,
   expected: { evmAddress: `0x${string}`; fiatAmount: string; nonce: string }
 ): void {
@@ -143,23 +177,54 @@ function checkWidgetParams(
   const walletMatches =
     walletAddress !== undefined && isAddress(walletAddress) && isAddressEqual(walletAddress, expected.evmAddress);
 
-  const checks: readonly [string, boolean][] = [
+  assertChecks([
     ['walletAddress', walletMatches],
     ['disableWalletAddressForm', params.disableWalletAddressForm === true],
     ['fiatAmount', params.fiatAmount === Number(expected.fiatAmount)],
-    ['fiatCurrency', params.fiatCurrency === 'USD'],
-    ['cryptoCurrencyCode', params.cryptoCurrencyCode === 'USDC'],
-    ['network', params.network === 'ethereum'],
     ['productsAvailed', params.productsAvailed === 'BUY'],
-    ['partnerOrderId', params.partnerOrderId === expected.nonce]
-  ];
-  const failed = checks.find(([, ok]) => !ok);
-  if (failed) {
-    throw mismatch(`Transak widget param ${failed[0]} does not match`);
-  }
+    ...commonChecks(params, expected.nonce)
+  ]);
 }
 
-export async function createTransakBuySession(input: CreateTransakBuySessionInput): Promise<TransakBuySession> {
+/**
+ * On a sell `walletAddress` is the SOURCE wallet, locked to this wallet's EVM address. Transak's deposit address
+ * never goes through the backend: the widget events carry it.
+ */
+function checkSellWidgetParams(
+  widgetParams: object,
+  expected: { evmAddress: `0x${string}`; cryptoAmount: string; nonce: string }
+): void {
+  const params = parseWidgetParams(widgetParams);
+
+  const walletAddress = params.walletAddress;
+  const walletMatches =
+    walletAddress !== undefined && isAddress(walletAddress) && isAddressEqual(walletAddress, expected.evmAddress);
+
+  assertChecks([
+    ['walletAddress', walletMatches],
+    ['disableWalletAddressForm', params.disableWalletAddressForm === true],
+    ['cryptoAmount', params.cryptoAmount === Number(expected.cryptoAmount)],
+    ['productsAvailed', params.productsAvailed === 'SELL'],
+    ['walletRedirection', params.walletRedirection === true],
+    ...commonChecks(params, expected.nonce)
+  ]);
+}
+
+interface ChallengeRequest {
+  side: TransakChallengeSide;
+  /** The routes under `/transak`. */
+  routes: { challenge: string; session: string };
+  /** The body of the challenge request, without the address and the Miden account. */
+  amountField: { fiatAmount: string } | { cryptoAmount: string };
+  amount: string;
+}
+
+/**
+ * Ask the backend for a challenge, check that its text names this wallet, this Miden account, this side and this
+ * amount, sign it with the vault EVM key, and open the session. Return the session with its mirrored params for the
+ * caller's mirror check.
+ */
+async function openSession(input: CreateTransakSessionInput, request: ChallengeRequest) {
   const baseUrl = input.apiUrl.replace(/\/$/, '');
   const address = getAddress(input.evmAddress);
   const midenAccountHex = input.midenAccountHex.toLowerCase();
@@ -168,14 +233,15 @@ export async function createTransakBuySession(input: CreateTransakBuySessionInpu
   }
 
   const challenge = await postJson(
-    `${baseUrl}/transak/challenge`,
-    { evmAddress: address, midenAccountHex, fiatAmount: input.fiatAmount },
+    `${baseUrl}/transak/${request.routes.challenge}`,
+    { evmAddress: address, midenAccountHex, ...request.amountField },
     challengeSchema
   );
 
-  // Sign only text that names this wallet, this Miden account and this amount.
+  // Sign only text that names this wallet, this Miden account, this side and this amount.
   const expectedMessage = buildChallengeMessage({
-    fiatAmount: input.fiatAmount,
+    side: request.side,
+    amount: request.amount,
     address,
     midenAccountHex,
     nonce: challenge.nonce,
@@ -195,14 +261,33 @@ export async function createTransakBuySession(input: CreateTransakBuySessionInpu
   }
   const signature = await client.signMessage({ account: client.account, message: expectedMessage });
 
-  const session = await postJson(`${baseUrl}/transak/session`, { nonce: challenge.nonce, signature }, sessionSchema);
-
+  const session = await postJson(
+    `${baseUrl}/transak/${request.routes.session}`,
+    { nonce: challenge.nonce, signature },
+    sessionSchema
+  );
   checkWidgetUrl(session.widgetUrl);
-  checkWidgetParams(session.widgetParams, {
-    evmAddress: address,
-    fiatAmount: input.fiatAmount,
-    nonce: challenge.nonce
-  });
+  return { address, nonce: challenge.nonce, session };
+}
 
-  return { widgetUrl: session.widgetUrl, partnerOrderId: challenge.nonce };
+export async function createTransakBuySession(input: CreateTransakBuySessionInput): Promise<TransakSession> {
+  const { address, nonce, session } = await openSession(input, {
+    side: 'buy',
+    routes: { challenge: 'challenge', session: 'session' },
+    amountField: { fiatAmount: input.fiatAmount },
+    amount: input.fiatAmount
+  });
+  checkBuyWidgetParams(session.widgetParams, { evmAddress: address, fiatAmount: input.fiatAmount, nonce });
+  return { widgetUrl: session.widgetUrl, partnerOrderId: nonce };
+}
+
+export async function createTransakSellSession(input: CreateTransakSellSessionInput): Promise<TransakSession> {
+  const { address, nonce, session } = await openSession(input, {
+    side: 'sell',
+    routes: { challenge: 'sell/challenge', session: 'sell/session' },
+    amountField: { cryptoAmount: input.cryptoAmount },
+    amount: input.cryptoAmount
+  });
+  checkSellWidgetParams(session.widgetParams, { evmAddress: address, cryptoAmount: input.cryptoAmount, nonce });
+  return { widgetUrl: session.widgetUrl, partnerOrderId: nonce };
 }

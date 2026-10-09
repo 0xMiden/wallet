@@ -11,14 +11,21 @@ import { isAddress, isAddressEqual } from 'viem';
 import { z } from 'zod';
 
 export const TRANSAK_ORDER_CREATED = 'TRANSAK_ORDER_CREATED';
+/**
+ * Sent by a sell widget opened with `walletRedirection=true` in place of its "Complete your transfer" page. Its
+ * `walletAddress` is Transak's deposit address and its `cryptoAmount` is the amount to transfer.
+ */
+export const TRANSAK_WALLET_REDIRECTION = 'TRANSAK_WALLET_REDIRECTION';
 
 export interface TransakEventData {
   walletAddress?: string;
   fiatAmount?: number;
+  cryptoAmount?: number;
   fiatCurrency?: string;
   cryptoCurrency?: string;
   cryptoCurrencyCode?: string;
   network?: string;
+  isBuyOrSell?: string;
   partnerOrderId?: string;
   /** Some events put the order object under `status`. The guard checks it too. */
   order?: TransakEventData;
@@ -29,10 +36,23 @@ export interface TransakEvent {
   data: TransakEventData | null;
 }
 
-export interface TransakExpectation {
+/** A buy delivers to this wallet, so `walletAddress` must be the wallet. */
+export interface TransakBuyExpectation {
+  side: 'buy';
   evmAddress: `0x${string}`;
   fiatAmount: string;
 }
+
+/**
+ * A sell deposits to Transak, so `walletAddress` is Transak's and only its shape is checked. The amount and the
+ * token are what the wallet will send, so they are checked.
+ */
+export interface TransakSellExpectation {
+  side: 'sell';
+  cryptoAmount: string;
+}
+
+export type TransakExpectation = TransakBuyExpectation | TransakSellExpectation;
 
 /** What the WebView bridge can deliver: a JSON string or an object. */
 export type TransakBridgePayload = string | object | null | undefined;
@@ -59,10 +79,12 @@ const amountSchema = z.union([z.number(), numericStringSchema.transform(Number)]
 const orderSchema = z.object({
   walletAddress: z.string().optional(),
   fiatAmount: amountSchema.optional(),
+  cryptoAmount: amountSchema.optional(),
   fiatCurrency: z.string().optional(),
   cryptoCurrency: z.string().optional(),
   cryptoCurrencyCode: z.string().optional(),
   network: z.string().optional(),
+  isBuyOrSell: z.string().optional(),
   partnerOrderId: z.string().optional()
 });
 
@@ -120,18 +142,37 @@ function sameText(actual: string, expected: string): boolean {
   return actual.toLowerCase() === expected.toLowerCase();
 }
 
-function checkOrder(data: TransakEventData, expected: TransakExpectation): 'ok' | 'mismatch' {
-  const { walletAddress, fiatAmount, cryptoCurrency, cryptoCurrencyCode, network } = data;
-  if (walletAddress !== undefined) {
-    if (!isAddress(walletAddress, { strict: false })) return 'mismatch';
-    if (!isAddressEqual(walletAddress, expected.evmAddress)) return 'mismatch';
+/** The name of the first order field that does not match, or null when every field matches. */
+export type TransakMismatch = string | null;
+
+/** The checks of one side: the address and the amount. */
+function findSideMismatch(data: TransakEventData, expected: TransakExpectation): TransakMismatch {
+  const { walletAddress, fiatAmount, cryptoAmount, isBuyOrSell } = data;
+  if (walletAddress !== undefined && !isAddress(walletAddress, { strict: false })) return 'walletAddress';
+  if (isBuyOrSell !== undefined && !sameText(isBuyOrSell, expected.side)) return 'isBuyOrSell';
+  switch (expected.side) {
+    case 'buy':
+      if (walletAddress !== undefined && !isAddressEqual(walletAddress, expected.evmAddress)) return 'walletAddress';
+      if (fiatAmount !== undefined && fiatAmount !== Number(expected.fiatAmount)) return 'fiatAmount';
+      return null;
+    case 'sell':
+      if (cryptoAmount !== undefined && cryptoAmount !== Number(expected.cryptoAmount)) return 'cryptoAmount';
+      return null;
   }
-  if (fiatAmount !== undefined && fiatAmount !== Number(expected.fiatAmount)) return 'mismatch';
-  if (cryptoCurrency !== undefined && !sameText(cryptoCurrency, 'USDC')) return 'mismatch';
-  if (cryptoCurrencyCode !== undefined && !sameText(cryptoCurrencyCode, 'USDC')) return 'mismatch';
-  if (network !== undefined && !sameText(network, 'ethereum')) return 'mismatch';
-  if (data.order !== undefined) return checkOrder(data.order, expected);
-  return 'ok';
+}
+
+function findOrderMismatch(data: TransakEventData, expected: TransakExpectation): TransakMismatch {
+  const { cryptoCurrency, cryptoCurrencyCode, network } = data;
+  const side = findSideMismatch(data, expected);
+  if (side !== null) return side;
+  if (cryptoCurrency !== undefined && !sameText(cryptoCurrency, 'USDC')) return 'cryptoCurrency';
+  if (cryptoCurrencyCode !== undefined && !sameText(cryptoCurrencyCode, 'USDC')) return 'cryptoCurrencyCode';
+  if (network !== undefined && !sameText(network, 'ethereum')) return 'network';
+  if (data.order !== undefined) {
+    const nested = findOrderMismatch(data.order, expected);
+    return nested === null ? null : `status.${nested}`;
+  }
+  return null;
 }
 
 function hasWalletAddress(data: TransakEventData | null): boolean {
@@ -139,9 +180,20 @@ function hasWalletAddress(data: TransakEventData | null): boolean {
   return data.walletAddress !== undefined || data.order?.walletAddress !== undefined;
 }
 
+/**
+ * Find the first field of `event` that does not match `expected`. The name is safe to log and report: it never
+ * carries a value.
+ */
+export function findTransakMismatch(event: TransakEvent, expected: TransakExpectation): TransakMismatch {
+  // A buy order is created before the user pays, so this event must name the wallet it delivers to. A sell order
+  // names Transak's deposit address elsewhere in its payload, so a missing `walletAddress` is not a mismatch.
+  if (event.eventName === TRANSAK_ORDER_CREATED && expected.side === 'buy' && !hasWalletAddress(event.data)) {
+    return 'walletAddress (missing)';
+  }
+  if (event.data === null) return null;
+  return findOrderMismatch(event.data, expected);
+}
+
 export function checkTransakEvent(event: TransakEvent, expected: TransakExpectation): 'ok' | 'mismatch' {
-  // The order is created before the user pays, so this event must name the wallet.
-  if (event.eventName === TRANSAK_ORDER_CREATED && !hasWalletAddress(event.data)) return 'mismatch';
-  if (event.data === null) return 'ok';
-  return checkOrder(event.data, expected);
+  return findTransakMismatch(event, expected) === null ? 'ok' : 'mismatch';
 }

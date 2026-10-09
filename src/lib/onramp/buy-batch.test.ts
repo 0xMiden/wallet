@@ -7,11 +7,16 @@ import {
   AGGLAYER_BRIDGE_ADDRESS,
   BRIDGE_ASSET_ABI,
   BuyBatchInput,
+  ERC20_ABI,
+  OFFRAMP_NONCE_KEY,
   ONRAMP_NONCE_KEY,
+  SellBatchInput,
   buildBuyBatch,
+  buildSellBatch,
   buyBatchDigest,
   buyBatchTypedData,
-  midenAccountHexToEvmAddress
+  midenAccountHexToEvmAddress,
+  sellBatchDigest
 } from './buy-batch';
 
 const GOLDEN_INPUT: BuyBatchInput = {
@@ -27,6 +32,8 @@ const GOLDEN_INPUT: BuyBatchInput = {
 
 // The backend test (`backend/src/chain-testnet/calibur.test.ts`) asserts the same digest. If one changes, both must change.
 const GOLDEN_DIGEST = '0x5812ce6a00bac139b8002a52b3bfa4ba58385427cba9f12ef28409ee68458638';
+// The sell twin: `calibur sell batch` in the same backend test asserts this digest.
+const GOLDEN_SELL_DIGEST = '0xf51b1837c41f5128f295dcc17b811a4d7905ae66d6be235b9327df25a055a96d';
 
 describe('buy batch', () => {
   it('hashes the golden vector to the digest the backend twin asserts', () => {
@@ -64,5 +71,31 @@ describe('buy batch', () => {
 
   it('refuses a Miden account id that is not 15 bytes', () => {
     expect(() => midenAccountHexToEvmAddress('0x1234')).toThrow('not a 15-byte');
+  });
+});
+
+describe('sell batch', () => {
+  const GOLDEN_SELL: SellBatchInput = {
+    evmAddress: '0x1111111111111111111111111111111111111111',
+    token: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+    depositAddress: '0x57359A5071a83D3b5640BDcb7Ad17c70F40088A4',
+    amount: 1_000_000n,
+    batchNonce: OFFRAMP_NONCE_KEY << 64n,
+    salt: `0x${'0'.repeat(24)}00000cabfc76478c1537dd418ab00967cbbe4ae6`,
+    executor: '0x2222222222222222222222222222222222222222',
+    deadline: 1900000000n
+  };
+
+  it('hashes the golden vector to the digest the backend twin asserts', () => {
+    expect(sellBatchDigest(GOLDEN_SELL)).toBe(GOLDEN_SELL_DIGEST);
+  });
+
+  it('transfers the amount to the deposit address in one call under the off-ramp key', () => {
+    const batch = buildSellBatch(GOLDEN_SELL);
+    expect(batch.batchedCall.calls).toHaveLength(1);
+    const decoded = decodeFunctionData({ abi: ERC20_ABI, data: batch.batchedCall.calls[0]?.data ?? '0x' });
+    expect(decoded.functionName).toBe('transfer');
+    expect(decoded.args).toEqual([GOLDEN_SELL.depositAddress, 1_000_000n]);
+    expect(OFFRAMP_NONCE_KEY).not.toBe(ONRAMP_NONCE_KEY);
   });
 });

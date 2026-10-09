@@ -74,6 +74,7 @@ function prepare(overrides: Partial<BuyOrderPrepare> = {}): BuyOrderPrepare {
 function order(state: BuyOrder['state'], overrides: Partial<BuyOrder> = {}): BuyOrder {
   return {
     id: 'order-1',
+    side: 'buy',
     state,
     transakStatus: null,
     tokenAddress: '0x0c86a754a29714c4fe9c6f1359fa7099ed174c0b',
