@@ -9,11 +9,19 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   // inside the (mocked-away) fee-auth helper, so the SDK mock never needed them.
   Felt: jest.fn((v: any) => ({ v })),
   Word: { newFromFelts: jest.fn((felts: any) => ({ kind: 'word', felts })) },
+  // As strict as the SDK where it matters: fromHex takes only a literal `0x`, and fromBech32 rejects a hex
+  // id and an underscore (a routing suffix it cannot decode).
   AccountId: {
-    fromHex: jest.fn((hex: any) => ({ toString: () => `accountId-${hex}` }))
+    fromHex: jest.fn((hex: any) => {
+      if (!hex.startsWith('0x')) throw new Error('hex encoded data must start with 0x');
+      return { toString: () => `accountId-${hex}` };
+    })
   },
   Address: {
-    fromBech32: jest.fn((str: any) => ({ accountId: () => ({ toString: () => `accountId-${str}` }) })),
+    fromBech32: jest.fn((str: any) => {
+      if (/^0x/i.test(str) || str.includes('_')) throw new Error(`invalid bech32 address: ${str}`);
+      return { accountId: () => ({ toString: () => `accountId-${str}` }) };
+    }),
     fromAccountId: jest.fn((id: any) => ({ toBech32: () => `bech32-${id}` }))
   },
   NetworkId: { testnet: jest.fn(() => 'testnet'), devnet: jest.fn(() => 'devnet') },
@@ -173,6 +181,16 @@ describe('the collateral asset is taken from the slot the sender actually holds'
 
     // The composite guardian form names the account in its address part only.
     expect(mockGetAccount).toHaveBeenCalledWith('accountId-0xsender');
+  });
+
+  it('builds the note for a sender id written with an uppercase 0X prefix', async () => {
+    mockGetAccount.mockResolvedValue(accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')));
+
+    await expect(build({ senderAccountId: '0Xsender' })).resolves.toMatchObject({ noteId: 'note-p2ide-id' });
+
+    expect(mockGetAccount).toHaveBeenCalledWith('accountId-0xsender');
+    const [sender] = (Note.createP2IDENote as jest.Mock).mock.calls[0]!;
+    expect(sender.toString()).toBe('accountId-0xsender');
   });
 
   it('still builds a request when the vault shows nothing, rather than blocking the bridge', async () => {

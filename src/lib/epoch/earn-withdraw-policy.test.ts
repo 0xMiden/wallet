@@ -19,6 +19,13 @@ jest.mock('@miden-sdk/miden-sdk', () => ({
       if (!/^0x[0-9a-f]{28,32}$/.test(value)) throw new Error('invalid account');
       return { toString: () => value };
     }
+  },
+  // An underscore stands in for a routing suffix the SDK's bech32 decoder rejects.
+  Address: {
+    fromBech32: (value: string) => {
+      if (value.includes('_')) throw new Error('invalid note tag length');
+      return { accountId: () => ({ toString: () => `0x${value.slice(value.indexOf('1') + 1)}` }) };
+    }
   }
 }));
 jest.mock('./bridge', () => ({ normalizeMidenIdToHex: (value: string) => value }));
@@ -75,6 +82,18 @@ it.each(['recipientAccountId', 'destinationFaucetId'] as const)(
     });
   }
 );
+
+it('accepts an expected recipient written as a composite whose routing suffix the bech32 parser rejects', () => {
+  const selected = selectEarnWithdrawPreparedExecution(preparedExecution(), {
+    ...identity,
+    recipientAccountId: `mtst1${PREPARED_RECIPIENT.slice(2)}_qruqqypuyph`
+  });
+  expect(selected?.delivery).toMatchObject({
+    allocationIndex: 1,
+    recipientAccountId: PREPARED_RECIPIENT,
+    destinationFaucetId: PREPARED_FAUCET
+  });
+});
 
 it('rejects zero or multiple delivery matches without confusing total allocation count', () => {
   expect(

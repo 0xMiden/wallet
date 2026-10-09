@@ -2,7 +2,7 @@ import type { EIP1193Provider } from 'viem';
 
 import { getAgglayerL1Bridge } from 'lib/remote-config/values';
 
-import { claimAgglayerDeposit } from './contract';
+import { claimAgglayerDeposit, midenAddrToEvmAddr } from './contract';
 import { type AgglayerDeposit, fetchMerkleProof } from './status';
 
 const mockFrom = jest.fn();
@@ -13,6 +13,22 @@ jest.mock('ethers', () => ({
 }));
 jest.mock('lib/remote-config/values', () => ({ getAgglayerL1Bridge: jest.fn() }));
 jest.mock('./status', () => ({ fetchMerkleProof: jest.fn() }));
+// As strict as the SDK where it matters: fromHex takes only a literal `0x`, and fromBech32 rejects an
+// underscore, standing in for a routing suffix it cannot decode.
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  AccountId: {
+    fromHex: (hex: string) => {
+      if (!hex.startsWith('0x')) throw new Error('hex encoded data must start with 0x');
+      return { toString: () => hex.toLowerCase() };
+    }
+  },
+  Address: {
+    fromBech32: (address: string) => {
+      if (address.includes('_')) throw new Error('invalid note tag length');
+      return { accountId: () => ({ toString: () => `0x${address.slice(address.indexOf('1') + 1)}` }) };
+    }
+  }
+}));
 
 const DEPOSIT: AgglayerDeposit = {
   leaf_type: 0,
@@ -57,4 +73,10 @@ it('fetches no proof and sends nothing while the config names no L1 bridge', asy
   await expect(claimAgglayerDeposit({ deposit: DEPOSIT, provider })).rejects.toThrow('no L1 bridge');
   expect(fetchMerkleProof).not.toHaveBeenCalled();
   expect(mockClaimAsset).not.toHaveBeenCalled();
+});
+
+it('pads the id of the address part of a composite whose routing suffix the bech32 parser rejects', () => {
+  expect(midenAddrToEvmAddr('mtst10123456789abcdef0123456789abcd_qruqqypuyph')).toBe(
+    '0x000000000123456789abcdef0123456789abcd00'
+  );
 });

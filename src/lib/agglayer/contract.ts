@@ -1,7 +1,7 @@
-import { Address } from '@miden-sdk/miden-sdk/lazy';
 import { BaseContract, BrowserProvider, ContractTransactionResponse, Overrides } from 'ethers';
 import { EIP1193Provider } from 'viem';
 
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { getAgglayerL1Bridge } from 'lib/remote-config/values';
 
 import { AGGLAYER_BRIDGE_ABI } from './constant';
@@ -28,9 +28,9 @@ interface AgglayerBridgeContract extends BaseContract {
 }
 
 const ZERO_BYTE = '00';
-//// @param: address always bech32
+//// @param: address is any account reference accountRefToSdk parses (bech32, composite `<address>_<suffix>` or hex)
 export const midenAddrToEvmAddr = (address: string): `0x${string}` => {
-  const hexAddr = Address.fromBech32(address).accountId().toString();
+  const hexAddr = accountRefToSdk(address).toString();
 
   const strippedHexAddr = hexAddr.startsWith('0x') ? hexAddr.slice(2) : hexAddr;
   return ('0x' + ZERO_BYTE.repeat(4) + strippedHexAddr + ZERO_BYTE) as `0x${string}`;

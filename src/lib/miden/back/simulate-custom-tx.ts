@@ -3,7 +3,7 @@ import { executeForSummaryAtTip } from '@openzeppelin/miden-multisig-client';
 
 import { importedNoteAssets, type AssetAmount } from 'app/confirm/decode';
 import { importedNoteIds, quarantineNoteIds } from 'lib/miden/note-quarantine';
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import {
   assertWasmHoldCurrent,
   getMidenClient,
@@ -228,20 +228,15 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         }
         assertWasmHoldCurrent(hold, 'after the note imports');
         await client.syncState();
-        // `accountIdStringToSdk` and `TransactionRequest.deserialize` below are
+        // `accountRefToSdk` and `TransactionRequest.deserialize` below are
         // WASM calls too, not just the execution — and the sync is the await
         // most likely to outlive the watchdog.
         assertWasmHoldCurrent(hold, 'after the sync');
 
-        // Fix C: hex is not required. `executeForSummaryAtTip` passes this string to the SDK's
-        // `preview`, which, like `executeRequest` below, resolves a `0x` or `0X` id with
-        // AccountId.fromHex and any other string with AccountId.fromBech32. fromHex rejects a `0X`
-        // prefix, so it is lowercased; a bech32 address is parsed by `accountIdStringToSdk`
-        // (`Address.fromBech32`) and passed on as hex.
-        const accountIdHex =
-          input.address.startsWith('0x') || input.address.startsWith('0X')
-            ? `0x${input.address.slice(2)}`
-            : accountIdStringToSdk(input.address).toString();
+        // The dApp address is parsed by the wallet's canonical account-reference parser, which reduces
+        // a composite `<address>_<suffix>` to its address and accepts either hex prefix case, and is
+        // passed on as the canonical hex id that `preview` and `executeRequest` below both resolve.
+        const accountIdHex = accountRefToSdk(input.address).toString();
         const request = TransactionRequest.deserialize(b64ToU8(input.transactionRequest));
         // ONLY the summary execution is caught here. A guard's own throw must never reach the
         // fallback below: `assertWasmHoldCurrent` fires when the mutex is already a successor's,

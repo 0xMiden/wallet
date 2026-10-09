@@ -1,8 +1,8 @@
-import { AccountId, Note, NoteArray, NoteAssets, NoteAttachment, NoteType } from '@miden-sdk/miden-sdk/lazy';
+import { Note, NoteArray, NoteAssets, NoteAttachment, NoteType } from '@miden-sdk/miden-sdk/lazy';
 
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import {
-  accountIdStringToSdk,
+  accountRefToSdk,
   feeAwareRequestBuilder,
   randomFeeSalt,
   resolveHeldFungibleAsset
@@ -14,16 +14,10 @@ import { getCurrentMidenBlock } from './chain';
 /**
  * Parse a wallet account identifier into an SDK `AccountId`. Accepts the three
  * forms that reach the Epoch flows: bare bech32, composite guardian
- * `<address>_<suffix>` (only the address part is an account id), and 0x hex
- * (the form the Epoch SDK hands to the mint callback).
+ * `<address>_<suffix>` (only the address part is an account id), and hex in
+ * either prefix case (the form the Epoch SDK hands to the mint callback).
  */
-function toAccountId(id: string): AccountId {
-  const address = id.split('_')[0] ?? id;
-  if (address.startsWith('0x')) {
-    return AccountId.fromHex(address);
-  }
-  return accountIdStringToSdk(address);
-}
+const toAccountId = accountRefToSdk;
 
 export interface EpochCollateralNoteArgs {
   /** Sender's Miden account (bech32, composite, or hex). */

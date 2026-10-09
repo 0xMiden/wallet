@@ -1,9 +1,10 @@
 import { getMidenMetadata, isEVMToMidenIntent, validateWitnessTypeString } from '@epoch-protocol/epoch-intents-sdk';
 import type { CompactRequest, PreparedAllocation, PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
-import { AccountId, Address } from '@miden-sdk/miden-sdk';
+import { AccountId } from '@miden-sdk/miden-sdk';
 
 import { ITransactionStatus } from 'lib/miden/db/types';
 import type { IEarnWithdrawExtraInputs, IEarnWithdrawPreparedExecution, ITransaction } from 'lib/miden/db/types';
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { isEvmAddress } from './evm-address';
@@ -43,7 +44,7 @@ function canonicalMidenId(value: unknown): string | undefined {
     const raw = value.trim();
     if (raw.startsWith('0x') || raw.startsWith('0X')) return AccountId.fromHex(`0x${raw.slice(2)}`).toString();
     if (/^[0-9a-fA-F]+$/.test(raw) && raw.length % 2 === 0) return AccountId.fromHex(`0x${raw}`).toString();
-    if (raw.includes('_')) return Address.fromBech32(raw).accountId().toString();
+    if (raw.includes('_')) return accountRefToSdk(raw).toString();
     return AccountId.fromBech32(raw).toString();
   } catch {
     return undefined;

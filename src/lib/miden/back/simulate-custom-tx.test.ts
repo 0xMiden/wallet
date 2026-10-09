@@ -1,7 +1,8 @@
+import { Address } from '@miden-sdk/miden-sdk/lazy';
 import { executeForSummaryAtTip } from '@openzeppelin/miden-multisig-client';
 
 import { importedNoteIds, quarantineNoteIds } from 'lib/miden/note-quarantine';
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 
 import { simulateCustomTransaction } from './simulate-custom-tx';
 
@@ -44,15 +45,31 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
     }
   })
 }));
-jest.mock('lib/miden/sdk/helpers', () => ({
-  accountIdStringToSdk: jest.fn((s: string) => ({ toString: () => `hex:${s}` }))
-}));
+// The real account-reference parser over the SDK stand-in below, spied only so a test can assert it never ran.
+jest.mock('lib/miden/sdk/helpers', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/sdk/helpers')>('lib/miden/sdk/helpers');
+  return { ...actual, accountRefToSdk: jest.fn(actual.accountRefToSdk) };
+});
 jest.mock('lib/miden/note-quarantine', () => ({
   importedNoteIds: jest.fn((notes: string[] | undefined) => (notes ?? []).map(n => `id:${n}`)),
   quarantineNoteIds: jest.fn(async () => undefined)
 }));
+// As strict as the SDK where it matters: fromHex takes only a literal `0x` and returns the canonical
+// (lowercase) id, and fromBech32 rejects an underscore, standing in for a routing suffix it cannot decode.
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
-  TransactionRequest: { deserialize: jest.fn((bytes: Uint8Array) => ({ __req: bytes })) }
+  TransactionRequest: { deserialize: jest.fn((bytes: Uint8Array) => ({ __req: bytes })) },
+  AccountId: {
+    fromHex: jest.fn((hex: string) => {
+      if (!hex.startsWith('0x')) throw new Error('hex encoded data must start with 0x');
+      return { toString: () => hex.toLowerCase() };
+    })
+  },
+  Address: {
+    fromBech32: jest.fn((address: string) => {
+      if (address.includes('_')) throw new Error('invalid note tag length');
+      return { accountId: () => ({ toString: () => `hex:${address}` }) };
+    })
+  }
 }));
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
   executeForSummaryAtTip: jest.fn(async () => ({ serialize: () => new Uint8Array([1, 2, 3]) }))
@@ -151,10 +168,10 @@ describe('simulateCustomTransaction', () => {
     expect(res).toEqual({ error: 'boom' });
   });
 
-  it('passes a hex address straight through without calling accountIdStringToSdk', async () => {
+  it('parses a hex address as hex, never through the bech32 parser', async () => {
     const res = await simulateCustomTransaction({ address: '0xabc', transactionRequest: 'reqB64' });
     expect(executeForSummaryAtTip).toHaveBeenCalledWith(fakeClient, '0xabc', { __req: expect.any(Uint8Array) });
-    expect(accountIdStringToSdk as jest.Mock).not.toHaveBeenCalled();
+    expect(Address.fromBech32).not.toHaveBeenCalled();
     expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3' });
   });
 
@@ -165,9 +182,9 @@ describe('simulateCustomTransaction', () => {
 
     const res = await simulateCustomTransaction({ address: '0XABC', transactionRequest: 'reqB64' });
 
-    expect(executeForSummaryAtTip).toHaveBeenCalledWith(fakeClient, '0xABC', { __req: expect.any(Uint8Array) });
-    expect(executeRequest).toHaveBeenCalledWith('0xABC', { __req: expect.any(Uint8Array) });
-    expect(accountIdStringToSdk as jest.Mock).not.toHaveBeenCalled();
+    expect(executeForSummaryAtTip).toHaveBeenCalledWith(fakeClient, '0xabc', { __req: expect.any(Uint8Array) });
+    expect(executeRequest).toHaveBeenCalledWith('0xabc', { __req: expect.any(Uint8Array) });
+    expect(Address.fromBech32).not.toHaveBeenCalled();
     expect(res).toMatchObject({ executedBytes: 'b64:9-9' });
   });
 
@@ -303,7 +320,7 @@ describe('simulateCustomTransaction', () => {
       const res = await simulateCustomTransaction(input);
 
       expect(res).toEqual({ error: 'operation abandoned after the sync' });
-      expect(accountIdStringToSdk).not.toHaveBeenCalled();
+      expect(accountRefToSdk).not.toHaveBeenCalled();
       expect(executeForSummaryAtTip).not.toHaveBeenCalled();
     });
 
@@ -397,5 +414,21 @@ describe('introduced-note provenance', () => {
 
     expect(result.introducedCount).toBe(2);
     expect(result.introducedCredit).toEqual([]);
+  });
+});
+
+describe('the dApp account reference', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it("is parsed by its address part when a composite's routing suffix fails the bech32 parser", async () => {
+    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(
+      Object.assign(new Error('nope'), { code: 'TRANSACTION_ALREADY_AUTHORIZED' })
+    );
+
+    const res = await simulateCustomTransaction({ address: 'mtst1abc_qruqqypuyph', transactionRequest: 'reqB64' });
+
+    expect(executeForSummaryAtTip).toHaveBeenCalledWith(fakeClient, 'hex:mtst1abc', { __req: expect.any(Uint8Array) });
+    expect(executeRequest).toHaveBeenCalledWith('hex:mtst1abc', { __req: expect.any(Uint8Array) });
+    expect(res).toMatchObject({ executedBytes: 'b64:9-9' });
   });
 });
