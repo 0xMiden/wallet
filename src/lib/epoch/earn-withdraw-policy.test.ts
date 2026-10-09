@@ -61,6 +61,21 @@ it('retains every descriptor and selects the non-first Miden allocation', () => 
   expect(validateEarnWithdrawPreparedExecution(selected, identity)?.allocationRequests).toHaveLength(2);
 });
 
+it.each(['recipientAccountId', 'destinationFaucetId'] as const)(
+  'accepts an expected %s written with an uppercase 0X prefix against 0x metadata',
+  field => {
+    const selected = selectEarnWithdrawPreparedExecution(preparedExecution(), {
+      ...identity,
+      [field]: `0X${identity[field].slice(2)}`
+    });
+    expect(selected?.delivery).toMatchObject({
+      allocationIndex: 1,
+      recipientAccountId: PREPARED_RECIPIENT,
+      destinationFaucetId: PREPARED_FAUCET
+    });
+  }
+);
+
 it('rejects zero or multiple delivery matches without confusing total allocation count', () => {
   expect(
     selectEarnWithdrawPreparedExecution({ chainId: 11155111, allocations: [preparedAllocation('11', false)] }, identity)

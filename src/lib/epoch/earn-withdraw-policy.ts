@@ -41,7 +41,7 @@ function canonicalMidenId(value: unknown): string | undefined {
   if (!text(value)) return undefined;
   try {
     const raw = value.trim();
-    if (raw.startsWith('0x') || raw.startsWith('0X')) return AccountId.fromHex(raw).toString();
+    if (raw.startsWith('0x') || raw.startsWith('0X')) return AccountId.fromHex(`0x${raw.slice(2)}`).toString();
     if (/^[0-9a-fA-F]+$/.test(raw) && raw.length % 2 === 0) return AccountId.fromHex(`0x${raw}`).toString();
     if (raw.includes('_')) return Address.fromBech32(raw).accountId().toString();
     return AccountId.fromBech32(raw).toString();

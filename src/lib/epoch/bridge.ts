@@ -68,7 +68,7 @@ export function normalizeMidenIdToHex(id: string): string {
   // Already hex.
   if (raw.startsWith('0x') || raw.startsWith('0X')) {
     try {
-      return AccountId.fromHex(raw).toString();
+      return AccountId.fromHex(`0x${raw.slice(2)}`).toString();
     } catch {
       return raw;
     }

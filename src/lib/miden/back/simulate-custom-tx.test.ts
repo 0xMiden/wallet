@@ -158,6 +158,19 @@ describe('simulateCustomTransaction', () => {
     expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3' });
   });
 
+  it('lowercases an uppercase 0X prefix, which AccountId.fromHex rejects, for the summary and the fallback', async () => {
+    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(
+      Object.assign(new Error('nope'), { code: 'TRANSACTION_ALREADY_AUTHORIZED' })
+    );
+
+    const res = await simulateCustomTransaction({ address: '0XABC', transactionRequest: 'reqB64' });
+
+    expect(executeForSummaryAtTip).toHaveBeenCalledWith(fakeClient, '0xABC', { __req: expect.any(Uint8Array) });
+    expect(executeRequest).toHaveBeenCalledWith('0xABC', { __req: expect.any(Uint8Array) });
+    expect(accountIdStringToSdk as jest.Mock).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ executedBytes: 'b64:9-9' });
+  });
+
   // Regression: web-sdk 0.16 inverted `executeForSummary`'s contract — the summary
   // only exists while authorization is PENDING, and a transaction that executes
   // successfully now rejects with `TRANSACTION_ALREADY_AUTHORIZED`. That is every

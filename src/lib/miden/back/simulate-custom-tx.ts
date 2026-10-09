@@ -234,12 +234,13 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         assertWasmHoldCurrent(hold, 'after the sync');
 
         // Fix C: hex is not required. `executeForSummaryAtTip` passes this string to the SDK's
-        // `preview`, which, like `executeRequest` below, resolves a `0x` id with AccountId.fromHex and
-        // any other string with AccountId.fromBech32. A hex id passes through as-is; a bech32 address
-        // is parsed by `accountIdStringToSdk` (`Address.fromBech32`) and passed on as hex.
+        // `preview`, which, like `executeRequest` below, resolves a `0x` or `0X` id with
+        // AccountId.fromHex and any other string with AccountId.fromBech32. fromHex rejects a `0X`
+        // prefix, so it is lowercased; a bech32 address is parsed by `accountIdStringToSdk`
+        // (`Address.fromBech32`) and passed on as hex.
         const accountIdHex =
           input.address.startsWith('0x') || input.address.startsWith('0X')
-            ? input.address
+            ? `0x${input.address.slice(2)}`
             : accountIdStringToSdk(input.address).toString();
         const request = TransactionRequest.deserialize(b64ToU8(input.transactionRequest));
         // ONLY the summary execution is caught here. A guard's own throw must never reach the
