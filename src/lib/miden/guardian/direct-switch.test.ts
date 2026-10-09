@@ -544,8 +544,20 @@ describe('createDirectSwitchGuardianRequest', () => {
   });
 
   it('builds and rebuilds ECDSA auth args on the supplied client with the same bound block and salt', async () => {
+    const summaryRequest = { kind: 'update-guardian-request' };
+    mockedMultisigClient.buildUpdateGuardianTransactionRequest.mockResolvedValueOnce({
+      request: summaryRequest,
+      salt: { toHex: () => '0xsalt' }
+    });
+    // Only the built request binds a block, so reading the rebuild or any other object pins none.
+    mockedMultisigClient.requestBoundBlockNum.mockImplementationOnce((request: unknown) =>
+      request === summaryRequest ? 4242 : undefined
+    );
+
     await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
 
+    expect(mockedMultisigClient.requestBoundBlockNum).toHaveBeenCalledTimes(1);
+    expect(mockedMultisigClient.requestBoundBlockNum.mock.calls[0][0]).toBe(summaryRequest);
     const [summaryBuild, rebuild] = mockedMultisigClient.buildUpdateGuardianTransactionRequest.mock.calls;
     expect(summaryBuild[2]).toEqual({
       accountId: '0xacct-id',

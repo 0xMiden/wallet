@@ -2128,9 +2128,18 @@ describe('MultisigService', () => {
       const account = { id: () => ({ toString: () => 'acc-id' }) } as never;
 
       mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommitnoprefix' });
+      const builtRequest = { kind: 'request' };
+      mockBuildUpdateSignersTransactionRequest.mockResolvedValueOnce({
+        request: builtRequest,
+        salt: { toHex: () => 'salt-hex' }
+      });
+      // Only the built request binds a block, so reading any other object leaves the proposal unbound.
+      mockRequestBoundBlockNum.mockImplementationOnce(request => (request === builtRequest ? 4242 : undefined));
 
       const result = await service.createReplaceHotKeyProposal(account, '0xnewhotcommit');
 
+      expect(mockRequestBoundBlockNum).toHaveBeenCalledTimes(1);
+      expect(mockRequestBoundBlockNum.mock.calls[0]?.[0]).toBe(builtRequest);
       expect(mockGetSignerDetailsFromAccount).toHaveBeenCalledWith(account, true);
       // Order preservation: newHot at index 0, cold at index 1.
       expect(mockBuildUpdateSignersTransactionRequest).toHaveBeenCalledWith(
@@ -2328,6 +2337,22 @@ describe('MultisigService', () => {
       await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toBe(unreachable);
 
       expect(mockBuildUpdateSignersTransactionRequest).not.toHaveBeenCalled();
+      expect(multisig.createProposal).not.toHaveBeenCalled();
+    });
+
+    // The Guardian's verifier refuses a proposal with no bound block only after the push.
+    it('refuses a request that carries no multisig auth args before executing it or pushing a proposal', async () => {
+      const multisig = makeMultisig({ threshold: 1 });
+      const { service, account } = await initRotationService(multisig);
+      mockGetSignerDetailsFromAccount.mockResolvedValueOnce({ commitment: 'coldcommit' });
+      mockRequestBoundBlockNum.mockReturnValueOnce(undefined);
+
+      await expect(service.createReplaceHotKeyProposal(account, '0xnewhotcommit')).rejects.toMatchObject({
+        name: 'UnboundGuardianRequestError',
+        message: 'Guardian account acc-id: the update-signers request carries no multisig auth args'
+      });
+
+      expect(mockExecuteForSummaryAtTip).not.toHaveBeenCalled();
       expect(multisig.createProposal).not.toHaveBeenCalled();
     });
   });

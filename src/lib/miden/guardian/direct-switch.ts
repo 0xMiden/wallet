@@ -13,7 +13,6 @@ import {
   GuardianHttpClient,
   buildUpdateGuardianTransactionRequest,
   executeForSummaryAtTip,
-  requestBoundBlockNum,
   isLikelyNetworkError
 } from '@openzeppelin/miden-multisig-client';
 
@@ -29,6 +28,7 @@ import { registerGuardianOrigin, withGuardianProbe } from './native-http';
 import { checkEndpointCommitment, type EndpointCommitmentCheck } from './operator-map';
 import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
+import { requireRequestBoundBlockNum } from './tip-execution';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import type { GuardianAccountProvider } from '../front/guardian-manager';
 import { accountRefToSdk, sameWalletAccountId } from '../sdk/helpers';
@@ -393,12 +393,7 @@ export const createDirectSwitchGuardianRequest = async (
       signatureScheme: 'ecdsa'
     });
     assertWasmHoldCurrent(hold, 'direct-request: after the request build');
-    const boundBlockNum = requestBoundBlockNum(request);
-    if (boundBlockNum === undefined) {
-      throw new Error(
-        `Guardian account ${walletAccount.publicKey}: the update-guardian request carries no multisig auth args`
-      );
-    }
+    const boundBlockNum = requireRequestBoundBlockNum(request, walletAccount.publicKey, 'update-guardian');
     const summary = await executeForSummaryAtTip(webClient, accountIdHex, request);
     // `summary` and `salt` are borrows of the client's RefCell, so touching them
     // past an eviction IS the double borrow.

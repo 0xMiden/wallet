@@ -7,7 +7,6 @@ import {
   GuardianHttpClient,
   buildUpdateSignersTransactionRequest,
   executeForSummaryAtTip,
-  requestBoundBlockNum,
   type ProposalMetadata,
   type TransactionProposal,
   type Proposal
@@ -32,6 +31,7 @@ import {
 import { registerGuardianOrigin, withGuardianProbe } from './native-http';
 import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
+import { requireRequestBoundBlockNum } from './tip-execution';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { accountRefToSdk, feeAwareRequestBuilder, randomFeeSalt } from '../sdk/helpers';
 import {
@@ -877,7 +877,7 @@ export class MultisigService {
           }
         );
         assertWasmHoldCurrent(hold, 'replace-hot-key: after the update-signers request build');
-        const boundBlockNum = requestBoundBlockNum(request);
+        const boundBlockNum = requireRequestBoundBlockNum(request, this.accountId, 'update-signers');
         const summary = await executeForSummaryAtTip(webClient, this.accountId, request);
         // `summary` and `salt` are borrows of the client's RefCell, so touching them
         // past an eviction IS the double borrow.
