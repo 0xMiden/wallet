@@ -14,18 +14,17 @@ const sdkRoot = resolve(__dirname, '../../node_modules/@miden-sdk/miden-sdk');
 const rpcFixture = resolve(__dirname, '../fixtures/note-relay-rpc.json');
 
 type Reply = 'unavailable' | 'invalidArgument' | 'throw';
-// A call's outcome as the classifiers read it: its text, and whether the rejected value is an object carrying a
-// string `message`, the one shape isClientTerminatedError can match.
-type Refusal = { text: string; carriesMessage: boolean };
 type Relay = {
   rejected: boolean;
   message: string;
   sendCalls: number;
   sendCallsAfterSync: number;
   unknownNoteMessage: string;
-  clientAfterTerminate: Refusal;
-  innerAfterTerminate: Refusal;
 };
+// A call's outcome as the classifiers read it: the rejected value's own `message`, null unless it is an object
+// carrying a string one (the one shape isClientTerminatedError can match), and a text for the failure report.
+type Refusal = { message: string | null; text: string };
+type Terminated = { client: Refusal; inner: Refusal; inFlight: Refusal | null };
 
 let server: Server;
 let origin: string;
@@ -150,40 +149,84 @@ async function relay(page: Page, reply: Reply, maxRetries?: number): Promise<Rel
       const unknownNoteMessage = await client.notes
         .sendPrivateOutput({ noteId, to: recipient })
         .then(() => '', messageOf);
-      // The inner WebClient, reached the way the wallet's raw reads reach it, then one more call on each side of
-      // the terminate. Bounded, so a call that never settles fails its assertion rather than the test's timeout.
-      const innerGetAccounts: () => Promise<unknown> = await client._withInnerWebClient(
-        async (inner: { getAccounts(): Promise<unknown> }) => () => inner.getAccounts()
-      );
-      const settled = (call: () => Promise<unknown>) =>
-        Promise.race([
-          Promise.resolve()
-            .then(call)
-            .then(
-              (): Refusal => ({ text: 'resolved', carriesMessage: false }),
-              (error: unknown): Refusal => ({
-                text: messageOf(error),
-                carriesMessage:
-                  typeof error === 'object' && error !== null && typeof Reflect.get(error, 'message') === 'string'
-              })
-            ),
-          new Promise<Refusal>(done => setTimeout(() => done({ text: 'never settled', carriesMessage: false }), 10_000))
-        ]);
       client.terminate();
-      const clientAfterTerminate = await settled(() => client.syncNoteTransport());
-      const innerAfterTerminate = await settled(innerGetAccounts);
-      return {
-        rejected,
-        message,
-        sendCalls: sentBeforeSync,
-        sendCallsAfterSync,
-        unknownNoteMessage,
-        clientAfterTerminate,
-        innerAfterTerminate
-      };
+      return { rejected, message, sendCalls: sentBeforeSync, sendCallsAfterSync, unknownNoteMessage };
     },
     { recording, reply, maxRetries }
   );
+}
+
+/**
+ * A client in the given mode, terminated, then called once through MidenClient and once through its inner WebClient.
+ * In the worker mode a sync is in flight when terminate() runs. Routed on the context, so the worker's fetches are
+ * served from the recording too; an unrecorded RPC is never answered and every other request is aborted.
+ */
+async function terminateClient(page: Page, useWorker: boolean): Promise<Terminated> {
+  const recording: unknown = JSON.parse(await readFile(rpcFixture, 'utf8'));
+  const rpc = new Map<string, string>();
+  if (Array.isArray(recording)) {
+    for (const entry of recording) rpc.set(String(entry.path), String(entry.body));
+  }
+  let rpcHung: () => void = () => undefined;
+  const rpcHanging = new Promise<void>(done => {
+    rpcHung = () => done();
+  });
+  await page.context().route('**/*', route => {
+    const url = new URL(route.request().url());
+    if (url.origin === origin) return route.continue();
+    if (url.hostname !== 'rpc.testnet.miden.io') return route.abort();
+    const body = rpc.get(url.pathname);
+    if (body === undefined) return rpcHung();
+    return route.fulfill({
+      headers: { 'content-type': 'application/grpc-web+proto' },
+      body: Buffer.from(body, 'base64')
+    });
+  });
+  await page.exposeFunction('rpcHanging', () => rpcHanging);
+  await page.goto(origin);
+  return page.evaluate(async useWorker => {
+    const refusal = (error: unknown): Refusal => {
+      const message: unknown = typeof error === 'object' && error !== null ? Reflect.get(error, 'message') : null;
+      return {
+        message: typeof message === 'string' ? message : null,
+        text: error instanceof Error ? error.message : String(error)
+      };
+    };
+    // Bounded, so a call that never settles fails its assertion rather than the test's timeout.
+    const settled = (call: () => Promise<unknown>) =>
+      Promise.race([
+        Promise.resolve()
+          .then(call)
+          .then((): Refusal => ({ message: null, text: 'resolved' }), refusal),
+        new Promise<Refusal>(done => setTimeout(() => done({ message: null, text: 'never settled' }), 10_000))
+      ]);
+
+    const specifier = '/sdk/dist/st/index.js';
+    const sdk = await import(specifier);
+    await sdk.getWasmOrThrow();
+    const client = await sdk.MidenClient.create({
+      rpcUrl: 'https://rpc.testnet.miden.io',
+      storeName: `relay-terminate-${Math.random()}`,
+      useWorker,
+      autoSync: false
+    });
+    // The inner WebClient, reached the way the wallet's raw reads reach it.
+    const innerGetAccounts: () => Promise<unknown> = await client._withInnerWebClient(
+      async (inner: { getAccounts(): Promise<unknown> }) => () => inner.getAccounts()
+    );
+    let inFlight: Promise<Refusal> | null = null;
+    if (useWorker) {
+      inFlight = settled(() => client.sync());
+      // Resolves once the sync's RPC has reached the route that never answers it.
+      await Reflect.get(window, 'rpcHanging')();
+    }
+    client.terminate();
+    return {
+      client: await settled(() => client.sync()),
+      inner: await settled(innerGetAccounts),
+      inFlight: inFlight && (await inFlight)
+    };
+  }, useWorker);
 }
 
 test.describe('note transport retries, real WASM', () => {
@@ -215,15 +258,25 @@ test.describe('note transport retries, real WASM', () => {
     expect(classifyRelayFailure(new Error(run.message)), run.message).toBe('outage');
   });
 
-  test('a call after terminate() is refused with the text the wallet reads as a kill', async ({ page }) => {
-    const run = await relay(page, 'unavailable', 0);
-    expect(run.innerAfterTerminate.text).toBe('WebClient terminated');
-    for (const { text, carriesMessage } of [run.clientAfterTerminate, run.innerAfterTerminate]) {
-      expect(carriesMessage, text).toBe(true);
-      expect(isKilledPipeline(new Error(text)), text).toBe(true);
-      expect(classifyRelayFailure(new Error(text)), text).toBe('interrupted');
-    }
-  });
+  // The ST and MT builds share the JS wrapper that holds every refusal arm, so the ST entry stands for both.
+  for (const { useWorker, mode, inFlightMessage } of [
+    // No in-flight arm here: the SDK lets a main-realm call finish.
+    { useWorker: false, mode: 'worker-less', inFlightMessage: null },
+    { useWorker: true, mode: 'worker', inFlightMessage: 'WebClient terminated' }
+  ]) {
+    test(`on a ${mode} client terminate() refuses each call with an error whose message reads as a kill`, async ({
+      page
+    }) => {
+      const run = await terminateClient(page, useWorker);
+      expect(run.client.message, run.client.text).toBe('Client terminated');
+      expect(run.inner.message, run.inner.text).toBe('WebClient terminated');
+      expect(run.inFlight?.message ?? null, run.inFlight?.text).toBe(inFlightMessage);
+      for (const { message, text } of [run.client, run.inner]) {
+        expect(isKilledPipeline(new Error(String(message))), text).toBe(true);
+        expect(classifyRelayFailure(new Error(String(message))), text).toBe('interrupted');
+      }
+    });
+  }
 
   test('a rejected request reads as a fault of the note, not of the transport', async ({ page }) => {
     const run = await relay(page, 'invalidArgument', 0);
