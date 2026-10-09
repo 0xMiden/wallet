@@ -14,6 +14,7 @@
 
 - [FIX][all] Picking a swap token and quickly tapping the other token pill, or the same one, opens the token picker again; a tap made while the picker was still sliding away opened nothing.
 - [FIX][ci] E2E Bridge follows the testnet bridge to rollup 73 (wallet-config testnet.json version 2): its registry check names the new bridge's ETH faucet and its indexer probe asks for Miden exits under 73, where it still named the retired bridge's faucet and rollup 86, so the job stayed red.
+- [FIX][all] The expiration calendar uses theme colors so dates, the month title and navigation arrows are visible in dark mode.
 - [FIX][all] A Slow (Agglayer) USDC deposit reads the allowance the bridge already has and asks for an approval only when it is less than the deposit, so a covered deposit needs one wallet prompt instead of two and a larger allowance is not replaced.
 - [FIX][all] Settings > About > Send feedback opens the working Zapier feedback form (#1340).
 - [FIX][ci] Wait for the accepted public faucet grant to commit before consuming its note in E2E funding fixtures.

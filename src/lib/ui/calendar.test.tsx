@@ -21,7 +21,7 @@ describe('Calendar', () => {
     const root = getRoot(container);
     expect(root).not.toBeNull();
     // Base classes from the default `className` argument are applied to the root.
-    expect(root).toHaveClass('bg-white', 'p-2', 'group/calendar');
+    expect(root).toHaveClass('bg-page', 'text-ink', 'p-2', 'group/calendar');
 
     // The month grid renders.
     expect(screen.getByRole('grid')).toBeInTheDocument();
