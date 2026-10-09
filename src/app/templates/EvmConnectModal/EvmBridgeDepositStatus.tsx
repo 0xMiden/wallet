@@ -25,6 +25,7 @@ import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transa
 import { TransactionSummaryBadge } from 'screens/generating-transaction/TransactionSummaryBadge';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
 
+import { UsdcxDepositSteps } from './UsdcxDepositSteps';
 import { UsdcxExecuteAction } from './UsdcxExecuteAction';
 
 interface EvmBridgeDepositStatusProps {
@@ -175,6 +176,14 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
             { label: t('status'), value: statusValue }
           ]}
         />
+        {inputs.provider === 'usdcx' && (
+          <UsdcxDepositSteps
+            sourceChainId={inputs.sourceChainId}
+            phase={inputs.phase}
+            cctp={inputs.cctp}
+            className="mt-4"
+          />
+        )}
         {inputs.provider === 'usdcx' && isUsdcxExecutorSource(inputs.sourceChainId) && (
           <UsdcxExecuteAction
             txId={row.id}

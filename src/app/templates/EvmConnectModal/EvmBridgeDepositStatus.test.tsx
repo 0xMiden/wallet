@@ -62,6 +62,15 @@ jest.mock('components/ui/Spinner', () => ({
 
 jest.mock('lib/mobile/external-browser', () => ({ openExternalUrl: jest.fn() }));
 
+// The step list animates with framer; here only its inputs matter.
+jest.mock('./UsdcxDepositSteps', () => ({
+  UsdcxDepositSteps: ({ sourceChainId, phase }: Record<string, unknown>) => (
+    <div data-testid="usdcx-deposit-steps" data-source-chain={String(sourceChainId)}>
+      {String(phase)}
+    </div>
+  )
+}));
+
 // The Arc leg's own component signs through wagmi; here only its placement and inputs matter.
 jest.mock('./UsdcxExecuteAction', () => ({
   UsdcxExecuteAction: ({ txId, sourceChainId, phase, cctp }: Record<string, unknown>) => (

@@ -14,6 +14,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { GuardianChangeSummary } from 'components/GuardianChangeSummary';
 import { PageHeader } from 'components/PageHeader';
 import { DetailRow } from 'components/ui/DetailCard';
+import { SectionHeader } from 'components/ui/SectionHeader';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { isAgglayerExitUnfindable } from 'lib/agglayer/status';
@@ -88,6 +89,7 @@ import {
 } from './transactionUtils';
 import { useSwapSettlementNotes } from './useSwapSettlementNotes';
 import { useTransactionActions } from './useTransactionActions';
+import { UsdcxDepositSteps } from '../EvmConnectModal/UsdcxDepositSteps';
 import { UsdcxExecuteAction } from '../EvmConnectModal/UsdcxExecuteAction';
 
 const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
@@ -1125,6 +1127,17 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             {isBridgeIn && (
               <div className="mt-6 mb-4">
                 <SectionDivider color={sectionDividerColor} />
+                {/* The steps between Pending and Confirmed of a USDCx deposit, read off the row. */}
+                {entry.bridgeInProvider === 'usdcx' && entry.bridgeInPhase && (
+                  <div className="mt-5">
+                    <SectionHeader size="md">{t('usdcxProgress')}</SectionHeader>
+                    <UsdcxDepositSteps
+                      sourceChainId={entry.bridgeInSourceChainId}
+                      phase={entry.bridgeInPhase}
+                      cctp={entry.bridgeInCctp}
+                    />
+                  </div>
+                )}
                 <div className="mt-5">
                   <DetailSection title={t('bridgeDetails')}>
                     <DetailRow label={t('route')}>

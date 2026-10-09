@@ -1316,6 +1316,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       handleOpenSwitchDrawer,
       handleOpenTokenDrawer,
       usdcxBridgeNetwork,
+      usdcxSource,
+      t,
       handleRouteChange,
       route,
       token,
