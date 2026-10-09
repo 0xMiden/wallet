@@ -443,6 +443,15 @@ describe('sweepNoteDeliveries', () => {
     expect(mockRelayById).toHaveBeenCalledWith('0xnote', 'mtst1recipient');
   });
 
+  it('ends the pass, pushing nothing, when a terminated client refuses the delivery receipt read', async () => {
+    rows.push(row());
+    mockIsConsumed.mockRejectedValue(new Error('Client terminated'));
+
+    await sweepNoteDeliveries();
+
+    expect(mockRelayById).not.toHaveBeenCalled();
+  });
+
   it('burns no attempt on a row with nothing to re-push', async () => {
     rows.push(row({ outputNoteIds: [] }));
 

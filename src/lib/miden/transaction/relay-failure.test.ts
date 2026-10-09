@@ -47,7 +47,10 @@ describe('classifyRelayFailure', () => {
   it.each<[string, unknown]>([
     ['a lock eviction', new WasmClientPoisonedError('watchdog')],
     ['an offscreen kill', new OperationAbortedError('op-1', 'deadline')],
-    ['a wrapped lock eviction', new Error('relay failed', { cause: new WasmClientPoisonedError('realm-error') })]
+    ['a wrapped lock eviction', new Error('relay failed', { cause: new WasmClientPoisonedError('realm-error') })],
+    ['a terminated client', new Error('WebClient terminated')],
+    ['a terminated MidenClient', new Error('Client terminated')],
+    ['a wrapped terminated client', new Error('relay failed', { cause: new Error('Client terminated') })]
   ])('reads %s as interrupted', (_kind, error) => {
     expect(classifyRelayFailure(error)).toBe('interrupted');
   });

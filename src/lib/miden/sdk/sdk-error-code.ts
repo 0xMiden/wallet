@@ -137,21 +137,62 @@ export function someInCauseChain(err: unknown, matches: (link: object) => boolea
 }
 
 /**
+ * Guarded like `errorMessageParts`: the property can be an accessor, and a throw here would cost the
+ * verdict.
+ */
+const readGuarded = (value: unknown, key: string): unknown => {
+  if (!value || typeof value !== 'object') return undefined;
+  try {
+    return Reflect.get(value, key);
+  } catch {
+    return undefined;
+  }
+};
+
+const CLIENT_TERMINATED = /^(?:Web)?Client terminated$/;
+
+/**
+ * The SDK's refusal of a call on a client that was terminated, read off `value` itself and never off its
+ * cause chain or a flattened text: exactly "Client terminated" (`MidenClient`) or "WebClient terminated"
+ * (the inner `WebClient`, since web-sdk 0.17.3, for a call made after `terminate()` or one still waiting on
+ * its worker). The same event either way; which text arrives depends only on when the call met it.
+ */
+export function isClientTerminatedError(value: unknown): boolean {
+  const message = readGuarded(value, 'message');
+  return typeof message === 'string' && CLIENT_TERMINATED.test(message);
+}
+
+/**
+ * Whether `value` itself, not its cause chain, is one of the kill shapes: a lock-recovery eviction, an
+ * offscreen abort or a terminated client. For the checks that read the thrown value as it is.
+ */
+export function isPipelineKillLink(value: unknown): boolean {
+  return isWasmClientPoisonedError(value) || isOperationAbortedError(value) || isClientTerminatedError(value);
+}
+
+/**
  * A killed pipeline anywhere in `err`'s cause chain: a lock-recovery eviction
- * (`WasmClientPoisonedError`) or an offscreen deadline kill
- * (`OperationAbortedError`). Either means the operation was torn down from
- * outside and may still be running, so a caller wrapping one does not make it
- * any less a kill (#1313).
+ * (`WasmClientPoisonedError`), an offscreen deadline kill
+ * (`OperationAbortedError`) or a call on a terminated SDK client
+ * ({@link isClientTerminatedError}). Each means the operation was stopped from
+ * outside with its outcome unknown, and an eviction or an abort may still be
+ * running, so a caller wrapping one does not make it any less a kill (#1313).
+ *
+ * The landed shape stays landed: a terminated client under an apply-after-submit
+ * error failed the local apply after the node took the write.
  */
 export function isKilledPipeline(err: unknown): boolean {
-  return someInCauseChain(err, link => isWasmClientPoisonedError(link) || isOperationAbortedError(link));
+  return (
+    someInCauseChain(err, link => isWasmClientPoisonedError(link) || isOperationAbortedError(link)) ||
+    (someInCauseChain(err, isClientTerminatedError) && !isApplyAfterSubmitError(err))
+  );
 }
 
 /**
  * A killed pipeline that tore nothing down: every kill in `err`'s cause chain is an
  * offscreen read failed on its own deadline while a critical op held the document
  * (`deadline-no-kill`). Only that read was lost; the realm and its client run on. A
- * reason that cannot be read counts as a teardown.
+ * reason that cannot be read counts as a teardown, and so does a terminated client.
  */
 export function isRealmIntactAbort(err: unknown): boolean {
   const abortReasonOf = (link: object): unknown => {
@@ -162,7 +203,7 @@ export function isRealmIntactAbort(err: unknown): boolean {
     }
   };
   const tearsDown = (link: object) =>
-    isWasmClientPoisonedError(link) || (isOperationAbortedError(link) && abortReasonOf(link) !== 'deadline-no-kill');
+    isPipelineKillLink(link) && !(isOperationAbortedError(link) && abortReasonOf(link) === 'deadline-no-kill');
   return isKilledPipeline(err) && !someInCauseChain(err, tearsDown);
 }
 
@@ -370,19 +411,6 @@ export class ApplyAfterSubmitError extends Error {
     this.landed = landed;
   }
 }
-
-/**
- * Guarded like `errorMessageParts`: the property can be an accessor, and a throw here would cost the
- * verdict.
- */
-const readGuarded = (value: unknown, key: string): unknown => {
-  if (!value || typeof value !== 'object') return undefined;
-  try {
-    return Reflect.get(value, key);
-  } catch {
-    return undefined;
-  }
-};
 
 /**
  * The landed facts off this realm's `ApplyAfterSubmitError` or off the rejection the service worker

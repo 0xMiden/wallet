@@ -160,8 +160,10 @@ import {
   extractSdkErrorCode,
   hasErrorBeforeSubmit,
   isApplyAfterSubmitError,
+  isClientTerminatedError,
   isIndefiniteSubmitOutcomeError,
   isKilledPipeline,
+  isPipelineKillLink,
   isPoisonedPipeline,
   isStaleInitialCommitmentError,
   isSubmitCrossingUnrecorded,
@@ -4246,9 +4248,13 @@ export const generateTransactionsLoop = async (
     // MAX_QUEUED_AGE budget on ~60 lock-held syncs and then reports the generic expiry instead of
     // the node's own answer. `notes.ts` already carves the same predicate out of its transient set
     // for the same reason, after a permanent 400 burned ~288 retries there.
+    // A terminated client is the one kill this boundary still defers, when no other kill is in the chain: the SDK
+    // refused the call or stopped the worker running it, so unlike an eviction or an abort nothing of it runs on.
     const currentRow = await Repo.transactions.where({ id: nextTransaction.id }).first();
+    const terminatedOnly =
+      isKilledPipeline(e) && !someInCauseChain(e, link => isPipelineKillLink(link) && !isClientTerminatedError(link));
     if (
-      !abandoned &&
+      (!abandoned || terminatedOnly) &&
       !isLockedError(e) &&
       !isPermanentHttpRejection(e) &&
       currentRow?.status === ITransactionStatus.Queued &&
