@@ -54,6 +54,7 @@ import type {
   DappOutput,
   NoteTypeName,
   Outcome,
+  RawArg,
   SessionEvent,
   TestDappWindowApi
 } from './protocol';
@@ -229,6 +230,27 @@ function attachmentOf(spec: { felts: string[]; scheme?: number }): NoteAttachmen
   return spec.scheme === undefined
     ? plain
     : NoteAttachment.fromWords(new NoteAttachmentScheme(spec.scheme), plain.toWords());
+}
+
+// `raw` arguments and results cross the driver boundary as JSON, with bytes as `{ bytesB64 }` and bigints as strings.
+function fromWire(arg: RawArg): unknown {
+  if (Array.isArray(arg)) return arg.map(fromWire);
+  if (arg !== null && typeof arg === 'object') {
+    const bytes: unknown = Reflect.get(arg, 'bytesB64');
+    if (typeof bytes === 'string' && Object.keys(arg).length === 1) return b64ToU8(bytes);
+    return Object.fromEntries(Object.entries(arg).map(([key, value]) => [key, fromWire(value)]));
+  }
+  return arg;
+}
+
+function toWire(value: unknown): RawArg {
+  if (value instanceof Uint8Array) return { bytesB64: u8ToB64(value) };
+  if (typeof value === 'bigint') return value.toString();
+  if (Array.isArray(value)) return value.map(toWire);
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, toWire(entry)]));
+  }
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : null;
 }
 
 const handlers: Partial<DappHandlers> = {
@@ -647,7 +669,25 @@ const handlers: Partial<DappHandlers> = {
     const commitmentHex = fetched.commitment().toHex();
     if (commitmentHex.toLowerCase() === state.accountNotFound.toLowerCase()) return { found: false };
     return { found: true, commitmentHex, lastBlockNum: fetched.lastBlockNum() };
-  }
+  },
+
+  raw: input =>
+    outcome(async () => {
+      const injected = provider();
+      const method: unknown = Reflect.get(injected, input.call);
+      if (typeof method !== 'function') throw new HarnessCheckError(`the provider has no ${input.call}`);
+      // Refusals the adapter would stop client-side need the provider called as another account or key.
+      const self: unknown =
+        input.asAddress === undefined && input.asPublicKeyHex === undefined
+          ? injected
+          : Object.create(injected, {
+              ...(input.asAddress === undefined ? {} : { address: { value: input.asAddress } }),
+              ...(input.asPublicKeyHex === undefined
+                ? {}
+                : { publicKey: { value: Word.fromHex(input.asPublicKeyHex).serialize() } })
+            });
+      return toWire(await Reflect.apply(method, self, input.args.map(fromWire)));
+    })
 };
 
 async function call<K extends DappCommandName>(command: K, input: DappInput<K>): Promise<DappOutput<K>> {
