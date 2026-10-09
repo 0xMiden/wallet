@@ -20,7 +20,7 @@ import { NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 // ---------------------------------------------------------------------------
 // Mocks. `direct-switch` reaches the WASM SDK, the offscreen proxy, the vault
 // signer and the guardian HTTP client; every one of those is stubbed so the
-// classifier, the signer-distinctness guard, the anchor release and the
+// classifier, the signer-distinctness guard and the
 // registration retry loop can be exercised as plain logic.
 //
 // `@openzeppelin/miden-multisig-client` resolves to the manual mock adjacent to
@@ -74,11 +74,6 @@ jest.mock('../sdk/miden-client', () => {
     withWasmClientLock: <T>(fn: (hold: object) => Promise<T>, options?: unknown) => mockWithWasmClientLock(fn, options)
   };
 });
-
-const mockFreeChainAnchor = jest.fn();
-jest.mock('../sdk/chain-anchor', () => ({
-  freeChainAnchor: (...args: unknown[]) => mockFreeChainAnchor(...args)
-}));
 
 const mockProxySyncState = jest.fn(async () => {
   if (evictDuringSync) currentWasmHold = null;
@@ -330,11 +325,10 @@ beforeEach(() => {
     numSigners: 2,
     signerCommitments: ['0xhotcommitment', '0xcoldcommitment']
   });
-  mockedMultisigClient.chainAnchorToBase64.mockReturnValue('chain-anchor-b64');
-  mockedMultisigClient.executeForSummary.mockResolvedValue({
-    summary: { toCommitment: () => ({ toHex: () => '0xtxcommitment' }) },
-    anchor: { kind: 'anchor', blockNum: () => 4242 }
+  mockedMultisigClient.executeForSummaryAtTip.mockResolvedValue({
+    toCommitment: () => ({ toHex: () => '0xtxcommitment' })
   });
+  mockedMultisigClient.requestBoundBlockNum.mockReturnValue(4242);
   mockedMultisigClient.buildUpdateGuardianTransactionRequest.mockResolvedValue({
     request: { kind: 'update-guardian-request' },
     salt: { toHex: () => '0xsalt' }
@@ -458,14 +452,9 @@ describe('createDirectSwitchGuardianRequest', () => {
   const COLD_SIGNATURE = '0xd4e5f6';
   const signWord = jest.fn(async (pubkey: string) => (pubkey === 'coldpk' ? COLD_SIGNATURE : HOT_SIGNATURE));
 
-  it('builds a request carrying the summary chain anchor', async () => {
-    const { request, chainAnchorB64 } = await createDirectSwitchGuardianRequest(
-      walletAccount(),
-      'https://new.guardian.test',
-      signWord
-    );
+  it('builds the signed rebuild at the block the summary binds', async () => {
+    const { request } = await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
 
-    expect(chainAnchorB64).toBe('chain-anchor-b64');
     expect(request).toEqual({ kind: 'update-guardian-request' });
     // Rebuilt with the SAME salt as the executed-for-summary request, plus the
     // signature advice — that identity is what keeps the rebuilt request's
@@ -562,8 +551,8 @@ describe('createDirectSwitchGuardianRequest', () => {
       accountId: '0xacct-id',
       signatureScheme: 'ecdsa'
     });
-    // The auth args bind a block, so the rebuild pins the one the summary anchor
-    // names rather than taking whatever the store synced to while the vault signed.
+    // The auth args bind a block, so the rebuild pins the one the request
+    // binds rather than taking whatever the store synced to while the vault signed.
     expect(rebuild[2]).toEqual({
       accountId: '0xacct-id',
       boundBlockNum: 4242,
@@ -575,32 +564,23 @@ describe('createDirectSwitchGuardianRequest', () => {
     // and miden-client commits `hash(CONVERSION_INFO || SALT)` from it, so a salt that
     // differed between build and rebuild would change the auth arg and invalidate the
     // signatures -- the same failure mode this guards for scheme and endpoint. The
-    // faucet is no longer a caller input; it comes from the anchored block.
+    // faucet is no longer a caller input; it comes from the bound block.
     expect(rebuild[2].salt).toEqual(summaryBuild[2].salt ?? rebuild[2].salt);
-    expect(mockedMultisigClient.executeForSummary).toHaveBeenCalledWith(
+    expect(mockedMultisigClient.executeForSummaryAtTip).toHaveBeenCalledWith(
       expect.anything(),
       '0xacct-id',
       expect.anything()
     );
   });
 
-  it('releases the chain anchor through freeChainAnchor', async () => {
-    await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
-
-    expect(mockFreeChainAnchor).toHaveBeenCalledWith(expect.objectContaining({ kind: 'anchor' }));
-  });
-
-  // The anchor carries a partial blockchain, so it must not leak when the
-  // serialization after it throws — that is why the release sits in a `finally`.
-  it('still releases the chain anchor when serializing it throws', async () => {
-    mockedMultisigClient.chainAnchorToBase64.mockImplementation(() => {
-      throw new Error('anchor serialize blew up');
-    });
+  it('refuses a request that carries no multisig auth args, before executing it', async () => {
+    mockedMultisigClient.requestBoundBlockNum.mockReturnValueOnce(undefined);
 
     await expect(
       createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
-    ).rejects.toThrow('anchor serialize blew up');
-    expect(mockFreeChainAnchor).toHaveBeenCalledWith(expect.objectContaining({ kind: 'anchor' }));
+    ).rejects.toThrow('carries no multisig auth args');
+    expect(mockedMultisigClient.executeForSummaryAtTip).not.toHaveBeenCalled();
+    expect(signWord).not.toHaveBeenCalled();
   });
 
   // Hot and cold must be DISTINCT on-chain signers (index 0 and index 1). If they
@@ -868,17 +848,18 @@ describe('createDirectSwitchGuardianRequest', () => {
           evictCurrentHold();
           return { request: { kind: 'update-guardian-request' }, salt: { toHex: () => '0xsalt' } };
         });
-        return mockedMultisigClient.executeForSummary;
+        return mockedMultisigClient.executeForSummaryAtTip;
       }
     ],
     [
       'the summary execution',
       () => {
-        mockedMultisigClient.executeForSummary.mockImplementationOnce(async () => {
+        const toCommitment = jest.fn(() => ({ toHex: () => '0xtxcommitment' }));
+        mockedMultisigClient.executeForSummaryAtTip.mockImplementationOnce(async () => {
           evictCurrentHold();
-          return { summary: { toCommitment: () => ({ toHex: () => '0xtxcommitment' }) }, anchor: { kind: 'anchor' } };
+          return { toCommitment };
         });
-        return mockedMultisigClient.chainAnchorToBase64;
+        return toCommitment;
       }
     ]
   ])('stops at an eviction during %s, before the next WASM call', async (_label, evictDuring) => {
@@ -892,20 +873,7 @@ describe('createDirectSwitchGuardianRequest', () => {
 
     expect(error).toBeInstanceOf(WasmClientPoisonedError);
     expect(nextCall).not.toHaveBeenCalled();
-    expect(mockedMultisigClient.chainAnchorToBase64).not.toHaveBeenCalled();
     expect(signWord).not.toHaveBeenCalled();
-  });
-
-  it('still releases the chain anchor when evicted during the summary execution', async () => {
-    mockedMultisigClient.executeForSummary.mockImplementationOnce(async () => {
-      evictCurrentHold();
-      return { summary: { toCommitment: () => ({ toHex: () => '0xtxcommitment' }) }, anchor: { kind: 'anchor' } };
-    });
-
-    await expect(
-      createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord)
-    ).rejects.toBeInstanceOf(WasmClientPoisonedError);
-    expect(mockFreeChainAnchor).toHaveBeenCalledWith({ kind: 'anchor' });
   });
 
   it('stops at an eviction during the client build for the signed rebuild', async () => {

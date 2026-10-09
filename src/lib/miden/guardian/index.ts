@@ -6,8 +6,8 @@ import {
   MultisigClient,
   GuardianHttpClient,
   buildUpdateSignersTransactionRequest,
-  chainAnchorToBase64,
-  executeForSummary,
+  executeForSummaryAtTip,
+  requestBoundBlockNum,
   type ProposalMetadata,
   type TransactionProposal,
   type Proposal
@@ -33,7 +33,6 @@ import { registerGuardianOrigin, withGuardianProbe } from './native-http';
 import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { freeChainAnchor } from '../sdk/chain-anchor';
 import { accountRefToSdk, feeAwareRequestBuilder, randomFeeSalt } from '../sdk/helpers';
 import {
   assertWasmHoldCurrent,
@@ -851,7 +850,7 @@ export class MultisigService {
     // After the sync on purpose: the adopt refreshes the loaded config from the adopted account.
     const targetThreshold = this.multisig.threshold;
 
-    const { summaryBase64, saltHex, chainAnchor } = await withWasmClientLock(
+    const { summaryBase64, saltHex, boundBlockNum } = await withWasmClientLock(
       async hold => {
         const webClient = (await getMidenClient()).client;
         // An eviction ABANDONS this callback rather than cancelling it, so every
@@ -870,35 +869,24 @@ export class MultisigService {
           // multisig auth args are committed for. That account id is what selects the
           // fee-aware builder: without it the request carries no fee conversion info
           // and `fee::pay_fee` aborts with ERR_FEE_CONVERSION_INFO_MISSING. The bound
-          // block defaults to the sync height, the block the summary anchor below
-          // names and a rebuild pins.
+          // block defaults to the sync height; the proposal records it as
+          // `boundBlockNum` and a rebuild pins it.
           {
             accountId: this.accountId,
             signatureScheme: 'ecdsa'
           }
         );
         assertWasmHoldCurrent(hold, 'replace-hot-key: after the update-signers request build');
-        // The anchor names the block the auth args bind. Re-execution at a later
-        // tip reproduces the summary when the request declares that bound block.
-        const { summary, anchor } = await executeForSummary(webClient, this.accountId, request);
-        // The live anchor's only job is to be serialized onto the proposal; once
-        // the wire form exists, release the WASM object (it holds a partial
-        // blockchain) instead of leaving it to the finalizer - the same
-        // serialize-then-free every multisig-client proposal creator does (#784).
-        try {
-          // Inside the try on purpose: summary/salt/anchor are borrows of the
-          // client's RefCell, so touching them past an eviction IS the double
-          // borrow - but the anchor release must still run on this throw
-          // (freeChainAnchor swallows a disposed-object failure).
-          assertWasmHoldCurrent(hold, 'replace-hot-key: after the summary execution');
-          return {
-            summaryBase64: u8ToB64(summary.serialize()),
-            saltHex: salt.toHex(),
-            chainAnchor: chainAnchorToBase64(anchor)
-          };
-        } finally {
-          freeChainAnchor(anchor);
-        }
+        const boundBlockNum = requestBoundBlockNum(request);
+        const summary = await executeForSummaryAtTip(webClient, this.accountId, request);
+        // `summary` and `salt` are borrows of the client's RefCell, so touching them
+        // past an eviction IS the double borrow.
+        assertWasmHoldCurrent(hold, 'replace-hot-key: after the summary execution');
+        return {
+          summaryBase64: u8ToB64(summary.serialize()),
+          saltHex: salt.toHex(),
+          boundBlockNum
+        };
       },
       { label: 'replace-hot-key-build' }
     );
@@ -907,7 +895,7 @@ export class MultisigService {
       targetThreshold,
       targetSignerCommitments,
       saltHex,
-      chainAnchor,
+      boundBlockNum,
       requiredSignatures: this.multisig.getEffectiveThreshold('add_signer'),
       description: 'Replace device (hot) signer'
     };

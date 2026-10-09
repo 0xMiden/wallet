@@ -8,12 +8,12 @@
 
 import type { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 
-export const requestBoundBlockNum = (request: TransactionRequest): number | undefined => {
+export const requestBoundBlockNum = jest.fn((request: TransactionRequest): number | undefined => {
   const authArg = request.authArg();
   if (!authArg) return undefined;
   const preimage = request.adviceMap().get(authArg);
   return preimage?.length === 12 ? Number(preimage[0].asInt()) : undefined;
-};
+});
 
 export class BoundBlockNotDeclaredError extends Error {
   readonly code = 'bound_block_not_declared';
@@ -113,20 +113,10 @@ export const buildUpdateSignersTransactionRequest = jest.fn(async () => ({
   request: { kind: 'update-signers-request' },
   salt: { toHex: () => 'salt-hex' }
 }));
-// 0.17 shape: { summary, anchor } — the summary binds the anchored reference
-// block (protocol 0.16), and the anchor ships alongside for anchored execution.
-export const executeForSummary = jest.fn(async () => ({
-  summary: {
-    serialize: () => new Uint8Array([0xab]),
-    toCommitment: () => ({ toHex: () => '0xsummary-commitment' })
-  },
-  anchor: { free: jest.fn(), commitment: () => ({ toHex: () => '0xanchor-commitment' }) }
-}));
-
-export const chainAnchorToBase64 = jest.fn(() => 'chain-anchor-b64');
-export const chainAnchorFromBase64 = jest.fn(() => ({
-  free: jest.fn(),
-  commitment: () => ({ toHex: () => '0xanchor-commitment' })
+// Tip summary used by createReplaceHotKeyProposal and the direct switch.
+export const executeForSummaryAtTip = jest.fn(async () => ({
+  serialize: () => new Uint8Array([0xab]),
+  toCommitment: () => ({ toHex: () => '0xsummary-commitment' })
 }));
 
 // Update-guardian builder used by the direct-switch fallback.

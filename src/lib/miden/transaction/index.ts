@@ -2748,13 +2748,12 @@ const generateDirectSwitchGuardianTransaction = async (
   // contacted at all, and the reason this path is running is that the outgoing
   // one could not be reached.
   await setTransactionStage(transaction.id, 'signing-locally');
-  const { request: tr, chainAnchorB64 } = await createDirectSwitchGuardianRequest(
+  const { request: tr } = await createDirectSwitchGuardianRequest(
     walletAccount,
     transaction.extraInputs.newGuardianEndpoint,
     guardianProvider.signWord
   );
 
-  // Keep the anchor transport slot for compatibility; final multisig execution uses the tip.
   await setTransactionStage(transaction.id, 'sending');
   const attempt = attemptContextOf(transaction);
   let result: TransactionResult;
@@ -2767,8 +2766,7 @@ const generateDirectSwitchGuardianTransaction = async (
         requestBytes,
         transaction.delegateTransaction,
         signCallback,
-        stageStampFor(transaction.id, attempt),
-        chainAnchorB64
+        stageStampFor(transaction.id, attempt)
       )
     );
   } else {
@@ -2776,8 +2774,7 @@ const generateDirectSwitchGuardianTransaction = async (
       transaction.accountId,
       tr,
       transaction.delegateTransaction,
-      stageStampFor(transaction.id, attempt),
-      chainAnchorB64
+      stageStampFor(transaction.id, attempt)
     );
   }
 

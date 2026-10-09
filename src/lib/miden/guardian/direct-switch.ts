@@ -12,8 +12,8 @@ import {
   AccountInspector,
   GuardianHttpClient,
   buildUpdateGuardianTransactionRequest,
-  chainAnchorToBase64,
-  executeForSummary,
+  executeForSummaryAtTip,
+  requestBoundBlockNum,
   isLikelyNetworkError
 } from '@openzeppelin/miden-multisig-client';
 
@@ -31,7 +31,6 @@ import { GUARDIAN_RETRY_MAX_ATTEMPTS, guardianRegisterBackoffMs, NEW_GUARDIAN_PU
 import { WalletSigner, type SignWordFunction } from './signer';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import type { GuardianAccountProvider } from '../front/guardian-manager';
-import { freeChainAnchor } from '../sdk/chain-anchor';
 import { accountRefToSdk, sameWalletAccountId } from '../sdk/helpers';
 import {
   assertWasmHoldCurrent,
@@ -63,7 +62,7 @@ import { syncBeforeVerdict } from '../sync-lock';
  * piece @openzeppelin/miden-multisig-client does not export — see
  * `buildSignatureAdviceEntry` in its `utils/signature.ts`); the transaction
  * build and summary execution reuse the SDK's public
- * `buildUpdateGuardianTransactionRequest` / `executeForSummary`. If upstream
+ * `buildUpdateGuardianTransactionRequest` / `executeForSummaryAtTip`. If upstream
  * ever exports the advice helper, the local copy below should be replaced.
  */
 
@@ -295,7 +294,7 @@ export const createDirectSwitchGuardianRequest = async (
   walletAccount: WalletAccount,
   newGuardianEndpoint: string,
   signWord: SignWordFunction
-): Promise<{ request: TransactionRequest; chainAnchorB64: string }> => {
+): Promise<{ request: TransactionRequest }> => {
   const { hotPublicKey, coldPublicKey } = walletAccount;
   if (!hotPublicKey || !coldPublicKey) {
     throw new Error(
@@ -362,7 +361,7 @@ export const createDirectSwitchGuardianRequest = async (
   // Sync + account read + build + summary all use THIS realm's client — not
   // `midenClientProxy`, which on Chrome dispatches to the offscreen realm. A
   // proxy sync freshens the offscreen client while the local client that
-  // `buildUpdateGuardianTransactionRequest`/`executeForSummary` run on stays
+  // `buildUpdateGuardianTransactionRequest`/`executeForSummaryAtTip` run on stays
   // dormant, so the hot/cold signatures would bind a summary derived from
   // stale state and execution would fail as unauthorized -
   // precisely in the dead-old-guardian recovery this path exists for.
@@ -387,35 +386,31 @@ export const createDirectSwitchGuardianRequest = async (
     assertWasmHoldCurrent(hold, 'direct-request: after the signer reads');
     const webClient = midenClient.client;
     // `accountId` is what the builder commits the multisig auth args for; left
-    // unset, `boundBlockNum` binds the sync height, which is the block the
-    // summary's anchor below names.
+    // unset, `boundBlockNum` binds the sync height, which the signed rebuild
+    // below pins.
     const { request, salt } = await buildUpdateGuardianTransactionRequest(webClient, newGuardianPubkey, {
       accountId: accountIdHex,
       signatureScheme: 'ecdsa'
     });
     assertWasmHoldCurrent(hold, 'direct-request: after the request build');
-    const { summary, anchor } = await executeForSummary(webClient, accountIdHex, request);
-    // `freeChainAnchor` in a `finally`, like every other anchor site (#784): the
-    // anchor carries a partial blockchain, so it must not leak if the
-    // serialization below throws, and wasm-bindgen's `free()` has no
-    // null-pointer guard — on a disposed module it throws, and a bare `free()`
-    // in this position would surface that instead of the successful build.
-    try {
-      // Inside the try, as in index.ts's replace-hot-key build, so an eviction
-      // still releases the anchor (`freeChainAnchor` swallows a disposed-object failure).
-      assertWasmHoldCurrent(hold, 'direct-request: after the summary execution');
-      return {
-        hotCommitment,
-        coldCommitment,
-        accountIdHex,
-        boundBlockNum: anchor.blockNum(),
-        saltHex: salt.toHex(),
-        txCommitmentHex: summary.toCommitment().toHex(),
-        chainAnchorB64: chainAnchorToBase64(anchor)
-      };
-    } finally {
-      freeChainAnchor(anchor);
+    const boundBlockNum = requestBoundBlockNum(request);
+    if (boundBlockNum === undefined) {
+      throw new Error(
+        `Guardian account ${walletAccount.publicKey}: the update-guardian request carries no multisig auth args`
+      );
     }
+    const summary = await executeForSummaryAtTip(webClient, accountIdHex, request);
+    // `summary` and `salt` are borrows of the client's RefCell, so touching them
+    // past an eviction IS the double borrow.
+    assertWasmHoldCurrent(hold, 'direct-request: after the summary execution');
+    return {
+      hotCommitment,
+      coldCommitment,
+      accountIdHex,
+      boundBlockNum,
+      saltHex: salt.toHex(),
+      txCommitmentHex: summary.toCommitment().toHex()
+    };
   });
 
   // Hot and cold must be DISTINCT on-chain signers: if index 0 and index 1 ever
@@ -504,7 +499,7 @@ export const createDirectSwitchGuardianRequest = async (
     });
     return rebuilt;
   });
-  return { request, chainAnchorB64: built.chainAnchorB64 };
+  return { request };
 };
 
 /**

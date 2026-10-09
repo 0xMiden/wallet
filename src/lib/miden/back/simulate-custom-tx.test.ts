@@ -1,4 +1,4 @@
-import { executeForSummary, executeForSummaryAtTip } from '@openzeppelin/miden-multisig-client';
+import { executeForSummaryAtTip } from '@openzeppelin/miden-multisig-client';
 
 import { importedNoteIds, quarantineNoteIds } from 'lib/miden/note-quarantine';
 import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
@@ -55,12 +55,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   TransactionRequest: { deserialize: jest.fn((bytes: Uint8Array) => ({ __req: bytes })) }
 }));
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
-  executeForSummaryAtTip: jest.fn(async () => ({ serialize: () => new Uint8Array([1, 2, 3]) })),
-  // What the anchor-capturing variant does to a dApp request built at an earlier block: the
-  // preview must not reach it.
-  executeForSummary: jest.fn(async () => {
-    throw new Error('SummaryAnchorMismatchError: the transaction summary binds block commitment 0x01');
-  })
+  executeForSummaryAtTip: jest.fn(async () => ({ serialize: () => new Uint8Array([1, 2, 3]) }))
 }));
 jest.mock('lib/shared/helpers', () => ({
   b64ToU8: jest.fn((s: string) => new Uint8Array([s.length])),
@@ -97,13 +92,11 @@ describe('simulateCustomTransaction', () => {
     expect(res).toEqual({ error: 'summary serialize failed' });
   });
 
-  // A dApp builds the request on its own client, so its auth args bind that client's height,
-  // and the sync above moves the wallet past it. The anchor-capturing `executeForSummary`
-  // refuses exactly that, which every Guardian account's preview hit; the tip summary does not.
+  // A dApp builds the request on its own client, so its auth args bind that client's height, and the sync above moves the wallet past it; the tip summary reproduces it.
   it('previews a request bound to an older block through the tip summary', async () => {
     const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
 
-    expect(executeForSummary).not.toHaveBeenCalled();
+    expect(executeForSummaryAtTip).toHaveBeenCalledTimes(1);
     expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3' });
   });
 
