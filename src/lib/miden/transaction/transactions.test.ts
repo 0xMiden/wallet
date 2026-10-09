@@ -2230,6 +2230,37 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     expect(tx11.status).toBe(ITransactionStatus.Failed);
     expect(tx11.nextEligibleAt).toBeUndefined();
     expect(tx11.error).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+
+    // ---- Phases 12-15: a kill that may still be running is never deferred, wrapped or mixed ----
+    // A terminated client next to an eviction is still an eviction, and next to an indefinite outcome
+    // the submit was reached, so only a chain whose one kill is a terminated client is deferred.
+    const indefiniteOutcome =
+      `submission of transaction 0x${'ab'.repeat(32)} came back without a definite outcome, ` +
+      'so the node may or may not have accepted it; nothing was recorded locally';
+    const neverDeferred: Array<[string, Error]> = [
+      ['tx-12', new Error('sync failed', { cause: new WasmClientPoisonedError('watchdog') })],
+      ['tx-13', new Error('WebClient terminated', { cause: new WasmClientPoisonedError('watchdog') })],
+      ['tx-14', new WasmClientPoisonedError('realm-error', new Error('WebClient terminated'))],
+      ['tx-15', new Error(indefiniteOutcome, { cause: new Error('Client terminated') })]
+    ];
+    for (const [id, syncError] of neverDeferred) {
+      mockSyncState.mockRejectedValueOnce(syncError);
+      txStore.push({
+        id,
+        type: 'send',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Queued,
+        initiatedAt: Date.now(),
+        displayIcon: 'DEFAULT',
+        displayMessage: 'Sending',
+        requestBytes: undefined
+      });
+
+      expect(await generateTransactionsLoop(signCallback, false, guardianProvider)).toBe(false);
+      const row = txStore.find(t => t.id === id);
+      expect({ id, status: row.status }).toEqual({ id, status: ITransactionStatus.Failed });
+      expect(row.nextEligibleAt).toBeUndefined();
+    }
   });
 });
 

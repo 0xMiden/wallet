@@ -171,20 +171,26 @@ export function isPipelineKillLink(value: unknown): boolean {
 }
 
 /**
- * A killed pipeline anywhere in `err`'s cause chain: a lock-recovery eviction
- * (`WasmClientPoisonedError`), an offscreen deadline kill
- * (`OperationAbortedError`) or a call on a terminated SDK client
- * ({@link isClientTerminatedError}). Each means the operation was stopped from
- * outside with its outcome unknown, and an eviction or an abort may still be
- * running, so a caller wrapping one does not make it any less a kill (#1313).
+ * The kills that may still be running after their caller rejects, anywhere in `err`'s cause chain: a lock-recovery
+ * eviction (`WasmClientPoisonedError`) or an offscreen deadline kill (`OperationAbortedError`). A terminated client is
+ * a kill too, but not one of these: the SDK refused the call or stopped the worker running it, so nothing of it runs
+ * on. A chain that holds one of these is a running kill whatever else it holds, a terminated client included.
+ */
+export function isRunningPipelineKill(err: unknown): boolean {
+  return someInCauseChain(err, link => isWasmClientPoisonedError(link) || isOperationAbortedError(link));
+}
+
+/**
+ * A killed pipeline anywhere in `err`'s cause chain: a running kill ({@link isRunningPipelineKill}) or a call on a
+ * terminated SDK client ({@link isClientTerminatedError}). Each means the operation was stopped from outside with its
+ * outcome unknown, so a caller wrapping one does not make it any less a kill (#1313).
  *
  * The landed shape stays landed: a terminated client under an apply-after-submit
  * error failed the local apply after the node took the write.
  */
 export function isKilledPipeline(err: unknown): boolean {
   return (
-    someInCauseChain(err, link => isWasmClientPoisonedError(link) || isOperationAbortedError(link)) ||
-    (someInCauseChain(err, isClientTerminatedError) && !isApplyAfterSubmitError(err))
+    isRunningPipelineKill(err) || (someInCauseChain(err, isClientTerminatedError) && !isApplyAfterSubmitError(err))
   );
 }
 
@@ -307,6 +313,14 @@ const INDEFINITE_TRANSACTION_ID = /submission of transaction (0x[0-9a-f]{64})/i;
  */
 export function isIndefiniteSubmitOutcomeError(err: unknown): boolean {
   if (isKilledPipeline(err)) return false;
+  return carriesIndefiniteSubmitOutcome(err);
+}
+
+/**
+ * The indefinite outcome's text in any message part of `err`, kill or not: the submit call was reached even where a
+ * kill in the chain keeps {@link isIndefiniteSubmitOutcomeError} from naming the outcome.
+ */
+export function carriesIndefiniteSubmitOutcome(err: unknown): boolean {
   return errorMessageParts(err).some(part => INDEFINITE_OUTCOME.test(part));
 }
 
