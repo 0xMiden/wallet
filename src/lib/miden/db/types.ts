@@ -138,6 +138,21 @@ export interface IConsumedAssetTotal {
   amount: bigint;
 }
 
+/**
+ * The CCTP leg of a USDCx deposit from a chain with no xReserve (Base, Arbitrum): the burn on the source
+ * chain mints to Circle's executor on Arc, which deposits into Arc's xReserve. Circle's forwarder does not
+ * execute such messages yet, so the wallet keeps the attested message until the user executes it on Arc.
+ */
+export interface IUsdcxCctpLeg {
+  /** Circle's domain of the source chain, the key of its Iris messages. */
+  sourceDomain: number;
+  /** The attested CCTP message and Circle's signature, kept once Iris reports them. */
+  message?: string;
+  attestation?: string;
+  /** The Arc transaction that executed the message, which is the xReserve deposit Circle attests. */
+  executeTxHash?: string;
+}
+
 /** Metadata persisted on a tracking-only EVM → Miden bridge row. */
 export interface IBridgedReceiveExtraInputs {
   provider: IBridgeProvider;
@@ -158,6 +173,8 @@ export interface IBridgedReceiveExtraInputs {
   evmTxHash?: string;
   intentNonce?: string;
   midenNoteId?: string;
+  /** usdcx: the CCTP leg of an executor-route deposit; absent on a direct xReserve deposit. */
+  cctp?: IUsdcxCctpLeg;
   error?: string;
 }
 

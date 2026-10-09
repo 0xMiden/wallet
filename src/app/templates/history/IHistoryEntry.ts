@@ -2,6 +2,7 @@ import {
   IBridgeClaimStatus,
   IBridgeProvider,
   IBridgedReceivePhase,
+  IUsdcxCctpLeg,
   IEarnDepositExtraInputs,
   IEarnWithdrawPhase,
   INoteDeliveryState,
@@ -187,6 +188,8 @@ export interface IHistoryEntry {
   bridgeInSourceSymbol?: string;
   bridgeInEvmTxHash?: string;
   bridgeInPhase?: IBridgedReceivePhase;
+  /** usdcx: the CCTP leg of an executor-route deposit, which Activity lets the user execute on Arc. */
+  bridgeInCctp?: IUsdcxCctpLeg;
   bridgeInOutputAmount?: string;
   bridgeInOutputSymbol?: string;
   bridgeInMidenNoteId?: string;

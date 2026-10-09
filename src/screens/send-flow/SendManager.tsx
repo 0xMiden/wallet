@@ -33,7 +33,15 @@ import {
 
 import { AccountsListDrawer } from './AccountsList';
 import { AddContactDrawer } from './AddContactDrawer';
-import { BRIDGE_NETWORKS, BridgeNetworkId, SendNetworkId, USDCX_BRIDGE_NETWORK } from './bridge-networks';
+import {
+  BRIDGE_NETWORKS,
+  BridgeNetworkId,
+  DEFAULT_BRIDGE_NETWORK,
+  DEFAULT_USDCX_BRIDGE_NETWORK,
+  isUsdcxBridgeNetwork,
+  SendNetworkId,
+  USDCX_BRIDGE_NETWORKS
+} from './bridge-networks';
 import { ScanQrDrawer } from './ScanQrDrawer';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
@@ -764,10 +772,14 @@ export const SendManager: React.FC<SendManagerProps> = ({
     [onAction]
   );
 
-  // Each token currently has one destination: USDCx uses Arc, other routes use Sepolia.
+  // USDCx pays out on any of its destination chains, pre-selecting the default; other routes use Sepolia.
   useEffect(() => {
-    const only = usdcxAvailable ? USDCX_BRIDGE_NETWORK : BRIDGE_NETWORKS.find(n => n.id === 'sepolia');
-    if (only && isBridge && isValidRecipient && bridgeNetwork !== only.id) onSelectNetwork(only.id);
+    if (!isBridge || !isValidRecipient) return;
+    if (usdcxAvailable) {
+      if (!isUsdcxBridgeNetwork(bridgeNetwork)) onSelectNetwork(DEFAULT_USDCX_BRIDGE_NETWORK.id);
+      return;
+    }
+    if (bridgeNetwork !== DEFAULT_BRIDGE_NETWORK.id) onSelectNetwork(DEFAULT_BRIDGE_NETWORK.id);
   }, [isBridge, isValidRecipient, bridgeNetwork, onSelectNetwork, usdcxAvailable]);
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
@@ -842,7 +854,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         case SendFlowStep.SelectRecipient:
           return (
             <SelectRecipient
-              networks={usdcxAvailable ? [USDCX_BRIDGE_NETWORK] : BRIDGE_NETWORKS.filter(n => n.id === 'sepolia')}
+              networks={usdcxAvailable ? USDCX_BRIDGE_NETWORKS : [DEFAULT_BRIDGE_NETWORK]}
               address={recipientAddress || ''}
               isValidAddress={isValidRecipient}
               error={errors.recipientAddress?.message?.toString()}

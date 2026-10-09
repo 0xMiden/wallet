@@ -4,11 +4,10 @@ import { updateBridgedReceivePhase } from 'lib/miden/activity';
 
 import {
   CIRCLE_USDC_DECIMALS,
-  getUsdcxContracts,
+  getUsdcxXReserveSource,
   USDCX_DEPOSIT_HOOK_DATA,
   USDCX_DEPOSIT_MAX_FEE,
-  USDCX_REMOTE_DOMAIN,
-  USDCX_CHAIN
+  USDCX_REMOTE_DOMAIN
 } from './constant';
 
 /** The argument tuple of xReserve `depositToRemote`. */
@@ -21,13 +20,15 @@ export type DepositToRemoteArgs = readonly [
   hookData: Hex
 ];
 
-/** Signs and broadcasts the two Arc transactions. The screen supplies the native or wagmi flavour. */
+/** Signs and broadcasts the two source-chain transactions. The screen supplies the native or wagmi flavour. */
 export interface UsdcxSigner {
   approve(spender: Address, value: bigint): Promise<Hash>;
   depositToRemote(args: DepositToRemoteArgs): Promise<Hash>;
 }
 
 export interface UsdcxDepositDeps {
+  /** The EVM chain the deposit is made on; it must be a `USDCX_SOURCE_CHAINS` entry with a local xReserve. */
+  sourceChainId: number;
   signer: UsdcxSigner;
   isRemoteDomainRegistered(remoteDomain: number): Promise<boolean>;
   /** The USDC allowance the depositing account gave `spender`, in base units. */
@@ -51,13 +52,17 @@ export function isUsdcxDomainNotRegisteredError(error: unknown): error is UsdcxD
   return error instanceof UsdcxDomainNotRegisteredError;
 }
 
-/** Build the `depositToRemote` arguments for a human USDC amount and an encoded recipient. */
-export function buildDepositToRemoteArgs(amount: string, remoteRecipient: Hex): DepositToRemoteArgs {
+/** Build the `depositToRemote` arguments for a human USDC amount, an encoded recipient and a source chain. */
+export function buildDepositToRemoteArgs(
+  amount: string,
+  remoteRecipient: Hex,
+  sourceChainId: number
+): DepositToRemoteArgs {
   return [
     parseUnits(amount.trim(), CIRCLE_USDC_DECIMALS),
     USDCX_REMOTE_DOMAIN,
     remoteRecipient,
-    getUsdcxContracts(USDCX_CHAIN.id).usdc,
+    getUsdcxXReserveSource(sourceChainId).usdc,
     USDCX_DEPOSIT_MAX_FEE,
     USDCX_DEPOSIT_HOOK_DATA
   ];
@@ -81,9 +86,9 @@ export async function runUsdcxDeposit(
   trackingTxId: string,
   amount: string,
   remoteRecipient: Hex,
-  { signer, isRemoteDomainRegistered, readAllowance, waitForReceipt, updatePhase }: UsdcxDepositDeps
+  { sourceChainId, signer, isRemoteDomainRegistered, readAllowance, waitForReceipt, updatePhase }: UsdcxDepositDeps
 ): Promise<Hash> {
-  const args = buildDepositToRemoteArgs(amount, remoteRecipient);
+  const args = buildDepositToRemoteArgs(amount, remoteRecipient, sourceChainId);
   const [value, remoteDomain] = args;
 
   if (!(await isRemoteDomainRegistered(remoteDomain))) {
@@ -92,7 +97,7 @@ export async function runUsdcxDeposit(
 
   // An allowance that covers the deposit needs no approval: no second prompt, gas or receipt,
   // and `approve` would replace a larger allowance with this amount.
-  const { xReserve } = getUsdcxContracts(USDCX_CHAIN.id);
+  const { xReserve } = getUsdcxXReserveSource(sourceChainId);
   if ((await readAllowance(xReserve)) < value) {
     const approvalHash = await signer.approve(xReserve, value);
     await waitForReceipt(approvalHash);

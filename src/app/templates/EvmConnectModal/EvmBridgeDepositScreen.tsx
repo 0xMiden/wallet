@@ -43,16 +43,25 @@ import {
   ERC20_ALLOWANCE_ABI,
   ERC20_APPROVE_ABI,
   ERC20_BALANCE_OF_ABI,
-  getUsdcxContracts,
-  USDCX_CHAIN,
+  DEFAULT_USDCX_SOURCE_CHAIN_ID,
+  getUsdcxSourceChain,
+  listUsdcxSourceChains,
+  TOKEN_MESSENGER_V2_ABI,
   USDCX_DECIMALS,
+  type UsdcxSourceChain,
   USDCX_SYMBOL,
   XRESERVE_ABI
 } from 'lib/usdcx/constant';
 import { isUsdcxDomainNotRegisteredError, runUsdcxDeposit, UsdcxSigner } from 'lib/usdcx/deposit';
+import {
+  isUsdcxExecutorDomainNotRegisteredError,
+  runUsdcxExecutorDeposit,
+  UsdcxExecutorSigner
+} from 'lib/usdcx/executor';
 import { midenAccountHexToXReserveRecipient } from 'lib/usdcx/recipient';
 import { isUsdcxDepositAvailable } from 'lib/usdcx/use-bridge-in-availability';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
+import { readNativeFeeFields } from 'lib/walletconnect/fees';
 import { isNativeReownAvailable, NativeReown, unwrapNativeResult } from 'lib/walletconnect/native';
 import {
   EvmTransactionRevertedError,
@@ -60,13 +69,14 @@ import {
   waitForEvmReceipt,
   waitForSepoliaReceipt
 } from 'lib/walletconnect/receipt';
-import { DEFAULT_BRIDGE_NETWORK, USDCX_BRIDGE_NETWORK } from 'screens/send-flow/bridge-networks';
+import { BridgeNetwork, DEFAULT_BRIDGE_NETWORK, getBridgeNetworkByChainId } from 'screens/send-flow/bridge-networks';
 import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UIToken } from 'screens/send-flow/types';
 
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
 import { arrivingTokenName, EvmBridgeDepositReview } from './EvmBridgeDepositReview';
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
+import { EvmBridgeNetworkDrawer } from './EvmBridgeNetworkDrawer';
 import { EvmBridgeTokenDrawer, type DepositToken } from './EvmBridgeTokenDrawer';
 import { EvmBridgeUsdcxRoute } from './EvmBridgeUsdcxRoute';
 import { EvmSwitchWalletDrawer } from './EvmSwitchWalletDrawer';
@@ -76,7 +86,12 @@ import { useDepositToken } from './useDepositToken';
 // Also the symbol the AggLayer bridge-in matcher requires on a native deposit's tracker.
 const ETH_SYMBOL = AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL;
 const ETH_DECIMALS = 18;
-const { usdc: circleUsdcAddress, xReserve: xReserveAddress } = getUsdcxContracts(USDCX_CHAIN.id);
+// The source chains a USDCx deposit can start from on this network family, as the network drawer lists them.
+// Every read, signer call and receipt wait below takes its chain from the chosen `UsdcxSourceChain` entry.
+const USDCX_SOURCE_NETWORKS: readonly BridgeNetwork[] = listUsdcxSourceChains(true).flatMap(entry => {
+  const network = getBridgeNetworkByChainId(entry.chain.id);
+  return network ? [network] : [];
+});
 
 const MOCK_USDC_GET_BALANCE_ABI = [
   {
@@ -140,8 +155,8 @@ function formatBalance(value: bigint, decimals: number): string {
   return fraction ? `${whole}.${fraction}` : whole;
 }
 
-/** Read Arc USDC through its 6-decimal ERC-20 interface. */
-async function readCircleUsdcBalance(evmAddress: string): Promise<bigint> {
+/** Read the source chain's USDC through its 6-decimal ERC-20 interface. */
+async function readCircleUsdcBalance(evmAddress: string, source: UsdcxSourceChain): Promise<bigint> {
   if (!isAddress(evmAddress)) {
     throw new Error(`Invalid EVM address: ${evmAddress}`);
   }
@@ -150,15 +165,19 @@ async function readCircleUsdcBalance(evmAddress: string): Promise<bigint> {
     functionName: 'balanceOf',
     args: [evmAddress]
   });
-  const result = await rpcRequest('eth_call', [{ to: circleUsdcAddress, data }, 'latest'], USDCX_CHAIN.id);
+  const result = await rpcRequest('eth_call', [{ to: source.usdc, data }, 'latest'], source.chain.id);
   if (!isHex(result)) {
     throw new Error('USDC balanceOf returned no data');
   }
   return decodeFunctionResult({ abi: ERC20_BALANCE_OF_ABI, functionName: 'balanceOf', data: result });
 }
 
-/** The Arc USDC allowance `evmAddress` gave `spender`, in base units. */
-async function readCircleUsdcAllowance(evmAddress: string, spender: `0x${string}`): Promise<bigint> {
+/** The source chain's USDC allowance `evmAddress` gave `spender`, in base units. */
+async function readCircleUsdcAllowance(
+  evmAddress: string,
+  spender: `0x${string}`,
+  source: UsdcxSourceChain
+): Promise<bigint> {
   if (!isAddress(evmAddress)) {
     throw new Error(`Invalid EVM address: ${evmAddress}`);
   }
@@ -167,21 +186,28 @@ async function readCircleUsdcAllowance(evmAddress: string, spender: `0x${string}
     functionName: 'allowance',
     args: [evmAddress, spender]
   });
-  const result = await rpcRequest('eth_call', [{ to: circleUsdcAddress, data }, 'latest'], USDCX_CHAIN.id);
+  const result = await rpcRequest('eth_call', [{ to: source.usdc, data }, 'latest'], source.chain.id);
   if (!isHex(result)) {
     throw new Error('USDC allowance returned no data');
   }
   return decodeFunctionResult({ abi: ERC20_ALLOWANCE_ABI, functionName: 'allowance', data: result });
 }
 
-/** Whether Circle registered `remoteDomain` on Arc xReserve. A deposit to an unregistered domain reverts. */
-async function readRemoteDomainRegistered(remoteDomain: number): Promise<boolean> {
+/**
+ * Whether Circle registered `remoteDomain` on the xReserve the deposit lands in: the source chain's own, or
+ * Arc's on the executor route. A deposit to an unregistered domain reverts.
+ */
+async function readRemoteDomainRegistered(
+  remoteDomain: number,
+  xReserve: `0x${string}`,
+  chainId: number
+): Promise<boolean> {
   const data = encodeFunctionData({
     abi: XRESERVE_ABI,
     functionName: 'isRemoteDomainRegistered',
     args: [remoteDomain]
   });
-  const result = await rpcRequest('eth_call', [{ to: xReserveAddress, data }, 'latest'], USDCX_CHAIN.id);
+  const result = await rpcRequest('eth_call', [{ to: xReserve, data }, 'latest'], chainId);
   if (!isHex(result)) {
     throw new Error('xReserve isRemoteDomainRegistered returned no data');
   }
@@ -307,8 +333,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, [resetEpoch]);
   const { token, selectToken } = useDepositToken(clearTokenState);
   const [tokenDrawerOpen, setTokenDrawerOpen] = useState(false);
+  const [networkDrawerOpen, setNetworkDrawerOpen] = useState(false);
   const [switchDrawerOpen, setSwitchDrawerOpen] = useState(false);
   const [route, setRoute] = useState<BridgeRoute>('epoch');
+  // The chain a USDCx deposit starts from, picked in the network drawer; the default until then.
+  const [usdcxSourceChainId, setUsdcxSourceChainId] = useState(DEFAULT_USDCX_SOURCE_CHAIN_ID);
+  const usdcxSource = useMemo(() => getUsdcxSourceChain(usdcxSourceChainId), [usdcxSourceChainId]);
+  const usdcxBridgeNetwork = getBridgeNetworkByChainId(usdcxSource.chain.id) ?? DEFAULT_BRIDGE_NETWORK;
   const [amount, setAmount] = useState('');
   const [usdcBalance, setUsdcBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
   const [circleUsdcBalance, setCircleUsdcBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
@@ -430,13 +461,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     };
   }, [evmAddress, evmUsdc, usdcPending]);
 
-  // Circle's USDC on Arc, the token xReserve takes; the config's Fast USDC pair is not it.
+  // Circle's USDC on the source chain, the token xReserve takes; the config's Fast USDC pair is not it.
   useEffect(() => {
     setCircleUsdcBalance(EMPTY_BALANCE);
     if (!usdcxAvailable) return;
     let cancelled = false;
 
-    readCircleUsdcBalance(evmAddress)
+    readCircleUsdcBalance(evmAddress, usdcxSource)
       .then(value => {
         if (cancelled) return;
         setCircleUsdcBalance({
@@ -454,7 +485,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [evmAddress, usdcxAvailable]);
+  }, [evmAddress, usdcxAvailable, usdcxSource]);
 
   useEffect(() => {
     let cancelled = false;
@@ -545,6 +576,19 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     setTokenDrawerOpen(true);
   }, []);
 
+  // Only the USDCx route has more than one source chain; the others keep Sepolia and open nothing.
+  const handleOpenNetworkDrawer = useCallback(() => {
+    if (confirming.current || route !== 'usdcx') return;
+    setNetworkDrawerOpen(true);
+  }, [route]);
+
+  const handleNetworkSelect = useCallback((next: BridgeNetwork) => {
+    if (confirming.current) return;
+    hapticLight();
+    setNetworkDrawerOpen(false);
+    setUsdcxSourceChainId(next.chainId);
+  }, []);
+
   // The drawer may have been open since before the tap.
   const handleConnectAnother = useCallback(() => {
     if (confirming.current) return;
@@ -622,7 +666,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               from: evmAddress,
               to: tokenAddress,
               value: toHex(0n),
-              data: approveData
+              data: approveData,
+              ...(await readNativeFeeFields(DEFAULT_CHAIN_ID))
             });
             await waitForSepoliaReceipt(unwrapNativeResult(approval.hash) as `0x${string}`);
           }
@@ -636,7 +681,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             from: evmAddress,
             to: contractAddress,
             value: toHex(value),
-            data
+            data,
+            ...(await readNativeFeeFields(DEFAULT_CHAIN_ID))
           });
           hash = unwrapNativeResult(result.hash) as `0x${string}`;
         } else {
@@ -706,14 +752,18 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       setSlowError(null);
 
       // Native Reown takes calldata and returns a JSON-quoted hash; wagmi takes
-      // the typed call. Both pin Arc Testnet before broadcasting.
+      // the typed call. Both pin the source chain before broadcasting.
+      const { usdc: circleUsdcAddress, chain: usdcxChain } = usdcxSource;
       const sendNative = async (to: `0x${string}`, data: `0x${string}`): Promise<Hash> => {
+        // Fee fields with headroom: the wallet's own estimate can fall under a base fee that rose
+        // during the prompt, and the node then rejects the signed transaction outright.
         const result = await NativeReown.sendTransaction({
-          chainId: USDCX_CHAIN.id,
+          chainId: usdcxChain.id,
           from: evmAddress,
           to,
           value: toHex(0n),
-          data
+          data,
+          ...(await readNativeFeeFields(usdcxChain.id))
         });
         const hash = unwrapNativeResult(result.hash);
         if (!isHash(hash)) {
@@ -721,54 +771,96 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         }
         return hash;
       };
-      const signer: UsdcxSigner = nativeReownAvailable
-        ? {
-            approve: (spender, value) =>
-              sendNative(
-                circleUsdcAddress,
-                encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: 'approve', args: [spender, value] })
-              ),
-            depositToRemote: args =>
-              sendNative(
-                xReserveAddress,
-                encodeFunctionData({ abi: XRESERVE_ABI, functionName: 'depositToRemote', args })
-              )
-          }
-        : {
-            approve: (spender, value) =>
-              writeContract.mutateAsync({
-                chainId: USDCX_CHAIN.id,
-                abi: ERC20_APPROVE_ABI,
-                address: circleUsdcAddress,
-                functionName: 'approve',
-                args: [spender, value]
-              }),
-            depositToRemote: args =>
-              writeContract.mutateAsync({
-                chainId: USDCX_CHAIN.id,
-                abi: XRESERVE_ABI,
-                address: xReserveAddress,
-                functionName: 'depositToRemote',
-                args
-              })
-          };
+      const approve = (spender: `0x${string}`, value: bigint): Promise<Hash> =>
+        nativeReownAvailable
+          ? sendNative(
+              circleUsdcAddress,
+              encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: 'approve', args: [spender, value] })
+            )
+          : writeContract.mutateAsync({
+              chainId: usdcxChain.id,
+              abi: ERC20_APPROVE_ABI,
+              address: circleUsdcAddress,
+              functionName: 'approve',
+              args: [spender, value]
+            });
 
       let depositHash: string | undefined;
       try {
         // Encoded inside the try so an id the faucet cannot mint to fails the row
         // instead of throwing out of the flow.
         const recipient = midenAccountHexToXReserveRecipient(accountRefToSdk(midenAccount.publicKey).toString());
-        if (!nativeReownAvailable) await switchChainAsync({ chainId: USDCX_CHAIN.id });
-        await runUsdcxDeposit(trackingTxId, amount, recipient, {
-          signer,
-          isRemoteDomainRegistered: readRemoteDomainRegistered,
-          readAllowance: spender => readCircleUsdcAllowance(evmAddress, spender),
-          waitForReceipt: hash => waitForEvmReceipt(hash, USDCX_CHAIN),
-          updatePhase: async (txId, phase, details) => {
-            depositHash = details?.evmTxHash ?? depositHash;
-            await updateBridgedReceivePhase(txId, phase, details);
+        if (!isAddress(evmAddress)) throw new Error(`Invalid EVM address: ${evmAddress}`);
+        if (!nativeReownAvailable) await switchChainAsync({ chainId: usdcxChain.id });
+        const readAllowance = (spender: `0x${string}`) => readCircleUsdcAllowance(evmAddress, spender, usdcxSource);
+        const waitForReceipt = (hash: Hash) => waitForEvmReceipt(hash, usdcxChain);
+        const updatePhase: typeof updateBridgedReceivePhase = async (txId, phase, details) => {
+          depositHash = details?.evmTxHash ?? depositHash;
+          await updateBridgedReceivePhase(txId, phase, details);
+        };
+        switch (usdcxSource.route) {
+          case 'xreserve': {
+            const { xReserve } = usdcxSource;
+            const signer: UsdcxSigner = {
+              approve,
+              depositToRemote: args =>
+                nativeReownAvailable
+                  ? sendNative(
+                      xReserve,
+                      encodeFunctionData({ abi: XRESERVE_ABI, functionName: 'depositToRemote', args })
+                    )
+                  : writeContract.mutateAsync({
+                      chainId: usdcxChain.id,
+                      abi: XRESERVE_ABI,
+                      address: xReserve,
+                      functionName: 'depositToRemote',
+                      args
+                    })
+            };
+            await runUsdcxDeposit(trackingTxId, amount, recipient, {
+              sourceChainId: usdcxChain.id,
+              signer,
+              isRemoteDomainRegistered: remoteDomain =>
+                readRemoteDomainRegistered(remoteDomain, xReserve, usdcxChain.id),
+              readAllowance,
+              waitForReceipt,
+              updatePhase
+            });
+            break;
           }
-        });
+          case 'cctp-executor': {
+            // The burn mints to Circle's executor on Arc, which deposits into Arc's xReserve; the registration
+            // check therefore reads Arc's xReserve, where the deposit lands.
+            const { tokenMessenger, target } = usdcxSource;
+            const signer: UsdcxExecutorSigner = {
+              approve,
+              depositForBurnWithHook: args =>
+                nativeReownAvailable
+                  ? sendNative(
+                      tokenMessenger,
+                      encodeFunctionData({ abi: TOKEN_MESSENGER_V2_ABI, functionName: 'depositForBurnWithHook', args })
+                    )
+                  : writeContract.mutateAsync({
+                      chainId: usdcxChain.id,
+                      abi: TOKEN_MESSENGER_V2_ABI,
+                      address: tokenMessenger,
+                      functionName: 'depositForBurnWithHook',
+                      args
+                    })
+            };
+            await runUsdcxExecutorDeposit(trackingTxId, amount, recipient, {
+              source: usdcxSource,
+              depositor: evmAddress,
+              signer,
+              isRemoteDomainRegistered: remoteDomain =>
+                readRemoteDomainRegistered(remoteDomain, target.xReserve, target.chain.id),
+              readAllowance,
+              waitForReceipt,
+              updatePhase
+            });
+            break;
+          }
+        }
         setSlowStatus('submitted');
       } catch (err) {
         if (depositHash && !(err instanceof EvmTransactionRevertedError)) {
@@ -780,7 +872,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return;
         }
         console.error('[EvmBridgeDepositScreen] USDCx bridge failed', err);
-        const message = isUsdcxDomainNotRegisteredError(err) ? t('usdcxDomainNotRegistered') : errorMessage(err);
+        const message =
+          isUsdcxDomainNotRegisteredError(err) || isUsdcxExecutorDomainNotRegisteredError(err)
+            ? t('usdcxDomainNotRegistered')
+            : errorMessage(err);
         setSlowError(message);
         setSlowStatus('failed');
         await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message }).catch(() => undefined);
@@ -793,6 +888,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       nativeReownAvailable,
       switchChainAsync,
       t,
+      usdcxSource,
       walletProvider,
       writeContract
     ]
@@ -815,7 +911,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         };
       case 'CIRCLE_USDC':
         return {
-          id: circleUsdcAddress,
+          id: usdcxSource.usdc,
           name: CIRCLE_USDC_SYMBOL,
           decimals: CIRCLE_USDC_DECIMALS,
           balance:
@@ -834,7 +930,16 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           scaleIsKnown: evmUsdc !== null
         };
     }
-  }, [token, ethBalance.value, usdcBalance.value, circleUsdcBalance.value, evmUsdc, usdcSymbol, usdcDecimals]);
+  }, [
+    token,
+    ethBalance.value,
+    usdcBalance.value,
+    circleUsdcBalance.value,
+    evmUsdc,
+    usdcSymbol,
+    usdcDecimals,
+    usdcxSource.usdc
+  ]);
 
   // Fast (Epoch) only bridges USDC today: ETH-fast needs WETH wrapping, which is not built.
   // The quote must be for the amount on screen: it lags the input by the debounce, and
@@ -914,7 +1019,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     }
   }, [route, amount, epochQuote?.params.minTokenOut, midenUsdc]);
 
-  const sourceChainId = route === 'usdcx' ? USDCX_CHAIN.id : DEFAULT_CHAIN_ID;
+  const sourceChainId = route === 'usdcx' ? usdcxSource.chain.id : DEFAULT_CHAIN_ID;
   const networkName = getChain(sourceChainId)?.name ?? '';
 
   // Route-screen hint below the cards: ETH on Fast wraps to WETH, which isn't available yet.
@@ -1093,7 +1198,20 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         case ReceiveStep.ShowBridgePageRoute:
           // USDC has one route (Circle xReserve); ETH picks Fast or Slow.
           if (route === 'usdcx') {
-            return <EvmBridgeUsdcxRoute confirmDisabled={!canConfirmRoute} onConfirm={handleContinueToReview} />;
+            return (
+              <EvmBridgeUsdcxRoute
+                confirmDisabled={!canConfirmRoute}
+                onConfirm={handleContinueToReview}
+                notice={
+                  usdcxSource.route === 'cctp-executor'
+                    ? t('usdcxExecutorRouteNotice', {
+                        source: usdcxSource.chain.name,
+                        target: usdcxSource.target.chain.name
+                      })
+                    : undefined
+                }
+              />
+            );
           }
           return (
             <RouteStep
@@ -1113,7 +1231,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return (
             <EvmBridgeDepositForm
               token={setupToken}
-              network={route === 'usdcx' ? USDCX_BRIDGE_NETWORK : DEFAULT_BRIDGE_NETWORK}
+              network={route === 'usdcx' ? usdcxBridgeNetwork : DEFAULT_BRIDGE_NETWORK}
               tokenLabel={tokenLabel}
               arrivingName={arrivingName}
               amount={amount}
@@ -1122,6 +1240,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               evmAddress={evmAddress}
               onAmountChange={handleAmountChange}
               onSelectToken={handleOpenTokenDrawer}
+              onSelectNetwork={route === 'usdcx' ? handleOpenNetworkDrawer : undefined}
               onSwitch={handleOpenSwitchDrawer}
               onContinue={handleContinue}
             />
@@ -1141,8 +1260,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       handleConfirm,
       handleContinue,
       handleContinueToReview,
+      handleOpenNetworkDrawer,
       handleOpenSwitchDrawer,
       handleOpenTokenDrawer,
+      usdcxBridgeNetwork,
       handleRouteChange,
       route,
       token,
@@ -1196,6 +1317,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         circleUsdcLabel={CIRCLE_USDC_SYMBOL}
         circleUsdcLoading={circleUsdcBalance.loading}
         onSelect={handleTokenSelect}
+      />
+      <EvmBridgeNetworkDrawer
+        open={networkDrawerOpen}
+        onOpenChange={setNetworkDrawerOpen}
+        networks={USDCX_SOURCE_NETWORKS}
+        selected={usdcxBridgeNetwork}
+        onSelect={handleNetworkSelect}
       />
       <EvmSwitchWalletDrawer
         open={switchDrawerOpen}

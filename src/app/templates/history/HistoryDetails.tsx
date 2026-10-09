@@ -52,6 +52,7 @@ import { selectMidenUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
 import { useUsdcxDestinationTransaction } from 'lib/usdcx/use-destination-transaction';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { navigate } from 'lib/woozie';
@@ -87,6 +88,7 @@ import {
 } from './transactionUtils';
 import { useSwapSettlementNotes } from './useSwapSettlementNotes';
 import { useTransactionActions } from './useTransactionActions';
+import { UsdcxExecuteAction } from '../EvmConnectModal/UsdcxExecuteAction';
 
 const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
 const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
@@ -451,6 +453,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeInSourceSymbol: bridgeReceive?.sourceSymbol ?? consumedBridge?.sourceSymbol,
           bridgeInEvmTxHash: bridgeReceive?.evmTxHash ?? consumedBridge?.evmTxHash,
           bridgeInPhase: bridgeReceive?.phase,
+          bridgeInCctp: bridgeReceive?.cctp,
           bridgeInOutputAmount: bridgeReceive?.outputAmount,
           bridgeInOutputSymbol: bridgeReceive?.outputSymbol,
           bridgeInMidenNoteId:
@@ -1153,6 +1156,21 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       )}
                     </DetailRow>
                   </DetailSection>
+                  {/* An executor-route USDCx deposit waits for the user to execute it on Arc; the row is the
+                      only place that offers it once the deposit screen is gone. */}
+                  {entry.txId &&
+                    entry.bridgeInProvider === 'usdcx' &&
+                    isUsdcxExecutorSource(entry.bridgeInSourceChainId) &&
+                    entry.bridgeInPhase &&
+                    !entry.restoredFromBackup && (
+                      <UsdcxExecuteAction
+                        txId={entry.txId}
+                        sourceChainId={entry.bridgeInSourceChainId}
+                        phase={entry.bridgeInPhase}
+                        cctp={entry.bridgeInCctp}
+                        className="mt-4"
+                      />
+                    )}
                 </div>
               </div>
             )}

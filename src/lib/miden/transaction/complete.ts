@@ -1523,7 +1523,7 @@ export const updateBridgedReceivePhase = async (
   extra?: Partial<
     Pick<
       IBridgedReceiveExtraInputs,
-      'evmTxHash' | 'intentNonce' | 'midenNoteId' | 'outputAmount' | 'outputSymbol' | 'error'
+      'evmTxHash' | 'intentNonce' | 'midenNoteId' | 'outputAmount' | 'outputSymbol' | 'cctp' | 'error'
     >
   >,
   received?: { amount: bigint; faucetId: string; transactionId?: string }
@@ -1532,6 +1532,9 @@ export const updateBridgedReceivePhase = async (
   await Repo.transactions.where({ id }).modify(tx => {
     const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
     if (!canMoveBridgedReceivePhase(inputs?.phase, phase)) return;
+    // The CCTP leg is written a field at a time (the burn's domain, then the attestation, then the
+    // execute hash), so a write merges into what the row holds instead of replacing it.
+    const cctp = extra?.cctp ? { ...inputs?.cctp, ...extra.cctp } : inputs?.cctp;
     // Unlike the earn-withdraw writer there is no monotonic guard here, so the
     // only thing keeping one bridge from reporting twice is comparing against
     // the phase already on the row. `ready` and `received` are both terminal —
@@ -1544,7 +1547,7 @@ export const updateBridgedReceivePhase = async (
     ) {
       settled = tx;
     }
-    tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
+    tx.extraInputs = { ...inputs, phase, ...(extra ?? {}), ...(cctp ? { cctp } : {}) };
     if (received) {
       tx.amount = received.amount;
       tx.faucetId = received.faucetId;

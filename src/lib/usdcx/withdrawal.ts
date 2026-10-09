@@ -4,7 +4,7 @@ import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 
-import { USDCX_WITHDRAWAL_DESTINATION } from './constant';
+import { USDCX_DESTINATIONS } from './constant';
 
 export class UsdcxBurnError extends Error {
   constructor(readonly translationKey: string) {
@@ -53,10 +53,17 @@ export function encodeBurnWithdrawal(destinationAddress: string, destinationDoma
   ];
 }
 
+/**
+ * Whether `destinationChainId` is a destination a burn can pay out to on the effective network:
+ * a `USDCX_DESTINATIONS` entry whose chain is a testnet while withdrawals are testnet-only.
+ */
+export function isUsdcxDestinationChain(destinationChainId: number): boolean {
+  const entry = USDCX_DESTINATIONS.get(destinationChainId);
+  return !!entry && entry.chain.testnet === true;
+}
+
 export function validateUsdcxWithdrawal(faucetId: string, destinationChainId: number, amount: bigint): void {
   if (!isUsdcxWithdrawalAvailable(faucetId)) throw new UsdcxBurnError('usdcxUnsupportedFaucet');
-  if (destinationChainId !== USDCX_WITHDRAWAL_DESTINATION.chainId) {
-    throw new UsdcxBurnError('usdcxInvalidDestination');
-  }
+  if (!isUsdcxDestinationChain(destinationChainId)) throw new UsdcxBurnError('usdcxInvalidDestination');
   if (amount <= 0n) throw new UsdcxBurnError('usdcxInvalidAmount');
 }

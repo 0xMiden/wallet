@@ -467,8 +467,22 @@ describe('USDCx burn review', () => {
     expect(initiateB2AggBridge).not.toHaveBeenCalled();
   });
 
-  it('rejects a USDCx deep link targeting Sepolia', async () => {
-    mockSearch = mockSearch.replace('network=arc-testnet', 'network=sepolia');
+  it.each([
+    ['sepolia', 11155111],
+    ['base-sepolia', 84532],
+    ['arbitrum-sepolia', 421614]
+  ])('accepts a USDCx deep link targeting %s', async (network, chainId) => {
+    mockSearch = mockSearch.replace('network=arc-testnet', `network=${network}`);
+    render(<ReviewTransaction />);
+    await flush();
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() =>
+      expect(initiateUsdcxBurn).toHaveBeenCalledWith(expect.objectContaining({ destinationChainId: chainId }))
+    );
+  });
+
+  it('rejects a USDCx deep link targeting a network that is not a destination', async () => {
+    mockSearch = mockSearch.replace('network=arc-testnet', 'network=mainnet');
     render(<ReviewTransaction />);
     await flush();
     expect(screen.queryByTestId('send-review-submit')).not.toBeInTheDocument();

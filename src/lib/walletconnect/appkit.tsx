@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 
-import { defineChain, sepolia } from '@reown/appkit/networks';
+import { type AppKitNetwork, arbitrumSepolia, baseSepolia, defineChain, sepolia } from '@reown/appkit/networks';
 import { createAppKit } from '@reown/appkit/react';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -19,7 +19,8 @@ const arcTestnet = defineChain({
   chainNamespace: 'eip155',
   caipNetworkId: `eip155:${ARC_TESTNET.id}`
 });
-const networks = [arcTestnet, sepolia];
+// Every chain of `SUPPORTED_CHAINS`: wagmi's `switchChain` reaches only a network listed here.
+const networks: [AppKitNetwork, ...AppKitNetwork[]] = [arcTestnet, sepolia, baseSepolia, arbitrumSepolia];
 const appKitThemeVariables = {
   '--apkt-font-family': 'Inter, sans-serif',
   '--apkt-accent': '#E77537',
@@ -54,7 +55,7 @@ const queryClient = new QueryClient();
 
 export const modal = createAppKit({
   adapters: [wagmiAdapter],
-  networks: [arcTestnet, sepolia],
+  networks,
   projectId: WC_PROJECT_ID,
   metadata: APP_METADATA,
   themeMode: getInitialAppKitThemeMode(),

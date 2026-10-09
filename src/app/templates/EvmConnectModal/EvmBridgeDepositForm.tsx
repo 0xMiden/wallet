@@ -12,7 +12,7 @@ import { EvmWalletHeader } from './EvmWalletHeader';
 
 interface EvmBridgeDepositFormProps {
   token: UIToken;
-  /** The source network. Defaults to Sepolia; the USDCx route passes Arc Testnet. */
+  /** The source network. Defaults to Sepolia; the USDCx route passes the chosen source chain. */
   network?: BridgeNetwork;
   /** The token's name, such as the testnet label (`evmUsdcLabel`). */
   tokenLabel: string;
@@ -26,6 +26,8 @@ interface EvmBridgeDepositFormProps {
   onAmountChange: (value: string) => void;
   /** Opens the ETH/USDC token picker drawer. */
   onSelectToken: () => void;
+  /** Opens the source-network picker drawer; routes with one source pass nothing. */
+  onSelectNetwork?: () => void;
   /** Switch/disconnect the connected EVM wallet from the header. */
   onSwitch: () => void;
   onContinue: () => void;
@@ -42,6 +44,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
   evmAddress,
   onAmountChange,
   onSelectToken,
+  onSelectNetwork,
   onSwitch,
   onContinue
 }) => {
@@ -61,7 +64,7 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
       title={title}
       onAmountChange={onAmountChange}
       onSelectToken={onSelectToken}
-      onSelectNetwork={() => {}}
+      onSelectNetwork={onSelectNetwork}
       onConfirm={onContinue}
     >
       {/* Funding decision point (#875): a wallet that was already connected

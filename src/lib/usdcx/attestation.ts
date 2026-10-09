@@ -77,9 +77,12 @@ export async function fetchXReserveAttestations(
  * Whether Circle attested the deposit `txHash` for Miden. A value that is not a
  * transaction hash is never attested, and no request is made for it.
  */
-export async function isUsdcxDepositAttested(txHash: string | undefined): Promise<boolean> {
+export async function isUsdcxDepositAttested(
+  txHash: string | undefined,
+  baseUrl: string = XRESERVE_ATTESTATION_API
+): Promise<boolean> {
   if (txHash === undefined || !isHash(txHash)) return false;
-  const attestations = await fetchXReserveAttestations(txHash);
+  const attestations = await fetchXReserveAttestations(txHash, { baseUrl });
   return findAttestationForDomain(attestations, USDCX_REMOTE_DOMAIN) !== undefined;
 }
 

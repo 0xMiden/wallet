@@ -187,6 +187,9 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
 
 // The signer flavour: the wagmi one unless a case selects the native Reown one.
 let mockNativeReown = false;
+// The fee read hits the chain; here the wallet estimates, as it does when the read fails.
+jest.mock('lib/walletconnect/fees', () => ({ readNativeFeeFields: async () => ({}) }));
+
 jest.mock('lib/walletconnect/native', () => ({
   isNativeReownAvailable: () => mockNativeReown,
   NativeReown: { sendTransaction: jest.fn() },

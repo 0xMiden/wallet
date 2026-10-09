@@ -139,8 +139,8 @@ it('drops an unsupported Earn protocol and keeps the rest of the document', () =
   expect(parsed?.epoch.allocatorUrl).toBe('https://testnet-dev.epochprotocol.xyz');
 });
 
-it('supports Sepolia and Arc Testnet, and dummy lending only', () => {
-  expect(SUPPORTED_EVM_CHAIN_IDS).toEqual([11155111, 5042002]);
+it('supports Sepolia, Arc Testnet, Base Sepolia and Arbitrum Sepolia, and dummy lending only', () => {
+  expect(SUPPORTED_EVM_CHAIN_IDS).toEqual([11155111, 5042002, 84532, 421614]);
   expect(SUPPORTED_EARN_PROTOCOLS).toEqual(['dummy-lending']);
 });
 

@@ -11,6 +11,8 @@ export interface EvmBridgeUsdcxRouteProps {
   confirmDisabled?: boolean;
   /** Padding classes for the confirm-button footer. Same default as the Fast/Slow route step. */
   footerClassName?: string;
+  /** The hint under the card; the executor route replaces the xReserve one with its own. */
+  notice?: string;
   onConfirm: () => void;
 }
 
@@ -22,6 +24,7 @@ export interface EvmBridgeUsdcxRouteProps {
 export const EvmBridgeUsdcxRoute: React.FC<EvmBridgeUsdcxRouteProps> = ({
   confirmDisabled = false,
   footerClassName = 'pt-4 pb-24',
+  notice,
   onConfirm
 }) => {
   const { t } = useTranslation();
@@ -42,7 +45,7 @@ export const EvmBridgeUsdcxRoute: React.FC<EvmBridgeUsdcxRouteProps> = ({
             testId="bridge-route-usdcx"
             accent="brand"
           />
-          <p className="text-xs text-ink/60">{t('usdcxRouteNotice')}</p>
+          <p className="text-xs text-ink/60">{notice ?? t('usdcxRouteNotice')}</p>
         </div>
       </div>
 

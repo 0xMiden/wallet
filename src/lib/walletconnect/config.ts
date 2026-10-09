@@ -6,7 +6,8 @@
  * We're the dApp here; the user's EVM funds live in the external wallet.
  */
 
-import { defineChain } from 'viem';
+import { Chain, defineChain } from 'viem';
+import { arbitrumSepolia, baseSepolia } from 'viem/chains';
 
 export const ARC_TESTNET = defineChain({
   id: 5042002,
@@ -45,7 +46,20 @@ const E2E_EVM_RPC_URL = process.env.MIDEN_E2E_TEST === 'true' ? (process.env.E2E
 const RPC = (id: number) =>
   E2E_EVM_RPC_URL || `https://rpc.walletconnect.org/v1?chainId=eip155:${id}&projectId=${WC_PROJECT_ID}`;
 
+/** A viem chain read through the WalletConnect RPC, with its own explorer and native currency. */
+function walletConnectChain(chain: Chain): EvmChain {
+  return {
+    id: chain.id,
+    name: chain.name,
+    rpcUrl: RPC(chain.id),
+    explorer: chain.blockExplorers?.default.url ?? '',
+    nativeCurrency: chain.nativeCurrency
+  };
+}
+
 // Sepolia stays first: it is the default chain, and the WalletConnect RPC URL is read off it.
+// Every chain here is proposed to a native WalletConnect session (`configureNativeReown`), so a
+// request on it can be sent; the AppKit networks in `./appkit` must list the same chains.
 export const SUPPORTED_CHAINS: EvmChain[] = [
   {
     id: 11155111,
@@ -60,7 +74,10 @@ export const SUPPORTED_CHAINS: EvmChain[] = [
     rpcUrl: ARC_TESTNET.rpcUrls.default.http[0],
     explorer: ARC_TESTNET.blockExplorers.default.url,
     nativeCurrency: ARC_TESTNET.nativeCurrency
-  }
+  },
+  // USDCx withdrawal destinations: a burn's balance confirmation reads USDC on them.
+  walletConnectChain(baseSepolia),
+  walletConnectChain(arbitrumSepolia)
 ];
 
 export const DEFAULT_CHAIN_ID = 11155111;

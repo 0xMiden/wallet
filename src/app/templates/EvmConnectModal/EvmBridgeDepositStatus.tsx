@@ -18,11 +18,14 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
+import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 import { TransactionSummaryBadge } from 'screens/generating-transaction/TransactionSummaryBadge';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
+
+import { UsdcxExecuteAction } from './UsdcxExecuteAction';
 
 interface EvmBridgeDepositStatusProps {
   txId: string;
@@ -63,8 +66,10 @@ const outputLabel = (
 function submittedCopyOf(
   inputs: IBridgedReceiveExtraInputs,
   t: (key: string) => string
-): { statusValue: string; footerDescription: string } {
+): { statusValue: string; footerDescription?: string } {
   const usdcx = inputs.provider === 'usdcx';
+  // An executor-route deposit in flight explains itself through `UsdcxExecuteAction`, step by step.
+  const executorInFlight = usdcx && inputs.phase === 'delivering' && isUsdcxExecutorSource(inputs.sourceChainId);
   switch (inputs.phase) {
     case 'received':
       return usdcx
@@ -78,7 +83,11 @@ function submittedCopyOf(
     default:
       return {
         statusValue: t('delivering'),
-        footerDescription: usdcx ? t('usdcxAwaitingAttestation') : t('bridgeDepositDeliveryDescription')
+        footerDescription: executorInFlight
+          ? undefined
+          : usdcx
+            ? t('usdcxAwaitingAttestation')
+            : t('bridgeDepositDeliveryDescription')
       };
   }
 }
@@ -166,6 +175,15 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
             { label: t('status'), value: statusValue }
           ]}
         />
+        {inputs.provider === 'usdcx' && isUsdcxExecutorSource(inputs.sourceChainId) && (
+          <UsdcxExecuteAction
+            txId={row.id}
+            sourceChainId={inputs.sourceChainId}
+            phase={inputs.phase}
+            cctp={inputs.cctp}
+            className="mt-4"
+          />
+        )}
       </TransactionSuccessLayout>
     );
   }

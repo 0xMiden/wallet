@@ -62,6 +62,15 @@ jest.mock('components/ui/Spinner', () => ({
 
 jest.mock('lib/mobile/external-browser', () => ({ openExternalUrl: jest.fn() }));
 
+// The Arc leg's own component signs through wagmi; here only its placement and inputs matter.
+jest.mock('./UsdcxExecuteAction', () => ({
+  UsdcxExecuteAction: ({ txId, sourceChainId, phase, cctp }: Record<string, unknown>) => (
+    <div data-testid="usdcx-execute-action" data-tx-id={String(txId)} data-source-chain={String(sourceChainId)}>
+      {String(phase)}:{cctp ? 'leg' : 'no-leg'}
+    </div>
+  )
+}));
+
 jest.mock('components/PageHeader', () => ({
   PageHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
     <header>
@@ -264,6 +273,31 @@ describe('EvmBridgeDepositStatus', () => {
       render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
 
       expect(screen.getByTestId('receipt-rows')).toHaveTextContent('delivering');
+      expect(screen.getByTestId('success-footer')).toHaveTextContent('usdcxAwaitingAttestation');
+    });
+
+    // An executor-route row (Base Sepolia) hands its in-flight copy to the Arc-leg component, which
+    // explains each step and offers the execute; the layout's own footer stands down.
+    it('shows the Arc leg for an executor-route row while it is delivering', () => {
+      mockRowState = {
+        row: makeRow(
+          usdcxInputs({ sourceChainId: 84532, cctp: { sourceDomain: 6, message: '0x12', attestation: '0xab' } })
+        ),
+        loaded: true
+      };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('receipt-rows')).toHaveTextContent('usdcxRouteName · Base Sepolia → Miden');
+      expect(screen.getByTestId('success-footer')).toHaveTextContent('');
+      const action = screen.getByTestId('usdcx-execute-action');
+      expect(action).toHaveAttribute('data-source-chain', '84532');
+      expect(action).toHaveTextContent('delivering:leg');
+    });
+
+    it('keeps the direct route copy for an Arc row', () => {
+      mockRowState = { row: makeRow(usdcxInputs({ sourceChainId: 5042002 })), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
       expect(screen.getByTestId('success-footer')).toHaveTextContent('usdcxAwaitingAttestation');
     });
 

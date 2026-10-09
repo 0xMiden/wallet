@@ -12,6 +12,8 @@ jest.mock('lib/miden/activity', () => ({
 }));
 
 const RECIPIENT = '0x00000000000000000000000000000000b64e1827414584510723cad8e145a400' as const;
+const ARC_TESTNET_ID = 5042002;
+const SEPOLIA_ID = 11155111;
 const APPROVE_HASH = `0x${'1'.repeat(64)}` as const;
 const DEPOSIT_HASH = `0x${'2'.repeat(64)}` as const;
 
@@ -19,6 +21,7 @@ const DEPOSIT_HASH = `0x${'2'.repeat(64)}` as const;
 function makeDeps(overrides: Partial<UsdcxDepositDeps> = {}) {
   const calls: string[] = [];
   const deps: UsdcxDepositDeps = {
+    sourceChainId: ARC_TESTNET_ID,
     signer: {
       approve: jest.fn(async () => {
         calls.push('approve');
@@ -50,7 +53,7 @@ function makeDeps(overrides: Partial<UsdcxDepositDeps> = {}) {
 
 describe('buildDepositToRemoteArgs', () => {
   it('scales the amount to USDC base units and fixes the other parameters', () => {
-    expect(buildDepositToRemoteArgs('1.5', RECIPIENT)).toEqual([
+    expect(buildDepositToRemoteArgs('1.5', RECIPIENT, ARC_TESTNET_ID)).toEqual([
       1_500_000n,
       10007,
       RECIPIENT,
@@ -60,8 +63,16 @@ describe('buildDepositToRemoteArgs', () => {
     ]);
   });
 
+  it('names the USDC of the source chain as the local token', () => {
+    expect(buildDepositToRemoteArgs('1', RECIPIENT, SEPOLIA_ID)[3]).toBe('0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238');
+  });
+
+  it('refuses a chain with no xReserve', () => {
+    expect(() => buildDepositToRemoteArgs('1', RECIPIENT, 84532)).toThrow('no local xReserve');
+  });
+
   it('trims the amount', () => {
-    expect(buildDepositToRemoteArgs(' 2 ', RECIPIENT)[0]).toBe(2_000_000n);
+    expect(buildDepositToRemoteArgs(' 2 ', RECIPIENT, ARC_TESTNET_ID)[0]).toBe(2_000_000n);
   });
 });
 
@@ -81,8 +92,10 @@ describe('runUsdcxDeposit', () => {
       'receipt:deposit',
       'phase:delivering'
     ]);
-    expect(deps.signer.approve).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(5042002), 1_500_000n);
-    expect(deps.signer.depositToRemote).toHaveBeenCalledWith(buildDepositToRemoteArgs('1.5', RECIPIENT));
+    expect(deps.signer.approve).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(ARC_TESTNET_ID), 1_500_000n);
+    expect(deps.signer.depositToRemote).toHaveBeenCalledWith(
+      buildDepositToRemoteArgs('1.5', RECIPIENT, ARC_TESTNET_ID)
+    );
     expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', { evmTxHash: DEPOSIT_HASH });
     expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'delivering', { evmTxHash: DEPOSIT_HASH });
   });
@@ -92,7 +105,16 @@ describe('runUsdcxDeposit', () => {
 
     await runUsdcxDeposit('row-1', '1', RECIPIENT, deps);
 
-    expect(deps.readAllowance).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(5042002));
+    expect(deps.readAllowance).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(ARC_TESTNET_ID));
+  });
+
+  it('takes the xReserve and USDC of the chain the deps name', async () => {
+    const { deps } = makeDeps({ sourceChainId: SEPOLIA_ID });
+
+    await runUsdcxDeposit('row-1', '1', RECIPIENT, deps);
+
+    expect(deps.readAllowance).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(SEPOLIA_ID));
+    expect(deps.signer.depositToRemote).toHaveBeenCalledWith(buildDepositToRemoteArgs('1', RECIPIENT, SEPOLIA_ID));
   });
 
   // 1.5 USDC is 1_500_000 base units: an allowance equal to it, or more than it, covers the deposit.
@@ -116,7 +138,7 @@ describe('runUsdcxDeposit', () => {
 
     await runUsdcxDeposit('row-1', '1.5', RECIPIENT, deps);
 
-    expect(deps.signer.approve).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(5042002), 1_500_000n);
+    expect(deps.signer.approve).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(ARC_TESTNET_ID), 1_500_000n);
   });
 
   it('checks the remote domain with the configured value', async () => {

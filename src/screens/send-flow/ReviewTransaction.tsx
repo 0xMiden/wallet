@@ -48,7 +48,7 @@ import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/wooz
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { approxFiatAmount } from './amount-format';
-import { getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
+import { getBridgeNetwork, BridgeNetworkId, isBridgeNetworkId, isUsdcxBridgeNetwork } from './bridge-networks';
 import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
@@ -90,7 +90,7 @@ export const ReviewTransaction: React.FC = () => {
       amount: params.get('amount') ?? '',
       to: params.get('to') ?? '',
       tokenId: params.get('tokenId') ?? '',
-      network: networkParam === 'sepolia' || networkParam === 'arc-testnet' ? networkParam : undefined,
+      network: isBridgeNetworkId(networkParam) ? networkParam : undefined,
       route: routeParam === 'epoch' || routeParam === 'agglayer' || routeParam === 'usdcx' ? routeParam : undefined
     };
   }, [search]);
@@ -556,7 +556,7 @@ export const ReviewTransaction: React.FC = () => {
     isBridge &&
     (!bridgeNetworkObj ||
       !route ||
-      (isUsdcxBurn ? network !== 'arc-testnet' : network !== 'sepolia') ||
+      (isUsdcxBurn ? !isUsdcxBridgeNetwork(network) : network !== 'sepolia') ||
       (isUsdcxBurn && !!token && !isUsdcxWithdrawalAvailable(token.id)));
   const tokenInvalid = !!balanceData && (!token || parseFloat(amount) > token.balance);
   if (paramsInvalid || bridgeParamsInvalid || tokenInvalid) {

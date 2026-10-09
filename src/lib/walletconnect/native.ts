@@ -3,6 +3,8 @@ import { registerPlugin } from '@capacitor/core';
 
 import { isAndroid, isIOS } from 'lib/platform';
 
+import { readNativeFeeFields } from './fees';
+
 export interface ReownConfigureOptions {
   projectId: string;
   appName: string;
@@ -190,8 +192,11 @@ export function buildNativeReownProvider({ chainId, address, rpcUrl }: NativeReo
           data: txField(tx, 'data'),
           gas: txField(tx, 'gas'),
           gasPrice: txField(tx, 'gasPrice'),
-          maxFeePerGas: txField(tx, 'maxFeePerGas'),
-          maxPriorityFeePerGas: txField(tx, 'maxPriorityFeePerGas')
+          // A caller that set no fee gets fields with headroom (`readNativeFeeFields`): the wallet's own
+          // estimate can fall under a base fee that rose during the prompt, and the node then rejects it.
+          ...(txField(tx, 'gasPrice') || txField(tx, 'maxFeePerGas')
+            ? { maxFeePerGas: txField(tx, 'maxFeePerGas'), maxPriorityFeePerGas: txField(tx, 'maxPriorityFeePerGas') }
+            : await readNativeFeeFields(chainId))
         });
         return unwrapNativeResult(hash);
       }

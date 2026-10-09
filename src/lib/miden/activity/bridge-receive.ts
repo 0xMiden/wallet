@@ -4,6 +4,8 @@ import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 import { isUsdcxDepositAttested } from 'lib/usdcx/attestation';
+import { fetchAttestedCctpMessage } from 'lib/usdcx/cctp';
+import { USDCX_SOURCE_CHAINS } from 'lib/usdcx/constant';
 import { waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 
 import { BRIDGE_RECEIVE_MAX_AGE_MS, registerPendingBridgeIn, resolveBridgeInNoteId } from './bridge-in';
@@ -117,10 +119,44 @@ async function reconcileEpochRow(row: ITransaction, inputs: IBridgedReceiveExtra
  * moves the row to `received` (`takeUsdcxBridgeInInfo`).
  */
 async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtraInputs): Promise<void> {
+  const source = inputs.sourceChainId === undefined ? undefined : USDCX_SOURCE_CHAINS.get(inputs.sourceChainId);
   try {
+    if (source?.route === 'cctp-executor') {
+      await reconcileUsdcxExecutorRow(row, inputs, source.irisApi, source.target.attestationApi);
+      return;
+    }
     if (await isUsdcxDepositAttested(inputs.evmTxHash)) await updateBridgedReceivePhase(row.id, 'ready');
   } catch (error) {
     console.warn('[bridge-receive] USDCx attestation poll failed', row.id, error);
+  }
+}
+
+/**
+ * An executor-route deposit has two Circle attestations. Until the wallet has executed the message on Arc
+ * the reconciler asks Iris for the attested CCTP message and keeps it on the row, where the status screen
+ * offers the execute; once the execute hash is recorded it asks xReserve's attestation service for that Arc
+ * transaction, which is the deposit, and the row becomes `ready` as a direct deposit would.
+ */
+async function reconcileUsdcxExecutorRow(
+  row: ITransaction,
+  inputs: IBridgedReceiveExtraInputs,
+  irisApi: string,
+  attestationApi: string
+): Promise<void> {
+  const leg = inputs.cctp;
+  if (!leg) return;
+  if (leg.executeTxHash) {
+    if (await isUsdcxDepositAttested(leg.executeTxHash, attestationApi)) {
+      await updateBridgedReceivePhase(row.id, 'ready');
+    }
+    return;
+  }
+  if (leg.attestation) return;
+  const attested = await fetchAttestedCctpMessage(leg.sourceDomain, inputs.evmTxHash, { baseUrl: irisApi });
+  if (attested) {
+    await updateBridgedReceivePhase(row.id, 'delivering', {
+      cctp: { sourceDomain: leg.sourceDomain, message: attested.message, attestation: attested.attestation }
+    });
   }
 }
 

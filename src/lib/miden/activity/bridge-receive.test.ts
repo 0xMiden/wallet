@@ -28,6 +28,10 @@ jest.mock('lib/miden/repo', () => ({
 jest.mock('lib/usdcx/attestation', () => ({
   isUsdcxDepositAttested: (...args: unknown[]) => isAttested(...args)
 }));
+const fetchAttestedMessage = jest.fn();
+jest.mock('lib/usdcx/cctp', () => ({
+  fetchAttestedCctpMessage: (...args: unknown[]) => fetchAttestedMessage(...args)
+}));
 jest.mock('lib/walletconnect/receipt', () => ({
   waitForSepoliaReceipt: (...args: unknown[]) => waitForReceipt(...args)
 }));
@@ -788,5 +792,75 @@ describe('reconcileBridgedReceives with a USDCx row', () => {
     await reconcileBridgedReceives();
 
     expect(updatePhase).toHaveBeenCalledWith('usdcx-old', 'failed', { error: 'Bridge delivery timed out.' });
+  });
+});
+
+// An executor-route row (Base Sepolia → Arc → Miden) has two Circle attestations: Iris attests the CCTP
+// burn, which the wallet then executes on Arc, and xReserve's service attests the deposit that execute
+// made. The reconciler drives each step from what the row holds, and never polls the direct route.
+describe('reconcileBridgedReceives with a USDCx executor row', () => {
+  const BURN_HASH = `0x${'6'.repeat(64)}`;
+  const EXECUTE_HASH = `0x${'7'.repeat(64)}`;
+  const IRIS = 'https://iris-api-sandbox.circle.com';
+  const ATTESTATIONS = 'https://xreserve-api-testnet.circle.com';
+  const executorRow = (cctp: Record<string, unknown>) => ({
+    id: 'usdcx-executor-row',
+    type: 'bridged-receive',
+    accountId: 'miden-account',
+    initiatedAt: Math.floor(Date.now() / 1000),
+    extraInputs: { provider: 'usdcx', phase: 'delivering', sourceChainId: 84532, evmTxHash: BURN_HASH, cctp }
+  });
+
+  it('asks Iris for the burn and keeps the attested message on the row', async () => {
+    fetchAttestedMessage.mockResolvedValue({ message: '0x1234', attestation: '0xabcd' });
+    rows.push(executorRow({ sourceDomain: 6 }));
+
+    await reconcileBridgedReceives();
+
+    expect(fetchAttestedMessage).toHaveBeenCalledWith(6, BURN_HASH, { baseUrl: IRIS });
+    expect(isAttested).not.toHaveBeenCalled();
+    expect(updatePhase).toHaveBeenCalledTimes(1);
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'delivering', {
+      cctp: { sourceDomain: 6, message: '0x1234', attestation: '0xabcd' }
+    });
+  });
+
+  it('writes nothing while Iris has not attested the burn', async () => {
+    fetchAttestedMessage.mockResolvedValue(undefined);
+    rows.push(executorRow({ sourceDomain: 6 }));
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('waits for the user to execute once the message is held, asking Circle nothing', async () => {
+    rows.push(executorRow({ sourceDomain: 6, message: '0x1234', attestation: '0xabcd' }));
+
+    await reconcileBridgedReceives();
+
+    expect(fetchAttestedMessage).not.toHaveBeenCalled();
+    expect(isAttested).not.toHaveBeenCalled();
+    expect(updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('asks xReserve for the execute transaction and moves the row to ready once attested', async () => {
+    isAttested.mockResolvedValue(true);
+    rows.push(executorRow({ sourceDomain: 6, message: '0x1234', attestation: '0xabcd', executeTxHash: EXECUTE_HASH }));
+
+    await reconcileBridgedReceives();
+
+    expect(isAttested).toHaveBeenCalledWith(EXECUTE_HASH, ATTESTATIONS);
+    expect(fetchAttestedMessage).not.toHaveBeenCalled();
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'ready');
+  });
+
+  it('leaves the row for the next pass when Iris fails', async () => {
+    fetchAttestedMessage.mockRejectedValue(new Error('HTTP 503'));
+    rows.push(executorRow({ sourceDomain: 6 }));
+
+    await expect(reconcileBridgedReceives()).resolves.toBeUndefined();
+
+    expect(updatePhase).not.toHaveBeenCalled();
   });
 });

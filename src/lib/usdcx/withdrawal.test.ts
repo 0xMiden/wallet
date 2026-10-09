@@ -54,10 +54,15 @@ describe('USDCx withdrawal encoding', () => {
     }
   );
 
-  it('requires the configured faucet, testnet, positive amount, and Arc Testnet chain id', () => {
+  it('requires the configured faucet, testnet, positive amount, and a testnet destination chain id', () => {
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 1n)).not.toThrow();
+    // Sepolia, Base Sepolia and Arbitrum Sepolia are direct-payout destinations of the burn.
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 1n)).not.toThrow();
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 84532, 1n)).not.toThrow();
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 421614, 1n)).not.toThrow();
     expect(() => validateUsdcxWithdrawal('another-faucet', 5042002, 1n)).toThrow('usdcxUnsupportedFaucet');
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 1n)).toThrow('usdcxInvalidDestination');
+    // Mainnet destinations are configured but not offered while withdrawals are testnet-only.
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 1, 1n)).toThrow('usdcxInvalidDestination');
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 0, 1n)).toThrow('usdcxInvalidDestination');
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 0n)).toThrow('usdcxInvalidAmount');
     network = 'devnet';
