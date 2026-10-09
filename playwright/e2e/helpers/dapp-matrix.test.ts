@@ -1,8 +1,9 @@
 /**
  * @jest-environment node
  */
+import type { JourneyId } from './dapp-cells';
 import { KNOWN_BUGS } from './dapp-known-bugs';
-import { cellIdsFor, DAPP_JOURNEY_CELLS, JOURNEY_TITLES } from './dapp-matrix';
+import { cellIdsFor, DAPP_JOURNEY_CELLS, JOURNEY_TIMEOUT_MS, JOURNEY_TITLES } from './dapp-matrix';
 
 describe('dApp matrix data', () => {
   it('declares every cell id once across all journeys', () => {
@@ -25,7 +26,26 @@ describe('dApp matrix data', () => {
     ).filter(key => !declared.has(key.slice(key.indexOf(':') + 1)));
     expect(missing).toEqual(KNOWN_BUG_CELLS_NOT_YET_DECLARED);
   });
+
+  it('keeps every journey timeout at or above its initial testnet value', () => {
+    const lowered = (Object.keys(INITIAL_TIMEOUT_MIN) as JourneyId[]).filter(
+      journey => JOURNEY_TIMEOUT_MS[journey] < INITIAL_TIMEOUT_MIN[journey] * 60_000
+    );
+    expect(lowered).toEqual([]);
+  });
+
+  it("fits each part's journeys in the workflow's 140-min run step", () => {
+    const overrun = Object.entries(PART_JOURNEYS)
+      .map(([part, journeys]) => [part, journeys.reduce((sum, j) => sum + JOURNEY_TIMEOUT_MS[j], 0) / 60_000] as const)
+      .filter(([, minutes]) => minutes >= 140);
+    expect(overrun).toEqual([]);
+  });
 });
+
+// Spec section 6: a timeout the spike recomputes replaces one of these only when it is higher.
+const INITIAL_TIMEOUT_MIN: Record<JourneyId, number> = { S: 20, R: 45, W: 60, X: 45, XL: 25, M: 60 };
+
+const PART_JOURNEYS: Record<'core' | 'writes', JourneyId[]> = { core: ['S', 'R', 'M'], writes: ['W', 'X', 'XL'] };
 
 // Shrinks to [] as tasks 7 to 15 declare their journeys; task 15 makes it empty for good.
 const KNOWN_BUG_CELLS_NOT_YET_DECLARED: string[] = [

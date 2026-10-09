@@ -12,17 +12,17 @@ export const JOURNEY_TITLES: Record<JourneyId, string> = {
 };
 
 /**
- * Re-sized from the spike's unit costs measured on testnet (spec section 6): each is the larger of 2x the journey's
- * estimate and the estimate plus 9 min, three public-faucet grants each waiting out the helper's 180 s 429 budget.
- * A part's journeys sum to 90 min, under the workflow's 140-min run step.
+ * Each is the higher of the spec's initial testnet value (about 2x its estimate, section 6) and the spike's value
+ * recomputed from measured unit costs. None recomputed higher, and reads and refusals went unmeasured, so these are
+ * the initial values. A part's journeys stay under the workflow's 140-min run step: core 125 min, writes 130 min.
  */
 export const JOURNEY_TIMEOUT_MS: Record<JourneyId, number> = {
   S: 20 * 60_000,
-  R: 30 * 60_000,
-  W: 40 * 60_000,
-  X: 30 * 60_000,
-  XL: 20 * 60_000,
-  M: 40 * 60_000
+  R: 45 * 60_000,
+  W: 60 * 60_000,
+  X: 45 * 60_000,
+  XL: 25 * 60_000,
+  M: 60 * 60_000
 };
 
 /** The axis suffix is what the workflow's `--grep " - <axis> account"` selects a leg by. */
