@@ -19,6 +19,10 @@
     "message": "バーン（焼却）のみ",
     "englishSource": "Burn only"
   },
+  "usdcxWithdrawalNotice": {
+    "message": "「バーン確認済み」とは、USDCxがMiden上でバーンされたことを意味します。「確認済み」とは、宛先のUSDC残高が増加したことを意味します。バーンnoteと宛先アドレスは公開されています。公開されたバーンnotesは回収できません。",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+  },
   "usdcxBurnTestNotice": {
     "message": "このテスト faucet は、Miden上でUSDCxを焼却し、支払先への送金は行いません。焼却 note および宛先アドレスは公開されています。公開された焼却 notes は取り戻すことはできません。",
     "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."

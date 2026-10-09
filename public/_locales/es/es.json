@@ -4,6 +4,7 @@
   "usdcxBurnSubmitted": "Solicitud de quema enviada",
   "usdcxMidenFees": "Comisiones de MIDEN",
   "usdcxBurnOnly": "Solo quema",
+  "usdcxWithdrawalNotice": "«Quema confirmada» significa que se han quemado USDCx en Miden. «Confirmada» significa que el saldo de USDC del destino ha aumentado. La enote de quema y la dirección de destino son públicas. Las enotes de quema publicadas no se pueden recuperar.",
   "usdcxBurnTestNotice": "Esta prueba faucet quema USDCx en Miden sin un pago de destino. La quema note y la dirección de destino son públicas. La quema publicada notes no se puede recuperar.",
   "usdcxBurnPending": "A la espera de ser quemados",
   "usdcxBurnConsuming": "Procesamiento de quema",

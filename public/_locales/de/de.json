@@ -4,6 +4,7 @@
   "usdcxBurnSubmitted": "Einreichung zum Verbrennen",
   "usdcxMidenFees": "MIDEN-Gebühren",
   "usdcxBurnOnly": "Nur verbrennen",
+  "usdcxWithdrawalNotice": "„Burn confirmed“ bedeutet, dass USDCx auf Miden verbrannt wurde. „Confirmed“ bedeutet, dass sich der USDC-Saldo am Ziel erhöht hat. Die Burn-note und die Zieladresse sind öffentlich. Veröffentlichte Burn-notes können nicht zurückgefordert werden.",
   "usdcxBurnTestNotice": "Dieser Test-faucet verbrennt USDCx auf Miden, ohne dass eine Auszahlung an ein Ziel erfolgt. Die Verbrennungs-note und die Zieladresse sind öffentlich einsehbar. Veröffentlichte Verbrennungs-notes können nicht zurückgefordert werden.",
   "usdcxBurnPending": "Warten auf die Vernichtung",
   "usdcxBurnConsuming": "Bearbeitung von Verbrennungen",

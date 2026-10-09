@@ -19,6 +19,10 @@
     "message": "Тільки спалення",
     "englishSource": "Burn only"
   },
+  "usdcxWithdrawalNotice": {
+    "message": "«Спалення підтверджено» означає, що USDCx було спалено на Miden. «Підтверджено» означає, що баланс USDC на адресі призначення збільшився. Приміnote про спалення та адреса призначення є публічними. Опубліковані приnotes про спалення не можна повернути.",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+  },
   "usdcxBurnTestNotice": {
     "message": "Цей тест faucet спалює USDCx на Miden без виплати на адресу призначення. Процес спалювання note та адреса призначення є публічними. Опубліковані дані про спалювання notes не можна повернути.",
     "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."

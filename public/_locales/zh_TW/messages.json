@@ -19,6 +19,10 @@
     "message": "僅限銷毀",
     "englishSource": "Burn only"
   },
+  "usdcxWithdrawalNotice": {
+    "message": "「銷毀已確認」表示 USDCx 已在 Miden 上被銷毀。「已確認」意指目標地址的 USDC 餘額已增加。銷毀note 及目標地址均為公開資訊。已發布的銷毀notes 無法被追回。",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+  },
   "usdcxBurnTestNotice": {
     "message": "此測試 faucet 將在 Miden 上銷毀 USDCx，且無指定支付目的地。銷毀記錄 note 及目的地地址均為公開資訊。已發布的銷毀記錄 notes 無法被追回。",
     "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."

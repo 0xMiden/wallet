@@ -19,6 +19,10 @@
     "message": "Nur verbrennen",
     "englishSource": "Burn only"
   },
+  "usdcxWithdrawalNotice": {
+    "message": "„Burn confirmed“ bedeutet, dass USDCx auf Miden verbrannt wurde. „Confirmed“ bedeutet, dass sich der USDC-Saldo am Ziel erhöht hat. Die Burn-note und die Zieladresse sind öffentlich. Veröffentlichte Burn-notes können nicht zurückgefordert werden.",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+  },
   "usdcxBurnTestNotice": {
     "message": "Dieser Test-faucet verbrennt USDCx auf Miden, ohne dass eine Auszahlung an ein Ziel erfolgt. Die Verbrennungs-note und die Zieladresse sind öffentlich einsehbar. Veröffentlichte Verbrennungs-notes können nicht zurückgefordert werden.",
     "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."

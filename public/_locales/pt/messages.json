@@ -19,6 +19,10 @@
     "message": "Apenas queimar",
     "englishSource": "Burn only"
   },
+  "usdcxWithdrawalNotice": {
+    "message": "“Queima confirmada” significa que o USDCx foi queimado no Miden. “Confirmada” significa que o saldo de USDC no destino aumentou. A enote de queima e o endereço de destino são públicos. As enotes de queima publicadas não podem ser recuperadas.",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+  },
   "usdcxBurnTestNotice": {
     "message": "Este teste faucet queima USDCx na Miden sem um pagamento de destino. A queima note e o endereço de destino são públicos. A queima publicada notes não pode ser recuperada.",
     "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."

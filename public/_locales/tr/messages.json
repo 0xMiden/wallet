@@ -19,6 +19,10 @@
     "message": "Sadece yakma",
     "englishSource": "Burn only"
   },
+  "usdcxWithdrawalNotice": {
+    "message": "\"Yakma onayı\" (Burn confirmed), USDCx'in Miden'de yakıldığı anlamına gelir. \"Onaylandı\" (Confirmed), hedef USDC bakiyesinin arttığı anlamına gelir. Yakma notesi ve hedef adres herkese açıktır. Yayınlanan yakma notessi geri alınamaz.",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+  },
   "usdcxBurnTestNotice": {
     "message": "Bu test faucet, Miden'de hedef bir ödeme adresi olmadan USDCx'i yakar. Yakma işlemi note ve hedef adres herkese açıktır. Yayınlanan yakma işlemi notes geri alınamaz.",
     "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."

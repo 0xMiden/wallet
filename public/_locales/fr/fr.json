@@ -4,6 +4,7 @@
   "usdcxBurnSubmitted": "Demande de destruction soumise",
   "usdcxMidenFees": "Frais MIDEN",
   "usdcxBurnOnly": "Brûler uniquement",
+  "usdcxWithdrawalNotice": "« Burn confirmed » signifie que des USDCx ont été brûlés sur Miden. « Confirmed » signifie que le solde USDC de la destination a augmenté. La « burn note » et l’adresse de destination sont publiques. Les « burn notes » publiées ne peuvent pas être récupérées.",
   "usdcxBurnTestNotice": "Ce test faucet brûle des USDCx sur Miden sans versement vers une destination. L’note de la destruction et l’adresse de destination sont publiques. Les notess de destruction publiées ne peuvent pas être récupérées.",
   "usdcxBurnPending": "En attente de destruction",
   "usdcxBurnConsuming": "Traitement de la destruction",

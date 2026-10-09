@@ -4,6 +4,7 @@
   "usdcxBurnSubmitted": "Yakma işlemi gönderildi",
   "usdcxMidenFees": "MIDEN ücretleri",
   "usdcxBurnOnly": "Sadece yakma",
+  "usdcxWithdrawalNotice": "\"Yakma onayı\" (Burn confirmed), USDCx'in Miden'de yakıldığı anlamına gelir. \"Onaylandı\" (Confirmed), hedef USDC bakiyesinin arttığı anlamına gelir. Yakma notesi ve hedef adres herkese açıktır. Yayınlanan yakma notessi geri alınamaz.",
   "usdcxBurnTestNotice": "Bu test faucet, Miden'de hedef bir ödeme adresi olmadan USDCx'i yakar. Yakma işlemi note ve hedef adres herkese açıktır. Yayınlanan yakma işlemi notes geri alınamaz.",
   "usdcxBurnPending": "Yakılmayı bekleyen",
   "usdcxBurnConsuming": "Yakma işlemi",

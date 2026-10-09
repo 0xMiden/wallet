@@ -4,6 +4,7 @@
   "usdcxBurnSubmitted": "Zgłoszenie spalenia",
   "usdcxMidenFees": "Opłaty MIDEN",
   "usdcxBurnOnly": "Tylko spalanie",
+  "usdcxWithdrawalNotice": "Potwierdzone spalenie oznacza, że tokeny USDCx zostały spalone na platformie Miden. Potwierdzenie oznacza, że saldo USDC na koncie docelowym wzrosło. note o spaleniu oraz adres docelowy są publiczne. Opublikowane notes o spaleniu nie mogą zostać odzyskane.",
   "usdcxBurnTestNotice": "Ten test faucet powoduje spalenie USDCx na platformie Miden bez wypłaty na adres docelowy. Adres spalania note oraz adres docelowy są publiczne. Opublikowane spalanie notes nie podlega odzyskaniu.",
   "usdcxBurnPending": "Oczekujące na zniszczenie",
   "usdcxBurnConsuming": "Przetwarzanie spalania",

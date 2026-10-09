@@ -4,6 +4,7 @@
   "usdcxBurnSubmitted": "소각 요청 제출됨",
   "usdcxMidenFees": "MIDEN 수수료",
   "usdcxBurnOnly": "소각 전용",
+  "usdcxWithdrawalNotice": "'소각 확인(Burn confirmed)'은 Miden에서 USDCx가 소각되었음을 의미합니다. '확인(Confirmed)'은 수신처의 USDC 잔액이 증가했음을 의미합니다. 소각 note와 수신처 주소는 공개됩니다. 게시된 소각 notes는 되찾을 수 없습니다.",
   "usdcxBurnTestNotice": "이 테스트 faucet는 Miden에서 수취처 없이 USDCx를 소각합니다. 소각 내역 note 및 수취 주소는 공개되어 있습니다. 게시된 소각 내역 notes은 되찾을 수 없습니다.",
   "usdcxBurnPending": "소각 대기 중",
   "usdcxBurnConsuming": "소각 처리",

@@ -4,6 +4,7 @@
   "usdcxBurnSubmitted": "バーンが送信されました",
   "usdcxMidenFees": "MIDENの手数料",
   "usdcxBurnOnly": "バーン（焼却）のみ",
+  "usdcxWithdrawalNotice": "「バーン確認済み」とは、USDCxがMiden上でバーンされたことを意味します。「確認済み」とは、宛先のUSDC残高が増加したことを意味します。バーンnoteと宛先アドレスは公開されています。公開されたバーンnotesは回収できません。",
   "usdcxBurnTestNotice": "このテスト faucet は、Miden上でUSDCxを焼却し、支払先への送金は行いません。焼却 note および宛先アドレスは公開されています。公開された焼却 notes は取り戻すことはできません。",
   "usdcxBurnPending": "バーン待ち",
   "usdcxBurnConsuming": "バーン処理",

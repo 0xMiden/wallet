@@ -4,6 +4,7 @@
   "usdcxBurnSubmitted": "Queima enviada",
   "usdcxMidenFees": "Taxas da MIDEN",
   "usdcxBurnOnly": "Apenas queimar",
+  "usdcxWithdrawalNotice": "“Queima confirmada” significa que o USDCx foi queimado no Miden. “Confirmada” significa que o saldo de USDC no destino aumentou. A enote de queima e o endereço de destino são públicos. As enotes de queima publicadas não podem ser recuperadas.",
   "usdcxBurnTestNotice": "Este teste faucet queima USDCx na Miden sem um pagamento de destino. A queima note e o endereço de destino são públicos. A queima publicada notes não pode ser recuperada.",
   "usdcxBurnPending": "Aguardando queima",
   "usdcxBurnConsuming": "Processamento de queima",

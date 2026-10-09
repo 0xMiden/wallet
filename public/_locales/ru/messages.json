@@ -19,6 +19,10 @@
     "message": "Только сжигание",
     "englishSource": "Burn only"
   },
+  "usdcxWithdrawalNotice": {
+    "message": "«Сжигание подтверждено» означает, что USDCx был сожжен на Miden. «Подтверждено» означает, что баланс USDC на адресе назначения увеличился. Сообщение о сжигании (note) и адрес назначения являются общедоступными. Опубликованные сообщения о сжигании (notes) не могут быть отозваны.",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+  },
   "usdcxBurnTestNotice": {
     "message": "В этом тесте faucet происходит сжигание USDCx на Miden без выплаты на конечный адрес. Ссылка на сжигание note и адрес назначения являются общедоступными. Опубликованные данные о сжигании notes не подлежат восстановлению.",
     "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."
