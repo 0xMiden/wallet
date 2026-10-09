@@ -407,13 +407,14 @@ let realmReader: RealmReader | undefined;
  * read and the guardian PSWAP request build both go through it.
  *
  * It used to be a throwaway per call: `WasmWebClient.createClient` per read and
- * `terminate()` in a `finally`. The SDK's `terminate()` releases nothing for a
- * client built without a worker, and 0.16 has no call that closes one (its glue
- * closes the IndexedDB connection only on a version mismatch), so every read
- * stranded a wasm-bindgen client and an IndexedDB connection - on each sync alarm
- * on the extension, on each 5 s claimable-notes poll on mobile and desktop - and
- * the extension renderer died of OOM after 55 hours. Nothing can release a
- * reader, so the bound is to stop rebuilding it.
+ * `terminate()` in a `finally`. Before web-sdk 0.17.3 `terminate()` released
+ * nothing for a client built without a worker, so every read stranded a
+ * wasm-bindgen client and an IndexedDB connection - on each sync alarm on the
+ * extension, on each 5 s claimable-notes poll on mobile and desktop - and the
+ * extension renderer died of OOM after 55 hours. Since 0.17.3 `terminate()`
+ * releases such a client and its hold on the IndexedDB store once the calls
+ * queued on it settle; a read that never settles still holds its client, so
+ * the bound stays one reader per realm rather than one per read.
  *
  * It is keyed on what makes it stale, not on the MidenClientInterface:
  * - the client generation, bumped by every lock-recovery replacement in this
@@ -423,16 +424,16 @@ let realmReader: RealmReader | undefined;
  *   generation (the SW sees a new URL only at start-up or through a reset
  *   that bumps it). It is not redundant.
  * Each successful rebuild strands the previous reader: one per client
- * replacement or endpoint change, not one per read. A build that fails after
- * opening its store strands that connection too (the SDK opens the store
- * before the genesis fetch; an endpoint that does not parse fails before it),
- * so a failed entry stays in the slot and answers with its error until its
- * window ends: the sync breaker's backoff for an ordinary failure (30 s
- * doubling to a 5 min cap) for that generation and URL, never the 30 min
- * fuse, which is for a call that never answered. Such failures are rare: a
- * store that already holds genesis builds with no network call, so only a
- * fresh store with the node unreachable, or an IndexedDB error, gets that far
- * and fails. A replacement or a repoint builds at once.
+ * replacement or endpoint change, not one per read. A build that fails is
+ * terminated by the SDK's `createClient` (since 0.17.3), so it strands
+ * nothing, but a failed entry still stays in the slot and answers with its
+ * error until its window ends, so the node is not asked again on every read:
+ * the sync breaker's backoff for an ordinary failure (30 s doubling to a 5 min
+ * cap) for that generation and URL, never the 30 min fuse, which is for a call
+ * that never answered. Such failures are rare: a store that already holds
+ * genesis builds with no network call, so only a fresh store with the node
+ * unreachable, or an IndexedDB error, fails a build. A replacement or a
+ * repoint builds at once.
  *
  * It stays a separate client on purpose. Reading through the main client's
  * `_withInnerWebClient` would leave an evicted read's window open on the client
