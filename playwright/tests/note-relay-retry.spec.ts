@@ -14,14 +14,17 @@ const sdkRoot = resolve(__dirname, '../../node_modules/@miden-sdk/miden-sdk');
 const rpcFixture = resolve(__dirname, '../fixtures/note-relay-rpc.json');
 
 type Reply = 'unavailable' | 'invalidArgument' | 'throw';
+// A call's outcome as the classifiers read it: its text, and whether the rejected value is an object carrying a
+// string `message`, the one shape isClientTerminatedError can match.
+type Refusal = { text: string; carriesMessage: boolean };
 type Relay = {
   rejected: boolean;
   message: string;
   sendCalls: number;
   sendCallsAfterSync: number;
   unknownNoteMessage: string;
-  clientAfterTerminate: string;
-  innerAfterTerminate: string;
+  clientAfterTerminate: Refusal;
+  innerAfterTerminate: Refusal;
 };
 
 let server: Server;
@@ -152,16 +155,23 @@ async function relay(page: Page, reply: Reply, maxRetries?: number): Promise<Rel
       const innerGetAccounts: () => Promise<unknown> = await client._withInnerWebClient(
         async (inner: { getAccounts(): Promise<unknown> }) => () => inner.getAccounts()
       );
-      const settledText = (call: () => Promise<unknown>) =>
+      const settled = (call: () => Promise<unknown>) =>
         Promise.race([
           Promise.resolve()
             .then(call)
-            .then(() => 'resolved', messageOf),
-          new Promise<string>(done => setTimeout(() => done('never settled'), 10_000))
+            .then(
+              (): Refusal => ({ text: 'resolved', carriesMessage: false }),
+              (error: unknown): Refusal => ({
+                text: messageOf(error),
+                carriesMessage:
+                  typeof error === 'object' && error !== null && typeof Reflect.get(error, 'message') === 'string'
+              })
+            ),
+          new Promise<Refusal>(done => setTimeout(() => done({ text: 'never settled', carriesMessage: false }), 10_000))
         ]);
       client.terminate();
-      const clientAfterTerminate = await settledText(() => client.syncNoteTransport());
-      const innerAfterTerminate = await settledText(innerGetAccounts);
+      const clientAfterTerminate = await settled(() => client.syncNoteTransport());
+      const innerAfterTerminate = await settled(innerGetAccounts);
       return {
         rejected,
         message,
@@ -207,10 +217,11 @@ test.describe('note transport retries, real WASM', () => {
 
   test('a call after terminate() is refused with the text the wallet reads as a kill', async ({ page }) => {
     const run = await relay(page, 'unavailable', 0);
-    expect(run.innerAfterTerminate).toBe('WebClient terminated');
-    for (const message of [run.clientAfterTerminate, run.innerAfterTerminate]) {
-      expect(isKilledPipeline(new Error(message)), message).toBe(true);
-      expect(classifyRelayFailure(new Error(message)), message).toBe('interrupted');
+    expect(run.innerAfterTerminate.text).toBe('WebClient terminated');
+    for (const { text, carriesMessage } of [run.clientAfterTerminate, run.innerAfterTerminate]) {
+      expect(carriesMessage, text).toBe(true);
+      expect(isKilledPipeline(new Error(text)), text).toBe(true);
+      expect(classifyRelayFailure(new Error(text)), text).toBe('interrupted');
     }
   });
 
