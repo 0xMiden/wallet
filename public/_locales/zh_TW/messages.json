@@ -4491,6 +4491,15 @@
     "message": "已連線至 EVM 錢包",
     "englishSource": "EVM wallet connected"
   },
+  "evmChainNotApproved": {
+    "message": "已連線的錢包尚未核准 $network$。請重新連線錢包以進行核准。",
+    "englishSource": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "connectedWallet": {
     "message": "連網錢包",
     "englishSource": "Connected wallet"

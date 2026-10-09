@@ -33,6 +33,9 @@ export function configureNativeReown(): Promise<void> {
       linkMode: false,
       chainIds: SUPPORTED_CHAINS.map(chain => chain.id),
       methods: ['eth_sendTransaction', 'personal_sign', 'eth_signTypedData'],
+      // Optional only, so that a wallet without them still pairs. `ensureNativeSessionChain` uses
+      // them to add a chain that the session did not approve.
+      optionalMethods: ['wallet_addEthereumChain', 'wallet_switchEthereumChain'],
       events: ['chainChanged', 'accountsChanged']
     }).catch(err => {
       // Reset the cache on rejection: a rejected promise is truthy and would be

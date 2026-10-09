@@ -1026,6 +1026,7 @@
   "copy": "复制",
   "crossChain": "跨链",
   "evmWalletConnected": "已连接 EVM 钱包",
+  "evmChainNotApproved": "已连接的钱包未批准$network$。请重新连接钱包以进行批准。",
   "connectedWallet": "联网钱包",
   "switchWallet": "切换钱包",
   "current": "当前",

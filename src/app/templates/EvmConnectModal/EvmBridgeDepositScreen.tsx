@@ -24,7 +24,13 @@ import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-conf
 import { type EvmUsdc, getAgglayerDeposit, selectEvmUsdc, selectMidenUsdc } from 'lib/remote-config/values';
 import { WalletAccount } from 'lib/shared/types';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
-import { isNativeReownAvailable, NativeReown, unwrapNativeResult } from 'lib/walletconnect/native';
+import {
+  isNativeReownAvailable,
+  NativeReown,
+  NativeSessionChainNotApprovedError,
+  prepareNativeSessionChain,
+  unwrapNativeResult
+} from 'lib/walletconnect/native';
 import { readSepoliaErc20Allowance, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UIToken } from 'screens/send-flow/types';
@@ -437,6 +443,16 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     [resetEpoch, route]
   );
 
+  // A deposit failure as the screen shows it: a chain that the native session did not approve gets the
+  // localized reconnect message, and every other failure keeps its own message.
+  const depositErrorMessage = useCallback(
+    (err: unknown): string =>
+      err instanceof NativeSessionChainNotApprovedError
+        ? t('evmChainNotApproved', { network: err.networkName })
+        : errorMessage(err),
+    [t]
+  );
+
   const handleSlowBridge = useCallback(
     async (trackingTxId: string) => {
       if (!isValidAmount(amount) || (!nativeReownAvailable && !walletProvider)) {
@@ -452,6 +468,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       setSlowError(null);
 
       try {
+        // Native Reown signs on Sepolia: a session that did not approve it fails here, before any
+        // wallet prompt, instead of with the Sign SDK's "Invalid permissions for call.".
+        if (nativeReownAvailable) await prepareNativeSessionChain(DEFAULT_CHAIN_ID);
         // AggLayer bridges any asset: native ETH rides as `msg.value` with the zero
         // token address; an ERC-20 is approved to the bridge first, unless its allowance
         // already covers the deposit, and then bridged with its own address and no value.
@@ -546,7 +565,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         setSlowStatus('submitted');
       } catch (err) {
         console.error('[EvmBridgeDepositScreen] Agglayer bridge failed', err);
-        const message = errorMessage(err);
+        const message = depositErrorMessage(err);
         setSlowError(message);
         setSlowStatus('failed');
         await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message }).catch(() => undefined);
@@ -554,6 +573,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     },
     [
       amount,
+      depositErrorMessage,
       evmAddress,
       evmUsdc,
       midenAccount.publicKey,
@@ -563,6 +583,26 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       walletProvider,
       writeContract
     ]
+  );
+
+  // Fast (Epoch): the Epoch SDK signs on Sepolia through the native Reown provider. The provider
+  // checks the session chain too, but this check runs before the SDK starts, so the row fails with
+  // the localized reconnect message and no wallet prompt opens.
+  const handleFastBridge = useCallback(
+    async (trackingTxId: string) => {
+      if (nativeReownAvailable) {
+        try {
+          await prepareNativeSessionChain(DEFAULT_CHAIN_ID);
+        } catch (err) {
+          console.error('[EvmBridgeDepositScreen] Fast bridge failed', err);
+          const message = depositErrorMessage(err);
+          await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message }).catch(() => undefined);
+          return;
+        }
+      }
+      await executeEVMToMiden(trackingTxId);
+    },
+    [depositErrorMessage, executeEVMToMiden, nativeReownAvailable]
   );
 
   const setupReady = isValidAmount(amount);
@@ -735,7 +775,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         });
       const txId = await startBridgeReceiveSubmission(
         () => (reportDeposit ? reportDeposit(createTransfer) : createTransfer()),
-        id => (route === 'agglayer' ? handleSlowBridge(id) : executeEVMToMiden(id))
+        id => (route === 'agglayer' ? handleSlowBridge(id) : handleFastBridge(id))
       );
       setBridgeTxId(txId);
       navigateTo(ReceiveStep.ShowBridgePageStatus);
@@ -755,7 +795,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     epochQuote?.quoteResult.tokenOut,
     epochStatus,
     evmAddress,
-    executeEVMToMiden,
+    handleFastBridge,
     handleSlowBridge,
     midenAccount.publicKey,
     midenUsdc,

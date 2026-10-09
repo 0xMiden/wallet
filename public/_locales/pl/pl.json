@@ -1026,6 +1026,7 @@
   "copy": "Kopiuj",
   "crossChain": "Międzyłańcuchowe",
   "evmWalletConnected": "Podłączono portfel EVM",
+  "evmChainNotApproved": "Podłączony portfel nie zatwierdził $network$. Podłącz ponownie portfel, aby to zatwierdzić.",
   "connectedWallet": "Portfel połączony z internetem",
   "switchWallet": "Zmień portfel",
   "current": "Obecny",

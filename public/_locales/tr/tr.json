@@ -1026,6 +1026,7 @@
   "copy": "Kopyala",
   "crossChain": "Zincirler arası",
   "evmWalletConnected": "EVM cüzdanı bağlandı",
+  "evmChainNotApproved": "Bağlı cüzdan $network$'yi onaylamadı. Onaylamak için cüzdanı yeniden bağlayın.",
   "connectedWallet": "Bağlantılı cüzdan",
   "switchWallet": "Cüzdanı değiştir",
   "current": "Mevcut",

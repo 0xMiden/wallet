@@ -1026,6 +1026,7 @@
   "copy": "複製",
   "crossChain": "跨鏈",
   "evmWalletConnected": "已連線至 EVM 錢包",
+  "evmChainNotApproved": "已連線的錢包尚未核准 $network$。請重新連線錢包以進行核准。",
   "connectedWallet": "連網錢包",
   "switchWallet": "切換錢包",
   "current": "當前",

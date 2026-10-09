@@ -4491,6 +4491,15 @@
     "message": "Podłączono portfel EVM",
     "englishSource": "EVM wallet connected"
   },
+  "evmChainNotApproved": {
+    "message": "Podłączony portfel nie zatwierdził $network$. Podłącz ponownie portfel, aby to zatwierdzić.",
+    "englishSource": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "connectedWallet": {
     "message": "Portfel połączony z internetem",
     "englishSource": "Connected wallet"

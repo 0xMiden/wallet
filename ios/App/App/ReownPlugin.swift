@@ -217,6 +217,9 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
         let linkMode = call.getBool("linkMode") ?? false
         let chainIds = call.getArray("chainIds", Int.self) ?? [11155111]
         let methods = Set(call.getArray("methods", String.self) ?? ["eth_sendTransaction", "personal_sign", "eth_signTypedData"])
+        // Methods proposed as optional only (wallet_addEthereumChain, wallet_switchEthereumChain): a wallet
+        // that does not support them still pairs.
+        let optionalMethods = Set(call.getArray("optionalMethods", String.self) ?? [])
         let events = Set(call.getArray("events", String.self) ?? ["chainChanged", "accountsChanged"])
         let blockchains = chainIds.compactMap { Blockchain("eip155:\($0)") }
 
@@ -245,10 +248,15 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
             redirect: redirect
         )
 
+        // reown-swift 2.3 proposes every namespace as optional: `SessionParams(namespaces:)` and
+        // `Sign.instance.connect(namespaces:)` send an empty required set, and the init that takes a
+        // required set is deprecated. So the session has one optional eip155 namespace, and the
+        // optional-only methods join it. A wallet approves the subset of methods it supports, so a
+        // wallet without wallet_addEthereumChain or wallet_switchEthereumChain still pairs.
         let namespaces: [String: ProposalNamespace] = [
             "eip155": ProposalNamespace(
                 chains: blockchains,
-                methods: methods,
+                methods: methods.union(optionalMethods),
                 events: events
             )
         ]
@@ -653,6 +661,9 @@ private extension ReownPlugin {
         if let chainId = firstChainId(in: session) {
             payload["chainId"] = chainId
         }
+        if let session {
+            payload["chainIds"] = approvedChainIds(in: session)
+        }
         if let walletName = session?.peer.name {
             payload["walletName"] = walletName
         }
@@ -671,6 +682,7 @@ private extension ReownPlugin {
         var payload: JSObject = [
             "topic": session.topic,
             "accounts": accounts,
+            "chainIds": approvedChainIds(in: session),
             "walletName": session.peer.name
         ]
 
@@ -700,5 +712,22 @@ private extension ReownPlugin {
             return nil
         }
         return Int(chainId)
+    }
+
+    /// The distinct EVM chain ids that the session approved, in namespace order.
+    /// The wallet uses this list to refuse a request on a chain that the session
+    /// did not approve (the Sign SDK otherwise fails with "Invalid permissions for call.").
+    func approvedChainIds(in session: Session) -> [Int] {
+        var chainIds: [Int] = []
+        for account in session.namespaces.values.flatMap({ $0.accounts }) {
+            let parts = account.blockchainIdentifier.split(separator: ":")
+            guard parts.count == 2, parts[0] == "eip155", let chainId = Int(parts[1]) else {
+                continue
+            }
+            if !chainIds.contains(chainId) {
+                chainIds.append(chainId)
+            }
+        }
+        return chainIds
     }
 }
