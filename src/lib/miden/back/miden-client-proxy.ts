@@ -932,14 +932,13 @@ export function dispatchGuardianPipeline(
   delegateTransaction: boolean | undefined,
   signCallback: RawSignCallback,
   onStage?: StageCallback,
-  // #784: the proposal's chain anchor, in its wire form (the metadata's base64
-  // string). It crosses as-is — a WASM ChainAnchor cannot survive the message
-  // boundary — and the offscreen dispatch decodes it in-realm to pin
-  // executeRequest to the reference block the co-signatures were bound to.
+  // #784: the proposal metadata's base64 anchor. It still fills the 4th slot, for
+  // wire compatibility only: the offscreen leaf reads nothing from it and executes
+  // at the tip against the block the request's auth args bind.
   chainAnchorB64?: string
 ): Promise<TransactionResult> {
   // Typed against the shared wire contract so a dropped or reordered slot is a
-  // compile error here rather than a silently unanchored execute offscreen.
+  // compile error here rather than an argument the offscreen leaf silently misreads.
   const args: GuardianPipelineArgs = [accountId, trBytes, delegateTransaction ?? null, chainAnchorB64 ?? null];
   return dispatchOffscreenWrite('guardianPipeline', args, signCallback, onStage);
 }

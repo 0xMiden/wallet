@@ -233,9 +233,10 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // most likely to outlive the watchdog.
         assertWasmHoldCurrent(hold, 'after the sync');
 
-        // Fix C: executeForSummary wants a hex account-id string (it does
-        // AccountId.fromHex). The custom-tx address is usually bech32, but
-        // resolveAccountId elsewhere accepts hex too — pass hex through as-is.
+        // Fix C: hex is not required. `executeForSummaryAtTip` passes this string to the SDK's
+        // `preview`, which, like `executeRequest` below, resolves a `0x` id with AccountId.fromHex and
+        // any other string with AccountId.fromBech32. A hex id passes through as-is; a bech32 address
+        // is parsed by `accountIdStringToSdk` (`Address.fromBech32`) and passed on as hex.
         const accountIdHex =
           input.address.startsWith('0x') || input.address.startsWith('0X')
             ? input.address

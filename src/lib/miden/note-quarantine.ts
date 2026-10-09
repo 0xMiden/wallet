@@ -3,7 +3,7 @@
  *
  * The custom-tx confirm popup dry-runs the transaction BEFORE the user
  * approves it (`simulate-custom-tx.ts`), which imports the request's carried
- * notes into the real client DB so `executeForSummary` can resolve them.
+ * notes into the real client DB so `executeForSummaryAtTip` can resolve them.
  * That import has a side effect the user never asked for: the notes
  * immediately become visible in the claimable-notes UI (pending-notes list,
  * unclaimed badge, "Claim All") — even if the user goes on to CANCEL the

@@ -5181,10 +5181,8 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
       capturedListener!(
         callReq({
           method: 'guardianPipeline',
-          // ANCHORED, so this covers the #784 markers too. With a 3-slot
-          // envelope the anchor-conditional decode marker is never reached, and
-          // an anchor breadcrumb that skipped the flag gate would ship its
-          // trail to production with every assertion here still green.
+          // Four slots, the shape the SW packer always sends; the leaf reads
+          // nothing from the 4th.
           argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), encodeArg('BwcH')]
         }),
         {},

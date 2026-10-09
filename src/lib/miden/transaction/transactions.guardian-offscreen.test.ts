@@ -2338,12 +2338,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     expect(mockDispatchGuardianPipeline.mock.calls[0][2]).toBe(true);
   });
 
-  // #784: the co-signatures were collected over a summary that binds the
-  // proposal's reference block, so the offscreen realm must execute AT that
-  // block. The anchor crosses in its wire form — the proposal metadata's base64
-  // string — and is decoded offscreen-side (a WASM ChainAnchor cannot cross the
-  // message boundary).
-  it('crosses the proposal chain anchor to dispatchGuardianPipeline in its wire-form base64 (#784)', async () => {
+  // #784: wire compatibility only. The proposal metadata's base64 anchor still
+  // fills dispatchGuardianPipeline's last parameter unchanged, though the
+  // offscreen leaf reads nothing from it: it executes at the tip against the
+  // block the request's auth args bind.
+  it('hands dispatchGuardianPipeline the metadata anchor unchanged, for wire compatibility only (#784)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
     const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
