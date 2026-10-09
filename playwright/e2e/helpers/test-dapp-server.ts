@@ -225,10 +225,19 @@ export async function serveTestDappOnLoopback(
       );
       listener.listen(port, host, () => resolve(listener));
     });
-  const listeners = (await Promise.all([listen('127.0.0.1'), listen('::1')])).filter(
-    (listener): listener is http.Server => listener !== null
+  // allSettled, not all: when one address fails, the one that bound must be closed too, or it keeps the port and the
+  // process alive.
+  const settled = await Promise.allSettled([listen('127.0.0.1'), listen('::1')]);
+  const listeners = settled.flatMap(result =>
+    result.status === 'fulfilled' && result.value !== null ? [result.value] : []
   );
-  return async () => {
+  const stop = async (): Promise<void> => {
     await Promise.all(listeners.map(listener => new Promise<void>(resolve => listener.close(() => resolve()))));
   };
+  const failure = settled.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+  if (failure !== undefined) {
+    await stop();
+    throw failure.reason;
+  }
+  return stop;
 }

@@ -35,6 +35,15 @@ const freePort = (): Promise<number> =>
     });
   });
 
+const hold = (port: number, host: string): Promise<net.Server> =>
+  new Promise((resolve, reject) => {
+    const blocker = net.createServer();
+    blocker.once('error', reject);
+    blocker.listen(port, host, () => resolve(blocker));
+  });
+
+const release = (listener: net.Server): Promise<void> => new Promise(resolve => listener.close(() => resolve()));
+
 describe('test dApp server', () => {
   it('resolves every served package, eventemitter3 from adapter-base itself', () => {
     for (const [name, root] of Object.entries(roots)) {
@@ -125,5 +134,19 @@ describe('test dApp server', () => {
     } finally {
       await stop();
     }
+  });
+
+  it.each(['::1', '127.0.0.1'])('closes the address it bound when %s is taken, so a retry binds', async taken => {
+    const server = createDappServer({ pageDir: pageFixture(), roots });
+    const port = await freePort();
+    const blocker = await hold(port, taken);
+    try {
+      await expect(serveTestDappOnLoopback(server, port)).rejects.toMatchObject({ code: 'EADDRINUSE' });
+    } finally {
+      await release(blocker);
+    }
+    // A listener left on the other address would fail this second bind with EADDRINUSE and keep Jest alive.
+    const stop = await serveTestDappOnLoopback(server, port);
+    await stop();
   });
 });
