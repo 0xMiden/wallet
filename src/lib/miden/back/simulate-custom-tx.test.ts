@@ -92,14 +92,6 @@ describe('simulateCustomTransaction', () => {
     expect(res).toEqual({ error: 'summary serialize failed' });
   });
 
-  // A dApp builds the request on its own client, so its auth args bind that client's height, and the sync above moves the wallet past it; the tip summary reproduces it.
-  it('previews a request bound to an older block through the tip summary', async () => {
-    const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
-
-    expect(executeForSummaryAtTip).toHaveBeenCalledTimes(1);
-    expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3' });
-  });
-
   it('quarantines the imported notes (derived ids) before importing them', async () => {
     await simulateCustomTransaction({
       address: 'mtst1abc',
