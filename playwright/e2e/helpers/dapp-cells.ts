@@ -240,8 +240,7 @@ export function judgeCell(input: JudgeInput): Judgement {
   return { verdict: 'pass', knownBugs: [], staleKnownBugs: [] };
 }
 
-// One marker for the whole records directory, so a failed faucet grant stops the spend of every later test too
-// (spec section 6, Nightly).
+// One marker for the whole records directory, so a failed faucet grant stops the spend of every later test too.
 const INFRA_ABORT = 'INFRA_ABORT';
 export function infraAborted(outDir: string): string | null {
   const file = path.join(outDir, INFRA_ABORT);
@@ -309,8 +308,7 @@ export class DappCellRunner<S> {
     try {
       await quiesceDeadline.race(this.options.hooks.quiesce(cell, quiesceDeadline), 'quiesce');
     } catch (error) {
-      // A live network's hosted Guardian or faucet failing the quiesce is infrastructure, not wallet state (spec
-      // section 6, Nightly).
+      // A live network's hosted Guardian or faucet failing the quiesce is infrastructure, not wallet state.
       if (error instanceof InfrastructureFault) {
         markInfraAbort(this.options.outDir, describeFailure(error));
         await this.options.hooks.restore(cell).catch(() => undefined);

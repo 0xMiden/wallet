@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Test dApp</title>
+    <!-- test-dapp:import-map -->
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #666666;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #111111;
+          --ink: #eeeeee;
+          --muted: #999999;
+        }
+      }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font:
+          14px/1.4 system-ui,
+          sans-serif;
+        margin: 16px;
+      }
+      button {
+        margin: 0 6px 6px 0;
+      }
+      pre {
+        white-space: pre-wrap;
+        word-break: break-all;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Test dApp</h1>
+    <p>
+      Playwright drives it through <code>window.testDapp.call(command, input)</code>; the buttons run a few commands by
+      hand.
+    </p>
+    <div>
+      <button data-command="init">Init client</button>
+      <button data-command="connect">Connect</button>
+      <button data-command="guardianInfo">Guardian info</button>
+      <button data-command="syncHeight">Sync height</button>
+      <button data-command="session">Session</button>
+      <button data-command="disconnect">Disconnect</button>
+    </div>
+    <pre id="log" data-testid="test-dapp-log"></pre>
+    <script type="module" src="/test-dapp.js"></script>
+  </body>
+</html>
