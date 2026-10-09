@@ -35,13 +35,13 @@ import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 class HistoryInterrupted extends Error {}
 
-// An eviction or an offscreen abort of a summary or local result-commitment decode the pass was not interrupted for.
-// It says the decode did not finish, not that the bytes failed a check, so the source is filed 'network' and never
-// spends the invalid-data cap.
+// An eviction, an offscreen abort or a terminated client of a summary or local result-commitment decode the pass was
+// not interrupted for. It says the decode did not finish, not that the bytes failed a check, so the source is filed
+// 'network' and never spends the invalid-data cap.
 class HistoryDecodeAborted extends Error {
   constructor(
     readonly session: number,
-    cause: Error
+    cause: unknown
   ) {
     super('Guardian history decode was aborted', { cause });
   }
