@@ -15,9 +15,10 @@ import {
 async function readResponse(response: Response): Promise<unknown> {
   const body: unknown = await response.json();
   if (!response.ok) {
-    const message = typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string'
-      ? body.error
-      : `Relayer HTTP ${response.status}`;
+    const message =
+      typeof body === 'object' && body !== null && 'error' in body && typeof body.error === 'string'
+        ? body.error
+        : `Relayer HTTP ${response.status}`;
     throw new Error(message);
   }
   return body;
@@ -33,8 +34,11 @@ export async function submitRelayTest(
   const prepareResponse = await fetch(`${baseUrl}/onramp/prepare?evmAddress=${evmAddress}`);
   const preparation = prepareSchema.validateSync(await readResponse(prepareResponse), { strict: true });
   const now = Math.floor(Date.now() / 1000);
-  if (!isAddressEqual(preparation.evmAddress, evmAddress) || preparation.deadline <= now ||
-      preparation.deadline > now + RELAY_TEST_TTL_SECONDS + 60) {
+  if (
+    !isAddressEqual(preparation.evmAddress, evmAddress) ||
+    preparation.deadline <= now ||
+    preparation.deadline > now + RELAY_TEST_TTL_SECONDS + 60
+  ) {
     throw new Error('Invalid relayer preparation');
   }
 

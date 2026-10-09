@@ -45,7 +45,7 @@
  *     `address-book-account-*` and are not links, so they are never mistaken for
  *     a contact here.
  */
-import { type Locator, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
 import type { ChromeWalletPageApi } from './wallet-page';
 
@@ -349,9 +349,8 @@ export interface SendContactInput extends ContactInput {
  * the address book's New contact page: type the recipient, take the "Add to contacts?" pill, check
  * the sheet names the typed address and shows `contact.network`, name the contact and save.
  *
- * With Sepolia the only bridge network, the sheet shows each network as a static label. The helper
- * checks exactly that, and throws if the chip ever becomes a button to pick, since it does not yet
- * pick one.
+ * Select the requested network when the sheet offers a choice. A sheet with only one network
+ * shows a static label.
  *
  * Postcondition: the sheet closed and the recipient step shows the contact by name, so the send
  * flow now knows the address as a contact. Where it lands in the address book is the caller's
@@ -425,10 +424,8 @@ export async function addContactFromSend(
     throw new Error(`${step}: the ${contact.network.id} chip reads ${JSON.stringify(chipText)}.`);
   }
   if ((await chip.evaluate(el => el.tagName)) === 'BUTTON') {
-    throw new Error(
-      `${step}: the ${contact.network.name} chip is now a button, so the sheet offers a network choice. ` +
-        `This helper only checks the one-network sheet; teach it to pick the network.`
-    );
+    await chip.click({ timeout: timeoutMs });
+    await expect(chip).toHaveAttribute('aria-pressed', 'true', { timeout: timeoutMs });
   }
 
   try {

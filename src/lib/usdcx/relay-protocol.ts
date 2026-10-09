@@ -105,7 +105,9 @@ export const authorizationSchema = object({
 // Calldata is reconstructed on both ends, never accepted from the API or caller.
 export const relayRequestSchema = object({
   evmAddress: addressSchema,
-  midenAccountHex: string().matches(/^0x[0-9a-fA-F]{30}$/).required(),
+  midenAccountHex: string()
+    .matches(/^0x[0-9a-fA-F]{30}$/)
+    .required(),
   executor: addressSchema,
   batchNonce: nonceSchema,
   salt: saltSchema,
@@ -117,7 +119,10 @@ export const relayRequestSchema = object({
 export const relayResponseSchema = object({ txHash: hexSchema(32) }).noUnknown();
 export type RelayPreparation = InferType<typeof prepareSchema>;
 export type RelayRequest = InferType<typeof relayRequestSchema>;
-export type RelayBatchInput = Pick<RelayRequest, 'evmAddress' | 'midenAccountHex' | 'executor' | 'batchNonce' | 'salt' | 'deadline'>;
+export type RelayBatchInput = Pick<
+  RelayRequest,
+  'evmAddress' | 'midenAccountHex' | 'executor' | 'batchNonce' | 'salt' | 'deadline'
+>;
 
 export function buildRelayBatch(input: RelayBatchInput) {
   const recipient = midenAccountHexToXReserveRecipient(input.midenAccountHex);
@@ -139,8 +144,14 @@ export function buildRelayBatch(input: RelayBatchInput) {
           data: encodeFunctionData({
             abi: XRESERVE_ABI,
             functionName: 'depositToRemote',
-            args: [RELAY_TEST_AMOUNT, USDCX_REMOTE_DOMAIN, recipient, CIRCLE_USDC_SEPOLIA_ADDRESS,
-              USDCX_DEPOSIT_MAX_FEE, USDCX_DEPOSIT_HOOK_DATA]
+            args: [
+              RELAY_TEST_AMOUNT,
+              USDCX_REMOTE_DOMAIN,
+              recipient,
+              CIRCLE_USDC_SEPOLIA_ADDRESS,
+              USDCX_DEPOSIT_MAX_FEE,
+              USDCX_DEPOSIT_HOOK_DATA
+            ]
           })
         }
       ],

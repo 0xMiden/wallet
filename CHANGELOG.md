@@ -12,6 +12,7 @@
 
 ### Fixes
 
+- [FIX][ci] Apply the required source format to the xReserve test button and relay modules, and select the requested network in the add-contact E2E helper when the sheet offers multiple networks (#1100).
 - [FIX][all] A Slow (Agglayer) USDC deposit reads the allowance the bridge already has and asks for an approval only when it is less than the deposit, so a covered deposit needs one wallet prompt instead of two and a larger allowance is not replaced.
 - [FIX][all] Settings > About > Send feedback opens the working Zapier feedback form (#1340).
 - [FIX][ci] Wait for the accepted public faucet grant to commit before consuming its note in E2E funding fixtures.
