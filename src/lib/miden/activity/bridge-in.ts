@@ -295,7 +295,12 @@ export async function takeUsdcxBridgeInInfo(args: {
       );
     })
     .toArray();
-  matches.sort((a, b) => a.initiatedAt - b.initiatedAt);
+  // The mint follows Circle's attestation of the deposit, so a row whose deposit is attested (`ready`) is the
+  // one this note belongs to; a row still `delivering` is a fallback for a mint the watcher has not caught up
+  // with. Among equals the oldest wins. Age alone paired a note with an older deposit that was never executed
+  // and left the attested one at "Pending".
+  const rank = (tx: ITransaction): number => (tx.extraInputs?.phase === 'ready' ? 0 : 1);
+  matches.sort((a, b) => rank(a) - rank(b) || a.initiatedAt - b.initiatedAt);
   const match = matches[0];
   if (!match) return undefined;
 

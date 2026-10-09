@@ -573,10 +573,10 @@ describe('takeUsdcxBridgeInInfo', () => {
   // The mint: the USDCx faucet sends a note of its own asset. The consume reads both ids in bech32.
   const mint = { accountId: 'miden-account', senderAccountId: 'usdcx-faucet-bech32', faucetId: 'usdcx-faucet-bech32' };
 
-  it('matches the faucet, the account and the amount and selects the oldest broadcast deposit', async () => {
+  it('matches the faucet, the account and the amount and selects the oldest attested deposit', async () => {
     mockTransactions.push(
       tracker({ id: 'newer', accountId: 'miden-account_tag', initiatedAt: 2 }),
-      tracker({ id: 'older' }, { phase: 'delivering' })
+      tracker({ id: 'older' }, { phase: 'ready' })
     );
 
     await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toEqual({
@@ -585,6 +585,27 @@ describe('takeUsdcxBridgeInInfo', () => {
       sourceSymbol: 'USDC',
       evmTxHash: DEPOSIT_HASH,
       bridgeReceiveTxId: 'older'
+    });
+  });
+
+  // The mint follows the deposit's attestation: an older deposit still waiting on its own leg (a burn the
+  // user never executed on Arc) must not take the note of the deposit Circle attested after it.
+  it('prefers a deposit Circle attested over an older one still delivering', async () => {
+    mockTransactions.push(
+      tracker({ id: 'older-unexecuted' }, { phase: 'delivering' }),
+      tracker({ id: 'attested', initiatedAt: 2 }, { phase: 'ready' })
+    );
+
+    await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toMatchObject({
+      bridgeReceiveTxId: 'attested'
+    });
+  });
+
+  it('falls back to a delivering deposit when none is attested yet', async () => {
+    mockTransactions.push(tracker({ id: 'delivering' }, { phase: 'delivering' }));
+
+    await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toMatchObject({
+      bridgeReceiveTxId: 'delivering'
     });
   });
 
