@@ -427,13 +427,14 @@ jobs:
         # Skip the frozen flag conditionally: if either action patched, fall
         # back to a normal install which will update yarn.lock in-place.
         # BOTH injections have to be tested here. The guardian one rewrites
-        # @openzeppelin/miden-multisig-client to a file: dep exactly as the
-        # web-sdk one does, and was only ever tolerated because a Web SDK PR
-        # marker happened to sit alongside it. Dropping that marker while
-        # keeping Guardian PR: sent this branch straight into --frozen-lockfile.
+        # @openzeppelin/guardian-client and @openzeppelin/miden-multisig-client
+        # to file: deps exactly as the web-sdk one does, and was only ever
+        # tolerated because a Web SDK PR marker happened to sit alongside it.
+        # Dropping that marker while keeping Guardian PR: sent this branch
+        # straight into --frozen-lockfile.
         run: |
           if [ -f .linked-web-sdk-pr.json ] \
-             || grep -qE '"(@miden-sdk/(miden-sdk|react)|@openzeppelin/miden-multisig-client)":[[:space:]]*"file:' package.json; then
+             || grep -qE '"(@miden-sdk/(miden-sdk|react)|@openzeppelin/(guardian-client|miden-multisig-client))":[[:space:]]*"file:' package.json; then
             yarn install
           else
             yarn install --frozen-lockfile
