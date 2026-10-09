@@ -14,7 +14,7 @@ import { napiExitTxHashFromRequestBytes } from '../../helpers/exit-hash';
 import { newEvmDestination } from '../../helpers/sepolia';
 
 // The bridged-ETH faucet the live testnet registry lists (the published testnet.json names its bridge).
-const TESTNET_BRIDGED_ETH_FAUCET = '0x0b372f2735e33e91216d995bf29b91';
+const TESTNET_BRIDGED_ETH_FAUCET = '0x7c6d1dc7fb7045913d524bbef017f5';
 
 /**
  * Bridge-OUT, Slow (AggLayer) — real Miden testnet bridge-send, UI only.
