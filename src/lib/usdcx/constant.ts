@@ -82,6 +82,8 @@ export const CCTP_EXECUTOR_ADDRESS = new Map<number, { executor: Address; handle
 
 /** The 24-byte hook name the Generic Executor looks for in composable hook data (`circle-generic-executor`). */
 export const CCTP_EXECUTOR_HOOK_NAME = 'circle-generic-executor';
+/** The hook name Circle's forwarding service looks for; its frame carries no payload for an EVM destination. */
+export const CCTP_FORWARD_HOOK_NAME = 'cctp-forward';
 /** The one composable hook-data version the executor accepts. */
 export const CCTP_HOOK_VERSION = 1;
 /** The executor payload version `GenericExecutor._decodeAndValidatePayload` accepts. */
@@ -123,12 +125,16 @@ export interface UsdcxExecutorTarget {
 
 /**
  * A source with CCTP only (Base, Arbitrum): the deposit is a CCTP burn to the executor on Arc carrying the
- * xReserve deposit as hook data. Circle's forwarder does not execute such messages yet, so the wallet asks
- * the connected EVM wallet to execute the attested message on Arc itself.
+ * xReserve deposit as hook data. With a signed fee quote the burn goes through the fee entry point and
+ * Circle's forwarder executes it on Arc; without one it goes through the plain token messenger and the
+ * wallet asks the connected EVM wallet to execute the attested message on Arc itself.
  */
 export interface UsdcxExecutorSource extends UsdcxSourceChainBase {
   route: 'cctp-executor';
+  /** The plain `TokenMessengerV2`, for a burn the wallet executes itself. */
   tokenMessenger: Address;
+  /** `TokenMessengerWithFees`, for a burn with a signed quote that Circle forwards and executes. */
+  tokenMessengerWithFees: Address;
   /** Circle's Iris API for this network family, which attests the CCTP leg. */
   irisApi: string;
   target: UsdcxExecutorTarget;
@@ -181,8 +187,9 @@ function executorTarget(chain: Chain): UsdcxExecutorTarget {
 function executorSource(chain: Chain, target: UsdcxExecutorTarget): [number, UsdcxSourceChain] {
   const usdc = CIRCLE_USDC_ADDRESS.get(chain.id);
   const domain = CIRCLE_DOMAIN.get(chain.id);
-  if (!usdc || domain === undefined) {
-    throw new Error(`USDCx source chain ${chain.id} is missing a USDC address or a domain`);
+  const tokenMessengerWithFees = TOKEN_MESSENGER_WITH_FEES_ADDRESS.get(chain.id);
+  if (!usdc || domain === undefined || !tokenMessengerWithFees) {
+    throw new Error(`USDCx source chain ${chain.id} is missing a USDC address, a domain or a fee entry point`);
   }
   if ((chain.testnet ?? false) !== (target.chain.testnet ?? false)) {
     throw new Error(`USDCx source chain ${chain.id} and its executor target are on different network families`);
@@ -195,6 +202,7 @@ function executorSource(chain: Chain, target: UsdcxExecutorTarget): [number, Usd
       usdc,
       domain,
       tokenMessenger: TOKEN_MESSENGER_V2_ADDRESS,
+      tokenMessengerWithFees,
       irisApi: chain.testnet ? IRIS_API_TESTNET : IRIS_API_MAINNET,
       target
     }
@@ -447,5 +455,35 @@ export const GENERIC_EXECUTOR_ABI = [
       { name: 'amount', type: 'uint256', indexed: false },
       { name: 'nonce', type: 'bytes32', indexed: false }
     ]
+  }
+] as const;
+
+/**
+ * Circle's `TokenMessengerWithFees` entry point for a burn with a signed quote: the quote is bound to the
+ * amount, destination, token, destination caller and hook data, and its forward fee pays Circle to execute
+ * the message on Arc. The fee is taken in source USDC on top of the amount, so the burn amount arrives whole.
+ */
+export const TOKEN_MESSENGER_WITH_FEES_ABI = [
+  {
+    type: 'function',
+    name: 'depositForBurnWithHookAndFees',
+    stateMutability: 'payable',
+    inputs: [
+      { name: 'amount', type: 'uint256' },
+      { name: 'destinationDomain', type: 'uint32' },
+      { name: 'mintRecipient', type: 'bytes32' },
+      { name: 'burnToken', type: 'address' },
+      { name: 'destinationCaller', type: 'bytes32' },
+      { name: 'hookData', type: 'bytes' },
+      {
+        name: 'claim',
+        type: 'tuple',
+        components: [
+          { name: 'signedQuote', type: 'bytes' },
+          { name: 'refundAddress', type: 'address' }
+        ]
+      }
+    ],
+    outputs: []
   }
 ] as const;

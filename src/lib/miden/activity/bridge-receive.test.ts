@@ -30,7 +30,8 @@ jest.mock('lib/usdcx/attestation', () => ({
 }));
 const fetchAttestedMessage = jest.fn();
 jest.mock('lib/usdcx/cctp', () => ({
-  fetchAttestedCctpMessage: (...args: unknown[]) => fetchAttestedMessage(...args)
+  fetchAttestedCctpMessage: (...args: unknown[]) => fetchAttestedMessage(...args),
+  isCctpForwardFailed: jest.requireActual<typeof import('lib/usdcx/cctp')>('lib/usdcx/cctp').isCctpForwardFailed
 }));
 jest.mock('lib/walletconnect/receipt', () => ({
   waitForSepoliaReceipt: (...args: unknown[]) => waitForReceipt(...args)
@@ -862,5 +863,55 @@ describe('reconcileBridgedReceives with a USDCx executor row', () => {
     await expect(reconcileBridgedReceives()).resolves.toBeUndefined();
 
     expect(updatePhase).not.toHaveBeenCalled();
+  });
+
+  // A forwarded burn paid Circle to execute on Arc: the reconciler waits for Circle's transaction instead of
+  // offering the execute, and records the forwarding state as it moves.
+  it('records the forwarding state of a forwarded burn and never offers the execute while Circle works', async () => {
+    fetchAttestedMessage.mockResolvedValue({ message: '0x1234', attestation: '0xabcd', forwardState: 'PENDING' });
+    rows.push(executorRow({ sourceDomain: 6, forwarded: true }));
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).toHaveBeenCalledTimes(1);
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'delivering', {
+      cctp: { sourceDomain: 6, forwardState: 'PENDING' }
+    });
+  });
+
+  it('writes nothing while the forwarding state has not moved', async () => {
+    fetchAttestedMessage.mockResolvedValue({ message: '0x1234', attestation: '0xabcd', forwardState: 'PENDING' });
+    rows.push(executorRow({ sourceDomain: 6, forwarded: true, forwardState: 'PENDING' }));
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).not.toHaveBeenCalled();
+  });
+
+  it("takes Circle's forward transaction as the execute hash", async () => {
+    fetchAttestedMessage.mockResolvedValue({
+      message: '0x1234',
+      attestation: '0xabcd',
+      forwardState: 'COMPLETE',
+      forwardTxHash: EXECUTE_HASH
+    });
+    rows.push(executorRow({ sourceDomain: 6, forwarded: true, forwardState: 'PENDING' }));
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'delivering', {
+      cctp: { sourceDomain: 6, executeTxHash: EXECUTE_HASH, forwardState: 'COMPLETE' }
+    });
+  });
+
+  it('falls back to the manual execute when Circle gives up on the forward', async () => {
+    fetchAttestedMessage.mockResolvedValue({ message: '0x1234', attestation: '0xabcd', forwardState: 'FAILED' });
+    rows.push(executorRow({ sourceDomain: 6, forwarded: true, forwardState: 'PENDING' }));
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'delivering', {
+      cctp: { sourceDomain: 6, message: '0x1234', attestation: '0xabcd', forwardState: 'FAILED' }
+    });
   });
 });

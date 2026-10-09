@@ -14,9 +14,11 @@ import {
 
 import { updateBridgedReceivePhase } from 'lib/miden/activity';
 
+import { CctpBurnQuote, fetchCctpBurnQuote } from './cctp';
 import {
   CCTP_EXECUTOR_HOOK_NAME,
   CCTP_EXECUTOR_PAYLOAD_VERSION,
+  CCTP_FORWARD_HOOK_NAME,
   CCTP_HOOK_VERSION,
   CCTP_STANDARD_FINALITY_THRESHOLD,
   CIRCLE_USDC_DECIMALS,
@@ -103,16 +105,22 @@ export function encodeExecutorPayload(
 }
 
 /**
- * The hook data of an executor-route burn: one `circle-generic-executor` frame. No `cctp-forward` frame is
- * added, because Circle's forwarder does not take executor-bound messages yet and the fee entry point
- * refuses a forward hook without a forward fee; the wallet executes the message on Arc itself.
+ * The hook data of an executor-route burn. A forwarded burn (one with a signed quote) carries an empty
+ * `cctp-forward` frame ahead of the `circle-generic-executor` frame, which is what Circle's forwarder looks
+ * for; the fee entry point refuses a forward hook without a forward fee and a forward fee without the hook,
+ * so the frame is present exactly when the quote is. The executor ignores the forward frame on Arc.
  */
 export function encodeExecutorHookData(
   target: UsdcxExecutorTarget,
   remoteRecipient: Hex,
-  recoveryAddress: Address
+  recoveryAddress: Address,
+  { forward }: { forward: boolean }
 ): Hex {
-  return encodeHookFrame(CCTP_EXECUTOR_HOOK_NAME, encodeExecutorPayload(target, remoteRecipient, recoveryAddress));
+  const executorFrame = encodeHookFrame(
+    CCTP_EXECUTOR_HOOK_NAME,
+    encodeExecutorPayload(target, remoteRecipient, recoveryAddress)
+  );
+  return forward ? concatHex([encodeHookFrame(CCTP_FORWARD_HOOK_NAME, '0x'), executorFrame]) : executorFrame;
 }
 
 /** The argument tuple of `TokenMessengerV2.depositForBurnWithHook`. */
@@ -128,8 +136,9 @@ export type DepositForBurnWithHookArgs = readonly [
 ];
 
 /**
- * Build the burn for a human USDC amount: a standard transfer to Arc that mints to the executor and binds the
- * executor as its destination caller, which `TransportUtils.validateExecutorHookBinding` requires.
+ * Build the manual burn for a human USDC amount: a standard transfer to Arc that mints to the executor and
+ * binds the executor as its destination caller, which `TransportUtils.validateExecutorHookBinding` requires.
+ * The wallet executes this message on Arc itself.
  */
 export function buildDepositForBurnWithHookArgs(
   amount: string,
@@ -147,19 +156,88 @@ export function buildDepositForBurnWithHookArgs(
     executor,
     0n,
     CCTP_STANDARD_FINALITY_THRESHOLD,
-    encodeExecutorHookData(source.target, remoteRecipient, recoveryAddress)
+    encodeExecutorHookData(source.target, remoteRecipient, recoveryAddress, { forward: false })
   ];
 }
 
-/** Signs and broadcasts the two source-chain transactions. The screen supplies the native or wagmi flavour. */
+/** The argument tuple of `TokenMessengerWithFees.depositForBurnWithHookAndFees`. */
+export type DepositForBurnWithHookAndFeesArgs = readonly [
+  amount: bigint,
+  destinationDomain: number,
+  mintRecipient: Hex,
+  burnToken: Address,
+  destinationCaller: Hex,
+  hookData: Hex,
+  claim: { signedQuote: Hex; refundAddress: Address }
+];
+
+/** The values a quote is bound to, built once so the quote and the burn cannot disagree. */
+export interface ExecutorBurnIntent {
+  value: bigint;
+  destinationCaller: Hex;
+  hookData: Hex;
+}
+
+/** The forwarded burn's intent for a human USDC amount: the executor as caller and the forwarded hook data. */
+export function buildExecutorBurnIntent(
+  amount: string,
+  source: UsdcxExecutorSource,
+  remoteRecipient: Hex,
+  recoveryAddress: Address
+): ExecutorBurnIntent {
+  if (!isAddress(recoveryAddress)) throw new Error(`Invalid EVM address: ${recoveryAddress}`);
+  return {
+    value: parseUnits(amount.trim(), CIRCLE_USDC_DECIMALS),
+    destinationCaller: addressToBytes32(source.target.executor),
+    hookData: encodeExecutorHookData(source.target, remoteRecipient, recoveryAddress, { forward: true })
+  };
+}
+
+/**
+ * Ask Circle to price the forwarded burn: the forward fee that pays Circle to execute on Arc, and the fast
+ * fee so the burn is attested before source finality. Throws when Circle refuses or cannot be reached.
+ */
+export function quoteExecutorBurn(source: UsdcxExecutorSource, intent: ExecutorBurnIntent): Promise<CctpBurnQuote> {
+  return fetchCctpBurnQuote(source.domain, source.target.domain, {
+    baseUrl: source.irisApi,
+    amount: intent.value,
+    feeToken: source.usdc,
+    destinationCaller: intent.destinationCaller,
+    hookData: intent.hookData,
+    fast: true
+  });
+}
+
+/** Build the forwarded burn from its intent and the quote Circle signed for it. */
+export function buildDepositForBurnWithHookAndFeesArgs(
+  source: UsdcxExecutorSource,
+  intent: ExecutorBurnIntent,
+  quote: CctpBurnQuote,
+  refundAddress: Address
+): DepositForBurnWithHookAndFeesArgs {
+  return [
+    intent.value,
+    source.target.domain,
+    intent.destinationCaller,
+    source.usdc,
+    intent.destinationCaller,
+    intent.hookData,
+    { signedQuote: quote.signedQuote, refundAddress }
+  ];
+}
+
+/** Signs and broadcasts the source-chain transactions. The screen supplies the native or wagmi flavour. */
 export interface UsdcxExecutorSigner {
   approve(spender: Address, value: bigint): Promise<Hash>;
+  /** The manual burn, through the plain token messenger. */
   depositForBurnWithHook(args: DepositForBurnWithHookArgs): Promise<Hash>;
+  /** The forwarded burn, through the fee entry point. */
+  depositForBurnWithHookAndFees(args: DepositForBurnWithHookAndFeesArgs): Promise<Hash>;
 }
 
 export interface UsdcxExecutorDepositDeps {
   source: UsdcxExecutorSource;
-  /** The depositor; recorded as the executor payload's recovery address. */
+  /** The depositor; recorded as the executor payload's recovery address and the quote's refund address. */
   depositor: Address;
   signer: UsdcxExecutorSigner;
   /** Whether Arc's xReserve has Miden registered; read on Arc, where the deposit lands. */
@@ -168,6 +246,8 @@ export interface UsdcxExecutorDepositDeps {
   readAllowance(spender: Address): Promise<bigint>;
   waitForReceipt(hash: Hash): Promise<void>;
   updatePhase: typeof updateBridgedReceivePhase;
+  /** Circle's quote for the forwarded burn; `quoteExecutorBurn` unless a test supplies one. */
+  fetchQuote?: (intent: ExecutorBurnIntent) => Promise<CctpBurnQuote>;
 }
 
 /** Circle did not register the remote domain on Arc's xReserve. No gas was spent. */
@@ -191,10 +271,12 @@ export function isUsdcxExecutorDomainNotRegisteredError(
  * Run the source-chain leg of an executor-route bridge-in against the tracking row `trackingTxId`.
  *
  * Order: check Arc's xReserve has Miden registered (the executor would otherwise revert the whole
- * execution after the burn), read the allowance the token messenger has, approve it for the amount and
- * wait for that receipt only when the allowance is less than the amount, burn, record the hash on the row,
- * wait for the burn receipt, then move the row to `delivering`. The CCTP leg is then Circle's to attest and
- * the wallet's to execute on Arc (`runUsdcxExecute`); nothing here waits for them.
+ * execution after the burn), ask Circle for a quote, then approve and burn. With a quote the burn goes
+ * through the fee entry point for the amount plus the fee and Circle forwards and executes it on Arc;
+ * when Circle refuses or cannot be reached the burn goes through the plain token messenger for the amount
+ * and the wallet executes it on Arc itself. Either way the approval is sent only when the allowance is
+ * short, the hash is recorded on the row before the receipt is awaited, and the row then moves to
+ * `delivering`. Nothing here waits for Circle.
  */
 export async function runUsdcxExecutorDeposit(
   trackingTxId: string,
@@ -207,23 +289,41 @@ export async function runUsdcxExecutorDeposit(
     isRemoteDomainRegistered,
     readAllowance,
     waitForReceipt,
-    updatePhase
+    updatePhase,
+    fetchQuote = intent => quoteExecutorBurn(source, intent)
   }: UsdcxExecutorDepositDeps
 ): Promise<Hash> {
-  const args = buildDepositForBurnWithHookArgs(amount, source, remoteRecipient, depositor);
-  const [value] = args;
+  const intent = buildExecutorBurnIntent(amount, source, remoteRecipient, depositor);
 
   if (!(await isRemoteDomainRegistered(USDCX_REMOTE_DOMAIN))) {
     throw new UsdcxExecutorDomainNotRegisteredError(USDCX_REMOTE_DOMAIN);
   }
 
-  if ((await readAllowance(source.tokenMessenger)) < value) {
-    const approvalHash = await signer.approve(source.tokenMessenger, value);
+  let quote: CctpBurnQuote | undefined;
+  try {
+    quote = await fetchQuote(intent);
+  } catch (error) {
+    console.warn('[usdcx] Circle did not quote the forwarded burn; the wallet will execute on Arc', error);
+  }
+
+  const spender = quote ? source.tokenMessengerWithFees : source.tokenMessenger;
+  const spend = quote ? intent.value + quote.feeTotalAmount : intent.value;
+  if ((await readAllowance(spender)) < spend) {
+    const approvalHash = await signer.approve(spender, spend);
     await waitForReceipt(approvalHash);
   }
 
-  const burnHash = await signer.depositForBurnWithHook(args);
-  await updatePhase(trackingTxId, 'submitting', { evmTxHash: burnHash, cctp: { sourceDomain: source.domain } });
+  const burnHash = quote
+    ? await signer.depositForBurnWithHookAndFees(
+        buildDepositForBurnWithHookAndFeesArgs(source, intent, quote, depositor)
+      )
+    : await signer.depositForBurnWithHook(buildDepositForBurnWithHookArgs(amount, source, remoteRecipient, depositor));
+  await updatePhase(trackingTxId, 'submitting', {
+    evmTxHash: burnHash,
+    cctp: quote
+      ? { sourceDomain: source.domain, forwarded: true, forwardFee: quote.feeTotalAmount.toString() }
+      : { sourceDomain: source.domain, forwarded: false }
+  });
   await waitForReceipt(burnHash);
   await updatePhase(trackingTxId, 'delivering', { evmTxHash: burnHash });
   return burnHash;

@@ -151,6 +151,12 @@ export interface IUsdcxCctpLeg {
   attestation?: string;
   /** The Arc transaction that executed the message, which is the xReserve deposit Circle attests. */
   executeTxHash?: string;
+  /** Whether the burn paid Circle's forward fee, so Circle executes on Arc; absent on rows before the fee flow. */
+  forwarded?: boolean;
+  /** The quoted fee the burn paid on top of the amount, in source USDC base units. */
+  forwardFee?: string;
+  /** The forwarding service's last reported state for the message. */
+  forwardState?: string;
 }
 
 /** Metadata persisted on a tracking-only EVM → Miden bridge row. */

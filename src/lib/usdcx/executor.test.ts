@@ -1,8 +1,10 @@
 import { decodeAbiParameters, decodeFunctionData, hexToString, padHex, size, slice } from 'viem';
 import { baseSepolia } from 'viem/chains';
 
+import { CctpBurnQuote } from './cctp';
 import {
   CCTP_EXECUTOR_HOOK_NAME,
+  CCTP_FORWARD_HOOK_NAME,
   getUsdcxExecutorSource,
   TOKEN_MESSENGER_V2_ADDRESS,
   USDCX_REMOTE_DOMAIN,
@@ -10,7 +12,9 @@ import {
 } from './constant';
 import {
   addressToBytes32,
+  buildDepositForBurnWithHookAndFeesArgs,
   buildDepositForBurnWithHookArgs,
+  buildExecutorBurnIntent,
   encodeDepositForHandlerData,
   encodeExecutorHookData,
   encodeExecutorPayload,
@@ -32,6 +36,8 @@ const RECIPIENT = '0x00000000000000000000000000000000b64e1827414584510723cad8e14
 const DEPOSITOR = '0x1111111111111111111111111111111111111111' as const;
 const APPROVE_HASH = `0x${'1'.repeat(64)}` as const;
 const BURN_HASH = `0x${'2'.repeat(64)}` as const;
+/** Circle's sandbox priced a 4 USDC Arbitrum Sepolia burn at 31,908 base units: forward plus fast fee. */
+const QUOTE: CctpBurnQuote = { signedQuote: '0x0102', feeTotalAmount: 31_908n, expiresAt: 1791584030 };
 
 /** Round a byte length up to a 32-byte word, as `abi.encode` pads a `bytes` tail. */
 const ceil32 = (length: number) => Math.ceil(length / 32) * 32;
@@ -91,12 +97,20 @@ describe('executor hook data', () => {
     expect(size(payload)).toBe(160 + ceil32(size(handlerCalldata)));
   });
 
-  it('wraps the payload in one executor frame and no forward frame', () => {
-    const hookData = encodeExecutorHookData(TARGET, RECIPIENT, DEPOSITOR);
+  it('wraps the payload in one executor frame for a manual burn', () => {
+    const hookData = encodeExecutorHookData(TARGET, RECIPIENT, DEPOSITOR, { forward: false });
     const payload = encodeExecutorPayload(TARGET, RECIPIENT, DEPOSITOR);
     expect(hookData).toBe(encodeHookFrame(CCTP_EXECUTOR_HOOK_NAME, payload));
     expect(size(hookData)).toBe(32 + size(payload));
     expect(hookData.includes(Buffer.from('cctp-forward').toString('hex'))).toBe(false);
+  });
+
+  // Circle's forwarder looks for an empty `cctp-forward` frame; the executor frame follows it unchanged.
+  it('puts an empty forward frame ahead of the executor frame for a forwarded burn', () => {
+    const hookData = encodeExecutorHookData(TARGET, RECIPIENT, DEPOSITOR, { forward: true });
+    const manual = encodeExecutorHookData(TARGET, RECIPIENT, DEPOSITOR, { forward: false });
+    expect(slice(hookData, 0, 32)).toBe(encodeHookFrame(CCTP_FORWARD_HOOK_NAME, '0x'));
+    expect(slice(hookData, 32)).toBe(manual);
   });
 });
 
@@ -111,7 +125,7 @@ describe('buildDepositForBurnWithHookArgs', () => {
       executor,
       0n,
       2000,
-      encodeExecutorHookData(TARGET, RECIPIENT, DEPOSITOR)
+      encodeExecutorHookData(TARGET, RECIPIENT, DEPOSITOR, { forward: false })
     ]);
   });
 
@@ -119,6 +133,26 @@ describe('buildDepositForBurnWithHookArgs', () => {
     expect(() => buildDepositForBurnWithHookArgs('1', SOURCE, RECIPIENT, '0xnope' as never)).toThrow(
       'Invalid EVM address'
     );
+  });
+});
+
+describe('forwarded burn', () => {
+  it('binds the quote and the burn to the same executor caller and forwarded hook data', () => {
+    const intent = buildExecutorBurnIntent('1.5', SOURCE, RECIPIENT, DEPOSITOR);
+    expect(intent).toEqual({
+      value: 1_500_000n,
+      destinationCaller: addressToBytes32(TARGET.executor),
+      hookData: encodeExecutorHookData(TARGET, RECIPIENT, DEPOSITOR, { forward: true })
+    });
+    expect(buildDepositForBurnWithHookAndFeesArgs(SOURCE, intent, QUOTE, DEPOSITOR)).toEqual([
+      1_500_000n,
+      26,
+      intent.destinationCaller,
+      SOURCE.usdc,
+      intent.destinationCaller,
+      intent.hookData,
+      { signedQuote: QUOTE.signedQuote, refundAddress: DEPOSITOR }
+    ]);
   });
 });
 
@@ -136,8 +170,16 @@ function makeDeps(overrides: Partial<UsdcxExecutorDepositDeps> = {}) {
       depositForBurnWithHook: jest.fn(async () => {
         calls.push('depositForBurnWithHook');
         return BURN_HASH;
+      }),
+      depositForBurnWithHookAndFees: jest.fn(async () => {
+        calls.push('depositForBurnWithHookAndFees');
+        return BURN_HASH;
       })
     },
+    fetchQuote: jest.fn(async () => {
+      calls.push('quote');
+      return QUOTE;
+    }),
     isRemoteDomainRegistered: jest.fn(async () => {
       calls.push('isRemoteDomainRegistered');
       return true;
@@ -158,13 +200,53 @@ function makeDeps(overrides: Partial<UsdcxExecutorDepositDeps> = {}) {
 }
 
 describe('runUsdcxExecutorDeposit', () => {
-  it('checks Arc, approves the token messenger, burns and writes the phases in order', async () => {
+  it('checks Arc, quotes, approves the fee entry point for amount plus fee, burns and writes the phases', async () => {
     const { deps, calls } = makeDeps();
 
     await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(BURN_HASH);
 
     expect(calls).toEqual([
       'isRemoteDomainRegistered',
+      'quote',
+      'readAllowance',
+      'approve',
+      'receipt:approve',
+      'depositForBurnWithHookAndFees',
+      'phase:submitting',
+      'receipt:burn',
+      'phase:delivering'
+    ]);
+    expect(deps.isRemoteDomainRegistered).toHaveBeenCalledWith(USDCX_REMOTE_DOMAIN);
+    expect(deps.readAllowance).toHaveBeenCalledWith(SOURCE.tokenMessengerWithFees);
+    expect(deps.signer.approve).toHaveBeenCalledWith(SOURCE.tokenMessengerWithFees, 1_500_000n + QUOTE.feeTotalAmount);
+    const intent = buildExecutorBurnIntent('1.5', SOURCE, RECIPIENT, DEPOSITOR);
+    expect(deps.fetchQuote).toHaveBeenCalledWith(intent);
+    expect(deps.signer.depositForBurnWithHookAndFees).toHaveBeenCalledWith(
+      buildDepositForBurnWithHookAndFeesArgs(SOURCE, intent, QUOTE, DEPOSITOR)
+    );
+    expect(deps.signer.depositForBurnWithHook).not.toHaveBeenCalled();
+    // The burn's domain and the fact it was forwarded are written with the hash, so the reconciler waits
+    // for Circle's forward transaction instead of offering the execute.
+    expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', {
+      evmTxHash: BURN_HASH,
+      cctp: { sourceDomain: 6, forwarded: true, forwardFee: '31908' }
+    });
+    expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'delivering', { evmTxHash: BURN_HASH });
+  });
+
+  it('falls back to a manual burn through the plain token messenger when Circle does not quote', async () => {
+    const { deps, calls } = makeDeps({
+      fetchQuote: jest.fn(async () => {
+        calls.push('quote');
+        throw new Error('UNSUPPORTED_WORKFLOW');
+      })
+    });
+
+    await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(BURN_HASH);
+
+    expect(calls).toEqual([
+      'isRemoteDomainRegistered',
+      'quote',
       'readAllowance',
       'approve',
       'receipt:approve',
@@ -173,33 +255,39 @@ describe('runUsdcxExecutorDeposit', () => {
       'receipt:burn',
       'phase:delivering'
     ]);
-    expect(deps.isRemoteDomainRegistered).toHaveBeenCalledWith(USDCX_REMOTE_DOMAIN);
     expect(deps.readAllowance).toHaveBeenCalledWith(TOKEN_MESSENGER_V2_ADDRESS);
     expect(deps.signer.approve).toHaveBeenCalledWith(TOKEN_MESSENGER_V2_ADDRESS, 1_500_000n);
     expect(deps.signer.depositForBurnWithHook).toHaveBeenCalledWith(
       buildDepositForBurnWithHookArgs('1.5', SOURCE, RECIPIENT, DEPOSITOR)
     );
-    // The burn's domain is written with the hash, so the reconciler knows which Iris messages to read.
     expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', {
       evmTxHash: BURN_HASH,
-      cctp: { sourceDomain: 6 }
+      cctp: { sourceDomain: 6, forwarded: false }
     });
-    expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'delivering', { evmTxHash: BURN_HASH });
   });
 
-  it('skips the approval when the allowance covers the burn', async () => {
-    const { deps, calls } = makeDeps({ readAllowance: jest.fn(async () => 1_500_000n) });
+  it('skips the approval when the allowance covers the amount and the fee', async () => {
+    const { deps, calls } = makeDeps({ readAllowance: jest.fn(async () => 1_500_000n + QUOTE.feeTotalAmount) });
 
     await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps);
 
     expect(deps.signer.approve).not.toHaveBeenCalled();
     expect(calls).toEqual([
       'isRemoteDomainRegistered',
-      'depositForBurnWithHook',
+      'quote',
+      'depositForBurnWithHookAndFees',
       'phase:submitting',
       'receipt:burn',
       'phase:delivering'
     ]);
+  });
+
+  it('approves when the allowance covers the amount but not the fee', async () => {
+    const { deps } = makeDeps({ readAllowance: jest.fn(async () => 1_500_000n) });
+
+    await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps);
+
+    expect(deps.signer.approve).toHaveBeenCalledWith(SOURCE.tokenMessengerWithFees, 1_500_000n + QUOTE.feeTotalAmount);
   });
 
   it('fails before any wallet prompt when Arc xReserve has no Miden domain', async () => {
@@ -209,8 +297,10 @@ describe('runUsdcxExecutorDeposit', () => {
 
     expect(error).toBeInstanceOf(UsdcxExecutorDomainNotRegisteredError);
     expect(isUsdcxExecutorDomainNotRegisteredError(error)).toBe(true);
+    expect(deps.fetchQuote).not.toHaveBeenCalled();
     expect(deps.signer.approve).not.toHaveBeenCalled();
     expect(deps.signer.depositForBurnWithHook).not.toHaveBeenCalled();
+    expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
     expect(deps.updatePhase).not.toHaveBeenCalled();
   });
 

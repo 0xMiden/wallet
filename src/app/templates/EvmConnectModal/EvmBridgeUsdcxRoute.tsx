@@ -13,6 +13,8 @@ export interface EvmBridgeUsdcxRouteProps {
   footerClassName?: string;
   /** The hint under the card; the executor route replaces the xReserve one with its own. */
   notice?: string;
+  /** The card's fee line, already formatted; the executor route shows Circle's quoted fee. Defaults to no fee. */
+  fee?: string;
   onConfirm: () => void;
 }
 
@@ -25,6 +27,7 @@ export const EvmBridgeUsdcxRoute: React.FC<EvmBridgeUsdcxRouteProps> = ({
   confirmDisabled = false,
   footerClassName = 'pt-4 pb-24',
   notice,
+  fee,
   onConfirm
 }) => {
   const { t } = useTranslation();
@@ -40,7 +43,7 @@ export const EvmBridgeUsdcxRoute: React.FC<EvmBridgeUsdcxRouteProps> = ({
             label={t('usdcxRouteName')}
             selected
             onSelect={() => undefined}
-            fee={<span className="text-base font-bold text-ink">{t('noFee')}</span>}
+            fee={<span className="text-base font-bold text-ink">{fee ?? t('noFee')}</span>}
             eta={t('usdcxArrival')}
             testId="bridge-route-usdcx"
             accent="brand"

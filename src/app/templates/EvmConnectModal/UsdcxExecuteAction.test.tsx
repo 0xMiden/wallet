@@ -49,6 +49,19 @@ describe('UsdcxExecuteAction', () => {
     expect(screen.getByTestId('usdcx-execute-waiting')).toHaveTextContent('usdcxCctpAwaitingAttestation:Arc Testnet');
   });
 
+  it('says Circle is executing a forwarded burn and offers no button', () => {
+    render(
+      <UsdcxExecuteAction
+        txId="row"
+        sourceChainId={BASE_SEPOLIA}
+        phase="delivering"
+        cctp={{ sourceDomain: 6, forwarded: true, forwardState: 'PENDING' }}
+      />
+    );
+    expect(screen.getByTestId('usdcx-execute-forwarding')).toHaveTextContent('usdcxForwardingPending:Arc Testnet');
+    expect(screen.queryByTestId('usdcx-execute-button')).not.toBeInTheDocument();
+  });
+
   it('offers the execute once attested and runs it for the row', async () => {
     render(<UsdcxExecuteAction txId="row" sourceChainId={BASE_SEPOLIA} phase="delivering" cctp={LEG} />);
     expect(screen.getByTestId('usdcx-execute-ready')).toHaveTextContent('usdcxExecuteNeeded:Arc Testnet');

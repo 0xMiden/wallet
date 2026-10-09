@@ -67,9 +67,15 @@ export const UsdcxExecuteAction: React.FC<UsdcxExecuteActionProps> = ({
     );
   }
   if (!cctp.message || !cctp.attestation) {
+    // A forwarded burn is Circle's to execute: the reconciler records the Arc hash when Circle sends it and
+    // keeps the message on the row only if Circle gives up, which is when the button below appears.
+    const forwarding = cctp.forwarded === true;
     return (
-      <p className={clsx('text-center text-sm text-gray', className)} data-testid="usdcx-execute-waiting">
-        {t('usdcxCctpAwaitingAttestation', { network })}
+      <p
+        className={clsx('text-center text-sm text-gray', className)}
+        data-testid={forwarding ? 'usdcx-execute-forwarding' : 'usdcx-execute-waiting'}
+      >
+        {t(forwarding ? 'usdcxForwardingPending' : 'usdcxCctpAwaitingAttestation', { network })}
       </p>
     );
   }

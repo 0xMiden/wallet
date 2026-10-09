@@ -4,7 +4,7 @@ import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 import { isUsdcxDepositAttested } from 'lib/usdcx/attestation';
-import { fetchAttestedCctpMessage } from 'lib/usdcx/cctp';
+import { fetchAttestedCctpMessage, isCctpForwardFailed } from 'lib/usdcx/cctp';
 import { USDCX_SOURCE_CHAINS } from 'lib/usdcx/constant';
 import { waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 
@@ -132,10 +132,12 @@ async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtra
 }
 
 /**
- * An executor-route deposit has two Circle attestations. Until the wallet has executed the message on Arc
- * the reconciler asks Iris for the attested CCTP message and keeps it on the row, where the status screen
- * offers the execute; once the execute hash is recorded it asks xReserve's attestation service for that Arc
- * transaction, which is the deposit, and the row becomes `ready` as a direct deposit would.
+ * An executor-route deposit has two Circle attestations. First Iris attests the CCTP burn. A forwarded burn
+ * is then executed on Arc by Circle, and the reconciler waits for the forward transaction hash; a manual
+ * burn, or a forward Circle gave up on, keeps the attested message on the row, where the status screen and
+ * Activity offer the execute. Once an Arc transaction hash is on the row, from either side, the reconciler
+ * asks xReserve's attestation service for it, which is the deposit, and the row becomes `ready` as a direct
+ * deposit would.
  */
 async function reconcileUsdcxExecutorRow(
   row: ITransaction,
@@ -151,13 +153,36 @@ async function reconcileUsdcxExecutorRow(
     }
     return;
   }
-  if (leg.attestation) return;
+  if (leg.attestation && !leg.forwarded) return;
   const attested = await fetchAttestedCctpMessage(leg.sourceDomain, inputs.evmTxHash, { baseUrl: irisApi });
-  if (attested) {
+  if (!attested) return;
+  if (attested.forwardTxHash) {
     await updateBridgedReceivePhase(row.id, 'delivering', {
-      cctp: { sourceDomain: leg.sourceDomain, message: attested.message, attestation: attested.attestation }
+      cctp: {
+        sourceDomain: leg.sourceDomain,
+        executeTxHash: attested.forwardTxHash,
+        forwardState: attested.forwardState
+      }
     });
+    return;
   }
+  if (leg.forwarded && !isCctpForwardFailed(attested.forwardState)) {
+    if (attested.forwardState !== leg.forwardState) {
+      await updateBridgedReceivePhase(row.id, 'delivering', {
+        cctp: { sourceDomain: leg.sourceDomain, forwardState: attested.forwardState }
+      });
+    }
+    return;
+  }
+  if (leg.attestation) return;
+  await updateBridgedReceivePhase(row.id, 'delivering', {
+    cctp: {
+      sourceDomain: leg.sourceDomain,
+      message: attested.message,
+      attestation: attested.attestation,
+      forwardState: attested.forwardState
+    }
+  });
 }
 
 async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans: boolean): Promise<void> {

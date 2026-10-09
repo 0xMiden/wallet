@@ -47,6 +47,7 @@ import {
   getUsdcxSourceChain,
   listUsdcxSourceChains,
   TOKEN_MESSENGER_V2_ABI,
+  TOKEN_MESSENGER_WITH_FEES_ABI,
   USDCX_DECIMALS,
   type UsdcxSourceChain,
   USDCX_SYMBOL,
@@ -55,6 +56,8 @@ import {
 import { isUsdcxDomainNotRegisteredError, runUsdcxDeposit, UsdcxSigner } from 'lib/usdcx/deposit';
 import {
   isUsdcxExecutorDomainNotRegisteredError,
+  buildExecutorBurnIntent,
+  quoteExecutorBurn,
   runUsdcxExecutorDeposit,
   UsdcxExecutorSigner
 } from 'lib/usdcx/executor';
@@ -340,6 +343,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const [usdcxSourceChainId, setUsdcxSourceChainId] = useState(DEFAULT_USDCX_SOURCE_CHAIN_ID);
   const usdcxSource = useMemo(() => getUsdcxSourceChain(usdcxSourceChainId), [usdcxSourceChainId]);
   const usdcxBridgeNetwork = getBridgeNetworkByChainId(usdcxSource.chain.id) ?? DEFAULT_BRIDGE_NETWORK;
+  // Circle's fee for a forwarded executor-route burn, shown on the route card. A display quote only: the
+  // burn fetches its own right before signing, since a quote lives about two minutes. Unset while the
+  // route is not the executor one, the amount is not valid, or Circle has not answered.
+  const [usdcxQuotedFee, setUsdcxQuotedFee] = useState<string | undefined>(undefined);
   const [amount, setAmount] = useState('');
   const [usdcBalance, setUsdcBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
   const [circleUsdcBalance, setCircleUsdcBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
@@ -575,6 +582,33 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     if (confirming.current) return;
     setTokenDrawerOpen(true);
   }, []);
+
+  useEffect(() => {
+    setUsdcxQuotedFee(undefined);
+    if (
+      route !== 'usdcx' ||
+      usdcxSource.route !== 'cctp-executor' ||
+      !isValidAmount(amount) ||
+      !isAddress(evmAddress)
+    ) {
+      return;
+    }
+    const source = usdcxSource;
+    let cancelled = false;
+    (async () => {
+      try {
+        const recipient = midenAccountHexToXReserveRecipient(accountRefToSdk(midenAccount.publicKey).toString());
+        const quote = await quoteExecutorBurn(source, buildExecutorBurnIntent(amount, source, recipient, evmAddress));
+        if (!cancelled) setUsdcxQuotedFee(formatUnits(quote.feeTotalAmount, CIRCLE_USDC_DECIMALS));
+      } catch (err) {
+        // No quote on the card: the burn tries again and falls back to the manual execute if Circle refuses.
+        console.warn('[EvmBridgeDepositScreen] USDCx fee quote failed', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [route, usdcxSource, amount, evmAddress, midenAccount.publicKey]);
 
   // Only the USDCx route has more than one source chain; the others keep Sepolia and open nothing.
   const handleOpenNetworkDrawer = useCallback(() => {
@@ -831,7 +865,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           case 'cctp-executor': {
             // The burn mints to Circle's executor on Arc, which deposits into Arc's xReserve; the registration
             // check therefore reads Arc's xReserve, where the deposit lands.
-            const { tokenMessenger, target } = usdcxSource;
+            const { tokenMessenger, tokenMessengerWithFees, target } = usdcxSource;
             const signer: UsdcxExecutorSigner = {
               approve,
               depositForBurnWithHook: args =>
@@ -845,6 +879,23 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
                       abi: TOKEN_MESSENGER_V2_ABI,
                       address: tokenMessenger,
                       functionName: 'depositForBurnWithHook',
+                      args
+                    }),
+              depositForBurnWithHookAndFees: args =>
+                nativeReownAvailable
+                  ? sendNative(
+                      tokenMessengerWithFees,
+                      encodeFunctionData({
+                        abi: TOKEN_MESSENGER_WITH_FEES_ABI,
+                        functionName: 'depositForBurnWithHookAndFees',
+                        args
+                      })
+                    )
+                  : writeContract.mutateAsync({
+                      chainId: usdcxChain.id,
+                      abi: TOKEN_MESSENGER_WITH_FEES_ABI,
+                      address: tokenMessengerWithFees,
+                      functionName: 'depositForBurnWithHookAndFees',
                       args
                     })
             };
@@ -1202,6 +1253,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               <EvmBridgeUsdcxRoute
                 confirmDisabled={!canConfirmRoute}
                 onConfirm={handleContinueToReview}
+                fee={usdcxQuotedFee === undefined ? undefined : t('usdcxForwardFee', { fee: usdcxQuotedFee })}
                 notice={
                   usdcxSource.route === 'cctp-executor'
                     ? t('usdcxExecutorRouteNotice', {
@@ -1268,6 +1320,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       route,
       token,
       routeNotice,
+      usdcxQuotedFee,
       canConfirmRoute,
       outputAmount,
       networkName,
