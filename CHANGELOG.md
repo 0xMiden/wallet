@@ -21,6 +21,7 @@
 
 ### Changes
 
+- [CHANGE][all] Web SDK 0.17.3: a call on a terminated SDK client is refused with "WebClient terminated" instead of hanging or still running, and the wallet reads that refusal as an interrupted operation: a write it stops fails like an offscreen abort instead of being retried as a fresh one, a Guardian note-recovery batch stops at it, and a pre-send sync it refuses is retried on a later cycle.
 - [CHANGE][all] Web SDK 0.17.2: the SDK no longer re-sends a private note whose relay failed, so the wallet retries it itself for up to three days on every platform and tracks each note of a multi-note transaction, and the SDK fetch patch is removed.
 - [CHANGE][ui] The create flow's Guardian step is two screens: "Meet your Guardian" says what a Guardian does (an illustration and three benefits), then "Choose your Guardian" introduces the fastest operator on its own (logo, name, status, who runs it and its region) with "Continue with …" and a "Change provider" sheet listing every operator; the three facts no longer have to be ticked, each screen takes its own progress segment, and the test-network notice names the network with Home's network pill.
 - [FEATURE][all] Read the token name and description from the faucet (asset rows show the name, the token page shows the description, and the unused TZIP-21 metadata fields are dropped), and let the user edit a token's displayed name and symbol from the token page, and its decimals while the faucet's scale is unknown, with a reset to the faucet's values.

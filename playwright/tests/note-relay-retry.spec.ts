@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { resolve, sep } from 'node:path';
 
+import { isKilledPipeline } from '../../src/lib/miden/sdk/sdk-error-code';
 import { classifyRelayFailure } from '../../src/lib/miden/transaction/relay-failure';
 
 // The real SDK WASM against a note transport whose replies the test chooses. It pins what the delivery
@@ -19,6 +20,8 @@ type Relay = {
   sendCalls: number;
   sendCallsAfterSync: number;
   unknownNoteMessage: string;
+  clientAfterTerminate: string;
+  innerAfterTerminate: string;
 };
 
 let server: Server;
@@ -144,8 +147,30 @@ async function relay(page: Page, reply: Reply, maxRetries?: number): Promise<Rel
       const unknownNoteMessage = await client.notes
         .sendPrivateOutput({ noteId, to: recipient })
         .then(() => '', messageOf);
+      // The inner WebClient, reached the way the wallet's raw reads reach it, then one more call on each side of
+      // the terminate. Bounded, so a call that never settles fails its assertion rather than the test's timeout.
+      const innerGetAccounts: () => Promise<unknown> = await client._withInnerWebClient(
+        async (inner: { getAccounts(): Promise<unknown> }) => () => inner.getAccounts()
+      );
+      const settledText = (call: () => Promise<unknown>) =>
+        Promise.race([
+          Promise.resolve()
+            .then(call)
+            .then(() => 'resolved', messageOf),
+          new Promise<string>(done => setTimeout(() => done('never settled'), 10_000))
+        ]);
       client.terminate();
-      return { rejected, message, sendCalls: sentBeforeSync, sendCallsAfterSync, unknownNoteMessage };
+      const clientAfterTerminate = await settledText(() => client.syncNoteTransport());
+      const innerAfterTerminate = await settledText(innerGetAccounts);
+      return {
+        rejected,
+        message,
+        sendCalls: sentBeforeSync,
+        sendCallsAfterSync,
+        unknownNoteMessage,
+        clientAfterTerminate,
+        innerAfterTerminate
+      };
     },
     { recording, reply, maxRetries }
   );
@@ -178,6 +203,15 @@ test.describe('note transport retries, real WASM', () => {
     expect(run.sendCalls).toBe(1);
     expect(run.sendCallsAfterSync).toBe(0);
     expect(classifyRelayFailure(new Error(run.message)), run.message).toBe('outage');
+  });
+
+  test('a call after terminate() is refused with the text the wallet reads as a kill', async ({ page }) => {
+    const run = await relay(page, 'unavailable', 0);
+    expect(run.innerAfterTerminate).toBe('WebClient terminated');
+    for (const message of [run.clientAfterTerminate, run.innerAfterTerminate]) {
+      expect(isKilledPipeline(new Error(message)), message).toBe(true);
+      expect(classifyRelayFailure(new Error(message)), message).toBe('interrupted');
+    }
   });
 
   test('a rejected request reads as a fault of the note, not of the transport', async ({ page }) => {
