@@ -135,4 +135,64 @@ describe('transactions upgrades', () => {
     repo!.db.close();
     await Dexie.delete(DB_NAME);
   });
+
+  // The SDK stopped re-sending a failed private note, so the sweep's retries are the only ones. A row
+  // that spent the old four-attempt budget inside the new 72-hour window gets the new schedule once.
+  it('re-arms the delivery schedule of a recent row that spent the old budget, and no other', async () => {
+    await Dexie.delete(DB_NAME);
+    const now = Math.floor(Date.now() / 1000);
+    const owed = (id: string, ageSeconds: number, fields: Record<string, unknown>) => ({
+      ...bigRow(id, 'send'),
+      initiatedAt: now - ageSeconds,
+      completedAt: now - ageSeconds,
+      outputNoteIds: [`0x${id}`],
+      ...fields
+    });
+
+    const legacy = new Dexie(DB_NAME);
+    legacy.version(2).stores({
+      transactions:
+        'id,accountId,transactionId,initiatedAt,completedAt,noteId,*noteIds,noteDelivery,extraInputs.destinationAddress,extraInputs.swapOrderTxId,spendingLimitAuthorizationId,type',
+      spendingLimits: 'accountId,revision'
+    });
+    await legacy.open();
+    await legacy.table('transactions').bulkPut([
+      owed('pending-spent', 2 * 3600, { noteDelivery: 'pending', relayAttempts: 4, nextRelayAt: now + 1800 }),
+      owed('undelivered-old', 80 * 3600, { noteDelivery: 'undelivered', relayAttempts: 4, nextRelayAt: now - 60 }),
+      owed('relayed-spent', 2 * 3600, { noteDelivery: 'relayed', relayAttempts: 4, nextRelayAt: now + 1800 }),
+      owed('restored-spent', 2 * 3600, {
+        noteDelivery: 'undelivered',
+        relayAttempts: 4,
+        nextRelayAt: now + 1800,
+        restoredFromBackup: true
+      }),
+      owed('undelivered-unspent', 2 * 3600, { noteDelivery: 'undelivered', relayAttempts: 2, nextRelayAt: now + 1800 })
+    ]);
+    legacy.close();
+
+    let repo: typeof import('./repo');
+    jest.isolateModules(() => {
+      repo = require('./repo');
+    });
+    const written: string[] = [];
+    repo!.transactions.hook('updating', (_mods, primKey) => {
+      written.push(String(primKey));
+    });
+
+    await repo!.db.open();
+    const byId = Object.fromEntries((await repo!.transactions.toArray()).map(row => [row.id, row]));
+
+    expect(written).toEqual(['pending-spent']);
+    expect(byId['pending-spent']).toMatchObject({ relayAttempts: 1, noteDelivery: 'pending' });
+    expect(byId['pending-spent']!.nextRelayAt).toBeUndefined();
+    expect(byId['pending-spent']!.resultBytes).toBeDefined();
+    expect(byId['undelivered-old']).toMatchObject({ relayAttempts: 4, nextRelayAt: now - 60 });
+    expect(byId['relayed-spent']).toMatchObject({ relayAttempts: 4, nextRelayAt: now + 1800 });
+    expect(byId['restored-spent']).toMatchObject({ relayAttempts: 4, nextRelayAt: now + 1800 });
+    expect(byId['undelivered-unspent']).toMatchObject({ relayAttempts: 2, nextRelayAt: now + 1800 });
+    expect(repo!.db.verno).toBe(3);
+
+    repo!.db.close();
+    await Dexie.delete(DB_NAME);
+  });
 });

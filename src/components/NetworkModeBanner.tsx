@@ -5,8 +5,8 @@ import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 
 /**
  * Names the Miden network the wallet is on at the top of every screen that commits value, where the
- * network matters for what is about to be signed. It draws Home's `NetworkModePill` (the network,
- * "Tokens have no real value", the info glyph), so the wording and shape match Home. The name follows
+ * network matters for what is about to be signed. It draws `NetworkModePill` (the network, "Tokens
+ * have no real value", the info glyph); Home itself carries the mainnet countdown banner instead. The name follows
  * the effective network, so a Developer Settings override shows here too, and it renders nothing on
  * mainnet. Tapping it opens the test-network explanation sheet (#875).
  */
@@ -32,8 +32,8 @@ export const NetworkModeBanner: FC = () => {
 
   if (!getTestNetworkNameKey() || alreadyNamed) return null;
 
-  // Home's network pill, inset at the page margin over the screen's header, so a screen that
-  // commits value names the network in the same words and shape as Home does.
+  // The network pill, inset at the page margin over the screen's header, so every screen that
+  // commits value names the network in the same words and shape.
   return (
     <div className="shrink-0 px-4 pt-2">
       <NetworkModePill data-testid="network-mode-banner" />

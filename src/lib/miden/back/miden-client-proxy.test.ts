@@ -48,6 +48,8 @@ jest.mock('lib/miden/sdk/miden-client', () => {
   };
 });
 
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
+
 // Use the REAL offscreen-prover (issue #260, slice 5): ensureOffscreenDocument /
 // forceClose drive the chrome mock, and the criticalOp counters are the genuine
 // module state the write path increments — so a "read deadline while a write is
@@ -626,6 +628,8 @@ describe('MidenClientProxy — slice-7b sendPrivateNote (private-note relay)', (
     expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
     // Relayed on the SW inline client — the one that created the note flag-off.
     expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
+    // The user's own relay keeps its default hold: it is not a timer-driven probe.
+    expect(G.__px.withWasmClientLock.mock.calls[0]).toHaveLength(1);
     // The LIVE note object crossed straight through — never serialized on this path.
     expect(G.__px.inlineSendPrivateNote).toHaveBeenCalledWith(note, 'mtst1qrecipient');
     expect(serializeSpy).not.toHaveBeenCalled();
@@ -657,31 +661,24 @@ describe('MidenClientProxy — slice-7b sendPrivateNote (private-note relay)', (
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('flag ON → relayPrivateNoteById is dispatched as CRITICAL on the relay deadline, carrying only ids', async () => {
-    // The sweep's re-push. Same realm requirement and same stakes as the original
-    // relay — the note lives in the offscreen store and the transaction has already
-    // landed — so it must not be a cheap read that a coincident deadline can tear
-    // down. It differs only in having no live Note: the row is all the sweep has.
+  it('flag ON → relayPrivateNoteById re-pushes on the SW client under withWasmClientLock, as sendPrivateNote relays', async () => {
+    // The sweep's re-push runs where the original relay runs. Offscreen fetch to a
+    // localnet transport is CORS-blocked, and the SW client resolves the output note
+    // the offscreen client applied.
     const { midenClientProxy } = await loadProxy(true);
-    const { isCriticalOpInFlight } = await import('./offscreen-prover');
-    let criticalDuringRelay: boolean | undefined;
-    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => {
-      criticalDuringRelay = isCriticalOpInFlight();
-      return { ok: true, op_id: env.op_id, resultB64: null, durationMs: 3 };
+
+    const result = await midenClientProxy.relayPrivateNoteById('0xnote', 'mtst1qrecipient');
+
+    expect(result).toBeUndefined();
+    expect(G.__px.withWasmClientLock).toHaveBeenCalledTimes(1);
+    // An unattended hold, so bounded at the sync ceiling and named in any eviction record.
+    expect(G.__px.withWasmClientLock).toHaveBeenCalledWith(expect.any(Function), {
+      watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
+      label: 'note-delivery-push'
     });
-
-    const p = midenClientProxy.relayPrivateNoteById('0xnote', 'mtst1qrecipient');
-    await flush();
-    fireReady();
-    await p;
-
-    expect(G.__px.getMidenClient).not.toHaveBeenCalled();
-    const env = fakeChrome.runtime.sendMessage.mock.calls[0][0];
-    expect(env.method).toBe('relayPrivateNoteById');
-    expect(env.deadline_ms).toBe(45_000);
-    expect(criticalDuringRelay).toBe(true);
-    expect(env.argsB64[0]).toBe('s:"0xnote"');
-    expect(env.argsB64[1]).toBe('s:"mtst1qrecipient"');
+    expect(G.__px.getMidenClient).toHaveBeenCalledTimes(1);
+    expect(G.__px.inlineRelayPrivateNoteById).toHaveBeenCalledWith('0xnote', 'mtst1qrecipient');
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
   it('flag ON → isOutputNoteConsumed is a plain read and decodes the boolean', async () => {
@@ -732,6 +729,10 @@ describe('MidenClientProxy — slice-7b sendPrivateNote (private-note relay)', (
     expect(G.__px.inlineIsOutputNoteConsumed).toHaveBeenCalledWith('0xnote');
     expect(G.__px.inlineRelayPrivateNoteById).toHaveBeenCalledWith('0xnote', 'mtst1qrecipient');
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+    expect(G.__px.withWasmClientLock.mock.calls.map((call: unknown[]) => call[1])).toEqual([
+      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'note-delivery-receipt' },
+      { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'note-delivery-push' }
+    ]);
   });
 
   it('flag ON → a deadline kill rejects with OperationAbortedError (caught by the completion relay → Completed, degraded)', async () => {

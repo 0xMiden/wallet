@@ -21,7 +21,13 @@ jest.mock('lib/miden/front/client', () => ({
   MidenContextProvider: ({ children }: any) => <>{children}</>,
   useMidenContext: () => ({ ready: true })
 }));
-jest.mock('@miden-sdk/react/lazy', () => ({ MidenProvider: ({ children }: any) => <>{children}</> }));
+const sdkConfigs: Record<string, unknown>[] = [];
+jest.mock('@miden-sdk/react/lazy', () => ({
+  MidenProvider: ({ children, config }: any) => {
+    sdkConfigs.push(config);
+    return <>{children}</>;
+  }
+}));
 jest.mock('../sdk/miden-client', () => ({ getMidenClient: jest.fn().mockResolvedValue({}) }));
 jest.mock('lib/miden-chain/native-asset', () => ({ primeNativeAssetId: jest.fn() }));
 jest.mock('lib/remote-config/runtime', () => ({ followEffectiveNetwork: jest.fn() }));
@@ -51,6 +57,7 @@ let warn: jest.SpyInstance;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  sdkConfigs.length = 0;
   warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
   loadEndpointOverrides.mockResolvedValue(undefined);
   ensureSdkWasmReady.mockResolvedValue(undefined);
@@ -118,4 +125,16 @@ it('makes the bridge config follow the effective network only AFTER endpoint ove
   resolveLoad();
   await waitFor(() => expect(followEffectiveNetwork).toHaveBeenCalledTimes(1));
   expect(warn).not.toHaveBeenCalled();
+});
+
+it("hands the SDK provider the wallet's transport with no in-call retries, as the wallet's own client has", async () => {
+  render(
+    <MidenProvider>
+      <div data-testid="child" />
+    </MidenProvider>
+  );
+  await waitFor(() => expect(screen.getByTestId('child')).toBeInTheDocument());
+  expect(sdkConfigs.at(-1)).toEqual(
+    expect.objectContaining({ noteTransportUrl: 'https://ntl.test', noteTransportMaxRetries: 0 })
+  );
 });

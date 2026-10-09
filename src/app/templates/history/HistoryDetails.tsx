@@ -41,6 +41,7 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { requestSwapOrderRefresh, useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
 import { getSwapTokenByFaucetId, tokenQuote } from 'lib/miden/swap/tokens';
+import { RETRY_WINDOW_SECONDS } from 'lib/miden/transaction/note-delivery-window';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -419,6 +420,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           isUnconfirmed: isOutcomeUnconfirmed(tx),
           notConfirmedHint: notConfirmedHintKey(tx),
           noteDelivery: tx.noteDelivery,
+          // The sweep stamps the flag only on a pass that visits the row, which a send past
+          // the receipt window may never get, and it never pushes a restored row: a send past
+          // the retry window and a restored row count as stopped whatever the flag says.
+          relayRetriesStopped:
+            tx.relayRetriesStopped === true ||
+            tx.restoredFromBackup === true ||
+            Math.floor(Date.now() / 1000) - (tx.completedAt ?? tx.initiatedAt) > RETRY_WINDOW_SECONDS,
           bridgeProvider: bridge?.provider,
           bridgeDestinationAddress: bridge?.destinationAddress,
           bridgeDestinationNetwork: bridge?.destinationNetwork,
@@ -1009,6 +1017,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               'pending' means the wallet recorded the debt and never recorded an
               outcome - the process died mid-relay - which is no more reassuring than
               an outright failure.
+
+              The hint follows the delivery sweep: while it is still pushing, the
+              warning can clear on its own; once it has stopped for this row (its flag,
+              a restored row, or a send past the retry window), only the transaction ID
+              can recover the transfer.
             */}
             {(entry.noteDelivery === 'undelivered' || entry.noteDelivery === 'pending') && (
               <div className="mt-6">
@@ -1033,7 +1046,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                           : t('noteDeliveryPendingBody')}
                       </p>
                       <p className="text-xs font-medium text-text-muted wrap-break-word select-text">
-                        {t('noteDeliveryRecoveryHint')}
+                        {entry.relayRetriesStopped
+                          ? t('noteDeliveryRetriesStoppedHint')
+                          : t('noteDeliveryRecoveryHint')}
                       </p>
                     </div>
                   </DetailSection>

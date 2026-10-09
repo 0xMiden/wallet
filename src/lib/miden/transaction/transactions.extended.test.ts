@@ -967,6 +967,8 @@ describe('completeCustomTransaction', () => {
     errSpy.mockRestore();
     expect(mockSendPrivateNote).toHaveBeenCalledTimes(1);
     expect(txStore[0]!.relayNoteIds).toEqual(['0xsent', '0xunconvertible']);
+    // No push can carry it either, since the sweep re-pushes from the same output note record.
+    expect(txStore[0]!.relayDeadNoteIds).toEqual(['0xunconvertible']);
   });
 
   it('records the recipient the relay used, not the sender a consume reading puts in its place', async () => {
@@ -994,6 +996,106 @@ describe('completeCustomTransaction', () => {
 
     expect(mockSendPrivateNote).toHaveBeenCalledWith({}, 'acc-2');
     expect(txStore[0]).toMatchObject({ secondaryAccountId: 'sender', relayRecipientId: 'acc-2' });
+  });
+
+  const twoPrivateNotes = () =>
+    ({
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'h' }),
+        outputNotes: () => ({
+          notes: () =>
+            ['0xa', '0xb'].map(id => ({
+              id: () => ({ toString: () => id }),
+              metadata: () => ({ noteType: () => 'private' }),
+              intoFull: () => ({ id })
+            }))
+        })
+      })
+    }) as any;
+
+  // A pipeline that never reaches its terminal write leaves only the pending stamp, so the stamp has to name what the
+  // sweep re-pushes and to whom.
+  it('names the notes it owes and their recipient in the pending stamp, before the commit wait', async () => {
+    let enterWait: () => void = () => {};
+    const waiting = new Promise<void>(resolve => {
+      enterWait = resolve;
+    });
+    let releaseWait: () => void = () => {};
+    mockWaitForCommit.mockImplementationOnce(() => {
+      enterWait();
+      return new Promise<void>(resolve => {
+        releaseWait = resolve;
+      });
+    });
+    const { completeCustomTransaction } = require('./index');
+    const completing = completeCustomTransaction(txStore[0]!, twoPrivateNotes());
+
+    await waiting;
+    expect(txStore[0]).toMatchObject({
+      noteDelivery: 'pending',
+      relayNoteIds: ['0xa', '0xb'],
+      relayRecipientId: 'acc-2'
+    });
+
+    releaseWait();
+    await completing;
+  });
+
+  // Cancel or the stuck-row reaper can fail the row while its relays run; the terminal write then throws, and only
+  // what each relay persisted on its own is left.
+  it('keeps an acknowledgement each relay persisted when the terminal write throws', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    mockSendPrivateNote.mockRejectedValueOnce(new Error('transport down')).mockImplementationOnce(async () => {
+      txStore[0]!.status = ITransactionStatus.Failed;
+    });
+    const { completeCustomTransaction } = require('./index');
+
+    await expect(completeCustomTransaction(txStore[0]!, twoPrivateNotes())).rejects.toThrow('finalized');
+    errSpy.mockRestore();
+
+    expect(txStore[0]!.relayAckedNoteIds).toEqual(['0xb']);
+  });
+});
+
+describe('completeSendTransaction relay acknowledgement', () => {
+  it('records the note the transport acknowledged', async () => {
+    txStore.push({
+      id: 'tx-send',
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'acc-2',
+      noteType: NoteTypeEnum.Private,
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    const sdk = require('../sdk/miden-client');
+    const originalGetMidenClient = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      waitForTransactionCommit: jest.fn(async () => {}),
+      sendPrivateNote: jest.fn(async () => {})
+    });
+    const fullNote = {
+      id: () => ({ toString: () => '0xsent' }),
+      metadata: () => ({ noteType: () => 'private' })
+    };
+    const txResult = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'h' }),
+        outputNotes: () => ({
+          notes: () => [{ metadata: () => ({ noteType: () => 'private' }), intoFull: () => fullNote }]
+        })
+      }),
+      serialize: () => new Uint8Array([1])
+    } as any;
+    const { completeSendTransaction } = require('./index');
+
+    try {
+      await completeSendTransaction(txStore[0]!, txResult);
+    } finally {
+      sdk.getMidenClient = originalGetMidenClient;
+    }
+
+    expect(txStore[0]).toMatchObject({ noteDelivery: 'relayed', relayAckedNoteIds: ['0xsent'] });
   });
 });
 

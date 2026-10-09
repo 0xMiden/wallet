@@ -126,6 +126,7 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
     const freshRows = await accountRowsOf(fresh);
     if (accountEvidenceKey(freshRows) !== accountKey) return;
     if (deferralHolds(landedEntry, landing.proof, accountOthers(fresh, freshRows))) return;
+    // A row re-derived as undelivered with no output note to push is inert to the delivery sweep.
     applyVerifiedLanding(fresh, {
       ...verifiedLandingRowFields(fresh),
       ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),

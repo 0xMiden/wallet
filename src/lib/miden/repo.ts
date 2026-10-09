@@ -208,6 +208,34 @@ function defineSchema(target: Dexie): void {
     [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
   });
 
+  // v3 - the private-note delivery sweep is the only retry once the SDK stopped re-sending a failed
+  // note (0.17.2). A row that spent the old four-attempt budget within the new 72-hour retry window
+  // (`RETRY_WINDOW_SECONDS` in the sweep, a literal here because the sweep imports this module) gets
+  // the new schedule once: `relayAttempts` back to 1 and `nextRelayAt` cleared, so the sweep arms it
+  // from its send. A `relayed` row needs nothing (it is due its verification pushes as it is), nor
+  // does one with attempts left, and a restored row is never pushed. Stores unchanged.
+  target
+    .version(3)
+    .stores({
+      [Table.Transactions]: TRANSACTIONS_V2_STORE,
+      [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
+    })
+    .upgrade(async (tx: Transaction) => {
+      const now = Math.floor(Date.now() / 1000);
+      await tx.db
+        .table<ITransaction, string>(Table.Transactions)
+        .where('noteDelivery')
+        .anyOf('pending', 'undelivered')
+        .modify(t => {
+          const sentAt = t.completedAt ?? t.initiatedAt ?? 0;
+          // `false` on the declining path, for the same reason as v1.3 above.
+          if (t.restoredFromBackup || (t.relayAttempts ?? 1) < 4 || now - sentAt >= 72 * 60 * 60) return false;
+          t.relayAttempts = 1;
+          delete t.nextRelayAt;
+          return undefined;
+        });
+    });
+
   // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check
   // (#1007) sits on `add` alone. It is a middleware, not a `creating` hook, because any hook routes
   // every put, so every `.modify()` and `.update()`, through a read of the rows it replaces.

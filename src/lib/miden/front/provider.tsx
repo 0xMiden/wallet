@@ -34,6 +34,7 @@ import { SwapSettlementManager } from './SwapSettlementManager';
 import { useForegroundRefresh } from './useForegroundRefresh';
 import { useSyncTrigger } from './useSyncTrigger';
 import { getMidenClient } from '../sdk/miden-client';
+import { NOTE_TRANSPORT_MAX_RETRIES } from '../sdk/miden-client-interface';
 
 /**
  * How long MidenProvider holds its first render for the storage preload. A local read takes milliseconds; a native
@@ -171,6 +172,8 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
     () => ({
       rpcUrl: getEffectiveRpcUrl(),
       noteTransportUrl: getEffectiveNoteTransportUrl(),
+      // A hook-driven send is one attempt too, for the same reason as the wallet's own client.
+      noteTransportMaxRetries: NOTE_TRANSPORT_MAX_RETRIES,
       prover: getEffectiveProverUrl(),
       feeFaucetId: getEffectiveFeeFaucetId(),
       autoSyncInterval: 0,

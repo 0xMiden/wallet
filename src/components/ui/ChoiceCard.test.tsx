@@ -275,6 +275,29 @@ describe('ChoiceCardGroup', () => {
     expect(mockHapticSelection).toHaveBeenCalledTimes(6);
   });
 
+  // The opt-in for a group whose choice acts at once; without it (the case above) arrows still select.
+  it('moves focus alone with arrowKeys="focus", leaving the choice to a tap or Enter', () => {
+    const onChange = jest.fn();
+    const onReselect = jest.fn();
+    renderGroup({ onChange, onReselect, arrowKeys: 'focus' });
+    const group = screen.getByRole('radiogroup');
+
+    radio('OpenZeppelin').focus();
+    fireEvent.keyDown(group, { key: 'ArrowDown' });
+    expect(radio('Gateway')).toHaveFocus();
+    fireEvent.keyDown(group, { key: 'End' });
+    expect(radio('No guardian')).toHaveFocus();
+    fireEvent.keyDown(group, { key: 'Home' });
+    expect(radio('OpenZeppelin')).toHaveFocus();
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onReselect).not.toHaveBeenCalled();
+    expect(mockHapticSelection).not.toHaveBeenCalled();
+    expect(radio('OpenZeppelin')).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(radio('Gateway'));
+    expect(onChange).toHaveBeenCalledWith('gateway');
+  });
+
   // #1083: Home landing back on the already-chosen first card is activation too, the same as a
   // tap, and must go through onReselect rather than being swallowed.
   it('calls onReselect, not onChange or the haptic, for Home on the chosen first card', () => {

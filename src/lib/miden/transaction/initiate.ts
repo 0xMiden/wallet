@@ -537,10 +537,10 @@ export const initiateSwapTransaction = async (
  * for the effective network, rather than queueing one that cannot possibly be
  * delivered. Throwing here is the whole point: this runs BEFORE anything is
  * queued, proved or submitted, so the user keeps their assets and sees an error
- * they can act on. Allowing it through inverts that — `relay_private_note`
- * resolves the transport API before it writes its retry outbox, so the send would
- * land on chain, reach nobody, and leave no retry record. Every private send on
- * such a network would be an unrecoverable loss reported as "Sent".
+ * they can act on. Allowing it through inverts that: with no transport every relay
+ * fails with `NoteTransportError::Disabled` and no retry can do better, so the send
+ * would land on chain and reach nobody. Every private send on such a network would
+ * be an unrecoverable loss.
  *
  * This is not hypothetical: `MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS` has no mainnet
  * entry, and mainnet is a selectable network.

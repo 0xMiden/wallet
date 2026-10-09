@@ -1,11 +1,12 @@
 // Light mocks so importing cancel.ts doesn't pull in Dexie / the WASM client proxy.
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { GuardianSwitchDiscardedError, GuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
+import { ApplyAfterSubmitError } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import { cancelTransaction, cancelTransactionAfterPipelineStopped, isTransactionStuck } from './cancel';
 import { TRANSACTION_STUCK_ERROR, USER_CANCELLED_TRANSACTION_REASON } from './constants';
-import { clearCancelledInFlight, markCancelledInFlight, markMayHaveSubmitted } from './helper';
+import { clearCancelledInFlight, markCancelledInFlight, markMayHaveSubmitted, recordKillEnd } from './helper';
 import {
   notifyBackgroundTransactionFailed,
   notifyBackgroundTransactionNotConfirmed
@@ -244,6 +245,21 @@ describe('cancelTransactionAfterPipelineStopped with a kill wrapped in another e
 
     expect(markMayHaveSubmitted).toHaveBeenCalledWith('tx-1');
     expect(markCancelledInFlight).toHaveBeenCalledWith('tx-1');
+  });
+
+  it('records that a send may have submitted when a terminated client is the cause, as for an abort', async () => {
+    await cancelTransactionAfterPipelineStopped(sendRow(), wrap(new Error('WebClient terminated')));
+
+    expect(recordKillEnd).toHaveBeenCalledWith('tx-1', undefined);
+    expect(markMayHaveSubmitted).toHaveBeenCalledWith('tx-1');
+    expect(markCancelledInFlight).not.toHaveBeenCalled();
+  });
+
+  it('keeps a landed write out of the kill route when a terminated client failed its local apply', async () => {
+    await cancelTransactionAfterPipelineStopped(sendRow(), new ApplyAfterSubmitError(new Error('Client terminated')));
+
+    expect(recordKillEnd).not.toHaveBeenCalled();
+    expect(markMayHaveSubmitted).not.toHaveBeenCalled();
   });
 
   it('records no crossing for a wrapped kill of a row that never built a write', async () => {

@@ -11,11 +11,8 @@ import {
   withWasmClientLock,
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
-import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
-import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { extractSdkErrorCode, isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
 import { b64ToU8, u8ToB64 } from 'lib/shared/helpers';
-
-import { isOperationAbortedError } from './offscreen-codec';
 
 export interface SimulateCustomTxInput {
   /** Bech32 sending account address (the custom-tx `address` field). */
@@ -325,7 +322,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
       // wallet-internal text that says nothing a signer can act on. Both callers
       // also only ever test this field for presence. The real error keeps its
       // identity on the console via the recovery log.
-      if (isWasmClientPoisonedError(e) || isOperationAbortedError(e)) {
+      if (isPipelineKillLink(e)) {
         return { error: 'the simulation was interrupted before it finished' };
       }
       return { error: e?.message ?? String(e) };

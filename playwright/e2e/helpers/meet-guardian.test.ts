@@ -1,54 +1,38 @@
-import { MEET_GUARDIAN_CHECK_TEST_IDS, openGuardianPickerFromMeetGuardian } from './meet-guardian';
+import { openGuardianPickerFromMeetGuardian } from './meet-guardian';
 import type { NoticePage } from './network-notice';
 
-/** A fake page whose checkboxes flip on click, recording every call in order. */
-const fakePage = (initiallyChecked: readonly string[] = []) => {
-  const checked = new Set(initiallyChecked);
+/** A fake page recording every call in order. */
+const fakePage = () => {
   const calls: string[] = [];
   const page: NoticePage = {
     getByTestId: (testId: string) => ({
       waitFor: async ({ timeout }) => {
         calls.push(`wait:${testId}:${timeout}`);
       },
-      click: async () => {
-        calls.push(`click:${testId}`);
-        if (checked.has(testId)) checked.delete(testId);
-        else checked.add(testId);
+      click: async (options?: { timeout?: number }) => {
+        calls.push(`click:${testId}:${options?.timeout}`);
       },
-      getAttribute: async (name: string) => (name === 'aria-checked' ? String(checked.has(testId)) : null)
+      getAttribute: async () => null
     })
   };
-  return { page, calls, checked };
+  return { page, calls };
 };
 
-// Written out rather than read from the helper: an emptied or shortened list must fail here, not pass.
-const EXPECTED_CHECK_IDS = [
-  'onboarding-meet-guardian-check-local-state',
-  'onboarding-meet-guardian-check-seed-phrase',
-  'onboarding-meet-guardian-check-guardian'
-];
-
 describe('openGuardianPickerFromMeetGuardian', () => {
-  it('ticks exactly the three facts the step shows', () => {
-    expect([...MEET_GUARDIAN_CHECK_TEST_IDS]).toEqual(EXPECTED_CHECK_IDS);
-  });
-
-  it('waits for the step, ticks all three facts, then opens the picker', async () => {
-    const { page, calls, checked } = fakePage();
+  it('goes through the intro, then opens the provider sheet from the operator screen', async () => {
+    const { page, calls } = fakePage();
     await openGuardianPickerFromMeetGuardian(page, 60_000);
     expect(calls).toEqual([
+      'wait:onboarding-guardian-intro:60000',
+      'click:guardian-intro-continue:60000',
       'wait:onboarding-meet-guardian:60000',
-      ...EXPECTED_CHECK_IDS.map(id => `click:${id}`),
-      'click:meet-guardian-choose-different'
+      'click:meet-guardian-choose-different:60000'
     ]);
-    EXPECTED_CHECK_IDS.forEach(id => expect(checked.has(id)).toBe(true));
   });
 
-  it('leaves a box already ticked alone, so a retry never unticks it', async () => {
-    const { page, calls, checked } = fakePage([EXPECTED_CHECK_IDS[2]!]);
+  it('defaults to a 30s wait', async () => {
+    const { page, calls } = fakePage();
     await openGuardianPickerFromMeetGuardian(page);
-    expect(calls).not.toContain(`click:${EXPECTED_CHECK_IDS[2]}`);
-    expect(calls[0]).toBe('wait:onboarding-meet-guardian:30000');
-    EXPECTED_CHECK_IDS.forEach(id => expect(checked.has(id)).toBe(true));
+    expect(calls[0]).toBe('wait:onboarding-guardian-intro:30000');
   });
 });

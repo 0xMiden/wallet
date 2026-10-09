@@ -2745,47 +2745,19 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 
-  it('dispatches sendPrivateNote → re-hydrates the note from bytes and relays it on THIS client (void result)', async () => {
+  // Both relays run on the SW client (`midenClientProxy`), so this realm no longer answers them.
+  it.each([
+    ['sendPrivateNote', [encodeArg(new Uint8Array([0xde, 0xad])), encodeArg('mtst1qrecipient')]],
+    ['relayPrivateNoteById', [encodeArg('0xnote'), encodeArg('mtst1qrecipient')]]
+  ])('answers %s as an unknown method, relaying nothing', async (method, argsB64) => {
     await loadModule();
     const sendResponse = jest.fn();
-    const noteBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
-    capturedListener!(
-      callReq({ method: 'sendPrivateNote', argsB64: [encodeArg(noteBytes), encodeArg('mtst1qrecipient')] }),
-      {},
-      sendResponse
-    );
+    capturedListener!(callReq({ method, argsB64 }), {}, sendResponse);
     await flush();
 
-    // The raw note bytes crossed intact and were re-hydrated via Note.deserialize...
-    expect(G.__off.deserializeNote).toHaveBeenCalledTimes(1);
-    expect(Array.from(G.__off.deserializeNote.mock.calls[0][0])).toEqual([0xde, 0xad, 0xbe, 0xef]);
-    // ...then relayed on THIS (offscreen) client with the re-hydrated note + recipient.
-    expect(G.__off.clientSendPrivateNote).toHaveBeenCalledTimes(1);
-    expect(G.__off.clientSendPrivateNote.mock.calls[0][0]).toEqual({ __noteFromBytes: [0xde, 0xad, 0xbe, 0xef] });
-    expect(G.__off.clientSendPrivateNote.mock.calls[0][1]).toBe('mtst1qrecipient');
-    const resp = sendResponse.mock.calls[0][0];
-    expect(resp.ok).toBe(true);
-    // A relay — nothing to serialize back.
-    expect(resp.resultB64).toBeNull();
-  });
-
-  it('dispatches relayPrivateNoteById → re-pushes on THIS client with no note bytes to re-hydrate', async () => {
-    await loadModule();
-    const sendResponse = jest.fn();
-    capturedListener!(
-      callReq({ method: 'relayPrivateNoteById', argsB64: [encodeArg('0xnote'), encodeArg('mtst1qrecipient')] }),
-      {},
-      sendResponse
-    );
-    await flush();
-
-    // The sweep runs long after the sending session, so it carries ids only — the
-    // note is resolved from THIS realm's store, which is where it was applied.
-    expect(G.__off.deserializeNote).not.toHaveBeenCalled();
-    expect(G.__off.clientRelayPrivateNoteById).toHaveBeenCalledWith('0xnote', 'mtst1qrecipient');
-    const resp = sendResponse.mock.calls[0][0];
-    expect(resp.ok).toBe(true);
-    expect(resp.resultB64).toBeNull();
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorCode: 'UNKNOWN_METHOD' });
+    expect(G.__off.clientSendPrivateNote).not.toHaveBeenCalled();
+    expect(G.__off.clientRelayPrivateNoteById).not.toHaveBeenCalled();
   });
 
   it('dispatches isOutputNoteConsumed → returns the receipt as bytes', async () => {
