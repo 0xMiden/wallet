@@ -1026,6 +1026,7 @@
   "copy": "복사",
   "crossChain": "크로스체인",
   "evmWalletConnected": "EVM 지갑 연결됨",
+  "evmChainNotApproved": "연결된 지갑이 $network$를 승인하지 않았습니다. 지갑을 다시 연결하여 승인하십시오.",
   "connectedWallet": "연동 지갑",
   "switchWallet": "지갑 변경",
   "current": "현재",

@@ -1026,6 +1026,7 @@
   "copy": "Kopieren",
   "crossChain": "Kettenübergreifend",
   "evmWalletConnected": "EVM-Wallet verbunden",
+  "evmChainNotApproved": "Die verbundene Wallet hat $network$ nicht genehmigt. Verbinden Sie die Wallet erneut, um dies zu genehmigen.",
   "connectedWallet": "Vernetzte Geldbörse",
   "switchWallet": "Wallet wechseln",
   "current": "Aktuell",

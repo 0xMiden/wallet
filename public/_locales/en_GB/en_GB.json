@@ -1026,6 +1026,7 @@
   "copy": "Copy",
   "crossChain": "Cross-chain",
   "evmWalletConnected": "EVM wallet connected",
+  "evmChainNotApproved": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
   "connectedWallet": "Connected wallet",
   "switchWallet": "Switch wallet",
   "current": "Current",

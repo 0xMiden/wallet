@@ -1026,6 +1026,7 @@
   "copy": "Copier",
   "crossChain": "Inter-chaînes",
   "evmWalletConnected": "Portefeuille EVM connecté",
+  "evmChainNotApproved": "Le portefeuille connecté n’a pas approuvé $network$. Reconnectez le portefeuille pour l’approuver.",
   "connectedWallet": "Portefeuille connecté",
   "switchWallet": "Changer de portefeuille",
   "current": "Actuel",

@@ -4491,6 +4491,15 @@
     "message": "Кошелек EVM подключен",
     "englishSource": "EVM wallet connected"
   },
+  "evmChainNotApproved": {
+    "message": "Подключенный кошелек не одобрил $network$. Подключите кошелек заново, чтобы одобрить его.",
+    "englishSource": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "connectedWallet": {
     "message": "Подключенный кошелек",
     "englishSource": "Connected wallet"

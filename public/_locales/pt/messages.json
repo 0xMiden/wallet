@@ -4491,6 +4491,15 @@
     "message": "Carteira EVM conectada",
     "englishSource": "EVM wallet connected"
   },
+  "evmChainNotApproved": {
+    "message": "A carteira conectada não aprovou $network$. Reconecte a carteira para aprová-la.",
+    "englishSource": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "connectedWallet": {
     "message": "Carteira conectada",
     "englishSource": "Connected wallet"

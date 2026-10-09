@@ -1026,6 +1026,7 @@
   "copy": "コピー",
   "crossChain": "クロスチェーン",
   "evmWalletConnected": "EVMウォレットが接続されました",
+  "evmChainNotApproved": "接続されたウォレットが$network$を承認しませんでした。ウォレットを再接続して承認してください。",
   "connectedWallet": "コネクテッド・ウォレット",
   "switchWallet": "ウォレットを切り替える",
   "current": "現在",

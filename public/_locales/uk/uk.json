@@ -1026,6 +1026,7 @@
   "copy": "Копіювати",
   "crossChain": "Міжланцюговий",
   "evmWalletConnected": "Підключено гаманець EVM",
+  "evmChainNotApproved": "Підключений гаманець не затвердив $network$. Підключіть гаманець знову, щоб затвердити це.",
   "connectedWallet": "Підключений гаманець",
   "switchWallet": "Перейти до гаманця",
   "current": "Поточний",

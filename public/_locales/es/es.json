@@ -1026,6 +1026,7 @@
   "copy": "Copiar",
   "crossChain": "Entre cadenas",
   "evmWalletConnected": "Cartera EVM conectada",
+  "evmChainNotApproved": "El monedero conectado no ha aprobado $network$. Vuelve a conectar el monedero para aprobarlo.",
   "connectedWallet": "Monedero conectado",
   "switchWallet": "Cambiar monedero",
   "current": "Actual",

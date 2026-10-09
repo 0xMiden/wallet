@@ -4491,6 +4491,15 @@
     "message": "Portefeuille EVM connecté",
     "englishSource": "EVM wallet connected"
   },
+  "evmChainNotApproved": {
+    "message": "Le portefeuille connecté n’a pas approuvé $network$. Reconnectez le portefeuille pour l’approuver.",
+    "englishSource": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "connectedWallet": {
     "message": "Portefeuille connecté",
     "englishSource": "Connected wallet"
