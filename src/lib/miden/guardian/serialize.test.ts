@@ -8,6 +8,7 @@ import {
   GuardianBackpressureError,
   guardianRegisterBackoffMs,
   guardianRetryAfterSec,
+  isGuardianCommitmentMismatch,
   isGuardianPendingConflict,
   isGuardianRateLimited,
   isGuardianRequestTimeout,
@@ -114,6 +115,22 @@ describe('isGuardianPendingConflict', () => {
   it('falls back to the body heuristic when the error carries no code', () => {
     expect(isGuardianPendingConflict({ status: 409, code: '', body: 'ConflictPendingDelta' })).toBe(true);
     expect(isGuardianPendingConflict({ status: 409, code: undefined, body: 'account was released' })).toBe(false);
+  });
+});
+
+// The Guardian's refusal of a push built on a superseded commitment: keyed on the code alone, whatever the status.
+describe('isGuardianCommitmentMismatch', () => {
+  it.each([
+    ['the 400 the Guardian answers', { status: 400, code: 'commitment_mismatch' }, true],
+    ['the code on a 409', { status: 409, code: 'commitment_mismatch' }, true],
+    ['the code without a status', { code: 'commitment_mismatch' }, true],
+    ['a pending-delta conflict', { status: 409, code: 'conflict_pending_delta' }, false],
+    ['a missing delta', { status: 404, code: 'delta_not_found' }, false],
+    ['null', null, false],
+    ['a string', 'commitment_mismatch', false],
+    ['an Error whose message alone names it', new Error('commitment_mismatch'), false]
+  ])('%s -> %s', (_label, err, expected) => {
+    expect(isGuardianCommitmentMismatch(err)).toBe(expected);
   });
 });
 
