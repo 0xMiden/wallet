@@ -38,10 +38,10 @@ const PUBLISHED_CONFIG_URL = 'https://raw.githubusercontent.com/0xMiden/wallet-c
  * The testnet rollup id: the network id the AggLayer indexer files every Miden -> EVM exit under, and the one the
  * wallet's Slow bridge-out looks its deposit up by. The wallet derives it from the bridge account the config document
  * names (`agglayer::bridge::network_id`, src/lib/remote-config/derive.ts); this probe reads no Miden storage, so it
- * holds the testnet's value, the one the indexer filed the golden exits under
- * (src/lib/agglayer/b2agg/exit-hash.vectors.json).
+ * holds the testnet's value: 73 since the testnet bridge moved to rollup 73 (wallet-config testnet.json version 2).
+ * The golden exits in src/lib/agglayer/b2agg/exit-hash.vectors.json predate that move and are filed under 86.
  */
-export const AGGLAYER_MIDEN_NETWORK_ID = 86;
+export const AGGLAYER_MIDEN_NETWORK_ID = 73;
 
 const MIDEN_RPC = {
   testnet: 'https://rpc.testnet.miden.io',

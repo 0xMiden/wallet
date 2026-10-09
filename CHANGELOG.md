@@ -11,6 +11,7 @@
 
 ### Fixes
 
+- [FIX][ci] E2E Bridge checks the AggLayer indexer for Miden exits under rollup 73, where the testnet bridge moved with wallet-config testnet.json version 2; it still asked for 86, which the new indexer does not know, so the job stayed red.
 - [FIX][all] A Slow (Agglayer) USDC deposit reads the allowance the bridge already has and asks for an approval only when it is less than the deposit, so a covered deposit needs one wallet prompt instead of two and a larger allowance is not replaced.
 - [FIX][all] Settings > About > Send feedback opens the working Zapier feedback form (#1340).
 - [FIX][ci] Wait for the accepted public faucet grant to commit before consuming its note in E2E funding fixtures.
