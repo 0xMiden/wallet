@@ -2158,7 +2158,12 @@ describe('MultisigService', () => {
           boundBlockNum: 4242
         })
       );
-      expect(multisig.createProposal.mock.calls[0][2]).not.toHaveProperty('chainAnchor');
+      expect(multisig.createProposal).toHaveBeenNthCalledWith(
+        1,
+        expect.anything(),
+        expect.anything(),
+        expect.not.objectContaining({ chainAnchor: expect.anything() })
+      );
       expect(result).toEqual({ kind: 'custom', id: 'proposal-id' });
     });
 
