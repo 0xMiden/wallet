@@ -1,3 +1,5 @@
+import { sepolia } from 'viem/chains';
+
 /**
  * WalletConnect (dApp side) configuration.
  *
@@ -21,6 +23,11 @@ export type EvmChain = {
   id: number;
   name: string;
   rpcUrl: string;
+  /**
+   * The chain's public RPC endpoint. `wallet_addEthereumChain` sends this one to the external
+   * wallet: `rpcUrl` is the WalletConnect proxy and carries our project id.
+   */
+  publicRpcUrl: string;
   explorer: string;
   nativeCurrency: { name: string; symbol: string; decimals: number };
 };
@@ -39,6 +46,7 @@ export const SUPPORTED_CHAINS: EvmChain[] = [
     id: 11155111,
     name: 'Sepolia',
     rpcUrl: RPC(11155111),
+    publicRpcUrl: sepolia.rpcUrls.default.http[0],
     explorer: 'https://sepolia.etherscan.io',
     nativeCurrency: { name: 'Sepolia Ether', symbol: 'SepoliaETH', decimals: 18 }
   }
