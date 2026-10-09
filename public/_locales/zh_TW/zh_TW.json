@@ -1331,5 +1331,13 @@
   "testIethExecution": "此交換操作將透過 Miden 測試網上的智慧合約執行。",
   "swapExecutionTitle": "交換操作的執行位置",
   "tokenInfoLabel": "關於 $token$",
-  "externalPageLoadFailed": "無法開啟此頁面。請檢查您的網路連線並重新嘗試。"
+  "externalPageLoadFailed": "無法開啟此頁面。請檢查您的網路連線並重新嘗試。",
+  "advancedOptions": "進階選項",
+  "advancedOptionsSummary": "$transferType$ · $expiration$",
+  "transferType": "轉帳類型",
+  "publicTransfer": "公開轉帳",
+  "publicTransferNotice": "代幣、金額和收款地址將在 Miden 上公開可見。",
+  "publicTransferHelp": "任何人都可以在 Miden 上看到此次轉帳的代幣、金額和收款地址。",
+  "senderAddressPublicNote": "無論哪種模式，您的傳送地址都是公開的。",
+  "sendPublicly": "公開傳送"
 }

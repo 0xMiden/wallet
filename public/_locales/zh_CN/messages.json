@@ -5880,5 +5880,45 @@
   "externalPageLoadFailed": {
     "message": "无法打开此页面。请检查网络连接并重试。",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "advancedOptions": {
+    "message": "高级选项",
+    "englishSource": "Advanced options"
+  },
+  "advancedOptionsSummary": {
+    "message": "$transferType$ · $expiration$",
+    "englishSource": "$transferType$ · $expiration$",
+    "placeholders": {
+      "transfertype": {
+        "content": "$1"
+      },
+      "expiration": {
+        "content": "$2"
+      }
+    }
+  },
+  "transferType": {
+    "message": "转账类型",
+    "englishSource": "Transfer type"
+  },
+  "publicTransfer": {
+    "message": "公开转账",
+    "englishSource": "Public transfer"
+  },
+  "publicTransferNotice": {
+    "message": "代币、金额和收款地址将在 Miden 上公开可见。",
+    "englishSource": "The token, amount, and recipient address will be visible on Miden."
+  },
+  "publicTransferHelp": {
+    "message": "任何人都可以在 Miden 上看到此次转账的代币、金额和收款地址。",
+    "englishSource": "Anyone can see this transfer's token, amount, and recipient address on Miden."
+  },
+  "senderAddressPublicNote": {
+    "message": "无论哪种模式，您的发送地址都是公开的。",
+    "englishSource": "Your sender address is public in both modes."
+  },
+  "sendPublicly": {
+    "message": "公开发送",
+    "englishSource": "Send publicly"
   }
 }

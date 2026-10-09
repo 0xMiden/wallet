@@ -1331,5 +1331,13 @@
   "testIethExecution": "Der Austausch erfolgt über einen Smart Contract im Miden-Testnetz.",
   "swapExecutionTitle": "Wo der Austausch stattfindet",
   "tokenInfoLabel": "Über „$token$“",
-  "externalPageLoadFailed": "Diese Seite konnte nicht geöffnet werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut."
+  "externalPageLoadFailed": "Diese Seite konnte nicht geöffnet werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+  "advancedOptions": "Erweiterte Optionen",
+  "advancedOptionsSummary": "$transferType$ · $expiration$",
+  "transferType": "Übertragungsart",
+  "publicTransfer": "Öffentliche Übertragung",
+  "publicTransferNotice": "Token, Betrag und Empfängeradresse sind auf Miden sichtbar.",
+  "publicTransferHelp": "Jeder kann Token, Betrag und Empfängeradresse dieser Übertragung auf Miden sehen.",
+  "senderAddressPublicNote": "Deine Absenderadresse ist in beiden Modi öffentlich.",
+  "sendPublicly": "Öffentlich senden"
 }

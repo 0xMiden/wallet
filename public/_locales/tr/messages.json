@@ -5880,5 +5880,45 @@
   "externalPageLoadFailed": {
     "message": "Bu sayfa açılamadı. Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "advancedOptions": {
+    "message": "Gelişmiş seçenekler",
+    "englishSource": "Advanced options"
+  },
+  "advancedOptionsSummary": {
+    "message": "$transferType$ · $expiration$",
+    "englishSource": "$transferType$ · $expiration$",
+    "placeholders": {
+      "transfertype": {
+        "content": "$1"
+      },
+      "expiration": {
+        "content": "$2"
+      }
+    }
+  },
+  "transferType": {
+    "message": "Transfer türü",
+    "englishSource": "Transfer type"
+  },
+  "publicTransfer": {
+    "message": "Herkese açık transfer",
+    "englishSource": "Public transfer"
+  },
+  "publicTransferNotice": {
+    "message": "Token, tutar ve alıcı adresi Miden üzerinde görünür olacak.",
+    "englishSource": "The token, amount, and recipient address will be visible on Miden."
+  },
+  "publicTransferHelp": {
+    "message": "Bu transferin token'ını, tutarını ve alıcı adresini Miden üzerinde herkes görebilir.",
+    "englishSource": "Anyone can see this transfer's token, amount, and recipient address on Miden."
+  },
+  "senderAddressPublicNote": {
+    "message": "Gönderen adresiniz her iki modda da herkese açıktır.",
+    "englishSource": "Your sender address is public in both modes."
+  },
+  "sendPublicly": {
+    "message": "Herkese açık gönder",
+    "englishSource": "Send publicly"
   }
 }

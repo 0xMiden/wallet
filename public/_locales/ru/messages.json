@@ -5880,5 +5880,45 @@
   "externalPageLoadFailed": {
     "message": "Не удалось открыть эту страницу. Проверьте подключение и попробуйте ещё раз.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "advancedOptions": {
+    "message": "Дополнительные параметры",
+    "englishSource": "Advanced options"
+  },
+  "advancedOptionsSummary": {
+    "message": "$transferType$ · $expiration$",
+    "englishSource": "$transferType$ · $expiration$",
+    "placeholders": {
+      "transfertype": {
+        "content": "$1"
+      },
+      "expiration": {
+        "content": "$2"
+      }
+    }
+  },
+  "transferType": {
+    "message": "Тип перевода",
+    "englishSource": "Transfer type"
+  },
+  "publicTransfer": {
+    "message": "Публичный перевод",
+    "englishSource": "Public transfer"
+  },
+  "publicTransferNotice": {
+    "message": "Токен, сумма и адрес получателя будут видны в сети Miden.",
+    "englishSource": "The token, amount, and recipient address will be visible on Miden."
+  },
+  "publicTransferHelp": {
+    "message": "Любой может увидеть токен, сумму и адрес получателя этого перевода в сети Miden.",
+    "englishSource": "Anyone can see this transfer's token, amount, and recipient address on Miden."
+  },
+  "senderAddressPublicNote": {
+    "message": "Ваш адрес отправителя публичен в обоих режимах.",
+    "englishSource": "Your sender address is public in both modes."
+  },
+  "sendPublicly": {
+    "message": "Отправить публично",
+    "englishSource": "Send publicly"
   }
 }

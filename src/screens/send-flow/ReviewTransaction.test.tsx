@@ -104,9 +104,13 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    // The recall note's only parameter is the amount it names; every other key reads as itself.
-    t: (key: string, params?: { amount?: string }) =>
-      key === 'recallReturnsNote' && params?.amount ? `${key} ${params.amount}` : key
+    // The recall note's only parameter is the amount it names, and the Advanced options summary
+    // names the transfer type and the expiration; every other key reads as itself.
+    t: (key: string, params?: { amount?: string; transferType?: string; expiration?: string }) => {
+      if (key === 'recallReturnsNote' && params?.amount) return `${key} ${params.amount}`;
+      if (key === 'advancedOptionsSummary') return `${params?.transferType} · ${params?.expiration}`;
+      return key;
+    }
   })
 }));
 
@@ -166,10 +170,27 @@ jest.mock('components/SpendingLimitChallenge', () => ({
   }
 }));
 
+// The public notice slides in and out on the `reveal` preset; the tests read the DOM, not the
+// motion, and a real exit animation would keep a dismissed notice mounted past the assertion.
+jest.mock('framer-motion', () => {
+  const React = jest.requireActual('react');
+  return {
+    AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    motion: {
+      div: React.forwardRef(
+        ({ initial: _i, animate: _a, exit: _e, transition: _t, ...props }: any, ref: React.Ref<HTMLDivElement>) => (
+          <div ref={ref} {...props} />
+        )
+      )
+    },
+    useReducedMotion: () => false
+  };
+});
+
 jest.mock('components/ui/DetailCard', () => ({
   DetailCard: ({ children }: any) => <div data-testid="rows">{children}</div>,
-  DetailRow: ({ label, children, action, sub }: any) => (
-    <div data-testid="review-row">
+  DetailRow: ({ label, children, action, sub, onClick, 'data-testid': testId }: any) => (
+    <div data-testid={testId ?? 'review-row'}>
       <span data-testid="row-label">{label}</span>
       {children !== undefined && <span data-testid="row-children">{children}</span>}
       {action && (
@@ -177,7 +198,37 @@ jest.mock('components/ui/DetailCard', () => ({
           {action.label}
         </button>
       )}
+      {onClick && (
+        <button data-testid="row-open" onClick={onClick}>
+          open
+        </button>
+      )}
       {sub !== undefined && <span data-testid="row-note">{sub}</span>}
+    </div>
+  ),
+  // Like the real one, the rows inside render only while open and the summary only while closed.
+  DetailDisclosure: ({ title, summary, summaryEmphasis, open, onOpenChange, children, 'data-testid': testId }: any) => (
+    <div data-testid={testId} data-open={String(open)} data-emphasis={String(Boolean(summaryEmphasis))}>
+      <button data-testid={`${testId}-toggle`} onClick={() => onOpenChange(!open)}>
+        {title}
+      </button>
+      {!open && summary && <span data-testid={`${testId}-summary`}>{summary}</span>}
+      {open && children}
+    </div>
+  )
+}));
+jest.mock('./TransferTypeDrawer', () => ({
+  TransferTypeDrawer: (props: any) => (
+    <div data-testid="transfer-type-drawer" data-open={String(props.open)} data-value={props.value}>
+      <button data-testid="transfer-type-pick-public" onClick={() => props.onChange('public')}>
+        public
+      </button>
+      <button data-testid="transfer-type-pick-private" onClick={() => props.onChange('private')}>
+        private
+      </button>
+      <button data-testid="transfer-type-close" onClick={() => props.onOpenChange(false)}>
+        close
+      </button>
     </div>
   )
 }));
@@ -338,6 +389,11 @@ const flush = async () => {
   });
 };
 
+/** Advanced options is collapsed by default; the expiration and transfer-type rows live under it. */
+const openAdvancedOptions = async () => {
+  fireEvent.click(screen.getByTestId('review-advanced-options-toggle'));
+  await flush();
+};
 function deferred<T = unknown>() {
   let resolve!: (v?: T) => void;
   let reject!: (e?: unknown) => void;
@@ -535,7 +591,13 @@ describe('ReviewTransaction — rendering', () => {
     await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
     expect(screen.getByTestId('review-recall-note').textContent).toBe('recallReturnsNote 5 MDN');
     expect(screen.queryByTestId('row-note')).not.toBeInTheDocument();
+    // Advanced options starts closed, its summary naming the default transfer type and the window.
+    expect(screen.getByTestId('review-advanced-options')).toHaveAttribute('data-open', 'false');
+    expect(screen.getByTestId('review-advanced-options-summary').textContent).toMatch(/^private · In .+/);
+    expect(screen.queryByTestId('review-row-expiration')).not.toBeInTheDocument();
+    await openAdvancedOptions();
     expect(screen.getByText(/^In .+/)).toBeInTheDocument();
+    expect(screen.getByTestId('row-open')).toBeInTheDocument();
     // Relative blocks-until-recall — no block height involved (#308).
     expect(dateTimeToRecallBlocksMock).toHaveBeenCalledWith(expect.any(Date));
   });
@@ -572,6 +634,7 @@ describe('ReviewTransaction — rendering', () => {
     await flush();
 
     expect(screen.getByTestId('recall-drawer').getAttribute('data-open')).toBe('false');
+    await openAdvancedOptions();
     fireEvent.click(screen.getByTestId('row-edit'));
     await flush();
     expect(screen.getByTestId('recall-drawer').getAttribute('data-open')).toBe('true');
@@ -588,6 +651,8 @@ describe('ReviewTransaction — rendering', () => {
     const { unmount } = render(<ReviewTransaction />);
     await flush();
 
+    expect(screen.getByTestId('review-advanced-options-summary').textContent).toBe(`private · ${expectedLabel}`);
+    await openAdvancedOptions();
     expect(screen.getByText(expectedLabel)).toBeInTheDocument();
     unmount();
   });
@@ -600,6 +665,7 @@ describe('ReviewTransaction — rendering', () => {
     setValidRoute();
     const { unmount } = render(<ReviewTransaction />);
     await flush();
+    await openAdvancedOptions();
 
     expect(screen.queryByText('none')).not.toBeInTheDocument();
     expect(screen.getByText('expiresInSeconds')).toBeInTheDocument();
@@ -618,6 +684,10 @@ describe('ReviewTransaction — rendering', () => {
     expect(screen.getByText('slow slowArrival')).toBeInTheDocument();
     expect(screen.queryByTestId('row-note')).not.toBeInTheDocument();
     expect(dateTimeToRecallBlocksMock).not.toHaveBeenCalled();
+    // A bridge has neither a transfer type nor an expiration, so nothing to fold away.
+    expect(screen.queryByTestId('review-advanced-options')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('transfer-type-drawer')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('review-public-notice')).not.toBeInTheDocument();
   });
 
   it('renders the fast bridge route loading state from the Epoch quote', async () => {
@@ -1382,6 +1452,79 @@ describe('ReviewTransaction — onSubmit', () => {
     await act(async () => view.rerender(<ReviewTransaction />));
 
     expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Advanced options: the transfer type
+// ---------------------------------------------------------------------------
+describe('ReviewTransaction — transfer type', () => {
+  it('opens the transfer-type sheet from the row under Advanced options', async () => {
+    setValidRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('transfer-type-drawer')).toHaveAttribute('data-open', 'false');
+    expect(screen.getByTestId('transfer-type-drawer')).toHaveAttribute('data-value', 'private');
+    await openAdvancedOptions();
+    expect(screen.getByTestId('review-row-transfer-type')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('row-open'));
+    await flush();
+    expect(screen.getByTestId('transfer-type-drawer')).toHaveAttribute('data-open', 'true');
+  });
+
+  it('keeps the choice and its consequence visible once Advanced options is closed again', async () => {
+    setValidRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    // Private by default: the plain CTA, no notice, a quiet summary.
+    expect(screen.getByTestId('send-review-submit').textContent).toBe('sendPayment');
+    expect(screen.queryByTestId('review-public-notice')).not.toBeInTheDocument();
+    expect(screen.getByTestId('review-advanced-options')).toHaveAttribute('data-emphasis', 'false');
+
+    await openAdvancedOptions();
+    fireEvent.click(screen.getByTestId('transfer-type-pick-public'));
+    await flush();
+    fireEvent.click(screen.getByTestId('transfer-type-close'));
+    await flush();
+
+    // The row and the sheet agree, the CTA says what it will do and the notice spells out the cost.
+    expect(screen.getByTestId('transfer-type-drawer')).toHaveAttribute('data-value', 'public');
+    expect(within(screen.getByTestId('review-row-transfer-type')).getByText('public')).toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit').textContent).toBe('sendPublicly');
+    expect(screen.getByTestId('review-public-notice')).toBeInTheDocument();
+    expect(screen.getByTestId('review-public-notice')).toHaveAttribute('data-tone', 'warning');
+    expect(screen.getByText('publicTransferNotice')).toBeInTheDocument();
+
+    // Folding Advanced options away hides the rows but not the choice: the summary names it, in
+    // the emphasised ink, and the notice stays on the page.
+    await openAdvancedOptions();
+    expect(screen.getByTestId('review-advanced-options')).toHaveAttribute('data-open', 'false');
+    expect(screen.getByTestId('review-advanced-options-summary').textContent).toMatch(/^public · In .+/);
+    expect(screen.getByTestId('review-advanced-options')).toHaveAttribute('data-emphasis', 'true');
+    expect(screen.getByTestId('review-public-notice')).toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit').textContent).toBe('sendPublicly');
+  });
+
+  it('submits a PUBLIC note after the sheet picked Public, and a private one again after Private', async () => {
+    setValidRoute();
+    render(<ReviewTransaction />);
+    await flush();
+    await openAdvancedOptions();
+
+    fireEvent.click(screen.getByTestId('transfer-type-pick-public'));
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+    await flush();
+    expect(initiateMock).toHaveBeenLastCalledWith('pubkey-1', '0xrecipient', 'tok1', 'public', 12345n, 999, false);
+
+    fireEvent.click(screen.getByTestId('transfer-type-pick-private'));
+    await flush();
+    expect(screen.getByTestId('send-review-submit').textContent).toBe('sendPayment');
+    expect(screen.queryByTestId('review-public-notice')).not.toBeInTheDocument();
   });
 });
 

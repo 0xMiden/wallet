@@ -1331,5 +1331,13 @@
   "testIethExecution": "Обмін здійснюється через смарт-контракт у тестовій мережі Miden.",
   "swapExecutionTitle": "Де відбувається заміна",
   "tokenInfoLabel": "Про $token$",
-  "externalPageLoadFailed": "Не вдалося відкрити цю сторінку. Перевірте з’єднання та спробуйте ще раз."
+  "externalPageLoadFailed": "Не вдалося відкрити цю сторінку. Перевірте з’єднання та спробуйте ще раз.",
+  "advancedOptions": "Додаткові параметри",
+  "advancedOptionsSummary": "$transferType$ · $expiration$",
+  "transferType": "Тип переказу",
+  "publicTransfer": "Публічний переказ",
+  "publicTransferNotice": "Токен, сума та адреса отримувача будуть видимі в мережі Miden.",
+  "publicTransferHelp": "Будь-хто може побачити токен, суму та адресу отримувача цього переказу в мережі Miden.",
+  "senderAddressPublicNote": "Ваша адреса відправника є публічною в обох режимах.",
+  "sendPublicly": "Надіслати публічно"
 }

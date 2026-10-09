@@ -8,11 +8,13 @@
 - [FEATURE][all] A token on the verified list shows the logo the list gives it (testnet IMIDEN, IETH and IBTC today), falling back to the default mark when the logo cannot load (#1357).
 - [FEATURE][all] On testnet iETH is shown as "Test iETH", its token page says what it is, and an info sheet behind an "i" on the swap screens adds where the swap executes; Test iETH and testnet Test Epoch USDC, which the wallet names itself, can no longer be edited, and an override stored for either stops applying (#477).
 - [FEATURE][all] Explore's apps and sections come from the `0xMiden/wallet-explore` repository, so a merged change reaches every wallet within about an hour with no release, and each network shows its own catalog: devnet now lists the devnet faucet (#1361).
+- [FEATURE][all] The send review page folds the transfer type and the expiration under an "Advanced options" row, closed by default with a one-line summary of both; a "Transfer type" sheet picks Private (the default) or Public, and a public send keeps a notice of what it reveals on the page and a "Send publicly" button whether or not the row is open.
 
 ### Fixes
 
 - [FIX][all] Picking a swap token and quickly tapping the other token pill, or the same one, opens the token picker again; a tap made while the picker was still sliding away opened nothing.
 - [FIX][ci] E2E Bridge follows the testnet bridge to rollup 73 (wallet-config testnet.json version 2): its registry check names the new bridge's ETH faucet and its indexer probe asks for Miden exits under 73, where it still named the retired bridge's faucet and rollup 86, so the job stayed red.
+- [FIX][all] The expiration calendar uses theme colors so dates, the month title and navigation arrows are visible in dark mode.
 - [FIX][all] A Slow (Agglayer) USDC deposit reads the allowance the bridge already has and asks for an approval only when it is less than the deposit, so a covered deposit needs one wallet prompt instead of two and a larger allowance is not replaced.
 - [FIX][all] Settings > About > Send feedback opens the working Zapier feedback form (#1340).
 - [FIX][ci] Wait for the accepted public faucet grant to commit before consuming its note in E2E funding fixtures.
