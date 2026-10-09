@@ -80,11 +80,6 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     Note: {
       deserialize: (...a: any[]) => g.__off.deserializeNote(...a)
     },
-    // #784: the guardianPipeline DISPATCH decodes the crossed wire-form anchor
-    // back into a ChainAnchor before pinning executeRequest to it.
-    ChainAnchor: {
-      deserialize: (...a: any[]) => g.__off.deserializeChainAnchor(...a)
-    },
     TransactionProver: {
       deserialize: (...a: any[]) => g.__off.deserializeProver(...a),
       newLocalProver: (...a: any[]) => g.__off.newLocalProver(...a)
@@ -353,9 +348,6 @@ function resetControl() {
     // DISPATCH hands to the client. Echo the bytes so the test can assert the note
     // crossed intact.
     deserializeNote: jest.fn((b: Uint8Array) => ({ __noteFromBytes: Array.from(b) })),
-    // #784: ChainAnchor.deserialize(anchorBytes) → the anchor the guardianPipeline
-    // DISPATCH pins executeRequest to. Echoes the bytes; free() is a per-test spy.
-    deserializeChainAnchor: jest.fn((b: Uint8Array) => ({ __anchorFromBytes: Array.from(b), free: jest.fn() })),
     deserializeProver: jest.fn(async (d: string) => ({ __fromDescriptor: d })),
     newLocalProver: jest.fn(() => ({ __local: true })),
     // The explicit REMOTE prover the guardian pipeline hands a delegated prove, so
@@ -3632,7 +3624,6 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
     expect(response.mock.calls[0][0].ok).toBe(true);
     expect(G.__off.guardianExecuteRequest).toHaveBeenCalledWith('acc', request);
-    expect(G.__off.deserializeChainAnchor).not.toHaveBeenCalled();
     const syncOrder = G.__off.clientSyncChain.mock.invocationCallOrder[0];
     const heightOrder = G.__off.clientGetSyncHeight.mock.invocationCallOrder[0];
     const executeOrder = G.__off.guardianExecuteRequest.mock.invocationCallOrder[0];
@@ -5160,7 +5151,7 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
     });
   });
 
-  it('records tip execution without decoding a historical anchor', async () => {
+  it('records tip execution after preparing the current tip', async () => {
     await withE2EFlag('true', async () => {
       await loadModule();
       const posted = capturePosts();
@@ -5174,7 +5165,9 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
       );
       await flush();
 
-      expect(G.__off.deserializeChainAnchor).not.toHaveBeenCalled();
+      expect(G.__off.clientSyncChain.mock.invocationCallOrder[0]).toBeLessThan(
+        G.__off.guardianExecuteRequest.mock.invocationCallOrder[0]
+      );
       expect(markerLines(posted).some(l => l.includes('guardianPipeline calling executeRequest at current tip'))).toBe(
         true
       );

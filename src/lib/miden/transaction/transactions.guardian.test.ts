@@ -358,10 +358,6 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   buildSendTransactionRequest: (...args: unknown[]) => mockBuildSendTransactionRequest(...(args as [])),
   buildPswapCreateRequest: (...args: unknown[]) => mockBuildPswapCreateRequest(...(args as []))
 }));
-// #784: the guardian leaf decodes the proposal's base64 chain anchor back into
-// a WASM ChainAnchor before pinning executeRequest to it.
-// eslint-disable-next-line no-var
-var mockChainAnchorDeserialize = jest.fn();
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const actual = jest.requireActual('../../../../__mocks__/wasmMock.js');
   return {
@@ -372,9 +368,6 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     },
     WasmWebClient: {
       createClient: (endpoint: string) => mockCreateWasmWebClient(endpoint)
-    },
-    ChainAnchor: {
-      deserialize: (...a: unknown[]) => mockChainAnchorDeserialize(...a)
     }
   };
 });
@@ -484,6 +477,16 @@ const makeClientApi = (result: ReturnType<typeof makeResult>, apply = jest.fn(as
       })
     )
   });
+};
+
+// Tip preparation's chain sync is the one `syncChain` call a guardian leaf makes, so it has to precede the execute.
+const expectTipPreparedBeforeExecute = (client: ReturnType<typeof makeClientApi>) => {
+  const syncOrder = client.syncChain.mock.invocationCallOrder[0];
+  const executeOrder = client.transactions.executeRequest.mock.invocationCallOrder[0];
+  if (syncOrder === undefined || executeOrder === undefined) {
+    throw new Error('Expected the tip sync and the execution to run');
+  }
+  expect(syncOrder).toBeLessThan(executeOrder);
 };
 
 const makeGuardianProvider = (isGuardian: boolean) => {
@@ -1499,22 +1502,8 @@ describe('generateTransaction — Guardian routing', () => {
     mockGetRealmReaderClient.mockReset();
     mockBuildSendTransactionRequest.mockReset();
     mockBuildPswapCreateRequest.mockReset();
-    // Same reason as the reset below: keep the passthrough default so a test that does not
-    // care sees the bytes it built, and so a `mockResolvedValueOnce` cannot leak forward.
-    // #784: `clearAllMocks` clears CALLS but keeps implementations, so reset
-    // this one and give it an echoing default. Without a default, a test that
-    // sets `metadata.chainAnchor` but forgets `mockReturnValue` would decode to
-    // `undefined`, silently take the UNANCHORED path, and still pass. The reset
-    // also stops a per-test throwing implementation leaking into the rest of
-    // the file.
-    mockChainAnchorDeserialize.mockReset();
-    mockChainAnchorDeserialize.mockImplementation((bytes: Uint8Array) => ({
-      __anchorFromBytes: Array.from(bytes),
-      free: jest.fn()
-    }));
-    // Same reason as above: a stale-state-rebuild test queues a `mockResolvedValueOnce`
-    // here, and `clearAllMocks` would leave it queued for whichever later test's first
-    // call happens to land on this mock.
+    // `clearAllMocks` keeps implementations: a stale-state-rebuild test queues a `mockResolvedValueOnce`
+    // here, and it would stay queued for whichever later test's first call happens to land on this mock.
     mockCommitmentFromPublicKeyHex.mockReset();
     mockCommitmentFromPublicKeyHex.mockImplementation(async (_publicKeyHex: string) => '0xnewcommit');
     txStore.length = 0;
@@ -1739,7 +1728,6 @@ describe('generateTransaction — Guardian routing', () => {
     await run();
 
     expect(client.transactions.executeRequest).toHaveBeenCalledWith('guardian-acc', request);
-    expect(mockChainAnchorDeserialize).not.toHaveBeenCalled();
     const syncOrder = client.syncChain.mock.invocationCallOrder[0];
     const heightOrder = client.getSyncHeight.mock.invocationCallOrder[0];
     const executeOrder = client.transactions.executeRequest.mock.invocationCallOrder[0];
@@ -8163,9 +8151,6 @@ describe('generateTransaction — Guardian routing', () => {
       createSwitchGuardianProposal: jest.fn(async () => ({
         proposal: {
           id: 'prop-switch',
-          // 'cHJvcG9zYWwtYW5jaG9y' = base64 of 'proposal-anchor' — the fixture
-          // must be REAL base64: the leaf decodes it with b64ToU8 (atob), which
-          // throws on the bare token this used to be.
           metadata: { proposalType: 'switch_guardian', chainAnchor: 'cHJvcG9zYWwtYW5jaG9y' }
         },
         newEndpoint: 'https://new.guardian'
@@ -8240,8 +8225,8 @@ describe('generateTransaction — Guardian routing', () => {
     });
     expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
     expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
-    expect(mockChainAnchorDeserialize).not.toHaveBeenCalled();
     expect(clientApi.transactions.executeRequest).toHaveBeenCalledWith('guardian-acc', expect.anything());
+    expectTipPreparedBeforeExecute(clientApi);
   });
 
   it('Guardian switch-guardian: a coordinated commit wait that times out on a switch the node confirms still completes it', async () => {
@@ -8336,11 +8321,12 @@ describe('generateTransaction — Guardian routing', () => {
     mockIsGuardianAccount.mockResolvedValue(true);
 
     const waitForTransactionCommit = jest.fn(async () => {});
+    const clientApi = makeClientApi(result);
     mockGetMidenClient.mockResolvedValue({
       syncState: jest.fn(async () => {}),
       getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
       waitForTransactionCommit,
-      client: makeClientApi(result)
+      client: clientApi
     });
 
     await generateTransaction(
@@ -8365,7 +8351,7 @@ describe('generateTransaction — Guardian routing', () => {
     );
     expect(signWord).toHaveBeenCalledWith('cold-pub', '0xword', txId);
     expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
-    expect(mockChainAnchorDeserialize).not.toHaveBeenCalled();
+    expectTipPreparedBeforeExecute(clientApi);
     expect(waitForTransactionCommit).toHaveBeenCalledWith('exec-tx-hash');
     // Completion registers on the NEW guardian standalone (undefined service).
     expect(mockFinalizeDirectSwitch).toHaveBeenCalledWith('guardian-acc', 'https://new.guardian', {

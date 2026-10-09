@@ -374,9 +374,9 @@ export function encodeArg(value: unknown): string {
  *
  * Worth naming for this op specifically: the dispatch table erases its entries
  * to `(client, ...args: any[])`, so a dropped or reordered slot compiles
- * cleanly, and dropping the anchor slot silently reinstates the unanchored
- * execute that #784 exists to remove — a regression that shows up only once
- * the chain advances mid-round-trip.
+ * cleanly. The last slot, a proposal's chain anchor, is historical: the leaf
+ * executes at the tip against the block the request's auth args bind and reads
+ * nothing from it.
  *
  * The two optional slots are `| null`, not `| undefined`: the packer always
  * sends four elements and {@link encodeArg} maps an absent value to JSON

@@ -247,12 +247,9 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         let summary: Awaited<ReturnType<typeof executeForSummaryAtTip>> | undefined;
         let summaryFailure: unknown;
         try {
-          // The tip summary, not `executeForSummary`: that one also captures a chain anchor at
-          // this client's sync height and refuses unless it names the block the request's auth
-          // args bind. A dApp builds the request on its own client, at its own height, and the
-          // sync above moved this one on, so a Guardian account's preview failed with
-          // SummaryAnchorMismatchError whenever a block landed in between. The dry run only
-          // displays the summary and needs no anchor.
+          // The summary binds the block the request's auth args name, which the dApp's own client
+          // chose and the sync above has moved this one past, so it executes at the tip like every
+          // other execution of a Guardian proposal.
           summary = await executeForSummaryAtTip(client.client, accountIdHex, request);
         } catch (e) {
           summaryFailure = e;

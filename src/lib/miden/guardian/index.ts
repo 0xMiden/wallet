@@ -454,11 +454,11 @@ export class MultisigService {
    * height first. Returns the bytes the proposal was made from; the caller persists them, since
    * custom execution has to rebuild from exactly those.
    *
-   * A guarded request's auth args bind the sync height at BUILD, and the proposal's anchor is
-   * the sync height at CAPTURE. The kernel authenticates the bound block only when the two
-   * agree, so persisted bytes proposed after any sync (a 409 retry, a restart, a slow round
-   * trip) failed with "transaction summary binds block N, which the transaction does not
-   * authenticate". Rebuilding in the same lock hold as the capture closes that gap.
+   * A guarded request's auth args bind the sync height at BUILD, the proposal records that
+   * block as `boundBlockNum`, and the request declares it, so every executor reproduces the
+   * summary at its own tip. Rebuilding in the same lock hold as the proposal binds the block the
+   * proposal is made at, not the one persisted bytes were built at before a sync (a 409 retry,
+   * a restart, a slow round trip).
    *
    * Only for requests whose whole content is their own output notes (the wallet's sends,
    * swaps and collateral notes): nothing else survives the rebuild, and a dApp's request is

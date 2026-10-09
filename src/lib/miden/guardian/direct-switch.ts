@@ -284,8 +284,9 @@ const ecdsaSignatureAdviceEntry = (
  * are folded into the request's advice map. The result flows through the same
  * execute → prove → submit leaf as a proposal-built request.
  *
- * The anchor names the block the auth args bind; the rebuilt request declares
- * that block so both signatures verify when the final leaf executes at the tip.
+ * The auth args bind a block, `boundBlockNum`; the rebuild pins it and the
+ * rebuilt request declares it, so both signatures verify when the final leaf
+ * executes at the tip.
  *
  * Only the NEW guardian is contacted (its `getPubkey` is unauthenticated), to
  * fetch the pubkey commitment the on-chain rotation installs.
