@@ -294,7 +294,7 @@ export const createDirectSwitchGuardianRequest = async (
   walletAccount: WalletAccount,
   newGuardianEndpoint: string,
   signWord: SignWordFunction
-): Promise<{ request: TransactionRequest }> => {
+): Promise<TransactionRequest> => {
   const { hotPublicKey, coldPublicKey } = walletAccount;
   if (!hotPublicKey || !coldPublicKey) {
     throw new Error(
@@ -474,7 +474,7 @@ export const createDirectSwitchGuardianRequest = async (
   // waited — the next `extendAdviceMap` borrows a freed pointer. Everything
   // that crosses the two lock scopes is a plain hex string (`built`) precisely
   // so it survives a client replacement.
-  const request = await withWasmClientLock(async hold => {
+  return withWasmClientLock(async hold => {
     const webClient = (await getMidenClient()).client;
     assertWasmHoldCurrent(hold, 'direct-request: after the rebuild client build');
     const signatureAdviceMap = new AdviceMap();
@@ -494,7 +494,6 @@ export const createDirectSwitchGuardianRequest = async (
     });
     return rebuilt;
   });
-  return { request };
 };
 
 /**

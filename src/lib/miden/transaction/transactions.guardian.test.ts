@@ -8322,10 +8322,7 @@ describe('generateTransaction — Guardian routing', () => {
     mockCreateDirectSwitchRequest.mockImplementation(
       async (_account: WalletAccount, _endpoint: string, sign: GuardianAccountProvider['signWord']) => {
         await sign('cold-pub', '0xword');
-        return {
-          request: { serialize: () => new Uint8Array([2]), authArg: () => undefined },
-          chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
-        };
+        return { serialize: () => new Uint8Array([2]), authArg: () => undefined };
       }
     );
     mockFinalizeDirectSwitch.mockResolvedValue(undefined);
@@ -8404,11 +8401,7 @@ describe('generateTransaction — Guardian routing', () => {
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
     mockBuildColdMultisigService.mockRejectedValue(new Error('NetworkError when attempting to fetch resource'));
-    mockCreateDirectSwitchRequest.mockResolvedValue({
-      request: { serialize: () => new Uint8Array([2]), authArg: () => undefined },
-      // Real base64 ('chain-anchor') — the leaf's b64ToU8 (atob) throws on a bare token.
-      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
-    });
+    mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
     mockFinalizeDirectSwitch.mockResolvedValue(undefined);
 
     const provider = {
@@ -8483,10 +8476,7 @@ describe('generateTransaction — Guardian routing', () => {
     };
     mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
     mockBuildColdMultisigService.mockRejectedValue(new Error('NetworkError when attempting to fetch resource'));
-    mockCreateDirectSwitchRequest.mockResolvedValue({
-      request: { serialize: () => new Uint8Array([2]), authArg: () => undefined },
-      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
-    });
+    mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
     mockFinalizeDirectSwitch.mockResolvedValue(undefined);
 
     const provider = {
@@ -8541,10 +8531,7 @@ describe('generateTransaction — Guardian routing', () => {
     });
 
     mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
-    mockCreateDirectSwitchRequest.mockResolvedValue({
-      request: { serialize: () => new Uint8Array([2]), authArg: () => undefined },
-      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
-    });
+    mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
     mockFinalizeDirectSwitch.mockResolvedValue(undefined);
 
     const setGuardianEndpoint = jest.fn(async () => {});
@@ -8623,10 +8610,7 @@ describe('generateTransaction — Guardian routing', () => {
 
     mockDidDirectSwitchLand.mockResolvedValueOnce(verdict);
     mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
-    mockCreateDirectSwitchRequest.mockResolvedValue({
-      request: { serialize: () => new Uint8Array([2]), authArg: () => undefined },
-      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
-    });
+    mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
     mockFinalizeDirectSwitch.mockResolvedValue(undefined);
 
     const setGuardianEndpoint = jest.fn(async () => {});
@@ -8686,10 +8670,7 @@ describe('generateTransaction — Guardian routing', () => {
 
     mockDidDirectSwitchLand.mockResolvedValue(true);
     mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
-    mockCreateDirectSwitchRequest.mockResolvedValue({
-      request: { serialize: () => new Uint8Array([2]), authArg: () => undefined },
-      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
-    });
+    mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
     mockFinalizeDirectSwitch.mockResolvedValue(undefined);
 
     const provider = {
@@ -8745,11 +8726,7 @@ describe('generateTransaction — Guardian routing', () => {
     });
 
     mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
-    mockCreateDirectSwitchRequest.mockResolvedValue({
-      request: { serialize: () => new Uint8Array([2]), authArg: () => undefined },
-      chainAnchorB64: 'Y2hhaW4tYW5jaG9y',
-      newGuardianPubkey: `0x${'ab'.repeat(32)}`
-    });
+    mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
     mockFinalizeDirectSwitch.mockResolvedValue(undefined);
     // The chain says the rotation is NOT there.
     mockDidDirectSwitchLand.mockResolvedValue(false);
@@ -8811,11 +8788,7 @@ describe('generateTransaction — Guardian routing', () => {
     });
 
     mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
-    mockCreateDirectSwitchRequest.mockResolvedValue({
-      request: { serialize: () => new Uint8Array([2]), authArg: () => undefined },
-      chainAnchorB64: 'Y2hhaW4tYW5jaG9y',
-      newGuardianPubkey: `0x${'cd'.repeat(32)}`
-    });
+    mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
     mockFinalizeDirectSwitch.mockResolvedValue(undefined);
     // The wait timed out, but the rotation IS on chain.
     mockDidDirectSwitchLand.mockResolvedValue(true);
@@ -10047,10 +10020,7 @@ describe('generateTransaction — Guardian routing', () => {
     // Unreachable on the first ask — this is what routes the row to the direct
     // path and stamps `switchedDirectly` on it.
     mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
-    mockCreateDirectSwitchRequest.mockResolvedValue({
-      request: { serialize: () => new Uint8Array([2]), authArg: () => undefined },
-      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
-    });
+    mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
     mockFinalizeDirectSwitch.mockResolvedValue(undefined);
 
     const setGuardianEndpoint = jest.fn(async () => {});
@@ -12122,10 +12092,7 @@ describe('generateTransaction — direct switch, discarded transaction', () => {
     });
 
     mockGetOrCreateMultisigService.mockRejectedValue(new Error('Failed to fetch'));
-    mockCreateDirectSwitchRequest.mockResolvedValue({
-      request: { serialize: () => new Uint8Array([2]), authArg: () => undefined },
-      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
-    });
+    mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
     mockFinalizeDirectSwitch.mockResolvedValue(undefined);
 
     const setGuardianEndpoint = jest.fn(async () => {});
@@ -12191,10 +12158,7 @@ describe('generateTransaction — direct switch audit marker', () => {
       status: ITransactionStatus.Queued,
       extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
     });
-    mockCreateDirectSwitchRequest.mockResolvedValue({
-      request: { serialize: () => new Uint8Array([2]), authArg: () => undefined },
-      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
-    });
+    mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
     mockFinalizeDirectSwitch.mockResolvedValue(undefined);
     mockIsGuardianAccount.mockResolvedValue(true);
     mockGetMidenClient.mockResolvedValue({
@@ -12398,10 +12362,7 @@ describe('generateTransaction — direct switch audit marker', () => {
     let stageAtSigning: unknown;
     mockCreateDirectSwitchRequest.mockImplementation(async () => {
       stageAtSigning = txStore.find(r => r.id === txId)?.stage;
-      return {
-        request: { serialize: () => new Uint8Array([2]), authArg: () => undefined },
-        chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
-      };
+      return { serialize: () => new Uint8Array([2]), authArg: () => undefined };
     });
 
     await run(txId, provider);
@@ -12465,10 +12426,7 @@ describe('generateTransaction — direct switch, wedged outgoing guardian', () =
 
     // Never settles — the operator accepted the connection and went quiet.
     mockGetOrCreateMultisigService.mockReturnValue(new Promise(() => {}));
-    mockCreateDirectSwitchRequest.mockResolvedValue({
-      request: { serialize: () => new Uint8Array([2]), authArg: () => undefined },
-      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
-    });
+    mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
     mockFinalizeDirectSwitch.mockResolvedValue(undefined);
 
     const setGuardianEndpoint = jest.fn(async () => {});
@@ -12535,10 +12493,7 @@ describe('generateTransaction — direct switch, wedged outgoing guardian', () =
       abandonCandidate
     });
     mockBuildColdMultisigService.mockReturnValue(new Promise(() => {}));
-    mockCreateDirectSwitchRequest.mockResolvedValue({
-      request: { serialize: () => new Uint8Array([2]), authArg: () => undefined },
-      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
-    });
+    mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
     mockFinalizeDirectSwitch.mockResolvedValue(undefined);
 
     const setGuardianEndpoint = jest.fn(async () => {});
@@ -12609,10 +12564,7 @@ describe('generateTransaction — direct switch, wedged outgoing guardian', () =
       abandonCandidate
     });
     mockBuildColdMultisigService.mockResolvedValue({ signProposal: jest.fn(async () => {}) });
-    mockCreateDirectSwitchRequest.mockResolvedValue({
-      request: { serialize: () => new Uint8Array([2]), authArg: () => undefined },
-      chainAnchorB64: 'Y2hhaW4tYW5jaG9y'
-    });
+    mockCreateDirectSwitchRequest.mockResolvedValue({ serialize: () => new Uint8Array([2]), authArg: () => undefined });
     mockFinalizeDirectSwitch.mockResolvedValue(undefined);
 
     const setGuardianEndpoint = jest.fn(async () => {});

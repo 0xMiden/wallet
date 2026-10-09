@@ -2748,7 +2748,7 @@ const generateDirectSwitchGuardianTransaction = async (
   // contacted at all, and the reason this path is running is that the outgoing
   // one could not be reached.
   await setTransactionStage(transaction.id, 'signing-locally');
-  const { request: tr } = await createDirectSwitchGuardianRequest(
+  const tr = await createDirectSwitchGuardianRequest(
     walletAccount,
     transaction.extraInputs.newGuardianEndpoint,
     guardianProvider.signWord

@@ -453,7 +453,7 @@ describe('createDirectSwitchGuardianRequest', () => {
   const signWord = jest.fn(async (pubkey: string) => (pubkey === 'coldpk' ? COLD_SIGNATURE : HOT_SIGNATURE));
 
   it('builds the signed rebuild at the block the summary binds', async () => {
-    const { request } = await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
+    const request = await createDirectSwitchGuardianRequest(walletAccount(), 'https://new.guardian.test', signWord);
 
     expect(request).toEqual({ kind: 'update-guardian-request' });
     // Rebuilt with the SAME salt as the executed-for-summary request, plus the
