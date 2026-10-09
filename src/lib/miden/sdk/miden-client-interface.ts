@@ -80,10 +80,15 @@ import {
 } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { beginProveAttempt } from './prove-telemetry';
-import { isApplyAfterSubmitError, isSubmitCrossingUnrecorded, markErrorBeforeSubmit } from './sdk-error-code';
+import {
+  isApplyAfterSubmitError,
+  isPipelineKillLink,
+  isSubmitCrossingUnrecorded,
+  markErrorBeforeSubmit
+} from './sdk-error-code';
 import { readSubmitEvidence } from './submit-evidence';
 import { bindFeeFaucetClientScope, syncAndRecordFeeFaucet } from './sync-and-record-fee-faucet';
-import { isWasmClientPoisonedError, WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
+import { WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, StageDetail, SwapTransaction } from '../db/types';
 // guardian/index is dynamic-imported inside the methods that use it and is never imported
 // statically: miden-client-interface → guardian/index → sdk/miden-client → miden-client-interface
@@ -344,7 +349,8 @@ function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
   try {
     return NoteFile.deserialize(noteBytes);
   } catch (noteFileError) {
-    // A trap or an eviction is the client's, not the bytes': no fallback call on it, and importNoteBytes retires a trap.
+    // A trap or a kill (an eviction, a terminated client) is the client's, not the bytes': no fallback call on it, and
+    // importNoteBytes retires a trap.
     if (isClientFault(noteFileError)) throw noteFileError;
     let note: Note;
     try {
@@ -364,19 +370,20 @@ function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
 }
 
 function isClientFault(error: unknown): boolean {
-  return error instanceof WebAssembly.RuntimeError || isWasmClientPoisonedError(error);
+  return error instanceof WebAssembly.RuntimeError || isPipelineKillLink(error);
 }
 
 /**
  * For a catch that counts a failure and moves on: a trap retires the client through the hold and ends the batch, and
- * an eviction ends it too, so nothing runs on either client afterwards. Anything else is left to the catch.
+ * a kill (an eviction, a terminated client) ends it too, so nothing runs on that client afterwards and every remaining
+ * item is not failed against it. Anything else is left to the catch.
  */
 function rethrowClientFault(error: unknown, hold: WasmLockHold): void {
   if (error instanceof WebAssembly.RuntimeError) {
     retireWasmClientForCaughtTrap(hold, error);
     throw error;
   }
-  if (isWasmClientPoisonedError(error)) throw error;
+  if (isPipelineKillLink(error)) throw error;
 }
 
 /** The host of an endpoint, for a log line: an RPC URL may carry a key in its path or query. */
@@ -1336,7 +1343,7 @@ export class MidenClientInterface {
           await this.client.notes.import(NoteFile.fromInputNote(inputNote));
           imported++;
         } catch (error) {
-          // A trap or an eviction ends the range; the lock this runs under retires a trap.
+          // A trap or a kill (an eviction, a terminated client) ends the range; the lock this runs under retires a trap.
           if (isClientFault(error)) throw error;
           failures++;
           console.warn('[GuardianRecovery] Failed to import one public note:', error);

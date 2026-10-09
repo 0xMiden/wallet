@@ -425,6 +425,24 @@ describe('detached recovery run', () => {
     await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
   });
 
+  it('defers the pass on a terminated client from the proposal import, counting no source failure', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    guardianOffersProposalNotes(1);
+    mockProxy.importRecoveryNoteBytes.mockRejectedValue(new Error('WebClient terminated'));
+
+    await expect(recoverPendingNotes(account, 'gen-1')).resolves.toMatchObject({ deferred: true, sourceFailures: 0 });
+    expect(mockProxy.importRecoveryNoteBytes).toHaveBeenCalledTimes(1);
+  });
+
+  it('defers the pass on a terminated client from the public backfill, counting no source failure', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 10 });
+    mockProxy.recoverPublicNotesRange.mockRejectedValue(new Error('WebClient terminated'));
+
+    await expect(recoverPendingNotes(account, 'gen-1')).resolves.toMatchObject({ deferred: true, sourceFailures: 0 });
+    expect(mockProxy.recoverPublicNotesRange).toHaveBeenCalledTimes(1);
+  });
+
   it('treats an evicted Guardian client setup as a deferral, not a source failure (F-054)', async () => {
     const account = pendingAccount({ coldPublicKey: '0xcold' });
     mockProxy.getAccount.mockRejectedValue(new WasmClientPoisonedError('watchdog'));
