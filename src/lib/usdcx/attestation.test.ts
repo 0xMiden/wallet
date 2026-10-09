@@ -103,6 +103,21 @@ describe('fetchXReserveAttestations', () => {
     await expect(fetchXReserveAttestations(TX_HASH)).rejects.toThrow('HTTP 500');
   });
 
+  it('aborts when headers arrive but the response body stops', async () => {
+    jest.useFakeTimers();
+    fetchMock.mockImplementation(async (_url: string, init: { signal: AbortSignal }) => ({
+      ok: true,
+      json: () =>
+        new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => reject(new Error('aborted')));
+        })
+    }));
+
+    const pending = fetchXReserveAttestations(TX_HASH, { timeoutMs: 1000 });
+    await Promise.all([expect(pending).rejects.toThrow('aborted'), jest.advanceTimersByTimeAsync(1000)]);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   it('aborts a request that never answers', async () => {
     jest.useFakeTimers();
     fetchMock.mockImplementation(

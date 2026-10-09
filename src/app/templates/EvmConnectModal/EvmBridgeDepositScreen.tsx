@@ -54,7 +54,7 @@ import { midenAccountHexToXReserveRecipient } from 'lib/usdcx/recipient';
 import { isUsdcxDepositAvailable } from 'lib/usdcx/use-bridge-in-availability';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { isNativeReownAvailable, NativeReown, unwrapNativeResult } from 'lib/walletconnect/native';
-import { waitForEvmReceipt, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
+import { EvmTransactionRevertedError, waitForEvmReceipt, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 import { DEFAULT_BRIDGE_NETWORK, USDCX_BRIDGE_NETWORK } from 'screens/send-flow/bridge-networks';
 import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UIToken } from 'screens/send-flow/types';
@@ -735,6 +735,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               })
           };
 
+      let depositHash: string | undefined;
       try {
         // Encoded inside the try so an id the faucet cannot mint to fails the row
         // instead of throwing out of the flow.
@@ -745,10 +746,21 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           isRemoteDomainRegistered: readRemoteDomainRegistered,
           readAllowance: spender => readCircleUsdcAllowance(evmAddress, spender),
           waitForReceipt: hash => waitForEvmReceipt(hash, USDCX_CHAIN),
-          updatePhase: updateBridgedReceivePhase
+          updatePhase: async (txId, phase, details) => {
+            depositHash = details?.evmTxHash ?? depositHash;
+            await updateBridgedReceivePhase(txId, phase, details);
+          }
         });
         setSlowStatus('submitted');
       } catch (err) {
+        if (depositHash && !(err instanceof EvmTransactionRevertedError)) {
+          // Keep the deposit open for background checks when its receipt cannot be read.
+          await updateBridgedReceivePhase(trackingTxId, 'submitting', { evmTxHash: depositHash }).catch(
+            () => undefined
+          );
+          setSlowStatus('submitted');
+          return;
+        }
         console.error('[EvmBridgeDepositScreen] USDCx bridge failed', err);
         const message = isUsdcxDomainNotRegisteredError(err) ? t('usdcxDomainNotRegistered') : errorMessage(err);
         setSlowError(message);

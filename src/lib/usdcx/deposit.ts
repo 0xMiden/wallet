@@ -74,7 +74,8 @@ export function buildDepositToRemoteArgs(amount: string, remoteRecipient: Hex): 
  * attestation and the relayer mints on Miden after that; nothing here waits
  * for them.
  *
- * Throws on any failure. The caller marks the row `failed` with the message.
+ * Throws on any failure. After broadcast, the caller keeps the row open for
+ * background checks unless a receipt confirms that the deposit reverted.
  */
 export async function runUsdcxDeposit(
   trackingTxId: string,

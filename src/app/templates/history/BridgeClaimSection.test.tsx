@@ -115,7 +115,7 @@ jest.mock('./DetailSection', () => ({
   DetailSection: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
 }));
 jest.mock('./TransactionStatus', () => ({
-  ExternalLinkValue: () => <span />
+  ExternalLinkValue: ({ href }: { href?: string }) => <a href={href}>explorer</a>
 }));
 
 const FAILED = 3;
@@ -379,6 +379,17 @@ describe('BridgeClaimSection', () => {
       expect(screen.getByText(/t:notConfirmed/)).toBeInTheDocument();
       expect(await screen.findByText(/t:confirmed/)).toBeInTheDocument();
     });
+  });
+
+  it.each([
+    [5042002, 'Arc Testnet', 'https://explorer.testnet.arc.io'],
+    [11155111, 'Sepolia', 'https://sepolia.etherscan.io'],
+    [undefined, 'Sepolia', 'https://sepolia.etherscan.io']
+  ])('uses destination network %s for the name and recipient link', (network, name, explorer) => {
+    renderSection({ entry: entry({ bridgeProvider: 'usdcx', bridgeDestinationNetwork: network }) });
+
+    expect(screen.getByText(`t:destinationNetwork${name}`)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'explorer' })).toHaveAttribute('href', `${explorer}/address/0xdead`);
   });
 
   describe('USDCx faucet consumption', () => {

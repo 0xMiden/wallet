@@ -57,21 +57,20 @@ export async function fetchXReserveAttestations(
 ): Promise<XReserveAttestation[]> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let response: Response;
   try {
-    response = await fetch(`${baseUrl}/v1/attestations?txHash=${encodeURIComponent(txHash)}`, {
+    const response = await fetch(`${baseUrl}/v1/attestations?txHash=${encodeURIComponent(txHash)}`, {
       signal: controller.signal
     });
+    if (!response.ok) {
+      throw new Error(`xReserve attestation request failed: HTTP ${response.status}`);
+    }
+    const body: object | string | number | boolean | null = await response.json();
+    const list = body && typeof body === 'object' ? Reflect.get(body, 'attestations') : undefined;
+    if (!Array.isArray(list)) return [];
+    return list.map(parseAttestation).filter((entry): entry is XReserveAttestation => entry !== undefined);
   } finally {
     clearTimeout(timer);
   }
-  if (!response.ok) {
-    throw new Error(`xReserve attestation request failed: HTTP ${response.status}`);
-  }
-  const body: unknown = await response.json();
-  const list = body && typeof body === 'object' ? Reflect.get(body, 'attestations') : undefined;
-  if (!Array.isArray(list)) return [];
-  return list.map(parseAttestation).filter((entry): entry is XReserveAttestation => entry !== undefined);
 }
 
 /**

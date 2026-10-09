@@ -2,9 +2,9 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import { initiateBridgedReceiveTransaction } from 'lib/miden/activity';
+import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { runUsdcxDeposit } from 'lib/usdcx/deposit';
-import { waitForEvmReceipt } from 'lib/walletconnect/receipt';
+import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 
@@ -94,6 +94,7 @@ jest.mock('lib/walletconnect/native', () => ({
 }));
 
 jest.mock('lib/walletconnect/receipt', () => ({
+  ...jest.requireActual<typeof import('lib/walletconnect/receipt')>('lib/walletconnect/receipt'),
   waitForEvmReceipt: jest.fn().mockResolvedValue(undefined),
   waitForSepoliaReceipt: jest.fn().mockResolvedValue(undefined)
 }));
@@ -306,6 +307,32 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
         waitForReceipt: expect.any(Function),
         updatePhase: expect.any(Function)
       })
+    );
+  });
+
+  it.each([
+    ['receipt timeout', true, new Error('Receipt timeout'), false],
+    ['receipt connection failure', true, new Error('RPC disconnected'), false],
+    ['deposit revert', true, new EvmTransactionRevertedError('Arc Testnet'), true],
+    ['wallet rejection', false, new Error('User rejected'), true]
+  ])('handles %s without losing a pending deposit', async (_label, broadcast, error, failed) => {
+    jest.mocked(runUsdcxDeposit).mockImplementationOnce(async (id, _amount, _recipient, deps) => {
+      if (broadcast) await deps.updatePhase(id, 'submitting', { evmTxHash: `0x${'2'.repeat(64)}` });
+      throw error;
+    });
+    renderScreen();
+    await reachUsdcxRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    const failedWrites = jest.mocked(updateBridgedReceivePhase).mock.calls.filter(([, phase]) => phase === 'failed');
+    expect(failedWrites).toHaveLength(failed ? 1 : 0);
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith(
+      'bridge-tx',
+      failed ? 'failed' : 'submitting',
+      failed ? { error: error.message } : { evmTxHash: `0x${'2'.repeat(64)}` }
     );
   });
 

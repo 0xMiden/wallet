@@ -27,6 +27,7 @@ import { useAccount } from 'lib/miden/front';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
+import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
 import { navigate } from 'lib/woozie';
 
@@ -36,7 +37,6 @@ import { IHistoryEntry } from './IHistoryEntry';
 import { ExternalLinkValue } from './TransactionStatus';
 import { bridgeBadgeStatusOf, BridgeStatus } from './transactionUtils';
 
-const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
 const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
 
 const EPOCH_STATUS_LABEL: Record<BridgeStatus, string> = {
@@ -88,6 +88,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
   const isEpoch = entry.bridgeProvider === 'epoch';
   const isUsdcx = entry.bridgeProvider === 'usdcx';
   const destination = entry.bridgeDestinationAddress ?? '';
+  const destinationChain = getChain(entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID);
   const [status, setStatus] = useState<IBridgeClaimStatus>(entry.bridgeClaimStatus ?? 'not-applicable');
   const [claimable, setClaimable] = useState<AgglayerDeposit | null>(null);
   // This panel's own claim, not the row's `claiming`: a page that died mid-claim (the extension popup closes when
@@ -319,12 +320,14 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
           <DetailRow label={t('to')}>
             <ExternalLinkValue
               displayValue={<HashChip hash={destination} trimHash className="ml-2" />}
-              href={SEPOLIA_ADDRESS_URL(destination)}
+              href={destinationChain ? `${destinationChain.explorer}/address/${destination}` : undefined}
             />
           </DetailRow>
         )}
         {/* eslint-disable-next-line i18next/no-literal-string -- network's proper name, not translatable copy */}
-        <DetailRow label={t('destinationNetwork')}>Sepolia</DetailRow>
+        <DetailRow label={t('destinationNetwork')}>
+          {destinationChain?.name ?? entry.bridgeDestinationNetwork}
+        </DetailRow>
         <DetailRow label={isEpoch || isUsdcx ? t('status') : t('claimStatus')}>
           {/* Not confirmed only while the panel has no evidence of its own: once the tracker finds a
               deposit, a claim runs, or the Epoch fill poll reports, that state wins instead (#1250).
