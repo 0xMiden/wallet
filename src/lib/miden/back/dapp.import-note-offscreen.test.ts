@@ -289,7 +289,7 @@ describe('dApp import-private-note leaf → offscreen proxy (flag ON)', () => {
     ['an offscreen deadline kill', () => new OperationAbortedError('op-7', 'deadline')],
     // Matches no network token either, so this leg falsifies the gate as the poison leg does.
     ['a terminated client', () => new Error('WebClient terminated')]
-  ])('queues the note for background retry after %s (#777)', async (_label, makeError) => {
+  ])('queues the note for retry after %s and hands it back, not InvalidParams (#777)', async (_label, makeError) => {
     // The queue exists for exactly this: "we do not know whether this landed". Both kill
     // shapes say that, and before #777 an eviction took the not-transient path and dropped
     // the bytes from the one mechanism built to preserve them — which for a private note
@@ -300,10 +300,14 @@ describe('dApp import-private-note leaf → offscreen proxy (flag ON)', () => {
     // is the only thing queueing it). The ABORT leg does not, because 'aborted' is in its
     // message and the classifier tokenises on that — it is a redundancy check, kept so the
     // shape stays covered if that token list is ever re-tuned.
+    //
+    // The dApp gets the kill back as itself, a retryable failure: an InvalidParams verdict would
+    // tell it to stop sending bytes that were fine.
     const { queueNoteImport } = require('lib/miden/activity');
     queueNoteImport.mockClear();
     queueNoteImport.mockResolvedValue(undefined);
-    mockProxyImportNoteBytes.mockRejectedValueOnce(makeError());
+    const kill = makeError();
+    mockProxyImportNoteBytes.mockRejectedValueOnce(kill);
 
     await expect(
       driveConfirmation(
@@ -315,7 +319,7 @@ describe('dApp import-private-note leaf → offscreen proxy (flag ON)', () => {
           } as never),
         MidenMessageType.DAppImportPrivateNoteConfirmationRequest
       )
-    ).rejects.toBeDefined();
+    ).rejects.toHaveProperty('message', kill.message);
 
     expect(queueNoteImport).toHaveBeenCalledTimes(1);
     expect(queueNoteImport).toHaveBeenCalledWith('aGVsbG8=');

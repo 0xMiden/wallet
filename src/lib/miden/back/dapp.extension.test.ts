@@ -11,6 +11,8 @@
  * trigger the resolve / reject branches inside generatePromisify*.
  */
 
+import { WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
+
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MidenMessageType } from 'lib/miden/types';
@@ -182,7 +184,8 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 // Stub the wallet adapter package's enums (jest can't destructure the .mjs build).
 jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' },
-  AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
+  AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 },
+  WalletAdapterNetwork: { Testnet: 'testnet' }
 }));
 
 // Provide a richer browser stub than the default __mocks__/webextension-polyfill.
@@ -1410,6 +1413,24 @@ describe('a watchdog eviction mid-read abandons the extension flow instead of do
     expect((_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://evicted-dapp.xyz']).toBeUndefined();
   });
 
+  it('requestPermission rejects with the terminated-client refusal, not a false NotGranted, when the account read meets one', async () => {
+    // A terminated client is a kill like the eviction above: retryable, never a permissions verdict.
+    const terminated = new Error('WebClient terminated');
+    _g.__dappExtTest.midenClient.getAccount = jest.fn().mockRejectedValue(terminated);
+    await expect(
+      driveConfirmation(
+        () =>
+          dapp.requestPermission('https://terminated-dapp.xyz', {
+            type: MidenDAppMessageType.PermissionRequest,
+            appMeta: { name: 'Terminated Dapp' },
+            network: WalletAdapterNetwork.Testnet
+          }),
+        MidenMessageType.DAppPermConfirmationRequest,
+        { confirmed: true, accountPublicKey: 'miden-account-1', privateDataPermission: 'UPON_REQUEST' }
+      )
+    ).rejects.toBe(terminated);
+  });
+
   it('requestSign rejects with the poison error, not a false NotGranted, when evicted during the authorization read', async () => {
     arrangeSignerAccount();
     const getPublicKeyCommitments = jest.fn(() => [{ serialize: () => SIGNER_COMMITMENT }]);
@@ -1435,6 +1456,29 @@ describe('a watchdog eviction mid-read abandons the extension flow instead of do
     ).rejects.toThrow(WasmClientPoisonedError);
     expect(getPublicKeyCommitments).not.toHaveBeenCalled();
     // An abandoned authorization must fail the request, never sign anyway.
+    expect(signData).not.toHaveBeenCalled();
+  });
+
+  it('requestSign rejects with the terminated-client refusal, not a false NotGranted, when the authorization read meets one', async () => {
+    arrangeSignerAccount();
+    const terminated = new Error('WebClient terminated');
+    _g.__dappExtTest.midenClient.getAccount = jest.fn().mockRejectedValue(terminated);
+    const signData = jest.fn(async () => 'stolen-signature');
+    mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+    await expect(
+      driveConfirmation(
+        () =>
+          dapp.requestSign('https://miden.xyz', {
+            type: MidenDAppMessageType.SignRequest,
+            sourcePublicKey: SIGNER_COMMITMENT_HEX,
+            sourceAccountId: 'miden-account-1',
+            payload: 'aGVsbG8=',
+            kind: 'word'
+          }),
+        MidenMessageType.DAppSignConfirmationRequest,
+        { confirmed: true }
+      )
+    ).rejects.toBe(terminated);
     expect(signData).not.toHaveBeenCalled();
   });
 });
