@@ -245,7 +245,11 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
         // The relayer submits the mint note, the faucet consumes it in a later block,
         // and the minted note then shows in the wallet's Pending list.
         localRelayer?.assertRunning();
-        await walletA.claimAllNotes(MINT_AND_CLAIM_TIMEOUT_MS, faucetAccountId ? [faucetAccountId] : []);
+        // The minted note only reaches Pending after the relayer has read the attestation and the faucet has
+        // consumed the mint note, so the first Accept All gets the whole mint budget, not the usual 2 minutes.
+        await walletA.claimAllNotes(MINT_AND_CLAIM_TIMEOUT_MS, faucetAccountId ? [faucetAccountId] : [], {
+          firstClickMs: MINT_AND_CLAIM_TIMEOUT_MS
+        });
       });
 
       await steps.step('assert_balance', async () => {
