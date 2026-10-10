@@ -15,7 +15,7 @@ import {
   revokeDappSession,
   sessionWithin
 } from '../../helpers/test-dapp';
-import type { ConnectedView, Outcome, RawArg } from '../../test-dapp/protocol';
+import type { ConnectedView, Outcome, RawArg, SessionView } from '../../test-dapp/protocol';
 
 type StaleRequest = 'send' | 'transaction' | 'consume' | 'consumeBytes' | 'custom';
 const STALE: readonly StaleRequest[] = ['send', 'transaction', 'consume', 'consumeBytes', 'custom'];
@@ -32,6 +32,11 @@ interface AccountFixtures {
 const sameAs = (address: string | null, account: string) =>
   address !== null && canonicalAddress(address) === canonicalAddress(account);
 const canonicalOrNull = (address: string | null) => (address === null ? null : canonicalAddress(address));
+const sides = (view: SessionView) => ({
+  provider: canonicalOrNull(view.providerAddress),
+  adapter: canonicalOrNull(view.adapterAddress)
+});
+const onBoth = (account: string) => ({ provider: canonicalAddress(account), adapter: canonicalAddress(account) });
 
 function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellImpl> {
   const { dapp } = j;
@@ -50,6 +55,13 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
     const view = await callDapp(dapp, 'session', {}, ctx.deadline);
     if (view.connected === null) throw new HarnessFault('the dApp is not connected');
     return view.connected;
+  };
+  // K1's evidence, written only once the start state and the provider are checked, so its signature can match
+  // nothing but an adapter left on the old address.
+  const recordK1 = (ctx: CellContext, before: SessionView, after: SessionView) => {
+    ctx.evidence.previousAddress = before.adapterAddress;
+    ctx.evidence.providerAddress = after.providerAddress;
+    ctx.evidence.adapterAddress = after.adapterAddress;
   };
   const kindOf = (request: StaleRequest) =>
     request === 'consume' || request === 'consumeBytes' ? ('consume' as const) : ('transaction' as const);
@@ -198,17 +210,15 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
     S7: {
       budget: 'read',
       run: async ctx => {
+        const primary = await j.account('primary');
         const before = await callDapp(dapp, 'session', {}, ctx.deadline);
-        ctx.evidence.previousAddress = before.adapterAddress;
+        expect(sides(before)).toEqual(onBoth(primary));
         // The wallet-side revoke (main.ts:768-773); the provider learns it from its 10 s poll (client.ts:68-87).
         await revokeDappSession(j.walletA, dapp.origin);
         const after = await sessionWithin(dapp, view => view.providerAddress === null, 20_000, ctx);
-        ctx.evidence.providerAddress = after.providerAddress;
-        ctx.evidence.adapterAddress = after.adapterAddress;
-        expect({ provider: after.providerAddress, adapter: after.adapterAddress }).toEqual({
-          provider: null,
-          adapter: null
-        });
+        expect(after.providerAddress).toBeNull();
+        recordK1(ctx, before, after);
+        expect(after.adapterAddress).toBeNull();
         expect(
           after.events
             .slice(before.events.length)
@@ -224,31 +234,21 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         const second = await j.account('second');
         // With a session on both accounts the provider's poll moves to the second account instead of to null.
         await j.walletA.selectAccount(second);
-        await connectAsCurrent(dapp, j.network, ctx);
+        const asSecond = await connectAsCurrent(dapp, j.network, ctx);
+        expect(canonicalAddress(asSecond.address)).toBe(canonicalAddress(second));
         await j.walletA.selectAccount(primary);
-        await connectAsCurrent(dapp, j.network, ctx);
+        const asPrimary = await connectAsCurrent(dapp, j.network, ctx);
+        expect(canonicalAddress(asPrimary.address)).toBe(canonicalAddress(primary));
         const before = await callDapp(dapp, 'session', {}, ctx.deadline);
-        ctx.evidence.previousAddress = before.adapterAddress;
+        expect(sides(before)).toEqual(onBoth(primary));
         await j.walletA.selectAccount(second);
         const moved = await sessionWithin(dapp, view => sameAs(view.providerAddress, second), 20_000, ctx);
-        ctx.evidence.providerAddress = moved.providerAddress;
-        ctx.evidence.adapterAddress = moved.adapterAddress;
-        expect({
-          provider: canonicalOrNull(moved.providerAddress),
-          adapter: canonicalOrNull(moved.adapterAddress)
-        }).toEqual({
-          provider: canonicalAddress(second),
-          adapter: canonicalAddress(second)
-        });
+        expect(canonicalOrNull(moved.providerAddress)).toBe(canonicalAddress(second));
+        recordK1(ctx, before, moved);
+        expect(canonicalOrNull(moved.adapterAddress)).toBe(canonicalAddress(second));
         await j.walletA.selectAccount(primary);
         const back = await sessionWithin(dapp, view => sameAs(view.providerAddress, primary), 20_000, ctx);
-        expect({
-          provider: canonicalOrNull(back.providerAddress),
-          adapter: canonicalOrNull(back.adapterAddress)
-        }).toEqual({
-          provider: canonicalAddress(primary),
-          adapter: canonicalAddress(primary)
-        });
+        expect(sides(back)).toEqual(onBoth(primary));
       }
     },
     M2: {
