@@ -73,7 +73,8 @@ jobs:
     # warp-ubuntu-latest-x64-8x stopped exposing /dev/kvm on 2026-09-15 ("Enable KVM" failed before any build).
     runs-on: ubuntu-latest
     # Two emulator boots + an APK assemble + a live-chain spec.
-    timeout-minutes: 60
+    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 60 }}
     env:
       E2E_NETWORK: ${{ github.event.inputs.network || 'testnet' }}
       MIDEN_E2E_TEST: 'true'

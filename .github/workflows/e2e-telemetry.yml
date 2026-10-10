@@ -28,7 +28,8 @@ jobs:
   telemetry-egress:
     name: telemetry-egress (chrome)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 60 || 30 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

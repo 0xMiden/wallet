@@ -34,7 +34,8 @@ jobs:
     runs-on: warp-ubuntu-latest-x64-8x
     # At most about 33 min of setup (a cold CLI compile, the E2E build, apt, Chromium and the stagger), then the
     # 140-minute run step and the steps after it.
-    timeout-minutes: 190
+    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 220 || 190 }}
     strategy:
       fail-fast: false
       matrix:

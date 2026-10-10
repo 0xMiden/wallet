@@ -82,7 +82,8 @@ jobs:
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/next')
       || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')) }}
     runs-on: warp-ubuntu-latest-x64-8x
-    timeout-minutes: 60
+    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 60 }}
     env:
       E2E_NETWORK: devnet
     steps:
@@ -175,7 +176,8 @@ jobs:
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main')
       || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'testnet')) }}
     runs-on: warp-ubuntu-latest-x64-8x
-    timeout-minutes: 60
+    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 60 }}
     env:
       E2E_NETWORK: testnet
     steps:
@@ -317,7 +319,8 @@ jobs:
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/next')
       || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'devnet')) }}
     runs-on: warp-ubuntu-latest-x64-8x
-    timeout-minutes: 60
+    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 60 }}
     env:
       E2E_NETWORK: devnet
       GUARDIAN_URL: https://guardian-stg.openzeppelin.com
@@ -409,7 +412,8 @@ jobs:
       ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main')
       || (github.event_name == 'workflow_dispatch' && (inputs.network == 'both' || inputs.network == 'testnet')) }}
     runs-on: warp-ubuntu-latest-x64-8x
-    timeout-minutes: 60
+    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 60 }}
     env:
       E2E_NETWORK: testnet
       GUARDIAN_URL: https://guardian.openzeppelin.com
@@ -553,7 +557,8 @@ jobs:
     # Observed worst case: ~40 min setup (CLI compile on cache miss + iOS
     # build + simulator cold boot overlap) + ~55 min suite with one retry.
     # 90 minutes guillotined an otherwise-passing run at test 7 of 7.
-    timeout-minutes: 130
+    # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 205 || 130 }}
     env:
       E2E_NETWORK: devnet
     steps:
@@ -760,7 +765,8 @@ jobs:
     # Observed worst case: ~40 min setup (CLI compile on cache miss + iOS
     # build + simulator cold boot overlap) + ~55 min suite with one retry.
     # 90 minutes guillotined an otherwise-passing run at test 7 of 7.
-    timeout-minutes: 130
+    # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 205 || 130 }}
     env:
       E2E_NETWORK: testnet
     steps:
@@ -1016,7 +1022,8 @@ jobs:
     # ~40 min setup (CLI compile on cache miss + iOS build + sim cold boot)
     # plus a single guardian spec with up to 2 retries. Generous ceiling that
     # matches the standard mobile jobs so a passing build is never guillotined.
-    timeout-minutes: 130
+    # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 205 || 130 }}
     env:
       E2E_NETWORK: devnet
     steps:
@@ -1221,7 +1228,8 @@ jobs:
     # ~40 min setup (CLI compile on cache miss + iOS build + sim cold boot)
     # plus a single guardian spec with up to 2 retries. Generous ceiling that
     # matches the standard mobile jobs so a passing build is never guillotined.
-    timeout-minutes: 130
+    # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 205 || 130 }}
     env:
       E2E_NETWORK: testnet
     steps:

@@ -24,7 +24,8 @@ const INJECTED = "steps.inject-web-sdk.outputs.patched == 'true' || steps.inject
 
 /** A step's content lines, trimmed, with the list item's `- ` removed from the first. */
 type Step = { line: number; lines: string[] };
-type Job = { id: string; steps: Step[] };
+/** A job's own keys (indent 4) with their inline values, and its steps. */
+type Job = { id: string; keys: Record<string, string>; steps: Step[] };
 
 const isContent = (line: string): boolean => line.trim() !== '' && !line.trimStart().startsWith('#');
 const indentOf = (line: string): number => line.search(/\S/);
@@ -54,6 +55,7 @@ const jobs = (file: string, text: string): Job[] => {
   const found: Job[] = [];
   let stepsIndent = -1;
   let itemIndent = -1;
+  let jobOpened = false;
   for (let at = start + 1; at < lines.length; at++) {
     const line = lines[at]!;
     if (!isContent(line)) continue;
@@ -63,21 +65,28 @@ const jobs = (file: string, text: string): Job[] => {
     if (indent === 2) {
       const id = /^ {2}([A-Za-z0-9_-]+):\s*$/.exec(line)?.[1];
       if (id === undefined) throw new Error(`${file}:${at + 1}: not a job id: ${line.trim()}`);
-      found.push({ id, steps: [] });
+      found.push({ id, keys: {}, steps: [] });
       stepsIndent = -1;
+      jobOpened = true;
       continue;
     }
     if (job === undefined) throw new Error(`${file}:${at + 1}: a line before the first job id`);
+    if (jobOpened && indent !== 4) throw new Error(`${file}:${at + 1}: not job keys indented 4: ${line.trim()}`);
+    jobOpened = false;
     // YAML lets a list's `- ` items sit at the same indent as its key, so only a non-item line there ends the steps.
     const isItem = /^\s*- /.test(line);
     if (stepsIndent !== -1 && (indent < stepsIndent || (indent === stepsIndent && !isItem))) stepsIndent = -1;
     if (stepsIndent === -1) {
-      if (/^\s+steps:\s*$/.test(line)) {
+      if (indent !== 4) continue;
+      const [, key, raw] = /^ {4}([A-Za-z0-9_-]+):\s*(.*?)\s*$/.exec(line) ?? [];
+      if (key === undefined || raw === undefined) throw new Error(`${file}:${at + 1}: not a job key: ${line.trim()}`);
+      const value = raw.replace(/(^|\s+)#.*$/, '');
+      if (key === 'steps' && value !== '') throw new Error(`${file}:${at + 1}: steps: with an inline value: ${value}`);
+      if (key === 'steps') {
         stepsIndent = indent;
         itemIndent = -1;
-      } else if (/^\s+steps:/.test(line)) {
-        throw new Error(`${file}:${at + 1}: steps: with an inline value: ${line.trim()}`);
       }
+      job.keys[key] = value;
       continue;
     }
     if (itemIndent === -1) itemIndent = indent;
@@ -115,6 +124,35 @@ const violation = (job: Job): string | undefined => {
   if (guardian === -1 || guardian > install) return `${at} without injecting the linked Guardian PR first`;
   if (guardian < webSdk) return 'injects the linked Guardian PR before the web-sdk PR, the reverse of pr.yml';
   return undefined;
+};
+
+/**
+ * Minutes a dispatch adds to a push ceiling for the injections' from-source builds, by runner OS:
+ * pr-compile-surfaces records about 26 for both on ubuntu-latest and 73 for the web-sdk one on macos-26.
+ */
+const INJECTION_MINUTES = { linux: 30, macos: 75 };
+const DISPATCH_CEILING = /^\$\{\{ github\.event_name == 'workflow_dispatch' && (\d+) \|\| (\d+) \}\}$/;
+
+const osOf = (file: string, job: Job): keyof typeof INJECTION_MINUTES => {
+  const runsOn = job.keys['runs-on'] ?? '';
+  if (/macos/.test(runsOn)) return 'macos';
+  if (/ubuntu/.test(runsOn)) return 'linux';
+  throw new Error(`${file} ${job.id}: no runner OS in runs-on: ${runsOn}`);
+};
+
+/** Why a job's ceiling cuts off a dispatch that builds a linked web-sdk PR first, or undefined. */
+const ceilingViolation = (file: string, text: string, job: Job): string | undefined => {
+  const ceiling = job.keys['timeout-minutes'];
+  const injects = job.steps.filter(step => [WEB_SDK, GUARDIAN].includes(usesOf(step) ?? ''));
+  const on = triggers(file, text);
+  // No ceiling is GitHub's 360 minutes. One the job's own pull request runs inject under already holds the builds.
+  if (ceiling === undefined || injects.length === 0 || !on.includes('workflow_dispatch')) return undefined;
+  if (on.includes('pull_request') && injects.every(step => keyOf(step, 'if') === undefined)) return undefined;
+  const [, dispatch, push] = DISPATCH_CEILING.exec(ceiling) ?? [];
+  if (dispatch === undefined || push === undefined)
+    return `timeout-minutes ${ceiling} gives a dispatch no more than a push`;
+  const needed = Number(push) + INJECTION_MINUTES[osOf(file, job)];
+  return Number(dispatch) < needed ? `a dispatch gets ${dispatch} minutes, under the ${needed} it needs` : undefined;
 };
 
 const workflowViolations = (file: string, text: string): string[] =>
@@ -214,6 +252,40 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
     ]);
   });
 
+  it('gives a dispatch the time to build a linked web-sdk PR on top of the push ceiling, which stays as it was', () => {
+    expect(
+      workflowFiles.flatMap(file =>
+        jobs(file, source(file)).flatMap(job => {
+          const why = ceilingViolation(file, source(file), job);
+          return why === undefined ? [] : [`${file} ${job.id}: ${why}`];
+        })
+      )
+    ).toEqual([]);
+    const ceilings = guardedJobs.flatMap(({ file, job }) => {
+      const [, dispatch, push] = DISPATCH_CEILING.exec(job.keys['timeout-minutes'] ?? '') ?? [];
+      return dispatch === undefined ? [] : [`${file} ${job.id}: push ${push}, dispatch ${dispatch}`];
+    });
+    expect(ceilings).toEqual([
+      'e2e-android.yml android-e2e: push 60, dispatch 90',
+      'e2e-blockchain.yml chrome-devnet: push 60, dispatch 90',
+      'e2e-blockchain.yml chrome-testnet: push 60, dispatch 90',
+      'e2e-blockchain.yml chrome-guardian-devnet: push 60, dispatch 90',
+      'e2e-blockchain.yml chrome-guardian-testnet: push 60, dispatch 90',
+      'e2e-blockchain.yml mobile-devnet: push 130, dispatch 205',
+      'e2e-blockchain.yml mobile-testnet: push 130, dispatch 205',
+      'e2e-blockchain.yml mobile-guardian-devnet: push 130, dispatch 205',
+      'e2e-blockchain.yml mobile-guardian-testnet: push 130, dispatch 205',
+      'e2e-bridge-in.yml mobile-bridge-in-testnet: push 110, dispatch 185',
+      'e2e-bridge.yml chrome-bridge-testnet: push 70, dispatch 100',
+      'e2e-dapp-browser.yml ios-dapp-browser: push 60, dispatch 135',
+      'e2e-dapp-browser.yml android-dapp-browser: push 60, dispatch 90',
+      'e2e-dapp.yml dapp-e2e: push 190, dispatch 220',
+      'e2e-resilience.yml resilience-chrome: push 60, dispatch 90',
+      'e2e-stress.yml stress-conservation: push 90, dispatch 120',
+      'e2e-telemetry.yml telemetry-egress: push 30, dispatch 60'
+    ]);
+  });
+
   it("keeps the telemetry suite's own pull request runs on the published packages, as they were", () => {
     const steps = jobOf('e2e-telemetry.yml', 'telemetry-egress').steps.filter(step =>
       [WEB_SDK, GUARDIAN].includes(usesOf(step) ?? '')
@@ -289,6 +361,38 @@ describe('the rule itself', () => {
     expect(jobs('x.yml', flush([checkout, frozen], '    timeout-minutes: 5\n'))[0]!.steps).toHaveLength(2);
   });
 
+  it('gives a dispatch that may inject more time than a push, enough for its runner OS', () => {
+    const at = (
+      on: string,
+      ceiling: string,
+      runsOn = 'ubuntu-latest',
+      steps = [webSdk, guardian, frozen]
+    ): string[] => {
+      const text = workflow(on, steps).replace(
+        '    runs-on: ubuntu-latest\n',
+        `    runs-on: ${runsOn}\n    timeout-minutes: ${ceiling}\n`
+      );
+      return jobs('x.yml', text).flatMap(job => ceilingViolation('x.yml', text, job) ?? []);
+    };
+    const dispatch = (d: number, p: number): string =>
+      `\${{ github.event_name == 'workflow_dispatch' && ${d} || ${p} }}`;
+    expect(at('  workflow_dispatch:', '60')).toEqual(['timeout-minutes 60 gives a dispatch no more than a push']);
+    expect(at('  workflow_dispatch:', dispatch(90, 60))).toEqual([]);
+    expect(at('  workflow_dispatch:', dispatch(89, 60))).toEqual(['a dispatch gets 89 minutes, under the 90 it needs']);
+    expect(at('  workflow_dispatch:', dispatch(120, 60), 'macos-26')).toEqual([
+      'a dispatch gets 120 minutes, under the 135 it needs'
+    ]);
+    expect(at('  workflow_dispatch:', `${dispatch(90, 60)} # why`)).toEqual([]);
+    expect(at('  push:', '60')).toEqual([]);
+    expect(at('  workflow_dispatch:', '60', 'ubuntu-latest', [frozen])).toEqual([]);
+    expect(at('  pull_request:\n  workflow_dispatch:', '60')).toEqual([]);
+    const prGated = `${guardian}\n        if: github.event_name != 'pull_request'`;
+    expect(at('  pull_request:\n  workflow_dispatch:', '60', 'ubuntu-latest', [webSdk, prGated, frozen])).toHaveLength(
+      1
+    );
+    expect(() => at('  workflow_dispatch:', dispatch(90, 60), 'self-hosted')).toThrow('no runner OS');
+  });
+
   it('throws on a shape it does not read instead of passing it', () => {
     expect(() => workflowViolations('x.yml', 'name: x\njobs:\n  a:\n    steps: []\n')).toThrow('no top-level on:');
     expect(() => workflowViolations('x.yml', workflow('  push:', [frozen]).replace('  build:', '  "build":'))).toThrow(
@@ -296,6 +400,9 @@ describe('the rule itself', () => {
     );
     expect(() => workflowViolations('x.yml', workflow('  push:', []).replace('steps:\n', 'steps: []\n'))).toThrow(
       'steps: with an inline value'
+    );
+    expect(() => jobs('x.yml', workflow('  push:', [frozen]).replace(/^ {4}(?=\S)/gm, '      '))).toThrow(
+      'not job keys indented 4'
     );
   });
 });

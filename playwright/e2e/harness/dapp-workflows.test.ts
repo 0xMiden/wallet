@@ -32,7 +32,7 @@ describe('dApp E2E workflow', () => {
 
   it('bounds the run step and still renders, uploads and judges after it', () => {
     expect(workflow).toMatch(/id: run\n\s+continue-on-error: true\n\s+timeout-minutes: 140/);
-    expect(workflow).toMatch(/timeout-minutes: 190/);
+    expect(workflow).toMatch(/timeout-minutes: \$\{\{ github\.event_name == 'workflow_dispatch' && 220 \|\| 190 \}\}/);
     for (const step of ['Render matrix', 'Upload records', 'Judge']) {
       expect(workflow).toMatch(new RegExp(`- name: ${step}\\n\\s+if: always\\(\\)`));
     }
