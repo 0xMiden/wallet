@@ -12,6 +12,7 @@
 
 ### Fixes
 
+- [FIX][ci] The iOS E2E bridge-deposit helpers look up the amount form inside the bridge page, where they used to click the Home tabs' hidden Swap selector (the bridge page slides over the tabs, which reuse the form's test ids), so the USDCx and Epoch bridge-IN specs can reach their deposits; the live USDCx spec waits for the wallet's own claim of the minted USDCx, which, as testnet's native asset, is claimed automatically and never waits in Pending.
 - [FIX][ci] The live USDCx bridge-IN E2E fails at once when `USDCX_LIVE_EVM_PRIVATE_KEY` is not set, where its spec used to skip and the run passed having tested nothing.
 - [FIX][all] Fund your wallet asks the faucet for the largest amount it offers and, when the faucet names a lower cap, asks once more for exactly that instead of failing; a rate limit or a refused amount reads in plain words on the card (with the wait, when the faucet gives one).
 - [FIX][ci] The live USDCx bridge-in E2E builds against a dispatching pull request's linked web-sdk and Guardian PRs and gets 235 minutes for a dispatch (150 on its nightly run), like every other push or dispatch install, so the linked-PR injection guard passes on main again.
