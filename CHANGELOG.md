@@ -30,6 +30,7 @@
 
 ### Changes
 
+- [CHANGE][ci] The live USDCx bridge-IN E2E deposits into and claims with a Guardian account, so the co-signed claim runs against Circle's real attestation and the hosted testnet Guardian, and the spec checks the account's Guardian auth structure afterwards.
 - [CHANGE][ci] `E2E_HEADLESS=1` runs a local E2E suite without opening or focusing any Chrome window: the fixtures launch the full Chromium build in its new headless mode (the default headless shell cannot load an extension) with a 1600x1200 screen for confirm popups; without it, and in CI, runs stay headed.
 - [CHANGE][ci] A by-hand run of any E2E or build workflow from a pull request's branch builds against the web-sdk and Guardian PRs that pull request's `Web SDK PR:` and `Guardian PR:` markers name, as its own CI does, so a suite that otherwise runs only after merge can test an unreleased dependency first; a push, a release and a by-hand run on main or next still install the published packages.
 - [CHANGE][ci] A test dApp with its own Miden client and the real wallet adapter drives the extension end to end on single-sig and Guardian accounts after every merge, on testnet from main and devnet from next, and checks each request through to the chain while the chain moves between build and approval; known bugs are recorded per cell and a judge decides each run from the cell records. Its journeys so far cover detect, connect and a dApp send.

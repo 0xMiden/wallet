@@ -27,7 +27,9 @@ import { WcCounterparty, type WcRequestLog } from '../helpers/wc-counterparty';
  *   5. The deposit relayer reads the attestation and submits the mint note to the
  *      USDCx faucet. By default this is the deployed relayer. The faucet does not
  *      look at who sent a mint note, so the spec needs no relayer of its own.
- *   6. The faucet mints, and the wallet claims the note.
+ *   6. The faucet mints, and the wallet claims the note. The wallet is a Guardian account, so the claim
+ *      is a consume the hosted testnet Guardian co-signs, and the spec checks the account's auth
+ *      structure afterwards.
  *
  * The run spends real Arc Testnet USDC (the deposit and the gas).
  *
@@ -102,7 +104,7 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
     await relayer?.stop();
   });
 
-  test('deposit USDC via the real UI, Circle attests, the relayer mints, the wallet claims', async ({
+  test('deposit USDC via the real UI, Circle attests, the relayer mints, the Guardian account claims', async ({
     walletA,
     walletB,
     steps
@@ -117,6 +119,7 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
     const evmAddress = privateKeyToAccount(evmPrivateKey as `0x${string}`).address;
     let depositHash: `0x${string}`;
     let bridgeTxId: string;
+    let addressA: string;
 
     const sentTo = (address: string) => (r: WcRequestLog) =>
       r.method === 'eth_sendTransaction' &&
@@ -165,8 +168,8 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
     });
 
     await steps.step('create_wallet', async () => {
-      await walletA.createNewWallet();
-      await walletB.createNewWallet(); // fixture requires both sims up
+      ({ address: addressA } = await walletA.createGuardianWallet());
+      await walletB.createNewWallet(); // fixture requires both sims up; B takes no part
     });
 
     try {
@@ -252,6 +255,15 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
         const deposited = Number(depositAmount);
         const balance = await walletA.waitForBalanceAbove(deposited / 2, 180_000, undefined, 'USDCX');
         expect(balance, 'no more than the deposit').toBeLessThanOrEqual(deposited);
+      });
+
+      await steps.step('assert_guardian_account', async () => {
+        // The auth structure shows the deposit landed on, and was claimed by, a Guardian account, not a single-sig
+        // one, so this spec cannot quietly go back to testing the single-sig path.
+        const auth = await walletA.getGuardianAuthInfo(addressA);
+        expect(auth.error, `guardian auth read failed: ${auth.error}`).toBeUndefined();
+        expect(auth.signerCommitments.length, 'a fresh Guardian account has 2 signers (hot, cold)').toBe(2);
+        expect(auth.procedureThresholds.update_guardian, 'update_guardian is hardened to threshold 2').toBe(2);
       });
     } finally {
       if (localRelayer) {
