@@ -563,6 +563,24 @@ describe('ReviewTransaction — redirect guards', () => {
     await flush();
     expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
   });
+
+  // Epoch and Agglayer settle on Sepolia alone; the send flow clears a non-USDCx token on these chains, and this is the
+  // backstop for a link that skips the flow.
+  it.each([
+    ['arc-testnet', 'epoch'],
+    ['base-sepolia', 'epoch'],
+    ['arbitrum-sepolia', 'epoch'],
+    ['arc-testnet', 'agglayer'],
+    ['base-sepolia', 'agglayer'],
+    ['arbitrum-sepolia', 'agglayer']
+  ])('redirects a bridge link to %s on the %s route', async (network, route) => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = `amount=5&to=0xrecipient&tokenId=tok1&network=${network}&route=${route}`;
+    mockBalanceData = [VALID_TOKEN];
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
+  });
 });
 
 // ---------------------------------------------------------------------------
