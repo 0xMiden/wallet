@@ -53,6 +53,9 @@ jobs:
         uses: actions/checkout@v4
       - name: Check E2E suite selector
         run: bash scripts/select-e2e-changes.test.sh
+      # Pure bash too: which pull request the linked-PR injections read, on a pull request or a dispatch.
+      - name: Check linked-PR number resolver
+        run: bash scripts/resolve-linked-pr-number.test.sh
 
   translations:
     name: Update Translation Files

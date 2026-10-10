@@ -20,6 +20,8 @@ on:
 
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 
 concurrency:
   group: compile-surfaces-${{ github.event.pull_request.number || github.ref }}

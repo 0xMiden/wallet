@@ -3,8 +3,11 @@ description: >
   If the current PR's body contains a "Guardian PR: #N" marker, clone the
   linked guardian PR's head, build @openzeppelin/guardian-client and
   @openzeppelin/miden-multisig-client from source, and rewrite the wallet's
-  package.json to point at both local builds via `file:` deps. Runs only on
-  `pull_request` events (silent no-op on `push`). Fails fast if the linked PR
+  package.json to point at both local builds via `file:` deps. Reads the PR
+  of a `pull_request` event, or on a `workflow_dispatch` the one open PR whose
+  head is the dispatched branch (scripts/resolve-linked-pr-number.sh); a
+  silent no-op on `push`, on every other event and on a dispatch on main or
+  next. Fails fast if the linked PR
   is closed without merge.
 
   Marker syntax (anywhere in the body, first match wins):
@@ -56,24 +59,24 @@ outputs:
 runs:
   using: composite
   steps:
+    - id: pr
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: bash "$GITHUB_WORKSPACE/scripts/resolve-linked-pr-number.sh" inject-linked-guardian-pr
+
     - id: parse
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
-        EVENT_NAME: ${{ github.event_name }}
-        PR_NUMBER: ${{ github.event.pull_request.number }}
+        PR_NUMBER: ${{ steps.pr.outputs.number }}
       run: |
         set -euo pipefail
 
-        if [ "$EVENT_NAME" != "pull_request" ] && [ "$EVENT_NAME" != "pull_request_target" ]; then
-          echo "patched=false" >> "$GITHUB_OUTPUT"
-          echo "::notice title=inject-linked-guardian-pr::Skipping on event=$EVENT_NAME (only pull_request triggers patch injection)."
-          exit 0
-        fi
-
+        # Empty for every event the resolver skips; it has said why.
         if [ -z "${PR_NUMBER:-}" ]; then
           echo "patched=false" >> "$GITHUB_OUTPUT"
-          echo "::notice title=inject-linked-guardian-pr::No PR number in event payload."
           exit 0
         fi
 
@@ -226,14 +229,16 @@ runs:
         # and leave the wallet on the published versions.
         echo "::group::Rewrite wallet package.json"
         cd "$GITHUB_WORKSPACE"
-        node <<EOF
+        INJECTED_CLIENT_DIR="${GUARDIAN_DIR}/${CLIENT_SUBDIR}" INJECTED_MULTISIG_DIR="${GUARDIAN_DIR}/${MULTISIG_SUBDIR}" node <<EOF
         const fs = require('fs');
         const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
         const guardian = '@openzeppelin/guardian-client';
         const multisig = '@openzeppelin/miden-multisig-client';
+        // Read from the environment, not spliced into these literals: the desktop build's Windows leg
+        // has a RUNNER_TEMP like D:\a\_temp, whose backslashes a JS string reads as escapes.
         const targets = {
-          [guardian]: 'file:' + "${GUARDIAN_DIR}/${CLIENT_SUBDIR}",
-          [multisig]: 'file:' + "${GUARDIAN_DIR}/${MULTISIG_SUBDIR}",
+          [guardian]: 'file:' + process.env.INJECTED_CLIENT_DIR,
+          [multisig]: 'file:' + process.env.INJECTED_MULTISIG_DIR,
         };
         const orig = {};
         for (const [name, target] of Object.entries(targets)) {

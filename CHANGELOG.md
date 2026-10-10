@@ -11,6 +11,8 @@
 
 ### Fixes
 
+- [FIX][ci] A wallet PR's linked Guardian PR provides `@openzeppelin/guardian-client` as well as the multisig client, so a wire field the Guardian PR adds (such as `bound_block_num`) is no longer dropped by the published converter in CI; the linked web-sdk paths survive a Windows runner's backslashes.
+- [FIX][ci] Chrome Guardian E2E gets 90 minutes instead of 60: its 34 tests took 48-55 minutes on green testnet runs, so a slow testnet cancelled the job with every finished test passing.
 - [FIX][ci] An E2E CLI mint whose delegated proof the hosted testnet or devnet prover fails or times out proves its remaining attempts locally, as the CLI's other transactions already do, so a stalled prover no longer fails every suite's funding.
 - [FIX][all] Picking a swap token and quickly tapping the other token pill, or the same one, opens the token picker again; a tap made while the picker was still sliding away opened nothing.
 - [FIX][ci] E2E Bridge follows the testnet bridge to rollup 73 (wallet-config testnet.json version 2): its registry check names the new bridge's ETH faucet and its indexer probe asks for Miden exits under 73, where it still named the retired bridge's faucet and rollup 86, so the job stayed red.
@@ -27,6 +29,7 @@
 
 ### Changes
 
+- [CHANGE][ci] A by-hand run of any E2E or build workflow from a pull request's branch builds against the web-sdk and Guardian PRs that pull request's `Web SDK PR:` and `Guardian PR:` markers name, as its own CI does, so a suite that otherwise runs only after merge can test an unreleased dependency first; a push, a release and a by-hand run on main or next still install the published packages.
 - [CHANGE][ci] A test dApp with its own Miden client and the real wallet adapter drives the extension end to end on single-sig and Guardian accounts after every merge, on testnet from main and devnet from next, and checks each request through to the chain while the chain moves between build and approval; known bugs are recorded per cell and a judge decides each run from the cell records. Its journeys so far cover detect, connect and a dApp send.
 - [CHANGE][all] Web SDK 0.17.3: a call on a terminated SDK client is refused with "WebClient terminated" instead of hanging or still running, and the wallet reads that refusal as an interrupted operation: a write it stops fails like an offscreen abort instead of being retried as a fresh one, a Guardian note-recovery batch stops at it, and a pre-send sync it refuses is retried on a later cycle.
 - [CHANGE][all] Web SDK 0.17.2: the SDK no longer re-sends a private note whose relay failed, so the wallet retries it itself for up to three days on every platform and tracks each note of a multi-note transaction, and the SDK fetch patch is removed.

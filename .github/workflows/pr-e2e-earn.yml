@@ -9,6 +9,8 @@ concurrency:
   cancel-in-progress: true
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 jobs:
   # Heavy job runs on push-to-main and workflow_dispatch, not on pull_request.
   # The workflow still triggers on PRs so earn-e2e-gate (the required check) can
@@ -32,7 +34,10 @@ jobs:
     # cache stayed empty and every run stayed cold. Observed: 15 min for the wallet build
     # plus 59 min of client build still unfinished at the 75-minute mark. The ceiling only
     # binds on a cold build; a warm run is unaffected by raising it.
-    timeout-minutes: 120
+    # A dispatch may first build a linked web-sdk PR from source (still unfinished at 33 min on this runner,
+    # pr-e2e-bridge-guardian.yml).
+    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI and the node cold (14 and 71 min here).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 270 || 120 }}
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret
