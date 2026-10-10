@@ -386,6 +386,24 @@ describe('runUsdcxExecutorDeposit', () => {
     );
   });
 
+  // The fee entry point's allowance is read before the quote; a failed read takes the manual route, as a refused quote does.
+  it('burns manually when the fee entry point allowance read fails', async () => {
+    const { deps } = makeDeps({
+      readAllowance: jest.fn(async (spender: string) => {
+        if (spender === SOURCE.tokenMessengerWithFees) throw new Error('rpc down');
+        return 0n;
+      })
+    });
+
+    await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(BURN_HASH);
+
+    expect(deps.fetchQuote).not.toHaveBeenCalled();
+    expect(jest.mocked(deps.signer.approve).mock.calls).toEqual([[TOKEN_MESSENGER_V2_ADDRESS, 1_500_000n]]);
+    expect(deps.signer.depositForBurnWithHook).toHaveBeenCalledWith(
+      buildDepositForBurnWithHookArgs('1.5', SOURCE, RECIPIENT, DEPOSITOR)
+    );
+  });
+
   it('approves when the allowance covers the amount but not the fee', async () => {
     const { deps } = makeDeps({ readAllowance: jest.fn(async () => 1_500_000n) });
 

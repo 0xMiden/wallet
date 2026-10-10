@@ -302,9 +302,13 @@ export async function runUsdcxExecutorDeposit(
   // signer's bounded fee read and the burn prompt remain. At most one approval goes to the fee entry point, for twice
   // the quoted fee so a fee that moved by the second quote is still covered; a fee beyond that, or no second quote,
   // takes the manual route, which may ask for its own approval to the plain messenger.
-  const feeAllowance = await readAllowance(source.tokenMessengerWithFees);
-  let quote = await tryQuote();
-  if (quote && feeAllowance < intent.value + quote.feeTotalAmount) {
+  // A failed read of that allowance takes the manual route, as a refused quote does.
+  const feeAllowance = await readAllowance(source.tokenMessengerWithFees).catch((error: unknown) => {
+    console.warn('[usdcx] could not read the fee entry point allowance; the wallet will execute on Arc', error);
+    return undefined;
+  });
+  let quote = feeAllowance === undefined ? undefined : await tryQuote();
+  if (quote && feeAllowance !== undefined && feeAllowance < intent.value + quote.feeTotalAmount) {
     const approvedSpend = intent.value + 2n * quote.feeTotalAmount;
     await waitForReceipt(await signer.approve(source.tokenMessengerWithFees, approvedSpend));
     quote = await tryQuote();
