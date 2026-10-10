@@ -12,6 +12,8 @@
 
 ### Fixes
 
+- [FIX][all] Save the manual USDCx execute hash before the receipt wait so status checks can resume after the popup closes. Clear the hash if the receipt shows a revert. Keep destination confirmation after payout fees.
+
 - [FIX][ci] Apply the required source format to the xReserve test button and relay modules, and select the requested network in the add-contact E2E helper when the sheet offers multiple networks (#1100).
 - [FIX][ci] An E2E CLI mint whose delegated proof the hosted testnet or devnet prover fails or times out proves its remaining attempts locally, as the CLI's other transactions already do, so a stalled prover no longer fails every suite's funding.
 - [FIX][all] Picking a swap token and quickly tapping the other token pill, or the same one, opens the token picker again; a tap made while the picker was still sliding away opened nothing.

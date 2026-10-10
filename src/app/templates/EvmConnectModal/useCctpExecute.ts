@@ -17,8 +17,8 @@ export type CctpExecute = (txId: string, sourceChainId: number, leg: IUsdcxCctpL
  * Execute an attested CCTP message on Circle's executor on Arc from the connected EVM wallet, then record
  * the Arc transaction on the row so the reconciler asks xReserve's attestation service for it. Native Reown
  * takes calldata and returns a JSON-quoted hash; wagmi switches to Arc first and takes the typed call.
- * A reverted execute is not recorded: the reconciler would otherwise wait on an attestation that never
- * comes, and the user can execute again.
+ * Save the hash before the receipt wait so status checks can resume after the popup closes.
+ * Clear the hash if the receipt shows a revert so the user can execute again.
  */
 export function useCctpExecute(): CctpExecute {
   const nativeReownAvailable = isNativeReownAvailable();
@@ -61,16 +61,21 @@ export function useCctpExecute(): CctpExecute {
         });
       }
 
-      try {
-        await waitForEvmReceipt(hash, target.chain);
-      } catch (error) {
-        if (error instanceof EvmTransactionRevertedError) throw error;
-        // A receipt that cannot be read is not a failed execute: record the hash and let Circle answer.
-        console.warn('[useCctpExecute] execute receipt could not be read', hash, error);
-      }
       await updateBridgedReceivePhase(txId, 'delivering', {
         cctp: { sourceDomain: leg.sourceDomain, executeTxHash: hash }
       });
+      try {
+        await waitForEvmReceipt(hash, target.chain);
+      } catch (error) {
+        if (error instanceof EvmTransactionRevertedError) {
+          await updateBridgedReceivePhase(txId, 'delivering', {
+            cctp: { sourceDomain: leg.sourceDomain, executeTxHash: undefined }
+          });
+          throw error;
+        }
+        // Keep the saved hash if the receipt cannot be read. Circle can still confirm execution.
+        console.warn('[useCctpExecute] execute receipt could not be read', hash, error);
+      }
       return hash;
     },
     [nativeReownAvailable, switchChainAsync, writeContract]

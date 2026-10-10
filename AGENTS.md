@@ -116,7 +116,11 @@ Pages supply content; the design system supplies the rest. Reuse the shared comp
 The user approved balance-based destination confirmation on 2026-10-09. Keep
 `Burn confirmed` when the faucet consumes the burn note. Show `Confirmed` when
 the recipient's USDC balance is at least the balance saved before submission plus
-the sent amount. Use the six-decimal ERC-20 USDC balance on the destination chain.
+the minimum payout from `minimumUsdcxPayout`. On 2026-10-10, the user approved
+confirmation after payout fees (for example, 2.92 USDC received for 3 USDC sent).
+Keep the current fee allowance: 1.5 USDC for Ethereum and 0.1 USDC for other
+configured destinations, with a minimum of half the sent amount. This is an
+estimate, not an exact fee quote. Use the six-decimal ERC-20 USDC balance on the destination chain.
 RPC failures must leave the row open for another check. Old rows without a saved
 balance must stay at `Burn confirmed`.
 
@@ -131,6 +135,6 @@ History details can show one matching USDC transfer found through RPC. This link
 also a best-effort match, not proof tied to the burn note. The lookup runs only when
 the details are open. It uses one `eth_getLogs` request over at most 2,000 blocks,
 ending at the balance confirmation block, with a 10-second timeout and no retries.
-Match the token, recipient, and sent amount; omit the link if no unique match is
+Match the token and recipient, with the amount between the minimum payout and the sent amount; omit the link if no unique match is
 found or the RPC fails. Do not scan the full chain or make the link a condition for
 balance confirmation. A wider historical search needs a separate cost decision.

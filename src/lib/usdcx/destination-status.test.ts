@@ -96,6 +96,13 @@ it('confirms a payout that Circle reduced by its fee', async () => {
   expect(stored.extraInputs.usdcxBurn.destinationBalanceConfirmed).toEqual(afterFee);
 });
 
+it('confirms 2.92 USDC received for a 3 USDC withdrawal', async () => {
+  stored.amount = 3_000_000n;
+  const afterFee = { balance: '7920000', blockNumber: '101' };
+  await pollUsdcxDestination(stored, async () => afterFee);
+  expect(stored.extraInputs.usdcxBurn.destinationBalanceConfirmed).toEqual(afterFee);
+});
+
 it('retries after an RPC error', async () => {
   read.mockRejectedValueOnce(new Error('timeout'));
   await expect(pollUsdcxDestination(stored, read)).rejects.toThrow('timeout');
