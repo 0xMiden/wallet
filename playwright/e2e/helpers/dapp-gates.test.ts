@@ -7,6 +7,7 @@ import {
   maxConcurrentConfirmPages,
   normalizeHex,
   sessionHeld,
+  sharedOpen,
   waitForFreshSyncs
 } from './dapp-gates';
 
@@ -102,5 +103,44 @@ describe('sessionHeld', () => {
 
   it('does not hold a session granted with another permission', () => {
     expect(sessionHeld(held, primary, 'AUTO')).toBe(false);
+  });
+});
+
+describe('sharedOpen', () => {
+  // Opens a dApp handle per call, failing the calls listed in `failing` (1-based) as a node failure in init would.
+  const opener = (failing: number[] = []) => {
+    let calls = 0;
+    const open = jest.fn(async () => {
+      calls += 1;
+      if (failing.includes(calls)) throw new Error(`ChainUnavailable: init ${calls}`);
+      return `dapp-${calls}`;
+    });
+    return open;
+  };
+
+  it('opens once for every caller while the open is pending and after it succeeded', async () => {
+    const open = opener();
+    const dappTwo = sharedOpen(open);
+    expect(await Promise.all([dappTwo(), dappTwo()])).toEqual(['dapp-1', 'dapp-1']);
+    expect(await dappTwo()).toBe('dapp-1');
+    expect(open).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens again after a failed open, so the failure stays with the call that met it', async () => {
+    const open = opener([1]);
+    const dappTwo = sharedOpen(open);
+    await expect(dappTwo()).rejects.toThrow('ChainUnavailable: init 1');
+    expect(await dappTwo()).toBe('dapp-2');
+    expect(await dappTwo()).toBe('dapp-2');
+    expect(open).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives every caller waiting on a failed open that failure, then opens again', async () => {
+    const open = opener([1]);
+    const dappTwo = sharedOpen(open);
+    const waiting = await Promise.allSettled([dappTwo(), dappTwo()]);
+    expect(waiting.map(entry => entry.status)).toEqual(['rejected', 'rejected']);
+    expect(await dappTwo()).toBe('dapp-2');
+    expect(open).toHaveBeenCalledTimes(2);
   });
 });

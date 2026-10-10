@@ -87,6 +87,23 @@ export function sessionHeld(state: SessionCheck, account: string, permission: st
   );
 }
 
+/**
+ * `open`, run once and its promise shared by every caller (a journey's second dApp, B's dApp), until it rejects: a
+ * failed open, such as a node failure in the dApp's init, belongs to the cells that waited on it, so the next caller
+ * opens again instead of failing on a rejection kept from an earlier cell.
+ */
+export function sharedOpen<T>(open: () => Promise<T>): () => Promise<T> {
+  let pending: Promise<T> | undefined;
+  return () => {
+    if (pending === undefined) {
+      const started = open();
+      pending = started;
+      started.catch(() => (pending = undefined));
+    }
+    return pending;
+  };
+}
+
 /** An account's assets as `{ faucetId: amount }`, so two views compare with one `toEqual` whatever their row order. */
 export function assetMap(assets: readonly { faucetId: string; amount: string | bigint }[]): Record<string, string> {
   const totals = new Map<string, bigint>();

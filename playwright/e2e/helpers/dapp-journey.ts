@@ -21,7 +21,7 @@ import {
   type Deadline,
   type JourneyId
 } from './dapp-cells';
-import { canonicalAddress, sessionHeld, type SessionCheck } from './dapp-gates';
+import { canonicalAddress, sessionHeld, sharedOpen, type SessionCheck } from './dapp-gates';
 import { knownBugRegistry } from './dapp-known-bugs';
 import { cellIdsFor } from './dapp-matrix';
 import pinned from './dapp-pinned.json';
@@ -230,9 +230,21 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
     runner.setupFailed(error);
     throw error;
   }
-  let two: Promise<DappHandle> | undefined;
-  let ofB: Promise<DappHandle> | undefined;
   const network = envConfig.name;
+  const dappTwo = sharedOpen(() => openTestDapp(contextA, 'two', init('A-two')));
+  const dappB = sharedOpen(async () => {
+    const contextB = walletB.page.context();
+    const handle = await openTestDapp(contextB, 'one', init('B-one'));
+    const ctx = quiesceContext(deadlineIn(120_000, "B's dApp connect"));
+    const { result } = await answerPrompt(
+      handle,
+      () => callDapp(handle, 'connect', { permission: 'UponRequest', network }),
+      { kind: 'connect', decision: 'approve', origin: handle.origin },
+      ctx
+    );
+    unwrap(result, "B's dApp connect", ctx);
+    return handle;
+  });
 
   const journeyValue: Journey = {
     id: journey,
@@ -260,21 +272,8 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
       await selectAccountIfNeeded(walletA, funded.a);
       return created.address;
     },
-    dappTwo: () => (two ??= openTestDapp(contextA, 'two', init('A-two'))),
-    dappB: () =>
-      (ofB ??= (async () => {
-        const contextB = walletB.page.context();
-        const handle = await openTestDapp(contextB, 'one', init('B-one'));
-        const ctx = quiesceContext(deadlineIn(120_000, "B's dApp connect"));
-        const { result } = await answerPrompt(
-          handle,
-          () => callDapp(handle, 'connect', { permission: 'UponRequest', network }),
-          { kind: 'connect', decision: 'approve', origin: handle.origin },
-          ctx
-        );
-        unwrap(result, "B's dApp connect", ctx);
-        return handle;
-      })()),
+    dappTwo,
+    dappB,
     touch: setting => void touched.add(setting)
   };
   holder.journey = journeyValue;
