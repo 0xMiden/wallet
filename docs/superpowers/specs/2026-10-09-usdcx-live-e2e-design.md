@@ -9,7 +9,7 @@ Goals
 - Every hop asserted as an exact base-unit ledger; fees read from the rows that paid them, never pinned.
 - A run cannot pass vacuously, on the wrong network, on a hermetic build, or on a non-Guardian account.
 - Failures name the failing party: wallet, hosted Guardian, Miden faucet, Circle, or Arc RPC.
-- The #1100 fixes (D7-D10) land with failing-first tests.
+- The #1100 fixes (D7-D10, and the two gaps in section 10(e)) land with failing-first tests.
 
 Non-goals
 - Standard (single-sig) wallet variants of the live suites, an iOS funded-key suite, Android.
@@ -414,6 +414,15 @@ Runner tests (`scripts/e2e-real.test.ts`, stub `scripts/e2e-real.fetch-stub.mjs`
   - Dropped: the Sepolia USDC route, the stand-in domain and recipient, 12 s polling, and "no destination-chain payout".
 - Failing first: `scripts/check-changelog.sh` against the merge base, `key-coverage.test.ts` and `locale-bundle-parity.test.ts`. Plus a local check that the TBD section matches none of `Sepolia USDC|stand-in|destination-chain payout|every 12 seconds`.
 
+(e) Verdict and landing paths (approved 2026-10-10: fix both in #1100)
+- Gap 1, burns excluded from the verdict path. `canAwaitVerdict` admits a bridged-send only on the Agglayer route (verdict-rules.ts:40-48), so a Guardian USDCx burn whose submit outcome is unknown is marked Failed and its candidate abandoned, although the burn may still land.
+  - Fix: admit `provider === 'usdcx'` bridged-sends. An unknown-outcome burn then goes Unconfirmed and the reconciler judges it (reconcile-unconfirmed.ts). A landed verdict must leave the row exactly as `completeBridgedSendTransaction` would (complete.ts:1167-1182): `usdcxBurn` kept with its persisted note id, so `pollUsdcxBurn` (burn-status.ts) moves it to `confirmed`.
+  - The landed-after-apply-failure branch (transaction/index.ts:1445-1466) already covers bridged-send; the plan confirms a usdcx row reaches it and is not caught earlier by the result-awaiting ordering.
+  - Failing first: a usdcx bridged-send is verdict-eligible; an unknown-outcome usdcx burn goes Unconfirmed, not Failed; a reconciler-landed usdcx burn keeps `usdcxBurn` and is picked up by the burn poll.
+- Gap 2, adoption only on the normal consume path. `takeUsdcxBridgeInInfo` runs only inside `completeConsumeTransaction` (complete.ts:299-307). A mint consume completed by the reconciler's landed write (reconcile-unconfirmed.ts `writeLanding` -> `applyVerifiedLanding`) or by the landed-after-apply-failure branch never adopts its bridged-receive row, and fix (a)'s 7-day timeout would then turn a delivered deposit into Failed.
+  - Fix: one shared adopter, the same function batch adoption uses (section 10(a)), invoked from every path that completes a consume row whose input notes are known, after the row is written. Exact call sites and how each path obtains the input notes' sender and amount are settled in the plan.
+  - Failing first: a consume landed through the reconciler, and one landed after an apply failure, each adopt the matching USDCx row to `received`; that row is then never failed by the timeout.
+
 ## 11 Failure reporting
 
 Every hard failure names its step. A Guardian failure also names `GUARDIAN_URL`, the identity read at step 1, and a best-effort `/status` re-read (5 s) when the message is built; it shows both if they differ.
@@ -475,10 +484,7 @@ Every hard failure names its step. A Guardian failure also names `GUARDIAN_URL`,
   - The alternative is a Guardian conversion, which needs a Guardian co-signer in that job. Recommended: keep it as is.
 - The iOS and Android `createGuardianWallet(password)` signature differs from `WalletPage.createGuardianWallet(guardianUrl, password?)` (wallet-page.ts:253; ios-wallet-page.ts:387). The iOS spec calls it with no argument.
 - Guardian history recovery maps `agglayer_bridged_send` to a bridged-send without provider or `usdcxBurn` (guardian/history.ts:91-93): P3.
-- Needs your call (not covered by D7):
-  1. `canAwaitVerdict` excludes USDCx burns, so an indefinite Guardian burn submit is marked Failed and its candidate abandoned, although it may still land (verdict-rules.ts:40-48).
-  2. Bridge-in adoption runs only in `completeConsumeTransaction`. A mint consume that lands via the Unconfirmed reconciler or the landed path never adopts its row, and D7's timeout then fails that row after 7 days (reconcile-unconfirmed.ts:110-138).
-  - Recommended: one P2 issue after the live runs, or a fix in #1100 if a live run hits either.
+- The two verdict and landing gaps found during design are fixed in #1100: section 10(e).
 
 ## 14 Delivery order
 
@@ -497,12 +503,14 @@ Every hard failure names its step. A Guardian failure also names `GUARDIAN_URL`,
    5. `fix(usdcx): link Arc burn destinations to the Arc explorer`
    6. `fix(usdcx): name the fee asset in USDCx fee labels`
    7. `fix(usdcx): show the USDCx deposit arrival as about a minute`
-   8. `docs(changelog): one USDCx entry under 1.17.2 and no lines in released sections`
-   9. `test(e2e): shared USDCx harness modules and row readers`
-   10. `test(e2e): usdcx, usdcx-in and usdcx-ios e2e:real suites`
-   11. `test(e2e): extension Guardian USDCx round trip and funded-key bridge-in`
-   12. `test(e2e): iOS Guardian USDCx round trip; drop the nightly workflow and local relayer`
-   13. `docs(e2e): USDCx live suites and key ledger recovery`
+   8. `fix(usdcx): let an unknown-outcome burn await the node's verdict`
+   9. `fix(usdcx): adopt a delivered deposit on every consume landing path`
+   10. `docs(changelog): one USDCx entry under 1.17.2 and no lines in released sections`
+   11. `test(e2e): shared USDCx harness modules and row readers`
+   12. `test(e2e): usdcx, usdcx-in and usdcx-ios e2e:real suites`
+   13. `test(e2e): extension Guardian USDCx round trip and funded-key bridge-in`
+   14. `test(e2e): iOS Guardian USDCx round trip; drop the nightly workflow and local relayer`
+   15. `docs(e2e): USDCx live suites and key ledger recovery`
 3. **Local gates**:
    - changed jest suites at `--maxWorkers=2`, plus every test file in their directories, plus the source-scanning guard tests;
    - eslint and prettier on changed files; `scripts/lint-e2e-harness.mjs`;
