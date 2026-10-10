@@ -725,6 +725,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           // this a payable `bridgeAsset` would broadcast real ETH on the wrong chain
           // to a Sepolia-only address. The Fast/Epoch path guards this same case in
           // executeEVMToMiden; the native branch above already pins DEFAULT_CHAIN_ID.
+          // A USDCx deposit switches the wallet to Arc or Base, so switch it back first.
+          await switchChainAsync({ chainId: DEFAULT_CHAIN_ID });
           if (needsApproval) {
             const approvalHash = await writeContract.mutateAsync({
               chainId: DEFAULT_CHAIN_ID,
@@ -763,6 +765,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       evmUsdc,
       midenAccount.publicKey,
       nativeReownAvailable,
+      switchChainAsync,
       token,
       usdcDecimals,
       walletProvider,

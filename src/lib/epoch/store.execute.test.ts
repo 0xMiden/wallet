@@ -13,7 +13,12 @@ jest.mock('./bridge', () => ({
     solveResult: { hash: '0xdeposit' }
   })
 }));
-jest.mock('./client', () => ({ getEvmConnection: async () => ({ address: '0xowner', isNative: true }) }));
+const mockConnection = jest.fn();
+const mockSwitchWebWalletChain = jest.fn();
+jest.mock('./client', () => ({
+  getEvmConnection: () => mockConnection(),
+  switchWebWalletChain: (...args: unknown[]) => mockSwitchWebWalletChain(...args)
+}));
 jest.mock('./sdk', () => ({ getEpochSdk: async () => ({}) }));
 jest.mock('lib/miden/activity/bridge-in', () => ({
   registerPendingBridgeIn: (...args: unknown[]) => mockRegister(...args),
@@ -39,6 +44,8 @@ const quote: EVMToMidenQuote = {
 };
 
 beforeEach(() => {
+  mockConnection.mockReset().mockResolvedValue({ address: '0xowner', isNative: true });
+  mockSwitchWebWalletChain.mockReset().mockResolvedValue(undefined);
   mockRegister.mockReset().mockResolvedValue(undefined);
   mockGetRow.mockReset();
   useEpochStore.getState().reset();
@@ -71,4 +78,32 @@ it('records the pending bridge-in with the exact amount and the symbol the track
       bridgeReceiveTxId: 'row-1'
     })
   );
+});
+
+// A USDCx deposit switches the web wallet to Arc or Base; the Fast route switches it back instead of failing.
+it('switches a web wallet left on another chain to Sepolia before executing', async () => {
+  mockGetRow.mockResolvedValue(undefined);
+  mockConnection
+    .mockResolvedValueOnce({ address: '0xowner', isNative: false, chainId: 5042002 })
+    .mockResolvedValue({ address: '0xowner', isNative: false, chainId: 11155111 });
+  useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote });
+
+  await useEpochStore.getState().executeEVMToMiden('row-1');
+
+  expect(mockSwitchWebWalletChain).toHaveBeenCalledWith(11155111);
+  expect(mockRegister).toHaveBeenCalled();
+});
+
+it('still refuses when the web wallet stays on another chain', async () => {
+  mockConnection.mockResolvedValue({ address: '0xowner', isNative: false, chainId: 5042002 });
+  useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote });
+
+  await useEpochStore.getState().executeEVMToMiden('row-1');
+
+  expect(mockSwitchWebWalletChain).toHaveBeenCalledWith(11155111);
+  expect(useEpochStore.getState()).toMatchObject({
+    status: 'failed',
+    error: expect.stringContaining('did not switch to Sepolia')
+  });
+  expect(mockRegister).not.toHaveBeenCalled();
 });

@@ -15,7 +15,7 @@ import {
   getCrossChainQuote,
   getEVMToMidenQuote
 } from './bridge';
-import { getEvmConnection } from './client';
+import { getEvmConnection, switchWebWalletChain } from './client';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { readEpochIntentStatus } from './intent-status';
 import { getEpochSdk } from './sdk';
@@ -213,9 +213,14 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       // NOT the wallet's eth_chainId. So on web we verify the active chain
       // before continuing. The native Reown session carries the target chain
       // id in every signing request, so there is no active-chain to guard.
-      const connection = await getEvmConnection();
+      let connection = await getEvmConnection();
       if (!connection.address) {
         throw new Error('Connect an EVM wallet first');
+      }
+      // A USDCx deposit switches the web wallet to Arc or Base, so switch it back before the check below.
+      if (!connection.isNative && connection.chainId !== sepolia.id) {
+        await switchWebWalletChain(sepolia.id);
+        connection = await getEvmConnection();
       }
       if (!connection.isNative && connection.chainId !== sepolia.id) {
         throw new Error(

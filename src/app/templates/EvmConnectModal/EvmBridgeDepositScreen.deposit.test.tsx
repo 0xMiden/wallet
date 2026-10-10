@@ -32,8 +32,9 @@ jest.mock('@reown/appkit/react', () => ({
 }));
 
 const mockMutateAsync = jest.fn();
+const mockSwitchChainAsync = jest.fn().mockResolvedValue(undefined);
 jest.mock('wagmi', () => ({
-  useSwitchChain: () => ({ switchChainAsync: jest.fn().mockResolvedValue(undefined) }),
+  useSwitchChain: () => ({ switchChainAsync: mockSwitchChainAsync }),
   useWriteContract: () => ({ mutateAsync: mockMutateAsync })
 }));
 
@@ -660,11 +661,18 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
   });
 
   it('bridges the Slow route through the L1 bridge and the rollup id the config names', async () => {
+    mockSwitchChainAsync.mockClear();
     renderScreen();
 
     await reachReview();
     fireEvent.click(screen.getByTestId('confirm-deposit'));
     await settle();
+
+    // A USDCx deposit may have left the web wallet on Arc or Base: the Slow route switches back before it signs.
+    expect(mockSwitchChainAsync).toHaveBeenCalledWith({ chainId: 11155111 });
+    expect(mockSwitchChainAsync.mock.invocationCallOrder[0]).toBeLessThan(
+      mockMutateAsync.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    );
 
     expect(mockMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({

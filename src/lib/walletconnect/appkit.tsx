@@ -19,8 +19,9 @@ const arcTestnet = defineChain({
   chainNamespace: 'eip155',
   caipNetworkId: `eip155:${ARC_TESTNET.id}`
 });
-// Every chain of `SUPPORTED_CHAINS`: wagmi's `switchChain` reaches only a network listed here.
-const networks: [AppKitNetwork, ...AppKitNetwork[]] = [arcTestnet, sepolia, baseSepolia, arbitrumSepolia];
+// Every chain of `SUPPORTED_CHAINS`: wagmi's `switchChain` reaches only a network listed here. Sepolia stays first
+// and the default, as in `SUPPORTED_CHAINS`: the Fast and Slow routes and the Agglayer claim settle there.
+const networks: [AppKitNetwork, ...AppKitNetwork[]] = [sepolia, arcTestnet, baseSepolia, arbitrumSepolia];
 const appKitThemeVariables = {
   '--apkt-font-family': 'Inter, sans-serif',
   '--apkt-accent': '#E77537',
@@ -56,6 +57,7 @@ const queryClient = new QueryClient();
 export const modal = createAppKit({
   adapters: [wagmiAdapter],
   networks,
+  defaultNetwork: sepolia,
   projectId: WC_PROJECT_ID,
   metadata: APP_METADATA,
   themeMode: getInitialAppKitThemeMode(),
