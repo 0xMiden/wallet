@@ -1872,6 +1872,23 @@
     "message": "Request again",
     "englishSource": "Request again"
   },
+  "faucetRateLimitedWait": {
+    "message": "You requested funds a moment ago. Try again in $seconds$ seconds.",
+    "englishSource": "You requested funds a moment ago. Try again in $seconds$ seconds.",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetRateLimited": {
+    "message": "You requested funds a moment ago. Try again shortly.",
+    "englishSource": "You requested funds a moment ago. Try again shortly."
+  },
+  "faucetOverCap": {
+    "message": "The faucet can't send funds right now. Try again later.",
+    "englishSource": "The faucet can't send funds right now. Try again later."
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Account recovery detected",
     "englishSource": "Account recovery detected"

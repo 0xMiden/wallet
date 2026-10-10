@@ -1872,6 +1872,23 @@
     "message": "Tekrar isteyin",
     "englishSource": "Request again"
   },
+  "faucetRateLimitedWait": {
+    "message": "Biraz önce para çekme talebinde bulundunuz. Lütfen $seconds$ saniye sonra tekrar deneyin.",
+    "englishSource": "You requested funds a moment ago. Try again in $seconds$ seconds.",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetRateLimited": {
+    "message": "Az önce para çekme talebinde bulundunuz. Kısa bir süre sonra tekrar deneyin.",
+    "englishSource": "You requested funds a moment ago. Try again shortly."
+  },
+  "faucetOverCap": {
+    "message": "faucet şu anda para gönderemiyor. Daha sonra tekrar deneyin.",
+    "englishSource": "The faucet can't send funds right now. Try again later."
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Hesap kurtarma algılandı",
     "englishSource": "Account recovery detected"

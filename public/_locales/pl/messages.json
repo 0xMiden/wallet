@@ -1872,6 +1872,23 @@
     "message": "Poproś ponownie",
     "englishSource": "Request again"
   },
+  "faucetRateLimitedWait": {
+    "message": "Przed chwilą złożyłeś wniosek o środki. Spróbuj ponownie za $seconds$ sekund.",
+    "englishSource": "You requested funds a moment ago. Try again in $seconds$ seconds.",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetRateLimited": {
+    "message": "Przed chwilą złożyłeś wniosek o środki. Spróbuj ponownie za chwilę.",
+    "englishSource": "You requested funds a moment ago. Try again shortly."
+  },
+  "faucetOverCap": {
+    "message": "faucet nie może obecnie wysyłać środków. Spróbuj ponownie później.",
+    "englishSource": "The faucet can't send funds right now. Try again later."
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Wykryto próbę odzyskania konta",
     "englishSource": "Account recovery detected"
