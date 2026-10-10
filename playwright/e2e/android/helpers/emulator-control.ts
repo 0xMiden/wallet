@@ -512,6 +512,24 @@ async function ensureAvdsExist(requiredAvds: string[] = [DEVICE_PAIR_AVD_A, DEVI
       );
     }
   }
+
+  // Confirm the emulator can resolve every requested AVD after any cloning.
+  // The listing alone accepts phantoms, while filesystem checks alone miss
+  // AVD-home mismatches between avdmanager and the emulator process.
+  const { stdout: verifiedStdout } = await execFileAsync(getEmulatorBin(), ['-list-avds'], {
+    timeout: ADB_TIMEOUT_MS
+  });
+  const verified = new Set(
+    verifiedStdout
+      .split('\n')
+      .map(name => name.trim())
+      .filter(Boolean)
+  );
+  for (const avd of requiredAvds) {
+    if (!verified.has(avd) || !avdIsUsable(avdHome, avd)) {
+      throw new Error(`AVD "${avd}" is not both listed by the emulator and complete under ${avdHome}.`);
+    }
+  }
 }
 
 async function bootAvd(avdName: string, port: number, visible = false): Promise<string> {

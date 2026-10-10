@@ -141,6 +141,37 @@ describe('EmulatorControl', () => {
       expect(launch).not.toHaveBeenCalled();
     });
 
+    it('fails before boot when the base AVD files are not visible to the emulator', async () => {
+      const previousAndroidHome = process.env.ANDROID_HOME;
+      const previousAvdHome = process.env.ANDROID_AVD_HOME;
+      const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wallet-android-unlisted-avd-'));
+      const avdHome = path.join(tempRoot, 'avd');
+      const baseDir = path.join(avdHome, 'Pixel_API_34.avd');
+      fs.mkdirSync(baseDir, { recursive: true });
+      fs.writeFileSync(path.join(avdHome, 'Pixel_API_34.ini'), `path=${baseDir}\n`);
+      fs.writeFileSync(path.join(baseDir, 'config.ini'), 'AvdId=Pixel_API_34\n');
+      process.env.ANDROID_HOME = tempRoot;
+      process.env.ANDROID_AVD_HOME = avdHome;
+      run.mockImplementation(((_file: string, args: string[], _options: { timeout?: number }, callback: Callback) => {
+        const stdout = args[0] === 'devices' ? 'List of devices attached\n' : '';
+        callback(null, { stdout, stderr: '' });
+        return {} as ReturnType<typeof execFile>;
+      }) as unknown as typeof execFile);
+
+      try {
+        await expect(EmulatorControl.reserveSingle()).rejects.toThrow(
+          /Base AVD "Pixel_API_34" is missing or incomplete/
+        );
+        expect(launch).not.toHaveBeenCalled();
+      } finally {
+        if (previousAndroidHome === undefined) delete process.env.ANDROID_HOME;
+        else process.env.ANDROID_HOME = previousAndroidHome;
+        if (previousAvdHome === undefined) delete process.env.ANDROID_AVD_HOME;
+        else process.env.ANDROID_AVD_HOME = previousAvdHome;
+        fs.rmSync(tempRoot, { recursive: true, force: true });
+      }
+    });
+
     it('boots the workflow-provided base AVD without creating pair clones', async () => {
       const previousAndroidHome = process.env.ANDROID_HOME;
       const previousAvdHome = process.env.ANDROID_AVD_HOME;
