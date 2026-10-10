@@ -1,0 +1,123 @@
+import {
+  FeltArray,
+  FungibleAsset,
+  NetworkAccountTarget,
+  Note,
+  NoteArray,
+  NoteAssets,
+  NoteAttachment,
+  NoteAttachmentScheme,
+  NoteExecutionHint,
+  NoteMetadata,
+  NoteRecipient,
+  NoteScript,
+  NoteStorage,
+  NoteTag,
+  NoteType,
+  TransactionRequestBuilder,
+  Word
+} from '@miden-sdk/miden-sdk/lazy';
+
+import { accountRefToSdk, getBech32AddressFromAccountId, randomFeeSalt } from 'lib/miden/sdk/helpers';
+import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
+import { initiateBridgedSendTransaction } from 'lib/miden/transaction/initiate';
+import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
+
+import {
+  getUsdcxDestination,
+  USDCX_ALLOWED_NOTE_SCRIPTS_SLOT,
+  USDCX_BURN_TAG,
+  USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME,
+  USDCX_MIN_BURN_SLOT
+} from './constant';
+import { readUsdcxDestinationBalance } from './destination-status';
+import { readWithOwnRpcClient } from './rpc-client';
+import { encodeBurnWithdrawal, requireUsdcxFaucetId, UsdcxBurnError, validateUsdcxWithdrawal } from './withdrawal';
+
+/** Read faucet storage through a separate RPC client and return the minimum burn amount. */
+export async function readUsdcxMinimumBurn(): Promise<bigint> {
+  const fetched = await withRpcTimeout(
+    () => readWithOwnRpcClient(rpc => rpc.getAccountDetails(accountRefToSdk(requireUsdcxFaucetId()))),
+    'usdcx minimum burn'
+  );
+  const storage = fetched.account()?.storage();
+  const allowed = storage?.getMapItem(USDCX_ALLOWED_NOTE_SCRIPTS_SLOT, NoteScript.burn().root())?.toFelts()[0]?.asInt();
+  if (allowed !== 1n) throw new UsdcxBurnError('usdcxIncompatibleBurnScript');
+  const minimum = storage?.getItem(USDCX_MIN_BURN_SLOT)?.toFelts()[0]?.asInt();
+  if (minimum === undefined) throw new UsdcxBurnError('usdcxFaucetUnavailable');
+  return minimum;
+}
+
+/** Build a burn request from local SDK objects, following the `XReserveBurnNote` factory of miden-usdcx 0.17.1. */
+export function buildUsdcxBurnRequest(
+  sender: string,
+  amount: bigint,
+  destinationAddress: string,
+  destinationDomain: number
+) {
+  if (amount <= 0n) throw new UsdcxBurnError('usdcxInvalidAmount');
+  const asset = new FungibleAsset(accountRefToSdk(requireUsdcxFaucetId()), amount);
+  const storage = new NoteStorage(new FeltArray([...asset.vaultKey().toFelts(), ...asset.intoWord().toFelts()]));
+  const recipient = NoteRecipient.fromScript(NoteScript.burn(), storage);
+  const metadata = new NoteMetadata(accountRefToSdk(sender), NoteType.Public, new NoteTag(USDCX_BURN_TAG));
+  const payload = encodeBurnWithdrawal(destinationAddress, destinationDomain);
+  const words = [0, 4, 8].map(i => new Word(new BigUint64Array(payload.slice(i, i + 4))));
+  const withdrawal = NoteAttachment.fromWords(new NoteAttachmentScheme(USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME), words);
+  // The factory routes with the `Always` hint; the note id commits to the attachment.
+  const routing = new NetworkAccountTarget(
+    accountRefToSdk(requireUsdcxFaucetId()),
+    NoteExecutionHint.always()
+  ).toAttachment();
+  const note = Note.withAttachments(new NoteAssets([asset]), metadata, recipient, [routing, withdrawal]);
+  // NoteArray takes ownership. Capture identity before transferring the note.
+  const burnNoteId = note.id().toString();
+  const request = new TransactionRequestBuilder()
+    .withOwnOutputNotes(new NoteArray([note]))
+    .withFeeConversionSalt(randomFeeSalt())
+    .build();
+  return { burnNoteId, requestBytes: request.serialize() };
+}
+
+export async function initiateUsdcxBurn(args: {
+  senderPublicKey: string;
+  faucetId: string;
+  amount: bigint;
+  destinationAddress: string;
+  destinationChainId: number;
+  spendingLimitAuthorization?: SpendingLimitAuthorization;
+}): Promise<string> {
+  const { senderPublicKey, faucetId, amount, destinationAddress, destinationChainId, spendingLimitAuthorization } =
+    args;
+  // Resolve the native asset so the checks below read a known faucet id.
+  await getNativeAssetId();
+  validateUsdcxWithdrawal(faucetId, destinationChainId, amount);
+  const { domain } = getUsdcxDestination(destinationChainId);
+  const minimum = await readUsdcxMinimumBurn();
+  if (amount < minimum) throw new UsdcxBurnError('usdcxBelowMinimumBurn');
+  const built = {
+    ...buildUsdcxBurnRequest(senderPublicKey, amount, destinationAddress, domain),
+    destinationDomain: domain,
+    faucetBech32: getBech32AddressFromAccountId(accountRefToSdk(requireUsdcxFaucetId()))
+  };
+  const destinationBalanceBefore = await readUsdcxDestinationBalance(destinationChainId, destinationAddress);
+  return initiateBridgedSendTransaction(
+    senderPublicKey,
+    amount,
+    built.faucetBech32,
+    destinationAddress,
+    destinationChainId,
+    'usdcx',
+    built.requestBytes,
+    true,
+    undefined,
+    spendingLimitAuthorization,
+    undefined,
+    {
+      noteId: built.burnNoteId,
+      destinationDomain: built.destinationDomain,
+      phase: 'pending',
+      destinationBalanceBefore
+    }
+  );
+}

@@ -15,7 +15,14 @@ export default defineConfig({
   // keep both out of the standard iOS suite.
   // dApp-browser specs run via playwright.ios.dapp.config.ts — they need no
   // chain, so they get their own (much faster) workflow.
-  testIgnore: ['**/guardian-*.ios.spec.ts', '**/bridge-in-*.ios.spec.ts', '**/dapp-browser.*.spec.ts'],
+  // The live USDCx spec runs via playwright.ios.usdcx-live.config.ts — it spends real
+  // Arc Testnet USDC and needs a local deposit relayer.
+  testIgnore: [
+    '**/guardian-*.ios.spec.ts',
+    '**/bridge-in-*.ios.spec.ts',
+    '**/dapp-browser.*.spec.ts',
+    '**/usdcx-live-*.ios.spec.ts'
+  ],
   // 25 min per test. WASM prove on the simulator is slow (~60-90s per consume),
   // and on degraded macos-26 runners BOTH the two-sim `_simPair` setup (capped
   // at 13 min, see SETUP_DEADLINE_MS) and the test body's simctl/WASM ops crawl.

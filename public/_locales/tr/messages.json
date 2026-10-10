@@ -1,4 +1,92 @@
 {
+  "usdcxBurnTitle": {
+    "message": "USDCx'i Yak",
+    "englishSource": "Burn USDCx"
+  },
+  "usdcxBurnSubmitted": {
+    "message": "Yakma işlemi gönderildi",
+    "englishSource": "Burn submitted"
+  },
+  "usdcxMidenFees": {
+    "message": "MIDEN ücretleri",
+    "englishSource": "MIDEN fees"
+  },
+  "usdcxBurnOnly": {
+    "message": "Sadece yakma",
+    "englishSource": "Burn only"
+  },
+  "usdcxWithdrawalNotice": {
+    "message": "\"Burn confirmed\" (yakma onaylandı), USDCx'in Miden'de yakıldığı anlamına gelir. \"Confirmed\" (onaylandı), hedef USDC bakiyesinin arttığı anlamına gelir. USDCx'i yakan note ve hedef adres herkese açıktır. Yayınlanmış bir note geri alınamaz.",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
+  },
+  "usdcxBurnTestNotice": {
+    "message": "Bu test faucet, Miden'de hedef bir ödeme adresi olmadan USDCx'i yakar. Yakma işlemi note ve hedef adres herkese açıktır. Yayınlanan yakma işlemi notes geri alınamaz.",
+    "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+  },
+  "usdcxBurnPending": {
+    "message": "Yakılmayı bekleyen",
+    "englishSource": "Awaiting burn"
+  },
+  "usdcxBurnConsuming": {
+    "message": "Yakma işlemi",
+    "englishSource": "Burn processing"
+  },
+  "usdcxBurnConfirmed": {
+    "message": "Yakma işlemi onaylandı",
+    "englishSource": "Burn confirmed"
+  },
+  "usdcxBurnDiscarded": {
+    "message": "Reddedildi",
+    "englishSource": "Burn rejected"
+  },
+  "usdcxBurnNoteId": {
+    "message": "Note Kimliği",
+    "englishSource": "Note ID"
+  },
+  "usdcxDestinationDomain": {
+    "message": "Hedef etki alanı",
+    "englishSource": "Destination domain"
+  },
+  "usdcxProcessingAttempts": {
+    "message": "İşleme girişimleri",
+    "englishSource": "Processing attempts"
+  },
+  "usdcxLastProcessingError": {
+    "message": "Son işleme hatası",
+    "englishSource": "Last processing error"
+  },
+  "usdcxMinimumBurn": {
+    "message": "Minimum yakma",
+    "englishSource": "Minimum burn"
+  },
+  "usdcxSponsorshipFee": {
+    "message": "MIDEN ile ödenir; buna, faucet tarafından gerçekleştirilen işlemin sponsorluğu da dahildir.",
+    "englishSource": "Paid in MIDEN, including sponsorship of the execution by the faucet"
+  },
+  "usdcxInvalidDestination": {
+    "message": "Bu para çekme işlemi için desteklenen bir ağda geçerli bir adres girin.",
+    "englishSource": "Enter a valid address on a supported network for this withdrawal."
+  },
+  "usdcxUnsupportedFaucet": {
+    "message": "USDCx para çekme işlemleri, yalnızca Miden test ağında yapılandırılmış faucet adresi için kullanılabilir.",
+    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+  },
+  "usdcxInvalidAmount": {
+    "message": "En fazla altı ondalık basamaklı pozitif bir USDCx tutarı girin.",
+    "englishSource": "Enter a positive USDCx amount with at most six decimal places."
+  },
+  "usdcxBelowMinimumBurn": {
+    "message": "Bu tutar, faucet adresinde belirtilen minimum yakma tutarının altındadır.",
+    "englishSource": "The amount is below the faucet's minimum burn amount."
+  },
+  "usdcxIncompatibleBurnScript": {
+    "message": "Cüzdanın yakma komut dosyası, USDCx faucet adresiyle eşleşmemektedir.",
+    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+  },
+  "usdcxFaucetUnavailable": {
+    "message": "USDCx faucet adresindeki yakma politikası okunamıyor. Tekrar denemek için incelemeyi yeniden açın.",
+    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+  },
   "activityFetchingHistoryAndNotes": {
     "message": "İşlem geçmişinizi ve notes adresini alma",
     "englishSource": "Fetching your transaction history and notes"
@@ -69,8 +157,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "Cüzdanınız, tam tutarı onaylamak ve Sepolia’da imzalamak üzere açılacaktır.",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "Cüzdanınız, tam tutarı onaylamak ve kaynak ağda imzalamak için açılacaktır.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "Şunları alırsınız:",
@@ -85,8 +173,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "Cüzdanınız, $tokenSymbol$ adresini onaylamanızı ve Sepolia'da para yatırma işlemini imzalamanızı isteyecektir. Onaylandıktan sonra para Miden'e aktarılacaktır.",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "Cüzdanınız, $tokenSymbol$ adresini onaylamanızı ve kaynak ağdaki para yatırma işlemini imzalamanızı isteyecektir. Onaylandıktan sonra fonlar Miden'e ulaşır.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -4589,8 +4677,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Cüzdanınızdaki talebi onaylayın ve Sepolia onaylayana kadar bu ekranı açık tutun.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "Cüzdanınızda talebi onaylayın ve kaynak ağ bunu onaylarken bu ekranı açık tutun.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
     "message": "Köprü yatırımı başarısız oldu",
@@ -4601,8 +4689,8 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "Sepolia işlemi onaylandı. Köprü aktarımı tamamlandığında fonlarınız Miden'de görünecektir.",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "Kaynak işlem onaylandı. Köprü aktarımı tamamlandığında paranız Miden'de görünecektir.",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Etherscan'da görüntüle",
@@ -4663,6 +4751,168 @@
   "slowRouteLabel": {
     "message": "Yavaş (Agglayer)",
     "englishSource": "Slow (Agglayer)"
+  },
+  "usdcxRouteName": {
+    "message": "USDCx",
+    "englishSource": "USDCx"
+  },
+  "usdcxRouteLabel": {
+    "message": "USDCx (Circle xReserve)",
+    "englishSource": "USDCx (Circle xReserve)"
+  },
+  "usdcxArrival": {
+    "message": "~20 dakika",
+    "englishSource": "~20 min"
+  },
+  "usdcxRouteNotice": {
+    "message": "Circle xReserve, yatırdığınız USDC karşılığında Miden üzerinde 1:1 oranında USDCx basar.",
+    "englishSource": "Circle xReserve mints USDCx on Miden 1:1 for the USDC you deposit."
+  },
+  "usdcxDomainNotRegistered": {
+    "message": "Circle, Miden’e USDCx yatırımlarını henüz etkinleştirmedi. Daha sonra tekrar deneyin.",
+    "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
+  },
+  "usdcxAwaitingAttestation": {
+    "message": "Kaynak işlem onaylandı. Miden'de USDCx basılmadan önce Circle'ın yatırımı onaylamasını bekliyoruz.",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "Blok gezgininde görüntüle",
+    "englishSource": "View on block explorer"
+  },
+  "usdcxAttested": {
+    "message": "Circle, bu yatırımı onayladı. USDCx, kısa süre içinde Miden'de basılacaktır.",
+    "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
+  },
+  "usdcxReceived": {
+    "message": "USDCx, Miden'de basıldı ve cüzdanınıza aktarıldı.",
+    "englishSource": "USDCx was minted on Miden and your wallet received it."
+  },
+  "usdcxExecutorRouteNotice": {
+    "message": "USDC, $source$ adresinde yakılır ve $target$ adresindeki Circle'ın yetkili temsilcisine basılır; bu temsilci de parayı Miden adına xReserve'e yatırır. Circle, tutara ek olarak kendi ücretini alır ve $target$ adresinde transferi gerçekleştirir. Circle transferin bedelini belirleyemezse, siz $target$ adresinde bir imza daha ekleyerek transferi gerçekleştirirsiniz.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "target": {
+        "content": "$4"
+      }
+    }
+  },
+  "usdcxCctpAwaitingAttestation": {
+    "message": "Yakma işlemi onaylandı. $network$ üzerinde gerçekleştirilebilmesi için Circle'ın transferi onaylamasını bekliyoruz.",
+    "englishSource": "The burn is confirmed. Waiting for Circle to attest the transfer before it can be executed on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuteNeeded": {
+    "message": "Circle, transferi onayladı. Miden için USDC'yi xReserve'e yatırmak üzere bunu $network$ üzerinde gerçekleştirin. Bunun için $network$ üzerinde az miktarda gaz gereklidir.",
+    "englishSource": "Circle attested the transfer. Execute it on $network$ to deposit the USDC into xReserve for Miden. This needs a small amount of gas on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxExecuteOnNetwork": {
+    "message": "$network$ üzerinde yürüt",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuting": {
+    "message": "Yürütülüyor…",
+    "englishSource": "Executing…"
+  },
+  "usdcxExecuteSubmitted": {
+    "message": "Transfer, $network$ üzerinde gerçekleştirildi. Miden'de USDCx basılmadan önce Circle'ın yatırımı onaylamasını bekliyoruz.",
+    "englishSource": "The transfer was executed on $network$. Waiting for Circle to attest the deposit before USDCx is minted on Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardingPending": {
+    "message": "Yakma işlemi onaylandı. Circle, transferi onaylar ve $network$ üzerinde gerçekleştirir; bu işlem sonucunda USDC, Miden adına xReserve'e yatırılır.",
+    "englishSource": "The burn is confirmed. Circle attests the transfer and executes it on $network$, which deposits the USDC into xReserve for Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardFee": {
+    "message": "$fee$ USDC Circle ücreti",
+    "englishSource": "$fee$ USDC Circle fee",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxCircleFee": {
+    "message": "Circle ücreti",
+    "englishSource": "Circle fee"
+  },
+  "usdcxProgress": {
+    "message": "İlerleme",
+    "englishSource": "Progress"
+  },
+  "usdcxStepDeposited": {
+    "message": "$network$'a yatırıldı",
+    "englishSource": "Deposited on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurned": {
+    "message": "$network$ üzerinde yakıldı",
+    "englishSource": "Burned on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurnAttested": {
+    "message": "Circle, yakma işlemini doğruladı",
+    "englishSource": "Circle attested the burn"
+  },
+  "usdcxStepCircleExecutes": {
+    "message": "Circle, $network$ üzerinde çalışır",
+    "englishSource": "Circle executes on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepUserExecutes": {
+    "message": "$network$ üzerinde yürüt",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepDepositAttested": {
+    "message": "Circle, yatırımı onayladı",
+    "englishSource": "Circle attested the deposit"
+  },
+  "usdcxStepMinted": {
+    "message": "Miden'de basılan USDCx",
+    "englishSource": "USDCx minted on Miden"
   },
   "bridgeRowTitle": {
     "message": "Köprü $from$ → $to$",
@@ -5108,8 +5358,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "Bu köprü, Ethereum Sepolia üzerinde çalışır. Gerçek fon içeren bir cüzdanı bağlamayınız. Yeni bir cüzdan oluşturun ve içine yalnızca Sepolia ETH yatırın.",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "Bu köprü, USDC için Arc Testnet veya Ethereum Sepolia'yı, ETH için ise Ethereum Sepolia'yı kullanır. Gerçek para içeren bir cüzdanı bağlamayın. Yeni bir cüzdan oluşturun ve içine yalnızca test token'ları yükleyin.",
+    "englishSource": "This bridge uses Arc Testnet or Ethereum Sepolia for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "Cüzdanın geliştirilmesine yardımcı olun",
@@ -5340,8 +5590,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "Bu köprü, Ethereum Sepolia test tokenlerini Miden’e aktarır. Asla Ethereum ana ağı veya başka herhangi bir gerçek ağdan köprü kurmayın.",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "Bu köprü, Arc Testnet veya Ethereum Sepolia USDC'yi ya da Ethereum Sepolia ETH'yi Miden'e taşır. Asla ana ağdan veya başka herhangi bir gerçek ağdan köprüleme yapmayın.",
+    "englishSource": "This bridge moves Arc Testnet or Ethereum Sepolia USDC, or Ethereum Sepolia ETH, to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "Gizli transferler: $count$",

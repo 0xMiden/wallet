@@ -9,9 +9,12 @@ import { BridgeDeposit } from './BridgeDeposit';
 // The network banner now tops this screen, so the wallet names the chain on every surface that
 // commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
 // stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
+// The network the USDCx route reads: on testnet that route keeps the entry open on its own.
+let mockEffectiveNetwork = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getTestNetworkNameKey: () => 'testnet'
+  getTestNetworkNameKey: () => 'testnet',
+  getEffectiveNetworkName: () => mockEffectiveNetwork
 }));
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
 
@@ -94,6 +97,7 @@ describe('BridgeDeposit (#875)', () => {
   beforeEach(() => {
     mockConnection = { address: undefined, connected: false };
     mockBridgeIn = { state: 'available' };
+    mockEffectiveNetwork = 'testnet';
     mockNavigate.mockClear();
   });
 
@@ -132,12 +136,24 @@ describe('BridgeDeposit (#875)', () => {
     expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
   });
 
+  // Off testnet there is no USDCx route, so the Fast and Slow routes alone decide.
   it('greys out Open wallet under the notice while neither bridge-in route can start', () => {
+    mockEffectiveNetwork = 'devnet';
     mockBridgeIn = { state: 'unavailable', reason: 'not-deployed', detail: 'l1Bridge has no code' };
     render(<BridgeDeposit />);
 
     expect(screen.getByRole('button', { name: 'openWallet' })).toBeDisabled();
     expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('bridgeFeatureUnavailableTitle');
+  });
+
+  // The USDCx route reads no bridge config, so on testnet it keeps the entry open and holds no fast poll.
+  it('keeps Open wallet enabled on testnet while the Fast and Slow routes cannot start', () => {
+    mockBridgeIn = { state: 'unavailable', reason: 'not-deployed', detail: 'l1Bridge has no code' };
+    render(<BridgeDeposit />);
+
+    expect(screen.getByRole('button', { name: 'openWallet' })).toBeEnabled();
+    expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
+    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn'], { hold: false });
   });
 
   // The connected branch hands the page to the deposit screen, which holds for its own greyed-out routes.
@@ -146,6 +162,7 @@ describe('BridgeDeposit (#875)', () => {
     ['once a wallet is connected', true, false]
   ])('asks for the fast-poll hold only where it draws the notice: %s', (_when, connected, hold) => {
     mockConnection = connected ? { address: '0xabc', connected: true } : { address: undefined, connected: false };
+    mockEffectiveNetwork = 'devnet';
     mockBridgeIn = { state: 'unavailable', reason: 'not-deployed', detail: 'l1Bridge has no code' };
 
     render(<BridgeDeposit />);

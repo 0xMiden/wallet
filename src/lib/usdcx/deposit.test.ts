@@ -1,0 +1,199 @@
+import { USDCX_DEPOSIT_HOOK_DATA, USDCX_DEPOSIT_MAX_FEE, USDCX_REMOTE_DOMAIN, XRESERVE_ADDRESS } from './constant';
+import {
+  buildDepositToRemoteArgs,
+  isUsdcxDomainNotRegisteredError,
+  runUsdcxDeposit,
+  UsdcxDepositDeps,
+  UsdcxDomainNotRegisteredError
+} from './deposit';
+
+jest.mock('lib/miden/activity', () => ({
+  updateBridgedReceivePhase: jest.fn()
+}));
+
+const RECIPIENT = '0x00000000000000000000000000000000b64e1827414584510723cad8e145a400' as const;
+const ARC_TESTNET_ID = 5042002;
+const SEPOLIA_ID = 11155111;
+const APPROVE_HASH = `0x${'1'.repeat(64)}` as const;
+const DEPOSIT_HASH = `0x${'2'.repeat(64)}` as const;
+
+/** Every dependency records into one `calls` log so the order can be asserted. */
+function makeDeps(overrides: Partial<UsdcxDepositDeps> = {}) {
+  const calls: string[] = [];
+  const deps: UsdcxDepositDeps = {
+    sourceChainId: ARC_TESTNET_ID,
+    signer: {
+      approve: jest.fn(async () => {
+        calls.push('approve');
+        return APPROVE_HASH;
+      }),
+      depositToRemote: jest.fn(async () => {
+        calls.push('depositToRemote');
+        return DEPOSIT_HASH;
+      })
+    },
+    isRemoteDomainRegistered: jest.fn(async () => {
+      calls.push('isRemoteDomainRegistered');
+      return true;
+    }),
+    readAllowance: jest.fn(async () => {
+      calls.push('readAllowance');
+      return 0n;
+    }),
+    waitForReceipt: jest.fn(async (hash: string) => {
+      calls.push(`receipt:${hash === APPROVE_HASH ? 'approve' : 'deposit'}`);
+    }),
+    updatePhase: jest.fn(async (_id: string, phase: string) => {
+      calls.push(`phase:${phase}`);
+    }),
+    ...overrides
+  };
+  return { deps, calls };
+}
+
+describe('buildDepositToRemoteArgs', () => {
+  it('scales the amount to USDC base units and fixes the other parameters', () => {
+    expect(buildDepositToRemoteArgs('1.5', RECIPIENT, ARC_TESTNET_ID)).toEqual([
+      1_500_000n,
+      10007,
+      RECIPIENT,
+      '0x3600000000000000000000000000000000000000',
+      USDCX_DEPOSIT_MAX_FEE,
+      USDCX_DEPOSIT_HOOK_DATA
+    ]);
+  });
+
+  it('names the USDC of the source chain as the local token', () => {
+    expect(buildDepositToRemoteArgs('1', RECIPIENT, SEPOLIA_ID)[3]).toBe('0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238');
+  });
+
+  it('refuses a chain with no xReserve', () => {
+    expect(() => buildDepositToRemoteArgs('1', RECIPIENT, 84532)).toThrow('no local xReserve');
+  });
+
+  it('trims the amount', () => {
+    expect(buildDepositToRemoteArgs(' 2 ', RECIPIENT, ARC_TESTNET_ID)[0]).toBe(2_000_000n);
+  });
+});
+
+describe('runUsdcxDeposit', () => {
+  it('runs approve, deposit and the phase writes in order', async () => {
+    const { deps, calls } = makeDeps();
+
+    await expect(runUsdcxDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(DEPOSIT_HASH);
+
+    expect(calls).toEqual([
+      'isRemoteDomainRegistered',
+      'readAllowance',
+      'approve',
+      'receipt:approve',
+      'depositToRemote',
+      'phase:submitting',
+      'receipt:deposit',
+      'phase:delivering'
+    ]);
+    expect(deps.signer.approve).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(ARC_TESTNET_ID), 1_500_000n);
+    expect(deps.signer.depositToRemote).toHaveBeenCalledWith(
+      buildDepositToRemoteArgs('1.5', RECIPIENT, ARC_TESTNET_ID)
+    );
+    expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', { evmTxHash: DEPOSIT_HASH });
+    expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'delivering', { evmTxHash: DEPOSIT_HASH });
+  });
+
+  it('reads the allowance xReserve has', async () => {
+    const { deps } = makeDeps();
+
+    await runUsdcxDeposit('row-1', '1', RECIPIENT, deps);
+
+    expect(deps.readAllowance).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(ARC_TESTNET_ID));
+  });
+
+  it('takes the xReserve and USDC of the chain the deps name', async () => {
+    const { deps } = makeDeps({ sourceChainId: SEPOLIA_ID });
+
+    await runUsdcxDeposit('row-1', '1', RECIPIENT, deps);
+
+    expect(deps.readAllowance).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(SEPOLIA_ID));
+    expect(deps.signer.depositToRemote).toHaveBeenCalledWith(buildDepositToRemoteArgs('1', RECIPIENT, SEPOLIA_ID));
+  });
+
+  // 1.5 USDC is 1_500_000 base units: an allowance equal to it, or more than it, covers the deposit.
+  it.each([1_500_000n, 5_000_000n])('skips the approval when the allowance is %s', async allowance => {
+    const { deps, calls } = makeDeps({ readAllowance: jest.fn(async () => allowance) });
+
+    await expect(runUsdcxDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(DEPOSIT_HASH);
+
+    expect(deps.signer.approve).not.toHaveBeenCalled();
+    expect(calls).toEqual([
+      'isRemoteDomainRegistered',
+      'depositToRemote',
+      'phase:submitting',
+      'receipt:deposit',
+      'phase:delivering'
+    ]);
+  });
+
+  it('approves the full amount when the allowance is less than the deposit', async () => {
+    const { deps } = makeDeps({ readAllowance: jest.fn(async () => 1_499_999n) });
+
+    await runUsdcxDeposit('row-1', '1.5', RECIPIENT, deps);
+
+    expect(deps.signer.approve).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(ARC_TESTNET_ID), 1_500_000n);
+  });
+
+  it('checks the remote domain with the configured value', async () => {
+    const { deps } = makeDeps();
+
+    await runUsdcxDeposit('row-1', '1', RECIPIENT, deps);
+
+    expect(deps.isRemoteDomainRegistered).toHaveBeenCalledWith(USDCX_REMOTE_DOMAIN);
+  });
+
+  // xReserve reverts a deposit to an unregistered domain; failing
+  // before the approve means no gas is spent and no wallet prompt is shown.
+  it('fails before any wallet prompt when the domain is not registered', async () => {
+    const { deps } = makeDeps({ isRemoteDomainRegistered: jest.fn(async () => false) });
+
+    const error: unknown = await runUsdcxDeposit('row-1', '1', RECIPIENT, deps).catch(caught => caught);
+
+    expect(error).toBeInstanceOf(UsdcxDomainNotRegisteredError);
+    expect(isUsdcxDomainNotRegisteredError(error)).toBe(true);
+    expect(error).toMatchObject({ remoteDomain: USDCX_REMOTE_DOMAIN });
+    expect(deps.signer.approve).not.toHaveBeenCalled();
+    expect(deps.signer.depositToRemote).not.toHaveBeenCalled();
+    expect(deps.updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('propagates a reverted deposit and leaves the row in submitting', async () => {
+    const { deps } = makeDeps({
+      waitForReceipt: jest.fn(async (hash: string) => {
+        if (hash === DEPOSIT_HASH) throw new Error('Transaction reverted');
+      })
+    });
+
+    await expect(runUsdcxDeposit('row-1', '1', RECIPIENT, deps)).rejects.toThrow('Transaction reverted');
+
+    expect(deps.updatePhase).toHaveBeenCalledTimes(1);
+    expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', { evmTxHash: DEPOSIT_HASH });
+  });
+
+  it('does not deposit when the approval fails', async () => {
+    const { deps } = makeDeps({
+      signer: {
+        approve: jest.fn(async () => {
+          throw new Error('User rejected');
+        }),
+        depositToRemote: jest.fn()
+      }
+    });
+
+    await expect(runUsdcxDeposit('row-1', '1', RECIPIENT, deps)).rejects.toThrow('User rejected');
+
+    expect(deps.signer.depositToRemote).not.toHaveBeenCalled();
+    expect(deps.updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('recognises only its own error class', () => {
+    expect(isUsdcxDomainNotRegisteredError(new Error('other'))).toBe(false);
+  });
+});

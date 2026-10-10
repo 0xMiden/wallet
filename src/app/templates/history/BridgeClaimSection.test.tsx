@@ -85,7 +85,7 @@ jest.mock('lib/woozie', () => ({ navigate: (...a: unknown[]) => mockNavigate(...
 jest.mock('lib/platform', () => ({ isExtension: () => false }));
 jest.mock('lib/settings/helpers', () => ({ isDelegateProofEnabled: () => false }));
 jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
-jest.mock('./transactionUtils', () => ({}));
+jest.mock('./transactionUtils', () => jest.requireActual('./transactionUtils'));
 
 jest.mock('components/ui/Button', () => ({
   Button: ({
@@ -115,7 +115,7 @@ jest.mock('./DetailSection', () => ({
   DetailSection: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
 }));
 jest.mock('./TransactionStatus', () => ({
-  ExternalLinkValue: () => <span />
+  ExternalLinkValue: ({ href }: { href?: string }) => <a href={href}>explorer</a>
 }));
 
 const FAILED = 3;
@@ -378,6 +378,96 @@ describe('BridgeClaimSection', () => {
       });
       expect(screen.getByText(/t:notConfirmed/)).toBeInTheDocument();
       expect(await screen.findByText(/t:confirmed/)).toBeInTheDocument();
+    });
+  });
+
+  it.each([
+    [5042002, 'Arc Testnet', 'https://explorer.testnet.arc.io'],
+    [11155111, 'Sepolia', 'https://sepolia.etherscan.io'],
+    [undefined, 'Sepolia', 'https://sepolia.etherscan.io']
+  ])('uses destination network %s for the name and recipient link', (network, name, explorer) => {
+    renderSection({ entry: entry({ bridgeProvider: 'usdcx', bridgeDestinationNetwork: network }) });
+
+    expect(screen.getByText(`t:destinationNetwork${name}`)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'explorer' })).toHaveAttribute('href', `${explorer}/address/0xdead`);
+  });
+
+  it('links the destination transaction to the destination explorer', () => {
+    const hash = `0x${'a'.repeat(64)}`;
+    render(
+      <BridgeClaimSection
+        entry={entry({ bridgeProvider: 'usdcx', bridgeDestinationNetwork: 5042002 })}
+        restoredFromBackup={false}
+        destinationTxHash={hash}
+      />
+    );
+    expect(screen.getAllByRole('link', { name: 'explorer' }).map(link => link.getAttribute('href'))).toContain(
+      `https://explorer.testnet.arc.io/tx/${hash}`
+    );
+  });
+
+  describe('USDCx faucet consumption', () => {
+    it('shows burn confirmation without claim, reclaim, or destination settlement actions', () => {
+      renderSection({
+        entry: entry({
+          txType: 'bridged-send',
+          bridgeProvider: 'usdcx',
+          status: 2,
+          usdcxBurn: { noteId: 'burn-note', destinationDomain: 0, phase: 'confirmed' }
+        })
+      });
+      expect(screen.getByText('t:usdcxBurnConfirmed')).toBeInTheDocument();
+      expect(screen.getByText('t:usdcxWithdrawalNotice')).toBeInTheDocument();
+      expect(screen.queryByText('t:claimAsset')).not.toBeInTheDocument();
+      expect(screen.queryByText('t:connectEvmWallet')).not.toBeInTheDocument();
+      expect(screen.queryByText('t:reclaimFunds')).not.toBeInTheDocument();
+      expect(mockGetCurrentMidenBlock).not.toHaveBeenCalled();
+    });
+
+    it('shows Confirmed after the balance check and keeps the burn result in the details', () => {
+      renderSection({
+        entry: entry({
+          txType: 'bridged-send',
+          bridgeProvider: 'usdcx',
+          status: 2,
+          usdcxBurn: {
+            noteId: 'burn-note',
+            destinationDomain: 26,
+            phase: 'confirmed',
+            destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' }
+          }
+        })
+      });
+      expect(screen.getByText('t:confirmed')).toBeInTheDocument();
+      expect(screen.getByText('t:usdcxBurnTitlet:usdcxBurnConfirmed')).toBeInTheDocument();
+    });
+
+    it('keeps a sender-completed row pending until the faucet consumes its note', () => {
+      renderSection({
+        entry: entry({
+          txType: 'bridged-send',
+          bridgeProvider: 'usdcx',
+          status: 2,
+          usdcxBurn: { noteId: 'burn-note', destinationDomain: 0, phase: 'pending' }
+        })
+      });
+      expect(screen.getByText('t:usdcxBurnPending')).toBeInTheDocument();
+      expect(screen.queryByText('t:usdcxBurnConfirmed')).not.toBeInTheDocument();
+    });
+
+    it.each([
+      { phase: 'consuming' as const, shown: true },
+      { phase: 'confirmed' as const, shown: false }
+    ])('shows the last processing error of a $phase burn: $shown', ({ phase, shown }) => {
+      renderSection({
+        entry: entry({
+          txType: 'bridged-send',
+          bridgeProvider: 'usdcx',
+          status: 2,
+          usdcxBurn: { noteId: 'burn-note', destinationDomain: 6, phase, attemptCount: 1, lastError: 'tx expired' }
+        })
+      });
+      expect(screen.queryAllByText('tx expired')).toHaveLength(shown ? 1 : 0);
     });
   });
 

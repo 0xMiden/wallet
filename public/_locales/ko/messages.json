@@ -1,4 +1,92 @@
 {
+  "usdcxBurnTitle": {
+    "message": "USDCx 소각",
+    "englishSource": "Burn USDCx"
+  },
+  "usdcxBurnSubmitted": {
+    "message": "소각 요청 제출됨",
+    "englishSource": "Burn submitted"
+  },
+  "usdcxMidenFees": {
+    "message": "MIDEN 수수료",
+    "englishSource": "MIDEN fees"
+  },
+  "usdcxBurnOnly": {
+    "message": "소각 전용",
+    "englishSource": "Burn only"
+  },
+  "usdcxWithdrawalNotice": {
+    "message": "'소각 확인(Burn confirmed)'은 Miden에서 USDCx가 소각되었음을 의미합니다. '확인(Confirmed)'은 수신처의 USDC 잔액이 증가했음을 의미합니다. USDCx를 소각하는 note와 수신처 주소는 공개됩니다. 공개된 note는 되찾을 수 없습니다.",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
+  },
+  "usdcxBurnTestNotice": {
+    "message": "이 테스트 faucet는 Miden에서 수취처 없이 USDCx를 소각합니다. 소각 내역 note 및 수취 주소는 공개되어 있습니다. 게시된 소각 내역 notes은 되찾을 수 없습니다.",
+    "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+  },
+  "usdcxBurnPending": {
+    "message": "소각 대기 중",
+    "englishSource": "Awaiting burn"
+  },
+  "usdcxBurnConsuming": {
+    "message": "소각 처리",
+    "englishSource": "Burn processing"
+  },
+  "usdcxBurnConfirmed": {
+    "message": "소각 확인됨",
+    "englishSource": "Burn confirmed"
+  },
+  "usdcxBurnDiscarded": {
+    "message": "거부됨",
+    "englishSource": "Burn rejected"
+  },
+  "usdcxBurnNoteId": {
+    "message": "Note ID",
+    "englishSource": "Note ID"
+  },
+  "usdcxDestinationDomain": {
+    "message": "목적지 도메인",
+    "englishSource": "Destination domain"
+  },
+  "usdcxProcessingAttempts": {
+    "message": "처리 시도",
+    "englishSource": "Processing attempts"
+  },
+  "usdcxLastProcessingError": {
+    "message": "마지막 처리 오류",
+    "englishSource": "Last processing error"
+  },
+  "usdcxMinimumBurn": {
+    "message": "최소 소각량",
+    "englishSource": "Minimum burn"
+  },
+  "usdcxSponsorshipFee": {
+    "message": "MIDEN으로 지급되며, 여기에는 faucet을 통한 실행 후원도 포함됩니다.",
+    "englishSource": "Paid in MIDEN, including sponsorship of the execution by the faucet"
+  },
+  "usdcxInvalidDestination": {
+    "message": "이 출금을 위해 지원되는 네트워크상의 유효한 주소를 입력하십시오.",
+    "englishSource": "Enter a valid address on a supported network for this withdrawal."
+  },
+  "usdcxUnsupportedFaucet": {
+    "message": "USDCx 인출은 Miden 테스트넷에서 설정된 faucet에서만 가능합니다.",
+    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+  },
+  "usdcxInvalidAmount": {
+    "message": "소수점 이하 최대 6자리까지의 양수 USDCx 금액을 입력하십시오.",
+    "englishSource": "Enter a positive USDCx amount with at most six decimal places."
+  },
+  "usdcxBelowMinimumBurn": {
+    "message": "해당 금액은 faucet에서 정한 최소 소각 금액 미달입니다.",
+    "englishSource": "The amount is below the faucet's minimum burn amount."
+  },
+  "usdcxIncompatibleBurnScript": {
+    "message": "이 지갑의 소각 스크립트는 USDCx의 faucet와 일치하지 않습니다.",
+    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+  },
+  "usdcxFaucetUnavailable": {
+    "message": "USDCx faucet의 소각 정책을 읽을 수 없습니다. 재검토를 요청하여 다시 시도해 주세요.",
+    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+  },
   "activityFetchingHistoryAndNotes": {
     "message": "거래 내역 조회 및 notes",
     "englishSource": "Fetching your transaction history and notes"
@@ -69,8 +157,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "지갑이 열리면 정확한 금액을 승인하고 Sepolia에서 서명하게 됩니다.",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "지갑이 열리면 정확한 금액을 승인하고 소스 네트워크에서 서명하게 됩니다.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "다음과 같은 내용을 받게 됩니다.",
@@ -85,8 +173,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "지갑에서 $tokenSymbol$에 대한 승인을 요청하고 Sepolia에서 입금에 서명하도록 안내할 것입니다. 확인이 완료되면 자금이 Miden에 입금됩니다.",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "지갑에서 $tokenSymbol$에 대한 승인을 요청하고, 소스 네트워크에서 입금에 서명하도록 할 것입니다. 확인이 완료되면 자금이 Miden에 입금됩니다.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -4589,8 +4677,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "지갑에서 요청을 승인하고, Sepolia에서 확인이 완료될 때까지 이 화면을 열어 두세요.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "지갑에서 요청을 승인하고, 소스 네트워크에서 확인이 완료될 때까지 이 화면을 열어 두십시오.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
     "message": "브리지 입금 실패",
@@ -4601,8 +4689,8 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "Sepolia 거래가 확정되었습니다. 브리지 전송이 완료되면 귀하의 자금이 Miden에 표시될 것입니다.",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "원본 거래가 확인되었습니다. 브리지 전송이 완료되면 Miden에 자금이 표시될 것입니다.",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Etherscan에서 보기",
@@ -4663,6 +4751,168 @@
   "slowRouteLabel": {
     "message": "슬로우 (애글레이어)",
     "englishSource": "Slow (Agglayer)"
+  },
+  "usdcxRouteName": {
+    "message": "USDCx",
+    "englishSource": "USDCx"
+  },
+  "usdcxRouteLabel": {
+    "message": "USDCx (Circle xReserve)",
+    "englishSource": "USDCx (Circle xReserve)"
+  },
+  "usdcxArrival": {
+    "message": "~20분",
+    "englishSource": "~20 min"
+  },
+  "usdcxRouteNotice": {
+    "message": "Circle xReserve는 사용자가 예치한 USDC에 대해 Miden에서 1:1 비율로 USDCx를 발행합니다.",
+    "englishSource": "Circle xReserve mints USDCx on Miden 1:1 for the USDC you deposit."
+  },
+  "usdcxDomainNotRegistered": {
+    "message": "서클은 아직 Miden에 대한 USDCx 입금을 지원하지 않습니다. 나중에 다시 시도해 주세요.",
+    "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
+  },
+  "usdcxAwaitingAttestation": {
+    "message": "원본 거래가 확인되었습니다. Miden에서 USDCx가 발행되기 전에 Circle이 입금을 인증할 때까지 대기 중입니다.",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "블록 익스플로러에서 보기",
+    "englishSource": "View on block explorer"
+  },
+  "usdcxAttested": {
+    "message": "Circle이 예치금을 인증했습니다. USDCx는 곧 Miden에서 발행될 예정입니다.",
+    "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
+  },
+  "usdcxReceived": {
+    "message": "USDCx가 Miden에서 발행되었으며, 귀하의 지갑으로 입금되었습니다.",
+    "englishSource": "USDCx was minted on Miden and your wallet received it."
+  },
+  "usdcxExecutorRouteNotice": {
+    "message": "USDC는 $source$에서 소각되고, $target$에서 서클(Circle)의 집행자에게 발행되며, 서클은 이를 미덴(Miden)을 위한 xReserve에 예치합니다. 서클은 금액 외에 수수료를 부과하며, $target$에서 이체를 실행합니다. 서클이 이체 가격을 책정할 수 없는 경우, 사용자는 $target$에서 서명을 한 번 더 추가하여 이체를 실행합니다.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "target": {
+        "content": "$4"
+      }
+    }
+  },
+  "usdcxCctpAwaitingAttestation": {
+    "message": "소각이 확인되었습니다. $network$에서 이체가 실행되기 전에 Circle이 이체를 인증할 때까지 대기 중입니다.",
+    "englishSource": "The burn is confirmed. Waiting for Circle to attest the transfer before it can be executed on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuteNeeded": {
+    "message": "Circle이 이 이체를 인증했습니다. $network$에서 이 거래를 실행하여 Miden을 위한 xReserve에 USDC를 입금하십시오. 이를 위해서는 $network$에서 소량의 가스 비용이 필요합니다.",
+    "englishSource": "Circle attested the transfer. Execute it on $network$ to deposit the USDC into xReserve for Miden. This needs a small amount of gas on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxExecuteOnNetwork": {
+    "message": "$network$에서 실행",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuting": {
+    "message": "실행 중…",
+    "englishSource": "Executing…"
+  },
+  "usdcxExecuteSubmitted": {
+    "message": "이체는 $network$에서 실행되었습니다. Miden에서 USDCx가 발행되기 전에 Circle이 입금을 인증할 때까지 대기 중입니다.",
+    "englishSource": "The transfer was executed on $network$. Waiting for Circle to attest the deposit before USDCx is minted on Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardingPending": {
+    "message": "소각이 확인되었습니다. Circle은 이 이체를 인증하고 $network$에서 이를 실행하며, 이를 통해 USDC가 Miden을 위해 xReserve에 입금됩니다.",
+    "englishSource": "The burn is confirmed. Circle attests the transfer and executes it on $network$, which deposits the USDC into xReserve for Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardFee": {
+    "message": "$fee$ USDC Circle 수수료",
+    "englishSource": "$fee$ USDC Circle fee",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxCircleFee": {
+    "message": "서클 수수료",
+    "englishSource": "Circle fee"
+  },
+  "usdcxProgress": {
+    "message": "진행 상황",
+    "englishSource": "Progress"
+  },
+  "usdcxStepDeposited": {
+    "message": "$network$에 입금됨",
+    "englishSource": "Deposited on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurned": {
+    "message": "$network$에서 소각됨",
+    "englishSource": "Burned on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurnAttested": {
+    "message": "Circle은 소각을 확인했습니다",
+    "englishSource": "Circle attested the burn"
+  },
+  "usdcxStepCircleExecutes": {
+    "message": "Circle은 $network$에서 실행됩니다.",
+    "englishSource": "Circle executes on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepUserExecutes": {
+    "message": "$network$에서 실행",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepDepositAttested": {
+    "message": "서클은 입금을 확인했습니다",
+    "englishSource": "Circle attested the deposit"
+  },
+  "usdcxStepMinted": {
+    "message": "Miden에서 발행된 USDCx",
+    "englishSource": "USDCx minted on Miden"
   },
   "bridgeRowTitle": {
     "message": "브리지 $from$ → $to$",
@@ -5108,8 +5358,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "이 브리지는 이더리움 세폴리아(Sepolia)에서 운영됩니다. 실제 자금이 들어 있는 지갑은 연결하지 마십시오. 새로운 지갑을 생성하고 세폴리아 ETH로만 자금을 입금하십시오.",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "이 브리지는 USDC의 경우 Arc 테스트넷 또는 이더리움 세폴리아를, ETH의 경우 이더리움 세폴리아를 사용합니다. 실제 자금이 들어 있는 지갑은 연결하지 마십시오. 새로운 지갑을 생성하고 테스트 토큰만 입금하십시오.",
+    "englishSource": "This bridge uses Arc Testnet or Ethereum Sepolia for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "월렛 개선에 기여해 주세요",
@@ -5340,8 +5590,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "이 브리지는 이더리움 세폴리아 테스트 토큰을 Miden으로 이동시킵니다. 이더리움 메인넷이나 그 밖의 실제 네트워크에서는 절대 브리지를 사용하지 마십시오.",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "이 브리지는 Arc 테스트넷 또는 이더리움 세폴리아의 USDC, 혹은 이더리움 세폴리아의 ETH를 Miden으로 이동시킵니다. 메인넷이나 그 밖의 실제 네트워크에서는 절대 브리지를 수행하지 마십시오.",
+    "englishSource": "This bridge moves Arc Testnet or Ethereum Sepolia USDC, or Ethereum Sepolia ETH, to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "숨겨진 전송: $count$",

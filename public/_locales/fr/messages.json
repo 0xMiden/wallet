@@ -1,4 +1,92 @@
 {
+  "usdcxBurnTitle": {
+    "message": "Brûler des USDCx",
+    "englishSource": "Burn USDCx"
+  },
+  "usdcxBurnSubmitted": {
+    "message": "Demande de destruction soumise",
+    "englishSource": "Burn submitted"
+  },
+  "usdcxMidenFees": {
+    "message": "Frais MIDEN",
+    "englishSource": "MIDEN fees"
+  },
+  "usdcxBurnOnly": {
+    "message": "Brûler uniquement",
+    "englishSource": "Burn only"
+  },
+  "usdcxWithdrawalNotice": {
+    "message": "« Burn confirmed » signifie que des USDCx ont été brûlés sur Miden. « Confirmed » signifie que le solde USDC de la destination a augmenté. La note qui brûle les USDCx et l’adresse de destination sont publiques. Une note publiée ne peut pas être récupérée.",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
+  },
+  "usdcxBurnTestNotice": {
+    "message": "Ce test faucet brûle des USDCx sur Miden sans versement vers une destination. L’note de la destruction et l’adresse de destination sont publiques. Les notess de destruction publiées ne peuvent pas être récupérées.",
+    "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+  },
+  "usdcxBurnPending": {
+    "message": "En attente de destruction",
+    "englishSource": "Awaiting burn"
+  },
+  "usdcxBurnConsuming": {
+    "message": "Traitement de la destruction",
+    "englishSource": "Burn processing"
+  },
+  "usdcxBurnConfirmed": {
+    "message": "Brûlage confirmé",
+    "englishSource": "Burn confirmed"
+  },
+  "usdcxBurnDiscarded": {
+    "message": "Brûler : rejeté",
+    "englishSource": "Burn rejected"
+  },
+  "usdcxBurnNoteId": {
+    "message": "ID de la Note",
+    "englishSource": "Note ID"
+  },
+  "usdcxDestinationDomain": {
+    "message": "Domaine de destination",
+    "englishSource": "Destination domain"
+  },
+  "usdcxProcessingAttempts": {
+    "message": "Tentatives de traitement",
+    "englishSource": "Processing attempts"
+  },
+  "usdcxLastProcessingError": {
+    "message": "Dernière erreur de traitement",
+    "englishSource": "Last processing error"
+  },
+  "usdcxMinimumBurn": {
+    "message": "Quantité minimale à brûler",
+    "englishSource": "Minimum burn"
+  },
+  "usdcxSponsorshipFee": {
+    "message": "Payé en MIDEN, y compris le parrainage de l’exécution par le «faucet »",
+    "englishSource": "Paid in MIDEN, including sponsorship of the execution by the faucet"
+  },
+  "usdcxInvalidDestination": {
+    "message": "Saisissez une adresse valide sur un réseau pris en charge pour ce retrait.",
+    "englishSource": "Enter a valid address on a supported network for this withdrawal."
+  },
+  "usdcxUnsupportedFaucet": {
+    "message": "Les retraits d’USDCx ne sont disponibles que pour le « faucet » configuré sur le testnet Miden.",
+    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+  },
+  "usdcxInvalidAmount": {
+    "message": "Saisissez un montant positif en USDCx avec au maximum six décimales.",
+    "englishSource": "Enter a positive USDCx amount with at most six decimal places."
+  },
+  "usdcxBelowMinimumBurn": {
+    "message": "Le montant est inférieur au montant minimum de « burn » du « faucet ».",
+    "englishSource": "The amount is below the faucet's minimum burn amount."
+  },
+  "usdcxIncompatibleBurnScript": {
+    "message": "Le script de destruction du portefeuille ne correspond pas à la «faucet» USDCx.",
+    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+  },
+  "usdcxFaucetUnavailable": {
+    "message": "Impossible de lire la politique de « burn » de la « faucet » USDCx. Rouvrir la révision pour réessayer.",
+    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+  },
   "activityFetchingHistoryAndNotes": {
     "message": "Récupération de l’historique de vos transactions et de vos «notes »",
     "englishSource": "Fetching your transaction history and notes"
@@ -69,8 +157,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "Votre portefeuille s'ouvrira pour valider le montant exact et signer sur Sepolia.",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "Votre portefeuille s’ouvrira pour approuver le montant exact et signer sur le réseau source.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "Vous recevez",
@@ -85,8 +173,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "Votre portefeuille vous demandera d'approuver l'$tokenSymbol$ et de valider le dépôt sur Sepolia. Les fonds seront crédités sur Miden une fois la confirmation effectuée.",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "Votre portefeuille vous demandera d’approuver $tokenSymbol$ et de signer le dépôt sur le réseau source. Les fonds arrivent sur Miden après confirmation.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -4589,8 +4677,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Validez la demande dans votre portefeuille et laissez cet écran ouvert pendant que Sepolia la confirme.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "Validez la demande dans votre portefeuille et laissez cet écran ouvert pendant que le réseau source la confirme.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
     "message": "Échec du dépôt via le pont",
@@ -4601,8 +4689,8 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "La transaction Sepolia est confirmée. Vos fonds apparaîtront sur Miden une fois le transfert entre chaînes terminé.",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "La transaction source est confirmée. Vos fonds apparaîtront sur Miden une fois la livraison via le pont terminée.",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Consulter sur Etherscan",
@@ -4663,6 +4751,168 @@
   "slowRouteLabel": {
     "message": "Lent (Agglayer)",
     "englishSource": "Slow (Agglayer)"
+  },
+  "usdcxRouteName": {
+    "message": "USDCx",
+    "englishSource": "USDCx"
+  },
+  "usdcxRouteLabel": {
+    "message": "USDCx (Circle xReserve)",
+    "englishSource": "USDCx (Circle xReserve)"
+  },
+  "usdcxArrival": {
+    "message": "~20 min",
+    "englishSource": "~20 min"
+  },
+  "usdcxRouteNotice": {
+    "message": "Circle xReserve émet des USDCx sur Miden à parité 1:1 pour les USDC que vous déposez.",
+    "englishSource": "Circle xReserve mints USDCx on Miden 1:1 for the USDC you deposit."
+  },
+  "usdcxDomainNotRegistered": {
+    "message": "Circle n’a pas encore activé les dépôts en USDCx vers Miden. Veuillez réessayer plus tard.",
+    "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
+  },
+  "usdcxAwaitingAttestation": {
+    "message": "La transaction source est confirmée. En attente que Circle certifie le dépôt avant que l’USDCx ne soit émis sur Miden.",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "Afficher sur l’explorateur de blocs",
+    "englishSource": "View on block explorer"
+  },
+  "usdcxAttested": {
+    "message": "Circle a certifié le dépôt. L’USDCx sera prochainement émis sur Miden.",
+    "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
+  },
+  "usdcxReceived": {
+    "message": "L’USDCx a été émis sur Miden et votre portefeuille l’a reçu.",
+    "englishSource": "USDCx was minted on Miden and your wallet received it."
+  },
+  "usdcxExecutorRouteNotice": {
+    "message": "Les USDC sont « brûlés » sur $source$ et émis au profit de l’exécuteur de Circle sur $target$, qui les dépose dans xReserve pour Miden. Circle prélève ses frais en plus du montant, et Circle exécute le transfert sur $target$. Si Circle ne peut pas fixer le prix du transfert, vous l’exécutez sur $target$ avec une signature supplémentaire.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "target": {
+        "content": "$4"
+      }
+    }
+  },
+  "usdcxCctpAwaitingAttestation": {
+    "message": "La destruction est confirmée. En attente de la validation du transfert par Circle avant qu’il ne puisse être exécuté sur $network$.",
+    "englishSource": "The burn is confirmed. Waiting for Circle to attest the transfer before it can be executed on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuteNeeded": {
+    "message": "Circle a certifié le transfert. Exécutez-le sur $network$ pour déposer les USDC dans xReserve pour Miden. Cela nécessite une petite quantité de gas sur $network$.",
+    "englishSource": "Circle attested the transfer. Execute it on $network$ to deposit the USDC into xReserve for Miden. This needs a small amount of gas on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxExecuteOnNetwork": {
+    "message": "Exécuter sur $network$",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuting": {
+    "message": "Exécution…",
+    "englishSource": "Executing…"
+  },
+  "usdcxExecuteSubmitted": {
+    "message": "Le transfert a été effectué sur $network$. En attente de la validation du dépôt par Circle avant que l’USDCx ne soit émis sur Miden.",
+    "englishSource": "The transfer was executed on $network$. Waiting for Circle to attest the deposit before USDCx is minted on Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardingPending": {
+    "message": "La destruction est confirmée. Circle certifie le transfert et l’exécute sur $network$, qui dépose les USDC dans xReserve pour le compte de Miden.",
+    "englishSource": "The burn is confirmed. Circle attests the transfer and executes it on $network$, which deposits the USDC into xReserve for Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardFee": {
+    "message": "$fee$ Frais Circle pour l’USDC",
+    "englishSource": "$fee$ USDC Circle fee",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxCircleFee": {
+    "message": "Frais Circle",
+    "englishSource": "Circle fee"
+  },
+  "usdcxProgress": {
+    "message": "Progression",
+    "englishSource": "Progress"
+  },
+  "usdcxStepDeposited": {
+    "message": "Déposé sur $network$",
+    "englishSource": "Deposited on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurned": {
+    "message": "Brûlé sur $network$",
+    "englishSource": "Burned on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurnAttested": {
+    "message": "Circle a confirmé la destruction",
+    "englishSource": "Circle attested the burn"
+  },
+  "usdcxStepCircleExecutes": {
+    "message": "Circle s’exécute sur $network$",
+    "englishSource": "Circle executes on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepUserExecutes": {
+    "message": "Exécuter sur $network$",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepDepositAttested": {
+    "message": "Circle a certifié le dépôt",
+    "englishSource": "Circle attested the deposit"
+  },
+  "usdcxStepMinted": {
+    "message": "USDCx émis sur Miden",
+    "englishSource": "USDCx minted on Miden"
   },
   "bridgeRowTitle": {
     "message": "$from$s sur les ponts → $to$",
@@ -5108,8 +5358,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "Ce pont fonctionne sur Ethereum Sepolia. Ne connectez pas de portefeuille contenant de véritables fonds. Créez un nouveau portefeuille et approvisionnez-le uniquement en ETH Sepolia.",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "Ce pont utilise Arc Testnet ou Ethereum Sepolia pour l’USDC et Ethereum Sepolia pour l’ETH. Ne connectez pas de portefeuille contenant des fonds réels. Créez un nouveau portefeuille et alimentez-le uniquement avec des jetons de test.",
+    "englishSource": "This bridge uses Arc Testnet or Ethereum Sepolia for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "Aidez-nous à améliorer Wallet",
@@ -5340,8 +5590,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "Ce pont transfère des jetons de test Ethereum Sepolia vers Miden. N’effectuez jamais de pont depuis le réseau principal d’Ethereum ni depuis aucun autre réseau réel.",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "Ce pont transfère des USDC du réseau de test Arc ou d’Ethereum Sepolia, ou des ETH d’Ethereum Sepolia, vers Miden. N’effectuez jamais de pont depuis le réseau principal (mainnet) ou tout autre réseau réel.",
+    "englishSource": "This bridge moves Arc Testnet or Ethereum Sepolia USDC, or Ethereum Sepolia ETH, to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "Transferts masqués : $count$",
