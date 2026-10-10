@@ -616,3 +616,47 @@ describe('the Guardian injection on a Windows runner', () => {
     }
   });
 });
+
+describe('the web-sdk injection on a Windows runner', () => {
+  it("keeps a Windows RUNNER_TEMP's backslashes in all three file: dependencies", () => {
+    const action = readFileSync(
+      resolve(__dirname, '../../../.github/actions/inject-linked-web-sdk-pr/action.yml'),
+      'utf8'
+    ).split('\n');
+    // The package.json rewrite, from its `cd` to the heredoc's end, dedented as YAML hands it to bash.
+    const start = action.findIndex(line => line.trim() === 'wallet_root="$GITHUB_WORKSPACE"');
+    const end = action.findIndex((line, at) => at > start && line.trim() === 'EOF');
+    expect([start > 0, end > start]).toEqual([true, true]);
+    const script = action
+      .slice(start, end + 1)
+      .map(line => line.replace(/^ {8}/, ''))
+      .join('\n');
+    const dir = mkdtempSync(join(tmpdir(), 'web-sdk-rewrite-'));
+    try {
+      const pinned = { '@miden-sdk/miden-sdk': '0.17.3', '@miden-sdk/react': '0.17.3' };
+      writeFileSync(
+        join(dir, 'package.json'),
+        JSON.stringify({ dependencies: pinned, devDependencies: { '@miden-sdk/vite-plugin': '0.17.0' } })
+      );
+      const result = spawnSync('bash', ['-euo', 'pipefail', '-c', script], {
+        encoding: 'utf8',
+        env: { ...process.env, GITHUB_WORKSPACE: dir, SDK_DIR: 'D:\\a\\_temp/web-sdk-pr' }
+      });
+      expect(result.status).toBe(0);
+      const written: { dependencies: Record<string, string>; devDependencies: Record<string, string> } = JSON.parse(
+        readFileSync(join(dir, 'package.json'), 'utf8')
+      );
+      expect([
+        written.dependencies['@miden-sdk/miden-sdk'],
+        written.dependencies['@miden-sdk/react'],
+        written.devDependencies['@miden-sdk/vite-plugin']
+      ]).toEqual([
+        'file:D:\\a\\_temp/web-sdk-pr/crates/web-client',
+        'file:D:\\a\\_temp/web-sdk-pr/packages/react-sdk',
+        'file:D:\\a\\_temp/web-sdk-pr/packages/vite-plugin'
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

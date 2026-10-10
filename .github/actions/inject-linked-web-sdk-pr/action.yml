@@ -830,13 +830,15 @@ runs:
         echo "::group::Rewrite wallet package.json"
         wallet_root="$GITHUB_WORKSPACE"
         cd "$wallet_root"
-        node <<EOF
+        INJECTED_SDK_DIR="${SDK_DIR}" node <<EOF
         const fs = require('fs');
         const path = require('path');
         const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-        const sdkPath = "${SDK_DIR}/crates/web-client";
-        const reactPath = "${SDK_DIR}/packages/react-sdk";
-        const vitePluginPath = "${SDK_DIR}/packages/vite-plugin";
+        // Read from the environment, not spliced into these literals: the desktop build's Windows leg
+        // has a RUNNER_TEMP like D:\a\_temp, whose backslashes a JS string reads as escapes.
+        const sdkPath = process.env.INJECTED_SDK_DIR + '/crates/web-client';
+        const reactPath = process.env.INJECTED_SDK_DIR + '/packages/react-sdk';
+        const vitePluginPath = process.env.INJECTED_SDK_DIR + '/packages/vite-plugin';
         const targets = {
           '@miden-sdk/miden-sdk': 'file:' + sdkPath,
           '@miden-sdk/react': 'file:' + reactPath,

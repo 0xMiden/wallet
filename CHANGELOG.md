@@ -11,6 +11,7 @@
 
 ### Fixes
 
+- [FIX][ci] A wallet PR's linked Guardian PR provides `@openzeppelin/guardian-client` as well as the multisig client, so a wire field the Guardian PR adds (such as `bound_block_num`) is no longer dropped by the published converter in CI; the linked web-sdk paths survive a Windows runner's backslashes.
 - [FIX][ci] Chrome Guardian E2E gets 90 minutes instead of 60: its 34 tests took 48-55 minutes on green testnet runs, so a slow testnet cancelled the job with every finished test passing.
 - [FIX][ci] An E2E CLI mint whose delegated proof the hosted testnet or devnet prover fails or times out proves its remaining attempts locally, as the CLI's other transactions already do, so a stalled prover no longer fails every suite's funding.
 - [FIX][all] Picking a swap token and quickly tapping the other token pill, or the same one, opens the token picker again; a tap made while the picker was still sliding away opened nothing.
