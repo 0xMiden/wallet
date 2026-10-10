@@ -127,9 +127,7 @@ test.describe('Address Book add-contact sheet', () => {
 
     await steps.step('address_book_lists_both_on_their_networks', async () => {
       await openSettingsDrawer(walletA, 'address-book');
-      // Each row's subtitle leads with its network, then the truncated address. With
-      // Sepolia the only bridge network, a 0x row reads Sepolia even if none was saved,
-      // so this pins what the user sees; AddContactDrawer.test.tsx pins the saved field.
+      // Check that each saved contact shows the network selected in the sheet.
       const midenRow = walletA.page.getByTestId(`address-book-contact-${addressB!}`);
       await expect(midenRow).toContainText(MIDEN_SHEET_CONTACT);
       await expect(midenRow).toContainText('Miden · ');

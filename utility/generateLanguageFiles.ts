@@ -58,7 +58,9 @@ const DEEPL_CONTEXT =
   '(a mnemonic): use the term wallets in that language usually use for it. "Guardian switch" ' +
   '(and "switch" in a sentence about the Guardian) means replacing the account\'s Guardian ' +
   'co-signing service with another one: translate it as a change or replacement of the ' +
-  'Guardian, never as a network or hardware switch, a toggle, a device or a key.';
+  'Guardian, never as a network or hardware switch, a toggle, a device or a key. "Burn" ' +
+  '(and "burned") means destroying tokens so they leave circulation, never imprinting, ' +
+  'recording or setting on fire.';
 
 const root = path.resolve(__dirname, '..');
 // Use en.json as source of truth (flat format), not messages.json (Chrome extension format)

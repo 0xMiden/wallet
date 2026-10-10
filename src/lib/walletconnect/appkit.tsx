@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 
-import { sepolia } from '@reown/appkit/networks';
+import { type AppKitNetwork, arbitrumSepolia, baseSepolia, defineChain, sepolia } from '@reown/appkit/networks';
 import { createAppKit } from '@reown/appkit/react';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -9,12 +9,19 @@ import { WagmiProvider } from 'wagmi';
 import { getThemeSetting } from 'lib/settings/helpers';
 import { resolveTheme } from 'lib/settings/theme';
 
-import { APP_METADATA, WC_PROJECT_ID } from './config';
+import { APP_METADATA, ARC_TESTNET, WC_PROJECT_ID } from './config';
 
 export type AppKitInstance = ReturnType<typeof createAppKit>;
 type AppKitThemeMode = 'light' | 'dark';
 
-const networks = [sepolia];
+const arcTestnet = defineChain({
+  ...ARC_TESTNET,
+  chainNamespace: 'eip155',
+  caipNetworkId: `eip155:${ARC_TESTNET.id}`
+});
+// Every chain of `SUPPORTED_CHAINS`: wagmi's `switchChain` reaches only a network listed here. Sepolia stays first
+// and the default, as in `SUPPORTED_CHAINS`: the Fast and Slow routes and the Agglayer claim settle there.
+const networks: [AppKitNetwork, ...AppKitNetwork[]] = [sepolia, arcTestnet, baseSepolia, arbitrumSepolia];
 const appKitThemeVariables = {
   '--apkt-font-family': 'Inter, sans-serif',
   '--apkt-accent': '#E77537',
@@ -49,7 +56,8 @@ const queryClient = new QueryClient();
 
 export const modal = createAppKit({
   adapters: [wagmiAdapter],
-  networks: [sepolia],
+  networks,
+  defaultNetwork: sepolia,
   projectId: WC_PROJECT_ID,
   metadata: APP_METADATA,
   themeMode: getInitialAppKitThemeMode(),

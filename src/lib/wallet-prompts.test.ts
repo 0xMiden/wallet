@@ -53,6 +53,13 @@ import {
 
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
+const mockPollUsdcxBurn = jest.fn();
+const mockPollUsdcxDestination = jest.fn();
+jest.mock('lib/usdcx/burn-status', () => ({ pollUsdcxBurn: (...args: unknown[]) => mockPollUsdcxBurn(...args) }));
+jest.mock('lib/usdcx/destination-status', () => ({
+  ...jest.requireActual<typeof import('lib/usdcx/destination-status')>('lib/usdcx/destination-status'),
+  pollUsdcxDestination: (...args: unknown[]) => mockPollUsdcxDestination(...args)
+}));
 jest.mock('lib/platform', () => ({
   isMobile: () => false,
   isDesktop: () => true,
@@ -1931,6 +1938,68 @@ describe('bridge prompts', () => {
     wasmLockOutcomes.splice(0);
     pollEpochIntentFill.mockResolvedValue(undefined);
     completeVerifiedLanded.mockResolvedValue(undefined);
+  });
+
+  // A destination that never confirms is an accepted outcome, so an old row is checked less often, never closed.
+  describe('USDCx background checks', () => {
+    const nowSec = () => Math.floor(Date.now() / 1000);
+    const awaitingPayout = (id: string, completedAt: number) =>
+      baseBridge({
+        id,
+        completedAt,
+        extraInputs: {
+          provider: 'usdcx',
+          usdcxBurn: {
+            noteId: 'note',
+            destinationDomain: 26,
+            phase: 'confirmed',
+            destinationBalanceBefore: { balance: '0', blockNumber: '100' }
+          }
+        }
+      });
+
+    it('checks a row two days old once across two consecutive passes', async () => {
+      bridgeRows.push(awaitingPayout('usdcx-two-days', nowSec() - 2 * 24 * 60 * 60));
+
+      await reconcileBridgedSends();
+      await reconcileBridgedSends();
+
+      expect(mockPollUsdcxDestination).toHaveBeenCalledTimes(1);
+      expect(mockPollUsdcxBurn).toHaveBeenCalledTimes(1);
+    });
+
+    it('checks a row completed a minute ago on every pass', async () => {
+      bridgeRows.push(awaitingPayout('usdcx-fresh', nowSec() - 60));
+
+      await reconcileBridgedSends();
+      await reconcileBridgedSends();
+
+      expect(mockPollUsdcxDestination).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('keeps a burned USDCx withdrawal active until its destination balance is confirmed', async () => {
+    const burn = {
+      noteId: 'note',
+      destinationDomain: 26,
+      phase: 'confirmed',
+      destinationBalanceBefore: { balance: '0', blockNumber: '100' }
+    };
+    bridgeRows.push(
+      baseBridge({ id: 'awaiting-payout', extraInputs: { provider: 'usdcx', usdcxBurn: burn } }),
+      baseBridge({
+        id: 'paid',
+        extraInputs: {
+          provider: 'usdcx',
+          usdcxBurn: { ...burn, destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' } }
+        }
+      }),
+      baseBridge({
+        id: 'legacy-burn',
+        extraInputs: { provider: 'usdcx', usdcxBurn: { ...burn, destinationBalanceBefore: undefined } }
+      })
+    );
+    expect((await fetchActiveBridgePrompts('acct-1')).map(tx => tx.id)).toEqual(['awaiting-payout']);
   });
 
   it('returns unsettled bridged-sends for the account, newest first', async () => {

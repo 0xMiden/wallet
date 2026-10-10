@@ -26,6 +26,12 @@ function resolveAnvilBinary(): string {
 export interface AnvilOptions {
   port?: number;
   chainId?: number;
+  /**
+   * Fork this chain's state instead of starting empty. The fork keeps the remote
+   * chain's contracts and storage, so `chainId` must be that chain's id. Startup
+   * waits longer, because Anvil reads the fork block from the remote RPC first.
+   */
+  forkUrl?: string;
   /** Extra CLI args (e.g. --block-time). */
   args?: string[];
 }
@@ -45,9 +51,18 @@ export class AnvilInstance {
     const binary = resolveAnvilBinary();
     const proc = spawn(
       binary,
-      ['--chain-id', String(chainId), '--port', String(port), '--silent', ...(opts.args ?? [])],
+      [
+        '--chain-id',
+        String(chainId),
+        '--port',
+        String(port),
+        '--silent',
+        ...(opts.forkUrl ? ['--fork-url', opts.forkUrl] : []),
+        ...(opts.args ?? [])
+      ],
       { stdio: ['ignore', 'ignore', 'pipe'] }
     );
+    const readyMs = opts.forkUrl ? 90_000 : 20_000;
     let stderr = '';
     proc.stderr?.on('data', chunk => {
       stderr += String(chunk);
@@ -57,7 +72,7 @@ export class AnvilInstance {
     });
 
     const instance = new AnvilInstance(proc, port);
-    const deadline = Date.now() + 20_000;
+    const deadline = Date.now() + readyMs;
     for (;;) {
       if (proc.exitCode !== null) {
         throw new Error(`anvil exited early (code ${proc.exitCode}): ${stderr.slice(0, 500)}`);
@@ -66,7 +81,9 @@ export class AnvilInstance {
       if (id === chainId) break;
       if (Date.now() > deadline) {
         instance.stop();
-        throw new Error(`anvil did not become ready on :${port} within 20s. stderr: ${stderr.slice(0, 500)}`);
+        throw new Error(
+          `anvil did not become ready on :${port} within ${readyMs / 1000}s. stderr: ${stderr.slice(0, 500)}`
+        );
       }
       await new Promise(res => setTimeout(res, 250));
     }

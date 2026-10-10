@@ -7,6 +7,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { FlowFooter } from 'components/flow/FlowFooter';
+import { ChoiceCardGroup } from 'components/ui/ChoiceCard';
 import { Skeleton } from 'components/ui/Skeleton';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
@@ -16,6 +17,7 @@ import { BridgeRoute } from './types';
 import { AgglayerEligibility } from './useAgglayerEligibility';
 
 export interface RouteStepProps {
+  usdcxAvailable?: boolean;
   route: BridgeRoute;
   onRouteChange: (route: BridgeRoute) => void;
   /** Fast-route fee in USD (input value − quoted USDC out). undefined while quoting / unavailable. */
@@ -31,7 +33,7 @@ export interface RouteStepProps {
   slowAvailability: FeatureAvailability;
 }
 
-interface RouteCardProps {
+export interface RouteCardProps {
   emoji: string;
   label: string;
   selected: boolean;
@@ -44,7 +46,8 @@ interface RouteCardProps {
   loading?: boolean;
 }
 
-const RouteCard: React.FC<RouteCardProps> = ({
+/** One selectable route row. Shared with the USDCx deposit route step. */
+export const RouteCard: React.FC<RouteCardProps> = ({
   label,
   selected,
   onSelect,
@@ -77,7 +80,14 @@ const RouteCard: React.FC<RouteCardProps> = ({
 
 export type RouteOptionsProps = Pick<
   RouteStepProps,
-  'route' | 'onRouteChange' | 'fastFeeUsd' | 'fastQuoteLoading' | 'notice' | 'fastAvailability' | 'slowAvailability'
+  | 'route'
+  | 'onRouteChange'
+  | 'fastFeeUsd'
+  | 'fastQuoteLoading'
+  | 'notice'
+  | 'usdcxAvailable'
+  | 'fastAvailability'
+  | 'slowAvailability'
 > & { accent?: FlowAccent; slowStatus: AgglayerEligibility };
 
 /** The Fast / Slow route cards and their notice, shared by every route step's layout. */
@@ -87,6 +97,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   fastFeeUsd,
   fastQuoteLoading,
   notice,
+  usdcxAvailable,
   slowStatus,
   fastAvailability,
   slowAvailability,
@@ -116,6 +127,27 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
     hapticLight();
     onRouteChange(next);
   };
+
+  if (usdcxAvailable) {
+    return (
+      <div className="mt-6 flex flex-col gap-4">
+        <ChoiceCardGroup
+          items={[
+            {
+              id: 'usdcx',
+              title: t('usdcxRouteLabel'),
+              subtitle: t('usdcxMidenFees'),
+              'data-testid': 'bridge-route-usdcx'
+            }
+          ]}
+          value={route === 'usdcx' ? 'usdcx' : null}
+          onChange={() => onRouteChange('usdcx')}
+          aria-label={t('route')}
+        />
+        <p className="text-caption text-muted">{t('usdcxWithdrawalNotice')}</p>
+      </div>
+    );
+  }
 
   // Built in plain JS (not JSX) so the em-dash fallback doesn't trip the
   // no-literal-string i18n lint; "$1.84" is excluded as a $-prefixed value.
@@ -172,6 +204,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
  * gates Slow on the bridge registry; an EVM deposit has no Miden faucet to check.
  */
 export const Route: React.FC<RouteStepProps> = ({
+  usdcxAvailable,
   route,
   onRouteChange,
   fastFeeUsd,
@@ -190,6 +223,7 @@ export const Route: React.FC<RouteStepProps> = ({
         <span className="font-heading text-2xl leading-none font-bold text-muted">{t('route')}</span>
 
         <RouteOptions
+          usdcxAvailable={usdcxAvailable}
           route={route}
           onRouteChange={onRouteChange}
           fastFeeUsd={fastFeeUsd}

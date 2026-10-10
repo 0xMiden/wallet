@@ -14,6 +14,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { GuardianChangeSummary } from 'components/GuardianChangeSummary';
 import { PageHeader } from 'components/PageHeader';
 import { DetailRow } from 'components/ui/DetailCard';
+import { SectionHeader } from 'components/ui/SectionHeader';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { isAgglayerExitUnfindable } from 'lib/agglayer/status';
@@ -52,6 +53,9 @@ import { selectMidenUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
+import { useUsdcxDestinationTransaction } from 'lib/usdcx/use-destination-transaction';
+import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { navigate } from 'lib/woozie';
 import {
   consumeAssetBreakdown,
@@ -74,7 +78,7 @@ import { ExternalLinkValue, StatusPill } from './TransactionStatus';
 import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
-  bridgeStatusOf,
+  bridgeBadgeStatusOf,
   earnWithdrawAmountFields,
   earnWithdrawShowsSource,
   formatDate,
@@ -85,6 +89,8 @@ import {
 } from './transactionUtils';
 import { useSwapSettlementNotes } from './useSwapSettlementNotes';
 import { useTransactionActions } from './useTransactionActions';
+import { UsdcxDepositSteps } from '../EvmConnectModal/UsdcxDepositSteps';
+import { UsdcxExecuteAction } from '../EvmConnectModal/UsdcxExecuteAction';
 
 const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
 const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
@@ -151,14 +157,18 @@ const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
     <div className="mt-1 flex w-full min-w-0 max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none break-all">
       <span className="min-w-0 text-ink">{inAmount}</span>
       <span className="min-w-0 text-text-muted">{inLabel}</span>
-      <Icon
-        name={IconName.ArrowRight}
-        size="md"
-        fill="currentColor"
-        className="mx-0.5 shrink-0 self-center text-text-muted"
-      />
-      <span className="min-w-0 text-ink">{displayedOutAmount}</span>
-      <span className="min-w-0 text-text-muted">{outLabel}</span>
+      {entry.bridgeProvider !== 'usdcx' && (
+        <>
+          <Icon
+            name={IconName.ArrowRight}
+            size="md"
+            fill="currentColor"
+            className="mx-0.5 shrink-0 self-center text-text-muted"
+          />
+          <span className="min-w-0 text-ink">{displayedOutAmount}</span>
+          <span className="min-w-0 text-text-muted">{outLabel}</span>
+        </>
+      )}
     </div>
   );
 };
@@ -285,6 +295,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   );
   const [transaction, setTransaction] = useState<ITransaction | undefined>();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
+  const usdcxDestinationTxHash = useUsdcxDestinationTransaction(transaction);
   const [deriveError, setDeriveError] = useState<string | null>(null);
   // The root tracker follows the orderId persisted by completeSwapTransaction.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
@@ -430,6 +441,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeFillTxHash: bridge?.fillTxHash,
           bridgeFillChainId: bridge?.fillChainId,
           bridgeEpochStatus: bridge?.epochStatus,
+          usdcxBurn: bridge?.usdcxBurn,
           bridgeReclaimHeight: bridge?.reclaimHeight,
           bridgeReclaimNoteId: bridge?.reclaimNoteId,
           bridgeSubmitClaimed: bridge?.submitClaimed,
@@ -438,10 +450,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeAgglayerExitUnfindable: bridge !== undefined && isAgglayerExitUnfindable(bridge),
           bridgeInProvider: bridgeReceive?.provider ?? consumedBridge?.provider,
           bridgeInSourceAddress: bridgeReceive?.sourceAddress ?? consumedBridge?.intentOwner,
+          bridgeInSourceChainId: bridgeReceive?.sourceChainId,
           bridgeInSourceAmount: bridgeReceive?.sourceAmount ?? consumedBridge?.sourceAmount,
           bridgeInSourceSymbol: bridgeReceive?.sourceSymbol ?? consumedBridge?.sourceSymbol,
           bridgeInEvmTxHash: bridgeReceive?.evmTxHash ?? consumedBridge?.evmTxHash,
           bridgeInPhase: bridgeReceive?.phase,
+          bridgeInCctp: bridgeReceive?.cctp,
           bridgeInOutputAmount: bridgeReceive?.outputAmount,
           bridgeInOutputSymbol: bridgeReceive?.outputSymbol,
           bridgeInMidenNoteId:
@@ -748,10 +762,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 {isBridge ? (
                   // Not-confirmed wins over the route's own lifecycle (#1250 F-024): the row's
                   // outcome is unknown, not the confirmed failure `bridgeStatusOf` would report.
+                  // A USDCx deposit and a USDCx burn read their own phases (`bridgeBadgeStatusOf`).
                   <StatusBadge
                     size="md"
                     live
-                    status={entry.isUnconfirmed ? 'unconfirmed' : bridgeStatusOf(entry)}
+                    status={entry.isUnconfirmed ? 'unconfirmed' : bridgeBadgeStatusOf(entry)}
                     data-testid="history-status-pill"
                   />
                 ) : isEarnWithdraw && earnWithdraw ? (
@@ -798,7 +813,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     <DetailRow label={t('from')}>
                       <ExternalLinkValue
                         displayValue={<HashChip hash={entry.bridgeInSourceAddress} trimHash className="ml-2" />}
-                        href={SEPOLIA_ADDRESS_URL(entry.bridgeInSourceAddress)}
+                        href={`${getChain(entry.bridgeInSourceChainId ?? DEFAULT_CHAIN_ID)?.explorer}/address/${entry.bridgeInSourceAddress}`}
                       />
                     </DetailRow>
                   )}
@@ -1100,7 +1115,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <div className="mt-6">
                   <SectionDivider color={sectionDividerColor} />
                 </div>
-                <BridgeClaimSection entry={entry} restoredFromBackup={transaction?.restoredFromBackup === true} />
+                <BridgeClaimSection
+                  entry={entry}
+                  restoredFromBackup={transaction?.restoredFromBackup === true}
+                  destinationTxHash={usdcxDestinationTxHash}
+                />
               </>
             )}
 
@@ -1108,16 +1127,37 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             {isBridgeIn && (
               <div className="mt-6 mb-4">
                 <SectionDivider color={sectionDividerColor} />
+                {/* The steps between Pending and Confirmed of a USDCx deposit, read off the row. */}
+                {entry.bridgeInProvider === 'usdcx' && entry.bridgeInPhase && (
+                  <div className="mt-5">
+                    <SectionHeader size="md">{t('usdcxProgress')}</SectionHeader>
+                    <UsdcxDepositSteps
+                      sourceChainId={entry.bridgeInSourceChainId}
+                      phase={entry.bridgeInPhase}
+                      cctp={entry.bridgeInCctp}
+                    />
+                  </div>
+                )}
                 <div className="mt-5">
                   <DetailSection title={t('bridgeDetails')}>
                     <DetailRow label={t('route')}>
-                      {entry.bridgeInProvider === 'epoch' ? t('fastRouteLabel') : t('slowRouteLabel')}
+                      {(() => {
+                        switch (entry.bridgeInProvider) {
+                          case 'epoch':
+                            return t('fastRouteLabel');
+                          case 'usdcx':
+                            return t('usdcxRouteLabel');
+                          case 'agglayer':
+                          default:
+                            return t('slowRouteLabel');
+                        }
+                      })()}
                     </DetailRow>
                     {entry.bridgeInEvmTxHash && (
                       <DetailRow label={t('txIdLabel')}>
                         <ExternalLinkValue
                           displayValue={<HashChip hash={entry.bridgeInEvmTxHash} trimHash className="ml-2" />}
-                          href={SEPOLIA_TX_URL(entry.bridgeInEvmTxHash)}
+                          href={`${getChain(entry.bridgeInSourceChainId ?? DEFAULT_CHAIN_ID)?.explorer}/tx/${entry.bridgeInEvmTxHash}`}
                         />
                       </DetailRow>
                     )}
@@ -1129,6 +1169,21 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       )}
                     </DetailRow>
                   </DetailSection>
+                  {/* An executor-route USDCx deposit waits for the user to execute it on Arc; the row is the
+                      only place that offers it once the deposit screen is gone. */}
+                  {entry.txId &&
+                    entry.bridgeInProvider === 'usdcx' &&
+                    isUsdcxExecutorSource(entry.bridgeInSourceChainId) &&
+                    entry.bridgeInPhase &&
+                    !entry.restoredFromBackup && (
+                      <UsdcxExecuteAction
+                        txId={entry.txId}
+                        sourceChainId={entry.bridgeInSourceChainId}
+                        phase={entry.bridgeInPhase}
+                        cctp={entry.bridgeInCctp}
+                        className="mt-4"
+                      />
+                    )}
                 </div>
               </div>
             )}
