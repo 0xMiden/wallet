@@ -15,7 +15,11 @@ import {
 } from 'lib/guardian-note-recovery-progress';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { _setSwapTokensForTest, SWAP_TOKENS } from 'lib/miden/swap/tokens';
-import { FaucetOutcomeUnknownError } from 'lib/miden-chain/faucet-api';
+import {
+  FaucetAmountOverCapError,
+  FaucetOutcomeUnknownError,
+  FaucetRateLimitedError
+} from 'lib/miden-chain/faucet-api';
 import type { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import type { FaucetFundingMarker, PendingNoteValue } from 'lib/wallet-prompts';
@@ -67,8 +71,8 @@ jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, values?: { amount?: string; count?: number }) => {
-      const value = values?.amount ?? values?.count;
+    t: (key: string, values?: { amount?: string; count?: number; seconds?: string }) => {
+      const value = values?.amount ?? values?.count ?? values?.seconds;
       return value === undefined ? key : `${key}:${value}`;
     }
   })
@@ -1719,6 +1723,78 @@ describe('HomePrompts', () => {
     await waitFor(() => expect(mockFaucet).toHaveBeenCalledTimes(2));
     // Retrying clears the previous error from the card.
     expect(faucetCard).not.toHaveTextContent('rate limited');
+  });
+
+  describe('a faucet refusal the user can act on', () => {
+    const RATE_LIMITED = 'Faucet token request failed with status 429: Account is rate limited for 25 more seconds.';
+    const OVER_CAP =
+      'Faucet PoW request failed with status 400: requested amount 100000000 exceeds the maximum claimable amount of 10000000';
+
+    const renderFaucetCard = async () => {
+      render(
+        <HomePrompts
+          account={account}
+          balances={zeroBalance}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+      await act(async () => {});
+      return screen.getAllByTestId('prompt-card')[0]!;
+    };
+    const tapFund = async (card: HTMLElement) => {
+      fireEvent.click(within(card).getByRole('button', { name: 'faucetPromptTitle' }));
+      await waitFor(() => expect(card).toHaveAttribute('data-status', 'failure'));
+    };
+
+    beforeEach(() => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    });
+
+    it.each([
+      { seconds: 25, copy: 'faucetRateLimitedWait:25' },
+      { seconds: 1, copy: 'faucetRateLimited' },
+      { seconds: 0, copy: 'faucetRateLimited' },
+      { seconds: null, copy: 'faucetRateLimited' }
+    ])('says a rate limit of $seconds seconds in plain words, never the raw reply', async ({ seconds, copy }) => {
+      mockFaucet.mockRejectedValueOnce(new FaucetRateLimitedError(RATE_LIMITED, seconds));
+      const card = await renderFaucetCard();
+
+      await tapFund(card);
+
+      expect(within(card).getByText(copy)).toBeInTheDocument();
+      expect(card).not.toHaveTextContent('rate limited for');
+    });
+
+    it('says an amount over the faucet cap in plain words', async () => {
+      mockFaucet.mockRejectedValueOnce(new FaucetAmountOverCapError(OVER_CAP, 10_000_000n));
+      const card = await renderFaucetCard();
+
+      await tapFund(card);
+
+      expect(within(card).getByText('faucetOverCap')).toBeInTheDocument();
+      expect(card).not.toHaveTextContent('maximum claimable');
+    });
+
+    it('says the same when the card re-attaches to a request the faucet refuses', async () => {
+      let rejectInFlight!: (error: Error) => void;
+      mockGetInFlightFaucetRequest.mockReturnValue(
+        new Promise<void>((_resolve, reject) => {
+          rejectInFlight = reject;
+        })
+      );
+      const card = await renderFaucetCard();
+
+      await act(async () => {
+        rejectInFlight(new FaucetRateLimitedError(RATE_LIMITED, 25));
+      });
+
+      await waitFor(() => expect(card).toHaveAttribute('data-status', 'failure'));
+      expect(within(card).getByText('faucetRateLimitedWait:25')).toBeInTheDocument();
+    });
   });
 
   it('still completes the prompt when the account is switched during the Funded beat', async () => {
