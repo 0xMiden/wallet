@@ -1,5 +1,6 @@
 import { BridgedReceiveTransaction, IBridgedReceiveExtraInputs, IBridgedReceivePhase } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { revertedExecuteLeg } from 'lib/usdcx/cctp';
 
 import { updateBridgedReceivePhase } from './complete';
 
@@ -61,5 +62,41 @@ describe('updateBridgedReceivePhase', () => {
     await updateBridgedReceivePhase(id, 'submitting', { evmTxHash: '0xhash' });
 
     expect((await Repo.transactions.get(id))?.extraInputs).toMatchObject({ phase: 'submitting', evmTxHash: '0xhash' });
+  });
+});
+
+// The executor route writes its CCTP leg a field at a time, and a reopen after a reverted Arc execute clears the
+// hash it saw revert. Run against the real writer: every consumer suite mocks it.
+describe('updateBridgedReceivePhase on a USDCx CCTP leg', () => {
+  const H1 = `0x${'1'.repeat(64)}`;
+  const H2 = `0x${'2'.repeat(64)}`;
+  const held = { sourceDomain: 6, forwarded: true, forwardFee: '31908', message: '0x1234', attestation: '0xabcd' };
+
+  it('keeps the message, the proof and the forward when the execute hash is saved', async () => {
+    const id = await seed('delivering', { cctp: held });
+
+    await updateBridgedReceivePhase(id, 'delivering', { cctp: { sourceDomain: 6, executeTxHash: H1 } });
+
+    expect((await Repo.transactions.get(id))?.extraInputs.cctp).toEqual({ ...held, executeTxHash: H1 });
+  });
+
+  it('reopens the execute it saw revert, clearing its hash and proof', async () => {
+    const id = await seed('delivering', { cctp: { ...held, executeTxHash: H1 } });
+
+    await updateBridgedReceivePhase(id, 'delivering', { cctp: revertedExecuteLeg(6, H1) });
+
+    const cctp = (await Repo.transactions.get(id))?.extraInputs.cctp;
+    expect(cctp).toMatchObject({ sourceDomain: 6, forwarded: false, forwardFee: '31908', revertedExecuteTxHash: H1 });
+    expect(cctp?.executeTxHash).toBeUndefined();
+    expect(cctp?.message).toBeUndefined();
+    expect(cctp?.attestation).toBeUndefined();
+  });
+
+  it('keeps a newer execute hash saved after the revert was observed', async () => {
+    const id = await seed('delivering', { cctp: { ...held, executeTxHash: H2 } });
+
+    await updateBridgedReceivePhase(id, 'delivering', { cctp: revertedExecuteLeg(6, H1) });
+
+    expect((await Repo.transactions.get(id))?.extraInputs.cctp).toEqual({ ...held, executeTxHash: H2 });
   });
 });

@@ -1532,6 +1532,9 @@ export const updateBridgedReceivePhase = async (
   await Repo.transactions.where({ id }).modify(tx => {
     const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
     if (!canMoveBridgedReceivePhase(inputs?.phase, phase)) return;
+    // A reopen clears only the Arc execute it saw revert: a newer execute saved meanwhile, with its proof, stands.
+    const reopened = extra?.cctp?.revertedExecuteTxHash;
+    if (reopened !== undefined && inputs?.cctp?.executeTxHash !== reopened) return;
     // The CCTP leg is written a field at a time (the burn's domain, then the attestation, then the
     // execute hash), so a write merges into what the row holds instead of replacing it.
     const cctp = extra?.cctp ? { ...inputs?.cctp, ...extra.cctp } : inputs?.cctp;
