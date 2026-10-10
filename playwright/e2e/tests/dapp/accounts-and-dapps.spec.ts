@@ -6,7 +6,8 @@ import {
   expectReceivedByRecipient,
   expectWritesToTheEnd,
   pollUntil,
-  refusal
+  refusal,
+  unlessAThirdPartyMovedARead
 } from '../../helpers/dapp-assertions';
 import { dappAxes, type DappAxis } from '../../helpers/dapp-axis';
 import { HarnessFault, type CellContext } from '../../helpers/dapp-cells';
@@ -332,6 +333,9 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
           await j.walletA.selectAccount(account);
           return vaultAssetsOfCurrentAccount(j.walletA.page);
         };
+        // Before the vaults, so a third party's note consumed on either account later counts (spec section 5, step 7).
+        const capturedAtSec = Math.floor(Date.now() / 1000);
+        const since = { capturedAtSec, rowIds: (await readTransactionRows(j.walletA.page)).map(row => row.id) };
         const ownOne = await vaultOf(primary);
         const ownTwo = await vaultOf(second);
         // Account 2 holds its 100 TST fixture, so the vaults differ and a read that leaked the other one would fail.
@@ -370,6 +374,9 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         await j.walletA.selectAccount(second);
         const fromOne = await crossRead(dapp, oneAddress, ownOne);
         Object.assign(ctx.evidence, nonCurrentReadEvidence([fromTwo, fromOne]));
+        const owner = (account: string) => ({ wallet: j.walletA, account, journeySenders: () => j.senders() });
+        await unlessAThirdPartyMovedARead(owner(second), since, fromTwo, ownOne);
+        await unlessAThirdPartyMovedARead(owner(primary), since, fromOne, ownTwo);
         const answer = ({ prompted, result }: NonCurrentRead) => ({ prompted, result });
         const refusedBeforePopup = { prompted: false, result: NOT_GRANTED_RAW };
         expect({ fromTwo: answer(fromTwo), fromOne: answer(fromOne) }).toEqual({

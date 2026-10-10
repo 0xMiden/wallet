@@ -1,9 +1,10 @@
 import { expect, type Page } from '@playwright/test';
+import { isDeepStrictEqual } from 'node:util';
 
 import { vaultBalanceOfCurrentAccount, waitForVaultBalanceOfCurrentAccount } from './balance-truth';
 import type { DappAxis } from './dapp-axis';
 import { InfrastructureFault, type CellContext } from './dapp-cells';
-import { canonicalAddress, isForeignConsume, normalizeHex } from './dapp-gates';
+import { canonicalAddress, isForeignConsume, normalizeHex, type NonCurrentRead } from './dapp-gates';
 import {
   describeTransactionRow,
   readTransactionRow,
@@ -332,34 +333,64 @@ export async function expectWritesToTheEnd(
   return results;
 }
 
+/** Whose vault a third-party check reads, and who counts as the journey. */
+export type VaultOwner = Pick<WriteSide, 'wallet' | 'account' | 'journeySenders'>;
+/** The rows the account held, and when they were read: a third party's move counts from then on. */
+export type RowWindow = Pick<Baseline, 'rowIds' | 'capturedAtSec'>;
+
 /** Whether a row is the executing account's; a row naming no account counts as the account's. */
-const ofAccount = (side: WriteSide, entry: TransactionRowSnapshot) =>
-  entry.accountId === undefined || canonicalAddress(entry.accountId) === canonicalAddress(side.account);
+const ofAccount = (owner: VaultOwner, entry: TransactionRowSnapshot) =>
+  entry.accountId === undefined || canonicalAddress(entry.accountId) === canonicalAddress(owner.account);
 
 /**
  * The executing account's rows the baseline did not hold, other than `expected`. A consume of a third party's note is
  * left out: nothing the cell asked for can make one (spec section 5, Writes step 7).
  */
 function ownRowsBesides(
-  side: WriteSide,
-  baseline: Baseline,
+  owner: VaultOwner,
+  since: RowWindow,
   expected: readonly string[],
   rows: readonly TransactionRowSnapshot[]
 ): TransactionRowSnapshot[] {
   return rows.filter(
     entry =>
-      !baseline.rowIds.includes(entry.id) &&
+      !since.rowIds.includes(entry.id) &&
       !expected.includes(entry.id) &&
-      ofAccount(side, entry) &&
-      !isForeignConsume(entry, side.journeySenders())
+      ofAccount(owner, entry) &&
+      !isForeignConsume(entry, owner.journeySenders())
   );
 }
 
 /**
- * Runs an exact vault check. When it fails while a consume of a third party's note moved the account after the
- * baseline (finished since its capture, or still running), and the account ran nothing else of its own, the cell
- * cannot be judged: that is the environment's, for this cell alone. Any other failure stays the check's.
+ * What makes a failed exact check of the account's vault the environment's, for this cell alone: a consume of a third
+ * party's note moved the account since `since` (finished since its capture, or still running), and the account ran
+ * nothing else of its own besides `expected`. `null` when the failure stays the check's.
  */
+async function thirdPartyMoveFault(
+  owner: VaultOwner,
+  since: RowWindow,
+  expected: readonly string[],
+  failure: unknown
+): Promise<InfrastructureFault | null> {
+  const rows = await readTransactionRows(owner.wallet.page);
+  const moved = rows.filter(
+    entry =>
+      ofAccount(owner, entry) &&
+      isForeignConsume(entry, owner.journeySenders()) &&
+      (!since.rowIds.includes(entry.id) || entry.completedAt === undefined || entry.completedAt >= since.capturedAtSec)
+  );
+  if (moved.length === 0 || ownRowsBesides(owner, since, expected, rows).length > 0) return null;
+  const consumes = moved.map(
+    entry => `${entry.id} consumed ${(entry.noteIds ?? [entry.noteId]).join(', ')} from ${entry.secondaryAccountId}`
+  );
+  return new InfrastructureFault(
+    `a note from outside the journey moved ${owner.account}'s vault during the cell (${consumes.join('; ')}): ` +
+      `${failure instanceof Error ? failure.message.split('\n')[0] : String(failure)}`,
+    { abortsLeg: false, cause: failure }
+  );
+}
+
+/** Runs an exact vault check; its failure is the environment's only as `thirdPartyMoveFault` says. */
 async function unlessAThirdPartyMovedIt(
   side: WriteSide,
   baseline: Baseline,
@@ -369,25 +400,27 @@ async function unlessAThirdPartyMovedIt(
   try {
     await check();
   } catch (error) {
-    const rows = await readTransactionRows(side.wallet.page);
-    const moved = rows.filter(
-      entry =>
-        ofAccount(side, entry) &&
-        isForeignConsume(entry, side.journeySenders()) &&
-        (!baseline.rowIds.includes(entry.id) ||
-          entry.completedAt === undefined ||
-          entry.completedAt >= baseline.capturedAtSec)
-    );
-    if (moved.length === 0 || ownRowsBesides(side, baseline, expected, rows).length > 0) throw error;
-    const consumes = moved.map(
-      entry => `${entry.id} consumed ${(entry.noteIds ?? [entry.noteId]).join(', ')} from ${entry.secondaryAccountId}`
-    );
-    throw new InfrastructureFault(
-      `a note from outside the journey moved ${side.account}'s vault during the cell (${consumes.join('; ')}): ` +
-        `${error instanceof Error ? error.message.split('\n')[0] : String(error)}`,
-      { abortsLeg: false, cause: error }
-    );
+    throw (await thirdPartyMoveFault(side, baseline, expected, error)) ?? error;
   }
+}
+
+/**
+ * M4-reads: a read served after its popup a vault other than its account's own, captured at `since`. A move by a third
+ * party's note on that account explains it (`thirdPartyMoveFault`, the read making no row), unless the vault served is
+ * the other account's: a leak stays the wallet's. Anything else is left to K9's per-read rule.
+ */
+export async function unlessAThirdPartyMovedARead(
+  owner: VaultOwner,
+  since: RowWindow,
+  read: NonCurrentRead,
+  otherOwn: Record<string, string>
+): Promise<void> {
+  const { prompted, served, own } = read;
+  if (!prompted || served === null || isDeepStrictEqual(served, own)) return;
+  if (isDeepStrictEqual(served, otherOwn)) return;
+  const mismatch = new Error(`served ${JSON.stringify(served)}, not its own ${JSON.stringify(own)}`);
+  const fault = await thirdPartyMoveFault(owner, since, [], mismatch);
+  if (fault !== null) throw fault;
 }
 
 /** The exact refusal a dApp sees; `message` as a pattern only where the wallet interpolates into it. */

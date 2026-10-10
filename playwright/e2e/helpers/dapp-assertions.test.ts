@@ -6,11 +6,13 @@ import {
   expectNoNewRows,
   expectVaultUnchanged,
   expectWritesToTheEnd,
+  unlessAThirdPartyMovedARead,
   type Baseline,
   type WriteSide
 } from './dapp-assertions';
 import type { DappAxis } from './dapp-axis';
 import { deadlineIn, InfrastructureFault, type CellContext } from './dapp-cells';
+import type { NonCurrentRead } from './dapp-gates';
 import { readTransactionRow, readTransactionRows, USER_CANCELLED_REASON, type TransactionRowSnapshot } from './history';
 import { callDapp, ChainUnavailable, type DappHandle } from './test-dapp';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
@@ -301,6 +303,70 @@ describe('a note from outside the journey', () => {
       walletShows(baseline.vault, [row('funding'), cancelled]);
       waitAnswers({ ok: true, value: { txHash: TX_HASH } });
       await expect(assertCancel()).rejects.toThrow(/toEqual/);
+    });
+  });
+
+  describe('beside a read served after its popup (M4-reads)', () => {
+    const own = { [TOKEN]: '10000', [NATIVE]: '1000' };
+    const otherOwn = { [TOKEN]: '100', [NATIVE]: '500' };
+    const movedOwn = { ...own, [NATIVE]: String(1_000n + GIFT - 7n) };
+    const read = (served: Record<string, string> | null, prompted = true): NonCurrentRead => ({
+      prompted,
+      result: { ok: true },
+      served,
+      own
+    });
+    const judge = (answered: NonCurrentRead, rows: TransactionRowSnapshot[], since: Baseline = baseline) => {
+      jest.mocked(readTransactionRows).mockResolvedValue(rows);
+      return failureOf(unlessAThirdPartyMovedARead(sideOf().side, since, answered, otherOwn));
+    };
+
+    it("records the account's own vault moved by it after the capture as infrastructure, naming the row and sender", async () => {
+      const error = await judge(read(movedOwn), [row('funding'), gift('gift')]);
+      expect(error).toBeInstanceOf(InfrastructureFault);
+      expect(error).toMatchObject({ abortsLeg: false, message: expect.stringContaining('gift consumed') });
+      expect(error).toMatchObject({ message: expect.stringContaining(STRANGER) });
+    });
+
+    it('counts a consume of it that was still running when the vaults were captured', async () => {
+      const running = gift('gift', { status: 1, completedAt: undefined });
+      const error = await judge(read(movedOwn), [row('funding'), running], {
+        ...baseline,
+        rowIds: ['funding', 'gift']
+      });
+      expect(error).toBeInstanceOf(InfrastructureFault);
+    });
+
+    it("leaves the read to K9's rule when the consume finished before the capture or moved the other account", async () => {
+      const before = gift('gift', { completedAt: baseline.capturedAtSec - 5 });
+      expect(await judge(read(movedOwn), [row('funding'), before], { ...baseline, rowIds: ['funding', 'gift'] })).toBe(
+        undefined
+      );
+      expect(await judge(read(movedOwn), [row('funding'), gift('gift', { accountId: 'mtst1qaccountb' })])).toBe(
+        undefined
+      );
+    });
+
+    it("keeps a leak the wallet's: the other account's vault served, whatever moved", async () => {
+      expect(await judge(read(otherOwn), [row('funding'), gift('gift')])).toBe(undefined);
+    });
+
+    it("keeps the read the wallet's when the account ran a row of its own", async () => {
+      expect(await judge(read(movedOwn), [row('funding'), gift('gift'), row('tx-read')])).toBe(undefined);
+    });
+
+    it("leaves a consume of a journey sender's note to K9's rule, even one running at the capture", async () => {
+      const grant = gift('grant', { secondaryAccountId: 'mtst1publicfaucet', status: 1, completedAt: undefined });
+      expect(await judge(read(movedOwn), [row('funding'), grant], { ...baseline, rowIds: ['funding', 'grant'] })).toBe(
+        undefined
+      );
+    });
+
+    it('leaves a read with no popup, one that served nothing and one served its own vault as they are', async () => {
+      const rows = [row('funding'), gift('gift')];
+      expect(await judge(read(movedOwn, false), rows)).toBe(undefined);
+      expect(await judge(read(null), rows)).toBe(undefined);
+      expect(await judge(read(own), rows)).toBe(undefined);
     });
   });
 });
