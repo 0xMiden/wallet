@@ -4,7 +4,7 @@ import {
   isUsdcxDepositAttested,
   XReserveAttestation
 } from './attestation';
-import { USDCX_REMOTE_DOMAIN, XRESERVE_ATTESTATION_API } from './constant';
+import { USDCX_REMOTE_DOMAIN, XRESERVE_ATTESTATION_API_TESTNET } from './constant';
 
 const fetchMock = jest.fn();
 Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
@@ -33,7 +33,7 @@ describe('fetchXReserveAttestations', () => {
     await fetchXReserveAttestations(TX_HASH);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `${XRESERVE_ATTESTATION_API}/v1/attestations?txHash=${TX_HASH}`,
+      `${XRESERVE_ATTESTATION_API_TESTNET}/v1/attestations?txHash=${TX_HASH}`,
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
   });

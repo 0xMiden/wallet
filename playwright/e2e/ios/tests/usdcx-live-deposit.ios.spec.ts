@@ -5,7 +5,7 @@ import { fetchXReserveAttestations, findAttestationForDomain } from '../../../..
 import {
   CIRCLE_USDC_DECIMALS,
   ERC20_BALANCE_OF_ABI,
-  getUsdcxContracts,
+  getUsdcxXReserveSource,
   USDCX_DEPOSIT_HOOK_DATA,
   USDCX_DEPOSIT_MAX_FEE,
   USDCX_REMOTE_DOMAIN,
@@ -67,7 +67,7 @@ const faucetAccountId = (process.env.USDCX_FAUCET_ACCOUNT_ID ?? '').trim();
 const depositAmount = (process.env.USDCX_LIVE_DEPOSIT_AMOUNT ?? '').trim() || '1';
 const depositUnits = parseUnits(depositAmount, CIRCLE_USDC_DECIMALS);
 const arcRpcUrl = ARC_TESTNET.rpcUrls.default.http[0];
-const { usdc: arcUsdc, xReserve } = getUsdcxContracts(ARC_TESTNET.id);
+const { usdc: arcUsdc, xReserve } = getUsdcxXReserveSource(ARC_TESTNET.id);
 
 interface EthCallResult {
   result?: string;

@@ -131,7 +131,10 @@ async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtra
       await reconcileUsdcxExecutorRow(row, inputs, source);
       return;
     }
-    if (await isUsdcxDepositAttested(inputs.evmTxHash)) await updateBridgedReceivePhase(row.id, 'ready');
+    // A legacy Sepolia row has no source chain and reads the testnet service, the attestation default.
+    if (await isUsdcxDepositAttested(inputs.evmTxHash, source?.attestationApi)) {
+      await updateBridgedReceivePhase(row.id, 'ready');
+    }
   } catch (error) {
     console.warn('[bridge-receive] USDCx attestation poll failed', row.id, error);
   }

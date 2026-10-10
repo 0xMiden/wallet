@@ -1,6 +1,6 @@
 import { Hash, Hex, isHash, isHex } from 'viem';
 
-import { USDCX_REMOTE_DOMAIN, XRESERVE_ATTESTATION_API } from './constant';
+import { USDCX_REMOTE_DOMAIN, XRESERVE_ATTESTATION_API_TESTNET } from './constant';
 
 // Circle's API can accept the socket and then stay silent. Bound every request
 // so a poll tick fails and retries instead of hanging the status screen.
@@ -54,7 +54,10 @@ function parseAttestation(entry: unknown): XReserveAttestation | undefined {
  */
 export async function fetchXReserveAttestations(
   txHash: Hash,
-  { baseUrl = XRESERVE_ATTESTATION_API, timeoutMs = XRESERVE_FETCH_TIMEOUT_MS }: FetchXReserveAttestationsOptions = {}
+  {
+    baseUrl = XRESERVE_ATTESTATION_API_TESTNET,
+    timeoutMs = XRESERVE_FETCH_TIMEOUT_MS
+  }: FetchXReserveAttestationsOptions = {}
 ): Promise<XReserveAttestation[]> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -80,7 +83,7 @@ export async function fetchXReserveAttestations(
  */
 export async function isUsdcxDepositAttested(
   txHash: string | undefined,
-  baseUrl: string = XRESERVE_ATTESTATION_API
+  baseUrl: string = XRESERVE_ATTESTATION_API_TESTNET
 ): Promise<boolean> {
   if (txHash === undefined || !isHash(txHash)) return false;
   const attestations = await fetchXReserveAttestations(txHash, { baseUrl });

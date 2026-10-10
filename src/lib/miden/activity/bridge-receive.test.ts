@@ -779,7 +779,8 @@ describe('reconcileBridgedReceives with a USDCx row', () => {
 
     await reconcileBridgedReceives();
 
-    expect(isAttested).toHaveBeenCalledWith(DEPOSIT_HASH);
+    // A legacy row names no source chain, so the attestation module's testnet default applies.
+    expect(isAttested).toHaveBeenCalledWith(DEPOSIT_HASH, undefined);
     expect(getIntentStatus).not.toHaveBeenCalled();
     expect(fetchDeposits).not.toHaveBeenCalled();
     expect(waitForReceipt).not.toHaveBeenCalled();
@@ -803,6 +804,20 @@ describe('reconcileBridgedReceives with a USDCx row', () => {
     await expect(reconcileBridgedReceives()).resolves.toBeUndefined();
 
     expect(updatePhase).not.toHaveBeenCalled();
+  });
+
+  it("asks the attestation service of the direct row's own source chain", async () => {
+    rows.push({
+      id: 'usdcx-arc',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      initiatedAt: Math.floor(Date.now() / 1000),
+      extraInputs: { provider: 'usdcx', phase: 'delivering', sourceChainId: 5042002, evmTxHash: `0x${'4'.repeat(64)}` }
+    });
+
+    await reconcileBridgedReceives();
+
+    expect(isAttested).toHaveBeenCalledWith(`0x${'4'.repeat(64)}`, 'https://xreserve-api-testnet.circle.com');
   });
 
   it('still times out a stale USDCx row', async () => {

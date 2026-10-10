@@ -10,6 +10,7 @@ import {
   USDCX_REMOTE_DOMAIN,
   XRESERVE_ABI
 } from './constant';
+import { isUsdcxDomainNotRegisteredError, UsdcxDomainNotRegisteredError } from './deposit';
 import {
   addressToBytes32,
   buildDepositForBurnWithHookAndFeesArgs,
@@ -20,10 +21,8 @@ import {
   encodeExecutorPayload,
   encodeHookFrame,
   encodeXReserveDepositCalldata,
-  isUsdcxExecutorDomainNotRegisteredError,
   runUsdcxExecutorDeposit,
-  UsdcxExecutorDepositDeps,
-  UsdcxExecutorDomainNotRegisteredError
+  UsdcxExecutorDepositDeps
 } from './executor';
 
 jest.mock('lib/miden/activity', () => ({
@@ -295,8 +294,9 @@ describe('runUsdcxExecutorDeposit', () => {
 
     const error: unknown = await runUsdcxExecutorDeposit('row-1', '1', RECIPIENT, deps).catch(caught => caught);
 
-    expect(error).toBeInstanceOf(UsdcxExecutorDomainNotRegisteredError);
-    expect(isUsdcxExecutorDomainNotRegisteredError(error)).toBe(true);
+    // One error for both routes: the screen maps it to one message.
+    expect(error).toBeInstanceOf(UsdcxDomainNotRegisteredError);
+    expect(isUsdcxDomainNotRegisteredError(error)).toBe(true);
     expect(deps.fetchQuote).not.toHaveBeenCalled();
     expect(deps.signer.approve).not.toHaveBeenCalled();
     expect(deps.signer.depositForBurnWithHook).not.toHaveBeenCalled();

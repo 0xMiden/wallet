@@ -9,7 +9,7 @@ import {
 } from 'viem';
 import { sepolia } from 'viem/chains';
 
-import { getUsdcxContracts, USDCX_MIDEN_REMOTE_DOMAIN } from '../../../../src/lib/usdcx/constant';
+import { getUsdcxXReserveSource, USDCX_REMOTE_DOMAIN } from '../../../../src/lib/usdcx/constant';
 
 /**
  * Prepares a local Anvil FORK of Sepolia for the USDCx bridge-in deposit, so the
@@ -33,7 +33,7 @@ import { getUsdcxContracts, USDCX_MIDEN_REMOTE_DOMAIN } from '../../../../src/li
  * Every step was run by hand against a Sepolia fork before it was written here.
  */
 
-const { usdc: SEPOLIA_USDC, xReserve: XRESERVE } = getUsdcxContracts(sepolia.id);
+const { usdc: SEPOLIA_USDC, xReserve: XRESERVE } = getUsdcxXReserveSource(sepolia.id);
 
 /**
  * The remote token the fork registers for the Miden domain: the faucet id Circle
@@ -133,7 +133,7 @@ export async function registerMidenDomainOnFork(
   rpcUrl: string,
   remoteToken: Hex = DEFAULT_MIDEN_REMOTE_TOKEN
 ): Promise<void> {
-  const domain = USDCX_MIDEN_REMOTE_DOMAIN;
+  const domain = USDCX_REMOTE_DOMAIN;
   const read = async (functionName: 'owner' | 'registrationManager'): Promise<Address> =>
     wordToAddress(await ethCall(rpcUrl, XRESERVE, encodeFunctionData({ abi: XRESERVE_ADMIN_ABI, functionName })));
   const registrationManager = await read('registrationManager');

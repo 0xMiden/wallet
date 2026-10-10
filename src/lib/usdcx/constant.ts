@@ -54,8 +54,6 @@ export const CIRCLE_DOMAIN = new Map<number, number>([
 
 export const XRESERVE_ATTESTATION_API_TESTNET = 'https://xreserve-api-testnet.circle.com';
 export const XRESERVE_ATTESTATION_API_MAINNET = 'https://xreserve-api.circle.com';
-/** Circle's testnet attestation service also serves deposits on Arc Testnet. */
-export const XRESERVE_ATTESTATION_API = XRESERVE_ATTESTATION_API_TESTNET;
 
 /** Circle's Iris API: CCTP V2 messages, attestations and fee quotes. */
 export const IRIS_API_TESTNET = 'https://iris-api-sandbox.circle.com';
@@ -321,13 +319,6 @@ export function listUsdcxDestinations(testnet: boolean): UsdcxDestination[] {
   return [...USDCX_DESTINATIONS.values()].filter(entry => (entry.chain.testnet ?? false) === testnet);
 }
 
-/** Direct deposits only: Arbitrum/Base use CCTP and have no local xReserve. */
-export function getUsdcxContracts(chainId: number): { xReserve: Address; usdc: Address } {
-  const xReserve = XRESERVE_ADDRESS.get(chainId);
-  const usdc = CIRCLE_USDC_ADDRESS.get(chainId);
-  if (!xReserve || !usdc) throw new Error(`USDCx contracts are not configured for chain ${chainId}`);
-  return { xReserve, usdc };
-}
 export const CIRCLE_USDC_DECIMALS = 6;
 export const CIRCLE_USDC_SYMBOL = 'USDC';
 
@@ -335,10 +326,7 @@ export const CIRCLE_USDC_SYMBOL = 'USDC';
  * Circle's remote-domain id for Miden. Circle assigned 10007 for testnet and
  * mainnet. A deposit to an unregistered domain reverts with `RemoteDomainNotRegistered`.
  */
-export const USDCX_MIDEN_REMOTE_DOMAIN = 10007;
-
-/** Deposits target Miden and the connected Miden account. */
-export const USDCX_REMOTE_DOMAIN = USDCX_MIDEN_REMOTE_DOMAIN;
+export const USDCX_REMOTE_DOMAIN = 10007;
 
 // The USDCx faucet is the chain's native asset: read its id through `requireUsdcxFaucetId` (`./withdrawal`).
 export const USDCX_SYMBOL = 'USDCx';

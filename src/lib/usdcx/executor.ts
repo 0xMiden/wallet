@@ -29,6 +29,7 @@ import {
   UsdcxExecutorTarget,
   XRESERVE_ABI
 } from './constant';
+import { UsdcxDomainNotRegisteredError } from './deposit';
 
 /** `depositToRemote(value, ...)`: the amount is the first argument, right after the 4-byte selector. */
 const DEPOSIT_AMOUNT_CALLDATA_INDEX = 4n;
@@ -250,23 +251,6 @@ export interface UsdcxExecutorDepositDeps {
   fetchQuote?: (intent: ExecutorBurnIntent) => Promise<CctpBurnQuote>;
 }
 
-/** Circle did not register the remote domain on Arc's xReserve. No gas was spent. */
-export class UsdcxExecutorDomainNotRegisteredError extends Error {
-  readonly remoteDomain: number;
-
-  constructor(remoteDomain: number) {
-    super(`Arc xReserve remote domain ${remoteDomain} is not registered`);
-    this.name = 'UsdcxExecutorDomainNotRegisteredError';
-    this.remoteDomain = remoteDomain;
-  }
-}
-
-export function isUsdcxExecutorDomainNotRegisteredError(
-  error: unknown
-): error is UsdcxExecutorDomainNotRegisteredError {
-  return error instanceof UsdcxExecutorDomainNotRegisteredError;
-}
-
 /**
  * Run the source-chain leg of an executor-route bridge-in against the tracking row `trackingTxId`.
  *
@@ -296,7 +280,7 @@ export async function runUsdcxExecutorDeposit(
   const intent = buildExecutorBurnIntent(amount, source, remoteRecipient, depositor);
 
   if (!(await isRemoteDomainRegistered(USDCX_REMOTE_DOMAIN))) {
-    throw new UsdcxExecutorDomainNotRegisteredError(USDCX_REMOTE_DOMAIN);
+    throw new UsdcxDomainNotRegisteredError(USDCX_REMOTE_DOMAIN);
   }
 
   let quote: CctpBurnQuote | undefined;

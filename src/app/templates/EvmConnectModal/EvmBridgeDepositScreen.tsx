@@ -55,7 +55,6 @@ import {
 } from 'lib/usdcx/constant';
 import { isUsdcxDomainNotRegisteredError, runUsdcxDeposit, UsdcxSigner } from 'lib/usdcx/deposit';
 import {
-  isUsdcxExecutorDomainNotRegisteredError,
   buildExecutorBurnIntent,
   quoteExecutorBurn,
   runUsdcxExecutorDeposit,
@@ -923,10 +922,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return;
         }
         console.error('[EvmBridgeDepositScreen] USDCx bridge failed', err);
-        const message =
-          isUsdcxDomainNotRegisteredError(err) || isUsdcxExecutorDomainNotRegisteredError(err)
-            ? t('usdcxDomainNotRegistered')
-            : errorMessage(err);
+        const message = isUsdcxDomainNotRegisteredError(err) ? t('usdcxDomainNotRegistered') : errorMessage(err);
         setSlowError(message);
         setSlowStatus('failed');
         await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message }).catch(() => undefined);

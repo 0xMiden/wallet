@@ -81,7 +81,6 @@ jest.mock('lib/usdcx/deposit', () => ({
 
 jest.mock('lib/usdcx/executor', () => ({
   runUsdcxExecutorDeposit: jest.fn().mockResolvedValue(`0x${'2'.repeat(64)}`),
-  isUsdcxExecutorDomainNotRegisteredError: () => false,
   // The route card's display quote; Circle is not reached from this suite.
   buildExecutorBurnIntent: jest.fn().mockReturnValue({ value: 1_500_000n, destinationCaller: '0x', hookData: '0x' }),
   quoteExecutorBurn: jest.fn().mockRejectedValue(new Error('no quote in tests'))
