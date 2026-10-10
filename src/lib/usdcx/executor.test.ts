@@ -206,16 +206,17 @@ function makeDeps(overrides: Partial<UsdcxExecutorDepositDeps> = {}) {
 }
 
 describe('runUsdcxExecutorDeposit', () => {
-  it('checks Arc, quotes, approves the fee entry point for amount plus fee, re-quotes, burns and writes the phases', async () => {
+  it('checks Arc, reads the allowance, quotes, approves with headroom, re-quotes, burns and writes the phases', async () => {
     const { deps, calls } = makeDeps();
 
     await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(BURN_HASH);
 
-    // The approval prompt and its receipt can outlast a quote that lives about two minutes, so it is asked again.
+    // The allowance read comes before the quote, so no read sits between a quote and its burn; the approval prompt and
+    // its receipt can outlast a quote that lives about two minutes, so it is asked again after the approval.
     expect(calls).toEqual([
       'isRemoteDomainRegistered',
-      'quote',
       'readAllowance',
+      'quote',
       'approve',
       'receipt:approve',
       'quote',
@@ -226,7 +227,10 @@ describe('runUsdcxExecutorDeposit', () => {
     ]);
     expect(deps.isRemoteDomainRegistered).toHaveBeenCalledWith(USDCX_REMOTE_DOMAIN);
     expect(deps.readAllowance).toHaveBeenCalledWith(SOURCE.tokenMessengerWithFees);
-    expect(deps.signer.approve).toHaveBeenCalledWith(SOURCE.tokenMessengerWithFees, 1_500_000n + QUOTE.feeTotalAmount);
+    expect(deps.signer.approve).toHaveBeenCalledWith(
+      SOURCE.tokenMessengerWithFees,
+      1_500_000n + 2n * QUOTE.feeTotalAmount
+    );
     const intent = buildExecutorBurnIntent('1.5', SOURCE, RECIPIENT, DEPOSITOR);
     expect(deps.fetchQuote).toHaveBeenCalledTimes(2);
     expect(deps.fetchQuote).toHaveBeenCalledWith(intent);
@@ -255,6 +259,7 @@ describe('runUsdcxExecutorDeposit', () => {
 
     expect(calls).toEqual([
       'isRemoteDomainRegistered',
+      'readAllowance',
       'quote',
       'readAllowance',
       'approve',
@@ -291,12 +296,37 @@ describe('runUsdcxExecutorDeposit', () => {
     ]);
   });
 
-  // At most one approval goes to the fee entry point: a fee that rose by the second quote takes the manual route.
-  it('falls back to the manual burn when the fee rises after the approval', async () => {
+  // The one approval leaves twice the quoted fee, so a fee that moved by the second quote is still covered.
+  it('signs the re-quote when the fee rose within the approved headroom', async () => {
+    const rose: CctpBurnQuote = { ...REQUOTE, feeTotalAmount: 40_000n };
     const { deps, calls } = makeDeps({
       fetchQuote: jest.fn(async () => {
         calls.push('quote');
-        return calls.filter(call => call === 'quote').length > 1 ? { ...REQUOTE, feeTotalAmount: 40_000n } : QUOTE;
+        return calls.filter(call => call === 'quote').length > 1 ? rose : QUOTE;
+      })
+    });
+
+    await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps);
+
+    expect(jest.mocked(deps.signer.approve).mock.calls).toEqual([
+      [SOURCE.tokenMessengerWithFees, 1_500_000n + 2n * QUOTE.feeTotalAmount]
+    ]);
+    expect(deps.signer.depositForBurnWithHookAndFees).toHaveBeenCalledWith(
+      buildDepositForBurnWithHookAndFeesArgs(
+        SOURCE,
+        buildExecutorBurnIntent('1.5', SOURCE, RECIPIENT, DEPOSITOR),
+        rose,
+        DEPOSITOR
+      )
+    );
+  });
+
+  // At most one approval goes to the fee entry point: a fee beyond the headroom takes the manual route.
+  it('falls back to the manual burn when the fee rises beyond the approved headroom', async () => {
+    const { deps, calls } = makeDeps({
+      fetchQuote: jest.fn(async () => {
+        calls.push('quote');
+        return calls.filter(call => call === 'quote').length > 1 ? { ...REQUOTE, feeTotalAmount: 70_000n } : QUOTE;
       })
     });
 
@@ -304,7 +334,7 @@ describe('runUsdcxExecutorDeposit', () => {
 
     expect(deps.fetchQuote).toHaveBeenCalledTimes(2);
     expect(jest.mocked(deps.signer.approve).mock.calls).toEqual([
-      [SOURCE.tokenMessengerWithFees, 1_500_000n + QUOTE.feeTotalAmount],
+      [SOURCE.tokenMessengerWithFees, 1_500_000n + 2n * QUOTE.feeTotalAmount],
       [TOKEN_MESSENGER_V2_ADDRESS, 1_500_000n]
     ]);
     expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
@@ -347,7 +377,7 @@ describe('runUsdcxExecutorDeposit', () => {
     await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps);
 
     expect(jest.mocked(deps.signer.approve).mock.calls).toEqual([
-      [SOURCE.tokenMessengerWithFees, 1_500_000n + QUOTE.feeTotalAmount],
+      [SOURCE.tokenMessengerWithFees, 1_500_000n + 2n * QUOTE.feeTotalAmount],
       [TOKEN_MESSENGER_V2_ADDRESS, 1_500_000n]
     ]);
     expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
@@ -361,7 +391,10 @@ describe('runUsdcxExecutorDeposit', () => {
 
     await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps);
 
-    expect(deps.signer.approve).toHaveBeenCalledWith(SOURCE.tokenMessengerWithFees, 1_500_000n + QUOTE.feeTotalAmount);
+    expect(deps.signer.approve).toHaveBeenCalledWith(
+      SOURCE.tokenMessengerWithFees,
+      1_500_000n + 2n * QUOTE.feeTotalAmount
+    );
   });
 
   it('fails before any wallet prompt when Arc xReserve has no Miden domain', async () => {

@@ -255,13 +255,13 @@ export interface UsdcxExecutorDepositDeps {
  * Run the source-chain leg of an executor-route bridge-in against the tracking row `trackingTxId`.
  *
  * Order: check Arc's xReserve has Miden registered (the executor would otherwise revert the whole
- * execution after the burn), ask Circle for a quote, then approve and burn. With a quote the burn goes
- * through the fee entry point for the amount plus the fee and Circle forwards and executes it on Arc;
- * when Circle refuses or cannot be reached the burn goes through the plain token messenger for the amount
+ * execution after the burn), read the fee entry point's allowance, ask Circle for a quote, then approve
+ * and burn. With a quote the burn goes through the fee entry point for the amount plus the fee and Circle
+ * forwards and executes it on Arc; when Circle refuses or cannot be reached the burn goes through the plain token messenger for the amount
  * and the wallet executes it on Arc itself. Either way the approval is sent only when the allowance is
  * short, the hash is recorded on the row before the receipt is awaited, and the row then moves to
  * `delivering`. Nothing here waits for Circle. A quote lives about two minutes, so after an approval the burn
- * signs a second quote, and a fee that rose by then takes the manual route instead of a second approval.
+ * signs a second quote; the approval covers twice the quoted fee, and a fee beyond that takes the manual route.
  */
 export async function runUsdcxExecutorDeposit(
   trackingTxId: string,
@@ -298,17 +298,17 @@ export async function runUsdcxExecutorDeposit(
     await waitForReceipt(await signer.approve(spender, spend));
   };
 
-  // The burn signs a quote fetched after the last approval, because an approval prompt and its receipt can outlast a
-  // quote, and at most one approval goes to the fee entry point: a fee that rose by the second quote, or no second
-  // quote, sends the deposit down the manual route instead of asking again.
+  // The allowance is read before the quote, so after a quote only an approval (followed by a second quote), the
+  // signer's bounded fee read and the burn prompt remain. At most one approval goes to the fee entry point, for twice
+  // the quoted fee so a fee that moved by the second quote is still covered; a fee beyond that, or no second quote,
+  // takes the manual route, which may ask for its own approval to the plain messenger.
+  const feeAllowance = await readAllowance(source.tokenMessengerWithFees);
   let quote = await tryQuote();
-  if (quote) {
-    const approvedSpend = intent.value + quote.feeTotalAmount;
-    if ((await readAllowance(source.tokenMessengerWithFees)) < approvedSpend) {
-      await waitForReceipt(await signer.approve(source.tokenMessengerWithFees, approvedSpend));
-      quote = await tryQuote();
-      if (quote && intent.value + quote.feeTotalAmount > approvedSpend) quote = undefined;
-    }
+  if (quote && feeAllowance < intent.value + quote.feeTotalAmount) {
+    const approvedSpend = intent.value + 2n * quote.feeTotalAmount;
+    await waitForReceipt(await signer.approve(source.tokenMessengerWithFees, approvedSpend));
+    quote = await tryQuote();
+    if (quote && intent.value + quote.feeTotalAmount > approvedSpend) quote = undefined;
   }
   if (!quote) await ensureAllowance(source.tokenMessenger, intent.value);
 
