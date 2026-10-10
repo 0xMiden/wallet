@@ -78,6 +78,15 @@ jobs:
       # Optional: a relay projectId of the counterparty's own. See e2e-bridge-in.yml.
       WC_COUNTERPARTY_PROJECT_ID: ${{ secrets.WC_COUNTERPARTY_PROJECT_ID }}
     steps:
+      # The spec skips itself without this key, and a skipped spec passes the job, so a run that tested nothing
+      # would read green. Fail first instead.
+      - name: Require the live Arc Testnet key
+        run: |
+          if [ -z "$USDCX_LIVE_EVM_PRIVATE_KEY" ]; then
+            echo "::error title=USDCX_LIVE_EVM_PRIVATE_KEY is not set::Add a funded Arc Testnet key as the repository secret USDCX_LIVE_EVM_PRIVATE_KEY. Without it the spec skips and the run tests nothing."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
