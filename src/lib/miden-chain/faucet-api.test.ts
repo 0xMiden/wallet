@@ -991,4 +991,157 @@ describe('faucet-api', () => {
       expect(fetchMock.mock.calls[0][0]).toContain('/pow');
     });
   });
+
+  describe('the grant amount and the cap retry', () => {
+    const ADDRESS = 'mtst1testaddress';
+    // Faucet 0.17.1 (testnet) offers token amounts; 0.17.0 (devnet) does not.
+    const TESTNET_METADATA = {
+      version: '0.17.1',
+      decimals: 6,
+      base_amount: 100_000_000,
+      token_amounts: [1, 10, 100]
+    };
+    const DEVNET_METADATA = { version: '0.17.0', decimals: 6, base_amount: 100_000_000 };
+    const overCap = (requested: bigint, cap: bigint) =>
+      `requested amount ${requested} exceeds the maximum claimable amount of ${cap}`;
+    const requests = (path: string) =>
+      fetchMock.mock.calls.map(([url]) => new URL(url)).filter(url => url.pathname === path);
+    const powAmounts = () => requests('/pow').map(url => url.searchParams.get('amount'));
+    const grantAmounts = () => requests('/get_tokens').map(url => url.searchParams.get('asset_amount'));
+
+    /** Answers the metadata, then each /pow and /get_tokens from its own queue, OK once a queue is empty. */
+    function serveFaucet(metadata: unknown, queued: { pow?: MockResponse[]; tokens?: MockResponse[] } = {}) {
+      const pow = [...(queued.pow ?? [])];
+      const tokens = [...(queued.tokens ?? [])];
+      fetchMock.mockImplementation(async (url: string) => {
+        const { pathname } = new URL(url);
+        if (pathname === '/get_metadata') return jsonResponse(metadata);
+        if (pathname === '/pow') return pow.shift() ?? jsonResponse({ challenge: CHALLENGE_HEX, target: 2 ** 64 });
+        return tokens.shift() ?? jsonResponse({ note_id: '0xnote' });
+      });
+    }
+
+    describe('mintFromMidenFaucet', () => {
+      it('asks for the largest token amount the faucet offers, in base units', async () => {
+        serveFaucet({ ...TESTNET_METADATA, token_amounts: [1, 10] });
+
+        await mintFromMidenFaucet(ADDRESS);
+
+        expect(powAmounts()).toEqual(['10000000']);
+        expect(grantAmounts()).toEqual(['10000000']);
+      });
+
+      it('asks for an offered token amount when base_amount is malformed', async () => {
+        serveFaucet({ decimals: 6, base_amount: 'x', token_amounts: [5] });
+
+        await mintFromMidenFaucet(ADDRESS);
+
+        expect(powAmounts()).toEqual(['5000000']);
+      });
+
+      it('asks once more at the cap a challenge refusal names, from a fresh challenge (testnet)', async () => {
+        serveFaucet(TESTNET_METADATA, { pow: [errorResponse(400, overCap(100_000_000n, 10_000_000n))] });
+        const onBeforeSubmit = jest.fn(async () => undefined);
+
+        await expect(mintFromMidenFaucet(ADDRESS, undefined, undefined, onBeforeSubmit)).resolves.toStrictEqual({
+          noteId: '0xnote'
+        });
+
+        expect(powAmounts()).toEqual(['100000000', '10000000']);
+        expect(grantAmounts()).toEqual(['10000000']);
+        expect(spawnWorkerMock).toHaveBeenCalledTimes(1);
+        expect(onBeforeSubmit).toHaveBeenCalledTimes(1);
+      });
+
+      it('asks once more at the cap a token refusal names, solving a new challenge (devnet)', async () => {
+        serveFaucet(DEVNET_METADATA, { tokens: [errorResponse(400, overCap(100_000_000n, 10_000_000n))] });
+        const onBeforeSubmit = jest.fn(async () => undefined);
+        const onMayMint = jest.fn();
+
+        await mintFromMidenFaucet(ADDRESS, undefined, undefined, onBeforeSubmit, onMayMint);
+
+        expect(powAmounts()).toEqual(['100000000', '10000000']);
+        expect(grantAmounts()).toEqual(['100000000', '10000000']);
+        expect(spawnWorkerMock).toHaveBeenCalledTimes(2);
+        expect(onBeforeSubmit).toHaveBeenCalledTimes(2);
+        // Refused (nothing minting), then the retry goes out and is accepted.
+        expect(onMayMint.mock.calls).toEqual([[true], [false], [true], [true]]);
+      });
+
+      it('asks at most twice, whatever the second refusal names', async () => {
+        serveFaucet(TESTNET_METADATA, {
+          pow: [
+            errorResponse(400, overCap(100_000_000n, 10_000_000n)),
+            errorResponse(400, overCap(10_000_000n, 1_000_000n))
+          ]
+        });
+
+        const error = await mintFromMidenFaucet(ADDRESS).catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(FaucetAmountOverCapError);
+        expect(error).toMatchObject({ cap: 1_000_000n });
+        expect(powAmounts()).toEqual(['100000000', '10000000']);
+      });
+
+      it('surfaces a rate limit on the retry as the faucet sent it, and asks no third time', async () => {
+        serveFaucet(DEVNET_METADATA, {
+          tokens: [
+            errorResponse(400, overCap(100_000_000n, 10_000_000n)),
+            errorResponse(429, 'Account is rate limited for 25 more seconds.')
+          ]
+        });
+        const onMayMint = jest.fn();
+
+        const minting = mintFromMidenFaucet(ADDRESS, undefined, undefined, undefined, onMayMint);
+        const error = await minting.catch((e: unknown) => e);
+
+        expect(error).toBeInstanceOf(FaucetRateLimitedError);
+        expect(error).toMatchObject({ retryAfterSeconds: 25 });
+        expect(grantAmounts()).toEqual(['100000000', '10000000']);
+        // Both refusals say nothing is minting, so the card may offer the request again.
+        expect(onMayMint.mock.calls).toEqual([[true], [false], [true], [false]]);
+      });
+
+      it.each([
+        ['the cap equals the request', overCap(100_000_000n, 100_000_000n)],
+        ['the cap is above the request', overCap(100_000_000n, 1_000_000_000n)],
+        ['the cap is zero', overCap(100_000_000n, 0n)],
+        ['the refusal names no cap', 'requested amount 100000000 exceeds the maximum claimable amount'],
+        ['the refusal is about something else', 'Please enter a valid recipient address']
+      ])('asks only once when %s', async (_case, detail) => {
+        serveFaucet(TESTNET_METADATA, { pow: [errorResponse(400, detail)] });
+
+        await expect(mintFromMidenFaucet(ADDRESS)).rejects.toThrow(
+          `Faucet PoW request failed with status 400: ${detail}`
+        );
+
+        expect(powAmounts()).toEqual(['100000000']);
+      });
+
+      it('asks only once for an amount the caller chose', async () => {
+        serveFaucet(TESTNET_METADATA, { pow: [errorResponse(400, overCap(100_000_000n, 10_000_000n))] });
+
+        await expect(mintFromMidenFaucet(ADDRESS, 100_000_000n)).rejects.toBeInstanceOf(FaucetAmountOverCapError);
+
+        expect(powAmounts()).toEqual(['100000000']);
+        expect(requests('/get_metadata')).toHaveLength(0);
+      });
+
+      it('sends no second challenge when the caller aborts on an over-cap refusal', async () => {
+        const controller = new AbortController();
+        const reason = new Error('Faucet request timed out');
+        fetchMock.mockImplementation(async (url: string) => {
+          if (new URL(url).pathname === '/get_metadata') return jsonResponse(TESTNET_METADATA);
+          // The request's timeout fires while the refusal is on its way back.
+          controller.abort(reason);
+          return errorResponse(400, overCap(100_000_000n, 10_000_000n));
+        });
+
+        await expect(mintFromMidenFaucet(ADDRESS, undefined, controller.signal)).rejects.toBe(reason);
+
+        expect(powAmounts()).toEqual(['100000000']);
+        expect(spawnWorkerMock).not.toHaveBeenCalled();
+      });
+    });
+  });
 });

@@ -787,6 +787,37 @@ describe('wallet prompts', () => {
     expect(seen).toEqual([marker, { ...marker, submitted: true, submittedAt: expect.any(Number) }]);
   });
 
+  it('lets a request refused over the cap go out again at the cap, flagged anew', async () => {
+    const marker = { requestedAt: 1_000, baselineNoteIds: [] };
+    const flags: Array<number | undefined> = [];
+    mintFromMidenFaucetMock.mockImplementation(
+      async (
+        _address: string,
+        _amount: bigint | undefined,
+        _signal?: AbortSignal,
+        beforeSubmit?: () => Promise<void>,
+        onMayMint?: (mayMint: boolean) => void
+      ) => {
+        // Devnet refuses over the cap only at the token request: nothing was minted.
+        await beforeSubmit?.();
+        onMayMint?.(true);
+        onMayMint?.(false);
+        flags.push((await fetchFaucetFundingMarker('accountCapped'))?.submittedAt);
+        // The retry at the cap passes the same pre-send check and is flagged again.
+        await beforeSubmit?.();
+        onMayMint?.(true);
+        flags.push((await fetchFaucetFundingMarker('accountCapped'))?.submittedAt);
+        return { noteId: '0xnote' };
+      }
+    );
+
+    await expect(faucet('accountCapped', marker)).resolves.toBeUndefined();
+
+    expect(flags).toEqual([expect.any(Number), expect.any(Number)]);
+    expect(flags[1]!).toBeGreaterThanOrEqual(flags[0]!);
+    expect(getFaucetRequestSettledAt('accountCapped', 1_000)).not.toBeNull();
+  });
+
   it.each([
     ['sent', true],
     ['still before its token request', false]

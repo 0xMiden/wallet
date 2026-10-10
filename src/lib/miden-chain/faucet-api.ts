@@ -2,7 +2,7 @@ import { getEffectiveFaucetApiUrl, getEffectiveNetworkName } from 'lib/miden-cha
 import { requestTimeoutError } from 'lib/remote-json';
 
 import { MIDEN_FAUCET_API_ENDPOINTS } from './constants';
-import { faucetCapFromRefusal, faucetRateLimitSeconds } from './faucet-protocol';
+import { faucetCapFromRefusal, faucetGrantAmount, faucetRateLimitSeconds } from './faucet-protocol';
 import { spawnFaucetPowWorker } from './spawn-faucet-pow-worker';
 
 export interface PowChallenge {
@@ -325,24 +325,33 @@ export async function mintFromMidenFaucet(
   onMayMint?: (mayMint: boolean) => void
 ): Promise<MintedNote> {
   const baseUrl = getFaucetApiUrl();
-  const resolvedAmount = amount ?? (await getFaucetBaseAmount(baseUrl, signal));
-  const { challenge, target } = await getPowChallenge(baseUrl, address, resolvedAmount, signal);
-  const nonce = await solvePowChallenge(challenge, target, { signal });
-  await onBeforeSubmit?.();
-  return requestTokens(baseUrl, address, resolvedAmount, challenge, nonce, signal, onMayMint);
+  const mint = async (value: bigint): Promise<MintedNote> => {
+    const { challenge, target } = await getPowChallenge(baseUrl, address, value, signal);
+    const nonce = await solvePowChallenge(challenge, target, { signal });
+    await onBeforeSubmit?.();
+    return requestTokens(baseUrl, address, value, challenge, nonce, signal, onMayMint);
+  };
+  if (amount !== undefined) return mint(amount);
+
+  const metadata = await fetchFaucetMetadata(baseUrl, signal);
+  const chosen = faucetGrantAmount(metadata);
+  try {
+    return await mint(chosen);
+  } catch (error) {
+    // The faucet refuses an amount over its cap before anything is minted, and names the cap. Ask once more for
+    // exactly that from a fresh challenge (the first one is bound to the refused amount); a second refusal stands.
+    if (!(error instanceof FaucetAmountOverCapError) || error.cap <= 0n || error.cap >= chosen) throw error;
+    return mint(error.cap);
+  }
 }
 
-async function getFaucetBaseAmount(baseUrl: string, signal?: AbortSignal): Promise<bigint> {
+async function fetchFaucetMetadata(baseUrl: string, signal?: AbortSignal): Promise<unknown> {
   return faucetFetch(`${baseUrl}/get_metadata`, { signal }, async response => {
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       throw new Error(`Faucet metadata request failed with status ${response.status}: ${detail}`);
     }
     const metadata: unknown = await response.json();
-    const baseAmount = metadata && typeof metadata === 'object' ? Reflect.get(metadata, 'base_amount') : undefined;
-    if (typeof baseAmount !== 'number' || !Number.isSafeInteger(baseAmount) || baseAmount <= 0) {
-      throw new Error('Faucet metadata base_amount must be a positive safe integer');
-    }
-    return BigInt(baseAmount);
+    return metadata;
   });
 }
