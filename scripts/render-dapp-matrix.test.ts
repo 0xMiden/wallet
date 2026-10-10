@@ -40,7 +40,9 @@ function records(cells: Cell[], extra: { infra?: string; title?: string } = {}):
   return dir;
 }
 
-function results(titles: string[], errors: Array<{ message: string }> = []): string {
+type Spec = { title: string; tests: Array<{ timeout: number; results: Array<{ status: string; duration: number }> }> };
+
+function results(titles: Array<string | Spec>, errors: Array<{ message: string }> = []): string {
   const file = join(mkdtempSync(join(tmpdir(), 'dapp-results-')), 'results.json');
   const suites =
     titles.length === 0
@@ -48,7 +50,9 @@ function results(titles: string[], errors: Array<{ message: string }> = []): str
       : [
           {
             title: 'custom-requests.spec.ts',
-            specs: titles.map(title => ({ title, tests: [{ results: [{ status: 'failed' }] }] })),
+            specs: titles.map(title =>
+              typeof title === 'string' ? { title, tests: [{ results: [{ status: 'failed' }] }] } : title
+            ),
             suites: []
           }
         ];
@@ -58,6 +62,8 @@ function results(titles: string[], errors: Array<{ message: string }> = []): str
 
 const gate = (dir: string, resultsFile: string) =>
   spawnSync(process.execPath, [script, '--gate', dir, resultsFile], { encoding: 'utf8' });
+const render = (dir: string, resultsFile: string) =>
+  spawnSync(process.execPath, [script, dir, resultsFile], { encoding: 'utf8' });
 
 describe('render-dapp-matrix', () => {
   it('renders each cell with the spec verdict text', () => {
@@ -77,6 +83,50 @@ describe('render-dapp-matrix', () => {
     expect(out.stdout).toContain('| X1 | fail (K3, K4) |');
     expect(out.stdout).toContain('| X7 | pass |');
     expect(out.stdout).toContain('| X11 | blocked (needs X1) |');
+    expect(out.stdout).not.toContain('Playwright');
+  });
+
+  it("prints each journey's last Playwright result against the journey's own timeout", () => {
+    const out = render(
+      records([{ id: 'X1', verdict: 'pass' }]),
+      results([
+        { title: 'dApp custom requests - offchain account', tests: [{ timeout: 1_000, results: [] }] },
+        {
+          title: TITLE,
+          tests: [
+            {
+              timeout: 2_700_000,
+              results: [
+                { status: 'passed', duration: 5_000 },
+                { status: 'timedOut', duration: 2_712_400 }
+              ]
+            }
+          ]
+        }
+      ])
+    );
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain(
+      `### ${TITLE} (writes)\n\nPlaywright: timedOut after 2712 s of its 2700 s timeout\n\n| Cell |`
+    );
+  });
+
+  it.each([
+    ['no test with its title', [{ title: 'dApp custom requests - offchain account', tests: [] }]],
+    ['a test that has no result', [{ title: TITLE, tests: [{ timeout: 2_700_000, results: [] }] }]]
+  ])('says so when the report has %s', (_name, specs) => {
+    const out = render(records([{ id: 'X1', verdict: 'pass' }]), results(specs));
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain(`### ${TITLE} (writes)\n\nPlaywright: no result for this test\n\n| Cell |`);
+    expect(out.stdout).toContain('| X1 | pass |');
+  });
+
+  it('renders every journey and says why there are no durations when Playwright wrote no report', () => {
+    const out = render(records([{ id: 'X1', verdict: 'pass' }]), '/nonexistent/results.json');
+    expect(out.status).toBe(0);
+    expect(out.stdout).toContain('**Playwright:** no results.json, so no journey durations');
+    expect(out.stdout).toContain(`### ${TITLE} (writes)\n\n| Cell |`);
+    expect(out.stdout).toContain('| X1 | pass |');
   });
 
   it('passes the gate when every failure is a registered known bug, or blocked behind one', () => {

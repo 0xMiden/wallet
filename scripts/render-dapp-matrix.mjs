@@ -4,9 +4,11 @@
  * playwright/e2e/helpers/dapp-cells.ts) as the job-summary matrix, and with --gate decides the job: it fails on a
  * new failure, a harness fault, a cell that never ran or was blocked by state or infrastructure, a known bug that
  * now passes or no longer shows, a test with no records, a run that left no Playwright report, and an error Playwright
- * reported outside every test. It passes when every failure is a registered known bug, or blocked behind one.
+ * reported outside every test. It passes when every failure is a registered known bug, or blocked behind one. Given
+ * the Playwright report, the matrix also prints each journey's status and duration against its test timeout, so a
+ * journey that ran out of time does not read as a wrong value in its cells.
  *
- *   node scripts/render-dapp-matrix.mjs <records dir>
+ *   node scripts/render-dapp-matrix.mjs <records dir> [results.json]
  *   node scripts/render-dapp-matrix.mjs --gate <records dir> <results.json>
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -51,16 +53,26 @@ const cellText = text =>
     .replace(/\s+/g, ' ')
     .slice(0, 160);
 
-export function renderMatrix(journeys, infra) {
+// The last result is the final attempt. The reporter takes the timeout at test end, so it is the journey's own
+// test.setTimeout, not the config's default.
+function runLine(spec) {
+  const test = spec?.tests?.[0];
+  const result = test?.results?.at(-1);
+  if (result === undefined) return 'Playwright: no result for this test';
+  const seconds = ms => Math.round(ms / 1000);
+  return `Playwright: ${result.status} after ${seconds(result.duration)} s of its ${seconds(test.timeout)} s timeout`;
+}
+
+/** `results` is the parsed report, null when the named report is absent, undefined when none was named. */
+export function renderMatrix(journeys, infra, results) {
   const lines = ['## dApp E2E matrix', ''];
   if (infra) lines.push(`**Infrastructure:** ${cellText(infra)}`, '');
+  if (results === null) lines.push('**Playwright:** no results.json, so no journey durations', '');
+  const specs = results ? playwrightSpecs(results) : [];
   for (const journey of journeys) {
-    lines.push(
-      `### ${journey.testTitle} (${journey.part})`,
-      '',
-      '| Cell | Verdict | Seconds | Detail |',
-      '|---|---|---|---|'
-    );
+    lines.push(`### ${journey.testTitle} (${journey.part})`, '');
+    if (results) lines.push(runLine(specs.find(spec => spec.title === journey.testTitle)), '');
+    lines.push('| Cell | Verdict | Seconds | Detail |', '|---|---|---|---|');
     for (const cell of journey.cells) {
       const detail =
         cell.staleKnownBugs.length > 0 ? `stale registry entry: ${cell.staleKnownBugs.join(', ')}` : cell.error;
@@ -75,14 +87,18 @@ export function renderMatrix(journeys, infra) {
  * The tests the run selected. A spec's title is the test's own title without any describe path, as the `testInfo.title`
  * the runner records is, and `--grep` leaves the other axis's journeys out of the report altogether.
  */
-export function playwrightTests(results) {
-  const tests = [];
+function playwrightSpecs(results) {
+  const specs = [];
   const walk = suite => {
-    for (const spec of suite.specs ?? []) tests.push(spec.title);
+    for (const spec of suite.specs ?? []) specs.push(spec);
     for (const child of suite.suites ?? []) walk(child);
   };
   for (const suite of results.suites ?? []) walk(suite);
-  return tests;
+  return specs;
+}
+
+export function playwrightTests(results) {
+  return playwrightSpecs(results).map(spec => spec.title);
 }
 
 const firstLine = text => String(text).split('\n')[0].slice(0, 300);
@@ -129,12 +145,14 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
   const infraFile = join(dir, 'INFRA_ABORT');
   const infra = existsSync(infraFile) ? readFileSync(infraFile, 'utf8').trim() : null;
   const journeys = readJourneys(dir);
+  const readResults = file => (file && existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null);
   if (!gating) {
-    process.stdout.write(`${renderMatrix(journeys, infra)}\n`);
+    process.stdout.write(
+      `${renderMatrix(journeys, infra, args[1] === undefined ? undefined : readResults(args[1]))}\n`
+    );
     process.exit(0);
   }
-  const resultsFile = args[2];
-  const results = resultsFile && existsSync(resultsFile) ? JSON.parse(readFileSync(resultsFile, 'utf8')) : null;
+  const results = readResults(args[2]);
   const verdict = judge(journeys, results, infra);
   for (const problem of verdict.problems) console.error(problem);
   console.log(
