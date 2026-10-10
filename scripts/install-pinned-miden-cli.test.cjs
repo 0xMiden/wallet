@@ -10,7 +10,11 @@ const {
   assertGraph,
   fingerprint,
   prepareSource,
-  validPreparedBinary
+  validPreparedBinary,
+  runCommand,
+  removeTemporarySource,
+  withSourceCleanup,
+  recordCacheSafety
 } = require('./install-pinned-miden-cli.cjs');
 
 const pin = {
@@ -37,18 +41,21 @@ const lock = kernel =>
 function temporary(fn) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miden-cli-prepare-test-'));
   try {
-    return fn(dir);
-  } finally {
+    return Promise.resolve(fn(dir)).finally(() => {
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+  } catch (error) {
     fs.rmSync(dir, { recursive: true, force: true });
+    throw error;
   }
 }
 
 test('preparation constrains the released kernel before resolving and verifies a locked all-feature graph', () =>
-  temporary(dir => {
+  temporary(async dir => {
     fs.writeFileSync(path.join(dir, 'Cargo.toml'), manifest);
     fs.writeFileSync(path.join(dir, 'Cargo.lock'), lock('0.17.0'));
     const commands = [];
-    prepareSource(dir, pin, (command, args) => {
+    await prepareSource(dir, pin, (command, args) => {
       commands.push([command, args]);
       if (args[0] === 'update') {
         assert.equal(fs.readFileSync(path.join(dir, 'Cargo.toml'), 'utf8').match(/version = "=0.17.1"/g).length, 3);
@@ -121,4 +128,105 @@ test('same-version binaries require matching source/kernel provenance and binary
     );
     fs.writeFileSync(binary, 'miden-client 0.17.1 with a different kernel');
     assert.equal(validPreparedBinary(pin, root), false);
+  }));
+
+test('timed-out commands stop their entire process group before returning on Unix', {
+  skip: process.platform === 'win32'
+}, async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'miden-cli-process-test-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const childPidPath = path.join(dir, 'child.pid');
+  const source = [
+    "const { spawn } = require('node:child_process');",
+    "const fs = require('node:fs');",
+    "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
+    "fs.writeFileSync(process.env.CHILD_PID_PATH, String(child.pid));",
+    'setInterval(() => {}, 1000);'
+  ].join('\n');
+
+  await assert.rejects(
+    runCommand(process.execPath, ['-e', source], {
+      env: { ...process.env, CHILD_PID_PATH: childPidPath },
+      stdio: 'ignore',
+      timeoutMs: 750
+    }),
+    error => error.message.includes('Timed out after 750 ms') && error.processTreeStopped === true
+  );
+
+  const childPid = Number(fs.readFileSync(childPidPath, 'utf8'));
+  assert.throws(() => process.kill(childPid, 0), error => error.code === 'ESRCH');
+});
+
+test('nonzero child exits retain their command and exit status', async () => {
+  await assert.rejects(
+    runCommand(process.execPath, ['-e', 'process.exit(17)'], { stdio: 'ignore', timeoutMs: 5_000 }),
+    /Command exited with code 17/
+  );
+});
+
+test('source cleanup requests bounded retries for transient filesystem errors', async () => {
+  let removedPath;
+  let removeOptions;
+  await removeTemporarySource('/tmp/miden-cli-source-test', async (source, options) => {
+    removedPath = source;
+    removeOptions = options;
+  });
+  assert.equal(removedPath, '/tmp/miden-cli-source-test');
+  assert.deepEqual(removeOptions, {
+    recursive: true,
+    force: true,
+    maxRetries: 6,
+    retryDelay: 250
+  });
+});
+
+test('cleanup failure does not replace the original build error', async () => {
+  const buildError = new Error('cargo install timed out');
+  const cleanupError = Object.assign(new Error('directory is not empty'), { code: 'ENOTEMPTY' });
+  const warnings = [];
+  const originalError = console.error;
+  console.error = message => warnings.push(message);
+  try {
+    await assert.rejects(
+      withSourceCleanup('/tmp/miden-cli-source-test', async () => {
+        throw buildError;
+      }, async () => {
+        throw cleanupError;
+      }),
+      error => error === buildError
+    );
+  } finally {
+    console.error = originalError;
+  }
+  assert.match(warnings.join('\n'), /ENOTEMPTY/);
+});
+
+test('source is retained when the build process tree could not be stopped', async () => {
+  const buildError = Object.assign(new Error('cargo install timed out'), { processTreeStopped: false });
+  const warnings = [];
+  let cleanupCalled = false;
+  const originalError = console.error;
+  console.error = message => warnings.push(message);
+  try {
+    await assert.rejects(
+      withSourceCleanup('/tmp/miden-cli-source-test', async () => {
+        throw buildError;
+      }, async () => {
+        cleanupCalled = true;
+      }),
+      error => error === buildError
+    );
+  } finally {
+    console.error = originalError;
+  }
+  assert.equal(cleanupCalled, false);
+  assert.match(warnings.join('\n'), /could not be stopped/);
+});
+
+test('cache safety is recorded only for a successful build or a confirmed stopped process tree', () =>
+  temporary(dir => {
+    const output = path.join(dir, 'github-output');
+    recordCacheSafety(output, true);
+    recordCacheSafety(output, false);
+    assert.equal(fs.readFileSync(output, 'utf8'), 'safe-to-cache=true\nsafe-to-cache=false\n');
   }));

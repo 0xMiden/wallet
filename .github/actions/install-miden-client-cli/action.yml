@@ -18,9 +18,11 @@ description: >
   the last step greps the installed binary for `assert_fee_bound` rather than running --version.
 
   With an exact released protocol pin, the shared source preparer constrains the registry
-  kernel before a locked installation and verifies cached binary provenance. Linked client
-  and Protocol PR builds retain their own source and cache paths. Without a protocol pin,
-  the caller's existing cargo cache and plain git or crates.io installation are retained.
+  kernel before a locked installation and verifies cached binary provenance. Its rustc-specific
+  Cargo target cache can resume an interrupted build; a timed-out cargo process group exits before
+  source cleanup, and cleanup retries cannot mask the install error. Linked client and Protocol PR
+  builds retain their own source and cache paths. Without a protocol pin, the caller's existing
+  cargo cache and plain git or crates.io installation are retained.
 inputs:
   require-sdk-injection:
     description: >
@@ -38,6 +40,9 @@ outputs:
   bin:
     description: Absolute path of the installed miden-client binary.
     value: ${{ steps.pins.outputs.bin }}
+  stable-cli-cache-hit:
+    description: Whether the exact stable-kernel CLI cache entry was restored.
+    value: ${{ steps.stable_cli_cache.outputs.cache-hit }}
 runs:
   using: composite
   steps:
@@ -113,9 +118,11 @@ runs:
           } >> "$GITHUB_OUTPUT"
           if [ -n "$(node -p "require('./package.json').midenClientCliProtocolVersion ?? ''")" ]; then
             identity=$(node scripts/install-pinned-miden-cli.cjs fingerprint)
+            rustc_id=$(rustc --version | sha256sum | cut -c1-16)
             {
               echo "stable_kernel=1"
-              echo "cache_key=miden-client-cli-${{ runner.os }}-${{ runner.arch }}-kernel-$identity"
+              echo "cache_key=miden-client-cli-${{ runner.os }}-${{ runner.arch }}-rustc${rustc_id}-kernel-${identity}"
+              echo "build_cache_prefix=miden-client-target-${{ runner.os }}-${{ runner.arch }}-rustc${rustc_id}-kernel-${identity}-"
               echo "bin=$root/bin/miden-client"
             } >> "$GITHUB_OUTPUT"
           fi
@@ -412,18 +419,56 @@ runs:
       with:
         path: ${{ steps.pins.outputs.root }}
         key: ${{ steps.pins.outputs.cache_key }}
+    - name: Restore stable CLI Cargo target
+      id: stable_cli_build_cache
+      if: steps.pins.outputs.stable_kernel == '1' && steps.stable_cli_cache.outputs.cache-hit != 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ runner.temp }}/miden-cli-build
+        key: ${{ steps.pins.outputs.build_cache_prefix }}${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+        restore-keys: ${{ steps.pins.outputs.build_cache_prefix }}
     - name: Verify or install the CLI with the exact released kernel
+      id: stable_cli_install
       if: steps.pins.outputs.stable_kernel == '1'
+      continue-on-error: true
       shell: bash
       env:
         ROOT: ${{ steps.pins.outputs.root }}
+        MIDEN_CLI_SOURCE_ROOT: ${{ runner.temp }}/miden-cli-sources
+        MIDEN_CLI_BUILD_DIR: ${{ runner.temp }}/miden-cli-build
       run: |
         set -euo pipefail
         node --test scripts/install-pinned-miden-cli.test.cjs
-        node scripts/install-pinned-miden-cli.cjs install "$ROOT"
+        MIDEN_CLI_STATUS_OUTPUT="$GITHUB_OUTPUT" node scripts/install-pinned-miden-cli.cjs install "$ROOT"
         "$ROOT/bin/miden-client" --version
         echo "MIDEN_CLIENT_BIN=$ROOT/bin/miden-client" >> "$GITHUB_ENV"
         echo "$ROOT/bin" >> "$GITHUB_PATH"
+    - name: Check for reusable stable CLI Cargo artifacts
+      id: stable_cli_build_artifacts
+      if: steps.pins.outputs.stable_kernel == '1' && steps.stable_cli_install.outcome != 'skipped' && steps.stable_cli_install.outputs.safe-to-cache == 'true'
+      shell: bash
+      env:
+        TARGET: ${{ runner.temp }}/miden-cli-build
+      run: |
+        set -euo pipefail
+        if [ -d "$TARGET" ] && find "$TARGET" -type f -print -quit | grep -q .; then
+          echo "present=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "present=false" >> "$GITHUB_OUTPUT"
+        fi
+    - name: Save stable CLI Cargo target
+      if: steps.pins.outputs.stable_kernel == '1' && steps.stable_cli_install.outcome != 'skipped' && steps.stable_cli_cache.outputs.cache-hit != 'true' && steps.stable_cli_build_cache.outputs.cache-hit != 'true' && steps.stable_cli_build_artifacts.outputs.present == 'true'
+      continue-on-error: true
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ runner.temp }}/miden-cli-build
+        key: ${{ steps.pins.outputs.build_cache_prefix }}${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+    - name: Fail if stable CLI verification or installation failed
+      if: steps.pins.outputs.stable_kernel == '1' && steps.stable_cli_install.outcome == 'failure'
+      shell: bash
+      run: |
+        echo "::error title=install-miden-client-cli::The stable CLI verification or installation failed; see the previous step for the original error."
+        exit 1
     - name: Save the CLI with the exact released kernel
       if: steps.pins.outputs.stable_kernel == '1' && steps.stable_cli_cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4

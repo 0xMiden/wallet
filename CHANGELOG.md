@@ -12,6 +12,7 @@
 
 ### Fixes
 
+- [FIX][ci] Android bridge-in prepares the verified Miden CLI in its own bounded job and saves Cargo build artifacts after an interrupted compile, so the cold build cannot take time away from the 100-loop Android run.
 - [FIX][ci] The live USDCx bridge-IN E2E fails at once when `USDCX_LIVE_EVM_PRIVATE_KEY` is not set, where its spec used to skip and the run passed having tested nothing.
 - [FIX][all] Fund your wallet asks the faucet for the largest amount it offers and, when the faucet names a lower cap, asks once more for exactly that instead of failing; a rate limit or a refused amount reads in plain words on the card (with the wait, when the faucet gives one).
 - [FIX][ci] The live USDCx bridge-in E2E builds against a dispatching pull request's linked web-sdk and Guardian PRs and gets 235 minutes for a dispatch (150 on its nightly run), like every other push or dispatch install, so the linked-PR injection guard passes on main again.

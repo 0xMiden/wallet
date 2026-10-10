@@ -57,3 +57,5 @@
 - For Android emulator workflows, verify VM acceleration on the exact runner class before expensive setup. Match the system image ABI to the runner CPU, fail closed if acceleration is unavailable, and keep wallet E2E emulator launches windowed unless the user explicitly authorizes headless execution.
 
 - If a CI cache includes compiled binaries, key it by host OS as well as CPU architecture and toolchain pins; architecture-only keys can copy unusable executables across operating systems.
+
+- When the user has already asked to repair and retry a failed CI workload, carry the work through root-cause fix, focused verification, feature-branch publication and one exact retry without reopening scope. Keep unrelated dirty worktrees untouched and check the failed run before dispatching again.

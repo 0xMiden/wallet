@@ -398,3 +398,23 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - Independent review found and the workflow now fixes the cross-OS Rust cache-key collision; it found no remaining source-level blocker.
 - Recovery commit `a98f77607` was pushed to `codex/android-agglayer-bridge-recovery-20261010`; `main` remains at `89c93124`.
 - The selected hosted runner's live Hypervisor.framework availability and terminal 100-loop result remain unverified until a fresh live run is authorized.
+
+# Recover Android Bridge-IN CLI build timeout
+
+## Plan
+
+- [x] Confirm run `38059563408` failed in the pre-install CLI step before APK build or any bridge loop; preserve the dirty `main` worktree.
+- [x] Fetch the current `origin/main` and isolate changes in the clean Android recovery worktree.
+- [x] Replay current `origin/main` into the feature branch without changing `main`.
+- [x] Make CLI compilation bounded and process-tree-aware; retain cargo artifacts across failed builds and preserve the primary failure if cleanup also fails.
+- [x] Give the cold CLI build its own job budget while keeping the Android 100-loop job's full 360-minute budget.
+- [x] Add focused installer regressions, verify the workflow and scoped diff, and complete an independent code review.
+- [ ] Push the fix only to the feature branch and dispatch one fresh 100-loop run after checking the prior run's terminal state.
+- [ ] Monitor the exact run and reconcile terminal status, all loop records, Miden receipts, and balances from its artifacts.
+
+## Review/results
+
+- Focused installer regressions pass (11/11); Node syntax checks, workflow `actionlint` with the known custom runner labels ignored, both YAML parses, and `git diff --check` pass.
+- Independent review confirmed that Cargo target artifacts are cached only after a successful build or confirmed process-tree stop, and that the verified CLI cache remains behind the success gate.
+- The Android workflow dispatch must include `-f platform=android`; the existing manual default remains iOS.
+- Playwright collection and hosted Android execution remain pending in the fresh GitHub Actions run.

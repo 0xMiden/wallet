@@ -58,7 +58,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.platform == 'android'
     runs-on: macos-26-intel
     # Keep a cold Rust build outside the Android job's 360-minute test budget.
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
@@ -71,7 +71,7 @@ jobs:
       # separate Cargo target cache is saved even when this bounded cold build times out.
       - name: Build the pinned CLI
         env:
-          MIDEN_CLI_INSTALL_TIMEOUT_MS: '6300000'
+          MIDEN_CLI_INSTALL_TIMEOUT_MS: '9000000'
         uses: ./.github/actions/install-miden-client-cli
 
   mobile-bridge-in-testnet:
