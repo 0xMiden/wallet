@@ -129,27 +129,31 @@ const REPEATABLE: ReadonlySet<DappCommandName> = new Set([
 ]);
 const NODE_RETRY_MS = 2_000;
 
+// What crosses into the page. Playwright maps an evaluate argument's type recursively, and a generic command and input
+// pair is too deep for it (TS2589), so the pair is pinned by evaluateOnce's own signature and crosses as this.
+interface PageCall {
+  command: DappCommandName;
+  input: unknown;
+}
+
 function evaluateOnce<K extends DappCommandName>(
   dapp: DappHandle,
   command: K,
   input: DappInput<K>
 ): Promise<DappOutput<K>> {
-  return dapp.page
-    .evaluate(
-      ({ command, input }) => {
-        const api = (window as unknown as { testDapp?: TestDappWindowApi }).testDapp;
-        if (!api) throw new Error('window.testDapp is not installed');
-        return api.call(command, input);
-      },
-      { command, input }
-    )
-    .catch((error: unknown) => {
-      const text = error instanceof Error ? error.message : String(error);
-      // Playwright carries the page error's stack, which opens with its name (test-dapp/test-dapp.ts).
-      if (/\bChainUnavailableError: /.test(text)) throw new ChainUnavailable(`dApp ${dapp.label} ${command}: ${text}`);
-      // Any other page-side throw is a dApp bug (bad input, failed self-check), never a wallet verdict.
-      throw new HarnessFault(`dApp ${dapp.label} ${command} threw: ${text}`);
-    });
+  const call: PageCall = { command, input };
+  const answer = dapp.page.evaluate((sent: PageCall): Promise<unknown> => {
+    const api = (window as unknown as { testDapp?: TestDappWindowApi }).testDapp;
+    if (!api) throw new Error('window.testDapp is not installed');
+    return api.call(sent.command, sent.input as never);
+  }, call) as Promise<DappOutput<K>>;
+  return answer.catch((error: unknown) => {
+    const text = error instanceof Error ? error.message : String(error);
+    // Playwright carries the page error's stack, which opens with its name (test-dapp/test-dapp.ts).
+    if (/\bChainUnavailableError: /.test(text)) throw new ChainUnavailable(`dApp ${dapp.label} ${command}: ${text}`);
+    // Any other page-side throw is a dApp bug (bad input, failed self-check), never a wallet verdict.
+    throw new HarnessFault(`dApp ${dapp.label} ${command} threw: ${text}`);
+  });
 }
 
 /**
