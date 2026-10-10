@@ -85,7 +85,7 @@
   },
   "usdcxFaucetUnavailable": {
     "message": "USDCxfaucet의 소각 정책을 확인할 수 없습니다. 검토를 재개하여 다시 시도해 주십시오.",
-    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+    "englishSource": "(retranslate) Unable to read the USDCx faucet's burn policy. Reopen review to try again."
   },
   "activityFetchingHistoryAndNotes": {
     "message": "거래 내역 조회 및 notes",

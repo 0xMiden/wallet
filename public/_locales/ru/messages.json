@@ -4860,7 +4860,7 @@
   },
   "usdcxStepBurned": {
     "message": "Запечатлено на $network$",
-    "englishSource": "Burned on $network$",
+    "englishSource": "(retranslate) Burned on $network$",
     "placeholders": {
       "network": {
         "content": "$1"

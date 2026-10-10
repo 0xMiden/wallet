@@ -69,7 +69,7 @@
   },
   "usdcxUnsupportedFaucet": {
     "message": "Les retraits d’USDCx ne sont disponibles que pour l’faucet, sur le testnet Miden.",
-    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+    "englishSource": "(retranslate) USDCx withdrawals are available only for the configured faucet on Miden testnet."
   },
   "usdcxInvalidAmount": {
     "message": "Saisissez un montant positif en USDCx avec au maximum six décimales.",
@@ -77,15 +77,15 @@
   },
   "usdcxBelowMinimumBurn": {
     "message": "Le montant est inférieur au montant minimum de destruction fixé par l’faucet.",
-    "englishSource": "The amount is below the faucet's minimum burn amount."
+    "englishSource": "(retranslate) The amount is below the faucet's minimum burn amount."
   },
   "usdcxIncompatibleBurnScript": {
     "message": "Le script de destruction du portefeuille ne correspond pas à l’faucet de l’USDCx.",
-    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+    "englishSource": "(retranslate) The wallet's burn script does not match the USDCx faucet."
   },
   "usdcxFaucetUnavailable": {
     "message": "Impossible de lire la politique de destruction de l’faucet USDCx. Rouvrir l’examen pour réessayer.",
-    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+    "englishSource": "(retranslate) Unable to read the USDCx faucet's burn policy. Reopen review to try again."
   },
   "activityFetchingHistoryAndNotes": {
     "message": "Récupération de l’historique de vos transactions et de vos «notes »",
@@ -174,7 +174,7 @@
   },
   "bridgeDepositApprovingBody": {
     "message": "Votre portefeuille vous demandera d’approuver l’$tokenSymbol$t de signer le dépôt sur le réseau source. Les fonds arrivent sur Miden après confirmation.",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
+    "englishSource": "(retranslate) Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
