@@ -3,6 +3,7 @@
  */
 import type { FailureEvidence } from './dapp-cells';
 import { KNOWN_BUGS, knownBugRegistry, type KnownBug } from './dapp-known-bugs';
+import pinned from './dapp-pinned.json';
 
 const bug = (id: string): KnownBug => {
   const found = KNOWN_BUGS.find(candidate => candidate.id === id);
@@ -79,6 +80,29 @@ describe('known-bug registry', () => {
     expect(bug('K6').signature(hard('M3-consume-switch', {}))).toBe(false);
     expect(bug('K7').signature(hard('M7', { crossOriginWaitServed: true }))).toBe(true);
     expect(bug('K7').signature(hard('M7', { crossOriginWaitServed: false }))).toBe(false);
+  });
+
+  it('K8 matches the opaque keystore miss after approval, and not another refusal', () => {
+    const miss = {
+      name: 'WalletTransactionError',
+      message: `INVALID_PARAMS: Error: ${pinned.texts.G2.guardian.error}`,
+      causeName: 'InvalidParamsMidenWalletError'
+    };
+    expect(bug('K8').signature(hard('G2a', { popupOpened: true, dappError: miss }))).toBe(true);
+    const declined = {
+      name: 'WalletTransactionError',
+      message: 'NOT_GRANTED',
+      causeName: 'NotGrantedMidenWalletError'
+    };
+    expect(bug('K8').signature(hard('G2a', { popupOpened: true, dappError: declined }))).toBe(false);
+    expect(bug('K8').signature(hard('G2a', { popupOpened: false, dappError: miss }))).toBe(false);
+    expect(bug('K8').signature(soft('G2a', { popupOpened: true, dappError: miss }))).toBe(false);
+    for (const dappError of [
+      { ...miss, causeName: 'MidenWalletError' },
+      { ...miss, message: 'INVALID_PARAMS: Error: Wallet is locked' }
+    ]) {
+      expect(bug('K8').signature(hard('G2b', { popupOpened: true, dappError }))).toBe(false);
+    }
   });
 
   it('K9 matches a non-current session that prompted, and never a leak', () => {
