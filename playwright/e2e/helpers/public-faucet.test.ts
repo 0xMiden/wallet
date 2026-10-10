@@ -3,7 +3,8 @@
  */
 import { createHash, randomBytes } from 'crypto';
 
-import { mintFromPublicFaucet, solvePow } from './public-faucet';
+import { isInfrastructureFailure } from './dapp-cells';
+import { mintFromPublicFaucet, PublicFaucetError, solvePow } from './public-faucet';
 
 const NOTE_ID = '0x' + '01'.repeat(32);
 
@@ -288,6 +289,46 @@ describe('mintFromPublicFaucet', () => {
     expect(waits).toEqual([60_000, 60_000, 60_000]);
   });
 
+  describe('names the faucet in every failure, so a dApp journey classifies it as infrastructure', () => {
+    const failureOf = (grant: Promise<unknown>): Promise<unknown> =>
+      grant.then(
+        () => undefined,
+        (error: unknown) => error
+      );
+
+    it('when the request never reaches the faucet', async () => {
+      const cause = new TypeError('fetch failed');
+      fetchSpy = jest.spyOn(global, 'fetch').mockRejectedValue(cause);
+      const error = await failureOf(mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0));
+      expect(error).toBeInstanceOf(PublicFaucetError);
+      expect(error).toMatchObject({ message: 'Public faucet grant failed: TypeError: fetch failed', cause });
+      expect(isInfrastructureFailure(error)).toBe(true);
+    });
+
+    it('when the advertised grant is malformed', async () => {
+      serve([reply(200, { base_amount: 0 })]);
+      const error = await failureOf(mintFromPublicFaucet(BASE, ACCOUNT));
+      expect(error).toBeInstanceOf(PublicFaucetError);
+      expect(error).toMatchObject({
+        message: 'Public faucet grant failed: Error: Faucet metadata base_amount must be a positive safe integer'
+      });
+      expect(isInfrastructureFailure(error)).toBe(true);
+    });
+
+    it('when every 5xx attempt fails', async () => {
+      serve(
+        Array.from({ length: 3 }, (_, i) => [
+          reply(200, { challenge: `c${i}`, target: EASY_TARGET }),
+          reply(502, 'Bad Gateway')
+        ]).flat()
+      );
+      const error = await failureOf(mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0));
+      expect(error).toBeInstanceOf(PublicFaucetError);
+      expect(error).toMatchObject({ message: 'Public faucet mint failed (502): Bad Gateway' });
+      expect(isInfrastructureFailure(error)).toBe(true);
+    });
+  });
+
   describe('with a body that stalls', () => {
     beforeEach(() => {
       jest.useFakeTimers();
@@ -303,7 +344,11 @@ describe('mintFromPublicFaucet', () => {
       await jest.advanceTimersByTimeAsync(14_999);
       expect(grant.outcome).toBe('pending');
       await jest.advanceTimersByTimeAsync(1);
-      expect(grant.outcome).toMatchObject({ name: 'TimeoutError', message: 'Request timed out after 15000 ms' });
+      expect(grant.outcome).toBeInstanceOf(PublicFaucetError);
+      expect((grant.outcome as Error).cause).toMatchObject({
+        name: 'TimeoutError',
+        message: 'Request timed out after 15000 ms'
+      });
       expect(urls).toEqual([`${BASE}/get_metadata`]);
     });
 
@@ -315,7 +360,15 @@ describe('mintFromPublicFaucet', () => {
       expect(grant.outcome).toBe('pending');
       await jest.advanceTimersByTimeAsync(1);
 
-      expect(grant.outcome).toMatchObject({ name: 'TimeoutError', message: 'Request timed out after 15000 ms' });
+      expect(grant.outcome).toBeInstanceOf(PublicFaucetError);
+      expect(grant.outcome).toMatchObject({
+        message: 'Public faucet grant failed: TimeoutError: Request timed out after 15000 ms'
+      });
+      expect((grant.outcome as Error).cause).toMatchObject({
+        name: 'TimeoutError',
+        message: 'Request timed out after 15000 ms'
+      });
+      expect(isInfrastructureFailure(grant.outcome)).toBe(true);
     });
 
     it('still retries a 5xx whose body stalls, from a fresh challenge', async () => {

@@ -11,6 +11,7 @@ import {
   InfrastructureFault,
   deadlineIn,
   infraAborted,
+  isInfrastructureFailure,
   judgeCell,
   markInfraAbort,
   type CellSpec,
@@ -132,6 +133,37 @@ describe('judgeCell', () => {
     expect(judgeCell({ ...base, registry: registry([]), hardError: new InfrastructureFault('faucet') }).verdict).toBe(
       'blocked-infra'
     );
+  });
+});
+
+describe('isInfrastructureFailure', () => {
+  it('counts an infrastructure fault and a failure that names the public faucet, directly or as a cause', () => {
+    const faucet = Object.assign(new Error('Public faucet grant failed: TypeError: fetch failed'), {
+      name: 'PublicFaucetError'
+    });
+    expect(isInfrastructureFailure(new InfrastructureFault('operator settle timed out'))).toBe(true);
+    expect(isInfrastructureFailure(faucet)).toBe(true);
+    expect(isInfrastructureFailure(new Error('deploy_and_fund failed', { cause: faucet }))).toBe(true);
+    expect(
+      isInfrastructureFailure(
+        new Error(
+          'Faucet 0xabc never received its funding note from public faucet https://faucet-api.testnet.miden.io; ' +
+            'its vault still holds none of the fee asset after 10 attempts.'
+        )
+      )
+    ).toBe(true);
+  });
+
+  it('leaves a wallet claim failure and a harness fault to the cell verdicts', () => {
+    expect(
+      isInfrastructureFailure(
+        new Error(
+          'claimAllNotes: the Pending list did not drain within 180000ms after 3 lap(s); last sample: {"count":1}; ' +
+            'Accept All clicked 2 time(s)'
+        )
+      )
+    ).toBe(false);
+    expect(isInfrastructureFailure(new HarnessFault('journey hooks ran before the journey started'))).toBe(false);
   });
 });
 

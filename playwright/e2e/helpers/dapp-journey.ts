@@ -15,6 +15,7 @@ import {
   deadlineIn,
   describeFailure,
   infraAborted,
+  isInfrastructureFailure,
   markInfraAbort,
   type CellContext,
   type CellSpec,
@@ -80,9 +81,6 @@ export const ASSETS_AND_NOTES = 3;
 const OUT_DIR = path.resolve(__dirname, '../../../test-results/dapp-cells');
 // The workflow names the part a leg runs, so records from two parts never share a file.
 const PART = process.env.DAPP_E2E_PART ?? 'manual';
-// Every public-faucet helper error names the faucet (spec section 6), which is what marks a funding failure as
-// infrastructure rather than a wallet result.
-const INFRASTRUCTURE = /Public faucet|faucet-api|get_tokens|InfrastructureFault/i;
 
 export interface Journey {
   readonly id: JourneyId;
@@ -196,7 +194,9 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
     });
     funded = { a: a.address, b: b.address, cliFaucetId };
   } catch (error) {
-    if (INFRASTRUCTURE.test(describeFailure(error))) {
+    // A public-faucet failure anywhere in the funding is the environment's (spec section 6); a wallet claim failure
+    // is not, and leaves the cells not-run for the judge.
+    if (isInfrastructureFailure(error)) {
       markInfraAbort(OUT_DIR, describeFailure(error));
       runner.blockAll(describeFailure(error));
     }

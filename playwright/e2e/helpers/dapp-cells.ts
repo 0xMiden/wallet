@@ -188,6 +188,21 @@ export function describeFailure(error: unknown): string {
   return text.length > 2_000 ? `${text.slice(0, 2_000)}...` : text;
 }
 
+/**
+ * Whether a failure is the environment's rather than the wallet's: an InfrastructureFault, or a failure that names the
+ * public faucet, itself or anywhere down its cause chain. Every public-faucet helper rejects with a message that begins
+ * "Public faucet" (`PublicFaucetError`, public-faucet.ts), and the CLI names the faucet a funding note came from.
+ */
+export function isInfrastructureFailure(error: unknown): boolean {
+  // Bounded, so a cause cycle cannot spin.
+  let link: unknown = error;
+  for (let depth = 0; depth < 8 && link !== undefined && link !== null; depth += 1) {
+    if (link instanceof InfrastructureFault || /public faucet/i.test(describeFailure(link))) return true;
+    link = link instanceof Error ? link.cause : undefined;
+  }
+  return false;
+}
+
 export interface JudgeInput {
   cellId: string;
   axis: AxisLabel;
