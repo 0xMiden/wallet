@@ -1,9 +1,6 @@
 import type { CdpSession } from './cdp-bridge';
 import { IosWalletPage } from './ios-wallet-page';
 import type { SimulatorControl } from './simulator-control';
-import { claimFromPendingList } from '../../helpers/claim-drain';
-
-jest.mock('../../helpers/claim-drain', () => ({ claimFromPendingList: jest.fn(async () => undefined) }));
 
 describe('IosWalletPage.screenshot', () => {
   it('runs the before-capture hook before it shoots', async () => {
@@ -160,42 +157,5 @@ describe('IosWalletPage.hexToBech32Faucet', () => {
     const injectionScript = evalJs.mock.calls.find(([script]) => script.includes('var conv'))?.[0];
     expect(injectionScript).toContain('.map(hex => conv(hex))');
     expect(injectionScript).not.toMatch(/testnet|devnet/);
-  });
-});
-
-describe('IosWalletPage.claimAllNotes', () => {
-  beforeEach(() => jest.useFakeTimers());
-  afterEach(() => jest.useRealTimers());
-
-  const pageOnPending = () => {
-    const page = new IosWalletPage({
-      cdp: {} as CdpSession,
-      sim: {} as SimulatorControl,
-      udid: 'udid',
-      bundleId: 'bundle'
-    });
-    Object.assign(page as unknown as Record<string, unknown>, { navigateTo: jest.fn(async () => undefined) });
-    return page;
-  };
-
-  it('waits 120 s for the first Accept All by default', async () => {
-    const claim = pageOnPending().claimAllNotes(300_000);
-    await jest.advanceTimersByTimeAsync(10_000);
-    await claim;
-    expect(claimFromPendingList).toHaveBeenLastCalledWith(
-      expect.anything(),
-      expect.objectContaining({ firstClickMs: 120_000, timeoutMs: 300_000 })
-    );
-  });
-
-  // A bridged note reaches Pending only once the relayer has minted it, minutes after the deposit.
-  it('waits as long as the caller asks for the first Accept All', async () => {
-    const claim = pageOnPending().claimAllNotes(300_000, [], { firstClickMs: 900_000 });
-    await jest.advanceTimersByTimeAsync(10_000);
-    await claim;
-    expect(claimFromPendingList).toHaveBeenLastCalledWith(
-      expect.anything(),
-      expect.objectContaining({ firstClickMs: 900_000, timeoutMs: 300_000 })
-    );
   });
 });

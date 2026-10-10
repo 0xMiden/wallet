@@ -564,14 +564,8 @@ export class IosWalletPage implements WalletPage {
   /**
    * Tap Accept All and wait until the Pending list drains: two consecutive reads with no card, no
    * Accept All and no loading bar. Throws with the last read if it never does within `timeoutMs`.
-   * `firstClickMs` bounds the wait for the first Accept All: raise it when the note is still being
-   * created when the claim starts, as a bridged mint is.
    */
-  async claimAllNotes(
-    timeoutMs: number = 120_000,
-    knownFaucetIds: string[] = [],
-    { firstClickMs = 120_000 }: { firstClickMs?: number } = {}
-  ): Promise<void> {
+  async claimAllNotes(timeoutMs: number = 120_000, knownFaucetIds: string[] = []): Promise<void> {
     // Chrome's claimAllNotes reloads the page to get a fresh Dexie handle
     // — that's safe on Chrome because the SW holds the vault unlock in a
     // separate context. On mobile there's no SW; a reload would drop the
@@ -610,7 +604,7 @@ export class IosWalletPage implements WalletPage {
     // SWR refresh (5s) to actually re-read consumable notes, (c) any
     // additional WASM-lock contention if a prove/sign is in flight. 60s
     // was too tight on testnet under CI load, so the first click may take 120s.
-    await claimFromPendingList(this, { label: 'IosWalletPage.claimAllNotes', firstClickMs, timeoutMs });
+    await claimFromPendingList(this, { label: 'IosWalletPage.claimAllNotes', firstClickMs: 120_000, timeoutMs });
   }
 
   /**
