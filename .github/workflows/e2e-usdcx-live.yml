@@ -1,0 +1,248 @@
+name: E2E USDCx Bridge-IN (live)
+
+# Runs the USDCx bridge-IN deposit E2E (Arc Testnet -> Miden testnet) against the
+# LIVE networks. Nothing on the path is a double: the deposit goes to Circle's real
+# xReserve contract, Circle's attestation service signs it, and the deposit relayer
+# submits the mint note to the USDCx faucet. The wallet then claims the minted note.
+#
+# By default the DEPLOYED relayer mints: the faucet does not look at who sent a mint
+# note, so the job needs no relayer of its own and only the EVM key. To test a
+# relayer build before it is deployed, set vars.USDCX_RELAYER_ACCOUNT_ID (with the
+# other relayer values below); the job then installs that relayer and the spec
+# starts it as a local process.
+#
+# The Anvil suite (e2e-bridge-in.yml, bridge-in-deposit-usdcx) covers the wallet's
+# EVM leg hermetically on every push to main. This job covers what that suite
+# cannot: the real contract, Circle's attestation and the mint.
+#
+# It spends real Arc Testnet USDC on each run, and it depends on Circle's service
+# and the relayer, so it is a nightly and on-demand signal, never a per-PR gate.
+#
+# Required configuration:
+#   secrets.USDCX_LIVE_EVM_PRIVATE_KEY        funded Arc Testnet key (USDC is the gas token too)
+# Optional:
+#   vars.USDCX_FAUCET_ACCOUNT_ID              the USDCx faucet, for the claim step
+#
+# Local relayer only (all required when vars.USDCX_RELAYER_ACCOUNT_ID is set):
+#   vars.USDCX_RELAYER_ACCOUNT_ID             funded Miden account that creates the mint notes
+#   vars.USDCX_FAUCET_ACCOUNT_ID              the USDCx faucet Circle's Miden domain mints from
+#   vars.USDCX_CIRCLE_ATTESTER_PUBLIC_KEY     the key Circle signs deposit attestations with
+#   secrets.USDCX_RELAYER_KEYSTORE_TGZ_B64    base64 of a .tgz that holds the relayer's `keystore/`
+# The local relayer is installed by scripts/install-usdcx-relayer.sh and cached. The
+# miden-usdcx project publishes only the `usdcx-bridge` Docker image, which also
+# starts the withdrawal attester and so needs AWS KMS keys; the stand-alone relayer
+# has no published binary yet. When it has one, replace the install step with a
+# download and set USDCX_RELAYER_BIN.
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      deposit_amount:
+        description: Deposit amount in USDC
+        required: false
+        default: '1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  # Two runs would share the EVM key's nonce and the relayer account. Queue, never cancel:
+  # a cancelled run can leave a deposit that no relayer mints.
+  cancel-in-progress: false
+
+jobs:
+  mobile-usdcx-live:
+    name: USDCx bridge-IN E2E (iOS, live testnets)
+    # macos-26 matches build-mobile.yml (iOS 26 SDK symbols in dapp-browser's
+    # WKWebViewController). -xlarge is the dedicated Apple-Silicon runner.
+    runs-on: macos-26-xlarge
+    # Relayer compile on a cache miss + iOS build (~25 min) + the test, which waits
+    # for Circle's attestation and the faucet's network transaction.
+    timeout-minutes: 150
+    env:
+      E2E_NETWORK: testnet
+      # NO E2E_EVM_RPC_URL here: that flag sends the wallet's Arc reads to a local
+      # Anvil, and this job needs the real Arc Testnet RPC.
+      USDCX_LIVE_EVM_PRIVATE_KEY: ${{ secrets.USDCX_LIVE_EVM_PRIVATE_KEY }}
+      USDCX_LIVE_DEPOSIT_AMOUNT: ${{ inputs.deposit_amount || '1' }}
+      USDCX_FAUCET_ACCOUNT_ID: ${{ vars.USDCX_FAUCET_ACCOUNT_ID }}
+      USDCX_RELAYER_ACCOUNT_ID: ${{ vars.USDCX_RELAYER_ACCOUNT_ID }}
+      USDCX_CIRCLE_ATTESTER_PUBLIC_KEY: ${{ vars.USDCX_CIRCLE_ATTESTER_PUBLIC_KEY }}
+      # Optional: a relay projectId of the counterparty's own. See e2e-bridge-in.yml.
+      WC_COUNTERPARTY_PROJECT_ID: ${{ secrets.WC_COUNTERPARTY_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # The four relayer steps below run only when a local relayer is configured.
+      - name: Cache the USDCx deposit relayer
+        if: vars.USDCX_RELAYER_ACCOUNT_ID != ''
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/xreserve-deposit-relayer
+          key: usdcx-relayer-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/install-usdcx-relayer.sh') }}
+
+      - name: Install the USDCx deposit relayer
+        if: vars.USDCX_RELAYER_ACCOUNT_ID != ''
+        run: scripts/install-usdcx-relayer.sh
+
+      # The relayer's SDK store and its progress file. A restored store only syncs
+      # what changed, and a restored progress file stops the relayer from walking
+      # Circle's whole feed again. Both are safe to lose: the faucet's used-nonce
+      # map is the ledger. The keystore is NOT cached; it comes from the secret.
+      - name: Restore the relayer state
+        if: vars.USDCX_RELAYER_ACCOUNT_ID != ''
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/usdcx-relayer/store.sqlite3
+            ${{ runner.temp }}/usdcx-relayer/progress.json
+          key: usdcx-relayer-state-${{ github.run_id }}
+          restore-keys: |
+            usdcx-relayer-state-
+
+      - name: Install the relayer keystore
+        if: vars.USDCX_RELAYER_ACCOUNT_ID != ''
+        shell: bash
+        env:
+          KEYSTORE_TGZ_B64: ${{ secrets.USDCX_RELAYER_KEYSTORE_TGZ_B64 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$KEYSTORE_TGZ_B64" ]]; then
+            echo "::error::USDCX_RELAYER_KEYSTORE_TGZ_B64 is not set"
+            exit 1
+          fi
+          DATA_DIR="$RUNNER_TEMP/usdcx-relayer"
+          mkdir -p "$DATA_DIR"
+          chmod 700 "$DATA_DIR"
+          printf '%s' "$KEYSTORE_TGZ_B64" | base64 --decode | tar -xzf - -C "$DATA_DIR"
+          if [[ ! -d "$DATA_DIR/keystore" ]]; then
+            echo "::error::the keystore archive must hold a top-level keystore/ directory"
+            exit 1
+          fi
+          echo "USDCX_RELAYER_DATA_DIR=$DATA_DIR" >> "$GITHUB_ENV"
+
+      - name: Cache miden-client-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/miden-client
+          key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      # The two-simulator fixture sets up the CLI for every spec, this one included.
+      - name: Install miden-client-cli
+        uses: ./.github/actions/install-miden-client-cli
+
+      # CDP bridge (appium-remote-debugger) requires Simulator.app GUI running —
+      # headless simctl boots don't expose webinspectord.
+      - name: Launch Simulator.app
+        run: open -a Simulator || true
+
+      # idb lets the harness tap "Allow" on the native notification-permission
+      # alert. Best-effort, as in e2e-bridge-in.yml.
+      - name: Set up Python for idb
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install idb (dismiss native notification alert)
+        continue-on-error: true
+        run: |
+          brew trust facebook/fb || true
+          brew install facebook/fb/idb-companion
+          python3 -m pip install fb-idb
+
+      # Fresh-create + boot of custom sims hangs on macos-26 runners. Pin to
+      # preinstalled Xcode sims by writing .device-pair.json before globalSetup.
+      - name: Pin test pair to preinstalled simulators
+        shell: bash
+        run: |
+          list_json=$(xcrun simctl list devices --json)
+          UDID_A=$(echo "$list_json" | jq -r '
+            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
+              .value[] | select(.name == "iPhone 17" and .isAvailable) ]
+            | first | .udid // empty')
+          UDID_B=$(echo "$list_json" | jq -r '
+            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
+              .value[] | select(.name == "iPhone 17 Pro" and .isAvailable) ]
+            | first | .udid // empty')
+          if [[ -z "$UDID_A" || -z "$UDID_B" ]]; then
+            echo "Missing preinstalled sim. A='$UDID_A'  B='$UDID_B'"
+            xcrun simctl list devices
+            exit 1
+          fi
+          mkdir -p test-results-ios
+          printf '{"udidA":"%s","udidB":"%s"}\n' "$UDID_A" "$UDID_B" > test-results-ios/.device-pair.json
+          echo "Wrote .device-pair.json: A=$UDID_A  B=$UDID_B"
+
+      # Kick the cold boot off now so it overlaps the ~25-minute app build.
+      - name: Pre-boot simulators (async, overlaps build)
+        shell: bash
+        run: |
+          UDID_A=$(jq -r .udidA test-results-ios/.device-pair.json)
+          UDID_B=$(jq -r .udidB test-results-ios/.device-pair.json)
+          boot_with_retry() {
+            local udid="$1"
+            for attempt in 1 2 3 4; do
+              state=$(xcrun simctl list devices | grep "$udid" | grep -o '(Booted)\|(Shutdown)\|(Booting)' || true)
+              if [[ "$state" == "(Booted)" || "$state" == "(Booting)" ]]; then
+                echo "$udid already $state"
+                return 0
+              fi
+              if xcrun simctl boot "$udid"; then
+                echo "$udid boot issued (attempt $attempt)"
+                return 0
+              fi
+              echo "boot attempt $attempt for $udid failed; retrying in 20s"
+              sleep 20
+            done
+            return 1
+          }
+          ensure_bootable() {
+            local udid="$1"
+            if boot_with_retry "$udid"; then return 0; fi
+            echo "CoreSimulatorService appears wedged; restarting it"
+            sudo killall -9 com.apple.CoreSimulator.CoreSimulatorService || true
+            sleep 15
+            open -a Simulator || true
+            sleep 10
+            if boot_with_retry "$udid"; then return 0; fi
+            echo "::error::simulator subsystem unusable on this runner (boot of $udid failed after CoreSimulatorService restart)"
+            return 1
+          }
+          ensure_bootable "$UDID_A"
+          ensure_bootable "$UDID_B"
+          xcrun simctl list devices | grep -E "$UDID_A|$UDID_B" || true
+
+      - name: Build iOS app
+        # Self-heal the recurring GitHub macOS-runner SwiftPM cache corruption:
+        # on a failed build, wipe the SwiftPM cache + derived data and retry once.
+        run: |
+          yarn test:e2e:mobile:build || {
+            echo "::warning::iOS build failed; clearing SwiftPM cache (runner cache corruption) and retrying once"
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm" ios/App/build
+            yarn test:e2e:mobile:build
+          }
+
+      - name: Run USDCx bridge-IN E2E (mobile, live testnets)
+        # NO retries: a retry sends a second real deposit. A failed run is read, not repeated.
+        run: yarn test:e2e:mobile:usdcx-live:run
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: usdcx-live-e2e-${{ github.run_id }}
+          path: test-results-ios/
+          retention-days: 7
+          if-no-files-found: ignore

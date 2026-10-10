@@ -40,7 +40,13 @@ import {
   updateTransactionStatus
 } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
-import { applyBridgeInInfoForNotes, applyBridgeInToConsumeRow, takeAgglayerBridgeInInfo } from '../activity/bridge-in';
+import {
+  applyBridgeInInfoForNotes,
+  applyBridgeInToConsumeRow,
+  noteIdKey,
+  takeAgglayerBridgeInInfo,
+  takeUsdcxBridgeInInfo
+} from '../activity/bridge-in';
 import { feeFieldsFromResult, splitExecutedOutputNotes } from '../activity/fee';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
@@ -318,15 +324,47 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   // fail the consume itself.
   try {
     const consumedNoteIds = inputNotes.map(inputNote => inputNote.note().id().toString());
-    const applied = await applyBridgeInInfoForNotes(consumedNoteIds, info => applyBridgeInToConsumeRow(id, info));
-    // A batch's per-faucet total is no single delivery's amount, so only a one-note consume is paired by amount.
+    // The registry takes at most one note; the batch below pairs every other one, by the registry's canonical id.
+    let registryNoteKey: string | undefined;
+    const applied = await applyBridgeInInfoForNotes(consumedNoteIds, info => {
+      if (info.midenNoteId) registryNoteKey = noteIdKey(info.midenNoteId);
+      return applyBridgeInToConsumeRow(id, info);
+    });
+    const accountId = dbTransaction?.accountId ?? '';
     if (!applied && inputNotes.length === 1) {
-      const info = await takeAgglayerBridgeInInfo({
-        accountId: dbTransaction?.accountId ?? '',
-        senderAccountId: sender,
-        amount
-      });
+      // A note the USDCx faucet minted for an xReserve deposit is otherwise an ordinary faucet receive.
+      const info =
+        (await takeAgglayerBridgeInInfo({ accountId, senderAccountId: sender, amount })) ??
+        (await takeUsdcxBridgeInInfo({ accountId, senderAccountId: sender, faucetId, amount }));
       if (info) await applyBridgeInToConsumeRow(id, { ...info, midenNoteId: consumedNoteIds[0] });
+    } else if (inputNotes.length > 1) {
+      // A batch's per-faucet total is no single delivery's amount, and native USDCx mints are auto-claimed together,
+      // so each note is paired by its own sender, faucet and amount, one at a time so two same-amount mints adopt two
+      // rows. Only the tracking rows move; the batch row keeps its own label.
+      for (const inputNote of inputNotes) {
+        const batchNote = inputNote.note();
+        if (registryNoteKey !== undefined && noteIdKey(batchNote.id().toString()) === registryNoteKey) continue;
+        const noteAsset = batchNote.assets().fungibleAssets()[0];
+        if (!noteAsset) continue;
+        const noteSender = getBech32AddressFromAccountId(batchNote.metadata().sender());
+        const noteFaucetId = getBech32AddressFromAccountId(noteAsset.faucetId());
+        const noteAmount = noteAsset.amount();
+        const info =
+          (await takeAgglayerBridgeInInfo({ accountId, senderAccountId: noteSender, amount: noteAmount })) ??
+          (await takeUsdcxBridgeInInfo({
+            accountId,
+            senderAccountId: noteSender,
+            faucetId: noteFaucetId,
+            amount: noteAmount
+          }));
+        if (!info?.bridgeReceiveTxId) continue;
+        await updateBridgedReceivePhase(
+          info.bridgeReceiveTxId,
+          'received',
+          { midenNoteId: batchNote.id().toString() },
+          { amount: noteAmount, faucetId: noteFaucetId, transactionId: executedTransaction.id().toHex() }
+        );
+      }
     }
   } catch (err) {
     console.warn('[bridge-in] consume tagging failed (non-fatal)', err);
@@ -1180,13 +1218,15 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
 
 export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction, result: TransactionResult) => {
   const executedTx = result.executedTransaction();
-  const note = extractFullNote(result);
-  const noteId = note?.id().toString();
+  // Network-note sponsorship adds another output. The persisted burn id identifies
+  // the user's note regardless of where the SDK puts the sponsorship/fee outputs.
+  const burnId = tx.extraInputs?.usdcxBurn?.noteId;
+  const noteId = burnId ?? extractFullNote(result)?.id().toString();
   const outputNoteIds = noteId ? [noteId] : [];
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
     ...feeFieldsFromResult(result),
-    displayMessage: 'Bridged to EVM',
+    displayMessage: tx.extraInputs?.provider === 'usdcx' ? 'USDCx burn submitted' : 'Bridged to EVM',
     transactionId: executedTx.id().toHex(),
     outputNoteIds,
     completedAt: Math.floor(Date.now() / 1000), // seconds
@@ -1516,15 +1556,25 @@ export const updateBridgedReceivePhase = async (
   extra?: Partial<
     Pick<
       IBridgedReceiveExtraInputs,
-      'evmTxHash' | 'intentNonce' | 'midenNoteId' | 'outputAmount' | 'outputSymbol' | 'error'
+      'evmTxHash' | 'intentNonce' | 'midenNoteId' | 'outputAmount' | 'outputSymbol' | 'cctp' | 'error'
     >
   >,
-  received?: { amount: bigint; faucetId: string; transactionId?: string }
+  received?: { amount: bigint; faucetId: string; transactionId?: string },
+  // The reconciler's adoption of Circle's forward lands only on a leg with no execute hash, so it never replaces a
+  // manual execute; the wallet's own execute always lands, and the reconciler reopens on whichever held hash reverts.
+  { onlyIfNoExecuteHash = false }: { onlyIfNoExecuteHash?: boolean } = {}
 ) => {
   let settled: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
     if (!canMoveBridgedReceivePhase(inputs?.phase, phase)) return;
+    // A reopen clears only the Arc execute it saw revert: a newer execute saved meanwhile, with its proof, stands.
+    const reopened = extra?.cctp?.revertedExecuteTxHash;
+    if (reopened !== undefined && inputs?.cctp?.executeTxHash !== reopened) return;
+    if (onlyIfNoExecuteHash && inputs?.cctp?.executeTxHash !== undefined) return;
+    // The CCTP leg is written a field at a time (the burn's domain, then the attestation, then the
+    // execute hash), so a write merges into what the row holds instead of replacing it.
+    const cctp = extra?.cctp ? { ...inputs?.cctp, ...extra.cctp } : inputs?.cctp;
     // Unlike the earn-withdraw writer there is no monotonic guard here, so the
     // only thing keeping one bridge from reporting twice is comparing against
     // the phase already on the row. `ready` and `received` are both terminal —
@@ -1537,7 +1587,7 @@ export const updateBridgedReceivePhase = async (
     ) {
       settled = tx;
     }
-    tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
+    tx.extraInputs = { ...inputs, phase, ...(extra ?? {}), ...(cctp ? { cctp } : {}) };
     if (received) {
       tx.amount = received.amount;
       tx.faucetId = received.faucetId;

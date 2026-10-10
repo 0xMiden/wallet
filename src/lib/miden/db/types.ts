@@ -123,8 +123,11 @@ export const STRUCTURAL_GUARDIAN_TYPES: readonly ITransactionType[] = [
   'update-procedure-threshold'
 ];
 
-/** Which cross-chain bridge route a `bridged-send` used. */
-export type IBridgeProvider = 'epoch' | 'agglayer';
+/**
+ * Which cross-chain bridge route a bridge row used. `usdcx` is Circle xReserve
+ * (Sepolia USDC ↔ USDCx on Miden).
+ */
+export type IBridgeProvider = 'epoch' | 'agglayer' | 'usdcx';
 
 /** Lifecycle of a tracking-only EVM → Miden bridge row. */
 export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
@@ -135,9 +138,34 @@ export interface IConsumedAssetTotal {
   amount: bigint;
 }
 
+/**
+ * The CCTP leg of a USDCx deposit from a chain with no xReserve (Base, Arbitrum): the burn on the source
+ * chain mints to Circle's executor on Arc, which deposits into Arc's xReserve. Circle's forwarder does not
+ * execute such messages yet, so the wallet keeps the attested message until the user executes it on Arc.
+ */
+export interface IUsdcxCctpLeg {
+  /** Circle's domain of the source chain, the key of its Iris messages. */
+  sourceDomain: number;
+  /** The attested CCTP message and Circle's signature, kept once Iris reports them. */
+  message?: string;
+  attestation?: string;
+  /** The Arc transaction that executed the message, which is the xReserve deposit Circle attests. */
+  executeTxHash?: string;
+  /** An Arc execute, the wallet's or Circle's forward, that reverted; never adopted again as the execute. */
+  revertedExecuteTxHash?: string;
+  /** Whether the burn paid Circle's forward fee, so Circle executes on Arc; absent on rows before the fee flow. */
+  forwarded?: boolean;
+  /** The quoted fee the burn paid on top of the amount, in source USDC base units. */
+  forwardFee?: string;
+  /** The forwarding service's last reported state for the message. */
+  forwardState?: string;
+}
+
 /** Metadata persisted on a tracking-only EVM → Miden bridge row. */
 export interface IBridgedReceiveExtraInputs {
   provider: IBridgeProvider;
+  /** EVM source chain; absent on legacy Sepolia rows. */
+  sourceChainId?: number;
   /** Connected EVM account that funded the bridge. */
   sourceAddress: string;
   /** Human-readable source-chain input, retained even if the Miden output differs. */
@@ -153,6 +181,8 @@ export interface IBridgedReceiveExtraInputs {
   evmTxHash?: string;
   intentNonce?: string;
   midenNoteId?: string;
+  /** usdcx: the CCTP leg of an executor-route deposit; absent on a direct xReserve deposit. */
+  cctp?: IUsdcxCctpLeg;
   error?: string;
 }
 
@@ -247,9 +277,24 @@ export interface ISwitchGuardianExtraInputs {
  */
 export type IBridgeClaimStatus = 'not-applicable' | 'pending' | 'ready' | 'claiming' | 'claimed' | 'failed';
 
+/** Faucet-side lifecycle, independent of the sender's transaction status. */
+export interface IUsdcxBurn {
+  noteId: string;
+  destinationDomain: number;
+  phase: 'pending' | 'consuming' | 'confirmed' | 'discarded';
+  /** USDC balance saved before the burn is queued, in six-decimal base units. */
+  destinationBalanceBefore?: { balance: string; blockNumber: string };
+  /** Destination balance that met the expected increase after burn confirmation. */
+  destinationBalanceConfirmed?: { balance: string; blockNumber: string };
+  attemptCount?: number;
+  lastAttemptBlockNum?: number;
+  lastError?: string;
+}
+
 /** `extraInputs` shape for a `BridgedSendTransaction`. */
 export interface IBridgedSendExtraInputs {
   provider: IBridgeProvider;
+  usdcxBurn?: IUsdcxBurn;
   /** 0x EVM recipient. */
   destinationAddress: string;
   /** EVM destination network: the L1 bridge's `networkID()` at creation (agglayer) or chain id (epoch). */

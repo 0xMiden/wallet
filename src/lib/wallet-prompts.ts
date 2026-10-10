@@ -40,6 +40,7 @@ import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import type { TokenPrices } from 'lib/prices';
+import { isUsdcxDestinationPending, pollUsdcxDestination } from 'lib/usdcx/destination-status';
 
 export enum WalletPromptType {
   Bridge = 'bridge',
@@ -130,6 +131,11 @@ function isBridgePromptActive(tx: ITransaction): boolean {
   if (tx.status !== ITransactionStatus.Completed) return true;
 
   const inputs: IBridgedSendExtraInputs = tx.extraInputs;
+  if (inputs.provider === 'usdcx') {
+    const burn = inputs.usdcxBurn;
+    if (!burn || burn.phase === 'discarded') return false;
+    return burn.phase !== 'confirmed' || isUsdcxDestinationPending(burn);
+  }
   if (inputs.provider === 'epoch') return inputs.epochStatus !== 'confirmed' && inputs.epochStatus !== 'failed';
   // A row whose exit no lookup can find is never polled, so nothing would ever clear its prompt (#1325).
   if (isAgglayerExitUnfindable(inputs)) return false;
@@ -154,6 +160,23 @@ export async function fetchActiveBridgePrompts(accountId: string): Promise<ITran
 // tick; past it, the detail page's own on-demand tracker and fill poll still settle
 // the row (#1250).
 const FAILED_UNCONFIRMED_BRIDGE_POLL_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+// A USDCx burn's destination check may never confirm (an accepted limit in CLAUDE.md), so a Completed USDCx row is
+// checked less often as it ages instead of costing RPC calls on every tick forever. No row is closed by age.
+const USDCX_CHECK_INTERVALS: readonly { olderThanMs: number; everyMs: number }[] = [
+  { olderThanMs: 24 * 60 * 60 * 1000, everyMs: 60 * 60 * 1000 },
+  { olderThanMs: 60 * 60 * 1000, everyMs: 5 * 60 * 1000 }
+];
+const usdcxCheckedAt = new Map<string, number>();
+
+function isUsdcxCheckDue(tx: ITransaction, now: number): boolean {
+  const ageMs = now - (tx.completedAt ?? tx.initiatedAt) * 1000;
+  const everyMs = USDCX_CHECK_INTERVALS.find(step => ageMs >= step.olderThanMs)?.everyMs ?? 0;
+  const checkedAt = usdcxCheckedAt.get(tx.id);
+  if (checkedAt !== undefined && now - checkedAt < everyMs) return false;
+  usdcxCheckedAt.set(tx.id, now);
+  return true;
+}
 
 /**
  * Poll one bridge row against its provider - a Completed row with something left to
@@ -184,6 +207,14 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
   // already does: a Failed row with no `extraInputs` at all must not crash the pass.
   const inputs = tx.extraInputs as IBridgedSendExtraInputs | undefined;
   if (!inputs) return;
+
+  if (inputs.provider === 'usdcx') {
+    if (!isUsdcxCheckDue(tx, Date.now())) return;
+    const { pollUsdcxBurn } = await import('lib/usdcx/burn-status');
+    await pollUsdcxBurn(tx);
+    await pollUsdcxDestination(tx);
+    return;
+  }
 
   if (inputs.provider === 'agglayer') {
     // Bound to this row's own exit hash, the indexer's tx_hash for the B2AGG note it built: several rows can share

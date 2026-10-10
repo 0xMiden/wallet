@@ -113,6 +113,7 @@ export default defineConfig({
       process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES ?? 'false'
     ),
     'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
+    'process.env.MIDEN_E2E_USDCX_CHAIN': JSON.stringify(process.env.MIDEN_E2E_USDCX_CHAIN ?? ''),
     // dApp-bridge debug logging: `dappDebug` (lib/miden/back/dapp.ts) and `dlog`
     // (lib/dapp-browser/message-handler.ts) both read this. It MUST be defined in
     // every config that bundles either module — an un-defined `process.env.X` read

@@ -1,17 +1,50 @@
-import { createPublicClient, erc20Abi, http, type Address, type Hash } from 'viem';
+import {
+  createPublicClient,
+  erc20Abi,
+  http,
+  TransactionReceiptNotFoundError,
+  type Address,
+  type Chain,
+  type Hash
+} from 'viem';
 import { sepolia } from 'viem/chains';
 
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 
 import { DEFAULT_CHAIN_ID, getChain } from './config';
 
+export class EvmTransactionRevertedError extends Error {
+  constructor(chainName: string) {
+    super(`The ${chainName} transaction reverted`);
+    this.name = 'EvmTransactionRevertedError';
+  }
+}
+
 /** Wait for one successful Sepolia confirmation using the app's configured RPC. */
 export async function waitForSepoliaReceipt(hash: Hash): Promise<void> {
-  const rpcUrl = getChain(DEFAULT_CHAIN_ID)?.rpcUrl;
-  if (!rpcUrl) throw new Error('Sepolia RPC is not configured');
-  const client = createPublicClient({ chain: sepolia, transport: http(rpcUrl) });
+  return waitForEvmReceipt(hash, sepolia);
+}
+
+export async function waitForEvmReceipt(hash: Hash, chain: Chain): Promise<void> {
+  const rpcUrl = getChain(chain.id)?.rpcUrl;
+  if (!rpcUrl) throw new Error(`${chain.name} RPC is not configured`);
+  const client = createPublicClient({ chain, transport: http(rpcUrl) });
   const receipt = await client.waitForTransactionReceipt({ hash, confirmations: 1 });
-  if (receipt.status !== 'success') throw new Error('The Sepolia transaction reverted');
+  if (receipt.status !== 'success') throw new EvmTransactionRevertedError(chain.name);
+}
+
+/** A sent transaction's outcome as the chain reports it now: `pending` until it has a receipt. RPC failures throw. */
+export async function readEvmReceiptOutcome(hash: Hash, chain: Chain): Promise<'success' | 'reverted' | 'pending'> {
+  const rpcUrl = getChain(chain.id)?.rpcUrl;
+  if (!rpcUrl) throw new Error(`${chain.name} RPC is not configured`);
+  const client = createPublicClient({ chain, transport: http(rpcUrl, { timeout: 10_000, retryCount: 0 }) });
+  try {
+    const receipt = await client.getTransactionReceipt({ hash });
+    return receipt.status === 'success' ? 'success' : 'reverted';
+  } catch (error) {
+    if (error instanceof TransactionReceiptNotFoundError) return 'pending';
+    throw error;
+  }
 }
 
 /**
