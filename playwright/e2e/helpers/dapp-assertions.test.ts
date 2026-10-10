@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 
 import { vaultBalanceOfCurrentAccount, waitForVaultBalanceOfCurrentAccount } from './balance-truth';
 import {
+  expectCancelledWhileQueued,
   expectNoNewRows,
   expectVaultUnchanged,
   expectWritesToTheEnd,
@@ -10,14 +11,20 @@ import {
 } from './dapp-assertions';
 import type { DappAxis } from './dapp-axis';
 import { deadlineIn, InfrastructureFault, type CellContext } from './dapp-cells';
-import { readTransactionRow, readTransactionRows, type TransactionRowSnapshot } from './history';
+import { readTransactionRow, readTransactionRows, USER_CANCELLED_REASON, type TransactionRowSnapshot } from './history';
 import { callDapp, ChainUnavailable, type DappHandle } from './test-dapp';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
 
 // Playwright's expect takes a message as its second argument, which Jest's refuses (guardian-axis-coverage.test.ts).
+// refusal() builds its matchers from Playwright's expect, so the asymmetric ones come along.
 jest.mock('@playwright/test', () => {
   const jestExpect = (globalThis as typeof globalThis & { expect: typeof expect }).expect;
-  return { expect: (actual: unknown) => jestExpect(actual) };
+  return {
+    expect: Object.assign((actual: unknown) => jestExpect(actual), {
+      objectContaining: jestExpect.objectContaining,
+      stringMatching: jestExpect.stringMatching
+    })
+  };
 });
 jest.mock('./balance-truth', () => ({
   vaultBalanceOfCurrentAccount: jest.fn(),
@@ -251,8 +258,49 @@ describe('a note from outside the journey', () => {
     expect(await failureOf(expectVaultUnchanged(sideOf().side, baseline, ctx(), [TX]))).toBeInstanceOf(
       InfrastructureFault
     );
-    const own = await failureOf(expectVaultUnchanged(sideOf().side, baseline, ctx()));
+    const own = await failureOf(expectVaultUnchanged(sideOf().side, baseline, ctx(), []));
     expect(own).toBeInstanceOf(Error);
     expect(own).not.toBeInstanceOf(InfrastructureFault);
+  });
+
+  describe('beside a row the user cancelled (R4)', () => {
+    const cancelled = row(TX, { status: 3, error: USER_CANCELLED_REASON });
+    const cancelRefused = { ok: false, error: { name: 'WalletTransactionError', message: USER_CANCELLED_REASON } };
+    const waitAnswers = (answer: unknown) =>
+      jest.mocked(callDapp).mockImplementation((async () => answer) as unknown as typeof callDapp);
+    const assertCancel = () => expectCancelledWhileQueued(sideOf().side, baseline, TX, ctx());
+
+    it('passes a cancel the dApp was told of that moved nothing', async () => {
+      walletShows(baseline.vault, [row('funding'), cancelled]);
+      waitAnswers(cancelRefused);
+      await expect(assertCancel()).resolves.toBeUndefined();
+    });
+
+    it("records a vault a stranger's note moved as infrastructure, the cancelled row being the cell's own", async () => {
+      walletShows({ ...baseline.vault, [NATIVE]: baseline.vault[NATIVE]! + GIFT - 7n }, [
+        row('funding'),
+        cancelled,
+        gift('gift')
+      ]);
+      waitAnswers(cancelRefused);
+      const error = await failureOf(assertCancel());
+      expect(error).toBeInstanceOf(InfrastructureFault);
+      expect(error).toMatchObject({ abortsLeg: false, message: expect.stringContaining(STRANGER) });
+    });
+
+    it("keeps a cancelled row that debited the wallet's when no third party moved the vault", async () => {
+      walletShows({ ...baseline.vault, [TOKEN]: baseline.vault[TOKEN]! - AMOUNT }, [row('funding'), cancelled]);
+      waitAnswers(cancelRefused);
+      const error = await failureOf(assertCancel());
+      expect(error).not.toBeInstanceOf(InfrastructureFault);
+      // The vault check's failure, not the wait's: its diff names the debited faucet.
+      expect(error).toMatchObject({ message: expect.stringContaining(TOKEN) });
+    });
+
+    it('fails a cancel whose wait the dApp saw answered without the cancel', async () => {
+      walletShows(baseline.vault, [row('funding'), cancelled]);
+      waitAnswers({ ok: true, value: { txHash: TX_HASH } });
+      await expect(assertCancel()).rejects.toThrow(/toEqual/);
+    });
   });
 });

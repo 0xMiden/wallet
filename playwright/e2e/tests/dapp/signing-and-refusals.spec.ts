@@ -4,10 +4,10 @@ import { expect, test } from '../../fixtures/two-wallets';
 import type { ConfirmKind } from '../../helpers/confirm-actions';
 import {
   captureBaseline,
+  expectCancelledWhileQueued,
   expectFailedAfterEnqueue,
   expectNoNewRows,
   expectReceivedByRecipient,
-  expectVaultUnchanged,
   pollUntil,
   refusal
 } from '../../helpers/dapp-assertions';
@@ -41,8 +41,7 @@ import {
   plantQueueBlocker,
   readTransactionRow,
   releaseQueueBlocker,
-  TxStatus,
-  USER_CANCELLED_REASON
+  TxStatus
 } from '../../helpers/history';
 import { TOKEN } from '../../helpers/money-path';
 import { ECDSA_SCHEME_TAG, recoverEcdsaPublicKey } from '../../helpers/signature-recovery';
@@ -507,10 +506,7 @@ function failureCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
           ctx
         );
         await releaseQueueBlocker(j.walletA.page, blocker);
-        expect(await callDapp(dapp, 'waitForTransaction', { txId }, ctx.deadline)).toEqual(
-          refusal('WalletTransactionError', USER_CANCELLED_REASON)
-        );
-        await expectVaultUnchanged(side, baseline, ctx);
+        await expectCancelledWhileQueued(side, baseline, txId, ctx);
       }
     },
     R5: {

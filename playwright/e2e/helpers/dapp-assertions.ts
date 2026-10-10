@@ -9,6 +9,7 @@ import {
   readTransactionRow,
   readTransactionRows,
   TxStatus,
+  USER_CANCELLED_REASON,
   type TransactionRowSnapshot
 } from './history';
 import { callDapp, ensureUnlocked, pendingNotes, selectAccountIfNeeded, unwrap, type DappHandle } from './test-dapp';
@@ -422,14 +423,33 @@ async function expectVaultHolds(
   }
 }
 
-/** Unchanged across two forced syncs, so a late debit has time to show; `expected` names rows the cell made. */
+/**
+ * Unchanged across two forced syncs, so a late debit has time to show. `expected` names every row the cell made, with no
+ * default: a row of the cell's own left out turns a third party's move of the vault into the wallet's failure.
+ */
 export async function expectVaultUnchanged(
   side: WriteSide,
   baseline: Baseline,
   ctx: CellContext,
-  expected: readonly string[] = []
+  expected: readonly string[]
 ): Promise<void> {
   await unlessAThirdPartyMovedIt(side, baseline, expected, () => expectVaultHolds(side, baseline.vault, 'vault', ctx));
+}
+
+/**
+ * R4: a row the user cancelled while it was Queued, so the dApp's wait is refused with the cancel and the vault never
+ * moved; the cancelled row is the cell's own.
+ */
+export async function expectCancelledWhileQueued(
+  side: WriteSide,
+  baseline: Baseline,
+  txId: string,
+  ctx: CellContext
+): Promise<void> {
+  expect(await callDapp(side.dapp, 'waitForTransaction', { txId }, ctx.deadline)).toEqual(
+    refusal('WalletTransactionError', USER_CANCELLED_REASON)
+  );
+  await expectVaultUnchanged(side, baseline, ctx, [txId]);
 }
 
 /** Spec section 5, "Negative paths": stage and text are pinned, because waitForTransaction returns row.error verbatim. */
