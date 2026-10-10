@@ -359,13 +359,13 @@ describe('the vault a baseline reads', () => {
     assetsMetadata: {}
   };
   // The store and what the service worker last published beside it (sync-manager.ts:676-693).
-  function pagePublishing(published: unknown): Page {
+  function pagePublishing(published: unknown, state: unknown = store): Page {
     return {
       evaluate: async <Arg>(fn: (arg: Arg) => unknown, arg: Arg) => {
         const previous = Reflect.get(globalThis, 'chrome');
         const entries = published === undefined ? {} : { miden_sync_data: published };
         Reflect.set(globalThis, 'chrome', { storage: { local: { get: async () => ({ ...entries }) } } });
-        Reflect.set(globalThis, '__TEST_STORE__', { getState: () => store });
+        Reflect.set(globalThis, '__TEST_STORE__', { getState: () => state });
         try {
           return await fn(arg);
         } finally {
@@ -393,6 +393,24 @@ describe('the vault a baseline reads', () => {
       storeAccount: 'acct1',
       store: { fTST: '500000000' },
       sync: { account: 'acct1', syncedAtMs: ms, vault: { fTST: '500000000' } }
+    });
+  });
+
+  it("reads only the faucets it is given, from the store and the sync, another token's lossy row left alone", async () => {
+    const stranger = { tokenId: 'fStranger', balance: 1234.56789012, metadata: { symbol: 'ODD', decimals: 8 } };
+    const state = { ...store, balances: { ...store.balances, acct1: [...store.balances.acct1, stranger] } };
+    const published = {
+      accountPublicKey: 'acct1',
+      syncedAt: 1_791_650_000_123,
+      vaultAssets: [
+        { faucetId: 'fTST', amountBaseUnits: '500000000' },
+        { faucetId: 'fStranger', amountBaseUnits: '123456789012' }
+      ]
+    };
+    expect(await vaultReadingOfCurrentAccount(pagePublishing(published, state), ['fTST', 'fNative'])).toEqual({
+      storeAccount: 'acct1',
+      store: { fTST: '500000000' },
+      sync: { account: 'acct1', syncedAtMs: 1_791_650_000_123, vault: { fTST: '500000000' } }
     });
   });
 

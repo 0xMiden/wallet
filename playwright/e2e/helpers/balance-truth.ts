@@ -451,10 +451,12 @@ export interface VaultReading {
 
 /**
  * The store's vault beside the sync it is refreshed from. On the extension the store takes `miden_sync_data` only on a
- * 3 s poll (useIntercomSync.ts:165-186), so the two can differ for a few seconds after a sync.
+ * 3 s poll (useIntercomSync.ts:165-186), so the two can differ for a few seconds after a sync. With `faucetIds`, both
+ * hold only those faucets, and no other token's display balance is converted (`rowBaseUnits` throws on a lossy one).
  */
-export async function vaultReadingOfCurrentAccount(page: Page): Promise<VaultReading> {
+export async function vaultReadingOfCurrentAccount(page: Page, faucetIds?: readonly string[]): Promise<VaultReading> {
   const { account, rows } = await currentAccountRows(page);
+  const kept = (faucetId: string) => faucetIds === undefined || faucetIds.includes(faucetId);
   const published = await page.evaluate(async () => {
     const got = await chrome.storage.local.get('miden_sync_data');
     const data: unknown = Reflect.get(got, 'miden_sync_data');
@@ -473,7 +475,10 @@ export async function vaultReadingOfCurrentAccount(page: Page): Promise<VaultRea
   const stamp = published?.syncedAt ?? null;
   return {
     storeAccount: account,
-    store: storeAssets('vaultReadingOfCurrentAccount', rows),
+    store: storeAssets(
+      'vaultReadingOfCurrentAccount',
+      rows.filter(row => kept(row.tokenId))
+    ),
     sync:
       published === null || stamp === null
         ? null
@@ -481,7 +486,11 @@ export async function vaultReadingOfCurrentAccount(page: Page): Promise<VaultRea
             account: published.account,
             // Scaled as walletSyncedAtMs (test-dapp.ts) scales it, so a stamp in seconds never reads as long past.
             syncedAtMs: stamp < 1e12 ? stamp * 1000 : stamp,
-            vault: nonzeroAssets(published.assets.map(asset => [asset.faucetId, BigInt(asset.amount)] as const))
+            vault: nonzeroAssets(
+              published.assets
+                .filter(asset => kept(asset.faucetId))
+                .map(asset => [asset.faucetId, BigInt(asset.amount)] as const)
+            )
           }
   };
 }

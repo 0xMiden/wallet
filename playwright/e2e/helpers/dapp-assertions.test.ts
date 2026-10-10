@@ -404,6 +404,64 @@ describe('a note from outside the journey', () => {
       expect(triggerSync).toHaveBeenCalled();
     });
 
+    it("converts only the faucets it records, whatever lossy row a third party's token left in the store", async () => {
+      const real = jest.requireActual<{ vaultReadingOfCurrentAccount: typeof vaultReadingOfCurrentAccount }>(
+        './balance-truth'
+      );
+      jest.mocked(vaultReadingOfCurrentAccount).mockImplementation(real.vaultReadingOfCurrentAccount);
+      const ODD = '0xstrangertoken';
+      const state = {
+        currentAccount: { publicKey: ACCOUNT },
+        balances: {
+          [ACCOUNT]: [
+            { tokenId: TOKEN, balance: 100, metadata: { decimals: 2 } },
+            { tokenId: NATIVE, balance: 1, metadata: { decimals: 3 } },
+            // 123456789012 base units, which this display float misses by 2e-5 at 8 decimals.
+            { tokenId: ODD, balance: 1234.56789012, metadata: { decimals: 8 } }
+          ]
+        }
+      };
+      const published = {
+        accountPublicKey: ACCOUNT,
+        syncedAt: (STAMP_SEC - 10) * 1000,
+        vaultAssets: [
+          { faucetId: TOKEN, amountBaseUnits: '10000' },
+          { faucetId: NATIVE, amountBaseUnits: '1000' },
+          { faucetId: ODD, amountBaseUnits: '123456789012' }
+        ]
+      };
+      const page = {
+        evaluate: async (fn: () => unknown) => {
+          const previous = Reflect.get(globalThis, 'chrome');
+          Reflect.set(globalThis, 'chrome', {
+            storage: { local: { get: async () => ({ miden_sync_data: published }) } }
+          });
+          Reflect.set(globalThis, '__TEST_STORE__', { getState: () => state });
+          try {
+            return await fn();
+          } finally {
+            Reflect.set(globalThis, 'chrome', previous);
+            Reflect.deleteProperty(globalThis, '__TEST_STORE__');
+          }
+        }
+      } as unknown as Page;
+      // The forced sync publishes the same vault with a fresh stamp, so both reads of the wait run.
+      const triggerSync = jest.fn(async () => {
+        published.syncedAt = Date.now() + 1;
+      });
+      jest.mocked(readTransactionRows).mockResolvedValue([row('funding')]);
+      jest.mocked(callDapp).mockImplementation((async () => ({
+        found: true,
+        commitmentHex: '0xold',
+        lastBlockNum: 8
+      })) as unknown as typeof callDapp);
+      const { side } = sideOf();
+      const wallet = { page, triggerSync } as unknown as GuardianAwareWalletPage;
+      const captured = await settled(captureBaseline({ ...side, wallet }, [TOKEN], ctx()));
+      expect(captured.vault).toEqual({ [TOKEN]: 10_000n, [NATIVE]: 1_000n });
+      expect(triggerSync).toHaveBeenCalledTimes(1);
+    });
+
     describe('when the wallet publishes no sync after the stamp', () => {
       const commands = () => jest.mocked(callDapp).mock.calls.map(call => call[1]);
       const nodeDown = async (command: string) => {

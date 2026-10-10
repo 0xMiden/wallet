@@ -90,21 +90,22 @@ const NODE_QUESTION_RESERVE_MS = 15_000;
  * transaction the account completed before then is in it, a third party's consume the store had not polled among them.
  * Syncs are forced only while the last one published is older or another account's. A wallet sync needs the node, so a
  * wait that runs out asks `dapp`'s node: one that fails throws `ChainUnavailable`, and only one that answers leaves the
- * failure the wallet's.
+ * failure the wallet's. With `faucetIds`, the store and the sync are read and compared on those faucets alone.
  */
 export async function vaultSyncedAfter(
   wallet: Pick<GuardianAwareWalletPage, 'page' | 'triggerSync'>,
   dapp: DappHandle,
   sinceMs: number,
-  ctx: CellContext
+  ctx: CellContext,
+  faucetIds?: readonly string[]
 ): Promise<Record<string, string>> {
   const what = 'the store holding a wallet sync after the baseline stamp';
   const wait = deadlineIn(Math.max(0, ctx.deadline.remainingMs() - NODE_QUESTION_RESERVE_MS), ctx.deadline.label);
   const read = async () => {
-    const reading = await vaultReadingOfCurrentAccount(wallet.page);
+    const reading = await vaultReadingOfCurrentAccount(wallet.page, faucetIds);
     if (syncedSince(reading, sinceMs)) return reading;
     await wallet.triggerSync(true);
-    return vaultReadingOfCurrentAccount(wallet.page);
+    return vaultReadingOfCurrentAccount(wallet.page, faucetIds);
   };
   let last: VaultReading | null = null;
   let ended = '';
@@ -132,8 +133,8 @@ export async function captureBaseline(
 ): Promise<Baseline> {
   const capturedAtSec = Math.floor(Date.now() / 1000);
   await selectAccountIfNeeded(side.wallet, side.account);
-  const synced = await vaultSyncedAfter(side.wallet, side.dapp, capturedAtSec * 1000, ctx);
   const ids = [...new Set([...faucetIds, side.nativeFaucetId])];
+  const synced = await vaultSyncedAfter(side.wallet, side.dapp, capturedAtSec * 1000, ctx, ids);
   const vault = Object.fromEntries(ids.map(id => [id, BigInt(synced[id] ?? '0')]));
   const chain = await callDapp(side.dapp, 'chainAccount', { accountId: side.accountIdHex }, ctx.deadline);
   return {
