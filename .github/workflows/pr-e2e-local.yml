@@ -7,6 +7,8 @@ concurrency:
   cancel-in-progress: true
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 jobs:
   # Name and work read the same base value (#1071): only a pull request based on
   # main or next gets the full suite and this required name; a stacked pull
@@ -14,10 +16,10 @@ jobs:
   # on that commit, so a retarget with no push leaves the required name missing
   # until a push, or a close and reopen, runs the pull request's own event for
   # real. A by-hand workflow_dispatch run reports the required name on the
-  # branch head (not the merge ref), against published packages, with no
-  # linked-PR injection: the inject actions exit on any event but pull_request.
-  # Branch protection accepts that check for a pull request at the same
-  # commit, which is the spec's by-hand escape hatch.
+  # branch head (not the merge ref), built against the linked PRs that the
+  # branch's open pull request names, as its pull_request run is (none on main
+  # or next). Branch protection accepts that check for a pull request at the
+  # same commit, which is the spec's by-hand escape hatch.
   chrome-local:
     name: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') && 'local-e2e (chrome)' || 'local-e2e (chrome) (stacked)' }}
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next' }}

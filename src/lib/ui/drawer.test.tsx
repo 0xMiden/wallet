@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { flushSync } from 'react-dom';
 
 import { sheetMotionVars } from 'lib/animation';
 import { isExtension } from 'lib/platform';
@@ -313,6 +314,121 @@ describe('Drawer', () => {
 
     expect(onOpenChange).not.toHaveBeenCalled();
     expect(screen.getByTestId('sheet')).toBeInTheDocument();
+  });
+
+  /** A full primary-button press. jsdom has no PointerEvent; a MouseEvent carries the button Radix defers on. */
+  const press = (target: Element) => {
+    fireEvent(target, new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }));
+    fireEvent.mouseDown(target);
+    fireEvent(target, new MouseEvent('pointerup', { bubbles: true, cancelable: true, button: 0 }));
+    fireEvent.mouseUp(target);
+    fireEvent.click(target);
+  };
+
+  // The swap screen's two pills share one picker: pick a token, then tap a pill before the sheet has slid away.
+  describe.each([
+    ['through its exit animation', false],
+    ['by forceMount', true]
+  ])('a sheet reopened by a press made during its own close, kept mounted %s', (_keptMounted, forceMount) => {
+    const onOpenChange = jest.fn();
+
+    function Picker() {
+      const [open, setOpen] = React.useState(true);
+      const change = (next: boolean) => {
+        onOpenChange(next);
+        setOpen(next);
+      };
+      return (
+        <>
+          {/* flushSync: a browser commits the reopen in the microtask checkpoint before Radix's document
+              listener runs, where act() would commit it after both and the test would pass on the bug. */}
+          <button type="button" onClick={() => flushSync(() => setOpen(true))}>
+            Receive pill
+          </button>
+          <Drawer open={open} onOpenChange={change}>
+            <DrawerContent forceMount={forceMount || undefined}>
+              <DrawerTitle>Pick a token</DrawerTitle>
+              <button type="button" onClick={() => change(false)}>
+                SWPA
+              </button>
+            </DrawerContent>
+          </Drawer>
+        </>
+      );
+    }
+    const sheet = () => screen.getByRole('dialog', { name: 'Pick a token', hidden: true });
+
+    const reopenDuringClose = async () => {
+      render(<Picker />);
+      await outsideListenerReady();
+      fireEvent.click(screen.getByText('SWPA'));
+      // jsdom never ends the slide-out, so the closing sheet stays mounted as it does in a browser.
+      expect(sheet().getAttribute('data-state')).toBe('closed');
+      press(screen.getByText('Receive pill'));
+    };
+
+    it('stays open', async () => {
+      await reopenDuringClose();
+
+      expect(sheet().getAttribute('data-state')).toBe('open');
+    });
+
+    it('still closes on the next press outside', async () => {
+      await reopenDuringClose();
+      onOpenChange.mockClear();
+
+      press(screen.getByText('Receive pill'));
+
+      expect(sheet().getAttribute('data-state')).toBe('closed');
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+
+  it('closes an open sheet on a press outside while another sheet is closing', async () => {
+    const onOpenChangeB = jest.fn();
+    function Sheets() {
+      const [openA, setOpenA] = React.useState(true);
+      const [openB, setOpenB] = React.useState(false);
+      return (
+        <>
+          <Drawer open={openA} onOpenChange={setOpenA}>
+            <DrawerContent data-testid="sheet-a">
+              <DrawerTitle>Sheet A</DrawerTitle>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenA(false);
+                  setOpenB(true);
+                }}
+              >
+                Next
+              </button>
+            </DrawerContent>
+          </Drawer>
+          <Drawer
+            open={openB}
+            onOpenChange={next => {
+              onOpenChangeB(next);
+              setOpenB(next);
+            }}
+          >
+            <DrawerContent data-testid="sheet-b">
+              <DrawerTitle>Sheet B</DrawerTitle>
+            </DrawerContent>
+          </Drawer>
+        </>
+      );
+    }
+    render(<Sheets />);
+    await outsideListenerReady();
+    fireEvent.click(screen.getByText('Next'));
+    await outsideListenerReady();
+    expect(screen.getByTestId('sheet-a').getAttribute('data-state')).toBe('closed');
+
+    press(document.body);
+
+    expect(screen.getByTestId('sheet-b').getAttribute('data-state')).toBe('closed');
+    expect(onOpenChangeB).toHaveBeenCalledWith(false);
   });
 
   describe('body styles (extension background scale)', () => {

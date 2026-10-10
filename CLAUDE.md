@@ -318,6 +318,13 @@ step. The action clones the linked web-sdk PR, builds
 this repo's `package.json` to consume them via `file:` deps (runner-local
 mutation, never committed).
 
+A `workflow_dispatch` on a pull request's branch injects too: this action and
+`inject-linked-guardian-pr` read the markers of the one open pull request whose
+head is that branch (`scripts/resolve-linked-pr-number.sh`), and every E2E and
+build workflow a dispatch can start runs both before its install, so a by-hand
+run builds what that pull request's own CI builds. A push, and a dispatch on
+main or next, never injects.
+
 A separate workflow (`check-linked-web-sdk-pr.yml`) posts a custom
 status named `linked-web-sdk-pr-ready` that's `pending` until the linked
 web-sdk PR is merged AND a release tag covering its merge commit is
