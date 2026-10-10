@@ -97,6 +97,7 @@ flowchart TB
 - [4 · Earning — lending your coins out](#4--earning--lending-your-coins-out)
 - [5 · Guardian security — two signatures to move money](#5--guardian-security--two-signatures-to-move-money)
 - [6 · Bringing value in on iPhone](#6--bringing-value-in-on-iphone)
+- [7 · dApps - a real dApp against the wallet](#7--dapps---a-real-dapp-against-the-wallet)
 - [Under the hood — running Ethereum locally](#under-the-hood--running-ethereum-locally)
 - [How real is it, really?](#how-real-is-it-really)
 
@@ -341,6 +342,18 @@ flowchart TB
 
 Bridge-in via the two routes, a WalletConnect-pairing-only check, a delivery-only check, and the guardian flow — all on iPhone. (An Android two-emulator harness also exists in the codebase, not yet wired into CI.)
 </details>
+
+---
+
+## 7 · dApps - a real dApp against the wallet
+
+**What these tests verify:** a dApp built the way real dApps are built - its own Miden client and the published wallet adapter - can connect, read, sign and move money through the extension, on single-sig and Guardian accounts alike.
+
+The test dApp is a small page served next to the wallet under test. It loads the same `@miden-sdk/miden-sdk` and wallet-adapter packages the wallet resolves, keeps its own client with its own storage and its own view of the chain, and exposes a command API the test drives. Because the dApp's client and the wallet's are independent, the chain really does move between the moment the dApp builds a request and the moment the user approves it, the way it does for real users.
+
+Every capability is a named cell from the suite's capability matrix, run on both account kinds. A write passes only when the dApp's own `waitForTransaction` returns the hash, the wallet's row reads Completed, the node serves the note or nullifier, and every balance moved by exactly the amount plus the fee. Refusals are pinned to their exact error and checked for side effects. A known wallet or adapter bug is recorded against the cell it breaks, so the suite stays meaningful while the bug is open, and the record fails the run the day the bug is fixed until the entry is removed.
+
+Where it runs: `e2e-dapp.yml`, after every merge, against the branch's live network (testnet from `main`, devnet from `next`) with that network's public faucet and hosted Guardian. No pull request runs it; a branch can dispatch it by hand.
 
 ---
 
