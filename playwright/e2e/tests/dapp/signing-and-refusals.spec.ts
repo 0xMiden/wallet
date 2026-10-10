@@ -2,11 +2,20 @@ import type { Page } from '@playwright/test';
 
 import { expect, test } from '../../fixtures/two-wallets';
 import type { ConfirmKind } from '../../helpers/confirm-actions';
-import { captureBaseline, expectNoNewRows, pollUntil, refusal } from '../../helpers/dapp-assertions';
+import {
+  captureBaseline,
+  expectFailedAfterEnqueue,
+  expectNoNewRows,
+  expectReceivedByRecipient,
+  expectVaultUnchanged,
+  pollUntil,
+  refusal
+} from '../../helpers/dapp-assertions';
 import { dappAxes, type DappAxis } from '../../helpers/dapp-axis';
 import { HarnessFault, type CellContext } from '../../helpers/dapp-cells';
 import { normalizeHex } from '../../helpers/dapp-gates';
 import {
+  FUND_A,
   runJourneyCells,
   setupContext,
   startJourney,
@@ -15,16 +24,38 @@ import {
   type Journey
 } from '../../helpers/dapp-journey';
 import { JOURNEY_TIMEOUT_MS, journeyTitle } from '../../helpers/dapp-matrix';
+import pinned from '../../helpers/dapp-pinned.json';
 import {
+  customWriteToTheEnd,
+  dappSendToTheEnd,
   noteIdsSeenOver,
   pendingImportQueue,
   pendingNote,
   produceNotesFromB,
+  setDelegatedProving,
   sideOf,
   type ProducedNote
 } from '../../helpers/dapp-writes';
+import {
+  openHistoryDetails,
+  plantQueueBlocker,
+  readTransactionRow,
+  releaseQueueBlocker,
+  TxStatus,
+  USER_CANCELLED_REASON
+} from '../../helpers/history';
+import { TOKEN } from '../../helpers/money-path';
 import { ECDSA_SCHEME_TAG, recoverEcdsaPublicKey } from '../../helpers/signature-recovery';
-import { answerPrompt, bytesArg, callDapp, expectNoPrompt, pendingNoteIds, unwrap } from '../../helpers/test-dapp';
+import {
+  advanceChain,
+  answerPrompt,
+  bytesArg,
+  callDapp,
+  expectNoPrompt,
+  pendingNoteIds,
+  popupBlock,
+  unwrap
+} from '../../helpers/test-dapp';
 import type { ConnectedView, RawArg } from '../../test-dapp/protocol';
 
 const WORD = `0x${'11'.repeat(32)}`;
@@ -170,13 +201,12 @@ interface RefusalFixtures {
   newA1: ProducedNote;
   newA2: ProducedNote;
   /**
-   * newA1 and newA2 as files with their inclusion proofs, which commit the moment they are imported (N3a): a note that
-   * shows despite a decline is listed at the next sync, where bare bytes can wait on a tag scan past both laps
-   * (miden-client-interface.ts:368).
+   * The notes as files with their inclusion proofs, which commit the moment they are imported (N3a): a note that shows
+   * despite a decline, or once an approval released it, is listed at the next sync, where bare bytes can wait on a tag
+   * scan past both laps (miden-client-interface.ts:368).
    */
-  proofB64: { newA1: string; newA2: string };
+  proofB64: { newA1: string; newA2: string; carry: string };
   carry: ProducedNote;
-  toB: ProducedNote;
 }
 
 const NOT_GRANTED_WRAPPED = refusal('WalletTransactionError', 'NOT_GRANTED', 'NotGrantedMidenWalletError');
@@ -443,6 +473,183 @@ function refusalCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
   };
 }
 
+function failureCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellImpl> {
+  const { dapp } = j;
+  const toB = (amount: bigint) => ({
+    recipientAddress: j.addressB,
+    faucetId: j.tokenFaucetId,
+    amount: amount.toString(),
+    noteType: 'public' as const
+  });
+  return {
+    R4: {
+      budget: 'write',
+      run: async ctx => {
+        const side = await sideOf(j, dapp);
+        const baseline = await captureBaseline(side, [j.tokenFaucetId], ctx);
+        // The queue blocker holds the loop, so the cancel provably lands while the row is Queued (history.ts:337-376).
+        const blocker = await plantQueueBlocker(j.walletA.page);
+        const { result } = await answerPrompt(
+          dapp,
+          () => callDapp(dapp, 'send', { ...toB(tst(1)), via: 'requestSend' }, ctx.deadline),
+          { kind: 'transaction', decision: 'approve', origin: dapp.origin, whileOpen: () => popupBlock(dapp, ctx) },
+          ctx
+        );
+        const { txId } = unwrap(result, 'requestSend behind the queue blocker', ctx);
+        expect((await readTransactionRow(j.walletA.page, txId))?.status).toBe(TxStatus.Queued);
+        await openHistoryDetails(j.walletA, txId);
+        await j.walletA.page.getByTestId('history-cancel-button').click({ timeout: 30_000 });
+        // The click only asks for the cancel; a release before it is written would let the loop build the send.
+        await pollUntil(
+          () => readTransactionRow(j.walletA.page, txId),
+          row => row?.status === TxStatus.Failed,
+          `row ${txId} cancelled`,
+          ctx
+        );
+        await releaseQueueBlocker(j.walletA.page, blocker);
+        expect(await callDapp(dapp, 'waitForTransaction', { txId }, ctx.deadline)).toEqual(
+          refusal('WalletTransactionError', USER_CANCELLED_REASON)
+        );
+        await expectVaultUnchanged(side, baseline, ctx);
+      }
+    },
+    R5: {
+      budget: 'write',
+      run: async ctx => {
+        const side = await sideOf(j, dapp);
+        const baseline = await captureBaseline(side, [j.tokenFaucetId], ctx);
+        const built = await callDapp(
+          dapp,
+          'buildCustom',
+          { shape: 'p2id', outputs: [toB(FUND_A * 10n)], carryNoteBytesB64: [fx.proofB64.carry] },
+          ctx.deadline
+        );
+        await advanceChain(j.walletA, dapp, built.boundBlockNum + 3, ctx);
+        const { result } = await answerPrompt(
+          dapp,
+          () =>
+            callDapp(
+              dapp,
+              'submitCustom',
+              { requestId: built.requestId, recipientAddress: j.addressB, importNotes: true },
+              ctx.deadline
+            ),
+          {
+            kind: 'transaction',
+            decision: 'approve',
+            origin: dapp.origin,
+            whileOpen: async popup => {
+              await expect(popup.getByTestId('tx-simulation-failed')).toBeVisible({ timeout: 60_000 });
+              await popupBlock(dapp, ctx);
+            }
+          },
+          ctx
+        );
+        const { txId } = unwrap(result, 'an overspending custom request is still queued', ctx);
+        await expectFailedAfterEnqueue(side, baseline, txId, pinned.texts.R5[j.axis.label], ctx);
+        // The approval released the dry run's quarantine (dapp.ts:1956-1961), so the failure leaves the note claimable.
+        await pollUntil(
+          () => pendingNote(j.walletA.page, fx.carry.noteId),
+          note => note !== null,
+          'carried note claimable',
+          ctx
+        );
+      }
+    },
+    R8: {
+      budget: 'write',
+      run: async ctx => {
+        j.touch('spendingLimit');
+        // The E2E build prices TST at $1 (src/lib/prices/usd.ts isE2eFixtureSymbol), so 500 USD covers 5 TST.
+        await j.walletA.configureSpendingLimitForTest({
+          tokenSymbol: TOKEN,
+          dailyLimitUsdMicro: (500n * 1_000_000n).toString()
+        });
+        await customWriteToTheEnd(
+          j,
+          dapp,
+          {
+            build: { shape: 'p2id', outputs: [toB(tst(5))] },
+            submit: { recipientAddress: j.addressB, importNotes: false },
+            advance: 3,
+            vaultDelta: { [j.tokenFaucetId]: -tst(5) },
+            toB: [true],
+            consumedNullifiers: [],
+            preview: { amount: /^5 TST$/, outputNotes: 1 }
+          },
+          ctx
+        );
+      }
+    },
+    R9: {
+      budget: 'write',
+      run: async ctx => {
+        j.touch('faults');
+        await setDelegatedProving(j, true);
+        await j.walletA.armNetworkFault({ target: 'prover', mode: 'abort' });
+        // The wallet re-proves locally when the delegated prover fails (miden-client-interface.ts:2313).
+        await dappSendToTheEnd(j, dapp, { amount: tst(1), noteType: 'public', via: 'requestSend' }, ctx);
+        // Arming is best effort; a fault that never landed would make this a plain send.
+        expect(await j.walletA.networkFaultHits()).not.toBe(0);
+      }
+    },
+    R10: {
+      budget: 'write',
+      run: async ctx => {
+        // Made here, not in setup: B's wallet lists its own note to itself, so the first quiesce would claim it.
+        const [toBNote] = await produceNotesFromB(
+          j,
+          [{ recipientAddress: j.addressB, faucetId: j.tokenFaucetId, amount: tst(2).toString(), noteType: 'private' }],
+          ctx
+        );
+        if (toBNote === undefined) throw new HarnessFault("B's producer returned no note");
+        // With its proof, the import returns the note id; bare bytes return the details commitment (K10).
+        const file = await callDapp(
+          dapp,
+          'makeNoteFile',
+          { noteBytesB64: toBNote.bytesB64, format: 'withProof' },
+          ctx.deadline
+        );
+        const side = await sideOf(j, dapp);
+        const baseline = await captureBaseline(side, [j.tokenFaucetId], ctx);
+        const imported = await answerPrompt(
+          dapp,
+          () => callDapp(dapp, 'importNote', { noteBytesB64: file.bytesB64 }, ctx.deadline),
+          { kind: 'importPrivateNote', decision: 'approve', origin: dapp.origin },
+          ctx
+        );
+        const { noteId } = unwrap(imported.result, 'import of a note addressed to B', ctx);
+        const { result } = await answerPrompt(
+          dapp,
+          () =>
+            callDapp(
+              dapp,
+              'consume',
+              {
+                noteId,
+                faucetId: j.tokenFaucetId,
+                amount: toBNote.amount.toString(),
+                noteType: 'private',
+                via: 'requestConsume'
+              },
+              ctx.deadline
+            ),
+          { kind: 'consume', decision: 'approve', origin: dapp.origin, whileOpen: () => popupBlock(dapp, ctx) },
+          ctx
+        );
+        const { txId } = unwrap(result, 'requestConsume of a note addressed to B', ctx);
+        await expectFailedAfterEnqueue(side, baseline, txId, pinned.texts.R10[j.axis.label], ctx);
+        // The failed consume spent nothing: B claims exactly that note, which also leaves B nothing pending.
+        await expectReceivedByRecipient(
+          j.walletB,
+          [{ noteId: toBNote.noteId, faucetId: toBNote.faucetId, amount: toBNote.amount }],
+          ctx
+        );
+      }
+    }
+  };
+}
+
 function defineRefusalsJourney(axis: DappAxis): void {
   test(journeyTitle('R', axis.label), async ({ walletA, walletB, midenCli, envConfig, steps }, testInfo) => {
     test.setTimeout(JOURNEY_TIMEOUT_MS.R);
@@ -462,13 +669,12 @@ function defineRefusalsJourney(axis: DappAxis): void {
           read,
           { bounded: true }
         );
-        const [newA1, newA2, carry, toB] = await produceNotesFromB(
+        const [newA1, newA2, carry] = await produceNotesFromB(
           j,
           [
             { recipientAddress: primary, faucetId: j.tokenFaucetId, amount: tst(1.5).toString(), noteType: 'private' },
             { recipientAddress: primary, faucetId: j.tokenFaucetId, amount: tst(1.25).toString(), noteType: 'private' },
-            { recipientAddress: primary, faucetId: j.tokenFaucetId, amount: tst(1.75).toString(), noteType: 'private' },
-            { recipientAddress: j.addressB, faucetId: j.tokenFaucetId, amount: tst(2).toString(), noteType: 'private' }
+            { recipientAddress: primary, faucetId: j.tokenFaucetId, amount: tst(1.75).toString(), noteType: 'private' }
           ],
           setupContext(6 * 60_000, 'produce notes for the refusal journey')
         );
@@ -476,7 +682,6 @@ function defineRefusalsJourney(axis: DappAxis): void {
           newA1 === undefined ||
           newA2 === undefined ||
           carry === undefined ||
-          toB === undefined ||
           held.noteBytesB64 === undefined ||
           held.nullifierHex === undefined
         ) {
@@ -492,9 +697,12 @@ function defineRefusalsJourney(axis: DappAxis): void {
           heldNullifierHex: held.nullifierHex,
           newA1,
           newA2,
-          proofB64: { newA1: await proofOf(newA1), newA2: await proofOf(newA2) },
-          carry,
-          toB
+          proofB64: {
+            newA1: await proofOf(newA1),
+            newA2: await proofOf(newA2),
+            carry: await proofOf(carry)
+          },
+          carry
         };
       })
       .catch((error: unknown) => {
@@ -503,7 +711,7 @@ function defineRefusalsJourney(axis: DappAxis): void {
         throw error;
       });
     if (fixtures === undefined) throw new Error('no refusal fixtures');
-    await runJourneyCells(j, { ...signingCells(j), ...refusalCells(j, fixtures) });
+    await runJourneyCells(j, { ...signingCells(j), ...refusalCells(j, fixtures), ...failureCells(j, fixtures) });
   });
 }
 

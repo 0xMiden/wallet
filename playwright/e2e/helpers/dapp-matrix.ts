@@ -83,6 +83,11 @@ export const DAPP_JOURNEY_CELLS: Record<JourneyId, CellList> = {
     'R3-consumeBytes',
     'R3-consumeUnresolved',
     'R3-network',
+    'R4',
+    'R5',
+    'R8',
+    'R9',
+    'R10',
     'R6',
     'R11'
   ),
