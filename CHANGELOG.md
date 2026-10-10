@@ -11,6 +11,7 @@
 
 ### Fixes
 
+- [FIX][ci] Chrome Guardian E2E gets 90 minutes instead of 60: its 34 tests took 48-55 minutes on green testnet runs, so a slow testnet cancelled the job with every finished test passing.
 - [FIX][ci] An E2E CLI mint whose delegated proof the hosted testnet or devnet prover fails or times out proves its remaining attempts locally, as the CLI's other transactions already do, so a stalled prover no longer fails every suite's funding.
 - [FIX][all] Picking a swap token and quickly tapping the other token pill, or the same one, opens the token picker again; a tap made while the picker was still sliding away opened nothing.
 - [FIX][ci] E2E Bridge follows the testnet bridge to rollup 73 (wallet-config testnet.json version 2): its registry check names the new bridge's ETH faucet and its indexer probe asks for Miden exits under 73, where it still named the retired bridge's faucet and rollup 86, so the job stayed red.
