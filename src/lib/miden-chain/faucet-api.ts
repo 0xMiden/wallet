@@ -2,6 +2,7 @@ import { getEffectiveFaucetApiUrl, getEffectiveNetworkName } from 'lib/miden-cha
 import { requestTimeoutError } from 'lib/remote-json';
 
 import { MIDEN_FAUCET_API_ENDPOINTS } from './constants';
+import { faucetCapFromRefusal, faucetRateLimitSeconds } from './faucet-protocol';
 import { spawnFaucetPowWorker } from './spawn-faucet-pow-worker';
 
 export interface PowChallenge {
@@ -119,6 +120,37 @@ export async function faucetFetch<T>(
   return attempt(read);
 }
 
+/** The faucet refused an amount over its cap and named the cap, in base units. Nothing was minted. */
+export class FaucetAmountOverCapError extends Error {
+  constructor(
+    message: string,
+    readonly cap: bigint
+  ) {
+    super(message);
+    this.name = 'FaucetAmountOverCapError';
+  }
+}
+
+/** The faucet refused because this account asked too recently; `retryAfterSeconds` is the wait its body names. */
+export class FaucetRateLimitedError extends Error {
+  constructor(
+    message: string,
+    readonly retryAfterSeconds: number | null
+  ) {
+    super(message);
+    this.name = 'FaucetRateLimitedError';
+  }
+}
+
+// Every refusal keeps the message it always had; the two the user can act on also carry what the faucet named. The
+// wait comes from the body because a cross-origin page cannot read Retry-After: the faucet exposes no headers.
+function faucetRefusal(label: string, status: number, detail: string): Error {
+  const message = `${label} failed with status ${status}: ${detail}`;
+  if (status === 429) return new FaucetRateLimitedError(message, faucetRateLimitSeconds(detail));
+  const cap = status === 400 ? faucetCapFromRefusal(detail) : null;
+  return cap === null ? new Error(message) : new FaucetAmountOverCapError(message, cap);
+}
+
 export async function getPowChallenge(
   baseUrl: string,
   accountId: string,
@@ -130,7 +162,7 @@ export async function getPowChallenge(
     if (!response.ok) {
       // The status is the error; a body that fails or stalls past the bound only loses the explanation.
       const detail = await response.text().catch(() => '');
-      throw new Error(`Faucet PoW request failed with status ${response.status}: ${detail}`);
+      throw faucetRefusal('Faucet PoW request', response.status, detail);
     }
 
     const json: { challenge: string; target: number } = await response.json();
@@ -270,7 +302,7 @@ export async function requestTokens(
     // The faucet accepted the request, so it may have minted; only the ids were lost.
     throw new FaucetOutcomeUnknownError('Faucet token response could not be read', { cause: outcome.error });
   }
-  const failure = new Error(`Faucet token request failed with status ${outcome.status}: ${outcome.detail}`);
+  const failure = faucetRefusal('Faucet token request', outcome.status, outcome.detail);
   if (faucetStatusMayHaveMinted(outcome.status)) {
     throw new FaucetOutcomeUnknownError(failure.message, { cause: failure });
   }

@@ -1,6 +1,8 @@
 import { DEFAULT_NETWORK, MIDEN_FAUCET_API_ENDPOINTS } from './constants';
 import {
+  FaucetAmountOverCapError,
   FaucetOutcomeUnknownError,
+  FaucetRateLimitedError,
   faucetFetch,
   getFaucetApiUrl,
   getPowChallenge,
@@ -772,6 +774,53 @@ describe('faucet-api', () => {
       } finally {
         jest.useRealTimers();
       }
+    });
+  });
+
+  describe('a refusal the user can act on', () => {
+    const calls: Array<[string, () => Promise<unknown>]> = [
+      ['Faucet PoW request', () => getPowChallenge('https://faucet-api.example', 'mtst1testaddress', 100_000_000n)],
+      [
+        'Faucet token request',
+        () => requestTokens('https://faucet-api.example', 'mtst1testaddress', 100_000_000n, CHALLENGE_HEX, 42)
+      ]
+    ];
+
+    it.each(calls)('%s types a rate limit, with the wait its body names', async (label, call) => {
+      fetchMock.mockResolvedValue(errorResponse(429, 'Account is rate limited for 25 more seconds.'));
+
+      const error = await call().catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(FaucetRateLimitedError);
+      expect(error).toMatchObject({
+        message: `${label} failed with status 429: Account is rate limited for 25 more seconds.`,
+        retryAfterSeconds: 25
+      });
+    });
+
+    it.each(calls)('%s types a rate limit whose body names no wait', async (_label, call) => {
+      fetchMock.mockResolvedValue(errorResponse(429, 'Too many requests'));
+
+      await expect(call()).rejects.toMatchObject({ name: 'FaucetRateLimitedError', retryAfterSeconds: null });
+    });
+
+    it.each(calls)('%s types an amount over the cap, with the cap the faucet names', async (label, call) => {
+      const detail = 'requested amount 100000000 exceeds the maximum claimable amount of 10000000';
+      fetchMock.mockResolvedValue(errorResponse(400, detail));
+
+      const error = await call().catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(FaucetAmountOverCapError);
+      expect(error).toMatchObject({ message: `${label} failed with status 400: ${detail}`, cap: 10_000_000n });
+      expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
+    });
+
+    it.each(calls)('%s keeps any other refusal a plain error', async (_label, call) => {
+      fetchMock.mockResolvedValue(errorResponse(400, 'Please enter a valid recipient address'));
+
+      const error = await call().catch((e: unknown) => e);
+
+      expect(Object.getPrototypeOf(error)).toBe(Error.prototype);
     });
   });
 
