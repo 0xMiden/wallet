@@ -12,7 +12,7 @@
 
 ### Fixes
 
-- [FIX][all] Save the manual USDCx execute hash before the receipt wait so status checks can resume after the popup closes. Clear the hash if the receipt shows a revert. Keep destination confirmation after payout fees.
+- [FIX][all] Save the manual USDCx execute hash before the receipt wait so status checks can resume after the popup closes. Clear the hash if the receipt shows a revert. Keep destination confirmation after payout fees. Read burn status through its own RPC client without holding the shared WASM client lock. Use the SDK burn script and check it against the faucet allowlist instead of a hardcoded script root.
 
 - [FIX][ci] Apply the required source format to the xReserve test button and relay modules, and select the requested network in the add-contact E2E helper when the sheet offers multiple networks (#1100).
 - [FIX][ci] An E2E CLI mint whose delegated proof the hosted testnet or devnet prover fails or times out proves its remaining attempts locally, as the CLI's other transactions already do, so a stalled prover no longer fails every suite's funding.

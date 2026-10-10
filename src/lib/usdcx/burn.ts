@@ -28,7 +28,6 @@ import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 
 import {
   getUsdcxDestination,
-  USDCX_BURN_SCRIPT_ROOT,
   USDCX_BURN_TAG,
   USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME,
   USDCX_MIN_BURN_SLOT
@@ -38,9 +37,6 @@ import { encodeBurnWithdrawal, requireUsdcxFaucetId, UsdcxBurnError, validateUsd
 
 /** Caller owns the WASM lock. Returns plain data; no account/client objects escape the hold. */
 export async function readUsdcxMinimumBurn(hold: WasmLockHold): Promise<bigint> {
-  if (NoteScript.burn().root().toHex() !== USDCX_BURN_SCRIPT_ROOT) {
-    throw new UsdcxBurnError('usdcxIncompatibleBurnScript');
-  }
   const rpc = new RpcClient(getRpcEndpoint());
   try {
     const fetched = await rpc.getAccountDetails(accountRefToSdk(requireUsdcxFaucetId()));
@@ -66,9 +62,6 @@ export function buildUsdcxBurnRequest(
   destinationAddress: string,
   destinationDomain: number
 ) {
-  if (NoteScript.burn().root().toHex() !== USDCX_BURN_SCRIPT_ROOT) {
-    throw new UsdcxBurnError('usdcxIncompatibleBurnScript');
-  }
   if (amount <= 0n) throw new UsdcxBurnError('usdcxInvalidAmount');
   const asset = new FungibleAsset(accountRefToSdk(requireUsdcxFaucetId()), amount);
   const storage = new NoteStorage(new FeltArray([...asset.vaultKey().toFelts(), ...asset.intoWord().toFelts()]));

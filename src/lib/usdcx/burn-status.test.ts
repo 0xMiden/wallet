@@ -3,11 +3,16 @@ import { ITransaction, ITransactionStatus, IBridgedSendExtraInputs } from 'lib/m
 import { burnPhaseFromStatus, pollUsdcxBurn } from './burn-status';
 
 let stored: ITransaction;
+const mockGetNetworkNoteStatus = jest.fn();
+const mockFree = jest.fn();
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  NoteId: { fromHex: (id: string) => id },
+  RpcClient: jest.fn(() => ({ getNetworkNoteStatus: mockGetNetworkNoteStatus, free: mockFree }))
+}));
 jest.mock('lib/miden/repo', () => ({
   transactions: { where: () => ({ modify: async (fn: (row: ITransaction) => void) => fn(stored) }) }
 }));
-jest.mock('lib/miden/sdk/miden-client', () => ({}));
-jest.mock('lib/miden-chain/constants', () => ({}));
+jest.mock('lib/miden-chain/constants', () => ({ getRpcEndpoint: () => 'https://rpc.example' }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
 
 function row(phase: 'pending' | 'consuming' | 'confirmed' | 'discarded' = 'pending'): ITransaction {
@@ -31,7 +36,23 @@ function row(phase: 'pending' | 'consuming' | 'confirmed' | 'discarded' = 'pendi
 }
 
 beforeEach(() => {
+  jest.clearAllMocks();
   stored = row();
+});
+
+it('reads burn status through its own RPC client and frees it', async () => {
+  mockGetNetworkNoteStatus.mockResolvedValueOnce({ status: 'NullifierCommitted', attemptCount: 1 });
+  await pollUsdcxBurn(stored);
+  expect(mockGetNetworkNoteStatus).toHaveBeenCalledWith('burn-note');
+  expect(stored.extraInputs.usdcxBurn.phase).toBe('confirmed');
+  expect(mockFree).toHaveBeenCalledTimes(1);
+});
+
+it('frees the RPC client after a failed request and leaves the row pending', async () => {
+  mockGetNetworkNoteStatus.mockRejectedValueOnce(new Error('timeout'));
+  await expect(pollUsdcxBurn(stored)).rejects.toThrow('timeout');
+  expect(stored.extraInputs.usdcxBurn.phase).toBe('pending');
+  expect(mockFree).toHaveBeenCalledTimes(1);
 });
 
 it.each([

@@ -2,7 +2,6 @@ import { NoteId, RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus, IUsdcxBurn } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { getRpcEndpoint } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 
@@ -29,21 +28,18 @@ export function burnPhaseFromStatus(status: string): IUsdcxBurn['phase'] | undef
 }
 
 async function readBurnStatus(noteId: string): Promise<BurnObservation> {
-  return withWasmClientLock(async hold => {
-    const rpc = new RpcClient(getRpcEndpoint());
-    try {
-      const result = await rpc.getNetworkNoteStatus(NoteId.fromHex(noteId));
-      assertWasmHoldCurrent(hold, 'before reading USDCx burn status');
-      return {
-        status: result.status,
-        attemptCount: result.attemptCount,
-        lastAttemptBlockNum: result.lastAttemptBlockNum,
-        lastError: result.lastError
-      };
-    } finally {
-      rpc.free();
-    }
-  });
+  const rpc = new RpcClient(getRpcEndpoint());
+  try {
+    const result = await rpc.getNetworkNoteStatus(NoteId.fromHex(noteId));
+    return {
+      status: result.status,
+      attemptCount: result.attemptCount,
+      lastAttemptBlockNum: result.lastAttemptBlockNum,
+      lastError: result.lastError
+    };
+  } finally {
+    rpc.free();
+  }
 }
 
 /** Read-only network polling: errors leave the durable row eligible for the next pass. */
