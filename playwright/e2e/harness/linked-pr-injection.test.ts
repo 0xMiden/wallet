@@ -68,11 +68,15 @@ const jobs = (file: string, text: string): Job[] => {
       continue;
     }
     if (job === undefined) throw new Error(`${file}:${at + 1}: a line before the first job id`);
-    if (stepsIndent !== -1 && indent <= stepsIndent) stepsIndent = -1;
+    // YAML lets a list's `- ` items sit at the same indent as its key, so only a non-item line there ends the steps.
+    const isItem = /^\s*- /.test(line);
+    if (stepsIndent !== -1 && (indent < stepsIndent || (indent === stepsIndent && !isItem))) stepsIndent = -1;
     if (stepsIndent === -1) {
       if (/^\s+steps:\s*$/.test(line)) {
         stepsIndent = indent;
         itemIndent = -1;
+      } else if (/^\s+steps:/.test(line)) {
+        throw new Error(`${file}:${at + 1}: steps: with an inline value: ${line.trim()}`);
       }
       continue;
     }
@@ -270,10 +274,28 @@ describe('the rule itself', () => {
     ).toEqual([]);
   });
 
+  it('reads a steps list written at the same indent as steps:, up to the next job key', () => {
+    const flush = (steps: string[], after = ''): string =>
+      workflow('  workflow_dispatch:', []) + steps.map(step => `    - ${step}\n`).join('') + after;
+    expect(workflowViolations('x.yml', flush([checkout, frozen, 'run: yarn build:chrome']))).toEqual([
+      'x.yml build: installs at line 11 without injecting the linked web-sdk PR first'
+    ]);
+    expect(
+      workflowViolations(
+        'x.yml',
+        flush([webSdk.replace('\n        ', '\n      '), guardian, frozen], '    timeout-minutes: 5\n')
+      )
+    ).toEqual([]);
+    expect(jobs('x.yml', flush([checkout, frozen], '    timeout-minutes: 5\n'))[0]!.steps).toHaveLength(2);
+  });
+
   it('throws on a shape it does not read instead of passing it', () => {
     expect(() => workflowViolations('x.yml', 'name: x\njobs:\n  a:\n    steps: []\n')).toThrow('no top-level on:');
     expect(() => workflowViolations('x.yml', workflow('  push:', [frozen]).replace('  build:', '  "build":'))).toThrow(
       'not a job id'
+    );
+    expect(() => workflowViolations('x.yml', workflow('  push:', []).replace('steps:\n', 'steps: []\n'))).toThrow(
+      'steps: with an inline value'
     );
   });
 });
