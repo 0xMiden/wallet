@@ -423,10 +423,12 @@ export async function addContactFromSend(
   if (chipText !== contact.network.name) {
     throw new Error(`${step}: the ${contact.network.id} chip reads ${JSON.stringify(chipText)}.`);
   }
-  if ((await chip.evaluate(el => el.tagName)) === 'BUTTON') {
+  let expectedPressed: string | null = null;
+  if (contact.network.id !== 'miden') {
     await chip.click({ timeout: timeoutMs });
-    await expect(chip).toHaveAttribute('aria-pressed', 'true', { timeout: timeoutMs });
+    expectedPressed = 'true';
   }
+  await expect.poll(() => chip.getAttribute('aria-pressed'), { timeout: timeoutMs }).toBe(expectedPressed);
 
   try {
     await sheet.getByTestId('address-book-name-input').fill(contact.name, { timeout: timeoutMs });
