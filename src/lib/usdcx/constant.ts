@@ -348,6 +348,7 @@ export const USDCX_BURN_TAG = 0x4255524e;
 /** The withdrawal attachment's scheme: `StandardNoteAttachment::UsdcxBurn` in the 0.17.1 standards. */
 export const USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME = 5;
 export const USDCX_MIN_BURN_SLOT = 'miden::standards::faucets::policies::burn::min_burn_amount::min_burn_amount';
+export const USDCX_ALLOWED_NOTE_SCRIPTS_SLOT = 'miden::standards::auth::network_account::allowed_note_scripts';
 
 /** The fee ceiling passed to `depositToRemote`. Circle's fee for Miden is not confirmed yet. */
 export const USDCX_DEPOSIT_MAX_FEE = 0n;
