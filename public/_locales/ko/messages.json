@@ -16,8 +16,8 @@
     "englishSource": "Burn only"
   },
   "usdcxWithdrawalNotice": {
-    "message": "'소각 확인(Burn confirmed)'은 Miden에서 USDCx가 소각되었음을 의미합니다. '확인(Confirmed)'은 수신처의 USDC 잔액이 증가했음을 의미합니다. 소각 note와 수신처 주소는 공개됩니다. 게시된 소각 notes는 되찾을 수 없습니다.",
-    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+    "message": "'소각 확인(Burn confirmed)'은 Miden에서 USDCx가 소각되었음을 의미합니다. '확인(Confirmed)'은 수신처의 USDC 잔액이 증가했음을 의미합니다. USDCx를 소각하는 note와 수신처 주소는 공개됩니다. 공개된 note는 되찾을 수 없습니다.",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
   },
   "usdcxBurnTestNotice": {
     "message": "이 테스트 faucet는 Miden에서 수취처 없이 USDCx를 소각합니다. 소각 내역 note 및 수취 주소는 공개되어 있습니다. 게시된 소각 내역 notes은 되찾을 수 없습니다.",
@@ -40,8 +40,8 @@
     "englishSource": "Burn rejected"
   },
   "usdcxBurnNoteId": {
-    "message": "소각 note",
-    "englishSource": "Burn note"
+    "message": "Note ID",
+    "englishSource": "Note ID"
   },
   "usdcxDestinationDomain": {
     "message": "목적지 도메인",
@@ -60,8 +60,8 @@
     "englishSource": "Minimum burn"
   },
   "usdcxSponsorshipFee": {
-    "message": "MIDEN으로 지급되며, faucet 실행 후원 비용 포함",
-    "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
+    "message": "MIDEN으로 지급되며, 여기에는 faucet을 통한 실행 후원도 포함됩니다.",
+    "englishSource": "Paid in MIDEN, including sponsorship of the execution by the faucet"
   },
   "usdcxInvalidDestination": {
     "message": "이 출금을 위해 지원되는 네트워크상의 유효한 주소를 입력하십시오.",
@@ -84,8 +84,8 @@
     "englishSource": "The wallet's burn script does not match the USDCx faucet."
   },
   "usdcxFaucetUnavailable": {
-    "message": "USDCxfaucet의 소각 정책을 확인할 수 없습니다. 검토를 재개하여 다시 시도해 주십시오.",
-    "englishSource": "(retranslate) Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+    "message": "USDCx faucet의 소각 정책을 읽을 수 없습니다. 재검토를 요청하여 다시 시도해 주세요.",
+    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
   },
   "activityFetchingHistoryAndNotes": {
     "message": "거래 내역 조회 및 notes",
@@ -4772,8 +4772,8 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "USDC는 $source$에서 소각되고, $target$에서 서클(Circle)의 집행자에게 발행되며, 서클은 이를 미덴(Miden)을 위한 xReserve에 예치합니다. 서클의 수수료는 해당 금액에 추가로 지불되며, 서클은 $target$에서 이체를 실행합니다. 서클이 이체 가격을 책정할 수 없는 경우, 사용자는 $target$에서 서명을 한 번 더 추가하여 이체를 실행합니다.",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle's fee is paid on top of the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "USDC는 $source$에서 소각되고, $target$에서 서클(Circle)의 집행자에게 발행되며, 서클은 이를 미덴(Miden)을 위한 xReserve에 예치합니다. 서클은 금액 외에 수수료를 부과하며, $target$에서 이체를 실행합니다. 서클이 이체 가격을 책정할 수 없는 경우, 사용자는 $target$에서 서명을 한 번 더 추가하여 이체를 실행합니다.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
     "placeholders": {
       "source": {
         "content": "$1"

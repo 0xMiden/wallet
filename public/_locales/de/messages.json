@@ -16,8 +16,8 @@
     "englishSource": "Burn only"
   },
   "usdcxWithdrawalNotice": {
-    "message": "„Burn confirmed“ bedeutet, dass USDCx auf Miden verbrannt wurde. „Confirmed“ bedeutet, dass sich der USDC-Saldo am Ziel erhöht hat. Die Burn-note und die Zieladresse sind öffentlich. Veröffentlichte Burn-notes können nicht zurückgefordert werden.",
-    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+    "message": "„Burn confirmed“ bedeutet, dass USDCx auf Miden verbrannt wurde. „Confirmed“ bedeutet, dass sich der USDC-Saldo am Ziel erhöht hat. Die „note“, die das USDCx verbrennt, und die Zieladresse sind öffentlich. Eine veröffentlichte „note“ kann nicht zurückgenommen werden.",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
   },
   "usdcxBurnTestNotice": {
     "message": "Dieser Test-faucet verbrennt USDCx auf Miden, ohne dass eine Auszahlung an ein Ziel erfolgt. Die Verbrennungs-note und die Zieladresse sind öffentlich einsehbar. Veröffentlichte Verbrennungs-notes können nicht zurückgefordert werden.",
@@ -40,8 +40,8 @@
     "englishSource": "Burn rejected"
   },
   "usdcxBurnNoteId": {
-    "message": "Burn-note",
-    "englishSource": "Burn note"
+    "message": "Note-ID",
+    "englishSource": "Note ID"
   },
   "usdcxDestinationDomain": {
     "message": "Ziel-Domain",
@@ -60,8 +60,8 @@
     "englishSource": "Minimum burn"
   },
   "usdcxSponsorshipFee": {
-    "message": "Bezahlung in MIDEN, einschließlich Sponsoring der Ausführung von „faucet“-Transaktionen",
-    "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
+    "message": "Bezahlt in MIDEN, einschließlich der Finanzierung der Ausführung durch den „faucet“",
+    "englishSource": "Paid in MIDEN, including sponsorship of the execution by the faucet"
   },
   "usdcxInvalidDestination": {
     "message": "Geben Sie für diese Auszahlung eine gültige Adresse in einem unterstützten Netzwerk ein.",
@@ -4772,8 +4772,8 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "USDC wird auf $source$ verbrannt und an den Vollstrecker von Circle auf $target$ ausgegeben, der es für Miden in xReserve einzahlt. Die Gebühr von Circle wird zusätzlich zum Betrag gezahlt, und Circle führt die Überweisung auf $target$ durch. Wenn Circle den Preis für die Überweisung nicht festlegen kann, führen Sie diese auf $target$ mit einer weiteren Unterschrift durch.",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle's fee is paid on top of the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "USDC wird auf $source$ verbrannt und an den Vollstrecker von Circle auf $target$ ausgegeben, der es für Miden in xReserve einzahlt. Circle berechnet seine Gebühr zusätzlich zum Betrag, und Circle führt die Übertragung auf $target$ durch. Wenn Circle den Preis für die Übertragung nicht festlegen kann, führen Sie diese auf $target$ mit einer weiteren Unterschrift durch.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
     "placeholders": {
       "source": {
         "content": "$1"

@@ -16,8 +16,8 @@
     "englishSource": "Burn only"
   },
   "usdcxWithdrawalNotice": {
-    "message": "「銷毀已確認」表示 USDCx 已在 Miden 上被銷毀。「已確認」意指目標地址的 USDC 餘額已增加。銷毀note 及目標地址均為公開資訊。已發布的銷毀notes 無法被追回。",
-    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+    "message": "「銷毀已確認」意指 USDCx 已在 Miden 上被銷毀。「已確認」表示目標地址的 USDC 餘額有所增加。用於銷毀 USDCx 的交易note以及目標地址均屬公開資訊。已發布的交易note無法被撤回。",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
   },
   "usdcxBurnTestNotice": {
     "message": "此測試 faucet 將在 Miden 上銷毀 USDCx，且無指定支付目的地。銷毀記錄 note 及目的地地址均為公開資訊。已發布的銷毀記錄 notes 無法被追回。",
@@ -40,8 +40,8 @@
     "englishSource": "Burn rejected"
   },
   "usdcxBurnNoteId": {
-    "message": "銷毀 note",
-    "englishSource": "Burn note"
+    "message": "Note ID",
+    "englishSource": "Note ID"
   },
   "usdcxDestinationDomain": {
     "message": "目標網域",
@@ -60,8 +60,8 @@
     "englishSource": "Minimum burn"
   },
   "usdcxSponsorshipFee": {
-    "message": "以 MIDEN 支付，包含 faucet 的執行贊助",
-    "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
+    "message": "以 MIDEN 支付，包含由水龍頭（faucet）贊助的執行費用",
+    "englishSource": "Paid in MIDEN, including sponsorship of the execution by the faucet"
   },
   "usdcxInvalidDestination": {
     "message": "請輸入支援此提領操作之網路上的有效地址。",
@@ -4772,8 +4772,8 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "USDC 將在 $source$ 上銷毀，並在 $target$ 上鑄造給 Circle 的執行人，由其存入 Miden 的 xReserve 中。Circle 的手續費將從該金額中扣除，且 Circle 會在 $target$ 上執行轉帳。若 Circle 無法為該轉帳定價，您需在 $target$ 上透過額外一個簽名來執行轉帳。",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle's fee is paid on top of the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "USDC 會在 $source$ 上被銷毀，並在 $target$ 上鑄造給 Circle 的執行人，該執行人會將其存入 Miden 的 xReserve 中。Circle 會除金額外另行收取手續費，並在 $target$ 上執行轉帳。若 Circle 無法為該筆轉帳定價，您需在 $target$ 上透過額外一個簽名來執行轉帳。",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
     "placeholders": {
       "source": {
         "content": "$1"

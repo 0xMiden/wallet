@@ -16,8 +16,8 @@
     "englishSource": "Burn only"
   },
   "usdcxWithdrawalNotice": {
-    "message": "「バーン確認済み」とは、USDCxがMiden上でバーンされたことを意味します。「確認済み」とは、宛先のUSDC残高が増加したことを意味します。バーンnoteと宛先アドレスは公開されています。公開されたバーンnotesは回収できません。",
-    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+    "message": "「Burn confirmed」とは、USDCxがMiden上でバーンされたことを意味します。「Confirmed」とは、宛先のUSDC残高が増加したことを意味します。USDCxをバーンするnoteと宛先アドレスは公開されています。公開されたnoteは取り戻すことができません。",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
   },
   "usdcxBurnTestNotice": {
     "message": "このテスト faucet は、Miden上でUSDCxを焼却し、支払先への送金は行いません。焼却 note および宛先アドレスは公開されています。公開された焼却 notes は取り戻すことはできません。",
@@ -40,8 +40,8 @@
     "englishSource": "Burn rejected"
   },
   "usdcxBurnNoteId": {
-    "message": "noteのバーン",
-    "englishSource": "Burn note"
+    "message": "Note ID",
+    "englishSource": "Note ID"
   },
   "usdcxDestinationDomain": {
     "message": "宛先ドメイン",
@@ -60,8 +60,8 @@
     "englishSource": "Minimum burn"
   },
   "usdcxSponsorshipFee": {
-    "message": "MIDENで支払われます（faucetの実行スポンサーシップを含む）",
-    "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
+    "message": "MIDENで支払われ、faucetによる実行のスポンサーシップを含む",
+    "englishSource": "Paid in MIDEN, including sponsorship of the execution by the faucet"
   },
   "usdcxInvalidDestination": {
     "message": "この出金には、対応ネットワーク上の有効なアドレスを入力してください。",
@@ -4772,8 +4772,8 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "USDCは$source$で焼却され、$target$でCircleの執行者に鋳造され、そこからMidenのxReserveに預け入れられます。Circleの手数料は金額に上乗せされ、Circleが$target$で送金を実行します。Circleが送金の価格設定ができない場合は、$target$で追加の署名1つを用いて送金を実行します。",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle's fee is paid on top of the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "USDCは$source$でバーンされ、$target$でCircleの執行者にミントされます。Circleは金額に加えて手数料を請求し、$target$で送金を実行します。Circleが送金の価格設定ができない場合、$target$で署名を1つ追加して送金を実行します。",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
     "placeholders": {
       "source": {
         "content": "$1"

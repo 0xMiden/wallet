@@ -16,8 +16,8 @@
     "englishSource": "Burn only"
   },
   "usdcxWithdrawalNotice": {
-    "message": "«Спалення підтверджено» означає, що USDCx було спалено на Miden. «Підтверджено» означає, що баланс USDC на адресі призначення збільшився. Приміnote про спалення та адреса призначення є публічними. Опубліковані приnotes про спалення не можна повернути.",
-    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+    "message": "«Burn confirmed» означає, що USDCx було спалено на Miden. «Confirmed» означає, що баланс USDC на адресі призначення збільшився. Нота (note), яка спалює USDCx, та адреса призначення є публічними. Опубліковану ноту неможливо повернути.",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
   },
   "usdcxBurnTestNotice": {
     "message": "Цей тест faucet спалює USDCx на Miden без виплати на адресу призначення. Процес спалювання note та адреса призначення є публічними. Опубліковані дані про спалювання notes не можна повернути.",
@@ -40,8 +40,8 @@
     "englishSource": "Burn rejected"
   },
   "usdcxBurnNoteId": {
-    "message": "Спалення note",
-    "englishSource": "Burn note"
+    "message": "Ідентифікатор Note",
+    "englishSource": "Note ID"
   },
   "usdcxDestinationDomain": {
     "message": "Домен призначення",
@@ -60,8 +60,8 @@
     "englishSource": "Minimum burn"
   },
   "usdcxSponsorshipFee": {
-    "message": "Оплата здійснюється в MIDEN, включаючи спонсорство виконання операцій «faucet»",
-    "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
+    "message": "Оплата в MIDEN, включаючи спонсорство виконання через «faucet»",
+    "englishSource": "Paid in MIDEN, including sponsorship of the execution by the faucet"
   },
   "usdcxInvalidDestination": {
     "message": "Введіть дійсну адресу в підтримуваній мережі для цього виведення коштів.",
@@ -4772,8 +4772,8 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "USDC спалюється на $source$ і випускається на ім’я виконавця Circle на $target$, який вносить їх у xReserve для Miden. Комісія Circle сплачується додатково до суми, і Circle здійснює переказ на $target$. Якщо Circle не може визначити вартість переказу, ви здійснюєте його на $target$ за допомогою ще одного підпису.",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle's fee is paid on top of the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "USDC спалюються на $source$ і випускаються на ім’я виконавця Circle на $target$, який депонує їх у xReserve для Miden. Circle стягує свою комісію на додаток до суми, і Circle здійснює переказ на $target$. Якщо Circle не може визначити вартість переказу, ви здійснюєте його на $target$ за допомогою ще одного підпису.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
     "placeholders": {
       "source": {
         "content": "$1"
@@ -4859,8 +4859,8 @@
     }
   },
   "usdcxStepBurned": {
-    "message": "Записано на $network$",
-    "englishSource": "(retranslate) Burned on $network$",
+    "message": "Спалено на $network$",
+    "englishSource": "Burned on $network$",
     "placeholders": {
       "network": {
         "content": "$1"

@@ -16,8 +16,8 @@
     "englishSource": "Burn only"
   },
   "usdcxWithdrawalNotice": {
-    "message": "\"Yakma onayı\" (Burn confirmed), USDCx'in Miden'de yakıldığı anlamına gelir. \"Onaylandı\" (Confirmed), hedef USDC bakiyesinin arttığı anlamına gelir. Yakma notesi ve hedef adres herkese açıktır. Yayınlanan yakma notessi geri alınamaz.",
-    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+    "message": "\"Burn confirmed\" (yakma onaylandı), USDCx'in Miden'de yakıldığı anlamına gelir. \"Confirmed\" (onaylandı), hedef USDC bakiyesinin arttığı anlamına gelir. USDCx'i yakan note ve hedef adres herkese açıktır. Yayınlanmış bir note geri alınamaz.",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
   },
   "usdcxBurnTestNotice": {
     "message": "Bu test faucet, Miden'de hedef bir ödeme adresi olmadan USDCx'i yakar. Yakma işlemi note ve hedef adres herkese açıktır. Yayınlanan yakma işlemi notes geri alınamaz.",
@@ -40,8 +40,8 @@
     "englishSource": "Burn rejected"
   },
   "usdcxBurnNoteId": {
-    "message": "note'i yakma",
-    "englishSource": "Burn note"
+    "message": "Note Kimliği",
+    "englishSource": "Note ID"
   },
   "usdcxDestinationDomain": {
     "message": "Hedef etki alanı",
@@ -60,8 +60,8 @@
     "englishSource": "Minimum burn"
   },
   "usdcxSponsorshipFee": {
-    "message": "faucet'in işlem sponsorluğu dahil olmak üzere MIDEN ile ödenir",
-    "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
+    "message": "MIDEN ile ödenir; buna, faucet tarafından gerçekleştirilen işlemin sponsorluğu da dahildir.",
+    "englishSource": "Paid in MIDEN, including sponsorship of the execution by the faucet"
   },
   "usdcxInvalidDestination": {
     "message": "Bu para çekme işlemi için desteklenen bir ağda geçerli bir adres girin.",
@@ -4772,8 +4772,8 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "USDC, $source$ adresinde yakılır ve $target$ adresindeki Circle'ın yürütücüsüne basılır; bu da onu Miden için xReserve'e yatırır. Circle'ın ücreti tutarın üzerine eklenir ve Circle, $target$ adresinde transferi gerçekleştirir. Circle transferin bedelini belirleyemezse, siz $target$ adresinde bir imza daha ekleyerek transferi gerçekleştirirsiniz.",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle's fee is paid on top of the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "USDC, $source$ adresinde yakılır ve $target$ adresindeki Circle'ın yetkili temsilcisine basılır; bu temsilci de parayı Miden adına xReserve'e yatırır. Circle, tutara ek olarak kendi ücretini alır ve $target$ adresinde transferi gerçekleştirir. Circle transferin bedelini belirleyemezse, siz $target$ adresinde bir imza daha ekleyerek transferi gerçekleştirirsiniz.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
     "placeholders": {
       "source": {
         "content": "$1"

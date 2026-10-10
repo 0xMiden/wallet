@@ -16,8 +16,8 @@
     "englishSource": "Burn only"
   },
   "usdcxWithdrawalNotice": {
-    "message": "«Сжигание подтверждено» означает, что USDCx был сожжен на Miden. «Подтверждено» означает, что баланс USDC на адресе назначения увеличился. Сообщение о сжигании (note) и адрес назначения являются общедоступными. Опубликованные сообщения о сжигании (notes) не могут быть отозваны.",
-    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+    "message": "«Burn confirmed» означает, что USDCx был сожжен на Miden. «Confirmed» означает, что баланс USDC на адресе назначения увеличился. Нота (note), с помощью которой сжигается USDCx, и адрес назначения являются публичными. Опубликованную ноту невозможно вернуть.",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
   },
   "usdcxBurnTestNotice": {
     "message": "В этом тесте faucet происходит сжигание USDCx на Miden без выплаты на конечный адрес. Ссылка на сжигание note и адрес назначения являются общедоступными. Опубликованные данные о сжигании notes не подлежат восстановлению.",
@@ -40,8 +40,8 @@
     "englishSource": "Burn rejected"
   },
   "usdcxBurnNoteId": {
-    "message": "Сжигание токенов note",
-    "englishSource": "Burn note"
+    "message": "Идентификатор Note",
+    "englishSource": "Note ID"
   },
   "usdcxDestinationDomain": {
     "message": "Домен назначения",
@@ -60,8 +60,8 @@
     "englishSource": "Minimum burn"
   },
   "usdcxSponsorshipFee": {
-    "message": "Оплата производится в MIDEN, включая спонсорство исполнения faucet",
-    "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
+    "message": "Оплачено в MIDEN, включая спонсирование выполнения через «faucet»",
+    "englishSource": "Paid in MIDEN, including sponsorship of the execution by the faucet"
   },
   "usdcxInvalidDestination": {
     "message": "Введите действительный адрес в поддерживаемой сети для данного вывода средств.",
@@ -4772,8 +4772,8 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "USDC сжигаются на $source$ и чеканятся на имя исполнителя Circle на $target$, который депонирует их в xReserve для Miden. Комиссия Circle уплачивается сверх суммы, и Circle осуществляет перевод на $target$. Если Circle не может определить стоимость перевода, вы осуществляете его на $target$ с помощью ещё одной подписи.",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle's fee is paid on top of the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "USDC сжигаются на $source$ и чеканятся в пользу исполнителя Circle на $target$, который депонирует их в xReserve для Miden. Circle взимает свою комиссию в дополнение к сумме, и Circle осуществляет перевод на $target$. Если Circle не может определить стоимость перевода, вы осуществляете его на $target$ с помощью ещё одной подписи.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
     "placeholders": {
       "source": {
         "content": "$1"
@@ -4859,8 +4859,8 @@
     }
   },
   "usdcxStepBurned": {
-    "message": "Запечатлено на $network$",
-    "englishSource": "(retranslate) Burned on $network$",
+    "message": "Сжето на $network$",
+    "englishSource": "Burned on $network$",
     "placeholders": {
       "network": {
         "content": "$1"
