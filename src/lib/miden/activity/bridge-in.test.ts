@@ -89,10 +89,14 @@ jest.mock('lib/miden/repo', () => ({
       })),
       // `where({ id })` for the modify path; `where('noteIds').equals(id)` for the lookup.
       modify: (mutate: (row: ITransaction) => void) => mockModify(mutate, index),
-      equals: jest.fn((noteId: string) => ({
+      // `where('noteIds').equals(id)` for the note lookup; `where('type').equals(type)` for the bridge-in matchers.
+      equals: jest.fn((value: string) => ({
         filter: jest.fn((predicate: (tx: any) => boolean) => ({
           first: jest.fn(async () =>
-            mockNoteIdRows.filter(row => row.noteIds?.includes(noteId)).find(row => predicate(row))
+            mockNoteIdRows.filter(row => row.noteIds?.includes(value)).find(row => predicate(row))
+          ),
+          toArray: jest.fn(async () =>
+            index === 'type' ? mockTransactions.filter(tx => tx.type === value && predicate(tx)) : []
           )
         }))
       })),
@@ -102,10 +106,8 @@ jest.mock('lib/miden/repo', () => ({
           : undefined
       ),
       index
-    })),
-    filter: jest.fn((predicate: (tx: any) => boolean) => ({
-      toArray: jest.fn(async () => mockTransactions.filter(predicate))
     }))
+    // No table-level `filter`: the matchers read bridged-receive rows through the `type` index, never the whole table.
   }
 }));
 

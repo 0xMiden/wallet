@@ -233,6 +233,8 @@ export async function takeAgglayerBridgeInInfo(args: {
   const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
 
   const matches = await Repo.transactions
+    .where('type')
+    .equals('bridged-receive')
     .filter(tx => {
       if (tx.type !== 'bridged-receive' || !compareAccountIds(tx.accountId, args.accountId)) return false;
       // A restored tracker must not adopt a genuine incoming note: the match
@@ -280,6 +282,8 @@ export async function takeUsdcxBridgeInInfo(args: {
 }): Promise<IBridgeInInfo | undefined> {
   const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
   const matches = await Repo.transactions
+    .where('type')
+    .equals('bridged-receive')
     .filter(tx => {
       if (tx.type !== 'bridged-receive' || !compareAccountIds(tx.accountId, args.accountId)) return false;
       // A restored tracker must not adopt a genuine incoming note, as for an AggLayer delivery.
