@@ -1960,6 +1960,23 @@
     "message": "請再次提出請求",
     "englishSource": "Request again"
   },
+  "faucetRateLimitedWait": {
+    "message": "您剛才已提出提領申請。請於 $seconds$ 秒後再次嘗試。",
+    "englishSource": "You requested funds a moment ago. Try again in $seconds$ seconds.",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetRateLimited": {
+    "message": "您剛才已提出資金申請。請稍後再試。",
+    "englishSource": "You requested funds a moment ago. Try again shortly."
+  },
+  "faucetOverCap": {
+    "message": "faucet 目前無法發送資金。請稍後再試。",
+    "englishSource": "The faucet can't send funds right now. Try again later."
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "偵測到帳戶復原",
     "englishSource": "Account recovery detected"

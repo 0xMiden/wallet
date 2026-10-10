@@ -1960,6 +1960,23 @@
     "message": "Vuelve a solicitarlo",
     "englishSource": "Request again"
   },
+  "faucetRateLimitedWait": {
+    "message": "Has solicitado fondos hace un momento. Vuelve a intentarlo en $seconds$ segundos.",
+    "englishSource": "You requested funds a moment ago. Try again in $seconds$ seconds.",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetRateLimited": {
+    "message": "Has solicitado fondos hace un momento. Vuelve a intentarlo dentro de un rato.",
+    "englishSource": "You requested funds a moment ago. Try again shortly."
+  },
+  "faucetOverCap": {
+    "message": "El «faucet» no puede enviar fondos en este momento. Inténtalo de nuevo más tarde.",
+    "englishSource": "The faucet can't send funds right now. Try again later."
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Se ha detectado una recuperación de cuenta",
     "englishSource": "Account recovery detected"

@@ -1960,6 +1960,23 @@
     "message": "Повторіть запит",
     "englishSource": "Request again"
   },
+  "faucetRateLimitedWait": {
+    "message": "Ви щойно подали запит на переказ коштів. Спробуйте ще раз через $seconds$ секунд.",
+    "englishSource": "You requested funds a moment ago. Try again in $seconds$ seconds.",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetRateLimited": {
+    "message": "Ви щойно подали запит на переказ коштів. Спробуйте ще раз незабаром.",
+    "englishSource": "You requested funds a moment ago. Try again shortly."
+  },
+  "faucetOverCap": {
+    "message": "faucet наразі не може надсилати кошти. Спробуйте пізніше.",
+    "englishSource": "The faucet can't send funds right now. Try again later."
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Виявлено спробу відновлення облікового запису",
     "englishSource": "Account recovery detected"

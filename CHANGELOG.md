@@ -12,6 +12,7 @@
 
 ### Fixes
 
+- [FIX][all] Fund your wallet asks the faucet for the largest amount it offers and, when the faucet names a lower cap, asks once more for exactly that instead of failing; a rate limit or a refused amount reads in plain words on the card (with the wait, when the faucet gives one).
 - [FIX][ci] The live USDCx bridge-in E2E builds against a dispatching pull request's linked web-sdk and Guardian PRs and gets 235 minutes for a dispatch (150 on its nightly run), like every other push or dispatch install, so the linked-PR injection guard passes on main again.
 - [FIX][ci] A wallet PR's linked Guardian PR provides `@openzeppelin/guardian-client` as well as the multisig client, so a wire field the Guardian PR adds (such as `bound_block_num`) is no longer dropped by the published converter in CI; the linked web-sdk paths survive a Windows runner's backslashes.
 - [FIX][ci] Chrome Guardian E2E gets 90 minutes instead of 60: its 34 tests took 48-55 minutes on green testnet runs, so a slow testnet cancelled the job with every finished test passing.

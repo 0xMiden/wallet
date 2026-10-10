@@ -1960,6 +1960,23 @@
     "message": "Erneut anfordern",
     "englishSource": "Request again"
   },
+  "faucetRateLimitedWait": {
+    "message": "Sie haben vor einem Moment eine Auszahlung beantragt. Versuchen Sie es in $seconds$ Sekunden erneut.",
+    "englishSource": "You requested funds a moment ago. Try again in $seconds$ seconds.",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetRateLimited": {
+    "message": "Sie haben vor kurzem eine Auszahlung beantragt. Versuchen Sie es in Kürze erneut.",
+    "englishSource": "You requested funds a moment ago. Try again shortly."
+  },
+  "faucetOverCap": {
+    "message": "Der „faucet“ kann derzeit keine Beträge senden. Versuchen Sie es später erneut.",
+    "englishSource": "The faucet can't send funds right now. Try again later."
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Kontowiederherstellung erkannt",
     "englishSource": "Account recovery detected"

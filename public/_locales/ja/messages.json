@@ -1960,6 +1960,23 @@
     "message": "再度リクエストしてください",
     "englishSource": "Request again"
   },
+  "faucetRateLimitedWait": {
+    "message": "先ほど資金の引き出しをリクエストしました。$seconds$秒後に再度お試しください。",
+    "englishSource": "You requested funds a moment ago. Try again in $seconds$ seconds.",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetRateLimited": {
+    "message": "先ほど資金の引き出しをリクエストされました。しばらくしてから再度お試しください。",
+    "englishSource": "You requested funds a moment ago. Try again shortly."
+  },
+  "faucetOverCap": {
+    "message": "現在、faucetから資金を送金できません。後ほど再度お試しください。",
+    "englishSource": "The faucet can't send funds right now. Try again later."
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "アカウントの回復が検出されました",
     "englishSource": "Account recovery detected"
