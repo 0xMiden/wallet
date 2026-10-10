@@ -4,7 +4,7 @@
 
 ### Features
 
-- [FEATURE][all] Bridge Arc Testnet USDC to the connected Miden account as USDCx through Circle xReserve, and send USDCx back to Arc Testnet, Sepolia, Base Sepolia or Arbitrum Sepolia with a public burn note; the source chains and payout destinations come from two config tables, so a chain Circle enables is one entry. Receive's network row picks the source chain: Arc Testnet and Sepolia deposit into their own xReserve, and Base Sepolia and Arbitrum Sepolia burn through CCTP to Circle's executor on Arc, which deposits into Arc's xReserve, with Circle's quoted forward and fast-transfer fee paid on top of the amount so Circle attests within seconds and executes on Arc itself; when Circle cannot price the burn, or gives up on the forward, the deposit status screen and the Activity row offer "Execute on Arc Testnet" instead. Receive keeps this route available when the Fast and Slow routes are unavailable. Activity shows each deposit as one row: Confirmed after Circle attests it and Completed after its minted note is received. Deposits remain open for background checks after receipt errors, and Circle requests have a timeout. Withdrawals show Burn confirmed after faucet consumption, then Confirmed when the recipient's USDC balance increases above the balance saved before submission by the sent amount less an allowance for Circle's payout fee. Details use the destination network and explorer and show a matching receiving transaction when a bounded RPC search finds one (#1100).
+- [FEATURE][all] Bridge USDC to Miden as USDCx through Circle xReserve on Arc Testnet and Sepolia, or through CCTP and the Arc executor from Base Sepolia and Arbitrum Sepolia. Circle can quote fast-transfer and forwarding fees for automatic execution; Activity offers manual execution when needed and saves its hash before the receipt wait so checks can resume after the popup closes. Deposits remain open for background checks after receipt errors. Send USDCx back to supported destination chains with a public burn note built from the SDK script and checked against the faucet allowlist. Withdrawals show Burn confirmed after faucet consumption, then Confirmed after a destination USDC balance increase within the payout fee allowance. Details show the destination explorer and a matching transfer when a bounded RPC search finds one. Burn-status RPC checks do not hold the shared WASM client lock. Remove the unused Sepolia relay test flow and correct network selection in the add-contact E2E helper (#1100).
 - [FEATURE][all] A countdown to the mainnet launch with a link to the early-access list sits above every page of the open wallet, in place of the network pill above Home's balance card; the `mainnetCountdown` switch and launch moment in `0xMiden/wallet-config` drive it.
 - [FEATURE][all] A token on the verified list shows the logo the list gives it (testnet IMIDEN, IETH and IBTC today), falling back to the default mark when the logo cannot load (#1357).
 - [FEATURE][all] On testnet iETH is shown as "Test iETH", its token page says what it is, and an info sheet behind an "i" on the swap screens adds where the swap executes; Test iETH and testnet Test Epoch USDC, which the wallet names itself, can no longer be edited, and an override stored for either stops applying (#477).
@@ -12,9 +12,6 @@
 
 ### Fixes
 
-- [FIX][all] Save the manual USDCx execute hash before the receipt wait so status checks can resume after the popup closes. Clear the hash if the receipt shows a revert. Keep destination confirmation after payout fees. Read burn status through its own RPC client without holding the shared WASM client lock. Use the SDK burn script and check it against the faucet allowlist instead of a hardcoded script root. Remove the unused Sepolia relay test button and its relay modules.
-
-- [FIX][ci] Apply the required source format to the xReserve test button and relay modules, and select the requested network in the add-contact E2E helper when the sheet offers multiple networks (#1100).
 - [FIX][ci] An E2E CLI mint whose delegated proof the hosted testnet or devnet prover fails or times out proves its remaining attempts locally, as the CLI's other transactions already do, so a stalled prover no longer fails every suite's funding.
 - [FIX][all] Picking a swap token and quickly tapping the other token pill, or the same one, opens the token picker again; a tap made while the picker was still sliding away opened nothing.
 - [FIX][ci] E2E Bridge follows the testnet bridge to rollup 73 (wallet-config testnet.json version 2): its registry check names the new bridge's ETH faucet and its indexer probe asks for Miden exits under 73, where it still named the retired bridge's faucet and rollup 86, so the job stayed red.
@@ -222,7 +219,6 @@
 
 - [FIX][all] Bridge polling reads only bridge rows through a new `type` index instead of walking the whole transaction history every 8 s, runs from one visible wallet window instead of every open one, and an Epoch quote for an earlier amount that answers late no longer replaces the current quote and blocks Fast confirmation.
 - [CHORE][all] `next` is now the 1.17.0 line; the 0.16 line continues on `main` as 1.16.x.
-
 ## 1.16.2 (2026-09-24)
 
 ### Features
