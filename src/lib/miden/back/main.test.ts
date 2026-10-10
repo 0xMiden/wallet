@@ -491,6 +491,20 @@ describe('processRequest', () => {
     errorSpy.mockRestore();
   });
 
+  it('ImportNoteBytesRequest queues the bytes when a terminated client refused the import', async () => {
+    mockClient.importNoteBytes.mockRejectedValueOnce(new Error('Client terminated'));
+    mockQueueNoteImport.mockClear();
+
+    await expect(
+      dispatch({
+        type: WalletMessageType.ImportNoteBytesRequest,
+        noteBytes: Buffer.from([1, 2, 3]).toString('base64')
+      })
+    ).rejects.toThrow('Client terminated');
+
+    expect(mockQueueNoteImport).toHaveBeenCalledWith(Buffer.from([1, 2, 3]).toString('base64'));
+  });
+
   // #788 follow-up: the Activity notice's Retry drains the dead-letter store in
   // the realm that owns the import pass — here, the SW.
   it('RetryDeadletteredNotesRequest runs the drain action and reports the requeued count', async () => {

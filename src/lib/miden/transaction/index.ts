@@ -32,6 +32,7 @@ import {
   GuardianBackpressureError,
   type GuardianCandidate,
   guardianRetryAfterSec,
+  isGuardianCommitmentMismatch,
   isGuardianPendingConflict,
   isGuardianRateLimited,
   recordGuardianCandidate,
@@ -155,6 +156,7 @@ import {
 import { getRealmReaderClient, proveDelegated } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import {
+  carriesIndefiniteSubmitOutcome,
   errorMessageParts,
   extractLanded,
   extractSdkErrorCode,
@@ -163,6 +165,7 @@ import {
   isIndefiniteSubmitOutcomeError,
   isKilledPipeline,
   isPoisonedPipeline,
+  isRunningPipelineKill,
   isStaleInitialCommitmentError,
   isSubmitCrossingUnrecorded,
   isTransactionDiscardedError,
@@ -2852,7 +2855,9 @@ const generateDirectSwitchGuardianTransaction = async (
  * the refused candidate (its 409 is then waited out by the rebuild's own proposal
  * retry), and the rebuild proposes the key the first run persisted
  * (`resolveRotationHotKey`), so even a misread refusal of a rotation that did land
- * rebuilds to the same signer set.
+ * rebuilds to the same signer set. The Guardian's `commitment_mismatch` on the push is
+ * the same verdict one step earlier and shares the one rebuild: it refuses before writing
+ * a candidate, and the push runs only after the key is persisted and stamped on the row.
  */
 const generateGuardianTransactionOnFreshState = async (
   transaction: ITransaction,
@@ -2862,12 +2867,13 @@ const generateGuardianTransactionOnFreshState = async (
   try {
     await generateGuardianTransaction(transaction, signCallback, guardianProvider);
   } catch (error) {
-    if (transaction.type !== 'replace-hot-key' || !isStaleInitialCommitmentError(error)) {
+    const guardianRefused = isGuardianCommitmentMismatch(error);
+    if (transaction.type !== 'replace-hot-key' || !(isStaleInitialCommitmentError(error) || guardianRefused)) {
       throw error;
     }
     console.warn(
-      '[Guardian] replace-hot-key refused as built on superseded account state; rebuilding on fresh ' +
-        `state with the same key: ${describeError(error)}`
+      `[Guardian] replace-hot-key refused by the ${guardianRefused ? 'Guardian' : 'node'} as built on superseded ` +
+        `account state; rebuilding on fresh state with the same key: ${describeError(error)}`
     );
     await generateGuardianTransaction(transaction, signCallback, guardianProvider);
   }
@@ -3912,7 +3918,8 @@ const generateGuardianTransaction = async (
     ) {
       transaction.extraInputs = { ...transaction.extraInputs, proposalNonce: proposalResult.nonce };
     }
-    if (!submitResolved && !keptForVerdict) {
+    // A Guardian `commitment_mismatch` refused the push before it wrote a candidate, so there is nothing to abandon.
+    if (!submitResolved && !keptForVerdict && !isGuardianCommitmentMismatch(error)) {
       try {
         // DEADLINE-BOUNDED, like the identical cleanup on the cold co-sign path.
         // This call reaches the same operator, over the same transport, that the
@@ -4215,17 +4222,17 @@ export const generateTransactionsLoop = async (
     // realm-wide slot let a dry run's or an earlier write's locked sign requeue an
     // unrelated failure, including one already on chain (#878 review).
     //
-    // The abandonment exclusion still sits on the WHOLE condition, not just inside
+    // The abandonment exclusion sits on the WHOLE locked condition, not just inside
     // `isLockedError` (issue #775): an evicted write's error can carry a locked tag
-    // recorded before the eviction, and the defer branch requeues the row as a
+    // recorded before the eviction, and the locked branch requeues the row as a
     // fresh write while the abandoned pipeline can still submit, turning one send
     // into two payments. The requeue's "strictly pre-submit" justification below
-    // is exactly what an abandonment breaks. BOTH kill shapes, not just poison: an
-    // offscreen deadline arrives as `OperationAbortedError` from the identical
-    // point and is equally still running (`cancel.ts` treats the two as one class).
-    // Either one counts at any depth of the cause chain (#1313).
-    // The indefinite outcome proves the submit call was reached, which breaks both
-    // arms' strictly-pre-submit premise (#1081).
+    // is exactly what an abandonment breaks. `abandoned` covers three kill shapes at any
+    // depth of the cause chain (#1313): an eviction, an offscreen deadline kill
+    // (`OperationAbortedError`, from the identical point) and a terminated client. Only
+    // the eviction and the abort may still be running (`isRunningPipelineKill`; `cancel.ts`
+    // treats the two as one class). The indefinite outcome proves the submit call was
+    // reached, which breaks both arms' strictly-pre-submit premise (#1081).
     const abandoned = isKilledPipeline(e) || isIndefiniteSubmitOutcomeError(e);
 
     // The initial sync is the only pipeline step that runs while the committed
@@ -4233,15 +4240,19 @@ export const generateTransactionsLoop = async (
     // strictly pre-build for every transaction type, so defer it instead of
     // turning a transient RPC error into a terminal failure. Re-read the row:
     // `nextTransaction` predates the stage stamp, and a concurrent user cancel
-    // must win over this retry. Abandoned operations remain on the existing kill
-    // path even here, since they may still be running after their caller rejects.
+    // must win over this retry. The boundary skips the requeue only for a running kill,
+    // which may still be running after its caller rejects, an indefinite submit outcome,
+    // a lock or a permanent rejection. So a failure whose only kill is a terminated client
+    // is deferred: the SDK refused the call or stopped the worker running it. The outcome
+    // is read off the text even under a terminated client, since it proves the submit was reached.
     // A permanent rejection cannot succeed on retry, so deferring it only spends the 30-minute
     // MAX_QUEUED_AGE budget on ~60 lock-held syncs and then reports the generic expiry instead of
     // the node's own answer. `notes.ts` already carves the same predicate out of its transient set
     // for the same reason, after a permanent 400 burned ~288 retries there.
     const currentRow = await Repo.transactions.where({ id: nextTransaction.id }).first();
     if (
-      !abandoned &&
+      !isRunningPipelineKill(e) &&
+      !carriesIndefiniteSubmitOutcome(e) &&
       !isLockedError(e) &&
       !isPermanentHttpRejection(e) &&
       currentRow?.status === ITransactionStatus.Queued &&

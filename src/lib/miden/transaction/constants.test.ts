@@ -1,6 +1,6 @@
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
-import { SubmitCrossingUnrecordedError } from 'lib/miden/sdk/sdk-error-code';
+import { ApplyAfterSubmitError, SubmitCrossingUnrecordedError } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
@@ -97,7 +97,11 @@ describe('resolveTransactionErrorMessage', () => {
     // picked up — and there the hedge is a falsehood that costs something real: it tells
     // the user to go check their activity and wait, on a row whose Retry is safe. The
     // extension reaches this on a routine non-critical `deadline-no-kill`.
-    for (const error of [new WasmClientPoisonedError('watchdog'), new OperationAbortedError('op-1', 'deadline')]) {
+    for (const error of [
+      new WasmClientPoisonedError('watchdog'),
+      new OperationAbortedError('op-1', 'deadline'),
+      new Error('WebClient terminated')
+    ]) {
       expect(resolveTransactionErrorMessage(error, 'syncing', false, true)).toBe(
         TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR
       );
@@ -123,6 +127,16 @@ describe('resolveTransactionErrorMessage', () => {
     expect(resolveTransactionErrorMessage(aborted, 'proving', true)).not.toBe(REMOTE_PROVER_FAILED_ERROR);
     expect(resolveTransactionErrorMessage(aborted, 'proving', false)).not.toBe(LOCAL_PROVER_FAILED_ERROR);
     expect(resolveTransactionErrorMessage(aborted, 'sending', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+  });
+
+  it('hedges the same way for a terminated client, and leaves the landed shape to its own copy', () => {
+    for (const message of ['Client terminated', 'WebClient terminated']) {
+      const wrapped = new Error('send failed', { cause: new Error(message) });
+      expect(resolveTransactionErrorMessage(wrapped, 'proving', true)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+      expect(resolveTransactionErrorMessage(wrapped, 'sending', false)).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+    }
+    const landed = new ApplyAfterSubmitError(new Error('Client terminated'));
+    expect(resolveTransactionErrorMessage(landed, 'sending', true)).not.toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
   });
 
   it('hedges the same way for a kill wrapped in another error (#1313)', () => {
@@ -523,10 +537,13 @@ describe('a Guardian request timeout as an outage (#1313)', () => {
     // A requeue would re-broadcast a write that may have submitted, and the copy would say it was not sent.
     const poisoned = new WasmClientPoisonedError('realm-error', timeout());
     const aborted = Object.assign(new OperationAbortedError('op-1', 'deadline'), { cause: timeout() });
+    const terminated = Object.assign(new Error('WebClient terminated'), { cause: timeout() });
     expect(isGuardianOutage(poisoned)).toBe(false);
     expect(isGuardianOutage(aborted)).toBe(false);
+    expect(isGuardianOutage(terminated)).toBe(false);
     expect(isGuardianOutage(wrap(poisoned))).toBe(false);
     expect(isGuardianOutage(wrap(aborted))).toBe(false);
+    expect(isGuardianOutage(wrap(terminated))).toBe(false);
   });
 
   it('never reads a wrapped kill as an outage, even with no timeout in its chain', () => {

@@ -289,6 +289,21 @@ describe('a dry run that could not be produced is stated, not omitted', () => {
     expect(sheetMessages()).toContain('Reason, bad summary bytes');
   });
 
+  it('names a terminated client as an interruption, not by its internal text', async () => {
+    mockSummaryBytesToView.mockImplementation(() => {
+      throw new Error('WebClient terminated');
+    });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    try {
+      await raiseSheet(false);
+    } finally {
+      errSpy.mockRestore();
+    }
+
+    expect(sheetMessages()).toContain('Reason, the simulation was interrupted before it finished');
+  });
+
   // The user can still decline, and that is the whole point of the sheet: a
   // preview that throws must not take the request down with it.
   it('still raises the sheet, and still executes on approval', async () => {

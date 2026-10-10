@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 
 import { listPlaywrightTests } from './playwright-list';
 import { waitForPendingNoteTotal } from '../helpers/balance-truth';
+import { DAPP_JOURNEY_CELLS, JOURNEY_TITLES } from '../helpers/dapp-matrix';
 import { guardianAxis, runMultiAccountJourney, type AccountAxis } from '../helpers/money-path';
 
 jest.mock('@playwright/test', () => {
@@ -104,6 +105,18 @@ describe('production Guardian account E2E coverage', () => {
     expect(coreTests).toContain('multi-account.spec.ts');
     expect(coreTests).not.toContain('guardian-multi-account.spec.ts');
     expect(guardianTests).toContain('guardian-multi-account.spec.ts');
+  });
+
+  it('selects both account axes for every dApp journey and keeps dApp specs out of the core and Guardian suites', () => {
+    const dappTests = listTests('playwright.dapp.config.ts');
+    const active = Object.entries(DAPP_JOURNEY_CELLS).filter(([, cells]) => cells.length > 0);
+    for (const [journey] of active) {
+      const title = JOURNEY_TITLES[journey as keyof typeof JOURNEY_TITLES];
+      expect(dappTests).toContain(`${title} - offchain account`);
+      expect(dappTests).toContain(`${title} - guardian account`);
+    }
+    expect(coreTests).not.toMatch(/\bdapp\/[a-z-]+\.spec\.ts/);
+    expect(guardianTests).not.toMatch(/\bdapp\/[a-z-]+\.spec\.ts/);
   });
 });
 

@@ -111,7 +111,7 @@ jobs:
         # The Slow route finds its deposit by the network id the indexer files
         # Miden exits under (the rollup id the wallet derives from the testnet
         # bridge account); this probe checks that id against the testnet's
-        # pinned value, 86. A renumbering left every Slow bridge-out unsettled
+        # pinned value, 73. A renumbering left every Slow bridge-out unsettled
         # with no error anywhere (#1325), so it fails this job. It asks the
         # indexer the published testnet config document names. It runs after
         # the suite, and whatever the suite did, so a third party's answer never

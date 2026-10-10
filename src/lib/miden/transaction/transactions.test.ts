@@ -35,6 +35,7 @@ import {
   RETRY_COOLDOWN_SEC,
   MAX_RETRY_BACKOFF_SEC,
   TRANSACTION_STUCK_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_ERROR,
   TRANSACTION_EXPIRED_ERROR,
   TRANSACTION_INTERRUPTED_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
@@ -2180,6 +2181,86 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     expect(tx9.status).toBe(ITransactionStatus.Queued);
     expect(tx9.stage).toBe('syncing');
     expect(tx9.requestBytes).toBe(earnBytes);
+
+    // ---- Phase 10: a pre-flight sync on a terminated client is deferred like any other ----
+    // The SDK refused the call or stopped the worker running it, so unlike an eviction or an abort
+    // nothing of it runs on, and at 'syncing' nothing was built.
+    networkUp = true;
+    mockSyncState.mockRejectedValueOnce(new Error('WebClient terminated'));
+    const terminatedRequeueStartedAt = Math.floor(Date.now() / 1000);
+    txStore.push({
+      id: 'tx-10',
+      type: 'send',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Date.now(),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Sending',
+      requestBytes: undefined
+    });
+
+    const result10 = await generateTransactionsLoop(signCallback, false, guardianProvider);
+
+    expect(result10).toBe(false);
+    const tx10 = txStore.find(t => t.id === 'tx-10');
+    const terminatedRequeueFinishedAt = Math.floor(Date.now() / 1000);
+    expect(tx10.status).toBe(ITransactionStatus.Queued);
+    expect(tx10.stage).toBe('syncing');
+    expect(tx10.nextEligibleAt).toBeGreaterThanOrEqual(terminatedRequeueStartedAt + 30);
+    expect(tx10.nextEligibleAt).toBeLessThanOrEqual(terminatedRequeueFinishedAt + 30);
+    expect(tx10.mayHaveSubmitted).toBeFalsy();
+
+    // ---- Phase 11: past the flip, a terminated client is a kill ----
+    mockNewTransaction.mockRejectedValueOnce(new Error('send failed', { cause: new Error('Client terminated') }));
+    txStore.push({
+      id: 'tx-11',
+      type: 'execute',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Date.now(),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Executing',
+      requestBytes: new Uint8Array([11])
+    });
+
+    const result11 = await generateTransactionsLoop(signCallback, false, guardianProvider);
+
+    expect(result11).toBe(false);
+    const tx11 = txStore.find(t => t.id === 'tx-11');
+    expect(tx11.status).toBe(ITransactionStatus.Failed);
+    expect(tx11.nextEligibleAt).toBeUndefined();
+    expect(tx11.error).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+
+    // ---- Phases 12-15: a kill that may still be running is never deferred, wrapped or mixed ----
+    // A terminated client next to an eviction is still an eviction, and next to an indefinite outcome
+    // the submit was reached, so only a chain whose one kill is a terminated client is deferred.
+    const indefiniteOutcome =
+      `submission of transaction 0x${'ab'.repeat(32)} came back without a definite outcome, ` +
+      'so the node may or may not have accepted it; nothing was recorded locally';
+    const neverDeferred: Array<[string, Error]> = [
+      ['tx-12', new Error('sync failed', { cause: new WasmClientPoisonedError('watchdog') })],
+      ['tx-13', new Error('WebClient terminated', { cause: new WasmClientPoisonedError('watchdog') })],
+      ['tx-14', new WasmClientPoisonedError('realm-error', new Error('WebClient terminated'))],
+      ['tx-15', new Error(indefiniteOutcome, { cause: new Error('Client terminated') })]
+    ];
+    for (const [id, syncError] of neverDeferred) {
+      mockSyncState.mockRejectedValueOnce(syncError);
+      txStore.push({
+        id,
+        type: 'send',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Queued,
+        initiatedAt: Date.now(),
+        displayIcon: 'DEFAULT',
+        displayMessage: 'Sending',
+        requestBytes: undefined
+      });
+
+      expect(await generateTransactionsLoop(signCallback, false, guardianProvider)).toBe(false);
+      const row = txStore.find(t => t.id === id);
+      expect({ id, status: row.status }).toEqual({ id, status: ITransactionStatus.Failed });
+      expect(row.nextEligibleAt).toBeUndefined();
+    }
   });
 });
 

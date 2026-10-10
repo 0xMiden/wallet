@@ -136,6 +136,20 @@ export function isGuardianPendingConflict(err: unknown): boolean {
 }
 
 /**
+ * The Guardian's refusal of a pushed delta built on a superseded account commitment
+ * (`commitment_mismatch`, a 400 in 0.18.0; matched on the code alone, whatever the
+ * status). The Guardian answers it before it writes a candidate, so the refused push
+ * leaves nothing to abandon.
+ *
+ * Duck-typed like the checks above, and top-level only: the push's refusal reaches the
+ * caller unwrapped. A variant that walked the cause chain would first have to rule out
+ * a poisoned pipeline, as `isStaleInitialCommitmentError` does.
+ */
+export function isGuardianCommitmentMismatch(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && 'code' in err && err.code === 'commitment_mismatch';
+}
+
+/**
  * A Guardian request the fetch boundary cut off at its deadline
  * (`GuardianRequestTimeoutError` in ./native-http), anywhere in `err`'s cause
  * chain. Duck-typed by `name`, like the checks around it, which also keeps

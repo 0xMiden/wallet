@@ -31,6 +31,6 @@ globalThis.fetch = async (input, init = {}) => {
   if (url.endsWith('/gasless-status')) return json({ enabled: false });
   if (url.endsWith('/get_metadata')) return json({ version: 'stub', base_amount: 1 });
   // Miden exit 0 as the live AggLayer indexer files it.
-  if (url.includes('/bridge?')) return json({ deposit: { deposit_cnt: 0, network_id: 86, dest_net: 0 } });
+  if (url.includes('/bridge?')) return json({ deposit: { deposit_cnt: 0, network_id: 73, dest_net: 0 } });
   return new Response('ok');
 };

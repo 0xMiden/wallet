@@ -13,8 +13,9 @@ const NOTE_LOCAL_CODES = ['InvalidArgument', 'FailedPrecondition'];
  * - `notConfigured`: the client has no transport (`NoteTransportError::Disabled`). No
  *   push can work, so none is made and nothing is spent; receipts still run.
  * - `interrupted`: the call was torn down from outside (a lock eviction poisoning the
- *   client, or an offscreen kill) and may still be running, so the pass stops, nothing
- *   is spent or recorded, and the row only moves to its next step.
+ *   client or an offscreen kill, either of which may still be running, or a terminated
+ *   client), so the pass stops, nothing is spent or recorded, and the row only moves to
+ *   its next step.
  * - `storeLoss`: this client's store has no relayable copy of the note (a restore into
  *   a fresh store, a reinstall, a raze, or a record with no details). No later push can
  *   work, so the note is recorded dead; its siblings go on.

@@ -477,6 +477,25 @@ describe('importAllNotes', () => {
     expect(_g.__notesTest.store['miden-note-import-deadletter']).toBeUndefined();
   });
 
+  it('treats an import a terminated client refused as transient, never spending the poison cap', async () => {
+    // The client was replaced under the import, which says nothing about the note's bytes, and
+    // the text matches no network token, so only the kill check keeps it off the poison cap.
+    _g.__notesTest.store['miden-notes-pending-import'] = [{ bytes: 'aGVsbG8=', attempts: 0, poisonAttempts: 2 }];
+    _g.__notesTest.midenClient.importNoteBytes.mockReset();
+    _g.__notesTest.midenClient.importNoteBytes.mockRejectedValue(new Error('WebClient terminated'));
+
+    jest.useFakeTimers();
+    const p = importAllNotes();
+    await jest.advanceTimersByTimeAsync(2100);
+    await p;
+    jest.useRealTimers();
+
+    const queue = _g.__notesTest.store['miden-notes-pending-import'];
+    expect(queue).toHaveLength(1);
+    expect(queue[0]).toMatchObject({ bytes: 'aGVsbG8=', poisonAttempts: 2 });
+    expect(_g.__notesTest.store['miden-note-import-deadletter']).toBeUndefined();
+  });
+
   it('imports a lone queue entry that lost its array wrapper (#777)', async () => {
     // `queueNoteImport` and `commitQueue` both salvage this shape, so a pass that
     // returned early on it left the note sitting in storage — never imported, and

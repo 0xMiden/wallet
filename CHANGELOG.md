@@ -11,6 +11,9 @@
 
 ### Fixes
 
+- [FIX][ci] An E2E CLI mint whose delegated proof the hosted testnet or devnet prover fails or times out proves its remaining attempts locally, as the CLI's other transactions already do, so a stalled prover no longer fails every suite's funding.
+- [FIX][all] Picking a swap token and quickly tapping the other token pill, or the same one, opens the token picker again; a tap made while the picker was still sliding away opened nothing.
+- [FIX][ci] E2E Bridge follows the testnet bridge to rollup 73 (wallet-config testnet.json version 2): its registry check names the new bridge's ETH faucet and its indexer probe asks for Miden exits under 73, where it still named the retired bridge's faucet and rollup 86, so the job stayed red.
 - [FIX][all] A Slow (Agglayer) USDC deposit reads the allowance the bridge already has and asks for an approval only when it is less than the deposit, so a covered deposit needs one wallet prompt instead of two and a larger allowance is not replaced.
 - [FIX][all] Settings > About > Send feedback opens the working Zapier feedback form (#1340).
 - [FIX][ci] Wait for the accepted public faucet grant to commit before consuming its note in E2E funding fixtures.
@@ -20,9 +23,12 @@
 - [FIX][all] On testnet the bridge's own USDC, on Sepolia and on Miden, reads "Test Epoch USDC" in the bridge token picker, deposit and send-to-EVM screens, Home rows and the token page, the send token picker, transaction summaries and Activity, so it is no longer mistaken for Circle's Sepolia USDC, and the send-to-EVM review's Slow route now names the token it sends in its "you receive" line instead of USDC (#1247, #1356).
 - [FIX][all] A dApp's custom transaction from a Guardian account shows its verified effects on the approval screen again: the preview no longer fails with SummaryAnchorMismatchError when the wallet has synced past the block the dApp built the request at.
 - [FIX][all] An account id written with an uppercase `0X` prefix, or a composite `<address>_<suffix>` whose routing suffix the bech32 parser rejects, is read correctly by the dApp custom-transaction preview, the Epoch bridge, earn and collateral flows, the AggLayer deposit address and the Epoch note callback.
+- [FIX][all] A Guardian hot-key rotation made right after another Guardian transaction on the account no longer fails when the Guardian refuses it as built on the account's previous state: it is rebuilt once on fresh state with the same key.
 
 ### Changes
 
+- [CHANGE][ci] A test dApp with its own Miden client and the real wallet adapter drives the extension end to end on single-sig and Guardian accounts after every merge, on testnet from main and devnet from next, and checks each request through to the chain while the chain moves between build and approval; known bugs are recorded per cell and a judge decides each run from the cell records. Its journeys so far cover detect, connect and a dApp send.
+- [CHANGE][all] Web SDK 0.17.3: a call on a terminated SDK client is refused with "WebClient terminated" instead of hanging or still running, and the wallet reads that refusal as an interrupted operation: a write it stops fails like an offscreen abort instead of being retried as a fresh one, a Guardian note-recovery batch stops at it, and a pre-send sync it refuses is retried on a later cycle.
 - [CHANGE][all] Web SDK 0.17.2: the SDK no longer re-sends a private note whose relay failed, so the wallet retries it itself for up to three days on every platform and tracks each note of a multi-note transaction, and the SDK fetch patch is removed.
 - [CHANGE][ui] The create flow's Guardian step is two screens: "Meet your Guardian" says what a Guardian does (an illustration and three benefits), then "Choose your Guardian" introduces the fastest operator on its own (logo, name, status, who runs it and its region) with "Continue with …" and a "Change provider" sheet listing every operator; the three facts no longer have to be ticked, each screen takes its own progress segment, and the test-network notice names the network with Home's network pill.
 - [FEATURE][all] Read the token name and description from the faucet (asset rows show the name, the token page shows the description, and the unused TZIP-21 metadata fields are dropped), and let the user edit a token's displayed name and symbol from the token page, and its decimals while the faucet's scale is unknown, with a reset to the faucet's values.

@@ -885,6 +885,12 @@ it('does not mark a yield as an eviction', async () => {
   expect(result.evicted).toBeUndefined();
 });
 
+it('defers a terminated client like a yield, not an eviction', async () => {
+  const result = await runWithClientBuildError(new Error('Client terminated'));
+  expect(result.deferred).toBe(true);
+  expect(result.evicted).toBeUndefined();
+});
+
 it('defers an operator the account never used while it serves no history, once per session and up to a cap', async () => {
   const client = source('https://two', []);
   jest.spyOn(client, 'getDeltaHistory').mockRejectedValue(new GuardianHttpError(404, 'Not Found', ''));
@@ -1030,7 +1036,8 @@ const abortDecodeOf = (encoded: string, make: () => Error, first: () => void) =>
 
 const aborts: Array<[string, () => Error]> = [
   ['an eviction', () => new WasmClientPoisonedError('realm-error')],
-  ['an offscreen abort', () => new OperationAbortedError('op-1', 'deadline')]
+  ['an offscreen abort', () => new OperationAbortedError('op-1', 'deadline')],
+  ['a terminated client', () => new Error('Client terminated')]
 ];
 const decodesOf = (value: string) =>
   jest.mocked(midenClientProxy.decodeGuardianHistory).mock.calls.filter(([encoded]) => encoded === value).length;

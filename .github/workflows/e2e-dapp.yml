@@ -1,0 +1,123 @@
+name: dApp E2E (Chrome)
+# Runs the dApp journeys after every merge, against the public network that matches the branch's protocol line,
+# the split e2e-blockchain.yml uses: a push to main runs testnet, a push to next runs devnet. GitHub runs this file
+# from the pushed ref, so next runs its own copy of the workflow and specs once it carries the suite. Never per pull
+# request, never on a timer and never on the local stack (the 2026-10-09 ruling). Dispatch takes either network.
+# Pins the nodes accepted when this was written: main 0.17.3 on testnet, next 0.17.1 on devnet (probed 2026-10-10).
+on:
+  push:
+    branches: [main, next]
+  workflow_dispatch:
+    inputs:
+      network:
+        description: Network to run against
+        type: choice
+        options: [testnet, devnet]
+        default: testnet
+      part:
+        description: Which half of the suite
+        type: choice
+        options: [all, core, writes]
+        default: all
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  # Two account kinds x two parts on the run's one network, every leg run to the end: a red leg must not cancel
+  # the others.
+  dapp-e2e:
+    name: dapp-e2e (${{ matrix.network }}, ${{ matrix.axis }}, ${{ matrix.part }})
+    runs-on: warp-ubuntu-latest-x64-8x
+    # At most about 33 min of setup (a cold CLI compile, the E2E build, apt, Chromium and the stagger), then the
+    # 140-minute run step and the steps after it.
+    timeout-minutes: 190
+    strategy:
+      fail-fast: false
+      matrix:
+        # One value, the run's network, carried in the matrix so every job name shows it. A push has no inputs, so
+        # the exclude below names no part and both parts run.
+        network:
+          - "${{ github.event_name == 'workflow_dispatch' && inputs.network || (github.ref == 'refs/heads/next' && 'devnet' || 'testnet') }}"
+        axis: [offchain, guardian]
+        part: [core, writes]
+        exclude:
+          - part: ${{ (inputs.part == 'core' && 'writes') || (inputs.part == 'writes' && 'core') || 'none' }}
+    env:
+      E2E_NETWORK: ${{ matrix.network }}
+      DAPP_E2E_PART: ${{ matrix.part }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache miden-client-cli
+        # Keyed on package.json, which holds the CLI pin, so a pin bump misses the cache.
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/miden-client
+          key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      - name: Install miden-client-cli
+        # A cold compile takes about 7 min; it happens here, not inside a journey's budget.
+        uses: ./.github/actions/install-miden-client-cli
+      - name: Drop apt repositories this repo never installs from
+        uses: ./.github/actions/apt-drop-unused-repos
+      - name: Install xvfb
+        # The azure apt mirror intermittently blackholes (e2e-blockchain.yml): use the canonical one, bound and retry
+        # every fetch, and cap the step.
+        timeout-minutes: 6
+        run: |
+          sudo sed -i 's|http://azure.archive.ubuntu.com|http://archive.ubuntu.com|g' \
+            /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get install -y xvfb
+      - name: Install Playwright browser
+        # `--with-deps` shells out to apt and the download has wedged for hours; the cap fails a stall fast.
+        timeout-minutes: 12
+        run: npx playwright install --with-deps chromium
+      - name: Build extension
+        # test:e2e:blockchain:build bakes MIDEN_NETWORK from E2E_NETWORK, so the build matches the run's network.
+        run: yarn test:e2e:blockchain:build
+      - name: Select spec files
+        # The two parts of spec section 6. A spec file neither part names would never run, which
+        # playwright/e2e/harness/dapp-workflows.test.ts refuses.
+        id: specs
+        run: |
+          case "${{ matrix.part }}" in
+            core) files="session signing-and-refusals accounts-and-dapps" ;;
+            writes) files="wallet-writes-and-notes custom-requests" ;;
+          esac
+          echo "files=$(for f in $files; do printf 'playwright/e2e/tests/dapp/%s.spec.ts ' "$f"; done)" >> "$GITHUB_OUTPUT"
+      - name: Stagger legs on the shared faucet cooldown
+        # The public faucet rate-limits one shared cooldown (public-faucet.ts:117-122); legs 2 minutes apart spread
+        # their first grants.
+        run: sleep $(( ${{ strategy.job-index }} * 120 ))
+      - name: Run dApp specs
+        # Known-red cells make Playwright exit 1 by design; the Judge step decides the job from the records.
+        # GUARDIAN_URL stays unset: config/environments.ts names the network's hosted operator.
+        id: run
+        continue-on-error: true
+        timeout-minutes: 140
+        run: xvfb-run -a yarn playwright test --config playwright.dapp.config.ts ${{ steps.specs.outputs.files }} --grep " - ${{ matrix.axis }} account" --retries=0
+      - name: Render matrix
+        if: always()
+        # The report adds each journey's duration against its timeout; without one the matrix still renders.
+        run: node scripts/render-dapp-matrix.mjs test-results/dapp-cells test-results/results.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload records
+        if: always()
+        # Every run: a post-merge run has no pull request to re-run it from, so its records are kept whatever the
+        # outcome.
+        uses: actions/upload-artifact@v4
+        with:
+          name: dapp-e2e-${{ matrix.network }}-${{ matrix.axis }}-${{ matrix.part }}-${{ github.run_id }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Judge
+        if: always()
+        # The leg's verdict. There is no gate job: nothing requires a post-merge check.
+        run: node scripts/render-dapp-matrix.mjs --gate test-results/dapp-cells test-results/results.json

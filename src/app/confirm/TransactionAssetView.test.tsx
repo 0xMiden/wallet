@@ -205,3 +205,12 @@ it('withholds the quantity when the metadata lookup fails outright', async () =>
   );
   await waitFor(() => expect(screen.getByText('? unknown')).toBeInTheDocument());
 });
+
+it('exposes its mode and the output-note count to E2E', async () => {
+  const { rerender } = render(<TransactionAssetView view={view as any} mode="verified" />);
+  await waitFor(() => expect(screen.getByText('10/6 miZK')).toBeInTheDocument());
+  expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'verified');
+  expect(screen.getByTestId('tx-output-notes-created')).toHaveTextContent('2');
+  rerender(<TransactionAssetView view={view as any} mode="declared" />);
+  expect(screen.getByTestId('tx-asset-view')).toHaveAttribute('data-mode', 'declared');
+});

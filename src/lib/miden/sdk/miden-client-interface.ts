@@ -80,10 +80,15 @@ import {
 } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { beginProveAttempt } from './prove-telemetry';
-import { isApplyAfterSubmitError, isSubmitCrossingUnrecorded, markErrorBeforeSubmit } from './sdk-error-code';
+import {
+  isApplyAfterSubmitError,
+  isPipelineKillLink,
+  isSubmitCrossingUnrecorded,
+  markErrorBeforeSubmit
+} from './sdk-error-code';
 import { readSubmitEvidence } from './submit-evidence';
 import { bindFeeFaucetClientScope, syncAndRecordFeeFaucet } from './sync-and-record-fee-faucet';
-import { isWasmClientPoisonedError, WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
+import { WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, StageDetail, SwapTransaction } from '../db/types';
 // guardian/index is dynamic-imported inside the methods that use it and is never imported
 // statically: miden-client-interface → guardian/index → sdk/miden-client → miden-client-interface
@@ -344,7 +349,8 @@ function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
   try {
     return NoteFile.deserialize(noteBytes);
   } catch (noteFileError) {
-    // A trap or an eviction is the client's, not the bytes': no fallback call on it, and importNoteBytes retires a trap.
+    // A trap or a kill (an eviction, a terminated client) is the client's, not the bytes': no fallback call on it, and
+    // importNoteBytes retires a trap.
     if (isClientFault(noteFileError)) throw noteFileError;
     let note: Note;
     try {
@@ -364,19 +370,20 @@ function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
 }
 
 function isClientFault(error: unknown): boolean {
-  return error instanceof WebAssembly.RuntimeError || isWasmClientPoisonedError(error);
+  return error instanceof WebAssembly.RuntimeError || isPipelineKillLink(error);
 }
 
 /**
  * For a catch that counts a failure and moves on: a trap retires the client through the hold and ends the batch, and
- * an eviction ends it too, so nothing runs on either client afterwards. Anything else is left to the catch.
+ * a kill (an eviction, a terminated client) ends it too, so nothing runs on that client afterwards and every remaining
+ * item is not failed against it. Anything else is left to the catch.
  */
 function rethrowClientFault(error: unknown, hold: WasmLockHold): void {
   if (error instanceof WebAssembly.RuntimeError) {
     retireWasmClientForCaughtTrap(hold, error);
     throw error;
   }
-  if (isWasmClientPoisonedError(error)) throw error;
+  if (isPipelineKillLink(error)) throw error;
 }
 
 /** The host of an endpoint, for a log line: an RPC URL may carry a key in its path or query. */
@@ -407,13 +414,14 @@ let realmReader: RealmReader | undefined;
  * read and the guardian PSWAP request build both go through it.
  *
  * It used to be a throwaway per call: `WasmWebClient.createClient` per read and
- * `terminate()` in a `finally`. The SDK's `terminate()` releases nothing for a
- * client built without a worker, and 0.16 has no call that closes one (its glue
- * closes the IndexedDB connection only on a version mismatch), so every read
- * stranded a wasm-bindgen client and an IndexedDB connection - on each sync alarm
- * on the extension, on each 5 s claimable-notes poll on mobile and desktop - and
- * the extension renderer died of OOM after 55 hours. Nothing can release a
- * reader, so the bound is to stop rebuilding it.
+ * `terminate()` in a `finally`. Before web-sdk 0.17.3 `terminate()` released
+ * nothing for a client built without a worker, so every read stranded a
+ * wasm-bindgen client and an IndexedDB connection - on each sync alarm on the
+ * extension, on each 5 s claimable-notes poll on mobile and desktop - and the
+ * extension renderer died of OOM after 55 hours. Since 0.17.3 `terminate()`
+ * releases such a client and its hold on the IndexedDB store once the calls
+ * queued on it settle; a read that never settles still holds its client, so
+ * the bound stays one reader per realm rather than one per read.
  *
  * It is keyed on what makes it stale, not on the MidenClientInterface:
  * - the client generation, bumped by every lock-recovery replacement in this
@@ -423,16 +431,16 @@ let realmReader: RealmReader | undefined;
  *   generation (the SW sees a new URL only at start-up or through a reset
  *   that bumps it). It is not redundant.
  * Each successful rebuild strands the previous reader: one per client
- * replacement or endpoint change, not one per read. A build that fails after
- * opening its store strands that connection too (the SDK opens the store
- * before the genesis fetch; an endpoint that does not parse fails before it),
- * so a failed entry stays in the slot and answers with its error until its
- * window ends: the sync breaker's backoff for an ordinary failure (30 s
- * doubling to a 5 min cap) for that generation and URL, never the 30 min
- * fuse, which is for a call that never answered. Such failures are rare: a
- * store that already holds genesis builds with no network call, so only a
- * fresh store with the node unreachable, or an IndexedDB error, gets that far
- * and fails. A replacement or a repoint builds at once.
+ * replacement or endpoint change, not one per read. A build that fails is
+ * terminated by the SDK's `createClient` (since 0.17.3), so it strands
+ * nothing, but a failed entry still stays in the slot and answers with its
+ * error until its window ends, so the node is not asked again on every read:
+ * the sync breaker's backoff for an ordinary failure (30 s doubling to a 5 min
+ * cap) for that generation and URL, never the 30 min fuse, which is for a call
+ * that never answered. Such failures are rare: a store that already holds
+ * genesis builds with no network call, so only a fresh store with the node
+ * unreachable, or an IndexedDB error, fails a build. A replacement or a
+ * repoint builds at once.
  *
  * It stays a separate client on purpose. Reading through the main client's
  * `_withInnerWebClient` would leave an evicted read's window open on the client
@@ -1335,7 +1343,7 @@ export class MidenClientInterface {
           await this.client.notes.import(NoteFile.fromInputNote(inputNote));
           imported++;
         } catch (error) {
-          // A trap or an eviction ends the range; the lock this runs under retires a trap.
+          // A trap or a kill (an eviction, a terminated client) ends the range; the lock this runs under retires a trap.
           if (isClientFault(error)) throw error;
           failures++;
           console.warn('[GuardianRecovery] Failed to import one public note:', error);

@@ -137,21 +137,68 @@ export function someInCauseChain(err: unknown, matches: (link: object) => boolea
 }
 
 /**
- * A killed pipeline anywhere in `err`'s cause chain: a lock-recovery eviction
- * (`WasmClientPoisonedError`) or an offscreen deadline kill
- * (`OperationAbortedError`). Either means the operation was torn down from
- * outside and may still be running, so a caller wrapping one does not make it
- * any less a kill (#1313).
+ * Guarded like `errorMessageParts`: the property can be an accessor, and a throw here would cost the
+ * verdict.
+ */
+const readGuarded = (value: unknown, key: string): unknown => {
+  if (!value || typeof value !== 'object') return undefined;
+  try {
+    return Reflect.get(value, key);
+  } catch {
+    return undefined;
+  }
+};
+
+const CLIENT_TERMINATED = /^(?:Web)?Client terminated$/;
+
+/**
+ * The SDK's refusal of a call on a client that was terminated, read off `value` itself and never off its
+ * cause chain or a flattened text: exactly "Client terminated" (`MidenClient`) or "WebClient terminated"
+ * (the inner `WebClient`, since web-sdk 0.17.3, for a call made after `terminate()` or one still waiting on
+ * its worker). The same event either way; which text arrives depends only on when the call met it.
+ */
+export function isClientTerminatedError(value: unknown): boolean {
+  const message = readGuarded(value, 'message');
+  return typeof message === 'string' && CLIENT_TERMINATED.test(message);
+}
+
+/**
+ * Whether `value` itself, not its cause chain, is one of the kill shapes: a lock-recovery eviction, an
+ * offscreen abort or a terminated client. For the checks that read the thrown value as it is.
+ */
+export function isPipelineKillLink(value: unknown): boolean {
+  return isWasmClientPoisonedError(value) || isOperationAbortedError(value) || isClientTerminatedError(value);
+}
+
+/**
+ * The kills that may still be running after their caller rejects, anywhere in `err`'s cause chain: a lock-recovery
+ * eviction (`WasmClientPoisonedError`) or an offscreen deadline kill (`OperationAbortedError`). A terminated client is
+ * a kill too, but not one of these: the SDK refused the call or stopped the worker running it, so nothing of it runs
+ * on. A chain that holds one of these is a running kill whatever else it holds, a terminated client included.
+ */
+export function isRunningPipelineKill(err: unknown): boolean {
+  return someInCauseChain(err, link => isWasmClientPoisonedError(link) || isOperationAbortedError(link));
+}
+
+/**
+ * A killed pipeline anywhere in `err`'s cause chain: a running kill ({@link isRunningPipelineKill}) or a call on a
+ * terminated SDK client ({@link isClientTerminatedError}). Each means the operation was stopped from outside with its
+ * outcome unknown, so a caller wrapping one does not make it any less a kill (#1313).
+ *
+ * The landed shape stays landed: a terminated client under an apply-after-submit
+ * error failed the local apply after the node took the write.
  */
 export function isKilledPipeline(err: unknown): boolean {
-  return someInCauseChain(err, link => isWasmClientPoisonedError(link) || isOperationAbortedError(link));
+  return (
+    isRunningPipelineKill(err) || (someInCauseChain(err, isClientTerminatedError) && !isApplyAfterSubmitError(err))
+  );
 }
 
 /**
  * A killed pipeline that tore nothing down: every kill in `err`'s cause chain is an
  * offscreen read failed on its own deadline while a critical op held the document
  * (`deadline-no-kill`). Only that read was lost; the realm and its client run on. A
- * reason that cannot be read counts as a teardown.
+ * reason that cannot be read counts as a teardown, and so does a terminated client.
  */
 export function isRealmIntactAbort(err: unknown): boolean {
   const abortReasonOf = (link: object): unknown => {
@@ -162,7 +209,7 @@ export function isRealmIntactAbort(err: unknown): boolean {
     }
   };
   const tearsDown = (link: object) =>
-    isWasmClientPoisonedError(link) || (isOperationAbortedError(link) && abortReasonOf(link) !== 'deadline-no-kill');
+    isPipelineKillLink(link) && !(isOperationAbortedError(link) && abortReasonOf(link) === 'deadline-no-kill');
   return isKilledPipeline(err) && !someInCauseChain(err, tearsDown);
 }
 
@@ -266,6 +313,14 @@ const INDEFINITE_TRANSACTION_ID = /submission of transaction (0x[0-9a-f]{64})/i;
  */
 export function isIndefiniteSubmitOutcomeError(err: unknown): boolean {
   if (isKilledPipeline(err)) return false;
+  return carriesIndefiniteSubmitOutcome(err);
+}
+
+/**
+ * The indefinite outcome's text in any message part of `err`, kill or not: the submit call was reached even where a
+ * kill in the chain keeps {@link isIndefiniteSubmitOutcomeError} from naming the outcome.
+ */
+export function carriesIndefiniteSubmitOutcome(err: unknown): boolean {
   return errorMessageParts(err).some(part => INDEFINITE_OUTCOME.test(part));
 }
 
@@ -370,19 +425,6 @@ export class ApplyAfterSubmitError extends Error {
     this.landed = landed;
   }
 }
-
-/**
- * Guarded like `errorMessageParts`: the property can be an accessor, and a throw here would cost the
- * verdict.
- */
-const readGuarded = (value: unknown, key: string): unknown => {
-  if (!value || typeof value !== 'object') return undefined;
-  try {
-    return Reflect.get(value, key);
-  } catch {
-    return undefined;
-  }
-};
 
 /**
  * The landed facts off this realm's `ApplyAfterSubmitError` or off the rejection the service worker
