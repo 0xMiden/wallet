@@ -3,8 +3,11 @@ description: >
   If the current PR's body contains a "Guardian PR: #N" marker, clone the
   linked guardian PR's head, build @openzeppelin/miden-multisig-client from
   source, and rewrite the wallet's package.json to point at the local build
-  via a `file:` dep. Runs only on `pull_request` events (silent no-op on
-  `push`). Fails fast if the linked PR is closed without merge.
+  via a `file:` dep. Reads the PR of a `pull_request` event, or on a
+  `workflow_dispatch` the one open PR whose head is the dispatched branch
+  (scripts/resolve-linked-pr-number.sh); a silent no-op on `push`, on every
+  other event and on a dispatch on main or next. Fails fast if the linked PR
+  is closed without merge.
 
   Marker syntax (anywhere in the body, first match wins):
     Guardian PR: #440
@@ -49,24 +52,24 @@ outputs:
 runs:
   using: composite
   steps:
+    - id: pr
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: bash "$GITHUB_WORKSPACE/scripts/resolve-linked-pr-number.sh" inject-linked-guardian-pr
+
     - id: parse
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
-        EVENT_NAME: ${{ github.event_name }}
-        PR_NUMBER: ${{ github.event.pull_request.number }}
+        PR_NUMBER: ${{ steps.pr.outputs.number }}
       run: |
         set -euo pipefail
 
-        if [ "$EVENT_NAME" != "pull_request" ] && [ "$EVENT_NAME" != "pull_request_target" ]; then
-          echo "patched=false" >> "$GITHUB_OUTPUT"
-          echo "::notice title=inject-linked-guardian-pr::Skipping on event=$EVENT_NAME (only pull_request triggers patch injection)."
-          exit 0
-        fi
-
+        # Empty for every event the resolver skips; it has said why.
         if [ -z "${PR_NUMBER:-}" ]; then
           echo "patched=false" >> "$GITHUB_OUTPUT"
-          echo "::notice title=inject-linked-guardian-pr::No PR number in event payload."
           exit 0
         fi
 

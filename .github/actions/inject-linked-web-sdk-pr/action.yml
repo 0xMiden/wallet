@@ -3,10 +3,13 @@ description: >
   If the current PR's body contains a "Web SDK PR: #N" marker, clone the
   linked web-sdk PR's head branch, build the @miden-sdk/miden-sdk and
   @miden-sdk/react packages from source, and rewrite the wallet's
-  package.json to point at the local builds via `file:` deps. Runs only on
-  `pull_request` events (silent no-op on `push`). On the first run per
-  PR (when `comment: true`), posts a sticky comment describing what was
-  patched. Fails fast if the linked PR is closed without merge.
+  package.json to point at the local builds via `file:` deps. Reads the PR
+  of a `pull_request` event, or on a `workflow_dispatch` the one open PR
+  whose head is the dispatched branch (scripts/resolve-linked-pr-number.sh);
+  a silent no-op on `push`, on every other event and on a dispatch on main
+  or next. On the first run per PR (when `comment: true`, and only on a
+  pull request event), posts a sticky comment describing what was patched.
+  Fails fast if the linked PR is closed without merge.
 
   Marker syntax (anywhere in the body, first match wins):
     Web SDK PR: #1234
@@ -93,12 +96,18 @@ outputs:
 runs:
   using: composite
   steps:
+    - id: pr
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: bash "$GITHUB_WORKSPACE/scripts/resolve-linked-pr-number.sh" inject-linked-web-sdk-pr
+
     - id: parse
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
-        EVENT_NAME: ${{ github.event_name }}
-        PR_NUMBER: ${{ github.event.pull_request.number }}
+        PR_NUMBER: ${{ steps.pr.outputs.number }}
       run: |
         set -euo pipefail
 
@@ -111,16 +120,9 @@ runs:
         # any early exit, because it records that this action RAN, not what it decided.
         echo "MIDEN_LINKED_SDK_INJECTION_RAN=1" >> "$GITHUB_ENV"
 
-        # Skip on push / schedule / workflow_dispatch.
-        if [ "$EVENT_NAME" != "pull_request" ] && [ "$EVENT_NAME" != "pull_request_target" ]; then
-          echo "patched=false" >> "$GITHUB_OUTPUT"
-          echo "::notice title=inject-linked-web-sdk-pr::Skipping on event=$EVENT_NAME (only pull_request triggers patch injection)."
-          exit 0
-        fi
-
+        # Empty for every event the resolver skips; it has said why.
         if [ -z "${PR_NUMBER:-}" ]; then
           echo "patched=false" >> "$GITHUB_OUTPUT"
-          echo "::notice title=inject-linked-web-sdk-pr::No PR number in event payload."
           exit 0
         fi
 
@@ -192,7 +194,10 @@ runs:
     # run mid-build, which is exactly when the reader needs to see what the run
     # tried to test against. `always()` keeps the delete path running when the
     # parse step itself fails on a linked PR closed without merge.
-    - if: always() && inputs.comment == 'true' && steps.parse.outputs.patched == 'true'
+    #
+    # Pull request events only: a dispatch that resolved a PR from its branch
+    # builds against it but never writes to it.
+    - if: always() && inputs.comment == 'true' && steps.parse.outputs.patched == 'true' && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
       continue-on-error: true
       uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # v2.9.4
       with:
@@ -214,7 +219,7 @@ runs:
           scripts/dev-with-web-sdk-pr.sh --clear                            # remove it before commit
           ```
 
-    - if: always() && inputs.comment == 'true' && steps.parse.outputs.patched != 'true'
+    - if: always() && inputs.comment == 'true' && steps.parse.outputs.patched != 'true' && (github.event_name == 'pull_request' || github.event_name == 'pull_request_target')
       continue-on-error: true
       uses: marocchino/sticky-pull-request-comment@52423e01640425a022ef5fd42c6fb5f633a02728 # v2.9.4
       with:
