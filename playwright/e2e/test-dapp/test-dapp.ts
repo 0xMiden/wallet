@@ -188,7 +188,9 @@ function installProviderListener(): void {
   state.providerListening = true;
 }
 
-// Wired at module load, so an event the adapter emits before `init` (its detection's readyStateChange) is still kept.
+// Wired at module load, so events from before `init` are kept, but not a detection that succeeded in the adapter's
+// constructor: its readyStateChange fires there, before these listeners exist (adapter-base detectAndDispose), so
+// `detect` reads `adapter.readyState` instead.
 state.adapter.on('connect', address => record('adapter', 'connect', address));
 state.adapter.on('disconnect', () => record('adapter', 'disconnect', null));
 state.adapter.on('error', error => record('adapter', `error:${describeError(error).name}`, null));
