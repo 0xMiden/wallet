@@ -132,6 +132,13 @@ jest.mock('./SelectRecipient', () => ({
       <button data-testid="sr-selectrecent" onClick={() => props.onSelectRecent(props.recents[0])} />
       {props.onScan && <button data-testid="sr-scan" onClick={props.onScan} />}
       {props.onPaste && <button data-testid="sr-paste" onClick={props.onPaste} />}
+      {props.networks.map((network: { id: string }) => (
+        <button
+          key={network.id}
+          data-testid={`sr-network-${network.id}`}
+          onClick={() => props.onSelectNetwork(network.id)}
+        />
+      ))}
       <button data-testid="sr-confirm" onClick={props.onConfirm} />
     </div>
   )
@@ -178,6 +185,7 @@ jest.mock('./SelectToken', () => ({
   SelectTokenDrawer: (props: any) => (
     <div data-testid="token-drawer">
       <span data-testid="td-open">{String(props.open)}</span>
+      <span data-testid="td-usdcx-only">{String(props.usdcxOnly)}</span>
       <button data-testid="td-select" onClick={() => props.onSelect(mockSelectedToken)} />
       <button data-testid="td-close" onClick={() => props.onOpenChange(false)} />
     </div>
@@ -1760,25 +1768,48 @@ describe('USDCx withdrawal wiring', () => {
     expect(screen.getByTestId('route-usdcx')).toHaveTextContent(/^false$/);
   });
 
-  it('pre-selects Arc Testnet for a USDCx send to a 0x recipient and Sepolia for another token', () => {
-    renderFlow();
+  it('keeps Arc selected and refuses another token after USDCx selection', () => {
+    const { rerender } = renderFlow();
     pickToken(usdcxToken);
     pickEvmRecipient();
     expect(screen.getByTestId('sr-network')).toHaveTextContent(/^arc-testnet$/);
 
     pickToken(otherToken);
-    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^sepolia$/);
+    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^arc-testnet$/);
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('USDCx');
   });
 
-  it('offers the four USDCx destinations for the USDCx token and only Sepolia for another', () => {
+  it('offers all bridge destinations before and after token selection', () => {
     renderFlow();
+    expect(offeredNetworks()).toEqual(['arc-testnet', 'sepolia', 'arbitrum-sepolia', 'base-sepolia']);
     pickToken(usdcxToken);
     pickEvmRecipient();
     expect(offeredNetworks()).toEqual(['arc-testnet', 'sepolia', 'arbitrum-sepolia', 'base-sepolia']);
 
     pickToken(otherToken);
-    expect(offeredNetworks()).toEqual(['sepolia']);
+    expect(offeredNetworks()).toEqual(['arc-testnet', 'sepolia', 'arbitrum-sepolia', 'base-sepolia']);
   });
+
+  it.each(['arc-testnet', 'base-sepolia', 'arbitrum-sepolia'])(
+    'keeps %s selected and clears an unsupported token',
+    network => {
+      const { rerender } = renderFlow();
+      pickToken(otherToken);
+      fireEvent.click(screen.getByTestId(`sr-network-${network}`));
+      pickEvmRecipient();
+      expect(screen.getByTestId('sr-network')).toHaveTextContent(network);
+      expect(screen.getByTestId('td-usdcx-only')).toHaveTextContent('true');
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+      pickToken(otherToken);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+      pickToken(usdcxToken);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('USDCx');
+    }
+  );
 
   it('disables the Epoch quote on the USDCx path and enables it for another token on the same bridge send', () => {
     renderFlow();
@@ -1786,6 +1817,7 @@ describe('USDCx withdrawal wiring', () => {
     pickEvmRecipient();
     expect(useEpochQuoteMock).toHaveBeenLastCalledWith(expect.objectContaining({ faucetId: 'USDCX', enabled: false }));
 
+    fireEvent.click(screen.getByTestId('sr-network-sepolia'));
     pickToken(otherToken);
     expect(useEpochQuoteMock).toHaveBeenLastCalledWith(expect.objectContaining({ faucetId: 'T1', enabled: true }));
   });

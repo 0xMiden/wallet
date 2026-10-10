@@ -28,6 +28,7 @@ export interface AssetListItemProps {
    * value, and the row reports `aria-pressed`. Leave undefined on a row that is not a choice.
    */
   selected?: boolean;
+  disabled?: boolean;
   /** Paints the check in a flow's colour; undefined leaves the brand accent. */
   accent?: FlowAccent;
   onClick?: () => void;
@@ -50,6 +51,7 @@ export const AssetListItem: FC<AssetListItemProps> = ({
   price,
   delta,
   selected,
+  disabled = false,
   accent,
   onClick,
   className,
@@ -58,7 +60,7 @@ export const AssetListItem: FC<AssetListItemProps> = ({
   badge
 }) => {
   const handleClick = () => {
-    if (!onClick) return;
+    if (!onClick || disabled) return;
     hapticLight();
     onClick();
   };
@@ -70,7 +72,7 @@ export const AssetListItem: FC<AssetListItemProps> = ({
   const classes = classNames(
     'w-full h-18 flex items-center justify-between text-left',
     onClick && [
-      'cursor-pointer active:opacity-90 transition-opacity',
+      'enabled:cursor-pointer enabled:active:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 transition-opacity',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-inset'
     ],
     className
@@ -113,6 +115,7 @@ export const AssetListItem: FC<AssetListItemProps> = ({
     return (
       <button
         type="button"
+        disabled={disabled}
         data-testid={dataTestId}
         data-token-id={dataTokenId}
         onClick={handleClick}

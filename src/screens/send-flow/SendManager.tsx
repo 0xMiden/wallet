@@ -38,7 +38,6 @@ import {
   BridgeNetworkId,
   DEFAULT_BRIDGE_NETWORK,
   DEFAULT_USDCX_BRIDGE_NETWORK,
-  isUsdcxBridgeNetwork,
   SendNetworkId,
   USDCX_BRIDGE_NETWORKS
 } from './bridge-networks';
@@ -331,6 +330,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       ? bridgeNetwork
       : 'miden'
     : recipientNetwork;
+  const usdcxOnly = !!displayedNetwork && displayedNetwork !== 'miden' && displayedNetwork !== 'sepolia';
   const selectedContact = useMemo(() => {
     const normalizedAddress = recipientAddress?.trim().toLowerCase();
     if (!normalizedAddress) return undefined;
@@ -485,6 +485,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
     getValues
   ]);
 
+  // Clear a token that the selected destination cannot receive.
+  useEffect(() => {
+    if (usdcxOnly && token && !usdcxAvailable) setValue('token', undefined);
+  }, [usdcxOnly, token, usdcxAvailable, setValue]);
+
   // What the user may actually send. The fee is withdrawn from this account's own
   // vault, so the full NATIVE balance is not spendable -- a send of everything is
   // accepted here and then fails in the epilogue on its own fee, which is the failure
@@ -578,10 +583,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // appears later cannot replace it.
   const onSelectToken = useCallback(
     (selectedToken: UIToken) => {
+      if (usdcxOnly && !isUsdcxWithdrawalAvailable(selectedToken.id)) return;
       appliedPreselectionRef.current = preselectedTokenId ?? null;
       onAction({ id: SendFlowActionId.SetFormValues, payload: { token: selectedToken } });
     },
-    [preselectedTokenId, onAction]
+    [preselectedTokenId, onAction, usdcxOnly]
   );
 
   // Hand off to the full-screen review page, which owns the transaction
@@ -591,7 +597,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // A cross-chain send carries its network + route along, so the review page
   // can quote the Epoch output and pick the right submit path.
   const goToReview = useCallback(() => {
-    if (!token || !amount || !recipientAddress) return;
+    if (!token || !amount || !recipientAddress || (usdcxOnly && !usdcxAvailable)) return;
     reviewHandoffRef.current = true;
     setSendDraft({
       amount,
@@ -604,17 +610,18 @@ export const SendManager: React.FC<SendManagerProps> = ({
     if (isBridge && bridgeNetwork) params.set('network', bridgeNetwork);
     if (isBridge && bridgeRoute) params.set('route', bridgeRoute);
     navigate(`/send/review?${params.toString()}`);
-  }, [amount, recipientAddress, token, isBridge, bridgeNetwork, bridgeRoute]);
+  }, [amount, recipientAddress, token, isBridge, bridgeNetwork, bridgeRoute, usdcxOnly, usdcxAvailable]);
 
   // From the Amount screen: a cross-chain send picks a route next; a same-chain
   // Miden send goes straight to review.
   const onConfirmAmount = useCallback(() => {
+    if (!token || (usdcxOnly && !usdcxAvailable)) return;
     if (isBridge) {
       navigateTo(SendFlowStep.Route);
       return;
     }
     goToReview();
-  }, [isBridge, navigateTo, goToReview]);
+  }, [isBridge, navigateTo, goToReview, token, usdcxOnly, usdcxAvailable]);
 
   const onRouteChange = useCallback(
     (route: BridgeRoute) => {
@@ -772,14 +779,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
     [onAction]
   );
 
-  // USDCx pays out on any of its destination chains, pre-selecting the default; other routes use Sepolia.
+  // Keep an explicit destination. Set a default only when no network was selected.
   useEffect(() => {
-    if (!isBridge || !isValidRecipient) return;
-    if (usdcxAvailable) {
-      if (!isUsdcxBridgeNetwork(bridgeNetwork)) onSelectNetwork(DEFAULT_USDCX_BRIDGE_NETWORK.id);
-      return;
-    }
-    if (bridgeNetwork !== DEFAULT_BRIDGE_NETWORK.id) onSelectNetwork(DEFAULT_BRIDGE_NETWORK.id);
+    if (!isBridge || !isValidRecipient || bridgeNetwork) return;
+    onSelectNetwork(usdcxAvailable ? DEFAULT_USDCX_BRIDGE_NETWORK.id : DEFAULT_BRIDGE_NETWORK.id);
   }, [isBridge, isValidRecipient, bridgeNetwork, onSelectNetwork, usdcxAvailable]);
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
@@ -854,7 +857,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         case SendFlowStep.SelectRecipient:
           return (
             <SelectRecipient
-              networks={usdcxAvailable ? USDCX_BRIDGE_NETWORKS : [DEFAULT_BRIDGE_NETWORK]}
+              networks={USDCX_BRIDGE_NETWORKS}
               address={recipientAddress || ''}
               isValidAddress={isValidRecipient}
               error={errors.recipientAddress?.message?.toString()}
@@ -949,7 +952,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
     <HomeGroupPaneRoot testId="send-flow">
       <Navigator renderRoute={renderStep} />
 
-      <SelectTokenDrawer open={showTokenDrawer} onOpenChange={setShowTokenDrawer} onSelect={onSelectToken} />
+      <SelectTokenDrawer
+        open={showTokenDrawer}
+        onOpenChange={setShowTokenDrawer}
+        onSelect={onSelectToken}
+        usdcxOnly={usdcxOnly}
+      />
 
       <AccountsListDrawer
         open={showContactsDrawer}

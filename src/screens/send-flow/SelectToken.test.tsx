@@ -10,9 +10,12 @@ import {
 import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { isUsdcxWithdrawalAvailable } from 'lib/usdcx/withdrawal';
 
 import { SelectTokenDrawer } from './SelectToken';
 import { UIToken } from './types';
+
+jest.mock('lib/usdcx/withdrawal', () => ({ isUsdcxWithdrawalAvailable: jest.fn(() => false) }));
 
 // `react-i18next` pulls in the full i18n runtime; stub `useTranslation` so
 // `t(key)` echoes the key back and we can assert against the raw keys.
@@ -193,6 +196,22 @@ afterEach(() => {
 });
 
 describe('SelectTokenDrawer', () => {
+  it('disables other tokens when the destination requires USDCx', () => {
+    const usdcx = { ...MIDEN, metadata: { ...MIDEN.metadata, symbol: 'USDCx' } };
+    jest.mocked(isUsdcxWithdrawalAvailable).mockImplementation(id => id === usdcx.tokenId);
+    setBalances([BTC, usdcx]);
+    const { onSelect, onOpenChange, rerender } = renderDrawer({ usdcxOnly: true });
+    expect(screen.getByTestId('send-token-BTC')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('send-token-BTC'));
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId('send-token-USDCx')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('send-token-USDCx'));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: usdcx.tokenId }));
+    rerender(<SelectTokenDrawer open onOpenChange={onOpenChange} onSelect={onSelect} usdcxOnly={false} />);
+    expect(screen.getByTestId('send-token-BTC')).toBeEnabled();
+  });
+
   it("leaves mobile back to SendManager's handler, which closes the sheet", () => {
     renderDrawer();
     expect(mockDrawerCloseOnBack).toBe(false);
