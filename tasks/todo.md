@@ -435,4 +435,4 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - GitHub's official runner reference lists `macos-26-intel` at 4 CPUs/14 GB and the Intel `macos-26-large` runner at 12 CPUs/30 GB. The workflow now uses the latter and checks the emulator's observed six-core minimum before downloading SDK packages.
 - The already-completed CLI fix, cache handoff, Hypervisor check, AVD creation, and APK build all passed in run `38091647355`; only emulator boot failed before Playwright collected a test.
 - Actionlint (ignoring the local label list for documented custom GitHub runners), workflow YAML parsing, and `git diff --check` pass. Independent staff-engineer review found no blocker; the hosted emulator boot still needs confirmation in a fresh run.
-- Repair publication pending feature-branch push verification.
+- Repair commit `69dfaa2d153553c9982364b185626b905b6dca84` is pushed; `git ls-remote` confirms the recovery branch points to that exact commit. Remote `main` was not part of the push.
