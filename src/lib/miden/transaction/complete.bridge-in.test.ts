@@ -6,10 +6,16 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
 import { completeConsumeTransaction } from './complete';
-import { applyBridgeInToConsumeRow, takeAgglayerBridgeInInfo, takeUsdcxBridgeInInfo } from '../activity/bridge-in';
+import {
+  applyBridgeInInfoForNotes,
+  applyBridgeInToConsumeRow,
+  takeAgglayerBridgeInInfo,
+  takeUsdcxBridgeInInfo
+} from '../activity/bridge-in';
 
 jest.mock('../activity/bridge-in', () => ({
-  applyBridgeInInfoForNotes: async () => false,
+  noteIdKey: jest.requireActual('../activity/bridge-in').noteIdKey,
+  applyBridgeInInfoForNotes: jest.fn(async () => false),
   applyBridgeInToConsumeRow: jest.fn(),
   takeAgglayerBridgeInInfo: jest.fn(async () => undefined),
   takeUsdcxBridgeInInfo: jest.fn(async () => undefined)
@@ -121,4 +127,18 @@ it('offers a single-note consume no AggLayer tracker took to the USDCx trackers'
     faucetId: 'eth-faucet',
     amount: 2n
   });
+});
+
+// The registry can take one note of a batch; every other note is still paired. The registry's id is canonical only
+// after normalising, as allocator and SDK ids differ in prefix and case.
+it('pairs the notes the registry did not take', async () => {
+  jest.mocked(applyBridgeInInfoForNotes).mockImplementationOnce(async (_ids, apply) => {
+    await apply({ provider: 'epoch', sourceAmount: '2', sourceSymbol: 'USDC', midenNoteId: '0xNOTE-2' });
+    return true;
+  });
+
+  await completeConsumeTransaction('consume', consumeOf([bridgeNote('note-1', 1n), bridgeNote('note-2', 2n)]));
+
+  expect(jest.mocked(takeUsdcxBridgeInInfo).mock.calls.map(([args]) => args.amount)).toEqual([1n]);
+  expect(jest.mocked(takeAgglayerBridgeInInfo).mock.calls.map(([args]) => args.amount)).toEqual([1n]);
 });

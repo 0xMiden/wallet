@@ -43,6 +43,7 @@ import { ensureGuardianProcedureThresholds } from './initiate';
 import {
   applyBridgeInInfoForNotes,
   applyBridgeInToConsumeRow,
+  noteIdKey,
   takeAgglayerBridgeInInfo,
   takeUsdcxBridgeInInfo
 } from '../activity/bridge-in';
@@ -323,7 +324,12 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   // fail the consume itself.
   try {
     const consumedNoteIds = inputNotes.map(inputNote => inputNote.note().id().toString());
-    const applied = await applyBridgeInInfoForNotes(consumedNoteIds, info => applyBridgeInToConsumeRow(id, info));
+    // The registry takes at most one note; the batch below pairs every other one, by the registry's canonical id.
+    let registryNoteKey: string | undefined;
+    const applied = await applyBridgeInInfoForNotes(consumedNoteIds, info => {
+      if (info.midenNoteId) registryNoteKey = noteIdKey(info.midenNoteId);
+      return applyBridgeInToConsumeRow(id, info);
+    });
     const accountId = dbTransaction?.accountId ?? '';
     if (!applied && inputNotes.length === 1) {
       // A note the USDCx faucet minted for an xReserve deposit is otherwise an ordinary faucet receive.
@@ -331,12 +337,13 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
         (await takeAgglayerBridgeInInfo({ accountId, senderAccountId: sender, amount })) ??
         (await takeUsdcxBridgeInInfo({ accountId, senderAccountId: sender, faucetId, amount }));
       if (info) await applyBridgeInToConsumeRow(id, { ...info, midenNoteId: consumedNoteIds[0] });
-    } else if (!applied) {
+    } else if (inputNotes.length > 1) {
       // A batch's per-faucet total is no single delivery's amount, and native USDCx mints are auto-claimed together,
       // so each note is paired by its own sender, faucet and amount, one at a time so two same-amount mints adopt two
       // rows. Only the tracking rows move; the batch row keeps its own label.
       for (const inputNote of inputNotes) {
         const batchNote = inputNote.note();
+        if (registryNoteKey !== undefined && noteIdKey(batchNote.id().toString()) === registryNoteKey) continue;
         const noteAsset = batchNote.assets().fungibleAssets()[0];
         if (!noteAsset) continue;
         const noteSender = getBech32AddressFromAccountId(batchNote.metadata().sender());

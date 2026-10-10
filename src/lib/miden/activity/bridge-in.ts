@@ -71,7 +71,7 @@ function isEvmAddress(value: string): value is `0x${string}` {
  * Miden SDK both emit hex note ids, but may differ in `0x` prefix and casing —
  * matching on the raw strings silently misses. Strip prefix + lowercase.
  */
-function noteIdKey(id: string): string {
+export function noteIdKey(id: string): string {
   return id.trim().toLowerCase().replace(/^0x/, '');
 }
 
