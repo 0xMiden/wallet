@@ -790,6 +790,8 @@ describe('wallet prompts', () => {
   it('lets a request refused over the cap go out again at the cap, flagged anew', async () => {
     const marker = { requestedAt: 1_000, baselineNoteIds: [] };
     const flags: Array<number | undefined> = [];
+    let clock = 5_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => clock);
     mintFromMidenFaucetMock.mockImplementation(
       async (
         _address: string,
@@ -804,6 +806,7 @@ describe('wallet prompts', () => {
         onMayMint?.(false);
         flags.push((await fetchFaucetFundingMarker('accountCapped'))?.submittedAt);
         // The retry at the cap passes the same pre-send check and is flagged again.
+        clock = 9_000;
         await beforeSubmit?.();
         onMayMint?.(true);
         flags.push((await fetchFaucetFundingMarker('accountCapped'))?.submittedAt);
@@ -811,10 +814,14 @@ describe('wallet prompts', () => {
       }
     );
 
-    await expect(faucet('accountCapped', marker)).resolves.toBeUndefined();
+    try {
+      await expect(faucet('accountCapped', marker)).resolves.toBeUndefined();
+    } finally {
+      nowSpy.mockRestore();
+    }
 
-    expect(flags).toEqual([expect.any(Number), expect.any(Number)]);
-    expect(flags[1]!).toBeGreaterThanOrEqual(flags[0]!);
+    // A skipped second flag write would leave the first attempt's 5000.
+    expect(flags).toEqual([5_000, 9_000]);
     expect(getFaucetRequestSettledAt('accountCapped', 1_000)).not.toBeNull();
   });
 
