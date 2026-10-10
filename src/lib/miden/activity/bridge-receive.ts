@@ -15,6 +15,7 @@ import { IBridgedReceiveExtraInputs, ITransaction } from '../db/types';
 import { updateBridgedReceivePhase } from '../transaction/complete';
 
 const SUBMISSION_LOCK = 'bridge-receive-submission';
+const INTERRUPTED_BEFORE_HASH = 'Bridge submission was interrupted before a transaction hash was recorded.';
 
 /**
  * A restored bridge row's delivery cannot be confirmed: the tracking state that
@@ -48,9 +49,7 @@ function firstString(source: unknown, key: string): string | undefined {
 async function reconcileAgglayerRow(row: ITransaction, inputs: IBridgedReceiveExtraInputs): Promise<void> {
   if (!inputs.evmTxHash) {
     if (inputs.phase === 'submitting') {
-      await updateBridgedReceivePhase(row.id, 'failed', {
-        error: 'Bridge submission was interrupted before a transaction hash was recorded.'
-      });
+      await updateBridgedReceivePhase(row.id, 'failed', { error: INTERRUPTED_BEFORE_HASH });
     }
     return;
   }
@@ -121,6 +120,11 @@ async function reconcileEpochRow(row: ITransaction, inputs: IBridgedReceiveExtra
  * moves the row to `received` (`takeUsdcxBridgeInInfo`).
  */
 async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtraInputs): Promise<void> {
+  // Reached only once no flow holds the submission: with no hash, nothing can ever move the row on.
+  if (inputs.phase === 'submitting' && !inputs.evmTxHash) {
+    await updateBridgedReceivePhase(row.id, 'failed', { error: INTERRUPTED_BEFORE_HASH });
+    return;
+  }
   const source = inputs.sourceChainId === undefined ? undefined : USDCX_SOURCE_CHAINS.get(inputs.sourceChainId);
   try {
     if (source?.route === 'cctp-executor') {

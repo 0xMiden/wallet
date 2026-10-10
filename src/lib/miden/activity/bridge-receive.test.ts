@@ -229,6 +229,27 @@ describe('reconcileBridgedReceives', () => {
     );
   });
 
+  // A USDCx row closes like its Agglayer sibling: with no hash and no flow left to write one, it can never progress.
+  it.each([
+    ['the direct route', {}],
+    ['the executor route', { sourceChainId: 84532 }]
+  ])('fails an interrupted USDCx row on %s that never recorded a hash', async (_route, extra) => {
+    rows.push({
+      id: 'usdcx-interrupted',
+      type: 'bridged-receive',
+      initiatedAt: Math.floor(Date.now() / 1000),
+      extraInputs: { provider: 'usdcx', phase: 'submitting', ...extra }
+    });
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-interrupted', 'failed', {
+      error: 'Bridge submission was interrupted before a transaction hash was recorded.'
+    });
+    expect(isAttested).not.toHaveBeenCalled();
+    expect(fetchAttestedMessage).not.toHaveBeenCalled();
+  });
+
   it('re-registers a delivering Epoch intent with its tracking-row link', async () => {
     rows.push({
       id: 'epoch-row',
