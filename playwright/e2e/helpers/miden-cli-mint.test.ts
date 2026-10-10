@@ -30,6 +30,12 @@ const NODE_VAULT_ERROR =
   '  `-> data corrupted: failed to reconstruct vault for account 0x18101fa522c174b165efd4f70a0385 at block ' +
   '186358: root not found';
 
+// What the CLI printed on testnet (2026-10-10) when the hosted prover let a delegated mint's proof time out.
+const REMOTE_PROVER_TIMEOUT =
+  'cli::client_error\n  × client error\n  ├─▶ transaction proving failed\n  ├─▶ failed to prove transaction\n' +
+  '  ├─▶ code: \'The operation was cancelled\', message: "Timeout expired", source:\n' +
+  '  │   tonic::transport::Error(Transport, TimeoutExpired(()))\n  ├─▶ transport error\n  ╰─▶ Timeout expired';
+
 function invocation(command: string, result: Partial<CLIInvocation> = {}): CLIInvocation {
   return {
     command,
@@ -143,6 +149,48 @@ describe('MidenCli.mint', () => {
       'sync',
       'tx'
     ]);
+  });
+});
+
+describe('MidenCli.mint after the hosted prover failed', () => {
+  const savedNetwork = process.env.E2E_NETWORK;
+  const savedFunderDir = process.env.MIDEN_E2E_FUNDER_DIR;
+  let workDir: string;
+
+  beforeEach(() => {
+    workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'miden-cli-mint-'));
+    process.env.E2E_NETWORK = 'testnet';
+    process.env.MIDEN_E2E_FUNDER_DIR = workDir;
+  });
+
+  afterEach(() => {
+    fs.rmSync(workDir, { recursive: true, force: true });
+    process.env.E2E_NETWORK = savedNetwork;
+    process.env.MIDEN_E2E_FUNDER_DIR = savedFunderDir;
+  });
+
+  const mints = (commands: string[]) => commands.filter(command => / mint /.test(command));
+
+  it('proves the next attempt locally once a delegated proof failed', async () => {
+    const { cli, commands } = scriptedCli(workDir, [
+      { exitCode: 1, stderr: REMOTE_PROVER_TIMEOUT },
+      { parsed: { transactionId: 'mint-tx', noteId: 'mint-note' } }
+    ]);
+
+    await expect(cli.mint(FAUCET, TARGET, 100n, 'public')).resolves.toEqual({ txId: 'mint-tx', noteId: 'mint-note' });
+
+    expect(mints(commands).map(command => command.includes('--delegate-proving'))).toEqual([true, false]);
+  });
+
+  it('keeps delegating after a failure that is not the prover', async () => {
+    const { cli, commands } = scriptedCli(workDir, [
+      { exitCode: 1, stderr: NODE_VAULT_ERROR },
+      { parsed: { transactionId: 'mint-tx', noteId: 'mint-note' } }
+    ]);
+
+    await expect(cli.mint(FAUCET, TARGET, 100n, 'public')).resolves.toEqual({ txId: 'mint-tx', noteId: 'mint-note' });
+
+    expect(mints(commands).map(command => command.includes('--delegate-proving'))).toEqual([true, true]);
   });
 });
 
