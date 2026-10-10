@@ -374,3 +374,26 @@ Official registry SDK 0.17.1 is installed with its published integrity and exact
 - [ ] Reconcile ancestry and atomically fast-forward main and next with the original PR-only policy restored.
 
 Review: both failed native grants committed after their fixture deadlines; CLI 0.17.1 consumed another grant successfully in the same run. The release packages remain sourced from the reviewed funding fix. All 50 focused tests pass, with types, scoped lint and formatting clean. Internal re-review confirmed the existing funding-source regression was repaired and found no remaining P0/P1 issues.
+
+# Hosted Android virtualization workaround
+
+## Plan
+
+- [x] Resolve the failed run from its Playwright and emulator-log artifacts; confirm whether any Testnet loop started.
+- [x] Move the workflow to an Intel macOS runner with a matching x86_64 Android image and native visible emulator window.
+- [x] Fail early if the runner does not expose usable Hypervisor.framework acceleration; force accelerated emulator launch.
+- [x] Run focused helper tests, scoped lint, workflow lint, exact Playwright collection, and get an independent review.
+- [ ] Publish only to the Android feature branch, preserving `main` and existing unrelated work.
+- [ ] Obtain fresh authorization before another live 100-loop Testnet dispatch; reconcile the terminal run artifacts.
+
+## Findings
+
+- Run `38057296756` produced `expected=0` Playwright tests and failed during global setup because the Apple Silicon macOS larger runner reported `HV_UNSUPPORTED`. No bridge deposit, faucet funding, or Miden transaction was started.
+- GitHub documents nested virtualization as unsupported on macOS larger runners. The selected workaround matches an x86_64 AVD to an Intel macOS runner, which has native Hypervisor.framework support in GitHub's standard runner issue history.
+
+## Review/results
+
+- Emulator-control tests pass (15/15); scoped ESLint, actionlint, and `git diff --check` pass. Actionlint required ignoring its stale local runner-label list for the currently documented `macos-26-intel` label.
+- Playwright collects exactly one AggLayer bridge-in test configured for 100 sequential loops.
+- Independent review found and the workflow now fixes the cross-OS Rust cache-key collision; it found no remaining source-level blocker.
+- The selected hosted runner's live Hypervisor.framework availability and terminal 100-loop result remain unverified until a fresh live run is authorized.

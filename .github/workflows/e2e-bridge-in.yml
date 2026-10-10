@@ -1,6 +1,6 @@
 name: E2E Bridge-IN (Android)
 
-# Manual, headed Android emulator run on Apple silicon. The EVM leg uses a local Anvil bridge
+# Manual, headed Android emulator run on an Intel macOS runner. The EVM leg uses a local Anvil bridge
 # double; the wallet's Miden receipt/claim leg uses Testnet and the WalletConnect
 # relay. One sequential test owns all requested deposits and writes a loop
 # manifest plus an append-only ledger into test-results-android/.
@@ -24,9 +24,10 @@ concurrency:
 jobs:
   android-bridge-in-testnet:
     name: AggLayer bridge-in (${{ inputs.loop_count }} loops, Android Testnet)
-    # Use the same available macOS xlarge runner as the previous mobile bridge workflow.
-    # Its native window server allows the Android emulator to stay visible without Xvfb.
-    runs-on: macos-26-xlarge
+    # macOS larger runners are virtual machines and do not support nested
+    # virtualization. Use the standard Intel runner so its x86_64 AVD can use
+    # Hypervisor.framework and keep a native, visible emulator window.
+    runs-on: macos-26-intel
     # The 100-loop test has a 280-minute Playwright budget. Remaining time
     # covers SDK/AVD setup, Android build, and final artifact upload.
     timeout-minutes: 360
@@ -52,8 +53,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # KVM is what makes the emulator usable rather than merely present. Without
-      # this the boot either fails outright or is slow enough to blow every wait.
+      # Hypervisor.framework is what makes the emulator usable rather than
+      # merely present on this macOS runner. Without it, the boot fails or stalls.
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
 
@@ -72,12 +73,18 @@ jobs:
 
       - name: Install SDK packages
         run: |
-          if [[ "$(uname -m)" != "arm64" ]]; then
-            echo "::error::macos-26-xlarge must provide an Apple silicon host for the ARM64 Android image"
+          if [[ "$(uname -m)" != "x86_64" ]]; then
+            echo "::error::macos-26-intel must provide an x86_64 host for the Android image"
             exit 1
           fi
           sdkmanager --install "platform-tools" "emulator" \
-            "platforms;android-34" "system-images;android-34;default;arm64-v8a"
+            "platforms;android-34" "system-images;android-34;default;x86_64"
+
+      # Prove the selected runner exposes Hypervisor.framework before paying
+      # for dependencies, CLI compilation, or the Android build.
+      - name: Verify Android VM acceleration
+        run: |
+          "$ANDROID_HOME/emulator/emulator" -accel-check
 
       # The wallet AVD is derived from this base by the harness, so its name has to
       # match BASE_AVD in emulator-control.ts. Kept in one place there; if it is
@@ -87,7 +94,7 @@ jobs:
           mkdir -p "$ANDROID_AVD_HOME"
           echo no | avdmanager create avd \
             --name Pixel_API_34 \
-            --package "system-images;android-34;default;arm64-v8a" \
+            --package "system-images;android-34;default;x86_64" \
             --device pixel_6 \
             --force
           # Fail HERE if the emulator can't see what avdmanager just wrote,
@@ -110,26 +117,23 @@ jobs:
       # claim nothing enforced.
       - uses: dtolnay/rust-toolchain@1.98.1
 
-      # Same shared cache + pre-install every other E2E workflow uses. Without
-      # it the harness compiles miden-client-cli lazily on FIRST USE — i.e.
+      # Same pre-install flow used by other E2E workflows. Without it, the
+      # harness compiles miden-client-cli lazily on FIRST USE — i.e.
       # inside the test — and the ~9 minutes of cargo build ate the 15-minute
       # per-test budget: `mint-and-balance.android` failed with "Test timeout of
       # 900000ms exceeded" having spent most of it in `Compiling thiserror`.
-      # Keyed on what actually determines the binaries (rustc pin and the
-      # pinned CLI rev), so it hits the entry warmed on
-      # main rather than rebuilding per run.
-      - name: Compute shared cargo cache key
+      # Keyed by host OS/architecture as well as the rustc pin and pinned CLI
+      # rev because ~/.cargo/bin contains compiled, platform-specific binaries.
+      - name: Compute platform-specific cargo cache key
         id: cargo_cache_key
         run: |
           rev=$(node -p "require('./package.json').midenClientCliGit.rev")
           url=$(node -p "require('./package.json').midenClientCliGit.url")
           ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
           pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
-          if [ "${{ runner.arch }}" = X64 ]; then
-            namespace=miden-e2e-cargo-v2
-          else
-            namespace=miden-e2e-cargo-v3-${{ runner.arch }}
-          fi
+          # This cache includes ~/.cargo/bin, whose rustup and CLI binaries are
+          # host-OS-specific as well as architecture-specific.
+          namespace=miden-e2e-cargo-v3-${{ runner.os }}-${{ runner.arch }}
           echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
 
       - name: Cache cargo (cli)

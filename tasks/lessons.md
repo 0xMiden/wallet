@@ -53,3 +53,7 @@
 - Playwright clears its configured output directory at startup. Use distinct nested Playwright output directories for sequential CI stages, and never launch another run that clears the shared parent containing live harness evidence.
 
 - A public faucet acceptance receipt proves queue admission, not chain commitment. Compare the note inclusion timestamp with the failure timestamp, then wait for that specific note before running fixture consumption assertions. Never remint a queued grant to hide a short delivery budget.
+
+- For Android emulator workflows, verify VM acceleration on the exact runner class before expensive setup. Match the system image ABI to the runner CPU, fail closed if acceleration is unavailable, and keep wallet E2E emulator launches windowed unless the user explicitly authorizes headless execution.
+
+- If a CI cache includes compiled binaries, key it by host OS as well as CPU architecture and toolchain pins; architecture-only keys can copy unusable executables across operating systems.

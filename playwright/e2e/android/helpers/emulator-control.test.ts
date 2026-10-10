@@ -215,9 +215,11 @@ describe('EmulatorControl', () => {
         await expect(EmulatorControl.reserveSingle()).resolves.toBe(SERIAL);
         expect(launch).toHaveBeenCalledWith(
           expect.stringMatching(/emulator$/),
-          expect.arrayContaining(['-avd', 'Pixel_API_34']),
+          expect.arrayContaining(['-avd', 'Pixel_API_34', '-accel', 'on']),
           expect.objectContaining({ detached: true })
         );
+        const launchArgs = launch.mock.calls[0]?.[1] as string[];
+        expect(launchArgs).not.toContain('-no-window');
         expect(fs.existsSync(path.join(avdHome, 'miden_e2e_A.ini'))).toBe(false);
         expect(fs.existsSync(path.join(avdHome, 'miden_e2e_B.ini'))).toBe(false);
       } finally {

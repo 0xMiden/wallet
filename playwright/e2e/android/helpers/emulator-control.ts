@@ -556,6 +556,11 @@ async function bootAvd(avdName: string, port: number, visible = false): Promise<
       avdName,
       '-port',
       String(port),
+      // The bridge-in workflow checks VM acceleration before expensive setup.
+      // Keep the emulator fail-closed so it cannot silently fall back to slow
+      // software CPU emulation on a misconfigured runner.
+      '-accel',
+      'on',
       '-no-snapshot',
       '-no-audio',
       // Software GPU. `-gpu host` allocates large host-GPU buffers backing
