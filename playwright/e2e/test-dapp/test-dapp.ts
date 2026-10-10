@@ -22,6 +22,7 @@ import {
   NoteAttachmentScheme,
   NoteDetails,
   NoteFile,
+  NoteFilterTypes,
   NoteId,
   NoteScript,
   NoteType,
@@ -382,6 +383,10 @@ const handlers: Partial<DappHandlers> = {
     ),
 
   consumableNotes: () => outcome(async () => (await state.adapter.requestConsumableNotes()).map(noteView)),
+
+  // The ids go to the wallet as given, so N4 can ask by the id an import returned (K10) as well as by the note's own.
+  privateNotes: ({ filter, noteIds }) =>
+    outcome(async () => (await state.adapter.requestPrivateNotes(NoteFilterTypes[filter], noteIds)).map(noteView)),
 
   // Not an Outcome: each case's failure is a row in `failed`, and S11 asserts the list is empty.
   conformance: async () => {

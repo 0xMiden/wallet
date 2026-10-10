@@ -1,6 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 
 import { captureBaseline, expectWritesToTheEnd, type WriteResult, type WriteSide } from './dapp-assertions';
+import { offchainDappAxis } from './dapp-axis';
 import { HarnessFault, InfrastructureFault, type CellContext } from './dapp-cells';
 import { canonicalAddress, normalizeHex } from './dapp-gates';
 import type { AccountSlot, Journey } from './dapp-journey';
@@ -17,7 +18,7 @@ import {
   type PendingNote,
   type PromptPlan
 } from './test-dapp';
-import type { NoteTypeName, Outcome, RawArg } from '../test-dapp/protocol';
+import type { NoteTypeName, Outcome, OutputSpec, RawArg } from '../test-dapp/protocol';
 
 /**
  * Shared write recipes: each starts a dApp request, answers its popup and asserts it to the end, so a spec cell names
@@ -145,6 +146,94 @@ export async function dappSendToTheEnd(
     'output note script'
   ).toEqual([script]);
   return written;
+}
+
+export interface ProducedNote {
+  noteId: string;
+  bytesB64: string;
+  nullifierHex: string;
+  amount: bigint;
+  faucetId: string;
+}
+
+/**
+ * Wallet B's dApp builds a custom request with these outputs and submits it with no recipient, so the wallet relays
+ * nothing (complete.ts:114-122) and A never receives the notes; B's waitForTransaction hands back their bytes, as a
+ * dApp backend would hold them. It is B's write, single-sig, and it is checked to the end like any other.
+ */
+export async function produceNotesFromB(
+  j: Journey,
+  outputs: readonly OutputSpec[],
+  ctx: CellContext
+): Promise<ProducedNote[]> {
+  const dappB = await j.dappB();
+  const view = await callDapp(dappB, 'session', {}, ctx.deadline);
+  if (view.connected === null) throw new HarnessFault("B's dApp is not connected");
+  // B is single-sig on every leg (spec section 3), so its write settles and is checked as one, whatever A's axis.
+  const side: WriteSide = {
+    wallet: j.walletB,
+    dapp: dappB,
+    axis: offchainDappAxis,
+    account: j.addressB,
+    accountIdHex: view.connected.accountIdHex,
+    nativeFaucetId: j.nativeFaucetId
+  };
+  const delta: Record<string, bigint> = {};
+  for (const output of outputs) {
+    for (const asset of [{ faucetId: output.faucetId, amount: output.amount }, ...(output.extraAssets ?? [])]) {
+      delta[asset.faucetId] = (delta[asset.faucetId] ?? 0n) - BigInt(asset.amount);
+    }
+  }
+  const baseline = await captureBaseline(side, Object.keys(delta), ctx);
+  const built = await callDapp(dappB, 'buildCustom', { shape: 'p2id', outputs: [...outputs] }, ctx.deadline);
+  const { result } = await answerPrompt(
+    dappB,
+    () =>
+      callDapp(
+        dappB,
+        'submitCustom',
+        { requestId: built.requestId, recipientAddress: '', importNotes: false },
+        ctx.deadline
+      ),
+    { kind: 'transaction', decision: 'approve', origin: dappB.origin },
+    ctx
+  );
+  const { txId } = unwrap(result, "B's producer request", ctx);
+  const [written] = await expectWritesToTheEnd(
+    side,
+    baseline,
+    [
+      {
+        txId,
+        outputNotes: built.outputNoteIds.map((noteId, index) => ({
+          noteId,
+          noteType: outputs[index]?.noteType ?? 'private'
+        })),
+        consumedNullifiers: []
+      }
+    ],
+    delta,
+    ctx
+  );
+  if (written === undefined) throw new HarnessFault('the producer write returned no result');
+  const notes: ProducedNote[] = [];
+  for (const [index, noteId] of built.outputNoteIds.entries()) {
+    const out = written.outputNotes.find(note => normalizeHex(note.noteId) === normalizeHex(noteId));
+    const spec = outputs[index];
+    if (out === undefined || spec === undefined) {
+      throw new HarnessFault(`B's waitForTransaction did not return note ${noteId}`);
+    }
+    // From the bytes the wallet returned, not the page's build: a consume cell checks the note B's wallet wrote.
+    const facts = await callDapp(dappB, 'noteFacts', { noteBytesB64: out.bytesB64 }, ctx.deadline);
+    notes.push({
+      noteId,
+      bytesB64: out.bytesB64,
+      nullifierHex: facts.nullifierHex,
+      amount: BigInt(spec.amount),
+      faucetId: spec.faucetId
+    });
+  }
+  return notes;
 }
 
 /** One discovered, unconsumed note of the current account, or null. */

@@ -53,8 +53,6 @@ const KNOWN_BUG_CELLS_NOT_YET_DECLARED: string[] = [
   'K1:S7@guardian',
   'K1:M1@offchain',
   'K1:M1@guardian',
-  'K2:W6@offchain',
-  'K2:W6@guardian',
   'K3:X1@guardian',
   'K3:X2@guardian',
   'K3:X3@guardian',
@@ -98,11 +96,5 @@ const KNOWN_BUG_CELLS_NOT_YET_DECLARED: string[] = [
   'K9:M9-custom@offchain',
   'K9:M9-custom@guardian',
   'K9:M4-reads@offchain',
-  'K9:M4-reads@guardian',
-  'K10:W5b@offchain',
-  'K10:W5b@guardian',
-  'K10:W5c@offchain',
-  'K10:W5c@guardian',
-  'K10:N4@offchain',
-  'K10:N4@guardian'
+  'K9:M4-reads@guardian'
 ];

@@ -119,6 +119,8 @@ export interface StartJourneyInput {
 }
 
 const quiesceContext = (deadline: Deadline): CellContext => ({ deadline, evidence: {}, softFail: () => undefined });
+/** A cell-shaped context for setup work outside any cell (producing notes, connecting B's dApp). */
+export const setupContext = (ms: number, label: string): CellContext => quiesceContext(deadlineIn(ms, label));
 
 async function waitFor<T>(read: () => Promise<T | null>, what: string, timeoutMs: number): Promise<T> {
   const deadline = Date.now() + timeoutMs;
