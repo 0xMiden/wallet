@@ -14,8 +14,8 @@ export type JourneyId = 'S' | 'R' | 'W' | 'X' | 'XL' | 'M';
 /**
  * A cell's outcome (spec section 5). `fail-known` means every failure matched a signature registered for this cell
  * and axis; `known-now-passing` means such a cell ran clean, which fails the judge until the entry is removed. A
- * `blocked-*` cell never ran its body: a cell it needs did not pass, the wallet state could not be restored, or an
- * infrastructure fault aborted the run.
+ * `blocked-*` cell has no wallet verdict: a cell it needs did not pass, the wallet state could not be restored, or the
+ * environment failed it (an InfrastructureFault in its quiesce or body, or INFRA_ABORT from an earlier one).
  */
 export type CellVerdict =
   | 'pass'
@@ -99,13 +99,17 @@ export class CellDeadlineExceeded extends Error {
   }
 }
 /**
- * A faucet or hosted service failed, not the wallet. The runner writes INFRA_ABORT for it, which blocks every later
- * cell of every journey that shares the records directory.
+ * A faucet, a hosted service or the node failed, not the wallet: the cell that meets it is `blocked-infra`. With
+ * `abortsLeg` (the default, for the public faucet and the hosted Guardian's settle) the runner also writes INFRA_ABORT,
+ * which blocks every later cell of every journey that shares the records directory; with `abortsLeg: false` (a failed
+ * node request, `ChainUnavailable` in test-dapp.ts) it blocks only that cell, and the next one runs its own quiesce.
  */
 export class InfrastructureFault extends Error {
-  constructor(message: string) {
+  readonly abortsLeg: boolean;
+  constructor(message: string, options: { abortsLeg?: boolean } = {}) {
     super(message);
     this.name = 'InfrastructureFault';
+    this.abortsLeg = options.abortsLeg ?? true;
   }
 }
 
@@ -170,8 +174,9 @@ export interface CellSpec<S> {
 /**
  * `quiesce` establishes and checks the state a cell expects (spec section 5) and throws when it cannot; `previous` is
  * the record of the last cell whose body ran, so the hook can tell what that cell may have left behind. `restore`
- * runs after every cell, whatever happened. Either failing blocks every later cell: `blocked-infra` for an
- * InfrastructureFault in the quiesce, `blocked-state` otherwise.
+ * runs after every cell, whatever happened. An InfrastructureFault in the quiesce records the cell `blocked-infra` and
+ * blocks the later cells only through INFRA_ABORT, when it aborts the leg; any other failure of either hook blocks
+ * every later cell as `blocked-state`.
  */
 export interface RunnerHooks<S> {
   quiesce(cell: CellSpec<S>, deadline: Deadline, previous?: CellRecord): Promise<void>;
@@ -194,19 +199,34 @@ export function describeFailure(error: unknown): string {
   return text.length > 2_000 ? `${text.slice(0, 2_000)}...` : text;
 }
 
+// The first link, the failure itself or down its cause chain, that makes it the environment's decides how far it
+// reaches: an InfrastructureFault carries its own scope, and a failure that names the public faucet stops the leg.
+function infrastructureScope(error: unknown): 'leg' | 'cell' | undefined {
+  // Bounded, so a cause cycle cannot spin.
+  let link: unknown = error;
+  for (let depth = 0; depth < 8 && link !== undefined && link !== null; depth += 1) {
+    if (link instanceof InfrastructureFault) return link.abortsLeg ? 'leg' : 'cell';
+    if (/public faucet/i.test(describeFailure(link))) return 'leg';
+    link = link instanceof Error ? link.cause : undefined;
+  }
+  return undefined;
+}
+
 /**
  * Whether a failure is the environment's rather than the wallet's: an InfrastructureFault, or a failure that names the
  * public faucet, itself or anywhere down its cause chain. Every public-faucet helper rejects with a message that begins
  * "Public faucet" (`PublicFaucetError`, public-faucet.ts), and the CLI names the faucet a funding note came from.
  */
 export function isInfrastructureFailure(error: unknown): boolean {
-  // Bounded, so a cause cycle cannot spin.
-  let link: unknown = error;
-  for (let depth = 0; depth < 8 && link !== undefined && link !== null; depth += 1) {
-    if (link instanceof InfrastructureFault || /public faucet/i.test(describeFailure(link))) return true;
-    link = link instanceof Error ? link.cause : undefined;
-  }
-  return false;
+  return infrastructureScope(error) !== undefined;
+}
+
+/**
+ * Whether such a failure writes INFRA_ABORT: a public-faucet failure or a leg-scoped fault does, a failed node request
+ * (`abortsLeg: false`) never does.
+ */
+export function abortsLeg(error: unknown): boolean {
+  return infrastructureScope(error) === 'leg';
 }
 
 export interface JudgeInput {
@@ -309,7 +329,7 @@ export class DappCellRunner<S> {
 
   /**
    * Runs one cell and records it at once. The body runs only when no INFRA_ABORT exists, no earlier quiesce or
-   * restore failed, every cell it needs passed, and its own quiesce succeeded.
+   * restore left the state unknown (`blocked-state`), every cell it needs passed, and its own quiesce succeeded.
    */
   async run(cell: CellSpec<S>): Promise<CellRecord> {
     if (!this.records.has(cell.id)) {
@@ -332,9 +352,10 @@ export class DappCellRunner<S> {
     try {
       await quiesceDeadline.race(this.options.hooks.quiesce(cell, quiesceDeadline, this.lastRan), 'quiesce');
     } catch (error) {
-      // A live network's hosted Guardian or faucet failing the quiesce is infrastructure, not wallet state.
+      // The environment failing the quiesce is infrastructure, not wallet state, so it sets no blockedState: a failed
+      // node request leaves the next cell to its own quiesce, and only a leg-scoped fault stops the cells after it.
       if (error instanceof InfrastructureFault) {
-        markInfraAbort(this.options.outDir, describeFailure(error));
+        if (abortsLeg(error)) markInfraAbort(this.options.outDir, describeFailure(error));
         await this.options.hooks.restore(cell).catch(() => undefined);
         return this.save(
           this.record(cell.id, 'blocked-infra', this.now() - started, { error: describeFailure(error) })
@@ -377,7 +398,9 @@ export class DappCellRunner<S> {
       evidence,
       registry: this.options.registry
     });
-    if (judged.verdict === 'blocked-infra') markInfraAbort(this.options.outDir, judged.error ?? 'infrastructure');
+    if (judged.verdict === 'blocked-infra' && abortsLeg(hardError)) {
+      markInfraAbort(this.options.outDir, judged.error ?? 'infrastructure');
+    }
     this.lastRan = this.save(
       this.record(cell.id, judged.verdict, this.now() - started, {
         knownBugs: judged.knownBugs,
@@ -389,12 +412,23 @@ export class DappCellRunner<S> {
     return this.lastRan;
   }
 
-  /** Records every cell not yet run as blocked by infrastructure, for a journey that cannot even fund. */
+  /** Records every cell not yet run as blocked by infrastructure, for a journey whose setup the environment failed. */
   blockAll(reason: string): void {
     for (const [id, existing] of this.records) {
       if (existing.verdict === 'not-run') this.records.set(id, this.record(id, 'blocked-infra', 0, { error: reason }));
     }
     this.flush();
+  }
+
+  /**
+   * Records a journey whose setup failed. The environment's failure blocks its cells as infrastructure, and only a
+   * leg-scoped one (a public-faucet grant) writes INFRA_ABORT, so later journeys spend no further grant; after a node
+   * that failed the dApp's init, later journeys still run. Any other failure leaves the cells `not-run` for the judge.
+   */
+  setupFailed(error: unknown): void {
+    if (!isInfrastructureFailure(error)) return;
+    if (abortsLeg(error)) markInfraAbort(this.options.outDir, describeFailure(error));
+    this.blockAll(describeFailure(error));
   }
 
   /** Fails the Playwright test with every cell that did not pass; the job verdict still comes from the records. */

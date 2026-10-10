@@ -2,7 +2,14 @@ import { expect, type BrowserContext, type Page } from '@playwright/test';
 
 import { CONFIRM_ACTIONS, type ConfirmKind } from './confirm-actions';
 import { waitForMirroredSetting } from './contacts-receive-settings';
-import { HarnessFault, InfrastructureFault, type CellContext, type Deadline } from './dapp-cells';
+import {
+  CellDeadlineExceeded,
+  deadlineIn,
+  HarnessFault,
+  InfrastructureFault,
+  type CellContext,
+  type Deadline
+} from './dapp-cells';
 import { waitForConfirmPopup } from './dapp-confirm';
 import { waitForFreshSyncs, type ConfirmPageEvent } from './dapp-gates';
 import pinned from './dapp-pinned.json';
@@ -35,6 +42,8 @@ export const DAPP_SERVE_MODE: 'route' | 'loopback' = pinned.serveMode === 'loopb
 // WalletStatus in src/lib/shared/types.ts.
 const WALLET_LOCKED = 1;
 const WALLET_READY = 2;
+/** The deadline `openTestDapp` gives its `init`, the page's own load bound; within it callDapp asks the node again. */
+const DAPP_INIT_BUDGET_MS = 120_000;
 
 export interface DappHandle {
   readonly page: Page;
@@ -81,7 +90,7 @@ export async function openTestDapp(context: BrowserContext, label: DappLabel, in
   await page.goto(`${origin}/`, { waitUntil: 'domcontentloaded' });
   await waitReady(page, 120_000);
   const dapp: DappHandle = { page, label, origin, context };
-  await callDapp(dapp, 'init', init);
+  await callDapp(dapp, 'init', init, deadlineIn(DAPP_INIT_BUDGET_MS, `dApp ${label} init`));
   return dapp;
 }
 
@@ -94,19 +103,31 @@ export async function reloadDapp(dapp: DappHandle, init: DappInit, deadline: Dea
 
 /**
  * The node behind the dApp's own client failed a call, or the chain did not advance: the environment's failure, so a
- * cell that meets it is `blocked (infrastructure)`, never a harness fault or a wallet verdict.
+ * cell that meets it is `blocked (infrastructure)`, never a harness fault or a wallet verdict. It is that cell's alone
+ * (`abortsLeg: false`): no INFRA_ABORT, and the next cell runs its own quiesce.
  */
 export class ChainUnavailable extends InfrastructureFault {
   constructor(message: string) {
-    super(message);
+    super(message, { abortsLeg: false });
     this.name = 'ChainUnavailable';
   }
 }
 
-// Reads of the chain's current state: asking again after the node failed one answers the same question. syncHeight is
-// not one, since a caller compares two of its heights (`expectNoPrompt`).
-const CHAIN_READS: ReadonlySet<DappCommandName> = new Set(['chainNote', 'chainNullifier', 'chainAccount']);
-const CHAIN_READ_RETRY_MS = 2_000;
+// Commands a repeat cannot change the answer of, so callDapp asks again after the node failed one. Each makes its node
+// call before anything the wallet, the adapter or the dApp's store sees, or repeats harmlessly (see the handlers in
+// test-dapp/test-dapp.ts): the chain reads; syncHeight; init, which keeps its first client and listens on the provider
+// once; buildCustom, which syncs before it builds or holds anything; makeNoteFile, whose getNotesById comes before its
+// import. waitForHeight is not one: the page retries its own syncs until the timeout it is handed.
+const REPEATABLE: ReadonlySet<DappCommandName> = new Set([
+  'chainNote',
+  'chainNullifier',
+  'chainAccount',
+  'syncHeight',
+  'init',
+  'buildCustom',
+  'makeNoteFile'
+]);
+const NODE_RETRY_MS = 2_000;
 
 function evaluateOnce<K extends DappCommandName>(
   dapp: DappHandle,
@@ -132,26 +153,35 @@ function evaluateOnce<K extends DappCommandName>(
 }
 
 /**
- * One `window.testDapp` command, raced against `deadline` when one is given. With a deadline, a chain read the node
- * failed is asked again every 2 s until it runs out (spec section 6, "chain reads poll until the cell deadline"); the
- * last failure is what it then throws.
+ * One `window.testDapp` command, raced against `deadline` when one is given. With a deadline, a `REPEATABLE` command
+ * the node failed is asked again every 2 s while the time left covers that interval and another attempt as long as the
+ * last (spec section 2.4); `once` asks a single time, for a read compared with an earlier one. The last node failure is
+ * what it then throws, with the attempt count, also when the deadline cuts the attempt after it.
  */
 export async function callDapp<K extends DappCommandName>(
   dapp: DappHandle,
   command: K,
   input: DappInput<K>,
-  deadline?: Deadline
+  deadline?: Deadline,
+  options: { once?: boolean } = {}
 ): Promise<DappOutput<K>> {
   if (deadline === undefined) return evaluateOnce(dapp, command, input);
+  const repeat = REPEATABLE.has(command) && options.once !== true;
+  let failed: ChainUnavailable | undefined;
   for (let attempt = 1; ; attempt += 1) {
+    const startedAt = Date.now();
     try {
       return await deadline.race(evaluateOnce(dapp, command, input), `dApp ${dapp.label} ${command}`);
     } catch (error) {
-      if (!(error instanceof ChainUnavailable) || !CHAIN_READS.has(command)) throw error;
-      if (deadline.remainingMs() < CHAIN_READ_RETRY_MS) {
+      if (error instanceof CellDeadlineExceeded && failed !== undefined) {
+        throw new ChainUnavailable(`${failed.message} (after ${attempt} attempts, the deadline cut the last)`);
+      }
+      if (!(error instanceof ChainUnavailable) || !repeat) throw error;
+      failed = error;
+      if (deadline.remainingMs() < NODE_RETRY_MS + (Date.now() - startedAt)) {
         throw attempt === 1 ? error : new ChainUnavailable(`${error.message} (after ${attempt} attempts)`);
       }
-      await new Promise(resolve => setTimeout(resolve, CHAIN_READ_RETRY_MS));
+      await new Promise(resolve => setTimeout(resolve, NODE_RETRY_MS));
     }
   }
 }
@@ -253,7 +283,9 @@ export async function waitForNoConfirmPages(context: BrowserContext, timeoutMs =
 /**
  * Runs a request that must not prompt, and proves no confirm.html page opened while it ran: only pages opened after
  * the listener is attached count. With `refusal`, the spec's positive control (section 5, Negative paths) also holds:
- * the promise settled before the next block the dApp observes, so nothing waited on a prompt or a timer.
+ * the promise settled before the next block the dApp observes, so nothing waited on a prompt or a timer. The height
+ * after the request is asked once, since a repeat lands later and widens the difference; when the node fails it, the
+ * control cannot be measured and its ChainUnavailable leaves the cell blocked by infrastructure.
  */
 export async function expectNoPrompt<T>(
   dapp: DappHandle,
@@ -268,7 +300,8 @@ export async function expectNoPrompt<T>(
   try {
     const before = options.refusal === true ? (await callDapp(dapp, 'syncHeight', {}, ctx.deadline)).height : 0;
     const result = await ctx.deadline.race(start(), 'request that must not prompt');
-    const after = options.refusal === true ? (await callDapp(dapp, 'syncHeight', {}, ctx.deadline)).height : 0;
+    const after =
+      options.refusal === true ? (await callDapp(dapp, 'syncHeight', {}, ctx.deadline, { once: true })).height : 0;
     await Promise.all(opened.map(page => page.waitForLoadState('domcontentloaded').catch(() => undefined)));
     const confirmPages = opened.map(page => page.url()).filter(url => url.includes('confirm.html'));
     ctx.evidence.popupOpened = confirmPages.length > 0;
@@ -294,6 +327,11 @@ export async function walletSyncedAtMs(page: Page): Promise<number | null> {
   return raw === null ? null : raw < 1e12 ? raw * 1000 : raw;
 }
 
+// The page's waitForHeight checks its own timeout only after a sync, then sleeps 1 s before the next: this leaves room
+// for that lap and a sync, so its "chain stuck ... last sync failed" error reaches the driver before the cell deadline.
+const HEIGHT_WAIT_MARGIN_MS = 5_000;
+const heightWaitMs = (deadline: Deadline): number => Math.max(1, deadline.remainingMs() - HEIGHT_WAIT_MARGIN_MS);
+
 /**
  * The spec's chain advance (section 6, "Wallet synced past N"): the dApp waits for `target`, then the wallet is
  * driven until two syncs completed after that moment. Without a popup the service worker syncs only on an alarm
@@ -308,7 +346,7 @@ export async function advanceChain(
   const reached = await callDapp(
     dapp,
     'waitForHeight',
-    { target, timeoutMs: ctx.deadline.remainingMs() },
+    { target, timeoutMs: heightWaitMs(ctx.deadline) },
     ctx.deadline
   );
   await ctx.deadline.race(
@@ -326,7 +364,7 @@ export async function advanceChain(
 /** The one block that passes with the approval popup open (the spec's "+P1"). */
 export async function popupBlock(dapp: DappHandle, ctx: CellContext): Promise<void> {
   const { height } = await callDapp(dapp, 'syncHeight', {}, ctx.deadline);
-  await callDapp(dapp, 'waitForHeight', { target: height + 1, timeoutMs: ctx.deadline.remainingMs() }, ctx.deadline);
+  await callDapp(dapp, 'waitForHeight', { target: height + 1, timeoutMs: heightWaitMs(ctx.deadline) }, ctx.deadline);
 }
 
 /** Closing a confirm page is the wallet's decline (dapp.ts:2512-2516). */

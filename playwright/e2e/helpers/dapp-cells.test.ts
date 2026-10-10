@@ -9,6 +9,7 @@ import {
   DappCellRunner,
   HarnessFault,
   InfrastructureFault,
+  abortsLeg,
   deadlineIn,
   infraAborted,
   isInfrastructureFailure,
@@ -22,6 +23,9 @@ import {
   type JourneyRecord
 } from './dapp-cells';
 import type { KnownBug, KnownBugRegistry } from './dapp-known-bugs';
+import { ChainUnavailable } from './test-dapp';
+
+jest.mock('@playwright/test', () => ({ expect: jest.fn() }));
 
 const KX: KnownBug = {
   id: 'KX',
@@ -42,6 +46,12 @@ const registry = (bugs: KnownBug[]): KnownBugRegistry => ({
 });
 
 const outDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'dapp-cells-'));
+const nodeFailure = () =>
+  new ChainUnavailable(
+    'dApp one syncHeight: page.evaluate: ChainUnavailableError: syncChain: TypeError: Failed to fetch'
+  );
+const faucetFailure = () =>
+  Object.assign(new Error('Public faucet grant failed: TypeError: fetch failed'), { name: 'PublicFaucetError' });
 const read = (file: string): JourneyRecord => JSON.parse(fs.readFileSync(file, 'utf8'));
 const cellOf = (id: string, run: CellSpec<string>['run'], extra: Partial<CellSpec<string>> = {}): CellSpec<string> => ({
   id,
@@ -190,6 +200,17 @@ describe('isInfrastructureFailure', () => {
   });
 });
 
+describe('abortsLeg', () => {
+  it('stops the leg on a public-faucet failure and a leg-scoped fault, never on a failed node request', () => {
+    expect(abortsLeg(faucetFailure())).toBe(true);
+    expect(abortsLeg(new Error('deploy_and_fund failed', { cause: faucetFailure() }))).toBe(true);
+    expect(abortsLeg(new InfrastructureFault('Guardian settle timed out against a hosted operator'))).toBe(true);
+    expect(abortsLeg(nodeFailure())).toBe(false);
+    expect(abortsLeg(new Error('dApp one init failed', { cause: nodeFailure() }))).toBe(false);
+    expect(abortsLeg(new HarnessFault('page threw'))).toBe(false);
+  });
+});
+
 describe('deadlineIn', () => {
   it('rejects work that outlives the budget and passes work that does not', async () => {
     await expect(deadlineIn(20, 'C1').race(new Promise(() => undefined), 'never settles')).rejects.toThrow(
@@ -278,6 +299,63 @@ describe('DappCellRunner', () => {
     );
     expect(infraAborted(dir)).toContain('Public faucet answered 502');
     expect((await runner.run(cellOf('C2', async () => undefined))).verdict).toBe('blocked-infra');
+  });
+
+  it('records a node failure in a cell body as blocked by infrastructure for that cell alone', async () => {
+    const dir = outDir();
+    const hooks = quietHooks();
+    const runner = makeRunner(dir, [], ['C1', 'C2'], hooks);
+    const first = await runner.run(
+      cellOf('C1', async () => {
+        throw nodeFailure();
+      })
+    );
+    expect([first.verdict, first.error]).toEqual([
+      'blocked-infra',
+      expect.stringContaining('ChainUnavailable: dApp one syncHeight')
+    ]);
+    expect(infraAborted(dir)).toBeNull();
+    expect((await runner.run(cellOf('C2', async () => undefined))).verdict).toBe('pass');
+    expect(hooks.calls).toContain('quiesce:C2');
+  });
+
+  it('records a node failure in a quiesce as blocked by infrastructure for that cell alone', async () => {
+    const dir = outDir();
+    const hooks = quietHooks();
+    hooks.quiesce = async (cell: CellSpec<string>) => {
+      hooks.calls.push(`quiesce:${cell.id}`);
+      if (cell.id === 'C1') throw nodeFailure();
+    };
+    const runner = makeRunner(dir, [], ['C1', 'C2'], hooks);
+    expect((await runner.run(cellOf('C1', async () => undefined))).verdict).toBe('blocked-infra');
+    expect(infraAborted(dir)).toBeNull();
+    expect((await runner.run(cellOf('C2', async () => undefined))).verdict).toBe('pass');
+    expect(hooks.calls).toEqual(['quiesce:C1', 'restore:C1', 'quiesce:C2', 'restore:C2']);
+  });
+
+  it('leaves a journey whose setup the node failed blocked by infrastructure, without INFRA_ABORT', () => {
+    const dir = outDir();
+    const runner = makeRunner(dir);
+    runner.setupFailed(nodeFailure());
+    expect(read(runner.file).cells.map(cell => cell.verdict)).toEqual([
+      'blocked-infra',
+      'blocked-infra',
+      'blocked-infra'
+    ]);
+    expect(infraAborted(dir)).toBeNull();
+  });
+
+  it('writes INFRA_ABORT for a setup the public faucet failed, and leaves any other setup failure to the judge', () => {
+    const faucetDir = outDir();
+    const faucetRunner = makeRunner(faucetDir);
+    faucetRunner.setupFailed(faucetFailure());
+    expect(infraAborted(faucetDir)).toContain('Public faucet grant failed');
+    expect(new Set(read(faucetRunner.file).cells.map(cell => cell.verdict))).toEqual(new Set(['blocked-infra']));
+    const claimDir = outDir();
+    const claimRunner = makeRunner(claimDir);
+    claimRunner.setupFailed(new Error('claimAllNotes: the Pending list did not drain within 180000ms'));
+    expect(infraAborted(claimDir)).toBeNull();
+    expect(new Set(read(claimRunner.file).cells.map(cell => cell.verdict))).toEqual(new Set(['not-run']));
   });
 
   it('blocks a whole journey that starts after an INFRA_ABORT', () => {

@@ -13,10 +13,7 @@ import {
   HarnessFault,
   InfrastructureFault,
   deadlineIn,
-  describeFailure,
   infraAborted,
-  isInfrastructureFailure,
-  markInfraAbort,
   ranClean,
   type CellContext,
   type CellRecord,
@@ -136,7 +133,8 @@ async function waitFor<T>(read: () => Promise<T | null>, what: string, timeoutMs
 /**
  * Creates and funds A (on the journey's axis) and B (single-sig), opens dApp one beside A, and writes every declared
  * cell as `not-run`. A funding failure that names the public faucet writes INFRA_ABORT, so later journeys record
- * `blocked (infrastructure)` without spending another grant.
+ * `blocked (infrastructure)` without spending another grant; a node that fails the dApp's init blocks this journey's
+ * cells alone (`DappCellRunner.setupFailed`).
  */
 export async function startJourney(input: StartJourneyInput): Promise<Journey> {
   const { journey, axis, walletA, walletB, midenCli, envConfig, steps, testInfo } = input;
@@ -198,10 +196,7 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
   } catch (error) {
     // A public-faucet failure anywhere in the funding is the environment's (spec section 6); a wallet claim failure
     // is not, and leaves the cells not-run for the judge.
-    if (isInfrastructureFailure(error)) {
-      markInfraAbort(OUT_DIR, describeFailure(error));
-      runner.blockAll(describeFailure(error));
-    }
+    runner.setupFailed(error);
     throw error;
   }
   accounts.set('primary', funded.a);
@@ -225,7 +220,13 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
   const contextA = walletA.page.context();
   // Started before the first request, so the log covers every popup of the journey.
   const confirmLog = recordConfirmPages(contextA);
-  const dapp = await openTestDapp(contextA, 'one', init('A-one'));
+  let dapp: DappHandle;
+  try {
+    dapp = await openTestDapp(contextA, 'one', init('A-one'));
+  } catch (error) {
+    runner.setupFailed(error);
+    throw error;
+  }
   let two: Promise<DappHandle> | undefined;
   let ofB: Promise<DappHandle> | undefined;
   const network = envConfig.name;

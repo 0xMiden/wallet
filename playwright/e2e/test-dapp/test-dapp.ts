@@ -68,7 +68,8 @@ class HarnessCheckError extends Error {
 }
 /**
  * The node failed a call the page made, or the chain did not advance: the network's fault, not the page's. The driver
- * matches the name, asks a chain read again until the cell deadline and reports the rest as infrastructure (callDapp).
+ * matches the name, asks again a command a repeat cannot change, and records the rest as an infrastructure failure of
+ * that cell alone (callDapp).
  */
 class ChainUnavailableError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
