@@ -324,14 +324,40 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
   try {
     const consumedNoteIds = inputNotes.map(inputNote => inputNote.note().id().toString());
     const applied = await applyBridgeInInfoForNotes(consumedNoteIds, info => applyBridgeInToConsumeRow(id, info));
-    // A batch's per-faucet total is no single delivery's amount, so only a one-note consume is paired by amount.
+    const accountId = dbTransaction?.accountId ?? '';
     if (!applied && inputNotes.length === 1) {
-      const accountId = dbTransaction?.accountId ?? '';
       // A note the USDCx faucet minted for an xReserve deposit is otherwise an ordinary faucet receive.
       const info =
         (await takeAgglayerBridgeInInfo({ accountId, senderAccountId: sender, amount })) ??
         (await takeUsdcxBridgeInInfo({ accountId, senderAccountId: sender, faucetId, amount }));
       if (info) await applyBridgeInToConsumeRow(id, { ...info, midenNoteId: consumedNoteIds[0] });
+    } else if (!applied) {
+      // A batch's per-faucet total is no single delivery's amount, and native USDCx mints are auto-claimed together,
+      // so each note is paired by its own sender, faucet and amount, one at a time so two same-amount mints adopt two
+      // rows. Only the tracking rows move; the batch row keeps its own label.
+      for (const inputNote of inputNotes) {
+        const batchNote = inputNote.note();
+        const noteAsset = batchNote.assets().fungibleAssets()[0];
+        if (!noteAsset) continue;
+        const noteSender = getBech32AddressFromAccountId(batchNote.metadata().sender());
+        const noteFaucetId = getBech32AddressFromAccountId(noteAsset.faucetId());
+        const noteAmount = noteAsset.amount();
+        const info =
+          (await takeAgglayerBridgeInInfo({ accountId, senderAccountId: noteSender, amount: noteAmount })) ??
+          (await takeUsdcxBridgeInInfo({
+            accountId,
+            senderAccountId: noteSender,
+            faucetId: noteFaucetId,
+            amount: noteAmount
+          }));
+        if (!info?.bridgeReceiveTxId) continue;
+        await updateBridgedReceivePhase(
+          info.bridgeReceiveTxId,
+          'received',
+          { midenNoteId: batchNote.id().toString() },
+          { amount: noteAmount, faucetId: noteFaucetId, transactionId: executedTransaction.id().toHex() }
+        );
+      }
     }
   } catch (err) {
     console.warn('[bridge-in] consume tagging failed (non-fatal)', err);
