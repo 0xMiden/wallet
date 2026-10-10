@@ -1,8 +1,10 @@
+import { guardianDappAxis } from './dapp-axis';
 import { abortsLeg, deadlineIn, InfrastructureFault } from './dapp-cells';
 import type { Journey } from './dapp-journey';
-import { nativeNoteTo, noteIdsSeenOver } from './dapp-writes';
+import { nativeNoteTo, noteIdsSeenOver, sideOf } from './dapp-writes';
 import { mintFromPublicFaucet, PublicFaucetError } from './public-faucet';
 import { waitForPublicNoteCommitment } from './public-note-commitment';
+import type { DappHandle } from './test-dapp';
 
 // @playwright/test does not load under Jest; dapp-writes only needs its expect (as in dapp-assertions.test.ts).
 jest.mock('@playwright/test', () => ({ expect: (globalThis as typeof globalThis & { expect: typeof expect }).expect }));
@@ -88,5 +90,25 @@ describe('noteIdsSeenOver', () => {
     const seen = noteIdsSeenOver(j, 2, ctx());
     await jest.advanceTimersByTimeAsync(5_000);
     expect((await seen).sort()).toEqual(['a1', 'b2']);
+  });
+});
+
+describe('sideOf', () => {
+  const dapp = {
+    label: 'one',
+    page: { evaluate: jest.fn(async () => ({ connected: { accountIdHex: '0xaccount' } })) }
+  } as unknown as DappHandle;
+  const guardianJourney = {
+    axis: guardianDappAxis('https://guardian.openzeppelin.com'),
+    walletA: {},
+    nativeFaucetId: 'mtst1qfee',
+    account: async (slot: string) => `mtst1q${slot}`
+  } as unknown as Journey;
+
+  it('checks a write from the third account as single-sig on the Guardian leg, and every other slot by the leg', async () => {
+    const third = await sideOf(guardianJourney, dapp, 'third');
+    expect({ account: third.account, axis: third.axis.label }).toEqual({ account: 'mtst1qthird', axis: 'offchain' });
+    expect((await sideOf(guardianJourney, dapp, 'second')).axis.label).toBe('guardian');
+    expect((await sideOf(guardianJourney, dapp)).axis.label).toBe('guardian');
   });
 });

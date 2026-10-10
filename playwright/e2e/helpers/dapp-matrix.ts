@@ -100,13 +100,22 @@ export const DAPP_JOURNEY_CELLS: Record<JourneyId, CellList> = {
     ...both('X11')
   ],
   XL: both('X6'),
-  M: both(
-    'S7',
-    'M1',
-    'M2',
-    ...STALE.flatMap(request => [`M3-${request}-switch`, `M3-${request}-revoke`]),
-    ...STALE.map(request => `M9-${request}`)
-  )
+  M: [
+    ...both(
+      'S7',
+      'M1',
+      'M2',
+      ...STALE.flatMap(request => [`M3-${request}-switch`, `M3-${request}-revoke`]),
+      ...STALE.map(request => `M9-${request}`),
+      'M4-reads',
+      'M4',
+      'M7'
+    ),
+    // The switch between kinds starts from a Guardian account, which only the Guardian leg has (spec M8).
+    { id: 'M8-single', axes: GUARDIAN },
+    { id: 'M8-guardian', axes: GUARDIAN },
+    ...both('M10', 'N5')
+  ]
 };
 
 export const cellIdsFor = (journey: JourneyId, axis: AxisLabel): string[] =>

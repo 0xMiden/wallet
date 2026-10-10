@@ -70,6 +70,9 @@ export type DappCellImpl = Omit<DappCell, 'id'>;
 /** A wallet setting a cell changed, put back by the restore after it. */
 export type TouchedSetting = 'faults' | 'delegate' | 'autoConsume' | 'spendingLimit';
 
+/** The kind of the account in `slot`: `third` is single-sig on either leg (M8 switches kinds in one wallet). */
+export const slotAxis = (axis: DappAxis, slot: AccountSlot): DappAxis => (slot === 'third' ? offchainDappAxis : axis);
+
 export const UNIT = 10n ** BigInt(TOKEN_DECIMALS);
 /** TST amounts in base units, from whole tokens with at most two decimals. */
 export const tst = (units: number): bigint => (BigInt(Math.round(units * 100)) * UNIT) / 100n;
@@ -266,8 +269,7 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
     account: async slot => {
       const known = accounts.get(slot);
       if (known !== undefined) return known;
-      // `third` is a single-sig account on either leg (M8 switches between kinds in one wallet).
-      const created = await walletA.createAdditionalAccount(slot === 'third' ? 'off-chain' : axis.walletType);
+      const created = await walletA.createAdditionalAccount(slotAxis(axis, slot).walletType);
       accounts.set(slot, created.address);
       await selectAccountIfNeeded(walletA, funded.a);
       return created.address;

@@ -24,7 +24,7 @@ describe('dApp matrix data', () => {
     const missing = KNOWN_BUGS.flatMap(bug =>
       Object.entries(bug.cells).flatMap(([cell, axes]) => axes.map(axis => `${bug.id}:${cell}@${axis}`))
     ).filter(key => !declared.has(key.slice(key.indexOf(':') + 1)));
-    expect(missing).toEqual(KNOWN_BUG_CELLS_NOT_YET_DECLARED);
+    expect(missing).toEqual([]);
   });
 
   it('keeps every journey timeout at or above its initial testnet value', () => {
@@ -46,13 +46,3 @@ describe('dApp matrix data', () => {
 const INITIAL_TIMEOUT_MIN: Record<JourneyId, number> = { S: 20, R: 45, W: 60, X: 45, XL: 25, M: 60 };
 
 const PART_JOURNEYS: Record<'core' | 'writes', JourneyId[]> = { core: ['S', 'R', 'M'], writes: ['W', 'X', 'XL'] };
-
-// Shrinks to [] as tasks 7 to 15 declare their journeys; task 15 makes it empty for good.
-const KNOWN_BUG_CELLS_NOT_YET_DECLARED: string[] = [
-  'K3:M8-guardian@guardian',
-  'K4:M8-guardian@guardian',
-  'K7:M7@offchain',
-  'K7:M7@guardian',
-  'K9:M4-reads@offchain',
-  'K9:M4-reads@guardian'
-];

@@ -12,7 +12,7 @@ import {
 import { offchainDappAxis } from './dapp-axis';
 import { HarnessFault, InfrastructureFault, type CellContext } from './dapp-cells';
 import { canonicalAddress, normalizeHex, waitForFreshSyncs } from './dapp-gates';
-import { setupContext, type AccountSlot, type Journey } from './dapp-journey';
+import { setupContext, slotAxis, type AccountSlot, type Journey } from './dapp-journey';
 import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
 import { waitForPublicNoteCommitment } from './public-note-commitment';
 import {
@@ -44,14 +44,17 @@ import type {
  * what it writes and nothing about how a write is checked.
  */
 
-/** The executing side of a write: wallet A's account in `slot`, as the given dApp is connected to it. */
+/**
+ * The executing side of a write: wallet A's account in `slot`, as the given dApp is connected to it, checked as the
+ * kind that account is, so the single-sig `third` account's write gets no Guardian settle or commitment step (M8).
+ */
 export async function sideOf(j: Journey, dapp: DappHandle, slot: AccountSlot = 'primary'): Promise<WriteSide> {
   const view = await callDapp(dapp, 'session', {});
   if (view.connected === null) throw new HarnessFault(`dApp ${dapp.label} is not connected`);
   return {
     wallet: j.walletA,
     dapp,
-    axis: j.axis,
+    axis: slotAxis(j.axis, slot),
     account: await j.account(slot),
     accountIdHex: view.connected.accountIdHex,
     nativeFaucetId: j.nativeFaucetId
@@ -181,8 +184,8 @@ export interface CustomWrite {
   slot?: AccountSlot;
 }
 
-const previewFor = (j: Journey, preview: CustomWrite['preview']) => ({
-  amount: j.axis.expected.previewAmount === 'net' ? (preview.netAmount ?? preview.amount) : preview.amount,
+const previewFor = (side: WriteSide, preview: CustomWrite['preview']) => ({
+  amount: side.axis.expected.previewAmount === 'net' ? (preview.netAmount ?? preview.amount) : preview.amount,
   outputNotes: preview.outputNotes,
   timeoutMs: preview.timeoutMs
 });
@@ -206,7 +209,7 @@ export async function customWriteToTheEnd(
       decision: 'approve',
       origin: dapp.origin,
       whileOpen: async popup => {
-        await expectVerifiedPreview(popup, previewFor(j, write.preview), ctx);
+        await expectVerifiedPreview(popup, previewFor(side, write.preview), ctx);
         await popupBlock(dapp, ctx);
       }
     },
