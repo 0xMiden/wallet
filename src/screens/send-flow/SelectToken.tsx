@@ -68,12 +68,11 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
 
   const onSelectToken = useCallback(
     (token: UIToken) => {
-      if (usdcxOnly && !isUsdcxWithdrawalAvailable(token.id)) return;
       onSelect(token);
       setSearchQuery('');
       onOpenChange(false);
     },
-    [onSelect, onOpenChange, usdcxOnly]
+    [onSelect, onOpenChange]
   );
 
   // SendManager's back handler closes this sheet, so the sheet does not register its own.

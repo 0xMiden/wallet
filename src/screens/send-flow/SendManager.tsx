@@ -585,11 +585,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // appears later cannot replace it.
   const onSelectToken = useCallback(
     (selectedToken: UIToken) => {
-      if (usdcxOnly && !isUsdcxWithdrawalAvailable(selectedToken.id)) return;
       appliedPreselectionRef.current = preselectedTokenId ?? null;
       onAction({ id: SendFlowActionId.SetFormValues, payload: { token: selectedToken } });
     },
-    [preselectedTokenId, onAction, usdcxOnly]
+    [preselectedTokenId, onAction]
   );
 
   // Hand off to the full-screen review page, which owns the transaction
@@ -599,7 +598,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // A cross-chain send carries its network + route along, so the review page
   // can quote the Epoch output and pick the right submit path.
   const goToReview = useCallback(() => {
-    if (!token || !amount || !recipientAddress || (usdcxOnly && !usdcxAvailable)) return;
+    if (!token || !amount || !recipientAddress) return;
     reviewHandoffRef.current = true;
     setSendDraft({
       amount,
@@ -612,18 +611,17 @@ export const SendManager: React.FC<SendManagerProps> = ({
     if (isBridge && bridgeNetwork) params.set('network', bridgeNetwork);
     if (isBridge && bridgeRoute) params.set('route', bridgeRoute);
     navigate(`/send/review?${params.toString()}`);
-  }, [amount, recipientAddress, token, isBridge, bridgeNetwork, bridgeRoute, usdcxOnly, usdcxAvailable]);
+  }, [amount, recipientAddress, token, isBridge, bridgeNetwork, bridgeRoute]);
 
   // From the Amount screen: a cross-chain send picks a route next; a same-chain
   // Miden send goes straight to review.
   const onConfirmAmount = useCallback(() => {
-    if (!token || (usdcxOnly && !usdcxAvailable)) return;
     if (isBridge) {
       navigateTo(SendFlowStep.Route);
       return;
     }
     goToReview();
-  }, [isBridge, navigateTo, goToReview, token, usdcxOnly, usdcxAvailable]);
+  }, [isBridge, navigateTo, goToReview]);
 
   const onRouteChange = useCallback(
     (route: BridgeRoute) => {

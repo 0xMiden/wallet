@@ -60,7 +60,7 @@ export const AssetListItem: FC<AssetListItemProps> = ({
   badge
 }) => {
   const handleClick = () => {
-    if (!onClick || disabled) return;
+    if (!onClick) return;
     hapticLight();
     onClick();
   };

@@ -1775,7 +1775,7 @@ describe('USDCx withdrawal wiring', () => {
     expect(screen.getByTestId('route-usdcx')).toHaveTextContent(/^false$/);
   });
 
-  it('keeps Arc selected and refuses another token after USDCx selection', () => {
+  it('keeps Arc selected and clears another token picked after USDCx', () => {
     const { rerender } = renderFlow();
     pickToken(usdcxToken);
     pickEvmRecipient();
@@ -1785,7 +1785,7 @@ describe('USDCx withdrawal wiring', () => {
     expect(screen.getByTestId('sr-network')).toHaveTextContent(/^arc-testnet$/);
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     rerender(<SendFlow isLoading={false} />);
-    expect(screen.getByTestId('sa-token')).toHaveTextContent('USDCx');
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
   });
 
   it('offers all bridge destinations before and after token selection', () => {
