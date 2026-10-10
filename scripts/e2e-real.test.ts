@@ -29,7 +29,6 @@ import {
   run,
   suiteRetries
 } from './e2e-real.mjs';
-import fixture from '../src/lib/agglayer/b2agg/exit-hash.vectors.json';
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
@@ -703,14 +702,20 @@ describe('pricedAmountFrom', () => {
  * this probe on its own, after the suite, so a renumbering fails that job without hiding the suite's own result.
  */
 describe('the AggLayer indexer guard', () => {
-  // Miden exit 0 as the live indexer serves it, trimmed to the fields the guard reads.
-  const LIVE = { deposit: { deposit_cnt: 0, network_id: 86, dest_net: 0, tx_hash: `0x${'1'.repeat(64)}` } };
+  // Miden exit 0 as the live testnet indexer serves it, trimmed to the fields the guard reads.
+  const LIVE = {
+    deposit: {
+      deposit_cnt: 0,
+      network_id: 73,
+      dest_net: 0,
+      tx_hash: '0x7f575a1303af796b028c12c0e9a920800c411fd04064aa6c77a9c0439988b9db'
+    }
+  };
 
   // The wallet derives the rollup id from the bridge account; the probe holds the testnet's, the network the live
-  // indexer filed the golden exits under, which the wallet's own lookup tests read too.
-  it('pins the testnet rollup id: the network the testnet indexer filed the golden exits under', () => {
-    const deposit16 = fixture.vectors.find(vector => vector.depositCnt === 16);
-    expect(AGGLAYER_MIDEN_NETWORK_ID).toBe(deposit16?.indexerDeposit?.network_id);
+  // indexer files Miden exit 0 under.
+  it('pins the testnet rollup id: the network the testnet indexer filed Miden exit 0 under', () => {
+    expect(AGGLAYER_MIDEN_NETWORK_ID).toBe(LIVE.deposit.network_id);
   });
 
   it('accepts the live filing', () => {
@@ -723,7 +728,7 @@ describe('the AggLayer indexer guard', () => {
       'a renumbered network (78)',
       200,
       { deposit: { ...LIVE.deposit, network_id: 78 } },
-      'under network 78, not the testnet rollup id 86'
+      'under network 78, not the testnet rollup id 73'
     ],
     [
       'an exit bound elsewhere (dest_net 1)',
@@ -748,7 +753,7 @@ describe('the AggLayer indexer guard', () => {
 
       await expect(probeAgglayerIndexer(INDEXER, { get, retryDelayMs: 0 })).resolves.toBe(true);
       expect(get).toHaveBeenCalledTimes(1);
-      expect(get).toHaveBeenCalledWith(`${INDEXER}/bridge?net_id=86&deposit_cnt=0`);
+      expect(get).toHaveBeenCalledWith(`${INDEXER}/bridge?net_id=73&deposit_cnt=0`);
     });
 
     it.each([

@@ -1,0 +1,12 @@
+{
+  "word": {
+    "publicKeyB64": "AQOd/MlIm7GXsTvvgYAazNPxoAzchlufaxlzZl55jNxsUg==",
+    "signatureB64": "AaMytzPVbA76tWpsV48vHOnSZL5TSVpYSCpqyLW8Mq0eX6R5PESDBLUj5k98JnQNQ12Zf78YiC8RdBW5nmd+ntgB",
+    "messageB64": "CwAAAAAAAAAWAAAAAAAAACEAAAAAAAAALAAAAAAAAAA="
+  },
+  "signingInputs": {
+    "publicKeyB64": "AQOhO0LxQvpGj52V+7BVYeNtD2VyIfNuDEjkiDXLB99qRQ==",
+    "signatureB64": "AbI3dRE6fkZgwaIBn4PtU0/y66tttKO4OCmAyAvY6vJlfuj5MWYzf29IrOflO3ctUok2JwlZ1g7N+sY9BH0lsO0A",
+    "messageB64": "5fdjng5QvR9o453B+PYzArcdgfZBN27oZ4f/5nvIvLw="
+  }
+}

@@ -350,6 +350,97 @@ export async function waitForVaultBalanceByFaucetId(
   );
 }
 
+interface CurrentAccountRows {
+  account: string | null;
+  rows: Array<{ tokenId: string; decimals: number; balance: number }>;
+}
+
+// The store keys `balances` by the account's public key, the same key `currentAccount` carries (withLandedBalances in
+// src/lib/store/index.ts), so the current account's rows are one lookup and no other account's rows can leak in.
+async function currentAccountRows(page: Page): Promise<CurrentAccountRows> {
+  return page.evaluate(() => {
+    const store:
+      | {
+          getState?: () => {
+            currentAccount?: { publicKey?: string } | null;
+            balances?: Record<string, TokenBalanceData[]>;
+            assetsMetadata?: Record<string, AssetMetadata>;
+          };
+        }
+      | undefined = Reflect.get(window, '__TEST_STORE__');
+    const state = store?.getState?.();
+    const account = state?.currentAccount?.publicKey;
+    const rows = account === undefined ? [] : (state?.balances?.[account] ?? []);
+    return {
+      account: account ?? null,
+      rows: rows.map(token => ({
+        tokenId: String(token?.tokenId ?? ''),
+        decimals: Number(token?.metadata?.decimals ?? state?.assetsMetadata?.[String(token?.tokenId ?? '')]?.decimals),
+        balance: Number(token?.balance ?? 0)
+      }))
+    };
+  });
+}
+
+function rowsToBaseUnits(label: string, rows: CurrentAccountRows['rows']): bigint {
+  let total = 0n;
+  for (const row of rows) {
+    if (!Number.isInteger(row.decimals) || row.decimals < 0)
+      throw new Error(`${label}: missing or invalid token decimals`);
+    total += rowBaseUnits(label, row.balance, row.decimals);
+  }
+  return total;
+}
+
+/**
+ * Spendable base units of one faucet in the CURRENT account only. `vaultBalance` and `vaultBalanceByFaucetId` sum
+ * every account's rows, so with a second account in the wallet a debit on one hides behind the other's balance.
+ */
+export async function vaultBalanceOfCurrentAccount(page: Page, faucetId: string): Promise<bigint> {
+  const { account, rows } = await currentAccountRows(page);
+  if (account === null) throw new Error('vaultBalanceOfCurrentAccount: the store has no current account');
+  return rowsToBaseUnits(
+    `vaultBalanceOfCurrentAccount(${faucetId})`,
+    rows.filter(row => row.tokenId === faucetId)
+  );
+}
+
+/** Wait for an exact spendable balance of one faucet in the current account, or report expected and actual units. */
+export async function waitForVaultBalanceOfCurrentAccount(
+  page: Page,
+  faucetId: string,
+  expected: bigint,
+  opts: { timeoutMs?: number } = {}
+): Promise<void> {
+  return pollVaultBalance(
+    page,
+    `waitForVaultBalanceOfCurrentAccount(${faucetId})`,
+    () => vaultBalanceOfCurrentAccount(page, faucetId),
+    expected,
+    opts
+  );
+}
+
+/** Nonzero assets of the current account as faucet id to base units, the shape `assetMap` gives a dApp's view. */
+export async function vaultAssetsOfCurrentAccount(page: Page): Promise<Record<string, string>> {
+  const { account, rows } = await currentAccountRows(page);
+  if (account === null) throw new Error('vaultAssetsOfCurrentAccount: the store has no current account');
+  const ids = [...new Set(rows.map(row => row.tokenId))];
+  const entries = ids.map(
+    id =>
+      [
+        id,
+        rowsToBaseUnits(
+          `vaultAssetsOfCurrentAccount(${id})`,
+          rows.filter(row => row.tokenId === id)
+        )
+      ] as const
+  );
+  return Object.fromEntries(
+    entries.filter(([, amount]) => amount !== 0n).map(([id, amount]) => [id, amount.toString()])
+  );
+}
+
 /** Re-read `read` every 2s until it equals `expected`, or throw with both amounts and `diagnose`'s lines. */
 async function pollVaultBalance(
   page: Page,

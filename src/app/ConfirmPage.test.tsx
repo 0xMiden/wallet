@@ -704,6 +704,14 @@ describe('consume payload', () => {
 
     await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', true, false));
   });
+
+  it('marks each consume row value for E2E, as the transaction rows are', () => {
+    setPayload({ ...consumePayload(), transactionMessages: ['Consuming note', 'Amount, 7.25', 'Note Type, Public'] });
+    render(<ConfirmPage />);
+
+    expect(screen.getByTestId('confirm-tx-value-amount')).toHaveTextContent('7.25');
+    expect(screen.getByTestId('confirm-tx-value-note-type')).toHaveTextContent('Public');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1172,6 +1180,16 @@ describe('ConfirmPage custom transaction', () => {
 
     await waitFor(() => expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument());
     expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
+  });
+
+  it('marks the could-not-simulate line for E2E', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'boom' });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('tx-simulation-failed')).toHaveTextContent('couldNotVerifyBySimulation')
+    );
   });
 });
 

@@ -45,6 +45,28 @@ export function publicFaucetApiUrl(network: string): string | undefined {
 }
 
 /**
+ * How every public-faucet helper rejects: the message begins "Public faucet" and the original failure is the cause.
+ * A timeout, undici's "fetch failed" or a malformed answer does not name the faucet on its own, and the dApp journeys
+ * tell a faucet outage from a wallet failure by that name (`isInfrastructureFailure`, dapp-cells.ts).
+ */
+export class PublicFaucetError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'PublicFaucetError';
+  }
+}
+
+/** `error` as a PublicFaucetError, keeping a message that already names the faucet. */
+export function publicFaucetFailure(error: unknown, what: string): PublicFaucetError {
+  if (error instanceof PublicFaucetError) return error;
+  if (error instanceof Error && error.message.startsWith('Public faucet')) {
+    return new PublicFaucetError(error.message, { cause: error });
+  }
+  const text = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return new PublicFaucetError(`Public faucet ${what} failed: ${text}`, { cause: error });
+}
+
+/**
  * Fetches `url` and runs `read` on the response inside one bound, as the app's faucetFetch does: the timer runs
  * through the body read and aborts with a TimeoutError naming the bound, and the request is aborted once `read`
  * settles, which ends any body it left unread.
@@ -207,7 +229,7 @@ async function advertisedGrantAmount(baseUrl: string): Promise<bigint> {
  * during incidents), so the grant is retried from a new challenge, which also avoids replaying one
  * that may have expired. A 429 is waited out for as long as the faucet asks, within
  * `RATE_LIMIT_BUDGET_MS`, and does not count against the 5xx attempts. Any other 4xx answers this
- * request and fails at once.
+ * request and fails at once. Every rejection is a `PublicFaucetError`.
  */
 export async function mintFromPublicFaucet(
   baseUrl: string,
@@ -229,7 +251,9 @@ export async function mintFromPublicFaucet(
         await sleep(error.retryAfterMs);
         continue;
       }
-      if (!(error instanceof FaucetServerError) || ++serverFailures >= GRANT_ATTEMPTS) throw error;
+      if (!(error instanceof FaucetServerError) || ++serverFailures >= GRANT_ATTEMPTS) {
+        throw publicFaucetFailure(error, 'grant');
+      }
       await sleep(retryDelayMs * serverFailures);
     }
   }

@@ -1,6 +1,8 @@
 /** @jest-environment node */
 import { execFile } from 'child_process';
 
+import { isInfrastructureFailure } from './dapp-cells';
+import { PublicFaucetError } from './public-faucet';
 import { waitForPublicNoteCommitment } from './public-note-commitment';
 
 jest.mock('child_process', () => ({ execFile: jest.fn() }));
@@ -71,9 +73,24 @@ describe('waitForPublicNoteCommitment', () => {
     const waiting = waitForPublicNoteCommitment('https://rpc.devnet.miden.io', NOTE_ID, 5_000);
     const outcome = waiting.catch(error => error);
     await jest.runAllTimersAsync();
-    expect(await outcome).toEqual(new Error('Public faucet note did not commit within 5000ms'));
+    const error = await outcome;
+    expect(error).toEqual(new Error('Public faucet note did not commit within 5000ms'));
+    expect(error).toBeInstanceOf(PublicFaucetError);
     expect(calls()).toBe(4);
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('names the public faucet when the query process itself fails', async () => {
+    const cause = new Error('spawn node ENOENT');
+    execute.mockImplementation(((_file: string, _args: string[], _options: unknown, callback: Function) =>
+      callback(cause, '')) as typeof execFile);
+    const error = await waitForPublicNoteCommitment('https://rpc.devnet.miden.io', NOTE_ID).catch(failure => failure);
+    expect(error).toBeInstanceOf(PublicFaucetError);
+    expect(error).toMatchObject({
+      message: `Public faucet note ${NOTE_ID} commitment query failed: Error: spawn node ENOENT`,
+      cause
+    });
+    expect(isInfrastructureFailure(error)).toBe(true);
   });
 
   it('rejects a missing or malformed receipt before starting the RPC query', async () => {
