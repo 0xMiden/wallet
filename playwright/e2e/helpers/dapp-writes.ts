@@ -11,7 +11,7 @@ import {
 } from './dapp-assertions';
 import { offchainDappAxis } from './dapp-axis';
 import { HarnessFault, InfrastructureFault, type CellContext } from './dapp-cells';
-import { canonicalAddress, normalizeHex, waitForFreshSyncs } from './dapp-gates';
+import { canonicalAddress, isJourneySender, normalizeHex, waitForFreshSyncs } from './dapp-gates';
 import { setupContext, slotAxis, type AccountSlot, type Journey } from './dapp-journey';
 import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
 import { waitForPublicNoteCommitment } from './public-note-commitment';
@@ -19,7 +19,6 @@ import {
   advanceChain,
   answerPrompt,
   callDapp,
-  pendingNoteIds,
   pendingNotes,
   popupBlock,
   selectAccountIfNeeded,
@@ -344,9 +343,26 @@ export async function produceNotesFromB(
  * so counting laps alone does not prove that.
  */
 export async function noteIdsSeenOver(j: Journey, laps: number, ctx: CellContext): Promise<string[]> {
+  return idsSeenOver(j, laps, ctx, () => true);
+}
+
+/**
+ * `noteIdsSeenOver` without the notes a third party sent (spec section 5, Writes step 7): a stranger's note can arrive
+ * or be auto-consumed between two such reads, so a comparison of them (R11) counts only the journey's.
+ */
+export async function journeyNoteIdsSeenOver(j: Journey, laps: number, ctx: CellContext): Promise<string[]> {
+  return idsSeenOver(j, laps, ctx, note => isJourneySender(note.senderAddress, j.senders()));
+}
+
+async function idsSeenOver(
+  j: Journey,
+  laps: number,
+  ctx: CellContext,
+  keep: (note: PendingNote) => boolean
+): Promise<string[]> {
   const seen = new Set<string>();
   const read = async () => {
-    for (const id of await pendingNoteIds(j.walletA.page)) seen.add(normalizeHex(id));
+    for (const note of await pendingNotes(j.walletA.page)) if (keep(note)) seen.add(normalizeHex(note.id));
   };
   await ctx.deadline.race(
     waitForFreshSyncs({

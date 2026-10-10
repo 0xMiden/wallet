@@ -28,6 +28,7 @@ import pinned from '../../helpers/dapp-pinned.json';
 import {
   customWriteToTheEnd,
   dappSendToTheEnd,
+  journeyNoteIdsSeenOver,
   noteIdsSeenOver,
   pendingImportQueue,
   pendingNote,
@@ -456,7 +457,7 @@ function refusalCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
       budget: 'read',
       run: async ctx => {
         const malformed = Buffer.from([0, 1, 2, 3, 4]).toString('base64');
-        const before = (await noteIdsSeenOver(j, 1, ctx)).sort();
+        const before = (await journeyNoteIdsSeenOver(j, 1, ctx)).sort();
         const { result } = await answerPrompt(
           dapp,
           () => callDapp(dapp, 'importNote', { noteBytesB64: malformed }, ctx.deadline),
@@ -466,7 +467,7 @@ function refusalCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
         expect(result).toEqual(refusal('InvalidParamsMidenWalletError', /^INVALID_PARAMS: /));
         // Only a network failure or a pipeline kill queues bytes for a retry (dapp.ts:1410-1414).
         expect(await pendingImportQueue(j.walletA.page)).not.toContain(malformed);
-        expect((await noteIdsSeenOver(j, 1, ctx)).sort()).toEqual(before);
+        expect((await journeyNoteIdsSeenOver(j, 1, ctx)).sort()).toEqual(before);
       }
     }
   };
