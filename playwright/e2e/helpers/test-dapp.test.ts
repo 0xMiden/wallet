@@ -196,6 +196,44 @@ describe('expectNoPrompt', () => {
     expect(await checked).toBeInstanceOf(ChainUnavailable);
     expect(calls.map(entry => entry.command)).toEqual(['syncHeight', 'syncHeight', 'syncHeight']);
   });
+
+  // A request the wallet prompts for never settles until someone answers the popup, so without this the cell would
+  // end at its deadline with nothing recorded about the popup.
+  const prompting = (url: string) => {
+    const listeners: Array<(page: Page) => void> = [];
+    const { dapp } = dappAnswering([]);
+    const context = { on: jest.fn((_event: string, listener: (page: Page) => void) => listeners.push(listener)) };
+    const handle: DappHandle = { ...dapp, context: { ...dapp.context, ...context } as unknown as BrowserContext };
+    const ctx = contextFor(deadlineIn(60_000, 'R3'));
+    const checked = expectNoPrompt(handle, () => new Promise<never>(() => undefined), ctx).catch(
+      (error: unknown) => error
+    );
+    const open = () => {
+      const page = { url: () => url, waitForLoadState: jest.fn(async () => undefined) } as unknown as Page;
+      for (const listener of listeners) listener(page);
+    };
+    return { checked, ctx, open };
+  };
+
+  it('fails at once, with the popup as evidence, when a confirm page opens for the request', async () => {
+    const { checked, ctx, open } = prompting('chrome-extension://wallet/confirm.html#?id=1');
+    await jest.advanceTimersByTimeAsync(0);
+    open();
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(await Promise.race([checked, Promise.resolve('still waiting')])).toMatchObject({
+      message: expect.stringContaining('a confirm.html page opened for a request that must not prompt')
+    });
+    expect(ctx.evidence).toEqual({ popupOpened: true });
+  });
+
+  it('keeps waiting when the page that opens is not a confirm page', async () => {
+    const { checked, ctx, open } = prompting('http://localhost:4810/');
+    await jest.advanceTimersByTimeAsync(0);
+    open();
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(await Promise.race([checked, Promise.resolve('still waiting')])).toBe('still waiting');
+    expect(ctx.evidence).toEqual({});
+  });
 });
 
 describe('the height wait the driver hands the page', () => {
