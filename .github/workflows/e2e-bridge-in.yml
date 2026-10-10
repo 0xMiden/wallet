@@ -300,7 +300,11 @@ jobs:
     name: AggLayer bridge-in (${{ inputs.loop_count }} loops, Android Testnet)
     if: github.event_name == 'workflow_dispatch' && inputs.platform == 'android'
     needs: build-cli
-    runs-on: macos-26-intel
+    # The standard 4-vCPU Intel runner let Hypervisor.framework pass, but the
+    # Android emulator then forced its guest to one vCPU and QEMU never exposed
+    # adb. The 12-core Intel larger runner keeps hardware acceleration and has
+    # enough host CPU/RAM for the visible x86_64 AVD.
+    runs-on: macos-26-large
     timeout-minutes: 360
     env:
       E2E_NETWORK: testnet
@@ -329,10 +333,21 @@ jobs:
         with:
           packages: platform-tools
 
+      # Emulator 37.2.12 explicitly reduced the guest to one vCPU on hosts with
+      # fewer than six logical cores, then QEMU stalled before adb became ready.
+      - name: Verify Android emulator host capacity
+        run: |
+          host_cores=$(sysctl -n hw.ncpu)
+          if ! [[ "$host_cores" =~ ^[0-9]+$ ]] || (( host_cores < 6 )); then
+            echo "::error::The Android x86_64 emulator requires at least 6 host logical CPUs; this runner reports '$host_cores'."
+            exit 1
+          fi
+          echo "Android emulator host exposes $host_cores logical CPUs."
+
       - name: Install SDK packages
         run: |
           if [[ "$(uname -m)" != "x86_64" ]]; then
-            echo "::error::macos-26-intel must provide an x86_64 host for the Android image"
+            echo "::error::macos-26-large must provide an x86_64 host for the Android image"
             exit 1
           fi
           sdkmanager --install "platform-tools" "emulator" \

@@ -59,3 +59,5 @@
 - If a CI cache includes compiled binaries, key it by host OS as well as CPU architecture and toolchain pins; architecture-only keys can copy unusable executables across operating systems.
 
 - When the user has already asked to repair and retry a failed CI workload, carry the work through root-cause fix, focused verification, feature-branch publication and one exact retry without reopening scope. Keep unrelated dirty worktrees untouched and check the failed run before dispatching again.
+
+- An Android emulator's `-accel-check` can pass on a 4-vCPU Intel macOS runner even when QEMU later limits the guest to one vCPU and never exposes adb. Validate the emulator host's logical CPU count before installing/building, and use an Intel macOS runner with enough cores for the x86_64 AVD.

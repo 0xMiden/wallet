@@ -24,16 +24,26 @@
    if: github.event_name == 'workflow_dispatch' && inputs.platform == 'android'
    ```
 
+4. [Expert, fixed] Run the Android x86_64 AVD on an Intel host with enough logical CPUs and fail before SDK installation if the runner does not meet the observed six-core minimum. The exact failed-run artifact showed the standard runner forced the guest to one vCPU and QEMU stalled before `adb` appeared.
+
+   ```yaml
+   # .github/workflows/e2e-bridge-in.yml:303-307,336-345
+   runs-on: macos-26-large
+   if ! [[ "$host_cores" =~ ^[0-9]+$ ]] || (( host_cores < 6 )); then
+     exit 1
+   fi
+   ```
+
 ### Low
 
-4. [Expert, fixed] Route source checkout and Cargo preparation through the process-tree-aware timeout runner so timed-out setup commands cannot race source cleanup.
+5. [Expert, fixed] Route source checkout and Cargo preparation through the process-tree-aware timeout runner so timed-out setup commands cannot race source cleanup.
 
    ```js
    // scripts/install-pinned-miden-cli.cjs:82-98,316-329
    await run('cargo', ['update', '--workspace'], { cwd: source, stdio: 'inherit', timeoutMs: 180_000 });
    ```
 
-5. [Expert, fixed] Name Hypervisor.framework as the acceleration layer for this macOS runner so the setup comment points maintainers to the correct VM backend.
+6. [Expert, fixed] Name Hypervisor.framework as the acceleration layer for this macOS runner so the setup comment points maintainers to the correct VM backend.
 
    ```yaml
    # .github/workflows/e2e-bridge-in.yml:56-57

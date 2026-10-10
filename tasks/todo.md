@@ -409,12 +409,30 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - [x] Make CLI compilation bounded and process-tree-aware; retain cargo artifacts across failed builds and preserve the primary failure if cleanup also fails.
 - [x] Give the cold CLI build its own job budget while keeping the Android 100-loop job's full 360-minute budget.
 - [x] Add focused installer regressions, verify the workflow and scoped diff, and complete an independent code review.
-- [ ] Push the fix only to the feature branch and dispatch one fresh 100-loop run after checking the prior run's terminal state.
-- [ ] Monitor the exact run and reconcile terminal status, all loop records, Miden receipts, and balances from its artifacts.
+- [x] Push the fix only to the feature branch; after confirming run `38059563408` was terminal failure, dispatch one fresh 100-loop Android run.
+- [x] Monitor run `38091647355` to terminal status and reconcile its loop, receipt, and balance evidence.
 
 ## Review/results
 
 - Focused installer regressions pass (11/11); Node syntax checks, workflow `actionlint` with the known custom runner labels ignored, both YAML parses, and `git diff --check` pass.
 - Independent review confirmed that Cargo target artifacts are cached only after a successful build or confirmed process-tree stop, and that the verified CLI cache remains behind the success gate.
 - The Android workflow dispatch must include `-f platform=android`; the existing manual default remains iOS.
-- Playwright collection and hosted Android execution remain pending in the fresh GitHub Actions run.
+- Pushed commit `5c18aeddc` to the recovery branch; run `38091647355` started on SHA `5c18aeddce1985c6a2480c90df5ab47ce45923ec` after confirming the earlier run was completed with failure.
+- The formerly failing cold CLI build completed successfully in 32m20s; the verified CLI cache restored in Android, acceleration/AVD and APK build passed.
+- Run `38091647355` failed in Android global setup after 19m53s: Playwright reported `expected=0`, with no suite/test started. Its exact emulator log says the host had fewer than six logical cores, reduced the guest to one vCPU, and then QEMU's main/CPU threads stopped responding; `adb devices` showed no device. No bridge loop or Testnet transaction ran.
+
+## Repair Android emulator boot on the Intel runner
+
+- [x] Download and inspect only run `38091647355`'s Playwright summary, emulator log, and failure diagnostics.
+- [x] Identify the resource mismatch: the standard Intel runner passed `-accel-check` but did not provide enough host CPU for the AVD to boot.
+- [x] Move only the Android workload to the 12-core Intel macOS larger runner and fail early if fewer than six logical CPUs are exposed.
+- [x] Run scoped workflow validation and obtain a fresh independent review.
+- [x] Push the reviewed repair only to the feature branch.
+- [ ] Obtain fresh authorization for one new live 100-loop Testnet run; the earlier per-run authorization expired when run `38091647355` completed.
+
+## Emulator repair review/results
+
+- GitHub's official runner reference lists `macos-26-intel` at 4 CPUs/14 GB and the Intel `macos-26-large` runner at 12 CPUs/30 GB. The workflow now uses the latter and checks the emulator's observed six-core minimum before downloading SDK packages.
+- The already-completed CLI fix, cache handoff, Hypervisor check, AVD creation, and APK build all passed in run `38091647355`; only emulator boot failed before Playwright collected a test.
+- Actionlint (ignoring the local label list for documented custom GitHub runners), workflow YAML parsing, and `git diff --check` pass. Independent staff-engineer review found no blocker; the hosted emulator boot still needs confirmation in a fresh run.
+- Repair publication pending feature-branch push verification.
