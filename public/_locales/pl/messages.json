@@ -68,8 +68,8 @@
     "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
   },
   "usdcxInvalidDestination": {
-    "message": "Wprowadź prawidłowy adres sieci testowej Arc dla tej wypłaty.",
-    "englishSource": "Enter a valid Arc Testnet address for this withdrawal."
+    "message": "Wprowadź prawidłowy adres w sieci obsługiwanej przez tę wypłatę.",
+    "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
     "message": "Wypłaty w USDCx są dostępne wyłącznie dla skonfigurowanego adresu faucet w sieci testowej Miden.",
@@ -4771,6 +4771,132 @@
     "message": "USDCx zostało wyemitowane na platformie Miden, a Twój portfel je otrzymał.",
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
+  "usdcxExecutorRouteNotice": {
+    "message": "USDC jest niszczone na $source$ i emitowane na rzecz wykonawcy Circle na $target$, który wpłaca je do xReserve dla Miden. Opłata Circle jest uiszczana dodatkowo do kwoty, a Circle realizuje transfer na $target$. Jeśli Circle nie może wycenić transferu, realizujesz go na $target$ za pomocą jednego dodatkowego podpisu.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle's fee is paid on top of the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "target": {
+        "content": "$4"
+      }
+    }
+  },
+  "usdcxCctpAwaitingAttestation": {
+    "message": "Spalenie zostało potwierdzone. Czekamy na poświadczenie transferu przez Circle, zanim będzie można go zrealizować w sieci $network$.",
+    "englishSource": "The burn is confirmed. Waiting for Circle to attest the transfer before it can be executed on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuteNeeded": {
+    "message": "Circle potwierdziło transfer. Wykonaj go w sieci $network$, aby zdeponować USDC w xReserve dla Miden. Wymaga to niewielkiej ilości gazu w sieci $network$.",
+    "englishSource": "Circle attested the transfer. Execute it on $network$ to deposit the USDC into xReserve for Miden. This needs a small amount of gas on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxExecuteOnNetwork": {
+    "message": "Wykonaj na $network$",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuting": {
+    "message": "Wykonywanie…",
+    "englishSource": "Executing…"
+  },
+  "usdcxExecuteSubmitted": {
+    "message": "Przelew został zrealizowany w sieci $network$. Czekamy na potwierdzenie wpłaty przez Circle przed wyemitowaniem USDCx w sieci Miden.",
+    "englishSource": "The transfer was executed on $network$. Waiting for Circle to attest the deposit before USDCx is minted on Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardingPending": {
+    "message": "Spalenie zostało potwierdzone. Circle poświadcza transfer i realizuje go w sieci $network$, która wpłaca USDC do xReserve na rzecz Miden.",
+    "englishSource": "The burn is confirmed. Circle attests the transfer and executes it on $network$, which deposits the USDC into xReserve for Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardFee": {
+    "message": "$fee$ Opłata Circle za USDC",
+    "englishSource": "$fee$ USDC Circle fee",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxCircleFee": {
+    "message": "Opłata Circle",
+    "englishSource": "Circle fee"
+  },
+  "usdcxProgress": {
+    "message": "Postęp",
+    "englishSource": "Progress"
+  },
+  "usdcxStepDeposited": {
+    "message": "Zdeponowano na $network$",
+    "englishSource": "Deposited on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurned": {
+    "message": "Spalone na $network$",
+    "englishSource": "Burned on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurnAttested": {
+    "message": "Circle potwierdziło zniszczenie",
+    "englishSource": "Circle attested the burn"
+  },
+  "usdcxStepCircleExecutes": {
+    "message": "Circle działa w sieci $network$",
+    "englishSource": "Circle executes on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepUserExecutes": {
+    "message": "Wykonaj na $network$",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepDepositAttested": {
+    "message": "Circle potwierdziło wpłatę",
+    "englishSource": "Circle attested the deposit"
+  },
+  "usdcxStepMinted": {
+    "message": "USDCx wyemitowane na platformie Miden",
+    "englishSource": "USDCx minted on Miden"
+  },
   "bridgeRowTitle": {
     "message": "Most $from$ → $to$",
     "englishSource": "Bridge $from$ → $to$",
@@ -5215,8 +5341,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "Ten most wykorzystuje sieć testową Arc dla USDC oraz Ethereum Sepolia dla ETH. Nie podłączaj portfela, w którym przechowujesz prawdziwe środki. Utwórz nowy portfel i zasil go wyłącznie tokenami testowymi.",
-    "englishSource": "This bridge uses Arc Testnet for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
+    "message": "Ten most wykorzystuje Arc Testnet lub Ethereum Sepolia dla USDC oraz Ethereum Sepolia dla ETH. Nie podłączaj portfela, w którym przechowujesz prawdziwe środki. Utwórz nowy portfel i zasil go wyłącznie tokenami testowymi.",
+    "englishSource": "This bridge uses Arc Testnet or Ethereum Sepolia for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "Pomóż ulepszyć portfel",
@@ -5447,8 +5573,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "Ten most przenosi USDC z sieci testowej Arc lub ETH z sieci Ethereum Sepolia do Miden. Nigdy nie należy tworzyć mostu z sieci głównej ani żadnej innej rzeczywistej sieci.",
-    "englishSource": "This bridge moves Arc Testnet USDC or Ethereum Sepolia ETH to Miden. Never bridge from mainnet or any other real network."
+    "message": "Ten most przenosi USDC z sieci Arc Testnet lub Ethereum Sepolia, albo ETH z sieci Ethereum Sepolia, do Miden. Nigdy nie należy tworzyć mostu z sieci głównej ani żadnej innej rzeczywistej sieci.",
+    "englishSource": "This bridge moves Arc Testnet or Ethereum Sepolia USDC, or Ethereum Sepolia ETH, to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "Ukryte transfery: $count$",
