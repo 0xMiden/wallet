@@ -42,7 +42,7 @@ on:
       deposit_amount:
         description: Deposit amount in USDC
         required: false
-        default: '1'
+        default: '0.01'
 
 permissions:
   contents: read
@@ -71,13 +71,24 @@ jobs:
       # NO E2E_EVM_RPC_URL here: that flag sends the wallet's Arc reads to a local
       # Anvil, and this job needs the real Arc Testnet RPC.
       USDCX_LIVE_EVM_PRIVATE_KEY: ${{ secrets.USDCX_LIVE_EVM_PRIVATE_KEY }}
-      USDCX_LIVE_DEPOSIT_AMOUNT: ${{ inputs.deposit_amount || '1' }}
+      # 0.01 USDC: Circle takes no deposit fee, a testnet claim's fee is about 0.0002 USDCx, and Arc gas for the
+      # approve and the deposit is about 0.006 USDC, so a nightly spends about 0.016 of the faucet's 20 USDC drip.
+      USDCX_LIVE_DEPOSIT_AMOUNT: ${{ inputs.deposit_amount || '0.01' }}
       USDCX_FAUCET_ACCOUNT_ID: ${{ vars.USDCX_FAUCET_ACCOUNT_ID }}
       USDCX_RELAYER_ACCOUNT_ID: ${{ vars.USDCX_RELAYER_ACCOUNT_ID }}
       USDCX_CIRCLE_ATTESTER_PUBLIC_KEY: ${{ vars.USDCX_CIRCLE_ATTESTER_PUBLIC_KEY }}
       # Optional: a relay projectId of the counterparty's own. See e2e-bridge-in.yml.
       WC_COUNTERPARTY_PROJECT_ID: ${{ secrets.WC_COUNTERPARTY_PROJECT_ID }}
     steps:
+      # The spec skips itself without this key, and a skipped spec passes the job, so a run that tested nothing
+      # would read green. Fail first instead.
+      - name: Require the live Arc Testnet key
+        run: |
+          if [ -z "$USDCX_LIVE_EVM_PRIVATE_KEY" ]; then
+            echo "::error title=USDCX_LIVE_EVM_PRIVATE_KEY is not set::Add a funded Arc Testnet key as the repository secret USDCX_LIVE_EVM_PRIVATE_KEY. Without it the spec skips and the run tests nothing."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4

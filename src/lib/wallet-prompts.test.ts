@@ -342,7 +342,7 @@ describe('wallet prompts', () => {
   });
 
   it('requests native tokens from the official Miden faucet', async () => {
-    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+    mintFromMidenFaucetMock.mockResolvedValue({ noteId: '0xnote' });
 
     await faucet('mtst1testaddress');
 
@@ -360,7 +360,7 @@ describe('wallet prompts', () => {
     mintFromMidenFaucetMock.mockImplementation(
       () =>
         new Promise(resolve => {
-          resolvers.push(() => resolve({ txId: '0xtx', noteId: '0xnote' }));
+          resolvers.push(() => resolve({ noteId: '0xnote' }));
         })
     );
 
@@ -380,7 +380,7 @@ describe('wallet prompts', () => {
     await Promise.all([first, second, other]);
     // Settling clears the join, so a genuine later re-fund mints again.
     expect(getInFlightFaucetRequest('mtst1testaddress')).toBeNull();
-    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+    mintFromMidenFaucetMock.mockResolvedValue({ noteId: '0xnote' });
     await faucet('mtst1testaddress');
     expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(3);
   });
@@ -390,7 +390,7 @@ describe('wallet prompts', () => {
     mintFromMidenFaucetMock.mockImplementation(
       () =>
         new Promise(resolve => {
-          finish = () => resolve({ txId: '0xtx', noteId: '0xnote' });
+          finish = () => resolve({ noteId: '0xnote' });
         })
     );
     const marker = { requestedAt: 1_000, baselineNoteIds: ['note-1'] };
@@ -408,7 +408,7 @@ describe('wallet prompts', () => {
   });
 
   it('remembers when a request settled, for the request it was started with', async () => {
-    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+    mintFromMidenFaucetMock.mockResolvedValue({ noteId: '0xnote' });
     const before = Date.now();
 
     await faucet('accountSettled', { requestedAt: 1_000, baselineNoteIds: [] });
@@ -588,7 +588,7 @@ describe('wallet prompts', () => {
     ) => {
       await beforeSubmit?.();
       sent += 1;
-      return { txId: '0xtx', noteId: '0xnote' };
+      return { noteId: '0xnote' };
     };
     popup.mint.mockImplementation(send);
     sidePanel.mint.mockImplementation(send);
@@ -650,7 +650,7 @@ describe('wallet prompts', () => {
           } finally {
             get.mockRestore();
           }
-          return { txId: '0xtx', noteId: '0xnote' };
+          return { noteId: '0xnote' };
         }
       );
 
@@ -784,7 +784,7 @@ describe('wallet prompts', () => {
         await beforeSubmit?.();
         // What a resume reads once the token request is out.
         seen.push(await fetchFaucetFundingMarker('accountMarker'));
-        return { txId: '0xtx', noteId: '0xnote' };
+        return { noteId: '0xnote' };
       }
     );
 
@@ -792,6 +792,44 @@ describe('wallet prompts', () => {
 
     // The flag carries when the token request went out: its mint's arrival window starts there.
     expect(seen).toEqual([marker, { ...marker, submitted: true, submittedAt: expect.any(Number) }]);
+  });
+
+  it('lets a request refused over the cap go out again at the cap, flagged anew', async () => {
+    const marker = { requestedAt: 1_000, baselineNoteIds: [] };
+    const flags: Array<number | undefined> = [];
+    let clock = 5_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => clock);
+    mintFromMidenFaucetMock.mockImplementation(
+      async (
+        _address: string,
+        _amount: bigint | undefined,
+        _signal?: AbortSignal,
+        beforeSubmit?: () => Promise<void>,
+        onMayMint?: (mayMint: boolean) => void
+      ) => {
+        // Devnet refuses over the cap only at the token request: nothing was minted.
+        await beforeSubmit?.();
+        onMayMint?.(true);
+        onMayMint?.(false);
+        flags.push((await fetchFaucetFundingMarker('accountCapped'))?.submittedAt);
+        // The retry at the cap passes the same pre-send check and is flagged again.
+        clock = 9_000;
+        await beforeSubmit?.();
+        onMayMint?.(true);
+        flags.push((await fetchFaucetFundingMarker('accountCapped'))?.submittedAt);
+        return { noteId: '0xnote' };
+      }
+    );
+
+    try {
+      await expect(faucet('accountCapped', marker)).resolves.toBeUndefined();
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    // A skipped second flag write would leave the first attempt's 5000.
+    expect(flags).toEqual([5_000, 9_000]);
+    expect(getFaucetRequestSettledAt('accountCapped', 1_000)).not.toBeNull();
   });
 
   it.each([
@@ -807,7 +845,7 @@ describe('wallet prompts', () => {
         ...(submitted && { submitted })
       };
       await setFaucetFundingMarker('accountBusy', running);
-      mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+      mintFromMidenFaucetMock.mockResolvedValue({ noteId: '0xnote' });
 
       const error = await faucet('accountBusy', { requestedAt: Date.now(), baselineNoteIds: [] }).catch(
         (e: unknown) => e
@@ -837,7 +875,7 @@ describe('wallet prompts', () => {
         beforeSubmit?: () => Promise<void>
       ) => {
         await beforeSubmit?.();
-        return { txId: '0xtx', noteId: '0xnote' };
+        return { noteId: '0xnote' };
       }
     );
 
@@ -858,7 +896,7 @@ describe('wallet prompts', () => {
       submitted: true
     };
     await setFaucetFundingMarker('accountStale', stale);
-    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+    mintFromMidenFaucetMock.mockResolvedValue({ noteId: '0xnote' });
 
     const error = await faucet('accountStale', { requestedAt: Date.now(), baselineNoteIds: [] }).catch(
       (e: unknown) => e
@@ -887,7 +925,7 @@ describe('wallet prompts', () => {
       // A surface that read storage before another surface flagged the record never asked the user.
       const record = unresolvedRecord();
       await setFaucetFundingMarker('accountUnresolved', record);
-      mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+      mintFromMidenFaucetMock.mockResolvedValue({ noteId: '0xnote' });
 
       const error = await faucet(
         'accountUnresolved',
@@ -917,7 +955,7 @@ describe('wallet prompts', () => {
         ) => {
           seen.push(await fetchFaucetFundingMarker('accountUnresolved'));
           await beforeSubmit?.();
-          return { txId: '0xtx', noteId: '0xnote' };
+          return { noteId: '0xnote' };
         }
       );
 
@@ -947,7 +985,7 @@ describe('wallet prompts', () => {
         await clearFaucetFundingMarker('accountFenced');
         await beforeSubmit?.();
         sent = true;
-        return { txId: '0xtx', noteId: '0xnote' };
+        return { noteId: '0xnote' };
       }
     );
 
@@ -990,7 +1028,7 @@ describe('wallet prompts', () => {
         await clearing;
         await flagging;
         sent = true;
-        return { txId: '0xtx', noteId: '0xnote' };
+        return { noteId: '0xnote' };
       }
     );
 
@@ -1023,7 +1061,7 @@ describe('wallet prompts', () => {
       ) => {
         await beforeSubmit?.();
         sent = true;
-        return { txId: '0xtx', noteId: '0xnote' };
+        return { noteId: '0xnote' };
       }
     );
 
@@ -1099,7 +1137,7 @@ describe('wallet prompts', () => {
       baselineNoteIds: [],
       submitted: true
     });
-    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+    mintFromMidenFaucetMock.mockResolvedValue({ noteId: '0xnote' });
 
     const error = await faucet('accountClockSent', { requestedAt: Date.now(), baselineNoteIds: [] }).catch(
       (e: unknown) => e
@@ -3483,7 +3521,7 @@ describe('without Web Locks (iOS 15.0-15.3)', () => {
         beforeSubmit?: () => Promise<void>
       ) => {
         await beforeSubmit?.();
-        return { txId: '0xtx', noteId: '0xnote' };
+        return { noteId: '0xnote' };
       }
     );
 

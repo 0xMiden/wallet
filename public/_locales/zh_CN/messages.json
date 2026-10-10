@@ -1960,6 +1960,23 @@
     "message": "请重新提交请求",
     "englishSource": "Request again"
   },
+  "faucetRateLimitedWait": {
+    "message": "您刚刚申请了资金。请在 $seconds$ 秒后重试。",
+    "englishSource": "You requested funds a moment ago. Try again in $seconds$ seconds.",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetRateLimited": {
+    "message": "您刚刚申请了资金。请稍后再试。",
+    "englishSource": "You requested funds a moment ago. Try again shortly."
+  },
+  "faucetOverCap": {
+    "message": "该faucet目前无法发送资金。请稍后再试。",
+    "englishSource": "The faucet can't send funds right now. Try again later."
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "检测到账户恢复操作",
     "englishSource": "Account recovery detected"

@@ -27,13 +27,15 @@ import { WcCounterparty, type WcRequestLog } from '../helpers/wc-counterparty';
  *   5. The deposit relayer reads the attestation and submits the mint note to the
  *      USDCx faucet. By default this is the deployed relayer. The faucet does not
  *      look at who sent a mint note, so the spec needs no relayer of its own.
- *   6. The faucet mints, and the wallet claims the note.
+ *   6. The faucet mints, and the wallet claims the note. The wallet is a Guardian account, so the claim
+ *      is a consume the hosted testnet Guardian co-signs, and the spec checks the account's auth
+ *      structure afterwards.
  *
  * The run spends real Arc Testnet USDC (the deposit and the gas).
  *
  * Environment:
  *   USDCX_LIVE_EVM_PRIVATE_KEY        required: funded Arc Testnet key (USDC is the gas token too)
- *   USDCX_LIVE_DEPOSIT_AMOUNT         optional, in USDC; default 1
+ *   USDCX_LIVE_DEPOSIT_AMOUNT         optional, in USDC; default 0.01
  *   USDCX_FAUCET_ACCOUNT_ID           optional: the USDCx faucet, for the claim step
  *
  * To test a relayer build before it is deployed, set these too and the spec starts
@@ -64,7 +66,7 @@ const missingEnv = [
 ];
 // Optional: lets the claim step show a faucet whose metadata the wallet has not read yet.
 const faucetAccountId = (process.env.USDCX_FAUCET_ACCOUNT_ID ?? '').trim();
-const depositAmount = (process.env.USDCX_LIVE_DEPOSIT_AMOUNT ?? '').trim() || '1';
+const depositAmount = (process.env.USDCX_LIVE_DEPOSIT_AMOUNT ?? '').trim() || '0.01';
 const depositUnits = parseUnits(depositAmount, CIRCLE_USDC_DECIMALS);
 const arcRpcUrl = ARC_TESTNET.rpcUrls.default.http[0];
 const { usdc: arcUsdc, xReserve } = getUsdcxXReserveSource(ARC_TESTNET.id);
@@ -102,7 +104,7 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
     await relayer?.stop();
   });
 
-  test('deposit USDC via the real UI, Circle attests, the relayer mints, the wallet claims', async ({
+  test('deposit USDC via the real UI, Circle attests, the relayer mints, the Guardian account claims', async ({
     walletA,
     walletB,
     steps
@@ -117,6 +119,7 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
     const evmAddress = privateKeyToAccount(evmPrivateKey as `0x${string}`).address;
     let depositHash: `0x${string}`;
     let bridgeTxId: string;
+    let addressA: string;
 
     const sentTo = (address: string) => (r: WcRequestLog) =>
       r.method === 'eth_sendTransaction' &&
@@ -165,8 +168,8 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
     });
 
     await steps.step('create_wallet', async () => {
-      await walletA.createNewWallet();
-      await walletB.createNewWallet(); // fixture requires both sims up
+      ({ address: addressA } = await walletA.createGuardianWallet());
+      await walletB.createNewWallet(); // fixture requires both sims up; B takes no part
     });
 
     try {
@@ -252,6 +255,15 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
         const deposited = Number(depositAmount);
         const balance = await walletA.waitForBalanceAbove(deposited / 2, 180_000, undefined, 'USDCX');
         expect(balance, 'no more than the deposit').toBeLessThanOrEqual(deposited);
+      });
+
+      await steps.step('assert_guardian_account', async () => {
+        // The auth structure shows the deposit landed on, and was claimed by, a Guardian account, not a single-sig
+        // one, so this spec cannot quietly go back to testing the single-sig path.
+        const auth = await walletA.getGuardianAuthInfo(addressA);
+        expect(auth.error, `guardian auth read failed: ${auth.error}`).toBeUndefined();
+        expect(auth.signerCommitments.length, 'a fresh Guardian account has 2 signers (hot, cold)').toBe(2);
+        expect(auth.procedureThresholds.update_guardian, 'update_guardian is hardened to threshold 2').toBe(2);
       });
     } finally {
       if (localRelayer) {

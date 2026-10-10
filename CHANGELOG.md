@@ -12,6 +12,8 @@
 
 ### Fixes
 
+- [FIX][ci] The live USDCx bridge-IN E2E fails at once when `USDCX_LIVE_EVM_PRIVATE_KEY` is not set, where its spec used to skip and the run passed having tested nothing.
+- [FIX][all] Fund your wallet asks the faucet for the largest amount it offers and, when the faucet names a lower cap, asks once more for exactly that instead of failing; a rate limit or a refused amount reads in plain words on the card (with the wait, when the faucet gives one).
 - [FIX][ci] The live USDCx bridge-in E2E builds against a dispatching pull request's linked web-sdk and Guardian PRs and gets 235 minutes for a dispatch (150 on its nightly run), like every other push or dispatch install, so the linked-PR injection guard passes on main again.
 - [FIX][ci] A wallet PR's linked Guardian PR provides `@openzeppelin/guardian-client` as well as the multisig client, so a wire field the Guardian PR adds (such as `bound_block_num`) is no longer dropped by the published converter in CI; the linked web-sdk paths survive a Windows runner's backslashes.
 - [FIX][ci] Chrome Guardian E2E gets 90 minutes instead of 60: its 34 tests took 48-55 minutes on green testnet runs, so a slow testnet cancelled the job with every finished test passing.
@@ -31,6 +33,7 @@
 
 ### Changes
 
+- [CHANGE][ci] The live USDCx bridge-IN E2E deposits into and claims with a Guardian account, so the co-signed claim runs against Circle's real attestation and the hosted testnet Guardian, and the spec checks the account's Guardian auth structure afterwards; a run deposits 0.01 USDC instead of 1, since a testnet claim costs about 0.0002 USDCx and the Arc gas about 0.006 USDC.
 - [CHANGE][ci] `E2E_HEADLESS=1` runs a local E2E suite without opening or focusing any Chrome window: the fixtures launch the full Chromium build in its new headless mode (the default headless shell cannot load an extension) with a 1600x1200 screen for confirm popups; without it, and in CI, runs stay headed.
 - [CHANGE][ci] A by-hand run of any E2E or build workflow from a pull request's branch builds against the web-sdk and Guardian PRs that pull request's `Web SDK PR:` and `Guardian PR:` markers name, as its own CI does, so a suite that otherwise runs only after merge can test an unreleased dependency first; a push, a release and a by-hand run on main or next still install the published packages.
 - [CHANGE][ci] A test dApp with its own Miden client and the real wallet adapter drives the extension end to end on single-sig and Guardian accounts after every merge, on testnet from main and devnet from next, and checks each request through to the chain while the chain moves between build and approval; known bugs are recorded per cell and a judge decides each run from the cell records. Its journeys so far cover detect, connect and a dApp send.

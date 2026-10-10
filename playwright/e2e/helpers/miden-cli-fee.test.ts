@@ -98,7 +98,7 @@ describe('public fee funding commitment', () => {
   const commit = jest.mocked(waitForPublicNoteCommitment);
   const noteId = '0x' + '01'.repeat(32);
   beforeEach(() => {
-    mint.mockReset().mockResolvedValue({ txId: 'tx', noteId });
+    mint.mockReset().mockResolvedValue({ noteId });
     commit.mockReset();
   });
   function publicCli() {
