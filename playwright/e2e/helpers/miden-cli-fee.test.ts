@@ -8,6 +8,7 @@ import { mintFromPublicFaucet } from './public-faucet';
 import { waitForPublicNoteCommitment } from './public-note-commitment';
 import { getEnvironmentConfig } from '../config/environments';
 import type { CLIRunner } from '../harness/cli-runner';
+import type { CLIInvocation } from '../harness/types';
 
 jest.mock('./fee-faucet', () => ({ discoverFeeFaucetId: jest.fn() }));
 
@@ -130,11 +131,63 @@ describe('public fee funding commitment', () => {
     expect(mint).toHaveBeenCalledTimes(1);
     expect(cli.sync).toHaveBeenCalledTimes(1);
   });
+
+  it('requests and commits enough advertised grants when a long run needs a fee reserve', async () => {
+    const cli = publicCli();
+    await cli.fundAccountForFees(FEE_FAUCET, 3);
+    await cli.fundAccountForFees(FEE_FAUCET, 3);
+    expect(mint).toHaveBeenCalledTimes(3);
+    expect(commit).toHaveBeenCalledTimes(3);
+    expect(cli.sync).toHaveBeenCalledTimes(1);
+  });
   it('propagates a commitment timeout without requesting another grant', async () => {
     const cli = publicCli();
     commit.mockRejectedValue(new Error('note commitment timed out'));
     await expect(cli.fundAccountForFees(FEE_FAUCET)).rejects.toThrow('commitment timed out');
     expect(mint).toHaveBeenCalledTimes(1);
     expect(cli.sync).not.toHaveBeenCalled();
+  });
+
+  it('does not request another fee grant batch after the last discarded deploy attempt', async () => {
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wallet-faucet-retry-'));
+    const runner = {
+      run: async (command: string): Promise<CLIInvocation> => ({
+        command,
+        args: command.split(' '),
+        cwd: workDir,
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        durationMs: 0,
+        timedOut: false,
+        parsed: command.includes('new-account')
+          ? { accountId: FEE_FAUCET }
+          : command.includes('consume-notes')
+            ? { transactionId: 'discarded-transaction' }
+            : undefined
+      })
+    };
+    const cli = new MidenCli({
+      binaryPath: 'miden-client',
+      workDir,
+      env: { ...getEnvironmentConfig(), name: 'devnet', rpcUrl: 'https://rpc.devnet.miden.io', chargesFees: true },
+      cliRunner: runner as unknown as CLIRunner
+    });
+    const privateMethods = cli as unknown as {
+      sendNativeFundingNote(target: string): Promise<string>;
+      awaitCommit(txId: string): Promise<'committed' | 'discarded'>;
+    };
+    const sendNativeFundingNote = jest
+      .spyOn(privateMethods, 'sendNativeFundingNote')
+      .mockResolvedValue('public faucet');
+    jest.spyOn(privateMethods, 'awaitCommit').mockResolvedValue('discarded');
+    jest.spyOn(cli, 'sync').mockResolvedValue(undefined);
+
+    try {
+      await expect(cli.createFaucet('TST', 8, 1_000_000_000_000_000n, 1)).rejects.toThrow('after 10 attempts');
+      expect(sendNativeFundingNote).toHaveBeenCalledTimes(10);
+    } finally {
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
   });
 });

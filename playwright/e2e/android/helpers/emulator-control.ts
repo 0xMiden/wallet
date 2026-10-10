@@ -135,6 +135,15 @@ export class EmulatorControl {
     return pair;
   }
 
+  /** Reserve only wallet A for single-wallet routes that use a host counterparty. */
+  static async reserveSingle(): Promise<string> {
+    const serial = 'emulator-5554';
+    if ((await EmulatorControl.listBootedSerials()).has(serial)) return serial;
+
+    await ensureAvdsExist([DEVICE_PAIR_AVD_A]);
+    return bootAvd(DEVICE_PAIR_AVD_A, 5554, true);
+  }
+
   /**
    * Wait until an already-booted emulator is fully usable (system boot
    * completed + package manager responsive). adb's wait-for-device only
@@ -199,6 +208,22 @@ export class EmulatorControl {
       await sleep(BOOT_POLL_MS);
     }
     throw new Error(`Emulator ${serial} did not stabilize within ${BOOT_TIMEOUT_MS}ms`);
+  }
+
+  /** Map a device loopback TCP port to the same port on the host. */
+  async reversePort(serial: string, port: number): Promise<void> {
+    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+      throw new Error(`Invalid adb reverse port: ${port}`);
+    }
+    await adb(['-s', serial, 'reverse', `tcp:${port}`, `tcp:${port}`]);
+  }
+
+  async removeReversePort(serial: string, port: number): Promise<void> {
+    try {
+      await adb(['-s', serial, 'reverse', '--remove', `tcp:${port}`]);
+    } catch {
+      // Already removed or the emulator has shut down.
+    }
   }
 
   async install(serial: string, apkPath: string, packageName?: string): Promise<void> {
@@ -417,7 +442,7 @@ async function deviceHasPackage(serial: string, pkg: string): Promise<boolean> {
   }
 }
 
-async function ensureAvdsExist(): Promise<void> {
+async function ensureAvdsExist(requiredAvds: string[] = [DEVICE_PAIR_AVD_A, DEVICE_PAIR_AVD_B]): Promise<void> {
   const { stdout } = await execFileAsync(getEmulatorBin(), ['-list-avds']);
   const present = new Set(
     stdout
@@ -479,7 +504,7 @@ async function ensureAvdsExist(): Promise<void> {
   }
 }
 
-async function bootAvd(avdName: string, port: number): Promise<string> {
+async function bootAvd(avdName: string, port: number, visible = false): Promise<string> {
   // If an emulator is already listening on this port from a previous run,
   // reuse it. We identify by `emulator-<port>` serial convention.
   const expectedSerial = `emulator-${port}`;
@@ -512,9 +537,7 @@ async function bootAvd(avdName: string, port: number): Promise<string> {
       '-gpu',
       'swiftshader_indirect',
       '-no-boot-anim',
-      // Run headless. No UI window means no skin + no Mac window-server
-      // graphics buffers, cutting another GB or two off per emulator.
-      '-no-window',
+      ...(!visible ? ['-no-window'] : []),
       // Override config.ini's `hw.ramSize` — emulator silently clamps the
       // file value to ~2 GB at boot when regenerating hardware-qemu.ini.
       //

@@ -4,7 +4,7 @@
 import { createHash, randomBytes } from 'crypto';
 
 import { isInfrastructureFailure } from './dapp-cells';
-import { mintFromPublicFaucet, PublicFaucetError, solvePow } from './public-faucet';
+import { mintFromPublicFaucet, publicFaucetGrantAmount, PublicFaucetError, solvePow } from './public-faucet';
 
 const NOTE_ID = '0x' + '01'.repeat(32);
 
@@ -390,6 +390,21 @@ describe('mintFromPublicFaucet', () => {
       expect(urls).toHaveLength(4);
       expect(urls[3]).toContain('challenge=bb');
     });
+  });
+});
+
+describe('publicFaucetGrantAmount', () => {
+  afterEach(() => fetchSpy?.mockRestore());
+
+  it('reads the current advertised grant in base units', async () => {
+    fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ base_amount: 10_000 }), { status: 200 }));
+    await expect(publicFaucetGrantAmount('https://faucet.example')).resolves.toBe(10_000n);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'https://faucet.example/get_metadata',
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
   });
 });
 

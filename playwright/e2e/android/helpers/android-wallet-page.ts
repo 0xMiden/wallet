@@ -78,6 +78,104 @@ export class AndroidWalletPage implements WalletPage {
     return this.cdp.eval<T>(js);
   }
 
+  // ── Bridge-IN test hooks (installed page-side on mobile) ──────────────────
+
+  async setAgglayerSender(senderAccountId: string): Promise<void> {
+    await this.cdp.eval(`window.__TEST_SET_AGGLAYER_SENDER__(${JSON.stringify(senderAccountId)}); return null;`);
+  }
+
+  async hexToBech32Faucet(hex: string, timeoutMs = 30_000): Promise<string> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const result = await this.cdp.eval<string | null>(
+        `return typeof window.__TEST_HEX_TO_BECH32_FAUCET__ === 'function' ` +
+          `? window.__TEST_HEX_TO_BECH32_FAUCET__(${JSON.stringify(hex)}) : null;`
+      );
+      if (result) return result;
+      if (Date.now() > deadline) throw new Error('hexToBech32Faucet: hook not ready within timeout');
+      await sleep(POLL_INTERVAL_MS);
+    }
+  }
+
+  async createBridgeReceive(args: {
+    accountId: string;
+    amount: string;
+    faucetId: string;
+    provider: 'epoch' | 'agglayer';
+    sourceAddress: string;
+    sourceAmount: string;
+    sourceSymbol: string;
+    outputAmount?: string;
+    outputSymbol?: string;
+    evmTxHash: string;
+  }): Promise<string> {
+    return this.stashAndPoll<string>('__bi_create', `window.__TEST_CREATE_BRIDGE_RECEIVE__(${JSON.stringify(args)})`);
+  }
+
+  async getBridgeReceiveState(txId: string): Promise<{
+    found: boolean;
+    phase?: string;
+    displayMessage?: string;
+    amount?: string;
+    faucetId?: string;
+    midenNoteId?: string;
+  }> {
+    return this.stashAndPoll('__bi_state', `window.__TEST_BRIDGE_RECEIVE_STATE__(${JSON.stringify(txId)})`);
+  }
+
+  async reownConnectUri(): Promise<string> {
+    return this.stashAndPoll<string>('__wc_uri', 'window.__TEST_REOWN_CONNECT_URI__()', 60_000);
+  }
+
+  async reownState(): Promise<{ connected: boolean; address?: string; chainId?: number }> {
+    return this.stashAndPoll('__wc_state', 'window.__TEST_REOWN_STATE__()');
+  }
+
+  async latestBridgeReceive(provider?: 'epoch' | 'agglayer'): Promise<{
+    id: string;
+    amount?: string;
+    faucetId: string;
+    phase?: string;
+    displayMessage?: string;
+    evmTxHash?: string;
+  } | null> {
+    const arg = provider ? JSON.stringify(provider) : '';
+    return this.stashAndPoll('__bi_latest', `window.__TEST_LATEST_BRIDGE_RECEIVE__(${arg})`);
+  }
+
+  async openBridgeDeposit(): Promise<void> {
+    await this.navigateTo('/receive');
+    await this.waitFor('[data-testid="receive-page"]', { timeoutMs: 15_000 });
+    await this.click('[data-testid="receive-cross-chain"]');
+    try {
+      await this.waitFor('[data-testid="send-token-selector"]', { timeoutMs: 8_000 });
+    } catch {
+      await this.navigateTo('/bridge/deposit');
+      await this.waitFor('[data-testid="send-token-selector"]', { timeoutMs: 30_000 });
+    }
+  }
+
+  async selectBridgeToken(symbol: 'ETH' | 'USDC'): Promise<void> {
+    await this.click('[data-testid="send-token-selector"]');
+    await this.waitFor(`[data-testid="bridge-token-${symbol}"]`, { timeoutMs: 10_000 });
+    await this.click(`[data-testid="bridge-token-${symbol}"]`);
+  }
+
+  async enterBridgeAmount(amount: string): Promise<void> {
+    await this.pollForSelector('[data-testid="send-amount-input"]', 15_000);
+    await this.fillInput('[data-testid="send-amount-input"]', amount);
+    await this.clickWhenEnabled('[data-testid="send-amount-confirm"]', 15_000);
+  }
+
+  async selectBridgeRouteSlow(): Promise<void> {
+    await this.clickWhenEnabled('[data-testid="bridge-route-slow"]', 15_000);
+    await this.clickWhenEnabled('[data-testid="bridge-route-confirm"]', 15_000);
+  }
+
+  async confirmBridgeDeposit(): Promise<void> {
+    await this.clickWhenEnabled('[data-testid="bridge-deposit-review-confirm"]', 20_000);
+  }
+
   async locatorText(selector: string): Promise<string | null> {
     return this.cdp.eval<string | null>(
       `var el = document.querySelector(${JSON.stringify(selector)}); ` +
@@ -238,7 +336,7 @@ export class AndroidWalletPage implements WalletPage {
 
   // ── Claim ─────────────────────────────────────────────────────────────────
 
-  async claimAllNotes(timeoutMs: number = 120_000): Promise<void> {
+  async claimAllNotes(timeoutMs: number = 120_000, knownFaucetIds: string[] = []): Promise<void> {
     // No location.reload() on mobile — would drop the in-memory vault
     // decryption key (no service worker like Chrome has). Stay in-session.
     // Incoming transfers live on the Activity tab's Pending filter (`AllHistory` reads the
@@ -247,7 +345,44 @@ export class AndroidWalletPage implements WalletPage {
     await this.navigateTo(ACTIVITY_PENDING_PATH);
     await sleep(3_000);
 
-    await claimFromPendingList(this, { label: 'AndroidWalletPage.claimAllNotes', firstClickMs: 60_000, timeoutMs });
+    if (knownFaucetIds.length > 0) {
+      await this.injectTestMetadataForFaucets(knownFaucetIds);
+    }
+
+    await claimFromPendingList(this, { label: 'AndroidWalletPage.claimAllNotes', firstClickMs: 120_000, timeoutMs });
+  }
+
+  private async injectTestMetadataForFaucets(hexFaucetIds: string[]): Promise<void> {
+    const hexJson = JSON.stringify(hexFaucetIds);
+    const deadline = Date.now() + 60_000;
+
+    while (Date.now() < deadline) {
+      const hookReady = await this.cdp
+        .eval<boolean>(`return typeof window.__TEST_HEX_TO_BECH32_FAUCET__ === 'function';`)
+        .catch(() => false);
+      if (hookReady) break;
+      await sleep(POLL_INTERVAL_MS);
+    }
+
+    const result = await this.cdp.eval<{ injected: string[]; after: string[] } | { error: string }>(
+      `var conv = window.__TEST_HEX_TO_BECH32_FAUCET__; ` +
+        `if (typeof conv !== 'function') return { error: 'faucet conversion hook is unavailable' }; ` +
+        `var bech32 = ${hexJson}.map(function (hex) { return conv(hex); }); ` +
+        `var injected = {}; ` +
+        `for (var i = 0; i < bech32.length; i++) injected[bech32[i]] = { name: 'Test Token', symbol: 'TST', decimals: 8, thumbnailUri: '' }; ` +
+        `var s = window.__TEST_STORE__; ` +
+        `if (!s) return { error: 'wallet test store is unavailable' }; ` +
+        `var st = s.getState(); ` +
+        `if (typeof st.setAssetsMetadata === 'function') st.setAssetsMetadata(injected); ` +
+        `else s.setState({ assetsMetadata: Object.assign({}, st.assetsMetadata || {}, injected) }); ` +
+        `return { injected: bech32, after: Object.keys(s.getState().assetsMetadata || {}) };`
+    );
+
+    if ('error' in result) throw new Error(`AndroidWalletPage.claimAllNotes: ${result.error}`);
+    const missing = result.injected.filter(faucetId => !result.after.includes(faucetId));
+    if (missing.length > 0) {
+      throw new Error(`AndroidWalletPage.claimAllNotes: metadata injection did not persist for ${missing.join(', ')}`);
+    }
   }
 
   // ── Send Flow ─────────────────────────────────────────────────────────────
@@ -428,6 +563,30 @@ export class AndroidWalletPage implements WalletPage {
       this.pollStats.pollIterations += iterations;
       this.pollStats.pollMs += Date.now() - wallStart;
       this.pollStats.pollSleepMs += totalSleepMs;
+    }
+  }
+
+  private async stashAndPoll<T>(prefix: string, promiseExpr: string, timeoutMs = 30_000): Promise<T> {
+    const key = `${prefix}_${Date.now()}`;
+    const encodedKey = JSON.stringify(key);
+    await this.cdp.eval(
+      `window[${encodedKey}] = undefined; ` +
+        `Promise.resolve(${promiseExpr})` +
+        `.then(function (value) { window[${encodedKey}] = { ok: true, value: value }; })` +
+        `.catch(function (error) { window[${encodedKey}] = { ok: false, error: String((error && error.message) || error) }; }); ` +
+        `return null;`
+    );
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const result = await this.cdp.eval<{ ok: boolean; value?: T; error?: string } | null>(
+        `return window[${encodedKey}] || null;`
+      );
+      if (result) {
+        if (result.ok) return result.value as T;
+        throw new Error(`stashAndPoll(${prefix}): ${result.error}`);
+      }
+      if (Date.now() > deadline) throw new Error(`stashAndPoll(${prefix}): timed out after ${timeoutMs}ms`);
+      await sleep(POLL_INTERVAL_MS);
     }
   }
 

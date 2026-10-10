@@ -5,6 +5,7 @@ import { EIP1193Provider } from 'viem';
 import { getAgglayerL1Bridge } from 'lib/remote-config/values';
 
 import { AGGLAYER_BRIDGE_ABI } from './constant';
+import { midenAccountIdToEvmAddr } from './miden-account-address';
 import { AgglayerDeposit, fetchMerkleProof } from './status';
 
 // ethers can't derive per-method types from a runtime ABI, so the dynamic
@@ -27,13 +28,9 @@ interface AgglayerBridgeContract extends BaseContract {
   ): Promise<ContractTransactionResponse>;
 }
 
-const ZERO_BYTE = '00';
 //// @param: address always bech32
 export const midenAddrToEvmAddr = (address: string): `0x${string}` => {
-  const hexAddr = Address.fromBech32(address).accountId().toString();
-
-  const strippedHexAddr = hexAddr.startsWith('0x') ? hexAddr.slice(2) : hexAddr;
-  return ('0x' + ZERO_BYTE.repeat(4) + strippedHexAddr + ZERO_BYTE) as `0x${string}`;
+  return midenAccountIdToEvmAddr(Address.fromBech32(address).accountId().toString());
 };
 
 const ZERO_BYTES32 = '0x' + '00'.repeat(32);

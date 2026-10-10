@@ -219,6 +219,11 @@ async function advertisedGrantAmount(baseUrl: string): Promise<bigint> {
   });
 }
 
+/** Read the current public faucet's per-request grant for reserve planning. */
+export function publicFaucetGrantAmount(baseUrl: string): Promise<bigint> {
+  return advertisedGrantAmount(baseUrl);
+}
+
 /**
  * Requests `amount` base units of the native asset for `accountId` (bech32).
  * When omitted, resolves the faucet's advertised base grant once and retains it across retries.

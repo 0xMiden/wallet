@@ -36,7 +36,7 @@ const HOST_PORT_B = 9231;
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
-type TwoEmulatorFixtures = {
+export type TwoEmulatorFixtures = {
   walletA: AndroidWalletPage;
   walletB: AndroidWalletPage;
   midenCli: MidenCli;
@@ -45,13 +45,13 @@ type TwoEmulatorFixtures = {
   envConfig: EnvironmentConfig;
   _emuPair: {
     instanceA: EmuWalletInstance;
-    instanceB: EmuWalletInstance;
+    instanceB?: EmuWalletInstance;
     emuA: EmulatorControl;
-    emuB: EmulatorControl;
+    emuB?: EmulatorControl;
   };
 };
 
-interface EmuWalletInstance {
+export interface EmuWalletInstance {
   walletPage: AndroidWalletPage;
   cdp: CdpSession;
   serial: string;
@@ -69,7 +69,7 @@ function getRunOutputDir(testId: string): string {
 // subsequent tests just wipe app data (faster).
 const installedSerials = new Set<string>();
 
-async function launchEmuWalletInstance(
+export async function launchEmuWalletInstance(
   emu: EmulatorControl,
   serial: string,
   envConfig: EnvironmentConfig,
@@ -172,7 +172,7 @@ async function launchEmuWalletInstance(
   return { walletPage, cdp, serial, packageName: PACKAGE_NAME };
 }
 
-function buildAndroidSnapshotCaps(walletPage: AndroidWalletPage, runtimeVersion: string): SnapshotCaps {
+export function buildAndroidSnapshotCaps(walletPage: AndroidWalletPage, runtimeVersion: string): SnapshotCaps {
   return {
     platform: 'ios', // SnapshotCaps' platform tag tells consumers "treat as mobile"; android == ios for those consumers
     runtimeVersion,
@@ -282,7 +282,7 @@ export const test = base.extend<TwoEmulatorFixtures>({
     const screensDir = path.join(steps.outputDir, 'screens');
     const screenPolls = [
       { label: 'A', walletPage: instanceA.walletPage },
-      { label: 'B', walletPage: instanceB.walletPage }
+      ...(instanceB ? [{ label: 'B', walletPage: instanceB.walletPage }] : [])
     ].map(({ label, walletPage }) =>
       startScreenPoll({
         intervalMs: 250,
@@ -308,11 +308,11 @@ export const test = base.extend<TwoEmulatorFixtures>({
 
     await Promise.allSettled([
       instanceA.cdp.close().catch(() => undefined),
-      instanceB.cdp.close().catch(() => undefined)
+      ...(instanceB ? [instanceB.cdp.close().catch(() => undefined)] : [])
     ]);
     await Promise.allSettled([
       emuA.terminate(serialA, PACKAGE_NAME).catch(() => undefined),
-      emuB.terminate(serialB, PACKAGE_NAME).catch(() => undefined)
+      ...(instanceB && emuB ? [emuB.terminate(instanceB.serial, PACKAGE_NAME).catch(() => undefined)] : [])
     ]);
   },
 
@@ -338,6 +338,7 @@ export const test = base.extend<TwoEmulatorFixtures>({
 
   walletB: async ({ _emuPair, timeline, steps, midenCli: _midenCli }, use, testInfo) => {
     const instance = _emuPair.instanceB;
+    if (!instance) throw new Error('Wallet B is unavailable in the single-emulator fixture');
     await use(instance.walletPage);
 
     const statsB = instance.walletPage.getStats();

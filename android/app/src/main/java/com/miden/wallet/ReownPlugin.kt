@@ -46,6 +46,7 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
     private val pendingRequests = ConcurrentHashMap<Long, PendingRequest>()
     private var socketStatus: String? = null
     private var selectedSessionTopic: String? = null
+    private var proposalNamespaces: Map<String, Modal.Model.Namespace.Proposal> = emptyMap()
 
     override fun load() {
         super.load()
@@ -149,6 +150,58 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
                 }.show(fragmentActivity.supportFragmentManager, APPKIT_SHEET_TAG)
                 call.resolve()
             }
+        }
+    }
+
+    /**
+     * E2E-only: create a WalletConnect pairing without opening AppKit's native
+     * sheet and return its URI to the WebView. The bridge-in test pairs a
+     * headless counterparty with this URI, matching the iOS test path.
+     */
+    @PluginMethod
+    fun connectUri(call: PluginCall) {
+        guardConfigured(call) {
+            val currentActivity = activity
+            if (currentActivity == null) {
+                call.reject("Android activity is unavailable while creating WalletConnect proposal")
+                return@guardConfigured
+            }
+
+            Thread({
+                val pairing = try {
+                    var pairingError: String? = null
+                    val created = CoreClient.Pairing.create { error ->
+                        pairingError = error.throwable.message ?: "Failed to create WalletConnect pairing"
+                    }
+                    if (created == null) {
+                        call.reject(pairingError ?: "Failed to create WalletConnect pairing")
+                        return@Thread
+                    }
+                    created
+                } catch (error: Throwable) {
+                    Log.e(TAG, "Pairing creation failed: ${error.message}", error)
+                    call.reject(error.message ?: "Failed to create WalletConnect pairing")
+                    return@Thread
+                }
+
+                currentActivity.runOnUiThread {
+                    try {
+                        AppKit.connect(
+                            connect = Modal.Params.Connect(namespaces = proposalNamespaces, pairing = pairing),
+                            onSuccess = { uri ->
+                                notifyListeners("displayUri", JSObject().put("uri", uri))
+                                call.resolve(JSObject().put("uri", uri))
+                            },
+                            onError = { error ->
+                                call.reject(error.throwable.message ?: "Failed to create WalletConnect proposal")
+                            }
+                        )
+                    } catch (error: Throwable) {
+                        Log.e(TAG, "connectUri failed: ${error.message}", error)
+                        call.reject(error.message ?: "Failed to create WalletConnect proposal")
+                    }
+                }
+            }, "reown-pairing-create").apply { isDaemon = true }.start()
         }
     }
 
@@ -371,7 +424,15 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
     }
 
     private fun finishConfigure(call: PluginCall, chainIds: List<Int>, methods: List<String>, events: List<String>) {
-        AppKit.setChains(chainIds.map { chainFor(it, methods, events) })
+        val chains = chainIds.map { chainFor(it, methods, events) }
+        AppKit.setChains(chains)
+        proposalNamespaces = mapOf(
+            "eip155" to Modal.Model.Namespace.Proposal(
+                chains = chains.map { it.id },
+                methods = methods,
+                events = events
+            )
+        )
         AppKit.setDelegate(this)
         configured = true
 
