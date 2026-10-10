@@ -144,12 +144,13 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
     tracking: '0xMiden/wallet, file after the first run (Q6); fix per Q10',
     cells: on([...NON_CURRENT_CELLS, 'M4-reads'], BOTH),
     // The cells approve the popup to see what follows: M9 a refusal after approval with nothing run for any account, or
-    // a consume that executes for the stale account (K6); M4-reads the dApp's own vault served.
+    // a consume that executes for the stale account (K6); M4-reads each read served the dApp's own vault after its
+    // popup, or refused before one.
     signature: ({ cellId, source, evidence }) =>
       source === 'hard' &&
       evidence.nonCurrentPrompted === true &&
       (cellId === 'M4-reads'
-        ? evidence.nonCurrentReadLeaked === false
+        ? evidence.nonCurrentReadsOwnOrRefused === true
         : (evidence.dappError?.message === 'NOT_GRANTED' && evidence.nonCurrentRowRan === false) ||
           (cellId.startsWith('M9-consume') && evidence.staleConsumeExecuted === true))
   },

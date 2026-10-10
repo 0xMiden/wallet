@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 /** Pure decisions the dApp driver makes, kept free of Playwright and the wallet page so Jest can pin them. */
 
 export interface FreshSyncOptions {
@@ -124,6 +126,35 @@ export function onlyStaleConsumesRan(ran: readonly RanRow[], staleAccount: strin
         canonicalAddress(row.accountId) === canonicalAddress(staleAccount)
     )
   );
+}
+
+/** One read M4-reads made as a session's account while the other account was current. */
+export interface NonCurrentRead {
+  prompted: boolean;
+  result: { ok: true } | { ok: false; error: { message: string } };
+  /** The vault the answer served, as `{ faucetId: amount }`, or null when it served none. */
+  served: Record<string, string> | null;
+  /** The session account's own vault. */
+  own: Record<string, string>;
+}
+
+/**
+ * K9's evidence for M4-reads. A read stays on its session's account when it was refused before any popup with
+ * NOT_GRANTED (Q10) or, after a popup, served exactly that account's vault (K9). A read served with no popup, an
+ * approval that then failed and another account's vault are neither, so the cell stays a new failure.
+ */
+export function nonCurrentReadEvidence(reads: readonly NonCurrentRead[]): {
+  nonCurrentPrompted: boolean;
+  nonCurrentReadsOwnOrRefused: boolean;
+} {
+  return {
+    nonCurrentPrompted: reads.some(read => read.prompted),
+    nonCurrentReadsOwnOrRefused: reads.every(read =>
+      read.prompted
+        ? read.served !== null && isDeepStrictEqual(read.served, read.own)
+        : !read.result.ok && read.result.error.message === 'NOT_GRANTED'
+    )
+  };
 }
 
 /**

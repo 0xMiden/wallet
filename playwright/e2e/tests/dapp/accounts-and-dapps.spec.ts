@@ -1,5 +1,3 @@
-import { isDeepStrictEqual } from 'node:util';
-
 import { expect, test } from '../../fixtures/two-wallets';
 import { vaultAssetsOfCurrentAccount } from '../../helpers/balance-truth';
 import { CONFIRM_ACTIONS } from '../../helpers/confirm-actions';
@@ -18,8 +16,10 @@ import {
   canonicalAddress,
   isForeignConsume,
   maxConcurrentConfirmPages,
+  nonCurrentReadEvidence,
   normalizeHex,
-  onlyStaleConsumesRan
+  onlyStaleConsumesRan,
+  type NonCurrentRead
 } from '../../helpers/dapp-gates';
 import {
   runJourneyCells,
@@ -339,8 +339,12 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         // Each dApp reads as its own account while the OTHER account is current, the address pinned through the
         // provider, whose poll clears it once its account is not current (client.ts:68-87). Q10: refused before any
         // popup with NOT_GRANTED. Today the wallet prompts (K9); approved, the read must still serve the dApp's own
-        // vault, so a served vault of any other account is a leak, never K9.
-        const crossRead = async (handle: DappHandle, address: string, own: Record<string, string>) => {
+        // vault, so anything else after a popup (another account's vault, nothing) is new, never K9.
+        const crossRead = async (
+          handle: DappHandle,
+          address: string,
+          own: Record<string, string>
+        ): Promise<NonCurrentRead> => {
           const { result, prompted } = await answerIfPrompted(
             handle,
             () => callDapp(handle, 'raw', { call: 'requestAssets', args: [], asAddress: address }, ctx.deadline),
@@ -359,16 +363,19 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
                 }))
               )
             : null;
-          return { prompted, result, leaked: served !== null && !isDeepStrictEqual(served, own) };
+          return { prompted, result, served, own };
         };
         await j.walletA.selectAccount(primary);
         const fromTwo = await crossRead(two, twoAddress, ownTwo);
         await j.walletA.selectAccount(second);
         const fromOne = await crossRead(dapp, oneAddress, ownOne);
-        ctx.evidence.nonCurrentPrompted = fromTwo.prompted || fromOne.prompted;
-        ctx.evidence.nonCurrentReadLeaked = fromTwo.leaked || fromOne.leaked;
-        const refusedBeforePopup = { prompted: false, result: NOT_GRANTED_RAW, leaked: false };
-        expect({ fromTwo, fromOne }).toEqual({ fromTwo: refusedBeforePopup, fromOne: refusedBeforePopup });
+        Object.assign(ctx.evidence, nonCurrentReadEvidence([fromTwo, fromOne]));
+        const answer = ({ prompted, result }: NonCurrentRead) => ({ prompted, result });
+        const refusedBeforePopup = { prompted: false, result: NOT_GRANTED_RAW };
+        expect({ fromTwo: answer(fromTwo), fromOne: answer(fromOne) }).toEqual({
+          fromTwo: refusedBeforePopup,
+          fromOne: refusedBeforePopup
+        });
       }
     },
     M4: {

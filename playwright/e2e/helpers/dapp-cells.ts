@@ -52,8 +52,11 @@ export interface FailureEvidence {
   nonCurrentPrompted?: boolean;
   /** Such a request left a row that ran, for any account: whatever the answer said, it was not refused (K9). */
   nonCurrentRowRan?: boolean;
-  /** Such a read was served a vault other than the session account's own: a leak, never K9. */
-  nonCurrentReadLeaked?: boolean;
+  /**
+   * Every such read was refused before any popup with NOT_GRANTED or, after one, served its session account's own
+   * vault (`nonCurrentReadEvidence`); a leak, a failed approval or a read served with no popup is new, never K9.
+   */
+  nonCurrentReadsOwnOrRefused?: boolean;
   crossOriginWaitServed?: boolean;
   /** N4 listed every imported note by its own note id, then missed one asked by the id its import returned (K10). */
   returnedIdUnlisted?: boolean;

@@ -2,6 +2,7 @@
  * @jest-environment node
  */
 import type { FailureEvidence } from './dapp-cells';
+import { nonCurrentReadEvidence, type NonCurrentRead } from './dapp-gates';
 import { KNOWN_BUGS, knownBugRegistry, type KnownBug } from './dapp-known-bugs';
 import pinned from './dapp-pinned.json';
 
@@ -114,8 +115,23 @@ describe('known-bug registry', () => {
     expect(bug('K9').signature(hard('M9-consume', { nonCurrentPrompted: true, staleConsumeExecuted: true }))).toBe(
       true
     );
-    expect(bug('K9').signature(hard('M4-reads', { nonCurrentPrompted: true, nonCurrentReadLeaked: false }))).toBe(true);
-    expect(bug('K9').signature(hard('M4-reads', { nonCurrentPrompted: true, nonCurrentReadLeaked: true }))).toBe(false);
+    const stayed = { nonCurrentPrompted: true, nonCurrentReadsOwnOrRefused: true };
+    expect(bug('K9').signature(hard('M4-reads', stayed))).toBe(true);
+    expect(bug('K9').signature(hard('M4-reads', { ...stayed, nonCurrentReadsOwnOrRefused: false }))).toBe(false);
+  });
+
+  it('K9 never explains M4-reads when an approved read failed or a read was served with no popup', () => {
+    const own = { '0xtst': '100' };
+    const servedOwn: NonCurrentRead = { prompted: true, result: { ok: true }, served: own, own };
+    const reads = (...seen: NonCurrentRead[]) => bug('K9').signature(hard('M4-reads', nonCurrentReadEvidence(seen)));
+    expect(reads(servedOwn, servedOwn)).toBe(true);
+    expect(
+      reads({ ...servedOwn, result: { ok: false, error: { message: 'INTERNAL_ERROR' } }, served: null }, servedOwn)
+    ).toBe(false);
+    expect(reads(servedOwn, { ...servedOwn, prompted: false })).toBe(false);
+    // Evidence that does not say how each read ended is not K9.
+    const internal = { name: 'MidenWalletError', message: 'INTERNAL_ERROR' };
+    expect(bug('K9').signature(hard('M4-reads', { nonCurrentPrompted: true, dappError: internal }))).toBe(false);
   });
 
   it('K9 never explains a refusal after approval when a row ran anyway, or when nothing says whether one did', () => {

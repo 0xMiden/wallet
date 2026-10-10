@@ -7,11 +7,13 @@ import {
   isForeignConsume,
   isJourneySender,
   maxConcurrentConfirmPages,
+  nonCurrentReadEvidence,
   normalizeHex,
   onlyStaleConsumesRan,
   sessionHeld,
   sharedOpen,
-  waitForFreshSyncs
+  waitForFreshSyncs,
+  type NonCurrentRead
 } from './dapp-gates';
 
 function clock(stamps: (number | null)[]) {
@@ -163,6 +165,45 @@ describe('onlyStaleConsumesRan', () => {
     expect(onlyStaleConsumesRan([consume('mtst1current')], STALE)).toBe(false);
     expect(onlyStaleConsumesRan([consume()], STALE)).toBe(false);
     expect(onlyStaleConsumesRan([consume(STALE), consume('mtst1current')], STALE)).toBe(false);
+  });
+});
+
+describe('nonCurrentReadEvidence', () => {
+  const OWN = { '0xtst': '100' };
+  const servedOwn: NonCurrentRead = { prompted: true, result: { ok: true }, served: { '0xtst': '100' }, own: OWN };
+  const refusedFirst: NonCurrentRead = {
+    prompted: false,
+    result: { ok: false, error: { message: 'NOT_GRANTED' } },
+    served: null,
+    own: OWN
+  };
+  const stayed = (...reads: NonCurrentRead[]) => nonCurrentReadEvidence(reads).nonCurrentReadsOwnOrRefused;
+
+  it('keeps the reads on their accounts when each served its own vault after a popup or was refused before one', () => {
+    expect(nonCurrentReadEvidence([servedOwn, servedOwn])).toEqual({
+      nonCurrentPrompted: true,
+      nonCurrentReadsOwnOrRefused: true
+    });
+    expect(nonCurrentReadEvidence([refusedFirst, servedOwn])).toEqual({
+      nonCurrentPrompted: true,
+      nonCurrentReadsOwnOrRefused: true
+    });
+    expect(nonCurrentReadEvidence([refusedFirst, refusedFirst])).toEqual({
+      nonCurrentPrompted: false,
+      nonCurrentReadsOwnOrRefused: true
+    });
+  });
+
+  it('does not for a failed approval, a refusal after a popup, a read served with no popup, another refusal or vault', () => {
+    // An approval that then failed served nothing, and nothing is not the account's own vault.
+    const failed = { ...servedOwn, result: { ok: false, error: { message: 'INTERNAL_ERROR' } }, served: null };
+    expect(stayed(failed, servedOwn)).toBe(false);
+    expect(stayed({ ...refusedFirst, prompted: true }, servedOwn)).toBe(false);
+    expect(stayed(servedOwn, { ...servedOwn, prompted: false })).toBe(false);
+    expect(stayed({ ...refusedFirst, result: { ok: false, error: { message: 'INVALID_PARAMS: Error: x' } } })).toBe(
+      false
+    );
+    expect(stayed(servedOwn, { ...servedOwn, served: { '0xtst': '5' } })).toBe(false);
   });
 });
 
