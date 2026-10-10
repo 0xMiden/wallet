@@ -53,6 +53,8 @@ export interface FailureEvidence {
   /** Such a read was served a vault other than the session account's own: a leak, never K9. */
   nonCurrentReadLeaked?: boolean;
   crossOriginWaitServed?: boolean;
+  /** N4 listed every imported note by its own note id, then missed one asked by the id its import returned (K10). */
+  returnedIdUnlisted?: boolean;
 }
 
 /** A check that failed without stopping the cell, so one run can record a soft and a hard known bug (K4 and K3). */

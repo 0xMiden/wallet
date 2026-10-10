@@ -92,4 +92,28 @@ describe('known-bug registry', () => {
     expect(bug('K9').signature(hard('M4-reads', { nonCurrentPrompted: true, nonCurrentReadLeaked: false }))).toBe(true);
     expect(bug('K9').signature(hard('M4-reads', { nonCurrentPrompted: true, nonCurrentReadLeaked: true }))).toBe(false);
   });
+
+  it('K10 matches a consume by the returned id refused before any popup, and an N4 miss by that id', () => {
+    expect(bug('K10').tracking).toContain('0xMiden/wallet#1389');
+    expect(bug('K10').cells).toEqual({
+      W5b: ['offchain', 'guardian'],
+      W5c: ['offchain', 'guardian'],
+      N4: ['offchain', 'guardian']
+    });
+    const unresolved = {
+      name: 'WalletTransactionError',
+      message: 'INVALID_PARAMS: Error: Note 0x0e5a could not be resolved'
+    };
+    expect(bug('K10').signature(hard('W5b', { popupOpened: false, dappError: unresolved }))).toBe(true);
+    expect(bug('K10').signature(soft('W5b', { popupOpened: false, dappError: unresolved }))).toBe(false);
+    expect(bug('K10').signature(hard('W5c', { popupOpened: true, dappError: unresolved }))).toBe(false);
+    for (const message of ['INVALID_PARAMS: Error: Wallet is locked', 'Note 0x0e5a could not be resolved']) {
+      expect(bug('K10').signature(hard('W5c', { popupOpened: false, dappError: { ...unresolved, message } }))).toBe(
+        false
+      );
+    }
+    expect(bug('K10').signature(hard('N4', { returnedIdUnlisted: true }))).toBe(true);
+    expect(bug('K10').signature(hard('N4', { returnedIdUnlisted: false }))).toBe(false);
+    expect(bug('K10').signature(hard('N4', { popupOpened: false, dappError: unresolved }))).toBe(false);
+  });
 });

@@ -137,6 +137,21 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
         ? evidence.nonCurrentReadLeaked === false
         : evidence.dappError?.message === 'NOT_GRANTED' ||
           (cellId.startsWith('M9-consume') && evidence.staleConsumeExecuted === true))
+  },
+  {
+    id: 'K10',
+    title: 'A note imported details-only or bare cannot be consumed or listed by the id its import returned',
+    tracking: '0xMiden/wallet#1389 (open)',
+    cells: on(['W5b', 'W5c', 'N4'], BOTH),
+    // The consume preview and the private-note list both look the returned details commitment up as a note id
+    // (`src/lib/miden/back/dapp.ts:2680-2687` and `:901, 945`), so a consume is refused before any popup.
+    signature: ({ cellId, source, evidence }) =>
+      source === 'hard' &&
+      (cellId === 'N4'
+        ? evidence.returnedIdUnlisted === true
+        : evidence.popupOpened === false &&
+          (evidence.dappError?.message ?? '').includes('INVALID_PARAMS') &&
+          (evidence.dappError?.message ?? '').includes('could not be resolved'))
   }
 ];
 
