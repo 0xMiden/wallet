@@ -68,8 +68,8 @@
     "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
   },
   "usdcxInvalidDestination": {
-    "message": "請為此次提領輸入有效的 Arc 測試網地址。",
-    "englishSource": "Enter a valid Arc Testnet address for this withdrawal."
+    "message": "請輸入支援此提領操作之網路上的有效地址。",
+    "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
     "message": "USDCx 提領功能僅限於 Miden 測試網中已設定的 faucet。",
@@ -4771,6 +4771,132 @@
     "message": "USDCx 已在 Miden 上鑄造，且您的錢包已收到該資產。",
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
+  "usdcxExecutorRouteNotice": {
+    "message": "USDC 將在 $source$ 上銷毀，並在 $target$ 上鑄造給 Circle 的執行人，由其存入 Miden 的 xReserve 中。Circle 的手續費將從該金額中扣除，且 Circle 會在 $target$ 上執行轉帳。若 Circle 無法為該轉帳定價，您需在 $target$ 上透過額外一個簽名來執行轉帳。",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle's fee is paid on top of the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "target": {
+        "content": "$4"
+      }
+    }
+  },
+  "usdcxCctpAwaitingAttestation": {
+    "message": "銷毀已確認。正在等待 Circle 驗證轉帳，之後才能在 $network$ 上執行。",
+    "englishSource": "The burn is confirmed. Waiting for Circle to attest the transfer before it can be executed on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuteNeeded": {
+    "message": "Circle 已確認此筆轉帳。請在 $network$ 上執行此操作，將 USDC 存入 Miden 的 xReserve 帳戶。此操作在 $network$ 上需消耗少量 gas 費用。",
+    "englishSource": "Circle attested the transfer. Execute it on $network$ to deposit the USDC into xReserve for Miden. This needs a small amount of gas on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxExecuteOnNetwork": {
+    "message": "在 $network$ 上執行",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuting": {
+    "message": "執行中……",
+    "englishSource": "Executing…"
+  },
+  "usdcxExecuteSubmitted": {
+    "message": "該筆轉帳已於 $network$ 上執行。目前正在等待 Circle 確認存款，之後才會於 Miden 上鑄造 USDCx。",
+    "englishSource": "The transfer was executed on $network$. Waiting for Circle to attest the deposit before USDCx is minted on Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardingPending": {
+    "message": "銷毀已確認。Circle 驗證該轉帳並於 $network$ 上執行，將 USDC 存入 Miden 的 xReserve 帳戶中。",
+    "englishSource": "The burn is confirmed. Circle attests the transfer and executes it on $network$, which deposits the USDC into xReserve for Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardFee": {
+    "message": "$fee$ USDC Circle 手續費",
+    "englishSource": "$fee$ USDC Circle fee",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxCircleFee": {
+    "message": "Circle 手續費",
+    "englishSource": "Circle fee"
+  },
+  "usdcxProgress": {
+    "message": "進度",
+    "englishSource": "Progress"
+  },
+  "usdcxStepDeposited": {
+    "message": "存入 $network$",
+    "englishSource": "Deposited on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurned": {
+    "message": "燒毀於 $network$",
+    "englishSource": "Burned on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurnAttested": {
+    "message": "Circle 已證實此次銷毀",
+    "englishSource": "Circle attested the burn"
+  },
+  "usdcxStepCircleExecutes": {
+    "message": "Circle 在 $network$ 上執行",
+    "englishSource": "Circle executes on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepUserExecutes": {
+    "message": "在 $network$ 上執行",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepDepositAttested": {
+    "message": "Circle 已確認該筆存款",
+    "englishSource": "Circle attested the deposit"
+  },
+  "usdcxStepMinted": {
+    "message": "在 Miden 上鑄造的 USDCx",
+    "englishSource": "USDCx minted on Miden"
+  },
   "bridgeRowTitle": {
     "message": "橋接 $from$ → $to$",
     "englishSource": "Bridge $from$ → $to$",
@@ -5215,8 +5341,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "此橋接服務使用 Arc 測試網（Arc Testnet）處理 USDC，並使用以太坊 Sepolia 處理 ETH。請勿連接內含真實資金的錢包。請建立一個全新的錢包，並僅存入測試代幣。",
-    "englishSource": "This bridge uses Arc Testnet for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
+    "message": "此橋接服務使用 Arc Testnet 或 Ethereum Sepolia 處理 USDC，並使用 Ethereum Sepolia 處理 ETH。請勿連接存有真實資金的錢包。請建立一個全新的錢包，並僅存入測試代幣。",
+    "englishSource": "This bridge uses Arc Testnet or Ethereum Sepolia for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "協助改善錢包",
@@ -5447,8 +5573,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "此橋接功能用於將 Arc 測試網的 USDC 或以太坊 Sepolia 的 ETH 轉移至 Miden。切勿從主網或任何其他真實網路進行橋接。",
-    "englishSource": "This bridge moves Arc Testnet USDC or Ethereum Sepolia ETH to Miden. Never bridge from mainnet or any other real network."
+    "message": "此橋接功能將 Arc 測試網或以太坊 Sepolia 上的 USDC，以及以太坊 Sepolia 上的 ETH，轉移至 Miden。切勿從主網或任何其他真實網路進行橋接。",
+    "englishSource": "This bridge moves Arc Testnet or Ethereum Sepolia USDC, or Ethereum Sepolia ETH, to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "隱藏轉帳：$count$",

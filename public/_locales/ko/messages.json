@@ -68,8 +68,8 @@
     "englishSource": "Paid in MIDEN, including faucet execution sponsorship"
   },
   "usdcxInvalidDestination": {
-    "message": "이 출금을 위해 유효한 Arc 테스트넷 주소를 입력하십시오.",
-    "englishSource": "Enter a valid Arc Testnet address for this withdrawal."
+    "message": "이 출금을 위해 지원되는 네트워크상의 유효한 주소를 입력하십시오.",
+    "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
     "message": "USDCx 인출은 Miden 테스트넷에서 설정된 faucet에서만 가능합니다.",
@@ -4771,6 +4771,132 @@
     "message": "USDCx가 Miden에서 발행되었으며, 귀하의 지갑으로 입금되었습니다.",
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
+  "usdcxExecutorRouteNotice": {
+    "message": "USDC는 $source$에서 소각되고, $target$에서 서클(Circle)의 집행자에게 발행되며, 서클은 이를 미덴(Miden)을 위한 xReserve에 예치합니다. 서클의 수수료는 해당 금액에 추가로 지불되며, 서클은 $target$에서 이체를 실행합니다. 서클이 이체 가격을 책정할 수 없는 경우, 사용자는 $target$에서 서명을 한 번 더 추가하여 이체를 실행합니다.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle's fee is paid on top of the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "target": {
+        "content": "$4"
+      }
+    }
+  },
+  "usdcxCctpAwaitingAttestation": {
+    "message": "소각이 확인되었습니다. $network$에서 이체가 실행되기 전에 Circle이 이체를 인증할 때까지 대기 중입니다.",
+    "englishSource": "The burn is confirmed. Waiting for Circle to attest the transfer before it can be executed on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuteNeeded": {
+    "message": "Circle이 이 이체를 인증했습니다. $network$에서 이 거래를 실행하여 Miden을 위한 xReserve에 USDC를 입금하십시오. 이를 위해서는 $network$에서 소량의 가스 비용이 필요합니다.",
+    "englishSource": "Circle attested the transfer. Execute it on $network$ to deposit the USDC into xReserve for Miden. This needs a small amount of gas on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxExecuteOnNetwork": {
+    "message": "$network$에서 실행",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuting": {
+    "message": "실행 중…",
+    "englishSource": "Executing…"
+  },
+  "usdcxExecuteSubmitted": {
+    "message": "이체는 $network$에서 실행되었습니다. Miden에서 USDCx가 발행되기 전에 Circle이 입금을 인증할 때까지 대기 중입니다.",
+    "englishSource": "The transfer was executed on $network$. Waiting for Circle to attest the deposit before USDCx is minted on Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardingPending": {
+    "message": "소각이 확인되었습니다. Circle은 이 이체를 인증하고 $network$에서 이를 실행하며, 이를 통해 USDC가 Miden을 위해 xReserve에 입금됩니다.",
+    "englishSource": "The burn is confirmed. Circle attests the transfer and executes it on $network$, which deposits the USDC into xReserve for Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardFee": {
+    "message": "$fee$ USDC Circle 수수료",
+    "englishSource": "$fee$ USDC Circle fee",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxCircleFee": {
+    "message": "서클 수수료",
+    "englishSource": "Circle fee"
+  },
+  "usdcxProgress": {
+    "message": "진행 상황",
+    "englishSource": "Progress"
+  },
+  "usdcxStepDeposited": {
+    "message": "$network$에 입금됨",
+    "englishSource": "Deposited on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurned": {
+    "message": "$network$에서 소각됨",
+    "englishSource": "Burned on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurnAttested": {
+    "message": "Circle은 소각을 확인했습니다",
+    "englishSource": "Circle attested the burn"
+  },
+  "usdcxStepCircleExecutes": {
+    "message": "Circle은 $network$에서 실행됩니다.",
+    "englishSource": "Circle executes on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepUserExecutes": {
+    "message": "$network$에서 실행",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepDepositAttested": {
+    "message": "서클은 입금을 확인했습니다",
+    "englishSource": "Circle attested the deposit"
+  },
+  "usdcxStepMinted": {
+    "message": "Miden에서 발행된 USDCx",
+    "englishSource": "USDCx minted on Miden"
+  },
   "bridgeRowTitle": {
     "message": "브리지 $from$ → $to$",
     "englishSource": "Bridge $from$ → $to$",
@@ -5215,8 +5341,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "이 브리지는 USDC의 경우 Arc 테스트넷을, ETH의 경우 이더리움 세폴리아를 사용합니다. 실제 자금이 들어 있는 지갑은 연결하지 마십시오. 새로운 지갑을 생성하고 테스트 토큰만 입금하십시오.",
-    "englishSource": "This bridge uses Arc Testnet for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
+    "message": "이 브리지는 USDC의 경우 Arc 테스트넷 또는 이더리움 세폴리아를, ETH의 경우 이더리움 세폴리아를 사용합니다. 실제 자금이 들어 있는 지갑은 연결하지 마십시오. 새로운 지갑을 생성하고 테스트 토큰만 입금하십시오.",
+    "englishSource": "This bridge uses Arc Testnet or Ethereum Sepolia for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "월렛 개선에 기여해 주세요",
@@ -5447,8 +5573,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "이 브리지는 Arc 테스트넷의 USDC 또는 이더리움 세폴리아(Sepolia)의 ETH를 Miden으로 이동시킵니다. 메인넷이나 그 밖의 실제 네트워크에서는 절대 브리지를 사용하지 마십시오.",
-    "englishSource": "This bridge moves Arc Testnet USDC or Ethereum Sepolia ETH to Miden. Never bridge from mainnet or any other real network."
+    "message": "이 브리지는 Arc 테스트넷 또는 이더리움 세폴리아의 USDC, 혹은 이더리움 세폴리아의 ETH를 Miden으로 이동시킵니다. 메인넷이나 그 밖의 실제 네트워크에서는 절대 브리지를 수행하지 마십시오.",
+    "englishSource": "This bridge moves Arc Testnet or Ethereum Sepolia USDC, or Ethereum Sepolia ETH, to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "숨겨진 전송: $count$",
