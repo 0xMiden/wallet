@@ -127,17 +127,53 @@ const violation = (job: Job): string | undefined => {
 };
 
 /**
- * Minutes a dispatch adds to a push ceiling for the injections' from-source builds, by runner OS:
- * pr-compile-surfaces records about 26 for both on ubuntu-latest and 73 for the web-sdk one on macos-26.
+ * Minutes a dispatch adds to a push ceiling for the injections' from-source builds, by runner: pr-compile-surfaces
+ * records about 26 for both on ubuntu-latest and 73 for the web-sdk one on macos-26, and pr-e2e-bridge-guardian runs
+ * record the web-sdk one at 9 on x64-8x and still unfinished at 33 on arm64-2x.
  */
-const INJECTION_MINUTES = { linux: 30, macos: 75 };
+const INJECTION_MINUTES = { linux: 30, macos: 75, 'arm64-2x': 60 };
 const DISPATCH_CEILING = /^\$\{\{ github\.event_name == 'workflow_dispatch' && (\d+) \|\| (\d+) \}\}$/;
+const EVENT_TEST = /^github\.event_name\s*(==|!=)\s*'([^']*)'$/;
+const PLAIN_TERM = /^[A-Za-z_][\w.-]*(\s*(==|!=)\s*('[^']*'|[A-Za-z_][\w.-]*|\d+))?$/;
 
-const osOf = (file: string, job: Job): keyof typeof INJECTION_MINUTES => {
+const runnerOf = (file: string, job: Job): keyof typeof INJECTION_MINUTES => {
   const runsOn = job.keys['runs-on'] ?? '';
   if (/macos/.test(runsOn)) return 'macos';
-  if (/ubuntu/.test(runsOn)) return 'linux';
-  throw new Error(`${file} ${job.id}: no runner OS in runs-on: ${runsOn}`);
+  if (runsOn === 'warp-ubuntu-latest-arm64-2x') return 'arm64-2x';
+  if (/ubuntu/.test(runsOn) && !/arm/.test(runsOn)) return 'linux';
+  throw new Error(`${file} ${job.id}: no recorded injection time for runs-on: ${runsOn}`);
+};
+
+/**
+ * False when a job `if:` fails on every pull_request event: each `||` alternative has an `&&` term comparing the
+ * event name to a literal that rules pull_request out, without case as GitHub compares. Any other form throws.
+ */
+const ifCanHoldOnPullRequest = (where: string, raw: string): boolean => {
+  const expression = /^\$\{\{\s*(.*?)\s*\}\}$/.exec(raw)?.[1] ?? raw;
+  const alternatives = expression.split('||').map(alternative => alternative.split('&&').map(term => term.trim()));
+  if (alternatives.flat().some(term => !PLAIN_TERM.test(term)))
+    throw new Error(`${where}: cannot read the job if: ${raw}`);
+  return alternatives.some(terms =>
+    terms.every(term => {
+      const [, op, event] = EVENT_TEST.exec(term) ?? [];
+      return op === undefined || (event?.toLowerCase() === 'pull_request') === (op === '==');
+    })
+  );
+};
+
+/** Whether a pull request run can reach a job: its own `if:` and that of every job it needs can hold. */
+const runsOnPullRequest = (file: string, all: Job[], job: Job): boolean => {
+  const where = `${file} ${job.id}`;
+  const condition = job.keys['if'];
+  if (condition !== undefined && !ifCanHoldOnPullRequest(where, condition)) return false;
+  const needs = job.keys['needs'];
+  if (needs === undefined) return true;
+  const ids = (/^\[(.*)\]$/.exec(needs)?.[1] ?? needs).split(',').map(id => id.trim());
+  return ids.every(id => {
+    const needed = all.find(candidate => candidate.id === id);
+    if (needed === undefined) throw new Error(`${where}: cannot read the job needs: ${needs}`);
+    return runsOnPullRequest(file, all, needed);
+  });
 };
 
 /** Why a job's ceiling cuts off a dispatch that builds a linked web-sdk PR first, or undefined. */
@@ -147,11 +183,15 @@ const ceilingViolation = (file: string, text: string, job: Job): string | undefi
   const on = triggers(file, text);
   // No ceiling is GitHub's 360 minutes. One the job's own pull request runs inject under already holds the builds.
   if (ceiling === undefined || injects.length === 0 || !on.includes('workflow_dispatch')) return undefined;
-  if (on.includes('pull_request') && injects.every(step => keyOf(step, 'if') === undefined)) return undefined;
+  const injectsOnPullRequests =
+    on.includes('pull_request') &&
+    injects.every(step => keyOf(step, 'if') === undefined) &&
+    runsOnPullRequest(file, jobs(file, text), job);
+  if (injectsOnPullRequests) return undefined;
   const [, dispatch, push] = DISPATCH_CEILING.exec(ceiling) ?? [];
   if (dispatch === undefined || push === undefined)
     return `timeout-minutes ${ceiling} gives a dispatch no more than a push`;
-  const needed = Number(push) + INJECTION_MINUTES[osOf(file, job)];
+  const needed = Number(push) + INJECTION_MINUTES[runnerOf(file, job)];
   return Number(dispatch) < needed ? `a dispatch gets ${dispatch} minutes, under the ${needed} it needs` : undefined;
 };
 
@@ -282,7 +322,9 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       'e2e-dapp.yml dapp-e2e: push 190, dispatch 220',
       'e2e-resilience.yml resilience-chrome: push 60, dispatch 90',
       'e2e-stress.yml stress-conservation: push 90, dispatch 120',
-      'e2e-telemetry.yml telemetry-egress: push 30, dispatch 60'
+      'e2e-telemetry.yml telemetry-egress: push 30, dispatch 60',
+      'pr-e2e-earn.yml earn-e2e: push 120, dispatch 180',
+      'pr-e2e-swap.yml swap-e2e: push 120, dispatch 180'
     ]);
   });
 
@@ -361,7 +403,7 @@ describe('the rule itself', () => {
     expect(jobs('x.yml', flush([checkout, frozen], '    timeout-minutes: 5\n'))[0]!.steps).toHaveLength(2);
   });
 
-  it('gives a dispatch that may inject more time than a push, enough for its runner OS', () => {
+  it('gives a dispatch that may inject more time than a push, enough for its runner', () => {
     const at = (
       on: string,
       ceiling: string,
@@ -390,7 +432,47 @@ describe('the rule itself', () => {
     expect(at('  pull_request:\n  workflow_dispatch:', '60', 'ubuntu-latest', [webSdk, prGated, frozen])).toHaveLength(
       1
     );
-    expect(() => at('  workflow_dispatch:', dispatch(90, 60), 'self-hosted')).toThrow('no runner OS');
+    expect(at('  workflow_dispatch:', dispatch(119, 60), 'warp-ubuntu-latest-arm64-2x')).toEqual([
+      'a dispatch gets 119 minutes, under the 120 it needs'
+    ]);
+    expect(at('  workflow_dispatch:', dispatch(120, 60), 'warp-ubuntu-latest-arm64-2x')).toEqual([]);
+    for (const runner of ['self-hosted', 'ubuntu-24.04-arm', 'warp-ubuntu-latest-arm64-4x'])
+      expect(() => at('  workflow_dispatch:', dispatch(200, 60), runner)).toThrow('no recorded injection time');
+  });
+
+  it('exempts only a job its pull request runs reach, through its own if: and every job it needs', () => {
+    const ceilings = (text: string): string[] =>
+      jobs('x.yml', text).flatMap(job => {
+        const why = ceilingViolation('x.yml', text, job);
+        return why === undefined ? [] : [`${job.id}: ${why}`];
+      });
+    const both = '  pull_request:\n  workflow_dispatch:';
+    const gated = (condition: string): string =>
+      workflow(both, [webSdk, guardian, frozen]).replace(
+        '    runs-on: ubuntu-latest\n',
+        `    if: ${condition}\n    runs-on: ubuntu-latest\n    timeout-minutes: 60\n`
+      );
+    const chained = (needs: string, selectIf: string): string =>
+      `name: x\non:\n${both}\njobs:\n  select:\n    if: ${selectIf}\n    runs-on: ubuntu-slim\n    steps:\n` +
+      `      - run: echo\n  build:\n    needs: ${needs}\n    runs-on: ubuntu-latest\n    timeout-minutes: 60\n` +
+      `    steps:\n${[webSdk, guardian, frozen].map(step => `      - ${step}\n`).join('')}`;
+    const flagged = ['build: timeout-minutes 60 gives a dispatch no more than a push'];
+    const skipsPullRequests = "github.event_name != 'pull_request'";
+    const reachesMain = `${skipsPullRequests} || github.event.pull_request.base.ref == 'main'`;
+    expect(ceilings(gated(skipsPullRequests))).toEqual(flagged);
+    expect(ceilings(gated(`\${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}`))).toEqual(
+      flagged
+    );
+    expect(ceilings(gated("needs.a.outputs.run == 'true' && github.event_name != 'Pull_Request'"))).toEqual(flagged);
+    expect(ceilings(gated(reachesMain))).toEqual([]);
+    expect(ceilings(gated(`\${{ ${reachesMain} }}`))).toEqual([]);
+    expect(ceilings(gated("github.event_name == 'pull_request' && needs.a.outputs.run == 'true'"))).toEqual([]);
+    expect(ceilings(chained('select', skipsPullRequests))).toEqual(flagged);
+    expect(ceilings(chained('[select]', skipsPullRequests))).toEqual(flagged);
+    expect(ceilings(chained('[select]', reachesMain))).toEqual([]);
+    for (const unread of [`\${{ !cancelled() }}`, `"${skipsPullRequests}"`, `>-\n      ${skipsPullRequests}`])
+      expect(() => ceilings(gated(unread))).toThrow('cannot read the job if:');
+    expect(() => ceilings(chained('\n      - select', reachesMain))).toThrow('cannot read the job needs:');
   });
 
   it('throws on a shape it does not read instead of passing it', () => {
