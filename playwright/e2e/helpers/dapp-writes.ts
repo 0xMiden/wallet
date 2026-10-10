@@ -1,6 +1,12 @@
 import { expect, type Page } from '@playwright/test';
 
-import { captureBaseline, expectWritesToTheEnd, type WriteResult, type WriteSide } from './dapp-assertions';
+import {
+  captureBaseline,
+  expectVerifiedPreview,
+  expectWritesToTheEnd,
+  type WriteResult,
+  type WriteSide
+} from './dapp-assertions';
 import { offchainDappAxis } from './dapp-axis';
 import { HarnessFault, InfrastructureFault, type CellContext } from './dapp-cells';
 import { canonicalAddress, normalizeHex } from './dapp-gates';
@@ -8,6 +14,7 @@ import type { AccountSlot, Journey } from './dapp-journey';
 import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
 import { waitForPublicNoteCommitment } from './public-note-commitment';
 import {
+  advanceChain,
   answerPrompt,
   callDapp,
   pendingNotes,
@@ -18,7 +25,14 @@ import {
   type PendingNote,
   type PromptPlan
 } from './test-dapp';
-import type { NoteTypeName, Outcome, OutputSpec, RawArg } from '../test-dapp/protocol';
+import type {
+  BuildCustomInput,
+  BuildCustomOutput,
+  NoteTypeName,
+  Outcome,
+  OutputSpec,
+  RawArg
+} from '../test-dapp/protocol';
 
 /**
  * Shared write recipes: each starts a dApp request, answers its popup and asserts it to the end, so a spec cell names
@@ -146,6 +160,83 @@ export async function dappSendToTheEnd(
     'output note script'
   ).toEqual([script]);
   return written;
+}
+
+export interface CustomWrite {
+  build: BuildCustomInput;
+  submit: { recipientAddress: string; importNotes: boolean; inputNoteIds?: string[] };
+  /** Blocks the chain moves between the dApp's build and the request: 3 (B3) or 55 (X6). */
+  advance: number;
+  vaultDelta: Record<string, bigint>;
+  /** Per output, in build order: whether B receives and claims it. */
+  toB: boolean[];
+  consumedNullifiers: string[];
+  /** `amount` is the gross row single-sig shows; `netAmount`, when it differs, the net row a Guardian summary shows. */
+  preview: { amount: RegExp; netAmount?: RegExp; outputNotes: number; timeoutMs?: number };
+  slot?: AccountSlot;
+}
+
+const previewFor = (j: Journey, preview: CustomWrite['preview']) => ({
+  amount: j.axis.expected.previewAmount === 'net' ? (preview.netAmount ?? preview.amount) : preview.amount,
+  outputNotes: preview.outputNotes,
+  timeoutMs: preview.timeoutMs
+});
+
+/** A dApp-built request at the dApp's own height N, requested at N + advance, approved at N + advance + 1, to the end. */
+export async function customWriteToTheEnd(
+  j: Journey,
+  dapp: DappHandle,
+  write: CustomWrite,
+  ctx: CellContext
+): Promise<{ built: BuildCustomOutput; written: WriteResult }> {
+  const side = await sideOf(j, dapp, write.slot);
+  const baseline = await captureBaseline(side, Object.keys(write.vaultDelta), ctx);
+  const built = await callDapp(dapp, 'buildCustom', write.build, ctx.deadline);
+  await advanceChain(j.walletA, dapp, built.boundBlockNum + write.advance, ctx);
+  const { result } = await answerPrompt(
+    dapp,
+    () => callDapp(dapp, 'submitCustom', { requestId: built.requestId, ...write.submit }, ctx.deadline),
+    {
+      kind: 'transaction',
+      decision: 'approve',
+      origin: dapp.origin,
+      whileOpen: async popup => {
+        await expectVerifiedPreview(popup, previewFor(j, write.preview), ctx);
+        await popupBlock(dapp, ctx);
+      }
+    },
+    ctx
+  );
+  const { txId } = unwrap(result, 'custom request', ctx);
+  const [written] = await expectWritesToTheEnd(
+    side,
+    baseline,
+    [
+      {
+        txId,
+        outputNotes: built.outputNoteIds.map((noteId, index) => {
+          const output = write.build.outputs[index];
+          return {
+            noteId,
+            noteType: output?.noteType ?? 'public',
+            // A note below N + advance means the wallet ran the request before the chain moved past the dApp's height.
+            minBlock: built.boundBlockNum + write.advance,
+            // The dApp built these notes, so the attachment it set lands as built, the default one included; a
+            // wallet-built send's own attachment is not compared (ExpectedNote).
+            attachmentWordsHex: built.attachmentWordsHex,
+            ...(write.toB[index] === true && output !== undefined
+              ? { recipient: { wallet: j.walletB, faucetId: output.faucetId, amount: BigInt(output.amount) } }
+              : {})
+          };
+        }),
+        consumedNullifiers: write.consumedNullifiers
+      }
+    ],
+    write.vaultDelta,
+    ctx
+  );
+  if (written === undefined) throw new HarnessFault('expectWritesToTheEnd returned no result');
+  return { built, written };
 }
 
 export interface ProducedNote {

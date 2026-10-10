@@ -31,6 +31,8 @@ export const journeyTitle = (journey: JourneyId, axis: AxisLabel): string =>
 
 type CellList = ReadonlyArray<{ id: string; axes: readonly AxisLabel[] }>;
 const BOTH: readonly AxisLabel[] = ['offchain', 'guardian'];
+const GUARDIAN: readonly AxisLabel[] = ['guardian'];
+const OFFCHAIN: readonly AxisLabel[] = ['offchain'];
 const both = (...ids: string[]): CellList => ids.map(id => ({ id, axes: BOTH }));
 
 /** In run order. An empty list is a journey with no spec yet, which the axis coverage test does not look for. */
@@ -58,8 +60,13 @@ export const DAPP_JOURNEY_CELLS: Record<JourneyId, CellList> = {
     'N1-after-writes'
   ),
   R: [],
-  X: [],
-  XL: [],
+  X: [
+    ...both('X1', 'X2', 'X3', 'X4', 'X5'),
+    { id: 'X5f', axes: OFFCHAIN },
+    { id: 'X7', axes: GUARDIAN },
+    ...both('X11')
+  ],
+  XL: both('X6'),
   M: []
 };
 
