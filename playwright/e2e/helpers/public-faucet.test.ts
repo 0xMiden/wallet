@@ -289,6 +289,176 @@ describe('mintFromPublicFaucet', () => {
     expect(waits).toEqual([60_000, 60_000, 60_000]);
   });
 
+  describe('the amount it asks for, and one more ask at a lower cap the faucet names', () => {
+    // Faucet 0.17.1 (testnet) offers token amounts and checks the cap at /pow; 0.17.0 (devnet) does neither.
+    const TESTNET_METADATA = { version: '0.17.1', decimals: 6, base_amount: 100_000_000, token_amounts: [1, 10, 100] };
+    const DEVNET_METADATA = { version: '0.17.0', decimals: 6, base_amount: 100_000_000 };
+    const overCap = (requested: bigint, cap: bigint) =>
+      `requested amount ${requested} exceeds the maximum claimable amount of ${cap}`;
+    const challenge = (hex: string) => reply(200, { challenge: hex, target: EASY_TARGET });
+    const minted = () => reply(200, { note_id: NOTE_ID });
+    const asked = (urls: string[], path: '/pow' | '/get_tokens') =>
+      urls
+        .map(url => new URL(url))
+        .filter(url => url.pathname === path)
+        .map(url => url.searchParams.get(path === '/pow' ? 'amount' : 'asset_amount'));
+
+    it('asks for the largest token amount the faucet offers, in base units', async () => {
+      const urls = serve([reply(200, { ...TESTNET_METADATA, token_amounts: [1, 10] }), challenge('aa'), minted()]);
+
+      await expect(mintFromPublicFaucet(BASE, ACCOUNT)).resolves.toStrictEqual({ noteId: NOTE_ID });
+
+      expect(asked(urls, '/pow')).toEqual(['10000000']);
+      expect(asked(urls, '/get_tokens')).toEqual(['10000000']);
+    });
+
+    it('asks for an offered token amount when base_amount is malformed', async () => {
+      const urls = serve([
+        reply(200, { decimals: 6, base_amount: 'x', token_amounts: [5] }),
+        challenge('aa'),
+        minted()
+      ]);
+
+      await mintFromPublicFaucet(BASE, ACCOUNT);
+
+      expect(asked(urls, '/pow')).toEqual(['5000000']);
+    });
+
+    it('asks once more at the cap a challenge refusal names, from a fresh challenge (testnet)', async () => {
+      const urls = serve([
+        reply(200, TESTNET_METADATA),
+        reply(400, overCap(100_000_000n, 10_000_000n)),
+        challenge('bb'),
+        minted()
+      ]);
+
+      await expect(mintFromPublicFaucet(BASE, ACCOUNT)).resolves.toStrictEqual({ noteId: NOTE_ID });
+
+      expect(asked(urls, '/pow')).toEqual(['100000000', '10000000']);
+      expect(asked(urls, '/get_tokens')).toEqual(['10000000']);
+      expect(urls.filter(url => url.endsWith('/get_metadata'))).toHaveLength(1);
+    });
+
+    it('asks once more at the cap a mint refusal names, solving a new challenge (devnet)', async () => {
+      const urls = serve([
+        reply(200, DEVNET_METADATA),
+        challenge('aa'),
+        reply(400, overCap(100_000_000n, 10_000_000n)),
+        challenge('bb'),
+        minted()
+      ]);
+
+      await expect(mintFromPublicFaucet(BASE, ACCOUNT)).resolves.toStrictEqual({ noteId: NOTE_ID });
+
+      expect(asked(urls, '/pow')).toEqual(['100000000', '10000000']);
+      expect(asked(urls, '/get_tokens')).toEqual(['100000000', '10000000']);
+      expect(urls[4]).toContain('challenge=bb');
+    });
+
+    it('asks at most twice, whatever the second refusal names', async () => {
+      const second = overCap(10_000_000n, 1_000_000n);
+      const urls = serve([
+        reply(200, TESTNET_METADATA),
+        reply(400, overCap(100_000_000n, 10_000_000n)),
+        reply(400, second)
+      ]);
+
+      const error = await mintFromPublicFaucet(BASE, ACCOUNT).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(PublicFaucetError);
+      expect(error).toMatchObject({ message: `Public faucet PoW request failed (400): ${second}` });
+      expect(asked(urls, '/pow')).toEqual(['100000000', '10000000']);
+    });
+
+    it.each([
+      ['the cap equals the request', overCap(100_000_000n, 100_000_000n)],
+      ['the cap is above the request', overCap(100_000_000n, 1_000_000_000n)],
+      ['the cap is zero', overCap(100_000_000n, 0n)],
+      ['the refusal names no cap', 'requested amount 100000000 exceeds the maximum claimable amount'],
+      ['the refusal is about something else', 'Please enter a valid recipient address']
+    ])('asks only once when %s', async (_case, detail) => {
+      const urls = serve([reply(200, TESTNET_METADATA), reply(400, detail)]);
+
+      await expect(mintFromPublicFaucet(BASE, ACCOUNT)).rejects.toThrow(
+        `Public faucet PoW request failed (400): ${detail}`
+      );
+
+      expect(asked(urls, '/pow')).toEqual(['100000000']);
+    });
+
+    it('asks only once for an amount the caller chose', async () => {
+      const urls = serve([reply(400, overCap(100_000_000n, 10_000_000n))]);
+
+      await expect(mintFromPublicFaucet(BASE, ACCOUNT, 100_000_000n, 0)).rejects.toThrow(
+        `Public faucet PoW request failed (400): ${overCap(100_000_000n, 10_000_000n)}`
+      );
+
+      expect(urls).toHaveLength(1);
+      expect(asked(urls, '/pow')).toEqual(['100000000']);
+    });
+
+    it('keeps counting 5xx attempts across the ask at the cap', async () => {
+      const urls = serve([
+        reply(200, TESTNET_METADATA),
+        challenge('aa'),
+        reply(502, 'Bad Gateway'),
+        reply(400, overCap(100_000_000n, 10_000_000n)),
+        challenge('bb'),
+        reply(502, 'Bad Gateway'),
+        challenge('cc'),
+        reply(502, 'Bad Gateway')
+      ]);
+
+      await expect(mintFromPublicFaucet(BASE, ACCOUNT, undefined, 0)).rejects.toThrow(
+        'Public faucet mint failed (502): Bad Gateway'
+      );
+
+      expect(asked(urls, '/get_tokens')).toEqual(['100000000', '10000000', '10000000']);
+    });
+
+    it('keeps one 429 budget across the ask at the cap', async () => {
+      const limited = () => reply(429, 'Account is rate limited for 59 more seconds.');
+      serve([
+        reply(200, TESTNET_METADATA),
+        challenge('aa'),
+        limited(),
+        challenge('bb'),
+        limited(),
+        reply(400, overCap(100_000_000n, 10_000_000n)),
+        challenge('cc'),
+        limited(),
+        challenge('dd'),
+        limited()
+      ]);
+      const waits: number[] = [];
+
+      await expect(
+        mintFromPublicFaucet(BASE, ACCOUNT, undefined, 0, async ms => {
+          waits.push(ms);
+        })
+      ).rejects.toThrow('Public faucet mint failed (429): Account is rate limited for 59 more seconds.');
+
+      expect(waits).toEqual([60_000, 60_000, 60_000]);
+    });
+
+    it('waits one second over the seconds a rate limit names, even when it names none left', async () => {
+      serve([
+        reply(200, TESTNET_METADATA),
+        challenge('aa'),
+        reply(429, 'Account is rate limited for 0 more seconds.'),
+        challenge('bb'),
+        minted()
+      ]);
+      const waits: number[] = [];
+
+      await mintFromPublicFaucet(BASE, ACCOUNT, undefined, 0, async ms => {
+        waits.push(ms);
+      });
+
+      expect(waits).toEqual([1000]);
+    });
+  });
+
   describe('names the faucet in every failure, so a dApp journey classifies it as infrastructure', () => {
     const failureOf = (grant: Promise<unknown>): Promise<unknown> =>
       grant.then(

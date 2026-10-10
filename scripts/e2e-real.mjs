@@ -518,7 +518,7 @@ async function probeMidenFaucet(network) {
     if (status !== 200) return record(false, 'Miden faucet API', `${base} answered HTTP ${status}`);
     // Every fresh E2E account needs a native-MIDEN grant before its first fee-charged
     // transaction, so a dead faucet fails the run at funding, not at the assertion.
-    return record(true, 'Miden faucet API', `node ${body.version}, grants ${body.base_amount} base units`);
+    return record(true, 'Miden faucet API', `node ${body.version}, base_amount ${body.base_amount}`);
   } catch (err) {
     return record(false, 'Miden faucet API', `${base} unreachable: ${err.message}`);
   }
