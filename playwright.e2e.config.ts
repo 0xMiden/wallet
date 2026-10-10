@@ -19,8 +19,9 @@ export default defineConfig({
   // allocator (testnet-only), so they run via playwright.bridge.config.ts on a
   // dedicated job, not the general blockchain/localhost runs. Earn specs need
   // fake Epoch allocator/positions services + a local Anvil, so they run via
-  // playwright.earn.config.ts on the dedicated earn job, not here.
-  testIgnore: ['**/guardian-*.spec.ts', '**/swap/**', '**/bridge/**', '**/earn/**', '**/resilience/**'],
+  // playwright.earn.config.ts on the dedicated earn job, not here. dApp specs
+  // need a Guardian on one axis and run via playwright.dapp.config.ts.
+  testIgnore: ['**/guardian-*.spec.ts', '**/swap/**', '**/bridge/**', '**/earn/**', '**/resilience/**', '**/dapp/**'],
   timeout: 300_000, // 5 min per test (blockchain ops are slow)
   expect: {
     timeout: 60_000

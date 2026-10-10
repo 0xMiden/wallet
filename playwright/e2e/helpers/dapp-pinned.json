@@ -1,0 +1,40 @@
+{
+  "sdkVersion": "0.17.3",
+  "serveMode": "route",
+  "guardianCommitmentComparable": true,
+  "summarySigningInputs": "twin-preview",
+  "accountNotFound": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "texts": {
+    "X7": {
+      "guardian": {
+        "stage": "creating-proposal",
+        "error": "component reuses the fee conversion salt as a replay guard"
+      }
+    },
+    "R5": {
+      "offchain": {
+        "stage": "sending",
+        "error": "failed to execute transaction: asset error: subtracting"
+      },
+      "guardian": {
+        "stage": "creating-proposal",
+        "error": "failed to execute transaction: asset error: subtracting"
+      }
+    },
+    "R10": {
+      "offchain": {
+        "stage": "sending",
+        "error": "assertion failed with error code: 9127845879078954504"
+      },
+      "guardian": {
+        "stage": "creating-proposal",
+        "error": "assertion failed with error code: 9127845879078954504"
+      }
+    },
+    "G2": {
+      "guardian": {
+        "error": "Some storage item not found"
+      }
+    }
+  }
+}

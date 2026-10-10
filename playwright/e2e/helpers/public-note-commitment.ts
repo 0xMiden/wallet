@@ -2,6 +2,8 @@ import type { Endpoint, NoteId, RpcClient } from '@miden-sdk/miden-sdk';
 import { execFile } from 'child_process';
 import * as path from 'path';
 
+import { PublicFaucetError, publicFaucetFailure } from './public-faucet';
+
 const sdk = {
   getNotesById: 'getNotesById' satisfies keyof RpcClient,
   fromHex: 'fromHex' satisfies keyof typeof NoteId,
@@ -33,14 +35,15 @@ export async function waitForPublicNoteCommitment(
   timeoutMs = 180_000,
   sdkRoot = path.resolve(__dirname, '../../..')
 ): Promise<void> {
-  if (!/^0x[0-9a-f]{64}$/i.test(noteId)) throw new Error('Public faucet returned an invalid note ID');
+  if (!/^0x[0-9a-f]{64}$/i.test(noteId)) throw new PublicFaucetError('Public faucet returned an invalid note ID');
   const output = await new Promise<string>((resolve, reject) => {
     execFile(
       process.execPath,
       ['--input-type=module', '--eval', query, rpcUrl, noteId, String(timeoutMs)],
       { cwd: sdkRoot, timeout: timeoutMs + 5_000 },
-      (error, stdout) => (error ? reject(error) : resolve(stdout))
+      (error, stdout) =>
+        error ? reject(publicFaucetFailure(error, `note ${noteId} commitment query`)) : resolve(stdout)
     );
   });
-  if (output.trim() !== 'committed') throw new Error('Public faucet commitment query returned no proof');
+  if (output.trim() !== 'committed') throw new PublicFaucetError('Public faucet commitment query returned no proof');
 }
