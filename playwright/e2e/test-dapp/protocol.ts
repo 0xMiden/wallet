@@ -1,7 +1,8 @@
 /**
  * The command surface of `window.testDapp`, imported type-only by the page and by the Playwright driver. Results are
  * JSON: amounts and bigints are decimal strings, bytes are base64, ids are hex. Wallet and adapter errors come back
- * as `Outcome` data; a bad input or a failed self-check throws, because that is a dApp bug, not a wallet verdict.
+ * as `Outcome` data; a bad input or a failed self-check throws, because that is a dApp bug, not a wallet verdict, and a
+ * call the node failed throws `ChainUnavailableError`, which the driver reports as infrastructure.
  */
 import type { DappError } from '../helpers/dapp-cells';
 

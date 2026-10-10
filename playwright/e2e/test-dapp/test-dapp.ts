@@ -66,6 +66,16 @@ class HarnessCheckError extends Error {
     this.name = 'HarnessCheckError';
   }
 }
+/**
+ * The node failed a call the page made, or the chain did not advance: the network's fault, not the page's. The driver
+ * matches the name, asks a chain read again until the cell deadline and reports the rest as infrastructure (callDapp).
+ */
+class ChainUnavailableError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'ChainUnavailableError';
+  }
+}
 
 /** A built custom request waits here until `submitCustom`, so a test can let the chain move in between. */
 interface HeldRequest {
@@ -129,12 +139,12 @@ function describeError(error: unknown): DappError {
 }
 
 // Wallet and adapter errors are the verdicts under test, so they come back as data with their exact class and text
-// (spec section 2.4). A HarnessCheckError is the page's own fault and still throws.
+// (spec section 2.4). A HarnessCheckError is the page's own fault and a ChainUnavailableError the node's: both throw.
 async function outcome<T>(work: () => Promise<T>): Promise<Outcome<T>> {
   try {
     return { ok: true, value: await work() };
   } catch (error) {
-    if (error instanceof HarnessCheckError) throw error;
+    if (error instanceof HarnessCheckError || error instanceof ChainUnavailableError) throw error;
     return { ok: false, error: describeError(error) };
   }
 }
@@ -157,6 +167,16 @@ function provider(): MidenWallet {
 }
 // Chain reads bypass the dApp's client store as well as the wallet: the chain's view of a write is checked on its own.
 const rpc = (): RpcClient => new RpcClient(new Endpoint(state.rpcUrl));
+// Every call the page makes to the node goes through here, so the driver can tell a failed request from a page fault.
+async function fromNode<T>(what: string, work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (error instanceof HarnessCheckError) throw error;
+    const { name, message } = describeError(error);
+    throw new ChainUnavailableError(`${what}: ${name}: ${message}`, { cause: error });
+  }
+}
 
 // The adapter never subscribes to the provider's accountChange (K1), so the page listens on the provider itself to
 // record what the wallet actually emitted next to what the adapter reports.
@@ -268,7 +288,8 @@ const handlers: Partial<DappHandlers> = {
     });
     state.rpcUrl = input.rpcUrl;
     state.accountNotFound = input.accountNotFound ?? state.accountNotFound;
-    await state.client.syncChain();
+    const created = state.client;
+    await fromNode('syncChain', () => created.syncChain());
     const [sdkVersion, adapterVersion] = await Promise.all([
       servedVersion('@miden-sdk/miden-sdk'),
       servedVersion('@miden-sdk/miden-wallet-adapter-miden')
@@ -328,19 +349,31 @@ const handlers: Partial<DappHandlers> = {
     }),
 
   syncHeight: async () => {
-    await client().syncChain();
-    return { height: await client().getSyncHeight() };
+    const ownClient = client();
+    await fromNode('syncChain', () => ownClient.syncChain());
+    return { height: await ownClient.getSyncHeight() };
   },
 
   // `reachedAtMs` is when the dApp first saw the target: the wallet's sync stamps must be later than this before the
-  // request goes out (spec section 6, the "wallet synced past N" gate).
+  // request goes out (spec section 6, the "wallet synced past N" gate). A failed sync is tried again on the next lap,
+  // and a chain that never reaches the target is the network's failure, not the page's.
   waitForHeight: async ({ target, timeoutMs }) => {
+    const ownClient = client();
     const deadline = Date.now() + timeoutMs;
+    let lastFailure = '';
     for (;;) {
-      await client().syncChain();
-      const height = await client().getSyncHeight();
+      try {
+        await fromNode('syncChain', () => ownClient.syncChain());
+        lastFailure = '';
+      } catch (error) {
+        if (!(error instanceof ChainUnavailableError)) throw error;
+        lastFailure = `; last sync failed: ${error.message}`;
+      }
+      const height = await ownClient.getSyncHeight();
       if (height >= target) return { height, reachedAtMs: Date.now() };
-      if (Date.now() > deadline) throw new HarnessCheckError(`chain stuck at ${height}, wanted ${target}`);
+      if (Date.now() > deadline) {
+        throw new ChainUnavailableError(`chain stuck at ${height}, wanted ${target}${lastFailure}`);
+      }
       // One sync a second: testnet blocks come about every 3 s (the spike's measured cadence), so a finer poll only
       // adds load on the public RPC.
       await sleep(1_000);
@@ -406,7 +439,8 @@ const handlers: Partial<DappHandlers> = {
     const note = Note.deserialize(b64ToU8(noteBytesB64));
     const noteId = note.id().toString();
     const nullifierHex = note.nullifier().toHex();
-    const [fetched] = await rpc().getNotesById([NoteId.fromHex(noteId)]);
+    const id = NoteId.fromHex(noteId);
+    const [fetched] = await fromNode('getNotesById', () => rpc().getNotesById([id]));
     if (fetched === undefined) throw new HarnessCheckError(`note ${noteId} is not on chain yet`);
     const afterBlock = Math.max(0, fetched.inclusionProof.location().blockNum() - 1);
     // The note's real tag and a block before its inclusion: what lets an expected note commit. fromNoteDetails would
@@ -439,8 +473,9 @@ const handlers: Partial<DappHandlers> = {
   // from the shape twin (spec section 4); `authArgs: 'none'` and single-sig accounts use a plain builder.
   buildCustom: async input => {
     const me = requireConnected();
-    await client().syncChain();
-    const height = await client().getSyncHeight();
+    const ownClient = client();
+    await fromNode('syncChain', () => ownClient.syncChain());
+    const height = await ownClient.getSyncHeight();
     // The browser build consumes a WASM handle passed by value, so ids and bytes are read before handover.
     const outputs = input.outputs.map(output => {
       const assets = new NoteAssets(
@@ -643,7 +678,8 @@ const handlers: Partial<DappHandlers> = {
 
   // A private note's body is not on chain, so `note` is absent and only the metadata and the proof are read.
   chainNote: async ({ noteId }) => {
-    const [fetched] = await rpc().getNotesById([NoteId.fromHex(noteId)]);
+    const id = NoteId.fromHex(noteId);
+    const [fetched] = await fromNode('getNotesById', () => rpc().getNotesById([id]));
     if (fetched === undefined) return { found: false };
     const note = fetched.note;
     return {
@@ -658,14 +694,19 @@ const handlers: Partial<DappHandlers> = {
   },
 
   // Searched from block 0, so a nullifier committed at any height is found.
-  chainNullifier: async ({ nullifierHex }) => ({
-    committedAt: (await rpc().getNullifierCommitHeight(Word.fromHex(nullifierHex), 0)) ?? null
-  }),
+  chainNullifier: async ({ nullifierHex }) => {
+    const nullifier = Word.fromHex(nullifierHex);
+    return {
+      committedAt:
+        (await fromNode('getNullifierCommitHeight', () => rpc().getNullifierCommitHeight(nullifier, 0))) ?? null
+    };
+  },
 
   chainAccount: async ({ accountId }) => {
     // The node answers an account it has never seen with this commitment rather than an error (dapp-pinned.json
-    // `accountNotFound`, handed over in `init`), so a thrown read stays a harness fault, never "not deployed".
-    const fetched = await rpc().getAccountDetails(toAccountId(accountId));
+    // `accountNotFound`, handed over in `init`), so a failed read is the node's failure, never "not deployed".
+    const id = toAccountId(accountId);
+    const fetched = await fromNode('getAccountDetails', () => rpc().getAccountDetails(id));
     const commitmentHex = fetched.commitment().toHex();
     if (commitmentHex.toLowerCase() === state.accountNotFound.toLowerCase()) return { found: false };
     return { found: true, commitmentHex, lastBlockNum: fetched.lastBlockNum() };

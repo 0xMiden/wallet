@@ -2,7 +2,7 @@ import { expect, type BrowserContext, type Page } from '@playwright/test';
 
 import { CONFIRM_ACTIONS, type ConfirmKind } from './confirm-actions';
 import { waitForMirroredSetting } from './contacts-receive-settings';
-import { HarnessFault, type CellContext, type Deadline } from './dapp-cells';
+import { HarnessFault, InfrastructureFault, type CellContext, type Deadline } from './dapp-cells';
 import { waitForConfirmPopup } from './dapp-confirm';
 import { waitForFreshSyncs, type ConfirmPageEvent } from './dapp-gates';
 import pinned from './dapp-pinned.json';
@@ -92,14 +92,28 @@ export async function reloadDapp(dapp: DappHandle, init: DappInit, deadline: Dea
   await callDapp(dapp, 'init', init, deadline);
 }
 
-/** One `window.testDapp` command, raced against `deadline` when one is given. */
-export async function callDapp<K extends DappCommandName>(
+/**
+ * The node behind the dApp's own client failed a call, or the chain did not advance: the environment's failure, so a
+ * cell that meets it is `blocked (infrastructure)`, never a harness fault or a wallet verdict.
+ */
+export class ChainUnavailable extends InfrastructureFault {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ChainUnavailable';
+  }
+}
+
+// Reads of the chain's current state: asking again after the node failed one answers the same question. syncHeight is
+// not one, since a caller compares two of its heights (`expectNoPrompt`).
+const CHAIN_READS: ReadonlySet<DappCommandName> = new Set(['chainNote', 'chainNullifier', 'chainAccount']);
+const CHAIN_READ_RETRY_MS = 2_000;
+
+function evaluateOnce<K extends DappCommandName>(
   dapp: DappHandle,
   command: K,
-  input: DappInput<K>,
-  deadline?: Deadline
+  input: DappInput<K>
 ): Promise<DappOutput<K>> {
-  const work = dapp.page
+  return dapp.page
     .evaluate(
       ({ command, input }) => {
         const api = (window as unknown as { testDapp?: TestDappWindowApi }).testDapp;
@@ -109,12 +123,37 @@ export async function callDapp<K extends DappCommandName>(
       { command, input }
     )
     .catch((error: unknown) => {
-      // A page-side throw is a dApp bug (bad input, failed self-check), never a wallet verdict.
-      throw new HarnessFault(
-        `dApp ${dapp.label} ${command} threw: ${error instanceof Error ? error.message : String(error)}`
-      );
+      const text = error instanceof Error ? error.message : String(error);
+      // Playwright carries the page error's stack, which opens with its name (test-dapp/test-dapp.ts).
+      if (/\bChainUnavailableError: /.test(text)) throw new ChainUnavailable(`dApp ${dapp.label} ${command}: ${text}`);
+      // Any other page-side throw is a dApp bug (bad input, failed self-check), never a wallet verdict.
+      throw new HarnessFault(`dApp ${dapp.label} ${command} threw: ${text}`);
     });
-  return deadline ? deadline.race(work, `dApp ${dapp.label} ${command}`) : work;
+}
+
+/**
+ * One `window.testDapp` command, raced against `deadline` when one is given. With a deadline, a chain read the node
+ * failed is asked again every 2 s until it runs out (spec section 6, "chain reads poll until the cell deadline"); the
+ * last failure is what it then throws.
+ */
+export async function callDapp<K extends DappCommandName>(
+  dapp: DappHandle,
+  command: K,
+  input: DappInput<K>,
+  deadline?: Deadline
+): Promise<DappOutput<K>> {
+  if (deadline === undefined) return evaluateOnce(dapp, command, input);
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await deadline.race(evaluateOnce(dapp, command, input), `dApp ${dapp.label} ${command}`);
+    } catch (error) {
+      if (!(error instanceof ChainUnavailable) || !CHAIN_READS.has(command)) throw error;
+      if (deadline.remainingMs() < CHAIN_READ_RETRY_MS) {
+        throw attempt === 1 ? error : new ChainUnavailable(`${error.message} (after ${attempt} attempts)`);
+      }
+      await new Promise(resolve => setTimeout(resolve, CHAIN_READ_RETRY_MS));
+    }
+  }
 }
 
 const failedOutcome = (value: unknown): value is { ok: false; error: DappError } =>

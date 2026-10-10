@@ -226,11 +226,12 @@ export async function expectWritesToTheEnd(
     });
   }
 
-  // 3. The chain's view, through the dApp's own RpcClient, independent of the wallet.
+  // 3. The chain's view, through the dApp's own RpcClient, independent of the wallet. Each read takes the deadline, so
+  // a read the node fails is asked again rather than ending the cell (callDapp).
   for (const [index, write] of writes.entries()) {
     for (const [expected, actual] of pairs[index] ?? []) {
       const onChain = await pollUntil(
-        () => callDapp(side.dapp, 'chainNote', { noteId: actual.noteId }),
+        () => callDapp(side.dapp, 'chainNote', { noteId: actual.noteId }, ctx.deadline),
         note => note.found,
         `note ${actual.noteId} on chain`,
         ctx
@@ -245,7 +246,7 @@ export async function expectWritesToTheEnd(
     }
     for (const nullifier of write.consumedNullifiers) {
       await pollUntil(
-        () => callDapp(side.dapp, 'chainNullifier', { nullifierHex: nullifier }),
+        () => callDapp(side.dapp, 'chainNullifier', { nullifierHex: nullifier }, ctx.deadline),
         spent => spent.committedAt !== null,
         `nullifier ${nullifier} committed`,
         ctx
@@ -253,7 +254,7 @@ export async function expectWritesToTheEnd(
     }
   }
   const chain = await pollUntil(
-    () => callDapp(side.dapp, 'chainAccount', { accountId: side.accountIdHex }),
+    () => callDapp(side.dapp, 'chainAccount', { accountId: side.accountIdHex }, ctx.deadline),
     account => account.found && account.commitmentHex !== baseline.commitmentHex,
     'account commitment moved on chain',
     ctx
