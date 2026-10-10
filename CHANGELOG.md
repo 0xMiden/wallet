@@ -12,7 +12,7 @@
 
 ### Fixes
 
-- [FIX][all] On testnet, Send offers every USDCx bridge-out chain before a token is picked. Arc Testnet, Base Sepolia and Arbitrum Sepolia take only USDCx, so other tokens show disabled there and choosing one of those chains clears an unsupported token; other networks offer Sepolia alone (#1403).
+- [FIX][all] On testnet, Send offers every USDCx bridge-out chain before a token is picked. Arc Testnet, Base Sepolia and Arbitrum Sepolia take only USDCx, so the token list disables other tokens there and says why, and choosing one of those chains clears an unsupported token; other networks offer Sepolia alone (#1403).
 - [FIX][ci] The live USDCx bridge-IN E2E fails at once when `USDCX_LIVE_EVM_PRIVATE_KEY` is not set, where its spec used to skip and the run passed having tested nothing.
 - [FIX][all] Fund your wallet asks the faucet for the largest amount it offers and, when the faucet names a lower cap, asks once more for exactly that instead of failing; a rate limit or a refused amount reads in plain words on the card (with the wait, when the faucet gives one).
 - [FIX][ci] The live USDCx bridge-in E2E builds against a dispatching pull request's linked web-sdk and Guardian PRs and gets 235 minutes for a dispatch (150 on its nightly run), like every other push or dispatch install, so the linked-PR injection guard passes on main again.

@@ -90,6 +90,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
             data-testid="send-token-search"
             className="shrink-0"
           />
+          {usdcxOnly && <p className="shrink-0 pt-3 text-caption text-muted">{t('sendUsdcxOnlyDestination')}</p>}
           <div className="no-scrollbar min-h-0 overflow-y-auto pt-5">
             <div className="flex flex-col divide-y divide-rule-default">
               {filteredBalances.map(b => {

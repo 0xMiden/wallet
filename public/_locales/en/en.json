@@ -374,6 +374,7 @@
   "calculatingQuote": "Calculating",
   "selectAToken": "Select a token",
   "searchForTokens": "Search for tokens",
+  "sendUsdcxOnlyDestination": "Only USDCx can be sent to this network.",
   "available": "Available",
   "approxFiatValue": "≈ $value$ USD",
   "reviewDetails": "Review Details",

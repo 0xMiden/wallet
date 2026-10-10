@@ -212,6 +212,15 @@ describe('SelectTokenDrawer', () => {
     expect(screen.getByTestId('send-token-BTC')).toBeEnabled();
   });
 
+  it('says why the other tokens are disabled when the destination requires USDCx', () => {
+    setBalances([BTC]);
+    const { onOpenChange, onSelect, rerender } = renderDrawer({ usdcxOnly: true });
+    expect(screen.getByText('sendUsdcxOnlyDestination')).toBeInTheDocument();
+
+    rerender(<SelectTokenDrawer open onOpenChange={onOpenChange} onSelect={onSelect} usdcxOnly={false} />);
+    expect(screen.queryByText('sendUsdcxOnlyDestination')).not.toBeInTheDocument();
+  });
+
   it("leaves mobile back to SendManager's handler, which closes the sheet", () => {
     renderDrawer();
     expect(mockDrawerCloseOnBack).toBe(false);
