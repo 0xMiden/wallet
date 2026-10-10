@@ -559,7 +559,7 @@ describe('both injections read the pull request the resolver picks', () => {
 });
 
 describe('the Guardian injection on a Windows runner', () => {
-  it("keeps a Windows RUNNER_TEMP's backslashes in the file: dependency it writes", () => {
+  it("keeps a Windows RUNNER_TEMP's backslashes in both file: dependencies and the guardian-client pin", () => {
     const action = readFileSync(
       resolve(__dirname, '../../../.github/actions/inject-linked-guardian-pr/action.yml'),
       'utf8'
@@ -582,16 +582,23 @@ describe('the Guardian injection on a Windows runner', () => {
           ...process.env,
           GITHUB_WORKSPACE: dir,
           GUARDIAN_DIR: 'D:\\a\\_temp/guardian-pr',
-          PKG_SUBDIR: 'packages/miden-multisig-client'
+          CLIENT_SUBDIR: 'packages/guardian-client',
+          MULTISIG_SUBDIR: 'packages/miden-multisig-client'
         }
       });
       expect([result.status, result.stderr]).toEqual([0, '']);
-      const written: { dependencies: Record<string, string> } = JSON.parse(
+      const written: { dependencies: Record<string, string>; resolutions: Record<string, string> } = JSON.parse(
         readFileSync(join(dir, 'package.json'), 'utf8')
       );
-      expect(written.dependencies['@openzeppelin/miden-multisig-client']).toBe(
-        'file:D:\\a\\_temp/guardian-pr/packages/miden-multisig-client'
-      );
+      expect([
+        written.dependencies['@openzeppelin/miden-multisig-client'],
+        written.dependencies['@openzeppelin/guardian-client'],
+        written.resolutions['**/@openzeppelin/guardian-client']
+      ]).toEqual([
+        'file:D:\\a\\_temp/guardian-pr/packages/miden-multisig-client',
+        'file:D:\\a\\_temp/guardian-pr/packages/guardian-client',
+        'file:D:\\a\\_temp/guardian-pr/packages/guardian-client'
+      ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
