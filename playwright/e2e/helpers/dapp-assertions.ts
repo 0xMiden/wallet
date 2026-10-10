@@ -4,10 +4,11 @@ import { isDeepStrictEqual } from 'node:util';
 import {
   vaultBalanceOfCurrentAccount,
   vaultReadingOfCurrentAccount,
-  waitForVaultBalanceOfCurrentAccount
+  waitForVaultBalanceOfCurrentAccount,
+  type VaultReading
 } from './balance-truth';
 import type { DappAxis } from './dapp-axis';
-import { InfrastructureFault, type CellContext } from './dapp-cells';
+import { CellDeadlineExceeded, deadlineIn, InfrastructureFault, type CellContext } from './dapp-cells';
 import {
   canonicalAddress,
   isForeignConsume,
@@ -80,30 +81,47 @@ export async function pollUntil<T>(
   }
 }
 
+// What the wait for a fresh wallet sync leaves of the cell's deadline for the question to the node after it: a round trip
+// and a few of callDapp's 2 s retries.
+const NODE_QUESTION_RESERVE_MS = 15_000;
+
 /**
  * The current account's nonzero vault once the store holds a sync stamped after `sinceMs` (`storeHoldsSyncSince`): every
  * transaction the account completed before then is in it, a third party's consume the store had not polled among them.
- * Syncs are forced only while the last one published is older or another account's.
+ * Syncs are forced only while the last one published is older or another account's. A wallet sync needs the node, so a
+ * wait that runs out asks `dapp`'s node: one that fails throws `ChainUnavailable`, and only one that answers leaves the
+ * failure the wallet's.
  */
 export async function vaultSyncedAfter(
   wallet: Pick<GuardianAwareWalletPage, 'page' | 'triggerSync'>,
+  dapp: DappHandle,
   sinceMs: number,
   ctx: CellContext
 ): Promise<Record<string, string>> {
+  const what = 'the store holding a wallet sync after the baseline stamp';
+  const wait = deadlineIn(Math.max(0, ctx.deadline.remainingMs() - NODE_QUESTION_RESERVE_MS), ctx.deadline.label);
   const read = async () => {
     const reading = await vaultReadingOfCurrentAccount(wallet.page);
     if (syncedSince(reading, sinceMs)) return reading;
     await wallet.triggerSync(true);
     return vaultReadingOfCurrentAccount(wallet.page);
   };
-  const held = await pollUntil(
-    read,
-    reading => storeHoldsSyncSince(reading, sinceMs),
-    'the store holding a wallet sync after the baseline stamp',
-    ctx,
-    { intervalMs: 1_000 }
-  );
-  return held.store;
+  let last: VaultReading | null = null;
+  let ended = '';
+  try {
+    for (;;) {
+      last = await wait.race(read(), what);
+      if (storeHoldsSyncSince(last, sinceMs)) return last.store;
+      if (wait.remainingMs() < 1_000) break;
+      await sleep(1_000);
+    }
+  } catch (error) {
+    // A forced sync that never settles (a stalled node) is cut here; any other failure is not the wait running out.
+    if (!(error instanceof CellDeadlineExceeded)) throw error;
+    ended = `; ${error.message}`;
+  }
+  await callDapp(dapp, 'syncHeight', {}, ctx.deadline);
+  throw new Error(`${what}, the dApp's node answering: last read ${JSON.stringify(last)}${ended}`);
 }
 
 /** Baselines come after the quiesce, so nothing else moves these balances while the cell runs. */
@@ -114,7 +132,7 @@ export async function captureBaseline(
 ): Promise<Baseline> {
   const capturedAtSec = Math.floor(Date.now() / 1000);
   await selectAccountIfNeeded(side.wallet, side.account);
-  const synced = await vaultSyncedAfter(side.wallet, capturedAtSec * 1000, ctx);
+  const synced = await vaultSyncedAfter(side.wallet, side.dapp, capturedAtSec * 1000, ctx);
   const ids = [...new Set([...faucetIds, side.nativeFaucetId])];
   const vault = Object.fromEntries(ids.map(id => [id, BigInt(synced[id] ?? '0')]));
   const chain = await callDapp(side.dapp, 'chainAccount', { accountId: side.accountIdHex }, ctx.deadline);

@@ -18,7 +18,7 @@ import {
   type WriteSide
 } from './dapp-assertions';
 import type { DappAxis } from './dapp-axis';
-import { deadlineIn, InfrastructureFault, type CellContext } from './dapp-cells';
+import { deadlineIn, InfrastructureFault, type CellContext, type Deadline } from './dapp-cells';
 import type { NonCurrentRead } from './dapp-gates';
 import { readTransactionRow, readTransactionRows, USER_CANCELLED_REASON, type TransactionRowSnapshot } from './history';
 import { callDapp, ChainUnavailable, type DappHandle } from './test-dapp';
@@ -398,8 +398,68 @@ describe('a note from outside the journey', () => {
         syncedAtMs: NOW_MS - 100,
         vault: stale
       });
-      await expect(settled(vaultSyncedAfter(side.wallet, STAMP_SEC * 1000, ctx()))).resolves.toEqual(withGift);
+      await expect(settled(vaultSyncedAfter(side.wallet, side.dapp, STAMP_SEC * 1000, ctx()))).resolves.toEqual(
+        withGift
+      );
       expect(triggerSync).toHaveBeenCalled();
+    });
+
+    describe('when the wallet publishes no sync after the stamp', () => {
+      const commands = () => jest.mocked(callDapp).mock.calls.map(call => call[1]);
+      const nodeDown = async (command: string) => {
+        throw new ChainUnavailable(`dApp one ${command}: ChainUnavailableError: syncChain: Error: status 429`);
+      };
+      /** Every forced sync republishes the stale stamp, as the service worker does while the node fails its syncs. */
+      function stuckSide(
+        node: (command: string, deadline: Deadline) => Promise<unknown>,
+        triggerSync: () => Promise<void> = async () => undefined
+      ): WriteSide {
+        jest.mocked(vaultReadingOfCurrentAccount).mockResolvedValue({
+          storeAccount: ACCOUNT,
+          store: stale,
+          sync: { account: ACCOUNT, syncedAtMs: (STAMP_SEC - 10) * 1000, vault: stale }
+        });
+        jest
+          .mocked(callDapp)
+          .mockClear()
+          .mockImplementation((async (_dapp: DappHandle, command: string, _input: unknown, deadline: Deadline) =>
+            node(command, deadline)) as unknown as typeof callDapp);
+        const { side } = sideOf();
+        return { ...side, wallet: { page: side.wallet.page, triggerSync } as unknown as GuardianAwareWalletPage };
+      }
+
+      it("is blocked by infrastructure when the dApp's node fails too", async () => {
+        await expect(settled(captureBaseline(stuckSide(nodeDown), [TOKEN], ctx()))).rejects.toBeInstanceOf(
+          ChainUnavailable
+        );
+        expect(commands()).toEqual(['syncHeight']);
+      });
+
+      it("stays the wallet's failure when the dApp's node answers, asked with time left for it", async () => {
+        const left: number[] = [];
+        const side = stuckSide(async (_command, deadline) => {
+          left.push(deadline.remainingMs());
+          return { height: 9 };
+        });
+        const error = await settled(failureOf(captureBaseline(side, [TOKEN], ctx())));
+        expect(error).toBeInstanceOf(Error);
+        expect(error).not.toBeInstanceOf(InfrastructureFault);
+        expect(String(error)).toMatch(/the store holding a wallet sync after the baseline stamp/);
+        expect(commands()).toEqual(['syncHeight']);
+        expect(left[0]).toBeGreaterThanOrEqual(10_000);
+      });
+
+      it("is blocked by infrastructure when the wallet's forced sync never settles and the node fails", async () => {
+        const side = stuckSide(nodeDown, () => new Promise<void>(() => undefined));
+        await expect(settled(captureBaseline(side, [TOKEN], ctx()))).rejects.toBeInstanceOf(ChainUnavailable);
+      });
+
+      it('passes any other failure of the wait on unchanged, without asking the node', async () => {
+        const side = stuckSide(async () => ({ height: 9 }));
+        jest.mocked(vaultReadingOfCurrentAccount).mockRejectedValue(new Error('store read failed'));
+        await expect(settled(captureBaseline(side, [TOKEN], ctx()))).rejects.toThrow(/^store read failed$/);
+        expect(commands()).toEqual([]);
+      });
     });
   });
 

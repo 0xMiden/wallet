@@ -336,7 +336,7 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         const since = { capturedAtSec, rowIds: (await readTransactionRows(j.walletA.page)).map(row => row.id) };
         const vaultOf = async (account: string) => {
           await j.walletA.selectAccount(account);
-          return vaultSyncedAfter(j.walletA, capturedAtSec * 1000, ctx);
+          return vaultSyncedAfter(j.walletA, dapp, capturedAtSec * 1000, ctx);
         };
         const ownOne = await vaultOf(primary);
         const ownTwo = await vaultOf(second);
