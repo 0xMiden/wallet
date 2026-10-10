@@ -1,5 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 
+import type { VaultReading } from './balance-truth';
+
 /** Pure decisions the dApp driver makes, kept free of Playwright and the wallet page so Jest can pin them. */
 
 export interface FreshSyncOptions {
@@ -39,6 +41,18 @@ export async function waitForFreshSyncs(options: FreshSyncOptions): Promise<numb
     await sleep(options.pollMs ?? 1_000);
   }
 }
+
+/** A sync of the store's current account, published with a stamp after `sinceMs`. */
+export const syncedSince = (reading: VaultReading, sinceMs: number): boolean =>
+  reading.sync !== null && reading.sync.account === reading.storeAccount && reading.sync.syncedAtMs > sinceMs;
+
+/**
+ * Whether the store's vault is one a sync of its current account stamped after `sinceMs` published. The service worker
+ * reads the vault it publishes after the stamp (sync-manager.ts:258-260, 417-533), and a row completes only after its
+ * transaction was applied, so that vault holds every transaction the account completed before `sinceMs`.
+ */
+export const storeHoldsSyncSince = (reading: VaultReading, sinceMs: number): boolean =>
+  syncedSince(reading, sinceMs) && isDeepStrictEqual(reading.store, reading.sync?.vault);
 
 export interface ConfirmPageEvent {
   type: 'open' | 'close';

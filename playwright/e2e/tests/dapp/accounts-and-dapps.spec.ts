@@ -7,7 +7,8 @@ import {
   expectWritesToTheEnd,
   pollUntil,
   refusal,
-  unlessAThirdPartyMovedARead
+  unlessAThirdPartyMovedARead,
+  vaultSyncedAfter
 } from '../../helpers/dapp-assertions';
 import { dappAxes, type DappAxis } from '../../helpers/dapp-axis';
 import { HarnessFault, type CellContext } from '../../helpers/dapp-cells';
@@ -329,13 +330,14 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         const oneAddress = (await connectedView(ctx)).address;
         await j.walletA.selectAccount(second);
         const twoAddress = (await connectAsCurrent(two, j.network, ctx)).address;
-        const vaultOf = async (account: string) => {
-          await j.walletA.selectAccount(account);
-          return vaultAssetsOfCurrentAccount(j.walletA.page);
-        };
-        // Before the vaults, so a third party's note consumed on either account later counts (spec section 5, step 7).
+        // Before the vaults, so a third party's note consumed on either account later counts (spec section 5, step 7),
+        // and each vault is read once the store holds a sync after it, so one consumed before is in it.
         const capturedAtSec = Math.floor(Date.now() / 1000);
         const since = { capturedAtSec, rowIds: (await readTransactionRows(j.walletA.page)).map(row => row.id) };
+        const vaultOf = async (account: string) => {
+          await j.walletA.selectAccount(account);
+          return vaultSyncedAfter(j.walletA, capturedAtSec * 1000, ctx);
+        };
         const ownOne = await vaultOf(primary);
         const ownTwo = await vaultOf(second);
         // Account 2 holds its 100 TST fixture, so the vaults differ and a read that leaked the other one would fail.

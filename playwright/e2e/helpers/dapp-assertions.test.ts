@@ -1,12 +1,19 @@
 import type { Page } from '@playwright/test';
 
-import { vaultBalanceOfCurrentAccount, waitForVaultBalanceOfCurrentAccount } from './balance-truth';
 import {
+  vaultBalanceOfCurrentAccount,
+  vaultReadingOfCurrentAccount,
+  waitForVaultBalanceOfCurrentAccount,
+  type VaultReading
+} from './balance-truth';
+import {
+  captureBaseline,
   expectCancelledWhileQueued,
   expectNoNewRows,
   expectVaultUnchanged,
   expectWritesToTheEnd,
   unlessAThirdPartyMovedARead,
+  vaultSyncedAfter,
   type Baseline,
   type WriteSide
 } from './dapp-assertions';
@@ -30,6 +37,7 @@ jest.mock('@playwright/test', () => {
 });
 jest.mock('./balance-truth', () => ({
   vaultBalanceOfCurrentAccount: jest.fn(),
+  vaultReadingOfCurrentAccount: jest.fn(),
   waitForVaultBalanceOfCurrentAccount: jest.fn(async () => undefined)
 }));
 jest.mock('./history', () => ({
@@ -303,6 +311,95 @@ describe('a note from outside the journey', () => {
       walletShows(baseline.vault, [row('funding'), cancelled]);
       waitAnswers({ ok: true, value: { txHash: TX_HASH } });
       await expect(assertCancel()).rejects.toThrow(/toEqual/);
+    });
+  });
+
+  describe('completed before a baseline stamp the store had not caught up with', () => {
+    const NOW_MS = 1_791_650_000_500;
+    const STAMP_SEC = Math.floor(NOW_MS / 1000);
+    const ABSENT = '0xabsent';
+    const stale = { [TOKEN]: '10000', [NATIVE]: '1000' };
+    const withGift = { ...stale, [NATIVE]: String(1_000n + GIFT - 7n) };
+    // A second before the stamp, so the window leaves it out: only the baseline's vault can hold it.
+    const consumed = gift('gift', { completedAt: STAMP_SEC - 1 });
+    const settled = async <T>(work: Promise<T>): Promise<T> => {
+      const outcome = work.then(
+        value => ({ value }),
+        (error: unknown) => ({ error })
+      );
+      await jest.advanceTimersByTimeAsync(61_000);
+      const done = await outcome;
+      if ('error' in done) throw done.error;
+      return done.value;
+    };
+
+    beforeEach(() => jest.useFakeTimers({ now: NOW_MS }));
+    afterEach(() => jest.useRealTimers());
+
+    /**
+     * The page after the consume: each forced sync publishes the account's vault with the gift, stamped after it was
+     * asked for, and the store takes the last vault its account published one read later (its poll lags the sync).
+     */
+    function pageAfterTheConsume(published: VaultReading['sync']) {
+      let store: Record<string, string> = stale;
+      let sync = published;
+      let polled = false;
+      const triggerSync = jest.fn(async () => {
+        sync = { account: ACCOUNT, syncedAtMs: Date.now() + 1, vault: withGift };
+        polled = false;
+      });
+      jest.mocked(vaultReadingOfCurrentAccount).mockImplementation(async () => {
+        if (polled && sync?.account === ACCOUNT) store = sync.vault;
+        polled = true;
+        return { storeAccount: ACCOUNT, store, sync };
+      });
+      jest
+        .mocked(vaultBalanceOfCurrentAccount)
+        .mockImplementation(async (_page, faucetId) => BigInt(store[faucetId] ?? '0'));
+      jest.mocked(readTransactionRows).mockResolvedValue([row('funding'), consumed]);
+      jest.mocked(callDapp).mockImplementation((async () => ({
+        found: true,
+        commitmentHex: '0xold',
+        lastBlockNum: 8
+      })) as unknown as typeof callDapp);
+      const { side } = sideOf();
+      const wallet = { page: side.wallet.page, triggerSync } as unknown as GuardianAwareWalletPage;
+      return { side: { ...side, wallet }, triggerSync };
+    }
+
+    it("is in the baseline's vault, so the write's exact checks pass", async () => {
+      const { side } = pageAfterTheConsume({ account: ACCOUNT, syncedAtMs: (STAMP_SEC - 10) * 1000, vault: stale });
+      const captured = await settled(captureBaseline(side, [TOKEN, ABSENT], ctx()));
+      expect(captured).toEqual({
+        vault: { [TOKEN]: 10_000n, [ABSENT]: 0n, [NATIVE]: 1_000n + GIFT - 7n },
+        commitmentHex: '0xold',
+        rowIds: ['funding', 'gift'],
+        capturedAtSec: STAMP_SEC
+      });
+      walletShows({ [TOKEN]: 10_000n - AMOUNT, [NATIVE]: 1_000n + GIFT - 7n - FEE }, [
+        row('funding'),
+        consumed,
+        written
+      ]);
+      await expect(settled(assertSend(side, captured))).resolves.toHaveLength(1);
+    });
+
+    it('waits for the store to take a sync it has not polled yet', async () => {
+      const { side } = pageAfterTheConsume({ account: ACCOUNT, syncedAtMs: NOW_MS - 100, vault: withGift });
+      expect((await settled(captureBaseline(side, [TOKEN], ctx()))).vault).toEqual({
+        [TOKEN]: 10_000n,
+        [NATIVE]: 1_000n + GIFT - 7n
+      });
+    });
+
+    it("takes no other account's sync for the store's, whatever vault it published", async () => {
+      const { side, triggerSync } = pageAfterTheConsume({
+        account: 'mtst1qaccountb',
+        syncedAtMs: NOW_MS - 100,
+        vault: stale
+      });
+      await expect(settled(vaultSyncedAfter(side.wallet, STAMP_SEC * 1000, ctx()))).resolves.toEqual(withGift);
+      expect(triggerSync).toHaveBeenCalled();
     });
   });
 

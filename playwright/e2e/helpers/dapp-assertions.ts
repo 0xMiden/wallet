@@ -1,10 +1,21 @@
 import { expect, type Page } from '@playwright/test';
 import { isDeepStrictEqual } from 'node:util';
 
-import { vaultBalanceOfCurrentAccount, waitForVaultBalanceOfCurrentAccount } from './balance-truth';
+import {
+  vaultBalanceOfCurrentAccount,
+  vaultReadingOfCurrentAccount,
+  waitForVaultBalanceOfCurrentAccount
+} from './balance-truth';
 import type { DappAxis } from './dapp-axis';
 import { InfrastructureFault, type CellContext } from './dapp-cells';
-import { canonicalAddress, isForeignConsume, normalizeHex, type NonCurrentRead } from './dapp-gates';
+import {
+  canonicalAddress,
+  isForeignConsume,
+  normalizeHex,
+  storeHoldsSyncSince,
+  syncedSince,
+  type NonCurrentRead
+} from './dapp-gates';
 import {
   describeTransactionRow,
   readTransactionRow,
@@ -43,7 +54,7 @@ export interface Baseline {
   /** `null` for an account the node has never seen (a first transaction). */
   commitmentHex: string | null;
   rowIds: string[];
-  /** Unix seconds just before the reads, on the scale of a row's `completedAt`. */
+  /** Unix seconds just before the reads, on the scale of a row's `completedAt`; the vault holds every row completed before. */
   capturedAtSec: number;
 }
 
@@ -69,6 +80,32 @@ export async function pollUntil<T>(
   }
 }
 
+/**
+ * The current account's nonzero vault once the store holds a sync stamped after `sinceMs` (`storeHoldsSyncSince`): every
+ * transaction the account completed before then is in it, a third party's consume the store had not polled among them.
+ * Syncs are forced only while the last one published is older or another account's.
+ */
+export async function vaultSyncedAfter(
+  wallet: Pick<GuardianAwareWalletPage, 'page' | 'triggerSync'>,
+  sinceMs: number,
+  ctx: CellContext
+): Promise<Record<string, string>> {
+  const read = async () => {
+    const reading = await vaultReadingOfCurrentAccount(wallet.page);
+    if (syncedSince(reading, sinceMs)) return reading;
+    await wallet.triggerSync(true);
+    return vaultReadingOfCurrentAccount(wallet.page);
+  };
+  const held = await pollUntil(
+    read,
+    reading => storeHoldsSyncSince(reading, sinceMs),
+    'the store holding a wallet sync after the baseline stamp',
+    ctx,
+    { intervalMs: 1_000 }
+  );
+  return held.store;
+}
+
 /** Baselines come after the quiesce, so nothing else moves these balances while the cell runs. */
 export async function captureBaseline(
   side: WriteSide,
@@ -77,9 +114,9 @@ export async function captureBaseline(
 ): Promise<Baseline> {
   const capturedAtSec = Math.floor(Date.now() / 1000);
   await selectAccountIfNeeded(side.wallet, side.account);
+  const synced = await vaultSyncedAfter(side.wallet, capturedAtSec * 1000, ctx);
   const ids = [...new Set([...faucetIds, side.nativeFaucetId])];
-  const vault: Record<string, bigint> = {};
-  for (const id of ids) vault[id] = await vaultBalanceOfCurrentAccount(side.wallet.page, id);
+  const vault = Object.fromEntries(ids.map(id => [id, BigInt(synced[id] ?? '0')]));
   const chain = await callDapp(side.dapp, 'chainAccount', { accountId: side.accountIdHex }, ctx.deadline);
   return {
     vault,
