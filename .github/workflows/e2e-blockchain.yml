@@ -558,7 +558,8 @@ jobs:
     # build + simulator cold boot overlap) + ~55 min suite with one retry.
     # 90 minutes guillotined an otherwise-passing run at test 7 of 7.
     # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 205 || 130 }}
+    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI cold (up to 6 min on this runner).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 215 || 130 }}
     env:
       E2E_NETWORK: devnet
     steps:
@@ -766,7 +767,8 @@ jobs:
     # build + simulator cold boot overlap) + ~55 min suite with one retry.
     # 90 minutes guillotined an otherwise-passing run at test 7 of 7.
     # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 205 || 130 }}
+    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI cold (up to 6 min on this runner).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 215 || 130 }}
     env:
       E2E_NETWORK: testnet
     steps:
@@ -1023,7 +1025,8 @@ jobs:
     # plus a single guardian spec with up to 2 retries. Generous ceiling that
     # matches the standard mobile jobs so a passing build is never guillotined.
     # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 205 || 130 }}
+    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI cold (up to 6 min on this runner).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 215 || 130 }}
     env:
       E2E_NETWORK: devnet
     steps:
@@ -1229,7 +1232,8 @@ jobs:
     # plus a single guardian spec with up to 2 retries. Generous ceiling that
     # matches the standard mobile jobs so a passing build is never guillotined.
     # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 205 || 130 }}
+    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI cold (up to 6 min on this runner).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 215 || 130 }}
     env:
       E2E_NETWORK: testnet
     steps:

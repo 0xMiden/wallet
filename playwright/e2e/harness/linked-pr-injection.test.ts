@@ -127,21 +127,39 @@ const violation = (job: Job): string | undefined => {
 };
 
 /**
- * Minutes a dispatch adds to a push ceiling for the injections' from-source builds, by runner: pr-compile-surfaces
- * records about 26 for both on ubuntu-latest and 73 for the web-sdk one on macos-26, and pr-e2e-bridge-guardian runs
- * record the web-sdk one at 9 on x64-8x and still unfinished at 33 on arm64-2x.
+ * Minutes a dispatch adds to a push ceiling for each from-source build it can run, by runner. Every injecting job may
+ * build the linked web-sdk PR: 26 on ubuntu-latest and 73 on macos-26 in pr-compile-surfaces, 9 on x64-8x and still
+ * unfinished at 33 on arm64-2x in pr-e2e-bridge-guardian. A `Client PR:` or `Protocol PR:` on that PR also rebuilds the
+ * CLI and the local node at a rev no push caches: up to 10, 8, 6 and 14 for the CLI (in the order below) and 28 on
+ * x64-8x and 71 on arm64-2x for the node, from push runs after a pin bump and the workflows' own notes.
  */
-const INJECTION_MINUTES = { linux: 30, macos: 75, 'arm64-2x': 60 };
+const BUILD_MINUTES: Record<string, { webSdk: number; cli: number; node?: number }> = {
+  'ubuntu-latest': { webSdk: 30, cli: 15 },
+  'x64-8x': { webSdk: 20, cli: 10, node: 30 },
+  macos: { webSdk: 75, cli: 10 },
+  'arm64-2x': { webSdk: 60, cli: 15, node: 75 }
+};
+const RUNNERS: Record<string, string> = {
+  'ubuntu-latest': 'ubuntu-latest',
+  'warp-ubuntu-latest-x64-8x': 'x64-8x',
+  'warp-ubuntu-latest-arm64-2x': 'arm64-2x'
+};
+const CLI = './.github/actions/install-miden-client-cli';
+const LOCAL_NODE = './.github/actions/run-local-node';
 const DISPATCH_CEILING = /^\$\{\{ github\.event_name == 'workflow_dispatch' && (\d+) \|\| (\d+) \}\}$/;
 const EVENT_TEST = /^github\.event_name\s*(==|!=)\s*'([^']*)'$/;
 const PLAIN_TERM = /^[A-Za-z_][\w.-]*(\s*(==|!=)\s*('[^']*'|[A-Za-z_][\w.-]*|\d+))?$/;
 
-const runnerOf = (file: string, job: Job): keyof typeof INJECTION_MINUTES => {
+/** The minutes every from-source build a dispatch can add to this job takes on its runner. */
+const dispatchMinutes = (file: string, job: Job): number => {
   const runsOn = job.keys['runs-on'] ?? '';
-  if (/macos/.test(runsOn)) return 'macos';
-  if (runsOn === 'warp-ubuntu-latest-arm64-2x') return 'arm64-2x';
-  if (/ubuntu/.test(runsOn) && !/arm/.test(runsOn)) return 'linux';
-  throw new Error(`${file} ${job.id}: no recorded injection time for runs-on: ${runsOn}`);
+  const minutes = BUILD_MINUTES[/^macos-/.test(runsOn) ? 'macos' : (RUNNERS[runsOn] ?? '')];
+  if (minutes === undefined) throw new Error(`${file} ${job.id}: no recorded injection time for runs-on: ${runsOn}`);
+  const runs = (action: string): boolean => job.steps.some(step => usesOf(step) === action);
+  const node = runs(LOCAL_NODE) ? minutes.node : 0;
+  if (node === undefined)
+    throw new Error(`${file} ${job.id}: no recorded local node build time for runs-on: ${runsOn}`);
+  return minutes.webSdk + (runs(CLI) ? minutes.cli : 0) + node;
 };
 
 /**
@@ -176,7 +194,7 @@ const runsOnPullRequest = (file: string, all: Job[], job: Job): boolean => {
   });
 };
 
-/** Why a job's ceiling cuts off a dispatch that builds a linked web-sdk PR first, or undefined. */
+/** Why a job's ceiling cuts off a dispatch that builds its linked PRs from source first, or undefined. */
 const ceilingViolation = (file: string, text: string, job: Job): string | undefined => {
   const ceiling = job.keys['timeout-minutes'];
   const injects = job.steps.filter(step => [WEB_SDK, GUARDIAN].includes(usesOf(step) ?? ''));
@@ -191,7 +209,7 @@ const ceilingViolation = (file: string, text: string, job: Job): string | undefi
   const [, dispatch, push] = DISPATCH_CEILING.exec(ceiling) ?? [];
   if (dispatch === undefined || push === undefined)
     return `timeout-minutes ${ceiling} gives a dispatch no more than a push`;
-  const needed = Number(push) + INJECTION_MINUTES[runnerOf(file, job)];
+  const needed = Number(push) + dispatchMinutes(file, job);
   return Number(dispatch) < needed ? `a dispatch gets ${dispatch} minutes, under the ${needed} it needs` : undefined;
 };
 
@@ -292,7 +310,7 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
     ]);
   });
 
-  it('gives a dispatch the time to build a linked web-sdk PR on top of the push ceiling, which stays as it was', () => {
+  it('gives a dispatch the time to build its linked PRs from source on top of an unchanged push ceiling', () => {
     expect(
       workflowFiles.flatMap(file =>
         jobs(file, source(file)).flatMap(job => {
@@ -306,25 +324,25 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       return dispatch === undefined ? [] : [`${file} ${job.id}: push ${push}, dispatch ${dispatch}`];
     });
     expect(ceilings).toEqual([
-      'e2e-android.yml android-e2e: push 60, dispatch 90',
+      'e2e-android.yml android-e2e: push 60, dispatch 105',
       'e2e-blockchain.yml chrome-devnet: push 60, dispatch 90',
       'e2e-blockchain.yml chrome-testnet: push 60, dispatch 90',
       'e2e-blockchain.yml chrome-guardian-devnet: push 60, dispatch 90',
       'e2e-blockchain.yml chrome-guardian-testnet: push 60, dispatch 90',
-      'e2e-blockchain.yml mobile-devnet: push 130, dispatch 205',
-      'e2e-blockchain.yml mobile-testnet: push 130, dispatch 205',
-      'e2e-blockchain.yml mobile-guardian-devnet: push 130, dispatch 205',
-      'e2e-blockchain.yml mobile-guardian-testnet: push 130, dispatch 205',
-      'e2e-bridge-in.yml mobile-bridge-in-testnet: push 110, dispatch 185',
+      'e2e-blockchain.yml mobile-devnet: push 130, dispatch 215',
+      'e2e-blockchain.yml mobile-testnet: push 130, dispatch 215',
+      'e2e-blockchain.yml mobile-guardian-devnet: push 130, dispatch 215',
+      'e2e-blockchain.yml mobile-guardian-testnet: push 130, dispatch 215',
+      'e2e-bridge-in.yml mobile-bridge-in-testnet: push 110, dispatch 195',
       'e2e-bridge.yml chrome-bridge-testnet: push 70, dispatch 100',
       'e2e-dapp-browser.yml ios-dapp-browser: push 60, dispatch 135',
       'e2e-dapp-browser.yml android-dapp-browser: push 60, dispatch 90',
       'e2e-dapp.yml dapp-e2e: push 190, dispatch 220',
-      'e2e-resilience.yml resilience-chrome: push 60, dispatch 90',
-      'e2e-stress.yml stress-conservation: push 90, dispatch 120',
+      'e2e-resilience.yml resilience-chrome: push 60, dispatch 120',
+      'e2e-stress.yml stress-conservation: push 90, dispatch 150',
       'e2e-telemetry.yml telemetry-egress: push 30, dispatch 60',
-      'pr-e2e-earn.yml earn-e2e: push 120, dispatch 180',
-      'pr-e2e-swap.yml swap-e2e: push 120, dispatch 180'
+      'pr-e2e-earn.yml earn-e2e: push 120, dispatch 270',
+      'pr-e2e-swap.yml swap-e2e: push 120, dispatch 270'
     ]);
   });
 
@@ -436,8 +454,45 @@ describe('the rule itself', () => {
       'a dispatch gets 119 minutes, under the 120 it needs'
     ]);
     expect(at('  workflow_dispatch:', dispatch(120, 60), 'warp-ubuntu-latest-arm64-2x')).toEqual([]);
-    for (const runner of ['self-hosted', 'ubuntu-24.04-arm', 'warp-ubuntu-latest-arm64-4x'])
+    expect(at('  workflow_dispatch:', dispatch(79, 60), 'warp-ubuntu-latest-x64-8x')).toEqual([
+      'a dispatch gets 79 minutes, under the 80 it needs'
+    ]);
+    const unrecorded = [
+      'self-hosted',
+      'ubuntu-24.04',
+      'ubuntu-24.04-arm',
+      'warp-ubuntu-latest-x64-2x',
+      'warp-ubuntu-latest-arm64-4x'
+    ];
+    for (const runner of unrecorded)
       expect(() => at('  workflow_dispatch:', dispatch(200, 60), runner)).toThrow('no recorded injection time');
+  });
+
+  it('adds the CLI and the local node that a linked client or protocol rev rebuilds cold, by runner', () => {
+    const cli = 'uses: ./.github/actions/install-miden-client-cli';
+    const node = 'uses: ./.github/actions/run-local-node';
+    const at = (d: number, runsOn: string, builds: string[]): string[] => {
+      const text = workflow('  workflow_dispatch:', [webSdk, guardian, frozen, ...builds]).replace(
+        '    runs-on: ubuntu-latest\n',
+        `    runs-on: ${runsOn}\n    timeout-minutes: \${{ github.event_name == 'workflow_dispatch' && ${d} || 60 }}\n`
+      );
+      return jobs('x.yml', text).flatMap(job => ceilingViolation('x.yml', text, job) ?? []);
+    };
+    const under = (d: number, needed: number): string[] => [
+      `a dispatch gets ${d} minutes, under the ${needed} it needs`
+    ];
+    const x64 = 'warp-ubuntu-latest-x64-8x';
+    expect(at(89, x64, [cli])).toEqual(under(89, 90));
+    expect(at(90, x64, [cli])).toEqual([]);
+    expect(at(109, x64, [node])).toEqual(under(109, 110));
+    expect(at(119, x64, [cli, node])).toEqual(under(119, 120));
+    expect(at(120, x64, [cli, node])).toEqual([]);
+    expect(at(104, 'ubuntu-latest', [cli])).toEqual(under(104, 105));
+    expect(at(144, 'macos-26-xlarge', [cli])).toEqual(under(144, 145));
+    expect(at(209, 'warp-ubuntu-latest-arm64-2x', [cli, node])).toEqual(under(209, 210));
+    expect(at(210, 'warp-ubuntu-latest-arm64-2x', [cli, node])).toEqual([]);
+    for (const runner of ['ubuntu-latest', 'macos-26'])
+      expect(() => at(300, runner, [node])).toThrow(`no recorded local node build time for runs-on: ${runner}`);
   });
 
   it('exempts only a job its pull request runs reach, through its own if: and every job it needs', () => {

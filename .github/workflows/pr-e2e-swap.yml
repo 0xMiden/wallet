@@ -38,7 +38,8 @@ jobs:
     # binds on a cold build; a warm run is unaffected by raising it.
     # A dispatch may first build a linked web-sdk PR from source (still unfinished at 33 min on this runner,
     # pr-e2e-bridge-guardian.yml).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 180 || 120 }}
+    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI and the node cold (14 and 71 min here).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 270 || 120 }}
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret

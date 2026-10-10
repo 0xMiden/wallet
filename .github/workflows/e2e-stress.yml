@@ -49,8 +49,9 @@ jobs:
     name: Stress + balance conservation (localnet)
     runs-on: warp-ubuntu-latest-x64-8x
     # Stack bring-up + CLI + extension build (~20 min cold) plus the run itself.
-    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 120 || 90 }}
+    # A dispatch may first build a linked web-sdk PR from source (about 9 min on this runner, pr-e2e-bridge-guardian.yml),
+    # and a `Client PR:` or `Protocol PR:` marker on it rebuilds the CLI (~8m) and the node (~28m) cold.
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 150 || 90 }}
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret

@@ -31,8 +31,9 @@ jobs:
     # Cold-cache runs compile miden-client-cli (~8m) + note-transport (~5m);
     # warm-cache runs are ~20m. The fault suite adds guardian bring-up + more
     # specs, so 60m gives headroom over pr-e2e-local's 45m.
-    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 90 || 60 }}
+    # A dispatch may first build a linked web-sdk PR from source (about 9 min on this runner, pr-e2e-bridge-guardian.yml),
+    # and a `Client PR:` or `Protocol PR:` marker on it rebuilds the CLI (~8m) and the node (~28m) cold.
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 120 || 60 }}
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret
