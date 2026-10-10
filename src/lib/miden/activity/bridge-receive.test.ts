@@ -986,9 +986,14 @@ describe('reconcileBridgedReceives with a USDCx executor row', () => {
 
     await reconcileBridgedReceives();
 
-    expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'delivering', {
-      cctp: { sourceDomain: 6, executeTxHash: EXECUTE_HASH, forwardState: 'COMPLETE' }
-    });
+    // Only onto a leg that holds no execute hash: a manual execute saved meanwhile stands.
+    expect(updatePhase).toHaveBeenCalledWith(
+      'usdcx-executor-row',
+      'delivering',
+      { cctp: { sourceDomain: 6, executeTxHash: EXECUTE_HASH, forwardState: 'COMPLETE' } },
+      undefined,
+      { onlyIfNoExecuteHash: true }
+    );
   });
 
   it('falls back to the manual execute when Circle gives up on the forward', async () => {

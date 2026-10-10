@@ -178,13 +178,19 @@ async function reconcileUsdcxExecutorRow(
     leg.revertedExecuteTxHash !== undefined &&
     sameHash(attested.forwardTxHash, leg.revertedExecuteTxHash);
   if (attested.forwardTxHash && !forwardReverted) {
-    await updateBridgedReceivePhase(row.id, 'delivering', {
-      cctp: {
-        sourceDomain: leg.sourceDomain,
-        executeTxHash: attested.forwardTxHash,
-        forwardState: attested.forwardState
-      }
-    });
+    await updateBridgedReceivePhase(
+      row.id,
+      'delivering',
+      {
+        cctp: {
+          sourceDomain: leg.sourceDomain,
+          executeTxHash: attested.forwardTxHash,
+          forwardState: attested.forwardState
+        }
+      },
+      undefined,
+      { onlyIfNoExecuteHash: true }
+    );
     return;
   }
   if (leg.forwarded && !isCctpForwardFailed(attested.forwardState)) {

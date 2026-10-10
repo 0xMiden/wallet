@@ -96,11 +96,25 @@ describe('updateBridgedReceivePhase on a USDCx CCTP leg', () => {
   it('keeps a manual execute hash a late forward adoption would replace', async () => {
     const id = await seed('delivering', { cctp: { ...held, executeTxHash: H2 } });
 
-    await updateBridgedReceivePhase(id, 'delivering', {
-      cctp: { sourceDomain: 6, executeTxHash: H1, forwardState: 'COMPLETE' }
-    });
+    await updateBridgedReceivePhase(
+      id,
+      'delivering',
+      { cctp: { sourceDomain: 6, executeTxHash: H1, forwardState: 'COMPLETE' } },
+      undefined,
+      { onlyIfNoExecuteHash: true }
+    );
 
     expect((await Repo.transactions.get(id))?.extraInputs.cctp).toEqual({ ...held, executeTxHash: H2 });
+  });
+
+  // The wallet's own execute may land after an adoption during its signing window; it replaces the adopted hash, and
+  // the reconciler reopens on whichever held hash reverts.
+  it('lets a manual execute replace an adopted forward hash', async () => {
+    const id = await seed('delivering', { cctp: { ...held, executeTxHash: H2 } });
+
+    await updateBridgedReceivePhase(id, 'delivering', { cctp: { sourceDomain: 6, executeTxHash: H1 } });
+
+    expect((await Repo.transactions.get(id))?.extraInputs.cctp).toEqual({ ...held, executeTxHash: H1 });
   });
 
   it('accepts the same execute hash written again', async () => {
