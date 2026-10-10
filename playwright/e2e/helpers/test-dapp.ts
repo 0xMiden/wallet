@@ -23,12 +23,14 @@ import {
 import { PASSWORD } from './wallet-page';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
 import type {
+  ConnectedView,
   DappCommandName,
   DappError,
   DappInput,
   DappOutput,
   Outcome,
   RawArg,
+  SessionView,
   TestDappWindowApi
 } from '../test-dapp/protocol';
 
@@ -269,6 +271,67 @@ export async function answerPrompt<T>(
   const result = await ctx.deadline.race(pending, `${plan.kind} answer`);
   if (failedOutcome(result)) ctx.evidence.dappError = result.error;
   return { result, popup };
+}
+
+// One queue serves every origin (actions.ts:98-102), so a popup is approved only once it names the dApp that asked.
+async function approveNamed(popup: Page, kind: ConfirmKind, origin: string): Promise<void> {
+  await popup.getByTestId(CONFIRM_ACTIONS[kind].approve).waitFor({ state: 'visible', timeout: 60_000 });
+  const named = await popupOrigin(popup, kind);
+  if (named !== origin) throw new Error(`the ${kind} popup names ${named ?? 'no origin'}, expected ${origin}`);
+  await popup.getByTestId(CONFIRM_ACTIONS[kind].approve).click();
+}
+
+/**
+ * Starts a request and approves its popup if the wallet opens one, checking the popup names this dApp; `prompted`
+ * says whether it did. The popup is awaited for the whole cell budget unless `waitMs` is given, since the wallet
+ * opens one only after its preview, which a Guardian custom request runs as a dry run first.
+ */
+export async function answerIfPrompted<T>(
+  dapp: DappHandle,
+  start: () => Promise<T>,
+  kind: ConfirmKind,
+  ctx: CellContext,
+  waitMs = ctx.deadline.remainingMs()
+): Promise<{ result: T; prompted: boolean }> {
+  // Armed before the request starts, as in answerPrompt, and raced with it, so an answer that comes first is kept.
+  const popupPromise = waitForConfirmPopup(dapp.context, waitMs).catch(() => null);
+  const pending = start();
+  const first = await ctx.deadline.race(
+    Promise.race([popupPromise.then(popup => ({ popup })), pending.then(result => ({ result }))]),
+    `${kind} popup or answer`
+  );
+  const popup = 'popup' in first ? first.popup : null;
+  if (popup !== null) await approveNamed(popup, kind, dapp.origin);
+  const result = await ctx.deadline.race(pending, `${kind} answer`);
+  if (failedOutcome(result)) ctx.evidence.dappError = result.error;
+  return { result, prompted: popup !== null };
+}
+
+/** Connects as the wallet's current account, answering the connect popup only if the wallet asks. */
+export async function connectAsCurrent(dapp: DappHandle, network: string, ctx: CellContext): Promise<ConnectedView> {
+  const { result } = await answerIfPrompted(
+    dapp,
+    () => callDapp(dapp, 'connect', { permission: 'UponRequest', network }, ctx.deadline),
+    'connect',
+    ctx
+  );
+  return unwrap(result, 'connect as the current account', ctx);
+}
+
+/** The session view once `done` holds, or the last one read after `ms`; the caller asserts on it. */
+export async function sessionWithin(
+  dapp: DappHandle,
+  done: (view: SessionView) => boolean,
+  ms: number,
+  ctx: CellContext
+): Promise<SessionView> {
+  const until = Date.now() + ms;
+  let view = await callDapp(dapp, 'session', {}, ctx.deadline);
+  while (!done(view) && Date.now() < until) {
+    await dapp.page.waitForTimeout(1_000);
+    view = await callDapp(dapp, 'session', {}, ctx.deadline);
+  }
+  return view;
 }
 
 const confirmPagesOpen = (context: BrowserContext): Page[] =>

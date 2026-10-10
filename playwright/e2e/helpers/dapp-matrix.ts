@@ -34,6 +34,8 @@ const BOTH: readonly AxisLabel[] = ['offchain', 'guardian'];
 const GUARDIAN: readonly AxisLabel[] = ['guardian'];
 const OFFCHAIN: readonly AxisLabel[] = ['offchain'];
 const both = (...ids: string[]): CellList => ids.map(id => ({ id, axes: BOTH }));
+// The request types M3 and M9 issue once an authorization went stale or names an account that is not current.
+const STALE = ['send', 'transaction', 'consume', 'consumeBytes', 'custom'] as const;
 
 /** In run order. An empty list is a journey with no spec yet, which the axis coverage test does not look for. */
 export const DAPP_JOURNEY_CELLS: Record<JourneyId, CellList> = {
@@ -98,7 +100,13 @@ export const DAPP_JOURNEY_CELLS: Record<JourneyId, CellList> = {
     ...both('X11')
   ],
   XL: both('X6'),
-  M: []
+  M: both(
+    'S7',
+    'M1',
+    'M2',
+    ...STALE.flatMap(request => [`M3-${request}-switch`, `M3-${request}-revoke`]),
+    ...STALE.map(request => `M9-${request}`)
+  )
 };
 
 export const cellIdsFor = (journey: JourneyId, axis: AxisLabel): string[] =>

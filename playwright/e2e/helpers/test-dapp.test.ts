@@ -14,8 +14,10 @@ import {
 } from './dapp-cells';
 import {
   advanceChain,
+  answerIfPrompted,
   callDapp,
   ChainUnavailable,
+  connectAsCurrent,
   expectNoPrompt,
   openTestDapp,
   popupBlock,
@@ -314,5 +316,81 @@ describe('openTestDapp', () => {
     const error = await opened;
     expect(error).toBeInstanceOf(ChainUnavailable);
     expect(error).toMatchObject({ message: expect.stringContaining('attempts)') });
+  });
+});
+
+describe('answering a popup only if the wallet opens one', () => {
+  const refused = { ok: false, error: { name: 'NotGrantedMidenWalletError', message: 'NOT_GRANTED' } };
+  // A confirm page naming `origin`, whose approve click runs `onApprove`; with no origin the wallet never opens one.
+  const walletOpening = (dapp: DappHandle, origin: string | null, onApprove: () => void = () => undefined) => {
+    const clicks: string[] = [];
+    const popup = {
+      getByTestId: (id: string) => ({
+        waitFor: async () => undefined,
+        getAttribute: async () => origin,
+        click: async () => {
+          clicks.push(id);
+          onApprove();
+        }
+      })
+    } as unknown as Page;
+    const waitForEvent = jest.fn(() => (origin === null ? new Promise(() => undefined) : Promise.resolve(popup)));
+    const handle: DappHandle = { ...dapp, context: { ...dapp.context, waitForEvent } as unknown as BrowserContext };
+    return { handle, clicks };
+  };
+
+  it('reports no prompt and clicks nothing when the request settles before any popup', async () => {
+    const { handle, clicks } = walletOpening(dappAnswering([]).dapp, null);
+    const ctx = contextFor(deadlineIn(60_000, 'M9-send'));
+    const answered = await answerIfPrompted(handle, async () => refused, 'transaction', ctx);
+    expect(answered).toEqual({ result: refused, prompted: false });
+    expect(clicks).toEqual([]);
+    expect(ctx.evidence).toEqual({ dappError: refused.error });
+  });
+
+  it('approves the popup the request opens and reports the answer after it as prompted', async () => {
+    let settle: (value: unknown) => void = () => undefined;
+    const request = new Promise(resolve => (settle = resolve));
+    const { handle, clicks } = walletOpening(dappAnswering([]).dapp, DAPP_ORIGINS.one, () => settle(refused));
+    const ctx = contextFor(deadlineIn(60_000, 'M9-send'));
+    const answered = await answerIfPrompted(handle, () => request, 'transaction', ctx);
+    expect(answered).toEqual({ result: refused, prompted: true });
+    expect(clicks).toEqual(['ConfirmPage/TransactionAction/AcceptButton']);
+    expect(ctx.evidence).toEqual({ dappError: refused.error });
+  });
+
+  it('never approves a popup that names another dApp', async () => {
+    const { handle, clicks } = walletOpening(dappAnswering([]).dapp, DAPP_ORIGINS.two);
+    const ctx = contextFor(deadlineIn(60_000, 'M9-send'));
+    const answered = answerIfPrompted(handle, () => new Promise(() => undefined), 'consume', ctx);
+    await expect(answered).rejects.toThrow(`the consume popup names ${DAPP_ORIGINS.two}`);
+    expect(clicks).toEqual([]);
+  });
+
+  const connected = { ok: true, value: { address: 'mtst1qsecond_qruqqypuyph', addressCanonical: 'mtst1qsecond' } };
+
+  it('connects silently, clicking nothing, when the wallet holds a session for the current account', async () => {
+    const { handle, clicks } = walletOpening(dappAnswering([connected]).dapp, null);
+    const view = await connectAsCurrent(handle, 'testnet', contextFor(deadlineIn(60_000, 'M2')));
+    expect(view).toEqual(connected.value);
+    expect(clicks).toEqual([]);
+  });
+
+  it('approves the connect popup when the wallet asks', async () => {
+    let settle: (value: unknown) => void = () => undefined;
+    const answer = new Promise(resolve => (settle = resolve));
+    const { dapp } = dappAnswering([() => answer]);
+    const { handle, clicks } = walletOpening(dapp, DAPP_ORIGINS.one, () => settle(connected));
+    const view = await connectAsCurrent(handle, 'testnet', contextFor(deadlineIn(1_000, 'M1')));
+    expect(view).toEqual(connected.value);
+    expect(clicks).toEqual(['ConfirmPage/ConnectAction/ConnectButton']);
+  });
+
+  it('never approves a connect popup that names another dApp', async () => {
+    const { dapp } = dappAnswering([() => new Promise(() => undefined)]);
+    const { handle, clicks } = walletOpening(dapp, DAPP_ORIGINS.two);
+    const connecting = connectAsCurrent(handle, 'testnet', contextFor(deadlineIn(1_000, 'M1')));
+    await expect(connecting).rejects.toThrow(`the connect popup names ${DAPP_ORIGINS.two}`);
+    expect(clicks).toEqual([]);
   });
 });

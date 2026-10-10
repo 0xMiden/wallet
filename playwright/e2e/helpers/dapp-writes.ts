@@ -1,16 +1,18 @@
 import { expect, type Page } from '@playwright/test';
 
+import { vaultBalanceOfCurrentAccount, waitForVaultBalanceOfCurrentAccount } from './balance-truth';
 import {
   captureBaseline,
   expectVerifiedPreview,
   expectWritesToTheEnd,
+  pollUntil,
   type WriteResult,
   type WriteSide
 } from './dapp-assertions';
 import { offchainDappAxis } from './dapp-axis';
 import { HarnessFault, InfrastructureFault, type CellContext } from './dapp-cells';
 import { canonicalAddress, normalizeHex, waitForFreshSyncs } from './dapp-gates';
-import type { AccountSlot, Journey } from './dapp-journey';
+import { setupContext, type AccountSlot, type Journey } from './dapp-journey';
 import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
 import { waitForPublicNoteCommitment } from './public-note-commitment';
 import {
@@ -20,6 +22,7 @@ import {
   pendingNoteIds,
   pendingNotes,
   popupBlock,
+  selectAccountIfNeeded,
   setAutoConsume,
   unwrap,
   walletSyncedAtMs,
@@ -374,6 +377,62 @@ export async function pendingImportQueue(page: Page): Promise<string[]> {
 /** One discovered, unconsumed note of the current account, or null. */
 export async function pendingNote(page: Page, noteId: string): Promise<PendingNote | null> {
   return (await pendingNotes(page)).find(note => normalizeHex(note.id) === normalizeHex(noteId)) ?? null;
+}
+
+export interface HeldNote {
+  noteId: string;
+  bytesB64: string;
+  nullifierHex: string;
+  amount: bigint;
+}
+
+/** A public TST note `address` holds but has not claimed: discovered by the wallet, readable on chain. */
+export async function mintHeldNote(j: Journey, address: string, amount: bigint): Promise<HeldNote> {
+  const { noteId } = await j.midenCli.mint(j.cliFaucetId, address, amount, 'public');
+  await j.midenCli.sync();
+  const ctx = setupContext(180_000, `held note ${noteId}`);
+  const onChain = await pollUntil(
+    () => callDapp(j.dapp, 'chainNote', { noteId }, ctx.deadline),
+    note => note.found,
+    `note ${noteId} on chain`,
+    ctx,
+    { bounded: true }
+  );
+  await selectAccountIfNeeded(j.walletA, address);
+  await pollUntil(
+    () => pendingNote(j.walletA.page, noteId),
+    note => note !== null,
+    `note ${noteId} discovered`,
+    ctx
+  );
+  await selectAccountIfNeeded(j.walletA, await j.account('primary'));
+  if (onChain.noteBytesB64 === undefined || onChain.nullifierHex === undefined) {
+    throw new HarnessFault(`public note ${noteId} has no body`);
+  }
+  return { noteId, bytesB64: onChain.noteBytesB64, nullifierHex: onChain.nullifierHex, amount };
+}
+
+/**
+ * Mints TST to another account of wallet A and claims it there. On a fee-charging chain the CLI sends that account a
+ * public-faucet grant of the fee asset with its first mint (miden-cli.ts fundAccountForFees), and the claim takes both.
+ */
+export async function fundAccount(j: Journey, slot: AccountSlot, amount: bigint): Promise<string> {
+  const address = await j.account(slot);
+  const ctx = setupContext(300_000, `fund ${slot}`);
+  await selectAccountIfNeeded(j.walletA, address);
+  const before = await vaultBalanceOfCurrentAccount(j.walletA.page, j.tokenFaucetId);
+  const { noteId } = await j.midenCli.mint(j.cliFaucetId, address, amount, 'public');
+  await j.midenCli.sync();
+  await pollUntil(
+    () => pendingNote(j.walletA.page, noteId),
+    note => note !== null,
+    `funding note for ${slot}`,
+    ctx
+  );
+  await j.walletA.claimAllNotes(240_000);
+  await waitForVaultBalanceOfCurrentAccount(j.walletA.page, j.tokenFaucetId, before + amount, { timeoutMs: 180_000 });
+  await selectAccountIfNeeded(j.walletA, await j.account('primary'));
+  return address;
 }
 
 /**
