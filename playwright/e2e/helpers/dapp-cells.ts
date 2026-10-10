@@ -50,6 +50,8 @@ export interface FailureEvidence {
   staleConsumeExecuted?: boolean;
   /** A request made as a session's account while another account was current opened a popup (Q10, K9). */
   nonCurrentPrompted?: boolean;
+  /** Such a request left a row that ran, for any account: whatever the answer said, it was not refused (K9). */
+  nonCurrentRowRan?: boolean;
   /** Such a read was served a vault other than the session account's own: a leak, never K9. */
   nonCurrentReadLeaked?: boolean;
   crossOriginWaitServed?: boolean;

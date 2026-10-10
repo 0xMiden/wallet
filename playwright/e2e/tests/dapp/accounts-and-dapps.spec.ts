@@ -13,7 +13,13 @@ import {
 import { dappAxes, type DappAxis } from '../../helpers/dapp-axis';
 import { HarnessFault, type CellContext } from '../../helpers/dapp-cells';
 import { waitForConfirmPopup } from '../../helpers/dapp-confirm';
-import { assetMap, canonicalAddress, maxConcurrentConfirmPages, normalizeHex } from '../../helpers/dapp-gates';
+import {
+  assetMap,
+  canonicalAddress,
+  maxConcurrentConfirmPages,
+  normalizeHex,
+  onlyStaleConsumesRan
+} from '../../helpers/dapp-gates';
 import {
   runJourneyCells,
   setupContext,
@@ -180,10 +186,9 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         ? 'requestConsume'
         : 'requestTransaction';
 
-  const rowsRunFor = async (account: string, since: readonly string[]) =>
-    (await readTransactionRows(j.walletA.page)).filter(
-      row => !since.includes(row.id) && sameAs(row.accountId ?? null, account)
-    );
+  // Every account's rows, not the stale one's alone: a stale request run for the account now current is as wrong.
+  const rowsRunSince = async (since: readonly string[]) =>
+    (await readTransactionRows(j.walletA.page)).filter(row => !since.includes(row.id));
 
   const staleCell = (request: StaleRequest, trigger: 'switch' | 'revoke'): DappCellImpl => ({
     budget: 'write',
@@ -206,8 +211,8 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         ctx
       );
       await j.walletA.waitForQueueDrained(ctx.deadline.remainingMs());
-      const ran = await rowsRunFor(primary, baseline.rowIds);
-      ctx.evidence.staleConsumeExecuted = result.ok && ran.length > 0;
+      const ran = await rowsRunSince(baseline.rowIds);
+      ctx.evidence.staleConsumeExecuted = result.ok && onlyStaleConsumesRan(ran, primary);
       expect(result).toEqual(NOT_GRANTED_WRAPPED);
       expect(ran.map(describeTransactionRow)).toEqual([]);
     }
@@ -233,8 +238,10 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
       );
       ctx.evidence.nonCurrentPrompted = prompted;
       await j.walletA.waitForQueueDrained(ctx.deadline.remainingMs());
-      const ran = await rowsRunFor(primary, baseline.rowIds);
-      ctx.evidence.staleConsumeExecuted = result.ok && ran.length > 0;
+      const ran = await rowsRunSince(baseline.rowIds);
+      // A refusal is K9 only when nothing ran behind it; a row that ran, for any account, is new.
+      ctx.evidence.nonCurrentRowRan = ran.length > 0;
+      ctx.evidence.staleConsumeExecuted = result.ok && onlyStaleConsumesRan(ran, primary);
       expect({ prompted, result }).toEqual({ prompted: false, result: NOT_GRANTED_RAW });
       expect(ran.map(describeTransactionRow)).toEqual([]);
     }

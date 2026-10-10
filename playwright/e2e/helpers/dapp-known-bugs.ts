@@ -143,14 +143,14 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
     title: 'A request from a session bound to a non-current account opens a popup instead of being refused',
     tracking: '0xMiden/wallet, file after the first run (Q6); fix per Q10',
     cells: on([...NON_CURRENT_CELLS, 'M4-reads'], BOTH),
-    // The cells approve the popup to see what follows: M9 a refusal after approval, or a consume that executes (K6);
-    // M4-reads the dApp's own vault served.
+    // The cells approve the popup to see what follows: M9 a refusal after approval with nothing run for any account, or
+    // a consume that executes for the stale account (K6); M4-reads the dApp's own vault served.
     signature: ({ cellId, source, evidence }) =>
       source === 'hard' &&
       evidence.nonCurrentPrompted === true &&
       (cellId === 'M4-reads'
         ? evidence.nonCurrentReadLeaked === false
-        : evidence.dappError?.message === 'NOT_GRANTED' ||
+        : (evidence.dappError?.message === 'NOT_GRANTED' && evidence.nonCurrentRowRan === false) ||
           (cellId.startsWith('M9-consume') && evidence.staleConsumeExecuted === true))
   },
   {

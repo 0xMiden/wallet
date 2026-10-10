@@ -6,6 +6,7 @@ import {
   canonicalAddress,
   maxConcurrentConfirmPages,
   normalizeHex,
+  onlyStaleConsumesRan,
   sessionHeld,
   sharedOpen,
   waitForFreshSyncs
@@ -142,5 +143,23 @@ describe('sharedOpen', () => {
     expect(waiting.map(entry => entry.status)).toEqual(['rejected', 'rejected']);
     expect(await dappTwo()).toBe('dapp-2');
     expect(open).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('onlyStaleConsumesRan', () => {
+  const STALE = 'mtst1stale_qruqqypuyph';
+  const consume = (accountId?: string) => ({ type: 'consume', accountId });
+
+  it('holds when every row that ran is a consume of the stale account, by its address part', () => {
+    expect(onlyStaleConsumesRan([consume(STALE)], 'mtst1stale')).toBe(true);
+    expect(onlyStaleConsumesRan([consume('mtst1stale'), consume(STALE)], STALE)).toBe(true);
+  });
+
+  it('fails when nothing ran, or when any row is another type, another account or names no account', () => {
+    expect(onlyStaleConsumesRan([], STALE)).toBe(false);
+    expect(onlyStaleConsumesRan([{ type: 'send', accountId: STALE }], STALE)).toBe(false);
+    expect(onlyStaleConsumesRan([consume('mtst1current')], STALE)).toBe(false);
+    expect(onlyStaleConsumesRan([consume()], STALE)).toBe(false);
+    expect(onlyStaleConsumesRan([consume(STALE), consume('mtst1current')], STALE)).toBe(false);
   });
 });

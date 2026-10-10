@@ -107,14 +107,25 @@ describe('known-bug registry', () => {
 
   it('K9 matches a non-current session that prompted, and never a leak', () => {
     const refused = { name: 'NotGrantedMidenWalletError', message: 'NOT_GRANTED' };
-    expect(bug('K9').signature(hard('M9-send', { nonCurrentPrompted: true, dappError: refused }))).toBe(true);
-    expect(bug('K9').signature(hard('M9-send', { nonCurrentPrompted: false, dappError: refused }))).toBe(false);
+    const nothingRan = { nonCurrentPrompted: true, dappError: refused, nonCurrentRowRan: false };
+    expect(bug('K9').signature(hard('M9-send', nothingRan))).toBe(true);
+    expect(bug('K9').signature(hard('M9-send', { ...nothingRan, nonCurrentPrompted: false }))).toBe(false);
     expect(bug('K9').signature(hard('M9-send', { nonCurrentPrompted: true, staleConsumeExecuted: true }))).toBe(false);
     expect(bug('K9').signature(hard('M9-consume', { nonCurrentPrompted: true, staleConsumeExecuted: true }))).toBe(
       true
     );
     expect(bug('K9').signature(hard('M4-reads', { nonCurrentPrompted: true, nonCurrentReadLeaked: false }))).toBe(true);
     expect(bug('K9').signature(hard('M4-reads', { nonCurrentPrompted: true, nonCurrentReadLeaked: true }))).toBe(false);
+  });
+
+  it('K9 never explains a refusal after approval when a row ran anyway, or when nothing says whether one did', () => {
+    const refused = { name: 'NotGrantedMidenWalletError', message: 'NOT_GRANTED' };
+    for (const cellId of ['M9-send', 'M9-transaction', 'M9-custom', 'M9-consume', 'M9-consumeBytes']) {
+      expect(
+        bug('K9').signature(hard(cellId, { nonCurrentPrompted: true, dappError: refused, nonCurrentRowRan: true }))
+      ).toBe(false);
+      expect(bug('K9').signature(hard(cellId, { nonCurrentPrompted: true, dappError: refused }))).toBe(false);
+    }
   });
 
   it('K10 matches a consume by the returned id refused before any popup, and an N4 miss by that id', () => {

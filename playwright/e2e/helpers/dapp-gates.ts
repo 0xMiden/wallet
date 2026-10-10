@@ -104,6 +104,28 @@ export function sharedOpen<T>(open: () => Promise<T>): () => Promise<T> {
   };
 }
 
+/** The fields of a wallet transaction row the stale-authorization cells (M3, M9) read. */
+export interface RanRow {
+  type?: string;
+  accountId?: string;
+}
+
+/**
+ * K6's evidence: something ran, and every row that ran is a consume of the stale account. A row for any other account,
+ * of another type or naming no account is not that bug, so the cell stays a new failure.
+ */
+export function onlyStaleConsumesRan(ran: readonly RanRow[], staleAccount: string): boolean {
+  return (
+    ran.length > 0 &&
+    ran.every(
+      row =>
+        row.type === 'consume' &&
+        row.accountId !== undefined &&
+        canonicalAddress(row.accountId) === canonicalAddress(staleAccount)
+    )
+  );
+}
+
 /** An account's assets as `{ faucetId: amount }`, so two views compare with one `toEqual` whatever their row order. */
 export function assetMap(assets: readonly { faucetId: string; amount: string | bigint }[]): Record<string, string> {
   const totals = new Map<string, bigint>();
