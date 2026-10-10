@@ -383,7 +383,7 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - [x] Move the workflow to an Intel macOS runner with a matching x86_64 Android image and native visible emulator window.
 - [x] Fail early if the runner does not expose usable Hypervisor.framework acceleration; force accelerated emulator launch.
 - [x] Run focused helper tests, scoped lint, workflow lint, exact Playwright collection, and get an independent review.
-- [ ] Publish only to the Android feature branch, preserving `main` and existing unrelated work.
+- [x] Publish only to the Android feature branch, preserving `main` and existing unrelated work.
 - [ ] Obtain fresh authorization before another live 100-loop Testnet dispatch; reconcile the terminal run artifacts.
 
 ## Findings
@@ -396,4 +396,5 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - Emulator-control tests pass (15/15); scoped ESLint, actionlint, and `git diff --check` pass. Actionlint required ignoring its stale local runner-label list for the currently documented `macos-26-intel` label.
 - Playwright collects exactly one AggLayer bridge-in test configured for 100 sequential loops.
 - Independent review found and the workflow now fixes the cross-OS Rust cache-key collision; it found no remaining source-level blocker.
+- Recovery commit `a98f77607` was pushed to `codex/android-agglayer-bridge-recovery-20261010`; `main` remains at `89c93124`.
 - The selected hosted runner's live Hypervisor.framework availability and terminal 100-loop result remain unverified until a fresh live run is authorized.
