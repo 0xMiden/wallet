@@ -47,8 +47,10 @@ export function verdictText(cell) {
   return TEXT[cell.verdict] ?? cell.verdict;
 }
 
+// Backslashes first: escaping only the pipe turns a `\|` in an error into an escaped backslash and a column break.
 const cellText = text =>
   String(text ?? '')
+    .replace(/\\/g, '\\\\')
     .replace(/\|/g, '\\|')
     .replace(/\s+/g, ' ')
     .slice(0, 160);

@@ -86,6 +86,18 @@ describe('render-dapp-matrix', () => {
     expect(out.stdout).not.toContain('Playwright');
   });
 
+  it('keeps a row at four columns when its error holds a backslash before a pipe', () => {
+    const out = spawnSync(
+      process.execPath,
+      [script, records([{ id: 'X1', verdict: 'fail-new', error: 'C:\\tmp\\|grep and a | pipe' }])],
+      { encoding: 'utf8' }
+    );
+    const row = out.stdout.split('\n').find(line => line.startsWith('| X1 |')) ?? '';
+    // A pipe ends a column unless an odd number of backslashes escapes it.
+    const separators = row.match(/(?<!\\)(?:\\\\)*\|/g) ?? [];
+    expect(separators).toHaveLength(5);
+  });
+
   it("prints each journey's last Playwright result against the journey's own timeout", () => {
     const out = render(
       records([{ id: 'X1', verdict: 'pass' }]),
