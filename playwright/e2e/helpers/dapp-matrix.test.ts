@@ -73,8 +73,6 @@ const KNOWN_BUG_CELLS_NOT_YET_DECLARED: string[] = [
   'K4:X11@guardian',
   'K4:M8-guardian@guardian',
   'K4:R8@guardian',
-  'K5:S9@offchain',
-  'K5:S9@guardian',
   'K6:M3-consume-switch@offchain',
   'K6:M3-consume-switch@guardian',
   'K6:M3-consume-revoke@offchain',
