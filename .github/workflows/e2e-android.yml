@@ -59,6 +59,8 @@ on:
 
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 
 concurrency:
   group: e2e-android-${{ github.ref }}
@@ -71,7 +73,9 @@ jobs:
     # warp-ubuntu-latest-x64-8x stopped exposing /dev/kvm on 2026-09-15 ("Enable KVM" failed before any build).
     runs-on: ubuntu-latest
     # Two emulator boots + an APK assemble + a live-chain spec.
-    timeout-minutes: 60
+    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
+    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI cold (up to 10 min on this runner).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 105 || 60 }}
     env:
       E2E_NETWORK: ${{ github.event.inputs.network || 'testnet' }}
       MIDEN_E2E_TEST: 'true'
@@ -137,8 +141,22 @@ jobs:
             exit 1
           }
 
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
       - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
 
       # Pinned exact, matching every other E2E workflow: this job builds
       # miden-client-cli from source, and the cache key below names the rustc
