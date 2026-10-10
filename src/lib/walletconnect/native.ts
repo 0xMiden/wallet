@@ -194,7 +194,8 @@ export function buildNativeReownProvider({ chainId, address, rpcUrl }: NativeReo
           gasPrice: txField(tx, 'gasPrice'),
           // A caller that set no fee gets fields with headroom (`readNativeFeeFields`): the wallet's own
           // estimate can fall under a base fee that rose during the prompt, and the node then rejects it.
-          ...(txField(tx, 'gasPrice') || txField(tx, 'maxFeePerGas')
+          // A caller that set any fee field keeps exactly what it set.
+          ...(txField(tx, 'gasPrice') || txField(tx, 'maxFeePerGas') || txField(tx, 'maxPriorityFeePerGas')
             ? { maxFeePerGas: txField(tx, 'maxFeePerGas'), maxPriorityFeePerGas: txField(tx, 'maxPriorityFeePerGas') }
             : await readNativeFeeFields(chainId))
         });
