@@ -36,7 +36,7 @@ const DEPOSITOR = '0x1111111111111111111111111111111111111111' as const;
 const APPROVE_HASH = `0x${'1'.repeat(64)}` as const;
 const BURN_HASH = `0x${'2'.repeat(64)}` as const;
 /** Circle's sandbox priced a 4 USDC Arbitrum Sepolia burn at 31,908 base units: forward plus fast fee. */
-// Valid for two minutes from the test run, so only an approval or a near expiry makes the runner quote again.
+// Valid for two minutes from the test run; only an approval makes the runner quote again.
 const QUOTE: CctpBurnQuote = {
   signedQuote: '0x0102',
   feeTotalAmount: 31_908n,
@@ -291,7 +291,8 @@ describe('runUsdcxExecutorDeposit', () => {
     ]);
   });
 
-  it('approves the higher spend when the fee rose between the two quotes', async () => {
+  // At most one approval goes to the fee entry point: a fee that rose by the second quote takes the manual route.
+  it('falls back to the manual burn when the fee rises after the approval', async () => {
     const { deps, calls } = makeDeps({
       fetchQuote: jest.fn(async () => {
         calls.push('quote');
@@ -301,65 +302,36 @@ describe('runUsdcxExecutorDeposit', () => {
 
     await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps);
 
+    expect(deps.fetchQuote).toHaveBeenCalledTimes(2);
     expect(jest.mocked(deps.signer.approve).mock.calls).toEqual([
       [SOURCE.tokenMessengerWithFees, 1_500_000n + QUOTE.feeTotalAmount],
-      [SOURCE.tokenMessengerWithFees, 1_500_000n + 40_000n]
+      [TOKEN_MESSENGER_V2_ADDRESS, 1_500_000n]
     ]);
-    expect(deps.signer.depositForBurnWithHookAndFees).toHaveBeenCalledWith(
-      buildDepositForBurnWithHookAndFeesArgs(
-        SOURCE,
-        buildExecutorBurnIntent('1.5', SOURCE, RECIPIENT, DEPOSITOR),
-        { ...REQUOTE, feeTotalAmount: 40_000n },
-        DEPOSITOR
-      )
-    );
-  });
-
-  // The second approval can outlast the refreshed quote too, so the burn signs a quote fetched after the last one.
-  it('quotes again after the fee-rise approval and signs that third quote', async () => {
-    const third: CctpBurnQuote = { ...REQUOTE, signedQuote: '0x0506', feeTotalAmount: 40_000n };
-    const { deps, calls } = makeDeps({
-      fetchQuote: jest.fn(async () => {
-        calls.push('quote');
-        const count = calls.filter(call => call === 'quote').length;
-        if (count === 1) return QUOTE;
-        return count === 2 ? { ...REQUOTE, feeTotalAmount: 40_000n } : third;
-      })
-    });
-
-    await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps);
-
-    expect(deps.fetchQuote).toHaveBeenCalledTimes(3);
-    expect(deps.readAllowance).toHaveBeenCalledTimes(1);
-    expect(jest.mocked(deps.signer.approve).mock.calls).toEqual([
-      [SOURCE.tokenMessengerWithFees, 1_500_000n + QUOTE.feeTotalAmount],
-      [SOURCE.tokenMessengerWithFees, 1_500_000n + 40_000n]
-    ]);
-    expect(deps.signer.depositForBurnWithHookAndFees).toHaveBeenCalledWith(
-      buildDepositForBurnWithHookAndFeesArgs(
-        SOURCE,
-        buildExecutorBurnIntent('1.5', SOURCE, RECIPIENT, DEPOSITOR),
-        third,
-        DEPOSITOR
-      )
-    );
-  });
-
-  it('falls back to the manual burn when the fee keeps rising after three re-quotes', async () => {
-    let fee = QUOTE.feeTotalAmount;
-    const { deps } = makeDeps({
-      fetchQuote: jest.fn(async () => {
-        fee += 10_000n;
-        return { ...QUOTE, feeTotalAmount: fee };
-      })
-    });
-
-    await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps);
-
-    expect(deps.fetchQuote).toHaveBeenCalledTimes(4);
     expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
     expect(deps.signer.depositForBurnWithHook).toHaveBeenCalledWith(
       buildDepositForBurnWithHookArgs('1.5', SOURCE, RECIPIENT, DEPOSITOR)
+    );
+  });
+
+  // Circle's expiry is never compared with the device clock: a fast clock must not push every deposit to the manual route.
+  it('signs a fresh first quote whose expiry already reads as past on the device clock', async () => {
+    const skewed = { ...QUOTE, expiresAt: Math.floor(Date.now() / 1000) - 100 };
+    const { deps } = makeDeps({
+      readAllowance: jest.fn(async () => 10_000_000n),
+      fetchQuote: jest.fn(async () => skewed)
+    });
+
+    await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps);
+
+    expect(deps.fetchQuote).toHaveBeenCalledTimes(1);
+    expect(deps.signer.approve).not.toHaveBeenCalled();
+    expect(deps.signer.depositForBurnWithHookAndFees).toHaveBeenCalledWith(
+      buildDepositForBurnWithHookAndFeesArgs(
+        SOURCE,
+        buildExecutorBurnIntent('1.5', SOURCE, RECIPIENT, DEPOSITOR),
+        skewed,
+        DEPOSITOR
+      )
     );
   });
 
@@ -381,30 +353,6 @@ describe('runUsdcxExecutorDeposit', () => {
     expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
     expect(deps.signer.depositForBurnWithHook).toHaveBeenCalledWith(
       buildDepositForBurnWithHookArgs('1.5', SOURCE, RECIPIENT, DEPOSITOR)
-    );
-  });
-
-  it('quotes again without an approval when the quote is about to expire', async () => {
-    const expiring = { ...QUOTE, expiresAt: Math.floor(Date.now() / 1000) + 10 };
-    const { deps, calls } = makeDeps({
-      readAllowance: jest.fn(async () => 10_000_000n),
-      fetchQuote: jest.fn(async () => {
-        calls.push('quote');
-        return calls.filter(call => call === 'quote').length > 1 ? REQUOTE : expiring;
-      })
-    });
-
-    await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps);
-
-    expect(deps.fetchQuote).toHaveBeenCalledTimes(2);
-    expect(deps.signer.approve).not.toHaveBeenCalled();
-    expect(deps.signer.depositForBurnWithHookAndFees).toHaveBeenCalledWith(
-      buildDepositForBurnWithHookAndFeesArgs(
-        SOURCE,
-        buildExecutorBurnIntent('1.5', SOURCE, RECIPIENT, DEPOSITOR),
-        REQUOTE,
-        DEPOSITOR
-      )
     );
   });
 
