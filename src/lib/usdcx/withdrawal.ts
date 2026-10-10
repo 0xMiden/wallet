@@ -28,8 +28,13 @@ export function isUsdcxFaucet(faucetId: string | undefined): boolean {
   return !!faucetId && !!usdcxFaucetId && sameWalletAccountId(faucetId, usdcxFaucetId);
 }
 
+/** Whether the effective network offers USDCx withdrawals at all, before any token is chosen: testnet only. */
+export function isUsdcxWithdrawalNetwork(): boolean {
+  return getEffectiveNetworkName() === 'testnet';
+}
+
 export function isUsdcxWithdrawalAvailable(faucetId: string | undefined): boolean {
-  return getEffectiveNetworkName() === 'testnet' && isUsdcxFaucet(faucetId);
+  return isUsdcxWithdrawalNetwork() && isUsdcxFaucet(faucetId);
 }
 
 /**

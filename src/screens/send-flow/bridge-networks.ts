@@ -61,3 +61,15 @@ export const DEFAULT_USDCX_BRIDGE_NETWORK: BridgeNetwork =
 export function isUsdcxBridgeNetwork(id: BridgeNetworkId | undefined): boolean {
   return USDCX_BRIDGE_NETWORKS.some(n => n.id === id);
 }
+
+/** Epoch and Agglayer settle on Sepolia alone; any other destination takes a USDCx burn only. */
+export function isEpochBridgeNetwork(id: string | undefined): boolean {
+  return id === SEPOLIA.id;
+}
+
+const SEPOLIA_ONLY: readonly BridgeNetwork[] = [SEPOLIA];
+
+/** The destinations a 0x send offers: every USDCx destination where USDCx withdrawals exist, else Sepolia alone. */
+export function sendBridgeNetworks(usdcxWithdrawals: boolean): readonly BridgeNetwork[] {
+  return usdcxWithdrawals ? USDCX_BRIDGE_NETWORKS : SEPOLIA_ONLY;
+}

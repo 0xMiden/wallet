@@ -21,7 +21,7 @@ import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { useWalletStore } from 'lib/store';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
-import { isUsdcxWithdrawalAvailable } from 'lib/usdcx/withdrawal';
+import { isUsdcxWithdrawalAvailable, isUsdcxWithdrawalNetwork } from 'lib/usdcx/withdrawal';
 import { navigate, useLocation } from 'lib/woozie';
 import {
   detectAddressChain,
@@ -38,8 +38,9 @@ import {
   BridgeNetworkId,
   DEFAULT_BRIDGE_NETWORK,
   DEFAULT_USDCX_BRIDGE_NETWORK,
+  isEpochBridgeNetwork,
   SendNetworkId,
-  USDCX_BRIDGE_NETWORKS
+  sendBridgeNetworks
 } from './bridge-networks';
 import { ScanQrDrawer } from './ScanQrDrawer';
 import { SelectRecipient } from './SelectRecipient';
@@ -330,7 +331,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
       ? bridgeNetwork
       : 'miden'
     : recipientNetwork;
-  const usdcxOnly = !!displayedNetwork && displayedNetwork !== 'miden' && displayedNetwork !== 'sepolia';
+  const offeredNetworks = sendBridgeNetworks(isUsdcxWithdrawalNetwork());
+  const usdcxOnly = !isEpochBridgeNetwork(displayedNetwork) && offeredNetworks.some(n => n.id === displayedNetwork);
   const selectedContact = useMemo(() => {
     const normalizedAddress = recipientAddress?.trim().toLowerCase();
     if (!normalizedAddress) return undefined;
@@ -779,11 +781,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
     [onAction]
   );
 
-  // Keep an explicit destination. Set a default only when no network was selected.
+  // Keep an offered destination the user chose. Select the default when there is none, or when a contact,
+  // link or draft carries one this network does not offer.
   useEffect(() => {
-    if (!isBridge || !isValidRecipient || bridgeNetwork) return;
+    if (!isBridge || !isValidRecipient || offeredNetworks.some(n => n.id === bridgeNetwork)) return;
     onSelectNetwork(usdcxAvailable ? DEFAULT_USDCX_BRIDGE_NETWORK.id : DEFAULT_BRIDGE_NETWORK.id);
-  }, [isBridge, isValidRecipient, bridgeNetwork, onSelectNetwork, usdcxAvailable]);
+  }, [isBridge, isValidRecipient, bridgeNetwork, offeredNetworks, onSelectNetwork, usdcxAvailable]);
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
   const onSelectRecent = useCallback(
@@ -857,7 +860,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         case SendFlowStep.SelectRecipient:
           return (
             <SelectRecipient
-              networks={USDCX_BRIDGE_NETWORKS}
+              networks={offeredNetworks}
               address={recipientAddress || ''}
               isValidAddress={isValidRecipient}
               error={errors.recipientAddress?.message?.toString()}
@@ -934,6 +937,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       onReceive,
       chain,
       displayedNetwork,
+      offeredNetworks,
       selectedContact?.name,
       bridgeRoute,
       usdcxAvailable,

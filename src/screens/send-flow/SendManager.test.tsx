@@ -225,29 +225,35 @@ jest.mock('./useRecentRecipients', () => ({
 
 let mockBridgeNetworks: Array<{ id: string; name: string; chainId: number }> = [];
 jest.mock('./bridge-networks', () => {
+  const sepolia = { id: 'sepolia', name: 'Sepolia', chainId: 11155111 };
   // The testnet USDCx destinations, in the destination table's order.
   const usdcxNetworks = [
     { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 },
-    { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
+    sepolia,
     { id: 'arbitrum-sepolia', name: 'Arbitrum Sepolia', chainId: 421614 },
     { id: 'base-sepolia', name: 'Base Sepolia', chainId: 84532 }
   ];
+  const sepoliaOnly = [sepolia];
   return {
-    DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
+    DEFAULT_BRIDGE_NETWORK: sepolia,
     get BRIDGE_NETWORKS() {
       return mockBridgeNetworks;
     },
     getBridgeNetwork: jest.fn(),
     USDCX_BRIDGE_NETWORKS: usdcxNetworks,
     DEFAULT_USDCX_BRIDGE_NETWORK: usdcxNetworks[0],
-    isUsdcxBridgeNetwork: (id: string | undefined) => usdcxNetworks.some(n => n.id === id)
+    isUsdcxBridgeNetwork: (id: string | undefined) => usdcxNetworks.some(n => n.id === id),
+    isEpochBridgeNetwork: (id: string | undefined) => id === sepolia.id,
+    sendBridgeNetworks: (usdcxWithdrawals: boolean) => (usdcxWithdrawals ? usdcxNetworks : sepoliaOnly)
   };
 });
 
 // USDCx withdrawal is offered only for the token id a test names; unset, every token takes the Epoch route.
 let mockUsdcxTokenId: string | undefined;
+let mockUsdcxWithdrawalNetwork = true;
 jest.mock('lib/usdcx/withdrawal', () => ({
-  isUsdcxWithdrawalAvailable: (tokenId: string | undefined) => !!tokenId && tokenId === mockUsdcxTokenId
+  isUsdcxWithdrawalAvailable: (tokenId: string | undefined) => !!tokenId && tokenId === mockUsdcxTokenId,
+  isUsdcxWithdrawalNetwork: () => mockUsdcxWithdrawalNetwork
 }));
 
 let mockEpochAmount: string | undefined;
@@ -354,6 +360,7 @@ beforeEach(() => {
   mockRenderRouteName = undefined;
   mockEpochAmount = undefined;
   mockUsdcxTokenId = undefined;
+  mockUsdcxWithdrawalNetwork = true;
   mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
   mockSelectedContact = { id: '0xcontact', name: 'Alice', isOwned: false, contactType: 'external' };
   capturedBackHandler = null;
@@ -1790,6 +1797,34 @@ describe('USDCx withdrawal wiring', () => {
 
     pickToken(otherToken);
     expect(offeredNetworks()).toEqual(['arc-testnet', 'sepolia', 'arbitrum-sepolia', 'base-sepolia']);
+  });
+
+  it('offers Sepolia alone where USDCx withdrawals do not exist and moves a saved USDCx-only destination there', () => {
+    mockUsdcxWithdrawalNetwork = false;
+    const { rerender } = renderFlow();
+    pickToken(otherToken);
+    mockSelectedContact = { id: '0xrecip', name: 'R', isOwned: false, contactType: 'external', network: 'arc-testnet' };
+    act(() => {
+      fireEvent.click(screen.getByTestId('ad-select'));
+    });
+
+    expect(offeredNetworks()).toEqual(['sepolia']);
+    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^sepolia$/);
+    expect(screen.getByTestId('td-usdcx-only')).toHaveTextContent('false');
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+  });
+
+  it('moves a USDCx-only destination to Sepolia when the effective network stops offering it', () => {
+    const { rerender } = renderFlow();
+    pickEvmRecipient();
+    fireEvent.click(screen.getByTestId('sr-network-arc-testnet'));
+    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^arc-testnet$/);
+
+    mockUsdcxWithdrawalNetwork = false;
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^sepolia$/);
   });
 
   it.each(['arc-testnet', 'base-sepolia', 'arbitrum-sepolia'])(
