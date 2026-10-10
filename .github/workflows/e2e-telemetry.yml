@@ -22,11 +22,14 @@ concurrency:
   cancel-in-progress: true
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 jobs:
   telemetry-egress:
     name: telemetry-egress (chrome)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 60 || 30 }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,8 +40,25 @@ jobs:
           node-version: 22
           cache: 'yarn'
 
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on a push both are no-ops. Skipped on this
+      # suite's own pull request runs, which install the published packages as they always have.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        if: github.event_name != 'pull_request'
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        if: github.event_name != 'pull_request'
+        uses: ./.github/actions/inject-linked-guardian-pr
+
       - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
 
       - name: Install Playwright Chromium
         timeout-minutes: 12
