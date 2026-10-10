@@ -1,21 +1,21 @@
 # USDCx live E2E (Guardian round trip) and USDCx follow-up fixes - design
 
-Three local-only suites check, to the base unit, the USDCx path a Guardian user takes on live testnet: a public faucet grant, a burn through the Send UI to a fresh Arc key, Circle's Gateway payout to that key, the wallet's own confirmation of that payout, a deposit back through xReserve, Circle's attestation, the relayer's mint and the wallet's consume. The extension and iOS each run the round trip; the extension also runs a bridge-in-only suite from a pre-funded key.
+Three suites, run locally with `yarn e2e:real` (the iOS one also runs as the one scheduled nightly job, D4), check, to the base unit, the USDCx path a Guardian user takes on live testnet: a public faucet grant, a burn through the Send UI to a fresh Arc key, Circle's Gateway payout to that key, the wallet's own confirmation of that payout, a deposit back through xReserve, Circle's attestation, the relayer's mint and the wallet's consume. The extension and iOS each run the round trip; the extension also runs a bridge-in-only suite from a pre-funded key, and the existing burn spec is retargeted onto the public-faucet grant as a fourth suite, `usdcx-burn`.
 
-This is its own PR off main, written after #1100 merged as cfb228a48 and #1401 as 6fdc2c127. It fixes the USDCx defects on main that these runs depend on:
+This is delivered as two stacked PRs off main (Q2), written after #1100 merged as cfb228a48 and #1401 as 6fdc2c127. PR 1 holds the product fixes, the shared harness and the extension suites (`usdcx`, `usdcx-in`, `usdcx-burn`); PR 2, stacked on it, holds the iOS suite, its CDP readers and the repoint of the nightly. PR 1 fixes the USDCx defects on main that these runs depend on:
 - An attestation is trusted only when it matches what the wallet signed, on both deposit routes.
 - Every consume landing path adopts a delivered deposit, and burns take the verdict path.
 - A stale `ready` deposit times out, and a late mint still lands it.
 - Fee labels name the fee asset, and the arrival time follows the source chain.
-- Q11, Q13 and Q14 (section 15) decide three more fixes of the same class.
+- Three more fixes of the same class (10(f)): the stranded executor manual leg, the dead Sepolia bridge-in source, and a retry of the burn's destination snapshot read.
 
-It deletes the nightly live workflow and the local-relayer path. Citations are file:line on cfb228a48 unless marked @6fdc2c127; the `src/lib/`, `src/` and `playwright/e2e/` prefixes are dropped where the rest of the path is unique.
+It keeps the nightly live workflow (`.github/workflows/e2e-usdcx-live.yml`) and repoints it at the new iOS round trip in PR 2; PR 2 deletes the local-relayer path with the old iOS live spec. Citations are file:line on cfb228a48 unless marked @6fdc2c127; the `src/lib/`, `src/` and `playwright/e2e/` prefixes are dropped where the rest of the path is unique.
 
 ## 1 Goals and non-goals
 
 Goals
-- One command per suite (`yarn e2e:real --suite usdcx|usdcx-in|usdcx-ios`). No secret is needed except the optional funded key.
-- Every hop is an exact base-unit ledger. Fees are read from the rows that paid them, never pinned (landed paths: Q5).
+- One command per suite (`yarn e2e:real --suite usdcx|usdcx-in|usdcx-burn|usdcx-ios`). No secret is needed except the optional funded key.
+- Every hop is an exact base-unit ledger. Fees are read from the rows that paid them, never pinned (landed paths: a bounded fee, Q5(d)).
 - A run cannot pass vacuously, on the wrong network, on a hermetic build, or on a non-Guardian account.
 - Failures name the failing party: wallet, hosted Guardian, Miden faucet, Circle, or Arc RPC.
 - The wallet's own payout confirmation (`Burn confirmed` -> `Confirmed`) is observed, not only Circle's payout.
@@ -23,23 +23,23 @@ Goals
 
 Non-goals
 - Standard-wallet variants of the new suites (the existing standard-wallet specs are Q3), an iOS funded-key suite, Android.
-- Any scheduled or CI execution of the new suites.
+- Any scheduled or CI execution of the new suites, except the one nightly iOS job (D4).
 - A build stamp, a run lock, a post-run report check, or a rate-limit pacing framework (D6).
 - Sweeping payouts back, or pinning Circle's payout fee or attester key.
 - Live legs beyond the Arc-direct round trip (Q4).
 
 ## 2 Decisions (settled)
 
-- D1 Own PR off main on branch `wiktor/usdcx-live-e2e` (worktree `~/miden/wt-usdcx-e2e`), after #1100 merged as cfb228a48. The branch is rebuilt on origin/main at or after 6fdc2c127 (#1401, merged 2026-10-10 18:58Z).
+- D1 Two stacked PRs off main (Q2): PR 1 on branch `wiktor/usdcx-live-e2e` (worktree `~/miden/wt-usdcx-e2e`), after #1100 merged as cfb228a48; PR 2 stacked on PR 1. PR 1's branch is rebuilt on origin/main at or after 6fdc2c127 (#1401, merged 2026-10-10 18:58Z).
 - D2 Zero-secret round trip: faucet grant (USDCx is the fee asset) -> UI burn to a fresh per-run Arc EOA -> Arc payout -> the EOA deposits back -> the wallet receives. The optional `E2E_ARC_PRIVATE_KEY` is for bridge-in only.
-- D3 Hard payout gate: red 10 min after the burn's consume without a destination mint for the key. The proof is one GatewayMinter `AttestationUsed` log whose mint calldata carries the burn note id. Arc `GatewayBurned` is not read (it follows the mint). The wallet confirmation's gate kind is Q6.
-- D4 Extension and iOS, local only via `yarn e2e:real`. This PR deletes the nightly workflow and the local-relayer path (section 4; disabling it earlier is Q1). The extension deposit is Node-signed; the iOS deposit goes through Receive -> Cross Chain with a WalletConnect counterparty.
-- D5 Guardian only, on the hosted `https://guardian.openzeppelin.com`. Suites: `usdcx`, `usdcx-in`, `usdcx-ios` (plus the retargeted standard-and-Guardian `usdcx-burn` under Q3(a)).
+- D3 Hard payout gate: red 10 min after the burn's consume without a destination mint for the key. The proof is one GatewayMinter `AttestationUsed` log whose mint calldata carries the burn note id. Arc `GatewayBurned` is not read (it follows the mint). The wallet's own payout confirmation is a hard gate as well (Q6).
+- D4 Extension and iOS, local only via `yarn e2e:real`, with one explicit exception: the nightly 'E2E USDCx Bridge-IN (live)' (`.github/workflows/e2e-usdcx-live.yml`) is kept, not disabled or deleted. PR 2 repoints it at the new self-funded Guardian iOS round trip, so it needs no `USDCX_LIVE_EVM_PRIVATE_KEY` secret; its linked-PR injection steps, permissions and timeouts stay exactly as #1401 set them, as do #1401's CHANGELOG line and its ceiling entry in `playwright/e2e/harness/linked-pr-injection.test.ts`. No other scheduled or CI execution exists. PR 2 deletes the local-relayer path (section 4). The extension deposit is Node-signed; the iOS deposit goes through Receive -> Cross Chain with a WalletConnect counterparty.
+- D5 Guardian only, on the hosted `https://guardian.openzeppelin.com`. Suites: `usdcx`, `usdcx-in`, `usdcx-ios` and the retargeted standard-and-Guardian `usdcx-burn` (Q3(a)).
 - D6 Lean harness: refuse `--skip-build`, throw instead of skip, simple bounded retries. Keep the probes, the env refusals, `--arc-rpc`/`--arc-key`, exact ledgers, the byte-level attestation decode, the derived mint note id and the row phase checks.
-- D7 Attestation match: both deposit writers persist the signed recipient; the expected token comes from the row's native faucet id; Circle's DepositIntent is decoded; a row becomes `ready` only on a full match, on both reconcilers. One adopter serves every consume landing path (10(e)); batch pairing is already on main (complete.ts:340-367). A 7-day timeout covers `ready` USDCx rows (late mint: Q9).
+- D7 Attestation match: both deposit writers persist the signed recipient; the expected token comes from the row's native faucet id; Circle's DepositIntent is decoded; a row becomes `ready` only on a full match, on both reconcilers. One adopter serves every consume landing path (10(e)); batch pairing is already on main (complete.ts:340-367). A 7-day timeout covers `ready` USDCx rows, and a late mint still lands a timed-out one (Q9).
 - D8 The burn notice copy is right on main (en.json:6; Route.tsx:147; ReviewTransaction.tsx:705). Only its testid is added.
-- D9 Fee labels name the fee asset; the deposit arrival label follows the source chain (Q12). The Arc burn-history link is right on main (BridgeClaimSection.tsx:92,320-331) and is asserted, not fixed.
-- D10 CHANGELOG: new lines under the unreleased `## 1.17.2 (TBD)` (CHANGELOG.md:3) list every user-visible change; #1100's line (:7) is edited to match the outcomes (10(d)); #1401's line is Q1.
+- D9 Fee labels name the fee asset; the deposit arrival label is keyed on the source chain (Q12). The Arc burn-history link is right on main (BridgeClaimSection.tsx:92,320-331) and is asserted, not fixed.
+- D10 CHANGELOG: new lines under the unreleased `## 1.17.2 (TBD)` (CHANGELOG.md:3) list every user-visible change; #1100's line (:7) is edited to match the outcomes (10(d)); #1401's line stays unchanged (Q1).
 - D11 The verdict and landing gaps (approved 2026-10-10) are fixed here (10(e)). origin/main is merged only after review; the changed suites and the live suites then run on the final tree before the push.
 - D12 Review in this session is a standard review, not review-council (decision 2026-10-10, session-scoped); a later session uses the standing `/review-council:rev` default.
 
@@ -76,7 +76,10 @@ Non-goals
 |---|---|---|---|---|---|
 | `usdcx` | Chrome extension | fresh Guardian | grant, UI burn, payout, wallet confirmation, Node-signed deposit, attest, mint, receive | none (per-run key) | 60 min |
 | `usdcx-in` | Chrome extension | fresh Guardian, zero balance | Node-signed deposit, attest, mint, receive | `E2E_ARC_PRIVATE_KEY` | 30 min |
+| `usdcx-burn` | Chrome extension | fresh standard wallet and fresh Guardian (two variants) | grant, UI burn | none | set when the spec is retargeted |
 | `usdcx-ios` | iOS simulator | fresh Guardian | grant, UI burn, payout, wallet confirmation, Receive -> Cross Chain deposit via WalletConnect, attest, mint, receive | none (per-run key) | 80 min |
+
+PR 1 carries `usdcx`, `usdcx-in` and `usdcx-burn`; PR 2 carries `usdcx-ios`.
 
 Each step budget is a small multiple of the spike's step time with a floor for chain variance; step 1 of section 14 measures them again on main before they are frozen.
 
@@ -87,20 +90,17 @@ Timeouts cover fixture setup
 
 Files
 - Extension: `playwright/e2e/tests/usdcx/usdcx-roundtrip.spec.ts`, describes `USDCx round trip: burn to a fresh Arc key, Circle payout, deposit back` and `USDCx bridge-in from a funded Arc key`. `playwright.usdcx.config.ts` spreads `playwright.e2e.config.ts` with `testDir: './playwright/e2e/tests/usdcx'` and `testIgnore: undefined` (pattern of playwright.earn.config.ts:12-16).
-- iOS: `playwright/e2e/ios/tests/usdcx-live-round-trip.ios.spec.ts`. `playwright.ios.usdcx-live.config.ts` (testMatch :17) is MODIFIED: comment :5-13 rewritten (no relayer, no CI job; its claim that `E2E_EVM_RPC_URL` moves Arc reads is wrong, walletconnect/config.ts:44-47,71-77); timeout :19; `globalSetup: ['./playwright/e2e/ios/fixtures/usdcx-live-guard.ts', './playwright/e2e/ios/fixtures/global-setup.ts']` (base value playwright.ios.config.ts:46, composed as in playwright.ios.bridge-in.config.ts:16-19).
-- Deleted (D4):
-  - `.github/workflows/e2e-usdcx-live.yml` and its ceiling line (playwright/e2e/harness/linked-pr-injection.test.ts:355 @6fdc2c127);
-  - `playwright/e2e/helpers/usdcx-relayer.ts` and `scripts/install-usdcx-relayer.sh`;
-  - the `test:e2e:mobile:usdcx-live:run` script (package.json:112; called at e2e-usdcx-live.yml:257 @6fdc2c127);
-  - per Q3: `playwright/e2e/ios/tests/usdcx-live-deposit.ios.spec.ts` (Q3 iOS (a)); `playwright/e2e/tests/bridge/bridge-out-usdcx.spec.ts` leaves `tests/bridge` (moved to `tests/usdcx` under Q3(a), deleted under Q3(b)).
-  - Afterwards `git grep -n -e USDCX_RELAYER_ -e usdcx-relayer -e USDCX_LIVE_ -e test:e2e:mobile:usdcx-live` is empty.
-- Rewritten text: playwright.ios.config.ts:18-19 drops "needs a local deposit relayer" (the :24 ignore stays); runner USAGE :138-143.
+- iOS (PR 2): `playwright/e2e/ios/tests/usdcx-live-round-trip.ios.spec.ts`. `playwright.ios.usdcx-live.config.ts` (testMatch :17) is MODIFIED: comment :5-13 rewritten (no relayer; the nightly is its only CI caller, through the runner; its claim that `E2E_EVM_RPC_URL` moves Arc reads is wrong, walletconnect/config.ts:44-47,71-77); timeout :19; `globalSetup: ['./playwright/e2e/ios/fixtures/usdcx-live-guard.ts', './playwright/e2e/ios/fixtures/global-setup.ts']` (base value playwright.ios.config.ts:46, composed as in playwright.ios.bridge-in.config.ts:16-19).
+- Kept and modified (PR 2): `.github/workflows/e2e-usdcx-live.yml` (the nightly 'E2E USDCx Bridge-IN (live)', cron and name unchanged) is repointed at the usdcx-ios suite through the runner (`yarn e2e:real --suite usdcx-ios`; the guard in the config refuses any other entry). Its linked-PR injection steps, permissions and timeouts stay exactly as #1401 set them. Its relayer install step, `USDCX_LIVE_*` env and the call to the `test:e2e:mobile:usdcx-live:run` script (package.json:112; called at e2e-usdcx-live.yml:257 @6fdc2c127) are replaced by that runner call; the script is removed. The runner builds the app itself (it refuses `--skip-build` for usdcx suites, D6), so the workflow's own 'Build iOS app' step (e2e-usdcx-live.yml @6fdc2c127, after the simulator pre-boot) is removed too; the 80 min suite plus one build fits the job's 150 min (schedule) and 235 min (dispatch) limits. The ceiling line (playwright/e2e/harness/linked-pr-injection.test.ts:355 @6fdc2c127) and #1401's CHANGELOG line stay.
+- Deleted in PR 2: `playwright/e2e/helpers/usdcx-relayer.ts` and `scripts/install-usdcx-relayer.sh`; `playwright/e2e/ios/tests/usdcx-live-deposit.ios.spec.ts` (Q3 iOS (a)). Afterwards `git grep -n -e USDCX_RELAYER_ -e usdcx-relayer -e USDCX_LIVE_ -e test:e2e:mobile:usdcx-live` is empty.
+- Moved in PR 1: `playwright/e2e/tests/bridge/bridge-out-usdcx.spec.ts` leaves `tests/bridge` for `tests/usdcx/usdcx-burn.spec.ts` (Q3(a)).
+- Rewritten text: playwright.ios.config.ts:18-19 drops "needs a local deposit relayer" (the :24 ignore stays; PR 2); runner USAGE :138-143 (PR 1 for the extension suites, PR 2 adds `usdcx-ios`).
 
 Isolation from every CI job
 - playwright.e2e.config.ts:24 testIgnore gains `'**/usdcx/**'`.
 - No USDCx spec is named `guardian-*.spec.ts` (playwright.guardian.config.ts matches it with testIgnore cleared) or `bridge-out-epoch-guardian.spec.ts` (playwright.bridge-guardian.config.ts:15-16), and none lives under `tests/bridge`, which E2E Bridge collects on every push to main (playwright.bridge.config.ts:13; e2e-bridge.yml:26-28,125).
 - iOS: the base config ignores `'**/usdcx-live-*.ios.spec.ts'` (playwright.ios.config.ts:24); the Guardian, bridge-in and dApp iOS configs match only their own prefixes (playwright.ios.guardian.config.ts:12, playwright.ios.bridge-in.config.ts:13, playwright.ios.dapp.config.ts:21).
-- With the workflow and its script gone, `yarn e2e:real` is the only entry point, so its refusals always apply.
+- `yarn e2e:real` is the only entry point, including for the nightly (which calls it), so its refusals always apply; the nightly's job reads no private key (the per-run key and the grant are self-funded).
 
 Guards
 - The extension `test.beforeAll` and the first iOS globalSetup THROW unless `E2E_REAL_USDCX === 'true'` (set only by the runner) and `E2E_NETWORK === 'testnet'`. No `test.skip`; `usdcx-in` throws without its key.
@@ -120,9 +120,9 @@ Spec rules
   - `BridgeIntentWatcher` (mounted at front/provider.tsx:237) polls every 8 s, only while visible and leading (BridgeIntentWatcher.tsx:3,55-58,123). It moves the burn phase and the destination confirmation (src/lib/wallet-prompts.ts:211-216) and a deposit's `ready` (bridge-receive.ts:135-137 via BridgeIntentWatcher.tsx:67-70).
   - A Completed USDCx burn is checked every tick for its first hour, then every 5 min (`isUsdcxCheckDue`, wallet-prompts.ts:166-179); every row in this run is younger.
   - A deposit's `received` comes from the consume completion in the service worker (complete.ts:339 -> bridge-in.ts:141-146; complete.ts:361-366), whatever the page's visibility.
-  - `walletA.page` stays on Home, `#/history` or `#/history-details/<id>` (all under the provider). The headless default is Q8.
+  - `walletA.page` stays on Home, `#/history` or `#/history-details/<id>` (all under the provider). Headless by default only if the step 1 spike shows `visibilityState` stays `visible` (Q8); otherwise headed.
 - Arc endpoints: harness reads and writes use `--arc-rpc` if given, then drpc, quicknode, and arc.io last. arc.io is the wallet's only Arc RPC for the burn snapshot (usdcx/burn.ts:103) and the confirmation (destination-status.ts:16-30; walletconnect/config.ts:71-77), so the harness does not compete with it. One endpoint per read cycle; an error moves the cycle to the next.
-- Landed paths: a Completed burn or consume with no `resultBytes` and no `resultReleasedAt` took a landed path, which records no fee or outputs (reconcile-unconfirmed.ts:130-134; transaction/index.ts:1464-1467; transaction/helper.ts:695-698). Its ledger term follows Q5.
+- Landed paths: a Completed burn or consume with no `resultBytes` and no `resultReleasedAt` took a landed path, which records no fee or outputs (reconcile-unconfirmed.ts:130-134; transaction/index.ts:1464-1467; transaction/helper.ts:695-698). Its ledger term is bounded rather than exact (Q5(d)): the fee is derived from the vault delta minus the independently known terms (N, s, M) and asserted `0 < f <= baseFee x FEE_RESERVE_MULTIPLE` (miden/fees/spendable.ts:84), recorded as `bounded`.
 - Service-worker calls go through `swOf(walletA).evaluate` (helpers/swap.ts:52).
 
 Flow (60 min; budgets plus fixture setup ~50 min, the payout wait overlapping the post-burn settle)
@@ -146,7 +146,7 @@ Flow (60 min; budgets plus fixture setup ~50 min, the payout wait overlapping th
    - A `review-error` with an RPC message and no new bridged-send row means the Arc snapshot failed (section 11; Q14).
 7. **burn_confirmed** (3 min, 3 s poll), then **settle_burn** (4 min). `readBridgedSendRows` finds exactly one `provider: 'usdcx'` row.
    - Outputs: at status 2 read `resultBytes` at once (reaped 10 min after `completedAt`, transaction/trim-result-bytes.ts:44). `burnOutputs(resultBytes, noteId)` decodes by role: the burn note (id == `usdcxBurn.noteId`, N native), one sponsorship note (== live `fee_schedule[burn root]`, s) and the fee note (== `row.feeAmount`, f1; complete.ts:1228). The spike saw burn + sponsorship in `submitEvidence` and the fee note split out; it decoded nothing, so the decode is validated in step 1.
-   - Ledger: `V2 == V1 - (N + f1 + s)` with `V1 = G - f0`; f1 never pinned. Landed path: Q5.
+   - Ledger: `V2 == V1 - (N + f1 + s)` with `V1 = G - f0`; f1 never pinned. Landed path: f1 is bounded as in the landed-paths rule above (Q5(d)).
    - Snapshot: `usdcxBurn.destinationBalanceBefore.balance === '0'`, `blockNumber > 0` (burn.ts:103,116-121); `arcFromBlock = destinationBalanceBefore.blockNumber`.
    - Row: phase samples monotone, ending `confirmed`; `stageTimestamps` has `creating-proposal` and `signing-proposal` (transaction/index.ts:3149,3590); `destinationAddress` == key (case-insensitive); `destinationNetwork` == 5042002.
    - Oracle `burnEvidence(noteId)`: asset N, tag `0x4255524e`, burn script root; NetworkAccountTarget plus scheme-5 payload `[26,0,0,0]` + the key's LE limbs; sender == `bare`; nullifier committed; the consume block and header timestamp `consumeTs`.
@@ -157,7 +157,7 @@ Flow (60 min; budgets plus fixture setup ~50 min, the payout wait overlapping th
    - Once > 0, on the same endpoint: `scanArcLogs(GATEWAY_MINTER, [ATTESTATION_USED_TOPIC, pad(USDC), pad(key)], arcFromBlock..B)` in 100-block chunks on drpc and 1000-block chunks elsewhere, halving on range errors; retry up to 60 s while head < B. An endpoint error restarts the cycle on the next endpoint with a fresh B. Exactly one log.
    - Log data: sourceDomain 26, sourceDepositor == pad(`depositor`), value == the balance at B; `getTransaction(log.tx).input` contains the burn note id; `value >= minimumUsdcxPayout(5042002, N)`. Attach `fee = N - value` and the latency.
 
-   8b. **wallet_payout_confirmed** (2 min, page visible on a wallet route; gate kind Q6). Poll the burn row until `usdcxBurn.destinationBalanceConfirmed` is set (destination-status.ts:63-85): `balance == value` (fresh key, nothing else credits it) and `blockNumber > destinationBalanceBefore.blockNumber` and >= the `AttestationUsed` block. The details pill reads `Confirmed` (transactionUtils.ts:305-307). The receiving-tx link follows Q7. Back to Home. Before step 9 because the deposit spends from the key, which would keep the balance below the threshold (destination-status.ts:59) and the row at `Burn confirmed`.
+   8b. **wallet_payout_confirmed** (2 min, page visible on a wallet route; hard gate, Q6). Poll the burn row until `usdcxBurn.destinationBalanceConfirmed` is set (destination-status.ts:63-85): `balance == value` (fresh key, nothing else credits it) and `blockNumber > destinationBalanceBefore.blockNumber` and >= the `AttestationUsed` block. The details pill reads `Confirmed` (transactionUtils.ts:305-307). The receiving-tx link: if it renders within 15 s its transaction hash must equal the `AttestationUsed` transaction; if it does not render, its absence is recorded; it is never a condition of confirmation (Q7). Back to Home. Before step 9 because the deposit spends from the key, which would keep the balance below the threshold (destination-status.ts:59) and the row at `Burn confirmed`.
 9. **deposit_submit** (2 min). Require `value >= DEPOSIT_UNITS + GAS_RESERVE_UNITS`. `submitDepositToMiden({ privateKey, units: M, recipientHex: accountHex(bare) })` returns `{ approveHash, depositHash }`: one write endpoint, a local nonce, 'already known' counted as success by hash, `simulateContract` first so reverts decode. The fresh key's allowance is 0, so an approve of exactly M is required (the product's rule, deposit.ts:101-104).
 10. **tracking_rows** (10 s), as soon as `depositHash` exists. `createUsdcxBridgeReceive(walletA, args)` wraps `__TEST_CREATE_BRIDGE_RECEIVE__` (bridge-in-test-hooks.ts:23-35,72-83):
     - POSITIVE: `accountId: address`, `amount: String(M)`, `faucetId: native`, `provider: 'usdcx'`, `sourceChainId: 5042002`, `sourceAddress:` key, `sourceAmount: '1'`, `sourceSymbol: 'USDC'`, `evmTxHash: depositHash`.
@@ -168,7 +168,7 @@ Flow (60 min; budgets plus fixture setup ~50 min, the payout wait overlapping th
 12. **attest** (2 min, 3 s poll). `waitForXReserveAttestation(depositHash, { baseUrl: getUsdcxXReserveSource(5042002).attestationApi })` returns exactly one domain-10007 entry. `decodeDepositIntent` (the harness's own reader): magic `0x5a2e0acd`, v1, length 240; amount@8 == M, domain@40 == 10007, remoteToken@44, recipient@76 == R, localToken@108 == Arc USDC, localDepositor@140 == key, maxFee@172 == 0, hookLen@236 == 0; `messageHash == keccak256(payload)`; the signer is recovered and attached. `matchUsdcxDepositAttestation` returns `attested`. Record `attestedAt`.
 13. **mint** (3 min). `deriveUsdcxMintNoteId({ faucetHex, recipientHex, units: M, nonce })`; poll `usdcx-miden.ts note(mintNoteId)` under a message naming Circle's relayer and the USDCx faucet (not `waitForPublicNoteCommitment`, which blames the public faucet, public-note-commitment.ts:32-49). Sender == the faucet, tag == the wallet's account target, asset == M native.
 14. **receive** (6 min; Guardian backpressure doubles 15 s -> 240 s). Service-worker auto-consume only.
-    - The consume whose `noteIds` include `mintNoteId` has exactly that one note (nothing else is incoming; a batch fails naming its note ids); status 2 or a landed path (Q5); `feeFaucetId == native`; fee f2. Its `displayMessage` is 'Bridged from EVM' and `extraInputs.bridgeIn.bridgeReceiveTxId` == the POSITIVE id (single-note path, complete.ts:334-339).
+    - The consume whose `noteIds` include `mintNoteId` has exactly that one note (nothing else is incoming; a batch fails naming its note ids); status 2 or a landed path (fee bounded, Q5(d)); `feeFaucetId == native`; fee f2. Its `displayMessage` is 'Bridged from EVM' and `extraInputs.bridgeIn.bridgeReceiveTxId` == the POSITIVE id (single-note path, complete.ts:334-339).
     - POSITIVE: phases monotone within {delivering, ready, received}. Within 20 s of `attestedAt` it reads `ready` or `received`; the evidence records whether `ready` was sampled (`takeUsdcxBridgeInInfo` may adopt a still-`delivering` row, bridge-in.ts:302-307). Only when `ready` is sampled: the details pill reads `Confirmed` (transactionUtils.ts:271,300-302), or `Completed` if a phase re-read after the pill shows `received`. It ends `received` with `midenNoteId == mintNoteId`, `transactionId` == the consume's, amount M, no `error`, pill `Completed`.
     - NEGATIVE: within 30 s of `attestedAt` it is `failed` with 'Circle attested this deposit to a different Miden account.'; never sampled `ready`.
     - Ledger: `V3 == V2 + M - f2`; whole: `V3 == G - f0 - N - f1 - s + M - f2`.
@@ -186,6 +186,8 @@ Title `USDCx bridge-in from a funded Arc key`, describe timeout 30 min (budgets 
 5. **receive** (6 min): the mint consume is the first transaction and the deploy; vault == `M - f2` exactly; `assertGuardianAuth` as in section 5 step 3; POSITIVE ends `received` as in section 5 step 14.
 
 ## 7 iOS Guardian round trip (`usdcx-ios`)
+
+PR 2, stacked on PR 1.
 
 Rules
 - No route interception on iOS: `trackGuardianCommitments` and `waitForGuardianSettled` exist only on the Chrome fault API (two-wallets.ts:101,110; harness/network-faults.ts:381).
@@ -211,6 +213,8 @@ Flow (80 min; budgets plus the 13 min sim cap ~67 min)
 12. **received** (10 min): section 5 step 14's POSITIVE and consume rules. `vault4 == G - f0 - N - f1 - s + M - f2`.
 13. **finally**: evidence JSON (no key) and `cp.stop()`.
 
+Nightly: the kept 'E2E USDCx Bridge-IN (live)' workflow runs this spec through `yarn e2e:real --suite usdcx-ios` (the runner sets `E2E_REAL_USDCX`, which the guard requires). The key is per run and the funds come from the public faucet, so it needs no `USDCX_LIVE_EVM_PRIVATE_KEY` secret and no longer skips green. Its linked-PR injection steps, permissions and timeouts are unchanged from #1401.
+
 ## 8 Shared harness modules
 
 - `helpers/usdcx-constants.ts`: section 5's constants; `GATEWAY_MINTER` `0x0022222ABE238Cc2C7Bb1f21003F0a260052475B`, `ATTESTATION_USED_TOPIC` `0xbb312ce0cc311b2cb0746e09ccd2f91fdb9e2ac755d2f11c65300eb0d0fffd63`; `DEFAULT_ARC_RPCS` (drpc, quicknode, arc.io), `ARC_DRPC_URL` `https://rpc.drpc.testnet.arc.io`, `ARC_KEY_LEDGER_DIR`. From product code: xReserve, USDC and `attestationApi` via `getUsdcxXReserveSource(ARC_TESTNET.id)` (usdcx/constant.ts:288-292; entry :163-172,250); `USDCX_REMOTE_DOMAIN`; `CIRCLE_DOMAIN`; the burn tag and scheme (:334,336); `minimumUsdcxPayout`.
@@ -220,20 +224,20 @@ Flow (80 min; budgets plus the 13 min sim cap ~67 min)
 - `helpers/history.ts`: the projection in `streamTransactionRows` (:167-239, type :82-126; `readTransactionRows` :144-146 wraps it) adds `extraInputs` (bigints stringified), `stageTimestamps`, `submitEvidence` and `resultReleasedAt`.
 - `helpers/bridge.ts`: `bridgeOutUsdcx` (modelled on `bridgeOutFast`, :90). `readBridgedSendRows` (:375-427) adds `id`, `stage`, `stageTimestamps`, `feeAmount`, `feeFaucetId`, `completedAt`, `resultBytes` (base64), `resultReleasedAt`, `submitEvidence`; `BridgedSendRow` (:281-305) types `usdcxBurn.destinationBalanceBefore`, `destinationBalanceConfirmed`, `attemptCount`, `lastAttemptBlockNum`, `destinationAddress`, `destinationNetwork`. Typed wrappers `createUsdcxBridgeReceive`, `bridgeReceiveState`.
 - `miden/activity/bridge-in-test-hooks.ts` (E2E builds only): `CreateBridgeReceiveArgs` (:23-35) gains `sourceChainId`, a type-only change since the hook spreads its args (:75). `__TEST_BRIDGE_RECEIVE_STATE__` (:89-101) and `__TEST_LATEST_BRIDGE_RECEIVE__` (:133-151, type :61-67) also return `evmTxHash`, `error`, `midenNoteId`, `sourceChainId`, `usdcxRemoteRecipient`, `readyAt`.
-- `ios/helpers/ios-wallet-page.ts`: add `currentAccountInfo`, `nativeFaucetId`, `burnUsdcxViaSendFlow`, `readTransactionRows`, `readBridgedSendRows` (CDP `stashAndPoll`, :285-305, Chrome fields), `vaultBaseUnits`, `waitForNotesConsumed`. `balance-script.ts` gains `buildVaultRowsScript`; `balance-truth.ts` exports `rowBaseUnits` (:117).
-- Unit tests, `@jest-environment node`, `fetch` and `execFile` stubbed, no network (jest runs `playwright/**/*.test.ts`, jest.config.ts:172-179): `arc-usdcx.test.ts` (captured logs of the paid Arc burns and the spike payout, the `0x370bf19a` attestation, chunk halving, endpoint failover), `usdcx-guardian.test.ts`, `usdcx-miden.test.ts`, `ios-wallet-page.test.ts`.
+- PR 2: `ios/helpers/ios-wallet-page.ts`: add `currentAccountInfo`, `nativeFaucetId`, `burnUsdcxViaSendFlow`, `readTransactionRows`, `readBridgedSendRows` (CDP `stashAndPoll`, :285-305, Chrome fields), `vaultBaseUnits`, `waitForNotesConsumed`. `balance-script.ts` gains `buildVaultRowsScript`; `balance-truth.ts` exports `rowBaseUnits` (:117).
+- Unit tests, `@jest-environment node`, `fetch` and `execFile` stubbed, no network (jest runs `playwright/**/*.test.ts`, jest.config.ts:172-179): `arc-usdcx.test.ts` (captured logs of the paid Arc burns and the spike payout, the `0x370bf19a` attestation, chunk halving, endpoint failover), `usdcx-guardian.test.ts`, `usdcx-miden.test.ts`, and, in PR 2, `ios-wallet-page.test.ts`.
 
 ## 9 Runner and preflight
 
 Suites (`scripts/e2e-real.mjs` SUITES, :64-106), `networks: ['testnet']`, `retries: 0`
 - `usdcx`: `playwright.usdcx.config.ts`, grep `USDCx round trip`, probes `usdcx, usdcx-guardian, grant, arc-payout`.
 - `usdcx-in`: same config, grep `funded Arc key`, probes `usdcx, usdcx-guardian, funded-key`.
-- `usdcx-ios`: `playwright.ios.usdcx-live.config.ts`, `build: 'test:e2e:mobile:build'`, grep `USDCx round trip`, probes `usdcx, usdcx-guardian, grant, arc-payout`.
-- `usdcx-burn` (only under Q3(a)): same config as `usdcx`, its own describe title, probes `usdcx, usdcx-guardian, grant`.
+- `usdcx-ios` (PR 2; also what the nightly runs): `playwright.ios.usdcx-live.config.ts`, `build: 'test:e2e:mobile:build'`, grep `USDCx round trip`, probes `usdcx, usdcx-guardian, grant, arc-payout`.
+- `usdcx-burn` (Q3(a)): same config as `usdcx`, its own describe title, probes `usdcx, usdcx-guardian, grant`.
 - The build becomes `run('yarn', [suite.build ?? 'test:e2e:blockchain:build'], buildEnv)` (hardcoded at :1020 today).
 - Child env: `run()` spreads all of `process.env` into every child (:889), and main() hands one `env` to the build and the test (:1004-1013,1020,1038), so leaving a key out of `env` strips nothing. `run()` gains an `unset` list that deletes named keys from the inherited env. usdcx builds unset `E2E_ARC_PRIVATE_KEY` and `E2E_SEPOLIA_PRIVATE_KEY`; usdcx tests unset both, except that `usdcx-in` keeps `E2E_ARC_PRIVATE_KEY`.
 - Pinned CLI (usdcx suites, after the probes, before the build): unless `MIDEN_CLIENT_BIN` is exported, `node scripts/install-pinned-miden-cli.cjs install`; its last stdout line reaches the test env as `MIDEN_CLIENT_BIN`; a failed install fails the run.
-- Headless: per Q8, the extension usdcx suites set `E2E_HEADLESS=1` (#1395, fixtures/browser-launch-options.ts:18) unless `--headed`.
+- Headless: conditional on the spike (Q8), the extension usdcx suites set `E2E_HEADLESS=1` (#1395, fixtures/browser-launch-options.ts:18) unless `--headed`; if the spike shows `visibilityState` leaving `visible`, they stay headed.
 
 Flags
 - `--arc-rpc` / `E2E_ARC_RPC_URL`: prepended to `DEFAULT_ARC_RPCS`; an empty value is refused.
@@ -247,7 +251,7 @@ Refusals (by name, never by value) in `resolveOperatorInput` (:275), usdcx suite
 - An exported `GUARDIAN_URL`: nothing in these suites reads it, so a set value would silently not apply.
 - Key errors: malformed, given twice, an option name as the value, or empty; `--arc-key` on any suite but `usdcx-in`; `usdcx-in` without a key.
 
-Test env: `E2E_NETWORK`, `E2E_REAL_USDCX: 'true'`, `E2E_ARC_RPC_URL`, `MIDEN_CLIENT_BIN`, `E2E_HEADLESS` per Q8, and the key for `usdcx-in`.
+Test env: `E2E_NETWORK`, `E2E_REAL_USDCX: 'true'`, `E2E_ARC_RPC_URL`, `MIDEN_CLIENT_BIN`, `E2E_HEADLESS` (only if the spike allowed headless, Q8), and the key for `usdcx-in`.
 
 Probes (read-only, before any build). Each Arc or Circle call retries at most 3 times on HTTP 429 or JSON-RPC -32005, waiting Retry-After capped at 10 s; other errors fail at once. `getJson` (:336-350) returns only `{status, body}`, so it gains the response headers, and `rpc()` (:352) attaches `status`, `code` and `retryAfter` to its errors.
 
@@ -260,7 +264,7 @@ Probes (read-only, before any build). Each Arc or Circle call retries at most 3 
 | Circle xReserve API | all | `/v1/info` lists 10007 with remoteTokenIdentifier == remoteToken, source 26 at xReserve |
 | USDCx native asset | all | `discoverFeeFaucetId` (helpers/fee-faucet.ts:33) in a ts-node child; bytes32 == remoteToken |
 | Guardian identity | all | new `probeUsdcxGuardian` on `GUARDIAN_URL[network]` (:55-58): `/status` ok, environment == `--network`, version and git_commit printed; `/pubkey?scheme=ecdsa` has commitment and pubkey |
-| USDCx faucet grant | usdcx, usdcx-ios | `probeMidenFaucet` (:513-525) extended: decimals 6, `base_amount` >= 11 USDCx, balance >= `base_amount`; its "native-MIDEN grant" comment (:519-520) fixed |
+| USDCx faucet grant | usdcx, usdcx-burn, usdcx-ios | `probeMidenFaucet` (:513-525) extended: decimals 6, `base_amount` >= 11 USDCx, balance >= `base_amount`; its "native-MIDEN grant" comment (:519-520) fixed |
 | Gateway minter | usdcx, usdcx-ios | `xReserve.gatewayMinter()` == `GATEWAY_MINTER`, with code |
 | Arc funded key | usdcx-in | USDC >= M + gas reserve (pattern of `probeFundedKey`, :776) |
 
@@ -286,7 +290,7 @@ Runner tests (`scripts/e2e-real.test.ts`, stub `scripts/e2e-real.fetch-stub.mjs`
   - maxFee, hookData and localDepositor are not compared: a deposit with maxFee 1 USDC was minted in full (probe 2026-10-09), and an executor deposit's depositor is the DepositFor handler. The executor takes its fee on top of the amount (executor.ts:311-323), so the intent amount equals the row amount on both routes.
   - `isUsdcxDepositAttested` is removed; both call sites fetch with the row's own `source.attestationApi` or `target.attestationApi`.
 - `expected` = the persisted recipient, else one derived from `row.accountId`; the token from `row.faucetId` (the native id the screen stored, EvmBridgeDepositScreen.tsx:1149-1155); `row.amount`; domain 10007. Rows written before this fix settle instead of waiting for the timeout.
-- `bridge-receive.ts`: xReserve rows: `attested` -> `ready`; `mismatch` -> `failed` with "Circle attested this deposit to a different <network|token|Miden account|amount>."; `pending` and `unreadable` write nothing (`unreadable` warns once per row). Executor rows: `attested` -> `ready`; `mismatch` per Q10. A `ready` USDCx row is not polled again.
+- `bridge-receive.ts`: xReserve rows: `attested` -> `ready`; `mismatch` -> `failed` with "Circle attested this deposit to a different <network|token|Miden account|amount>."; `pending` and `unreadable` write nothing (`unreadable` warns once per row). Executor rows: `attested` -> `ready`; `mismatch` writes nothing and warns once per row (Q10). A `ready` USDCx row is not polled again.
 - Failing-first tests:
   - `bridge-receive.usdcx.test.ts` (new; the real attestation module, fetch returning the captured `0x370bf19a` response): today a row for another account reaches `ready`; an executor row whose forward hash is attested to another recipient never reaches `ready`.
   - `attestation.test.ts`: a full match; each single-field mismatch; Canton-10001-only and a payload whose domain differs from its entry (`mismatch{remoteDomain}`); the old token and the malformed recipients `0x908904ec`/`0xb4dce6ec`; bad magic, v2, one byte too long or short (`unreadable`); a mismatching entry beside a matching one (`attested`).
@@ -296,25 +300,26 @@ Runner tests (`scripts/e2e-real.test.ts`, stub `scripts/e2e-real.fetch-stub.mjs`
 - Defect: `readUnsettledRows` drops `ready` rows (bridge-receive.ts:248-263), so the 7-day cutoff (:229-232) never fails a `ready` USDCx row, which keeps rendering Confirmed (transactionUtils.ts:271).
 - Fix: keep `ready` USDCx rows that are not `restoredFromBackup` (restored ones stay out: :225-228 fails any row it reads).
 - A row cannot tell today whether it was ever `ready`: the timeout writes `failed` (bridge-receive.ts:230) and the writer replaces `phase` outright (complete.ts:1590). `updateBridgedReceivePhase` therefore stamps `readyAt` once, when a row first goes `ready`.
-- Late mint (Q9, recommended): `takeUsdcxBridgeInInfo` (bridge-in.ts:277-323) also takes a `failed` USDCx row with `readyAt` and error 'Bridge delivery timed out.', ranked after live rows and exempt from the 7-day window (:283,297); its phase filter (:296) changes accordingly. `failed -> received` is already allowed (complete.ts:1548).
-- Tests (`bridge-receive.test.ts`, `bridge-in.test.ts`): an 8-day-old USDCx `ready` row fails with 'Bridge delivery timed out.' and a fresh one is not fetched; an AggLayer `ready` row and a restored USDCx `ready` row are untouched; `readyAt` is stamped once; per Q9 a late mint moves a timed-out ready row to `received`, while a row that timed out from `delivering` is NOT adopted.
+- Late mint (Q9): `takeUsdcxBridgeInInfo` (bridge-in.ts:277-323) also takes a `failed` USDCx row with `readyAt` and error 'Bridge delivery timed out.', ranked after live rows and exempt from the 7-day window (:283,297); its phase filter (:296) changes accordingly. `failed -> received` is already allowed (complete.ts:1548).
+- Tests (`bridge-receive.test.ts`, `bridge-in.test.ts`): an 8-day-old USDCx `ready` row fails with 'Bridge delivery timed out.' and a fresh one is not fetched; an AggLayer `ready` row and a restored USDCx `ready` row are untouched; `readyAt` is stamped once; a late mint moves a timed-out ready row to `received`, while a row that timed out from `delivering` is NOT adopted.
 
 (b) Burn notice testid (D8): `data-testid="usdcx-burn-notice"` at Route.tsx:147 and ReviewTransaction.tsx:705.
 
 (c) Fee labels and arrival (D9)
 - `usdcxMidenFees` "MIDEN fees" (en.json:4; Route.tsx:139) becomes "$symbol$ fees". `usdcxSponsorshipFee` (en.json:17; ReviewTransaction.tsx:687) becomes "Paid in $symbol$, including faucet execution sponsorship". `symbol` is the native display symbol from `resolveDisplayMetadata`; en/messages.json (:10, :62) declares `placeholders.symbol`. Test: with native metadata USDCx, both labels render it and never MIDEN.
-- `usdcxArrival` "~20 min" (en.json:1090; en/messages.json:4746) serves every source at two sites: EvmBridgeUsdcxRoute.tsx:47 (rendered by EvmBridgeDepositScreen.tsx:1257-1269) and EvmBridgeDepositReview.tsx:94, which knows only `route`. Both take the label from one `usdcxArrivalKey(sourceChainId)` (per Q12); the screen threads the source into the review. Tests: each source's label on both sites.
+- `usdcxArrival` "~20 min" (en.json:1090; en/messages.json:4746) serves every source at two sites: EvmBridgeUsdcxRoute.tsx:47 (rendered by EvmBridgeDepositScreen.tsx:1257-1269) and EvmBridgeDepositReview.tsx:94, which knows only `route`. Both take the label from one `usdcxArrivalKey(sourceChainId)`, keyed on the source chain (Q12): Arc Testnet reads "~1 min" (attestation 2-5 s plus mint 26-34 s), every other source "~20 min"; the screen threads the source into the review. Tests: each source's label on both sites.
 
 (d) CHANGELOG
 - Under `## 1.17.2 (TBD)` (CHANGELOG.md:3), or the highest TBD section above the latest `v*` tag after `git fetch --tags` (v1.17.1 today):
-  - one `[FIX][all]` line naming every user-visible change: the attestation match; adoption on every landing path; unknown-outcome burns awaiting the node's verdict; stale ready deposits timing out with late mints still landing; fee labels naming USDCx; per-source arrival; and the Q11, Q13 and Q14 fixes as chosen;
-  - one `[FIX][ci]` line: the local `yarn e2e:real` USDCx suites, and the removal of the nightly live workflow and the local relayer.
-- Edit #1100's line (:7) to match the outcomes: "on Arc Testnet and Sepolia" per Q13, "Activity offers manual execution when needed" per Q11.
-- #1401's line (CHANGELOG.md:15 @6fdc2c127) per Q1.
+  - one `[FIX][all]` line naming every user-visible change: the attestation match; adoption on every landing path; unknown-outcome burns awaiting the node's verdict; stale ready deposits timing out with late mints still landing; fee labels naming USDCx; per-source arrival; and the executor-leg, Sepolia-source and burn-snapshot fixes;
+  - PR 1: one `[FIX][ci]` line for the local `yarn e2e:real` USDCx suites (`usdcx`, `usdcx-in`, `usdcx-burn`).
+  - PR 2: one `[FIX][ci]` line: the nightly live workflow now runs the self-funded Guardian iOS round trip (`usdcx-ios`) and needs no secret, and the local relayer is removed.
+- Edit #1100's line (:7) to match the outcomes: "on Arc Testnet and Sepolia" (Q13), "Activity offers manual execution when needed" (Q11).
+- #1401's line (CHANGELOG.md:15 @6fdc2c127) stays unchanged (Q1).
 
 (e) Verdict and landing paths (approved 2026-10-10)
 - Gap 1, burns kept off the verdict path: `canAwaitVerdict` admits a bridged-send only for `provider === 'agglayer'` (verdict-rules.ts:40-48). An unknown-outcome Guardian USDCx burn therefore loses its candidate (transaction/index.ts:3873-3876) and is failed instead of marked Unconfirmed (cancel.ts:403-405); once Failed, the burn poll never promotes it (burn-status.ts:54-65 requires Completed).
-  - Fix: admit `provider === 'usdcx'`. A landed verdict goes through `writeLanding` (reconcile-unconfirmed.ts:114-141), which keeps `extraInputs.usdcxBurn` (noteId from burn.ts:116-121) but writes 'Bridged to EVM' and no fee or outputs (helper.ts:537-552,695-698), unlike complete.ts:1219-1235. The harness handles that per Q5. A usdcx row already reaches the landed-after-apply-failure branch (transaction/index.ts:1451-1473), since `isResultAwaitingRow` is Epoch-only (:294-298).
+  - Fix: admit `provider === 'usdcx'`. A landed verdict goes through `writeLanding` (reconcile-unconfirmed.ts:114-141), which keeps `extraInputs.usdcxBurn` (noteId from burn.ts:116-121) but writes 'Bridged to EVM' and no fee or outputs (helper.ts:537-552,695-698), unlike complete.ts:1219-1235. The harness bounds the fee on that path (Q5(d)). A usdcx row already reaches the landed-after-apply-failure branch (transaction/index.ts:1451-1473), since `isResultAwaitingRow` is Epoch-only (:294-298).
   - Failing-first tests: an unknown-outcome usdcx burn goes Unconfirmed, not Failed, and keeps its candidate; one landed by the reconciler is Completed with `usdcxBurn` intact; the burn poll then advances it.
 - Gap 2, adoption only in `completeConsumeTransaction` (complete.ts:319-371). Five other paths complete a consume without a `TransactionResult` and without adoption:
   1. `writeLanding` (reconcile-unconfirmed.ts:114-141), also reached by Retry's `checkEvidenceForRetry` (:239-257);
@@ -327,10 +332,13 @@ Runner tests (`scripts/e2e-real.test.ts`, stub `scripts/e2e-real.fetch-stub.mjs`
   - Fix: the constructor persists `consumedNotes: {id, senderAddress, faucetId, amount}[]`, a new optional unindexed `ITransaction` field (no Dexie version). complete.ts:325-371 moves into `adoptBridgeDeliveries(consumeId, notes)` in bridge-in.ts: the registry pass, the single-note tag and the per-note batch pairing, idempotent per note (a note already some row's `midenNoteId` is skipped). All six sites call it after their Completed write (`writeLanding` after its rw transaction, :137). The five result-less paths read `consumedNotes`; a legacy one-note row falls back to `noteId`/`secondaryAccountId`/`faucetId`/`amount`; a legacy batch is skipped with a warning. `completeConsumeTransaction` keeps the executed notes.
   - Failing-first tests: a USDCx mint consume landed through each of the five paths moves its row to `received`; two same-amount mints in one batch, run against the real `takeUsdcxBridgeInInfo` (complete.bridge-in.test.ts:93-96 mocks it today), adopt two rows; the constructor persists per-note facts.
 
-(f) Other defects of the same class (P2: money or data correctness a user can hit; scope in section 15)
-- The executor manual leg can strand burned USDC (Q11): the Execute button renders only in `delivering` with no saved hash (UsdcxExecuteAction.tsx:57,62-68); a saved hash that never mines reads `pending` forever (walletconnect/receipt.ts:37-48; bridge-receive.ts:160-171); the 7-day cutoff (:229-232) then fails the row while the message can still be executed, and `failed -> delivering` is refused (complete.ts:1546-1548).
-- Dead Sepolia bridge-in source (Q13): Sepolia is offered as an xReserve source (usdcx/constant.ts:251), but 10007 is not registered there (section 3), so the row fails before any prompt (deposit.ts:94-96). Sepolia -> Arc executor deposits work live.
-- A burn submit fails with no row when one arc.io snapshot read errors (Q14): burn.ts:103 awaits `readUsdcxDestinationBalance` with a 15 s timeout and `retryCount: 0` (destination-status.ts:20), and arc.io returns intermittent 429s.
+(f) Other defects of the same class (P2: money or data correctness a user can hit; all three fixed in PR 1)
+- The executor manual leg can strand burned USDC (Q11, fixed here): the Execute button renders only in `delivering` with no saved hash (UsdcxExecuteAction.tsx:57,62-68); a saved hash that never mines reads `pending` forever (walletconnect/receipt.ts:37-48; bridge-receive.ts:160-171); the 7-day cutoff (:229-232) then fails the row while the message can still be executed, and `failed -> delivering` is refused (complete.ts:1546-1548).
+  - Fix, with failing-first tests: the reconciler reopens a leg whose execute hash still reads `pending` after a bounded window, so the Execute button returns; an executor row holding an attested, unexecuted message is exempt from the 7-day failure. No live suite runs this leg, so unit tests carry it.
+- Dead Sepolia bridge-in source (Q13, fixed here): Sepolia is offered as an xReserve source (usdcx/constant.ts:251), but 10007 is not registered there (section 3), so the row fails before any prompt (deposit.ts:94-96). Sepolia -> Arc executor deposits work live.
+  - Fix: Sepolia becomes an executor source (CCTP domain 0 -> Arc, forwarded; needs Sepolia's TokenMessengerWithFees entry), with an E2E override that keeps it an xReserve source in E2E builds. The hermetic Bridge-IN job then tests a Sepolia xReserve route production no longer offers, though it still covers the xReserve code Arc uses.
+- A burn submit fails with no row when one arc.io snapshot read errors (Q14, fixed here): burn.ts:103 awaits `readUsdcxDestinationBalance` with a 15 s timeout and `retryCount: 0` (destination-status.ts:20), and arc.io returns intermittent 429s.
+  - Fix, with a failing-first test: one or two retries with backoff inside the 15 s budget.
 - Checked, not a defect: a Guardian-recovered USDCx burn (proposed as `agglayer_bridged_send`, transaction/index.ts:3426-3427, recovered as a provider-less bridged-send, guardian/history.ts:91-93) never reaches bridge rendering: the list and details skip recovered rows (HistoryItem.tsx:54; HistoryView.tsx:129; HistoryDetails.tsx:550), so it shows the generic recovered action, not Pending.
 - Accepted limits, not defects (CLAUDE.md:385-403): Base/Arbitrum burns above ~890 USDCx exceed the 0.1 USDC allowance; spending from the destination before confirmation prevents it.
 
@@ -343,7 +351,7 @@ Every hard failure names its step. A Guardian failure also names `GUARDIAN_URL`,
 - **Burn rejected before queueing**: a `review-error` with an HTTP or JSON-RPC message and no new bridged-send row: "Arc RPC unavailable for the wallet's balance snapshot (burn.ts:103), infra", with the last arc.io status the harness saw.
 - **Burn failed**: `burnFailureMessage(row)`: stage, rawError, `stageTimestamps`, `submitEvidence`, and the 409 hint.
 - **Burn result reaped**: "resultBytes released at <resultReleasedAt>, 10 min after completedAt; outputs not decoded".
-- **Landed path** (per Q5): names the path (no `resultBytes`, no `resultReleasedAt`) and, under Q5(d), the bounded fee and its ceiling.
+- **Landed path** (per Q5): names the path (no `resultBytes`, no `resultReleasedAt`) and the bounded fee and its ceiling (Q5(d)).
 - **Burn stuck pending**: `usdcxBurn.lastError`, `attemptCount`, `lastAttemptBlockNum` (burn-status.ts:41-43), plus the oracle verdict: "never committed (expired after the 20-block cap)" or "committed, faucet has not consumed".
 - **Phase timeout** (burn, confirmation, receive): the page's route and `document.visibilityState`.
 - **Ledger**: every term (G, f0, N, f1, s, M, f2) with expected and observed vault.
@@ -364,6 +372,7 @@ Every hard failure names its step. A Guardian failure also names `GUARDIAN_URL`,
 - **Late and missing payouts.** Arc payouts have arrived 1 h 45 min and ~17 h late, and one 1 USDCx burn is unpaid after 45 h (section 3). The hard gate can go red with no wallet defect, and its message says so; `usdcx-in` keeps bridge-in testable.
 - **Payout confirmation ordering.** The deposit spends from the key, so step 8b gates it; a hidden window stops the watcher, contained by the visible-root rule, Q8 and the phase-timeout message.
 - **Arc RPC contention.** arc.io is the wallet's only Arc RPC and rate-limits; the harness reads it last (section 5), and Q14 makes the burn snapshot retry.
+- **The nightly is the one scheduled run.** It runs the iOS round trip on a macOS runner with no secret; a late or missing Circle payout turns it red with no wallet defect (its failure message says so), and the per-run key ledger on an ephemeral runner is not kept, which is acceptable because the funds come from the public faucet.
 - **Result bytes reaped after 10 min**; read at Completed, with their own message.
 - **The exact debit depends on the sponsorship term**, decoded from `resultBytes` and checked against live faucet storage; a disagreement corrects the oracle, never loosens the check.
 - **The mint id derivation tracks miden-usdcx v0.17.1.** The mint failure lists the faucet's recent outputs, and the metadata check proves origin independently. The oracle is validated on SDK 0.17.3.
@@ -376,7 +385,7 @@ Every hard failure names its step. A Guardian failure also names `GUARDIAN_URL`,
 
 ## 13 Out of scope
 
-- Standard-wallet variants of the new suites, Android, scheduled or CI runs, payout sweeps.
+- Standard-wallet variants of the new suites, Android, scheduled or CI runs other than the kept nightly iOS job, payout sweeps.
 - The hermetic `playwright/e2e/ios/tests/bridge-in-deposit-usdcx.ios.spec.ts` stays: a standard-wallet spec in the push-to-main Bridge-IN job that skips unless `MIDEN_E2E_USDCX_CHAIN=sepolia` (:55-58), forks Sepolia (:71-76), registers 10007 on the fork (:77), stops at `delivering` (:194) and signs nothing on Miden.
 - Live legs beyond Arc-direct: Q4.
 - The iOS and Chrome `createGuardianWallet` signatures differ (wallet-page.ts:663 takes a URL; ios-wallet-page.ts:387 a password). The iOS spec calls it with no argument.
@@ -384,115 +393,71 @@ Every hard failure names its step. A Guardian failure also names `GUARDIAN_URL`,
 
 ## 14 Delivery order
 
+Two stacked PRs (Q2). PR 1 is the product fixes, the shared harness, the runner and the extension suites (`usdcx`, `usdcx-in`, `usdcx-burn`). PR 2 is stacked on PR 1's branch (retargeted to main once PR 1 merges) and carries the iOS suite, its CDP readers and the repoint of the nightly. Neither PR deletes or disables a workflow.
+
 0. **Setup.** Rebuild `wiktor/usdcx-live-e2e` on origin/main at or after 6fdc2c127 by cherry-picking the spec commits (KB `git-rebase-onto-drops-commits`). `yarn install --frozen-lockfile` (node_modules holds SDK 0.17.1; package.json pins 0.17.3).
-1. **Proof spike on main (no commit).** Build `test:e2e:blockchain:build` for testnet. A scratch Playwright script outside the repo creates a fresh Guardian, takes one grant, writes a fresh key to the ledger, burns 10 USDCx through the UI with the Arc chip click, waits for the payout and `destinationBalanceConfirmed`, opens the burn's details, decodes `resultBytes` with the new oracle mode, and under `E2E_HEADLESS=1` records `document.visibilityState`. Under Q4(E), it also burns 5 USDCx to a second fresh key on Sepolia and records whether it pays. Record G, auto-consume, `stageTimestamps`, decoded outputs, snapshot read time, payout and confirmation latencies; freeze section 4's budgets. Stop and report if the grant is below 11 USDCx or not auto-consumed, the burn fails or is never consumed, the decode fails, or the wallet never confirms.
-2. **Commits.** Single-line messages, no attribution trailers; product commits only for fixes the decisions keep.
+1. **Proof spike on main (no commit).** Build `test:e2e:blockchain:build` for testnet. A scratch Playwright script outside the repo creates a fresh Guardian, takes one grant, writes a fresh key to the ledger, burns 10 USDCx through the UI with the Arc chip click, waits for the payout and `destinationBalanceConfirmed`, opens the burn's details, decodes `resultBytes` with the new oracle mode, and under `E2E_HEADLESS=1` records `document.visibilityState`. It also burns 5 USDCx to a second fresh key on Sepolia and records whether it pays (Q4(E); nothing committed). Record G, auto-consume, `stageTimestamps`, decoded outputs, snapshot read time, payout and confirmation latencies; freeze section 4's budgets. Stop and report if the grant is below 11 USDCx or not auto-consumed, the burn fails or is never consumed, the decode fails, or the wallet never confirms.
+2. **Commits.** Single-line messages, no attribution trailers; one commit per fix.
+   PR 1:
    1. `fix(usdcx): mark a deposit ready only when Circle's attestation matches what the wallet signed`
    2. `fix(usdcx): time out stale ready deposits and let a late mint still land them`
    3. `fix(usdcx): let an unknown-outcome burn await the node's verdict`
    4. `fix(usdcx): adopt a delivered deposit on every consume landing path`
    5. `fix(usdcx): name the fee asset in USDCx fee labels`
    6. `fix(usdcx): show each USDCx deposit source's own arrival time`
-   7. per Q11, Q13, Q14: `fix(usdcx): keep a stranded executor leg executable`, `fix(usdcx): <Sepolia bridge-in source>`, `fix(usdcx): retry the destination balance snapshot before a burn`
+   7. `fix(usdcx): keep a stranded executor leg executable`, `fix(usdcx): make Sepolia an executor bridge-in source`, `fix(usdcx): retry the destination balance snapshot before a burn`
    8. `test(usdcx): burn notice test id and test-hook source chain and row fields`
    9. `test(e2e): shared USDCx harness modules and row readers`
-   10. `test(e2e): usdcx, usdcx-in and usdcx-ios e2e:real suites`
-   11. `test(e2e): extension Guardian USDCx round trip and funded-key bridge-in` (and Q3(a)'s move)
-   12. `test(e2e): iOS Guardian USDCx round trip`
-   13. `chore(e2e): drop the nightly live USDCx workflow and the local relayer`
-   14. `docs(e2e): USDCx live suites, key ledger recovery and changelog`
-3. **Local gates** (only what CI cannot run): the changed jest suites at `--maxWorkers=2`, every test file in their directories, and the source-scanning guard tests (`linked-pr-injection.test.ts` included); eslint and prettier on changed files; the dash check with a positive control; mutation checks with predictions on each new product test. `lint:e2e`, coverage, the changelog check and locale parity run in CI (step 8).
-4. **Review.** In this session (D12): an independent standard whole-branch review on the most capable model, base = the fork point on origin/main, then a scoped re-review of each fix, one commit per fix. In a later session: `/review-council:rev` to convergence.
-5. **Merge origin/main** only after review, and only if main moved; resolve hunk by hunk; `yarn install`; re-run the changed suites, `arc-usdcx.test.ts`, `usdcx-miden.test.ts` and one oracle subcommand against testnet; `git fetch --tags`; re-check the CHANGELOG section and that deleted lines stayed deleted.
-6. **Live runs** on the final tree: `usdcx`, `usdcx-in` (with the ledger key), `usdcx-ios`, and `usdcx-burn` under Q3(a). Keep each evidence JSON path.
-7. **Push** once, review commits unsquashed. `gh pr create` against main; read the body back before and after. Body: current state only, no tool attribution; a 'Live E2E (local)' bullet with the evidence results; that it deletes #1100's nightly workflow and #1401's ceiling line; a **Reviewers:** line naming the attestation match and the shared adopter in `bridge-receive.ts`/`bridge-in.ts`.
+   10. `test(e2e): usdcx, usdcx-in and usdcx-burn e2e:real suites`
+   11. `test(e2e): extension Guardian USDCx round trip and funded-key bridge-in`
+   12. `test(e2e): retarget the USDCx burn spec onto the public faucet and move it to tests/usdcx`
+   13. `docs(e2e): USDCx live suites, key ledger recovery and changelog`
+   PR 2:
+   1. `test(e2e): iOS CDP readers for the USDCx round trip`
+   2. `test(e2e): usdcx-ios e2e:real suite`
+   3. `test(e2e): iOS Guardian USDCx round trip` (replaces `usdcx-live-deposit.ios.spec.ts`, Q3 iOS (a))
+   4. `ci(e2e): repoint the nightly live USDCx workflow at the Guardian iOS round trip` (the workflow keeps its name, cron, injection steps, permissions and timeouts)
+   5. `chore(e2e): drop the local USDCx relayer`
+   6. `docs(e2e): iOS suite, nightly and changelog`
+3. **Local gates** (each PR; only what CI cannot run): the changed jest suites at `--maxWorkers=2`, every test file in their directories, and the source-scanning guard tests (`linked-pr-injection.test.ts` included, which must still hold #1401's ceiling line); eslint and prettier on changed files; the dash check with a positive control; mutation checks with predictions on each new product test. `lint:e2e`, coverage, the changelog check and locale parity run in CI (step 8).
+4. **Review.** In this session (D12): an independent standard whole-branch review on the most capable model, base = the fork point on origin/main for PR 1 and PR 1's head for PR 2, then a scoped re-review of each fix, one commit per fix. In a later session: `/review-council:rev` to convergence.
+5. **Merge origin/main** only after review, and only if main moved; resolve hunk by hunk; `yarn install`; re-run the changed suites, `arc-usdcx.test.ts`, `usdcx-miden.test.ts` and one oracle subcommand against testnet; `git fetch --tags`; re-check the CHANGELOG section and that deleted lines stayed deleted. PR 2 follows PR 1's merge the same way.
+6. **Live runs** on the final tree. PR 1: `usdcx`, `usdcx-in` (with the ledger key) and `usdcx-burn`. PR 2: `usdcx-ios`, and the repointed nightly on PR 2's head (a `workflow_dispatch` on PR 2's head; the workflow has that trigger, e2e-usdcx-live.yml:40). Keep each evidence JSON path.
+7. **Push** once per PR, review commits unsquashed. `gh pr create` against main (PR 2 against PR 1's branch until PR 1 merges); read the body back before and after. Body: current state only, no tool attribution; a 'Live E2E (local)' bullet with the evidence results. PR 1's **Reviewers:** line names the attestation match and the shared adopter in `bridge-receive.ts`/`bridge-in.ts`; PR 2's names the workflow diff (injection steps, permissions and timeouts untouched, secret no longer needed) and the iOS WalletConnect deposit.
 8. **CI on the pushed head**, by SHA (`gh api 'repos/0xMiden/wallet/actions/runs?head_sha=<sha>'`): coverage (95%, jest.config.ts:103-110), the changelog check, `lint:e2e`, locale parity, the injection guard. Fix anything red with new commits.
-9. **KB follow-up** (separate from the PR): `notes/infra/agglayer-indexer-miden-exit-shape.md` still says rollup 86; main uses 73 since #1385 (scripts/e2e-real.mjs:37-44). Fix it with `note.sh`.
+9. **KB follow-up** (separate from the PRs): `notes/infra/agglayer-indexer-miden-exit-shape.md` still says rollup 86; main uses 73 since #1385 (scripts/e2e-real.mjs:37-44). Fix it with `note.sh`.
 
 Expected size (rough, source plus tests)
 
-| Group | Commits | Lines | Drivers |
-|---|---|---|---|
-| Product fixes (a), (a2), (b), (c), (e) | 6 | ~1,900 | attestation decode and match tests; the shared adopter and its five-path tests |
-| Q11, Q13, Q14 fixes, if chosen | 0-3 | ~550 | executor-leg reopen tests |
-| Harness modules and unit tests | 2 | ~1,900 | `arc-usdcx.ts` and captured-log tests; oracle subcommands; iOS CDP readers |
-| Runner and its tests | 1 | ~700 | refusals, probes, child-env `unset` |
-| Suites and configs | 2 | ~1,100 | extension ~600, iOS ~450 |
-| Deletions | 1 | ~-800 | workflow 266, relayer 179 + 34, live iOS spec 263 |
-| Docs and CHANGELOG | 1 | ~80 | |
+| Group | PR | Commits | Lines | Drivers |
+|---|---|---|---|---|
+| Product fixes (a), (a2), (b), (c), (e) | 1 | 6 | ~1,900 | attestation decode and match tests; the shared adopter and its five-path tests |
+| Executor-leg, Sepolia-source and burn-snapshot fixes | 1 | 3 | ~550 | executor-leg reopen tests |
+| Harness modules and unit tests (without iOS readers) | 1 | 2 | ~1,500 | `arc-usdcx.ts` and captured-log tests; oracle subcommands |
+| Runner and its tests | 1 | 1 | ~700 | refusals, probes, child-env `unset` |
+| Extension suites, configs and the `usdcx-burn` retarget | 1 | 3 | ~650 | extension ~600, burn spec ~60 changed |
+| Docs and CHANGELOG | 1 | 1 | ~60 | |
+| iOS CDP readers and tests | 2 | 1 | ~400 | `ios-wallet-page.ts`, `ios-wallet-page.test.ts` |
+| iOS suite and config | 2 | 2 | ~450 | spec, config timeout and guard |
+| Nightly repoint | 2 | 1 | ~60 | workflow run step, env and relayer-install removal |
+| Deletions | 2 | 1 | ~-500 | relayer 179 + 34, live iOS spec 263 |
+| Docs and CHANGELOG | 2 | 1 | ~40 | |
 
-About 6,200 lines added and 800 deleted over 13-16 commits; Q2 offers a lean cut.
+About 4,900 lines added in PR 1 and ~1,300 added and ~500 deleted in PR 2, over 13 and 6 commits.
 
-## 15 Decisions needed
+## 15 Decisions (settled 2026-10-10)
 
-Q1 What happens to the nightly "E2E USDCx Bridge-IN (live)" workflow, and to #1401's CHANGELOG line? (time-critical)
-- Context: e2e-usdcx-live.yml:38-39 @6fdc2c127, cron `17 3 * * *`, workflow 380729816, active, 0 runs; first run 2026-10-11 03:17 UTC. It builds iOS on macos-26-xlarge (:63), then skips green unless `USDCX_LIVE_EVM_PRIVATE_KEY` is set (usdcx-live-deposit.ios.spec.ts:88-91): not a repo secret; org secrets are unreadable here (HTTP 403).
-- Options: (a) disable now with `gh workflow disable 380729816 --repo 0xMiden/wallet` (reversible, no commit) and delete it in this PR; (b) leave it running until this PR merges.
-- #1401's line (CHANGELOG.md:15 @6fdc2c127): (i) remove it, since 1.17.2 will not ship that workflow; (ii) keep it and let the new `[ci]` line say the workflow was removed.
-- Recommended: (a) and (i). Local only is settled (D4), and (a) stops a vacuous green before tonight's run.
-
-Q2 Ship as one PR, or take a lean cut?
-- Options: (a) one PR as specified (~6,200 lines added); (b) PR 1: product fixes, shared harness, extension `usdcx` and `usdcx-in`, deletions (~4,900); PR 2 stacked on it: the iOS suite and its CDP readers (~1,300); (c) PR 1: product fixes only (~1,900-2,500, unit-tested); PR 2: harness, suites, deletions.
-- Recommended: (b). The extension suites prove fix (a) live (the NEGATIVE row) and land with it; iOS adds the WalletConnect UI deposit and the product-writer proof and reviews on its own. Consistent with the 2026-10-10 split choice.
-
-Q3 What happens to the existing standard-wallet USDCx specs? (each option that deletes a test needs an explicit yes)
-- `tests/bridge/bridge-out-usdcx.spec.ts` burns from a standard and a Guardian wallet (:41-49) and skips without the private `USDCX_TESTNET_REPO` (:35-38,53-65); E2E Bridge collects it as 2 skips. The public faucet now grants USDCx directly (section 3).
-  - (a) Retarget it onto the public-faucet grant (drop the `xusdc-testnet` mint, `USDCX_TESTNET_REPO` and `USDCX_FAUCET_ACCOUNT_ID`; read the faucet with `walletDiscoveredNativeFaucetId`), keep both variants, move it to `tests/usdcx/usdcx-burn.spec.ts`, run it as `yarn e2e:real --suite usdcx-burn`; ~60 changed lines.
-  - (a') The same retarget kept in `tests/bridge`: E2E Bridge then burns live on every push to main (e2e-bridge.yml:26-28,125), against D4's intent.
-  - (b) Delete it as superseded: standard-wallet burn coverage drops to unit tests.
-  - (c) Keep it as is: unrunnable without the private repo.
-  - Recommended: (a).
-- `ios/tests/usdcx-live-deposit.ios.spec.ts` is a standard-wallet live deposit (:168) that has never run.
-  - (a) Replace it with the Guardian round trip: standard-wallet live deposit coverage is lost; the hermetic standard-wallet UI deposit to `delivering` stays.
-  - (b) Keep it, dropping its local-relayer branch (:55-64) and reading `E2E_ARC_PRIVATE_KEY`, as a suite `usdcx-ios-in`; ~40 lines plus a suite entry.
-  - Recommended: (a): Guardian coverage ranks first (2026-10-09) and the deposit UI code is the same.
-
-Q4 Which surfaces beyond the Arc-direct round trip should the live E2E cover?
-- Options: (A) Arc-direct only (this document); (B) A plus payout-only burns to Base Sepolia and Arbitrum Sepolia; (C) B plus a forwarded executor bridge-in from Base Sepolia; (D) C plus the manual Execute-on-Arc leg; (E) a one-off Sepolia payout check in the step 1 spike: 5 USDCx to a second fresh key, floor `minimumUsdcxPayout(11155111, 5 USDCx)` = 3_500_000 (usdcx/constant.ts:161,230,238-243), read through rpc.walletconnect.org (walletconnect/config.ts:46-47,67), ~1 USDC fee.
-- B and C need their own design: per-chain GatewayMinter and RPC, a grant floor near 31 USDCx, a Guardian settle between burns, two more payout gates (hard, same deadline), Base Sepolia gas for C.
-- Recommended: A in this PR plus E in the spike (nothing committed); B, then C, as follow-up PRs with their own designs; D not at all. Sepolia is offered as a destination (usdcx/constant.ts:267) under a notice that a published note cannot be reclaimed (en.json:6), with no payout ever observed. If E shows no payout within a few hours, that becomes its own decision.
-
-Q5 What does the ledger do when the product takes a landed path (no fee or outputs recorded, 10(e))?
-- Options: (a) fail, labelled "product took the landed path; ledger unprovable"; (b) an independent fee source: the node's transaction header via grpcurl (the SDK 0.17 `RpcClient` has no transaction sync) or the Guardian delta summary fee (guardian/history.ts:350-351); (c) the product records the fee on landed paths (`LandedTransaction` carries no fee today, sdk/sdk-error-code.ts:400-405); (d) derive the fee from the vault delta minus the independently known terms (N, s, M) and assert `0 < f <= baseFee x FEE_RESERVE_MULTIPLE` (miden/fees/spendable.ts:84, the wallet's own reserve ceiling), recorded as `bounded`.
-- Recommended: (d). Gaps 1 and 2 then get live coverage when they occur, with no new dependency and no false red; (a) makes a correct outcome red; (b) and (c) cost a tool or a product change.
-
-Q6 Is the wallet's own payout confirmation (step 8b) a hard gate?
-- Options: hard (fail if not confirmed within 2 min of the harness proof; deposit only after it); advisory (evidence only, since CLAUDE.md calls it an estimate).
-- Recommended: hard, alongside the harness proof. With a fresh 0-balance key and the deposit gated behind it, the accepted limits cannot occur, so a miss is a wallet or arc.io failure.
-
-Q7 How strictly is the History receiving-tx link checked (one best-effort `eth_getLogs` over at most 2000 blocks, CLAUDE.md:405-411)?
-- Options: equality with the `AttestationUsed` tx when it renders within 15 s, absence recorded; require it; skip it.
-- Recommended: equality when rendered; the link stays a hint, not a condition of confirmation.
-
-Q8 Should the extension usdcx suites run headless (`E2E_HEADLESS=1`) by default?
-- Options: headless by default once the spike shows `visibilityState` stays `visible`, `--headed` to opt out; headed by default.
-- Recommended: headless, conditional on the spike: the watcher polls only while visible, and a long local run is when a window gets covered.
-
-Q9 What happens to a `ready` deposit whose mint arrives after the 7-day timeout?
-- Context: adoption also refuses rows older than 7 days (bridge-in.ts:283,297), so a wallet closed for more than 7 days after an attested deposit would show Failed although the mint arrived.
-- Options: (a) keep the timeout and let a late mint adopt a row that timed out after `readyAt`, ranked after live rows; (b) keep the timeout and accept a false Failed.
-- Recommended: (a).
-
-Q10 For executor rows, what should the reconciler do when the attestation for the row's Arc execute hash mismatches the signed recipient, the expected token or the amount (usually a `forwardTxHash` that is not this deposit's execute)?
-- Options: write nothing and warn once per row; fail the row as for xReserve; reopen the leg (`revertedExecuteLeg`).
-- Recommended: write nothing and warn once: failing hides a deposit Circle may still execute, and reopening can spend Arc gas on an execute that reverts.
-
-Q11 Fix the executor manual-leg stranding (10(f)) here, or file it?
-- Options: (a) fix here with failing-first tests: the reconciler reopens a leg whose execute hash still reads `pending` after a bounded window, so the Execute button returns; an executor row holding an attested, unexecuted message is exempt from the 7-day failure; (b) file an issue with the evidence and the fix shape.
-- Recommended: (a). Burned USDC a user can strand is P2, and found defects are fixed in this PR (standing decision); no live suite runs it, so unit tests carry it.
-
-Q12 What arrival label should each deposit source show?
-- Options: keyed on the source chain: Arc Testnet "~1 min" (attestation 2-5 s plus mint 26-34 s), every other source "~20 min"; "~1 min" everywhere; follow the executor quote after a live executor measurement.
-- Recommended: keyed on the source chain. Only Arc is measured, Sepolia's outcome is Q13, and an unquoted executor burn waits for standard finality plus a user execute.
-
-Q13 How should the dead Sepolia bridge-in source be fixed?
-- Options:
-  - (a) make Sepolia an executor source (CCTP domain 0 -> Arc, forwarded; needs Sepolia's TokenMessengerWithFees entry) with an E2E override keeping it an xReserve source in E2E builds. The hermetic Bridge-IN job then tests a Sepolia xReserve route production no longer offers, though it still covers the xReserve code Arc uses.
-  - (b) drop Sepolia as a source (the same hermetic divergence);
-  - (c) hide any xReserve source whose `isRemoteDomainRegistered` reads false (hermetic coverage unchanged, since the fork registers the domain; Sepolia users get no route);
-  - (d) leave it.
-- Recommended: (a), in this PR: Sepolia -> Arc executor deposits already succeed live.
-
-Q14 Should a burn submit keep failing with no row when the destination snapshot read errors once?
-- Options: (a) one or two retries with backoff inside the 15 s budget, failing-first test; (b) keep failing with no row (no funds move, the user retries); (c) queue without a snapshot (the row then stays `Burn confirmed`, as old rows do).
-- Recommended: (a). arc.io's 429s make (b) a recurring user failure, and (c) can never reach `Confirmed`.
+- Q1 Nightly workflow: the nightly 'E2E USDCx Bridge-IN (live)' (`.github/workflows/e2e-usdcx-live.yml`) is kept, neither disabled nor deleted, with #1401's CHANGELOG line and its ceiling entry in `playwright/e2e/harness/linked-pr-injection.test.ts`; PR 2 repoints it at the self-funded Guardian iOS round trip (no `USDCX_LIVE_EVM_PRIVATE_KEY` secret), keeping its linked-PR injection steps, permissions and timeouts as #1401 set them; an explicit exception to D4's local-only rule for this one scheduled iOS job.
+- Q2 Delivery: split. PR 1 = product fixes, shared harness, runner, extension `usdcx`, `usdcx-in` and `usdcx-burn`, and the deletions that still apply; PR 2, stacked on PR 1 = the iOS suite, its CDP readers, the relayer removal and the nightly repoint.
+- Q3 Existing specs: (a) retarget `bridge-out-usdcx.spec.ts` onto the public-faucet grant, keep both variants, move it to `tests/usdcx/usdcx-burn.spec.ts` and run it as `yarn e2e:real --suite usdcx-burn` (PR 1); (a) replace `usdcx-live-deposit.ios.spec.ts` with the Guardian round trip (PR 2).
+- Q4 Surfaces: Arc-direct only in this design, plus option E (a one-off Sepolia payout check in the step 1 spike, nothing committed); Base/Arbitrum payouts and the executor bridge-in are later PRs with their own designs; the manual Execute leg is not covered live at all.
+- Q5 Landed paths: (d) derive the fee from the vault delta minus the independently known terms and assert `0 < f <= baseFee x FEE_RESERVE_MULTIPLE`, recorded as `bounded`.
+- Q6 Wallet payout confirmation (step 8b): a hard gate, with the deposit only after it.
+- Q7 History receiving-tx link: equality with the `AttestationUsed` transaction when it renders within 15 s, absence recorded; never a condition of confirmation.
+- Q8 Headless: the extension usdcx suites run headless by default, conditional on the spike showing `visibilityState` stays `visible`; `--headed` opts out.
+- Q9 Late mint: (a) keep the 7-day timeout and let a late mint adopt a row that timed out after `readyAt`, ranked after live rows.
+- Q10 Executor attestation mismatch: write nothing and warn once per row.
+- Q11 Executor manual-leg stranding: (a) fixed in PR 1 with failing-first tests (10(f)).
+- Q12 Arrival label: keyed on the source chain; Arc Testnet "~1 min", every other source "~20 min".
+- Q13 Dead Sepolia bridge-in source: (a) Sepolia becomes an executor source with an E2E override keeping it an xReserve source in E2E builds, in PR 1.
+- Q14 Burn destination snapshot: (a) one or two retries with backoff inside the 15 s budget, with a failing-first test.
