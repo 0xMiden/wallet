@@ -240,6 +240,15 @@ const jobOf = (file: string, id: string): Job => {
   return job;
 };
 
+// The rewrite runs under `bash -u`; a runner whose BASH_ENV sources a profile that reads PS1 (GitHub's Ubuntu image
+// does) would fail it before the script starts, so the child shell gets neither BASH_ENV nor ENV.
+function rewriteEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, ...extra };
+  delete env.BASH_ENV;
+  delete env.ENV;
+  return env;
+}
+
 describe('every install a push or a dispatch can run injects the linked PRs first', () => {
   it('injects the linked web-sdk and Guardian PRs, in that order, before installing, in every such job', () => {
     expect(workflowFiles.flatMap(file => workflowViolations(file, source(file)))).toEqual([]);
@@ -590,13 +599,12 @@ describe('the Guardian injection on a Windows runner', () => {
       writeFileSync(join(dir, 'package.json'), JSON.stringify({ dependencies: pinned }));
       const result = spawnSync('bash', ['-euo', 'pipefail', '-c', script], {
         encoding: 'utf8',
-        env: {
-          ...process.env,
+        env: rewriteEnv({
           GITHUB_WORKSPACE: dir,
           GUARDIAN_DIR: 'D:\\a\\_temp/guardian-pr',
           CLIENT_SUBDIR: 'packages/guardian-client',
           MULTISIG_SUBDIR: 'packages/miden-multisig-client'
-        }
+        })
       });
       expect([result.status, result.stderr]).toEqual([0, '']);
       const written: { dependencies: Record<string, string>; resolutions: Record<string, string> } = JSON.parse(
@@ -640,7 +648,7 @@ describe('the web-sdk injection on a Windows runner', () => {
       );
       const result = spawnSync('bash', ['-euo', 'pipefail', '-c', script], {
         encoding: 'utf8',
-        env: { ...process.env, GITHUB_WORKSPACE: dir, SDK_DIR: 'D:\\a\\_temp/web-sdk-pr' }
+        env: rewriteEnv({ GITHUB_WORKSPACE: dir, SDK_DIR: 'D:\\a\\_temp/web-sdk-pr' })
       });
       expect(result.status).toBe(0);
       const written: { dependencies: Record<string, string>; devDependencies: Record<string, string> } = JSON.parse(
