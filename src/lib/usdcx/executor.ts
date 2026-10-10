@@ -229,6 +229,8 @@ export function buildDepositForBurnWithHookAndFeesArgs(
 
 /** Re-quote when fewer than this many seconds of the quote remain before the burn is signed. */
 const QUOTE_REFRESH_MARGIN_SECONDS = 30;
+/** Re-quotes before the forwarded burn gives up and the wallet burns for a manual execute instead. */
+const MAX_REQUOTES = 3;
 
 function quoteExpiresSoon(quote: CctpBurnQuote): boolean {
   return quote.expiresAt !== undefined && quote.expiresAt - Date.now() / 1000 < QUOTE_REFRESH_MARGIN_SECONDS;
@@ -267,8 +269,8 @@ export interface UsdcxExecutorDepositDeps {
  * when Circle refuses or cannot be reached the burn goes through the plain token messenger for the amount
  * and the wallet executes it on Arc itself. Either way the approval is sent only when the allowance is
  * short, the hash is recorded on the row before the receipt is awaited, and the row then moves to
- * `delivering`. Nothing here waits for Circle. A quote lives about two minutes, so the burn signs a fresh one
- * after an approval or near its expiry, approving again only if the fee rose.
+ * `delivering`. Nothing here waits for Circle. A quote lives about two minutes, so the burn signs one fetched
+ * after the last approval and not near its expiry, approving again only when the fee rose.
  */
 export async function runUsdcxExecutorDeposit(
   trackingTxId: string,
@@ -299,23 +301,27 @@ export async function runUsdcxExecutorDeposit(
       return undefined;
     }
   };
-  /** Approve `spender` for `spend` when its allowance is short; whether an approval was sent. */
-  const ensureAllowance = async (spender: Address, spend: bigint): Promise<boolean> => {
-    if ((await readAllowance(spender)) >= spend) return false;
+  /** Approve `spender` for `spend` when its allowance is short. */
+  const ensureAllowance = async (spender: Address, spend: bigint): Promise<void> => {
+    if ((await readAllowance(spender)) >= spend) return;
     await waitForReceipt(await signer.approve(spender, spend));
-    return true;
   };
 
+  // The burn signs a quote fetched after the last approval: an approval prompt and its receipt can outlast a quote.
+  // `covered` is what the fee entry point may spend, read once and then raised by this run's own approvals, so a
+  // lagging allowance read cannot prompt for the same approval twice.
+  let covered: bigint | undefined;
   let quote = await tryQuote();
-  if (quote) {
-    const approvedSpend = intent.value + quote.feeTotalAmount;
-    const approved = await ensureAllowance(source.tokenMessengerWithFees, approvedSpend);
-    if (approved || quoteExpiresSoon(quote)) {
-      quote = await tryQuote();
-      if (quote && intent.value + quote.feeTotalAmount > approvedSpend) {
-        await ensureAllowance(source.tokenMessengerWithFees, intent.value + quote.feeTotalAmount);
-      }
+  for (let requotes = 0; quote; requotes++) {
+    const spend = intent.value + quote.feeTotalAmount;
+    covered ??= await readAllowance(source.tokenMessengerWithFees);
+    const approving = covered < spend;
+    if (approving) {
+      await waitForReceipt(await signer.approve(source.tokenMessengerWithFees, spend));
+      covered = spend;
     }
+    if (!approving && !quoteExpiresSoon(quote)) break;
+    quote = requotes < MAX_REQUOTES ? await tryQuote() : undefined;
   }
   if (!quote) await ensureAllowance(source.tokenMessenger, intent.value);
 

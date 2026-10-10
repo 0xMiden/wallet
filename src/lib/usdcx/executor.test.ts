@@ -315,6 +315,54 @@ describe('runUsdcxExecutorDeposit', () => {
     );
   });
 
+  // The second approval can outlast the refreshed quote too, so the burn signs a quote fetched after the last one.
+  it('quotes again after the fee-rise approval and signs that third quote', async () => {
+    const third: CctpBurnQuote = { ...REQUOTE, signedQuote: '0x0506', feeTotalAmount: 40_000n };
+    const { deps, calls } = makeDeps({
+      fetchQuote: jest.fn(async () => {
+        calls.push('quote');
+        const count = calls.filter(call => call === 'quote').length;
+        if (count === 1) return QUOTE;
+        return count === 2 ? { ...REQUOTE, feeTotalAmount: 40_000n } : third;
+      })
+    });
+
+    await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps);
+
+    expect(deps.fetchQuote).toHaveBeenCalledTimes(3);
+    expect(deps.readAllowance).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(deps.signer.approve).mock.calls).toEqual([
+      [SOURCE.tokenMessengerWithFees, 1_500_000n + QUOTE.feeTotalAmount],
+      [SOURCE.tokenMessengerWithFees, 1_500_000n + 40_000n]
+    ]);
+    expect(deps.signer.depositForBurnWithHookAndFees).toHaveBeenCalledWith(
+      buildDepositForBurnWithHookAndFeesArgs(
+        SOURCE,
+        buildExecutorBurnIntent('1.5', SOURCE, RECIPIENT, DEPOSITOR),
+        third,
+        DEPOSITOR
+      )
+    );
+  });
+
+  it('falls back to the manual burn when the fee keeps rising after three re-quotes', async () => {
+    let fee = QUOTE.feeTotalAmount;
+    const { deps } = makeDeps({
+      fetchQuote: jest.fn(async () => {
+        fee += 10_000n;
+        return { ...QUOTE, feeTotalAmount: fee };
+      })
+    });
+
+    await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps);
+
+    expect(deps.fetchQuote).toHaveBeenCalledTimes(4);
+    expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
+    expect(deps.signer.depositForBurnWithHook).toHaveBeenCalledWith(
+      buildDepositForBurnWithHookArgs('1.5', SOURCE, RECIPIENT, DEPOSITOR)
+    );
+  });
+
   it('falls back to the manual burn when Circle does not quote again after the approval', async () => {
     const { deps, calls } = makeDeps({
       fetchQuote: jest.fn(async () => {
