@@ -11,7 +11,7 @@ import { Skeleton } from './Skeleton';
 
 export type AssetDeltaDirection = 'positive' | 'negative' | 'neutral';
 
-export interface AssetListItemProps {
+interface AssetListItemBaseProps {
   icon: ReactNode;
   name: string;
   /** The token quantity line. A live figure comes in as an `AnimatedNumber`. */
@@ -28,7 +28,6 @@ export interface AssetListItemProps {
    * value, and the row reports `aria-pressed`. Leave undefined on a row that is not a choice.
    */
   selected?: boolean;
-  disabled?: boolean;
   /** Paints the check in a flow's colour; undefined leaves the brand accent. */
   accent?: FlowAccent;
   onClick?: () => void;
@@ -42,6 +41,13 @@ export interface AssetListItemProps {
   /** A short mark after the name, such as a token's verification. It never shrinks; the name truncates first. */
   badge?: ReactNode;
 }
+
+/**
+ * `disabled` greys out a tapped row and blocks its tap through the native attribute. A row without `onClick` is a
+ * plain `div` that nothing can disable, so the type admits `disabled` only together with `onClick`.
+ */
+export type AssetListItemProps = AssetListItemBaseProps &
+  ({ disabled?: undefined } | { disabled: boolean; onClick: () => void });
 
 export const AssetListItem: FC<AssetListItemProps> = ({
   icon,
@@ -72,7 +78,7 @@ export const AssetListItem: FC<AssetListItemProps> = ({
   const classes = classNames(
     'w-full h-18 flex items-center justify-between text-left',
     onClick && [
-      'enabled:cursor-pointer enabled:active:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 transition-opacity',
+      'cursor-pointer active:opacity-90 transition-opacity disabled:cursor-default disabled:opacity-50',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-inset'
     ],
     className
