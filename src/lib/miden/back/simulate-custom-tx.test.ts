@@ -401,7 +401,7 @@ describe('an abandoned dry run', () => {
   });
 
   it('reports a dry run a terminated client refused as an interruption too', async () => {
-    (executeForSummary as jest.Mock).mockRejectedValueOnce(new Error('Client terminated'));
+    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(new Error('Client terminated'));
 
     const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
 
