@@ -108,8 +108,8 @@ export class CellDeadlineExceeded extends Error {
  */
 export class InfrastructureFault extends Error {
   readonly abortsLeg: boolean;
-  constructor(message: string, options: { abortsLeg?: boolean } = {}) {
-    super(message);
+  constructor(message: string, options: { abortsLeg?: boolean; cause?: unknown } = {}) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = 'InfrastructureFault';
     this.abortsLeg = options.abortsLeg ?? true;
   }

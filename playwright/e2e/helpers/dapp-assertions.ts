@@ -2,8 +2,8 @@ import { expect, type Page } from '@playwright/test';
 
 import { vaultBalanceOfCurrentAccount, waitForVaultBalanceOfCurrentAccount } from './balance-truth';
 import type { DappAxis } from './dapp-axis';
-import type { CellContext } from './dapp-cells';
-import { canonicalAddress, normalizeHex } from './dapp-gates';
+import { InfrastructureFault, type CellContext } from './dapp-cells';
+import { canonicalAddress, isForeignConsume, normalizeHex } from './dapp-gates';
 import {
   describeTransactionRow,
   readTransactionRow,
@@ -31,6 +31,8 @@ export interface WriteSide {
   /** The same account as the page reports it after connect, for chain reads. */
   accountIdHex: string;
   nativeFaucetId: string;
+  /** Who may send this account a note during the journey (`Journey.senders`); anyone else is a third party. */
+  journeySenders(): readonly string[];
 }
 
 /** What a write is measured against, captured after the cell's quiesce and before the request. */
@@ -39,6 +41,8 @@ export interface Baseline {
   /** `null` for an account the node has never seen (a first transaction). */
   commitmentHex: string | null;
   rowIds: string[];
+  /** Unix seconds just before the reads, on the scale of a row's `completedAt`. */
+  capturedAtSec: number;
 }
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
@@ -69,6 +73,7 @@ export async function captureBaseline(
   faucetIds: readonly string[],
   ctx: CellContext
 ): Promise<Baseline> {
+  const capturedAtSec = Math.floor(Date.now() / 1000);
   await selectAccountIfNeeded(side.wallet, side.account);
   const ids = [...new Set([...faucetIds, side.nativeFaucetId])];
   const vault: Record<string, bigint> = {};
@@ -77,7 +82,8 @@ export async function captureBaseline(
   return {
     vault,
     commitmentHex: chain.found ? (chain.commitmentHex ?? null) : null,
-    rowIds: (await readTransactionRows(side.wallet.page)).map(row => row.id)
+    rowIds: (await readTransactionRows(side.wallet.page)).map(row => row.id),
+    capturedAtSec
   };
 }
 
@@ -282,11 +288,14 @@ export async function expectWritesToTheEnd(
     ...vaultDelta,
     [side.nativeFaucetId]: (vaultDelta[side.nativeFaucetId] ?? 0n) - fee
   };
-  for (const [faucetId, delta] of Object.entries(deltas)) {
-    await waitForVaultBalanceOfCurrentAccount(side.wallet.page, faucetId, (baseline.vault[faucetId] ?? 0n) + delta, {
-      timeoutMs: ctx.deadline.remainingMs()
-    });
-  }
+  const txIds = writes.map(write => write.txId);
+  await unlessAThirdPartyMovedIt(side, baseline, txIds, async () => {
+    for (const [faucetId, delta] of Object.entries(deltas)) {
+      await waitForVaultBalanceOfCurrentAccount(side.wallet.page, faucetId, (baseline.vault[faucetId] ?? 0n) + delta, {
+        timeoutMs: ctx.deadline.remainingMs()
+      });
+    }
+  });
 
   // 6. The recipient, per note id.
   const received = pairs.flat().flatMap(([expected, actual]) =>
@@ -314,21 +323,70 @@ export async function expectWritesToTheEnd(
   for (const faucetId of new Set([...Object.keys(baseline.vault), ...Object.keys(deltas)])) {
     expectedVault[faucetId] = (baseline.vault[faucetId] ?? 0n) + (deltas[faucetId] ?? 0n);
   }
-  await expectVaultHolds(side, expectedVault, 'vault after the writes', ctx);
-  const txIds = new Set(writes.map(write => write.txId));
-  const others = (await rowsOfAccountSince(side, baseline)).filter(entry => !txIds.has(entry.id));
+  await unlessAThirdPartyMovedIt(side, baseline, txIds, () =>
+    expectVaultHolds(side, expectedVault, 'vault after the writes', ctx)
+  );
+  const others = ownRowsBesides(side, baseline, txIds, await readTransactionRows(side.wallet.page));
   expect(others.map(describeTransactionRow), 'rows the account ran besides these writes').toEqual([]);
   return results;
 }
 
-/** The executing account's rows the baseline did not hold; a row naming no account counts as the account's. */
-async function rowsOfAccountSince(side: WriteSide, baseline: Baseline): Promise<TransactionRowSnapshot[]> {
-  const account = canonicalAddress(side.account);
-  return (await readTransactionRows(side.wallet.page)).filter(
+/** Whether a row is the executing account's; a row naming no account counts as the account's. */
+const ofAccount = (side: WriteSide, entry: TransactionRowSnapshot) =>
+  entry.accountId === undefined || canonicalAddress(entry.accountId) === canonicalAddress(side.account);
+
+/**
+ * The executing account's rows the baseline did not hold, other than `expected`. A consume of a third party's note is
+ * left out: nothing the cell asked for can make one (spec section 5, Writes step 7).
+ */
+function ownRowsBesides(
+  side: WriteSide,
+  baseline: Baseline,
+  expected: readonly string[],
+  rows: readonly TransactionRowSnapshot[]
+): TransactionRowSnapshot[] {
+  return rows.filter(
     entry =>
       !baseline.rowIds.includes(entry.id) &&
-      (entry.accountId === undefined || canonicalAddress(entry.accountId) === account)
+      !expected.includes(entry.id) &&
+      ofAccount(side, entry) &&
+      !isForeignConsume(entry, side.journeySenders())
   );
+}
+
+/**
+ * Runs an exact vault check. When it fails while a consume of a third party's note moved the account after the
+ * baseline (finished since its capture, or still running), and the account ran nothing else of its own, the cell
+ * cannot be judged: that is the environment's, for this cell alone. Any other failure stays the check's.
+ */
+async function unlessAThirdPartyMovedIt(
+  side: WriteSide,
+  baseline: Baseline,
+  expected: readonly string[],
+  check: () => Promise<void>
+): Promise<void> {
+  try {
+    await check();
+  } catch (error) {
+    const rows = await readTransactionRows(side.wallet.page);
+    const moved = rows.filter(
+      entry =>
+        ofAccount(side, entry) &&
+        isForeignConsume(entry, side.journeySenders()) &&
+        (!baseline.rowIds.includes(entry.id) ||
+          entry.completedAt === undefined ||
+          entry.completedAt >= baseline.capturedAtSec)
+    );
+    if (moved.length === 0 || ownRowsBesides(side, baseline, expected, rows).length > 0) throw error;
+    const consumes = moved.map(
+      entry => `${entry.id} consumed ${(entry.noteIds ?? [entry.noteId]).join(', ')} from ${entry.secondaryAccountId}`
+    );
+    throw new InfrastructureFault(
+      `a note from outside the journey moved ${side.account}'s vault during the cell (${consumes.join('; ')}): ` +
+        `${error instanceof Error ? error.message.split('\n')[0] : String(error)}`,
+      { abortsLeg: false, cause: error }
+    );
+  }
 }
 
 /** The exact refusal a dApp sees; `message` as a pattern only where the wallet interpolates into it. */
@@ -342,7 +400,9 @@ export const refusal = (name: string, message: string | RegExp, causeName?: stri
 });
 
 export async function expectNoNewRows(side: WriteSide, baseline: Baseline): Promise<void> {
-  const added = (await readTransactionRows(side.wallet.page)).filter(row => !baseline.rowIds.includes(row.id));
+  const added = (await readTransactionRows(side.wallet.page)).filter(
+    row => !baseline.rowIds.includes(row.id) && !isForeignConsume(row, side.journeySenders())
+  );
   expect(added.map(describeTransactionRow), 'rows a refused request added').toEqual([]);
 }
 
@@ -362,9 +422,14 @@ async function expectVaultHolds(
   }
 }
 
-/** Unchanged across two forced syncs, so a late debit has time to show. */
-export async function expectVaultUnchanged(side: WriteSide, baseline: Baseline, ctx: CellContext): Promise<void> {
-  await expectVaultHolds(side, baseline.vault, 'vault', ctx);
+/** Unchanged across two forced syncs, so a late debit has time to show; `expected` names rows the cell made. */
+export async function expectVaultUnchanged(
+  side: WriteSide,
+  baseline: Baseline,
+  ctx: CellContext,
+  expected: readonly string[] = []
+): Promise<void> {
+  await unlessAThirdPartyMovedIt(side, baseline, expected, () => expectVaultHolds(side, baseline.vault, 'vault', ctx));
 }
 
 /** Spec section 5, "Negative paths": stage and text are pinned, because waitForTransaction returns row.error verbatim. */
@@ -389,7 +454,7 @@ export async function expectFailedAfterEnqueue(
     ok: false,
     error: { name: 'WalletTransactionError', message: row?.error ?? '' }
   });
-  await expectVaultUnchanged(side, baseline, ctx);
+  await expectVaultUnchanged(side, baseline, ctx, [txId]);
 }
 
 /**

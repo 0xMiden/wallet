@@ -57,7 +57,8 @@ export async function sideOf(j: Journey, dapp: DappHandle, slot: AccountSlot = '
     axis: slotAxis(j.axis, slot),
     account: await j.account(slot),
     accountIdHex: view.connected.accountIdHex,
-    nativeFaucetId: j.nativeFaucetId
+    nativeFaucetId: j.nativeFaucetId,
+    journeySenders: () => j.senders()
   };
 }
 
@@ -275,7 +276,8 @@ export async function produceNotesFromB(
     axis: offchainDappAxis,
     account: j.addressB,
     accountIdHex: view.connected.accountIdHex,
-    nativeFaucetId: j.nativeFaucetId
+    nativeFaucetId: j.nativeFaucetId,
+    journeySenders: () => j.senders()
   };
   const delta: Record<string, bigint> = {};
   for (const output of outputs) {

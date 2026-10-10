@@ -1,9 +1,15 @@
 import type { Page } from '@playwright/test';
 
-import { vaultBalanceOfCurrentAccount } from './balance-truth';
-import { expectWritesToTheEnd, type Baseline, type WriteSide } from './dapp-assertions';
+import { vaultBalanceOfCurrentAccount, waitForVaultBalanceOfCurrentAccount } from './balance-truth';
+import {
+  expectNoNewRows,
+  expectVaultUnchanged,
+  expectWritesToTheEnd,
+  type Baseline,
+  type WriteSide
+} from './dapp-assertions';
 import type { DappAxis } from './dapp-axis';
-import { deadlineIn, type CellContext } from './dapp-cells';
+import { deadlineIn, InfrastructureFault, type CellContext } from './dapp-cells';
 import { readTransactionRow, readTransactionRows, type TransactionRowSnapshot } from './history';
 import { callDapp, ChainUnavailable, type DappHandle } from './test-dapp';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
@@ -40,7 +46,8 @@ const AMOUNT = 500n;
 const baseline: Baseline = {
   vault: { [TOKEN]: 10_000n, [NATIVE]: 1_000n },
   commitmentHex: '0xold',
-  rowIds: ['funding']
+  rowIds: ['funding'],
+  capturedAtSec: 1_000
 };
 const row = (id: string, extra: Partial<TransactionRowSnapshot> = {}): TransactionRowSnapshot => ({
   id,
@@ -64,7 +71,8 @@ function sideOf(): { side: WriteSide; syncs: () => number } {
     axis,
     account: ACCOUNT,
     accountIdHex: '0xaccount',
-    nativeFaucetId: NATIVE
+    nativeFaucetId: NATIVE,
+    journeySenders: () => [ACCOUNT, 'mtst1qaccountb', 'mtst1clifaucet', 'mtst1publicfaucet']
   };
   return { side, syncs: () => triggerSync.mock.calls.length };
 }
@@ -91,10 +99,10 @@ function walletShows(vault: Record<string, bigint>, rows: TransactionRowSnapshot
 }
 
 const ctx = (): CellContext => ({ deadline: deadlineIn(60_000, 'W1'), evidence: {}, softFail: () => undefined });
-const assertSend = (side: WriteSide) =>
+const assertSend = (side: WriteSide, from: Baseline = baseline) =>
   expectWritesToTheEnd(
     side,
-    baseline,
+    from,
     [{ txId: TX, outputNotes: [{ noteType: 'public' }], consumedNullifiers: [] }],
     { [TOKEN]: -AMOUNT },
     ctx()
@@ -150,4 +158,101 @@ describe('expectWritesToTheEnd', () => {
       }
     }
   );
+});
+
+describe('a note from outside the journey', () => {
+  const STRANGER = 'mtst1qstranger_qr7qqq9wr6w';
+  const GIFT = 1_000_000n;
+  const after = { [TOKEN]: 10_000n - AMOUNT, [NATIVE]: 1_000n - FEE };
+  // The wallet's auto-consume of a native note a stranger sent the account: GIFT in, its own fee out.
+  const movedByGift = { ...after, [NATIVE]: after[NATIVE] + GIFT - 7n };
+  const gift = (id: string, extra: Partial<TransactionRowSnapshot> = {}) =>
+    row(id, {
+      type: 'consume',
+      secondaryAccountId: STRANGER,
+      noteIds: [`0x${'ee'.repeat(32)}`],
+      amount: String(GIFT),
+      faucetId: NATIVE,
+      completedAt: baseline.capturedAtSec + 5,
+      ...extra
+    });
+  const failureOf = (work: Promise<unknown>) =>
+    work.then(
+      () => undefined,
+      (error: unknown) => error
+    );
+
+  it('leaves a consume of it out of the rows the account ran besides the writes', async () => {
+    walletShows(after, [row('funding'), written, gift('gift')]);
+    await expect(assertSend(sideOf().side)).resolves.toHaveLength(1);
+  });
+
+  it("still counts a consume of a journey sender's note as a row besides the writes", async () => {
+    walletShows(after, [row('funding'), written, gift('again', { secondaryAccountId: 'mtst1clifaucet' })]);
+    await expect(assertSend(sideOf().side)).rejects.toThrow(/again/);
+  });
+
+  it('records a vault it moved after the baseline as infrastructure for this cell, naming the row and sender', async () => {
+    walletShows(movedByGift, [row('funding'), written, gift('gift')]);
+    const error = await failureOf(assertSend(sideOf().side));
+    expect(error).toBeInstanceOf(InfrastructureFault);
+    expect(error).toMatchObject({ abortsLeg: false, message: expect.stringContaining(`gift consumed`) });
+    expect(error).toMatchObject({ message: expect.stringContaining(STRANGER) });
+  });
+
+  it('records the same when the exact balance wait ran out on the moved vault', async () => {
+    walletShows(movedByGift, [row('funding'), written, gift('gift')]);
+    const timedOut = new Error('vault balance of 0xnative never read 990');
+    jest.mocked(waitForVaultBalanceOfCurrentAccount).mockRejectedValueOnce(timedOut);
+    const error = await failureOf(assertSend(sideOf().side));
+    expect(error).toBeInstanceOf(InfrastructureFault);
+    expect(error).toMatchObject({ cause: timedOut });
+  });
+
+  it('counts a consume of it that was still running when the baseline was read', async () => {
+    walletShows(movedByGift, [row('funding'), gift('gift', { status: 1, completedAt: undefined }), written]);
+    const error = await failureOf(assertSend(sideOf().side, { ...baseline, rowIds: ['funding', 'gift'] }));
+    expect(error).toBeInstanceOf(InfrastructureFault);
+  });
+
+  it("keeps a vault failure the wallet's when the consume finished before the baseline was read", async () => {
+    walletShows(movedByGift, [row('funding'), gift('gift', { completedAt: baseline.capturedAtSec - 5 }), written]);
+    const error = await failureOf(assertSend(sideOf().side, { ...baseline, rowIds: ['funding', 'gift'] }));
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(InfrastructureFault);
+  });
+
+  it("keeps a vault failure the wallet's when the account also ran a row of its own", async () => {
+    walletShows(movedByGift, [
+      row('funding'),
+      written,
+      gift('gift'),
+      row('tx-again', { transactionId: `0x${'ef'.repeat(32)}` })
+    ]);
+    const error = await failureOf(assertSend(sideOf().side));
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(InfrastructureFault);
+  });
+
+  it("is left out of a refusal's new rows, and any other new row still fails it", async () => {
+    jest.mocked(readTransactionRows).mockResolvedValue([row('funding'), gift('gift')]);
+    await expect(expectNoNewRows(sideOf().side, baseline)).resolves.toBeUndefined();
+    jest.mocked(readTransactionRows).mockResolvedValue([row('funding'), gift('gift'), row('refused-ran')]);
+    await expect(expectNoNewRows(sideOf().side, baseline)).rejects.toThrow(/refused-ran/);
+  });
+
+  it("makes an unchanged-vault check infrastructure, unless a row of the account's own ran beside it", async () => {
+    const failed = row(TX, { status: 3 });
+    walletShows({ ...baseline.vault, [NATIVE]: baseline.vault[NATIVE]! + GIFT - 7n }, [
+      row('funding'),
+      failed,
+      gift('gift')
+    ]);
+    expect(await failureOf(expectVaultUnchanged(sideOf().side, baseline, ctx(), [TX]))).toBeInstanceOf(
+      InfrastructureFault
+    );
+    const own = await failureOf(expectVaultUnchanged(sideOf().side, baseline, ctx()));
+    expect(own).toBeInstanceOf(Error);
+    expect(own).not.toBeInstanceOf(InfrastructureFault);
+  });
 });

@@ -126,6 +126,33 @@ export function onlyStaleConsumesRan(ran: readonly RanRow[], staleAccount: strin
   );
 }
 
+/**
+ * Whether a note's sender is the journey: one of `journeySenders` (both wallets' accounts, the CLI faucet, the public
+ * faucet), by address part. A sender the wallet did not record counts as the journey, so a missing record can never
+ * turn a wallet failure into the environment's.
+ */
+export function isJourneySender(sender: string | undefined, journeySenders: readonly string[]): boolean {
+  if (sender === undefined || sender === '') return true;
+  const address = canonicalAddress(sender).toLowerCase();
+  return journeySenders.some(known => canonicalAddress(known).toLowerCase() === address);
+}
+
+/** The fields of a wallet row that say whether it consumed a third party's note. */
+export interface ConsumeRowFacts {
+  id: string;
+  type?: string;
+  /** On a consume row, the sender of its first note (`ConsumeTransaction`); on a send, the recipient. */
+  secondaryAccountId?: string;
+}
+
+/**
+ * A consume of a note no one in the journey sent. Any account can be sent one once its id is on chain, and the
+ * wallet's native auto-consume takes it (sync-manager.ts:598-660), so it is the environment acting, never the cell.
+ */
+export function isForeignConsume(row: ConsumeRowFacts, journeySenders: readonly string[]): boolean {
+  return row.type === 'consume' && !isJourneySender(row.secondaryAccountId, journeySenders);
+}
+
 /** An account's assets as `{ faucetId: amount }`, so two views compare with one `toEqual` whatever their row order. */
 export function assetMap(assets: readonly { faucetId: string; amount: string | bigint }[]): Record<string, string> {
   const totals = new Map<string, bigint>();

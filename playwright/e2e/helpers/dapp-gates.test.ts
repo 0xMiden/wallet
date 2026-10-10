@@ -4,6 +4,8 @@
 import {
   assetMap,
   canonicalAddress,
+  isForeignConsume,
+  isJourneySender,
   maxConcurrentConfirmPages,
   normalizeHex,
   onlyStaleConsumesRan,
@@ -161,5 +163,30 @@ describe('onlyStaleConsumesRan', () => {
     expect(onlyStaleConsumesRan([consume('mtst1current')], STALE)).toBe(false);
     expect(onlyStaleConsumesRan([consume()], STALE)).toBe(false);
     expect(onlyStaleConsumesRan([consume(STALE), consume('mtst1current')], STALE)).toBe(false);
+  });
+});
+
+describe('third-party notes', () => {
+  const SENDERS = ['mtst1primary_qruqqypuyph', 'mtst1b', 'mtst1clifaucet', 'mtst1publicfaucet'];
+  const consumeFrom = (secondaryAccountId?: string) => ({ id: 'row', type: 'consume', secondaryAccountId });
+
+  it('takes a sender as the journey when it is one of its accounts or faucets, by address part', () => {
+    expect(isJourneySender('mtst1primary', SENDERS)).toBe(true);
+    expect(isJourneySender('mtst1b_qr7qqq9wr6w', SENDERS)).toBe(true);
+    expect(isJourneySender('MTST1PUBLICFAUCET', SENDERS)).toBe(true);
+    expect(isJourneySender('mtst1stranger_qr7qqq9wr6w', SENDERS)).toBe(false);
+  });
+
+  it('takes a sender the wallet did not record as the journey, so a missing record stays the wallet', () => {
+    expect(isJourneySender(undefined, SENDERS)).toBe(true);
+    expect(isJourneySender('', SENDERS)).toBe(true);
+  });
+
+  it('calls only a consume of a note a stranger sent foreign', () => {
+    expect(isForeignConsume(consumeFrom('mtst1stranger_qr7qqq9wr6w'), SENDERS)).toBe(true);
+    expect(isForeignConsume(consumeFrom('mtst1clifaucet'), SENDERS)).toBe(false);
+    expect(isForeignConsume(consumeFrom(), SENDERS)).toBe(false);
+    // A send's secondaryAccountId is its recipient, never a sender.
+    expect(isForeignConsume({ id: 'row', type: 'send', secondaryAccountId: 'mtst1stranger' }, SENDERS)).toBe(false);
   });
 });

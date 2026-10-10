@@ -16,6 +16,7 @@ import { waitForConfirmPopup } from '../../helpers/dapp-confirm';
 import {
   assetMap,
   canonicalAddress,
+  isForeignConsume,
   maxConcurrentConfirmPages,
   normalizeHex,
   onlyStaleConsumesRan
@@ -186,9 +187,12 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         ? 'requestConsume'
         : 'requestTransaction';
 
-  // Every account's rows, not the stale one's alone: a stale request run for the account now current is as wrong.
+  // Every account's rows, not the stale one's alone: a stale request run for the account now current is as wrong. A
+  // consume of a third party's note is no request's doing, so it is left out.
   const rowsRunSince = async (since: readonly string[]) =>
-    (await readTransactionRows(j.walletA.page)).filter(row => !since.includes(row.id));
+    (await readTransactionRows(j.walletA.page)).filter(
+      row => !since.includes(row.id) && !isForeignConsume(row, j.senders())
+    );
 
   const staleCell = (request: StaleRequest, trigger: 'switch' | 'revoke'): DappCellImpl => ({
     budget: 'write',

@@ -570,6 +570,8 @@ export interface PendingNote {
   id: string;
   amountBaseUnits: string;
   faucetId: string;
+  /** `''` when the wallet did not record one. */
+  senderAddress: string;
 }
 
 /** The current account's discovered, unconsumed notes, as the service worker last published them. */
@@ -581,7 +583,8 @@ export async function pendingNotes(page: Page): Promise<PendingNote[]> {
     return (Array.isArray(notes) ? notes : []).map(note => ({
       id: String(Reflect.get(Object(note), 'id') ?? ''),
       amountBaseUnits: String(Reflect.get(Object(note), 'amountBaseUnits') ?? '0'),
-      faucetId: String(Reflect.get(Object(note), 'faucetId') ?? '')
+      faucetId: String(Reflect.get(Object(note), 'faucetId') ?? ''),
+      senderAddress: String(Reflect.get(Object(note), 'senderAddress') ?? '')
     }));
   });
 }

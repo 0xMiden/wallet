@@ -21,14 +21,14 @@ import {
   type Deadline,
   type JourneyId
 } from './dapp-cells';
-import { canonicalAddress, sessionHeld, sharedOpen, type SessionCheck } from './dapp-gates';
+import { canonicalAddress, isJourneySender, sessionHeld, sharedOpen, type SessionCheck } from './dapp-gates';
 import { knownBugRegistry } from './dapp-known-bugs';
 import { cellIdsFor } from './dapp-matrix';
 import pinned from './dapp-pinned.json';
 import { readTransactionRows, releaseQueueBlocker } from './history';
 import type { MidenCli } from './miden-cli';
 import { fundAndClaim, TOKEN, TOKEN_DECIMALS } from './money-path';
-import { publicFaucetApiUrl } from './public-faucet';
+import { publicFaucetAccountId, publicFaucetApiUrl } from './public-faucet';
 import {
   answerPrompt,
   callDapp,
@@ -37,6 +37,7 @@ import {
   ensureUnlocked,
   openTestDapp,
   pendingNoteIds,
+  pendingNotes,
   recordConfirmPages,
   revokeDappSession,
   selectAccountIfNeeded,
@@ -100,6 +101,10 @@ export interface Journey {
   readonly tokenFaucetId: string;
   readonly nativeFaucetId: string;
   readonly addressB: string;
+  /** The account the network's public faucet sends its grants from. */
+  readonly publicFaucetId: string;
+  /** Everyone the journey may receive a note from: both wallets' accounts so far, the CLI faucet, the public faucet. */
+  senders(): readonly string[];
   /** Values one cell leaves for a later one (a note id, a tx id), by name. */
   readonly memo: Map<string, string>;
   readonly init: (label: string) => DappInit;
@@ -146,7 +151,8 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
   const { journey, axis, walletA, walletB, midenCli, envConfig, steps, testInfo } = input;
   // Live networks only (the merge-only ruling): every grant comes from the network's public faucet, which a local
   // chain lacks.
-  if (publicFaucetApiUrl(envConfig.name) === undefined) {
+  const faucetApi = publicFaucetApiUrl(envConfig.name);
+  if (faucetApi === undefined) {
     throw new HarnessFault(
       `the dApp suite runs on testnet or devnet; E2E_NETWORK=${envConfig.name} has no public faucet`
     );
@@ -178,7 +184,7 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
     throw new InfrastructureFault(`an earlier journey hit an infrastructure failure: ${aborted}`);
   }
 
-  let funded: { a: string; b: string; cliFaucetId: string };
+  let funded: { a: string; b: string; cliFaucetId: string; publicFaucetId: string };
   try {
     axis.prepare(walletA);
     const a = await axis.create(walletA);
@@ -198,7 +204,7 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
       await walletB.claimAllNotes(180_000);
       await waitForVaultBalance(walletB.page, TOKEN, FUND_B, { timeoutMs: 180_000, decimals: TOKEN_DECIMALS });
     });
-    funded = { a: a.address, b: b.address, cliFaucetId };
+    funded = { a: a.address, b: b.address, cliFaucetId, publicFaucetId: await publicFaucetAccountId(faucetApi) };
   } catch (error) {
     // A public-faucet failure anywhere in the funding is the environment's (spec section 6); a wallet claim failure
     // is not, and leaves the cells not-run for the judge.
@@ -264,6 +270,8 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
     tokenFaucetId,
     nativeFaucetId,
     addressB: funded.b,
+    publicFaucetId: funded.publicFaucetId,
+    senders: () => [...accounts.values(), funded.b, funded.cliFaucetId, tokenFaucetId, funded.publicFaucetId],
     memo: new Map(),
     init,
     account: async slot => {
@@ -297,13 +305,15 @@ async function quiesce(j: Journey, cell: DappCell, deadline: Deadline, previous?
   await j.walletA.waitForQueueDrained(deadline.remainingMs());
   // After the drain: the settle ledger is complete only once nothing is left to push (guardian-commitments.ts:141-143).
   await j.axis.settle(j.walletA);
-  const pendingAtB = await pendingNoteIds(j.walletB.page);
+  const pendingAtB = await pendingNotes(j.walletB.page);
   // A cell that ran clean claimed every note it sent B (expectReceivedByRecipient), so a note still pending after one
   // is a payment no write accounted for, such as a second payment that landed late. It blocks the journey instead of
-  // being claimed; after any other outcome the cell's own unclaimed notes are claimed.
-  if (pendingAtB.length > 0 && ranClean(previous)) {
+  // being claimed; after any other outcome the cell's own unclaimed notes are claimed. A note a third party sent B is
+  // no write's, so it is claimed with the rest.
+  const unaccounted = pendingAtB.filter(note => isJourneySender(note.senderAddress, j.senders()));
+  if (unaccounted.length > 0 && ranClean(previous)) {
     throw new Error(
-      `wallet B holds notes no write accounted for after ${previous?.id} passed: ${pendingAtB.join(', ')}`
+      `wallet B holds notes no write accounted for after ${previous?.id} passed: ${unaccounted.map(note => note.id).join(', ')}`
     );
   }
   if (pendingAtB.length > 0) await j.walletB.claimAllNotes(deadline.remainingMs());
