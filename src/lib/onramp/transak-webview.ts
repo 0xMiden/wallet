@@ -1,6 +1,7 @@
 import type { PluginListenerHandle } from '@capacitor/core';
 import { InAppBrowser, ToolBarType } from '@miden/dapp-browser';
 
+import type { WebViewRect } from 'lib/dapp-browser/webview-rect';
 import { addWebviewCloseListener, isWebviewEventFor } from 'lib/mobile/external-browser';
 import { captureCrash } from 'lib/telemetry/crash';
 
@@ -46,6 +47,21 @@ export interface OpenTransakWidgetInput {
   onClosed: () => void;
   /** Called with each widget event that passed the guard. A sell uses `TRANSAK_ORDER_CREATED` to start its overlay. */
   onEvent?: (event: TransakEvent) => void;
+  /**
+   * Open the widget in its own window at this rect, not as a full-screen modal. The wallet page outside the rect
+   * stays visible and takes taps, and `setTransakWidgetRect` moves the window. A sell uses it to keep its
+   * notification above the widget.
+   */
+  rect?: WebViewRect;
+}
+
+/** Move the window of a widget that was opened with a `rect`. Best effort: the widget can be closed already. */
+export async function setTransakWidgetRect(rect: WebViewRect): Promise<void> {
+  try {
+    await InAppBrowser.updateDimensions({ id: TRANSAK_INSTANCE_ID, ...rect });
+  } catch (error) {
+    console.warn('[transak]', 'cannot move the widget', error);
+  }
 }
 
 function isTransakUrl(url: string): boolean {
@@ -73,7 +89,8 @@ export async function openTransakWidget({
   expected,
   onMismatch,
   onClosed,
-  onEvent
+  onEvent,
+  rect
 }: OpenTransakWidgetInput): Promise<void> {
   const handles: PluginListenerHandle[] = [];
   let lastUrl = url;
@@ -140,7 +157,8 @@ export async function openTransakWidget({
       showReloadButton: true,
       isPresentAfterPageLoad: true,
       preShowScript: TRANSAK_BRIDGE_SCRIPT,
-      preShowScriptInjectionTime: 'documentStart'
+      preShowScriptInjectionTime: 'documentStart',
+      ...rect
     });
   } catch (error) {
     clearTimeout(noEventsTimer);

@@ -6,7 +6,7 @@ import { useAccount } from 'lib/miden/front';
 import { BackendOrder, getOrder } from 'lib/onramp/buy-api';
 import { midenAccountIdToHex, SELL_RELAY_AMOUNT_DIVISOR } from 'lib/onramp/buy-batch';
 import { SellSignRefusal, SellSignRefusedError, signSellOrder } from 'lib/onramp/sell-signer';
-import { clickPaidButton, readDepositFromWidget, setWidgetVisible, WidgetDeposit } from 'lib/onramp/sell-widget';
+import { clickPaidButton, readDepositFromWidget, WidgetDeposit } from 'lib/onramp/sell-widget';
 import type { TransactionStepState } from 'screens/generating-transaction/types';
 
 /** The time between two backend reads of the order. */
@@ -26,7 +26,8 @@ const RELAY_TOKEN_DECIMALS = 6;
  * - `reading`: the order exists; the wallet waits for the widget to name the deposit (its `TRANSAK_WALLET_REDIRECTION`
  *   event, or its deposit page as the fallback) under the visible widget.
  * - `unreadable`: the widget did not name the deposit in time.
- * - `confirm`: the widget is hidden; the user confirms the widget values while the backend check runs.
+ * - `confirm`: the widget is docked under the notification; the user confirms the widget values while the backend
+ *   check runs.
  * - `running`: the steps run.
  * - `success` / `failed`: the steps stopped.
  */
@@ -50,7 +51,10 @@ export type SellRelayError =
 
 export interface SellRelayResult {
   relayTxHash: string | null;
-  /** False when the wallet did not find the "Yes, I have paid" button: the user must tap it. */
+  /**
+   * False when the wallet did not find the "Yes, I have paid" button: the user must tap it. Always true when the
+   * widget named the deposit in its event, because that widget has no such button.
+   */
   paidClicked: boolean;
 }
 
@@ -69,9 +73,9 @@ export interface SellRelay {
    */
   offerDeposit: (deposit: WidgetDeposit) => void;
   confirm: () => void;
-  /** Stop before the steps run, and show the Transak page again. */
+  /** Stop before the steps run. The widget gets the full screen again. */
   cancel: () => void;
-  /** Close the overlay after the steps stopped. The widget stays open. */
+  /** Close the notification after the steps stopped. The widget stays open. */
   dismiss: () => void;
   /** Tell the hook that the widget closed. */
   widgetClosed: () => void;
@@ -79,9 +83,21 @@ export interface SellRelay {
   back: () => boolean;
 }
 
-const STEP_IDS: SellStepId[] = ['bridge', 'prepare', 'relay', 'paid'];
+/** Where the deposit came from: the widget's `TRANSAK_WALLET_REDIRECTION` event, or its deposit page. */
+type DepositSource = 'event' | 'page';
 
-const pendingSteps = (): SellStep[] => STEP_IDS.map(id => ({ id, state: 'pending' }));
+/** The `paid` step clicks a button of the deposit page. A widget that sent the event draws no such page. */
+const stepIds = (source: DepositSource): SellStepId[] => {
+  switch (source) {
+    case 'event':
+      return ['bridge', 'prepare', 'relay'];
+    case 'page':
+      return ['bridge', 'prepare', 'relay', 'paid'];
+  }
+};
+
+const pendingSteps = (source: DepositSource = 'page'): SellStep[] =>
+  stepIds(source).map(id => ({ id, state: 'pending' }));
 
 /** The backend states in which a sell order stops for good before its relay is mined. */
 export type EndedState = 'failed' | 'expired' | 'cancelled';
@@ -143,6 +159,8 @@ export function useSellRelay(): SellRelay {
   const takeOffer = useRef<((deposit: WidgetDeposit) => void) | null>(null);
   // The page read of the run, stopped by an offer or a reset.
   const pageRead = useRef<AbortController | null>(null);
+  // Where the deposit of the run came from.
+  const depositSource = useRef<DepositSource>('page');
   // The current values for the callbacks, which outlive a render.
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
@@ -235,7 +253,11 @@ export function useSellRelay(): SellRelay {
    */
   const readDeposit = (): Promise<WidgetDeposit | null> => {
     const offered = offeredDeposit.current;
-    if (offered !== null) return Promise.resolve(offered);
+    if (offered !== null) {
+      depositSource.current = 'event';
+      return Promise.resolve(offered);
+    }
+    depositSource.current = 'page';
     return new Promise(resolve => {
       let settled = false;
       const controller = new AbortController();
@@ -244,6 +266,7 @@ export function useSellRelay(): SellRelay {
         if (settled) return;
         settled = true;
         takeOffer.current = null;
+        depositSource.current = 'event';
         controller.abort();
         resolve(deposit);
       };
@@ -272,13 +295,13 @@ export function useSellRelay(): SellRelay {
     (async () => {
       const deposit = await readDeposit();
       if (!isLive(token)) return;
-      await setWidgetVisible(false);
-      if (!isLive(token)) return;
+      // The widget stays open: the page docks it under the notification.
       if (deposit === null) {
         setPhase('unreadable');
         return;
       }
       setPageDeposit(deposit);
+      setSteps(pendingSteps(depositSource.current));
       setPhase('confirm');
       await checkBackendAddress(token, id, deposit);
     })();
@@ -352,11 +375,17 @@ export function useSellRelay(): SellRelay {
       }
       setStep('relay', 'complete');
 
+      if (depositSource.current === 'event') {
+        // The widget has no "Yes, I have paid" button here: Transak finds the deposit on the chain.
+        setResult({ relayTxHash: relayed.order.relayTxHash, paidClicked: true });
+        setPhase('success');
+        return;
+      }
+
       step = 'paid';
       setStep('paid', 'active');
       // Best effort: the relay is mined, so the sale stands even when the click does not land.
       const paidClicked = await clickPaidButton();
-      await setWidgetVisible(true);
       ensureLive(token);
       setStep('paid', 'complete');
       setResult({ relayTxHash: relayed.order.relayTxHash, paidClicked });
@@ -394,7 +423,6 @@ export function useSellRelay(): SellRelay {
       case 'confirm':
       case 'unreadable':
         reset();
-        setWidgetVisible(true);
         return;
       default:
         return;
@@ -407,8 +435,6 @@ export function useSellRelay(): SellRelay {
       case 'success':
       case 'failed':
         reset();
-        // The widget is hidden after a failure. Show it again, so that no hidden WebView stays over the page.
-        setWidgetVisible(true);
         return;
       default:
         return;

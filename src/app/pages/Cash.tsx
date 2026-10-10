@@ -11,8 +11,9 @@ import { TokenLogo } from 'components/TokenLogo';
 import { Button } from 'components/ui/Button';
 import { Pill } from 'components/ui/Pill';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { goBack as leavePage } from 'lib/woozie';
+import { goBack as leavePage, Redirect } from 'lib/woozie';
 
+import { isCashAvailable } from './cash/availability';
 import { useSellRelay } from './cash/useSellRelay';
 import CashProviders, { CashAction } from './CashProviders';
 
@@ -117,10 +118,14 @@ const CashFlow = ({ action }: CashProps) => {
   );
 };
 
-const Cash = ({ action }: CashProps) => (
-  <NavigatorProvider routes={routes} initialRouteName="amount">
-    <CashFlow action={action} />
-  </NavigatorProvider>
-);
+const Cash = ({ action }: CashProps) => {
+  // The buttons are hidden where the flow is not available. This covers a direct navigation to the route.
+  if (!isCashAvailable()) return <Redirect to="/" />;
+  return (
+    <NavigatorProvider routes={routes} initialRouteName="amount">
+      <CashFlow action={action} />
+    </NavigatorProvider>
+  );
+};
 
 export default Cash;

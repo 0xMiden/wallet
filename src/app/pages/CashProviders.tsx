@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 
+import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import stripeLogoUrl from 'app/icons/cash-provider-logos/stripe.svg?url';
@@ -14,6 +15,8 @@ import { EmptyState } from 'components/ui/EmptyState';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
+import { usePreset } from 'lib/animation';
+import type { WebViewRect } from 'lib/dapp-browser/webview-rect';
 import { isEvmAddress } from 'lib/epoch/evm-address';
 import { toLocalFormat } from 'lib/i18n/numbers';
 import { initiateBuyTransaction } from 'lib/miden/activity';
@@ -27,11 +30,11 @@ import {
   TransakEvent,
   TransakExpectation
 } from 'lib/onramp/transak-guard';
-import { openTransakWidget } from 'lib/onramp/transak-webview';
+import { openTransakWidget, setTransakWidgetRect } from 'lib/onramp/transak-webview';
 import { isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
 
-import { SellRelayOverlay } from './cash/SellRelayOverlay';
+import { SellRelayNotification } from './cash/SellRelayNotification';
 import { SellRelay } from './cash/useSellRelay';
 
 export type CashAction = 'buy' | 'sell';
@@ -86,6 +89,17 @@ const PROVIDERS: { id: Provider; name: string; logo: string; comingSoon: boolean
   { id: 'transak', name: 'Transak', logo: transakLogoUrl, comingSoon: false }
 ];
 
+/** The space in px between the widget's window and the notification under it. */
+const WIDGET_DOCK_GAP_PX = 12;
+
+const fullScreenRect = (): WebViewRect => ({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight });
+
+/** The part of the screen above `element`, for the widget's window. */
+const rectAbove = (element: HTMLElement): WebViewRect => {
+  const top = Math.round(element.getBoundingClientRect().top) - WIDGET_DOCK_GAP_PX;
+  return { x: 0, y: 0, width: window.innerWidth, height: Math.max(0, top) };
+};
+
 interface Checkout {
   widgetUrl: string;
   expected: TransakExpectation;
@@ -99,7 +113,7 @@ interface Checkout {
  * Buy and Sell on mobile open the Transak checkout. On the extension and desktop they stay a preview.
  *
  * A buy makes its tracking row before the widget opens. A sell opens the widget; when the widget creates the order,
- * the sell overlay (`useSellRelay`) takes over at Transak's "Complete your transfer" page.
+ * the wallet hides it and the sell notification (`useSellRelay`, `SellRelayNotification`) shows on this page.
  */
 const CashProviders = ({ action, amount, onBack, sellRelay }: CashProvidersProps) => {
   const { t } = useTranslation();
@@ -110,7 +124,11 @@ const CashProviders = ({ action, amount, onBack, sellRelay }: CashProvidersProps
   const [mismatchClosed, setMismatchClosed] = useState(false);
   const mounted = useRef(true);
   const starting = useRef(false);
+  // True while a sell widget is open in its own window.
+  const [widgetDocking, setWidgetDocking] = useState(false);
+  const notificationRef = useRef<HTMLDivElement>(null);
   const copy = actionCopy(action);
+  const reveal = usePreset('reveal');
 
   // The widget callbacks can arrive after the page closes. Do not set state then.
   useEffect(() => {
@@ -183,15 +201,20 @@ const CashProviders = ({ action, amount, onBack, sellRelay }: CashProvidersProps
             return;
         }
       };
+      // A sell opens the widget in its own window, so that the page can dock it under the notification.
+      const rect = sellOrderId === undefined ? undefined : fullScreenRect();
+      if (rect !== undefined) setWidgetDocking(true);
       await openTransakWidget({
         url: widgetUrl,
         expected,
+        rect,
         onMismatch: () => {
           mismatched = true;
           if (mounted.current) setMismatchClosed(true);
         },
         onClosed: () => {
           if (!mounted.current) return;
+          setWidgetDocking(false);
           if (sellOrderId !== undefined) sellRelay.widgetClosed();
           if (mismatched || closedRoute === undefined) return;
           navigate(closedRoute);
@@ -199,6 +222,7 @@ const CashProviders = ({ action, amount, onBack, sellRelay }: CashProvidersProps
         onEvent
       });
     } catch (cause) {
+      if (mounted.current) setWidgetDocking(false);
       const mismatch = cause instanceof TransakSessionError && cause.reason === 'mismatch';
       if (mounted.current) setError(mismatch ? 'cashCheckoutMismatch' : 'cashCheckoutError');
     } finally {
@@ -206,6 +230,27 @@ const CashProviders = ({ action, amount, onBack, sellRelay }: CashProvidersProps
       if (mounted.current) setBusy(false);
     }
   };
+
+  // The notification shows once the widget named the deposit. Before that the widget is on top of the page.
+  const saleActive = sellRelay.phase !== 'idle' && sellRelay.phase !== 'reading';
+
+  // The notification comes up from the bottom while the sell widget stays open. The wallet cannot draw on top of
+  // a native window, so the window gives up its bottom edge and the notification shows there. With no
+  // notification the widget takes the screen.
+  useEffect(() => {
+    if (!widgetDocking) return;
+    const card = notificationRef.current;
+    if (!saleActive || card === null) {
+      setTransakWidgetRect(fullScreenRect());
+      return;
+    }
+    const dock = () => setTransakWidgetRect(rectAbove(card));
+    dock();
+    // The notification changes its height with each state, and while it opens.
+    const observer = new ResizeObserver(dock);
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, [widgetDocking, saleActive]);
 
   if (mismatchClosed) {
     return (
@@ -221,28 +266,20 @@ const CashProviders = ({ action, amount, onBack, sellRelay }: CashProvidersProps
     );
   }
 
-  switch (sellRelay.phase) {
-    case 'idle':
-    case 'reading':
-      // The provider list stays. While the overlay reads the deposit page, the widget is on top of it.
-      break;
-    default:
-      return <SellRelayOverlay relay={sellRelay} evmAddress={evmAddress} />;
-  }
-
   const checkoutNote = (() => {
     if (!isEvmAddress(evmAddress)) return t(copy.noEvmAddressKey);
     if (!backendUrl) return t('cashBackendMissing');
     return null;
   })();
 
-  const footer = checkoutEnabled ? (
+  const checkoutFooter = checkoutEnabled ? (
     <div className="flex flex-col gap-3">
       {checkoutNote && <Notice variant="inline">{checkoutNote}</Notice>}
       <ErrorLine data-testid="cash-checkout-error">{error && t(error)}</ErrorLine>
       <Button
         className="w-full"
-        disabled={provider !== 'transak' || checkoutNote !== null}
+        // One sale at a time: a second checkout must not start while the widget names its deposit.
+        disabled={provider !== 'transak' || checkoutNote !== null || sellRelay.phase !== 'idle'}
         isLoading={busy}
         onClick={() => startCheckout()}
         data-testid="cash-checkout-continue"
@@ -252,6 +289,20 @@ const CashProviders = ({ action, amount, onBack, sellRelay }: CashProvidersProps
     </div>
   ) : (
     <p className="text-center text-caption text-muted">{t('cashProviderPreview')}</p>
+  );
+
+  // The notification takes the pinned bottom of the page in place of the CTA, which a sale turns off.
+  const footer = (
+    <>
+      <AnimatePresence initial={false}>
+        {saleActive && (
+          <motion.div ref={notificationRef} key="sell-notification" className="overflow-hidden" {...reveal}>
+            <SellRelayNotification relay={sellRelay} evmAddress={evmAddress} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {!saleActive && checkoutFooter}
+    </>
   );
 
   return (

@@ -1309,6 +1309,19 @@ describe('Explore', () => {
       expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
     });
 
+    it('hides Buy and Sell on the extension and shows them elsewhere', async () => {
+      mockPlatform.isExtension = true;
+      const view = await renderExplore();
+      expect(screen.queryByTestId('home-cash-buy')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('home-cash-sell')).not.toBeInTheDocument();
+      view.unmount();
+
+      mockPlatform.isExtension = false;
+      await renderExplore();
+      expect(screen.getByTestId('home-cash-buy')).toBeInTheDocument();
+      expect(screen.getByTestId('home-cash-sell')).toBeInTheDocument();
+    });
+
     it('fee identity: auto-consumes A while legacy B remains manual and sorts first', async () => {
       mockLegacyFeeIdentity = 'legacy-B';
       mockAutoConsume = true;

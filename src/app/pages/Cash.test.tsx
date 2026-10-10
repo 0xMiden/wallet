@@ -4,6 +4,14 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import Cash from './Cash';
 
+// ResizeObserver is not implemented in jsdom. The page observes the sell notification to dock the widget.
+class MockResizeObserver implements ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver = MockResizeObserver;
+
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
 jest.mock('lib/i18n/numbers', () => ({ toLocalFormat: (value: string) => value }));
@@ -21,9 +29,11 @@ let mockAccount: { publicKey: string; evmAddress?: string } = { publicKey: 'mide
 jest.mock('lib/miden/front', () => ({ useAccount: () => mockAccount }));
 
 let mockIsMobile = false;
+let mockIsExtension = false;
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
-  isMobile: () => mockIsMobile
+  isMobile: () => mockIsMobile,
+  isExtension: () => mockIsExtension
 }));
 
 type WidgetInput = {
@@ -50,8 +60,11 @@ jest.mock('lib/onramp/transak-client', () => {
     createTransakSellSession: (input: object) => mockCreateSellSession(input)
   };
 });
+// True when the page gives the widget the full screen, false when it docks the widget above the notification.
+const mockWidgetFullScreen = jest.fn<Promise<void>, [boolean]>();
 jest.mock('lib/onramp/transak-webview', () => ({
-  openTransakWidget: (input: WidgetInput) => mockOpenWidget(input)
+  openTransakWidget: (input: WidgetInput) => mockOpenWidget(input),
+  setTransakWidgetRect: (rect: { height: number }) => mockWidgetFullScreen(rect.height === window.innerHeight)
 }));
 
 const mockInitiateBuy = jest.fn<
@@ -84,12 +97,10 @@ type SignInput = {
   order: MockOrder;
 };
 const mockReadDeposit = jest.fn<Promise<PageDeposit | null>, [{ signal?: AbortSignal }]>();
-const mockSetWidgetVisible = jest.fn<Promise<void>, [boolean]>();
 const mockClickPaid = jest.fn<Promise<boolean>, []>();
 jest.mock('lib/onramp/sell-widget', () => ({
   ...jest.requireActual('lib/onramp/sell-widget'),
   readDepositFromWidget: (options: { signal?: AbortSignal }) => mockReadDeposit(options),
-  setWidgetVisible: (visible: boolean) => mockSetWidgetVisible(visible),
   clickPaidButton: () => mockClickPaid()
 }));
 const mockGetOrder = jest.fn<Promise<MockOrder>, [string]>();
@@ -136,6 +147,20 @@ beforeAll(() => {
 
 afterAll(() => {
   Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+});
+
+describe('Cash on the extension', () => {
+  afterEach(() => {
+    mockIsExtension = false;
+  });
+
+  it('does not show the flow', () => {
+    mockIsExtension = true;
+    const view = render(<Cash action="buy" />);
+    expect(screen.queryByTestId('cash-page')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('cash-amount')).not.toBeInTheDocument();
+    view.unmount();
+  });
 });
 
 describe('Cash amount entry', () => {
@@ -491,13 +516,17 @@ describe('Cash sell overlay', () => {
   const openOverlay = async () => {
     const view = await openWidget();
     act(() => widgetInput().onEvent?.({ eventName: 'TRANSAK_ORDER_CREATED', data: null }));
-    await screen.findByTestId('cash-sell-overlay');
+    await screen.findByTestId('cash-sell-notification');
     return view;
   };
 
   const confirmButton = () => screen.getByTestId('cash-sell-confirm');
+  /** The state of a step, from the `id:state` pairs the notification carries. */
   const stepState = (step: string) =>
-    document.querySelector(`[data-transaction-step="${step}"]`)?.getAttribute('data-state');
+    (screen.getByTestId('cash-sell-notification').getAttribute('data-steps') ?? '')
+      .split(',')
+      .map(pair => pair.split(':'))
+      .find(([id]) => id === step)?.[1];
 
   /** Confirm, then run the mock bridge-out wait on fake timers. */
   const confirmAndBridge = async () => {
@@ -522,8 +551,8 @@ describe('Cash sell overlay', () => {
     mockOpenWidget.mockResolvedValue(undefined);
     mockReadDeposit.mockReset();
     mockReadDeposit.mockResolvedValue({ address: PAGE_ADDRESS, amount: '100' });
-    mockSetWidgetVisible.mockReset();
-    mockSetWidgetVisible.mockResolvedValue(undefined);
+    mockWidgetFullScreen.mockReset();
+    mockWidgetFullScreen.mockResolvedValue(undefined);
     mockClickPaid.mockReset();
     mockClickPaid.mockResolvedValue(true);
     currentOrder = sellOrder({});
@@ -556,10 +585,13 @@ describe('Cash sell overlay', () => {
     const view = await openOverlay();
 
     expect(mockReadDeposit).toHaveBeenCalledTimes(1);
-    expect(mockSetWidgetVisible).toHaveBeenCalledWith(false);
+    expect(mockWidgetFullScreen).toHaveBeenCalledWith(false);
     expect(mockGetOrder).toHaveBeenCalledWith('m');
-    expect(screen.getByTestId('cash-sell-deposit-address')).toHaveTextContent(PAGE_ADDRESS);
-    expect(screen.getByTestId('cash-sell-summary')).toHaveTextContent('cashSellBridgingOut');
+    expect(screen.getByTestId('cash-sell-deposit-address')).toHaveAttribute('title', PAGE_ADDRESS);
+    expect(screen.getByTestId('cash-sell-notification')).toHaveTextContent('cashSellSendTitle');
+    // The provider list stays, and the notification takes the place of the CTA.
+    expect(screen.getByRole('radio', { name: 'Transak' })).toBeInTheDocument();
+    expect(screen.queryByTestId('cash-checkout-continue')).not.toBeInTheDocument();
     expect(screen.getByTestId('cash-sell-test-funding')).toHaveTextContent(EVM_ADDRESS);
     expect(screen.getByTestId('cash-sell-backend-check')).toHaveTextContent('cashSellBackendChecking');
     expect(confirmButton()).toBeDisabled();
@@ -597,7 +629,7 @@ describe('Cash sell overlay', () => {
     const view = await openWidget();
     act(() => widgetInput().onEvent?.({ eventName: 'TRANSAK_ORDER_CREATED', data: null }));
     await waitFor(() => expect(mockReadDeposit).toHaveBeenCalledTimes(1));
-    expect(screen.queryByTestId('cash-sell-overlay')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('cash-sell-notification')).not.toBeInTheDocument();
     expect(readSignal?.aborted).toBe(false);
 
     act(() =>
@@ -606,12 +638,12 @@ describe('Cash sell overlay', () => {
         data: { walletAddress: PAGE_ADDRESS, cryptoAmount: 100 }
       })
     );
-    expect(await screen.findByTestId('cash-sell-deposit-address')).toHaveTextContent(PAGE_ADDRESS);
+    expect(await screen.findByTestId('cash-sell-deposit-address')).toHaveAttribute('title', PAGE_ADDRESS);
     expect(readSignal?.aborted).toBe(true);
-    expect(mockSetWidgetVisible).toHaveBeenCalledWith(false);
+    expect(mockWidgetFullScreen).toHaveBeenCalledWith(false);
     await waitFor(() => expect(confirmButton()).toBeEnabled());
     await confirmAndBridge();
-    await waitFor(() => expect(screen.getByTestId('cash-sell-progress')).toHaveAttribute('data-phase', 'success'));
+    await waitFor(() => expect(screen.getByTestId('cash-sell-notification')).toHaveAttribute('data-phase', 'success'));
     expect(mockSignSell).toHaveBeenCalledWith(
       expect.objectContaining({ depositAddress: PAGE_ADDRESS, cryptoAmount: '100' })
     );
@@ -628,7 +660,7 @@ describe('Cash sell overlay', () => {
         data: { walletAddress: PAGE_ADDRESS, cryptoAmount: 100 }
       })
     );
-    expect(await screen.findByTestId('cash-sell-deposit-address')).toHaveTextContent(PAGE_ADDRESS);
+    expect(await screen.findByTestId('cash-sell-deposit-address')).toHaveAttribute('title', PAGE_ADDRESS);
     expect(mockReadDeposit).not.toHaveBeenCalled();
     // A later order-created event does not start a second run.
     act(() => widgetInput().onEvent?.({ eventName: 'TRANSAK_ORDER_CREATED', data: null }));
@@ -636,12 +668,55 @@ describe('Cash sell overlay', () => {
     view.unmount();
   });
 
-  it('runs the steps to the deposit, clicks "Yes, I have paid" and shows the widget again', async () => {
+  it('keeps the widget docked after a TRANSAK_WALLET_REDIRECTION sale, with no paid step', async () => {
+    mockReadDeposit.mockImplementation(() => new Promise(() => undefined));
+    const view = await openWidget();
+    act(() =>
+      widgetInput().onEvent?.({
+        eventName: 'TRANSAK_WALLET_REDIRECTION',
+        data: { walletAddress: PAGE_ADDRESS, cryptoAmount: 100 }
+      })
+    );
+    await screen.findByTestId('cash-sell-notification');
+    await waitFor(() => expect(confirmButton()).toBeEnabled());
+    await confirmAndBridge();
+
+    await waitFor(() => expect(screen.getByTestId('cash-sell-notification')).toHaveAttribute('data-phase', 'success'));
+    // The widget stays open under the notification. It must not come back over the result.
+    expect(mockWidgetFullScreen).toHaveBeenLastCalledWith(false);
+    expect(mockClickPaid).not.toHaveBeenCalled();
+    expect(stepState('relay')).toBe('complete');
+    expect(stepState('paid')).toBeUndefined();
+    expect(screen.queryByTestId('cash-sell-tap-paid')).not.toBeInTheDocument();
+    view.unmount();
+  });
+
+  it('opens the sell widget in its own window and gives it the screen again on Cancel', async () => {
+    mockReadDeposit.mockImplementation(() => new Promise(() => undefined));
+    const view = await openWidget();
+    act(() =>
+      widgetInput().onEvent?.({
+        eventName: 'TRANSAK_WALLET_REDIRECTION',
+        data: { walletAddress: PAGE_ADDRESS, cryptoAmount: 100 }
+      })
+    );
+    expect(mockOpenWidget).toHaveBeenCalledWith(
+      expect.objectContaining({ rect: { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight } })
+    );
+    await screen.findByTestId('cash-sell-notification');
+    expect(mockWidgetFullScreen).toHaveBeenLastCalledWith(false);
+    fireEvent.click(screen.getByTestId('cash-sell-cancel'));
+    expect(mockWidgetFullScreen).toHaveBeenLastCalledWith(true);
+    expect(await screen.findByRole('radio', { name: 'Transak' })).toBeInTheDocument();
+    view.unmount();
+  });
+
+  it('runs the steps to the deposit, clicks "Yes, I have paid" and keeps the widget docked', async () => {
     const view = await openOverlay();
     await waitFor(() => expect(confirmButton()).toBeEnabled());
     await confirmAndBridge();
 
-    await waitFor(() => expect(screen.getByTestId('cash-sell-progress')).toHaveAttribute('data-phase', 'success'));
+    await waitFor(() => expect(screen.getByTestId('cash-sell-notification')).toHaveAttribute('data-phase', 'success'));
     expect(mockSignSell).toHaveBeenCalledWith({
       account: { publicKey: 'miden-pk', evmAddress: EVM_ADDRESS, midenAccountHex: 'hex:miden-pk' },
       depositAddress: PAGE_ADDRESS,
@@ -649,14 +724,11 @@ describe('Cash sell overlay', () => {
       order: expect.objectContaining({ state: 'awaiting_signature' })
     });
     expect(mockClickPaid).toHaveBeenCalledTimes(1);
-    expect(mockSetWidgetVisible).toHaveBeenLastCalledWith(true);
-    const [clickOrder = Infinity] = mockClickPaid.mock.invocationCallOrder;
-    const showOrder = mockSetWidgetVisible.mock.invocationCallOrder.at(-1) ?? -Infinity;
-    expect(clickOrder).toBeLessThan(showOrder);
+    expect(mockWidgetFullScreen).toHaveBeenLastCalledWith(false);
     for (const step of ['bridge', 'prepare', 'relay', 'paid']) {
       expect(stepState(step)).toBe('complete');
     }
-    expect(screen.getByTestId('cash-sell-relay-hash')).toHaveTextContent(RELAY_TX_HASH.slice(0, 10));
+    expect(screen.getByTestId('cash-sell-relay-hash')).toHaveTextContent(RELAY_TX_HASH.slice(0, 7));
     expect(screen.queryByTestId('cash-sell-tap-paid')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('cash-sell-done'));
@@ -680,15 +752,15 @@ describe('Cash sell overlay', () => {
     await confirmAndBridge();
 
     expect(await screen.findByTestId('cash-sell-error')).toHaveTextContent('cashSellRefused');
-    expect(screen.getByTestId('cash-sell-progress')).toHaveAttribute('data-phase', 'failed');
+    expect(screen.getByTestId('cash-sell-notification')).toHaveAttribute('data-phase', 'failed');
     expect(stepState('bridge')).toBe('complete');
     expect(stepState('prepare')).toBe('failed');
     expect(stepState('relay')).toBe('pending');
     expect(mockClickPaid).not.toHaveBeenCalled();
 
-    mockSetWidgetVisible.mockClear();
+    mockWidgetFullScreen.mockClear();
     fireEvent.click(screen.getByTestId('cash-sell-done'));
-    expect(mockSetWidgetVisible).toHaveBeenCalledWith(true);
+    expect(mockWidgetFullScreen).toHaveBeenCalledWith(true);
     expect(await screen.findByRole('radio', { name: 'Transak' })).toBeInTheDocument();
     view.unmount();
   });
@@ -709,19 +781,19 @@ describe('Cash sell overlay', () => {
 
   it('returns to the Transak page on Cancel and on mobile back', async () => {
     const view = await openOverlay();
-    mockSetWidgetVisible.mockClear();
+    mockWidgetFullScreen.mockClear();
     fireEvent.click(screen.getByTestId('cash-sell-cancel'));
-    expect(mockSetWidgetVisible).toHaveBeenCalledWith(true);
+    expect(mockWidgetFullScreen).toHaveBeenCalledWith(true);
     expect(await screen.findByRole('radio', { name: 'Transak' })).toBeInTheDocument();
     view.unmount();
 
     mockOpenWidget.mockClear();
     const second = await openOverlay();
-    mockSetWidgetVisible.mockClear();
+    mockWidgetFullScreen.mockClear();
     act(() => {
       expect(mockBackHandler()).toBe(true);
     });
-    expect(mockSetWidgetVisible).toHaveBeenCalledWith(true);
+    expect(mockWidgetFullScreen).toHaveBeenCalledWith(true);
     expect(await screen.findByRole('radio', { name: 'Transak' })).toBeInTheDocument();
     second.unmount();
   });
@@ -736,9 +808,9 @@ describe('Cash sell overlay', () => {
     await waitFor(() => expect(mockOpenWidget).toHaveBeenCalledTimes(1));
     act(() => widgetInput().onEvent?.({ eventName: 'TRANSAK_ORDER_CREATED', data: null }));
     expect(await screen.findByTestId('cash-sell-unreadable')).toBeInTheDocument();
-    expect(mockSetWidgetVisible).toHaveBeenCalledWith(false);
+    expect(mockWidgetFullScreen).toHaveBeenCalledWith(false);
     fireEvent.click(screen.getByTestId('cash-sell-cancel'));
-    expect(mockSetWidgetVisible).toHaveBeenLastCalledWith(true);
+    expect(mockWidgetFullScreen).toHaveBeenLastCalledWith(true);
     expect(await screen.findByRole('radio', { name: 'Transak' })).toBeInTheDocument();
     view.unmount();
   });
@@ -752,7 +824,7 @@ describe('Cash sell overlay', () => {
     await waitFor(() => expect(mockOpenWidget).toHaveBeenCalledTimes(1));
     act(() => widgetInput().onEvent?.({ eventName: 'TRANSAK_WIDGET_OPEN', data: null }));
     expect(mockReadDeposit).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('cash-sell-overlay')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('cash-sell-notification')).not.toBeInTheDocument();
     view.unmount();
   });
 });

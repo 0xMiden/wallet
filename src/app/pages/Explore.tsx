@@ -8,6 +8,7 @@ import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Icon, IconName } from 'app/icons/v2';
+import { isCashAvailable } from 'app/pages/cash/availability';
 import Balance from 'app/templates/Balance';
 import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
@@ -431,22 +432,24 @@ const HomeOverview: FC<HomeOverviewProps> = ({
         )}
       </Balance>
 
-      <div className="flex gap-3">
-        <Button
-          variant={ButtonVariant.Primary}
-          title={t('cashBuy')}
-          className="flex-1"
-          onClick={() => navigate('/cash/buy')}
-          data-testid="home-cash-buy"
-        />
-        <Button
-          variant={ButtonVariant.Secondary}
-          title={t('cashSell')}
-          className="flex-1"
-          onClick={() => navigate('/cash/sell')}
-          data-testid="home-cash-sell"
-        />
-      </div>
+      {isCashAvailable() && (
+        <div className="flex gap-3">
+          <Button
+            variant={ButtonVariant.Primary}
+            title={t('cashBuy')}
+            className="flex-1"
+            onClick={() => navigate('/cash/buy')}
+            data-testid="home-cash-buy"
+          />
+          <Button
+            variant={ButtonVariant.Secondary}
+            title={t('cashSell')}
+            className="flex-1"
+            onClick={() => navigate('/cash/sell')}
+            data-testid="home-cash-sell"
+          />
+        </div>
+      )}
 
       <AccountsDrawer open={accountsOpen} onOpenChange={setAccountsOpen} />
 

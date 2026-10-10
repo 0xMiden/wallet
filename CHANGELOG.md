@@ -9,6 +9,7 @@
 
 ### Changes
 
+- [CHANGE][extension] Remove Buy and Sell from the extension: the buttons under the balance card are hidden and `/cash/:action` goes home, because the flow runs only through the Transak widget.
 - [CHANGE][backend] Move the per-IP rate limits from the server to an nginx reverse proxy (`backend/nginx.conf`) that also terminates TLS, installed with `make generate-nginx-conf DOMAIN=<domain>`. The server has no rate limit of its own.
 - [CHANGE][backend] Read the Agglayer bridge address, the Miden network ID and the exit-root flag from `backend/config.json`, so a change needs a container restart and no image build.
 
