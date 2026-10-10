@@ -36,7 +36,14 @@ const DEPOSITOR = '0x1111111111111111111111111111111111111111' as const;
 const APPROVE_HASH = `0x${'1'.repeat(64)}` as const;
 const BURN_HASH = `0x${'2'.repeat(64)}` as const;
 /** Circle's sandbox priced a 4 USDC Arbitrum Sepolia burn at 31,908 base units: forward plus fast fee. */
-const QUOTE: CctpBurnQuote = { signedQuote: '0x0102', feeTotalAmount: 31_908n, expiresAt: 1791584030 };
+// Valid for two minutes from the test run, so only an approval or a near expiry makes the runner quote again.
+const QUOTE: CctpBurnQuote = {
+  signedQuote: '0x0102',
+  feeTotalAmount: 31_908n,
+  expiresAt: Math.floor(Date.now() / 1000) + 120
+};
+/** The quote Circle signs when asked again after the approval. */
+const REQUOTE: CctpBurnQuote = { ...QUOTE, signedQuote: '0x0304' };
 
 /** Round a byte length up to a 32-byte word, as `abi.encode` pads a `bytes` tail. */
 const ceil32 = (length: number) => Math.ceil(length / 32) * 32;
@@ -177,7 +184,7 @@ function makeDeps(overrides: Partial<UsdcxExecutorDepositDeps> = {}) {
     },
     fetchQuote: jest.fn(async () => {
       calls.push('quote');
-      return QUOTE;
+      return calls.filter(call => call === 'quote').length > 1 ? REQUOTE : QUOTE;
     }),
     isRemoteDomainRegistered: jest.fn(async () => {
       calls.push('isRemoteDomainRegistered');
@@ -199,17 +206,19 @@ function makeDeps(overrides: Partial<UsdcxExecutorDepositDeps> = {}) {
 }
 
 describe('runUsdcxExecutorDeposit', () => {
-  it('checks Arc, quotes, approves the fee entry point for amount plus fee, burns and writes the phases', async () => {
+  it('checks Arc, quotes, approves the fee entry point for amount plus fee, re-quotes, burns and writes the phases', async () => {
     const { deps, calls } = makeDeps();
 
     await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(BURN_HASH);
 
+    // The approval prompt and its receipt can outlast a quote that lives about two minutes, so it is asked again.
     expect(calls).toEqual([
       'isRemoteDomainRegistered',
       'quote',
       'readAllowance',
       'approve',
       'receipt:approve',
+      'quote',
       'depositForBurnWithHookAndFees',
       'phase:submitting',
       'receipt:burn',
@@ -219,9 +228,10 @@ describe('runUsdcxExecutorDeposit', () => {
     expect(deps.readAllowance).toHaveBeenCalledWith(SOURCE.tokenMessengerWithFees);
     expect(deps.signer.approve).toHaveBeenCalledWith(SOURCE.tokenMessengerWithFees, 1_500_000n + QUOTE.feeTotalAmount);
     const intent = buildExecutorBurnIntent('1.5', SOURCE, RECIPIENT, DEPOSITOR);
+    expect(deps.fetchQuote).toHaveBeenCalledTimes(2);
     expect(deps.fetchQuote).toHaveBeenCalledWith(intent);
     expect(deps.signer.depositForBurnWithHookAndFees).toHaveBeenCalledWith(
-      buildDepositForBurnWithHookAndFeesArgs(SOURCE, intent, QUOTE, DEPOSITOR)
+      buildDepositForBurnWithHookAndFeesArgs(SOURCE, intent, REQUOTE, DEPOSITOR)
     );
     expect(deps.signer.depositForBurnWithHook).not.toHaveBeenCalled();
     // The burn's domain and the fact it was forwarded are written with the hash, so the reconciler waits
@@ -279,6 +289,75 @@ describe('runUsdcxExecutorDeposit', () => {
       'receipt:burn',
       'phase:delivering'
     ]);
+  });
+
+  it('approves the higher spend when the fee rose between the two quotes', async () => {
+    const { deps, calls } = makeDeps({
+      fetchQuote: jest.fn(async () => {
+        calls.push('quote');
+        return calls.filter(call => call === 'quote').length > 1 ? { ...REQUOTE, feeTotalAmount: 40_000n } : QUOTE;
+      })
+    });
+
+    await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps);
+
+    expect(jest.mocked(deps.signer.approve).mock.calls).toEqual([
+      [SOURCE.tokenMessengerWithFees, 1_500_000n + QUOTE.feeTotalAmount],
+      [SOURCE.tokenMessengerWithFees, 1_500_000n + 40_000n]
+    ]);
+    expect(deps.signer.depositForBurnWithHookAndFees).toHaveBeenCalledWith(
+      buildDepositForBurnWithHookAndFeesArgs(
+        SOURCE,
+        buildExecutorBurnIntent('1.5', SOURCE, RECIPIENT, DEPOSITOR),
+        { ...REQUOTE, feeTotalAmount: 40_000n },
+        DEPOSITOR
+      )
+    );
+  });
+
+  it('falls back to the manual burn when Circle does not quote again after the approval', async () => {
+    const { deps, calls } = makeDeps({
+      fetchQuote: jest.fn(async () => {
+        calls.push('quote');
+        if (calls.filter(call => call === 'quote').length > 1) throw new Error('UNSUPPORTED_WORKFLOW');
+        return QUOTE;
+      })
+    });
+
+    await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps);
+
+    expect(jest.mocked(deps.signer.approve).mock.calls).toEqual([
+      [SOURCE.tokenMessengerWithFees, 1_500_000n + QUOTE.feeTotalAmount],
+      [TOKEN_MESSENGER_V2_ADDRESS, 1_500_000n]
+    ]);
+    expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
+    expect(deps.signer.depositForBurnWithHook).toHaveBeenCalledWith(
+      buildDepositForBurnWithHookArgs('1.5', SOURCE, RECIPIENT, DEPOSITOR)
+    );
+  });
+
+  it('quotes again without an approval when the quote is about to expire', async () => {
+    const expiring = { ...QUOTE, expiresAt: Math.floor(Date.now() / 1000) + 10 };
+    const { deps, calls } = makeDeps({
+      readAllowance: jest.fn(async () => 10_000_000n),
+      fetchQuote: jest.fn(async () => {
+        calls.push('quote');
+        return calls.filter(call => call === 'quote').length > 1 ? REQUOTE : expiring;
+      })
+    });
+
+    await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps);
+
+    expect(deps.fetchQuote).toHaveBeenCalledTimes(2);
+    expect(deps.signer.approve).not.toHaveBeenCalled();
+    expect(deps.signer.depositForBurnWithHookAndFees).toHaveBeenCalledWith(
+      buildDepositForBurnWithHookAndFeesArgs(
+        SOURCE,
+        buildExecutorBurnIntent('1.5', SOURCE, RECIPIENT, DEPOSITOR),
+        REQUOTE,
+        DEPOSITOR
+      )
+    );
   });
 
   it('approves when the allowance covers the amount but not the fee', async () => {

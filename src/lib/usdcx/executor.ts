@@ -227,6 +227,13 @@ export function buildDepositForBurnWithHookAndFeesArgs(
   ];
 }
 
+/** Re-quote when fewer than this many seconds of the quote remain before the burn is signed. */
+const QUOTE_REFRESH_MARGIN_SECONDS = 30;
+
+function quoteExpiresSoon(quote: CctpBurnQuote): boolean {
+  return quote.expiresAt !== undefined && quote.expiresAt - Date.now() / 1000 < QUOTE_REFRESH_MARGIN_SECONDS;
+}
+
 /** Signs and broadcasts the source-chain transactions. The screen supplies the native or wagmi flavour. */
 export interface UsdcxExecutorSigner {
   approve(spender: Address, value: bigint): Promise<Hash>;
@@ -260,7 +267,8 @@ export interface UsdcxExecutorDepositDeps {
  * when Circle refuses or cannot be reached the burn goes through the plain token messenger for the amount
  * and the wallet executes it on Arc itself. Either way the approval is sent only when the allowance is
  * short, the hash is recorded on the row before the receipt is awaited, and the row then moves to
- * `delivering`. Nothing here waits for Circle.
+ * `delivering`. Nothing here waits for Circle. A quote lives about two minutes, so the burn signs a fresh one
+ * after an approval or near its expiry, approving again only if the fee rose.
  */
 export async function runUsdcxExecutorDeposit(
   trackingTxId: string,
@@ -283,19 +291,33 @@ export async function runUsdcxExecutorDeposit(
     throw new UsdcxDomainNotRegisteredError(USDCX_REMOTE_DOMAIN);
   }
 
-  let quote: CctpBurnQuote | undefined;
-  try {
-    quote = await fetchQuote(intent);
-  } catch (error) {
-    console.warn('[usdcx] Circle did not quote the forwarded burn; the wallet will execute on Arc', error);
-  }
+  const tryQuote = async (): Promise<CctpBurnQuote | undefined> => {
+    try {
+      return await fetchQuote(intent);
+    } catch (error) {
+      console.warn('[usdcx] Circle did not quote the forwarded burn; the wallet will execute on Arc', error);
+      return undefined;
+    }
+  };
+  /** Approve `spender` for `spend` when its allowance is short; whether an approval was sent. */
+  const ensureAllowance = async (spender: Address, spend: bigint): Promise<boolean> => {
+    if ((await readAllowance(spender)) >= spend) return false;
+    await waitForReceipt(await signer.approve(spender, spend));
+    return true;
+  };
 
-  const spender = quote ? source.tokenMessengerWithFees : source.tokenMessenger;
-  const spend = quote ? intent.value + quote.feeTotalAmount : intent.value;
-  if ((await readAllowance(spender)) < spend) {
-    const approvalHash = await signer.approve(spender, spend);
-    await waitForReceipt(approvalHash);
+  let quote = await tryQuote();
+  if (quote) {
+    const approvedSpend = intent.value + quote.feeTotalAmount;
+    const approved = await ensureAllowance(source.tokenMessengerWithFees, approvedSpend);
+    if (approved || quoteExpiresSoon(quote)) {
+      quote = await tryQuote();
+      if (quote && intent.value + quote.feeTotalAmount > approvedSpend) {
+        await ensureAllowance(source.tokenMessengerWithFees, intent.value + quote.feeTotalAmount);
+      }
+    }
   }
+  if (!quote) await ensureAllowance(source.tokenMessenger, intent.value);
 
   const burnHash = quote
     ? await signer.depositForBurnWithHookAndFees(
