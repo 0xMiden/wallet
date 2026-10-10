@@ -396,12 +396,19 @@ function defineWritesJourney(axis: DappAxis): void {
     test.setTimeout(JOURNEY_TIMEOUT_MS.W);
     const j = await startJourney({ journey: 'W', axis, walletA, walletB, midenCli, envConfig, steps, testInfo });
     let heldNoteId = '';
-    await steps.step('mint_wallet_held_note', async () => {
-      // A public TST note A holds but has not claimed (auto-consume only takes the native asset).
-      heldNoteId = (await midenCli.mint(j.cliFaucetId, await j.account('primary'), HELD_NOTE_AMOUNT, 'public')).noteId;
-      await midenCli.sync();
-      await expect.poll(() => pendingNote(walletA.page, heldNoteId), { timeout: 180_000 }).not.toBeNull();
-    });
+    await steps
+      .step('mint_wallet_held_note', async () => {
+        // A public TST note A holds but has not claimed (auto-consume only takes the native asset).
+        heldNoteId = (await midenCli.mint(j.cliFaucetId, await j.account('primary'), HELD_NOTE_AMOUNT, 'public'))
+          .noteId;
+        await midenCli.sync();
+        await expect.poll(() => pendingNote(walletA.page, heldNoteId), { timeout: 180_000 }).not.toBeNull();
+      })
+      .catch((error: unknown) => {
+        // Journey setup, so a CLI mint the remote prover timed out records the cells blocked (infrastructure).
+        j.runner.setupFailed(error);
+        throw error;
+      });
     let supplied: Record<'a' | 'b' | 'c' | 'd', ProducedNote> | undefined;
     await steps
       .step('produce_dapp_supplied_notes', async () => {

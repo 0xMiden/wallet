@@ -169,6 +169,22 @@ describe('ranClean', () => {
   });
 });
 
+// The CLI's own text when every mint attempt met the testnet remote prover's timeout (ledger 2026-10-10T09:48Z).
+const cliProverTimeout = () =>
+  new Error(
+    [
+      'Mint failed after retries: Error: cli::client_error',
+      '',
+      '  \u00d7 client error',
+      '  \u251c\u2500\u25b6 transaction proving failed',
+      '  \u251c\u2500\u25b6 failed to prove transaction',
+      `  \u251c\u2500\u25b6 code: 'The operation was cancelled', message: "Timeout expired", source:`,
+      '  \u2502   tonic::transport::Error(Transport, TimeoutExpired(()))',
+      '  \u251c\u2500\u25b6 transport error',
+      '  \u2570\u2500\u25b6 Timeout expired'
+    ].join('\n')
+  );
+
 describe('isInfrastructureFailure', () => {
   it('counts an infrastructure fault and a failure that names the public faucet, directly or as a cause', () => {
     const faucet = Object.assign(new Error('Public faucet grant failed: TypeError: fetch failed'), {
@@ -198,6 +214,21 @@ describe('isInfrastructureFailure', () => {
     ).toBe(false);
     expect(isInfrastructureFailure(new HarnessFault('journey hooks ran before the journey started'))).toBe(false);
   });
+
+  it("counts the CLI's mint giving up on the remote prover's timeout, directly or as a cause, and no other failure", () => {
+    expect(isInfrastructureFailure(cliProverTimeout())).toBe(true);
+    expect(isInfrastructureFailure(new Error('fund_wallet_b failed', { cause: cliProverTimeout() }))).toBe(true);
+    for (const cliFailure of [
+      'Mint failed after retries: Error: cli::client_error\n  transaction executor error: insufficient funds',
+      'Mint failed after retries: Error: cli::client_error\n  transaction proving failed\n  proof verification failed'
+    ]) {
+      expect(isInfrastructureFailure(new Error(cliFailure))).toBe(false);
+    }
+    // The same words from anywhere but the CLI's mint, such as a wallet row, stay the wallet's.
+    expect(
+      isInfrastructureFailure(new Error('requestSend was refused: transaction proving failed: Timeout expired'))
+    ).toBe(false);
+  });
 });
 
 describe('abortsLeg', () => {
@@ -208,6 +239,7 @@ describe('abortsLeg', () => {
     expect(abortsLeg(nodeFailure())).toBe(false);
     expect(abortsLeg(new Error('dApp one init failed', { cause: nodeFailure() }))).toBe(false);
     expect(abortsLeg(new HarnessFault('page threw'))).toBe(false);
+    expect(abortsLeg(cliProverTimeout())).toBe(false);
   });
 });
 
@@ -342,6 +374,16 @@ describe('DappCellRunner', () => {
       'blocked-infra',
       'blocked-infra'
     ]);
+    expect(infraAborted(dir)).toBeNull();
+  });
+
+  it("blocks a journey whose setup CLI mint met the remote prover's timeout, naming it, without INFRA_ABORT", () => {
+    const dir = outDir();
+    const runner = makeRunner(dir);
+    runner.setupFailed(cliProverTimeout());
+    const cells = read(runner.file).cells;
+    expect(new Set(cells.map(cell => cell.verdict))).toEqual(new Set(['blocked-infra']));
+    expect(cells.every(cell => (cell.error ?? '').includes('Timeout expired'))).toBe(true);
     expect(infraAborted(dir)).toBeNull();
   });
 
