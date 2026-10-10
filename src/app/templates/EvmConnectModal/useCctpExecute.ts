@@ -5,6 +5,7 @@ import { useSwitchChain, useWriteContract } from 'wagmi';
 
 import { updateBridgedReceivePhase } from 'lib/miden/activity';
 import { IUsdcxCctpLeg } from 'lib/miden/db/types';
+import { revertedExecuteLeg } from 'lib/usdcx/cctp';
 import { GENERIC_EXECUTOR_ABI, getUsdcxExecutorSource } from 'lib/usdcx/constant';
 import { readNativeFeeFields } from 'lib/walletconnect/fees';
 import { isNativeReownAvailable, NativeReown, unwrapNativeResult } from 'lib/walletconnect/native';
@@ -18,7 +19,8 @@ export type CctpExecute = (txId: string, sourceChainId: number, leg: IUsdcxCctpL
  * the Arc transaction on the row so the reconciler asks xReserve's attestation service for it. Native Reown
  * takes calldata and returns a JSON-quoted hash; wagmi switches to Arc first and takes the typed call.
  * Save the hash before the receipt wait so status checks can resume after the popup closes.
- * Clear the hash if the receipt shows a revert so the user can execute again.
+ * A revert seen here reopens the leg (`revertedExecuteLeg`) so the user can execute again; the reconciler does the
+ * same for a revert it reads later.
  */
 export function useCctpExecute(): CctpExecute {
   const nativeReownAvailable = isNativeReownAvailable();
@@ -68,9 +70,7 @@ export function useCctpExecute(): CctpExecute {
         await waitForEvmReceipt(hash, target.chain);
       } catch (error) {
         if (error instanceof EvmTransactionRevertedError) {
-          await updateBridgedReceivePhase(txId, 'delivering', {
-            cctp: { sourceDomain: leg.sourceDomain, executeTxHash: undefined }
-          });
+          await updateBridgedReceivePhase(txId, 'delivering', { cctp: revertedExecuteLeg(leg.sourceDomain, hash) });
           throw error;
         }
         // Keep the saved hash if the receipt cannot be read. Circle can still confirm execution.

@@ -1,5 +1,7 @@
 import { Address, Hash, Hex, isHash, isHex } from 'viem';
 
+import type { IUsdcxCctpLeg } from 'lib/miden/db/types';
+
 // Circle's API can accept the socket and then stay silent. Bound every request
 // so a poll tick fails and retries instead of hanging the status screen.
 const IRIS_FETCH_TIMEOUT_MS = 15_000;
@@ -45,7 +47,7 @@ function parseMessage(entry: unknown): CctpMessage | undefined {
   const forwardState = Reflect.get(entry, 'forwardState');
   const forwardTxHash = Reflect.get(entry, 'forwardTxHash');
   if (!isHex(message)) return undefined;
-  if (attestation !== 'PENDING' && !isHex(attestation)) return undefined;
+  if (attestation !== 'PENDING' && (!isHex(attestation) || attestation === '0x')) return undefined;
   if (status !== 'complete' && status !== 'pending_confirmations') return undefined;
   return {
     message,
@@ -104,6 +106,21 @@ export async function fetchAttestedCctpMessage(
     attestation: attested.attestation,
     forwardState: attested.forwardState,
     forwardTxHash: attested.forwardTxHash
+  };
+}
+
+/**
+ * The CCTP leg after the Arc execute `hash` reverted: the wallet executes the message itself, with a proof the
+ * reconciler reads again from Iris, and `hash` is never adopted as the execute again, even if Iris still reports it.
+ */
+export function revertedExecuteLeg(sourceDomain: number, hash: string): IUsdcxCctpLeg {
+  return {
+    sourceDomain,
+    executeTxHash: undefined,
+    message: undefined,
+    attestation: undefined,
+    forwarded: false,
+    revertedExecuteTxHash: hash
   };
 }
 

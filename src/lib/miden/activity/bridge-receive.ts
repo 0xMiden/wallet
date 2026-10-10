@@ -1,12 +1,14 @@
+import { isHash } from 'viem';
+
 import { midenAddrToEvmAddr } from 'lib/agglayer/contract';
 import { fetchDeposits, isAgglayerDepositReady } from 'lib/agglayer/status';
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 import { isUsdcxDepositAttested } from 'lib/usdcx/attestation';
-import { fetchAttestedCctpMessage, isCctpForwardFailed } from 'lib/usdcx/cctp';
-import { USDCX_SOURCE_CHAINS } from 'lib/usdcx/constant';
-import { waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
+import { fetchAttestedCctpMessage, isCctpForwardFailed, revertedExecuteLeg } from 'lib/usdcx/cctp';
+import { USDCX_SOURCE_CHAINS, UsdcxExecutorSource } from 'lib/usdcx/constant';
+import { readEvmReceiptOutcome, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 
 import { BRIDGE_RECEIVE_MAX_AGE_MS, registerPendingBridgeIn, resolveBridgeInNoteId } from './bridge-in';
 import { IBridgedReceiveExtraInputs, ITransaction } from '../db/types';
@@ -122,7 +124,7 @@ async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtra
   const source = inputs.sourceChainId === undefined ? undefined : USDCX_SOURCE_CHAINS.get(inputs.sourceChainId);
   try {
     if (source?.route === 'cctp-executor') {
-      await reconcileUsdcxExecutorRow(row, inputs, source.irisApi, source.target.attestationApi);
+      await reconcileUsdcxExecutorRow(row, inputs, source);
       return;
     }
     if (await isUsdcxDepositAttested(inputs.evmTxHash)) await updateBridgedReceivePhase(row.id, 'ready');
@@ -137,26 +139,38 @@ async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtra
  * burn, or a forward Circle gave up on, keeps the attested message on the row, where the status screen and
  * Activity offer the execute. Once an Arc transaction hash is on the row, from either side, the reconciler
  * asks xReserve's attestation service for it, which is the deposit, and the row becomes `ready` as a direct
- * deposit would.
+ * deposit would. An Arc execute that reverted, seen here or by the foreground hook, reopens the leg for the
+ * wallet to execute, and its hash is never adopted again.
  */
 async function reconcileUsdcxExecutorRow(
   row: ITransaction,
   inputs: IBridgedReceiveExtraInputs,
-  irisApi: string,
-  attestationApi: string
+  source: UsdcxExecutorSource
 ): Promise<void> {
   const leg = inputs.cctp;
   if (!leg) return;
+  const { target } = source;
   if (leg.executeTxHash) {
-    if (await isUsdcxDepositAttested(leg.executeTxHash, attestationApi)) {
+    if (await isUsdcxDepositAttested(leg.executeTxHash, target.attestationApi)) {
       await updateBridgedReceivePhase(row.id, 'ready');
+      return;
+    }
+    // The foreground hook sees a revert only while its screen is open.
+    if (isHash(leg.executeTxHash) && (await readEvmReceiptOutcome(leg.executeTxHash, target.chain)) === 'reverted') {
+      await updateBridgedReceivePhase(row.id, 'delivering', {
+        cctp: revertedExecuteLeg(leg.sourceDomain, leg.executeTxHash)
+      });
     }
     return;
   }
   if (leg.attestation && !leg.forwarded) return;
-  const attested = await fetchAttestedCctpMessage(leg.sourceDomain, inputs.evmTxHash, { baseUrl: irisApi });
+  const attested = await fetchAttestedCctpMessage(leg.sourceDomain, inputs.evmTxHash, { baseUrl: source.irisApi });
   if (!attested) return;
-  if (attested.forwardTxHash) {
+  const forwardReverted =
+    attested.forwardTxHash !== undefined &&
+    leg.revertedExecuteTxHash !== undefined &&
+    sameHash(attested.forwardTxHash, leg.revertedExecuteTxHash);
+  if (attested.forwardTxHash && !forwardReverted) {
     await updateBridgedReceivePhase(row.id, 'delivering', {
       cctp: {
         sourceDomain: leg.sourceDomain,

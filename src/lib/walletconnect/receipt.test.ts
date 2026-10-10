@@ -3,14 +3,21 @@ import { sepolia } from 'viem/chains';
 
 import { RpcTimeoutError } from 'lib/miden-chain/rpc-timeout';
 
-import { EvmTransactionRevertedError, readSepoliaErc20Allowance, waitForEvmReceipt } from './receipt';
+import {
+  EvmTransactionRevertedError,
+  readEvmReceiptOutcome,
+  readSepoliaErc20Allowance,
+  waitForEvmReceipt
+} from './receipt';
 
 const mockReadContract = jest.fn();
 const mockWaitForReceipt = jest.fn();
+const mockGetReceipt = jest.fn();
 const mockHttp = jest.fn();
 const mockCreatePublicClient = jest.fn(() => ({
   readContract: mockReadContract,
-  waitForTransactionReceipt: mockWaitForReceipt
+  waitForTransactionReceipt: mockWaitForReceipt,
+  getTransactionReceipt: mockGetReceipt
 }));
 
 jest.mock('viem', () => ({
@@ -96,4 +103,26 @@ it('preserves a receipt request error without classifying it as a revert', async
   const error = new Error('RPC disconnected');
   mockWaitForReceipt.mockRejectedValueOnce(error);
   await expect(waitForEvmReceipt(hash, sepolia)).rejects.toBe(error);
+});
+
+describe('readEvmReceiptOutcome', () => {
+  it.each([
+    ['success', { status: 'success' }],
+    ['reverted', { status: 'reverted' }]
+  ])('reads a %s receipt', async (outcome, receipt) => {
+    mockGetReceipt.mockResolvedValueOnce(receipt);
+    await expect(readEvmReceiptOutcome(hash, sepolia)).resolves.toBe(outcome);
+  });
+
+  it('reads a transaction the chain has no receipt for yet as pending', async () => {
+    const { TransactionReceiptNotFoundError } = jest.requireActual<typeof import('viem')>('viem');
+    mockGetReceipt.mockRejectedValueOnce(new TransactionReceiptNotFoundError({ hash }));
+    await expect(readEvmReceiptOutcome(hash, sepolia)).resolves.toBe('pending');
+  });
+
+  it('rethrows an RPC failure instead of reading it as an outcome', async () => {
+    const error = new Error('RPC disconnected');
+    mockGetReceipt.mockRejectedValueOnce(error);
+    await expect(readEvmReceiptOutcome(hash, sepolia)).rejects.toBe(error);
+  });
 });

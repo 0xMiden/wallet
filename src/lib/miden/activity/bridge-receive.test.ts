@@ -30,11 +30,13 @@ jest.mock('lib/usdcx/attestation', () => ({
 }));
 const fetchAttestedMessage = jest.fn();
 jest.mock('lib/usdcx/cctp', () => ({
-  fetchAttestedCctpMessage: (...args: unknown[]) => fetchAttestedMessage(...args),
-  isCctpForwardFailed: jest.requireActual<typeof import('lib/usdcx/cctp')>('lib/usdcx/cctp').isCctpForwardFailed
+  ...jest.requireActual<typeof import('lib/usdcx/cctp')>('lib/usdcx/cctp'),
+  fetchAttestedCctpMessage: (...args: unknown[]) => fetchAttestedMessage(...args)
 }));
+const readOutcome = jest.fn();
 jest.mock('lib/walletconnect/receipt', () => ({
-  waitForSepoliaReceipt: (...args: unknown[]) => waitForReceipt(...args)
+  waitForSepoliaReceipt: (...args: unknown[]) => waitForReceipt(...args),
+  readEvmReceiptOutcome: (...args: unknown[]) => readOutcome(...args)
 }));
 jest.mock('lib/agglayer/contract', () => ({
   midenAddrToEvmAddr: (address: string) => `evm:${address}`
@@ -68,6 +70,7 @@ beforeEach(() => {
   waitForReceipt.mockResolvedValue(undefined);
   updatePhase.mockResolvedValue(undefined);
   isAttested.mockResolvedValue(false);
+  readOutcome.mockResolvedValue('pending');
   registerBridgeIn.mockResolvedValue(undefined);
   fetchDeposits.mockResolvedValue([]);
   resolveNoteId.mockResolvedValue(undefined);
@@ -853,7 +856,55 @@ describe('reconcileBridgedReceives with a USDCx executor row', () => {
 
     expect(isAttested).toHaveBeenCalledWith(EXECUTE_HASH, ATTESTATIONS);
     expect(fetchAttestedMessage).not.toHaveBeenCalled();
+    expect(readOutcome).not.toHaveBeenCalled();
     expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'ready');
+  });
+
+  // The foreground hook sees a revert only while its screen is open: the reconciler reads the saved hash's Arc
+  // receipt itself, so a revert seen later still gives the execute back.
+  it('reopens the execute when the saved execute hash reverted on Arc', async () => {
+    readOutcome.mockResolvedValue('reverted');
+    rows.push(executorRow({ sourceDomain: 6, message: '0x1234', attestation: '0xabcd', executeTxHash: EXECUTE_HASH }));
+
+    await reconcileBridgedReceives();
+
+    expect(readOutcome).toHaveBeenCalledWith(EXECUTE_HASH, expect.objectContaining({ id: 5042002 }));
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'delivering', {
+      cctp: {
+        sourceDomain: 6,
+        executeTxHash: undefined,
+        message: undefined,
+        attestation: undefined,
+        forwarded: false,
+        revertedExecuteTxHash: EXECUTE_HASH
+      }
+    });
+  });
+
+  it('keeps a saved execute hash whose receipt has not arrived', async () => {
+    rows.push(executorRow({ sourceDomain: 6, executeTxHash: EXECUTE_HASH }));
+
+    await reconcileBridgedReceives();
+
+    expect(readOutcome).toHaveBeenCalledTimes(1);
+    expect(updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('never adopts a reverted forward again and offers the execute with the attested message', async () => {
+    fetchAttestedMessage.mockResolvedValue({
+      message: '0x1234',
+      attestation: '0xabcd',
+      forwardState: 'COMPLETE',
+      forwardTxHash: EXECUTE_HASH
+    });
+    rows.push(executorRow({ sourceDomain: 6, forwarded: false, revertedExecuteTxHash: EXECUTE_HASH }));
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).toHaveBeenCalledTimes(1);
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'delivering', {
+      cctp: { sourceDomain: 6, message: '0x1234', attestation: '0xabcd', forwardState: 'COMPLETE' }
+    });
   });
 
   it('leaves the row for the next pass when Iris fails', async () => {

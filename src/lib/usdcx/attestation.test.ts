@@ -69,6 +69,8 @@ describe('fetchXReserveAttestations', () => {
   it.each([
     ['a non-hex payload', entry({ payload: 'nope' })],
     ['a missing signature', entry({ attestation: undefined })],
+    ['an empty signature', entry({ attestation: '0x' })],
+    ['an empty payload', entry({ payload: '0x' })],
     ['a non-numeric domain', entry({ remoteDomain: 'canton' })],
     ['a non-object entry', 'garbage']
   ])('drops an entry with %s', async (_label, malformed) => {

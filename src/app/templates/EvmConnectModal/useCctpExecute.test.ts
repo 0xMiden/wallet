@@ -43,7 +43,14 @@ it('clears the saved hash when the receipt shows a revert', async () => {
   const { result, unmount } = renderHook(useCctpExecute);
   await expect(result.current('row', 84532, leg)).rejects.toBe(error);
   expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('row', 'delivering', {
-    cctp: { sourceDomain: 6, executeTxHash: undefined }
+    cctp: {
+      sourceDomain: 6,
+      executeTxHash: undefined,
+      message: undefined,
+      attestation: undefined,
+      forwarded: false,
+      revertedExecuteTxHash: hash
+    }
   });
   unmount();
 });

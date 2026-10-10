@@ -151,6 +151,8 @@ export interface IUsdcxCctpLeg {
   attestation?: string;
   /** The Arc transaction that executed the message, which is the xReserve deposit Circle attests. */
   executeTxHash?: string;
+  /** An Arc execute, the wallet's or Circle's forward, that reverted; never adopted again as the execute. */
+  revertedExecuteTxHash?: string;
   /** Whether the burn paid Circle's forward fee, so Circle executes on Arc; absent on rows before the fee flow. */
   forwarded?: boolean;
   /** The quoted fee the burn paid on top of the amount, in source USDC base units. */

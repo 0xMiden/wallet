@@ -42,7 +42,8 @@ function parseAttestation(entry: unknown): XReserveAttestation | undefined {
   const messageHash = Reflect.get(entry, 'messageHash');
   const attestation = Reflect.get(entry, 'attestation');
   const remoteDomain = parseRemoteDomain(Reflect.get(entry, 'remoteDomain'));
-  if (!isHex(payload) || !isHex(messageHash) || !isHex(attestation) || remoteDomain === undefined) return undefined;
+  const proof = [payload, messageHash, attestation];
+  if (!proof.every(value => isHex(value) && value !== '0x') || remoteDomain === undefined) return undefined;
   return { payload, messageHash, attestation, remoteDomain };
 }
 

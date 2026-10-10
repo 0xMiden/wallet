@@ -59,6 +59,7 @@ describe('fetchCctpMessages', () => {
           entry({ message: '0x', attestation: 'PENDING', status: 'pending_confirmations' }),
           entry({ status: 'weird' }),
           entry({ attestation: 'nope' }),
+          entry({ attestation: '0x' }),
           'junk'
         ]
       })
