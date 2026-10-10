@@ -42,7 +42,7 @@ on:
       deposit_amount:
         description: Deposit amount in USDC
         required: false
-        default: '1'
+        default: '0.1'
 
 permissions:
   contents: read
@@ -71,7 +71,9 @@ jobs:
       # NO E2E_EVM_RPC_URL here: that flag sends the wallet's Arc reads to a local
       # Anvil, and this job needs the real Arc Testnet RPC.
       USDCX_LIVE_EVM_PRIVATE_KEY: ${{ secrets.USDCX_LIVE_EVM_PRIVATE_KEY }}
-      USDCX_LIVE_DEPOSIT_AMOUNT: ${{ inputs.deposit_amount || '1' }}
+      # 0.1 USDC: a testnet claim's fee is about 0.0002 USDCx and Circle takes no deposit fee, so each nightly
+      # spends about 0.1 of the faucet's time-gated 20 USDC drip.
+      USDCX_LIVE_DEPOSIT_AMOUNT: ${{ inputs.deposit_amount || '0.1' }}
       USDCX_FAUCET_ACCOUNT_ID: ${{ vars.USDCX_FAUCET_ACCOUNT_ID }}
       USDCX_RELAYER_ACCOUNT_ID: ${{ vars.USDCX_RELAYER_ACCOUNT_ID }}
       USDCX_CIRCLE_ATTESTER_PUBLIC_KEY: ${{ vars.USDCX_CIRCLE_ATTESTER_PUBLIC_KEY }}
