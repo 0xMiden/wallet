@@ -1535,6 +1535,10 @@ export const updateBridgedReceivePhase = async (
     // A reopen clears only the Arc execute it saw revert: a newer execute saved meanwhile, with its proof, stands.
     const reopened = extra?.cctp?.revertedExecuteTxHash;
     if (reopened !== undefined && inputs?.cctp?.executeTxHash !== reopened) return;
+    // An execute hash lands only on a leg that holds none: a late forward adoption must not replace a manual execute.
+    const held = inputs?.cctp?.executeTxHash;
+    const adopted = extra?.cctp?.executeTxHash;
+    if (adopted !== undefined && held !== undefined && adopted !== held) return;
     // The CCTP leg is written a field at a time (the burn's domain, then the attestation, then the
     // execute hash), so a write merges into what the row holds instead of replacing it.
     const cctp = extra?.cctp ? { ...inputs?.cctp, ...extra.cctp } : inputs?.cctp;

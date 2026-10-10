@@ -92,6 +92,31 @@ describe('updateBridgedReceivePhase on a USDCx CCTP leg', () => {
     expect(cctp?.attestation).toBeUndefined();
   });
 
+  // A late Iris answer adopting Circle's forward must not replace a manual execute the wallet saved meanwhile.
+  it('keeps a manual execute hash a late forward adoption would replace', async () => {
+    const id = await seed('delivering', { cctp: { ...held, executeTxHash: H2 } });
+
+    await updateBridgedReceivePhase(id, 'delivering', {
+      cctp: { sourceDomain: 6, executeTxHash: H1, forwardState: 'COMPLETE' }
+    });
+
+    expect((await Repo.transactions.get(id))?.extraInputs.cctp).toEqual({ ...held, executeTxHash: H2 });
+  });
+
+  it('accepts the same execute hash written again', async () => {
+    const id = await seed('delivering', { cctp: { ...held, executeTxHash: H1 } });
+
+    await updateBridgedReceivePhase(id, 'delivering', {
+      cctp: { sourceDomain: 6, executeTxHash: H1, forwardState: 'COMPLETE' }
+    });
+
+    expect((await Repo.transactions.get(id))?.extraInputs.cctp).toEqual({
+      ...held,
+      executeTxHash: H1,
+      forwardState: 'COMPLETE'
+    });
+  });
+
   it('keeps a newer execute hash saved after the revert was observed', async () => {
     const id = await seed('delivering', { cctp: { ...held, executeTxHash: H2 } });
 
