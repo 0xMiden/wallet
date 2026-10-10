@@ -1,5 +1,4 @@
 {
-  "usdcxRouteLabel": "USDCx (Circle xReserve)",
   "usdcxBurnTitle": "Спалення USDCx",
   "usdcxBurnSubmitted": "Заявка на спалення подана",
   "usdcxMidenFees": "Комісії MIDEN",
@@ -1087,6 +1086,7 @@
   "fastRouteLabel": "Швидкий (Епоха)",
   "slowRouteLabel": "Повільний (Agglayer)",
   "usdcxRouteName": "USDCx",
+  "usdcxRouteLabel": "USDCx (Circle xReserve)",
   "usdcxArrival": "~20 хв",
   "usdcxRouteNotice": "Circle xReserve емітує USDCx на Miden у співвідношенні 1:1 до USDC, які ви депонуєте.",
   "usdcxDomainNotRegistered": "Circle ще не увімкнула можливість поповнення рахунків у USDCx у Miden. Спробуйте пізніше.",

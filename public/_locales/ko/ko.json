@@ -1,5 +1,4 @@
 {
-  "usdcxRouteLabel": "USDCx (Circle xReserve)",
   "usdcxBurnTitle": "USDCx 소각",
   "usdcxBurnSubmitted": "소각 요청 제출됨",
   "usdcxMidenFees": "MIDEN 수수료",
@@ -1087,6 +1086,7 @@
   "fastRouteLabel": "Fast (에포크)",
   "slowRouteLabel": "슬로우 (애글레이어)",
   "usdcxRouteName": "USDCx",
+  "usdcxRouteLabel": "USDCx (Circle xReserve)",
   "usdcxArrival": "~20분",
   "usdcxRouteNotice": "Circle xReserve는 사용자가 예치한 USDC에 대해 Miden에서 1:1 비율로 USDCx를 발행합니다.",
   "usdcxDomainNotRegistered": "서클은 아직 Miden에 대한 USDCx 입금을 지원하지 않습니다. 나중에 다시 시도해 주세요.",

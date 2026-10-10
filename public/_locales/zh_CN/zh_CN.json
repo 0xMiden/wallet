@@ -1,5 +1,4 @@
 {
-  "usdcxRouteLabel": "USDCx（Circle xReserve）",
   "usdcxBurnTitle": "销毁 USDCx",
   "usdcxBurnSubmitted": "已提交销毁请求",
   "usdcxMidenFees": "MIDEN 费用",
@@ -1087,6 +1086,7 @@
   "fastRouteLabel": "Fast（Epoch）",
   "slowRouteLabel": "慢速（Agglayer）",
   "usdcxRouteName": "USDCx",
+  "usdcxRouteLabel": "USDCx（Circle xReserve）",
   "usdcxArrival": "约20分钟",
   "usdcxRouteNotice": "Circle xReserve 会根据您存入的 USDC，在 Miden 上按 1:1 的比例铸造 USDCx。",
   "usdcxDomainNotRegistered": "Circle 尚未启用向 Miden 存入 USDCx 的功能。请稍后再试。",

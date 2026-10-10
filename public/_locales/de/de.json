@@ -1,5 +1,4 @@
 {
-  "usdcxRouteLabel": "USDCx (Circle xReserve)",
   "usdcxBurnTitle": "USDCx verbrennen",
   "usdcxBurnSubmitted": "Einreichung zum Verbrennen",
   "usdcxMidenFees": "MIDEN-Gebühren",
@@ -1087,6 +1086,7 @@
   "fastRouteLabel": "Schnell (Epoche)",
   "slowRouteLabel": "Langsam (Agglayer)",
   "usdcxRouteName": "USDCx",
+  "usdcxRouteLabel": "USDCx (Circle xReserve)",
   "usdcxArrival": "~20 Min.",
   "usdcxRouteNotice": "Circle xReserve prägt USDCx auf Miden im Verhältnis 1:1 für den von Ihnen eingezahlten USDC.",
   "usdcxDomainNotRegistered": "Circle hat USDCx-Einzahlungen bei Miden noch nicht freigeschaltet. Bitte versuchen Sie es später erneut.",

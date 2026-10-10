@@ -1,5 +1,4 @@
 {
-  "usdcxRouteLabel": "USDCx (Circle xReserve)",
   "usdcxBurnTitle": "USDCx'i Yak",
   "usdcxBurnSubmitted": "Yakma işlemi gönderildi",
   "usdcxMidenFees": "MIDEN ücretleri",
@@ -1087,6 +1086,7 @@
   "fastRouteLabel": "Hızlı (Epoch)",
   "slowRouteLabel": "Yavaş (Agglayer)",
   "usdcxRouteName": "USDCx",
+  "usdcxRouteLabel": "USDCx (Circle xReserve)",
   "usdcxArrival": "~20 dakika",
   "usdcxRouteNotice": "Circle xReserve, yatırdığınız USDC karşılığında Miden üzerinde 1:1 oranında USDCx basar.",
   "usdcxDomainNotRegistered": "Circle, Miden’e USDCx yatırımlarını henüz etkinleştirmedi. Daha sonra tekrar deneyin.",

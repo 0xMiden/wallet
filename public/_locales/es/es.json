@@ -1,5 +1,4 @@
 {
-  "usdcxRouteLabel": "USDCx (Circle xReserve)",
   "usdcxBurnTitle": "Quemar USDCx",
   "usdcxBurnSubmitted": "Solicitud de quema enviada",
   "usdcxMidenFees": "Comisiones de MIDEN",
@@ -1087,6 +1086,7 @@
   "fastRouteLabel": "Rápido (Época)",
   "slowRouteLabel": "Lento (Agglayer)",
   "usdcxRouteName": "USDCx",
+  "usdcxRouteLabel": "USDCx (Circle xReserve)",
   "usdcxArrival": "~20 min",
   "usdcxRouteNotice": "Circle xReserve emite USDCx en Miden en una proporción de 1:1 por el USDC que deposites.",
   "usdcxDomainNotRegistered": "Circle aún no ha habilitado los depósitos de USDCx en Miden. Inténtalo de nuevo más tarde.",
