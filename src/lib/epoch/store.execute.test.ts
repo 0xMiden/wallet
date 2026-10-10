@@ -107,3 +107,20 @@ it('still refuses when the web wallet stays on another chain', async () => {
   });
   expect(mockRegister).not.toHaveBeenCalled();
 });
+
+it('refuses without switching when no wallet is connected, and when the wallet disconnects during the switch', async () => {
+  mockConnection.mockResolvedValue({ isNative: false, chainId: 5042002 });
+  useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote });
+  await useEpochStore.getState().executeEVMToMiden('row-1');
+  expect(mockSwitchWebWalletChain).not.toHaveBeenCalled();
+
+  mockConnection
+    .mockResolvedValueOnce({ address: '0xowner', isNative: false, chainId: 5042002 })
+    .mockResolvedValue({ isNative: false, chainId: 11155111 });
+  useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote });
+  await useEpochStore.getState().executeEVMToMiden('row-1');
+
+  expect(mockSwitchWebWalletChain).toHaveBeenCalledTimes(1);
+  expect(useEpochStore.getState()).toMatchObject({ status: 'failed', error: 'Connect an EVM wallet first' });
+  expect(mockRegister).not.toHaveBeenCalled();
+});

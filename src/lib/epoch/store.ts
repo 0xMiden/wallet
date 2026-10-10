@@ -214,13 +214,13 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       // before continuing. The native Reown session carries the target chain
       // id in every signing request, so there is no active-chain to guard.
       let connection = await getEvmConnection();
-      if (!connection.address) {
-        throw new Error('Connect an EVM wallet first');
-      }
-      // A USDCx deposit switches the web wallet to Arc or Base, so switch it back before the check below.
-      if (!connection.isNative && connection.chainId !== sepolia.id) {
+      // A USDCx deposit switches the web wallet to Arc or Base, so switch it back before the checks below.
+      if (connection.address && !connection.isNative && connection.chainId !== sepolia.id) {
         await switchWebWalletChain(sepolia.id);
         connection = await getEvmConnection();
+      }
+      if (!connection.address) {
+        throw new Error('Connect an EVM wallet first');
       }
       if (!connection.isNative && connection.chainId !== sepolia.id) {
         throw new Error(

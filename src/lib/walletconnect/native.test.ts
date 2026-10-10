@@ -1,4 +1,4 @@
-import { readNativeFeeFields } from './fees';
+import { type NativeFeeFields, readNativeFeeFields } from './fees';
 import { buildNativeReownProvider } from './native';
 
 const mockSendTransaction = jest.fn();
@@ -8,7 +8,7 @@ jest.mock('@capacitor/core', () => ({
 jest.mock('lib/platform', () => ({ isAndroid: () => false, isIOS: () => true }));
 jest.mock('./fees', () => ({ readNativeFeeFields: jest.fn() }));
 
-const ESTIMATE = { maxFeePerGas: '0x64', maxPriorityFeePerGas: '0x2' };
+const ESTIMATE: NativeFeeFields = { maxFeePerGas: '0x64', maxPriorityFeePerGas: '0x2' };
 const provider = buildNativeReownProvider({ chainId: 11155111, address: '0xowner', rpcUrl: 'https://rpc.test' });
 const send = (tx: Record<string, string>) =>
   provider.request({ method: 'eth_sendTransaction', params: [{ to: '0xto', data: '0x', ...tx }] });
