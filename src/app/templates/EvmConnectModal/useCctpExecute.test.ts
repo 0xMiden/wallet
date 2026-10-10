@@ -26,14 +26,22 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
+// The order is recorded by both mocks and asserted after the call: an expect inside the receipt mock would throw
+// into the hook's catch, which swallows every error but a revert.
 it('saves the hash before the receipt can arrive', async () => {
+  const order: string[] = [];
+  jest.mocked(updateBridgedReceivePhase).mockImplementationOnce(async () => {
+    order.push('save');
+  });
   jest.mocked(waitForEvmReceipt).mockImplementationOnce(async () => {
-    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('row', 'delivering', {
-      cctp: { sourceDomain: 6, executeTxHash: hash }
-    });
+    order.push('wait');
   });
   const { result, unmount } = renderHook(useCctpExecute);
   await expect(result.current('row', 84532, leg)).resolves.toBe(hash);
+  expect(order).toEqual(['save', 'wait']);
+  expect(updateBridgedReceivePhase).toHaveBeenCalledWith('row', 'delivering', {
+    cctp: { sourceDomain: 6, executeTxHash: hash }
+  });
   unmount();
 });
 

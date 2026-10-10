@@ -2803,9 +2803,9 @@ describe('guardian bridged-send / earn-deposit errorCode preservation → classi
   // reach this point, so its Failed outcome is pinned in transactions.guardian.test.ts
   // ('Guardian bridged-send: submit lands but local apply fails') instead.
   const applyCases = () => [
-    { label: 'earn-deposit', ...bridgeEarnCases()[2]!, expected: ITransactionStatus.Failed },
-    { label: 'bridged-send (agglayer)', ...bridgeEarnCases()[1]!, expected: ITransactionStatus.Completed },
-    { label: 'bridged-send (usdcx)', ...bridgeEarnCases()[0]!, expected: ITransactionStatus.Completed }
+    { label: 'earn-deposit', ...bridgeEarnCase('earn-deposit'), expected: ITransactionStatus.Failed },
+    { label: 'bridged-send (agglayer)', ...bridgeEarnCase('agglayer'), expected: ITransactionStatus.Completed },
+    { label: 'bridged-send (usdcx)', ...bridgeEarnCase('usdcx'), expected: ITransactionStatus.Completed }
   ];
 
   it.each(applyCases())(
@@ -3654,7 +3654,8 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
     mockDispatchGuardianPipeline.mockRejectedValueOnce(
       new Error(`Offscreen call 'guardianPipeline' failed: ${REFUSAL_EQUAL_NONCE}`)
     );
-    const { row, complete } = bridgeEarnCases()[1]!;
+    const { row, complete } = bridgeEarnCase('earn-deposit');
+    expect(row.type).toBe('earn-deposit');
     arrange(id, row);
 
     await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);

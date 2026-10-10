@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { toFunctionSelector } from 'viem';
 
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { runUsdcxDeposit } from 'lib/usdcx/deposit';
@@ -8,6 +9,25 @@ import { runUsdcxExecutorDeposit } from 'lib/usdcx/executor';
 import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
+
+/**
+ * The RPC URLs the screen's xReserve registration read went to: the eth_call to `xReserve` whose data is
+ * `isRemoteDomainRegistered`. The Circle USDC balance read goes to the same RPC at mount, so a URL alone proves nothing.
+ */
+const REGISTRATION_SELECTOR = toFunctionSelector('isRemoteDomainRegistered(uint32)');
+const registrationReadUrls = (xReserve: string): unknown[] =>
+  jest
+    .mocked(global.fetch)
+    .mock.calls.filter(([, init]) => {
+      const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? '{}'));
+      const call = body.params?.[0];
+      return (
+        body.method === 'eth_call' &&
+        String(call?.to).toLowerCase() === xReserve.toLowerCase() &&
+        String(call?.data).startsWith(REGISTRATION_SELECTOR)
+      );
+    })
+    .map(([url]) => url);
 
 // Covers the USDCx (Circle xReserve) path of the deposit screen: a USDC deposit
 // has one route, auto-selected, and confirming it creates a `usdcx` tracking row
@@ -415,7 +435,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       })
     );
     expect(waitForEvmReceipt).toHaveBeenCalledWith(`0x${'2'.repeat(64)}`, expect.objectContaining({ id: 5042002 }));
-    expect(global.fetch).toHaveBeenCalledWith('https://rpc.test/5042002', expect.any(Object));
+    expect(registrationReadUrls('0x008888878f94C0d87defdf0B07f46B93C1934442')).toEqual(['https://rpc.test/5042002']);
     expect(mockSwitchChain.mock.calls).toEqual(native ? [] : [[{ chainId: 5042002 }]]);
   });
 
@@ -471,8 +491,8 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
         depositor: '0x1111111111111111111111111111111111111111'
       })
     );
-    // The registration check reads Arc's xReserve, where the executor deposits, not the source chain.
-    expect(global.fetch).toHaveBeenCalledWith('https://rpc.test/5042002', expect.any(Object));
+    // The registration check reads Arc's xReserve, where the executor deposits, never the source chain.
+    expect(registrationReadUrls('0x008888878f94C0d87defdf0B07f46B93C1934442')).toEqual(['https://rpc.test/5042002']);
     const signer = native ? mockNativeSend : mockWriteContract;
     expect(signer).toHaveBeenCalledTimes(2);
     expect(signer).toHaveBeenNthCalledWith(
