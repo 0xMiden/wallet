@@ -215,6 +215,14 @@ async function popupOrigin(popup: Page, kind: ConfirmKind): Promise<string | nul
     .getAttribute('title', { timeout: 30_000 });
 }
 
+// The input is sr-only (src/app/atoms/Checkbox.tsx): a click aimed at it, even a forced one, lands on whatever covers its
+// 1px box and changes nothing. A user clicks the row's label, so the tick goes there and the state is read back.
+async function tickPrivateData(popup: Page): Promise<void> {
+  const input = popup.locator('input[name="confirmPrivateDataPermission"]');
+  await popup.locator('label').filter({ has: input }).click();
+  await expect(input, 'private-data checkbox ticked').toBeChecked();
+}
+
 /**
  * Starts a request and answers the popup it opens. A request the wallet refuses before any popup settles first;
  * that is recorded (`popupOpened: false`, the error) and fails the cell rather than waiting for a popup.
@@ -253,7 +261,7 @@ export async function answerPrompt<T>(
         `the ${plan.kind} popup names ${named ?? 'no origin'}, expected ${plan.origin}; not answering it`
       );
     }
-    if (plan.tickPrivateData) await popup.locator('input[name="confirmPrivateDataPermission"]').check({ force: true });
+    if (plan.tickPrivateData) await tickPrivateData(popup);
     await plan.whileOpen?.(popup);
     if (plan.decision === 'close') await popup.close();
     else await popup.getByTestId(plan.decision === 'approve' ? ids.approve : ids.decline).click();
