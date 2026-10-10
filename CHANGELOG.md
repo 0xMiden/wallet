@@ -25,6 +25,7 @@
 
 ### Changes
 
+- [CHANGE][ci] A by-hand run of any E2E or build workflow from a pull request's branch builds against the web-sdk and Guardian PRs that pull request's `Web SDK PR:` and `Guardian PR:` markers name, as its own CI does, so a suite that otherwise runs only after merge can test an unreleased dependency first; a push, a release and a by-hand run on main or next still install the published packages.
 - [CHANGE][ci] A test dApp with its own Miden client and the real wallet adapter drives the extension end to end on single-sig and Guardian accounts after every merge, on testnet from main and devnet from next, and checks each request through to the chain while the chain moves between build and approval; known bugs are recorded per cell and a judge decides each run from the cell records. Its journeys so far cover detect, connect and a dApp send.
 - [CHANGE][all] Web SDK 0.17.3: a call on a terminated SDK client is refused with "WebClient terminated" instead of hanging or still running, and the wallet reads that refusal as an interrupted operation: a write it stops fails like an offscreen abort instead of being retried as a fresh one, a Guardian note-recovery batch stops at it, and a pre-send sync it refuses is retried on a later cycle.
 - [CHANGE][all] Web SDK 0.17.2: the SDK no longer re-sends a private note whose relay failed, so the wallet retries it itself for up to three days on every platform and tracks each note of a multi-note transaction, and the SDK fetch patch is removed.
