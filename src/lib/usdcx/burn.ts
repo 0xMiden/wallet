@@ -14,7 +14,6 @@ import {
   NoteStorage,
   NoteTag,
   NoteType,
-  RpcClient,
   TransactionRequestBuilder,
   Word
 } from '@miden-sdk/miden-sdk/lazy';
@@ -22,8 +21,8 @@ import {
 import { accountRefToSdk, getBech32AddressFromAccountId, randomFeeSalt } from 'lib/miden/sdk/helpers';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { initiateBridgedSendTransaction } from 'lib/miden/transaction/initiate';
-import { getRpcEndpoint } from 'lib/miden-chain/constants';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 
 import {
   getUsdcxDestination,
@@ -33,25 +32,21 @@ import {
   USDCX_MIN_BURN_SLOT
 } from './constant';
 import { readUsdcxDestinationBalance } from './destination-status';
+import { readWithOwnRpcClient } from './rpc-client';
 import { encodeBurnWithdrawal, requireUsdcxFaucetId, UsdcxBurnError, validateUsdcxWithdrawal } from './withdrawal';
 
 /** Read faucet storage through a separate RPC client and return the minimum burn amount. */
 export async function readUsdcxMinimumBurn(): Promise<bigint> {
-  const rpc = new RpcClient(getRpcEndpoint());
-  try {
-    const fetched = await rpc.getAccountDetails(accountRefToSdk(requireUsdcxFaucetId()));
-    const storage = fetched.account()?.storage();
-    const allowed = storage
-      ?.getMapItem(USDCX_ALLOWED_NOTE_SCRIPTS_SLOT, NoteScript.burn().root())
-      ?.toFelts()[0]
-      ?.asInt();
-    if (allowed !== 1n) throw new UsdcxBurnError('usdcxIncompatibleBurnScript');
-    const minimum = storage?.getItem(USDCX_MIN_BURN_SLOT)?.toFelts()[0]?.asInt();
-    if (minimum === undefined) throw new UsdcxBurnError('usdcxFaucetUnavailable');
-    return minimum;
-  } finally {
-    rpc.free();
-  }
+  const fetched = await withRpcTimeout(
+    () => readWithOwnRpcClient(rpc => rpc.getAccountDetails(accountRefToSdk(requireUsdcxFaucetId()))),
+    'usdcx minimum burn'
+  );
+  const storage = fetched.account()?.storage();
+  const allowed = storage?.getMapItem(USDCX_ALLOWED_NOTE_SCRIPTS_SLOT, NoteScript.burn().root())?.toFelts()[0]?.asInt();
+  if (allowed !== 1n) throw new UsdcxBurnError('usdcxIncompatibleBurnScript');
+  const minimum = storage?.getItem(USDCX_MIN_BURN_SLOT)?.toFelts()[0]?.asInt();
+  if (minimum === undefined) throw new UsdcxBurnError('usdcxFaucetUnavailable');
+  return minimum;
 }
 
 /** Build a burn request from local SDK objects, following the `XReserveBurnNote` factory of miden-usdcx 0.17.1. */

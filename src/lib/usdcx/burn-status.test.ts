@@ -1,4 +1,5 @@
 import { ITransaction, ITransactionStatus, IBridgedSendExtraInputs } from 'lib/miden/db/types';
+import { RpcTimeoutError } from 'lib/miden-chain/rpc-timeout';
 
 import { burnPhaseFromStatus, pollUsdcxBurn } from './burn-status';
 
@@ -46,6 +47,26 @@ it('reads burn status through its own RPC client and frees it', async () => {
   expect(mockGetNetworkNoteStatus).toHaveBeenCalledWith('burn-note');
   expect(stored.extraInputs.usdcxBurn.phase).toBe('confirmed');
   expect(mockFree).toHaveBeenCalledTimes(1);
+});
+
+// A node that accepts the connection and never answers must not hold the watcher pass: the read times out,
+// the pass settles, and the client is freed only once its call settles.
+it('times out a status read that never answers and leaves the row pending', async () => {
+  jest.useFakeTimers();
+  try {
+    mockGetNetworkNoteStatus.mockReturnValueOnce(new Promise(() => {}));
+    const outcome = pollUsdcxBurn(stored).then(
+      () => 'resolved',
+      (error: unknown) => error
+    );
+    await jest.advanceTimersByTimeAsync(15_000);
+    expect(await outcome).toBeInstanceOf(RpcTimeoutError);
+    expect(mockGetNetworkNoteStatus).toHaveBeenCalledTimes(1);
+    expect(stored.extraInputs.usdcxBurn.phase).toBe('pending');
+    expect(mockFree).not.toHaveBeenCalled();
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 it('frees the RPC client after a failed request and leaves the row pending', async () => {

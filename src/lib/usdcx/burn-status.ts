@@ -1,9 +1,11 @@
-import { NoteId, RpcClient } from '@miden-sdk/miden-sdk/lazy';
+import { NoteId } from '@miden-sdk/miden-sdk/lazy';
 
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus, IUsdcxBurn } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { getRpcEndpoint } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
+
+import { readWithOwnRpcClient } from './rpc-client';
 
 export interface BurnObservation {
   status: string;
@@ -28,18 +30,18 @@ export function burnPhaseFromStatus(status: string): IUsdcxBurn['phase'] | undef
 }
 
 async function readBurnStatus(noteId: string): Promise<BurnObservation> {
-  const rpc = new RpcClient(getRpcEndpoint());
-  try {
-    const result = await rpc.getNetworkNoteStatus(NoteId.fromHex(noteId));
-    return {
-      status: result.status,
-      attemptCount: result.attemptCount,
-      lastAttemptBlockNum: result.lastAttemptBlockNum,
-      lastError: result.lastError
-    };
-  } finally {
-    rpc.free();
-  }
+  // One attempt: the watcher's next tick is the retry.
+  const result = await withRpcTimeout(
+    () => readWithOwnRpcClient(rpc => rpc.getNetworkNoteStatus(NoteId.fromHex(noteId))),
+    'usdcx burn status',
+    { retries: 0 }
+  );
+  return {
+    status: result.status,
+    attemptCount: result.attemptCount,
+    lastAttemptBlockNum: result.lastAttemptBlockNum,
+    lastError: result.lastError
+  };
 }
 
 /** Read-only network polling: errors leave the durable row eligible for the next pass. */
