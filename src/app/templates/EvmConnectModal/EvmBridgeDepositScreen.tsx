@@ -343,9 +343,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const usdcxSource = useMemo(() => getUsdcxSourceChain(usdcxSourceChainId), [usdcxSourceChainId]);
   const usdcxBridgeNetwork = getBridgeNetworkByChainId(usdcxSource.chain.id) ?? DEFAULT_BRIDGE_NETWORK;
   // Circle's fee for a forwarded executor-route burn, shown on the route card. A display quote only: the
-  // burn fetches its own right before signing, since a quote lives about two minutes. Unset while the
-  // route is not the executor one, the amount is not valid, or Circle has not answered.
-  const [usdcxQuotedFee, setUsdcxQuotedFee] = useState<string | undefined>(undefined);
+  // burn fetches its own right before signing, since a quote lives about two minutes. Kept with the amount it
+  // was quoted for, so a fee for an earlier amount is never shown.
+  const [usdcxQuote, setUsdcxQuote] = useState<{ amount: string; fee: string } | undefined>(undefined);
   const [amount, setAmount] = useState('');
   const [usdcBalance, setUsdcBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
   const [circleUsdcBalance, setCircleUsdcBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
@@ -415,6 +415,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         return usdcBalance;
     }
   })();
+  // Circle's display quote follows the amount the user settled on, not every keystroke.
+  const [debouncedUsdcxAmount] = useDebounce(route === 'usdcx' && isValidAmount(amount) ? amount.trim() : '', 500);
+  const usdcxQuotedFee = usdcxQuote && usdcxQuote.amount === amount.trim() ? usdcxQuote.fee : undefined;
   // Only USDC on the Fast (Epoch) route is quotable today; ETH-fast wraps to WETH
   // (not implemented yet) and Slow (Agglayer) needs no quote.
   const [debouncedAmount] = useDebounce(
@@ -583,22 +586,23 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, []);
 
   useEffect(() => {
-    setUsdcxQuotedFee(undefined);
-    if (
-      route !== 'usdcx' ||
-      usdcxSource.route !== 'cctp-executor' ||
-      !isValidAmount(amount) ||
-      !isAddress(evmAddress)
-    ) {
+    setUsdcxQuote(undefined);
+    if (route !== 'usdcx' || usdcxSource.route !== 'cctp-executor' || !debouncedUsdcxAmount || !isAddress(evmAddress)) {
       return;
     }
     const source = usdcxSource;
+    const quotedAmount = debouncedUsdcxAmount;
     let cancelled = false;
     (async () => {
       try {
         const recipient = midenAccountHexToXReserveRecipient(accountRefToSdk(midenAccount.publicKey).toString());
-        const quote = await quoteExecutorBurn(source, buildExecutorBurnIntent(amount, source, recipient, evmAddress));
-        if (!cancelled) setUsdcxQuotedFee(formatUnits(quote.feeTotalAmount, CIRCLE_USDC_DECIMALS));
+        const quote = await quoteExecutorBurn(
+          source,
+          buildExecutorBurnIntent(quotedAmount, source, recipient, evmAddress)
+        );
+        if (!cancelled) {
+          setUsdcxQuote({ amount: quotedAmount, fee: formatUnits(quote.feeTotalAmount, CIRCLE_USDC_DECIMALS) });
+        }
       } catch (err) {
         // No quote on the card: the burn tries again and falls back to the manual execute if Circle refuses.
         console.warn('[EvmBridgeDepositScreen] USDCx fee quote failed', err);
@@ -607,7 +611,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [route, usdcxSource, amount, evmAddress, midenAccount.publicKey]);
+  }, [route, usdcxSource, debouncedUsdcxAmount, evmAddress, midenAccount.publicKey]);
 
   // Only the USDCx route has more than one source chain; the others keep Sepolia and open nothing.
   const handleOpenNetworkDrawer = useCallback(() => {

@@ -5,7 +5,7 @@ import { toFunctionSelector } from 'viem';
 
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { runUsdcxDeposit } from 'lib/usdcx/deposit';
-import { runUsdcxExecutorDeposit } from 'lib/usdcx/executor';
+import { buildExecutorBurnIntent, quoteExecutorBurn, runUsdcxExecutorDeposit } from 'lib/usdcx/executor';
 import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
@@ -52,8 +52,10 @@ jest.mock('wagmi', () => ({
   useWriteContract: () => ({ mutateAsync: mockWriteContract })
 }));
 
+// Pass-through unless a test holds back a value, as a debounce does while the input still moves.
+const mockUseDebounce = jest.fn((value: unknown) => [value]);
 jest.mock('use-debounce', () => ({
-  useDebounce: (value: unknown) => [value]
+  useDebounce: (value: unknown) => mockUseDebounce(value)
 }));
 
 const epochState = {
@@ -176,14 +178,17 @@ jest.mock('./EvmBridgeDepositReview', () => {
       onConfirm,
       symbol,
       label,
-      route
+      route,
+      fee
     }: {
       onConfirm: () => void;
       symbol: string;
       label?: string;
       route: Parameters<typeof actual.arrivingTokenName>[0];
+      fee?: string;
     }) => (
       <div>
+        {fee && <span data-testid="review-fee">{fee}</span>}
         <span data-testid="review-symbols">{`${symbol}->${actual.arrivingTokenName(route, symbol, label ?? symbol)}`}</span>
         <button data-testid="confirm-deposit" onClick={onConfirm}>
           confirm
@@ -240,10 +245,21 @@ jest.mock('./EvmSwitchWalletDrawer', () => ({
 }));
 
 jest.mock('./EvmBridgeUsdcxRoute', () => ({
-  EvmBridgeUsdcxRoute: ({ confirmDisabled, onConfirm }: { confirmDisabled?: boolean; onConfirm: () => void }) => (
-    <button data-testid="usdcx-route-confirm" disabled={confirmDisabled} onClick={onConfirm}>
-      usdcx
-    </button>
+  EvmBridgeUsdcxRoute: ({
+    confirmDisabled,
+    onConfirm,
+    fee
+  }: {
+    confirmDisabled?: boolean;
+    onConfirm: () => void;
+    fee?: string;
+  }) => (
+    <div>
+      {fee && <span data-testid="usdcx-route-fee">{fee}</span>}
+      <button data-testid="usdcx-route-confirm" disabled={confirmDisabled} onClick={onConfirm}>
+        usdcx
+      </button>
+    </div>
   )
 }));
 
@@ -296,6 +312,8 @@ const reachUsdcxRoute = async () => {
 describe('EvmBridgeDepositScreen USDCx route', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUseDebounce.mockImplementation((value: unknown) => [value]);
+    jest.mocked(quoteExecutorBurn).mockRejectedValue(new Error('no quote in tests'));
     mockNativeAvailable = false;
     jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
     // balanceOf and isRemoteDomainRegistered reads; a zero word is fine for both.
@@ -560,5 +578,48 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(signer).toHaveBeenNthCalledWith(2, expect.objectContaining({ chainId: 11155111 }));
     expect(waitForEvmReceipt).toHaveBeenCalledWith(`0x${'2'.repeat(64)}`, expect.objectContaining({ id: 11155111 }));
     expect(mockSwitchChain.mock.calls).toEqual(native ? [] : [[{ chainId: 11155111 }]]);
+  });
+
+  const reachBaseSepoliaRoute = async () => {
+    await pickToken('pick-circle-usdc');
+    fireEvent.click(screen.getByTestId('open-network-drawer'));
+    await settle();
+    fireEvent.click(screen.getByTestId('pick-network-base-sepolia'));
+    await settle();
+    await reachRouteStep();
+  };
+
+  it('shows the fee Circle quoted for the amount on screen on the route and the review', async () => {
+    jest.mocked(quoteExecutorBurn).mockResolvedValue({ signedQuote: '0x01', feeTotalAmount: 31_908n });
+    renderScreen();
+    await reachBaseSepoliaRoute();
+
+    expect(screen.getByTestId('usdcx-route-fee')).toHaveTextContent('usdcxForwardFee');
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    expect(screen.getByTestId('review-fee')).toHaveTextContent('0.031908');
+  });
+
+  // A burst of keystrokes asks Circle once, for the amount the user settled on; a fee quoted for another amount
+  // never reaches the card.
+  it('asks Circle for the debounced amount and shows no fee for an amount it was not quoted for', async () => {
+    mockUseDebounce.mockImplementation((value: unknown) => [value === '1.5' ? '1.2' : value]);
+    jest.mocked(quoteExecutorBurn).mockResolvedValue({ signedQuote: '0x01', feeTotalAmount: 31_908n });
+    renderScreen();
+    await reachBaseSepoliaRoute();
+
+    expect(buildExecutorBurnIntent).toHaveBeenCalledWith(
+      '1.2',
+      expect.anything(),
+      expect.anything(),
+      expect.anything()
+    );
+    expect(buildExecutorBurnIntent).not.toHaveBeenCalledWith(
+      '1.5',
+      expect.anything(),
+      expect.anything(),
+      expect.anything()
+    );
+    expect(screen.queryByTestId('usdcx-route-fee')).toBeNull();
   });
 });
