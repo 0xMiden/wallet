@@ -27,20 +27,21 @@ import { WcCounterparty, type WcRequestLog } from '../helpers/wc-counterparty';
  *   5. The deposit relayer reads the attestation and submits the mint note to the
  *      USDCx faucet. By default this is the deployed relayer. The faucet does not
  *      look at who sent a mint note, so the spec needs no relayer of its own.
- *   6. The faucet mints, and the wallet claims the note. The wallet is a Guardian account, so the claim
- *      is a consume the hosted testnet Guardian co-signs, and the spec checks the account's auth
- *      structure afterwards.
+ *   6. The faucet mints, and the wallet claims the note on its own: USDCx is testnet's native asset,
+ *      which the wallet auto-claims, so it never waits in Pending. The wallet is a Guardian account, so
+ *      the claim is a consume the hosted testnet Guardian co-signs, and the spec checks the account's
+ *      auth structure afterwards.
  *
  * The run spends real Arc Testnet USDC (the deposit and the gas).
  *
  * Environment:
  *   USDCX_LIVE_EVM_PRIVATE_KEY        required: funded Arc Testnet key (USDC is the gas token too)
  *   USDCX_LIVE_DEPOSIT_AMOUNT         optional, in USDC; default 0.01
- *   USDCX_FAUCET_ACCOUNT_ID           optional: the USDCx faucet, for the claim step
  *
  * To test a relayer build before it is deployed, set these too and the spec starts
- * that relayer as a local process (all are then required, with the faucet id):
+ * that relayer as a local process (all are then required):
  *   USDCX_RELAYER_ACCOUNT_ID          funded Miden account that creates the mint notes
+ *   USDCX_FAUCET_ACCOUNT_ID           the USDCx faucet Circle's Miden domain mints from
  *   USDCX_RELAYER_DATA_DIR            holds `keystore/` with that account's key
  *   USDCX_CIRCLE_ATTESTER_PUBLIC_KEY  the key Circle signs deposit attestations with
  * The spec skips when a required variable is unset, and names it.
@@ -64,8 +65,6 @@ const missingEnv = [
   ...(evmPrivateKey ? [] : ['USDCX_LIVE_EVM_PRIVATE_KEY']),
   ...(wantsLocalRelayer ? relayerEnv.missing : [])
 ];
-// Optional: lets the claim step show a faucet whose metadata the wallet has not read yet.
-const faucetAccountId = (process.env.USDCX_FAUCET_ACCOUNT_ID ?? '').trim();
 const depositAmount = (process.env.USDCX_LIVE_DEPOSIT_AMOUNT ?? '').trim() || '0.01';
 const depositUnits = parseUnits(depositAmount, CIRCLE_USDC_DECIMALS);
 const arcRpcUrl = ARC_TESTNET.rpcUrls.default.http[0];
@@ -242,10 +241,18 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
       });
 
       await steps.step('relayer_mints_and_wallet_claims', async () => {
-        // The relayer submits the mint note, the faucet consumes it in a later block,
-        // and the minted note then shows in the wallet's Pending list.
-        localRelayer?.assertRunning();
-        await walletA.claimAllNotes(MINT_AND_CLAIM_TIMEOUT_MS, faucetAccountId ? [faucetAccountId] : []);
+        // The relayer submits the mint note and the faucet consumes it in a later block. The wallet auto-claims the
+        // minted USDCx (testnet's native asset) and moves this deposit's row to `received` only once the consume it
+        // matched to the deposit has completed.
+        await expect
+          .poll(
+            async () => {
+              localRelayer?.assertRunning();
+              return (await walletA.getBridgeReceiveState(bridgeTxId)).phase;
+            },
+            { timeout: MINT_AND_CLAIM_TIMEOUT_MS, intervals: [5000] }
+          )
+          .toBe('received');
       });
 
       await steps.step('assert_balance', async () => {
