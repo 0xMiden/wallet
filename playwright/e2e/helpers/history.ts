@@ -123,6 +123,8 @@ export interface TransactionRowSnapshot {
   completedAt?: number;
   /** Set on the everyday-key rotation gate's own funding claim (#805). */
   rotationFunding?: boolean;
+  /** Whether the row was queued for a delegated prove; a dApp write carries the popup's setting (`confirmReq.delegate`). */
+  delegateTransaction?: boolean;
 }
 
 /** Anything with a Playwright page and hash navigation — both wallet page objects qualify. */
@@ -225,7 +227,8 @@ function streamTransactionRows(page: Page): Promise<TransactionRowSnapshot[] | n
               feeFaucetId: row.feeFaucetId === undefined ? undefined : String(row.feeFaucetId),
               displayMessage: row.displayMessage === undefined ? undefined : String(row.displayMessage),
               completedAt: row.completedAt === undefined ? undefined : Number(row.completedAt),
-              rotationFunding: row.rotationFunding === true ? true : undefined
+              rotationFunding: row.rotationFunding === true ? true : undefined,
+              delegateTransaction: typeof row.delegateTransaction === 'boolean' ? row.delegateTransaction : undefined
             });
             cursor.continue();
           };

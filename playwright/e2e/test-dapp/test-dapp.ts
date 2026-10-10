@@ -23,6 +23,7 @@ import {
   NoteDetails,
   NoteFile,
   NoteId,
+  NoteScript,
   NoteType,
   PublicKey,
   RpcClient,
@@ -63,6 +64,7 @@ import type {
   NoteTypeName,
   NoteView,
   Outcome,
+  OutputNoteView,
   RawArg,
   SessionEvent,
   TestDappWindowApi
@@ -116,6 +118,12 @@ const toAccountId = (id: string): AccountId =>
   id.startsWith('0x') ? AccountId.fromHex(id) : AccountId.fromBech32(canonical(id));
 const noteTypeOf = (name: NoteTypeName): NoteType => (name === 'public' ? NoteType.Public : NoteType.Private);
 const noteTypeName = (type: NoteType): NoteTypeName => (type === NoteType.Public ? 'public' : 'private');
+// By script root, as the wallet's own guardian-history.ts reads a payment note.
+function scriptOf(note: Note): OutputNoteView['script'] {
+  const root = note.script().root().toHex();
+  if (root === NoteScript.p2id().root().toHex()) return 'p2id';
+  return root === NoteScript.p2ide().root().toHex() ? 'p2ide' : 'other';
+}
 // The note type and state are stringified as the wallet sent them, so the view stays JSON whichever form they take.
 const noteView = (note: InputNoteDetails): NoteView => ({
   noteId: note.noteId,
@@ -623,7 +631,8 @@ const handlers: Partial<DappHandlers> = {
           noteType: noteTypeName(note.metadata().noteType()),
           bytesB64: u8ToB64(note.serialize()),
           // The adapter deserializes with the bare specifier, so one import map means one SDK instance.
-          isSameSdkNote: note instanceof Note
+          isSameSdkNote: note instanceof Note,
+          script: scriptOf(note)
         }))
       };
     }),

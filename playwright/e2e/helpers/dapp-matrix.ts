@@ -36,7 +36,7 @@ const both = (...ids: string[]): CellList => ids.map(id => ({ id, axes: BOTH }))
 /** In run order. An empty list is a journey with no spec yet, which the axis coverage test does not look for. */
 export const DAPP_JOURNEY_CELLS: Record<JourneyId, CellList> = {
   S: both('S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S8', 'S9', 'S10', 'S11', 'S14', 'N1'),
-  W: both('W1'),
+  W: both('N1-before-writes', 'N2', 'W1', 'W2', 'W3', 'W3-wire', 'N6', 'W4', 'W8', 'W4f', 'N1-after-writes'),
   R: [],
   X: [],
   XL: [],

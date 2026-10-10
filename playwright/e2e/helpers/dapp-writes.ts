@@ -1,7 +1,22 @@
+import { expect, type Page } from '@playwright/test';
+
 import { captureBaseline, expectWritesToTheEnd, type WriteResult, type WriteSide } from './dapp-assertions';
-import { HarnessFault, type CellContext } from './dapp-cells';
+import { HarnessFault, InfrastructureFault, type CellContext } from './dapp-cells';
+import { canonicalAddress, normalizeHex } from './dapp-gates';
 import type { AccountSlot, Journey } from './dapp-journey';
-import { answerPrompt, callDapp, popupBlock, unwrap, type DappHandle, type PromptPlan } from './test-dapp';
+import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
+import { waitForPublicNoteCommitment } from './public-note-commitment';
+import {
+  answerPrompt,
+  callDapp,
+  pendingNotes,
+  popupBlock,
+  setAutoConsume,
+  unwrap,
+  type DappHandle,
+  type PendingNote,
+  type PromptPlan
+} from './test-dapp';
 import type { NoteTypeName, Outcome, RawArg } from '../test-dapp/protocol';
 
 /**
@@ -122,5 +137,48 @@ export async function dappSendToTheEnd(
     ctx
   );
   if (written === undefined) throw new HarnessFault('expectWritesToTheEnd returned no result');
+  // The recall is all W3 adds to a send, and no step above reads it: the adapter routes a recallable send to the same
+  // requestSend as any other (adapter.js:118-124).
+  const script = send.recallBlocks === undefined ? 'p2id' : 'p2ide';
+  expect(
+    written.outputNotes.map(note => note.script),
+    'output note script'
+  ).toEqual([script]);
   return written;
+}
+
+/** One discovered, unconsumed note of the current account, or null. */
+export async function pendingNote(page: Page, noteId: string): Promise<PendingNote | null> {
+  return (await pendingNotes(page)).find(note => normalizeHex(note.id) === normalizeHex(noteId)) ?? null;
+}
+
+/**
+ * A public note of the network's native asset to `address`: a grant from the network's public faucet, returned once
+ * it is on chain. The faucet can accept a grant and never commit its note, so the commit wait is part of the grant,
+ * and either failing is the environment's (spec section 6), never the wallet's.
+ */
+export async function nativeNoteTo(j: Journey, address: string): Promise<{ noteId: string }> {
+  const faucet = publicFaucetApiUrl(j.env.name);
+  if (faucet === undefined) throw new InfrastructureFault(`no public faucet for ${j.env.name}`);
+  try {
+    const { noteId } = await mintFromPublicFaucet(faucet, canonicalAddress(address));
+    await waitForPublicNoteCommitment(j.env.rpcUrl, noteId);
+    return { noteId };
+  } catch (error) {
+    throw new InfrastructureFault(
+      `Public faucet grant failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+/** Wallet A's delegated-proving setting, put back on by the cell's restore. */
+export async function setDelegatedProving(j: Journey, enabled: boolean): Promise<void> {
+  j.touch('delegate');
+  await j.walletA.setDelegateProofEnabled(enabled);
+}
+
+/** Auto-consume off in wallet A until the cell's restore, so a native-asset note waits for the dApp's consume. */
+export async function turnAutoConsumeOff(j: Journey): Promise<void> {
+  j.touch('autoConsume');
+  await setAutoConsume(j.walletA, false);
 }
