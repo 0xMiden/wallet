@@ -407,6 +407,20 @@ describe('the rule itself', () => {
   });
 });
 
+describe('both injections read the pull request the resolver picks', () => {
+  // A merge that keeps an older copy of an action drops the resolver and quietly turns every dispatch into a no-op.
+  it.each([WEB_SDK, GUARDIAN])('%s resolves the number first and reads the event only through it', action => {
+    const text = readFileSync(resolve(__dirname, '../../..', action, 'action.yml'), 'utf8');
+    const heads = [...text.matchAll(/^ {4}- (.*)$/gm)].map(match => match[1]);
+    expect(heads.slice(0, 2)).toEqual(['id: pr', 'id: parse']);
+    const pr = text.slice(text.indexOf('    - id: pr\n'), text.indexOf('    - id: parse\n'));
+    expect(pr).toContain(`scripts/resolve-linked-pr-number.sh" ${action.split('/').pop()}\n`);
+    expect(text.match(/github\.event\.pull_request\.number/g)).toHaveLength(1);
+    expect(pr).toMatch(/PR_NUMBER: \$\{\{ github\.event\.pull_request\.number \}\}/);
+    expect(text).toMatch(/\n {8}PR_NUMBER: \$\{\{ steps\.pr\.outputs\.number \}\}\n/);
+  });
+});
+
 describe('the Guardian injection on a Windows runner', () => {
   it("keeps a Windows RUNNER_TEMP's backslashes in the file: dependency it writes", () => {
     const action = readFileSync(
