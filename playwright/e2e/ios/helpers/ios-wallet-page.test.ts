@@ -75,6 +75,51 @@ describe('IosWalletPage.prepareSendReview', () => {
   });
 });
 
+// /bridge/deposit slides over the Home tabs, which stay mounted (inert) earlier in the DOM; their Swap pane reuses the
+// bridge form's test ids, so an unscoped lookup clicked the hidden Swap "You Pay" selector (live run 38087775886).
+describe('IosWalletPage bridge deposit helpers', () => {
+  it('scopes shared amount controls to the bridge page layer', async () => {
+    const page = new IosWalletPage({
+      cdp: { eval: jest.fn(async () => true) } as unknown as CdpSession,
+      sim: {} as SimulatorControl,
+      udid: 'udid',
+      bundleId: 'bundle'
+    });
+    const waitFor = jest.fn(async () => undefined);
+    const click = jest.fn(async () => undefined);
+    const pollForSelector = jest.fn(async () => undefined);
+    const fillInput = jest.fn(async () => undefined);
+    const clickWhenEnabled = jest.fn(async () => undefined);
+    Object.assign(page as unknown as Record<string, unknown>, {
+      navigateTo: jest.fn(async () => undefined),
+      waitFor,
+      click,
+      pollForSelector,
+      fillInput,
+      clickWhenEnabled
+    });
+
+    await page.openBridgeDeposit();
+    await page.selectBridgeToken('CIRCLE_USDC');
+    await page.enterBridgeAmount('0.01');
+
+    const bridge = '[data-page-layer="/bridge/deposit"]';
+    expect(waitFor).toHaveBeenCalledWith(`${bridge} [data-testid="send-token-selector"]`, { timeoutMs: 8_000 });
+    expect(click).toHaveBeenCalledWith(`${bridge} [data-testid="send-token-selector"]`);
+    // The token drawer portals to <body>, outside the layer.
+    expect(click).toHaveBeenCalledWith('[data-testid="bridge-token-CIRCLE_USDC"]');
+    expect(pollForSelector).toHaveBeenCalledWith(`${bridge} [data-testid="send-amount-input"]`, 15_000);
+    expect(fillInput).toHaveBeenCalledWith(`${bridge} [data-testid="send-amount-input"]`, '0.01');
+    expect(clickWhenEnabled).toHaveBeenCalledWith(`${bridge} [data-testid="send-amount-confirm"]`, 15_000);
+    const unscoped = [...waitFor.mock.calls, ...click.mock.calls, ...pollForSelector.mock.calls]
+      .map(call => String((call as unknown[])[0]))
+      .filter(
+        selector => /send-(token-selector|amount-input|amount-confirm)/.test(selector) && !selector.startsWith(bridge)
+      );
+    expect(unscoped).toEqual([]);
+  });
+});
+
 describe('IosWalletPage.hexToBech32Faucet', () => {
   it('passes only the hex id to the wallet-owned network-aware hook', async () => {
     const evalJs = jest.fn(async (_script: string) => 'mlcl1tracked');

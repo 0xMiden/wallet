@@ -213,6 +213,13 @@ export class IosWalletPage implements WalletPage {
   // separately via reownConnectUri() + the headless counterparty (the native
   // WC modal is outside the WebView and un-tappable via CDP).
 
+  /**
+   * The deposit form's own layer. /bridge/deposit slides over the Home tabs, which stay mounted (inert) earlier in the
+   * DOM, and their Swap pane reuses the form's send-token-selector and send-amount-* test ids: an unscoped lookup
+   * finds the hidden Swap controls first. The token drawer portals to <body>, so its rows stay unscoped.
+   */
+  private static readonly BRIDGE_PAGE = '[data-page-layer="/bridge/deposit"]';
+
   /** Receive → "Cross Chain" → the deposit amount screen (requires EVM connected). */
   async openBridgeDeposit(): Promise<void> {
     await this.navigateTo('/receive');
@@ -226,11 +233,11 @@ export class IosWalletPage implements WalletPage {
     // the deposit screen reactively once `connected` propagates: same
     // destination, no tap-timing race.
     try {
-      await this.waitFor('[data-testid="send-token-selector"]', { timeoutMs: 8_000 });
+      await this.waitFor(`${IosWalletPage.BRIDGE_PAGE} [data-testid="send-token-selector"]`, { timeoutMs: 8_000 });
       return;
     } catch {
       await this.navigateTo('/bridge/deposit');
-      await this.waitFor('[data-testid="send-token-selector"]', { timeoutMs: 30_000 });
+      await this.waitFor(`${IosWalletPage.BRIDGE_PAGE} [data-testid="send-token-selector"]`, { timeoutMs: 30_000 });
     }
   }
 
@@ -239,16 +246,16 @@ export class IosWalletPage implements WalletPage {
    * USDC (`USDC`, Fast or Slow), or Circle's USDC (`CIRCLE_USDC`, xReserve only).
    */
   async selectBridgeToken(symbol: 'ETH' | 'USDC' | 'CIRCLE_USDC'): Promise<void> {
-    await this.click('[data-testid="send-token-selector"]');
+    await this.click(`${IosWalletPage.BRIDGE_PAGE} [data-testid="send-token-selector"]`);
     await this.waitFor(`[data-testid="bridge-token-${symbol}"]`, { timeoutMs: 10_000 });
     await this.click(`[data-testid="bridge-token-${symbol}"]`);
   }
 
   /** Type the deposit amount and confirm to advance to the route step. */
   async enterBridgeAmount(amount: string): Promise<void> {
-    await this.pollForSelector('[data-testid="send-amount-input"]', 15_000);
-    await this.fillInput('[data-testid="send-amount-input"]', amount);
-    await this.clickWhenEnabled('[data-testid="send-amount-confirm"]', 15_000);
+    await this.pollForSelector(`${IosWalletPage.BRIDGE_PAGE} [data-testid="send-amount-input"]`, 15_000);
+    await this.fillInput(`${IosWalletPage.BRIDGE_PAGE} [data-testid="send-amount-input"]`, amount);
+    await this.clickWhenEnabled(`${IosWalletPage.BRIDGE_PAGE} [data-testid="send-amount-confirm"]`, 15_000);
   }
 
   /** Pick the AggLayer "Slow" route (ETH only) and continue to review. */
