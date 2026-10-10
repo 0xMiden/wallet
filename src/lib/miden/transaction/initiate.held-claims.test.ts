@@ -1,7 +1,7 @@
 // Real Dexie: the dedup lives in a rw transaction over the noteId/noteIds indexes.
 import * as Repo from 'lib/miden/repo';
 
-import { ConsumeTransaction, ISubmitEvidence, ITransactionStatus } from '../db/types';
+import { ConsumeTransaction, ISubmitEvidence, ITransactionStatus, Transaction } from '../db/types';
 import { ConsumableNote, NoteTypeEnum } from '../types';
 
 jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isExtension: () => false }));
@@ -15,7 +15,7 @@ jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: {} }));
 jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { initiateConsumeNotesTransaction } = require('./initiate');
+const { initiateConsumeNotesTransaction, queueConsumeNotes } = require('./initiate');
 
 const ACCOUNT = 'mtst1account';
 const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
@@ -74,5 +74,57 @@ describe('the consume dedup and held notes (#1081)', () => {
     await existingClaim(ITransactionStatus.Unconfirmed, entries, extra);
     await initiateConsumeNotesTransaction(ACCOUNT, [note('n1')], false, true);
     expect(await Repo.transactions.count()).toBe(2);
+  });
+});
+
+describe('the consume dedup and the notes a dApp transaction will consume', () => {
+  const dappTransaction = async (status: ITransactionStatus, extra: { submitEvidence?: ISubmitEvidence[] } = {}) => {
+    const row = new Transaction(ACCOUNT, new Uint8Array([1]));
+    await Repo.transactions.put({ ...row, heldNoteIds: ['n1'], status, ...extra });
+    return row.id;
+  };
+
+  it.each([ITransactionStatus.Queued, ITransactionStatus.GeneratingTransaction])(
+    'a dApp transaction in status %s that will consume the note blocks a claim of it',
+    async status => {
+      const holder = await dappTransaction(status);
+      const id = await initiateConsumeNotesTransaction(ACCOUNT, [note('n1')], false, true);
+      expect(id).toBe(holder);
+      expect(await Repo.transactions.count()).toBe(1);
+    }
+  );
+
+  it('a dApp transaction awaiting its verdict blocks a claim of its note', async () => {
+    const holder = await dappTransaction(ITransactionStatus.Unconfirmed, { submitEvidence: [checkable] });
+    expect(await initiateConsumeNotesTransaction(ACCOUNT, [note('n1')], false, true)).toBe(holder);
+    expect(await Repo.transactions.count()).toBe(1);
+  });
+
+  it.each([ITransactionStatus.Completed, ITransactionStatus.Failed])(
+    'a dApp transaction in terminal status %s holds nothing, so the claim is queued',
+    async status => {
+      await dappTransaction(status);
+      await initiateConsumeNotesTransaction(ACCOUNT, [note('n1')], false, true);
+      expect(await Repo.transactions.count()).toBe(2);
+    }
+  );
+
+  it('a live dApp transaction written before held notes were recorded holds nothing', async () => {
+    await Repo.transactions.put(new Transaction(ACCOUNT, new Uint8Array([1]), ['n1']));
+    await initiateConsumeNotesTransaction(ACCOUNT, [note('n1')], false, true);
+    expect(await Repo.transactions.count()).toBe(2);
+  });
+
+  it('queues the notes the dApp transaction does not hold and reports the holder for the one it does', async () => {
+    const holder = await dappTransaction(ITransactionStatus.Queued);
+    const { committedId, coveringTxIdByNoteId } = await queueConsumeNotes(
+      ACCOUNT,
+      [note('n1'), note('n2')],
+      false,
+      true
+    );
+    expect(coveringTxIdByNoteId.get('n1')).toBe(holder);
+    expect(coveringTxIdByNoteId.get('n2')).toBe(committedId);
+    expect((await Repo.transactions.get(committedId))?.noteIds).toEqual(['n2']);
   });
 });

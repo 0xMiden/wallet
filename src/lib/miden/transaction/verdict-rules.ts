@@ -3,6 +3,7 @@
 // kind the service-worker bundle has deadlocked on before (back/transaction-processor.ts).
 import {
   IBridgedSendExtraInputs,
+  isLiveTransaction,
   ISubmitEvidence,
   ITransaction,
   ITransactionStatus,
@@ -96,6 +97,21 @@ export const awaitingVerdict = (row: VerdictRow, nowSec: number = nowSeconds()):
  */
 export const holdsNotes = (row: VerdictRow, nowSec?: number): boolean =>
   row.type === 'consume' && awaitingVerdict(row, nowSec);
+
+/**
+ * A row keeping its notes from every other consume (`getNoteHoldingTransactions`): a claim or a dApp transaction that
+ * is live or that the reconciler will still judge. Wider than `holdsNotes`, which also decides what the claim cards
+ * offer to retry, and a dApp transaction is retried from History, not from there.
+ */
+export const isNoteHoldingRow = (row: VerdictRow, nowSec?: number): boolean =>
+  (row.type === 'consume' || row.type === 'execute') && (isLiveTransaction(row) || awaitingVerdict(row, nowSec));
+
+/** The notes a note-holding row holds: a claim's own, or what a dApp transaction recorded when it was queued. */
+export const heldNoteIdsOf = (row: Pick<ITransaction, 'type' | 'noteId' | 'noteIds' | 'heldNoteIds'>): string[] => {
+  if (row.type === 'consume') return row.noteIds ?? (row.noteId != null ? [row.noteId] : []);
+  if (row.type === 'execute') return row.heldNoteIds ?? [];
+  return [];
+};
 
 /** The hold's complement for claims: a Failed or Unconfirmed consume whose notes a fresh claim may take. */
 export const isFailedClaim = (row: VerdictRow, nowSec?: number): boolean =>

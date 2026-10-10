@@ -199,6 +199,7 @@ jest.mock('./assets', () => ({
   })
 }));
 
+import { selectAutoConsumeBatch } from './auto-managed-notes';
 import { __resetClaimableNotesCacheForTests, useClaimableNotes } from './claimable-notes';
 
 // A test can leave a fetch in flight (RTL unmounts the hook, the promise chain keeps
@@ -308,6 +309,25 @@ describe('useClaimableNotes (extension mode)', () => {
 
     await waitFor(() => expect(result.current.data?.[0]?.isBeingClaimed).toBe(true));
     expect(result.current.data?.[0]?.claimingTxId).toBe('tx-held');
+  });
+
+  it('gates a native note a live dApp transaction will consume, so auto-consume leaves it out', async () => {
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'carried',
+        faucetId: 'miden-faucet',
+        amountBaseUnits: '100000000',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
+      }
+    ];
+    _g.__cnTest.uncompletedTxs = [{ id: 'tx-dapp', type: 'execute', status: 0, heldNoteIds: ['carried'] }];
+
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+
+    await waitFor(() => expect(result.current.data?.[0]?.claimingTxId).toBe('tx-dapp'));
+    expect(selectAutoConsumeBatch(result.current.data ?? [], 'miden-faucet', null)).toEqual([]);
   });
 
   it('keeps the previous gate when the consume-row read fails', async () => {

@@ -2,10 +2,10 @@ import { PswapLineageState } from '@miden-sdk/miden-sdk/lazy';
 
 import * as Repo from 'lib/miden/repo';
 
-import { holdsNotes } from './verdict-rules';
+import { isNoteHoldingRow } from './verdict-rules';
 import { compareAccountIds } from '../activity/utils';
 import { midenClientProxy } from '../back/miden-client-proxy';
-import { isLiveTransaction, ITransaction, ITransactionStatus, Transaction } from '../db/types';
+import { ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import { isSyncFused } from '../front/sync-fuse';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
@@ -107,15 +107,15 @@ export const getCompletedTransactions = async (
 };
 
 /**
- * The consumes holding their notes for `address` (#1081): live claims, and claims the reconciler can still judge
- * (`holdsNotes`). The claim dedup refuses a second claim of exactly these notes. Matched with `sameWalletAccountId`
- * because a dApp's rows store the bare address and the wallet's own the composite form.
+ * The rows holding their notes for `address` (#1081, `isNoteHoldingRow`): claims and dApp transactions that are live
+ * or that the reconciler can still judge, each holding `heldNoteIdsOf` it. Auto-consume leaves these notes out and the
+ * claim dedup refuses them: a second consume would race the holder for the note, and one of the two would fail.
+ * Matched with `sameWalletAccountId` because a dApp's rows store the bare address and the wallet's own the composite
+ * form.
  */
 export const getNoteHoldingTransactions = async (address: string): Promise<ITransaction[]> => {
   const nowSec = Math.floor(Date.now() / 1000);
-  const rows = await Repo.transactions
-    .filter(tx => tx.type === 'consume' && (isLiveTransaction(tx) || holdsNotes(tx, nowSec)))
-    .toArray();
+  const rows = await Repo.transactions.filter(tx => isNoteHoldingRow(tx, nowSec)).toArray();
   const holding = rows.filter(tx => sameWalletAccountId(tx.accountId, address));
   holding.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt || (tx1.queuedSeq ?? 0) - (tx2.queuedSeq ?? 0));
   return holding;

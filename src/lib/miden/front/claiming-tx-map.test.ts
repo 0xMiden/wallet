@@ -46,4 +46,25 @@ describe('claimingTxIdByNoteId', () => {
   it('is empty for no rows, so nothing is gated when nothing is in flight', () => {
     expect(claimingTxIdByNoteId([]).size).toBe(0);
   });
+
+  const dappTransaction = (overrides: Partial<ITransaction>): ITransaction => ({
+    id: 'tx-dapp',
+    type: 'execute',
+    accountId: 'acct',
+    status: ITransactionStatus.Queued,
+    initiatedAt: 0,
+    displayIcon: 'DEFAULT',
+    ...overrides
+  });
+
+  it('maps every note a dApp transaction will consume to that transaction', () => {
+    const map = claimingTxIdByNoteId([dappTransaction({ heldNoteIds: ['carried', 'named'], inputNoteIds: ['named'] })]);
+
+    expect(map.get('carried')).toBe('tx-dapp');
+    expect(map.get('named')).toBe('tx-dapp');
+  });
+
+  it('gates nothing for a dApp transaction that recorded no held notes', () => {
+    expect(claimingTxIdByNoteId([dappTransaction({ inputNoteIds: ['named'] })]).size).toBe(0);
+  });
 });

@@ -2,6 +2,7 @@ import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable'
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
+import { importedNoteIds } from 'lib/miden/note-quarantine';
 import * as Repo from 'lib/miden/repo';
 import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
@@ -40,7 +41,8 @@ import { queueOutgoingTransaction, spendsOf } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 import { EARN_DEPOSIT_MISSING_REQUEST_ERROR } from './constants';
-import { holdsNotes } from './verdict-rules';
+import { getNoteHoldingTransactions } from './get';
+import { heldNoteIdsOf, holdsNotes } from './verdict-rules';
 
 export const requestCustomTransaction = async (
   accountId: string,
@@ -62,6 +64,8 @@ export const requestCustomTransaction = async (
     recipientAccountId,
     spentAssetTotals
   );
+  // On the row from its insert, before the confirm releases the carried notes' quarantine and a sync lap can list them.
+  transaction.heldNoteIds = [...new Set([...(inputNoteIds ?? []), ...importedNoteIds(importNotes)])];
   // A custom request that moves nothing is not a spend, so it keeps the plain insert. One that
   // does goes through the same chokepoint as every other outgoing transaction.
   if (spentAssetTotals !== undefined && spentAssetTotals.length > 0) {
@@ -304,6 +308,15 @@ const queueConsumeRows = async (
     // A skipped note's row is the one that kept it out, not the one the other notes joined.
     const coveringTxIdByNoteId = new Map<string, string>();
     const nowSec = Math.floor(Date.now() / 1000);
+    // The notes a dApp transaction will consume, held while it is live or awaiting its verdict: a claim of one races
+    // that transaction for the note, and one of the two fails.
+    const heldByDappTransaction = new Map<string, string>();
+    for (const row of await getNoteHoldingTransactions(accountId)) {
+      if (row.type !== 'execute') continue;
+      for (const noteId of heldNoteIdsOf(row)) {
+        if (!heldByDappTransaction.has(noteId)) heldByDappTransaction.set(noteId, row.id);
+      }
+    }
 
     for (const note of notes) {
       // Read every consume row covering this noteId once (scalar `noteId`
@@ -350,6 +363,14 @@ const queueConsumeRows = async (
             dbTx.requeueStreak = undefined;
           });
         }
+        continue;
+      }
+
+      // Unlike a claim above, a tap leaves the dApp transaction's own backoff alone: it is not a retry of that row.
+      const dappTransactionId = heldByDappTransaction.get(note.id);
+      if (dappTransactionId !== undefined) {
+        blockingId = blockingId ?? dappTransactionId;
+        coveringTxIdByNoteId.set(note.id, dappTransactionId);
         continue;
       }
 

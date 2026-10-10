@@ -1484,6 +1484,60 @@ describe('doSync — native-note auto-consume', () => {
     }
   });
 
+  const putLiveDappTransaction = (heldNoteIds: string[]) =>
+    Repo.transactions.put({
+      id: 'dapp-tx',
+      accountId: 'pk-1',
+      type: 'execute',
+      status: ITransactionStatus.Queued,
+      initiatedAt: 1,
+      displayIcon: 'DEFAULT',
+      heldNoteIds
+    });
+
+  it('leaves a native note a live dApp transaction will consume out of the batch', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    await putLiveDappTransaction(['carried']);
+    try {
+      // The carried note reaches the list the moment the confirm releases its quarantine; a consume of it races the
+      // dApp's transaction for the note and one of the two fails.
+      mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+        fakeNote({ id: 'carried', faucetId: 'native-faucet', amount: '1000000' }),
+        fakeNote({ id: 'other-native', faucetId: 'native-faucet', amount: '1000000' })
+      ]);
+
+      await doSync();
+
+      expect(mockInitiateConsumeBatch).toHaveBeenCalledTimes(1);
+      expect(mockInitiateConsumeBatch.mock.calls[0]?.[1]).toEqual([expect.objectContaining({ id: 'other-native' })]);
+    } finally {
+      await Repo.transactions.clear();
+    }
+  });
+
+  it('raises no "click to claim" notification for a native note a live dApp transaction will consume', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    mockHasClients.mockReturnValue(false);
+    mockMergeAndPersistSeenNoteIds.mockResolvedValueOnce(['carried']);
+    const create = jest.fn();
+    Reflect.set(Reflect.get(globalThis, 'chrome'), 'notifications', { create });
+    await putLiveDappTransaction(['carried']);
+    try {
+      mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+        fakeNote({ id: 'carried', faucetId: 'native-faucet', amount: '1000000' })
+      ]);
+
+      await doSync();
+
+      expect(mockInitiateConsumeBatch).not.toHaveBeenCalled();
+      expect(create).not.toHaveBeenCalled();
+    } finally {
+      await Repo.transactions.clear();
+    }
+  });
+
   it('auto-consumes a backlog of individually-marginal native notes in one transaction', async () => {
     // Judged per note these were ALL refused; together they are comfortably worth one
     // transaction, which is what the wallet actually pays for.

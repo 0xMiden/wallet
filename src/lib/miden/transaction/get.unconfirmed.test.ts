@@ -74,4 +74,19 @@ describe('getNoteHoldingTransactions (#1081)', () => {
     const held = (await getNoteHoldingTransactions('mtst1acct_suffix')).map(r => r.id).sort();
     expect(held).toEqual(['awaiting', 'failed-awaiting', 'queued']);
   });
+
+  it('holds the notes of a dApp transaction while it is live or awaiting its verdict, and not once it ended', async () => {
+    const execute = (id: string, overrides: Partial<ITransaction> = {}) =>
+      row(id, { type: 'execute', noteId: undefined, noteIds: undefined, heldNoteIds: [`note-${id}`], ...overrides });
+    await Repo.transactions.bulkPut([
+      execute('x-queued', { status: ITransactionStatus.Queued, submitEvidence: undefined }),
+      execute('x-generating', { status: ITransactionStatus.GeneratingTransaction, submitEvidence: undefined }),
+      execute('x-awaiting'),
+      execute('x-completed', { status: ITransactionStatus.Completed }),
+      execute('x-failed', { status: ITransactionStatus.Failed, submitEvidence: undefined }),
+      execute('x-proven', { status: ITransactionStatus.Failed, neverCommittedAt: 5 })
+    ]);
+    const held = (await getNoteHoldingTransactions('mtst1acct')).map(r => r.id).sort();
+    expect(held).toEqual(['x-awaiting', 'x-generating', 'x-queued']);
+  });
 });
