@@ -1,6 +1,6 @@
-import { abortsLeg, InfrastructureFault } from './dapp-cells';
+import { abortsLeg, deadlineIn, InfrastructureFault } from './dapp-cells';
 import type { Journey } from './dapp-journey';
-import { nativeNoteTo } from './dapp-writes';
+import { nativeNoteTo, noteIdsSeenOver } from './dapp-writes';
 import { mintFromPublicFaucet, PublicFaucetError } from './public-faucet';
 import { waitForPublicNoteCommitment } from './public-note-commitment';
 
@@ -42,5 +42,51 @@ describe('nativeNoteTo', () => {
     expect(failure).toBeInstanceOf(InfrastructureFault);
     expect(abortsLeg(failure)).toBe(true);
     expect(jest.mocked(waitForPublicNoteCommitment)).not.toHaveBeenCalled();
+  });
+});
+
+describe('noteIdsSeenOver', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  // A wallet page whose published sync data changes once per forced sync: each lap's stamp, then each lap's notes.
+  const walletPublishing = (laps: Array<{ stamp: (since: number) => number; notes: string[] }>) => {
+    let lap = -1;
+    let since = 0;
+    const evaluate = jest.fn(async (read: () => unknown) => {
+      const current = laps[Math.min(lap, laps.length - 1)];
+      if (String(read).includes('syncedAt')) return current === undefined ? null : current.stamp(since);
+      return (current?.notes ?? []).map(id => ({ id, amountBaseUnits: '1', faucetId: '0xfa' }));
+    });
+    const triggerSync = jest.fn(async () => {
+      lap += 1;
+    });
+    const j = { walletA: { page: { evaluate }, triggerSync } } as unknown as Journey;
+    return { j, triggerSync, start: () => (since = Date.now()) };
+  };
+  const ctx = () => ({ deadline: deadlineIn(60_000, 'R1-custom'), evidence: {}, softFail: jest.fn() });
+
+  it('reads until the given number of syncs were stamped after the call, so a lap ending on an older sync is not one', async () => {
+    const { j, triggerSync, start } = walletPublishing([
+      { stamp: since => since - 5_000, notes: [] },
+      { stamp: since => since + 1, notes: [] },
+      { stamp: since => since + 2, notes: ['0xAB12'] }
+    ]);
+    start();
+    const seen = noteIdsSeenOver(j, 2, ctx());
+    await jest.advanceTimersByTimeAsync(5_000);
+    expect(await seen).toEqual(['ab12']);
+    expect(triggerSync).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps every id any lap listed', async () => {
+    const { j, start } = walletPublishing([
+      { stamp: since => since + 1, notes: ['0xA1'] },
+      { stamp: since => since + 2, notes: ['0xB2'] }
+    ]);
+    start();
+    const seen = noteIdsSeenOver(j, 2, ctx());
+    await jest.advanceTimersByTimeAsync(5_000);
+    expect((await seen).sort()).toEqual(['a1', 'b2']);
   });
 });

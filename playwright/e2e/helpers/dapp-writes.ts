@@ -9,7 +9,7 @@ import {
 } from './dapp-assertions';
 import { offchainDappAxis } from './dapp-axis';
 import { HarnessFault, InfrastructureFault, type CellContext } from './dapp-cells';
-import { canonicalAddress, normalizeHex } from './dapp-gates';
+import { canonicalAddress, normalizeHex, waitForFreshSyncs } from './dapp-gates';
 import type { AccountSlot, Journey } from './dapp-journey';
 import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
 import { waitForPublicNoteCommitment } from './public-note-commitment';
@@ -17,10 +17,12 @@ import {
   advanceChain,
   answerPrompt,
   callDapp,
+  pendingNoteIds,
   pendingNotes,
   popupBlock,
   setAutoConsume,
   unwrap,
+  walletSyncedAtMs,
   type DappHandle,
   type PendingNote,
   type PromptPlan
@@ -325,6 +327,48 @@ export async function produceNotesFromB(
     });
   }
   return notes;
+}
+
+/**
+ * Every note id the current account listed, normalized, over forced syncs until `laps` of them were stamped after the
+ * call: an absence check whose last read comes from a sync that started after whatever the cell did before it. A
+ * forced sync can return on one that was already running (wallet-page.ts triggerSync waits for any SYNC_COMPLETED),
+ * so counting laps alone does not prove that.
+ */
+export async function noteIdsSeenOver(j: Journey, laps: number, ctx: CellContext): Promise<string[]> {
+  const seen = new Set<string>();
+  const read = async () => {
+    for (const id of await pendingNoteIds(j.walletA.page)) seen.add(normalizeHex(id));
+  };
+  await ctx.deadline.race(
+    waitForFreshSyncs({
+      readSyncedAt: () => walletSyncedAtMs(j.walletA.page),
+      triggerSync: async () => {
+        await j.walletA.triggerSync(true);
+        await read();
+      },
+      sinceMs: Date.now(),
+      required: laps,
+      timeoutMs: ctx.deadline.remainingMs()
+    }),
+    `${laps} wallet syncs after the request`
+  );
+  await read();
+  return [...seen];
+}
+
+/**
+ * The note bytes the wallet queued for a background import retry (activity/notes.ts:14, 139-170): bare base64 strings,
+ * or `{ bytes }` entries once a failed retry has been recorded (:338-350).
+ */
+export async function pendingImportQueue(page: Page): Promise<string[]> {
+  return page.evaluate(async () => {
+    const got = await chrome.storage.local.get('miden-notes-pending-import');
+    const stored: unknown = Reflect.get(got, 'miden-notes-pending-import');
+    return (Array.isArray(stored) ? stored : []).map(entry =>
+      typeof entry === 'string' ? entry : String(Reflect.get(Object(entry), 'bytes') ?? '')
+    );
+  });
 }
 
 /** One discovered, unconsumed note of the current account, or null. */
