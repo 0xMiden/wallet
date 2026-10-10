@@ -254,14 +254,14 @@ export interface UsdcxExecutorDepositDeps {
 /**
  * Run the source-chain leg of an executor-route bridge-in against the tracking row `trackingTxId`.
  *
- * Order: check Arc's xReserve has Miden registered (the executor would otherwise revert the whole
- * execution after the burn), read the fee entry point's allowance, ask Circle for a quote, then approve
- * and burn. With a quote the burn goes through the fee entry point for the amount plus the fee and Circle
- * forwards and executes it on Arc; when Circle refuses or cannot be reached the burn goes through the plain token messenger for the amount
- * and the wallet executes it on Arc itself. Either way the approval is sent only when the allowance is
- * short, the hash is recorded on the row before the receipt is awaited, and the row then moves to
- * `delivering`. Nothing here waits for Circle. A quote lives about two minutes, so after an approval the burn
- * signs a second quote; the approval covers twice the quoted fee, and a fee beyond that takes the manual route.
+ * Order: check Arc's xReserve has Miden registered (the executor would otherwise revert the whole execution
+ * after the burn), read the fee entry point's allowance, ask Circle for a quote, then approve and burn. With a
+ * quote the burn goes through the fee entry point for the amount plus the fee and Circle forwards and executes
+ * it on Arc; when Circle refuses or cannot be reached the burn goes through the plain token messenger for the
+ * amount and the wallet executes it on Arc itself. Either way the approval is sent only when the allowance is
+ * short, the hash is recorded on the row before the receipt is awaited, and the row then moves to `delivering`.
+ * Nothing here waits for Circle. A quote lives about two minutes, so after an approval the burn signs a second
+ * quote; the approval covers twice the quoted fee, and a fee beyond that takes the manual route.
  */
 export async function runUsdcxExecutorDeposit(
   trackingTxId: string,
