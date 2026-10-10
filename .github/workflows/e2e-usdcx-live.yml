@@ -46,6 +46,8 @@ on:
 
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}
@@ -61,7 +63,9 @@ jobs:
     runs-on: macos-26-xlarge
     # Relayer compile on a cache miss + iOS build (~25 min) + the test, which waits
     # for Circle's attestation and the faucet's network transaction.
-    timeout-minutes: 150
+    # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
+    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI cold (up to 10 min on this runner).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 235 || 150 }}
     env:
       E2E_NETWORK: testnet
       # NO E2E_EVM_RPC_URL here: that flag sends the wallet's Arc reads to a local
@@ -136,8 +140,22 @@ jobs:
           path: ~/.cargo/bin/miden-client
           key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
 
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
       - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
 
       # The two-simulator fixture sets up the CLI for every spec, this one included.
       - name: Install miden-client-cli
