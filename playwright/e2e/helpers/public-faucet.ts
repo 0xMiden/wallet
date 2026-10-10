@@ -144,8 +144,8 @@ export async function solvePow(
 const GRANT_ATTEMPTS = 3;
 const GRANT_RETRY_DELAY_MS = 5_000;
 /**
- * Total time a grant may spend waiting out 429s. The faucet rate-limits a SHARED cooldown, not the
- * target account: on the first run of the devnet suites on next, four parallel jobs each had their
+ * Total time a grant may spend waiting out 429s. The faucet keys its cooldown per account (and
+ * API-key domain). Observed once on the devnet suites on next: four parallel jobs each had their
  * first grant for a brand-new account refused with "Account is rate limited for 25 more seconds".
  */
 const RATE_LIMIT_BUDGET_MS = 180_000;
