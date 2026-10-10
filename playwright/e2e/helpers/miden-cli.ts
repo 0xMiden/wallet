@@ -372,7 +372,7 @@ export class MidenCli {
 
   /** Set once a deployment has failed for want of a fee, which is how the chain reveals it charges. */
   private chainChargesFees = false;
-  private readonly fundedForFees = new Set<string>();
+  private readonly feeGrantCounts = new Map<string, number>();
 
   private static funderDir(): string {
     return (
@@ -431,7 +431,7 @@ export class MidenCli {
    * the one that consumes a note carrying the native fee asset, because the credit is applied to
    * the vault before `pay_fee` withdraws from it.
    */
-  private async createFaucetFunded(tomlPath: string): Promise<CLIInvocation> {
+  private async createFaucetFunded(tomlPath: string, feeGrantCount: number): Promise<CLIInvocation> {
     // `basic-wallet` is composed in deliberately. The fungible faucet component exports
     // `mint_and_send`, `receive_and_burn` and metadata accessors, but NOT `receive_asset` -- so a
     // plain faucet cannot consume a P2ID note at all, and the funding transfer aborts with
@@ -456,7 +456,12 @@ export class MidenCli {
     // Genesis funders on a local stack, the chain's public faucet on devnet; either way this
     // only SENDS the note. Consuming it below is what funds the vault -- and for this still-
     // undeployed faucet, that consumption is also its deploy.
-    let fundedBy = await this.sendNativeFundingNote(newId);
+    const sendFeeGrants = async () => {
+      let source = '';
+      for (let grant = 0; grant < feeGrantCount; grant++) source = await this.sendNativeFundingNote(newId);
+      return source;
+    };
+    let fundedBy = await sendFeeGrants();
 
     // The funding note only becomes consumable once it is committed in a block, and
     // `consume-notes` exits 0 when it finds nothing to consume -- so a single attempt can report
@@ -474,7 +479,7 @@ export class MidenCli {
       // note Processing for good, so it cannot be consumed again: fund the faucet with a new note.
       const consumeTx = consumed.parsed?.transactionId;
       if (consumed.exitCode === 0 && consumeTx && (await this.awaitCommit(consumeTx)) === 'discarded') {
-        fundedBy = await this.sendNativeFundingNote(newId);
+        if (attempt < 10) fundedBy = await sendFeeGrants();
         continue;
       }
       funded = await this.holdsFeeAsset(newId);
@@ -489,6 +494,7 @@ export class MidenCli {
           `${consumed?.stderr || consumed?.stdout || 'no output'}`
       );
     }
+    this.feeGrantCounts.set(newId, feeGrantCount);
     return created;
   }
 
@@ -607,9 +613,9 @@ export class MidenCli {
     );
   }
 
-  async fundAccountForFees(accountId: string): Promise<void> {
-    if (this.fundedForFees.has(accountId)) {
-      return;
+  async fundAccountForFees(accountId: string, minimumGrantCount = 1): Promise<void> {
+    if (!Number.isSafeInteger(minimumGrantCount) || minimumGrantCount < 1) {
+      throw new Error('minimumGrantCount must be a positive safe integer');
     }
     // `chainChargesFees` is normally learned from a deployment that failed for want of a
     // fee, which only happens inside `createFaucet`. A spec that transacts WITHOUT minting
@@ -631,10 +637,32 @@ export class MidenCli {
     // cannot consume for -- the wallet claims the note itself through auto-consume. (The
     // faucet path in `createFaucet` is the opposite case: that account IS CLI-owned, so it
     // consumes there, and the consumption doubles as its deploy.)
-    await this.sendNativeFundingNote(accountId);
-
-    this.fundedForFees.add(accountId);
+    const existingGrantCount = this.feeGrantCounts.get(accountId) ?? 0;
+    if (existingGrantCount >= minimumGrantCount) return;
+    for (let grant = existingGrantCount; grant < minimumGrantCount; grant++) {
+      await this.sendNativeFundingNote(accountId);
+    }
+    this.feeGrantCounts.set(accountId, Math.max(existingGrantCount, minimumGrantCount));
     await this.sync();
+  }
+
+  /** Read one managed account's native fee balance in base units. */
+  async nativeFeeBalance(accountId: string): Promise<bigint> {
+    const nativeFaucetId = await this.ensureNativeFaucetId();
+    if (!nativeFaucetId) throw new Error('Native fee faucet ID is unavailable for this network');
+    const shown = await this.run(`account -s ${accountId}`, { timeoutMs: 60_000 });
+    if (shown.exitCode !== 0) throw new Error(`Could not read account ${accountId}: ${shown.stderr}`);
+    const normalizedId = nativeFaucetId.replace(/^0x/i, '').toLowerCase();
+    const row = shown.stdout
+      .split('\n')
+      .find(line => /fungible asset/i.test(line) && line.toLowerCase().includes(normalizedId));
+    if (!row) return 0n;
+    const values = row.match(/[\d,]+(?:\.\d+)?/g);
+    const amount = values?.[values.length - 1]?.replace(/,/g, '');
+    if (!amount || !/^\d+$/.test(amount)) {
+      throw new Error(`Could not parse native fee balance for ${accountId} from: ${row}`);
+    }
+    return BigInt(amount);
   }
 
   /**
@@ -671,8 +699,12 @@ export class MidenCli {
   async createFaucet(
     symbol = 'TST',
     decimals = 8,
-    maxSupply: number | bigint = DEFAULT_FAUCET_MAX_SUPPLY
+    maxSupply: number | bigint = DEFAULT_FAUCET_MAX_SUPPLY,
+    feeGrantCount = 1
   ): Promise<string> {
+    if (!Number.isSafeInteger(feeGrantCount) || feeGrantCount < 1) {
+      throw new Error('feeGrantCount must be a positive safe integer');
+    }
     // Write the init storage data TOML
     const tomlPath = path.join(this.workDir, 'faucet-init.toml');
     fs.writeFileSync(tomlPath, faucetInitToml(symbol, decimals, maxSupply));
@@ -688,7 +720,7 @@ export class MidenCli {
     }
     let createResult: CLIInvocation;
     if (this.chainChargesFees) {
-      createResult = await this.createFaucetFunded(tomlPath);
+      createResult = await this.createFaucetFunded(tomlPath, feeGrantCount);
     } else {
       createResult = await this.run(
         `new-account --account-type public -p basic-fungible-faucet --init-storage-data-path ${tomlPath}`,

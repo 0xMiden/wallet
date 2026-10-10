@@ -106,6 +106,16 @@ it('reads the configured fee asset even when its symbol is not MIDEN', async () 
   await expect(vaultBalanceByFaucetId(makePage(balances), feeFaucetId)).resolves.toBe(99_999_888n);
 });
 
+it('reads the configured fee asset through a mobile WebView evaluator', async () => {
+  const mobilePage = {
+    evalJs: async <T>(js: string): Promise<T> => {
+      expect(js).toContain(JSON.stringify(feeFaucetId));
+      return [{ decimals: 6, balance: 99.999888 }] as T;
+    }
+  };
+  await expect(vaultBalanceByFaucetId(mobilePage, feeFaucetId)).resolves.toBe(99_999_888n);
+});
+
 it('does not combine distinct faucets with the same symbol', async () => {
   const balances = {
     balances: {

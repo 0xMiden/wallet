@@ -41,6 +41,7 @@ interface BridgeReceiveState {
   status?: ITransactionStatus;
   amount?: string;
   faucetId?: string;
+  midenNoteId?: string;
 }
 
 declare global {
@@ -64,6 +65,7 @@ interface LatestBridgeReceive {
   faucetId: string;
   phase?: IBridgedReceiveExtraInputs['phase'];
   displayMessage?: string;
+  evmTxHash?: string;
 }
 
 export function installBridgeInTestHooks(): void {
@@ -96,7 +98,8 @@ export function installBridgeInTestHooks(): void {
       displayMessage: row.displayMessage,
       status: row.status,
       amount: row.amount != null ? row.amount.toString() : undefined,
-      faucetId: row.faucetId
+      faucetId: row.faucetId,
+      midenNoteId: inputs?.midenNoteId
     };
   };
 
@@ -146,7 +149,8 @@ export function installBridgeInTestHooks(): void {
       amount: row.amount != null ? row.amount.toString() : undefined,
       faucetId: row.faucetId ?? '',
       phase: inputs?.phase,
-      displayMessage: row.displayMessage
+      displayMessage: row.displayMessage,
+      evmTxHash: inputs?.evmTxHash
     };
   };
 

@@ -130,31 +130,53 @@ function rowBaseUnits(label: string, balance: number, decimals: number): bigint 
 }
 
 /** Spendable base units for one full, canonical bech32 faucet id, independent of its symbol. */
-export async function vaultBalanceByFaucetId(page: Page, faucetId: string): Promise<bigint> {
-  const raw = await page.evaluate(wanted => {
-    const store:
-      | {
-          getState?: () => {
-            balances?: Record<string, TokenBalanceData[]>;
-            assetsMetadata?: Record<string, AssetMetadata>;
-          };
-        }
-      | undefined = Reflect.get(window, '__TEST_STORE__');
-    const state = store?.getState?.();
-    const out: Array<{ decimals: number; balance: number }> = [];
-    for (const tokenList of Object.values(state?.balances ?? {})) {
-      if (!Array.isArray(tokenList)) continue;
-      for (const token of tokenList) {
-        if (token?.tokenId !== wanted) continue;
-        const cached = state?.assetsMetadata?.[wanted];
-        out.push({
-          decimals: Number(token?.metadata?.decimals ?? cached?.decimals),
-          balance: Number(token?.balance ?? 0)
-        });
-      }
-    }
-    return out;
-  }, faucetId);
+interface MobilePageEvaluator {
+  evalJs<T = unknown>(js: string): Promise<T>;
+}
+
+export async function vaultBalanceByFaucetId(page: Page | MobilePageEvaluator, faucetId: string): Promise<bigint> {
+  const raw =
+    'evalJs' in page
+      ? await page.evalJs<Array<{ decimals: number; balance: number }>>(
+          `var wanted = ${JSON.stringify(faucetId)}; ` +
+            `var store = Reflect.get(window, '__TEST_STORE__'); ` +
+            `var state = store && store.getState ? store.getState() : undefined; ` +
+            `var out = []; ` +
+            `Object.values((state && state.balances) || {}).forEach(function (tokenList) { ` +
+            `if (!Array.isArray(tokenList)) return; ` +
+            `tokenList.forEach(function (token) { ` +
+            `if (!token || token.tokenId !== wanted) return; ` +
+            `var cached = state.assetsMetadata && state.assetsMetadata[wanted]; ` +
+            `out.push({ decimals: Number((token.metadata && token.metadata.decimals) ?? (cached && cached.decimals)), ` +
+            `balance: Number(token.balance ?? 0) }); ` +
+            `}); ` +
+            `}); ` +
+            `return out;`
+        )
+      : await page.evaluate(wanted => {
+          const store:
+            | {
+                getState?: () => {
+                  balances?: Record<string, TokenBalanceData[]>;
+                  assetsMetadata?: Record<string, AssetMetadata>;
+                };
+              }
+            | undefined = Reflect.get(window, '__TEST_STORE__');
+          const state = store?.getState?.();
+          const out: Array<{ decimals: number; balance: number }> = [];
+          for (const tokenList of Object.values(state?.balances ?? {})) {
+            if (!Array.isArray(tokenList)) continue;
+            for (const token of tokenList) {
+              if (token?.tokenId !== wanted) continue;
+              const cached = state?.assetsMetadata?.[wanted];
+              out.push({
+                decimals: Number(token?.metadata?.decimals ?? cached?.decimals),
+                balance: Number(token?.balance ?? 0)
+              });
+            }
+          }
+          return out;
+        }, faucetId);
 
   let total = 0n;
   for (const token of raw) {

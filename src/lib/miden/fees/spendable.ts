@@ -1,6 +1,10 @@
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 
+import { FEE_RESERVE_MULTIPLE } from './constants';
+
+export { FEE_RESERVE_MULTIPLE } from './constants';
+
 /**
  * Whether a transaction is certain to fail because the account cannot cover the
  * fee, which is taken in the native asset whatever the transaction moves.
@@ -81,8 +85,6 @@ export function hasNoFeeAsset(
  * asset's smallest unit, so the reserve is converted before subtracting. Mixing
  * them would reserve 300000 MIDEN instead of 0.3 and disable sending entirely.
  */
-export const FEE_RESERVE_MULTIPLE = 30;
-
 /**
  * The claim floor uses the SAME upper bound, and deliberately so.
  *

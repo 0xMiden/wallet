@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { discoverFeeFaucetId } from './fee-faucet';
+import { discoverFeeFaucetId, discoverVerificationBaseFee } from './fee-faucet';
 
 jest.mock('child_process', () => ({ ...jest.requireActual('child_process'), execFile: jest.fn() }));
 
@@ -19,7 +19,8 @@ describe('discoverFeeFaucetId', () => {
       storeRoot = String(options?.env?.TMPDIR);
       expect(fs.existsSync(storeRoot)).toBe(true);
       expect(args?.at(-1)).toBe('https://rpc.devnet.miden.io');
-      callback?.(null, `${FEE_FAUCET}\n`, '');
+      fs.writeFileSync(String(options?.env?.FEE_FAUCET_ID_PATH), FEE_FAUCET);
+      callback?.(null, '', '');
       return {} as ReturnType<typeof execFile>;
     });
 
@@ -40,17 +41,43 @@ describe('discoverFeeFaucetId', () => {
   });
 
   it('rejects a query that returned no canonical account ID', async () => {
-    run.mockImplementation((_file, _args, _options, callback) => {
-      callback?.(null, 'not an account ID', '');
+    run.mockImplementation((_file, _args, options, callback) => {
+      fs.writeFileSync(String(options?.env?.FEE_FAUCET_ID_PATH), 'not an account ID');
+      callback?.(null, '', '');
       return {} as ReturnType<typeof execFile>;
     });
     await expect(discoverFeeFaucetId('https://rpc.devnet.miden.io')).rejects.toThrow('fee faucet');
   });
 });
 
+describe('discoverVerificationBaseFee', () => {
+  beforeEach(() => run.mockReset());
+
+  it('reads a non-negative integer fee from the selected RPC endpoint', async () => {
+    run.mockImplementation((_file, args, options, callback) => {
+      expect(args?.at(-1)).toBe('https://rpc.testnet.miden.io');
+      fs.writeFileSync(String(options?.env?.MIDEN_VERIFICATION_BASE_FEE_PATH), '7');
+      callback?.(null, '', '');
+      return {} as ReturnType<typeof execFile>;
+    });
+    await expect(discoverVerificationBaseFee('https://rpc.testnet.miden.io')).resolves.toBe(7);
+  });
+
+  it('rejects a malformed or missing fee value', async () => {
+    run.mockImplementation((_file, _args, options, callback) => {
+      fs.writeFileSync(String(options?.env?.MIDEN_VERIFICATION_BASE_FEE_PATH), 'unknown');
+      callback?.(null, '', '');
+      return {} as ReturnType<typeof execFile>;
+    });
+    await expect(discoverVerificationBaseFee('https://rpc.testnet.miden.io')).rejects.toThrow(
+      'no valid verification base fee'
+    );
+  });
+});
+
 /** Stands in for the SDK in the child process and logs each call, so the real query script can run offline. */
 const STUB_SDK = `
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, writeFileSync } from 'node:fs';
 const log = entry => appendFileSync(process.env.FEE_FAUCET_STUB_LOG, JSON.stringify(entry) + '\\n');
 export class MidenClient {
   static async create(options) {
@@ -63,7 +90,7 @@ export class MidenClient {
   }
   async feeFaucetId() {
     log({ call: 'feeFaucetId' });
-    return { toString: () => '${FEE_FAUCET}' };
+    return { toString: () => { const id = '${FEE_FAUCET}'; writeFileSync(process.env.FEE_FAUCET_ID_PATH, id); return id; } };
   }
   terminate() {
     log({ call: 'terminate' });
@@ -102,7 +129,10 @@ describe('the discovery query script', () => {
   });
 
   it('creates an unsynced client for the node, syncs before reading the fee faucet, and terminates it', async () => {
-    await expect(discoverFeeFaucetId('http://127.0.0.1:9', sdkRoot)).resolves.toBe(FEE_FAUCET);
+    const feeFaucet = await discoverFeeFaucetId('http://127.0.0.1:9', sdkRoot).catch((error: Error) => {
+      throw new Error(`${error.message}; query calls: ${JSON.stringify(calls())}`);
+    });
+    expect(feeFaucet).toBe(FEE_FAUCET);
     expect(calls()).toEqual([
       { call: 'create', options: { rpcUrl: 'http://127.0.0.1:9', autoSync: false } },
       { call: 'syncChain' },
