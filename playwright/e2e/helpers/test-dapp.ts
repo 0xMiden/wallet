@@ -450,6 +450,18 @@ export async function revokeDappSession(wallet: GuardianAwareWalletPage, origin:
   }, origin);
 }
 
+/** The account ids the wallet holds a session for under one origin (`dapp_sessions`, dapp.ts:2367-2372). */
+export async function dappSessionsFor(wallet: GuardianAwareWalletPage, origin: string): Promise<string[]> {
+  return wallet.page.evaluate(async target => {
+    const got = await chrome.storage.local.get('dapp_sessions');
+    const all: unknown = Reflect.get(got, 'dapp_sessions');
+    const sessions: unknown = typeof all === 'object' && all !== null ? Reflect.get(all, target) : undefined;
+    return (Array.isArray(sessions) ? sessions : []).map(session =>
+      String(Reflect.get(Object(session), 'accountId') ?? '')
+    );
+  }, origin);
+}
+
 async function walletStatus(page: Page): Promise<number> {
   return page
     .evaluate(() => {

@@ -21,7 +21,7 @@ import {
   type Deadline,
   type JourneyId
 } from './dapp-cells';
-import { canonicalAddress } from './dapp-gates';
+import { canonicalAddress, sessionHeld, type SessionCheck } from './dapp-gates';
 import { knownBugRegistry } from './dapp-known-bugs';
 import { cellIdsFor } from './dapp-matrix';
 import pinned from './dapp-pinned.json';
@@ -33,6 +33,7 @@ import {
   answerPrompt,
   callDapp,
   closeOpenConfirmPages,
+  dappSessionsFor,
   ensureUnlocked,
   openTestDapp,
   pendingNoteIds,
@@ -321,13 +322,14 @@ async function establishSession(
   const sameAccount = (address: string | null) =>
     address !== null && canonicalAddress(address) === canonicalAddress(account);
   const permission = wanted === 'auto' ? 'AUTO' : 'UPON_REQUEST';
-  const already =
-    wanted !== 'none' &&
-    view.adapterConnected &&
-    sameAccount(view.adapterAddress) &&
-    sameAccount(view.providerAddress) &&
-    view.connected?.privateDataPermission === permission;
-  if (already) return;
+  const state: SessionCheck = {
+    adapterConnected: view.adapterConnected,
+    adapterAddress: view.adapterAddress,
+    providerAddress: view.providerAddress,
+    privateDataPermission: view.connected?.privateDataPermission ?? null,
+    walletSessionAccounts: await dappSessionsFor(j.walletA, dapp.origin)
+  };
+  if (wanted !== 'none' && sessionHeld(state, account, permission)) return;
   // From nothing: the adapter disconnects and the wallet forgets the origin, so the connect below must prompt.
   await callDapp(dapp, 'disconnect', {}, deadline);
   await revokeDappSession(j.walletA, dapp.origin);

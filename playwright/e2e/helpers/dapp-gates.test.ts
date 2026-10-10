@@ -1,7 +1,14 @@
 /**
  * @jest-environment node
  */
-import { assetMap, canonicalAddress, maxConcurrentConfirmPages, normalizeHex, waitForFreshSyncs } from './dapp-gates';
+import {
+  assetMap,
+  canonicalAddress,
+  maxConcurrentConfirmPages,
+  normalizeHex,
+  sessionHeld,
+  waitForFreshSyncs
+} from './dapp-gates';
 
 function clock(stamps: (number | null)[]) {
   let t = 0;
@@ -66,5 +73,34 @@ describe('normalizers', () => {
         { faucetId: 'f1', amount: 2n }
       ])
     ).toEqual({ f1: '7' });
+  });
+});
+
+describe('sessionHeld', () => {
+  const primary = 'mtst1qprimary_qr7qqq9wr6w';
+  const held = {
+    adapterConnected: true,
+    adapterAddress: primary,
+    providerAddress: 'mtst1qprimary',
+    privateDataPermission: 'UPON_REQUEST',
+    walletSessionAccounts: ['mtst1qsecond_qr7qqq9wr6w', primary]
+  };
+
+  it('holds the session when the page and the wallet agree on the account, in either address form', () => {
+    expect(sessionHeld(held, 'mtst1qprimary', 'UPON_REQUEST')).toBe(true);
+  });
+
+  it('does not hold a session the wallet revoked while the page still reports the account', () => {
+    expect(sessionHeld({ ...held, walletSessionAccounts: ['mtst1qsecond_qr7qqq9wr6w'] }, primary, 'UPON_REQUEST')).toBe(
+      false
+    );
+  });
+
+  it('does not hold a session whose provider has moved to another account', () => {
+    expect(sessionHeld({ ...held, providerAddress: 'mtst1qsecond' }, primary, 'UPON_REQUEST')).toBe(false);
+  });
+
+  it('does not hold a session granted with another permission', () => {
+    expect(sessionHeld(held, primary, 'AUTO')).toBe(false);
   });
 });

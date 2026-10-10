@@ -61,6 +61,32 @@ export const normalizeHex = (value: string): string => value.toLowerCase().repla
 /** The wallet stores some accounts under a composite `<address>_<suffix>` key; compare the address part. */
 export const canonicalAddress = (address: string): string => address.split('_')[0] ?? address;
 
+/** What the quiesce reads to decide whether a dApp already holds the session a cell wants. */
+export interface SessionCheck {
+  adapterConnected: boolean;
+  adapterAddress: string | null;
+  providerAddress: string | null;
+  privateDataPermission: string | null;
+  /** The accounts the wallet's own session store holds for the dApp's origin. */
+  walletSessionAccounts: readonly string[];
+}
+
+/**
+ * Whether the dApp is connected as `account` with `permission`, by the page and by the wallet. The page alone is not
+ * enough: the provider learns of a wallet-side revoke only from its 10 s poll (client.ts:68-87), so for up to that long
+ * it still reports the revoked account, and a request made then is refused before any popup.
+ */
+export function sessionHeld(state: SessionCheck, account: string, permission: string): boolean {
+  const same = (address: string | null) => address !== null && canonicalAddress(address) === canonicalAddress(account);
+  return (
+    state.adapterConnected &&
+    same(state.adapterAddress) &&
+    same(state.providerAddress) &&
+    state.privateDataPermission === permission &&
+    state.walletSessionAccounts.some(same)
+  );
+}
+
 /** An account's assets as `{ faucetId: amount }`, so two views compare with one `toEqual` whatever their row order. */
 export function assetMap(assets: readonly { faucetId: string; amount: string | bigint }[]): Record<string, string> {
   const totals = new Map<string, bigint>();
