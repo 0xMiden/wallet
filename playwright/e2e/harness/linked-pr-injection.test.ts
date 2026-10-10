@@ -555,6 +555,18 @@ describe('both injections read the pull request the resolver picks', () => {
     expect(text.match(/github\.event\.pull_request\.number/g)).toHaveLength(1);
     expect(pr).toMatch(/PR_NUMBER: \$\{\{ github\.event\.pull_request\.number \}\}/);
     expect(text).toMatch(/\n {8}PR_NUMBER: \$\{\{ steps\.pr\.outputs\.number \}\}\n/);
+    // A pull_request-only gate on either step, or the event check `parse` used to carry, makes a dispatch a no-op
+    // while every assertion above still holds. The event name is read only to keep sticky comments off a dispatch.
+    const parse = text.slice(
+      text.indexOf('    - id: parse\n'),
+      text.indexOf('\n    - ', text.indexOf('    - id: parse\n') + 1)
+    );
+    for (const step of [pr, parse]) {
+      expect(step).not.toMatch(/^ {6}if:/m);
+      expect(step).not.toMatch(/EVENT_NAME|github\.event_name/);
+    }
+    const eventReads = text.split('\n').filter(line => /github\.event_name|EVENT_NAME/.test(line));
+    expect(eventReads.every(line => /^ {4}- if: .*inputs\.comment == 'true'/.test(line))).toBe(true);
   });
 });
 
