@@ -168,13 +168,19 @@ export interface CellSpec<S> {
 }
 
 /**
- * `quiesce` establishes and checks the state a cell expects (spec section 5) and throws when it cannot; `restore`
+ * `quiesce` establishes and checks the state a cell expects (spec section 5) and throws when it cannot; `previous` is
+ * the record of the last cell whose body ran, so the hook can tell what that cell may have left behind. `restore`
  * runs after every cell, whatever happened. Either failing blocks every later cell: `blocked-infra` for an
  * InfrastructureFault in the quiesce, `blocked-state` otherwise.
  */
 export interface RunnerHooks<S> {
-  quiesce(cell: CellSpec<S>, deadline: Deadline): Promise<void>;
+  quiesce(cell: CellSpec<S>, deadline: Deadline, previous?: CellRecord): Promise<void>;
   restore(cell: CellSpec<S>): Promise<void>;
+}
+
+/** A cell whose body ran with no failure at all, so nothing it left behind is explained by a failure of its own. */
+export function ranClean(record: CellRecord | undefined): boolean {
+  return record?.verdict === 'pass' || record?.verdict === 'known-now-passing';
 }
 
 /** The failure as record text, capped so one huge message cannot bloat the record file. */
@@ -286,6 +292,7 @@ export interface RunnerOptions<S> {
 export class DappCellRunner<S> {
   private readonly records = new Map<string, CellRecord>();
   private blockedState: string | undefined;
+  private lastRan: CellRecord | undefined;
   private readonly now: () => number;
 
   constructor(private readonly options: RunnerOptions<S>) {
@@ -323,7 +330,7 @@ export class DappCellRunner<S> {
       this.now
     );
     try {
-      await quiesceDeadline.race(this.options.hooks.quiesce(cell, quiesceDeadline), 'quiesce');
+      await quiesceDeadline.race(this.options.hooks.quiesce(cell, quiesceDeadline, this.lastRan), 'quiesce');
     } catch (error) {
       // A live network's hosted Guardian or faucet failing the quiesce is infrastructure, not wallet state.
       if (error instanceof InfrastructureFault) {
@@ -371,7 +378,7 @@ export class DappCellRunner<S> {
       registry: this.options.registry
     });
     if (judged.verdict === 'blocked-infra') markInfraAbort(this.options.outDir, judged.error ?? 'infrastructure');
-    return this.save(
+    this.lastRan = this.save(
       this.record(cell.id, judged.verdict, this.now() - started, {
         knownBugs: judged.knownBugs,
         staleKnownBugs: judged.staleKnownBugs,
@@ -379,6 +386,7 @@ export class DappCellRunner<S> {
         stage: evidence.stage
       })
     );
+    return this.lastRan;
   }
 
   /** Records every cell not yet run as blocked by infrastructure, for a journey that cannot even fund. */

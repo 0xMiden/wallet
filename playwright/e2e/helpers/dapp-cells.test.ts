@@ -14,7 +14,11 @@ import {
   isInfrastructureFailure,
   judgeCell,
   markInfraAbort,
+  ranClean,
+  type CellRecord,
   type CellSpec,
+  type CellVerdict,
+  type Deadline,
   type JourneyRecord
 } from './dapp-cells';
 import type { KnownBug, KnownBugRegistry } from './dapp-known-bugs';
@@ -133,6 +137,25 @@ describe('judgeCell', () => {
     expect(judgeCell({ ...base, registry: registry([]), hardError: new InfrastructureFault('faucet') }).verdict).toBe(
       'blocked-infra'
     );
+  });
+});
+
+describe('ranClean', () => {
+  const recordOf = (verdict: CellVerdict): CellRecord => ({
+    id: 'C1',
+    verdict,
+    knownBugs: [],
+    staleKnownBugs: [],
+    durationMs: 0,
+    finishedAt: ''
+  });
+
+  it('holds only for a cell that ran without a failure', () => {
+    expect(ranClean(recordOf('pass'))).toBe(true);
+    expect(ranClean(recordOf('known-now-passing'))).toBe(true);
+    expect(ranClean(recordOf('fail-known'))).toBe(false);
+    expect(ranClean(recordOf('harness-fault'))).toBe(false);
+    expect(ranClean(undefined)).toBe(false);
   });
 });
 
@@ -272,6 +295,25 @@ describe('DappCellRunner', () => {
     const failing = makeRunner(outDir(), [], ['C1', 'C2']);
     await failing.run(cellOf('C1', async () => undefined));
     expect(() => failing.finish()).toThrow('1 of 2 cells did not pass:\n  C2 not-run');
+  });
+
+  it('hands each quiesce the record of the last cell whose body ran', async () => {
+    const seen: string[] = [];
+    const hooks = {
+      ...quietHooks(),
+      quiesce: async (cell: CellSpec<string>, _deadline?: Deadline, previous?: CellRecord) =>
+        void seen.push(`${cell.id} after ${previous === undefined ? 'nothing' : `${previous.id} ${previous.verdict}`}`)
+    };
+    const runner = makeRunner(outDir(), [], ['C1', 'C2', 'C3', 'C4'], hooks);
+    await runner.run(cellOf('C1', async () => undefined));
+    await runner.run(cellOf('C2', async () => undefined, { needs: ['C4'] }));
+    await runner.run(
+      cellOf('C3', async () => {
+        throw new Error('boom');
+      })
+    );
+    await runner.run(cellOf('C4', async () => undefined));
+    expect(seen).toEqual(['C1 after nothing', 'C3 after C1 pass', 'C4 after C3 fail-new']);
   });
 
   it('refuses a cell that was not declared', async () => {

@@ -3,7 +3,7 @@ import { expect, type Page } from '@playwright/test';
 import { vaultBalanceOfCurrentAccount, waitForVaultBalanceOfCurrentAccount } from './balance-truth';
 import type { DappAxis } from './dapp-axis';
 import type { CellContext } from './dapp-cells';
-import { normalizeHex } from './dapp-gates';
+import { canonicalAddress, normalizeHex } from './dapp-gates';
 import {
   describeTransactionRow,
   readTransactionRow,
@@ -183,7 +183,8 @@ function pairNotes(
 
 /**
  * Asserts `writes`, all made from `side` after `baseline`, to the end. `vaultDelta` is the net change per faucet the
- * writes make before fees; the recorded fees come off the native asset on top of it.
+ * writes make before fees; the recorded fees come off the native asset on top of it. The writes must be all the account
+ * ran since the baseline.
  */
 export async function expectWritesToTheEnd(
   side: WriteSide,
@@ -298,7 +299,29 @@ export async function expectWritesToTheEnd(
       ctx
     );
   }
+
+  // 7. Nothing else ran. The waits in step 5 pass the moment the vault reads the expected value, so a requeue that
+  // became a second payment and lands later goes unseen there: the vault is read again across forced syncs, and the
+  // account's rows since the baseline must be these writes' and no others.
+  const expectedVault: Record<string, bigint> = {};
+  for (const faucetId of new Set([...Object.keys(baseline.vault), ...Object.keys(deltas)])) {
+    expectedVault[faucetId] = (baseline.vault[faucetId] ?? 0n) + (deltas[faucetId] ?? 0n);
+  }
+  await expectVaultHolds(side, expectedVault, 'vault after the writes', ctx);
+  const txIds = new Set(writes.map(write => write.txId));
+  const others = (await rowsOfAccountSince(side, baseline)).filter(entry => !txIds.has(entry.id));
+  expect(others.map(describeTransactionRow), 'rows the account ran besides these writes').toEqual([]);
   return results;
+}
+
+/** The executing account's rows the baseline did not hold; a row naming no account counts as the account's. */
+async function rowsOfAccountSince(side: WriteSide, baseline: Baseline): Promise<TransactionRowSnapshot[]> {
+  const account = canonicalAddress(side.account);
+  return (await readTransactionRows(side.wallet.page)).filter(
+    entry =>
+      !baseline.rowIds.includes(entry.id) &&
+      (entry.accountId === undefined || canonicalAddress(entry.accountId) === account)
+  );
 }
 
 /** The exact refusal a dApp sees; `message` as a pattern only where the wallet interpolates into it. */
@@ -316,15 +339,25 @@ export async function expectNoNewRows(side: WriteSide, baseline: Baseline): Prom
   expect(added.map(describeTransactionRow), 'rows a refused request added').toEqual([]);
 }
 
-/** Unchanged across two forced syncs, so a late debit has time to show. */
-export async function expectVaultUnchanged(side: WriteSide, baseline: Baseline, ctx: CellContext): Promise<void> {
+/** Equal to `expected` across two forced syncs, so a late debit has time to show. */
+async function expectVaultHolds(
+  side: WriteSide,
+  expected: Record<string, bigint>,
+  what: string,
+  ctx: CellContext
+): Promise<void> {
   await selectAccountIfNeeded(side.wallet, side.account);
   for (let lap = 0; lap < 2; lap += 1) {
-    await ctx.deadline.race(side.wallet.triggerSync(true), 'sync before the vault check');
+    await ctx.deadline.race(side.wallet.triggerSync(true), `sync before the ${what} check`);
     const now: Record<string, bigint> = {};
-    for (const id of Object.keys(baseline.vault)) now[id] = await vaultBalanceOfCurrentAccount(side.wallet.page, id);
-    expect(now, `vault after sync ${lap + 1}`).toEqual(baseline.vault);
+    for (const id of Object.keys(expected)) now[id] = await vaultBalanceOfCurrentAccount(side.wallet.page, id);
+    expect(now, `${what} after sync ${lap + 1}`).toEqual(expected);
   }
+}
+
+/** Unchanged across two forced syncs, so a late debit has time to show. */
+export async function expectVaultUnchanged(side: WriteSide, baseline: Baseline, ctx: CellContext): Promise<void> {
+  await expectVaultHolds(side, baseline.vault, 'vault', ctx);
 }
 
 /** Spec section 5, "Negative paths": stage and text are pinned, because waitForTransaction returns row.error verbatim. */

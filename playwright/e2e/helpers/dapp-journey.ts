@@ -17,7 +17,9 @@ import {
   infraAborted,
   isInfrastructureFailure,
   markInfraAbort,
+  ranClean,
   type CellContext,
+  type CellRecord,
   type CellSpec,
   type Deadline,
   type JourneyId
@@ -162,7 +164,7 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
     declared: cellIdsFor(journey, axis.label),
     registry: knownBugRegistry,
     hooks: {
-      quiesce: (cell, deadline) => quiesce(current(), cell, deadline),
+      quiesce: (cell, deadline, previous) => quiesce(current(), cell, deadline, previous),
       restore: () => restore(current(), touched)
     }
   });
@@ -276,7 +278,7 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
 }
 
 /** Brings the wallet and the dApp to the state a cell declares, then checks it (spec section 5, "Quiesce"). */
-async function quiesce(j: Journey, cell: DappCell, deadline: Deadline): Promise<void> {
+async function quiesce(j: Journey, cell: DappCell, deadline: Deadline, previous?: CellRecord): Promise<void> {
   const state: DappCellState = { account: 'primary', session: 'upon-request', dapp: 'one', ...cell.state };
   await ensureUnlocked(j.walletA);
   await closeOpenConfirmPages(j.walletA.page.context());
@@ -290,7 +292,16 @@ async function quiesce(j: Journey, cell: DappCell, deadline: Deadline): Promise<
   await j.walletA.waitForQueueDrained(deadline.remainingMs());
   // After the drain: the settle ledger is complete only once nothing is left to push (guardian-commitments.ts:141-143).
   await j.axis.settle(j.walletA);
-  if ((await pendingNoteIds(j.walletB.page)).length > 0) await j.walletB.claimAllNotes(deadline.remainingMs());
+  const pendingAtB = await pendingNoteIds(j.walletB.page);
+  // A cell that ran clean claimed every note it sent B (expectReceivedByRecipient), so a note still pending after one
+  // is a payment no write accounted for, such as a second payment that landed late. It blocks the journey instead of
+  // being claimed; after any other outcome the cell's own unclaimed notes are claimed.
+  if (pendingAtB.length > 0 && ranClean(previous)) {
+    throw new Error(
+      `wallet B holds notes no write accounted for after ${previous?.id} passed: ${pendingAtB.join(', ')}`
+    );
+  }
+  if (pendingAtB.length > 0) await j.walletB.claimAllNotes(deadline.remainingMs());
   const leftB = await pendingNoteIds(j.walletB.page);
   if (leftB.length > 0) throw new Error(`wallet B still holds pending notes: ${leftB.join(', ')}`);
   await establishSession(j, dapp, account, state.session, deadline);
