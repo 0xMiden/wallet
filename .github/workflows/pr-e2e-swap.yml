@@ -9,6 +9,8 @@ concurrency:
   cancel-in-progress: true
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 jobs:
   # Heavy job runs on push-to-main and workflow_dispatch, not on pull_request.
   # The workflow still triggers on PRs so swap-e2e-gate (the required check) can

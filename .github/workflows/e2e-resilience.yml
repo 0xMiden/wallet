@@ -22,6 +22,8 @@ concurrency:
   cancel-in-progress: true
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 jobs:
   resilience-chrome:
     name: infra-resilience-e2e (chrome)
@@ -68,7 +70,20 @@ jobs:
             ~/.cargo/bin
             ~/.cargo/registry
           key: ${{ steps.cargo_cache_key.outputs.key }}
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
       - run: yarn install --frozen-lockfile
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
       - name: Pre-install miden-client-cli (off the per-test clock)
         # The harness auto-installs the CLI lazily on first use, but that ~7min compile
         # blows the 300s per-test timeout, so it is pre-installed here. The action also

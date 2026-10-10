@@ -31,6 +31,8 @@ on:
 
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -90,15 +92,29 @@ jobs:
           path: ~/.cargo/bin/miden-client
           key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
 
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
       - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
 
       - name: Install miden-client-cli
         # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
         # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
         # and skips the ~7 min compile when the cache above already restored the binary.
         # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
-        # no marker (as here) means the published pin, exactly as before.
+        # no marker means the published pin, exactly as before.
         uses: ./.github/actions/install-miden-client-cli
 
       # CDP bridge (appium-remote-debugger) requires Simulator.app GUI running —

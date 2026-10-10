@@ -217,10 +217,12 @@ runs:
         # and leave the wallet on the published version.
         echo "::group::Rewrite wallet package.json"
         cd "$GITHUB_WORKSPACE"
-        node <<EOF
+        INJECTED_PKG_DIR="${GUARDIAN_DIR}/${PKG_SUBDIR}" node <<EOF
         const fs = require('fs');
         const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-        const target = 'file:' + "${GUARDIAN_DIR}/${PKG_SUBDIR}";
+        // Read from the environment, not spliced into this literal: the desktop build's Windows leg
+        // has a RUNNER_TEMP like D:\a\_temp, whose backslashes a JS string reads as escapes.
+        const target = 'file:' + process.env.INJECTED_PKG_DIR;
         const name = '@openzeppelin/miden-multisig-client';
         const orig = {};
         for (const field of ['dependencies', 'devDependencies']) {
