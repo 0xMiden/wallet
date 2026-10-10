@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { pollUntil } from './dapp-assertions';
 import {
   DappCellRunner,
   deadlineIn,
@@ -144,6 +145,22 @@ describe('callDapp', () => {
     expect(error).toMatchObject({ message: expect.stringContaining('syncChain: TypeError: Failed to fetch') });
     expect(error).toMatchObject({ message: expect.stringContaining('after 2 attempts') });
     expect(calls).toHaveLength(2);
+  });
+
+  it('still names the node when the deadline cuts a chain read polled until it answers', async () => {
+    const { dapp } = dappAnswering([nodeError(), () => new Promise(() => undefined)]);
+    const deadline = deadlineIn(10_000, 'W1');
+    const read = pollUntil(
+      () => callDapp(dapp, 'chainNote', { noteId: '0x01' }, deadline),
+      note => note.found,
+      'note 0x01 on chain',
+      contextFor(deadline),
+      { bounded: true }
+    ).catch((error: unknown) => error);
+    await jest.advanceTimersByTimeAsync(10_000);
+    const error = await read;
+    expect(error).toBeInstanceOf(ChainUnavailable);
+    expect(error).toMatchObject({ message: expect.stringContaining('after 2 attempts') });
   });
 
   it('stops asking when the time left would not cover the interval and an attempt as long as the last', async () => {

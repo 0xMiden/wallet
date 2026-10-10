@@ -43,16 +43,20 @@ export interface Baseline {
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
-/** Re-reads until `done`, each read raced against the cell's deadline; gives up with the last value it saw. */
+/**
+ * Re-reads until `done`, each read raced against the cell's deadline; gives up with the last value it saw. With
+ * `bounded`, the read already races that deadline itself (a `callDapp` given `ctx.deadline`) and is not raced again: a
+ * second race on the same deadline wins the tie and hides the node failure `callDapp` reports when the deadline cuts it.
+ */
 export async function pollUntil<T>(
   read: () => Promise<T>,
   done: (value: T) => boolean,
   what: string,
   ctx: CellContext,
-  intervalMs = 2_000
+  { intervalMs = 2_000, bounded = false }: { intervalMs?: number; bounded?: boolean } = {}
 ): Promise<T> {
   for (;;) {
-    const value = await ctx.deadline.race(read(), what);
+    const value = await (bounded ? read() : ctx.deadline.race(read(), what));
     if (done(value)) return value;
     if (ctx.deadline.remainingMs() < intervalMs) throw new Error(`${what}: last read ${JSON.stringify(value)}`);
     await sleep(intervalMs);
@@ -228,14 +232,15 @@ export async function expectWritesToTheEnd(
   }
 
   // 3. The chain's view, through the dApp's own RpcClient, independent of the wallet. Each read takes the deadline, so
-  // a read the node fails is asked again rather than ending the cell (callDapp).
+  // a read the node fails is asked again rather than ending the cell, and is polled `bounded` (callDapp).
   for (const [index, write] of writes.entries()) {
     for (const [expected, actual] of pairs[index] ?? []) {
       const onChain = await pollUntil(
         () => callDapp(side.dapp, 'chainNote', { noteId: actual.noteId }, ctx.deadline),
         note => note.found,
         `note ${actual.noteId} on chain`,
-        ctx
+        ctx,
+        { bounded: true }
       );
       expect({ sender: normalizeHex(onChain.senderHex ?? ''), type: onChain.noteType }).toEqual({
         sender: normalizeHex(side.accountIdHex),
@@ -250,7 +255,8 @@ export async function expectWritesToTheEnd(
         () => callDapp(side.dapp, 'chainNullifier', { nullifierHex: nullifier }, ctx.deadline),
         spent => spent.committedAt !== null,
         `nullifier ${nullifier} committed`,
-        ctx
+        ctx,
+        { bounded: true }
       );
     }
   }
@@ -258,7 +264,8 @@ export async function expectWritesToTheEnd(
     () => callDapp(side.dapp, 'chainAccount', { accountId: side.accountIdHex }, ctx.deadline),
     account => account.found && account.commitmentHex !== baseline.commitmentHex,
     'account commitment moved on chain',
-    ctx
+    ctx,
+    { bounded: true }
   );
 
   // 4. Guardian only, as axis data (spec section 5, step 4).

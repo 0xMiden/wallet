@@ -5,7 +5,7 @@ import { expectWritesToTheEnd, type Baseline, type WriteSide } from './dapp-asse
 import type { DappAxis } from './dapp-axis';
 import { deadlineIn, type CellContext } from './dapp-cells';
 import { readTransactionRow, readTransactionRows, type TransactionRowSnapshot } from './history';
-import { callDapp, type DappHandle } from './test-dapp';
+import { callDapp, ChainUnavailable, type DappHandle } from './test-dapp';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
 
 // Playwright's expect takes a message as its second argument, which Jest's refuses (guardian-axis-coverage.test.ts).
@@ -119,4 +119,35 @@ describe('expectWritesToTheEnd', () => {
     walletShows({ [TOKEN]: 10_000n - 2n * AMOUNT, [NATIVE]: 1_000n - 2n * FEE }, [row('funding'), written]);
     await expect(assertSend(sideOf().side)).rejects.toThrow();
   });
+
+  // callDapp races each attempt against the same deadline and names the node only after its own race lost, so its
+  // failure settles just after the deadline; a second race on that deadline would report CellDeadlineExceeded instead.
+  it.each(['chainNote', 'chainNullifier', 'chainAccount'])(
+    'reports the node, not the deadline, when the deadline cuts %s after a node failure',
+    async failing => {
+      jest.useFakeTimers();
+      try {
+        walletShows(after, [row('funding'), written]);
+        const answer = jest.mocked(callDapp).getMockImplementation()!;
+        jest.mocked(callDapp).mockImplementation(((dapp: DappHandle, command: string, ...rest: unknown[]) => {
+          if (command === 'chainNullifier' && command !== failing) return Promise.resolve({ committedAt: 9 });
+          if (command !== failing) return (answer as (...args: unknown[]) => unknown)(dapp, command, ...rest);
+          return new Promise((_, reject) => {
+            setTimeout(() => reject(new ChainUnavailable(`${command}: node down (after 2 attempts)`)), 5_001);
+          });
+        }) as unknown as typeof callDapp);
+        const settled = expectWritesToTheEnd(
+          sideOf().side,
+          baseline,
+          [{ txId: TX, outputNotes: [{ noteType: 'public' }], consumedNullifiers: ['0xnullifier'] }],
+          { [TOKEN]: -AMOUNT },
+          { deadline: deadlineIn(5_000, 'W1'), evidence: {}, softFail: () => undefined }
+        ).catch((error: unknown) => error);
+        await jest.advanceTimersByTimeAsync(5_001);
+        expect(await settled).toBeInstanceOf(ChainUnavailable);
+      } finally {
+        jest.useRealTimers();
+      }
+    }
+  );
 });
