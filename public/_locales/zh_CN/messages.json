@@ -1703,6 +1703,10 @@
     "message": "搜索代币",
     "englishSource": "Search for tokens"
   },
+  "sendUsdcxOnlyDestination": {
+    "message": "只有 USDCx 可以发送至该网络。",
+    "englishSource": "Only USDCx can be sent to this network."
+  },
   "available": {
     "message": "有货",
     "englishSource": "Available"

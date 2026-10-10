@@ -374,6 +374,7 @@
   "calculatingQuote": "計算中",
   "selectAToken": "選擇一個代幣",
   "searchForTokens": "搜尋代幣",
+  "sendUsdcxOnlyDestination": "僅能將 USDCx 發送至此網路。",
   "available": "有貨",
   "approxFiatValue": "≈ $value$ 美元",
   "reviewDetails": "評論詳情",

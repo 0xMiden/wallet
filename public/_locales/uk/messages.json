@@ -1703,6 +1703,10 @@
     "message": "Пошук токенів",
     "englishSource": "Search for tokens"
   },
+  "sendUsdcxOnlyDestination": {
+    "message": "У цю мережу можна надсилати лише USDCx.",
+    "englishSource": "Only USDCx can be sent to this network."
+  },
   "available": {
     "message": "У наявності",
     "englishSource": "Available"
