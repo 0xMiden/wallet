@@ -161,6 +161,23 @@ export async function fetchActiveBridgePrompts(accountId: string): Promise<ITran
 // the row (#1250).
 const FAILED_UNCONFIRMED_BRIDGE_POLL_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+// A USDCx burn's destination check may never confirm (an accepted limit in CLAUDE.md), so a Completed USDCx row is
+// checked less often as it ages instead of costing RPC calls on every tick forever. No row is closed by age.
+const USDCX_CHECK_INTERVALS: readonly { olderThanMs: number; everyMs: number }[] = [
+  { olderThanMs: 24 * 60 * 60 * 1000, everyMs: 60 * 60 * 1000 },
+  { olderThanMs: 60 * 60 * 1000, everyMs: 5 * 60 * 1000 }
+];
+const usdcxCheckedAt = new Map<string, number>();
+
+function isUsdcxCheckDue(tx: ITransaction, now: number): boolean {
+  const ageMs = now - (tx.completedAt ?? tx.initiatedAt) * 1000;
+  const everyMs = USDCX_CHECK_INTERVALS.find(step => ageMs >= step.olderThanMs)?.everyMs ?? 0;
+  const checkedAt = usdcxCheckedAt.get(tx.id);
+  if (checkedAt !== undefined && now - checkedAt < everyMs) return false;
+  usdcxCheckedAt.set(tx.id, now);
+  return true;
+}
+
 /**
  * Poll one bridge row against its provider - a Completed row with something left to
  * settle, with no window, or a Failed row whose outcome `isUnconfirmedFailure` still
@@ -192,6 +209,7 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
   if (!inputs) return;
 
   if (inputs.provider === 'usdcx') {
+    if (!isUsdcxCheckDue(tx, Date.now())) return;
     const { pollUsdcxBurn } = await import('lib/usdcx/burn-status');
     await pollUsdcxBurn(tx);
     await pollUsdcxDestination(tx);
