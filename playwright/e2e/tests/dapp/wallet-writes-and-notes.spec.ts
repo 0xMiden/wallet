@@ -277,9 +277,16 @@ function writeCells(
           real.every(id => notes.some(note => normalizeHex(note.noteId) === id));
         // Committed first, asked by each note's own id, so a miss below is the lookup by the returned id alone (K10).
         await pollUntil(() => list(own), listsEvery, 'every imported note listed by its own id once committed', ctx);
-        const listed = await list(returned);
-        ctx.evidence.returnedIdUnlisted = !listsEvery(listed);
-        expect(real.map(id => listed.filter(note => normalizeHex(note.noteId) === id).length)).toEqual([1, 1, 1]);
+        // a, b and c are A's only consumable private notes here, so a wallet that ignored the ids would answer the
+        // three-id query right; asked one returned id at a time (spec N4's [id]) it would answer all three to each.
+        const asks = [
+          ...returned.map((id, index) => ({ noteIds: [id], want: real.slice(index, index + 1) })),
+          { noteIds: returned, want: [...real].sort() }
+        ];
+        const got: string[][] = [];
+        for (const { noteIds } of asks) got.push((await list(noteIds)).map(note => normalizeHex(note.noteId)).sort());
+        ctx.evidence.returnedIdUnlisted = asks.some(({ want }, index) => want.some(id => !got[index]?.includes(id)));
+        expect(got).toEqual(asks.map(({ want }) => want));
       }
     },
     W5a: consumeImportedCell('N3a', supplied.a, 'requestTransaction', supplied.a.amount, '3.5'),
