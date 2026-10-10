@@ -10,8 +10,8 @@ export interface PowChallenge {
   target: bigint;
 }
 
+// Faucet 0.17.0 answers a grant with its note id alone.
 export interface MintedNote {
-  txId: string;
   noteId: string;
 }
 
@@ -257,7 +257,6 @@ export async function requestTokens(
 ): Promise<MintedNote> {
   const params = new URLSearchParams({
     account_id: accountId,
-    is_private_note: 'false',
     asset_amount: amount.toString(),
     challenge,
     nonce: nonce.toString()
@@ -271,8 +270,8 @@ export async function requestTokens(
       return { kind: 'failed', status: response.status, detail: await response.text().catch(() => '') };
     }
     try {
-      const json: { tx_id: string; note_id: string } = await response.json();
-      return { kind: 'minted', note: { txId: json.tx_id, noteId: json.note_id } };
+      const json: { note_id: string } = await response.json();
+      return { kind: 'minted', note: { noteId: json.note_id } };
     } catch (error) {
       return { kind: 'unreadable', error };
     }

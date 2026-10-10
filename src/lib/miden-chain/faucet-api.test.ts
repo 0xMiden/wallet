@@ -446,8 +446,9 @@ describe('faucet-api', () => {
   });
 
   describe('requestTokens', () => {
-    it('requests a public note with the solved challenge', async () => {
-      fetchMock.mockResolvedValue(jsonResponse({ tx_id: '0xtx', note_id: '0xnote' }));
+    it('requests the grant with the solved challenge and reads back its note id alone', async () => {
+      // Faucet 0.17.0 dropped `is_private_note` (every grant is public) and answers with `note_id` only.
+      fetchMock.mockResolvedValue(jsonResponse({ note_id: '0xnote' }));
 
       const result = await requestTokens(
         'https://faucet-api.example',
@@ -459,7 +460,6 @@ describe('faucet-api', () => {
 
       const expectedParams = new URLSearchParams({
         account_id: 'mtst1testaddress',
-        is_private_note: 'false',
         asset_amount: '100000000',
         challenge: CHALLENGE_HEX,
         nonce: '42'
@@ -468,7 +468,7 @@ describe('faucet-api', () => {
         `https://faucet-api.example/get_tokens?${expectedParams}`,
         expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
-      expect(result).toEqual({ txId: '0xtx', noteId: '0xnote' });
+      expect(result).toStrictEqual({ noteId: '0xnote' });
     });
 
     it('forwards the abort signal to the fetch', async () => {
@@ -908,11 +908,11 @@ describe('faucet-api', () => {
       const tokensUrl = new URL(fetchMock.mock.calls[1][0]);
       expect(`${tokensUrl.origin}${tokensUrl.pathname}`).toBe(`${baseUrl}/get_tokens`);
       expect(tokensUrl.searchParams.get('account_id')).toBe('mtst1testaddress');
-      expect(tokensUrl.searchParams.get('is_private_note')).toBe('false');
+      expect(tokensUrl.searchParams.has('is_private_note')).toBe(false);
       expect(tokensUrl.searchParams.get('asset_amount')).toBe('100000000');
       expect(tokensUrl.searchParams.get('challenge')).toBe(CHALLENGE_HEX);
       expect(tokensUrl.searchParams.get('nonce')).toMatch(/^\d+$/);
-      expect(result).toEqual({ txId: '0xtx', noteId: '0xnote' });
+      expect(result).toStrictEqual({ noteId: '0xnote' });
     });
 
     it('sends the token request only once onBeforeSubmit has finished, and never when it fails', async () => {
