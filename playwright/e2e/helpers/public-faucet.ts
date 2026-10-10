@@ -169,11 +169,7 @@ async function failedResponse(label: string, response: Response): Promise<Error>
   return response.status >= 500 ? new FaucetServerError(message) : new Error(message);
 }
 
-async function requestGrant(
-  baseUrl: string,
-  accountId: string,
-  amount: bigint
-): Promise<{ txId?: string; noteId: string }> {
+async function requestGrant(baseUrl: string, accountId: string, amount: bigint): Promise<{ noteId: string }> {
   const { challenge, target } = await faucetFetch(
     `${baseUrl}/pow?${new URLSearchParams({ account_id: accountId, amount: amount.toString() })}`,
     async response => {
@@ -188,7 +184,6 @@ async function requestGrant(
 
   const params = new URLSearchParams({
     account_id: accountId,
-    is_private_note: 'false',
     asset_amount: amount.toString(),
     challenge,
     nonce: nonce.toString()
@@ -202,8 +197,7 @@ async function requestGrant(
     if (typeof noteId !== 'string' || !/^0x[0-9a-f]{64}$/i.test(noteId)) {
       throw new Error('Public faucet returned an invalid note ID');
     }
-    const txId = Reflect.get(json as object, 'tx_id');
-    return { txId: typeof txId === 'string' ? txId : undefined, noteId };
+    return { noteId };
   });
 }
 
@@ -237,7 +231,7 @@ export async function mintFromPublicFaucet(
   amount?: bigint,
   retryDelayMs: number = GRANT_RETRY_DELAY_MS,
   sleep: (ms: number) => Promise<void> = ms => new Promise(resolve => setTimeout(resolve, ms))
-): Promise<{ txId?: string; noteId: string }> {
+): Promise<{ noteId: string }> {
   let resolvedAmount = amount;
   let serverFailures = 0;
   let rateLimitedMs = 0;

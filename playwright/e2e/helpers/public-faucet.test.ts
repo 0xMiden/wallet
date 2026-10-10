@@ -123,7 +123,7 @@ describe('mintFromPublicFaucet', () => {
       reply(200, { challenge: 'aa', target: EASY_TARGET }),
       reply(200, { tx_id: '0xtx', note_id: NOTE_ID })
     ]);
-    await expect(mintFromPublicFaucet(BASE, ACCOUNT)).resolves.toEqual({ txId: '0xtx', noteId: NOTE_ID });
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT)).resolves.toEqual({ noteId: NOTE_ID });
     expect(urls[0]).toBe(`${BASE}/get_metadata`);
     expect(new URL(urls[1]!).searchParams.get('amount')).toBe(String(baseAmount));
     expect(new URL(urls[2]!).searchParams.get('asset_amount')).toBe(String(baseAmount));
@@ -143,6 +143,12 @@ describe('mintFromPublicFaucet', () => {
     expect(urls).toEqual([`${BASE}/get_metadata`]);
   });
 
+  it('sends no is_private_note, which faucet 0.17.0 removed', async () => {
+    const urls = serve([reply(200, { challenge: 'aa', target: EASY_TARGET }), reply(200, { note_id: NOTE_ID })]);
+    await mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0);
+    expect(new URL(urls[1]!).searchParams.has('is_private_note')).toBe(false);
+  });
+
   it('retains one advertised amount across server and rate-limit retries', async () => {
     const urls = serve([
       reply(200, { base_amount: 10_000 }),
@@ -157,7 +163,7 @@ describe('mintFromPublicFaucet', () => {
       mintFromPublicFaucet(BASE, ACCOUNT, undefined, 0, async ms => {
         waits.push(ms);
       })
-    ).resolves.toEqual({ txId: '0xtx', noteId: NOTE_ID });
+    ).resolves.toEqual({ noteId: NOTE_ID });
     expect(urls.filter(url => url.endsWith('/get_metadata'))).toHaveLength(1);
     expect(urls.filter(url => url.includes('/pow?')).map(url => new URL(url).searchParams.get('amount'))).toEqual([
       '10000',
@@ -177,10 +183,7 @@ describe('mintFromPublicFaucet', () => {
       reply(200, { challenge: 'aa', target: EASY_TARGET }),
       reply(200, { tx_id: '0xtx', note_id: NOTE_ID })
     ]);
-    await expect(mintFromPublicFaucet(BASE, ACCOUNT, undefined, 0)).resolves.toEqual({
-      txId: '0xtx',
-      noteId: NOTE_ID
-    });
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT, undefined, 0)).resolves.toEqual({ noteId: NOTE_ID });
     expect(urls.slice(0, 2)).toEqual([`${BASE}/get_metadata`, `${BASE}/get_metadata`]);
     expect(new URL(urls[2]!).searchParams.get('amount')).toBe('10000');
   });
@@ -201,7 +204,7 @@ describe('mintFromPublicFaucet', () => {
       reply(200, { tx_id: '0xtx', note_id: NOTE_ID })
     ]);
 
-    await expect(mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0)).resolves.toEqual({ txId: '0xtx', noteId: NOTE_ID });
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0)).resolves.toEqual({ noteId: NOTE_ID });
 
     expect(urls.filter(url => url.includes('/pow?'))).toHaveLength(2);
     expect(urls[3]).toContain('challenge=bb');
@@ -245,7 +248,7 @@ describe('mintFromPublicFaucet', () => {
       mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0, async ms => {
         waits.push(ms);
       })
-    ).resolves.toEqual({ txId: '0xtx', noteId: NOTE_ID });
+    ).resolves.toEqual({ noteId: NOTE_ID });
 
     expect(waits).toEqual([26_000]);
     expect(urls[3]).toContain('challenge=bb');
@@ -266,10 +269,7 @@ describe('mintFromPublicFaucet', () => {
       reply(200, { tx_id: '0xtx', note_id: NOTE_ID })
     ]);
 
-    await expect(mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0, async () => {})).resolves.toEqual({
-      txId: '0xtx',
-      noteId: NOTE_ID
-    });
+    await expect(mintFromPublicFaucet(BASE, ACCOUNT, 1n, 0, async () => {})).resolves.toEqual({ noteId: NOTE_ID });
   });
 
   it('gives up with the 429 once waiting would exceed its budget', async () => {
@@ -386,7 +386,7 @@ describe('mintFromPublicFaucet', () => {
       // The bound ends the body at 15 000 ms; the retry's 0 ms delay runs as a 1 ms timer after it.
       await jest.advanceTimersByTimeAsync(100);
 
-      expect(grant.outcome).toEqual({ txId: '0xtx', noteId: NOTE_ID });
+      expect(grant.outcome).toEqual({ noteId: NOTE_ID });
       expect(urls).toHaveLength(4);
       expect(urls[3]).toContain('challenge=bb');
     });
@@ -418,9 +418,8 @@ it('accepts the released faucet response containing only the queued note ID', as
       .fn()
       .mockResolvedValueOnce({ ok: true, json: async () => ({ challenge: '00', target: Number.MAX_SAFE_INTEGER }) })
       .mockResolvedValueOnce({ ok: true, json: async () => ({ note_id: NOTE_ID }) });
-    await expect(mintFromPublicFaucet('https://faucet.invalid', 'target', 1n)).resolves.toEqual({
-      noteId: NOTE_ID,
-      txId: undefined
+    await expect(mintFromPublicFaucet('https://faucet.invalid', 'target', 1n)).resolves.toStrictEqual({
+      noteId: NOTE_ID
     });
   } finally {
     global.fetch = prior;
