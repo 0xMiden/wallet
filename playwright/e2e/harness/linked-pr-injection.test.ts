@@ -240,13 +240,15 @@ const jobOf = (file: string, id: string): Job => {
   return job;
 };
 
-// The rewrite runs under `bash -u`; a runner whose BASH_ENV sources a profile that reads PS1 (GitHub's Ubuntu image
-// does) would fail it before the script starts, so the child shell gets neither BASH_ENV nor ENV.
-function rewriteEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, ...extra };
-  delete env.BASH_ENV;
-  delete env.ENV;
-  return env;
+// The child's stdin is /dev/null, not the socket spawnSync hands it by default: Debian's bash treats a socket stdin
+// as a remote shell and sources /etc/bash.bashrc, whose PS1 test fails under the script's `set -u` (GitHub's Ubuntu
+// runners print `/etc/bash.bashrc: line 7: PS1: unbound variable`; macOS bash does not do this).
+function rewriteShell(script: string, extra: Record<string, string>) {
+  return spawnSync('bash', ['-euo', 'pipefail', '-c', script], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, ...extra }
+  });
 }
 
 describe('every install a push or a dispatch can run injects the linked PRs first', () => {
@@ -597,14 +599,11 @@ describe('the Guardian injection on a Windows runner', () => {
     try {
       const pinned = { '@openzeppelin/miden-multisig-client': '0.18.0', '@openzeppelin/guardian-client': '0.18.0' };
       writeFileSync(join(dir, 'package.json'), JSON.stringify({ dependencies: pinned }));
-      const result = spawnSync('bash', ['-euo', 'pipefail', '-c', script], {
-        encoding: 'utf8',
-        env: rewriteEnv({
-          GITHUB_WORKSPACE: dir,
-          GUARDIAN_DIR: 'D:\\a\\_temp/guardian-pr',
-          CLIENT_SUBDIR: 'packages/guardian-client',
-          MULTISIG_SUBDIR: 'packages/miden-multisig-client'
-        })
+      const result = rewriteShell(script, {
+        GITHUB_WORKSPACE: dir,
+        GUARDIAN_DIR: 'D:\\a\\_temp/guardian-pr',
+        CLIENT_SUBDIR: 'packages/guardian-client',
+        MULTISIG_SUBDIR: 'packages/miden-multisig-client'
       });
       expect([result.status, result.stderr]).toEqual([0, '']);
       const written: { dependencies: Record<string, string>; resolutions: Record<string, string> } = JSON.parse(
@@ -646,10 +645,7 @@ describe('the web-sdk injection on a Windows runner', () => {
         join(dir, 'package.json'),
         JSON.stringify({ dependencies: pinned, devDependencies: { '@miden-sdk/vite-plugin': '0.17.0' } })
       );
-      const result = spawnSync('bash', ['-euo', 'pipefail', '-c', script], {
-        encoding: 'utf8',
-        env: rewriteEnv({ GITHUB_WORKSPACE: dir, SDK_DIR: 'D:\\a\\_temp/web-sdk-pr' })
-      });
+      const result = rewriteShell(script, { GITHUB_WORKSPACE: dir, SDK_DIR: 'D:\\a\\_temp/web-sdk-pr' });
       expect(result.status).toBe(0);
       const written: { dependencies: Record<string, string>; devDependencies: Record<string, string> } = JSON.parse(
         readFileSync(join(dir, 'package.json'), 'utf8')
