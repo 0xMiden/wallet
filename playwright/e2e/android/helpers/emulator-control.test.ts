@@ -1,5 +1,8 @@
 /** @jest-environment node */
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 import { EmulatorControl, listsPackageTask } from './emulator-control';
 
@@ -26,6 +29,7 @@ interface AdbReply {
 type Callback = (error: Error | null, output: { stdout: string; stderr: string }) => void;
 
 const run = jest.mocked(execFile);
+const launch = jest.mocked(spawn);
 
 /** Answers every adb call from `reply` and records its arguments and timeout. */
 function adbAnswers(reply: (args: string[]) => AdbReply): { args: string[]; timeout?: number }[] {
@@ -63,6 +67,7 @@ describe('EmulatorControl', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     run.mockReset();
+    launch.mockReset();
   });
   afterEach(() => jest.useRealTimers());
 
@@ -89,6 +94,109 @@ describe('EmulatorControl', () => {
       );
       await jest.advanceTimersByTimeAsync(16_000);
       await expect(outcome).resolves.toContain(`still lists a task of ${PACKAGE}`);
+    });
+  });
+
+  describe('reserveSingle', () => {
+    it('reuses only the expected visible AVD', async () => {
+      run.mockImplementation(((_file: string, args: string[], _options: { timeout?: number }, callback: Callback) => {
+        let stdout = '';
+        if (args[0] === 'devices') stdout = `List of devices attached\n${SERIAL} device\n`;
+        if (args.includes('emu')) stdout = 'Pixel_API_34\nOK\n';
+        if (_file === 'ps') {
+          stdout = '/opt/android-sdk/emulator/emulator -avd Pixel_API_34 -port 5554 -no-snapshot -no-audio\n';
+        }
+        callback(null, { stdout, stderr: '' });
+        return {} as ReturnType<typeof execFile>;
+      }) as unknown as typeof execFile);
+
+      await expect(EmulatorControl.reserveSingle()).resolves.toBe(SERIAL);
+      expect(launch).not.toHaveBeenCalled();
+    });
+
+    it('rejects a live serial that belongs to a different AVD', async () => {
+      run.mockImplementation(((_file: string, args: string[], _options: { timeout?: number }, callback: Callback) => {
+        const stdout = args[0] === 'devices' ? `List of devices attached\n${SERIAL} device\n` : 'miden_e2e_A\nOK\n';
+        callback(null, { stdout, stderr: '' });
+        return {} as ReturnType<typeof execFile>;
+      }) as unknown as typeof execFile);
+
+      await expect(EmulatorControl.reserveSingle()).rejects.toThrow(/expected "Pixel_API_34"/);
+      expect(launch).not.toHaveBeenCalled();
+    });
+
+    it('rejects a live AVD launched without a visible window', async () => {
+      run.mockImplementation(((_file: string, args: string[], _options: { timeout?: number }, callback: Callback) => {
+        let stdout = '';
+        if (args[0] === 'devices') stdout = `List of devices attached\n${SERIAL} device\n`;
+        if (args.includes('emu')) stdout = 'Pixel_API_34\nOK\n';
+        if (_file === 'ps') {
+          stdout = '/opt/android-sdk/emulator/emulator -avd Pixel_API_34 -port 5554 -qt-hide-window\n';
+        }
+        callback(null, { stdout, stderr: '' });
+        return {} as ReturnType<typeof execFile>;
+      }) as unknown as typeof execFile);
+
+      await expect(EmulatorControl.reserveSingle()).rejects.toThrow(/requires a visible window/);
+      expect(launch).not.toHaveBeenCalled();
+    });
+
+    it('boots the workflow-provided base AVD without creating pair clones', async () => {
+      const previousAndroidHome = process.env.ANDROID_HOME;
+      const previousAvdHome = process.env.ANDROID_AVD_HOME;
+      const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wallet-android-single-avd-'));
+      const avdHome = path.join(tempRoot, 'avd');
+      const baseDir = path.join(avdHome, 'Pixel_API_34.avd');
+      fs.mkdirSync(baseDir, { recursive: true });
+      fs.writeFileSync(path.join(avdHome, 'Pixel_API_34.ini'), `path=${baseDir}\n`);
+      fs.writeFileSync(path.join(baseDir, 'config.ini'), 'AvdId=Pixel_API_34\n');
+      process.env.ANDROID_HOME = tempRoot;
+      process.env.ANDROID_AVD_HOME = avdHome;
+
+      const originalMkdirSync = fs.mkdirSync;
+      jest.spyOn(fs, 'mkdirSync').mockImplementation((directory, options) => {
+        if (String(directory).includes(`${path.sep}test-results-android${path.sep}emulator-logs`)) return undefined;
+        return originalMkdirSync(directory, options);
+      });
+      jest.spyOn(fs, 'openSync').mockReturnValue(0);
+      launch.mockReturnValue({ unref: jest.fn() } as never);
+
+      let deviceChecks = 0;
+      run.mockImplementation(((_file: string, args: string[], _options: { timeout?: number }, callback: Callback) => {
+        let stdout = '';
+        if (args[0] === '-list-avds') {
+          stdout = 'Pixel_API_34\n';
+        } else if (args[0] === 'devices') {
+          deviceChecks += 1;
+          stdout = `List of devices attached\n${deviceChecks >= 3 ? `${SERIAL} device\n` : ''}`;
+        } else if (args.includes('getprop')) {
+          stdout = '1\n';
+        } else if (args.includes('emu')) {
+          stdout = 'Pixel_API_34\nOK\n';
+        } else if (_file === 'ps') {
+          stdout = '/opt/android-sdk/emulator/emulator -avd Pixel_API_34 -port 5554\n';
+        }
+        callback(null, { stdout, stderr: '' });
+        return {} as ReturnType<typeof execFile>;
+      }) as unknown as typeof execFile);
+
+      try {
+        await expect(EmulatorControl.reserveSingle()).resolves.toBe(SERIAL);
+        expect(launch).toHaveBeenCalledWith(
+          expect.stringMatching(/emulator$/),
+          expect.arrayContaining(['-avd', 'Pixel_API_34']),
+          expect.objectContaining({ detached: true })
+        );
+        expect(fs.existsSync(path.join(avdHome, 'miden_e2e_A.ini'))).toBe(false);
+        expect(fs.existsSync(path.join(avdHome, 'miden_e2e_B.ini'))).toBe(false);
+      } finally {
+        if (previousAndroidHome === undefined) delete process.env.ANDROID_HOME;
+        else process.env.ANDROID_HOME = previousAndroidHome;
+        if (previousAvdHome === undefined) delete process.env.ANDROID_AVD_HOME;
+        else process.env.ANDROID_AVD_HOME = previousAvdHome;
+        jest.restoreAllMocks();
+        fs.rmSync(tempRoot, { recursive: true, force: true });
+      }
     });
   });
 

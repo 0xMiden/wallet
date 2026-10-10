@@ -138,10 +138,15 @@ export class EmulatorControl {
   /** Reserve only wallet A for single-wallet routes that use a host counterparty. */
   static async reserveSingle(): Promise<string> {
     const serial = 'emulator-5554';
-    if ((await EmulatorControl.listBootedSerials()).has(serial)) return serial;
+    if ((await EmulatorControl.listBootedSerials()).has(serial)) {
+      await assertRunningAvd(serial, BASE_AVD, true);
+      return serial;
+    }
 
-    await ensureAvdsExist([DEVICE_PAIR_AVD_A]);
-    return bootAvd(DEVICE_PAIR_AVD_A, 5554, true);
+    // The bridge-in workflow already creates this AVD. Reusing it avoids
+    // copying a second userdata image for a route that needs only one device.
+    await ensureAvdsExist([BASE_AVD]);
+    return bootAvd(BASE_AVD, 5554, true);
   }
 
   /**
@@ -443,7 +448,7 @@ async function deviceHasPackage(serial: string, pkg: string): Promise<boolean> {
 }
 
 async function ensureAvdsExist(requiredAvds: string[] = [DEVICE_PAIR_AVD_A, DEVICE_PAIR_AVD_B]): Promise<void> {
-  const { stdout } = await execFileAsync(getEmulatorBin(), ['-list-avds']);
+  const { stdout } = await execFileAsync(getEmulatorBin(), ['-list-avds'], { timeout: ADB_TIMEOUT_MS });
   const present = new Set(
     stdout
       .split('\n')
@@ -453,16 +458,21 @@ async function ensureAvdsExist(requiredAvds: string[] = [DEVICE_PAIR_AVD_A, DEVI
 
   const avdHome = process.env.ANDROID_AVD_HOME ?? path.join(process.env.HOME ?? '', '.android', 'avd');
 
-  for (const avd of [DEVICE_PAIR_AVD_A, DEVICE_PAIR_AVD_B]) {
-    if (avdIsUsable(avdHome, avd)) continue;
-    // Listed but not usable = a half-written clone. Clear both sides before
-    // re-cloning, or the stale `.ini` keeps the phantom alive.
-    if (present.has(avd)) {
-      console.log(`[emulator] AVD "${avd}" is listed but incomplete (no config.ini) — re-cloning from ${BASE_AVD}`);
+  for (const avd of requiredAvds) {
+    if (avd === BASE_AVD) {
+      if (present.has(BASE_AVD) && avdIsUsable(avdHome, BASE_AVD)) continue;
+      throw new Error(`Base AVD "${BASE_AVD}" is missing or incomplete under ${avdHome}.`);
+    }
+    const usable = avdIsUsable(avdHome, avd);
+    if (present.has(avd) && usable) continue;
+    // A half-written or unlisted clone can leave a stale `.ini` behind. Clear
+    // both sides before re-cloning so the emulator cannot select a phantom.
+    if (present.has(avd) || usable) {
+      console.log(`[emulator] AVD "${avd}" is unusable — clearing it before cloning from ${BASE_AVD}`);
       fs.rmSync(path.join(avdHome, `${avd}.ini`), { force: true });
       fs.rmSync(path.join(avdHome, `${avd}.avd`), { recursive: true, force: true });
     }
-    if (!present.has(BASE_AVD)) {
+    if (!present.has(BASE_AVD) || !avdIsUsable(avdHome, BASE_AVD)) {
       throw new Error(
         `Base AVD "${BASE_AVD}" not found and harness AVD "${avd}" is missing. ` +
           `Create one via Android Studio → Device Manager (or sdkmanager + avdmanager).`
@@ -506,10 +516,11 @@ async function ensureAvdsExist(requiredAvds: string[] = [DEVICE_PAIR_AVD_A, DEVI
 
 async function bootAvd(avdName: string, port: number, visible = false): Promise<string> {
   // If an emulator is already listening on this port from a previous run,
-  // reuse it. We identify by `emulator-<port>` serial convention.
+  // verify its AVD and (when required) visible launch mode before reuse.
   const expectedSerial = `emulator-${port}`;
   const live = await EmulatorControl.listBootedSerials();
   if (live.has(expectedSerial)) {
+    await assertRunningAvd(expectedSerial, avdName, visible);
     return expectedSerial;
   }
 
@@ -573,16 +584,55 @@ async function bootAvd(avdName: string, port: number, visible = false): Promise<
   while (Date.now() - start < BOOT_TIMEOUT_MS) {
     const present = await EmulatorControl.listBootedSerials();
     if (present.has(expectedSerial)) {
+      let bootCompleted = false;
       try {
         const { stdout } = await adb(['-s', expectedSerial, 'shell', 'getprop', 'sys.boot_completed']);
-        if (stdout.trim() === '1') return expectedSerial;
+        bootCompleted = stdout.trim() === '1';
       } catch {
         // not responsive yet — keep polling
+      }
+      if (bootCompleted) {
+        await assertRunningAvd(expectedSerial, avdName, visible);
+        return expectedSerial;
       }
     }
     await sleep(BOOT_POLL_MS);
   }
   throw new Error(`Emulator ${avdName} on port ${port} did not boot within ${BOOT_TIMEOUT_MS}ms — see ${logPath}`);
+}
+
+/** Fail closed if a live serial belongs to another AVD or is hidden when the route requires a visible window. */
+async function assertRunningAvd(serial: string, avdName: string, requireVisible: boolean): Promise<void> {
+  const { stdout: avdOutput } = await adb(['-s', serial, 'emu', 'avd', 'name']);
+  const runningAvd = avdOutput
+    .split('\n')
+    .map(line => line.trim())
+    .find(line => line.length > 0 && line !== 'OK' && line !== 'Connection closed by foreign host.');
+  if (runningAvd !== avdName) {
+    throw new Error(`Emulator ${serial} is running AVD "${runningAvd ?? 'unknown'}", expected "${avdName}".`);
+  }
+
+  if (!requireVisible) return;
+
+  const { stdout: processes } = await execFileAsync('ps', ['-ww', '-axo', 'command='], { timeout: ADB_TIMEOUT_MS });
+  const serialPort = serial.match(/^emulator-(\d+)$/)?.[1];
+  const escapedAvd = escapeRegExp(avdName);
+  const escapedPort = escapeRegExp(serialPort ?? '');
+  const processLine = processes.split('\n').find(line => {
+    return (
+      /(?:^|[\s/])emulator(?:\s|$)/.test(line) &&
+      new RegExp(`(?:^|\\s)-avd\\s+${escapedAvd}(?:\\s|$)`).test(line) &&
+      new RegExp(`(?:^|\\s)-port\\s+${escapedPort}(?:\\s|$)`).test(line)
+    );
+  });
+  if (!processLine) {
+    throw new Error(`Cannot verify the launch flags for ${avdName} on ${serial}; refusing to reuse it.`);
+  }
+  if (/(?:^|\s)(?:-no-window|-qt-hide-window)(?:\s|$)/.test(processLine)) {
+    throw new Error(
+      `Emulator ${avdName} on ${serial} is hidden; the Android bridge-in route requires a visible window.`
+    );
+  }
 }
 
 function getEmulatorBin(): string {
