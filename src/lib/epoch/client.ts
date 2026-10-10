@@ -1,4 +1,4 @@
-import { getConnection, getWalletClient } from '@wagmi/core';
+import { getConnection, getWalletClient, switchChain } from '@wagmi/core';
 import { type Chain, type WalletClient, createWalletClient, custom, http } from 'viem';
 import { sepolia } from 'viem/chains';
 
@@ -39,6 +39,11 @@ export async function getEvmConnection(): Promise<EvmConnection> {
   }
   const connection = getConnection(wagmiConfig);
   return { address: connection.address, chainId: connection.chainId, isNative: false };
+}
+
+/** Ask the web wallet to switch to `chainId`. A native session carries the chain id in every request instead. */
+export async function switchWebWalletChain(chainId: number): Promise<void> {
+  await switchChain(wagmiConfig, { chainId });
 }
 
 /**

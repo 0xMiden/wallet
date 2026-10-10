@@ -493,6 +493,17 @@ const bridgeEarnCases = (): Case[] => [
     type: 'bridged-send',
     row: {
       type: 'bridged-send',
+      faucetId: 'f',
+      amount: '3',
+      requestBytes: new Uint8Array([6, 6]),
+      extraInputs: { provider: 'usdcx', usdcxBurn: { noteId: 'burn-note', destinationDomain: 0, phase: 'pending' } }
+    },
+    complete: mockComplete.bridged
+  },
+  {
+    type: 'bridged-send',
+    row: {
+      type: 'bridged-send',
       secondaryAccountId: 'r',
       faucetId: 'f',
       amount: '3',
@@ -514,6 +525,14 @@ const bridgeEarnCases = (): Case[] => [
     complete: mockComplete.earn
   }
 ];
+
+/** One bridge or earn case by what sets it apart: the bridge provider, or the earn-deposit type. */
+const bridgeEarnCase = (pick: 'usdcx' | 'agglayer' | 'earn-deposit'): Case =>
+  bridgeEarnCases().find(c => {
+    if (pick === 'earn-deposit') return c.type === 'earn-deposit';
+    const inputs = c.row.extraInputs;
+    return typeof inputs === 'object' && inputs !== null && Reflect.get(inputs, 'provider') === pick;
+  })!;
 
 const buildTx = (id: string, extra: Record<string, unknown>) => ({
   id,
@@ -2526,8 +2545,8 @@ describe('guardian custom proposals: wallet-built rows propose rebased bytes, dA
   const walletBuiltCases = () => [
     // A Guardian approval expiration rides with each wallet-built type that set a request delta (#1081).
     { ...valueMovingCases().find(c => c.type === 'swap')!, proposalType: 'swap', approvalExpirationDelta: 180 },
-    { ...bridgeEarnCases()[0]!, proposalType: 'agglayer_bridged_send', approvalExpirationDelta: 180 },
-    { ...bridgeEarnCases()[1]!, proposalType: 'earn_deposit', approvalExpirationDelta: undefined }
+    { ...bridgeEarnCase('agglayer'), proposalType: 'agglayer_bridged_send', approvalExpirationDelta: 180 },
+    { ...bridgeEarnCase('earn-deposit'), proposalType: 'earn_deposit', approvalExpirationDelta: undefined }
   ];
 
   it.each(walletBuiltCases())(
@@ -2714,13 +2733,18 @@ describe('guardian bridged-send / earn-deposit byte-identity — flag ON result 
   );
 });
 
-// An Agglayer bridged-send can await the node's verdict, so its killed attempt keeps the candidate (#1081); an earn
-// deposit cannot, so it still abandons at once.
+// An Agglayer bridged-send can await the node's verdict, so its killed attempt keeps the candidate (#1081); a USDCx
+// burn and an earn deposit cannot, so they still abandon at once.
 type KillCase = Case & { abandons: number[][]; evidence: unknown };
 const bridgeEarnKillCases = (): KillCase[] => [
-  { ...bridgeEarnCases()[0]!, abandons: [], evidence: KEPT_AT_7 },
+  { ...bridgeEarnCase('agglayer'), abandons: [], evidence: KEPT_AT_7 },
   {
-    ...bridgeEarnCases()[1]!,
+    ...bridgeEarnCase('usdcx'),
+    abandons: [[7]],
+    evidence: expect.not.arrayContaining([expect.objectContaining({ candidateKept: true })])
+  },
+  {
+    ...bridgeEarnCase('earn-deposit'),
     abandons: [[7]],
     evidence: expect.not.arrayContaining([expect.objectContaining({ candidateKept: true })])
   }
@@ -2779,8 +2803,9 @@ describe('guardian bridged-send / earn-deposit errorCode preservation → classi
   // reach this point, so its Failed outcome is pinned in transactions.guardian.test.ts
   // ('Guardian bridged-send: submit lands but local apply fails') instead.
   const applyCases = () => [
-    { label: 'earn-deposit', ...bridgeEarnCases()[1]!, expected: ITransactionStatus.Failed },
-    { label: 'bridged-send (agglayer)', ...bridgeEarnCases()[0]!, expected: ITransactionStatus.Completed }
+    { label: 'earn-deposit', ...bridgeEarnCase('earn-deposit'), expected: ITransactionStatus.Failed },
+    { label: 'bridged-send (agglayer)', ...bridgeEarnCase('agglayer'), expected: ITransactionStatus.Completed },
+    { label: 'bridged-send (usdcx)', ...bridgeEarnCase('usdcx'), expected: ITransactionStatus.Completed }
   ];
 
   it.each(applyCases())(
@@ -3629,7 +3654,8 @@ describe('structural guardian leaf errorCode preservation → guardian classifie
     mockDispatchGuardianPipeline.mockRejectedValueOnce(
       new Error(`Offscreen call 'guardianPipeline' failed: ${REFUSAL_EQUAL_NONCE}`)
     );
-    const { row, complete } = bridgeEarnCases()[1]!;
+    const { row, complete } = bridgeEarnCase('earn-deposit');
+    expect(row.type).toBe('earn-deposit');
     arrange(id, row);
 
     await generateTransaction(buildTx(id, row) as never, signCallback, false, provider as never);

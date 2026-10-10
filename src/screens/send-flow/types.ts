@@ -3,7 +3,7 @@ import type { AddressChain } from 'utils/miden';
 import { BridgeNetworkId } from './bridge-networks';
 
 /** Cross-chain route. Fast = Epoch (any token → USDC, fee), Slow = Agglayer (bridgeable token only, no fee). */
-export type BridgeRoute = 'epoch' | 'agglayer';
+export type BridgeRoute = 'epoch' | 'agglayer' | 'usdcx';
 
 export enum SendFlowStep {
   SelectRecipient = 'SelectRecipient',

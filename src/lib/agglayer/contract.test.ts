@@ -29,10 +29,17 @@ const DEPOSIT: AgglayerDeposit = {
   ready_for_claim: true,
   global_index: '365072220160'
 };
-const provider: EIP1193Provider = { request: jest.fn(), on: jest.fn(), removeListener: jest.fn() };
+const mockRequest = jest.fn();
+const provider: EIP1193Provider = { request: mockRequest, on: jest.fn(), removeListener: jest.fn() };
+/** The provider answers eth_chainId with `chains` in turn, the last one from then on. */
+const onChains = (...chains: string[]) =>
+  mockRequest.mockImplementation(async ({ method }: { method: string }) =>
+    method === 'eth_chainId' ? (chains.length > 1 ? chains.shift() : chains[0]) : null
+  );
 
 beforeEach(() => {
   jest.clearAllMocks();
+  onChains('0xaa36a7');
   mockFrom.mockReturnValue({ claimAsset: mockClaimAsset });
   mockClaimAsset.mockResolvedValue({ hash: '0xclaim' });
   jest.mocked(fetchMerkleProof).mockResolvedValue({
@@ -56,5 +63,22 @@ it('fetches no proof and sends nothing while the config names no L1 bridge', asy
   });
   await expect(claimAgglayerDeposit({ deposit: DEPOSIT, provider })).rejects.toThrow('no L1 bridge');
   expect(fetchMerkleProof).not.toHaveBeenCalled();
+  expect(mockClaimAsset).not.toHaveBeenCalled();
+});
+
+// A USDCx deposit can leave the wallet on Arc, where claimAsset to the L1 bridge's address would succeed against no
+// contract and read as claimed.
+it('switches a wallet on another chain to Sepolia before claiming', async () => {
+  jest.mocked(getAgglayerL1Bridge).mockReturnValue('0x00000000000000000000000000000000000000b2');
+  onChains('0x4cef52', '0xaa36a7');
+  await claimAgglayerDeposit({ deposit: DEPOSIT, provider });
+  expect(mockRequest).toHaveBeenCalledWith({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0xaa36a7' }] });
+  expect(mockClaimAsset).toHaveBeenCalledTimes(1);
+});
+
+it('refuses a claim on another chain without sending it', async () => {
+  jest.mocked(getAgglayerL1Bridge).mockReturnValue('0x00000000000000000000000000000000000000b2');
+  onChains('0x4cef52');
+  await expect(claimAgglayerDeposit({ deposit: DEPOSIT, provider })).rejects.toThrow('Sepolia');
   expect(mockClaimAsset).not.toHaveBeenCalled();
 });

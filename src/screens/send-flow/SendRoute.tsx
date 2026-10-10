@@ -25,7 +25,18 @@ export const SendRoute: React.FC<SendRouteProps> = ({ faucetId, onBack, onConfir
   const slowStatus = useAgglayerEligibility(faucetId);
   const fastAvailability = useFeatureAvailability('fastBridgeOut');
   const slowAvailability = useFeatureAvailability('bridgeOut');
-  const chosen = options.route === 'epoch' ? fastAvailability : slowAvailability;
+  // The USDCx burn reads no remote bridge config, so the Fast and Slow features cannot block it.
+  const confirmBlocked = (() => {
+    switch (options.route) {
+      case 'epoch':
+        return isFeatureBlocked(fastAvailability);
+      case 'agglayer':
+        return isFeatureBlocked(slowAvailability) || slowStatus !== 'allowed';
+      case 'usdcx':
+      default:
+        return !options.usdcxAvailable;
+    }
+  })();
 
   return (
     <SendStepLayout
@@ -37,7 +48,7 @@ export const SendRoute: React.FC<SendRouteProps> = ({ faucetId, onBack, onConfir
           variant={ButtonVariant.Primary}
           accent="send"
           onClick={onConfirm}
-          disabled={isFeatureBlocked(chosen) || (options.route === 'agglayer' && slowStatus !== 'allowed')}
+          disabled={confirmBlocked}
           data-testid="bridge-route-confirm"
           className="w-full max-w-none"
         />

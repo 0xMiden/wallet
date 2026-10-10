@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
+import { browserLaunchOptions } from './browser-launch-options';
 import { getEnvironmentConfig } from '../config/environments';
 import { testArtifactDirName } from '../harness/artifact-path';
 import { attachConsoleCapture } from '../harness/browser-capture';
@@ -295,25 +296,6 @@ export async function installScreenCapture(page: Page, label: string, outputDir:
 
 // Chromium launch args, shared by the initial wallet launch and reopen()'s
 // crash-recovery relaunch so the two can never drift.
-function chromeLaunchArgs(extensionPath: string): string[] {
-  return [
-    `--disable-extensions-except=${extensionPath}`,
-    `--load-extension=${extensionPath}`,
-    '--no-first-run',
-    '--no-default-browser-check',
-    // CI hardening for the guardian recovery specs. Peak RAM on the runner is
-    // high: two persistent contexts (A + B) plus the full docker stack
-    // (node/sequencer/prover/2 guardians/2 postgres). `--disable-dev-shm-usage`
-    // moves Chromium's shared memory off the small /dev/shm tmpfs onto disk (the
-    // standard CI fix for `Target.createTarget: Failed to open a new tab`);
-    // `--disable-gpu` drops the unused GPU process under xvfb. Both are inert to
-    // extension/SW behaviour. (They alone did NOT stop the intermittent browser
-    // crash the recovery specs hit -- that is now recovered from in reopen() by
-    // relaunching the context; see relaunchContext.)
-    '--disable-dev-shm-usage',
-    '--disable-gpu'
-  ];
-}
 
 // Poll for the extension's service worker to register (extension loading under
 // Playwright is flaky). Shared by the initial launch and the relaunch.
@@ -357,11 +339,7 @@ async function relaunchContext(userDataDir: string, extensionPath: string) {
       fs.rmSync(path.join(userDataDir, lock), { force: true });
     } catch {}
   }
-  const context = await chromium.launchPersistentContext(userDataDir, {
-    headless: false,
-    args: chromeLaunchArgs(extensionPath),
-    ignoreDefaultArgs: ['--disable-extensions']
-  });
+  const context = await chromium.launchPersistentContext(userDataDir, browserLaunchOptions(extensionPath));
   const serviceWorker = await waitForExtensionServiceWorker(context);
   const extensionId = new URL(serviceWorker.url()).host;
   const fullpageUrl = `chrome-extension://${extensionId}/fullpage.html`;
@@ -391,11 +369,7 @@ async function launchWalletInstance(
   // `let` (not `const`): reopen()'s relaunch swaps these in place after a
   // browser crash so teardown closes the LIVE context and the fault methods
   // target it.
-  let context = await chromium.launchPersistentContext(userDataDir, {
-    headless: false,
-    args: chromeLaunchArgs(extensionPath),
-    ignoreDefaultArgs: ['--disable-extensions']
-  });
+  let context = await chromium.launchPersistentContext(userDataDir, browserLaunchOptions(extensionPath));
 
   const serviceWorker = await waitForExtensionServiceWorker(context);
   const extensionId = new URL(serviceWorker.url()).host;

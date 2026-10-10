@@ -1,0 +1,99 @@
+import { Hash, Hex, isHash, isHex } from 'viem';
+
+import { USDCX_REMOTE_DOMAIN, XRESERVE_ATTESTATION_API_TESTNET } from './constant';
+
+// Circle's API can accept the socket and then stay silent. Bound every request
+// so a poll tick fails and retries instead of hanging the status screen.
+const XRESERVE_FETCH_TIMEOUT_MS = 15_000;
+
+/** One entry of Circle's `GET /v1/attestations?txHash=` response. */
+export interface XReserveAttestation {
+  /** The encoded deposit message. */
+  payload: Hex;
+  /** The deposit message hash that identifies the attestation. */
+  messageHash: Hex;
+  /** Circle's signature over the payload. */
+  attestation: Hex;
+  /** The remote domain the deposit is for. */
+  remoteDomain: number;
+}
+
+export interface FetchXReserveAttestationsOptions {
+  baseUrl?: string;
+  timeoutMs?: number;
+}
+
+function parseRemoteDomain(value: unknown): number | undefined {
+  switch (typeof value) {
+    case 'number':
+      return Number.isInteger(value) ? value : undefined;
+    case 'string': {
+      const parsed = Number(value);
+      return /^\d+$/.test(value) && Number.isInteger(parsed) ? parsed : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+function parseAttestation(entry: unknown): XReserveAttestation | undefined {
+  if (!entry || typeof entry !== 'object') return undefined;
+  const payload = Reflect.get(entry, 'payload');
+  const messageHash = Reflect.get(entry, 'messageHash');
+  const attestation = Reflect.get(entry, 'attestation');
+  const remoteDomain = parseRemoteDomain(Reflect.get(entry, 'remoteDomain'));
+  const proof = [payload, messageHash, attestation];
+  if (!proof.every(value => isHex(value) && value !== '0x') || remoteDomain === undefined) return undefined;
+  return { payload, messageHash, attestation, remoteDomain };
+}
+
+/**
+ * Read Circle's attestations for one source-chain deposit transaction. The list
+ * is empty until Circle's attestation service signs the deposit. Entries that
+ * do not match the documented shape are dropped.
+ */
+export async function fetchXReserveAttestations(
+  txHash: Hash,
+  {
+    baseUrl = XRESERVE_ATTESTATION_API_TESTNET,
+    timeoutMs = XRESERVE_FETCH_TIMEOUT_MS
+  }: FetchXReserveAttestationsOptions = {}
+): Promise<XReserveAttestation[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${baseUrl}/v1/attestations?txHash=${encodeURIComponent(txHash)}`, {
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      throw new Error(`xReserve attestation request failed: HTTP ${response.status}`);
+    }
+    const body: object | string | number | boolean | null = await response.json();
+    const list = body && typeof body === 'object' ? Reflect.get(body, 'attestations') : undefined;
+    if (!Array.isArray(list)) return [];
+    return list.map(parseAttestation).filter((entry): entry is XReserveAttestation => entry !== undefined);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Whether Circle attested the deposit `txHash` for Miden. A value that is not a
+ * transaction hash is never attested, and no request is made for it.
+ */
+export async function isUsdcxDepositAttested(
+  txHash: string | undefined,
+  baseUrl: string = XRESERVE_ATTESTATION_API_TESTNET
+): Promise<boolean> {
+  if (txHash === undefined || !isHash(txHash)) return false;
+  const attestations = await fetchXReserveAttestations(txHash, { baseUrl });
+  return findAttestationForDomain(attestations, USDCX_REMOTE_DOMAIN) !== undefined;
+}
+
+/** The attestation for one remote domain, if Circle signed it. */
+export function findAttestationForDomain(
+  attestations: XReserveAttestation[],
+  remoteDomain: number
+): XReserveAttestation | undefined {
+  return attestations.find(entry => entry.remoteDomain === remoteDomain);
+}

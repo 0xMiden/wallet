@@ -1,6 +1,7 @@
 import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 
+import type { Status } from 'components/ui/StatusBadge';
 import { getDateFnsLocale } from 'lib/i18n';
 import { getAdaptiveDecimalPlaces, isDisplayable } from 'lib/i18n/adaptive-precision';
 import {
@@ -19,6 +20,7 @@ import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { formatAmount } from 'lib/shared/format';
+import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 
 import { IHistoryEntry, IHistoryExtraAmount } from './IHistoryEntry';
 
@@ -271,6 +273,11 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
     return 'pending';
   }
   if (entry.txType === 'consume' && entry.bridgeInProvider) return 'confirmed';
+  if (entry.bridgeProvider === 'usdcx') {
+    if (entry.usdcxBurn?.phase === 'confirmed' && entry.usdcxBurn.destinationBalanceConfirmed) return 'confirmed';
+    if (entry.usdcxBurn?.phase === 'discarded') return 'failed';
+    return 'pending';
+  }
   if (entry.bridgeProvider === 'agglayer') {
     if (entry.bridgeClaimStatus === 'claimed') return 'confirmed';
     if (entry.bridgeClaimStatus === 'failed') return 'failed';
@@ -278,6 +285,34 @@ export const bridgeStatusOf = (entry: IHistoryEntry): BridgeStatus => {
   }
   return entry.bridgeEpochStatus ?? 'pending';
 };
+
+/** A USDCx row in either direction: a deposit through xReserve, or a burn. Its badge is `bridgeBadgeStatusOf`. */
+export const isUsdcxBridgeEntry = (entry: Pick<IHistoryEntry, 'bridgeProvider' | 'bridgeInProvider'>): boolean =>
+  entry.bridgeProvider === 'usdcx' || entry.bridgeInProvider === 'usdcx';
+
+/**
+ * The badge of a bridge row. A USDCx deposit reads Confirmed once Circle attested it and
+ * Completed once its minted note was received. A faucet-confirmed burn must never be labeled
+ * as a confirmed destination payout.
+ */
+export function bridgeBadgeStatusOf(entry: IHistoryEntry): Status {
+  if (entry.status === ITransactionStatus.Failed) return bridgeStatusOf(entry);
+  if (entry.bridgeInProvider === 'usdcx') {
+    const received = entry.txType === 'consume' || entry.bridgeInPhase === 'received';
+    return received ? 'completed' : bridgeStatusOf(entry);
+  }
+  if (entry.bridgeProvider !== 'usdcx' || entry.txType !== 'bridged-send') return bridgeStatusOf(entry);
+  switch (entry.usdcxBurn?.phase) {
+    case 'confirmed':
+      return entry.usdcxBurn.destinationBalanceConfirmed ? 'confirmed' : 'burnConfirmed';
+    case 'discarded':
+      return 'burnDiscarded';
+    case 'consuming':
+      return 'burnConsuming';
+    default:
+      return 'burnPending';
+  }
+}
 
 export interface BridgeRowDisplay {
   inSymbol: string;
@@ -303,6 +338,18 @@ export interface BridgeRowDisplay {
  */
 export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistoryEntry): BridgeRowDisplay => {
   const inSymbol = entry.token ?? '—';
+  if (entry.bridgeProvider === 'usdcx') {
+    return {
+      inSymbol,
+      outSymbol: inSymbol,
+      inLabel: inSymbol,
+      outLabel: inSymbol,
+      outAmount: entry.amount?.toString(),
+      providerLabel: 'Circle xReserve',
+      network: getChain(entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID)?.name ?? '',
+      status: bridgeStatusOf(entry)
+    };
+  }
   const outSymbol = entry.bridgeOutputSymbol ?? (entry.bridgeProvider === 'agglayer' ? 'ETH' : 'USDC');
   // The quote rounds down, so it never promises more than arrives; the fallback is the typed amount.
   const outAmount = formatMoneyAmount(entry.bridgeOutputAmount, 'receives', outSymbol) ?? entry.amount;
@@ -330,6 +377,19 @@ export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistory
 const symbolOrUndefined = (symbol: string | undefined): string | undefined =>
   symbol === undefined || /^0x[0-9a-fA-F]{40}$/.test(symbol) ? undefined : symbol;
 
+/** Display name of the bridge-in route. A row with no provider predates the field and was Epoch. */
+const bridgeInProviderLabel = (provider: IHistoryEntry['bridgeInProvider']): string => {
+  switch (provider) {
+    case 'agglayer':
+      return 'Agglayer';
+    case 'usdcx':
+      return 'Circle xReserve';
+    case 'epoch':
+    default:
+      return 'Epoch';
+  }
+};
+
 /** `consume` rows that claimed a bridged-in (EVM → Miden) note render as bridge rows. */
 export const isBridgeInEntry = (entry: IHistoryEntry): boolean =>
   entry.txType === 'bridged-receive' || (entry.txType === 'consume' && entry.bridgeInProvider !== undefined);
@@ -352,9 +412,10 @@ export const bridgeInRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHisto
       ? formatMoneyAmount(entry.amount, 'receives', outSymbol)
       : (formatMoneyAmount(entry.bridgeInOutputAmount, 'typed') ??
         formatMoneyAmount(entry.amount, fallbackKind, outSymbol));
-  const providerLabel = entry.bridgeInProvider === 'agglayer' ? 'Agglayer' : 'Epoch';
-  // The bridge-in picker offers only ETH and the configured USDC, so any non-ETH source is that USDC.
-  const inLabel = inSymbol === 'ETH' ? inSymbol : evmUsdcLabel(snapshot, inSymbol);
+  const providerLabel = bridgeInProviderLabel(entry.bridgeInProvider);
+  // ETH and Circle's USDC (the xReserve route) keep their symbol; any other source is the configured Epoch USDC.
+  const keepsSourceSymbol = entry.bridgeInProvider === 'usdcx' || inSymbol === 'ETH';
+  const inLabel = keepsSourceSymbol ? inSymbol : evmUsdcLabel(snapshot, inSymbol);
   return {
     inSymbol,
     outSymbol,

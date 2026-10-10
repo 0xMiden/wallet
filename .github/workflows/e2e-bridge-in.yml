@@ -1,60 +1,319 @@
-name: E2E Bridge-IN (Android)
+name: E2E Bridge-IN
 
-# Manual, headed Android emulator run on an Intel macOS runner. The EVM leg uses a local Anvil bridge
-# double; the wallet's Miden receipt/claim leg uses Testnet and the WalletConnect
-# relay. One sequential test owns all requested deposits and writes a loop
-# manifest plus an append-only ledger into test-results-android/.
+# Runs the cross-chain bridge-IN deposit E2E (EVM -> Miden) on every push to
+# main, covering BOTH routes (two specs):
+#   - AggLayer "Slow"/ETH: the app builds `bridgeAsset` calldata a headless WC
+#     counterparty signs + broadcasts to a local Anvil bridge stub.
+#   - Epoch "Fast"/USDC: the Epoch SDK reads a stubbed Compact + USDC on Anvil,
+#     builds a real `depositERC20AndRegister` the counterparty signs+broadcasts,
+#     and registers the allocation with a local FAKE allocator.
+# Both drive the real deposit UI through a REAL WalletConnect pairing, then the
+# wallet consumes a REAL Miden note delivered by the miden-client CLI "solver"
+# and reconciles it to "Bridged from EVM".
+#
+# HYBRID by necessity: the EVM leg is HERMETIC on a local Anvil (chain 11155111)
+# with on-chain doubles (the real L1 AggLayer bridge + the hosted Epoch solver
+# can't run locally), while the Miden leg runs against LIVE testnet (the
+# mobile harness has no local Miden node — same as every other iOS spec and the
+# bridge-OUT gate). The only non-local transport is the WalletConnect relay, so
+# the connect step is retry-guarded and the run uses `--retries=2`.
+#
+# Testnet-only (LIVE Miden testnet) -> a post-merge signal on main, not a
+# per-PR gate. Needs NO required secrets: the EVM key is Anvil's deterministic
+# dev account and the relay projectId falls back to DEFAULT_WC_PROJECT_ID in
+# src/lib/walletconnect/config.ts.
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
+      platform:
+        description: Run the iOS bridge-in suite or the Android AggLayer loop suite
+        required: true
+        default: ios
+        type: choice
+        options:
+          - ios
+          - android
       loop_count:
-        description: Sequential AggLayer bridge-in deposits (1-100)
+        description: Sequential Android AggLayer bridge-in deposits (1-100)
         required: true
         default: 100
         type: number
 
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 
 concurrency:
-  group: e2e-bridge-in-android-${{ github.ref }}
-  cancel-in-progress: false
+  group: e2e-bridge-in-${{ inputs.platform || 'ios' }}-${{ github.ref }}
+  cancel-in-progress: ${{ inputs.platform != 'android' }}
 
 jobs:
+  build-cli:
+    name: Build and verify pinned Miden CLI
+    if: github.event_name == 'workflow_dispatch' && inputs.platform == 'android'
+    runs-on: macos-26-intel
+    # Keep a cold Rust build outside the Android job's 360-minute test budget.
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
+      - uses: dtolnay/rust-toolchain@1.98.1
+
+      # The action caches only completed binaries after provenance and hash verification. Its
+      # separate Cargo target cache is saved even when this bounded cold build times out.
+      - name: Build the pinned CLI
+        env:
+          MIDEN_CLI_INSTALL_TIMEOUT_MS: '6300000'
+        uses: ./.github/actions/install-miden-client-cli
+
+  mobile-bridge-in-testnet:
+    name: Bridge-IN E2E (iOS, testnet + local Anvil)
+    if: github.event_name == 'push' || inputs.platform == 'ios'
+    # macos-26 matches build-mobile.yml (iOS 26 SDK symbols in dapp-browser's
+    # WKWebViewController). -xlarge is the dedicated Apple-Silicon runner —
+    # shared macos-26 runners were intermittently too degraded for two-sim setup.
+    runs-on: macos-26-xlarge
+    # Setup dominates: miden-client-cli compile on cache miss (~7-15 min) + iOS
+    # build (~25 min) + simulator cold boot (overlapped). The suite is two tests
+    # (~2 min each, serial), and --retries=2 gives up to three fresh attempts each.
+    # A dispatch may first build a linked web-sdk PR from source (73 min on macos-26, pr-compile-surfaces.yml).
+    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI cold (up to 6 min on this runner).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 195 || 110 }}
+    env:
+      E2E_NETWORK: testnet
+      # Redirect the app's EVM reads (balance, receipt) AND the counterparty's
+      # broadcasts at the local Anvil the spec starts. Baked into the app bundle
+      # at build time (config.ts override) and read by the counterparty at run.
+      E2E_EVM_RPC_URL: http://127.0.0.1:8545
+      # The USDCx spec forks Sepolia on that Anvil and deposits into Circle's real
+      # xReserve contract; an Arc Testnet fork cannot move Arc's USDC. This makes
+      # the wallet's USDCx route use Sepolia's xReserve and USDC. Baked into the app
+      # bundle at build time, and read by the spec at run to decide if it can run.
+      MIDEN_E2E_USDCX_CHAIN: sepolia
+      # Optional: the RPC the fork reads Sepolia's state from. Unset, the spec uses
+      # a public Sepolia RPC.
+      E2E_SEPOLIA_FORK_URL: ${{ secrets.E2E_SEPOLIA_FORK_URL }}
+      # The config document the suite's global setup serves on :8550: the live
+      # testnet bridge account, indexer and USDC faucet, this job's Anvil bridge
+      # and USDC, and the local FAKE allocator (:8548) the Epoch spec starts for
+      # the SDK's quote / createAllocation / intentStatus calls. Baked at build
+      # time (MIDEN_REMOTE_CONFIG_URL define).
+      MIDEN_REMOTE_CONFIG_URL: http://127.0.0.1:8550
+      # Optional: give the headless counterparty its OWN relay projectId so it
+      # doesn't double the app projectId's load on the relay (reduces
+      # rate-limit trips) - per-projectId load relief only, never the fix for a
+      # suspended or rejected projectId. When unset, empty or blank, the
+      # counterparty uses WC_PROJECT_ID from src/lib/walletconnect/config.ts,
+      # resolved from this job's own env: WALLETCONNECT_PROJECT_ID (which this
+      # workflow does not set), else DEFAULT_WC_PROJECT_ID. Do NOT override
+      # WALLETCONNECT_PROJECT_ID here - the iOS bundle needs a projectId
+      # allow-listed for com.miden.bread, and the one allow-list check on
+      # record (tasks/todo.md) covers the retired default b54ef53.
+      WC_COUNTERPARTY_PROJECT_ID: ${{ secrets.WC_COUNTERPARTY_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Foundry provides `anvil` (the local EVM the spec boots) + `forge`/`cast`.
+      # AnvilInstance resolves the binary from PATH / ~/.foundry/bin.
+      - name: Install Foundry (anvil)
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Cache miden-client-cli
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/miden-client
+          key: miden-client-cli-${{ runner.os }}-${{ hashFiles('package.json') }}
+
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
+
+      - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
+        run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
+
+      - name: Install miden-client-cli
+        # Reads the CLI pin (midenClientCliGit, else midenClientCliVersion) from
+        # package.json — the same resolution playwright/e2e/helpers/miden-cli.ts does —
+        # and skips the ~7 min compile when the cache above already restored the binary.
+        # It also rebuilds the CLI against a linked Protocol PR when the PR carries one;
+        # no marker means the published pin, exactly as before.
+        uses: ./.github/actions/install-miden-client-cli
+
+      # CDP bridge (appium-remote-debugger) requires Simulator.app GUI running —
+      # headless simctl boots don't expose webinspectord.
+      - name: Launch Simulator.app
+        run: open -a Simulator || true
+
+      # idb (Facebook's iOS debug bridge) lets the harness tap "Allow" on the
+      # native notification-permission SpringBoard alert, which lives outside the
+      # WebView (CDP can't reach it) and otherwise covers every screenshot.
+      # Best-effort: the harness degrades gracefully when idb is absent, so a
+      # broken install must never fail the job.
+      #
+      # fb-idb (1.1.7, unmaintained) calls asyncio.get_event_loop(), which
+      # Python 3.14 — the runner's default python3 — removed, crashing idb. Pin
+      # 3.11 for it; nothing else in this job uses python3 (build is node +
+      # xcodebuild). `brew trust ... || true` because older-Homebrew runners have
+      # no `trust` subcommand (and `brew install` auto-taps anyway).
+      - name: Set up Python for idb
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install idb (dismiss native notification alert)
+        continue-on-error: true
+        run: |
+          brew trust facebook/fb || true
+          brew install facebook/fb/idb-companion
+          python3 -m pip install fb-idb
+
+      # Fresh-create + boot of custom sims hangs on macos-26 runners. Pin to
+      # preinstalled Xcode sims by writing .device-pair.json before globalSetup.
+      - name: Pin test pair to preinstalled simulators
+        shell: bash
+        run: |
+          list_json=$(xcrun simctl list devices --json)
+          UDID_A=$(echo "$list_json" | jq -r '
+            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
+              .value[] | select(.name == "iPhone 17" and .isAvailable) ]
+            | first | .udid // empty')
+          UDID_B=$(echo "$list_json" | jq -r '
+            [ .devices | to_entries[] | select(.key | test("SimRuntime.iOS-")) |
+              .value[] | select(.name == "iPhone 17 Pro" and .isAvailable) ]
+            | first | .udid // empty')
+          if [[ -z "$UDID_A" || -z "$UDID_B" ]]; then
+            echo "Missing preinstalled sim. A='$UDID_A'  B='$UDID_B'"
+            echo "Full device list:"
+            xcrun simctl list devices
+            exit 1
+          fi
+          mkdir -p test-results-ios
+          printf '{"udidA":"%s","udidB":"%s"}\n' "$UDID_A" "$UDID_B" > test-results-ios/.device-pair.json
+          echo "Wrote .device-pair.json: A=$UDID_A  B=$UDID_B"
+
+      # Kick the cold boot off now so it overlaps the ~25-minute app build.
+      - name: Pre-boot simulators (async, overlaps build)
+        shell: bash
+        run: |
+          UDID_A=$(jq -r .udidA test-results-ios/.device-pair.json)
+          UDID_B=$(jq -r .udidB test-results-ios/.device-pair.json)
+          boot_with_retry() {
+            local udid="$1"
+            for attempt in 1 2 3 4; do
+              state=$(xcrun simctl list devices | grep "$udid" | grep -o '(Booted)\|(Shutdown)\|(Booting)' || true)
+              if [[ "$state" == "(Booted)" || "$state" == "(Booting)" ]]; then
+                echo "$udid already $state"
+                return 0
+              fi
+              if xcrun simctl boot "$udid"; then
+                echo "$udid boot issued (attempt $attempt)"
+                return 0
+              fi
+              echo "boot attempt $attempt for $udid failed; retrying in 20s"
+              sleep 20
+            done
+            return 1
+          }
+          ensure_bootable() {
+            local udid="$1"
+            if boot_with_retry "$udid"; then return 0; fi
+            echo "CoreSimulatorService appears wedged; restarting it"
+            sudo killall -9 com.apple.CoreSimulator.CoreSimulatorService || true
+            sleep 15
+            open -a Simulator || true
+            sleep 10
+            if boot_with_retry "$udid"; then return 0; fi
+            echo "::error::simulator subsystem unusable on this runner (boot of $udid failed after CoreSimulatorService restart)"
+            return 1
+          }
+          ensure_bootable "$UDID_A"
+          ensure_bootable "$UDID_B"
+          xcrun simctl list devices | grep -E "$UDID_A|$UDID_B" || true
+
+      # Built for a GENERIC simulator destination (see test:e2e:mobile:build), so
+      # it doesn't need a concrete booted device. E2E_EVM_RPC_URL is baked here.
+      - name: Build iOS app
+        # Self-heal the recurring GitHub macOS-runner SwiftPM cache
+        # corruption ("xcodebuild: error: Could not resolve package
+        # dependencies: ... org.swift.swiftpm/repositories/<pkg> ... No
+        # such file or directory"): on a failed build, wipe the corrupt
+        # SwiftPM cache + derived data and retry once before failing.
+        run: |
+          yarn test:e2e:mobile:build || {
+            echo "::warning::iOS build failed; clearing SwiftPM cache (runner cache corruption) and retrying once"
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm" ios/App/build
+            yarn test:e2e:mobile:build
+          }
+
+      - name: Run bridge-IN deposit E2E (mobile, testnet + local Anvil)
+        id: e2e
+        # The `bridge-in-deposit` filter matches BOTH deposit specs (AggLayer +
+        # Epoch); they run serially (workers:1), each booting/tearing down its own
+        # Anvil (+ the Epoch spec its own fake allocator). --retries=2 absorbs
+        # flaky CDP setup on macos-26 AND transient relay rate-limit trips on the
+        # connect step; each attempt is a fresh wallet + pairing + Anvil.
+        #
+        # NON-BLOCKING for now: the deposit ships to users (testnet.json switches
+        # bridge-in on), so this suite is its only E2E. Its WalletConnect handshake was
+        # rejected with WS close 3000 ("Project not found"). Until #1259, an
+        # unset WC_COUNTERPARTY_PROJECT_ID secret made the counterparty send a
+        # blank project id, which alone produces that rejection; whether the
+        # app's own id was also rejected is not recorded. REMOVE this
+        # continue-on-error once a run on the current default passes.
+        continue-on-error: true
+        run: yarn playwright test --config playwright.ios.bridge-in.config.ts --retries=2
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridge-in-e2e-testnet-${{ github.run_id }}
+          path: test-results-ios/
+          retention-days: 7
+          if-no-files-found: ignore
+
   android-bridge-in-testnet:
     name: AggLayer bridge-in (${{ inputs.loop_count }} loops, Android Testnet)
-    # macOS larger runners are virtual machines and do not support nested
-    # virtualization. Use the standard Intel runner so its x86_64 AVD can use
-    # Hypervisor.framework and keep a native, visible emulator window.
+    if: github.event_name == 'workflow_dispatch' && inputs.platform == 'android'
+    needs: build-cli
     runs-on: macos-26-intel
-    # The 100-loop test has a 280-minute Playwright budget. Remaining time
-    # covers SDK/AVD setup, Android build, and final artifact upload.
     timeout-minutes: 360
     env:
       E2E_NETWORK: testnet
       MIDEN_E2E_TEST: 'true'
-      # The Android bridge-in setup uses adb reverse so app requests to host
-      # services use device loopback. The Node counterparty uses host loopback.
       E2E_EVM_RPC_URL: http://127.0.0.1:8545
       E2E_COUNTERPARTY_EVM_RPC_URL: http://127.0.0.1:8545
       MIDEN_REMOTE_CONFIG_URL: http://127.0.0.1:8550
       BRIDGE_IN_ROUTE: agglayer
       BRIDGE_IN_LOOP_COUNT: ${{ inputs.loop_count }}
-      # Pin ONE avd directory for all three tools. `avdmanager` writes where its
-      # own home resolution lands, `emulator -list-avds` scans where ITS home
-      # resolution lands, and the harness reads
-      # `ANDROID_AVD_HOME ?? $HOME/.android/avd` — on the runner those did not
-      # agree, so the base AVD was created successfully, listed as nothing, and
-      # the run died in global setup with `Base AVD "Pixel_API_34" not found`
-      # after paying for the SDK install and the APK build. Setting this makes
-      # all three read the same path.
       ANDROID_AVD_HOME: ${{ github.workspace }}/.android-avd
     steps:
       - uses: actions/checkout@v4
 
-      # Hypervisor.framework is what makes the emulator usable rather than
-      # merely present on this macOS runner. Without it, the boot fails or stalls.
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
 
@@ -66,7 +325,6 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      # The action's default packages include the retired 'tools' package, which sdkmanager no longer finds.
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
@@ -80,15 +338,10 @@ jobs:
           sdkmanager --install "platform-tools" "emulator" \
             "platforms;android-34" "system-images;android-34;default;x86_64"
 
-      # Prove the selected runner exposes Hypervisor.framework before paying
-      # for dependencies, CLI compilation, or the Android build.
+      # Prove the selected runner exposes Hypervisor.framework before paying for the APK build.
       - name: Verify Android VM acceleration
-        run: |
-          "$ANDROID_HOME/emulator/emulator" -accel-check
+        run: '"$ANDROID_HOME/emulator/emulator" -accel-check'
 
-      # The wallet AVD is derived from this base by the harness, so its name has to
-      # match BASE_AVD in emulator-control.ts. Kept in one place there; if it is
-      # ever renamed, this step fails loudly rather than silently booting nothing.
       - name: Create base AVD
         run: |
           mkdir -p "$ANDROID_AVD_HOME"
@@ -97,13 +350,8 @@ jobs:
             --package "system-images;android-34;default;x86_64" \
             --device pixel_6 \
             --force
-          # Fail HERE if the emulator can't see what avdmanager just wrote,
-          # rather than 5 minutes later in Playwright's global setup with the
-          # SDK install and the APK build already paid for.
-          echo "AVDs visible to the emulator (ANDROID_AVD_HOME=$ANDROID_AVD_HOME):"
-          "$ANDROID_HOME/emulator/emulator" -list-avds
           "$ANDROID_HOME/emulator/emulator" -list-avds | grep -qx 'Pixel_API_34' || {
-            echo "::error::avdmanager created Pixel_API_34 but 'emulator -list-avds' does not list it" >&2
+            echo "::error::avdmanager created Pixel_API_34 but the emulator cannot list it" >&2
             ls -la "$ANDROID_AVD_HOME" || true
             exit 1
           }
@@ -111,19 +359,8 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
-      # Pinned exact, matching every other E2E workflow: this job builds
-      # miden-client-cli from source, and the cache key below names the rustc
-      # version, so leaving it to the runner image's default made that key a
-      # claim nothing enforced.
       - uses: dtolnay/rust-toolchain@1.98.1
 
-      # Same pre-install flow used by other E2E workflows. Without it, the
-      # harness compiles miden-client-cli lazily on FIRST USE — i.e.
-      # inside the test — and the ~9 minutes of cargo build ate the 15-minute
-      # per-test budget: `mint-and-balance.android` failed with "Test timeout of
-      # 900000ms exceeded" having spent most of it in `Compiling thiserror`.
-      # Keyed by host OS/architecture as well as the rustc pin and pinned CLI
-      # rev because ~/.cargo/bin contains compiled, platform-specific binaries.
       - name: Compute platform-specific cargo cache key
         id: cargo_cache_key
         run: |
@@ -131,8 +368,6 @@ jobs:
           url=$(node -p "require('./package.json').midenClientCliGit.url")
           ver=$(node -p "require('./package.json').midenClientCliVersion ?? ''")
           pins=$(printf '%s|%s|%s' "$url" "$rev" "$ver" | sha256sum | cut -c1-16)
-          # This cache includes ~/.cargo/bin, whose rustup and CLI binaries are
-          # host-OS-specific as well as architecture-specific.
           namespace=miden-e2e-cargo-v3-${{ runner.os }}-${{ runner.arch }}
           echo "key=$namespace-rust1.98.1-cli-$pins" >> "$GITHUB_OUTPUT"
 
@@ -144,20 +379,21 @@ jobs:
             ~/.cargo/registry
           key: ${{ steps.cargo_cache_key.outputs.key }}
 
-      - name: Pre-install miden-client-cli (off the per-test clock)
-        # The harness auto-installs the CLI lazily on first use, but that ~7min compile
-        # blows the 300s per-test timeout, so it is pre-installed here. The action also
-        # rebuilds it against a linked Protocol PR when the PR carries one: the CLI
-        # EXECUTES AND PROVES transactions client-side, so an unpatched one dies inside
-        # its own local execution with a bare `x assert` that the harness misreports as
-        # a drained chain. No marker, no rebuild, and nothing about this step changes.
+      - name: Pre-install miden-client-cli from the verified cache
+        id: cli
+        env:
+          MIDEN_CLI_INSTALL_TIMEOUT_MS: '600000'
         uses: ./.github/actions/install-miden-client-cli
+
+      - name: Require the verified CLI built by the dependency job
+        if: steps.cli.outputs.stable-cli-cache-hit != 'true'
+        run: |
+          echo "::error::The Android job did not restore the verified Miden CLI produced by build-cli."
+          exit 1
 
       - name: Build debug APK
         run: yarn test:e2e:android:build
 
-      # Reclaim the Gradle daemon's heap before the emulator starts. The daemon lingers after `assembleDebug` holding
-      # a GB or two it will never use again in this job.
       - name: Stop the Gradle daemon
         run: cd android && ./gradlew --stop || true
 
@@ -172,8 +408,6 @@ jobs:
             playwright/e2e/android/tests/bridge-in-deposit.android.spec.ts \
             --retries=0
 
-      # Upload run output before diagnostics so a broken adb server cannot hold
-      # test results behind a log-collection step.
       - name: Upload E2E artifacts
         if: always()
         uses: actions/upload-artifact@v4
