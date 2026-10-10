@@ -35,7 +35,7 @@ import { WcCounterparty, type WcRequestLog } from '../helpers/wc-counterparty';
  *
  * Environment:
  *   USDCX_LIVE_EVM_PRIVATE_KEY        required: funded Arc Testnet key (USDC is the gas token too)
- *   USDCX_LIVE_DEPOSIT_AMOUNT         optional, in USDC; default 0.1
+ *   USDCX_LIVE_DEPOSIT_AMOUNT         optional, in USDC; default 0.01
  *   USDCX_FAUCET_ACCOUNT_ID           optional: the USDCx faucet, for the claim step
  *
  * To test a relayer build before it is deployed, set these too and the spec starts
@@ -66,7 +66,7 @@ const missingEnv = [
 ];
 // Optional: lets the claim step show a faucet whose metadata the wallet has not read yet.
 const faucetAccountId = (process.env.USDCX_FAUCET_ACCOUNT_ID ?? '').trim();
-const depositAmount = (process.env.USDCX_LIVE_DEPOSIT_AMOUNT ?? '').trim() || '0.1';
+const depositAmount = (process.env.USDCX_LIVE_DEPOSIT_AMOUNT ?? '').trim() || '0.01';
 const depositUnits = parseUnits(depositAmount, CIRCLE_USDC_DECIMALS);
 const arcRpcUrl = ARC_TESTNET.rpcUrls.default.http[0];
 const { usdc: arcUsdc, xReserve } = getUsdcxXReserveSource(ARC_TESTNET.id);
