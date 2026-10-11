@@ -32,7 +32,9 @@ jest.mock('@reown/appkit/react', () => ({
 }));
 
 const mockMutateAsync = jest.fn();
+const mockSwitchChainAsync = jest.fn().mockResolvedValue(undefined);
 jest.mock('wagmi', () => ({
+  useSwitchChain: () => ({ switchChainAsync: mockSwitchChainAsync }),
   useWriteContract: () => ({ mutateAsync: mockMutateAsync })
 }));
 
@@ -186,6 +188,9 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
 
 // The signer flavour: the wagmi one unless a case selects the native Reown one.
 let mockNativeReown = false;
+// The fee read hits the chain; here the wallet estimates, as it does when the read fails.
+jest.mock('lib/walletconnect/fees', () => ({ readNativeFeeFields: async () => ({}) }));
+
 jest.mock('lib/walletconnect/native', () => ({
   isNativeReownAvailable: () => mockNativeReown,
   NativeReown: { sendTransaction: jest.fn() },
@@ -198,6 +203,7 @@ jest.mock('lib/walletconnect/receipt', () => ({
 }));
 
 jest.mock('lib/walletconnect/config', () => ({
+  ...jest.requireActual('lib/walletconnect/config'),
   DEFAULT_CHAIN_ID: 11155111,
   SUPPORTED_CHAINS: [{ id: 11155111 }],
   getChain: () => ({ rpcUrl: 'https://rpc.test', name: 'Sepolia' })
@@ -343,6 +349,14 @@ jest.mock('./EvmSwitchWalletDrawer', () => ({
       </button>
     ) : null;
   }
+}));
+
+jest.mock('./EvmBridgeUsdcxRoute', () => ({
+  EvmBridgeUsdcxRoute: ({ onConfirm }: { onConfirm: () => void }) => (
+    <button data-testid="usdcx-confirm-route" onClick={onConfirm}>
+      route
+    </button>
+  )
 }));
 
 jest.mock('screens/send-flow/Route', () => ({
@@ -647,11 +661,18 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
   });
 
   it('bridges the Slow route through the L1 bridge and the rollup id the config names', async () => {
+    mockSwitchChainAsync.mockClear();
     renderScreen();
 
     await reachReview();
     fireEvent.click(screen.getByTestId('confirm-deposit'));
     await settle();
+
+    // A USDCx deposit may have left the web wallet on Arc or Base: the Slow route switches back before it signs.
+    expect(mockSwitchChainAsync).toHaveBeenCalledWith({ chainId: 11155111 });
+    expect(mockSwitchChainAsync.mock.invocationCallOrder[0]).toBeLessThan(
+      mockMutateAsync.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    );
 
     expect(mockMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({

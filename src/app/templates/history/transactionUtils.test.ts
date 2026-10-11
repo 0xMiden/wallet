@@ -17,6 +17,7 @@ import { formatAmount } from 'lib/shared/format';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import {
+  bridgeBadgeStatusOf,
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
@@ -661,6 +662,56 @@ describe('creditedAmount', () => {
   });
 });
 
+describe('bridgeBadgeStatusOf for a USDCx deposit', () => {
+  const deposit = (overrides: Partial<IHistoryEntry>) =>
+    bridgeEntry({ txType: 'bridged-receive', bridgeInProvider: 'usdcx', ...overrides });
+
+  it('reads Pending until Circle attests, Confirmed once it does and Completed once the note is received', () => {
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'delivering' }))).toBe('pending');
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'ready' }))).toBe('confirmed');
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'received' }))).toBe('completed');
+  });
+
+  it('reads Completed on the consume of the minted note', () => {
+    expect(bridgeBadgeStatusOf(deposit({ txType: 'consume' }))).toBe('completed');
+  });
+
+  it('reads Failed for a failed deposit', () => {
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'failed' }))).toBe('failed');
+  });
+
+  it('keeps Confirmed for a received deposit of another route', () => {
+    expect(
+      bridgeBadgeStatusOf(
+        bridgeEntry({ txType: 'bridged-receive', bridgeInProvider: 'epoch', bridgeInPhase: 'received' })
+      )
+    ).toBe('confirmed');
+  });
+});
+
+describe('USDCx withdrawal stages', () => {
+  it('keeps Burn confirmed until the destination balance check confirms arrival', () => {
+    const entry = bridgeEntry({
+      txType: 'bridged-send',
+      bridgeProvider: 'usdcx',
+      usdcxBurn: { noteId: 'note', destinationDomain: 26, phase: 'confirmed' }
+    });
+    expect(bridgeBadgeStatusOf(entry)).toBe('burnConfirmed');
+    expect(bridgeStatusOf(entry)).toBe('pending');
+    const arrived: IHistoryEntry = {
+      ...entry,
+      usdcxBurn: {
+        noteId: 'note',
+        destinationDomain: 26,
+        phase: 'confirmed',
+        destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' }
+      }
+    };
+    expect(bridgeBadgeStatusOf(arrived)).toBe('confirmed');
+    expect(bridgeStatusOf(arrived)).toBe('confirmed');
+  });
+});
+
 describe('bridgeStatusOf', () => {
   // ITransactionStatus.Failed === 3. A failed Miden tx never created a deposit,
   // so its terminal status must beat the route's own (initially pending) metadata.
@@ -949,6 +1000,31 @@ describe('bridgeInRowDisplay', () => {
       providerLabel: 'Epoch',
       network: 'Miden',
       status: 'confirmed'
+    });
+  });
+
+  it('labels a Circle xReserve deposit and keeps USDC in, USDCx out', () => {
+    expect(
+      bridgeInRowDisplay(
+        UNLOADED,
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'delivering',
+          bridgeInProvider: 'usdcx',
+          bridgeInSourceSymbol: 'USDC',
+          bridgeInOutputSymbol: 'USDCx',
+          bridgeInOutputAmount: '5'
+        })
+      )
+    ).toEqual({
+      inSymbol: 'USDC',
+      outSymbol: 'USDCx',
+      inLabel: 'USDC',
+      outLabel: 'USDCx',
+      outAmount: '5',
+      providerLabel: 'Circle xReserve',
+      network: 'Miden',
+      status: 'pending'
     });
   });
 });

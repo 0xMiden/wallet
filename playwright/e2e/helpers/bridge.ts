@@ -291,6 +291,7 @@ export interface BridgedSendRow {
   /** The request the row was queued with, as plain numbers: `page.evaluate` hands back JSON-safe values only. */
   requestBytes?: number[];
   extraInputs?: {
+    usdcxBurn?: { noteId: string; destinationDomain: number; phase: string; lastError?: string };
     intentNonce?: string;
     outputAmount?: string;
     evmTxHash?: string;
@@ -394,6 +395,7 @@ export async function readBridgedSendRows(page: Page): Promise<BridgedSendRow[]>
         outputNoteIds?: string[];
         requestBytes?: Uint8Array;
         extraInputs?: {
+          usdcxBurn?: { noteId: string; destinationDomain: number; phase: string; lastError?: string };
           intentNonce?: string;
           outputAmount?: string;
           evmTxHash?: string;

@@ -1,15 +1,21 @@
+import { isHash } from 'viem';
+
 import { midenAddrToEvmAddr } from 'lib/agglayer/contract';
 import { fetchDeposits, isAgglayerDepositReady } from 'lib/agglayer/status';
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
-import { waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
+import { isUsdcxDepositAttested } from 'lib/usdcx/attestation';
+import { fetchAttestedCctpMessage, isCctpForwardFailed, revertedExecuteLeg } from 'lib/usdcx/cctp';
+import { USDCX_SOURCE_CHAINS, UsdcxExecutorSource } from 'lib/usdcx/constant';
+import { readEvmReceiptOutcome, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 
 import { BRIDGE_RECEIVE_MAX_AGE_MS, registerPendingBridgeIn, resolveBridgeInNoteId } from './bridge-in';
 import { IBridgedReceiveExtraInputs, ITransaction } from '../db/types';
 import { updateBridgedReceivePhase } from '../transaction/complete';
 
 const SUBMISSION_LOCK = 'bridge-receive-submission';
+const INTERRUPTED_BEFORE_HASH = 'Bridge submission was interrupted before a transaction hash was recorded.';
 
 /**
  * A restored bridge row's delivery cannot be confirmed: the tracking state that
@@ -43,9 +49,7 @@ function firstString(source: unknown, key: string): string | undefined {
 async function reconcileAgglayerRow(row: ITransaction, inputs: IBridgedReceiveExtraInputs): Promise<void> {
   if (!inputs.evmTxHash) {
     if (inputs.phase === 'submitting') {
-      await updateBridgedReceivePhase(row.id, 'failed', {
-        error: 'Bridge submission was interrupted before a transaction hash was recorded.'
-      });
+      await updateBridgedReceivePhase(row.id, 'failed', { error: INTERRUPTED_BEFORE_HASH });
     }
     return;
   }
@@ -109,6 +113,105 @@ async function reconcileEpochRow(row: ITransaction, inputs: IBridgedReceiveExtra
   }
 }
 
+/**
+ * Circle's attestation proves the deposit, so the row becomes `ready`: Activity shows it as
+ * Confirmed and the timeout no longer fails it. A row that has its hash but lost its screen
+ * before the source-chain receipt settles the same way. The consume of the minted note then
+ * moves the row to `received` (`takeUsdcxBridgeInInfo`).
+ */
+async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtraInputs): Promise<void> {
+  // Reached only once no flow holds the submission: with no hash, nothing can ever move the row on.
+  if (inputs.phase === 'submitting' && !inputs.evmTxHash) {
+    await updateBridgedReceivePhase(row.id, 'failed', { error: INTERRUPTED_BEFORE_HASH });
+    return;
+  }
+  const source = inputs.sourceChainId === undefined ? undefined : USDCX_SOURCE_CHAINS.get(inputs.sourceChainId);
+  try {
+    if (source?.route === 'cctp-executor') {
+      await reconcileUsdcxExecutorRow(row, inputs, source);
+      return;
+    }
+    // A legacy Sepolia row has no source chain and reads the testnet service, the attestation default.
+    if (await isUsdcxDepositAttested(inputs.evmTxHash, source?.attestationApi)) {
+      await updateBridgedReceivePhase(row.id, 'ready');
+    }
+  } catch (error) {
+    console.warn('[bridge-receive] USDCx attestation poll failed', row.id, error);
+  }
+}
+
+/**
+ * An executor-route deposit has two Circle attestations. First Iris attests the CCTP burn. A forwarded burn
+ * is then executed on Arc by Circle, and the reconciler waits for the forward transaction hash; a manual
+ * burn, or a forward Circle gave up on, keeps the attested message on the row, where the status screen and
+ * Activity offer the execute. Once an Arc transaction hash is on the row, from either side, the reconciler
+ * asks xReserve's attestation service for it, which is the deposit, and the row becomes `ready` as a direct
+ * deposit would. An Arc execute that reverted, seen here or by the foreground hook, reopens the leg for the
+ * wallet to execute, and its hash is never adopted again.
+ */
+async function reconcileUsdcxExecutorRow(
+  row: ITransaction,
+  inputs: IBridgedReceiveExtraInputs,
+  source: UsdcxExecutorSource
+): Promise<void> {
+  const leg = inputs.cctp;
+  if (!leg) return;
+  const { target } = source;
+  if (leg.executeTxHash) {
+    if (await isUsdcxDepositAttested(leg.executeTxHash, target.attestationApi)) {
+      await updateBridgedReceivePhase(row.id, 'ready');
+      return;
+    }
+    // The foreground hook sees a revert only while its screen is open.
+    if (isHash(leg.executeTxHash) && (await readEvmReceiptOutcome(leg.executeTxHash, target.chain)) === 'reverted') {
+      await updateBridgedReceivePhase(row.id, 'delivering', {
+        cctp: revertedExecuteLeg(leg.sourceDomain, leg.executeTxHash)
+      });
+    }
+    return;
+  }
+  if (leg.attestation && !leg.forwarded) return;
+  const attested = await fetchAttestedCctpMessage(leg.sourceDomain, inputs.evmTxHash, { baseUrl: source.irisApi });
+  if (!attested) return;
+  const forwardReverted =
+    attested.forwardTxHash !== undefined &&
+    leg.revertedExecuteTxHash !== undefined &&
+    sameHash(attested.forwardTxHash, leg.revertedExecuteTxHash);
+  if (attested.forwardTxHash && !forwardReverted) {
+    await updateBridgedReceivePhase(
+      row.id,
+      'delivering',
+      {
+        cctp: {
+          sourceDomain: leg.sourceDomain,
+          executeTxHash: attested.forwardTxHash,
+          forwardState: attested.forwardState
+        }
+      },
+      undefined,
+      { onlyIfNoExecuteHash: true }
+    );
+    return;
+  }
+  if (leg.forwarded && !isCctpForwardFailed(attested.forwardState)) {
+    if (attested.forwardState !== leg.forwardState) {
+      await updateBridgedReceivePhase(row.id, 'delivering', {
+        cctp: { sourceDomain: leg.sourceDomain, forwardState: attested.forwardState }
+      });
+    }
+    return;
+  }
+  if (leg.attestation) return;
+  await updateBridgedReceivePhase(row.id, 'delivering', {
+    cctp: {
+      sourceDomain: leg.sourceDomain,
+      message: attested.message,
+      attestation: attested.attestation,
+      forwardState: attested.forwardState
+    }
+  });
+}
+
 async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans: boolean): Promise<void> {
   const inputs: IBridgedReceiveExtraInputs | undefined = row.extraInputs;
   if (inputs === undefined) return;
@@ -129,8 +232,17 @@ async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans:
   }
   if (inputs.phase === 'submitting' && !resumeOrphans) return;
 
-  if (inputs.provider === 'agglayer') await reconcileAgglayerRow(row, inputs);
-  else await reconcileEpochRow(row, inputs);
+  switch (inputs.provider) {
+    case 'agglayer':
+      await reconcileAgglayerRow(row, inputs);
+      return;
+    case 'usdcx':
+      await reconcileUsdcxRow(row, inputs);
+      return;
+    case 'epoch':
+    default:
+      await reconcileEpochRow(row, inputs);
+  }
 }
 
 async function readUnsettledRows(): Promise<ITransaction[]> {

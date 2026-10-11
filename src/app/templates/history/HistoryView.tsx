@@ -31,6 +31,8 @@ import { isGuardianOp } from './TransactionIcon';
 import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
+  bridgeBadgeStatusOf,
+  isUsdcxBridgeEntry,
   earnDepositSettlementOf,
   formatMoneyAmount,
   isBridgeInEntry,
@@ -135,7 +137,10 @@ function buildRowProps(
     return {
       icon: failed ? <Icon name={IconName.Close} size="sm" fill="currentColor" /> : <SwapIcon className="w-5 h-5" />,
       iconBg: failed ? 'bg-status-negative' : 'bg-[#777487]',
-      title: t('bridgeRowTitle', { from: d.inLabel, to: d.outLabel }),
+      title:
+        entry.bridgeProvider === 'usdcx'
+          ? t('usdcxBurnTitle')
+          : t('bridgeRowTitle', { from: d.inLabel, to: d.outLabel }),
       subtitle: t('bridgeRowVia', { provider: d.providerLabel, network: d.network }),
       amount: d.outAmount
         ? {
@@ -145,7 +150,7 @@ function buildRowProps(
             preformatted: true
           }
         : undefined,
-      status: d.status
+      status: isUsdcxBridgeEntry(entry) ? bridgeBadgeStatusOf(entry) : d.status
     };
   }
 

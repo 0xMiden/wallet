@@ -352,6 +352,7 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       'e2e-resilience.yml resilience-chrome: push 60, dispatch 120',
       'e2e-stress.yml stress-conservation: push 90, dispatch 150',
       'e2e-telemetry.yml telemetry-egress: push 30, dispatch 60',
+      'e2e-usdcx-live.yml mobile-usdcx-live: push 150, dispatch 235',
       'pr-e2e-earn.yml earn-e2e: push 120, dispatch 270',
       'pr-e2e-swap.yml swap-e2e: push 120, dispatch 270'
     ]);

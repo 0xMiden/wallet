@@ -631,6 +631,53 @@ describe('transactions utilities', () => {
       );
     });
 
+    it('atomically persists the USDCx burn identity alongside its replayable request', async () => {
+      const requestBytes = new Uint8Array([1, 2, 3]);
+      const burn: { noteId: string; destinationDomain: number; phase: 'pending' } = {
+        noteId: 'burn-note',
+        destinationDomain: 0,
+        phase: 'pending'
+      };
+      await initiateBridgedSendTransaction(
+        'account-a',
+        1_000_000n,
+        'faucet-a',
+        '0xrecipient',
+        11155111,
+        'usdcx',
+        requestBytes,
+        true,
+        undefined,
+        authorization,
+        undefined,
+        burn
+      );
+      expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'bridged-send',
+          requestBytes,
+          extraInputs: expect.objectContaining({ provider: 'usdcx', usdcxBurn: burn })
+        }),
+        [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],
+        authorization
+      );
+    });
+
+    it('never queues an untrackable USDCx burn', async () => {
+      await expect(
+        initiateBridgedSendTransaction(
+          'account-a',
+          1n,
+          'faucet-a',
+          '0xrecipient',
+          11155111,
+          'usdcx',
+          new Uint8Array([1])
+        )
+      ).rejects.toThrow('persisted request and note id');
+      expect(mockQueueOutgoingTransaction).not.toHaveBeenCalled();
+    });
+
     it('stores the Agglayer exit hash on the bridged-send row it queues (#1325)', async () => {
       await initiateBridgedSendTransaction(
         'account-a',
@@ -703,7 +750,19 @@ describe('transactions utilities', () => {
     );
   });
 
+  // The consume dedup reads the account's note-holding rows (`getNoteHoldingTransactions`) before its per-note
+  // lookups; these suites hold none. A test's own `mockReturnValueOnce` still comes first.
+  const noNoteHoldingRows = () => {
+    beforeEach(() => {
+      mockTransactionsFilter.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
+    });
+    afterEach(() => {
+      mockTransactionsFilter.mockReturnValue(undefined);
+    });
+  };
+
   describe('initiateConsumeTransaction', () => {
+    noNoteHoldingRows();
     const note = {
       id: 'note-123',
       faucetId: 'faucet',
@@ -1135,6 +1194,7 @@ describe('transactions utilities', () => {
   });
 
   describe('initiateConsumeTransactionFromId', () => {
+    noNoteHoldingRows();
     it('creates consume transaction from note id', async () => {
       mockGetInputNote.mockReturnValueOnce({
         metadata: () => ({ noteType: () => 'public' })

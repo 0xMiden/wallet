@@ -21,6 +21,7 @@ import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { useWalletStore } from 'lib/store';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
+import { isUsdcxWithdrawalAvailable, isUsdcxWithdrawalNetwork } from 'lib/usdcx/withdrawal';
 import { navigate, useLocation } from 'lib/woozie';
 import {
   detectAddressChain,
@@ -32,7 +33,15 @@ import {
 
 import { AccountsListDrawer } from './AccountsList';
 import { AddContactDrawer } from './AddContactDrawer';
-import { BRIDGE_NETWORKS, BridgeNetworkId, SendNetworkId } from './bridge-networks';
+import {
+  BRIDGE_NETWORKS,
+  BridgeNetworkId,
+  DEFAULT_BRIDGE_NETWORK,
+  DEFAULT_USDCX_BRIDGE_NETWORK,
+  isEpochBridgeNetwork,
+  SendNetworkId,
+  sendBridgeNetworks
+} from './bridge-networks';
 import { ScanQrDrawer } from './ScanQrDrawer';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
@@ -322,6 +331,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
       ? bridgeNetwork
       : 'miden'
     : recipientNetwork;
+  const offeredNetworks = sendBridgeNetworks(isUsdcxWithdrawalNetwork());
+  const usdcxOnly = !isEpochBridgeNetwork(displayedNetwork) && offeredNetworks.some(n => n.id === displayedNetwork);
   const selectedContact = useMemo(() => {
     const normalizedAddress = recipientAddress?.trim().toLowerCase();
     if (!normalizedAddress) return undefined;
@@ -367,12 +378,18 @@ export const SendManager: React.FC<SendManagerProps> = ({
     }
   }, [token, amount]);
 
+  const usdcxAvailable = isUsdcxWithdrawalAvailable(token?.id);
+  useEffect(() => {
+    if (usdcxAvailable && bridgeRoute !== 'usdcx') setValue('bridgeRoute', 'usdcx');
+    if (!usdcxAvailable && bridgeRoute === 'usdcx') setValue('bridgeRoute', 'epoch');
+  }, [usdcxAvailable, bridgeRoute, setValue]);
+
   const epochQuote = useEpochQuote({
     amount: amountBaseUnits,
     faucetId: token?.id,
     destinationAddress: recipientAddress,
     senderPublicKey: publicKey ?? undefined,
-    enabled: isBridge
+    enabled: isBridge && !usdcxAvailable
   });
 
   // E2E-only hook: mirror the forward-quote's state so the harness can assert on
@@ -469,6 +486,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
     setValue,
     getValues
   ]);
+
+  // Clear a token that the selected destination cannot receive.
+  useEffect(() => {
+    if (usdcxOnly && token && !usdcxAvailable) setValue('token', undefined);
+  }, [usdcxOnly, token, usdcxAvailable, setValue]);
 
   // What the user may actually send. The fee is withdrawn from this account's own
   // vault, so the full NATIVE balance is not spendable -- a send of everything is
@@ -757,12 +779,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
     [onAction]
   );
 
-  // While there is a single bridge network there is nothing to choose, so a valid 0x recipient
-  // gets it selected; the recipient step shows it as a fact and Confirm is ready.
+  // Keep an offered destination the user chose. Select the default when there is none, or when a contact,
+  // link or draft carries one this network does not offer.
   useEffect(() => {
-    const only = BRIDGE_NETWORKS.length === 1 ? BRIDGE_NETWORKS[0] : undefined;
-    if (only && isBridge && isValidRecipient && bridgeNetwork !== only.id) onSelectNetwork(only.id);
-  }, [isBridge, isValidRecipient, bridgeNetwork, onSelectNetwork]);
+    if (!isBridge || !isValidRecipient || offeredNetworks.some(n => n.id === bridgeNetwork)) return;
+    onSelectNetwork(usdcxAvailable ? DEFAULT_USDCX_BRIDGE_NETWORK.id : DEFAULT_BRIDGE_NETWORK.id);
+  }, [isBridge, isValidRecipient, bridgeNetwork, offeredNetworks, onSelectNetwork, usdcxAvailable]);
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
   const onSelectRecent = useCallback(
@@ -836,6 +858,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         case SendFlowStep.SelectRecipient:
           return (
             <SelectRecipient
+              networks={offeredNetworks}
               address={recipientAddress || ''}
               isValidAddress={isValidRecipient}
               error={errors.recipientAddress?.message?.toString()}
@@ -874,6 +897,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         case SendFlowStep.Route:
           return (
             <SendRoute
+              usdcxAvailable={usdcxAvailable}
               faucetId={spendableToken?.id ?? ''}
               route={bridgeRoute ?? 'epoch'}
               onRouteChange={onRouteChange}
@@ -911,8 +935,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
       onReceive,
       chain,
       displayedNetwork,
+      offeredNetworks,
       selectedContact?.name,
       bridgeRoute,
+      usdcxAvailable,
       onRouteChange,
       fastFeeUsd,
       epochQuote.loading,
@@ -928,7 +954,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
     <HomeGroupPaneRoot testId="send-flow">
       <Navigator renderRoute={renderStep} />
 
-      <SelectTokenDrawer open={showTokenDrawer} onOpenChange={setShowTokenDrawer} onSelect={onSelectToken} />
+      <SelectTokenDrawer
+        open={showTokenDrawer}
+        onOpenChange={setShowTokenDrawer}
+        onSelect={onSelectToken}
+        usdcxOnly={usdcxOnly}
+      />
 
       <AccountsListDrawer
         open={showContactsDrawer}

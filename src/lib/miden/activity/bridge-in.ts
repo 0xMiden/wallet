@@ -2,7 +2,8 @@ import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
 import { effectiveWithdrawAttemptId, intentKey, matchesEarnWithdrawIntent } from 'lib/epoch/intent-key';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
-import { accountRefToSdk } from 'lib/miden/sdk/helpers';
+import { accountRefToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { getBridgeConfigSnapshot, initBridgeConfig } from 'lib/remote-config/runtime';
 import { selectNativeEthFaucet, selectNativeEthToken } from 'lib/remote-config/values';
 
@@ -70,7 +71,7 @@ function isEvmAddress(value: string): value is `0x${string}` {
  * Miden SDK both emit hex note ids, but may differ in `0x` prefix and casing —
  * matching on the raw strings silently misses. Strip prefix + lowercase.
  */
-function noteIdKey(id: string): string {
+export function noteIdKey(id: string): string {
   return id.trim().toLowerCase().replace(/^0x/, '');
 }
 
@@ -232,6 +233,8 @@ export async function takeAgglayerBridgeInInfo(args: {
   const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
 
   const matches = await Repo.transactions
+    .where('type')
+    .equals('bridged-receive')
     .filter(tx => {
       if (tx.type !== 'bridged-receive' || !compareAccountIds(tx.accountId, args.accountId)) return false;
       // A restored tracker must not adopt a genuine incoming note: the match
@@ -257,6 +260,61 @@ export async function takeAgglayerBridgeInInfo(args: {
   const inputs = match.extraInputs as IBridgedReceiveExtraInputs;
   return {
     provider: 'agglayer',
+    sourceAmount: inputs.sourceAmount,
+    sourceSymbol: inputs.sourceSymbol,
+    evmTxHash: inputs.evmTxHash,
+    bridgeReceiveTxId: match.id
+  };
+}
+
+/**
+ * Match a note the USDCx faucet minted to the oldest compatible xReserve tracking row.
+ * The faucet is the chain's native asset and also sends ordinary faucet requests, so the
+ * sender alone proves nothing. The row must be a broadcast deposit (it has its EVM hash)
+ * of the same account and the same amount, which xReserve mints 1:1. The rows are read
+ * first, so a consume with no open USDCx deposit never waits for the native asset id.
+ */
+export async function takeUsdcxBridgeInInfo(args: {
+  accountId: string;
+  senderAccountId: string;
+  faucetId: string;
+  amount: bigint;
+}): Promise<IBridgeInInfo | undefined> {
+  const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
+  const matches = await Repo.transactions
+    .where('type')
+    .equals('bridged-receive')
+    .filter(tx => {
+      if (tx.type !== 'bridged-receive' || !compareAccountIds(tx.accountId, args.accountId)) return false;
+      // A restored tracker must not adopt a genuine incoming note, as for an AggLayer delivery.
+      if (tx.restoredFromBackup) return false;
+      const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
+      return (
+        inputs?.provider === 'usdcx' &&
+        inputs.evmTxHash !== undefined &&
+        inputs.phase !== 'received' &&
+        inputs.phase !== 'failed' &&
+        tx.initiatedAt >= cutoffSec &&
+        tx.amount === args.amount
+      );
+    })
+    .toArray();
+  // The mint follows Circle's attestation of the deposit, so a row whose deposit is attested (`ready`) is the
+  // one this note belongs to; a row still `delivering` is a fallback for a mint the watcher has not caught up
+  // with. Among equals the oldest wins. Age alone paired a note with an older deposit that was never executed
+  // and left the attested one at "Pending".
+  const rank = (tx: ITransaction): number => (tx.extraInputs?.phase === 'ready' ? 0 : 1);
+  matches.sort((a, b) => rank(a) - rank(b) || a.initiatedAt - b.initiatedAt);
+  const match = matches[0];
+  if (!match) return undefined;
+
+  const usdcxFaucetId = await getNativeAssetId();
+  if (!sameWalletAccountId(args.senderAccountId, usdcxFaucetId) || !sameWalletAccountId(args.faucetId, usdcxFaucetId)) {
+    return undefined;
+  }
+  const inputs: IBridgedReceiveExtraInputs = match.extraInputs;
+  return {
+    provider: 'usdcx',
     sourceAmount: inputs.sourceAmount,
     sourceSymbol: inputs.sourceSymbol,
     evmTxHash: inputs.evmTxHash,

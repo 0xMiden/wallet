@@ -26,6 +26,7 @@ import {
 } from 'lib/miden/transaction/constants';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
+import { findUsdcxDestinationTransaction } from 'lib/usdcx/destination-transaction';
 
 // Imported after the mocks so the module graph is wired to the stubs.
 import { HistoryDetails } from './HistoryDetails';
@@ -33,6 +34,8 @@ import { IHistoryEntry } from './IHistoryEntry';
 import { TRANSACTION_COLORS } from './transactionUtils';
 
 // The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/usdcx/destination-transaction', () => ({ findUsdcxDestinationTransaction: jest.fn() }));
+
 jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('@miden-sdk/miden-sdk', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk'),
@@ -3196,6 +3199,39 @@ describe('HistoryDetails', () => {
       extraInputs: bridgedReceiveInputs
     };
 
+    it('passes the RPC transfer hash to the confirmed USDCx withdrawal details', async () => {
+      const hash = `0x${'a'.repeat(64)}`;
+      jest.mocked(findUsdcxDestinationTransaction).mockResolvedValueOnce(hash);
+      setMockRow({
+        ...bridgedSendTx,
+        amount: 1000000n,
+        extraInputs: {
+          provider: 'usdcx',
+          destinationAddress: '0x1111111111111111111111111111111111111111',
+          destinationNetwork: 5042002,
+          usdcxBurn: {
+            noteId: 'note',
+            destinationDomain: 26,
+            phase: 'confirmed',
+            destinationBalanceBefore: { balance: '0', blockNumber: '100' },
+            destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' }
+          }
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-out' });
+      await flush();
+      expect(screen.getByTestId('history-status-pill')).toHaveTextContent('confirmed');
+      expect(mockBridgeClaimSection).toHaveBeenLastCalledWith(expect.objectContaining({ destinationTxHash: hash }));
+      expect(findUsdcxDestinationTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chainId: 5042002,
+          amount: 1000000n,
+          beforeBlock: '100',
+          confirmedBlock: '101'
+        })
+      );
+    });
+
     // A bridge row created before the amount/quote were stamped still has to
     // render a hero rather than blanking out.
     it('falls back to an em dash on both sides when no amount is known', async () => {
@@ -3503,6 +3539,40 @@ describe('HistoryDetails', () => {
       setMockRow(consume({}));
       await renderAndLoad({ transactionId: 'bridge-consume' });
       expect(screen.getByText('10.66')).toBeInTheDocument();
+    });
+
+    // The app-root watcher writes `ready` on Circle's attestation; the page reads the row and polls nothing.
+    it('confirms an attested USDCx deposit while its Miden note remains pending', async () => {
+      setMockRow({
+        ...bridgedReceiveTx,
+        extraInputs: {
+          provider: 'usdcx',
+          sourceAmount: '10',
+          sourceSymbol: 'USDC',
+          phase: 'ready',
+          evmTxHash: `0x${'c'.repeat(64)}`
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByTestId('history-status-pill')).toHaveTextContent('confirmed');
+      expect(rowByLabel('noteId')?.textContent).toContain('pending');
+    });
+
+    it('completes a USDCx deposit once its minted note is received', async () => {
+      setMockRow({
+        ...bridgedReceiveTx,
+        extraInputs: {
+          provider: 'usdcx',
+          sourceAmount: '10',
+          sourceSymbol: 'USDC',
+          phase: 'received',
+          evmTxHash: `0x${'c'.repeat(64)}`
+        }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(screen.getByTestId('history-status-pill')).toHaveTextContent('completed');
     });
 
     it('opens an old withdrawal-attempt consume as an independent bridge receipt', async () => {

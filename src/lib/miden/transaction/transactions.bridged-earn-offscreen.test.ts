@@ -263,31 +263,32 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     expect(mockComplete.earn).not.toHaveBeenCalled();
   });
 
-  it('Agglayer bridged-send (pre-built requestBytes) → midenClientProxy.newTransaction(accountId, requestBytes, delegate, signCallback)', async () => {
-    const requestBytes = new Uint8Array([0xa9, 0x1a]);
-    const tx = await run('tx-bs-agg', {
-      type: 'bridged-send',
-      requestBytes,
-      faucetId: 'faucet',
-      amount: 2000n,
-      delegateTransaction: true,
-      extraInputs: { provider: 'agglayer' }
-    });
+  it.each(['agglayer', 'usdcx'])(
+    '%s pre-built bridged-send delegates the exact request bytes to the proxy',
+    async provider => {
+      const requestBytes = new Uint8Array([0xa9, 0x1a]);
+      const tx = await run('tx-bs-agg', {
+        type: 'bridged-send',
+        requestBytes,
+        faucetId: 'faucet',
+        amount: 2000n,
+        delegateTransaction: true,
+        extraInputs: { provider }
+      });
 
-    expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
-    expect(mockProxyNewTransaction).toHaveBeenCalledWith(
-      'acc-1',
-      requestBytes,
-      true,
-      signCallback,
-      expect.any(Function)
-    );
-    expect(mockProxySendTransaction).not.toHaveBeenCalled();
-    expect(mockGetMidenClient).not.toHaveBeenCalled();
-    expect(mockInlineNewTransaction).not.toHaveBeenCalled();
-    expect(mockComplete.bridged).toHaveBeenCalledTimes(1);
-    void tx;
-  });
+      expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
+      // Only an Agglayer bridge awaits the node's verdict, so only it carries a stage stamp (#1081).
+      const stampType = provider === 'agglayer' ? 'function' : 'undefined';
+      const [account, bytes, delegate, callback, stamp] = mockProxyNewTransaction.mock.calls[0] ?? [];
+      expect([account, bytes, delegate, callback]).toEqual(['acc-1', requestBytes, true, signCallback]);
+      expect(typeof stamp).toBe(stampType);
+      expect(mockProxySendTransaction).not.toHaveBeenCalled();
+      expect(mockGetMidenClient).not.toHaveBeenCalled();
+      expect(mockInlineNewTransaction).not.toHaveBeenCalled();
+      expect(mockComplete.bridged).toHaveBeenCalledTimes(1);
+      void tx;
+    }
+  );
 
   it('earn-deposit (pre-built collateral request) → midenClientProxy.newTransaction(accountId, requestBytes, delegate, signCallback); never sendTransaction, never the inline SW leaf', async () => {
     const requestBytes = new Uint8Array([0xea, 0x51]);

@@ -21,7 +21,11 @@ import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isGuardianDrifted } from 'lib/miden/guardian/sync-guard';
-import { FaucetOutcomeUnknownError } from 'lib/miden-chain/faucet-api';
+import {
+  FaucetAmountOverCapError,
+  FaucetOutcomeUnknownError,
+  FaucetRateLimitedError
+} from 'lib/miden-chain/faucet-api';
 import { isExtension } from 'lib/platform';
 import type { TokenPrices } from 'lib/prices';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -174,6 +178,21 @@ const markOwnFundingUnresolved = (address: string, requestedAt: number) =>
 
 const formatUsdTotal = (total: number | null): string | undefined => (total === null ? undefined : formatUsd(total));
 
+type Translate = (key: string, options?: Record<string, unknown>) => string;
+
+// A refusal the user can act on reads in plain words; any other failure keeps its own message (#425).
+const faucetFailureBody = (error: Error, t: Translate): string => {
+  if (error instanceof FaucetRateLimitedError) {
+    const seconds = error.retryAfterSeconds;
+    // A wait of a second or less needs no number, and "1 seconds" reads wrong.
+    return seconds !== null && seconds > 1
+      ? t('faucetRateLimitedWait', { seconds: String(seconds) })
+      : t('faucetRateLimited');
+  }
+  if (error instanceof FaucetAmountOverCapError) return t('faucetOverCap');
+  return error.message;
+};
+
 // How long the "Funds deposited" success beat holds before the prompt
 // completes — long enough to read the two-line lockup.
 export const FAUCET_FUNDED_BEAT_MS = 2400;
@@ -258,7 +277,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const faucetFundsArrived = fundsArrivedFor !== null && fundsArrivedFor === account.publicKey;
   // The faucet's actual failure reason, rendered in the card body — a bare red
   // X can't distinguish a rate limit from an outage (#425).
-  const [faucetError, setFaucetError] = useState<string | null>(null);
+  const [faucetError, setFaucetError] = useState<Error | null>(null);
   // Whether this account's persisted funding marker has been read on THIS visit.
   // Until then a wait may still be about to resume - a mint that acked before a
   // remount has no in-flight join left - so offering Fund could start a second
@@ -560,7 +579,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       setFundingWait(current => (current !== null && current.address === address ? null : current));
       if (accountKeyRef.current !== address) return;
       setFaucetStatusIndicator('failure');
-      setFaucetError(error instanceof Error ? error.message : String(error));
+      setFaucetError(error instanceof Error ? error : new Error(String(error)));
     });
     return () => {
       cancelled = true;
@@ -653,7 +672,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         // …but only paint the failure if that account is still on screen.
         if (accountKeyRef.current === address) {
           setFaucetStatusIndicator('failure');
-          setFaucetError(error instanceof Error ? error.message : String(error));
+          setFaucetError(error instanceof Error ? error : new Error(String(error)));
         }
         console.error('[wallet-prompts] faucet request failed:', error);
       }
@@ -988,13 +1007,13 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             onClick:
               funding || faucetFundsArrived || !fundingReady || rearmedWhileMintClaimable ? undefined : fundWallet,
             status: funding ? 'loading' : faucetFundsArrived ? 'success' : faucetStatusIndicator,
-            // On failure the body carries the faucet's actual message, so a rate
-            // limit, a rejected amount, and an outage read differently. Otherwise a
-            // user holding tokens but no MIDEN reads "Add tokens" and reasonably
-            // concludes the prompt is not about them -- name the missing asset.
+            // On failure the body says what went wrong: a rate limit or a refused amount
+            // in plain words, anything else in the faucet's own message, so each reads
+            // differently. Otherwise a user holding tokens but no MIDEN reads "Add tokens"
+            // and reasonably concludes the prompt is not about them -- name the missing asset.
             body:
               faucetStatusIndicator === 'failure' && faucetError
-                ? faucetError
+                ? faucetFailureBody(faucetError, t)
                 : unresolvedHere !== null
                   ? t('faucetPromptUnresolvedBody')
                   : cannotPayFee

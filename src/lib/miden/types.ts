@@ -30,7 +30,7 @@ export interface ConsumableNote {
   amount: string;
   senderAddress: string;
   isBeingClaimed: boolean;
-  /** When `isBeingClaimed`, the id of the consume transaction claiming it, for linking to its progress. */
+  /** When `isBeingClaimed`, the id of the consume or dApp transaction consuming it, for linking to its progress. */
   claimingTxId?: string;
   type: NoteType | 'unknown';
   swapOrder?: SwapOrderNoteMetadata;

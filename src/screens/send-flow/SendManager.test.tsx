@@ -126,11 +126,19 @@ jest.mock('./SelectRecipient', () => ({
       <textarea data-testid="sr-input" onChange={props.onAddressChange} />
       <span data-testid="sr-canadd">{String(props.canAddContact)}</span>
       <span data-testid="sr-recents">{JSON.stringify(props.recents)}</span>
+      <span data-testid="sr-networks">{JSON.stringify(props.networks.map((n: any) => n.id))}</span>
       <button data-testid="sr-addressbook" onClick={props.onAddressBook} />
       <button data-testid="sr-addcontact" onClick={props.onAddContact} />
       <button data-testid="sr-selectrecent" onClick={() => props.onSelectRecent(props.recents[0])} />
       {props.onScan && <button data-testid="sr-scan" onClick={props.onScan} />}
       {props.onPaste && <button data-testid="sr-paste" onClick={props.onPaste} />}
+      {props.networks.map((network: { id: string }) => (
+        <button
+          key={network.id}
+          data-testid={`sr-network-${network.id}`}
+          onClick={() => props.onSelectNetwork(network.id)}
+        />
+      ))}
       <button data-testid="sr-confirm" onClick={props.onConfirm} />
     </div>
   )
@@ -177,6 +185,7 @@ jest.mock('./SelectToken', () => ({
   SelectTokenDrawer: (props: any) => (
     <div data-testid="token-drawer">
       <span data-testid="td-open">{String(props.open)}</span>
+      <span data-testid="td-usdcx-only">{String(props.usdcxOnly)}</span>
       <button data-testid="td-select" onClick={() => props.onSelect(mockSelectedToken)} />
       <button data-testid="td-close" onClick={() => props.onOpenChange(false)} />
     </div>
@@ -215,21 +224,55 @@ jest.mock('./useRecentRecipients', () => ({
 }));
 
 let mockBridgeNetworks: Array<{ id: string; name: string; chainId: number }> = [];
-jest.mock('./bridge-networks', () => ({
-  DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
-  get BRIDGE_NETWORKS() {
-    return mockBridgeNetworks;
-  },
-  getBridgeNetwork: jest.fn()
+jest.mock('./bridge-networks', () => {
+  const sepolia = { id: 'sepolia', name: 'Sepolia', chainId: 11155111 };
+  // The testnet USDCx destinations, in the destination table's order.
+  const usdcxNetworks = [
+    { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 },
+    sepolia,
+    { id: 'arbitrum-sepolia', name: 'Arbitrum Sepolia', chainId: 421614 },
+    { id: 'base-sepolia', name: 'Base Sepolia', chainId: 84532 }
+  ];
+  const sepoliaOnly = [sepolia];
+  return {
+    DEFAULT_BRIDGE_NETWORK: sepolia,
+    get BRIDGE_NETWORKS() {
+      return mockBridgeNetworks;
+    },
+    getBridgeNetwork: jest.fn(),
+    USDCX_BRIDGE_NETWORKS: usdcxNetworks,
+    DEFAULT_USDCX_BRIDGE_NETWORK: usdcxNetworks[0],
+    isUsdcxBridgeNetwork: (id: string | undefined) => usdcxNetworks.some(n => n.id === id),
+    isEpochBridgeNetwork: (id: string | undefined) => id === sepolia.id,
+    sendBridgeNetworks: (usdcxWithdrawals: boolean) => (usdcxWithdrawals ? usdcxNetworks : sepoliaOnly)
+  };
+});
+
+// USDCx withdrawal is offered only for the token id a test names; unset, every token takes the Epoch route.
+let mockUsdcxTokenId: string | undefined;
+let mockUsdcxWithdrawalNetwork = true;
+jest.mock('lib/usdcx/withdrawal', () => ({
+  isUsdcxWithdrawalAvailable: (tokenId: string | undefined) => !!tokenId && tokenId === mockUsdcxTokenId,
+  isUsdcxWithdrawalNetwork: () => mockUsdcxWithdrawalNetwork
 }));
 
 let mockEpochAmount: string | undefined;
+const useEpochQuoteMock = jest.fn((_args: { faucetId?: string; enabled: boolean }) => ({
+  amount: mockEpochAmount,
+  loading: false
+}));
 jest.mock('./useEpochQuote', () => ({
-  useEpochQuote: () => ({ amount: mockEpochAmount, loading: false })
+  useEpochQuote: (args: any) => useEpochQuoteMock(args)
 }));
 
 jest.mock('./SendRoute', () => ({
-  SendRoute: (props: any) => <span data-testid="route-fee">{String(props.fastFeeUsd)}</span>
+  SendRoute: (props: any) => (
+    <>
+      <span data-testid="route-fee">{String(props.fastFeeUsd)}</span>
+      <span data-testid="route-selected">{props.route}</span>
+      <span data-testid="route-usdcx">{String(props.usdcxAvailable)}</span>
+    </>
+  )
 }));
 
 jest.mock('lib/miden/front', () => ({
@@ -316,6 +359,8 @@ beforeEach(() => {
   mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
   mockRenderRouteName = undefined;
   mockEpochAmount = undefined;
+  mockUsdcxTokenId = undefined;
+  mockUsdcxWithdrawalNetwork = true;
   mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
   mockSelectedContact = { id: '0xcontact', name: 'Alice', isOwned: false, contactType: 'external' };
   capturedBackHandler = null;
@@ -1685,5 +1730,130 @@ describe('fast-route fee', () => {
     } finally {
       mockedHasUnquotedDefaultPrice.mockReturnValue(false);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// USDCx withdrawal: the token decides the route, the destinations and the Epoch quote.
+// ---------------------------------------------------------------------------
+describe('USDCx withdrawal wiring', () => {
+  const usdcxToken = { id: 'USDCX', name: 'USDCx', decimals: 6, balance: 100, fiatPrice: 1 };
+  const otherToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
+
+  const pickToken = (token: typeof usdcxToken) => {
+    mockSelectedToken = token;
+    act(() => {
+      fireEvent.click(screen.getByTestId('td-select'));
+    });
+  };
+
+  const pickEvmRecipient = () => {
+    mockSelectedContact = { id: '0xrecip', name: 'R', isOwned: false, contactType: 'external' };
+    act(() => {
+      fireEvent.click(screen.getByTestId('ad-select'));
+    });
+  };
+
+  const offeredNetworks = () => JSON.parse(screen.getByTestId('sr-networks').textContent!);
+
+  beforeEach(() => {
+    mockUsdcxTokenId = usdcxToken.id;
+  });
+
+  it('switches the route to USDCx for the USDCx token and back to Epoch for another', () => {
+    mockCardStack = [{ name: SendFlowStep.Route }];
+    renderFlow();
+    pickEvmRecipient();
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^epoch$/);
+
+    pickToken(usdcxToken);
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^usdcx$/);
+    expect(screen.getByTestId('route-usdcx')).toHaveTextContent(/^true$/);
+
+    pickToken(otherToken);
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^epoch$/);
+    expect(screen.getByTestId('route-usdcx')).toHaveTextContent(/^false$/);
+  });
+
+  it('keeps Arc selected and clears another token picked after USDCx', () => {
+    const { rerender } = renderFlow();
+    pickToken(usdcxToken);
+    pickEvmRecipient();
+    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^arc-testnet$/);
+
+    pickToken(otherToken);
+    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^arc-testnet$/);
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+  });
+
+  it('offers all bridge destinations before and after token selection', () => {
+    renderFlow();
+    expect(offeredNetworks()).toEqual(['arc-testnet', 'sepolia', 'arbitrum-sepolia', 'base-sepolia']);
+    pickToken(usdcxToken);
+    pickEvmRecipient();
+    expect(offeredNetworks()).toEqual(['arc-testnet', 'sepolia', 'arbitrum-sepolia', 'base-sepolia']);
+
+    pickToken(otherToken);
+    expect(offeredNetworks()).toEqual(['arc-testnet', 'sepolia', 'arbitrum-sepolia', 'base-sepolia']);
+  });
+
+  it('offers Sepolia alone where USDCx withdrawals do not exist and moves a saved USDCx-only destination there', () => {
+    mockUsdcxWithdrawalNetwork = false;
+    const { rerender } = renderFlow();
+    pickToken(otherToken);
+    mockSelectedContact = { id: '0xrecip', name: 'R', isOwned: false, contactType: 'external', network: 'arc-testnet' };
+    act(() => {
+      fireEvent.click(screen.getByTestId('ad-select'));
+    });
+
+    expect(offeredNetworks()).toEqual(['sepolia']);
+    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^sepolia$/);
+    expect(screen.getByTestId('td-usdcx-only')).toHaveTextContent('false');
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+  });
+
+  it('moves a USDCx-only destination to Sepolia when the effective network stops offering it', () => {
+    const { rerender } = renderFlow();
+    pickEvmRecipient();
+    fireEvent.click(screen.getByTestId('sr-network-arc-testnet'));
+    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^arc-testnet$/);
+
+    mockUsdcxWithdrawalNetwork = false;
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^sepolia$/);
+  });
+
+  it.each(['arc-testnet', 'base-sepolia', 'arbitrum-sepolia'])(
+    'keeps %s selected and clears an unsupported token',
+    network => {
+      const { rerender } = renderFlow();
+      pickToken(otherToken);
+      fireEvent.click(screen.getByTestId(`sr-network-${network}`));
+      pickEvmRecipient();
+      expect(screen.getByTestId('sr-network')).toHaveTextContent(network);
+      expect(screen.getByTestId('td-usdcx-only')).toHaveTextContent('true');
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+      pickToken(otherToken);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+      pickToken(usdcxToken);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('USDCx');
+    }
+  );
+
+  it('disables the Epoch quote on the USDCx path and enables it for another token on the same bridge send', () => {
+    renderFlow();
+    pickToken(usdcxToken);
+    pickEvmRecipient();
+    expect(useEpochQuoteMock).toHaveBeenLastCalledWith(expect.objectContaining({ faucetId: 'USDCX', enabled: false }));
+
+    fireEvent.click(screen.getByTestId('sr-network-sepolia'));
+    pickToken(otherToken);
+    expect(useEpochQuoteMock).toHaveBeenLastCalledWith(expect.objectContaining({ faucetId: 'T1', enabled: true }));
   });
 });
