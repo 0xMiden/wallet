@@ -156,10 +156,10 @@ export class EmulatorControl {
     // The bridge-in workflow already creates this AVD. Reusing it avoids
     // copying a second userdata image for a route that needs only one device.
     await ensureAvdsExist([BASE_AVD]);
-    return bootAvd(BASE_AVD, 5554, true);
+    return bootAvd(BASE_AVD, 5554, { visible: true });
   }
 
-  /** Start the visible bridge-in emulator and return as soon as adb sees it. */
+  /** Start the visible bridge-in emulator without making unrelated setup wait for its cold boot. */
   static async startSingle(): Promise<string> {
     const serial = 'emulator-5554';
     if ((await EmulatorControl.listBootedSerials()).has(serial)) {
@@ -168,7 +168,11 @@ export class EmulatorControl {
     }
 
     await ensureAvdsExist([BASE_AVD]);
-    return bootAvd(BASE_AVD, 5554, true, false, BRIDGE_IN_EMULATOR_CORES);
+    return bootAvd(BASE_AVD, 5554, {
+      visible: true,
+      cores: BRIDGE_IN_EMULATOR_CORES,
+      returnAfterSpawn: true
+    });
   }
 
   /**
@@ -554,13 +558,15 @@ async function ensureAvdsExist(requiredAvds: string[] = [DEVICE_PAIR_AVD_A, DEVI
   }
 }
 
-async function bootAvd(
-  avdName: string,
-  port: number,
-  visible = false,
-  waitForBoot = true,
-  cores = EMULATOR_CORES
-): Promise<string> {
+interface BootAvdOptions {
+  visible?: boolean;
+  cores?: number;
+  /** Return after launching so independent workflow setup can overlap a cold boot. */
+  returnAfterSpawn?: boolean;
+}
+
+async function bootAvd(avdName: string, port: number, options: BootAvdOptions = {}): Promise<string> {
+  const { visible = false, cores = EMULATOR_CORES, returnAfterSpawn = false } = options;
   // If an emulator is already listening on this port from a previous run,
   // verify its AVD and (when required) visible launch mode before reuse.
   const expectedSerial = `emulator-${port}`;
@@ -570,13 +576,50 @@ async function bootAvd(
     return expectedSerial;
   }
 
-  // Launch detached so the test process can exit independently. stdout/err
-  // go to a log file under test-results-android.
-  const logDir = path.join(ROOT_DIR, 'test-results-android', 'emulator-logs');
-  fs.mkdirSync(logDir, { recursive: true });
-  const logPath = path.join(logDir, `${avdName}-${port}.log`);
-  const logFd = fs.openSync(logPath, 'a');
+  // adb reports a booting emulator as `offline`, so it is intentionally absent
+  // from listBootedSerials(). The workflow launches the bridge-in guest before
+  // installing Foundry and setting up Playwright; when global setup reserves it,
+  // recognize that exact AVD/port process and wait for its existing boot rather
+  // than racing a second emulator against its userdata lock.
+  const existingProcess = await findEmulatorProcess(avdName, port);
+  if (existingProcess) {
+    if (visible) assertVisibleEmulatorProcess(existingProcess, avdName, port);
+  } else {
+    launchAvd(avdName, port, visible, cores);
+  }
 
+  if (returnAfterSpawn) return expectedSerial;
+
+  // Poll adb until the serial appears + boot_completed flips. The early
+  // workflow launch returns above; the later Playwright reservation waits here
+  // while Foundry installation and test-runner setup overlap the cold boot.
+  const start = Date.now();
+  while (Date.now() - start < BOOT_TIMEOUT_MS) {
+    const present = await EmulatorControl.listBootedSerials();
+    if (present.has(expectedSerial)) {
+      let bootCompleted = false;
+      try {
+        const { stdout } = await adb(['-s', expectedSerial, 'shell', 'getprop', 'sys.boot_completed']);
+        bootCompleted = stdout.trim() === '1';
+      } catch {
+        // not responsive yet — keep polling
+      }
+      if (bootCompleted) {
+        await assertRunningAvd(expectedSerial, avdName, visible);
+        return expectedSerial;
+      }
+    }
+    await sleep(BOOT_POLL_MS);
+  }
+  throw new Error(
+    `Emulator ${avdName} on port ${port} did not boot within ${BOOT_TIMEOUT_MS}ms — see ${emulatorLogPath(avdName, port)}`
+  );
+}
+
+function launchAvd(avdName: string, port: number, visible: boolean, cores: number): void {
+  const logPath = emulatorLogPath(avdName, port);
+  fs.mkdirSync(path.dirname(logPath), { recursive: true });
+  const logFd = fs.openSync(logPath, 'a');
   const child = spawn(
     getEmulatorBin(),
     [
@@ -620,41 +663,33 @@ async function bootAvd(
       // gradle-daemon stop), not giving each guest a bigger share of it.
       '-memory',
       '4096',
-      // Pair emulators use host sizing; the live single-emulator boot passes
-      // its own conservative CPU count.
       '-cores',
       String(cores)
     ],
     { detached: true, stdio: ['ignore', logFd, logFd] }
   );
   child.unref();
+}
 
-  // Poll adb until the serial appears + boot_completed flips. See
-  // BOOT_TIMEOUT_MS for why the budget is sized for a contended CI runner
-  // rather than the Apple Silicon host this was first written on.
-  const start = Date.now();
-  const waitTimeoutMs = waitForBoot ? BOOT_TIMEOUT_MS : 45_000;
-  while (Date.now() - start < waitTimeoutMs) {
-    const present = await EmulatorControl.listBootedSerials();
-    if (present.has(expectedSerial)) {
-      if (!waitForBoot) return expectedSerial;
+function emulatorLogPath(avdName: string, port: number): string {
+  return path.join(ROOT_DIR, 'test-results-android', 'emulator-logs', `${avdName}-${port}.log`);
+}
 
-      let bootCompleted = false;
-      try {
-        const { stdout } = await adb(['-s', expectedSerial, 'shell', 'getprop', 'sys.boot_completed']);
-        bootCompleted = stdout.trim() === '1';
-      } catch {
-        // not responsive yet — keep polling
-      }
-      if (bootCompleted) {
-        await assertRunningAvd(expectedSerial, avdName, visible);
-        return expectedSerial;
-      }
-    }
-    await sleep(BOOT_POLL_MS);
-  }
-  const target = waitForBoot ? 'boot' : 'become visible to adb';
-  throw new Error(`Emulator ${avdName} on port ${port} did not ${target} within ${waitTimeoutMs}ms — see ${logPath}`);
+async function findEmulatorProcess(avdName: string, port: number): Promise<string | null> {
+  const { stdout } = await execFileAsync('ps', ['-ww', '-axo', 'command='], { timeout: ADB_TIMEOUT_MS });
+  const escapedAvd = escapeRegExp(avdName);
+  const escapedPort = escapeRegExp(String(port));
+  return (
+    stdout
+      .split('\n')
+      .find(line => {
+        return (
+          /(?:^|[\s/])emulator(?:\s|$)/.test(line) &&
+          new RegExp(`(?:^|\\s)-avd\\s+${escapedAvd}(?:\\s|$)`).test(line) &&
+          new RegExp(`(?:^|\\s)-port\\s+${escapedPort}(?:\\s|$)`).test(line)
+        );
+      }) ?? null
+  );
 }
 
 /** Fail closed if a live serial belongs to another AVD or is hidden when the route requires a visible window. */
@@ -670,23 +705,21 @@ async function assertRunningAvd(serial: string, avdName: string, requireVisible:
 
   if (!requireVisible) return;
 
-  const { stdout: processes } = await execFileAsync('ps', ['-ww', '-axo', 'command='], { timeout: ADB_TIMEOUT_MS });
   const serialPort = serial.match(/^emulator-(\d+)$/)?.[1];
-  const escapedAvd = escapeRegExp(avdName);
-  const escapedPort = escapeRegExp(serialPort ?? '');
-  const processLine = processes.split('\n').find(line => {
-    return (
-      /(?:^|[\s/])emulator(?:\s|$)/.test(line) &&
-      new RegExp(`(?:^|\\s)-avd\\s+${escapedAvd}(?:\\s|$)`).test(line) &&
-      new RegExp(`(?:^|\\s)-port\\s+${escapedPort}(?:\\s|$)`).test(line)
-    );
-  });
+  if (serialPort === undefined) {
+    throw new Error(`Cannot verify the launch flags for ${avdName} on unexpected serial ${serial}.`);
+  }
+  const processLine = await findEmulatorProcess(avdName, Number(serialPort));
   if (!processLine) {
     throw new Error(`Cannot verify the launch flags for ${avdName} on ${serial}; refusing to reuse it.`);
   }
+  assertVisibleEmulatorProcess(processLine, avdName, Number(serialPort));
+}
+
+function assertVisibleEmulatorProcess(processLine: string, avdName: string, port: number): void {
   if (/(?:^|\s)(?:-no-window|-qt-hide-window)(?:\s|$)/.test(processLine)) {
     throw new Error(
-      `Emulator ${avdName} on ${serial} is hidden; the Android bridge-in route requires a visible window.`
+      `Emulator ${avdName} on port ${port} is hidden; the Android bridge-in route requires a visible window.`
     );
   }
 }

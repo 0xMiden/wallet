@@ -567,3 +567,24 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - Current `origin/main` was refreshed to `8e7ae16302d5a69d9479d14b8a721dc0944aca88`. It changed bridge-receive and faucet helpers, so the recovery merge carries those changes and combines both sides of the two conflicts.
 - `actionlint` and staged/unstaged whitespace checks pass. Local Jest is unavailable because this recovery checkout has no `node_modules`; the exact-SHA Android preparation workflow will compile the merged APK before live dispatch.
 - Independent review found no blocker in the runner, CPU scope, caches, provenance, or merge. It caught one stale `macos-26-large` diagnostic, now corrected to `macos-15-large`. The five-minute target and successful boot remain unproven until the next live run.
+
+## Overlap Android emulator boot with Playwright startup
+
+### Plan
+
+- [x] Inspect run `38121489608`'s exact job logs and emulator artifact; confirm why the 45-second ADB visibility wait expired.
+- [x] Change bridge-in startup to launch the visible emulator and return immediately; make the later reservation reuse and wait on that exact in-flight process instead of spawning a duplicate.
+- [x] Add focused helper coverage for asynchronous launch, process reuse while ADB is offline, visible-window enforcement, and the four-core bridge-in configuration.
+- [x] Run workflow syntax and diff checks, then obtain independent review; the checkout has no `node_modules`, so focused Jest is unavailable locally.
+- [ ] Fetch current `origin/main`, publish the reviewed change, prepare its exact SHA, and retry Android Testnet until one run proves all 100 loops complete.
+
+### Evidence
+
+- Run `38121489608` reached the visible-emulator step at 159 seconds after dispatch. ADB listed `emulator-5554 offline`; the helper stopped waiting after 45 seconds while the log still reported a full cold startup in progress. Foundry and Playwright never started, and loop 1 did not start.
+- The current step waits synchronously for ADB before Foundry installation and Playwright. Returning after spawn lets those independent setup steps overlap guest boot; `reserveSingle` must identify the exact visible AVD process and wait for it when adb reports `offline`.
+
+### Review/results
+
+- `actionlint -ignore 'label "macos-(15-large|26-xlarge)" is unknown' .github/workflows/e2e-bridge-in.yml` and `git diff --check` pass. The helper test is added; this checkout has no `node_modules`, so it cannot run locally. Exact-SHA preparation and hosted runtime verification are still required.
+- Independent review found no actionable P0/P1/P2 issue. It confirmed the workflow serializes launch then reservation, the offline process check avoids a duplicate AVD, and the five-minute dispatch-based watchdog remains fail-closed. Live execution is still needed to prove both the first-loop target and 100-loop outcome.
+- Pending publication, exact-SHA preparation, hosted runtime verification, and 100-loop completion.

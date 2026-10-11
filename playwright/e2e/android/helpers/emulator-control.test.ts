@@ -141,6 +141,51 @@ describe('EmulatorControl', () => {
       expect(launch).not.toHaveBeenCalled();
     });
 
+    it('waits for the already-launched visible AVD when adb still reports it offline', async () => {
+      const previousAndroidHome = process.env.ANDROID_HOME;
+      const previousAvdHome = process.env.ANDROID_AVD_HOME;
+      const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wallet-android-offline-avd-'));
+      const avdHome = path.join(tempRoot, 'avd');
+      const baseDir = path.join(avdHome, 'Pixel_API_34.avd');
+      fs.mkdirSync(baseDir, { recursive: true });
+      fs.writeFileSync(path.join(avdHome, 'Pixel_API_34.ini'), `path=${baseDir}\n`);
+      fs.writeFileSync(path.join(baseDir, 'config.ini'), 'AvdId=Pixel_API_34\n');
+      process.env.ANDROID_HOME = tempRoot;
+      process.env.ANDROID_AVD_HOME = avdHome;
+
+      const deviceStates = ['offline', 'offline', 'device'];
+      run.mockImplementation(((_file: string, args: string[], _options: { timeout?: number }, callback: Callback) => {
+        let stdout = '';
+        if (args[0] === 'devices') {
+          stdout = `List of devices attached\n${SERIAL} ${deviceStates.shift() ?? 'device'}\n`;
+        } else if (args[0] === '-list-avds') {
+          stdout = 'Pixel_API_34\n';
+        } else if (args.includes('getprop')) {
+          stdout = '1\n';
+        } else if (args.includes('emu')) {
+          stdout = 'Pixel_API_34\nOK\n';
+        } else if (_file === 'ps') {
+          stdout = '/opt/android-sdk/emulator/emulator -avd Pixel_API_34 -port 5554 -no-snapshot -no-audio\n';
+        }
+        callback(null, { stdout, stderr: '' });
+        return {} as ReturnType<typeof execFile>;
+      }) as unknown as typeof execFile);
+
+      try {
+        const reservation = EmulatorControl.reserveSingle();
+        await jest.advanceTimersByTimeAsync(1_000);
+        await expect(reservation).resolves.toBe(SERIAL);
+        expect(deviceStates).toHaveLength(0);
+        expect(launch).not.toHaveBeenCalled();
+      } finally {
+        if (previousAndroidHome === undefined) delete process.env.ANDROID_HOME;
+        else process.env.ANDROID_HOME = previousAndroidHome;
+        if (previousAvdHome === undefined) delete process.env.ANDROID_AVD_HOME;
+        else process.env.ANDROID_AVD_HOME = previousAvdHome;
+        fs.rmSync(tempRoot, { recursive: true, force: true });
+      }
+    });
+
     it('fails before boot when the base AVD files are not visible to the emulator', async () => {
       const previousAndroidHome = process.env.ANDROID_HOME;
       const previousAvdHome = process.env.ANDROID_AVD_HOME;
@@ -172,7 +217,7 @@ describe('EmulatorControl', () => {
       }
     });
 
-    it('boots the workflow-provided base AVD without creating pair clones', async () => {
+    it('starts the workflow-provided visible base AVD without waiting for adb or creating pair clones', async () => {
       const previousAndroidHome = process.env.ANDROID_HOME;
       const previousAvdHome = process.env.ANDROID_AVD_HOME;
       const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wallet-android-single-avd-'));
@@ -199,13 +244,7 @@ describe('EmulatorControl', () => {
           stdout = 'Pixel_API_34\n';
         } else if (args[0] === 'devices') {
           deviceChecks += 1;
-          stdout = `List of devices attached\n${deviceChecks >= 3 ? `${SERIAL} device\n` : ''}`;
-        } else if (args.includes('getprop')) {
-          stdout = '1\n';
-        } else if (args.includes('emu')) {
-          stdout = 'Pixel_API_34\nOK\n';
-        } else if (_file === 'ps') {
-          stdout = '/opt/android-sdk/emulator/emulator -avd Pixel_API_34 -port 5554\n';
+          stdout = 'List of devices attached\n';
         }
         callback(null, { stdout, stderr: '' });
         return {} as ReturnType<typeof execFile>;
@@ -213,6 +252,7 @@ describe('EmulatorControl', () => {
 
       try {
         await expect(EmulatorControl.startSingle()).resolves.toBe(SERIAL);
+        expect(deviceChecks).toBe(2);
         expect(launch).toHaveBeenCalledWith(
           expect.stringMatching(/emulator$/),
           expect.arrayContaining(['-avd', 'Pixel_API_34', '-accel', 'on']),
