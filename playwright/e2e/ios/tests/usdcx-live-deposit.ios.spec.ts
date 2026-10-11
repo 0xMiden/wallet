@@ -1,19 +1,41 @@
-import { decodeFunctionData, encodeFunctionData, isHash, parseUnits } from 'viem';
+import fs from 'fs';
+import path from 'path';
+import { decodeFunctionData, isHash, parseUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { fetchXReserveAttestations, findAttestationForDomain } from '../../../../src/lib/usdcx/attestation';
 import {
   CIRCLE_USDC_DECIMALS,
-  ERC20_BALANCE_OF_ABI,
   getUsdcxXReserveSource,
-  USDCX_DEPOSIT_HOOK_DATA,
-  USDCX_DEPOSIT_MAX_FEE,
   USDCX_REMOTE_DOMAIN,
   XRESERVE_ABI
 } from '../../../../src/lib/usdcx/constant';
+import { midenAccountHexToXReserveRecipient } from '../../../../src/lib/usdcx/recipient';
 import { ARC_TESTNET } from '../../../../src/lib/walletconnect/config';
+import { arcEndpoints, arcHost, readArcUsdc, readXReserveDomainState, type ArcReadDeps } from '../../helpers/arc-usdcx';
+import { parseBridgeReceiveState } from '../../helpers/bridge';
+import { describeTransactionRow, TxStatus, type TransactionRowSnapshot } from '../../helpers/history';
+import { CLAIM_COST_FEE_MULTIPLE, GAS_RESERVE_UNITS, isWorthClaiming } from '../../helpers/usdcx-constants';
+import { guardianIdentity, type GuardianIdentity } from '../../helpers/usdcx-guardian';
+import { accountHex, boundLandedFee } from '../../helpers/usdcx-miden';
 import { readUsdcxRelayerEnv, UsdcxRelayer } from '../../helpers/usdcx-relayer';
+import {
+  boundedTerm,
+  consumeFeePath,
+  errorText,
+  evidenceJson,
+  exactlyOne,
+  ledgerLine,
+  namedSteps,
+  newRunEvidence,
+  PhaseTimeline,
+  pollUntil,
+  readSettledChange,
+  type FeeTerm,
+  type RunEvidence
+} from '../../helpers/usdcx-run';
 import { expect, test } from '../fixtures/two-simulators';
+import type { IosNativeAsset, IosWalletPage } from '../helpers/ios-wallet-page';
 import { WcCounterparty, type WcRequestLog } from '../helpers/wc-counterparty';
 
 /**
@@ -49,10 +71,21 @@ import { WcCounterparty, type WcRequestLog } from '../helpers/wc-counterparty';
  * Build the app WITHOUT `E2E_EVM_RPC_URL`, so its Arc reads go to the real RPC.
  */
 
-// `DomainDepositsPaused(uint32)`: Circle paused deposits for a remote domain on xReserve.
-const DOMAIN_DEPOSITS_PAUSED_SELECTOR = '0x14e2708f';
 const ATTESTATION_TIMEOUT_MS = 20 * 60_000;
 const MINT_AND_CLAIM_TIMEOUT_MS = 15 * 60_000;
+// #1405: a fast round trip can go from submitting straight to received, so ready is recorded, never required.
+const DEPOSIT_PHASES = ['submitting', 'delivering', 'ready', 'received'];
+/** The store caught up within 5.1 s of a move Home (ios-spike-report.md section 4.1). */
+const VAULT_MS = 30_000;
+/** Step budgets: each a small multiple of the slowest spike run or CI run 38109117552, floored for chain variance. */
+const BUDGET = {
+  // spike 0.2 s for the cache, plus the oracle's account-hex read and a store that lands after Ready
+  nativeAsset: 90_000,
+  // CI 5.2 s for the old balance step (run 38109117552), plus the rows and the Home wait
+  depositVault: 120_000,
+  // the auth read, then 3 tries of /status and /pubkey at 15 s each: /pubkey answered one spike run with a 502 page
+  guardianAccount: 150_000
+};
 
 const evmPrivateKey = (process.env.USDCX_LIVE_EVM_PRIVATE_KEY ?? '').trim();
 const relayerEnv = readUsdcxRelayerEnv();
@@ -70,18 +103,77 @@ const depositUnits = parseUnits(depositAmount, CIRCLE_USDC_DECIMALS);
 const arcRpcUrl = ARC_TESTNET.rpcUrls.default.http[0];
 const { usdc: arcUsdc, xReserve } = getUsdcxXReserveSource(ARC_TESTNET.id);
 
-interface EthCallResult {
-  result?: string;
-  error?: { message?: string; data?: string };
+function noteIdsOf(row: TransactionRowSnapshot): string[] {
+  return [...(row.noteIds ?? []), ...(row.noteId ? [row.noteId] : [])].map(id => id.toLowerCase());
 }
 
-async function arcEthCall(call: { from?: string; to: string; data: string }): Promise<EthCallResult> {
-  const response = await fetch(arcRpcUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [call, 'latest'] })
+/** The hosted Guardian's identity, read up to 3 times: its /pubkey answered one spike run with a 502 page. */
+async function hostedGuardian(url: string): Promise<GuardianIdentity> {
+  let last: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 5_000));
+    try {
+      return await guardianIdentity(url);
+    } catch (error) {
+      last = error;
+    }
+  }
+  throw new Error(`the hosted Guardian ${url} did not identify itself in 3 tries: ${errorText(last)}`);
+}
+
+/**
+ * The vault after one transaction, read on Home: exact from the fee its row recorded, or settled with the fee bounded
+ * by the chain's base fee when a landed path recorded none (Q5(d)). `credit` is what the transaction added and
+ * `debits` all it took besides its fee.
+ */
+async function settleLedger(
+  wallet: IosWalletPage,
+  native: IosNativeAsset,
+  term: {
+    name: string;
+    before: bigint;
+    credit: bigint;
+    debits: bigint;
+    row: { id: string; feeAmount?: string; resultReleasedAt?: number };
+  }
+): Promise<{ vault: bigint; fee: FeeTerm }> {
+  const feePath = consumeFeePath(term.row);
+  if (feePath.kind === 'result') {
+    const expected = term.before + term.credit - term.debits - feePath.fee;
+    const terms = ledgerLine([
+      ['before', term.before],
+      ['credit', term.credit],
+      ['debits', term.debits],
+      [term.name, feePath.fee]
+    ]);
+    const vault = await wallet.homeVaultBaseUnits(
+      native.tokenId,
+      units => units === expected,
+      VAULT_MS,
+      `${expected} (${terms})`
+    );
+    return { vault, fee: { name: term.name, amount: feePath.fee, kind: 'exact' } };
+  }
+  await wallet.navigateHome();
+  const vault = await readSettledChange(() => wallet.readVaultBaseUnits(native.tokenId), term.before, {
+    timeoutMs: VAULT_MS,
+    intervalMs: 2_000
   });
-  return (await response.json()) as EthCallResult;
+  const bound = boundLandedFee({
+    vaultDelta: term.before - vault,
+    knownTerms: term.debits - term.credit,
+    baseFee: native.baseFee
+  });
+  return { vault, fee: boundedTerm(term.name, bound) };
+}
+
+/** The evidence JSON; throws rather than write a key or the onboarding password the bypass leaves in location.href. */
+function evidenceBody(evidence: RunEvidence, secrets: readonly string[]): string {
+  const body = evidenceJson(evidence, secrets);
+  if (/[?&]password=/.test(body)) {
+    throw new Error('the evidence would carry the onboarding password, so it was not written');
+  }
+  return body;
 }
 
 test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
@@ -106,7 +198,8 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
   test('deposit USDC via the real UI, Circle attests, the relayer mints, the Guardian account claims', async ({
     walletA,
     walletB,
-    steps
+    steps,
+    envConfig
   }) => {
     // Undefined when the deployed relayer mints; the checks below then have nothing to watch.
     const localRelayer = relayer;
@@ -119,51 +212,40 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
     let depositHash: `0x${string}`;
     let bridgeTxId: string;
     let addressA: string;
+    const step = namedSteps(steps);
+    const arc: ArcReadDeps = { endpoints: arcEndpoints(process.env.E2E_ARC_RPC_URL) };
+    const evidence = newRunEvidence('usdcx-live-ios');
+    // evidenceJson refuses to write any of these.
+    const secrets: string[] = [evmPrivateKey];
+    const depositPhases = new PhaseTimeline('deposit row', DEPOSIT_PHASES);
 
     const sentTo = (address: string) => (r: WcRequestLog) =>
       r.method === 'eth_sendTransaction' &&
       (r.params as Array<Record<string, string>>)[0]?.to?.toLowerCase() === address.toLowerCase();
+    // A failed CDP read (an inspector reattach) is retried, as expect.poll did; a failed row fails at once.
+    const depositPhase = async (): Promise<string | undefined> => {
+      const raw = await walletA.getBridgeReceiveState(bridgeTxId).catch(() => undefined);
+      if (raw === undefined) return undefined;
+      const state = parseBridgeReceiveState(raw);
+      depositPhases.record(state.phase, Date.now());
+      if (state.phase === 'failed') {
+        throw new Error(`the deposit row failed: ${state.error ?? state.displayMessage ?? 'no error recorded'}`);
+      }
+      return state.phase;
+    };
 
     await steps.step('preflight_arc', async () => {
       // Fail here, with the cause, instead of after the wallet prompts for a deposit that cannot pass.
-      const balance = await arcEthCall({
-        to: arcUsdc,
-        data: encodeFunctionData({ abi: ERC20_BALANCE_OF_ABI, functionName: 'balanceOf', args: [evmAddress] })
-      });
-      expect(BigInt(balance.result ?? '0x0'), `Arc USDC balance of ${evmAddress}`).toBeGreaterThan(depositUnits);
-
-      const registered = await arcEthCall({
-        to: xReserve,
-        data: encodeFunctionData({
-          abi: XRESERVE_ABI,
-          functionName: 'isRemoteDomainRegistered',
-          args: [USDCX_REMOTE_DOMAIN]
-        })
-      });
-      expect(BigInt(registered.result ?? '0x0'), 'the Miden domain is registered on xReserve').toBe(1n);
-
-      // A simulated deposit. Without an allowance it can revert for that reason, which is
-      // not a blocker; only the pause error is decisive here.
-      const simulated = await arcEthCall({
-        from: evmAddress,
-        to: xReserve,
-        data: encodeFunctionData({
-          abi: XRESERVE_ABI,
-          functionName: 'depositToRemote',
-          args: [
-            depositUnits,
-            USDCX_REMOTE_DOMAIN,
-            `0x${'00'.repeat(16)}${'11'.repeat(15)}00`,
-            arcUsdc,
-            USDCX_DEPOSIT_MAX_FEE,
-            USDCX_DEPOSIT_HOOK_DATA
-          ]
-        })
-      });
+      const balance = await readArcUsdc(evmAddress, arc);
+      expect(balance, `Arc USDC of ${evmAddress}: the deposit plus its approve and deposit gas`).toBeGreaterThanOrEqual(
+        depositUnits + GAS_RESERVE_UNITS
+      );
+      // Withdrawals are checked before the burn, not here: a pause there must not hide this leg's result.
+      const state = await readXReserveDomainState(arc);
       expect(
-        simulated.error?.data?.startsWith(DOMAIN_DEPOSITS_PAUSED_SELECTOR) ?? false,
-        `Circle has paused xReserve deposits for domain ${USDCX_REMOTE_DOMAIN}`
-      ).toBe(false);
+        { registered: state.registered, paused: state.paused, depositsPaused: state.depositsPaused },
+        `xReserve domain ${USDCX_REMOTE_DOMAIN}, read on ${arcHost(state.endpoint)}`
+      ).toEqual({ registered: true, paused: false, depositsPaused: false });
     });
 
     await steps.step('create_wallet', async () => {
@@ -172,6 +254,22 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
     });
 
     try {
+      // Inside the try, so a failure here still writes the evidence.
+      const { native, recipient } = await step('native_asset', BUDGET.nativeAsset, async () => {
+        evidence.ids.wallet = addressA;
+        const read = await walletA.nativeAsset();
+        // The wallet claims a mint unattended only above base fee x 30, and a dispatch sets the amount: a smaller
+        // deposit would sit unclaimed until relayer_mints_and_wallet_claims gave up 15 min later.
+        if (!isWorthClaiming(depositUnits, read.baseFee)) {
+          throw new Error(
+            `USDCX_LIVE_DEPOSIT_AMOUNT ${depositAmount} (${depositUnits} base units) does not exceed the wallet's ` +
+              `unattended claim floor, base fee ${read.baseFee} x ${CLAIM_COST_FEE_MULTIPLE}`
+          );
+        }
+        // The deposit's remoteRecipient for this account, as the faucet decodes it.
+        return { native: read, recipient: midenAccountHexToXReserveRecipient(await accountHex(addressA)) };
+      });
+      evidence.ids.native = native.tokenId;
       await steps.step('connect_evm', async () => {
         await cp.connectWithRetry(
           () => walletA.reownConnectUri(),
@@ -208,10 +306,16 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
         if (decoded.functionName !== 'depositToRemote') {
           throw new Error(`expected depositToRemote, got ${decoded.functionName}`);
         }
-        const [value, remoteDomain, , localToken] = decoded.args;
+        const [value, remoteDomain, remoteRecipient, localToken, maxFee, hookData] = decoded.args;
         expect(value, 'deposit amount').toBe(depositUnits);
         expect(remoteDomain, 'remote domain = Miden').toBe(USDCX_REMOTE_DOMAIN);
         expect(localToken.toLowerCase(), 'deposited token = Arc USDC').toBe(arcUsdc.toLowerCase());
+        // The faucet mints to remoteRecipient, so a wrong one strands the deposit; the wallet pays no fee and no hook.
+        expect(
+          { remoteRecipient: remoteRecipient.toLowerCase(), maxFee, hookData },
+          'the recipient, maxFee and hookData the counterparty signed'
+        ).toEqual({ remoteRecipient: recipient, maxFee: 0n, hookData: '0x' });
+        evidence.hashes.deposit = depositHash;
       });
 
       await steps.step('row_reaches_delivering', async () => {
@@ -221,12 +325,17 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
         const row = await walletA.latestBridgeReceive('usdcx');
         expect(row, 'bridged-receive row created by the UI').not.toBeNull();
         bridgeTxId = row!.id;
-        await expect
-          .poll(async () => (await walletA.getBridgeReceiveState(bridgeTxId)).phase, {
-            timeout: 180_000,
-            intervals: [3000]
-          })
-          .toMatch(/^(delivering|ready|received)$/);
+        evidence.ids.depositRow = bridgeTxId;
+        depositPhases.record(row!.phase, Date.now());
+        await pollUntil(
+          'the deposit row leaving submitting',
+          depositPhase,
+          phase => phase !== undefined && phase !== 'submitting',
+          { timeoutMs: 180_000, intervalMs: 3_000 }
+        );
+        // The deposit screen wrote the recipient it signed for at the row's first phase write.
+        const state = parseBridgeReceiveState(await walletA.getBridgeReceiveState(bridgeTxId));
+        expect(state.usdcxRemoteRecipient, "the deposit row's xReserve recipient").toBe(recipient);
       });
 
       await steps.step('circle_attests_deposit', async () => {
@@ -246,39 +355,76 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
         // The relayer submits the mint note and the faucet consumes it in a later block. The wallet auto-claims the
         // minted USDCx (testnet's native asset) and moves this deposit's row to `received` only once the consume it
         // matched to the deposit has completed.
-        await expect
-          .poll(
-            async () => {
-              localRelayer?.assertRunning();
-              return (await walletA.getBridgeReceiveState(bridgeTxId)).phase;
-            },
-            { timeout: MINT_AND_CLAIM_TIMEOUT_MS, intervals: [5000] }
-          )
-          .toBe('received');
+        await pollUntil(
+          'the relayer mint and the wallet claim',
+          async () => {
+            localRelayer?.assertRunning();
+            return depositPhase();
+          },
+          phase => phase === 'received',
+          { timeoutMs: MINT_AND_CLAIM_TIMEOUT_MS, intervalMs: 5_000 }
+        );
+        depositPhases.assertMonotone();
+        evidence.phases.deposit = depositPhases.samples();
       });
 
-      await steps.step('assert_balance', async () => {
-        // A new wallet starts at zero, and the claim pays its fee in USDCx out of the
-        // deposit. The fee is not a fixed number, so the lower bound is half the deposit:
-        // a mint of the wrong amount, or no mint, fails it.
-        const deposited = Number(depositAmount);
-        const balance = await walletA.waitForBalanceAbove(deposited / 2, 180_000, undefined, 'USDCX');
-        expect(balance, 'no more than the deposit').toBeLessThanOrEqual(deposited);
+      const depositVault = await step('deposit_vault', BUDGET.depositVault, async () => {
+        const state = parseBridgeReceiveState(await walletA.getBridgeReceiveState(bridgeTxId));
+        const claim = exactlyOne(
+          (await walletA.readTransactionRows({ type: 'consume' })).filter(row => row.status === TxStatus.Completed),
+          'Completed consume on the fresh wallet, the claim of the minted note',
+          describeTransactionRow
+        );
+        expect(
+          state.midenNoteId === undefined || noteIdsOf(claim).includes(state.midenNoteId.toLowerCase()),
+          `the claim ${claim.id} consumed the mint note ${state.midenNoteId} the deposit row names`
+        ).toBe(true);
+        // A new wallet starts at zero, so the vault is the mint less the fee the claim's row recorded.
+        const settled = await settleLedger(walletA, native, {
+          name: 'f2',
+          before: 0n,
+          credit: depositUnits,
+          debits: 0n,
+          row: claim
+        });
+        evidence.ids.mintNote = state.midenNoteId ?? 'not recorded';
+        evidence.ids.mintConsume = claim.id;
+        evidence.fees.push(settled.fee);
+        return settled.vault;
       });
+      evidence.notes.push(`vault after the claim ${depositVault}`);
 
-      await steps.step('assert_guardian_account', async () => {
+      // The identity is read here, after the deposit leg, so a Guardian endpoint glitch cannot stop that leg running.
+      await step('assert_guardian_account', BUDGET.guardianAccount, async () => {
         // The auth structure shows the deposit landed on, and was claimed by, a Guardian account, not a single-sig
         // one, so this spec cannot quietly go back to testing the single-sig path.
         const auth = await walletA.getGuardianAuthInfo(addressA);
         expect(auth.error, `guardian auth read failed: ${auth.error}`).toBeUndefined();
         expect(auth.signerCommitments.length, 'a fresh Guardian account has 2 signers (hot, cold)').toBe(2);
         expect(auth.procedureThresholds.update_guardian, 'update_guardian is hardened to threshold 2').toBe(2);
+        const hosted = await hostedGuardian(envConfig.guardianUrl);
+        evidence.guardian = {
+          url: hosted.url,
+          version: hosted.version,
+          gitCommit: hosted.gitCommit,
+          commitment: hosted.commitment
+        };
+        // The iOS build picks its Guardian itself, so this also proves it is the hosted one the run identified.
+        expect(
+          `0x${(auth.guardianCommitment ?? '').replace(/^0x/i, '').toLowerCase()}`,
+          `the account's Guardian commitment against ${hosted.url}/pubkey`
+        ).toBe(hosted.commitment);
       });
     } finally {
       if (localRelayer) {
         await test.info().attach('usdcx-relayer-log', { body: localRelayer.logs, contentType: 'text/plain' });
       }
       await cp.stop();
+      // In the run's artifact directory, which the nightly uploads (test-results-ios/).
+      const evidencePath = path.join(steps.outputDir, 'usdcx-live-ios-evidence.json');
+      fs.mkdirSync(steps.outputDir, { recursive: true });
+      fs.writeFileSync(evidencePath, evidenceBody(evidence, secrets));
+      await test.info().attach('usdcx-live-ios-evidence.json', { path: evidencePath, contentType: 'application/json' });
     }
   });
 });
