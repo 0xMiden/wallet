@@ -1,5 +1,7 @@
 import type { Hex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 
+import type { ArcKey } from './arc-usdcx';
 import type { JsonValue } from './history';
 import { CLAIM_COST_FEE_MULTIPLE, isWorthClaiming } from './usdcx-constants';
 
@@ -14,10 +16,11 @@ export function errorText(error: unknown): string {
 }
 
 /**
- * Throws unless `yarn e2e:real` started this run for a usdcx suite on testnet. The suites throw instead of skipping, so
- * a run that lacks its inputs never reports green. Messages name variables, never their values.
+ * Throws unless `yarn e2e:real` started this run for a usdcx suite on testnet and handed it its Arc key (R21: the
+ * harness key, or usdcx-in's operator key). The suites throw instead of skipping, so a run that lacks its inputs never
+ * reports green. Messages name variables, never their values.
  */
-export function assertUsdcxLiveRun(env: Record<string, string | undefined>, opts: { needsArcKey: boolean }): void {
+export function assertUsdcxLiveRun(env: Record<string, string | undefined>): void {
   if (env.E2E_REAL_USDCX !== 'true') {
     throw new Error(
       'the USDCx live suites run only through `yarn e2e:real --suite usdcx|usdcx-in|usdcx-burn` ' +
@@ -27,16 +30,46 @@ export function assertUsdcxLiveRun(env: Record<string, string | undefined>, opts
   if (env.E2E_NETWORK !== 'testnet') {
     throw new Error(`the USDCx live suites run only on testnet, but E2E_NETWORK is ${env.E2E_NETWORK ?? 'unset'}`);
   }
-  if (opts.needsArcKey && !env.E2E_ARC_PRIVATE_KEY) {
-    throw new Error('usdcx-in needs a funded Arc key: pass --arc-key to yarn e2e:real or export E2E_ARC_PRIVATE_KEY');
+  if (!env.E2E_ARC_PRIVATE_KEY || (env.E2E_ARC_KEY_ROLE !== 'harness' && env.E2E_ARC_KEY_ROLE !== 'operator')) {
+    throw new Error(
+      'the usdcx suites take their Arc key from `yarn e2e:real` (E2E_ARC_PRIVATE_KEY or E2E_ARC_KEY_ROLE is unset)'
+    );
   }
 }
 
-/** The funded Arc key as `0x` and 64 lowercase hex digits. */
+/** The Arc key `yarn e2e:real` handed the run, as `0x` and 64 lowercase hex digits. */
 export function arcPrivateKeyFromEnv(env: Record<string, string | undefined>): Hex {
   const raw = (env.E2E_ARC_PRIVATE_KEY ?? '').trim();
   if (!ARC_PRIVATE_KEY.test(raw)) throw new Error('E2E_ARC_PRIVATE_KEY is not a 32-byte hex private key');
   return `0x${raw.replace(/^0x/i, '').toLowerCase()}`;
+}
+
+export type ArcKeyRole = 'harness' | 'operator';
+
+/** Whose Arc key the run holds: the harness key every usdcx suite shares, or the key usdcx-in's --arc-key named. */
+export function arcKeyRoleFromEnv(env: Record<string, string | undefined>): ArcKeyRole {
+  const role = env.E2E_ARC_KEY_ROLE;
+  if (role === 'harness' || role === 'operator') return role;
+  throw new Error(`E2E_ARC_KEY_ROLE is ${role === undefined ? 'unset' : `"${role}"`}, not harness or operator`);
+}
+
+let takenArcKey: { key: ArcKey; role: ArcKeyRole } | undefined;
+
+/**
+ * The Arc key `yarn e2e:real` handed this run (R21: the harness key, or usdcx-in's operator key) and its role. The first
+ * call takes the key out of `env`, so no Chromium or CLI child the worker starts after it inherits the key: call it in
+ * `test.beforeAll`, before any fixture starts one. Every later call in the worker returns the same key.
+ */
+export function takeRunArcKey(env: Record<string, string | undefined>): { key: ArcKey; role: ArcKeyRole } {
+  if (takenArcKey === undefined) {
+    const privateKey = arcPrivateKeyFromEnv(env);
+    takenArcKey = {
+      key: { address: privateKeyToAccount(privateKey).address, privateKey },
+      role: arcKeyRoleFromEnv(env)
+    };
+    delete env.E2E_ARC_PRIVATE_KEY;
+  }
+  return takenArcKey;
 }
 
 /** Extra text for a failed step: a Guardian re-read, the page's route. */

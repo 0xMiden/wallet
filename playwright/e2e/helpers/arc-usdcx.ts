@@ -1,12 +1,10 @@
 /**
- * Arc Testnet legs of the USDCx live suites: the per-run key and its ledger, Circle's Gateway payout to that key, the
- * deposit back through xReserve, and Circle's attestation of it. Clients and the clock are injectable, so the unit
- * tests replay captured chain data with no network.
+ * Arc Testnet legs of the USDCx live suites: Circle's Gateway payout to the run's Arc key, the deposit back through
+ * xReserve, and Circle's attestation of it. Clients and the clock are injectable, so the unit tests replay captured
+ * chain data with no network.
  *
  * Never imports usdcx/deposit.ts or executor.ts: they pull in lib/miden/activity and with it the wallet's SDK.
  */
-import fs from 'fs';
-import path from 'path';
 import {
   createPublicClient,
   encodeFunctionData,
@@ -32,13 +30,12 @@ import {
   type PublicClient,
   type TransactionReceipt
 } from 'viem';
-import { generatePrivateKey, privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
+import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 
 import {
   ARC_CHAIN_ID,
   ARC_CIRCLE_DOMAIN,
   ARC_DRPC_LOG_CHUNK,
-  ARC_KEY_LEDGER_DIR,
   ARC_LOG_CHUNK,
   ARC_USDC,
   ARC_XRESERVE,
@@ -140,40 +137,10 @@ function rpcCode(error: unknown): number | undefined {
   return undefined;
 }
 
+/** The Arc key a run holds (R21): the harness key, or usdcx-in's operator key. */
 export interface ArcKey {
   address: Address;
   privateKey: Hex;
-}
-
-export function newArcKey(): ArcKey {
-  const privateKey = generatePrivateKey();
-  return { address: privateKeyToAccount(privateKey).address, privateKey };
-}
-
-export interface ArcKeyLedgerEntry {
-  iso: string;
-  address: Address;
-  privateKey: Hex;
-  walletAddress: string;
-}
-
-/**
- * Writes the key to `<dir>/<iso with ':' and '.' as '-'>-<address>.json`, mode 0600, before any funds reach it, so a
- * paid run's payout stays recoverable. The directory is created 0700. Returns the path; never logs the key.
- */
-export function recordArcKey(
-  key: ArcKey,
-  walletAddress: string,
-  opts: { dir?: string; now?: () => Date } = {}
-): string {
-  const dir = opts.dir ?? ARC_KEY_LEDGER_DIR;
-  const iso = (opts.now ?? (() => new Date()))().toISOString();
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const file = path.join(dir, `${iso.replace(/[:.]/g, '-')}-${key.address}.json`);
-  const entry: ArcKeyLedgerEntry = { iso, address: key.address, privateKey: key.privateKey, walletAddress };
-  // 'wx': a file that already exists may hold a funded key.
-  fs.writeFileSync(file, `${JSON.stringify(entry, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
-  return file;
 }
 
 /** The endpoints a run reads Arc through: the operator's `--arc-rpc` first, then the defaults, without duplicates. */

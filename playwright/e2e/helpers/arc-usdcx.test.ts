@@ -1,7 +1,6 @@
 /**
  * @jest-environment node
  */
-import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
@@ -22,7 +21,6 @@ import {
   type Hex,
   type PublicClient
 } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
 
 import {
   arcEndpoints,
@@ -31,13 +29,11 @@ import {
   decodeDepositIntent,
   KEY_MOVED_NOTE,
   LATE_PAYOUT_NOTE,
-  newArcKey,
   PayoutGateError,
   PREFUNDED_KEY_NOTE,
   readArcUsdc,
   readArcUsdcSnapshot,
   readXReserveDomainState,
-  recordArcKey,
   scanArcLogs,
   submitDepositToMiden,
   waitForGatewayPayout,
@@ -65,6 +61,7 @@ import {
   GATEWAY_MINTER,
   GRANT_MARGIN_UNITS,
   GRANT_UNITS,
+  HARNESS_ARC_KEY_FILE,
   isWorthClaiming,
   minimumUsdcxPayout,
   PAYOUT_TIMEOUT_MS
@@ -104,8 +101,9 @@ describe('usdcx-constants', () => {
     expect(ARC_PUBLIC_URL).toBe('https://rpc.testnet.arc.io');
   });
 
-  it('keeps the key ledger in the home directory, outside the repository', () => {
+  it('keeps the key ledger and the harness key in the home directory, outside the repository', () => {
     expect(ARC_KEY_LEDGER_DIR).toBe(path.join(os.homedir(), '.miden-e2e', 'arc-keys'));
+    expect(HARNESS_ARC_KEY_FILE).toBe(path.join(os.homedir(), '.miden-e2e', 'arc-keys', 'harness.json'));
   });
 
   it("sizes the run on the faucet's minimum burn, one 10 USDCx grant and a deposit the wallet claims", () => {
@@ -201,34 +199,6 @@ function capturedAttestation(): XReserveAttestation {
     remoteDomain: CAPTURED.remoteDomain
   };
 }
-
-describe('newArcKey and recordArcKey', () => {
-  it('makes a fresh key whose address derives from it', () => {
-    const first = newArcKey();
-    const second = newArcKey();
-    expect(first.address).toBe(privateKeyToAccount(first.privateKey).address);
-    expect(second.privateKey).not.toBe(first.privateKey);
-  });
-
-  it('writes the ledger entry 0600 into a 0700 directory, and never over an existing entry', () => {
-    const dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'arc-ledger-')), 'arc-keys');
-    const key = newArcKey();
-    const now = () => new Date('2026-10-10T13:24:42.476Z');
-
-    const file = recordArcKey(key, 'mtst1are0gtx635qs7starjk4m3x49vcm0w2g_qr7qqq9wr6w', { dir, now });
-
-    expect(path.basename(file)).toBe(`2026-10-10T13-24-42-476Z-${key.address}.json`);
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-    expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
-    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({
-      iso: '2026-10-10T13:24:42.476Z',
-      address: key.address,
-      privateKey: key.privateKey,
-      walletAddress: 'mtst1are0gtx635qs7starjk4m3x49vcm0w2g_qr7qqq9wr6w'
-    });
-    expect(() => recordArcKey(key, 'other', { dir, now })).toThrow('EEXIST');
-  });
-});
 
 describe('arcEndpoints', () => {
   it('puts the operator endpoint first and keeps the defaults after it, once each', () => {

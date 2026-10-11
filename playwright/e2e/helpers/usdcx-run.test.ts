@@ -1,8 +1,11 @@
 /** @jest-environment node */
+import { privateKeyToAccount } from 'viem/accounts';
+
 import type { JsonValue } from './history';
 import { DEPOSIT_UNITS } from './usdcx-constants';
 import {
   anyOf,
+  arcKeyRoleFromEnv,
   arcPrivateKeyFromEnv,
   assertUsdcxLiveRun,
   boundedTerm,
@@ -23,11 +26,17 @@ import {
   pollUntil,
   readSettledChange,
   sampleInBackground,
+  takeRunArcKey,
   withStepBudget
 } from './usdcx-run';
 
 const KEY = 'ab'.repeat(32);
-const RUNNER = { E2E_REAL_USDCX: 'true', E2E_NETWORK: 'testnet' };
+const RUNNER = {
+  E2E_REAL_USDCX: 'true',
+  E2E_NETWORK: 'testnet',
+  E2E_ARC_PRIVATE_KEY: KEY,
+  E2E_ARC_KEY_ROLE: 'harness'
+};
 const RECEIVE_ORDER = ['delivering', 'ready', 'received'];
 
 /** The message a call throws, or '' when it returns. */
@@ -59,35 +68,33 @@ async function macrotasks(rounds: number): Promise<void> {
 }
 
 describe('assertUsdcxLiveRun', () => {
-  it('accepts a run the runner started on testnet', () => {
-    expect(thrown(() => assertUsdcxLiveRun(RUNNER, { needsArcKey: false }))).toBe('');
-    expect(thrown(() => assertUsdcxLiveRun({ ...RUNNER, E2E_ARC_PRIVATE_KEY: KEY }, { needsArcKey: true }))).toBe('');
+  it('accepts a run the runner started on testnet with its Arc key, in either role', () => {
+    expect(thrown(() => assertUsdcxLiveRun(RUNNER))).toBe('');
+    expect(thrown(() => assertUsdcxLiveRun({ ...RUNNER, E2E_ARC_KEY_ROLE: 'operator' }))).toBe('');
   });
 
   it('refuses a run the runner did not start', () => {
-    expect(thrown(() => assertUsdcxLiveRun({ E2E_NETWORK: 'testnet' }, { needsArcKey: false }))).toBe(
+    expect(thrown(() => assertUsdcxLiveRun({ E2E_NETWORK: 'testnet' }))).toBe(
       'the USDCx live suites run only through `yarn e2e:real --suite usdcx|usdcx-in|usdcx-burn` ' +
         '(E2E_REAL_USDCX is not "true")'
     );
   });
 
   it('refuses every network but testnet', () => {
-    expect(thrown(() => assertUsdcxLiveRun({ ...RUNNER, E2E_NETWORK: 'devnet' }, { needsArcKey: false }))).toBe(
+    expect(thrown(() => assertUsdcxLiveRun({ ...RUNNER, E2E_NETWORK: 'devnet' }))).toBe(
       'the USDCx live suites run only on testnet, but E2E_NETWORK is devnet'
     );
-    expect(thrown(() => assertUsdcxLiveRun({ E2E_REAL_USDCX: 'true' }, { needsArcKey: false }))).toBe(
+    expect(thrown(() => assertUsdcxLiveRun({ E2E_REAL_USDCX: 'true' }))).toBe(
       'the USDCx live suites run only on testnet, but E2E_NETWORK is unset'
     );
   });
 
-  it('refuses usdcx-in without a key and never echoes one', () => {
-    expect(thrown(() => assertUsdcxLiveRun(RUNNER, { needsArcKey: true }))).toBe(
-      'usdcx-in needs a funded Arc key: pass --arc-key to yarn e2e:real or export E2E_ARC_PRIVATE_KEY'
-    );
-    const devnet = thrown(() =>
-      assertUsdcxLiveRun({ ...RUNNER, E2E_NETWORK: 'devnet', E2E_ARC_PRIVATE_KEY: KEY }, { needsArcKey: true })
-    );
-    expect(devnet).not.toContain(KEY);
+  it('refuses a run the runner handed no Arc key or no role, and never echoes the key', () => {
+    const refusal =
+      'the usdcx suites take their Arc key from `yarn e2e:real` (E2E_ARC_PRIVATE_KEY or E2E_ARC_KEY_ROLE is unset)';
+    expect(thrown(() => assertUsdcxLiveRun({ ...RUNNER, E2E_ARC_PRIVATE_KEY: undefined }))).toBe(refusal);
+    expect(thrown(() => assertUsdcxLiveRun({ ...RUNNER, E2E_ARC_KEY_ROLE: 'fresh' }))).toBe(refusal);
+    expect(thrown(() => assertUsdcxLiveRun({ ...RUNNER, E2E_NETWORK: 'devnet' }))).not.toContain(KEY);
   });
 });
 
@@ -101,6 +108,25 @@ describe('arcPrivateKeyFromEnv', () => {
     expect(thrown(() => arcPrivateKeyFromEnv({ E2E_ARC_PRIVATE_KEY: KEY.slice(1) }))).toBe(
       'E2E_ARC_PRIVATE_KEY is not a 32-byte hex private key'
     );
+  });
+});
+
+describe('arcKeyRoleFromEnv', () => {
+  it('reads the role the runner names, and refuses any other', () => {
+    expect(arcKeyRoleFromEnv({ E2E_ARC_KEY_ROLE: 'harness' })).toBe('harness');
+    expect(arcKeyRoleFromEnv({ E2E_ARC_KEY_ROLE: 'operator' })).toBe('operator');
+    expect(thrown(() => arcKeyRoleFromEnv({}))).toBe('E2E_ARC_KEY_ROLE is unset, not harness or operator');
+  });
+});
+
+describe('takeRunArcKey', () => {
+  it('takes the key out of the env on first use, so no later child inherits it, and returns that key after', () => {
+    const env: Record<string, string | undefined> = { ...RUNNER };
+    const privateKey: `0x${string}` = `0x${KEY}`;
+    const taken = takeRunArcKey(env);
+    expect(taken).toEqual({ key: { address: privateKeyToAccount(privateKey).address, privateKey }, role: 'harness' });
+    expect(env).toStrictEqual({ E2E_REAL_USDCX: 'true', E2E_NETWORK: 'testnet', E2E_ARC_KEY_ROLE: 'harness' });
+    expect(takeRunArcKey(env)).toBe(taken);
   });
 });
 

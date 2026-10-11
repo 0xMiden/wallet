@@ -12,7 +12,16 @@
  * @jest-environment node
  */
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -27,6 +36,7 @@ import {
   ARC_XRESERVE,
   DEFAULT_ARC_RPCS,
   GATEWAY_MINTER,
+  HARNESS_ARC_KEY_FILE,
   SUITES,
   USDCX_DECIMALS,
   USDCX_FUNDED_KEY_FLOOR_UNITS,
@@ -34,12 +44,14 @@ import {
   USDCX_GRANT_UNITS,
   USDCX_REMOTE_DOMAIN,
   XRESERVE_API_TESTNET,
+  acquireUsdcxRunLock,
   agglayerExitFilingProblem,
   arcRpc,
   arcRpcEndpoints,
   childEnvironments,
   circleGet,
   composeGrep,
+  harnessArcKey,
   pricedAmountFrom,
   probeAgglayerIndexer,
   probeConfigDocument,
@@ -66,6 +78,7 @@ function cleanEnv() {
     'MIDEN_REMOTE_CONFIG_URL',
     'E2E_ARC_RPC_URL',
     'E2E_ARC_PRIVATE_KEY',
+    'E2E_ARC_KEY_ROLE',
     'E2E_EVM_RPC_URL',
     'MIDEN_E2E_USDCX_CHAIN',
     'MIDEN_FEE_FAUCET_ID',
@@ -81,6 +94,12 @@ function cleanEnv() {
   return env;
 }
 
+// A home of its own for every runner a test starts: a real usdcx run takes ~/.miden-e2e/usdcx-run.lock and creates the
+// harness Arc key there, which must never be the operator's, nor wait on a run the operator has going.
+function freshHome(): string {
+  return mkdtempSync(path.join(os.tmpdir(), 'e2e-real-home-'));
+}
+
 // A leading object sets variables for the child, over cleanEnv().
 function runCli(first: string | Record<string, string>, ...rest: string[]) {
   const override = typeof first === 'string' ? {} : first;
@@ -89,7 +108,7 @@ function runCli(first: string | Record<string, string>, ...rest: string[]) {
   const res = spawnSync(process.execPath, ['scripts/e2e-real.mjs', ...args], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
-    env: { ...env, ...override },
+    env: { ...env, HOME: freshHome(), ...override },
     timeout: 30_000
   });
   return { status: res.status, stdout: res.stdout, stderr: res.stderr };
@@ -500,10 +519,16 @@ function stubbed(
 ) {
   const log = path.join(mkdtempSync(path.join(os.tmpdir(), 'e2e-real-')), 'requests.log');
   writeFileSync(log, '');
+  const home = env.HOME ?? freshHome();
   const res = spawnSync(process.execPath, ['--import', STUB, 'scripts/e2e-real.mjs', ...args], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
-    env: { ...cleanEnv(), ...env, E2E_REAL_FETCH_STUB: JSON.stringify({ document: served, log, answers }) },
+    env: {
+      ...cleanEnv(),
+      ...env,
+      HOME: home,
+      E2E_REAL_FETCH_STUB: JSON.stringify({ document: served, log, answers })
+    },
     timeout: 30_000
   });
   return {
@@ -511,7 +536,8 @@ function stubbed(
     stdout: res.stdout,
     stderr: res.stderr,
     output: `${res.stdout}${res.stderr}`,
-    requests: readFileSync(log, 'utf8')
+    requests: readFileSync(log, 'utf8'),
+    home
   };
 }
 
@@ -962,10 +988,12 @@ describe('the usdcx suites refuse what would not apply, before any probe or buil
     35_000
   );
 
-  it('refuses usdcx-in with no key', () => {
+  it('refuses usdcx-in with no key and no harness key, naming both ways to give one', () => {
     const res = runCli('--suite', 'usdcx-in', '--preflight-only');
     expect(res.status).toBe(1);
-    expect(res.stderr).toContain('--suite usdcx-in needs a funded Arc Testnet key');
+    expect(res.stderr).toContain(
+      '--suite usdcx-in has no Arc key: pass --arc-key or export E2E_ARC_PRIVATE_KEY, or run --suite usdcx first'
+    );
     expect(res.stdout).not.toContain('Preflight');
   }, 35_000);
 
@@ -1066,6 +1094,7 @@ describe('resolveOperatorInput on the usdcx suites', () => {
   it.each([
     ['usdcx', {}],
     ['usdcx-burn', {}],
+    ['usdcx-in', {}],
     ['usdcx-in', { arcKey: ARC_KEY }],
     ['usdcx-in', { arcKey: 'ab'.repeat(32), arcKeyFlag: true }],
     ['usdcx', { arcRpc: 'https://arc-rpc.example', arcRpcFlag: true }]
@@ -1073,7 +1102,7 @@ describe('resolveOperatorInput on the usdcx suites', () => {
     expect(resolve({ suite, ...changed })).toStrictEqual({ suite: SUITES[suite], grep: SUITES[suite].grep });
   });
 
-  // run() unsets it for every usdcx child but usdcx-in's test, so no other usdcx suite reads it.
+  // The runner hands usdcx and usdcx-burn the harness key over an exported one, so neither reads it.
   it('lets an exported key that is malformed pass on usdcx, which never reads it', () => {
     expect(resolve({ arcKey: '0x01' }).error).toBeUndefined();
   });
@@ -1135,7 +1164,7 @@ function listUsdcxTests(grep?: string) {
 
 describe('the usdcx suites', () => {
   const OWN: Record<string, string> = {
-    usdcx: 'USDCx round trip: burn to a fresh Arc key, Circle payout, deposit back',
+    usdcx: 'USDCx round trip: burn to the harness Arc key, Circle payout, deposit back',
     'usdcx-in': 'USDCx bridge-in from a funded Arc key',
     'usdcx-burn': 'USDCx burn through the Send UI after a public faucet grant'
   };
@@ -1369,7 +1398,8 @@ describe('the usdcx constants are the ones the harness and the wallet use', () =
       harness.DEPOSIT_UNITS + harness.GAS_RESERVE_UNITS,
       harness.DEPOSIT_UNITS + harness.GAS_RESERVE_UNITS
     ],
-    ['USDCX_GRANT_UNITS', USDCX_GRANT_UNITS, harness.GRANT_UNITS, harness.GRANT_UNITS]
+    ['USDCX_GRANT_UNITS', USDCX_GRANT_UNITS, harness.GRANT_UNITS, harness.GRANT_UNITS],
+    ['HARNESS_ARC_KEY_FILE', HARNESS_ARC_KEY_FILE, harness.HARNESS_ARC_KEY_FILE, harness.HARNESS_ARC_KEY_FILE]
   ])('%s matches', (_name, runner, harnessValue, walletValue) => {
     expect([harnessValue, walletValue]).toEqual([runner, runner]);
   });
@@ -1541,6 +1571,20 @@ describe('the usdcx preflight', () => {
     35_000
   );
 
+  it('names the harness key and how to refill it when it holds less than usdcx-in needs, never the key', async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), 'e2e-real-home-'));
+    const file = path.join(home, '.miden-e2e', 'arc-keys', 'harness.json');
+    const { address, privateKey } = await harnessArcKey(file, { create: true });
+    const res = preflight('usdcx-in', DOCUMENT, { HOME: home }, { usdcBalance: '20999' });
+    expect(failedChecks(res.output)).toEqual(['Arc funded key']);
+    expect(res.output).toContain(
+      `harness key ${address} holds 0.0209 USDC, below the 0.021 USDC one deposit and its gas need; refill it with ` +
+        "yarn e2e:real --suite usdcx (each run's payout adds about 0.98 USDC), or pass --arc-key with a funded key"
+    );
+    expect(res.output).not.toContain(privateKey.slice(2));
+    expect(res.status).toBe(1);
+  }, 35_000);
+
   it.each([
     ['usdcx', ['xReserve pause']],
     ['usdcx-in', []],
@@ -1584,7 +1628,7 @@ describe('the usdcx preflight', () => {
     expect(res.status).toBe(0);
   }, 35_000);
 
-  // run() unsets it for every usdcx child but usdcx-in's test, so nothing on usdcx reads it.
+  // The runner hands usdcx's test the harness key over it, so nothing on usdcx reads it.
   it('lets usdcx run with a malformed E2E_ARC_PRIVATE_KEY exported', () => {
     const res = preflight('usdcx', DOCUMENT, { E2E_ARC_PRIVATE_KEY: '0x01' });
     expect(res.status).toBe(0);
@@ -1605,19 +1649,30 @@ describe('childEnvironments', () => {
     headed: false
   };
 
-  it('builds usdcx with no key in reach and tests it with the run env alone', () => {
-    expect(childEnvironments(parsed, SUITES.usdcx, CLI)).toStrictEqual({
+  // What resolveArcKey hands childEnvironments: the harness key, or usdcx-in's operator key.
+  const HARNESS = { role: 'harness', privateKey: `0x${'cd'.repeat(32)}`, address: '0xharness' };
+  const OPERATOR = { role: 'operator', privateKey: `0x${'ab'.repeat(32)}`, address: '0xoperator' };
+
+  it('builds usdcx with no key in reach and tests it with the harness key and its role', () => {
+    expect(childEnvironments(parsed, SUITES.usdcx, CLI, HARNESS)).toStrictEqual({
       build: { env: { E2E_NETWORK: 'testnet' }, unset: ['E2E_ARC_PRIVATE_KEY', 'E2E_SEPOLIA_PRIVATE_KEY'] },
       test: {
-        env: { E2E_NETWORK: 'testnet', E2E_REAL_USDCX: 'true', MIDEN_CLIENT_BIN: CLI, E2E_HEADLESS: '1' },
-        unset: ['E2E_SEPOLIA_PRIVATE_KEY', 'E2E_ARC_PRIVATE_KEY']
+        env: {
+          E2E_NETWORK: 'testnet',
+          E2E_REAL_USDCX: 'true',
+          MIDEN_CLIENT_BIN: CLI,
+          E2E_ARC_PRIVATE_KEY: HARNESS.privateKey,
+          E2E_ARC_KEY_ROLE: 'harness',
+          E2E_HEADLESS: '1'
+        },
+        unset: ['E2E_SEPOLIA_PRIVATE_KEY']
       }
     });
   });
 
-  it("hands usdcx-in's test, and no build, the key as 0x hex and the operator's Arc RPC", () => {
+  it("hands usdcx-in's test, and no build, the operator key and the operator's Arc RPC", () => {
     const opts = { ...parsed, suite: 'usdcx-in', arcKey: 'ab'.repeat(32), arcRpc: 'https://arc-rpc.example' };
-    expect(childEnvironments(opts, SUITES['usdcx-in'], CLI)).toStrictEqual({
+    expect(childEnvironments(opts, SUITES['usdcx-in'], CLI, OPERATOR)).toStrictEqual({
       build: { env: { E2E_NETWORK: 'testnet' }, unset: ['E2E_ARC_PRIVATE_KEY', 'E2E_SEPOLIA_PRIVATE_KEY'] },
       test: {
         env: {
@@ -1626,6 +1681,7 @@ describe('childEnvironments', () => {
           MIDEN_CLIENT_BIN: CLI,
           E2E_ARC_RPC_URL: 'https://arc-rpc.example',
           E2E_ARC_PRIVATE_KEY: `0x${'ab'.repeat(32)}`,
+          E2E_ARC_KEY_ROLE: 'operator',
           E2E_HEADLESS: '1'
         },
         unset: ['E2E_SEPOLIA_PRIVATE_KEY']
@@ -1634,7 +1690,12 @@ describe('childEnvironments', () => {
   });
 
   it('runs headed under --headed, and unsets an exported E2E_HEADLESS', () => {
-    const { test } = childEnvironments({ ...parsed, suite: 'usdcx-burn', headed: true }, SUITES['usdcx-burn'], CLI);
+    const { test } = childEnvironments(
+      { ...parsed, suite: 'usdcx-burn', headed: true },
+      SUITES['usdcx-burn'],
+      CLI,
+      HARNESS
+    );
     expect(test.env).not.toHaveProperty('E2E_HEADLESS');
     expect(test.unset).toContain('E2E_HEADLESS');
   });
@@ -1676,23 +1737,39 @@ describe('a usdcx run', () => {
     '--grep',
     grep
   ];
+  const lockOf = (home: string) => path.join(home, '.miden-e2e', 'usdcx-run.lock');
+  const harnessFileOf = (home: string) => path.join(home, '.miden-e2e', 'arc-keys', 'harness.json');
 
-  it('installs the pinned CLI, builds with neither key, then tests with the run env alone', () => {
+  it('creates the harness key under the lock, builds with neither key, then tests with the harness key', () => {
     const res = stubbed(['--suite', 'usdcx'], DOCUMENT, {
       E2E_ARC_PRIVATE_KEY: ARC_KEY,
       E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY
     });
+    const harness = JSON.parse(readFileSync(harnessFileOf(res.home), 'utf8'));
     expect(spawned(res.requests)).toEqual([
       { command: 'install-pinned-miden-cli', args: ['scripts/install-pinned-miden-cli.cjs', 'install'] },
       { command: 'yarn', args: ['test:e2e:blockchain:build'], env: { E2E_NETWORK: 'testnet' } },
       {
         command: 'yarn',
         args: testArgs('USDCx round trip'),
-        env: { E2E_NETWORK: 'testnet', E2E_REAL_USDCX: 'true', MIDEN_CLIENT_BIN: STUB_CLI, E2E_HEADLESS: '1' }
+        env: {
+          E2E_NETWORK: 'testnet',
+          E2E_REAL_USDCX: 'true',
+          MIDEN_CLIENT_BIN: STUB_CLI,
+          E2E_ARC_PRIVATE_KEY: harness.privateKey,
+          E2E_ARC_KEY_ROLE: 'harness',
+          E2E_HEADLESS: '1'
+        }
       }
     ]);
+    expect(harness).toMatchObject({ role: 'harness', walletAddress: '' });
+    expect(statSync(harnessFileOf(res.home)).mode & 0o777).toBe(0o600);
+    expect(res.output).toContain(`Arc key  harness ${harness.address}`);
+    expect(res.output).toContain('· E2E_ARC_PRIVATE_KEY is exported but applies only to --suite usdcx-in');
+    expect(res.output).not.toContain(harness.privateKey.slice(2));
     expect(res.output).not.toContain(ARC_KEY.slice(2));
     expect(res.output).not.toContain(SEPOLIA_KEY.slice(2));
+    expect(existsSync(lockOf(res.home))).toBe(false);
     expect(res.status).toBe(0);
   }, 35_000);
 
@@ -1713,9 +1790,11 @@ describe('a usdcx run', () => {
         MIDEN_CLIENT_BIN: STUB_CLI,
         E2E_HEADLESS: '1',
         E2E_ARC_PRIVATE_KEY: ARC_KEY,
+        E2E_ARC_KEY_ROLE: 'operator',
         E2E_ARC_RPC_URL: 'https://arc-rpc.example'
       }
     });
+    expect(existsSync(path.join(res.home, '.miden-e2e', 'arc-keys'))).toBe(false);
     expect(res.output).toContain(privateKeyToAccount(ARC_KEY).address);
     expect(res.output).not.toContain(ARC_KEY.slice(2));
     expect(res.status).toBe(0);
@@ -1742,6 +1821,7 @@ describe('a usdcx run', () => {
     const res = stubbed(['--suite', 'usdcx'], DOCUMENT, {}, { cliInstall: { status: 1, stdout: '' } });
     expect(spawned(res.requests).map(child => child.command)).toEqual(['install-pinned-miden-cli']);
     expect(res.output).toContain('the pinned miden-client CLI did not install (exit 1)');
+    expect(existsSync(lockOf(res.home))).toBe(false);
     expect(res.status).toBe(1);
   }, 35_000);
 
@@ -1770,8 +1850,211 @@ describe('a usdcx run', () => {
         env
       }
     ]);
+    expect(existsSync(path.join(res.home, '.miden-e2e'))).toBe(false);
     expect(res.status).toBe(0);
   }, 35_000);
+
+  it('deposits from the harness key on usdcx-in when no key is given, probing its address', async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), 'e2e-real-home-'));
+    const { address, privateKey } = await harnessArcKey(harnessFileOf(home), { create: true });
+    const res = stubbed(['--suite', 'usdcx-in'], DOCUMENT, { HOME: home });
+    const balanceOf = encodeFunctionData({
+      abi: parseAbi(['function balanceOf(address) view returns (uint256)']),
+      functionName: 'balanceOf',
+      args: [address]
+    });
+    expect(res.requests).toContain(`"data":"${balanceOf}"`);
+    expect(res.output).toContain(`harness key ${address} holds 10 USDC`);
+    expect(spawned(res.requests)[2].env).toMatchObject({
+      E2E_ARC_PRIVATE_KEY: privateKey,
+      E2E_ARC_KEY_ROLE: 'harness'
+    });
+    expect(res.output).not.toContain(privateKey.slice(2));
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  it('refuses to start while the lock names a live run, before the preflight', () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), 'e2e-real-home-'));
+    mkdirSync(path.dirname(lockOf(home)), { recursive: true });
+    const holder = `${JSON.stringify({ pid: process.pid, suite: 'usdcx-in', startedAt: '2026-10-11T11:00:00.000Z' })}\n`;
+    writeFileSync(lockOf(home), holder);
+    const res = stubbed(['--suite', 'usdcx'], DOCUMENT, { HOME: home });
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain(
+      `another usdcx run holds the lock ${lockOf(home)} (pid ${process.pid}, --suite usdcx-in, since 2026-10-11T11:00:00.000Z)`
+    );
+    expect(res.stdout).not.toContain('Preflight');
+    expect(res.requests).not.toContain('SPAWN');
+    expect(readFileSync(lockOf(home), 'utf8')).toBe(holder);
+    expect(existsSync(harnessFileOf(home))).toBe(false);
+  }, 35_000);
+
+  it('removes a lock a dead run left, says so, and runs', () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), 'e2e-real-home-'));
+    mkdirSync(path.dirname(lockOf(home)), { recursive: true });
+    const { pid } = spawnSync(process.execPath, ['-e', '']);
+    writeFileSync(lockOf(home), `${JSON.stringify({ pid, suite: 'usdcx', startedAt: '2026-10-11T11:00:00.000Z' })}\n`);
+    const res = stubbed(['--suite', 'usdcx-burn'], DOCUMENT, { HOME: home });
+    expect(res.output).toContain(`removed a stale usdcx run lock ${lockOf(home)}: pid ${pid} (--suite usdcx,`);
+    expect(existsSync(lockOf(home))).toBe(false);
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  it('takes no lock and creates no harness key under --preflight-only', () => {
+    const res = preflight('usdcx');
+    expect(res.output).toContain('Arc key  harness: none yet; the first real usdcx or usdcx-burn run creates');
+    expect(existsSync(path.join(res.home, '.miden-e2e'))).toBe(false);
+    expect(res.status).toBe(0);
+  }, 35_000);
+});
+
+describe('harnessArcKey', () => {
+  const fileIn = () => path.join(mkdtempSync(path.join(os.tmpdir(), 'harness-key-')), 'arc-keys', 'harness.json');
+
+  it('creates the key on first use, 0600 in a 0700 directory, and reads the same key after', async () => {
+    const file = fileIn();
+    const created = await harnessArcKey(file, { create: true });
+    expect(created.created).toBe(true);
+    expect(created.address).toBe(privateKeyToAccount(created.privateKey).address);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(statSync(path.dirname(file)).mode & 0o777).toBe(0o700);
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({
+      role: 'harness',
+      iso: expect.any(String),
+      address: created.address,
+      privateKey: created.privateKey,
+      walletAddress: ''
+    });
+    await expect(harnessArcKey(file, { create: true })).resolves.toEqual({
+      address: created.address,
+      privateKey: created.privateKey,
+      created: false
+    });
+  });
+
+  it('reports a missing key when it may not create one, and creates nothing', async () => {
+    const file = fileIn();
+    await expect(harnessArcKey(file, { create: false })).resolves.toEqual({ missing: true });
+    expect(existsSync(path.dirname(file))).toBe(false);
+  });
+
+  it('refuses a key file other users can read, never printing the key', async () => {
+    const file = fileIn();
+    const { privateKey } = await harnessArcKey(file, { create: true });
+    chmodSync(file, 0o644);
+    const refused = harnessArcKey(file, { create: true });
+    await expect(refused).rejects.toThrow(
+      `the harness Arc key file ${file} is open to other users (mode 644): chmod 600 it`
+    );
+    await expect(refused).rejects.not.toThrow(privateKey.slice(2));
+  });
+
+  it.each<[string, (entry: Record<string, unknown>) => string]>([
+    ['not JSON', () => 'not json'],
+    ['role "per-run", not "harness"', entry => JSON.stringify({ ...entry, role: 'per-run' })],
+    [
+      'its address does not derive from its privateKey',
+      entry => JSON.stringify({ ...entry, address: getAddress(`0x${'12'.repeat(20)}`) })
+    ]
+  ])('refuses an entry that is %s, never printing the key or replacing the file', async (problem, rewrite) => {
+    const file = fileIn();
+    const { privateKey } = await harnessArcKey(file, { create: true });
+    writeFileSync(file, rewrite(JSON.parse(readFileSync(file, 'utf8'))));
+    const written = readFileSync(file, 'utf8');
+    const refused = harnessArcKey(file, { create: true });
+    await expect(refused).rejects.toThrow(
+      `${file} is not a harness Arc key entry (${problem}); it may hold a funded key, so the runner never replaces it`
+    );
+    await expect(refused).rejects.not.toThrow(privateKey.slice(2));
+    expect(readFileSync(file, 'utf8')).toBe(written);
+  });
+});
+
+describe('acquireUsdcxRunLock', () => {
+  const lockIn = () => path.join(mkdtempSync(path.join(os.tmpdir(), 'usdcx-lock-')), '.miden-e2e', 'usdcx-run.lock');
+  const AT = () => new Date('2026-10-11T12:00:00.000Z');
+  const hold = (lock: string, content: Record<string, unknown>) => {
+    mkdirSync(path.dirname(lock), { recursive: true });
+    writeFileSync(lock, `${JSON.stringify(content)}\n`);
+  };
+
+  it('takes a free lock as 0600 JSON naming the run, and release removes it', () => {
+    const lock = lockIn();
+    const taken = acquireUsdcxRunLock(lock, { suite: 'usdcx', pid: 4242, now: AT });
+    expect(taken.error).toBeUndefined();
+    expect(JSON.parse(readFileSync(lock, 'utf8'))).toEqual({
+      pid: 4242,
+      suite: 'usdcx',
+      startedAt: '2026-10-11T12:00:00.000Z'
+    });
+    expect(statSync(lock).mode & 0o777).toBe(0o600);
+    expect(readdirSync(path.dirname(lock))).toEqual(['usdcx-run.lock']);
+    expect(taken.release()).toBeUndefined();
+    expect(existsSync(lock)).toBe(false);
+  });
+
+  it('refuses while the run holding it lives, naming the lock and its pid', () => {
+    const lock = lockIn();
+    hold(lock, { pid: 4242, suite: 'usdcx-burn', startedAt: '2026-10-11T11:00:00.000Z' });
+    expect(acquireUsdcxRunLock(lock, { suite: 'usdcx', pid: 5151, isAlive: () => true })).toEqual({
+      error:
+        `another usdcx run holds the lock ${lock} (pid 4242, --suite usdcx-burn, since 2026-10-11T11:00:00.000Z). ` +
+        'Two runs would pay into and spend from the one harness Arc key, which breaks the payout check. ' +
+        `Wait for it to end; if no yarn e2e:real run is going, remove ${lock}`
+    });
+  });
+
+  it("refuses while a dead run's test child still runs", () => {
+    const lock = lockIn();
+    hold(lock, { pid: 4242, suite: 'usdcx', startedAt: '2026-10-11T11:00:00.000Z', childPid: 4343 });
+    const taken = acquireUsdcxRunLock(lock, { suite: 'usdcx', pid: 5151, isAlive: pid => pid === 4343 });
+    expect(taken.error).toContain('(pid 4242 exited; its child, pid 4343, is still running, --suite usdcx, since');
+  });
+
+  it('removes a lock whose run and child are gone, says so, and takes it', () => {
+    const lock = lockIn();
+    hold(lock, { pid: 4242, suite: 'usdcx-in', startedAt: '2026-10-11T11:00:00.000Z', childPid: 4343 });
+    const taken = acquireUsdcxRunLock(lock, { suite: 'usdcx', pid: 5151, now: AT, isAlive: () => false });
+    expect(taken.removed).toBe(
+      `removed a stale usdcx run lock ${lock}: pid 4242 (--suite usdcx-in, since 2026-10-11T11:00:00.000Z) ` +
+        'is no longer running'
+    );
+    expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ pid: 5151, suite: 'usdcx' });
+  });
+
+  it('refuses a lock it cannot read, and leaves it', () => {
+    const lock = lockIn();
+    mkdirSync(path.dirname(lock), { recursive: true });
+    writeFileSync(lock, 'garbage');
+    expect(acquireUsdcxRunLock(lock, { suite: 'usdcx', isAlive: () => false })).toEqual({
+      error: `cannot read the usdcx run lock ${lock} (not a lock this runner wrote); if no usdcx run is going, remove it`
+    });
+    expect(readFileSync(lock, 'utf8')).toBe('garbage');
+  });
+
+  it('leaves the lock when it no longer names this run', () => {
+    const lock = lockIn();
+    const taken = acquireUsdcxRunLock(lock, { suite: 'usdcx', pid: 4242, now: AT });
+    hold(lock, { pid: 5151, suite: 'usdcx', startedAt: '2026-10-11T12:05:00.000Z' });
+    expect(taken.release()).toBe(`the usdcx run lock ${lock} no longer names this run; left in place`);
+    expect(JSON.parse(readFileSync(lock, 'utf8'))).toMatchObject({ pid: 5151 });
+  });
+
+  it('names the test child in the lock, so the lock stays held after the runner dies', () => {
+    const lock = lockIn();
+    const taken = acquireUsdcxRunLock(lock, { suite: 'usdcx', pid: 4242, now: AT });
+    taken.recordChild(4343);
+    expect(JSON.parse(readFileSync(lock, 'utf8'))).toEqual({
+      pid: 4242,
+      suite: 'usdcx',
+      startedAt: '2026-10-11T12:00:00.000Z',
+      childPid: 4343
+    });
+    expect(readdirSync(path.dirname(lock))).toEqual(['usdcx-run.lock']);
+    expect(acquireUsdcxRunLock(lock, { suite: 'usdcx', pid: 5151, isAlive: pid => pid === 4343 }).error).toContain(
+      'its child, pid 4343'
+    );
+  });
 });
 
 describe('the usage', () => {
@@ -1784,6 +2067,7 @@ describe('the usage', () => {
     expect(res.stdout).toContain('--arc-key <0x...>');
     expect(res.stdout).toContain('(env: E2E_ARC_PRIVATE_KEY)');
     expect(res.stdout).toContain('unless MIDEN_CLIENT_BIN is set');
-    expect(res.stdout).toContain('Run one usdcx suite at a time');
+    expect(res.stdout).toContain('A lock, ~/.miden-e2e/usdcx-run.lock, lets one usdcx run go');
+    expect(res.stdout).toContain('usdcx and usdcx-burn burn to one harness Arc');
   }, 35_000);
 });

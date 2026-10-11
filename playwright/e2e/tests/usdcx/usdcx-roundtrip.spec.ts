@@ -1,5 +1,4 @@
 import type { Hex } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
 
 import { matchUsdcxDepositAttestation } from '../../../../src/lib/usdcx/attestation';
 import { CIRCLE_USDC_DECIMALS } from '../../../../src/lib/usdcx/constant';
@@ -9,10 +8,9 @@ import {
   arcEndpoints,
   assertDepositIntent,
   confirmDepositToMiden,
-  newArcKey,
   readArcUsdc,
+  readArcUsdcSnapshot,
   readXReserveDomainState,
-  recordArcKey,
   submitDepositToMiden,
   waitForGatewayPayout,
   waitForXReserveAttestation,
@@ -55,6 +53,7 @@ import {
   fundFromPublicFaucet,
   historyPill,
   pageWhere,
+  payoutContext,
   receivingTxHash,
   resolveUsdcxIds,
   settleGuardian,
@@ -65,7 +64,6 @@ import {
 } from '../../helpers/usdcx-legs';
 import { deriveUsdcxMintNoteId, waitForUsdcxMint, type MidenNoteRead } from '../../helpers/usdcx-miden';
 import {
-  arcPrivateKeyFromEnv,
   assertUsdcxLiveRun,
   depositClaimProblem,
   errorText,
@@ -77,6 +75,7 @@ import {
   PhaseTimeline,
   pollUntil,
   sampleInBackground,
+  takeRunArcKey,
   type FeeTerm,
   type NamedStep,
   type RunEvidence,
@@ -95,7 +94,7 @@ const BUDGET = {
   arcState: 30_000,
   fund: 180_000,
   settle: 240_000,
-  freshKey: 10_000,
+  keySnapshot: 30_000,
   fundedKey: 10_000,
   burnViaUi: 180_000,
   burnRowPoll: 180_000,
@@ -238,10 +237,10 @@ async function depositLeg(
       { privateKey: opts.key.privateKey, units: DEPOSIT_UNITS, recipientHex: ids.accountHex, approve: opts.approve },
       opts.arc
     );
-    // A fresh key has no allowance, so its deposit must approve exactly the deposit amount first (the allowance
-    // check in runUsdcxDeposit, usdcx/deposit.ts).
+    // 'exact' approves the deposit amount even over an allowance an earlier run left on the harness key, so the round
+    // trip always sends the approve the product sends (the allowance check in runUsdcxDeposit, usdcx/deposit.ts).
     if (opts.approve === 'exact' && (!submission.approved || !submission.approveHash)) {
-      throw new Error(`the fresh key's deposit ${submission.depositHash} sent no approve`);
+      throw new Error(`the deposit ${submission.depositHash} sent no approve`);
     }
     return submission;
   });
@@ -498,22 +497,6 @@ function assertNegativeFailed(deposit: DepositRun, evidence: RunEvidence): void 
   ).toBeLessThanOrEqual(deposit.attestedAt + 30_000);
 }
 
-/** Spec 5 step 8 failure body: the key, its ledger file, the burn's consume and xReserve's pause flags now. */
-function payoutContext(arc: ArcWriteDeps, key: ArcKey, ledgerPath: string, burn: BurnLeg): StepContext {
-  return async () => {
-    const flags = await readXReserveDomainState(arc).then(
-      state =>
-        `paused ${state.paused}, deposits paused ${state.depositsPaused}, withdrawals paused ${state.withdrawalsPaused}`,
-      (error: unknown) => `pause flags unreadable (${errorText(error)})`
-    );
-    const consumedAt = new Date(burn.oracle.consumeTimestampSec * 1_000).toISOString();
-    return (
-      `key ${key.address} (ledger ${ledgerPath}); burn note ${burn.burnNoteId} consumed in Miden block ` +
-      `${burn.oracle.consumeBlock} at ${consumedAt}; xReserve ${flags}`
-    );
-  };
-}
-
 /** Spec 5 step 8b (Q6, a hard gate): the wallet's own destination check confirms the payout Circle made. */
 async function walletConfirmsPayout(
   wallet: GuardianAwareWalletPage,
@@ -555,8 +538,10 @@ async function walletConfirmsPayout(
       afterSnapshot: confirmedBlock > burn.arcFromBlock,
       atOrAfterPayout: confirmedBlock >= payout.logBlock
     },
-    `confirmation at Arc block ${confirmedBlock}, snapshot ${burn.arcFromBlock}, payout log ${payout.logBlock}`
-  ).toEqual({ balance: payout.value.toString(), afterSnapshot: true, atOrAfterPayout: true });
+    `confirmation at Arc block ${confirmedBlock}, snapshot ${burn.arcFromBlock}, payout log ${payout.logBlock}, ` +
+      `${payout.balance - payout.value} on the key before the burn`
+  ).toEqual({ balance: payout.balance.toString(), afterSnapshot: true, atOrAfterPayout: true });
+  evidence.ids.walletConfirmedBalance = String(confirmed?.balance);
   await openHistoryDetails(wallet, burn.row.id);
   await expect(wallet.page.getByTestId('history-status-pill')).toHaveText(enText('confirmed'));
   const linkHash = await receivingTxHash(wallet.page, RECEIVING_TX_LINK_MS);
@@ -574,10 +559,13 @@ async function walletConfirmsPayout(
   return confirmedAt;
 }
 
-test.describe('USDCx round trip: burn to a fresh Arc key, Circle payout, deposit back', () => {
+test.describe('USDCx round trip: burn to the harness Arc key, Circle payout, deposit back', () => {
   // The injected fee faucet masks the wallet's own native-asset discovery (two-wallets.ts:840).
   test.use({ injectFeeFaucet: false });
-  test.beforeAll(() => assertUsdcxLiveRun(process.env, { needsArcKey: false }));
+  test.beforeAll(() => {
+    assertUsdcxLiveRun(process.env);
+    takeRunArcKey(process.env);
+  });
 
   test('Guardian wallet: public faucet grant, Send burn, payout and its confirmation, deposit back, receipt', async ({
     walletA,
@@ -642,15 +630,17 @@ test.describe('USDCx round trip: burn to a fresh Arc key, Circle payout, deposit
         onGuardian
       );
 
-      const { key, ledgerPath } = await step('fresh_key', BUDGET.freshKey, async () => {
-        const key = newArcKey();
+      // R21: the harness key, read right before the burn; the payout gate proves the rise above this read.
+      const { key, snapshot } = await step('key_snapshot', BUDGET.keySnapshot, async () => {
+        const { key, role } = takeRunArcKey(process.env);
         secrets.push(key.privateKey);
-        const ledgerPath = recordArcKey(key, ids.address);
-        expect(await readArcUsdc(key.address, arc), 'a fresh key holds no USDC').toBe(0n);
-        return { key, ledgerPath };
+        expect(role, 'the round trip burns to the harness key').toBe('harness');
+        return { key, snapshot: await readArcUsdcSnapshot(key.address, arc) };
       });
       evidence.ids.arcKey = key.address;
-      evidence.ids.ledgerPath = ledgerPath;
+      evidence.ids.arcKeyRole = 'harness';
+      evidence.ids.arcBalanceBefore = String(snapshot.balance);
+      evidence.ids.arcSnapshotBlock = String(snapshot.blockNumber);
 
       const priorBurns = await step(
         'burn_via_ui',
@@ -670,6 +660,7 @@ test.describe('USDCx round trip: burn to a fresh Arc key, Circle payout, deposit
           const burn = await confirmBurn(walletA, ids, {
             priorRowIds: priorBurns,
             destination: key.address,
+            keySnapshot: snapshot,
             units: BURN_UNITS,
             vaultBefore: funding.vault,
             rpcUrl: envConfig.rpcUrl,
@@ -709,7 +700,8 @@ test.describe('USDCx round trip: burn to a fresh Arc key, Circle payout, deposit
               recipient: key.address,
               burnNoteId: burn.burnNoteId,
               burnUnits: BURN_UNITS,
-              fromBlock: burn.arcFromBlock,
+              fromBlock: snapshot.blockNumber,
+              balanceBefore: snapshot.balance,
               consumeTsMs,
               deadlineMs: consumeTsMs + PAYOUT_TIMEOUT_MS,
               depositor: xreserve.depositor,
@@ -717,7 +709,7 @@ test.describe('USDCx round trip: burn to a fresh Arc key, Circle payout, deposit
             },
             arc
           ),
-        payoutContext(arc, key, ledgerPath, burn)
+        payoutContext(arc, key, snapshot, burn)
       );
       expect({ domain: payout.sourceDomain, total: payout.value + payout.fee }).toEqual({
         domain: ARC_CIRCLE_DOMAIN,
@@ -727,8 +719,8 @@ test.describe('USDCx round trip: burn to a fresh Arc key, Circle payout, deposit
       evidence.fees.push({ name: 'circle payout fee', amount: payout.fee, kind: 'exact' });
       evidence.latenciesMs.consumeToPayout = payout.latencyMs;
 
-      // Before the deposit, which spends from the key and would hold its balance below the wallet's threshold
-      // (the payout floor check in destination-status.ts), leaving the row at Burn confirmed.
+      // Before the deposit, which spends from the key: the wallet's confirmed balance must be exactly the pre-burn
+      // read plus the payout.
       const walletConfirmedAt = await step('wallet_payout_confirmed', BUDGET.walletPayoutConfirmed, () =>
         walletConfirmsPayout(walletA, burn, payout, key, arc, where, evidence)
       );
@@ -736,7 +728,7 @@ test.describe('USDCx round trip: burn to a fresh Arc key, Circle payout, deposit
 
       const deposit = await depositLeg(step, walletA, ids, {
         key,
-        keyBalance: payout.value,
+        keyBalance: payout.balance,
         approve: 'exact',
         arc,
         xreserve,
@@ -791,7 +783,10 @@ test.describe('USDCx bridge-in from a funded Arc key', () => {
   test.use({ injectFeeFaucet: false });
   // Budgets add up to ~21 min, plus ~2 min of fixture setup charged to the test.
   test.describe.configure({ timeout: 1_800_000 });
-  test.beforeAll(() => assertUsdcxLiveRun(process.env, { needsArcKey: true }));
+  test.beforeAll(() => {
+    assertUsdcxLiveRun(process.env);
+    takeRunArcKey(process.env);
+  });
 
   test('Guardian wallet receives a Node-signed xReserve deposit', async ({ walletA, envConfig, steps }) => {
     const step = namedSteps(steps);
@@ -835,19 +830,23 @@ test.describe('USDCx bridge-in from a funded Arc key', () => {
       });
 
       const funded = await step('funded_key', BUDGET.fundedKey, async () => {
-        const privateKey = arcPrivateKeyFromEnv(process.env);
-        secrets.push(privateKey);
-        const key: ArcKey = { address: privateKeyToAccount(privateKey).address, privateKey };
+        const { key, role } = takeRunArcKey(process.env);
+        secrets.push(key.privateKey);
         const balance = await readArcUsdc(key.address, arc);
         if (balance < DEPOSIT_UNITS + GAS_RESERVE_UNITS) {
           throw new Error(
-            `funded key ${key.address} holds ${balance} USDC base units, needs ${DEPOSIT_UNITS + GAS_RESERVE_UNITS}; ` +
-              'any paid usdcx run leaves about 0.98 USDC on its key in ~/.miden-e2e/arc-keys'
+            `the ${role} key ${key.address} holds ${balance} USDC base units, needs ` +
+              `${DEPOSIT_UNITS + GAS_RESERVE_UNITS}; ` +
+              (role === 'harness'
+                ? "refill it with yarn e2e:real --suite usdcx (each run's payout adds about 0.98 USDC), or pass " +
+                  '--arc-key with a funded key'
+                : 'fund it, or drop --arc-key and E2E_ARC_PRIVATE_KEY to deposit from the harness key')
           );
         }
-        return { key, balance };
+        return { key, role, balance };
       });
       evidence.ids.arcKey = funded.key.address;
+      evidence.ids.arcKeyRole = funded.role;
 
       const deposit = await depositLeg(step, walletA, ids, {
         key: funded.key,

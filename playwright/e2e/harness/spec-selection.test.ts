@@ -64,7 +64,7 @@ describe('the USDCx live suites have a config of their own', () => {
 
 const USDCX_TESTS_DIR = 'playwright/e2e/tests/usdcx';
 const ROUND_TRIP_TEST =
-  'usdcx-roundtrip.spec.ts › USDCx round trip: burn to a fresh Arc key, Circle payout, deposit back › ' +
+  'usdcx-roundtrip.spec.ts › USDCx round trip: burn to the harness Arc key, Circle payout, deposit back › ' +
   'Guardian wallet: public faucet grant, Send burn, payout and its confirmation, deposit back, receipt';
 const BRIDGE_IN_TEST =
   'usdcx-roundtrip.spec.ts › USDCx bridge-in from a funded Arc key › ' +
@@ -87,6 +87,19 @@ const USDCX_RUNNER_GREPS: Array<[grep: string, tests: string[]]> = [
 const USDCX_LIVE_SPECS: Array<[file: string, describes: number]> = [
   ['usdcx-roundtrip.spec.ts', 2],
   ['usdcx-burn.spec.ts', 1]
+];
+/**
+ * R21 and R22: every burn to the shared harness Arc key reads the key right before it, the wallet's saved baseline must
+ * equal that read, and the test ends only once the delta-mode payout gate has proven Circle paid exactly this burn, so
+ * no run leaves a payout to land in a later run's window. Live wiring with no unit test of its own, so its source is
+ * pinned here.
+ */
+const USDCX_PAYOUT_WIRING: RegExp[] = [
+  /readArcUsdcSnapshot\(key\.address, arc\)[\s\S]*'burn_via_ui'[\s\S]*waitForGatewayPayout\(/,
+  /keySnapshot: snapshot,/,
+  /fromBlock: snapshot\.blockNumber,\s*balanceBefore: snapshot\.balance,/,
+  /deadlineMs: consumeTsMs \+ PAYOUT_TIMEOUT_MS,/,
+  /payoutContext\(arc, key, snapshot, burn\)/
 ];
 /** A live USDCx spec in another config's listing, the burn spec under its old tests/bridge name included. */
 const USDCX_LIVE_SPEC = /usdcx-roundtrip\.spec\.ts|usdcx-burn\.spec\.ts|bridge-out-usdcx\.spec\.ts/;
@@ -127,8 +140,20 @@ describe('the USDCx live suites run under their own config only', () => {
   it.each(USDCX_LIVE_SPECS)('%s throws instead of skipping outside the runner', (file, describes) => {
     const source = configSource(`${USDCX_TESTS_DIR}/${file}`);
     expect(source).not.toMatch(/test\.skip\(/);
-    expect(source.match(/test\.beforeAll\(\(\) => assertUsdcxLiveRun\(process\.env, /g)).toHaveLength(describes);
+    expect(
+      source.match(
+        /test\.beforeAll\(\(\) => \{\s*assertUsdcxLiveRun\(process\.env\);\s*takeRunArcKey\(process\.env\);\s*\}\);/g
+      )
+    ).toHaveLength(describes);
   });
+
+  it.each(['usdcx-roundtrip.spec.ts', 'usdcx-burn.spec.ts'])(
+    "%s waits for each burn's own payout, proven against the key read right before the burn",
+    file => {
+      const source = configSource(`${USDCX_TESTS_DIR}/${file}`);
+      for (const wiring of USDCX_PAYOUT_WIRING) expect(source).toMatch(wiring);
+    }
+  );
 });
 
 function listGuardianTests(suite?: string): string {

@@ -52,8 +52,10 @@ export const ARC_QUICKNODE_URL = 'https://rpc.quicknode.testnet.arc.io';
 export const ARC_PUBLIC_URL: string = ARC_TESTNET.rpcUrls.default.http[0];
 /** arc.io is the wallet's only Arc RPC (burn snapshot and payout confirmation), so the harness reads it last. */
 export const DEFAULT_ARC_RPCS: readonly string[] = [ARC_DRPC_URL, ARC_QUICKNODE_URL, ARC_PUBLIC_URL];
-/** Per-run Arc keys, mode 0600, outside test-results and the repository. */
+/** The harness Arc key and the per-run keys from before it, mode 0600, outside test-results and the repository. */
 export const ARC_KEY_LEDGER_DIR = path.join(os.homedir(), '.miden-e2e', 'arc-keys');
+/** R21: the one key every usdcx suite burns to and deposits from; scripts/e2e-real.mjs creates it on first use. */
+export const HARNESS_ARC_KEY_FILE = path.join(ARC_KEY_LEDGER_DIR, 'harness.json');
 
 export const ARC_CHAIN_ID: number = ARC_TESTNET.id;
 const ARC_SOURCE = getUsdcxXReserveSource(ARC_TESTNET.id);

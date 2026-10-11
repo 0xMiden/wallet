@@ -19,6 +19,8 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
+import { linkSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -87,6 +89,10 @@ export const USDCX_GRANT_FLOOR_UNITS = 2_000_000n;
 export const USDCX_GRANT_UNITS = 10_000_000n;
 /** One 0.001 USDC deposit plus its Arc gas reserve: DEPOSIT_UNITS + GAS_RESERVE_UNITS. */
 export const USDCX_FUNDED_KEY_FLOOR_UNITS = 21_000n;
+/** R21: the one Arc key every usdcx suite burns to and deposits from; usdcx-constants.ts names the same file. */
+export const HARNESS_ARC_KEY_FILE = path.join(os.homedir(), '.miden-e2e', 'arc-keys', 'harness.json');
+/** One usdcx run at a time (R21). Beside arc-keys, not in it, so a sweep over the key files never reads it. */
+export const USDCX_RUN_LOCK = path.join(os.homedir(), '.miden-e2e', 'usdcx-run.lock');
 const ARC_SELECTORS = {
   paused: '0x5c975abb',
   domainDepositsPaused: '0x4a1b13ea',
@@ -152,7 +158,7 @@ export const SUITES = {
     usdcx: true,
     headlessByDefault: true,
     retries: 0,
-    describe: 'fresh Guardian: faucet grant, UI burn to a fresh Arc key, Circle payout, deposit back'
+    describe: 'fresh Guardian: faucet grant, UI burn to the harness Arc key, Circle payout, deposit back'
   },
   'usdcx-in': {
     config: 'playwright.usdcx.config.ts',
@@ -163,7 +169,7 @@ export const SUITES = {
     arcKey: true,
     headlessByDefault: true,
     retries: 0,
-    describe: 'fresh Guardian: deposit from a funded Arc key (--arc-key), attest, mint, receive'
+    describe: 'fresh Guardian: deposit from the harness Arc key (or --arc-key), attest, mint, receive'
   },
   'usdcx-burn': {
     config: 'playwright.usdcx.config.ts',
@@ -173,7 +179,7 @@ export const SUITES = {
     usdcx: true,
     headlessByDefault: true,
     retries: 0,
-    describe: 'standard and Guardian wallets: faucet grant, UI burn, faucet consume'
+    describe: 'standard and Guardian wallets: faucet grant, UI burn to the harness Arc key, Circle payout'
   }
 };
 
@@ -197,8 +203,9 @@ Options
                             (env: E2E_SEPOLIA_PRIVATE_KEY)
   --arc-rpc <url>           Arc Testnet RPC the usdcx suites try first, then drpc,
                             QuickNode and arc.io (env: E2E_ARC_RPC_URL)
-  --arc-key <0x...>         funded Arc Testnet key for usdcx-in; only its address is
-                            printed (env: E2E_ARC_PRIVATE_KEY)
+  --arc-key <0x...>         usdcx-in only: deposit from this funded Arc Testnet key
+                            instead of the harness key; only its address is printed
+                            (env: E2E_ARC_PRIVATE_KEY)
   --min-eth <amount>        preflight gas floor in ether (default: 0.02)
   --preflight-only          probe the services and exit; build and run nothing
   --agglayer-indexer-only   probe only the AggLayer indexer's Miden exit filing and exit;
@@ -213,19 +220,23 @@ The Epoch allocator, the Sepolia USDC, the AggLayer bridge and its indexer come
 from the network's config document, read as the wallet reads it:
 MIDEN_REMOTE_CONFIG_URL when set, else the published 0xMiden/wallet-config.
 
-Only usdcx-in needs a secret: an Arc Testnet key holding at least 0.021 USDC.
-Every paid usdcx run records its fresh key, with about 0.98 USDC left on it,
-under ~/.miden-e2e/arc-keys (mode 0600), and that key serves. Bridge-out is
-solver-fulfilled and swap is Miden-side, so neither signs on EVM; --sepolia-key
-is accepted so a funded account's gas and test-USDC balance can be READ ahead of
-a suite that does sign.
+The usdcx suites need no secret. usdcx and usdcx-burn burn to one harness Arc
+key, ~/.miden-e2e/arc-keys/harness.json (mode 0600), which the first real run
+creates; the round trip and usdcx-in deposit from it and Circle's payouts refill
+it, so no run needs Circle's faucet. usdcx-in needs the key to hold 0.021 USDC,
+or an --arc-key that does.
+
+Bridge-out is solver-fulfilled and swap is Miden-side, so neither signs on EVM;
+--sepolia-key is accepted so a funded account's gas and test-USDC balance can be
+READ ahead of a suite that does sign.
 
 usdcx-in runs bridge-in on the extension with a deposit signed in Node, not
 through WalletConnect, which the extension's COEP isolation for the WASM prover
 blocks. Every usdcx suite builds, after installing the miden-client CLI pinned
 in package.json unless MIDEN_CLIENT_BIN is set (git and cargo; a cold cache
-takes up to 35 min). Run one usdcx suite at a time: there is no run lock, and
-two runs share the hosted Guardian, the public faucet and a funded key's nonce.
+takes up to 35 min). A lock, ~/.miden-e2e/usdcx-run.lock, lets one usdcx run go
+at a time: a second refuses, naming the lock and the pid holding it, and the
+next run removes a lock whose run died.
 `;
 
 // ── args ────────────────────────────────────────────────────────────────────
@@ -316,7 +327,8 @@ function parseArgs(argv) {
       fail(`unknown argument: ${arg.split('=', 1)[0]}=<value> (pass the value as its own argument)`);
     } else fail(`unknown argument: ${arg}`);
   }
-  // A flag is refused where it would not apply; the same value exported is left alone (run() unsets it).
+  // A flag is refused where it would not apply; the same value exported is left alone: a usdcx build unsets it, and a
+  // usdcx test gets the run's own key over it (childEnvironments).
   opts.arcRpcFlag = seen.has('--arc-rpc');
   opts.arcKeyFlag = seen.has('--arc-key');
   if (opts.agglayerIndexerOnly) {
@@ -439,9 +451,8 @@ function usdcxInputProblem(opts, suite) {
     return 'the Arc RPC (--arc-rpc or E2E_ARC_RPC_URL) is not an http(s) URL';
   }
   if (!suite.arcKey) return opts.arcKeyFlag ? '--arc-key applies only to --suite usdcx-in' : undefined;
-  if (opts.arcKey === undefined) {
-    return `--suite ${opts.suite} needs a funded Arc Testnet key: pass --arc-key or export E2E_ARC_PRIVATE_KEY (a paid usdcx run leaves one under ~/.miden-e2e/arc-keys)`;
-  }
+  // No key is fine here: usdcx-in then deposits from the harness key, or refuses after the lock (resolveArcKey).
+  if (opts.arcKey === undefined) return undefined;
   if (opts.arcKey === '') return 'E2E_ARC_PRIVATE_KEY is set but empty';
   if (!ARC_KEY_PATTERN.test(opts.arcKey)) {
     return 'the Arc key (--arc-key or E2E_ARC_PRIVATE_KEY) is not a valid private key: expect 32 bytes of hex, with an optional 0x prefix';
@@ -1089,22 +1100,21 @@ async function probeGatewayMinter(url) {
   }
 }
 
-/** usdcx-in deposits from this key, so it must hold one deposit and its gas. Only the address is printed. */
-async function probeArcFundedKey(url, privateKey) {
-  let address;
-  try {
-    const { privateKeyToAccount } = await import('viem/accounts');
-    ({ address } = privateKeyToAccount(`0x${privateKey.replace(/^0x/i, '')}`));
-  } catch {
-    return record(false, 'Arc funded key', 'not a valid private key (expect 32 bytes hex)');
-  }
+/** usdcx-in deposits from this key, the harness key or an operator's, so it must hold one deposit and its gas. */
+async function probeArcFundedKey(url, arcKey) {
+  const address = arcKey.address;
   try {
     const word = await arcView(url, ARC_USDC, calldata(ARC_SELECTORS.balanceOf, address), 'balanceOf');
     const balance = BigInt(word);
-    const held = `${address} holds ${formatUnits(balance, USDCX_DECIMALS)} USDC`;
+    const held = `${arcKey.role} key ${address} holds ${formatUnits(balance, USDCX_DECIMALS)} USDC`;
     if (balance < USDCX_FUNDED_KEY_FLOOR_UNITS) {
       const floor = formatUnits(USDCX_FUNDED_KEY_FLOOR_UNITS, USDCX_DECIMALS);
-      return record(false, 'Arc funded key', `${held}, below the ${floor} USDC one deposit and its gas need`);
+      const refill =
+        arcKey.role === 'harness'
+          ? "; refill it with yarn e2e:real --suite usdcx (each run's payout adds about 0.98 USDC), or pass " +
+            '--arc-key with a funded key'
+          : '';
+      return record(false, 'Arc funded key', `${held}, below the ${floor} USDC one deposit and its gas need${refill}`);
     }
     return record(true, 'Arc funded key', held);
   } catch (err) {
@@ -1237,14 +1247,14 @@ function probeUsdcxGrant(metadata) {
  * without a healthy endpoint, and the Circle and native-asset checks compare with the remote token xReserve names on
  * chain, so each stage needs the one before it.
  */
-async function probeUsdcx(opts, needs) {
+async function probeUsdcx(opts, needs, arcKey) {
   const endpoint = await probeArcRpc(arcRpcEndpoints(opts.arcRpc));
   if (endpoint === undefined) return;
   await probeArcWriteEndpoint(endpoint);
   const remoteToken = await probeXReserve(endpoint);
   await probeXReservePause(endpoint, needs.includes('arc-payout'));
   if (needs.includes('arc-payout')) await probeGatewayMinter(endpoint);
-  if (needs.includes('funded-key')) await probeArcFundedKey(endpoint, opts.arcKey);
+  if (needs.includes('funded-key')) await probeArcFundedKey(endpoint, arcKey);
   if (remoteToken === undefined) return;
   await probeCircleXReserveApi(remoteToken);
   await probeUsdcxNativeAsset(opts.network, remoteToken);
@@ -1388,6 +1398,215 @@ export async function probeAgglayerIndexer(indexerUrl, { get = getJson, retryDel
   );
 }
 
+/** What makes `text` something other than a harness key entry, or undefined. */
+function harnessEntryProblem(text, privateKeyToAccount) {
+  let entry;
+  try {
+    entry = JSON.parse(text);
+  } catch {
+    return 'not JSON';
+  }
+  if (entry?.role !== 'harness') return `role ${JSON.stringify(entry?.role)}, not "harness"`;
+  if (typeof entry.privateKey !== 'string' || !/^0x[0-9a-f]{64}$/.test(entry.privateKey)) {
+    return 'its privateKey is not 0x and 64 lowercase hex';
+  }
+  try {
+    if (privateKeyToAccount(entry.privateKey).address === entry.address) return undefined;
+  } catch {
+    return 'its privateKey is not a valid secp256k1 key';
+  }
+  return 'its address does not derive from its privateKey';
+}
+
+/**
+ * The harness Arc key (R21): the one key every usdcx run burns to and deposits from, so each burn's payout refills what
+ * the deposits spend. Returns `{ address, privateKey, created }`, writing a new key 0600 into a 0700 directory when the
+ * file is missing and `create` is set, or `{ missing: true }`. A file that exists is never replaced, since it may hold
+ * USDC. Throws naming the file and what is wrong with it, never a key.
+ *
+ * Exported for test.
+ */
+export async function harnessArcKey(file, { create }) {
+  const { generatePrivateKey, privateKeyToAccount } = await import('viem/accounts');
+  let text;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      throw new Error(`cannot read the harness Arc key file ${file}: ${err.code ?? err.message}`);
+    }
+    if (!create) return { missing: true };
+    mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    const privateKey = generatePrivateKey();
+    const { address } = privateKeyToAccount(privateKey);
+    const entry = { role: 'harness', iso: new Date().toISOString(), address, privateKey, walletAddress: '' };
+    writeFileSync(file, `${JSON.stringify(entry, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    return { address, privateKey, created: true };
+  }
+  const mode = statSync(file).mode & 0o777;
+  if ((mode & 0o077) !== 0) {
+    throw new Error(`the harness Arc key file ${file} is open to other users (mode ${mode.toString(8)}): chmod 600 it`);
+  }
+  const problem = harnessEntryProblem(text, privateKeyToAccount);
+  if (problem !== undefined) {
+    throw new Error(
+      `${file} is not a harness Arc key entry (${problem}); it may hold a funded key, so the runner never replaces ` +
+        'it: fix or move it by hand'
+    );
+  }
+  const { address, privateKey } = JSON.parse(text);
+  return { address, privateKey, created: false };
+}
+
+/**
+ * The Arc key a usdcx run hands its test (R21): usdcx-in's operator key when --arc-key or E2E_ARC_PRIVATE_KEY names
+ * one, else the harness key, which a real usdcx or usdcx-burn run creates on first use. `{ error }` when usdcx-in has
+ * neither. No message carries a key.
+ */
+async function resolveArcKey(opts, suite) {
+  if (suite.arcKey && opts.arcKey !== undefined) {
+    const privateKey = `0x${opts.arcKey.replace(/^0x/i, '').toLowerCase()}`;
+    const { privateKeyToAccount } = await import('viem/accounts');
+    try {
+      return { role: 'operator', privateKey, address: privateKeyToAccount(privateKey).address };
+    } catch {
+      return { error: 'the Arc key (--arc-key or E2E_ARC_PRIVATE_KEY) is not a valid secp256k1 private key' };
+    }
+  }
+  const harness = await harnessArcKey(HARNESS_ARC_KEY_FILE, { create: !suite.arcKey && !opts.preflightOnly });
+  if (harness.missing && suite.arcKey) {
+    return {
+      error:
+        `--suite ${opts.suite} has no Arc key: pass --arc-key or export E2E_ARC_PRIVATE_KEY, or run --suite usdcx ` +
+        `first, which creates the harness key ${HARNESS_ARC_KEY_FILE} and refills it with Circle's payout`
+    };
+  }
+  return { role: 'harness', ...harness };
+}
+
+/** The banner's Arc key line: the role and the address, never the key. */
+function describeArcKey(arcKey) {
+  if (arcKey.role === 'operator') return `operator ${arcKey.address} (--arc-key or E2E_ARC_PRIVATE_KEY)`;
+  if (arcKey.missing) {
+    return `harness: none yet; the first real usdcx or usdcx-burn run creates ${HARNESS_ARC_KEY_FILE}`;
+  }
+  const created = arcKey.created ? ", created by this run; Circle's payouts fund it" : '';
+  return `harness ${arcKey.address} (${HARNESS_ARC_KEY_FILE})${created}`;
+}
+
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM: alive, but another user's.
+    return err.code === 'EPERM';
+  }
+}
+
+function readLockText(lockPath) {
+  try {
+    return readFileSync(lockPath, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return undefined;
+    throw err;
+  }
+}
+
+/** Removes the lock while it still names this run; otherwise says why it was left. */
+function releaseUsdcxRunLock(lockPath, mine) {
+  let held;
+  try {
+    held = JSON.parse(readFileSync(lockPath, 'utf8'));
+  } catch {
+    return undefined;
+  }
+  if (held?.pid !== mine.pid || held?.startedAt !== mine.startedAt) {
+    return `the usdcx run lock ${lockPath} no longer names this run; left in place`;
+  }
+  unlinkSync(lockPath);
+  return undefined;
+}
+
+/**
+ * The usdcx run lock (R21): one run at a time burns to and deposits from the harness key, so the payout gate's
+ * one-log, value-equals-delta proof holds. Returns `{ release, recordChild, removed? }`, or `{ error }` naming the lock
+ * and the run holding it. A lock whose run and recorded test child are both gone is removed (`removed` says so) and
+ * taken. It is written whole to a temporary file and linked into place, so no reader sees half of it; `isAlive` is for
+ * tests.
+ *
+ * Exported for test.
+ */
+export function acquireUsdcxRunLock(
+  lockPath,
+  { suite, pid = process.pid, now = () => new Date(), isAlive = pidAlive }
+) {
+  mkdirSync(path.dirname(lockPath), { recursive: true, mode: 0o700 });
+  const mine = { pid, suite, startedAt: now().toISOString() };
+  const place = (content, put) => {
+    const temporary = `${lockPath}.${pid}.tmp`;
+    writeFileSync(temporary, `${JSON.stringify(content)}\n`, { mode: 0o600 });
+    try {
+      put(temporary);
+    } finally {
+      rmSync(temporary, { force: true });
+    }
+  };
+  const unreadable = reason =>
+    `cannot read the usdcx run lock ${lockPath} (${reason}); if no usdcx run is going, remove it`;
+  let removed;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      place(mine, temporary => linkSync(temporary, lockPath));
+      return {
+        removed,
+        release: () => releaseUsdcxRunLock(lockPath, mine),
+        recordChild: childPid => {
+          if (childPid !== undefined) place({ ...mine, childPid }, temporary => renameSync(temporary, lockPath));
+        }
+      };
+    } catch (err) {
+      if (err.code !== 'EEXIST') {
+        return { error: `cannot take the usdcx run lock ${lockPath}: ${err.code ?? err.message}` };
+      }
+    }
+    let text;
+    try {
+      text = readLockText(lockPath);
+    } catch (err) {
+      return { error: unreadable(err.code ?? err.message) };
+    }
+    if (text === undefined) continue;
+    let held;
+    try {
+      held = JSON.parse(text);
+    } catch {
+      held = undefined;
+    }
+    if (!Number.isSafeInteger(held?.pid)) return { error: unreadable('not a lock this runner wrote') };
+    const runnerAlive = isAlive(held.pid);
+    const childAlive = Number.isSafeInteger(held.childPid) && isAlive(held.childPid);
+    if (runnerAlive || childAlive) {
+      const who = runnerAlive
+        ? `pid ${held.pid}`
+        : `pid ${held.pid} exited; its child, pid ${held.childPid}, is still running`;
+      return {
+        error:
+          `another usdcx run holds the lock ${lockPath} (${who}, --suite ${held.suite}, since ${held.startedAt}). ` +
+          'Two runs would pay into and spend from the one harness Arc key, which breaks the payout check. ' +
+          `Wait for it to end; if no yarn e2e:real run is going, remove ${lockPath}`
+      };
+    }
+    // Two runs finding the same stale lock can both pass this re-read before either unlinks; accepted for one operator.
+    if (readLockText(lockPath) !== text) continue;
+    unlinkSync(lockPath);
+    removed =
+      `removed a stale usdcx run lock ${lockPath}: pid ${held.pid} (--suite ${held.suite}, since ${held.startedAt}) ` +
+      'is no longer running';
+  }
+  return { error: `could not take the usdcx run lock ${lockPath}: another run took it first` };
+}
+
 function formatUnits(value, decimals) {
   if (value === undefined || value === null) return '?';
   const raw = BigInt(value)
@@ -1402,11 +1621,12 @@ function formatUnits(value, decimals) {
 
 /**
  * The environment of the build and of the test run, each as `{ env, unset }` for run(). A usdcx child gets what its
- * phase reads and loses what it must not: no build sees a private key, and only usdcx-in's test sees the Arc key.
+ * phase reads and loses what it must not: no build sees a private key, and each usdcx test sees the one Arc key it
+ * burns to or deposits from (`arcKey`, from resolveArcKey: the harness key, or usdcx-in's operator key) and its role.
  *
  * Exported for test.
  */
-export function childEnvironments(opts, suite, cliBin) {
+export function childEnvironments(opts, suite, cliBin, arcKey) {
   if (!suite.usdcx) {
     const env = {
       E2E_NETWORK: opts.network,
@@ -1420,7 +1640,6 @@ export function childEnvironments(opts, suite, cliBin) {
     };
     return { build: { env, unset: [] }, test: { env, unset: [] } };
   }
-  const keyed = suite.arcKey === true;
   const headless = suite.headlessByDefault === true && !opts.headed;
   return {
     build: { env: { E2E_NETWORK: opts.network }, unset: ['E2E_ARC_PRIVATE_KEY', 'E2E_SEPOLIA_PRIVATE_KEY'] },
@@ -1431,15 +1650,13 @@ export function childEnvironments(opts, suite, cliBin) {
         E2E_REAL_USDCX: 'true',
         MIDEN_CLIENT_BIN: cliBin,
         ...(opts.arcRpc ? { E2E_ARC_RPC_URL: opts.arcRpc } : {}),
-        ...(keyed ? { E2E_ARC_PRIVATE_KEY: `0x${opts.arcKey.replace(/^0x/i, '')}` } : {}),
+        // Given over any exported value, so an exported key never reaches usdcx or usdcx-burn.
+        E2E_ARC_PRIVATE_KEY: arcKey.privateKey,
+        E2E_ARC_KEY_ROLE: arcKey.role,
         ...(headless ? { E2E_HEADLESS: '1' } : {})
       },
       // --headed must win over an exported E2E_HEADLESS, so it is unset rather than left to be inherited.
-      unset: [
-        'E2E_SEPOLIA_PRIVATE_KEY',
-        ...(keyed ? [] : ['E2E_ARC_PRIVATE_KEY']),
-        ...(headless ? [] : ['E2E_HEADLESS'])
-      ]
+      unset: ['E2E_SEPOLIA_PRIVATE_KEY', ...(headless ? [] : ['E2E_HEADLESS'])]
     }
   };
 }
@@ -1469,13 +1686,15 @@ function installPinnedCli() {
 /**
  * Run `command` with `env` over this process's environment, less each name in `opts.unset`. A key a phase must not
  * see has to be deleted: the child inherits everything the operator exported. A name both unset and given in `env`
- * takes the given value.
+ * takes the given value. `opts.onSpawn` sees each child as it starts: the usdcx run lock records its pid, so a test a
+ * killed runner left running keeps the lock held.
  */
 export function run(command, args, env, opts = {}) {
   return new Promise(resolve => {
     const inherited = { ...process.env };
     for (const name of opts.unset ?? []) delete inherited[name];
     const child = spawn(command, args, { cwd: REPO_ROOT, stdio: 'inherit', env: { ...inherited, ...env } });
+    opts.onSpawn?.(child);
 
     // 'error' fires INSTEAD of 'close' when the spawn itself fails, so a
     // listener on 'close' alone leaves this promise pending forever and hangs
@@ -1533,7 +1752,26 @@ async function main() {
   // and a build first. probeFundedKey keeps its own checks as a backstop.
   const { error, suite, grep } = resolveOperatorInput(opts);
   if (error !== undefined) fail(error);
+  // Before the key, the banner and the probes, so a second run refuses at once; --preflight-only takes none.
+  const lock =
+    suite.usdcx && !opts.preflightOnly ? acquireUsdcxRunLock(USDCX_RUN_LOCK, { suite: opts.suite }) : undefined;
+  if (lock?.error !== undefined) fail(lock.error);
+  if (lock?.removed !== undefined) console.log(`\n· ${lock.removed}`);
+  try {
+    return await runSuite(opts, suite, grep, lock);
+  } finally {
+    const left = lock?.release();
+    if (left !== undefined) console.error(`· ${left}`);
+  }
+}
 
+/** Everything after the operator's input is accepted: the Arc key, the banner, the preflight, the CLI, build and test. */
+async function runSuite(opts, suite, grep, lock) {
+  const arcKey = suite.usdcx ? await resolveArcKey(opts, suite).catch(err => ({ error: err.message })) : undefined;
+  if (arcKey?.error !== undefined) {
+    console.error(`\n✗ ${arcKey.error}\n`);
+    return 1;
+  }
   const needs = suite.probes ?? [];
   const needsDocument = needs.some(probe => Object.hasOwn(DOCUMENT_FIELDS, probe));
   console.log(`\nSuite    ${opts.suite} - ${suite.describe}`);
@@ -1542,6 +1780,12 @@ async function main() {
   if (needs.includes('sepolia')) console.log(`Sepolia  ${opts.sepoliaRpc}`);
   // Hosts only: an operator's endpoint may carry its API key in the path.
   if (needs.includes('usdcx')) console.log(`Arc RPC  ${arcRpcEndpoints(opts.arcRpc).map(endpointHost).join(', ')}`);
+  if (arcKey !== undefined) console.log(`Arc key  ${describeArcKey(arcKey)}`);
+  if (arcKey?.role === 'harness' && opts.arcKey !== undefined) {
+    console.log(
+      '· E2E_ARC_PRIVATE_KEY is exported but applies only to --suite usdcx-in; this run uses the harness key'
+    );
+  }
   console.log('');
   console.log('Preflight');
 
@@ -1571,7 +1815,7 @@ async function main() {
   if (targets && needs.includes('agglayer')) await probeAgglayerIndexer(targets.indexerUrl);
   if (needs.includes('guardian')) await probeGuardian(opts.network);
   if (needs.includes('usdcx-guardian')) await probeUsdcxGuardian(opts.network);
-  if (needs.includes('usdcx')) await probeUsdcx(opts, needs);
+  if (needs.includes('usdcx')) await probeUsdcx(opts, needs, arcKey);
   // Only for a suite that actually talks to Sepolia: a key handed to a swap run
   // must not make Sepolia's availability decide whether that run happens.
   if (needs.includes('sepolia') && opts.sepoliaKey) {
@@ -1600,14 +1844,18 @@ async function main() {
     if (!cliBin) return 1;
     console.log(`Miden CLI ${cliBin}\n`);
   }
-  const phases = childEnvironments(opts, suite, cliBin);
+  const phases = childEnvironments(opts, suite, cliBin, arcKey);
+  const onSpawn = child => lock?.recordChild(child.pid);
 
   if (!opts.skipBuild) {
     console.log('Building the extension for a real-endpoint run…\n');
     // The wallet reads its Epoch hosts from the config document at runtime, but
     // the network and MIDEN_REMOTE_CONFIG_URL are build defines: --skip-build is
     // only safe when dist/ was produced with this same env.
-    const code = await run('yarn', ['test:e2e:blockchain:build'], phases.build.env, { unset: phases.build.unset });
+    const code = await run('yarn', ['test:e2e:blockchain:build'], phases.build.env, {
+      unset: phases.build.unset,
+      onSpawn
+    });
     if (code !== 0) {
       console.error('\n✗ build failed - not running the suite.\n');
       return code;
@@ -1625,7 +1873,7 @@ async function main() {
   if (opts.headed) args.push('--headed');
 
   console.log(`\nRunning: yarn ${args.join(' ')}\n`);
-  return run('yarn', args, phases.test.env, { unset: phases.test.unset });
+  return run('yarn', args, phases.test.env, { unset: phases.test.unset, onSpawn });
 }
 
 // Only when run as a command. Importing this file (a test does) must not start a

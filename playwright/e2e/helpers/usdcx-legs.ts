@@ -1,6 +1,7 @@
 import { expect, type Page, type TestInfo } from '@playwright/test';
 import { isHash, type Address, type Hash } from 'viem';
 
+import { readXReserveDomainState, type ArcKey, type ArcReadDeps, type ArcUsdcSnapshot } from './arc-usdcx';
 import {
   fromBaseUnits,
   vaultBalanceOfCurrentAccount,
@@ -24,6 +25,7 @@ import {
   BURN_UNITS,
   GRANT_MARGIN_UNITS,
   GRANT_UNITS,
+  HARNESS_ARC_KEY_FILE,
   USDCX_BURN_TAG
 } from './usdcx-constants';
 import { assertNoGuardianOpInFlight, burnFailureMessage } from './usdcx-guardian';
@@ -337,6 +339,8 @@ export interface BurnLeg {
 export interface ConfirmBurnOptions {
   priorRowIds: ReadonlySet<string>;
   destination: Address;
+  /** The harness's read of the key right before the burn (R21); the wallet's saved balance must equal it. */
+  keySnapshot?: { balance: bigint; blockNumber: bigint };
   units: bigint;
   vaultBefore: bigint;
   rpcUrl: string;
@@ -500,10 +504,17 @@ export async function confirmBurn(
         baseFee: ids.baseFee
       });
 
-  // Saved before the burn was queued (burn.ts:103,116-121); the payout scan starts at its block.
+  // Saved before the burn was queued (burn.ts:103,116-121): the wallet's own baseline for its payout check.
   const before = burn.destinationBalanceBefore;
-  expect(before?.balance, 'a fresh Arc key holds no USDC before the burn').toBe('0');
+  expect(before?.balance, 'the wallet saved the key balance before the burn').toMatch(/^\d+$/);
   expect(before?.blockNumber).toMatch(/^[1-9]\d*$/);
+  if (opts.keySnapshot !== undefined && before?.balance !== opts.keySnapshot.balance.toString()) {
+    throw new Error(
+      `the wallet saved ${before?.balance} for the key at Arc block ${before?.blockNumber}, but the harness read ` +
+        `${opts.keySnapshot.balance} at block ${opts.keySnapshot.blockNumber} right before the burn: something paid ` +
+        'or spent from the key in between, so its payout cannot be proven'
+    );
+  }
   const requiredStages = opts.guardian ? ['creating-proposal', 'signing-proposal'] : [];
   expect(Object.keys(row.stageTimestamps ?? {})).toEqual(expect.arrayContaining(requiredStages));
   expect({
@@ -522,6 +533,23 @@ export async function confirmBurn(
     oracle,
     arcFromBlock: BigInt(before?.blockNumber ?? '0'),
     phases
+  };
+}
+
+/** Spec 5 step 8 failure body: the harness key and its pre-burn read, the burn's consume and xReserve's pause flags. */
+export function payoutContext(arc: ArcReadDeps, key: ArcKey, snapshot: ArcUsdcSnapshot, burn: BurnLeg): StepContext {
+  return async () => {
+    const flags = await readXReserveDomainState(arc).then(
+      state =>
+        `paused ${state.paused}, deposits paused ${state.depositsPaused}, withdrawals paused ${state.withdrawalsPaused}`,
+      (error: unknown) => `pause flags unreadable (${errorText(error)})`
+    );
+    const consumedAt = new Date(burn.oracle.consumeTimestampSec * 1_000).toISOString();
+    return (
+      `harness key ${key.address} (${HARNESS_ARC_KEY_FILE}) held ${snapshot.balance} at Arc block ` +
+      `${snapshot.blockNumber} (read on ${snapshot.endpoint}); burn note ${burn.burnNoteId} consumed in Miden block ` +
+      `${burn.oracle.consumeBlock} at ${consumedAt}; xReserve ${flags}`
+    );
   };
 }
 
