@@ -16,7 +16,8 @@ name: E2E USDCx Bridge-IN (live)
 # cannot: the real contract, Circle's attestation and the mint.
 #
 # It spends real Arc Testnet USDC on each run, and it depends on Circle's service
-# and the relayer, so it is a nightly and on-demand signal, never a per-PR gate.
+# and the relayer, so it runs after every push to main, nightly and on demand,
+# and is never a per-PR gate.
 #
 # Required configuration:
 #   secrets.USDCX_LIVE_EVM_PRIVATE_KEY        funded Arc Testnet key (USDC is the gas token too)
@@ -33,6 +34,9 @@ name: E2E USDCx Bridge-IN (live)
 # download and set USDCX_RELAYER_BIN.
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
@@ -68,9 +72,11 @@ jobs:
       E2E_NETWORK: testnet
       # NO E2E_EVM_RPC_URL here: that flag sends the wallet's Arc reads to a local
       # Anvil, and this job needs the real Arc Testnet RPC.
-      USDCX_LIVE_EVM_PRIVATE_KEY: ${{ secrets.USDCX_LIVE_EVM_PRIVATE_KEY }}
+      # NO USDCX_LIVE_EVM_PRIVATE_KEY here either: every step sees a job variable, the dependency install and the app
+      # build among them, so the key is set only on the two steps that read it.
       # 0.01 USDC: Circle takes no deposit fee, a testnet claim's fee is about 0.0002 USDCx, and Arc gas for the
-      # approve and the deposit is about 0.006 USDC, so a nightly spends about 0.016 of the faucet's 20 USDC drip.
+      # approve and the deposit is about 0.006 USDC, so a run spends about 0.016 USDC and a 20 USDC faucet drip
+      # lasts about 1,200 runs.
       USDCX_LIVE_DEPOSIT_AMOUNT: ${{ inputs.deposit_amount || '0.01' }}
       USDCX_FAUCET_ACCOUNT_ID: ${{ vars.USDCX_FAUCET_ACCOUNT_ID }}
       USDCX_RELAYER_ACCOUNT_ID: ${{ vars.USDCX_RELAYER_ACCOUNT_ID }}
@@ -81,6 +87,8 @@ jobs:
       # The spec skips itself without this key, and a skipped spec passes the job, so a run that tested nothing
       # would read green. Fail first instead.
       - name: Require the live Arc Testnet key
+        env:
+          USDCX_LIVE_EVM_PRIVATE_KEY: ${{ secrets.USDCX_LIVE_EVM_PRIVATE_KEY }}
         run: |
           if [ -z "$USDCX_LIVE_EVM_PRIVATE_KEY" ]; then
             echo "::error title=USDCX_LIVE_EVM_PRIVATE_KEY is not set::Add a funded Arc Testnet key as the repository secret USDCX_LIVE_EVM_PRIVATE_KEY. Without it the spec skips and the run tests nothing."
@@ -263,6 +271,8 @@ jobs:
 
       - name: Run USDCx bridge-IN E2E (mobile, live testnets)
         # NO retries: a retry sends a second real deposit. A failed run is read, not repeated.
+        env:
+          USDCX_LIVE_EVM_PRIVATE_KEY: ${{ secrets.USDCX_LIVE_EVM_PRIVATE_KEY }}
         run: yarn test:e2e:mobile:usdcx-live:run
 
       - name: Upload artifacts

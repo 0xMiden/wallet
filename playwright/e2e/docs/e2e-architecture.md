@@ -183,7 +183,7 @@ The flow is exercised at **two levels of realism**, each suited to a different p
 
 - **On demand (`yarn e2e:real --suite bridge-out-epoch`):** against the **real** hosted bridge service and the **real** Ethereum test network (Sepolia). The test then confirms that **actual USDC arrives** at the destination - an end-to-end check that includes the third-party solver settling the Ethereum side. It is opt-in rather than automatic, because it spends a real solver fill and a third party declining to quote should not turn `main` red; the runner probes the live solver for a quote before it builds anything.
 - **Post-merge (after every merge to main):** the AggLayer route against the real bridge, asserting the Miden leg.
-- **On demand (`yarn e2e:real --suite usdcx-burn`, and with the deposit back `--suite usdcx`):** a USDCx burn to Arc Testnet through Circle's Gateway and Circle's payout of it, on live testnet; see [section 8](#8--usdcx-on-live-testnet---out-to-arc-and-back).
+- **After every push to main, and on demand (`yarn e2e:real --suite usdcx-burn`, and with the deposit back `--suite usdcx`):** a USDCx burn to Arc Testnet through Circle's Gateway and Circle's payout of it, on live testnet; see [section 8](#8--usdcx-on-live-testnet---out-to-arc-and-back).
 - **Every pull request:** a fully self-contained version using a **stand-in** bridge service and a **local** Ethereum node, so the guardian-secured bridge path is verified on every commit without depending on external infrastructure.
 
 There are also two bridge *routes* — a **fast** one via the Epoch service and a **slower** one via a bridge network called **AggLayer** — and both are covered.
@@ -363,13 +363,20 @@ Where it runs: `e2e-dapp.yml`, after every merge, against the branch's live netw
 
 **What these tests verify:** a Guardian user can take USDCx from the public faucet, send it to Arc Testnet as USDC through the Send screen, be paid by Circle, and bring USDC back to Miden as USDCx, with every hop checked to the base unit against the chain, Circle and the wallet's own records.
 
-Nothing in this group is stood in for. The wallet runs on the public Miden testnet with the hosted OpenZeppelin Guardian, the funds come from the public faucet (USDCx is the testnet fee asset), and Circle's xReserve, its attestation service, its Gateway payouts and Arc Testnet are the real services. The suites need no secret but spend public testnet funds and depend on services the project does not run, so no workflow runs them: each is started by hand with `yarn e2e:real`, and a lock lets one run go at a time.
+Nothing in this group is stood in for. The wallet runs on the public Miden testnet with the hosted OpenZeppelin Guardian, the funds come from the public faucet (USDCx is the testnet fee asset), and Circle's xReserve, its attestation service, its Gateway payouts and Arc Testnet are the real services. The suites spend public testnet funds and depend on services the project does not run, so no pull request runs them; where they do run is below the table.
 
 | Suite | Command | What it covers |
 |---|---|---|
 | `usdcx` | `yarn e2e:real --suite usdcx` | A fresh Guardian wallet takes one 10 USDCx faucet grant and burns 1 USDCx, the USDCx faucet's minimum burn, through Send to the harness Arc key. Circle pays the key, the wallet shows the payout as Confirmed, the key deposits 0.001 USDC back through xReserve, Circle attests it, Circle's relayer mints it and the wallet receives it. Up to 60 min. |
 | `usdcx-in` | `yarn e2e:real --suite usdcx-in` | The deposit leg alone, into a fresh Guardian wallet, from the harness Arc key, or from another key that holds USDC on Arc when `E2E_ARC_PRIVATE_KEY=<key>` names it. Up to 30 min. |
 | `usdcx-burn` | `yarn e2e:real --suite usdcx-burn` | One 10 USDCx faucet grant and a 1 USDCx burn through Send to the harness Arc key, on a fresh standard wallet and on a fresh Guardian wallet; each test waits for Circle's payout of its own burn. Up to 70 min. |
+
+Where each USDCx suite runs:
+
+| Suites | Runs | Arc key |
+|---|---|---|
+| `usdcx-in`, `usdcx-burn`, `usdcx` (extension) | E2E USDCx (`e2e-usdcx.yml`) after every push to main, in that order, each only once the one before passed, and on a branch by dispatch; by hand, `yarn e2e:real --suite <name>` | In CI, its own key ([below](#the-ci-key)); by hand, the harness key |
+| The iOS live bridge-in (`usdcx-live-deposit.ios.spec.ts`), the deposit leg only | E2E USDCx Bridge-IN (live) (`e2e-usdcx-live.yml`) after every push to main, nightly at 03:17 UTC and by dispatch | The repository secret `USDCX_LIVE_EVM_PRIVATE_KEY`, set only on the steps that check it and run the spec; a run spends about 0.016 USDC of it |
 
 > #### Circle's payout is a hard gate
 > The round trip and both `usdcx-burn` tests fail when Circle has not paid the burn to the key within 10 minutes of the faucet consuming it. The proof is one Gateway `AttestationUsed` log on Arc whose mint carries the burn note id, so a transfer to the key from anywhere else does not count. The key keeps USDC between runs, so the proof is also that its balance rose, from a read taken right before the burn, by exactly that log's value; anything else that pays into or spends from the key in that window fails the run, and the message says so. Circle has paid Arc burns 10-12 s after the consume, but also 1 h 45 min and about 17 h late, and one burn was still unpaid days later. A red payout step therefore means a user would not have been paid in time; that can be Circle's doing rather than the wallet's, and the failure message says so.
@@ -394,6 +401,18 @@ Each `usdcx` run leaves the key about 0.98 USDC richer (the 0.9836 USDC payout l
 Never commit `harness.json`, and never delete it while it holds USDC. Files named `<time>-<address>.json` in the same directory are per-run keys from before the harness key; read and move their USDC the same way, and delete a file once its key is empty.
 
 Only one usdcx run may go at a time. The runner takes `~/.miden-e2e/usdcx-run.lock` before anything else, and a second run refuses, naming the lock and the pid holding it. A run that dies leaves the lock behind, and the next run removes it once neither that run nor its test child is alive. Stop a run with Ctrl-C rather than `kill <pid>`: killing the runner alone leaves its Playwright child running, and the lock stays held while it does. Every test that burns waits for its own payout, so a green run leaves no payout to come; one that arrives after its run went red (see above) can still land inside a later run's payout window, and that run fails naming a credit it cannot account for, and a rerun passes.
+
+### The CI key
+
+E2E USDCx burns to and deposits from a key of its own, never a developer's harness key and never the iOS job's: the repository secret `USDCX_HARNESS_ARC_KEY`, 0x and 64 lowercase hex. The step after the install, and no other step, reads the secret and writes it to the runner's `~/.miden-e2e/arc-keys/harness.json` (0600 in a 0700 directory, through `scripts/write-ci-harness-arc-key.mjs`), printing only the address; the suites then read the file through the runner as a local run does, and the uploads hold `test-results/` alone. Without the secret the job fails at that step, before anything is built, because the runner would otherwise create a key whose payouts leave with the runner.
+
+The key started with 20 USDC, and a green run leaves it about 2.9 USDC richer (the three runs above: about +0.98, +1.97 and -0.007), so it needs no refill while main is green. A red run spends at most a deposit and its gas; fund the key when `usdcx-in`'s preflight reports it below 0.021 USDC.
+
+Runs queue on one concurrency group, `usdcx-harness-arc-key`, and none is cancelled once it started, so two runs never share the key; this group plays the lock's part in CI. GitHub keeps one waiting run per group, so a run still waiting when a newer one queues is cancelled before it starts. A payout that lands after its run went red can still fail the next run, as it can locally.
+
+- **Its address and balance:** the `Write the CI harness Arc key` step prints the address, and each suite's banner repeats it (`Arc key  harness 0x...`); read the balance with the `cast call` above.
+- **Fund it:** send Arc Testnet USDC to that address, from Circle's faucet or another key, while no E2E USDCx run is going.
+- **Recover it:** GitHub never shows a secret again, so the key and its USDC are only as recoverable as the copy kept by whoever stored the secret. Import that copy into an EVM wallet on Arc Testnet (chain 5042002) to move the USDC, while no run is going. If the copy is lost, so is the USDC on the key: create a new key (`cast wallet new`), keep a copy, send it at least 0.021 USDC and store its private key, lowercase, with `gh secret set USDCX_HARNESS_ARC_KEY --repo 0xMiden/wallet`.
 
 ---
 
