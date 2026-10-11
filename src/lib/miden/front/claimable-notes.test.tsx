@@ -199,7 +199,8 @@ jest.mock('./assets', () => ({
   })
 }));
 
-import { __resetClaimableNotesCacheForTests, useClaimableNotes } from './claimable-notes';
+import { selectAutoConsumeBatch } from './auto-managed-notes';
+import { __resetClaimableNotesCacheForTests, ClaimableNoteWithMetadata, useClaimableNotes } from './claimable-notes';
 
 // A test can leave a fetch in flight (RTL unmounts the hook, the promise chain keeps
 // going). Such a straggler still writes the module-level last-known-list cache, so it
@@ -308,6 +309,25 @@ describe('useClaimableNotes (extension mode)', () => {
 
     await waitFor(() => expect(result.current.data?.[0]?.isBeingClaimed).toBe(true));
     expect(result.current.data?.[0]?.claimingTxId).toBe('tx-held');
+  });
+
+  it('gates a native note a live dApp transaction will consume, so auto-consume leaves it out', async () => {
+    _g.__cnTest.walletState.extensionClaimableNotes = [
+      {
+        id: 'carried',
+        faucetId: 'miden-faucet',
+        amountBaseUnits: '100000000',
+        senderAddress: 's1',
+        noteType: 'public',
+        metadata: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
+      }
+    ];
+    _g.__cnTest.uncompletedTxs = [{ id: 'tx-dapp', type: 'execute', status: 0, heldNoteIds: ['carried'] }];
+
+    const { result } = renderHook(() => useClaimableNotes('pk-1'));
+
+    await waitFor(() => expect(result.current.data?.[0]?.claimingTxId).toBe('tx-dapp'));
+    expect(selectAutoConsumeBatch(result.current.data ?? [], 'miden-faucet', null)).toEqual([]);
   });
 
   it('keeps the previous gate when the consume-row read fails', async () => {
@@ -957,6 +977,35 @@ describe('useClaimableNotes (local mode — mobile/desktop)', () => {
     renderHook(() => useClaimableNotes('pk-1'));
     await _g.__cnTest.lastFetchPromise;
     expect(_g.__cnTest.lastFetchData.map((n: any) => n.id)).toEqual(['visible-note']);
+  });
+
+  it('never shows a carried note unheld when a dApp confirm lands between the quarantine and holding reads', async () => {
+    // The confirm queues the dApp transaction holding the note, then releases its quarantine. Whichever of the two
+    // reads runs first sees the state before it and the other the state after.
+    let confirmed = false;
+    const readThenConfirm = <T,>(before: T, after: T) => ({
+      configurable: true,
+      get: () => {
+        const value = confirmed ? after : before;
+        confirmed = true;
+        return value;
+      }
+    });
+    const holder = { id: 'tx-dapp', type: 'execute', status: 0, heldNoteIds: ['carried'] };
+    Object.defineProperty(_g.__cnTest, 'quarantined', readThenConfirm(new Set(['carried']), new Set()));
+    Object.defineProperty(_g.__cnTest, 'uncompletedTxs', readThenConfirm([], [holder]));
+    try {
+      _g.__cnTest.consumableNotes = [makeMockNote({ id: 'carried', amount: '100000000' })];
+      renderHook(() => useClaimableNotes('pk-1'));
+      await _g.__cnTest.lastFetchPromise;
+      const notes: ClaimableNoteWithMetadata[] = _g.__cnTest.lastFetchData;
+      const carried = notes.find(note => note.id === 'carried');
+      expect(carried === undefined || carried.isBeingClaimed).toBe(true);
+      expect(selectAutoConsumeBatch(notes, 'miden-faucet', null)).toEqual([]);
+    } finally {
+      Object.defineProperty(_g.__cnTest, 'quarantined', { value: new Set(), writable: true, configurable: true });
+      Object.defineProperty(_g.__cnTest, 'uncompletedTxs', { value: [], writable: true, configurable: true });
+    }
   });
 
   it('uses the in-progress consume transactions to mark notes as being claimed', async () => {
