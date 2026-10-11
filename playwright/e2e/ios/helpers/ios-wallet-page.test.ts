@@ -366,6 +366,7 @@ describe('routeOf', () => {
 // What the spike's DOM answered at each read of the burn (ios-spike-evidence.json, run 3).
 const SEND = '[data-testid="send-flow"]';
 const REVIEW = '[data-page-layer="/send/review"]';
+const SUBMIT = `${REVIEW} [data-testid="send-review-submit"]`;
 const NATIVE = 'mtst1apxtmjhlua0s5vt5sg3ymtnyxclasaf0_qr7qqq9wr6w';
 const KEY = '0xd07e6586a66ddA1Bad34aF529c1f07156b167861';
 const CHIPS = [
@@ -415,6 +416,12 @@ function spikeAnswer(js: string, overrides: { ready?: unknown; outcome?: unknown
   return null;
 }
 
+function rootsOf(js: string): string[] {
+  return [...js.matchAll(/document\.querySelector(?:All)?\(("(?:[^"\\]|\\.)*")\)/g)].map(match =>
+    String(JSON.parse(match[1] ?? '""'))
+  );
+}
+
 /** Stubs the DOM primitives the driver calls with a selector, records each selector, and backs out `backs` times. */
 function stubDom(page: IosWalletPage, backs = 0): string[] {
   const selectors: string[] = [];
@@ -461,14 +468,19 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
     expect(selectors.filter(selector => selector.includes('send-network-'))).toEqual([
       `${SEND} [data-testid="send-network-arc-testnet"]`
     ]);
-    const roots = bodies.flatMap(js =>
-      [...js.matchAll(/document\.querySelector(?:All)?\(("(?:[^"\\]|\\.)*")\)/g)].map(match =>
-        String(JSON.parse(match[1] ?? '""'))
-      )
-    );
+    expect(selectors.filter(selector => selector === SUBMIT)).toHaveLength(1);
+    const roots = bodies.flatMap(rootsOf);
     expect(roots.length).toBeGreaterThan(5);
     expect(roots.filter(root => !root.startsWith(SEND) && !root.startsWith(REVIEW))).toEqual([]);
     expect(bodies.join('\n')).not.toMatch(/document\.querySelector(?:All)?\('/);
+    // A prefix check passes a review read rooted at the hidden Send copy, which comes first in the DOM.
+    const rootsFor = (marker: string) => [...new Set(bodies.filter(js => js.includes(marker)).flatMap(rootsOf))];
+    expect(rootsFor('aria-pressed')).toEqual([SEND]);
+    expect(rootsFor('bridge-route-usdcx')).toEqual([SEND]);
+    expect(rootsFor('location.href')).toEqual([SUBMIT]);
+    expect(rootsFor('function row(')).toEqual([REVIEW]);
+    expect(rootsFor("state: 'enabled'")).toEqual([REVIEW]);
+    expect(rootsFor('loading')).toEqual([REVIEW]);
   }, 15_000);
 
   it("refuses an amount that does not exceed Arc's payout fee allowance before it touches the UI", async () => {
@@ -488,7 +500,7 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
     await expect(page.burnUsdcxViaSendFlow(BURN)).rejects.toThrow(
       'the review refused the burn before submit: review-error "Not enough USDCX"'
     );
-    expect(selectors).not.toContain(`${REVIEW} [data-testid="send-review-submit"]`);
+    expect(selectors).not.toContain(SUBMIT);
   }, 15_000);
 
   // R26: withStepBudget aborts an overrun step's signal, and the step itself runs on after its test failed.
@@ -501,7 +513,7 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
     await expect(page.burnUsdcxViaSendFlow({ ...BURN, signal: controller.signal })).rejects.toThrow(
       'the burn was not submitted: burn_via_send exceeded its 240000 ms budget'
     );
-    expect(selectors).not.toContain(`${REVIEW} [data-testid="send-review-submit"]`);
+    expect(selectors).not.toContain(SUBMIT);
   }, 15_000);
 
   it("tells the wallet's failed Arc snapshot apart from a refusal after submit", async () => {
