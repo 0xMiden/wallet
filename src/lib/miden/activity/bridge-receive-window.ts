@@ -15,12 +15,15 @@ function holdsExecutableMessage(inputs: IBridgedReceiveExtraInputs): boolean {
 }
 
 /**
- * When a row's week starts: a ready row's at its attestation and a saved Arc execute's when it was saved, so a deposit
- * attested or executed late in its first week gets a week of its own.
+ * When a row's week starts: a ready row's at its attestation, a saved Arc execute's when it was saved and a reverted
+ * one's when the revert reopened the leg, so a deposit attested, executed or reverted late in its first week gets a
+ * week of its own.
  */
 function cutoffStart(row: Pick<ITransaction, 'initiatedAt'>, inputs: IBridgedReceiveExtraInputs): number {
   if (inputs.phase === 'ready') return inputs.readyAt ?? row.initiatedAt;
-  return inputs.cctp?.executeTxHash === undefined ? row.initiatedAt : (inputs.cctp.executeSavedAt ?? row.initiatedAt);
+  const leg = inputs.cctp;
+  if (leg?.executeTxHash !== undefined) return leg.executeSavedAt ?? row.initiatedAt;
+  return leg?.revertedAt ?? row.initiatedAt;
 }
 
 /**

@@ -1547,12 +1547,14 @@ export const updateBridgedReceivePhase = async (
     // The CCTP leg is written a field at a time (the burn's domain, then the attestation, then the
     // execute hash), so a write merges into what the row holds instead of replacing it.
     const merged = extra?.cctp ? { ...inputs?.cctp, ...extra.cctp } : inputs?.cctp;
-    // The stall window runs from when the current hash was saved.
     const savedHash = extra?.cctp?.executeTxHash;
-    const cctp =
-      merged && savedHash !== undefined && savedHash !== inputs?.cctp?.executeTxHash
-        ? { ...merged, executeSavedAt: nowSec }
-        : merged;
+    const cctp = merged && {
+      ...merged,
+      // The stall window runs from when the current hash was saved.
+      ...(savedHash !== undefined && savedHash !== inputs?.cctp?.executeTxHash ? { executeSavedAt: nowSec } : {}),
+      // A revert drops the message that kept the leg from timing out, so its week runs from here.
+      ...(extra?.cctp?.revertedExecuteTxHash === undefined ? {} : { revertedAt: nowSec })
+    };
     // Unlike the earn-withdraw writer there is no monotonic guard here, so the
     // only thing keeping one bridge from reporting twice is comparing against
     // the phase already on the row. `ready` and `received` are both terminal —

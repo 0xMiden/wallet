@@ -1234,6 +1234,44 @@ describe('reconcileBridgedReceives with a USDCx executor row', () => {
     expect(updatePhase).not.toHaveBeenCalled();
   });
 
+  // A revert drops the message for Iris to supply again, so the leg gets a week from the revert: an execute that
+  // reverted late in the deposit's first week can still be retried.
+  it('gives a leg a revert reopened a week of its own to read the message again', async () => {
+    fetchAttestedMessage.mockResolvedValue({ message: '0x1234', attestation: '0xabcd' });
+    rows.push({
+      ...executorRow({
+        sourceDomain: 6,
+        forwarded: false,
+        revertedExecuteTxHash: EXECUTE_HASH,
+        revertedAt: Math.floor(Date.now() / 1000) - 60
+      }),
+      initiatedAt: WEEK_AGO_SEC
+    });
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).toHaveBeenCalledTimes(1);
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'delivering', {
+      cctp: { sourceDomain: 6, message: '0x1234', attestation: '0xabcd' }
+    });
+  });
+
+  it('times out a leg a revert reopened a week ago whose message never came back', async () => {
+    rows.push({
+      ...executorRow({
+        sourceDomain: 6,
+        forwarded: false,
+        revertedExecuteTxHash: EXECUTE_HASH,
+        revertedAt: WEEK_AGO_SEC
+      }),
+      initiatedAt: WEEK_AGO_SEC
+    });
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'failed', { error: 'Bridge delivery timed out.' });
+  });
+
   it('never adopts a reverted forward again and offers the execute with the attested message', async () => {
     fetchAttestedMessage.mockResolvedValue({
       message: '0x1234',

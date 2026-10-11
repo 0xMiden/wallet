@@ -648,6 +648,14 @@ describe('takeUsdcxBridgeInInfo', () => {
     [
       'holds a message to execute',
       { phase: 'delivering', sourceChainId: 84532, cctp: { sourceDomain: 6, message: '0x1234', attestation: '0xabcd' } }
+    ],
+    [
+      'had its Arc execute revert this week',
+      {
+        phase: 'delivering',
+        sourceChainId: 84532,
+        cctp: { sourceDomain: 6, forwarded: false, revertedExecuteTxHash: EXECUTE_HASH, revertedAt: 9 }
+      }
     ]
   ])('takes the mint of an old deposit that %s', async (_label, extraInputs) => {
     mockTransactions.push(tracker({ id: 'old', initiatedAt: -10 * 24 * 60 * 60 }, extraInputs));

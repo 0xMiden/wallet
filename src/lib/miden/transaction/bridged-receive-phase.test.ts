@@ -212,6 +212,20 @@ describe('updateBridgedReceivePhase on a USDCx CCTP leg', () => {
     }
   });
 
+  // A revert drops the message that kept the leg from timing out, so the reconciler counts its week from the revert.
+  it('stamps the time a revert reopens the leg', async () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000_000);
+    try {
+      const id = await seed('delivering', { cctp: { ...held, executeTxHash: H1, executeSavedAt: 5 } });
+
+      await updateBridgedReceivePhase(id, 'delivering', { cctp: revertedExecuteLeg(6, H1) });
+
+      expect((await Repo.transactions.get(id))?.extraInputs.cctp?.revertedAt).toBe(1_000_000);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it('reopens a stalled execute keeping its message and proof, and remembers the hash', async () => {
     const id = await seed('delivering', { cctp: { ...held, executeTxHash: H1, executeSavedAt: 5 } });
 
