@@ -62,6 +62,59 @@ describe('the USDCx live suites have a config of their own', () => {
   });
 });
 
+const USDCX_TESTS_DIR = 'playwright/e2e/tests/usdcx';
+const ROUND_TRIP_TEST =
+  'usdcx-roundtrip.spec.ts › USDCx round trip: burn to a fresh Arc key, Circle payout, deposit back › ' +
+  'Guardian wallet: public faucet grant, Send burn, payout and its confirmation, deposit back, receipt';
+/** Every test `playwright.usdcx.config.ts` must list, and nothing else. */
+const USDCX_LIVE_TESTS = [ROUND_TRIP_TEST];
+/** Each runner suite's grep, compiled case-insensitive as scripts/e2e-real.mjs does, and the tests it must select. */
+const USDCX_RUNNER_GREPS: Array<[grep: string, tests: string[]]> = [['USDCx round trip', [ROUND_TRIP_TEST]]];
+/** Each live spec file and how many describes it guards. */
+const USDCX_LIVE_SPECS: Array<[file: string, describes: number]> = [['usdcx-roundtrip.spec.ts', 1]];
+/** A live USDCx spec in another config's listing. */
+const USDCX_LIVE_SPEC = /usdcx-roundtrip\.spec\.ts|usdcx-burn\.spec\.ts/;
+
+/** `playwright test --list` lines as `file › describe › test`, without the line and column. */
+const listedTests = (listing: string): string[] =>
+  listing.split('\n').flatMap(line => {
+    const match = /^\s+(\S+\.spec\.ts):\d+:\d+ › (.+)$/.exec(line);
+    return match ? [`${match[1]} › ${match[2]}`] : [];
+  });
+
+describe('the USDCx live suites run under their own config only', () => {
+  let usdcxTests: string[];
+
+  beforeAll(() => {
+    usdcxTests = listedTests(listPlaywrightTests('playwright.usdcx.config.ts'));
+  });
+
+  it('playwright.usdcx.config.ts lists exactly the live USDCx tests', () => {
+    expect([...usdcxTests].sort()).toEqual([...USDCX_LIVE_TESTS].sort());
+  });
+
+  it.each(USDCX_RUNNER_GREPS)('the runner grep "%s" selects only its own tests', (grep, tests) => {
+    expect(usdcxTests.filter(listed => new RegExp(grep, 'i').test(listed))).toEqual(tests);
+  });
+
+  it.each(['playwright.e2e.config.ts', 'playwright.bridge.config.ts'])('%s lists no live USDCx spec', config => {
+    expect(listPlaywrightTests(config)).not.toMatch(USDCX_LIVE_SPEC);
+  });
+
+  it('no live USDCx spec is named into the Guardian or bridge-guardian config', () => {
+    const named = readdirSync(resolve(repoRoot, USDCX_TESTS_DIR)).filter(
+      name => /^guardian-.*\.spec\.ts$/.test(name) || name === 'bridge-out-epoch-guardian.spec.ts'
+    );
+    expect(named).toEqual([]);
+  });
+
+  it.each(USDCX_LIVE_SPECS)('%s throws instead of skipping outside the runner', (file, describes) => {
+    const source = configSource(`${USDCX_TESTS_DIR}/${file}`);
+    expect(source).not.toMatch(/test\.skip\(/);
+    expect(source.match(/test\.beforeAll\(\(\) => assertUsdcxLiveRun\(process\.env, /g)).toHaveLength(describes);
+  });
+});
+
 function listGuardianTests(suite?: string): string {
   return listPlaywrightTests('playwright.guardian.config.ts', { GUARDIAN_E2E_SUITE: suite });
 }
