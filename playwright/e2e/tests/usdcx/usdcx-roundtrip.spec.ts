@@ -9,10 +9,8 @@ import {
   assertDepositIntent,
   confirmDepositToMiden,
   readArcUsdc,
-  readArcUsdcSnapshot,
   readXReserveDomainState,
   submitDepositToMiden,
-  waitForGatewayPayout,
   waitForXReserveAttestation,
   type ArcKey,
   type ArcWriteDeps,
@@ -32,13 +30,11 @@ import {
 import {
   ARC_ATTESTATION_API,
   ARC_CHAIN_ID,
-  ARC_CIRCLE_DOMAIN,
   ARC_PUBLIC_URL,
   ARC_USDC,
   BURN_UNITS,
   DEPOSIT_UNITS,
   GAS_RESERVE_UNITS,
-  minimumUsdcxPayout,
   PAYOUT_TIMEOUT_MS,
   USDCX_REMOTE_DOMAIN,
   WALLET_CONFIRM_TIMEOUT_MS
@@ -51,9 +47,9 @@ import {
   consumeFeeAndVault,
   createGuardianUsdcxWallet,
   fundFromPublicFaucet,
+  harnessPayoutLeg,
   historyPill,
   pageWhere,
-  payoutContext,
   receivingTxHash,
   resolveUsdcxIds,
   settleGuardian,
@@ -631,16 +627,13 @@ test.describe('USDCx round trip: burn to the harness Arc key, Circle payout, dep
       );
 
       // R21: the harness key, read right before the burn; the payout gate proves the rise above this read.
-      const { key, snapshot } = await step('key_snapshot', BUDGET.keySnapshot, async () => {
-        const { key, role } = takeRunArcKey(process.env);
-        secrets.push(key.privateKey);
-        expect(role, 'the round trip burns to the harness key').toBe('harness');
-        return { key, snapshot: await readArcUsdcSnapshot(key.address, arc) };
+      const { key, snapshot, waitForPayout } = await harnessPayoutLeg(step, {
+        env: process.env,
+        arc,
+        budget: BUDGET,
+        evidence,
+        secrets
       });
-      evidence.ids.arcKey = key.address;
-      evidence.ids.arcKeyRole = 'harness';
-      evidence.ids.arcBalanceBefore = String(snapshot.balance);
-      evidence.ids.arcSnapshotBlock = String(snapshot.blockNumber);
 
       const priorBurns = await step(
         'burn_via_ui',
@@ -688,43 +681,15 @@ test.describe('USDCx round trip: burn to the harness Arc key, Circle payout, dep
         onGuardian
       );
 
-      const consumeTsMs = burn.oracle.consumeTimestampSec * 1_000;
-      // D3: one AttestationUsed log whose mint calldata carries the burn note id; any other transfer to the key does
-      // not count. Red after 10 min means a user was not paid in time.
-      const payout = await step(
-        'payout',
-        BUDGET.payout,
-        () =>
-          waitForGatewayPayout(
-            {
-              recipient: key.address,
-              burnNoteId: burn.burnNoteId,
-              burnUnits: BURN_UNITS,
-              fromBlock: snapshot.blockNumber,
-              balanceBefore: snapshot.balance,
-              consumeTsMs,
-              deadlineMs: consumeTsMs + PAYOUT_TIMEOUT_MS,
-              depositor: xreserve.depositor,
-              minimumValue: minimumUsdcxPayout(ARC_CHAIN_ID, BURN_UNITS)
-            },
-            arc
-          ),
-        payoutContext(arc, key, snapshot, burn)
-      );
-      expect({ domain: payout.sourceDomain, total: payout.value + payout.fee }).toEqual({
-        domain: ARC_CIRCLE_DOMAIN,
-        total: BURN_UNITS
-      });
-      evidence.hashes.payout = payout.transactionHash;
-      evidence.fees.push({ name: 'circle payout fee', amount: payout.fee, kind: 'exact' });
-      evidence.latenciesMs.consumeToPayout = payout.latencyMs;
+      const payout = await waitForPayout(burn, xreserve.depositor);
 
       // Before the deposit, which spends from the key: the wallet's confirmed balance must be exactly the pre-burn
       // read plus the payout.
       const walletConfirmedAt = await step('wallet_payout_confirmed', BUDGET.walletPayoutConfirmed, () =>
         walletConfirmsPayout(walletA, burn, payout, key, arc, where, evidence)
       );
-      evidence.latenciesMs.payoutToWalletConfirmation = walletConfirmedAt - (consumeTsMs + payout.latencyMs);
+      const paidAt = burn.oracle.consumeTimestampSec * 1_000 + payout.latencyMs;
+      evidence.latenciesMs.payoutToWalletConfirmation = walletConfirmedAt - paidAt;
 
       const deposit = await depositLeg(step, walletA, ids, {
         key,

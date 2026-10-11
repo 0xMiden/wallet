@@ -1,20 +1,7 @@
 import { expect, test } from '../../fixtures/two-wallets';
-import {
-  arcEndpoints,
-  readArcUsdcSnapshot,
-  readXReserveDomainState,
-  waitForGatewayPayout,
-  type ArcReadDeps
-} from '../../helpers/arc-usdcx';
+import { arcEndpoints, readXReserveDomainState, type ArcReadDeps } from '../../helpers/arc-usdcx';
 import { enText } from '../../helpers/bridge';
-import {
-  ARC_CHAIN_ID,
-  ARC_CIRCLE_DOMAIN,
-  BURN_UNITS,
-  minimumUsdcxPayout,
-  PAYOUT_TIMEOUT_MS,
-  USDCX_REMOTE_DOMAIN
-} from '../../helpers/usdcx-constants';
+import { BURN_UNITS, PAYOUT_TIMEOUT_MS, USDCX_REMOTE_DOMAIN } from '../../helpers/usdcx-constants';
 import { guardianFailureContext, guardianIdentity } from '../../helpers/usdcx-guardian';
 import {
   assertBurnDetails,
@@ -22,8 +9,8 @@ import {
   confirmBurn,
   createGuardianUsdcxWallet,
   fundFromPublicFaucet,
+  harnessPayoutLeg,
   pageWhere,
-  payoutContext,
   resolveUsdcxIds,
   settleGuardian,
   submitBurn
@@ -59,17 +46,16 @@ const BUDGET = {
 test.describe('USDCx burn through the Send UI after a public faucet grant', () => {
   // The injected fee faucet masks the wallet's own native-asset discovery (two-wallets.ts:840).
   test.use({ injectFeeFaucet: false });
-  // At the worst, ~2 min of fixture setup, 14 min of steps up to the burn's submit, the 3 min row poll that sees the
-  // faucet consume it, then the payout gate's 10 min from that consume and its closing read: about 30 min a test, so
-  // the two stay within the usdcx config's hour.
-  test.describe.configure({ timeout: 1_800_000 });
+  // ~2 min setup + 14 min of steps to the submit + 3 min row poll + the 10 min gate + 2 min closing read <= 35 min.
+  test.describe.configure({ timeout: 2_100_000 });
   test.beforeAll(() => {
     assertUsdcxLiveRun(process.env);
     takeRunArcKey(process.env);
   });
 
   for (const guardian of [false, true]) {
-    test(`${guardian ? 'Guardian' : 'standard'} wallet publishes a burn and the faucet consumes it`, async ({
+    const kind = guardian ? 'Guardian' : 'standard';
+    test(`${kind} wallet publishes a burn, the faucet consumes it and Circle pays it out`, async ({
       walletA,
       envConfig,
       steps
@@ -121,16 +107,13 @@ test.describe('USDCx burn through the Send UI after a public faucet grant', () =
           : 0;
 
         // R21, R22: the harness key, read right before the burn; this test's payout must be exactly the rise above it.
-        const { key, snapshot } = await step('key_snapshot', BUDGET.keySnapshot, async () => {
-          const { key, role } = takeRunArcKey(process.env);
-          secrets.push(key.privateKey);
-          expect(role, 'usdcx-burn burns to the harness key').toBe('harness');
-          return { key, snapshot: await readArcUsdcSnapshot(key.address, arc) };
+        const { key, snapshot, waitForPayout } = await harnessPayoutLeg(step, {
+          env: process.env,
+          arc,
+          budget: BUDGET,
+          evidence,
+          secrets
         });
-        evidence.ids.arcKey = key.address;
-        evidence.ids.arcKeyRole = 'harness';
-        evidence.ids.arcBalanceBefore = String(snapshot.balance);
-        evidence.ids.arcSnapshotBlock = String(snapshot.blockNumber);
 
         const priorBurns = await step(
           'burn_via_ui',
@@ -176,36 +159,7 @@ test.describe('USDCx burn through the Send UI after a public faucet grant', () =
         evidence.fees.push(burn.fee, { name: 's', amount: burn.sponsorship, kind: 'exact' });
         evidence.phases.burn = burn.phases.samples();
 
-        const consumeTsMs = burn.oracle.consumeTimestampSec * 1_000;
-        // D3 in delta mode (R22): one AttestationUsed log whose mint calldata carries the burn note id and whose value is
-        // the key's whole rise above the pre-burn read. Red after 10 min means a user was not paid in time.
-        const payout = await step(
-          'payout',
-          BUDGET.payout,
-          () =>
-            waitForGatewayPayout(
-              {
-                recipient: key.address,
-                burnNoteId: burn.burnNoteId,
-                burnUnits: BURN_UNITS,
-                fromBlock: snapshot.blockNumber,
-                balanceBefore: snapshot.balance,
-                consumeTsMs,
-                deadlineMs: consumeTsMs + PAYOUT_TIMEOUT_MS,
-                depositor: xreserve.depositor,
-                minimumValue: minimumUsdcxPayout(ARC_CHAIN_ID, BURN_UNITS)
-              },
-              arc
-            ),
-          payoutContext(arc, key, snapshot, burn)
-        );
-        expect({ domain: payout.sourceDomain, total: payout.value + payout.fee }).toEqual({
-          domain: ARC_CIRCLE_DOMAIN,
-          total: BURN_UNITS
-        });
-        evidence.hashes.payout = payout.transactionHash;
-        evidence.fees.push({ name: 'circle payout fee', amount: payout.fee, kind: 'exact' });
-        evidence.latenciesMs.consumeToPayout = payout.latencyMs;
+        await waitForPayout(burn, xreserve.depositor);
         passed = true;
       } finally {
         await attachEvidence(test.info(), 'usdcx-burn-evidence.json', evidence, secrets).catch((error: unknown) => {

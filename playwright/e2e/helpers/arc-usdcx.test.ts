@@ -14,6 +14,7 @@ import {
   isHex,
   keccak256,
   parseAbi,
+  pad,
   parseTransaction,
   toBytes,
   toHex,
@@ -21,6 +22,7 @@ import {
   type Hex,
   type PublicClient
 } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 
 import {
   arcEndpoints,
@@ -66,6 +68,8 @@ import {
   minimumUsdcxPayout,
   PAYOUT_TIMEOUT_MS
 } from './usdcx-constants';
+import { harnessPayoutLeg } from './usdcx-legs';
+import { newRunEvidence, withStepBudget, type NamedStep } from './usdcx-run';
 import type { XReserveAttestation } from '../../../src/lib/usdcx/attestation';
 import attestationVectors from '../../../src/lib/usdcx/attestation.vectors.json';
 import { midenAccountHexToXReserveRecipient } from '../../../src/lib/usdcx/recipient';
@@ -384,13 +388,8 @@ describe('scanArcLogs', () => {
 type CapturedLog = (typeof arcVectors.payouts)[number]['log'];
 
 /** The payout gate's Arc: a head that moves, a scripted balance, and the captured logs and gatewayMint transactions. */
-function payoutChain(world: {
-  balances: readonly bigint[];
-  logs: readonly CapturedLog[];
-  failLogs?: boolean;
-  head?: bigint;
-}): Rpc {
-  let head = world.head ?? 66483820n;
+function payoutChain(world: { balances: readonly bigint[]; logs: readonly CapturedLog[]; failLogs?: boolean }): Rpc {
+  let head = 66483820n;
   let balanceReads = 0;
   const transactions = new Map<string, unknown>(
     arcVectors.payouts.map(payout => [payout.transaction.hash, payout.transaction])
@@ -636,6 +635,21 @@ describe('waitForGatewayPayout delta mode', () => {
     await expect(failure).rejects.toThrow(`balanceBefore: ${HELD}`);
   });
 
+  it("fails uncorrelated on a stray payout in the window, naming each log's transaction and block", async () => {
+    const stray = movedTo(OTHER.log, 66483815n);
+    const failure = waitForGatewayPayout(args, {
+      endpoints: [ARC_DRPC_URL],
+      publicClient: () => stubClient(payoutChain({ balances: [HELD + 983_600n], logs: [...history, paid, stray] })),
+      clock: fakeClock(CONSUME_MS)
+    });
+    await expect(failure).rejects.toMatchObject({ failure: 'uncorrelated' });
+    await expect(failure).rejects.toThrow(
+      'found 2 AttestationUsed logs after block 66483700 up to block 66483822, 2 decodable: ' +
+        `${ONE_USDCX.log.transactionHash} in block 66483812, ${OTHER.log.transactionHash} in block 66483815; ` +
+        PREFUNDED_KEY_NOTE
+    );
+  });
+
   it('fails uncorrelated at the deadline when no complete scan finds the log, saying the key held USDC before', async () => {
     const failure = waitForGatewayPayout(args, {
       endpoints: [ARC_DRPC_URL],
@@ -690,6 +704,104 @@ describe('waitForGatewayPayout delta mode', () => {
     );
     expect(payout.value).toBe(983_600n);
     expect(clock.slept).toEqual([5_000, 5_000, 5_000]);
+  });
+});
+
+/** A captured log moved to `block` and paid to `recipient`, so it lands in the scan of a key this test holds. */
+const paidTo = (log: CapturedLog, recipient: Address, block: bigint): CapturedLog => ({
+  ...movedTo(log, block),
+  topics: log.topics.map((topic, index) => (index === 2 ? pad(recipient).toLowerCase() : topic))
+});
+
+describe('harnessPayoutLeg (usdcx-legs.ts)', () => {
+  const CONSUME_MS = 1_791_638_693_000;
+  const [EARLIER, ONE_USDCX] = [payoutAt(1), payoutAt(4)];
+  const ARC_KEY: Hex = `0x${'11'.repeat(32)}`;
+  const KEY = privateKeyToAccount(ARC_KEY).address;
+  const ENV = { E2E_ARC_PRIVATE_KEY: ARC_KEY, E2E_ARC_KEY_ROLE: 'harness' };
+  const HELD = BigInt(EARLIER.value);
+  const BUDGET = { keySnapshot: 30_000, payout: PAYOUT_TIMEOUT_MS + 120_000 };
+  // The chain's first head is 66483822, the snapshot block: the key's earlier payout in it is already inside HELD.
+  const history = [paidTo(EARLIER.log, KEY, 66483822n)];
+  const paid = paidTo(ONE_USDCX.log, KEY, 66483823n);
+  const burn = {
+    burnNoteId: hexOf(ONE_USDCX.burnNoteId),
+    oracle: { consumeTimestampSec: CONSUME_MS / 1_000, consumeBlock: 412_345 }
+  };
+  const depositor = hexOf(arcVectors.remoteDomainDepositor);
+
+  /** The spec's named steps, each under its budget as namedSteps runs it, recorded by name and budget. */
+  function recordingSteps(): { step: NamedStep; taken: Array<[string, number]> } {
+    const taken: Array<[string, number]> = [];
+    const step: NamedStep = (name, budgetMs, run, context) => {
+      taken.push([name, budgetMs]);
+      return withStepBudget(name, budgetMs, run, context);
+    };
+    return { step, taken };
+  }
+
+  it('reads the harness key before the burn, proves Circle paid exactly that burn and records both', async () => {
+    const { step, taken } = recordingSteps();
+    const evidence = newRunEvidence('usdcx-burn standard');
+    const secrets: string[] = [];
+    // One chain for both steps: the snapshot takes the first balance read, the payout cycle the second.
+    const chain = payoutChain({ balances: [HELD, HELD + 983_600n], logs: [...history, paid] });
+    const arc = {
+      endpoints: [ARC_DRPC_URL],
+      publicClient: () => stubClient(chain),
+      clock: fakeClock(CONSUME_MS + 12_000)
+    };
+
+    const leg = await harnessPayoutLeg(step, { env: { ...ENV }, arc, budget: BUDGET, evidence, secrets });
+    expect({ key: leg.key.address, snapshot: leg.snapshot }).toEqual({
+      key: KEY,
+      snapshot: { endpoint: ARC_DRPC_URL, blockNumber: 66483822n, balance: HELD }
+    });
+    const payout = await leg.waitForPayout(burn, depositor);
+
+    expect(payout).toMatchObject({
+      value: 983_600n,
+      balance: HELD + 983_600n,
+      logBlock: 66483823n,
+      transactionHash: ONE_USDCX.transaction.hash,
+      fee: 16_400n,
+      latencyMs: 12_000
+    });
+    expect(payout.ranges[0]?.fromBlock).toBe(66483823n);
+    expect(taken).toEqual([
+      ['key_snapshot', BUDGET.keySnapshot],
+      ['payout', BUDGET.payout]
+    ]);
+    expect(secrets).toEqual([ARC_KEY]);
+    expect(evidence).toMatchObject({
+      ids: { arcKey: KEY, arcKeyRole: 'harness', arcBalanceBefore: String(HELD), arcSnapshotBlock: '66483822' },
+      hashes: { payout: ONE_USDCX.transaction.hash },
+      fees: [{ name: 'circle payout fee', amount: 16_400n, kind: 'exact' }],
+      latenciesMs: { consumeToPayout: 12_000 }
+    });
+  });
+
+  it("fails the payout step at the consume's deadline, naming the key's pre-burn read and the consume", async () => {
+    const { step } = recordingSteps();
+    const evidence = newRunEvidence('usdcx');
+    const clock = fakeClock(CONSUME_MS);
+    const chain = payoutChain({ balances: [HELD], logs: history });
+    const arc = { endpoints: [ARC_DRPC_URL], publicClient: () => stubClient(chain), clock };
+
+    const leg = await harnessPayoutLeg(step, { env: { ...ENV }, arc, budget: BUDGET, evidence, secrets: [] });
+    const failure = leg.waitForPayout(burn, depositor);
+
+    await expect(failure).rejects.toThrow(
+      `payout: no destination mint for this key by ${new Date(CONSUME_MS + PAYOUT_TIMEOUT_MS).toISOString()}`
+    );
+    await expect(failure).rejects.toThrow(
+      `harness key ${KEY} (${HARNESS_ARC_KEY_FILE}) held ${HELD} at Arc block 66483822 (read on ${ARC_DRPC_URL}); ` +
+        `burn note ${burn.burnNoteId} consumed in Miden block 412345 at ${new Date(CONSUME_MS).toISOString()}; ` +
+        'xReserve '
+    );
+    expect(clock.slept).toEqual(Array(PAYOUT_TIMEOUT_MS / 5_000).fill(5_000));
+    expect(evidence.hashes).toEqual({});
+    expect(evidence.fees).toEqual([]);
   });
 });
 

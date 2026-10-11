@@ -174,7 +174,7 @@ export const SUITES = {
   'usdcx-burn': {
     config: 'playwright.usdcx.config.ts',
     grep: 'USDCx burn through the Send UI',
-    probes: ['usdcx', 'usdcx-guardian', 'grant'],
+    probes: ['usdcx', 'usdcx-guardian', 'grant', 'arc-payout'],
     networks: ['testnet'],
     usdcx: true,
     headlessByDefault: true,

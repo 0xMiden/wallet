@@ -71,9 +71,9 @@ const BRIDGE_IN_TEST =
   'Guardian wallet receives a Node-signed xReserve deposit';
 const BURN_TESTS = [
   'usdcx-burn.spec.ts › USDCx burn through the Send UI after a public faucet grant › ' +
-    'standard wallet publishes a burn and the faucet consumes it',
+    'standard wallet publishes a burn, the faucet consumes it and Circle pays it out',
   'usdcx-burn.spec.ts › USDCx burn through the Send UI after a public faucet grant › ' +
-    'Guardian wallet publishes a burn and the faucet consumes it'
+    'Guardian wallet publishes a burn, the faucet consumes it and Circle pays it out'
 ];
 /** Every test `playwright.usdcx.config.ts` must list, and nothing else. */
 const USDCX_LIVE_TESTS = [ROUND_TRIP_TEST, BRIDGE_IN_TEST, ...BURN_TESTS];
@@ -89,17 +89,14 @@ const USDCX_LIVE_SPECS: Array<[file: string, describes: number]> = [
   ['usdcx-burn.spec.ts', 1]
 ];
 /**
- * R21 and R22: every burn to the shared harness Arc key reads the key right before it, the wallet's saved baseline must
- * equal that read, and the test ends only once the delta-mode payout gate has proven Circle paid exactly this burn, so
- * no run leaves a payout to land in a later run's window. Live wiring with no unit test of its own, so its source is
- * pinned here.
+ * R21 and R22: every burn to the shared harness Arc key runs `harnessPayoutLeg` (usdcx-legs.ts, unit-tested in
+ * arc-usdcx.test.ts), which reads the key right before the burn, and the wallet's saved baseline must equal that read;
+ * the test ends only once the leg's delta-mode payout gate has proven Circle paid exactly this burn, so no run leaves a
+ * payout to land in a later run's window. Where each spec calls the leg is live wiring, so its source is pinned here.
  */
 const USDCX_PAYOUT_WIRING: RegExp[] = [
-  /readArcUsdcSnapshot\(key\.address, arc\)[\s\S]*'burn_via_ui'[\s\S]*waitForGatewayPayout\(/,
-  /keySnapshot: snapshot,/,
-  /fromBlock: snapshot\.blockNumber,\s*balanceBefore: snapshot\.balance,/,
-  /deadlineMs: consumeTsMs \+ PAYOUT_TIMEOUT_MS,/,
-  /payoutContext\(arc, key, snapshot, burn\)/
+  /= await harnessPayoutLeg\(step, \{[\s\S]*'burn_via_ui'[\s\S]*'burn_confirmed'[\s\S]*await waitForPayout\(burn, xreserve\.depositor\);/,
+  /keySnapshot: snapshot,/
 ];
 /**
  * A burn xReserve cannot pay out fails only at the payout gate's deadline and leaves a deferred payout to land in a later

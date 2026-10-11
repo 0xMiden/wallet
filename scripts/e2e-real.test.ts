@@ -1179,8 +1179,8 @@ describe('the usdcx suites', () => {
     expect([...new Set(listed.tests.map(test => test.split(' > ')[0]))].sort()).toEqual(Object.values(OWN).sort());
     expect(listed.tests).toHaveLength(4);
     expect(listed.tests.filter(test => test.startsWith(`${OWN['usdcx-burn']} > `))).toEqual([
-      `${OWN['usdcx-burn']} > Guardian wallet publishes a burn and the faucet consumes it`,
-      `${OWN['usdcx-burn']} > standard wallet publishes a burn and the faucet consumes it`
+      `${OWN['usdcx-burn']} > Guardian wallet publishes a burn, the faucet consumes it and Circle pays it out`,
+      `${OWN['usdcx-burn']} > standard wallet publishes a burn, the faucet consumes it and Circle pays it out`
     ]);
   });
 
@@ -1492,13 +1492,19 @@ describe('the usdcx preflight', () => {
     expect(res.output).not.toContain(ARC_KEY.slice(2));
   }, 35_000);
 
-  it('asks usdcx-burn neither a payout nor a funded-key question', () => {
+  // Each usdcx-burn test waits for its own payout, so the runner asks the payout questions before the build.
+  it('asks usdcx-burn the payout questions and no funded-key question', () => {
     const res = preflight('usdcx-burn');
-    expect(res.output).toContain('✓ preflight passed (10 checks)');
+    expect(res.output).toContain('✓ preflight passed (11 checks)');
     expect(res.status).toBe(0);
-    expect(res.requests).toContain('https://faucet-api.testnet.miden.io/get_metadata');
-    expect(res.requests).not.toContain(XRESERVE_CALLS.gatewayMinter);
-    expect(res.requests).not.toContain(XRESERVE_CALLS.withdrawalsPaused);
+    expect(
+      missing(res.requests, [
+        'https://faucet-api.testnet.miden.io/get_metadata',
+        XRESERVE_CALLS.withdrawalsPaused,
+        XRESERVE_CALLS.gatewayMinter,
+        `eth_getCode ["${GATEWAY_MINTER}","latest"]`
+      ])
+    ).toEqual([]);
     expect(res.requests).not.toContain(BALANCE_OF);
   }, 35_000);
 
@@ -1588,9 +1594,9 @@ describe('the usdcx preflight', () => {
   it.each([
     ['usdcx', ['xReserve pause']],
     ['usdcx-in', []],
-    ['usdcx-burn', []]
+    ['usdcx-burn', ['xReserve pause']]
   ])(
-    'on paused withdrawals --suite %s fails %j: only the payout leg withdraws',
+    'on paused withdrawals --suite %s fails %j: only a suite that waits for a payout withdraws',
     (suite, failed) => {
       const res = preflight(suite, DOCUMENT, KEYED, { withdrawalsPaused: true });
       expect(failedChecks(res.output)).toEqual(failed);

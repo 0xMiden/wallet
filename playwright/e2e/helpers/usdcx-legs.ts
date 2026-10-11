@@ -1,7 +1,15 @@
 import { expect, type Page, type TestInfo } from '@playwright/test';
-import { isHash, type Address, type Hash } from 'viem';
+import { isHash, type Address, type Hash, type Hex } from 'viem';
 
-import { readXReserveDomainState, type ArcKey, type ArcReadDeps, type ArcUsdcSnapshot } from './arc-usdcx';
+import {
+  readArcUsdcSnapshot,
+  readXReserveDomainState,
+  waitForGatewayPayout,
+  type ArcKey,
+  type ArcReadDeps,
+  type ArcUsdcSnapshot,
+  type GatewayPayout
+} from './arc-usdcx';
 import {
   fromBaseUnits,
   vaultBalanceOfCurrentAccount,
@@ -26,6 +34,8 @@ import {
   GRANT_MARGIN_UNITS,
   GRANT_UNITS,
   HARNESS_ARC_KEY_FILE,
+  minimumUsdcxPayout,
+  PAYOUT_TIMEOUT_MS,
   USDCX_BURN_TAG
 } from './usdcx-constants';
 import { assertNoGuardianOpInFlight, burnFailureMessage } from './usdcx-guardian';
@@ -53,7 +63,9 @@ import {
   PhaseTimeline,
   pollUntil,
   readSettledChange,
+  takeRunArcKey,
   type FeeTerm,
+  type NamedStep,
   type RunEvidence,
   type StepContext
 } from './usdcx-run';
@@ -536,8 +548,13 @@ export async function confirmBurn(
   };
 }
 
+/** What the payout step reads of a confirmed burn: its note id and the faucet's consume of it. */
+export type ConsumedBurn = Pick<BurnLeg, 'burnNoteId'> & {
+  oracle: Pick<BurnEvidence, 'consumeBlock' | 'consumeTimestampSec'>;
+};
+
 /** Spec 5 step 8 failure body: the harness key and its pre-burn read, the burn's consume and xReserve's pause flags. */
-export function payoutContext(arc: ArcReadDeps, key: ArcKey, snapshot: ArcUsdcSnapshot, burn: BurnLeg): StepContext {
+function payoutContext(arc: ArcReadDeps, key: ArcKey, snapshot: ArcUsdcSnapshot, burn: ConsumedBurn): StepContext {
   return async () => {
     const flags = await readXReserveDomainState(arc).then(
       state =>
@@ -551,6 +568,79 @@ export function payoutContext(arc: ArcReadDeps, key: ArcKey, snapshot: ArcUsdcSn
       `${burn.oracle.consumeBlock} at ${consumedAt}; xReserve ${flags}`
     );
   };
+}
+
+/** The harness key and its read right before a burn (R21), and the step that waits for that burn's payout (R22). */
+export interface HarnessPayoutLeg {
+  key: ArcKey;
+  snapshot: ArcUsdcSnapshot;
+  /**
+   * Spec 5 step 8, D3 in delta mode: one AttestationUsed log whose mint calldata carries the burn note id and whose
+   * value is the key's whole rise above `snapshot`, within PAYOUT_TIMEOUT_MS of the faucet's consume. Red means a user
+   * was not paid in time.
+   */
+  waitForPayout(burn: ConsumedBurn, depositor: Hex): Promise<GatewayPayout>;
+}
+
+/**
+ * The payout leg of every burn to the shared harness key: `key_snapshot` reads the key right before the burn, and the
+ * test ends only once `waitForPayout` has proven Circle paid exactly that burn, so no payout is left to land in a later
+ * run's window (R22). Both steps write their evidence.
+ */
+export async function harnessPayoutLeg(
+  step: NamedStep,
+  opts: {
+    env: Record<string, string | undefined>;
+    arc: ArcReadDeps;
+    budget: { keySnapshot: number; payout: number };
+    evidence: RunEvidence;
+    secrets: string[];
+  }
+): Promise<HarnessPayoutLeg> {
+  const { arc, evidence } = opts;
+  const { key, snapshot } = await step('key_snapshot', opts.budget.keySnapshot, async () => {
+    const { key, role } = takeRunArcKey(opts.env);
+    opts.secrets.push(key.privateKey);
+    expect(role, `${evidence.suite} burns to the harness key`).toBe('harness');
+    return { key, snapshot: await readArcUsdcSnapshot(key.address, arc) };
+  });
+  evidence.ids.arcKey = key.address;
+  evidence.ids.arcKeyRole = 'harness';
+  evidence.ids.arcBalanceBefore = String(snapshot.balance);
+  evidence.ids.arcSnapshotBlock = String(snapshot.blockNumber);
+
+  const waitForPayout = async (burn: ConsumedBurn, depositor: Hex): Promise<GatewayPayout> => {
+    const consumeTsMs = burn.oracle.consumeTimestampSec * 1_000;
+    const payout = await step(
+      'payout',
+      opts.budget.payout,
+      () =>
+        waitForGatewayPayout(
+          {
+            recipient: key.address,
+            burnNoteId: burn.burnNoteId,
+            burnUnits: BURN_UNITS,
+            fromBlock: snapshot.blockNumber,
+            balanceBefore: snapshot.balance,
+            consumeTsMs,
+            deadlineMs: consumeTsMs + PAYOUT_TIMEOUT_MS,
+            depositor,
+            minimumValue: minimumUsdcxPayout(ARC_CHAIN_ID, BURN_UNITS)
+          },
+          arc
+        ),
+      payoutContext(arc, key, snapshot, burn)
+    );
+    expect({ domain: payout.sourceDomain, total: payout.value + payout.fee }).toEqual({
+      domain: ARC_CIRCLE_DOMAIN,
+      total: BURN_UNITS
+    });
+    evidence.hashes.payout = payout.transactionHash;
+    evidence.fees.push({ name: 'circle payout fee', amount: payout.fee, kind: 'exact' });
+    evidence.latenciesMs.consumeToPayout = payout.latencyMs;
+    return payout;
+  };
+  return { key, snapshot, waitForPayout };
 }
 
 /** Spec 5 step 7: the burn's details read Burn confirmed (or Confirmed once paid), name Arc Testnet and link the key. */

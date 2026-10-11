@@ -491,9 +491,13 @@ async function payoutCycle(
     );
   const decoded = parseEventLogs({ abi: GATEWAY_MINTER_ABI, logs: scan.logs });
   if (scan.logs.length > 1 || decoded.length !== 1) {
+    // Each log by its transaction and block, so the stray payout can be looked up on the explorer.
+    const seen = scan.logs.map(
+      found => `${found.transactionHash ?? 'no transaction'} in block ${found.blockNumber ?? 'unknown'}`
+    );
     throw uncorrelated(
       `found ${scan.logs.length} AttestationUsed logs after block ${args.fromBlock} up to block ${balanceBlock}, ` +
-        `${decoded.length} decodable`
+        `${decoded.length} decodable: ${seen.join(', ')}`
     );
   }
   const [log] = decoded;
