@@ -46,6 +46,19 @@ export interface UsdcxSnapshotDeps {
 
 const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
+/** Rejects once `ms` elapse: a read is two sequential requests, each allowed the budget's remainder by viem. */
+async function within<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('USDCx destination balance read timed out')), Math.max(ms, 0));
+  });
+  try {
+    return await Promise.race([work, expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * The balance a burn is later confirmed against, read before the burn is queued. Arc's public RPC answers
  * intermittent 429s, so a failed read is tried twice more after a backoff, every attempt drawing on the 15 s one read
@@ -59,7 +72,8 @@ export async function readUsdcxDestinationSnapshot(
   const deadline = now() + DESTINATION_READ_TIMEOUT_MS;
   const attempt = async (backoffs: readonly number[]): Promise<UsdcxBalanceSnapshot> => {
     try {
-      return await read(chainId, recipient, deadline - now());
+      const remaining = deadline - now();
+      return await within(read(chainId, recipient, remaining), remaining);
     } catch (error) {
       const [backoff, ...later] = backoffs;
       if (backoff === undefined || now() + backoff >= deadline) throw error;

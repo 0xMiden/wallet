@@ -161,6 +161,34 @@ describe('readUsdcxDestinationSnapshot', () => {
     expect(clock.sleep).not.toHaveBeenCalled();
   });
 
+  // One attempt is two sequential requests, each allowed the remaining budget by viem, so the budget is enforced here.
+  it('gives up at 15 s when an attempt is two slow requests, each within its own timeout', async () => {
+    jest.useFakeTimers();
+    try {
+      const slowRead = jest.fn(
+        () =>
+          new Promise<typeof snapshot>(resolve => {
+            setTimeout(resolve, 20_000, snapshot);
+          })
+      );
+      let outcome: string | undefined;
+      const result = readUsdcxDestinationSnapshot(5042002, recipient, { read: slowRead }).then(
+        () => (outcome = 'resolved'),
+        (error: Error) => (outcome = error.message)
+      );
+
+      await jest.advanceTimersByTimeAsync(14_999);
+      expect(outcome).toBeUndefined();
+      await jest.advanceTimersByTimeAsync(1);
+      await result;
+
+      expect(outcome).toMatch(/timed out/);
+      expect(slowRead).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('waits on the real clock between attempts by default', async () => {
     jest.useFakeTimers();
     try {
