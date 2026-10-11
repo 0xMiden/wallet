@@ -66,12 +66,18 @@ const USDCX_TESTS_DIR = 'playwright/e2e/tests/usdcx';
 const ROUND_TRIP_TEST =
   'usdcx-roundtrip.spec.ts › USDCx round trip: burn to a fresh Arc key, Circle payout, deposit back › ' +
   'Guardian wallet: public faucet grant, Send burn, payout and its confirmation, deposit back, receipt';
+const BRIDGE_IN_TEST =
+  'usdcx-roundtrip.spec.ts › USDCx bridge-in from a funded Arc key › ' +
+  'Guardian wallet receives a Node-signed xReserve deposit';
 /** Every test `playwright.usdcx.config.ts` must list, and nothing else. */
-const USDCX_LIVE_TESTS = [ROUND_TRIP_TEST];
+const USDCX_LIVE_TESTS = [ROUND_TRIP_TEST, BRIDGE_IN_TEST];
 /** Each runner suite's grep, compiled case-insensitive as scripts/e2e-real.mjs does, and the tests it must select. */
-const USDCX_RUNNER_GREPS: Array<[grep: string, tests: string[]]> = [['USDCx round trip', [ROUND_TRIP_TEST]]];
+const USDCX_RUNNER_GREPS: Array<[grep: string, tests: string[]]> = [
+  ['USDCx round trip', [ROUND_TRIP_TEST]],
+  ['funded Arc key', [BRIDGE_IN_TEST]]
+];
 /** Each live spec file and how many describes it guards. */
-const USDCX_LIVE_SPECS: Array<[file: string, describes: number]> = [['usdcx-roundtrip.spec.ts', 1]];
+const USDCX_LIVE_SPECS: Array<[file: string, describes: number]> = [['usdcx-roundtrip.spec.ts', 2]];
 /** A live USDCx spec in another config's listing. */
 const USDCX_LIVE_SPEC = /usdcx-roundtrip\.spec\.ts|usdcx-burn\.spec\.ts/;
 

@@ -1,4 +1,5 @@
 import type { Hex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 
 import { matchUsdcxDepositAttestation } from '../../../../src/lib/usdcx/attestation';
 import { CIRCLE_USDC_DECIMALS } from '../../../../src/lib/usdcx/constant';
@@ -22,9 +23,14 @@ import {
   type GatewayPayout,
   type XReserveDomainState
 } from '../../helpers/arc-usdcx';
-import { fromBaseUnits } from '../../helpers/balance-truth';
+import { fromBaseUnits, vaultBalanceOfCurrentAccount } from '../../helpers/balance-truth';
 import { bridgeReceiveState, createUsdcxBridgeReceive, enText, readBridgedSendRows } from '../../helpers/bridge';
-import { describeTransactionRow, openHistoryDetails, readTransactionRow } from '../../helpers/history';
+import {
+  describeTransactionRow,
+  openHistoryDetails,
+  readTransactionRow,
+  readTransactionRows
+} from '../../helpers/history';
 import {
   ARC_ATTESTATION_API,
   ARC_CHAIN_ID,
@@ -59,6 +65,7 @@ import {
 } from '../../helpers/usdcx-legs';
 import { deriveUsdcxMintNoteId, waitForUsdcxMint, type MidenNoteRead } from '../../helpers/usdcx-miden';
 import {
+  arcPrivateKeyFromEnv,
   assertUsdcxLiveRun,
   errorText,
   jsonObject,
@@ -770,6 +777,118 @@ test.describe('USDCx round trip: burn to a fresh Arc key, Circle payout, deposit
     } finally {
       for (const cleanup of cleanups) await cleanup();
       await attachEvidence(test.info(), 'usdcx-round-trip-evidence.json', evidence, secrets).catch((error: unknown) => {
+        if (passed) throw error;
+      });
+    }
+  });
+});
+
+test.describe('USDCx bridge-in from a funded Arc key', () => {
+  test.use({ injectFeeFaucet: false });
+  // Budgets add up to ~21 min, plus ~2 min of fixture setup charged to the test.
+  test.describe.configure({ timeout: 1_800_000 });
+  test.beforeAll(() => assertUsdcxLiveRun(process.env, { needsArcKey: true }));
+
+  test('Guardian wallet receives a Node-signed xReserve deposit', async ({ walletA, envConfig, steps }) => {
+    const step = namedSteps(steps);
+    const arc: ArcWriteDeps = { endpoints: arcEndpoints(process.env.E2E_ARC_RPC_URL) };
+    const where = pageWhere(walletA);
+    const evidence = newRunEvidence('usdcx-in');
+    const secrets: string[] = [];
+    const cleanups: Array<() => Promise<void>> = [];
+    let passed = false;
+    try {
+      const { identity, ids } = await step(
+        'guardian_wallet',
+        BUDGET.guardianWallet,
+        async () => {
+          const created = await guardianWallet(walletA, envConfig.guardianUrl, evidence);
+          expect(
+            await vaultBalanceOfCurrentAccount(walletA.page, created.ids.native),
+            'a fresh account holds nothing'
+          ).toBe(0n);
+          // Nothing may have claimed or sent yet: the mint consume must be the account's first transaction and deploy.
+          const written = (await readTransactionRows(walletA.page)).filter(
+            row => row.type === 'consume' || row.type === 'send' || row.type === 'bridged-send'
+          );
+          expect(written, 'nothing has deployed the account yet').toEqual([]);
+          return created;
+        },
+        async () => `guardian ${envConfig.guardianUrl}`
+      );
+      const onGuardian: StepContext = () => guardianFailureContext(identity);
+
+      const xreserve = await step('arc_state', BUDGET.arcState, async () => {
+        const state = await readXReserveDomainState(arc);
+        expect(
+          { registered: state.registered, paused: state.paused, depositsPaused: state.depositsPaused },
+          `xReserve domain ${USDCX_REMOTE_DOMAIN} read on ${state.endpoint}`
+        ).toEqual({ registered: true, paused: false, depositsPaused: false });
+        expect(state.remoteToken.toLowerCase(), "xReserve's remote token is the wallet's native faucet").toBe(
+          midenAccountHexToXReserveRecipient(ids.nativeHex)
+        );
+        return state;
+      });
+
+      const funded = await step('funded_key', BUDGET.fundedKey, async () => {
+        const privateKey = arcPrivateKeyFromEnv(process.env);
+        secrets.push(privateKey);
+        const key: ArcKey = { address: privateKeyToAccount(privateKey).address, privateKey };
+        const balance = await readArcUsdc(key.address, arc);
+        if (balance < DEPOSIT_UNITS + GAS_RESERVE_UNITS) {
+          throw new Error(
+            `funded key ${key.address} holds ${balance} USDC base units, needs ${DEPOSIT_UNITS + GAS_RESERVE_UNITS}; ` +
+              'any paid usdcx run leaves about 9 USDC on its key in ~/.miden-e2e/arc-keys'
+          );
+        }
+        return { key, balance };
+      });
+      evidence.ids.arcKey = funded.key.address;
+
+      const deposit = await depositLeg(step, walletA, ids, {
+        key: funded.key,
+        keyBalance: funded.balance,
+        approve: 'if-short',
+        arc,
+        xreserve,
+        rpcUrl: envConfig.rpcUrl,
+        withNegative: false,
+        // The account was created in this run, so every faucet note to its tag is recent.
+        sinceBlock: 0,
+        evidence,
+        cleanups
+      });
+      const received = await receiveLeg(step, walletA, ids, deposit, {
+        vaultBefore: 0n,
+        terms: [],
+        where,
+        onGuardian,
+        evidence
+      });
+      evidence.fees.push(received.fee);
+      evidence.ids.mintConsume = received.consumeId;
+
+      await step(
+        'receive_deploy',
+        BUDGET.check + 50_000,
+        async () => {
+          const transactions = (await readTransactionRows(walletA.page)).filter(row => row.type !== 'bridged-receive');
+          expect(
+            transactions.map(row => row.id),
+            'the mint consume is the first transaction and the deploy'
+          ).toEqual([received.consumeId]);
+          await walletA.assertGuardianAuth(ids.address, {
+            signerCount: 2,
+            threshold: 2,
+            guardianCommitment: identity.commitment
+          });
+        },
+        onGuardian
+      );
+      passed = true;
+    } finally {
+      for (const cleanup of cleanups) await cleanup();
+      await attachEvidence(test.info(), 'usdcx-in-evidence.json', evidence, secrets).catch((error: unknown) => {
         if (passed) throw error;
       });
     }
