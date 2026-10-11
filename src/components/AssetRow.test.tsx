@@ -475,14 +475,14 @@ describe('AssetRow', () => {
   });
 });
 
-it('shows a native fixed quote without rendering market movement or a chart', () => {
+it('shows a native fixed quote with a flat line and a flat move, fetching no market series', () => {
   jest.mocked(getNativeAssetIdSync).mockReturnValue('native-stable');
   jest.mocked(getSdkSyncedNativeAssetIdSync).mockReturnValue('native-stable');
   jest.mocked(getNativeAssetMetadataSync).mockReturnValue({ symbol: 'USDCX', decimals: 6 });
   const asset = { ...makeAsset({ symbol: 'USDCX', name: 'USDCX', balance: 2 }), tokenId: 'native-stable' };
   render(<AssetRow asset={asset} tokenPrices={{}} />);
   expect(screen.getByTestId('row-price')).toHaveTextContent('$2.00');
-  expect(screen.queryByTestId('row-delta')).toBeNull();
-  expect(screen.queryByTestId('sparkline')).toBeNull();
+  expect(screen.getByTestId('row-delta')).toHaveTextContent('+0.00%');
+  expect(screen.getByTestId('sparkline')).toBeInTheDocument();
   expect(mockUseTokenSparkline).toHaveBeenCalledWith('', '1D');
 });

@@ -277,6 +277,9 @@ jest.mock('lib/miden-chain/constants', () => ({
   getRpcEndpoint: jest.fn(() => 'https://rpc.example')
 }));
 
+jest.mock('lib/mobile/haptics', () => ({
+  hapticLight: jest.fn()
+}));
 jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => false)
 }));
@@ -738,13 +741,13 @@ describe('ReviewTransaction — rendering', () => {
     expect(goBackMock).toHaveBeenCalledTimes(1);
   });
 
-  it('opens the recall calendar drawer via the expiration Edit link', async () => {
+  it('opens the recall calendar drawer via the expiration Edit pill', async () => {
     setValidRoute();
     render(<ReviewTransaction />);
     await flush();
 
     expect(screen.getByTestId('recall-drawer').getAttribute('data-open')).toBe('false');
-    fireEvent.click(screen.getByTestId('row-edit'));
+    fireEvent.click(screen.getByTestId('review-expiration-edit'));
     await flush();
     expect(screen.getByTestId('recall-drawer').getAttribute('data-open')).toBe('true');
   });
