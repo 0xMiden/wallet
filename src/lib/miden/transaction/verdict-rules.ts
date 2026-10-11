@@ -11,7 +11,7 @@ import {
   SubmitEvidenceSource
 } from '../db/types';
 
-/** Retry's types (`REQUEUEABLE_TYPES` in retry.ts); a bridged-send only on the Agglayer route. */
+/** Retry's types (`REQUEUEABLE_TYPES` in retry.ts); a bridged-send only on the Agglayer and USDCx routes. */
 const VERDICT_TYPES: ReadonlySet<ITransactionType> = new Set<ITransactionType>([
   'send',
   'consume',
@@ -44,7 +44,8 @@ export const canAwaitVerdict = (
   if (tx.restoredFromBackup === true || tx.rotationFunding === true) return false;
   if (tx.type !== 'bridged-send') return true;
   const extra: IBridgedSendExtraInputs | undefined = tx.extraInputs;
-  return extra?.provider === 'agglayer';
+  // Nothing awaits an Agglayer or USDCx burn's row, and its note lands on its own once submitted.
+  return extra?.provider === 'agglayer' || extra?.provider === 'usdcx';
 };
 
 export type ProvableEvidence = ISubmitEvidence &
