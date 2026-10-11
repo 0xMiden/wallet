@@ -67,4 +67,15 @@ describe('claimingTxIdByNoteId', () => {
   it('gates nothing for a dApp transaction that recorded no held notes', () => {
     expect(claimingTxIdByNoteId([dappTransaction({ inputNoteIds: ['named'] })]).size).toBe(0);
   });
+
+  it('maps the notes of a completed dApp transaction its completion re-typed as a claim', () => {
+    const map = claimingTxIdByNoteId([
+      dappTransaction({ type: 'consume', status: ITransactionStatus.Completed, heldNoteIds: ['carried'] }),
+      dappTransaction({ id: 'tx-both', type: 'consume', noteIds: ['own'], heldNoteIds: ['recorded'] })
+    ]);
+
+    expect(map.get('carried')).toBe('tx-dapp');
+    expect(map.get('own')).toBe('tx-both');
+    expect(map.get('recorded')).toBe('tx-both');
+  });
 });

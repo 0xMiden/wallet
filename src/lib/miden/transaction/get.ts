@@ -108,8 +108,9 @@ export const getCompletedTransactions = async (
 
 /**
  * The rows holding their notes for `address` (#1081, `isNoteHoldingRow`): claims and dApp transactions that are live
- * or that the reconciler can still judge, each holding `heldNoteIdsOf` it. Auto-consume leaves these notes out and the
- * claim dedup refuses them: a second consume would race the holder for the note, and one of the two would fail.
+ * or that the reconciler can still judge, and dApp transactions that completed within a grace window, each holding
+ * `heldNoteIdsOf` it. Auto-consume leaves these notes out and the claim dedup refuses them: a second consume would
+ * race the holder for the note, and one of the two would fail.
  * Matched with `sameWalletAccountId` because a dApp's rows store the bare address and the wallet's own the composite
  * form.
  */

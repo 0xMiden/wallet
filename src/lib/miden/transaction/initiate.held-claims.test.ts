@@ -78,11 +78,15 @@ describe('the consume dedup and held notes (#1081)', () => {
 });
 
 describe('the consume dedup and the notes a dApp transaction will consume', () => {
-  const dappTransaction = async (status: ITransactionStatus, extra: { submitEvidence?: ISubmitEvidence[] } = {}) => {
+  const dappTransaction = async (
+    status: ITransactionStatus,
+    extra: { submitEvidence?: ISubmitEvidence[]; completedAt?: number; type?: 'consume' } = {}
+  ) => {
     const row = new Transaction(ACCOUNT, new Uint8Array([1]));
     await Repo.transactions.put({ ...row, heldNoteIds: ['n1'], status, ...extra });
     return row.id;
   };
+  const secondsAgo = (seconds: number) => Math.floor(Date.now() / 1000) - seconds;
 
   it.each([ITransactionStatus.Queued, ITransactionStatus.GeneratingTransaction])(
     'a dApp transaction in status %s that will consume the note blocks a claim of it',
@@ -100,14 +104,32 @@ describe('the consume dedup and the notes a dApp transaction will consume', () =
     expect(await Repo.transactions.count()).toBe(1);
   });
 
-  it.each([ITransactionStatus.Completed, ITransactionStatus.Failed])(
-    'a dApp transaction in terminal status %s holds nothing, so the claim is queued',
-    async status => {
-      await dappTransaction(status);
-      await initiateConsumeNotesTransaction(ACCOUNT, [note('n1')], false, true);
-      expect(await Repo.transactions.count()).toBe(2);
-    }
-  );
+  it('a dApp transaction that completed moments ago still holds its note while a sync reads the nullifier', async () => {
+    const holder = await dappTransaction(ITransactionStatus.Completed, { completedAt: secondsAgo(10) });
+    expect(await initiateConsumeNotesTransaction(ACCOUNT, [note('n1')], false, true)).toBe(holder);
+    expect(await Repo.transactions.count()).toBe(1);
+  });
+
+  it('a completed dApp transaction its completion re-typed as a claim still holds its note', async () => {
+    const holder = await dappTransaction(ITransactionStatus.Completed, {
+      completedAt: secondsAgo(10),
+      type: 'consume'
+    });
+    expect(await initiateConsumeNotesTransaction(ACCOUNT, [note('n1')], false, true)).toBe(holder);
+    expect(await Repo.transactions.count()).toBe(1);
+  });
+
+  it('a dApp transaction that completed before the grace window holds nothing, so the claim is queued', async () => {
+    await dappTransaction(ITransactionStatus.Completed, { completedAt: secondsAgo(3600) });
+    await initiateConsumeNotesTransaction(ACCOUNT, [note('n1')], false, true);
+    expect(await Repo.transactions.count()).toBe(2);
+  });
+
+  it('a dApp transaction that failed holds nothing however recently, so the claim is queued', async () => {
+    await dappTransaction(ITransactionStatus.Failed, { completedAt: secondsAgo(10) });
+    await initiateConsumeNotesTransaction(ACCOUNT, [note('n1')], false, true);
+    expect(await Repo.transactions.count()).toBe(2);
+  });
 
   it('a live dApp transaction written before held notes were recorded holds nothing', async () => {
     await Repo.transactions.put(new Transaction(ACCOUNT, new Uint8Array([1]), ['n1']));

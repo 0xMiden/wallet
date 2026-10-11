@@ -89,4 +89,27 @@ describe('getNoteHoldingTransactions (#1081)', () => {
     const held = (await getNoteHoldingTransactions('mtst1acct')).map(r => r.id).sort();
     expect(held).toEqual(['x-awaiting', 'x-generating', 'x-queued']);
   });
+
+  it('keeps a completed dApp transaction holding its notes for a grace window, and a failed one not at all', async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const completedAgo = (seconds: number) => ({ status: ITransactionStatus.Completed, completedAt: nowSec - seconds });
+    const held = (id: string, overrides: Partial<ITransaction>) =>
+      row(id, { noteId: undefined, noteIds: undefined, heldNoteIds: [`note-${id}`], ...overrides });
+    await Repo.transactions.bulkPut([
+      held('x-just-completed', { type: 'execute', ...completedAgo(10) }),
+      held('x-long-completed', { type: 'execute', ...completedAgo(3600) }),
+      held('x-just-failed', {
+        type: 'execute',
+        status: ITransactionStatus.Failed,
+        completedAt: nowSec - 10,
+        submitEvidence: undefined
+      }),
+      // Completion re-types an input-only dApp transaction as a claim, without a claim's own note ids.
+      held('x-retyped', { type: 'consume', ...completedAgo(10) }),
+      // The wallet's own completed claim stays out: the claim dedup's Completed arm covers it.
+      row('own-claim', completedAgo(10))
+    ]);
+    const holding = (await getNoteHoldingTransactions('mtst1acct')).map(r => r.id).sort();
+    expect(holding).toEqual(['x-just-completed', 'x-retyped']);
+  });
 });

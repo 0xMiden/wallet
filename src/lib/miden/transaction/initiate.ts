@@ -42,7 +42,7 @@ import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 import { EARN_DEPOSIT_MISSING_REQUEST_ERROR } from './constants';
 import { getNoteHoldingTransactions } from './get';
-import { heldNoteIdsOf, holdsNotes } from './verdict-rules';
+import { holdsNotes } from './verdict-rules';
 
 export const requestCustomTransaction = async (
   accountId: string,
@@ -308,12 +308,12 @@ const queueConsumeRows = async (
     // A skipped note's row is the one that kept it out, not the one the other notes joined.
     const coveringTxIdByNoteId = new Map<string, string>();
     const nowSec = Math.floor(Date.now() / 1000);
-    // The notes a dApp transaction will consume, held while it is live or awaiting its verdict: a claim of one races
-    // that transaction for the note, and one of the two fails.
+    // The notes a dApp transaction will consume, held while it is live or awaiting its verdict and for a grace window
+    // after it completed (`isNoteHoldingRow`): a claim of one races that transaction for the note, or follows it into
+    // a nullifier the note list has not read yet. Read by `heldNoteIds`, since completion can re-type the row.
     const heldByDappTransaction = new Map<string, string>();
     for (const row of await getNoteHoldingTransactions(accountId)) {
-      if (row.type !== 'execute') continue;
-      for (const noteId of heldNoteIdsOf(row)) {
+      for (const noteId of row.heldNoteIds ?? []) {
         if (!heldByDappTransaction.has(noteId)) heldByDappTransaction.set(noteId, row.id);
       }
     }

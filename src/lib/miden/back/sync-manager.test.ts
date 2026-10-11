@@ -227,7 +227,7 @@ import {
 import { SyncData, WalletMessageType } from 'lib/shared/types';
 
 import { computeSyncBackoffMs, doSync, setupSyncManager } from './sync-manager';
-import { ITransactionStatus } from '../db/types';
+import { ITransaction, ITransactionStatus } from '../db/types';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // Helper: build a fake consumable note WASM record
@@ -1484,7 +1484,7 @@ describe('doSync — native-note auto-consume', () => {
     }
   });
 
-  const putLiveDappTransaction = (heldNoteIds: string[]) =>
+  const putLiveDappTransaction = (heldNoteIds: string[], overrides: Partial<ITransaction> = {}) =>
     Repo.transactions.put({
       id: 'dapp-tx',
       accountId: 'pk-1',
@@ -1492,8 +1492,31 @@ describe('doSync — native-note auto-consume', () => {
       status: ITransactionStatus.Queued,
       initiatedAt: 1,
       displayIcon: 'DEFAULT',
-      heldNoteIds
+      heldNoteIds,
+      ...overrides
     });
+
+  it('leaves a native note a dApp transaction completed moments ago out of the batch', async () => {
+    mockIsAutoConsumeAsync.mockResolvedValue(true);
+    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
+    await putLiveDappTransaction(['carried'], {
+      status: ITransactionStatus.Completed,
+      completedAt: Math.floor(Date.now() / 1000) - 10
+    });
+    try {
+      // Completed with no local apply: the note stays listed until a sync reads its nullifier.
+      mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
+        fakeNote({ id: 'carried', faucetId: 'native-faucet', amount: '1000000' }),
+        fakeNote({ id: 'other-native', faucetId: 'native-faucet', amount: '1000000' })
+      ]);
+
+      await doSync();
+
+      expect(mockInitiateConsumeBatch.mock.calls[0]?.[1]).toEqual([expect.objectContaining({ id: 'other-native' })]);
+    } finally {
+      await Repo.transactions.clear();
+    }
+  });
 
   it('leaves a native note a live dApp transaction will consume out of the batch', async () => {
     mockIsAutoConsumeAsync.mockResolvedValue(true);
