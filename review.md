@@ -96,11 +96,12 @@
    sdkmanager --install "system-images;android-34;default;x86_64"
    ```
 
-12. [Expert, addressed after independent review] Use the same API 34 image and emulator cache key in preparation restore/save, artifact provenance, and the live restore. The first stable-key edit missed the live restore, which still used the workflow hash and would have failed its exact-cache gate. Align all paths on the OS, architecture, image, and pinned emulator package.
+12. [Expert, addressed after independent review] Bind the API 34 image and pinned emulator to the preparation provenance and live restore. A shared cache key made the image fallback capable of restoring stale emulator package metadata. Keep the large image fallback separate, preserve the clean hosted package.xml before any legacy restore, and require a dedicated exact-version emulator cache in the live job.
 
    ```yaml
-   # .github/workflows/e2e-bridge-in.yml:180-263, 268-273, 843-852, 927-935
-   key: bridge-in-android-image-v3-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64-emulator-37.2.12-build-16428233
+   # .github/workflows/e2e-bridge-in.yml:180-202, 281-304, 881-885, 961-993
+   key: bridge-in-android-system-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
+   key: bridge-in-android-emulator-v1-${{ runner.os }}-${{ runner.arch }}-37.2.12-build-16428233
    ```
 
 13. [Expert, addressed and independently reviewed with no findings] Resolve repository artifact paths from `GITHUB_WORKSPACE` when CI loads the emulator helper through `node -e`. In that eval context, `__dirname` is the checkout working directory, so walking four levels upward placed emulator logs at `/Users/test-results-android/emulator-logs` and failed before boot. Keep the module-relative fallback for direct local execution.
@@ -112,14 +113,15 @@
      : path.resolve(__dirname, '../../../..');
    ```
 
-14. [Expert, fixed and independently re-reviewed with no blockers] Do not use the macOS image's preinstalled Android emulator in the live job. Run `38116228586` used image version `37.1.11.0`, which stalled its QEMU threads before ADB became available. The first repair requested the unversioned SDK Manager `emulator` package and only failed closed on version drift; independent review correctly found that this did not fetch the selected build. Download official macOS Intel archive build `16428233`, verify its published SHA-256, set the SDK package revision to `37.2.12`, and bind the version, build, checksum, and cache key into exact-SHA APK provenance. The second independent review found no remaining blocker.
+14. [Expert, package.xml/cache correction independently re-reviewed with no blockers; hosted validation pending] Do not use the macOS image's preinstalled Android emulator in the live job. Run `38116228586` used image version `37.1.11.0`, which stalled its QEMU threads before ADB became available. The first repair requested the unversioned SDK Manager `emulator` package and only failed closed on version drift; independent review correctly found that this did not fetch the selected build. Download official macOS Intel archive build `16428233`, verify its published SHA-256, set the SDK package revision to `37.2.12`, and bind the version, build, checksum, and cache keys into exact-SHA APK provenance. Live run `38117915382` then showed that ElementTree serialization of the host `package.xml` made it invalid to Android SDK tools: `avdmanager` reported `emulator` was not installed, and no loop started. The revision edit now preserves the existing XML serialization. A second independent review caught that an old combined cache fallback could still restore the invalid XML, so preserve the clean runner package metadata before cache restoration, reinstall from that clean copy on emulator-cache miss, and separate the large image fallback from the exact emulator cache. Independent review confirms that this cache boundary and both prep/live provenance checks now prevent the stale metadata from being republished.
 
    ```yaml
-   # .github/workflows/e2e-bridge-in.yml:47-50, 180-263, 268-273, 291-301, 843-852, 894-907, 927-935, 971-995
+   # .github/workflows/e2e-bridge-in.yml:47-50, 180-302, 313-347, 877-887, 925-939, 964-983, 1017-1043
    ANDROID_EMULATOR_VERSION: '37.2.12'
    ANDROID_EMULATOR_ARCHIVE_BUILD: '16428233'
    echo "$ANDROID_EMULATOR_ARCHIVE_SHA256  $archive" | shasum -a 256 --check
-   key: bridge-in-android-image-v3-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64-emulator-37.2.12-build-16428233
+   key: bridge-in-android-system-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
+   key: bridge-in-android-emulator-v1-${{ runner.os }}-${{ runner.arch }}-37.2.12-build-16428233
    ```
 
 ### Low

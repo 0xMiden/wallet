@@ -531,14 +531,20 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - [x] Compare the failing runner's emulator version with the previously used workflow-installed version and current Android stable release.
 - [x] Install, cache, version-check, and provenance-bind the same Android emulator package in preparation and live jobs.
 - [x] Replace the unversioned emulator SDK Manager install with the official pinned archive, SHA-256 verification, and build-specific cache/provenance identity after independent review caught the drift risk.
-- [x] Run `actionlint`, `git diff --check`, exact cache/provenance key checks, and the namespaced package.xml revision smoke check; independent re-review found no blockers.
+- [x] Run `actionlint`, `git diff --check`, exact cache/provenance key checks, and independent review of the pinned archive/checksum/cache/provenance.
+- [x] Inspect exact run `38117915382` logs and downloaded startup/diagnostics artifacts; confirm AVD creation failed before any loop.
+- [x] Replace XML serialization with a byte-preserving revision-field edit.
+- [x] Separate the API image fallback cache from the exact pinned-emulator cache; preserve the clean hosted package.xml before any legacy cache can restore over it.
+- [x] Run final `actionlint`, `git diff --check`, split-cache/provenance checks, and the exact package.xml updater against default-namespace and prefixed XML; complete independent re-review of the cache boundary and metadata correction.
 - [ ] Push the repair, prepare its exact SHA, and retry Android Testnet automatically until all 100 loops succeed.
 
 ### Evidence
 
 - Run `38116228586` used the corrected log-root code and reached emulator startup 132 seconds after dispatch. Emulator `37.1.11.0` started but QEMU's main loop and CPU threads stopped responding; ADB never saw the device. The report records no first loop at 181 seconds after dispatch.
 - The earlier Android workflow explicitly installed the `emulator` SDK package and logged version `37.2.12.0`; the new prep/live workflow had relied on the host image, which supplied `37.1.11.0`. The first pin checked for `37.2.12` after asking SDK Manager for latest; independent review identified that the command would not install the pinned release after an upstream update. The current path downloads archive build `16428233`, checks SHA-256 `9fdae8c07ac92155aeb175835669ef9b12adf19130f5557792139fb4ebd01256`, updates the package revision, and binds that archive to the cache and exact-SHA provenance.
+- Live run `38117915382` used SHA `373d256bdc195ad59d624622dc9683336f798dc5`. The pinned emulator reported `37.2.12`; SDK verification, Hypervisor acceleration, host capacity, and cache restore passed. At `avdmanager create avd`, Android SDK tools warned that `emulator/package.xml` was corrupted and failed to parse it, then reported `"emulator" package must be installed`. The startup watchdog recorded `firstLoopStarted=false`, `dispatchToObservedMs=180868`, and no Testnet transaction. Exact artifacts are saved under `test-results-android/ci-run-38117915382/`.
+- Root cause: the first archive install used Python ElementTree to rewrite the SDK's `package.xml`; its serialization was rejected by SDK Manager. Preserve the existing XML byte format and replace only the three numeric revision values. Because a legacy fallback can still extract its whole combined archive, preserve the runner's clean package metadata before restoring caches, use that clean copy for installation, and split the large system-image fallback from the exact emulator cache.
 
 ### Review/results
 
-- `actionlint`, `git diff --check`, exact cache/provenance checks, and the namespaced package.xml revision smoke check pass. Independent re-review found no blockers in the archive checksum, package revision, cache marker, exact prep/live key, or artifact provenance. Hosted runtime verification must prove that the pinned release resolves QEMU startup.
+- `actionlint`, `git diff --check`, five-way consistency checks for each split cache key, prep/live exact-hit and provenance checks, and the exact workflow revision updater smoke checks pass. Independent review found no remaining cache-boundary or metadata blocker. Hosted runtime verification must still prove emulator startup and 100-loop completion.

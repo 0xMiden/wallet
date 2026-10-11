@@ -177,21 +177,33 @@ jobs:
           test -s "$ANDROID_HOME/platforms/android-36/android.jar"
           test -x "$ANDROID_HOME/build-tools/36.0.0/aapt"
 
-      - name: Restore Android image and emulator cache
-        id: sdk-cache
+      - name: Preserve clean hosted emulator package metadata
+        run: |
+          set -euo pipefail
+          test -s "$ANDROID_HOME/emulator/package.xml"
+          cp "$ANDROID_HOME/emulator/package.xml" "$RUNNER_TEMP/android-emulator-host-package.xml"
+
+      - name: Restore Android API 34 system image cache
+        id: android-image-cache
         uses: actions/cache/restore@v4
         with:
-          path: |
-            ~/Library/Android/sdk/system-images/android-34/default/x86_64
-            ~/Library/Android/sdk/emulator
-          key: bridge-in-android-image-v3-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64-emulator-37.2.12-build-16428233
+          path: ~/Library/Android/sdk/system-images/android-34/default/x86_64
+          key: bridge-in-android-system-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
           restore-keys: |
+            bridge-in-android-image-v3-${{ runner.os }}-${{ runner.arch }}-
             bridge-in-android-image-v2-${{ runner.os }}-${{ runner.arch }}-
             bridge-in-android-image-v1-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Restore exact pinned Android emulator cache
+        id: android-emulator-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/Library/Android/sdk/emulator
+          key: bridge-in-android-emulator-v1-${{ runner.os }}-${{ runner.arch }}-37.2.12-build-16428233
+
       - name: Install pinned Android emulator archive and missing API 34 image
         env:
-          ANDROID_EMULATOR_CACHE_HIT: ${{ steps.sdk-cache.outputs.cache-hit }}
+          ANDROID_EMULATOR_CACHE_HIT: ${{ steps.android-emulator-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
           emulator_marker="$ANDROID_HOME/emulator/.wallet-emulator-package"
@@ -205,33 +217,46 @@ jobs:
             archive="$RUNNER_TEMP/emulator-darwin_x64-$ANDROID_EMULATOR_ARCHIVE_BUILD.zip"
             package_xml="$RUNNER_TEMP/android-emulator-package.xml"
             archive_url="https://redirector.gvt1.com/edgedl/android/repository/emulator-darwin_x64-$ANDROID_EMULATOR_ARCHIVE_BUILD.zip"
-            test -s "$ANDROID_HOME/emulator/package.xml"
-            cp "$ANDROID_HOME/emulator/package.xml" "$package_xml"
+            test -s "$RUNNER_TEMP/android-emulator-host-package.xml"
+            cp "$RUNNER_TEMP/android-emulator-host-package.xml" "$package_xml"
             curl --fail --location --retry 3 --retry-delay 2 --show-error "$archive_url" --output "$archive"
             echo "$ANDROID_EMULATOR_ARCHIVE_SHA256  $archive" | shasum -a 256 --check
             rm -rf "$ANDROID_HOME/emulator"
             unzip -q "$archive" -d "$ANDROID_HOME"
             test -x "$ANDROID_HOME/emulator/emulator"
             cp "$package_xml" "$ANDROID_HOME/emulator/package.xml"
-            python3 - "$ANDROID_HOME/emulator/package.xml" <<'PY'
+          python3 - "$ANDROID_HOME/emulator/package.xml" <<'PY'
           import os
+          import re
           import sys
-          import xml.etree.ElementTree as ET
 
           package_xml = sys.argv[1]
-          tree = ET.parse(package_xml)
-          revision = next((node for node in tree.getroot().iter() if node.tag.endswith('revision')), None)
-          if revision is None:
-              raise SystemExit('Android emulator package.xml has no revision element')
           version_parts = os.environ['ANDROID_EMULATOR_VERSION'].split('.')
           if len(version_parts) != 3 or not all(part.isdigit() for part in version_parts):
               raise SystemExit('ANDROID_EMULATOR_VERSION must be major.minor.micro')
+          with open(package_xml, encoding='utf-8') as package_file:
+              contents = package_file.read()
+          revision_pattern = re.compile(
+              r'(<(?P<prefix>(?:[A-Za-z_][\w.-]*:)?)revision\b[^>]*>)(?P<body>.*?)(</(?P=prefix)revision\s*>)',
+              re.DOTALL,
+          )
+          revisions = list(revision_pattern.finditer(contents))
+          if len(revisions) != 1:
+              raise SystemExit(f'Expected one emulator package revision, found {len(revisions)}')
+          revision = revisions[0]
+          body = revision.group('body')
+          prefix = re.escape(revision.group('prefix'))
           for component, value in zip(('major', 'minor', 'micro'), version_parts, strict=True):
-              node = next((child for child in revision if child.tag.endswith(component)), None)
-              if node is None:
-                  node = ET.SubElement(revision, component)
-              node.text = value
-          tree.write(package_xml, encoding='UTF-8', xml_declaration=True)
+              component_pattern = re.compile(
+                  rf'(<{prefix}{component}\b[^>]*>\s*)\d+(\s*</{prefix}{component}\s*>)',
+                  re.DOTALL,
+              )
+              body, replacements = component_pattern.subn(lambda match: match.group(1) + value + match.group(2), body, count=1)
+              if replacements != 1:
+                  raise SystemExit(f'Expected one emulator revision {component} field')
+          updated = contents[:revision.start('body')] + body + contents[revision.end('body'):]
+          with open(package_xml, 'w', encoding='utf-8', newline='') as package_file:
+              package_file.write(updated)
           PY
             printf '%s\n' "$expected_marker" > "$emulator_marker"
           fi
@@ -253,14 +278,19 @@ jobs:
           fi
           "$ANDROID_HOME/emulator/emulator" -accel-check
 
-      - name: Save verified Android image and emulator cache
-        if: steps.sdk-cache.outputs.cache-hit != 'true'
+      - name: Save verified Android API 34 system image cache
+        if: steps.android-image-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: |
-            ~/Library/Android/sdk/system-images/android-34/default/x86_64
-            ~/Library/Android/sdk/emulator
-          key: bridge-in-android-image-v3-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64-emulator-37.2.12-build-16428233
+          path: ~/Library/Android/sdk/system-images/android-34/default/x86_64
+          key: bridge-in-android-system-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
+
+      - name: Save verified pinned Android emulator cache
+        if: steps.android-emulator-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/Library/Android/sdk/emulator
+          key: bridge-in-android-emulator-v1-${{ runner.os }}-${{ runner.arch }}-37.2.12-build-16428233
 
       - name: Build Testnet E2E APK
         run: yarn test:e2e:android:build
@@ -270,7 +300,8 @@ jobs:
           RUNNER_OS_NAME: ${{ runner.os }}
           RUNNER_ARCH_NAME: ${{ runner.arch }}
           NODE_MODULES_CACHE_KEY: bridge-in-node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node22-yarn1-${{ hashFiles('package.json', 'yarn.lock', '.yarnrc', '.npmrc', 'patches/**', 'packages/hd-key/src/**', 'packages/hd-key/tsconfig.json', 'packages/hd-key/package.json') }}
-          ANDROID_IMAGE_CACHE_KEY: bridge-in-android-image-v3-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64-emulator-37.2.12-build-16428233
+          ANDROID_IMAGE_CACHE_KEY: bridge-in-android-system-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
+          ANDROID_EMULATOR_CACHE_KEY: bridge-in-android-emulator-v1-${{ runner.os }}-${{ runner.arch }}-37.2.12-build-16428233
         run: |
           set -euo pipefail
           apk=android/app/build/outputs/apk/debug/app-debug.apk
@@ -298,7 +329,8 @@ jobs:
             androidEmulatorVersion: process.env.ANDROID_EMULATOR_VERSION,
             androidEmulatorArchiveBuild: process.env.ANDROID_EMULATOR_ARCHIVE_BUILD,
             androidEmulatorArchiveSha256: process.env.ANDROID_EMULATOR_ARCHIVE_SHA256,
-            androidEmulatorCacheKey: process.env.ANDROID_IMAGE_CACHE_KEY,
+            androidEmulatorCacheKey: process.env.ANDROID_EMULATOR_CACHE_KEY,
+            androidEmulatorCacheReady: true,
             emulatorApi: 34,
             variant: 'debug',
             command: 'yarn test:e2e:android:build',
@@ -846,7 +878,8 @@ jobs:
           PREBUILT_DIR: ${{ runner.temp }}/bridge-in-prebuilt
           PREBUILT_RUN_ID: ${{ steps.prepared.outputs.run-id }}
           EXPECTED_NODE_MODULES_CACHE_KEY: bridge-in-node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node22-yarn1-${{ hashFiles('package.json', 'yarn.lock', '.yarnrc', '.npmrc', 'patches/**', 'packages/hd-key/src/**', 'packages/hd-key/tsconfig.json', 'packages/hd-key/package.json') }}
-          EXPECTED_ANDROID_IMAGE_CACHE_KEY: bridge-in-android-image-v3-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64-emulator-37.2.12-build-16428233
+          EXPECTED_ANDROID_IMAGE_CACHE_KEY: bridge-in-android-system-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
+          EXPECTED_ANDROID_EMULATOR_CACHE_KEY: bridge-in-android-emulator-v1-${{ runner.os }}-${{ runner.arch }}-37.2.12-build-16428233
           EXPECTED_ANDROID_EMULATOR_VERSION: ${{ env.ANDROID_EMULATOR_VERSION }}
           EXPECTED_ANDROID_EMULATOR_ARCHIVE_BUILD: ${{ env.ANDROID_EMULATOR_ARCHIVE_BUILD }}
           EXPECTED_ANDROID_EMULATOR_ARCHIVE_SHA256: ${{ env.ANDROID_EMULATOR_ARCHIVE_SHA256 }}
@@ -897,7 +930,8 @@ jobs:
               manifest.apk?.androidEmulatorVersion !== process.env.EXPECTED_ANDROID_EMULATOR_VERSION ||
               manifest.apk?.androidEmulatorArchiveBuild !== process.env.EXPECTED_ANDROID_EMULATOR_ARCHIVE_BUILD ||
               manifest.apk?.androidEmulatorArchiveSha256 !== process.env.EXPECTED_ANDROID_EMULATOR_ARCHIVE_SHA256 ||
-              manifest.apk?.androidEmulatorCacheKey !== process.env.EXPECTED_ANDROID_IMAGE_CACHE_KEY ||
+              manifest.apk?.androidEmulatorCacheKey !== process.env.EXPECTED_ANDROID_EMULATOR_CACHE_KEY ||
+              manifest.apk?.androidEmulatorCacheReady !== true ||
               manifest.apk?.command !== 'yarn test:e2e:android:build' ||
               manifest.apk?.nodeModulesCacheReady !== true ||
               manifest.apk?.nodeModulesCacheKey !== process.env.EXPECTED_NODE_MODULES_CACHE_KEY ||
@@ -924,23 +958,38 @@ jobs:
       - name: Check dispatch-based first-loop deadline
         run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline prepared_artifact_verification
 
-      - name: Restore prepared Android image and emulator
-        id: android-sdk-cache
+      - name: Restore prepared Android API 34 system image
+        id: android-image-cache
         timeout-minutes: 2
         uses: actions/cache/restore@v4
         with:
-          path: |
-            ~/Library/Android/sdk/system-images/android-34/default/x86_64
-            ~/Library/Android/sdk/emulator
-          key: bridge-in-android-image-v3-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64-emulator-37.2.12-build-16428233
+          path: ~/Library/Android/sdk/system-images/android-34/default/x86_64
+          key: bridge-in-android-system-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
 
       - name: Check dispatch-based first-loop deadline
         run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline android_image_restore
 
+      - name: Restore exact prepared Android emulator
+        id: android-emulator-cache
+        timeout-minutes: 2
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/Library/Android/sdk/emulator
+          key: bridge-in-android-emulator-v1-${{ runner.os }}-${{ runner.arch }}-37.2.12-build-16428233
+
+      - name: Check dispatch-based first-loop deadline
+        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline android_emulator_restore
+
       - name: Require prepared Android API 34 image
-        if: steps.android-sdk-cache.outputs.cache-hit != 'true'
+        if: steps.android-image-cache.outputs.cache-hit != 'true'
         run: |
-          echo "::error::The exact Android API 34 image and emulator cache is missing. Run e2e-bridge-in.yml with platform=android-prepare for this commit before starting the live workflow."
+          echo "::error::The exact Android API 34 image cache is missing. Run e2e-bridge-in.yml with platform=android-prepare for this commit before starting the live workflow."
+          exit 1
+
+      - name: Require exact prepared Android emulator
+        if: steps.android-emulator-cache.outputs.cache-hit != 'true'
+        run: |
+          echo "::error::The exact pinned Android emulator cache is missing. Run e2e-bridge-in.yml with platform=android-prepare for this commit before starting the live workflow."
           exit 1
 
       # Emulator 37.2.12 explicitly reduced the guest to one vCPU on hosts with
