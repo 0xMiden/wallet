@@ -1,52 +1,102 @@
-# Independent Review — Hosted Android virtualization workaround
+# Independent Review — Android Bridge-IN startup
+
+### High
+
+1. [Expert, fixed] Compare the prepared artifact's repository ID to `GITHUB_REPOSITORY_ID`; the GitHub Script `context` has no `repoId` property, which rejected every preparation artifact.
+
+   ```yaml
+   # .github/workflows/e2e-bridge-in.yml:694-700
+   artifact.workflow_run?.head_repository_id === Number(process.env.GITHUB_REPOSITORY_ID)
+   ```
+
+2. [Expert, fixed] Bound Android host checks, VM acceleration, and AVD creation, then check the dispatch deadline after each stage so a stuck command cannot consume the live startup budget without a prompt failure.
+
+   ```yaml
+   # .github/workflows/e2e-bridge-in.yml:855-911
+   - name: Create base AVD
+     timeout-minutes: 1
+     ...
+   - name: Check dispatch-based first-loop deadline
+     ... avd_creation
+   ```
 
 ### Medium
 
-1. [Expert, fixed] Include the host operating system and architecture in this Cargo cache namespace because the cached `~/.cargo/bin` contains compiled host-specific binaries.
+3. [Expert, fixed] Include host operating system and architecture in the Rust Cargo cache namespace because it contains compiled host-specific binaries.
 
    ```yaml
-   # .github/workflows/e2e-bridge-in.yml:125-136
-   namespace=miden-e2e-cargo-v3-${{ runner.os }}-${{ runner.arch }}
+   # .github/actions/install-miden-client-cli/action.yml:124-125
+   cache_key=miden-client-cli-${{ runner.os }}-${{ runner.arch }}-...
+   build_cache_prefix=miden-client-target-${{ runner.os }}-${{ runner.arch }}-...
    ```
 
-2. [Expert, fixed] Gate Cargo target-cache saving on an explicit safe-to-cache result so a target directory is not snapshotted while a timed-out compiler process may still be writing to it.
+4. [Expert, fixed] Save Cargo target artifacts only after the installer confirms the timed-out build process is stopped safely.
 
    ```yaml
    # .github/actions/install-miden-client-cli/action.yml:446-460
-   if: steps.pins.outputs.stable_kernel == '1' && steps.stable_cli_install.outcome != 'skipped' && steps.stable_cli_install.outputs.safe-to-cache == 'true'
+   steps.stable_cli_install.outputs.safe-to-cache == 'true'
    ```
 
-3. [Expert, addressed] Pass `-f platform=android` when dispatching this combined workflow; its manual default is iOS and otherwise the Android job is skipped.
+5. [Expert, addressed] Dispatch the Android job with `platform=android`; the combined workflow retains iOS as its default input.
 
    ```yaml
-   # .github/workflows/e2e-bridge-in.yml:31-44,299-302
+   # .github/workflows/e2e-bridge-in.yml:35-40,537-542
    default: ios
    if: github.event_name == 'workflow_dispatch' && inputs.platform == 'android'
    ```
 
-4. [Expert, fixed] Run the Android x86_64 AVD on an Intel host with enough logical CPUs and fail before SDK installation if the runner does not meet the observed six-core minimum. The exact failed-run artifact showed the standard runner forced the guest to one vCPU and QEMU stalled before `adb` appeared.
+6. [Expert, fixed] Run the x86_64 AVD on the 12-core Intel macOS larger runner and fail before boot if fewer than six host CPUs are available.
 
    ```yaml
-   # .github/workflows/e2e-bridge-in.yml:303-307,336-345
+   # .github/workflows/e2e-bridge-in.yml:542,855-863
    runs-on: macos-26-large
-   if ! [[ "$host_cores" =~ ^[0-9]+$ ]] || (( host_cores < 6 )); then
-     exit 1
-   fi
+   if ... host_cores < 6; then exit 1; fi
+   ```
+
+7. [Expert, fixed] Relay workflow cancellation to the detached Playwright process group, then escalate if it does not exit.
+
+   ```js
+   // scripts/run-android-bridge-in-with-startup-deadline.cjs:141-165
+   process.on('SIGINT', handleTermination);
+   process.on('SIGTERM', handleTermination);
+   ```
+
+8. [Expert, fixed] Write a structured startup result on every ordinary setup exit, including failures before the Playwright watchdog begins.
+
+   ```yaml
+   # .github/workflows/e2e-bridge-in.yml:941-1000
+   if: always()
+   uses: actions/github-script@v7
+   ```
+
+9. [Expert, fixed] Do not issue recipient fee grants when WalletConnect setup fails; start the grant only after connection succeeds, overlap it with the first deposit, and wait before solver delivery.
+
+   ```ts
+   // playwright/e2e/android/tests/bridge-in-deposit.android.spec.ts:363-379,493-510
+   await connectResult;
+   recipientFeeReserve = ...;
+   // await before Miden delivery
+   ```
+
+10. [Expert, fixed] Fail the workflow if Playwright exits successfully without recording loop 1; a green test command must not imply that any loop ran.
+
+   ```js
+   // scripts/run-android-bridge-in-with-startup-deadline.cjs:246
+   process.exitCode = exceededDeadline || !firstLoop ? 1 : code ?? 1;
    ```
 
 ### Low
 
-5. [Expert, fixed] Route source checkout and Cargo preparation through the process-tree-aware timeout runner so timed-out setup commands cannot race source cleanup.
+11. [Expert, fixed] Run checkout and Cargo preparation through the process-tree-aware timeout helper so timed-out commands cannot race source cleanup.
 
    ```js
-   // scripts/install-pinned-miden-cli.cjs:82-98,316-329
-   await run('cargo', ['update', '--workspace'], { cwd: source, stdio: 'inherit', timeoutMs: 180_000 });
+   // scripts/install-pinned-miden-cli.cjs:91-97,318-324
+   timeoutMs: 180_000
    ```
 
-6. [Expert, fixed] Name Hypervisor.framework as the acceleration layer for this macOS runner so the setup comment points maintainers to the correct VM backend.
+12. [Expert, fixed] Name Hypervisor.framework as the macOS acceleration layer in the runner guidance.
 
    ```yaml
-   # .github/workflows/e2e-bridge-in.yml:56-57
-   # Hypervisor.framework is what makes the emulator usable rather than
-   # merely present on this macOS runner. Without it, the boot fails or stalls.
+   # .github/workflows/e2e-bridge-in.yml:885-890
+   # Prove the selected runner exposes Hypervisor.framework before emulator boot.
    ```

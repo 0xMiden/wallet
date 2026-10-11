@@ -436,3 +436,35 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - The already-completed CLI fix, cache handoff, Hypervisor check, AVD creation, and APK build all passed in run `38091647355`; only emulator boot failed before Playwright collected a test.
 - Actionlint (ignoring the local label list for documented custom GitHub runners), workflow YAML parsing, and `git diff --check` pass. Independent staff-engineer review found no blocker; the hosted emulator boot still needs confirmation in a fresh run.
 - Repair commit `69dfaa2d153553c9982364b185626b905b6dca84` is pushed; `git ls-remote` confirms the recovery branch points to that exact commit. Remote `main` was not part of the push.
+
+# Start Android Bridge-IN loops without cold build gates
+
+## Plan
+
+- [x] Inspect exact run `38104475519`, cancel it after explicit user approval, and verify that no Android E2E test started.
+- [x] Read the CLI job logs and identify the missing reusable cache; the cold CLI compile took 24m29s before the Android job began.
+- [x] Add an `android-prepare` mode to the already-registered bridge workflow so the feature branch can build exact-SHA inputs without changing `main`.
+- [x] Build CLI/APK in parallel during preparation; warm exact dependencies and only the missing Android API 34 system image; bind artifacts to run, ref, SHA, build flags, and checksums.
+- [x] Remove dependency installation, CLI/APK builds, and Android SDK image downloads from the live path; fail closed on missing prepared inputs.
+- [x] Start the visible emulator before Playwright setup; overlap CLI initialization, wallet creation, fee discovery, and early WalletConnect.
+- [x] Let the first EVM deposit begin while recipient fee grants are prepared; wait for grants before solver delivery, and avoid Testnet funding if WalletConnect fails.
+- [x] Enforce the five-minute deadline from workflow `created_at`, fail early when runner queue time has already consumed it, and report dispatch-to-loop plus Android-job-to-loop.
+- [x] Bound and check each expensive live setup stage against the same dispatch deadline; validate the exact-SHA artifact before checkout and cache restoration.
+- [x] Run static workflow/script validation, inspect the full diff, and record independent review findings.
+- [x] Obtain final independent re-review of the process cleanup, asynchronous fee-funding order, and zero-loop exit behavior.
+- [ ] With explicit authorization, publish only to the recovery branch and run `android-prepare` for that exact SHA.
+- [ ] Obtain fresh authorization before dispatching another live 100-loop Testnet run.
+
+## Evidence
+
+- Run `38104475519` was cancelled at the user's request. The CLI job completed successfully after 24m29s; Android capacity check, Hypervisor check, and AVD creation passed. Dependency install was cancelled, so no APK build, Playwright test, bridge loop, or Testnet transaction started.
+- Both the verified CLI cache and resumable Cargo-target cache were missing at the beginning of the run. The 736 MB Cargo cache and 13 MB CLI cache were written only after the cold compile, so GitHub cache availability cannot be assumed for a five-minute start target.
+- The preceding Android job spent 4m07s installing dependencies and 8m01s building the APK before Playwright could begin; both builds must move ahead of the live dispatch to satisfy the requested start latency.
+- The five-minute clock now starts at workflow `created_at`, so runner queue time counts. A job that reaches its first step after the deadline fails immediately; setup stages check the same deadline, and the Playwright watchdog terminates its process group if loop 1 has not entered by the deadline. WalletConnect starts after onboarding while CLI/Testnet preparation continues. Recipient fee funding starts only after WalletConnect succeeds and overlaps the first EVM deposit; it must finish before Miden delivery. The always-run finalizer records startup failure when an earlier setup step bypasses the watchdog.
+- The first-loop marker records entry into loop 1 before the first deposit UI action; it does not claim that a deposit has been submitted. The Android cache contains only the API 34 system image; emulator, platform tools, API 36 and build tools come from the verified hosted runner image. This source repair does not prove the target until a live run records dispatch-to-loop-entry timing.
+
+## Review/results
+
+- `actionlint`, workflow YAML parsing, `bash -n` for all workflow run blocks, `node --check` for the watchdog and embedded Node/GitHub Script blocks, and `git diff --check` pass. Scoped ESLint was unavailable because this checkout has no local dependency installation; no tests or live workflows were run.
+- Independent review findings for exact-repository artifact selection, bounded setup, cancellation forwarding, missing startup reports, Testnet fee side effects, and zero-loop success have been addressed. Final read-only re-review found no remaining P0/P1/P2 issues.
+- No new GitHub workflow was dispatched; the cancelled run remains the only run affected by the prior authorization.

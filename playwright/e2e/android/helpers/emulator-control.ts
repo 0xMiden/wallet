@@ -149,6 +149,18 @@ export class EmulatorControl {
     return bootAvd(BASE_AVD, 5554, true);
   }
 
+  /** Start the visible bridge-in emulator and return as soon as adb sees it. */
+  static async startSingle(): Promise<string> {
+    const serial = 'emulator-5554';
+    if ((await EmulatorControl.listBootedSerials()).has(serial)) {
+      await assertRunningAvd(serial, BASE_AVD, true);
+      return serial;
+    }
+
+    await ensureAvdsExist([BASE_AVD]);
+    return bootAvd(BASE_AVD, 5554, true, false);
+  }
+
   /**
    * Wait until an already-booted emulator is fully usable (system boot
    * completed + package manager responsive). adb's wait-for-device only
@@ -532,7 +544,7 @@ async function ensureAvdsExist(requiredAvds: string[] = [DEVICE_PAIR_AVD_A, DEVI
   }
 }
 
-async function bootAvd(avdName: string, port: number, visible = false): Promise<string> {
+async function bootAvd(avdName: string, port: number, visible = false, waitForBoot = true): Promise<string> {
   // If an emulator is already listening on this port from a previous run,
   // verify its AVD and (when required) visible launch mode before reuse.
   const expectedSerial = `emulator-${port}`;
@@ -604,9 +616,12 @@ async function bootAvd(avdName: string, port: number, visible = false): Promise<
   // BOOT_TIMEOUT_MS for why the budget is sized for a contended CI runner
   // rather than the Apple Silicon host this was first written on.
   const start = Date.now();
-  while (Date.now() - start < BOOT_TIMEOUT_MS) {
+  const waitTimeoutMs = waitForBoot ? BOOT_TIMEOUT_MS : 45_000;
+  while (Date.now() - start < waitTimeoutMs) {
     const present = await EmulatorControl.listBootedSerials();
     if (present.has(expectedSerial)) {
+      if (!waitForBoot) return expectedSerial;
+
       let bootCompleted = false;
       try {
         const { stdout } = await adb(['-s', expectedSerial, 'shell', 'getprop', 'sys.boot_completed']);
@@ -621,7 +636,8 @@ async function bootAvd(avdName: string, port: number, visible = false): Promise<
     }
     await sleep(BOOT_POLL_MS);
   }
-  throw new Error(`Emulator ${avdName} on port ${port} did not boot within ${BOOT_TIMEOUT_MS}ms — see ${logPath}`);
+  const target = waitForBoot ? 'boot' : 'become visible to adb';
+  throw new Error(`Emulator ${avdName} on port ${port} did not ${target} within ${waitTimeoutMs}ms — see ${logPath}`);
 }
 
 /** Fail closed if a live serial belongs to another AVD or is hidden when the route requires a visible window. */

@@ -68,6 +68,15 @@ interface AggLayerLoopManifest {
   startedAt: string;
   updatedAt: string;
   completedAt?: string;
+  startup?: {
+    workflowCreatedAt?: string;
+    androidJobStartedAt?: string;
+    firstLoopStartedAt: string;
+    startupSlaClock: 'workflowCreatedAt';
+    dispatchToFirstLoopMs?: number;
+    jobToFirstLoopMs?: number;
+    withinFiveMinuteTarget?: boolean;
+  };
   error?: { name: string; message: string };
   feeBudget?: {
     baseFee: string;
@@ -99,6 +108,33 @@ function persistManifest(outputDir: string, manifest: AggLayerLoopManifest): voi
 
 function appendLoopEvent(outputDir: string, event: Record<string, unknown>): void {
   fs.appendFileSync(path.join(outputDir, 'agglayer-loops.ndjson'), `${JSON.stringify(event)}\n`);
+}
+
+async function recordStartupPhase<T>(outputDir: string, phase: string, run: () => Promise<T>): Promise<T> {
+  const startedAt = new Date().toISOString();
+  const start = Date.now();
+  appendLoopEvent(outputDir, { event: 'startup_phase_started', phase, at: startedAt });
+  try {
+    const result = await run();
+    appendLoopEvent(outputDir, {
+      event: 'startup_phase_completed',
+      phase,
+      startedAt,
+      completedAt: new Date().toISOString(),
+      durationMs: Date.now() - start
+    });
+    return result;
+  } catch (error) {
+    appendLoopEvent(outputDir, {
+      event: 'startup_phase_failed',
+      phase,
+      startedAt,
+      failedAt: new Date().toISOString(),
+      durationMs: Date.now() - start,
+      error: errorRecord(error)
+    });
+    throw error;
+  }
 }
 
 function errorRecord(error: unknown): { name: string; message: string } {
@@ -184,7 +220,6 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
 
   test(`deposit ETH via the real UI reconciles to received (${BRIDGE_IN_LOOP_COUNT} loop${BRIDGE_IN_LOOP_COUNT === 1 ? '' : 's'})`, async ({
     walletA,
-    walletB,
     midenCli,
     steps
   }) => {
@@ -206,15 +241,53 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
     let solverFeeGrantCount = 1;
     let recipientFeeGrantCount = 1;
     let nativeFaucetBech32 = '';
+    let nativeFaucetHex = '';
+    let recipientFeeReserve: Promise<{ value: void } | { error: unknown }> | undefined;
+    const workflowCreatedAt = process.env.E2E_WORKFLOW_CREATED_AT;
+    const workflowCreatedAtMs = workflowCreatedAt ? Date.parse(workflowCreatedAt) : Number.NaN;
+    const androidJobStartedAt = process.env.E2E_ANDROID_JOB_STARTED_AT;
+    const androidJobStartedAtMs = androidJobStartedAt ? Date.parse(androidJobStartedAt) : Number.NaN;
     persistManifest(steps.outputDir, manifest);
     appendLoopEvent(steps.outputDir, {
       event: 'run_started',
       route: manifest.route,
       requestedLoops: manifest.requestedLoops,
-      at: manifest.startedAt
+      at: manifest.startedAt,
+      workflowCreatedAt: Number.isFinite(workflowCreatedAtMs) ? workflowCreatedAt : null,
+      androidJobStartedAt: Number.isFinite(androidJobStartedAtMs) ? androidJobStartedAt : null
     });
 
     try {
+      // Start independent local wallet onboarding and CLI/Testnet initialization
+      // before fee discovery so all three prerequisites make progress together.
+      const walletSetup = recordStartupPhase(steps.outputDir, 'create_wallet', () => walletA.createNewWallet()).then(
+        value => ({ value }),
+        error => ({ error })
+      );
+      const cliInitialization = recordStartupPhase(steps.outputDir, 'initialize_cli', () => midenCli.init()).then(
+        value => ({ value }),
+        error => ({ error })
+      );
+      // WalletConnect only needs the newly-created wallet. Pair as soon as
+      // onboarding completes, while fee discovery and the solver faucet build
+      // continue on the independent CLI/Testnet path.
+      const connectResult = walletSetup.then(async walletResult => {
+        if ('error' in walletResult) throw walletResult.error;
+        await recordStartupPhase(steps.outputDir, 'connect_evm', async () => {
+          // The public relay rate-limits connection bursts and its subscribe can
+          // time out mid-handshake, so retry the WHOLE handshake (URI fetch +
+          // pair + approve) with backoff - the CI-reliability guard for the
+          // relay dependency.
+          await cp.connectWithRetry(
+            () => walletA.reownConnectUri(),
+            async () => (await walletA.reownState()).connected
+          );
+        });
+      }).then(
+        value => ({ value }),
+        error => ({ error })
+      );
+
       await steps.step('preflight_fee_reserve', async () => {
         if (BRIDGE_IN_LOOP_COUNT === 1) return;
         const environment = getEnvironmentConfig();
@@ -254,14 +327,9 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
         });
       });
 
-      await steps.step('create_wallet', async () => {
-        const a = await walletA.createNewWallet();
-        await walletB.createNewWallet(); // fixture requires both sims up
-        addressA = a.address;
-      });
-
-      await steps.step('deploy_solver_faucet_and_point_matcher', async () => {
-        await midenCli.init();
+      await steps.step('deploy_solver_faucet', async () => {
+        const result = await cliInitialization;
+        if ('error' in result) throw result.error;
         faucetHex = await midenCli.createFaucet('TST', 8, FAUCET_MAX_SUPPLY, solverFeeGrantCount);
         if (manifest.feeBudget) {
           const solverBalance = await midenCli.nativeFeeBalance(faucetHex);
@@ -270,40 +338,45 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
             solverReserve
           );
           manifest.feeBudget.solverStartingBalance = solverBalance.toString();
-          const nativeFaucetHex = await midenCli.ensureNativeFaucetId();
+          nativeFaucetHex = (await midenCli.ensureNativeFaucetId()) ?? '';
           if (!nativeFaucetHex) throw new Error('Testnet native fee faucet ID was not discovered');
-          nativeFaucetBech32 = await walletA.hexToBech32Faucet(nativeFaucetHex);
-          await midenCli.fundAccountForFees(addressA, recipientFeeGrantCount);
           expect(
             BigInt(recipientFeeGrantCount) * BigInt(manifest.feeBudget.publicGrantAmount),
             'pending recipient grants cover all maximum-cost claims'
           ).toBeGreaterThanOrEqual(BigInt(manifest.feeBudget.recipientRequiredReserve));
           persistManifest(steps.outputDir, manifest);
-          appendLoopEvent(steps.outputDir, {
-            event: 'fee_reserve_prepared',
-            baseFee: manifest.feeBudget.baseFee,
-            maxFeePerTransaction: manifest.feeBudget.maxFeePerTransaction,
-            publicGrantAmount: manifest.feeBudget.publicGrantAmount,
-            solverGrantCount: solverFeeGrantCount,
-            recipientGrantCount: recipientFeeGrantCount,
-            solverStartingBalance: manifest.feeBudget.solverStartingBalance,
-            at: new Date().toISOString()
-          });
         }
+      });
+
+      await steps.step('create_wallet', async () => {
+        const result = await walletSetup;
+        if ('error' in result) throw result.error;
+        addressA = result.value.address;
+      });
+
+      await steps.step('point_matcher', async () => {
         const faucetBech32 = await walletA.hexToBech32Faucet(faucetHex);
+        nativeFaucetBech32 = nativeFaucetHex ? await walletA.hexToBech32Faucet(nativeFaucetHex) : '';
         await walletA.setAgglayerSender(faucetBech32);
       });
 
       await steps.step('connect_evm', async () => {
-        // The public relay rate-limits connection bursts and its subscribe can
-        // time out mid-handshake, so retry the WHOLE handshake (URI fetch +
-        // pair + approve) with backoff - the CI-reliability guard for the
-        // relay dependency.
-        await cp.connectWithRetry(
-          () => walletA.reownConnectUri(),
-          async () => (await walletA.reownState()).connected
-        );
+        const result = await connectResult;
+        if ('error' in result) throw result.error;
       });
+
+      // Do not mutate Testnet unless WalletConnect is ready. Once it is, start
+      // recipient fee funding before loop entry without waiting for completion:
+      // the first EVM deposit does not need that reserve. Wait before the solver
+      // note arrives so fee funding overlaps real loop work without a race.
+      if (manifest.feeBudget) {
+        recipientFeeReserve = recordStartupPhase(steps.outputDir, 'prepare_recipient_fee_reserve', () =>
+          midenCli.fundAccountForFees(addressA, recipientFeeGrantCount)
+        ).then(
+          value => ({ value }),
+          error => ({ error })
+        );
+      }
 
       const anvilRpcUrl = anvil.rpcUrl;
       const solverFaucetHex = faucetHex;
@@ -322,9 +395,46 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
           status: 'started',
           startedAt: new Date().toISOString()
         };
+        if (loopNumber === 1) {
+          const firstLoopAtMs = Date.parse(loop.startedAt);
+          const dispatchToFirstLoopMs = Number.isFinite(workflowCreatedAtMs)
+            ? firstLoopAtMs - workflowCreatedAtMs
+            : undefined;
+          const jobToFirstLoopMs = Number.isFinite(androidJobStartedAtMs)
+            ? firstLoopAtMs - androidJobStartedAtMs
+            : undefined;
+          manifest.startup = {
+            ...(Number.isFinite(workflowCreatedAtMs) ? { workflowCreatedAt } : {}),
+            ...(Number.isFinite(androidJobStartedAtMs) ? { androidJobStartedAt } : {}),
+            firstLoopStartedAt: loop.startedAt,
+            startupSlaClock: 'workflowCreatedAt',
+            ...(dispatchToFirstLoopMs !== undefined ? { dispatchToFirstLoopMs } : {}),
+            ...(jobToFirstLoopMs !== undefined ? { jobToFirstLoopMs } : {}),
+            ...(dispatchToFirstLoopMs !== undefined
+              ? { withinFiveMinuteTarget: dispatchToFirstLoopMs <= 5 * 60_000 }
+              : {})
+          };
+        }
         manifest.loops.push(loop);
         persistManifest(steps.outputDir, manifest);
-        appendLoopEvent(steps.outputDir, { event: 'loop_started', loop: loopNumber, at: loop.startedAt });
+        appendLoopEvent(steps.outputDir, {
+          event: 'loop_started',
+          loop: loopNumber,
+          at: loop.startedAt,
+          ...(loopNumber === 1 && manifest.startup?.dispatchToFirstLoopMs !== undefined
+            ? {
+                dispatchToFirstLoopMs: manifest.startup.dispatchToFirstLoopMs,
+                jobToFirstLoopMs: manifest.startup.jobToFirstLoopMs,
+                withinFiveMinuteTarget: manifest.startup.withinFiveMinuteTarget
+              }
+            : {})
+        });
+        if (loopNumber === 1 && process.env.E2E_FIRST_LOOP_MARKER) {
+          const markerPath = process.env.E2E_FIRST_LOOP_MARKER;
+          const temporaryMarkerPath = `${markerPath}.tmp`;
+          fs.writeFileSync(temporaryMarkerPath, `${JSON.stringify({ at: loop.startedAt })}\n`);
+          fs.renameSync(temporaryMarkerPath, markerPath);
+        }
 
         try {
           const requestStartIndex = cp.requests.length;
@@ -379,6 +489,26 @@ test.describe('Bridge-IN deposit (AggLayer/ETH, full real UI)', () => {
               at: new Date().toISOString()
             });
           });
+
+          if (loopNumber === 1 && recipientFeeReserve) {
+            await steps.step('complete_recipient_fee_reserve', async () => {
+              const result = await recipientFeeReserve;
+              if ('error' in result) throw result.error;
+              const feeBudget = manifest.feeBudget;
+              if (!feeBudget) throw new Error('Recipient fee reserve completed without a fee budget.');
+              persistManifest(steps.outputDir, manifest);
+              appendLoopEvent(steps.outputDir, {
+                event: 'fee_reserve_prepared',
+                baseFee: feeBudget.baseFee,
+                maxFeePerTransaction: feeBudget.maxFeePerTransaction,
+                publicGrantAmount: feeBudget.publicGrantAmount,
+                solverGrantCount: solverFeeGrantCount,
+                recipientGrantCount: recipientFeeGrantCount,
+                solverStartingBalance: feeBudget.solverStartingBalance,
+                at: new Date().toISOString()
+              });
+            });
+          }
 
           let rowAmount = '';
           await steps.step(`${label}_row_reaches_delivering`, async () => {
