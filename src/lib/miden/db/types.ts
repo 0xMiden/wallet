@@ -721,6 +721,15 @@ export interface ITransaction {
   displayMessage?: string;
   displayIcon: ITransactionIcon;
   inputNoteIds?: string[];
+  /**
+   * Written on a dApp custom (`execute`) row only, which completion may re-type: every note the transaction will
+   * consume, recorded when it is queued, the notes it carries (`importNotes`) included. While the row is live or
+   * awaiting its verdict, and for a grace window after it completes, these are held out of auto-consume and refused by
+   * the claim dedup (`isNoteHoldingRow`). Kept apart from `inputNoteIds`, the dApp's own list, which completion
+   * overwrites with the executed inputs and history recovery matches rows on. Absent on rows queued before it existed,
+   * which hold nothing.
+   */
+  heldNoteIds?: string[];
   outputNoteIds?: string[];
   /** The private output notes a custom row owes the relay, all of which its `noteDelivery` covers; see `relayNoteIdsOf`. */
   relayNoteIds?: string[];
@@ -982,6 +991,8 @@ export class Transaction implements ITransaction {
   transactionId?: string;
   requestBytes?: Uint8Array;
   inputNoteIds?: string[];
+  /** See `ITransaction.heldNoteIds`. */
+  heldNoteIds?: string[];
   outputNoteIds?: string[];
   /** Per-faucet value leaving the account. See `ITransaction.spentAssetTotals`. */
   spentAssetTotals?: IConsumedAssetTotal[];

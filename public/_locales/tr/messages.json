@@ -1703,6 +1703,10 @@
     "message": "Jetonları ara",
     "englishSource": "Search for tokens"
   },
+  "sendUsdcxOnlyDestination": {
+    "message": "Bu ağa yalnızca USDCx gönderilebilir.",
+    "englishSource": "Only USDCx can be sent to this network."
+  },
   "available": {
     "message": "Mevcut",
     "englishSource": "Available"

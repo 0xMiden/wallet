@@ -103,6 +103,10 @@ export const INVALID_NOTE_ERROR = 'Note is invalid';
 export const EARN_DEPOSIT_MISSING_REQUEST_ERROR =
   'Earn deposit has no collateral request with its mandate binding, so it was not sent.';
 
+// A dApp's consume request whose note a dApp transaction holds: answering with that row would hand it another
+// transaction's id, outcome and output notes.
+export const NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR = 'This note is being consumed by another transaction';
+
 export const TRANSACTION_FORCE_CANCELLED_ERROR = 'Transaction force-cancelled for debugging';
 
 /**

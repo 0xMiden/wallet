@@ -1,4 +1,4 @@
-import { encodeBurnWithdrawal, UsdcxBurnError, validateUsdcxWithdrawal } from './withdrawal';
+import { encodeBurnWithdrawal, isUsdcxWithdrawalNetwork, UsdcxBurnError, validateUsdcxWithdrawal } from './withdrawal';
 
 const USDCX_FAUCET_ID_BECH32 = 'mtst1native';
 jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetIdSync: () => 'mtst1native' }));
@@ -89,5 +89,12 @@ describe('USDCx withdrawal encoding', () => {
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 100_000n)).toThrow(
       'usdcxSendMoreThanPayoutFee'
     );
+  });
+
+  it('offers withdrawals on testnet only, whatever the token', () => {
+    expect(isUsdcxWithdrawalNetwork()).toBe(true);
+    network = 'devnet';
+    expect(isUsdcxWithdrawalNetwork()).toBe(false);
+    network = 'testnet';
   });
 });
