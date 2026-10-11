@@ -1,10 +1,27 @@
 /**
  * @jest-environment node
  */
+import type { Page } from '@playwright/test';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+import { sepolia } from 'viem/chains';
 
-import { bridgedSendRowOf, enText, parseBridgeReceiveState } from './bridge';
+import {
+  bridgedSendRowOf,
+  bridgeOutUsdcx,
+  enText,
+  expectArcPreselected,
+  isArcSnapshotFailure,
+  parseBridgeReceiveState,
+  readNativeDisplaySymbol,
+  reviewQueryParam,
+  usdcxChipsProblem,
+  usdcxPayoutRowsText,
+  waitForReviewSubmitEnabled
+} from './bridge';
+import { ARC_CHAIN_ID } from './usdcx-constants';
+import type { ChromeWalletPageApi } from './wallet-page';
 
 const EN = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../public/_locales/en/en.json'), 'utf8'));
 
@@ -152,5 +169,173 @@ describe('parseBridgeReceiveState', () => {
 
   it('refuses an answer that is not a state object', () => {
     expect(() => parseBridgeReceiveState(null)).toThrow('not a state object');
+  });
+});
+
+describe('usdcxChipsProblem', () => {
+  const chips = (pressed: string) =>
+    [
+      'send-network-arc-testnet',
+      'send-network-sepolia',
+      'send-network-base-sepolia',
+      'send-network-arbitrum-sepolia'
+    ].map(testId => ({ testId, pressed: testId === pressed ? 'true' : 'false' }));
+
+  it('accepts exactly the four USDCx destinations with only the selected one pressed', () => {
+    expect(usdcxChipsProblem(chips('send-network-arc-testnet'), 'send-network-arc-testnet')).toBeUndefined();
+  });
+
+  it('names a fifth chip, a missing chip, and a wrongly pressed chip', () => {
+    expect(
+      usdcxChipsProblem(
+        [...chips('send-network-arc-testnet'), { testId: 'send-network-miden', pressed: null }],
+        'send-network-arc-testnet'
+      )
+    ).toContain('send-network-miden');
+    expect(usdcxChipsProblem(chips('send-network-arc-testnet').slice(1), 'send-network-arc-testnet')).toContain(
+      'expected exactly'
+    );
+    expect(usdcxChipsProblem(chips('send-network-sepolia'), 'send-network-arc-testnet')).toBe(
+      'aria-pressed send-network-arc-testnet=false, send-network-sepolia=true; only send-network-arc-testnet may be pressed'
+    );
+  });
+});
+
+describe('reviewQueryParam', () => {
+  it("reads a parameter of the review's hash route", () => {
+    const url =
+      'chrome-extension://abc/fullpage.html#/send/review?amount=10&to=0x405b&tokenId=mtst1apx_qr7&network=arc-testnet&route=usdcx';
+    expect(reviewQueryParam(url, 'network')).toBe('arc-testnet');
+    expect(reviewQueryParam(url, 'tokenId')).toBe('mtst1apx_qr7');
+    expect(reviewQueryParam('chrome-extension://abc/fullpage.html#/send/review', 'network')).toBeNull();
+  });
+});
+
+describe('isArcSnapshotFailure', () => {
+  it('blames the Arc snapshot only for an RPC-shaped error with no burn row queued', () => {
+    expect(isArcSnapshotFailure('HTTP request failed. Status: 429', 0)).toBe(true);
+    expect(isArcSnapshotFailure('The request took too long to respond. timed out', 0)).toBe(true);
+    expect(isArcSnapshotFailure('HTTP request failed. Status: 429', 1)).toBe(false);
+    expect(isArcSnapshotFailure('The amount is below the minimum burn.', 0)).toBe(false);
+  });
+});
+
+describe('readNativeDisplaySymbol', () => {
+  const pageRunningHere = () =>
+    ({ evaluate: async <T>(callback: (arg: T) => unknown, arg: T) => callback(arg) }) as unknown as Page;
+  const native = 'mtst1apxtmjhlua0s5vt5sg3ymtnyxclasaf0_qr7qqq9wr6w';
+
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, '__TEST_STORE__');
+  });
+
+  it("reads the native row's symbol from the current account only", async () => {
+    Reflect.set(globalThis, '__TEST_STORE__', {
+      getState: () => ({
+        currentAccount: { publicKey: 'acct-a' },
+        balances: {
+          'acct-b': [{ tokenId: native, metadata: { symbol: 'MIDEN' } }],
+          'acct-a': [{ tokenId: native, metadata: { symbol: 'USDCX' } }]
+        }
+      })
+    });
+    await expect(readNativeDisplaySymbol(pageRunningHere(), native)).resolves.toBe('USDCX');
+  });
+
+  it('throws naming the rows it saw when the native row is missing', async () => {
+    Reflect.set(globalThis, '__TEST_STORE__', {
+      getState: () => ({ currentAccount: { publicKey: 'acct-a' }, balances: { 'acct-a': [{ tokenId: 'other' }] } })
+    });
+    await expect(readNativeDisplaySymbol(pageRunningHere(), native)).rejects.toThrow('balance rows: other');
+  });
+});
+
+describe('usdcxPayoutRowsText', () => {
+  it("reads both payout rows from the destination's own fee allowance in the wallet", () => {
+    expect(usdcxPayoutRowsText(ARC_CHAIN_ID, '10')).toEqual({ fee: 'Up to 0.1 USDC', net: 'At least 9.9 USDC' });
+    expect(usdcxPayoutRowsText(sepolia.id, '10')).toEqual({ fee: 'Up to 1.5 USDC', net: 'At least 8.5 USDC' });
+  });
+
+  it('refuses an amount the allowance takes whole, naming both, and takes the least amount above it', () => {
+    expect(() => usdcxPayoutRowsText(ARC_CHAIN_ID, '0.1')).toThrow(
+      '0.1 USDCx does not exceed the 0.1 USDC payout fee allowance on Arc Testnet'
+    );
+    expect(usdcxPayoutRowsText(ARC_CHAIN_ID, '0.100001').net).toBe('At least 0.000001 USDC');
+  });
+});
+
+describe('bridgeOutUsdcx', () => {
+  it('refuses an amount the Arc fee allowance takes whole before it touches the page', async () => {
+    const touched: string[] = [];
+    const page = new Proxy(
+      {},
+      {
+        get: (_target, property) => {
+          touched.push(String(property));
+          return () => Promise.reject(new Error('the page was driven'));
+        }
+      }
+    );
+    const wallet = { page, extensionId: 'abc' } as unknown as ChromeWalletPageApi;
+    await expect(
+      bridgeOutUsdcx(wallet, {
+        destAddress: '0x405b05F75F8D299FCd413a3d77F89EDDCBa78026',
+        amount: '0.1',
+        nativeTokenId: 'mtst1apxtmjhlua0s5vt5sg3ymtnyxclasaf0_qr7qqq9wr6w',
+        nativeSymbol: 'USDCX',
+        screenshotDir: path.join(os.tmpdir(), 'bridge-out-usdcx-refused')
+      })
+    ).rejects.toThrow('0.1 USDCx does not exceed the 0.1 USDC payout fee allowance on Arc Testnet');
+    expect(touched).toEqual([]);
+  });
+});
+
+describe('expectArcPreselected', () => {
+  const pageWithChips = (pressed: string) =>
+    ({
+      locator: () => ({
+        evaluateAll: async () =>
+          [
+            'send-network-arc-testnet',
+            'send-network-sepolia',
+            'send-network-base-sepolia',
+            'send-network-arbitrum-sepolia'
+          ].map(testId => ({ testId, pressed: testId === pressed ? 'true' : 'false' }))
+      })
+    }) as unknown as Page;
+
+  it('resolves once Arc Testnet alone is pressed among the four chips', async () => {
+    await expect(expectArcPreselected(pageWithChips('send-network-arc-testnet'), 1_000)).resolves.toBeUndefined();
+  });
+
+  it('says it checks the chip set and the default, not USDCx mode', async () => {
+    await expect(expectArcPreselected(pageWithChips('send-network-sepolia'), 300)).rejects.toThrow(
+      'checks the chip set and its default'
+    );
+  });
+});
+
+describe('waitForReviewSubmitEnabled', () => {
+  const reviewPage = (submitEnabled: () => boolean, reviewError: string | null) =>
+    ({
+      getByTestId: (testId: string) =>
+        testId === 'send-review-submit'
+          ? { isEnabled: async () => submitEnabled() }
+          : { isVisible: async () => reviewError !== null, textContent: async () => reviewError }
+    }) as unknown as Page;
+
+  it('waits while the submit is disabled and no refusal shows, then resolves once it enables', async () => {
+    let reads = 0;
+    const page = reviewPage(() => ++reads >= 3, null);
+    await expect(waitForReviewSubmitEnabled(page, 10_000)).resolves.toBeUndefined();
+    expect(reads).toBe(3);
+  });
+
+  it('throws the review-error text at once instead of waiting out its timeout', async () => {
+    const refusal = enText('usdcxSendMoreThanPayoutFee', { amount: '0.1', network: 'Arc Testnet' });
+    const page = reviewPage(() => false, refusal);
+    await expect(waitForReviewSubmitEnabled(page, 60_000)).rejects.toThrow(
+      `the review refused the burn before submit: review-error "${refusal}"`
+    );
   });
 });

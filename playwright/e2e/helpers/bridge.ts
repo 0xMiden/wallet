@@ -1,12 +1,13 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
-import type { Hash } from 'viem';
+import { formatUnits, parseUnits, type Hash } from 'viem';
 
 import { captureEpochTraffic, fastFeeExpectation, waitForFastQuote } from './epoch-quote';
 import { readTransactionRowsWithBytes, type JsonValue, type TransactionRowSnapshot } from './history';
 import type { MidenCli } from './miden-cli';
 import { swOf } from './swap';
+import { ARC_CHAIN_ID, minimumUsdcxPayout, USDCX_DECIMALS, USDCX_DESTINATIONS } from './usdcx-constants';
 import type { ChromeWalletPageApi } from './wallet-page';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
 
@@ -630,4 +631,289 @@ export async function bridgeReceiveState(wallet: Wallet, txId: string): Promise<
     return hook(id);
   }, txId);
   return parseBridgeReceiveState(state);
+}
+
+/**
+ * The symbol the UI shows for the native token: the current account's balance row, whose metadata the store resolves
+ * the way the send flow does (`getNativeDisplayMetadataSync`). Throws when the row or its symbol is missing.
+ */
+export async function readNativeDisplaySymbol(page: Page, nativeTokenId: string): Promise<string> {
+  const read = await page.evaluate(tokenId => {
+    const store:
+      | {
+          getState?: () => {
+            currentAccount?: { publicKey?: string } | null;
+            balances?: Record<string, Array<{ tokenId?: string; metadata?: { symbol?: string } }>>;
+          };
+        }
+      | undefined = Reflect.get(globalThis, '__TEST_STORE__');
+    const state = store?.getState?.();
+    const account = state?.currentAccount?.publicKey;
+    const rows = account === undefined ? [] : (state?.balances?.[account] ?? []);
+    return {
+      account: account ?? null,
+      symbol: rows.find(row => row.tokenId === tokenId)?.metadata?.symbol ?? null,
+      tokenIds: rows.map(row => String(row.tokenId ?? ''))
+    };
+  }, nativeTokenId);
+  if (!read.symbol) {
+    throw new Error(
+      `readNativeDisplaySymbol: no symbol for ${nativeTokenId} on account ${read.account ?? '(none)'}; ` +
+        `balance rows: ${read.tokenIds.join(', ') || '(none)'}`
+    );
+  }
+  return read.symbol;
+}
+
+/** The destination chips a USDCx burn offers on testnet, in no particular order (bridge-networks.ts). */
+export const USDCX_DESTINATION_CHIPS: readonly string[] = [
+  'send-network-arc-testnet',
+  'send-network-sepolia',
+  'send-network-base-sepolia',
+  'send-network-arbitrum-sepolia'
+];
+const ARC_CHIP = 'send-network-arc-testnet';
+// The burn's destination snapshot read alone may take its whole 15 s budget before the row is queued.
+const SUBMIT_TIMEOUT_MS = 60_000;
+const REVIEW_READY_TIMEOUT_MS = 60_000;
+const RPC_FAILURE = /\b(HTTP|RPC|JSON-RPC|429|5\d\d|fetch|timed? ?out|timeout|rate.?limit\w*)\b/i;
+
+export interface NetworkChipState {
+  testId: string;
+  /** The chip's `aria-pressed`, or null when it has none. */
+  pressed: string | null;
+}
+
+/** Why the chips are not exactly the four USDCx destinations with only `selected` pressed, or undefined when they are. */
+export function usdcxChipsProblem(chips: readonly NetworkChipState[], selected: string): string | undefined {
+  const ids = chips.map(chip => chip.testId).sort();
+  const expected = [...USDCX_DESTINATION_CHIPS].sort();
+  if (ids.join(',') !== expected.join(',')) {
+    return `network chips ${JSON.stringify(ids)}, expected exactly ${JSON.stringify(expected)}`;
+  }
+  const wrong = chips.filter(chip => chip.pressed !== (chip.testId === selected ? 'true' : 'false'));
+  return wrong.length === 0
+    ? undefined
+    : `aria-pressed ${wrong.map(chip => `${chip.testId}=${chip.pressed}`).join(', ')}; only ${selected} may be pressed`;
+}
+
+/** A query parameter of a hash route such as `fullpage.html#/send/review?network=arc-testnet`. */
+export function reviewQueryParam(url: string, name: string): string | null {
+  const { hash } = new URL(url);
+  const query = hash.includes('?') ? hash.slice(hash.indexOf('?') + 1) : '';
+  return new URLSearchParams(query).get(name);
+}
+
+/** A review-error that names an RPC failure, with no burn row queued: the wallet's Arc snapshot read failed (Q14). */
+export function isArcSnapshotFailure(reviewError: string, newUsdcxRows: number): boolean {
+  return newUsdcxRows === 0 && RPC_FAILURE.test(reviewError);
+}
+
+/** The value cell of the review's detail row labelled `label` (`DetailRow`: a label span beside a value div). */
+function detailRowValue(page: Page, label: string) {
+  if (label.includes('"')) throw new Error(`detailRowValue: label ${label} cannot be quoted in XPath`);
+  return page.locator(`xpath=//div[span[normalize-space(.)="${label}"]]/div`);
+}
+
+/** The value cell of a payout row, which `DetailRow` renders as a label span beside a value div. */
+function payoutRowValue(scope: Page | Locator, testId: string): Locator {
+  return scope.getByTestId(testId).locator(':scope > div');
+}
+
+function readNetworkChips(page: Page): Promise<NetworkChipState[]> {
+  return page
+    .locator('[data-testid^="send-network-"]:not([data-testid="send-network-options"])')
+    .evaluateAll(elements =>
+      elements.map(element => ({
+        testId: element.getAttribute('data-testid') ?? '',
+        pressed: element.getAttribute('aria-pressed')
+      }))
+    );
+}
+
+/**
+ * Polls until Arc Testnet alone is pressed among exactly the four USDCx destination chips. Every token shows the four
+ * chips (#1403), so this proves the set and its default; Arc pressed and `bridge-route-usdcx` prove USDCx mode.
+ */
+export async function expectArcPreselected(page: Page, timeoutMs: number): Promise<void> {
+  await expect
+    .poll(async () => usdcxChipsProblem(await readNetworkChips(page), ARC_CHIP) ?? 'ok', {
+      timeout: timeoutMs,
+      message:
+        'this checks the chip set and its default: exactly the four USDCx destination chips, Arc Testnet alone ' +
+        'pressed (every token shows the four chips, so USDCx mode rests on Arc pressed and bridge-route-usdcx)'
+    })
+    .toBe('ok');
+}
+
+/** What a USDCx burn's payout rows read (`UsdcxPayoutRows`). */
+export interface UsdcxPayoutRowsText {
+  /** `usdcx-payout-fee`: the most Circle takes. */
+  fee: string;
+  /** `usdcx-payout-net`: the least the recipient receives. */
+  net: string;
+}
+
+/**
+ * The payout rows a burn of `amount` USDCx to `chainId` shows, from the wallet's own fee allowance table. Throws when
+ * the allowance takes the whole amount: the wallet refuses that burn and leaves out its `usdcx-payout-net` row.
+ */
+export function usdcxPayoutRowsText(chainId: number, amount: string): UsdcxPayoutRowsText {
+  const destination = USDCX_DESTINATIONS.get(chainId);
+  if (destination === undefined) throw new Error(`usdcxPayoutRowsText: chain ${chainId} is not a USDCx destination`);
+  const allowance = formatUnits(destination.payoutFeeAllowance, USDCX_DECIMALS);
+  const payout = minimumUsdcxPayout(chainId, parseUnits(amount, USDCX_DECIMALS));
+  if (payout <= 0n) {
+    throw new Error(
+      `${amount} USDCx does not exceed the ${allowance} USDC payout fee allowance on ${destination.chain.name}, ` +
+        'so the wallet refuses the burn'
+    );
+  }
+  return {
+    fee: enText('usdcxPayoutFeeUpTo', { amount: allowance }),
+    net: enText('usdcxPayoutAtLeast', { amount: formatUnits(payout, USDCX_DECIMALS) })
+  };
+}
+
+/**
+ * Waits for the review's submit to enable. A review that refuses the burn keeps it disabled and says why in
+ * `review-error`, so that text is thrown once it shows instead of the wait running out.
+ */
+export async function waitForReviewSubmitEnabled(page: Page, timeoutMs: number): Promise<void> {
+  const submit = page.getByTestId('send-review-submit');
+  const error = page.getByTestId('review-error');
+  let refusal: string | undefined;
+  await expect
+    .poll(
+      async () => {
+        if (await submit.isEnabled()) return 'enabled';
+        if (!(await error.isVisible())) return 'waiting';
+        refusal = (await error.textContent()) ?? '';
+        return 'review-error';
+      },
+      { timeout: timeoutMs, intervals: [500], message: 'send-review-submit enables, or review-error names the refusal' }
+    )
+    .not.toBe('waiting');
+  if (refusal !== undefined) throw new Error(`the review refused the burn before submit: review-error "${refusal}"`);
+}
+
+export interface BridgeOutUsdcxOptions {
+  destAddress: `0x${string}`;
+  /** Human amount, as typed, e.g. '10'. */
+  amount: string;
+  /** The composite native id (`<bech32>_<suffix>`) the wallet discovered (balance-truth.ts). */
+  nativeTokenId: string;
+  /** From `readNativeDisplaySymbol`. */
+  nativeSymbol: string;
+  /** Per-step timeout (default 30s). */
+  stepTimeoutMs?: number;
+  /** Where usdcx-route.png, usdcx-review-light.png and usdcx-review-dark.png go. */
+  screenshotDir: string;
+}
+
+export interface BridgeOutUsdcxResult {
+  reviewUrl: string;
+  generatingUrl: string;
+}
+
+/**
+ * Burn the native USDCx to an Arc Testnet address through the real Send UI (spec section 5 step 6), ending on the
+ * generating-transaction screen. Checks on the way: exactly the four USDCx destination chips with Arc pressed, the
+ * route subtitle and fee row naming the native symbol, the payout rows and the burn notice on route and review, and
+ * the review's network.
+ */
+export async function bridgeOutUsdcx(wallet: Wallet, opts: BridgeOutUsdcxOptions): Promise<BridgeOutUsdcxResult> {
+  const { page, extensionId } = wallet;
+  const step = opts.stepTimeoutMs ?? STEP_TIMEOUT_MS;
+  if (opts.nativeSymbol.trim() === '' || opts.nativeSymbol.trim().toUpperCase() === 'MIDEN') {
+    throw new Error(`bridgeOutUsdcx: "${opts.nativeSymbol}" cannot name USDCx, the asset a USDCx burn spends`);
+  }
+  const payout = usdcxPayoutRowsText(ARC_CHAIN_ID, opts.amount);
+  const routeFees = enText('usdcxMidenFees', { symbol: opts.nativeSymbol });
+  const sponsorshipFee = enText('usdcxSponsorshipFee', { symbol: opts.nativeSymbol });
+  const notice = enText('usdcxWithdrawalNotice');
+  const rowsBefore = new Set((await readBridgedSendRows(page)).map(row => row.id));
+  fs.mkdirSync(opts.screenshotDir, { recursive: true });
+
+  await page.goto(
+    `chrome-extension://${extensionId}/fullpage.html#/send?tokenId=${encodeURIComponent(opts.nativeTokenId)}`
+  );
+  const flow = page.getByTestId('send-flow');
+  await expect(flow).toBeVisible({ timeout: step });
+  await flow.getByTestId('send-recipient-input').fill(opts.destAddress);
+  await expectArcPreselected(page, step);
+  await page.getByTestId(ARC_CHIP).click({ timeout: step });
+  await expect
+    .poll(async () => usdcxChipsProblem(await readNetworkChips(page), ARC_CHIP) ?? 'ok', { timeout: step })
+    .toBe('ok');
+  await flow.getByTestId('send-recipient-confirm').click({ timeout: step });
+  await flow.getByTestId('send-amount-input').fill(opts.amount);
+  await flow.getByTestId('send-amount-confirm').click({ timeout: step });
+
+  const route = flow.getByTestId('bridge-route-usdcx');
+  await expect(route).toBeVisible({ timeout: step });
+  // The route is forced for the native token; the click only guards against that changing.
+  await route.click({ timeout: step });
+  await expect(route.getByText(routeFees, { exact: true }), 'the route names the native fee asset').toBeVisible({
+    timeout: step
+  });
+  await expect(payoutRowValue(flow, 'usdcx-payout-fee'), "the route quotes Circle's fee allowance").toHaveText(
+    payout.fee,
+    { timeout: step }
+  );
+  await expect(
+    payoutRowValue(flow, 'usdcx-payout-net'),
+    'the route quotes the least the recipient receives'
+  ).toHaveText(payout.net);
+  await expect(flow.getByTestId('usdcx-burn-notice')).toHaveText(notice, { timeout: step });
+  await page.screenshot({ path: path.join(opts.screenshotDir, 'usdcx-route.png') });
+  await flow.getByTestId('bridge-route-confirm').click({ timeout: step });
+
+  await page.waitForURL(/#\/send\/review\?/, { timeout: step });
+  const reviewUrl = page.url();
+  expect(reviewQueryParam(reviewUrl, 'network'), 'the review is for Arc Testnet').toBe('arc-testnet');
+  await expect(detailRowValue(page, enText('network'))).toHaveText('Arc Testnet', { timeout: step });
+  await expect(detailRowValue(page, enText('networkFee')), 'the fee row names the native fee asset').toHaveText(
+    sponsorshipFee
+  );
+  await expect(payoutRowValue(page, 'usdcx-payout-fee'), "the review quotes Circle's fee allowance").toHaveText(
+    payout.fee
+  );
+  await expect(
+    payoutRowValue(page, 'usdcx-payout-net'),
+    'the review quotes the least the recipient receives'
+  ).toHaveText(payout.net);
+  await expect(page.getByTestId('usdcx-burn-notice')).toHaveText(notice);
+  await waitForReviewSubmitEnabled(page, REVIEW_READY_TIMEOUT_MS);
+  await page.screenshot({ path: path.join(opts.screenshotDir, 'usdcx-review-light.png') });
+  await page.evaluate(() => document.documentElement.classList.add('dark'));
+  await page.screenshot({ path: path.join(opts.screenshotDir, 'usdcx-review-dark.png') });
+  await page.evaluate(() => document.documentElement.classList.remove('dark'));
+
+  await page.getByTestId('send-review-submit').click({ timeout: step });
+  const generating = /\/generating-transaction(-full)?\//;
+  let reviewError = '';
+  await expect
+    .poll(
+      async () => {
+        if (generating.test(page.url())) return 'generating';
+        const error = page.getByTestId('review-error');
+        if (!(await error.isVisible())) return 'waiting';
+        reviewError = (await error.textContent()) ?? '';
+        return 'review-error';
+      },
+      { timeout: SUBMIT_TIMEOUT_MS, intervals: [500] }
+    )
+    .not.toBe('waiting');
+  if (!generating.test(page.url())) {
+    const fresh = (await readBridgedSendRows(page)).filter(
+      row => row.extraInputs?.provider === 'usdcx' && !rowsBefore.has(row.id)
+    );
+    throw new Error(
+      isArcSnapshotFailure(reviewError, fresh.length)
+        ? `Arc RPC unavailable for the wallet's balance snapshot (burn.ts:103), infra: review-error "${reviewError}"`
+        : `the review refused the burn: review-error "${reviewError}", ${fresh.length} new usdcx rows`
+    );
+  }
+  return { reviewUrl, generatingUrl: page.url() };
 }

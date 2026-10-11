@@ -13,6 +13,8 @@ export {
   minimumUsdcxPayout,
   USDCX_BURN_TAG,
   USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME,
+  USDCX_DECIMALS,
+  USDCX_DESTINATIONS,
   USDCX_REMOTE_DOMAIN
 } from '../../../src/lib/usdcx/constant';
 export { FEE_RESERVE_MULTIPLE } from '../../../src/lib/miden/fees/spendable';
