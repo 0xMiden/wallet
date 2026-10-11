@@ -215,7 +215,9 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
       });
 
       await steps.step('row_reaches_delivering', async () => {
-        // The wallet waits for the real Arc receipt before it moves the row.
+        // The wallet waits for the real Arc receipt before it moves the row. Circle, the relayer and the auto-claim can
+        // all finish before that receipt is read, and the phase only moves forward, so the row may go from
+        // `submitting` straight to `received`; any phase from `delivering` on means the deposit left Arc.
         const row = await walletA.latestBridgeReceive('usdcx');
         expect(row, 'bridged-receive row created by the UI').not.toBeNull();
         bridgeTxId = row!.id;
@@ -224,7 +226,7 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
             timeout: 180_000,
             intervals: [3000]
           })
-          .toBe('delivering');
+          .toMatch(/^(delivering|ready|received)$/);
       });
 
       await steps.step('circle_attests_deposit', async () => {
