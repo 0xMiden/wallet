@@ -176,8 +176,9 @@ export const SUITES = {
 };
 
 const USAGE = `
-Run the wallet's bridge and swap E2E against real infrastructure:
-the hosted Epoch solver, the AggLayer bridge, Sepolia, and public Miden testnet.
+Run the wallet's bridge, swap and USDCx E2E against real infrastructure:
+the hosted Epoch solver, the AggLayer bridge, Sepolia, Arc Testnet, Circle's
+xReserve, the hosted Guardian and public Miden testnet.
 
   yarn e2e:real --suite <name> [options]
 
@@ -188,16 +189,21 @@ ${Object.entries(SUITES)
 
 Options
   --suite <name>            which suite to run (required)
-  --network <net>           testnet | devnet            (default: testnet)
+  --network <net>           testnet | devnet            (default: testnet; usdcx suites: testnet only)
   --sepolia-rpc <url>       Sepolia RPC                 (default: a public node)
   --sepolia-key <0x...>     funded Sepolia EOA key, for suites with a signed EVM leg
                             (env: E2E_SEPOLIA_PRIVATE_KEY)
+  --arc-rpc <url>           Arc Testnet RPC the usdcx suites try first, then drpc,
+                            QuickNode and arc.io (env: E2E_ARC_RPC_URL)
+  --arc-key <0x...>         funded Arc Testnet key for usdcx-in; only its address is
+                            printed (env: E2E_ARC_PRIVATE_KEY)
   --min-eth <amount>        preflight gas floor in ether (default: 0.02)
   --preflight-only          probe the services and exit; build and run nothing
   --agglayer-indexer-only   probe only the AggLayer indexer's Miden exit filing and exit;
                             takes no --suite, reads the config document, no URL or key
-  --skip-build              reuse the existing dist/ (it must match --network)
-  --headed                  run the browser headed
+  --skip-build              reuse the existing dist/ (it must match --network);
+                            refused for the usdcx suites
+  --headed                  run the browser headed (the usdcx suites run headless otherwise)
   --grep <pattern>          further narrow the tests within the suite
   -h, --help                this message
 
@@ -205,12 +211,19 @@ The Epoch allocator, the Sepolia USDC, the AggLayer bridge and its indexer come
 from the network's config document, read as the wallet reads it:
 MIDEN_REMOTE_CONFIG_URL when set, else the published 0xMiden/wallet-config.
 
-No suite here is secret-gated. Bridge-out is solver-fulfilled and swap is
-Miden-side, so neither signs on EVM and neither needs a key; --sepolia-key is
-accepted so a funded account's gas and test-USDC balance can be READ ahead of a
-suite that does sign. Bridge-IN would be that suite, and it
-is not here: it cannot run on the extension, whose COEP isolation for the WASM
-prover blocks WalletConnect's cross-origin requests.
+Only usdcx-in needs a secret: an Arc Testnet key holding at least 1.05 USDC.
+Every paid usdcx run records its fresh key, with ~9 USDC left on it, under
+~/.miden-e2e/arc-keys (mode 0600), and that key serves. Bridge-out is
+solver-fulfilled and swap is Miden-side, so neither signs on EVM; --sepolia-key
+is accepted so a funded account's gas and test-USDC balance can be READ ahead of
+a suite that does sign.
+
+usdcx-in runs bridge-in on the extension with a deposit signed in Node, not
+through WalletConnect, which the extension's COEP isolation for the WASM prover
+blocks. Every usdcx suite builds, after installing the miden-client CLI pinned
+in package.json unless MIDEN_CLIENT_BIN is set (git and cargo; a cold cache
+takes up to 35 min). Run one usdcx suite at a time: there is no run lock, and
+two runs share the hosted Guardian, the public faucet and a funded key's nonce.
 `;
 
 // ── args ────────────────────────────────────────────────────────────────────
@@ -1403,6 +1416,72 @@ function formatUnits(value, decimals) {
 // ── run ─────────────────────────────────────────────────────────────────────
 
 /**
+ * The environment of the build and of the test run, each as `{ env, unset }` for run(). A usdcx child gets what its
+ * phase reads and loses what it must not: no build sees a private key, and only usdcx-in's test sees the Arc key.
+ *
+ * Exported for test.
+ */
+export function childEnvironments(opts, suite, cliBin) {
+  if (!suite.usdcx) {
+    const env = {
+      E2E_NETWORK: opts.network,
+      E2E_REAL_EPOCH: 'true',
+      // GUARDIAN_URL is deliberately NOT injected: swap-guardian.spec.ts resolves
+      // it from the run's own environment record, so injecting it here would make
+      // this table a second owner of the same fact. The table below stays because
+      // probeGuardian reads it to decide what to probe.
+      E2E_SEPOLIA_RPC_URL: opts.sepoliaRpc,
+      ...(opts.sepoliaKey ? { E2E_SEPOLIA_PRIVATE_KEY: opts.sepoliaKey } : {})
+    };
+    return { build: { env, unset: [] }, test: { env, unset: [] } };
+  }
+  const keyed = suite.arcKey === true;
+  const headless = suite.headlessByDefault === true && !opts.headed;
+  return {
+    build: { env: { E2E_NETWORK: opts.network }, unset: ['E2E_ARC_PRIVATE_KEY', 'E2E_SEPOLIA_PRIVATE_KEY'] },
+    test: {
+      env: {
+        E2E_NETWORK: opts.network,
+        // Each usdcx describe's beforeAll throws without it, so no other entry point starts a paid run.
+        E2E_REAL_USDCX: 'true',
+        MIDEN_CLIENT_BIN: cliBin,
+        ...(opts.arcRpc ? { E2E_ARC_RPC_URL: opts.arcRpc } : {}),
+        ...(keyed ? { E2E_ARC_PRIVATE_KEY: `0x${opts.arcKey.replace(/^0x/i, '')}` } : {}),
+        ...(headless ? { E2E_HEADLESS: '1' } : {})
+      },
+      // --headed must win over an exported E2E_HEADLESS, so it is unset rather than left to be inherited.
+      unset: [
+        'E2E_SEPOLIA_PRIVATE_KEY',
+        ...(keyed ? [] : ['E2E_ARC_PRIVATE_KEY']),
+        ...(headless ? [] : ['E2E_HEADLESS'])
+      ]
+    }
+  };
+}
+
+/**
+ * Install, or reuse, the miden-client CLI pinned in package.json, and return its path: the installer's last stdout
+ * line. It runs here, before the build, because a fixture left to resolve it (resolveCliPath in
+ * playwright/e2e/helpers/miden-cli.ts) would spend a cold install of up to 35 min inside the test timeout.
+ * Undefined after reporting a failure.
+ */
+function installPinnedCli() {
+  console.log('Installing the pinned miden-client CLI (a cold cache builds it with cargo, up to 35 min)\n');
+  const res = spawnSync(process.execPath, ['scripts/install-pinned-miden-cli.cjs', 'install'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
+    timeout: 2_100_000,
+    maxBuffer: 16 * 1024 * 1024
+  });
+  const cliBin = res.status === 0 ? res.stdout.trim().split('\n').pop() : undefined;
+  if (cliBin) return cliBin;
+  const why = res.error?.message ?? `exit ${res.status}`;
+  console.error(`\n✗ the pinned miden-client CLI did not install (${why}) - nothing was built or run.\n`);
+  return undefined;
+}
+
+/**
  * Run `command` with `env` over this process's environment, less each name in `opts.unset`. A key a phase must not
  * see has to be deleted: the child inherits everything the operator exported. A name both unset and given in `env`
  * takes the given value.
@@ -1530,23 +1609,20 @@ async function main() {
   console.log(`✓ preflight passed (${results.length} checks)\n`);
   if (opts.preflightOnly) return 0;
 
-  const env = {
-    E2E_NETWORK: opts.network,
-    E2E_REAL_EPOCH: 'true',
-    // GUARDIAN_URL is deliberately NOT injected: swap-guardian.spec.ts resolves
-    // it from the run's own environment record, so injecting it here would make
-    // this table a second owner of the same fact. The table below stays because
-    // probeGuardian reads it to decide what to probe.
-    E2E_SEPOLIA_RPC_URL: opts.sepoliaRpc,
-    ...(opts.sepoliaKey ? { E2E_SEPOLIA_PRIVATE_KEY: opts.sepoliaKey } : {})
-  };
+  let cliBin;
+  if (suite.usdcx) {
+    cliBin = process.env.MIDEN_CLIENT_BIN || installPinnedCli();
+    if (!cliBin) return 1;
+    console.log(`Miden CLI ${cliBin}\n`);
+  }
+  const phases = childEnvironments(opts, suite, cliBin);
 
   if (!opts.skipBuild) {
     console.log('Building the extension for a real-endpoint run…\n');
     // The wallet reads its Epoch hosts from the config document at runtime, but
     // the network and MIDEN_REMOTE_CONFIG_URL are build defines: --skip-build is
     // only safe when dist/ was produced with this same env.
-    const code = await run('yarn', ['test:e2e:blockchain:build'], env);
+    const code = await run('yarn', ['test:e2e:blockchain:build'], phases.build.env, { unset: phases.build.unset });
     if (code !== 0) {
       console.error('\n✗ build failed - not running the suite.\n');
       return code;
@@ -1564,7 +1640,7 @@ async function main() {
   if (opts.headed) args.push('--headed');
 
   console.log(`\nRunning: yarn ${args.join(' ')}\n`);
-  return run('yarn', args, env);
+  return run('yarn', args, phases.test.env, { unset: phases.test.unset });
 }
 
 // Only when run as a command. Importing this file (a test does) must not start a

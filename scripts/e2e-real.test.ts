@@ -36,6 +36,7 @@ import {
   agglayerExitFilingProblem,
   arcRpc,
   arcRpcEndpoints,
+  childEnvironments,
   circleGet,
   composeGrep,
   pricedAmountFrom,
@@ -1545,5 +1546,202 @@ describe('the usdcx preflight', () => {
   it('lets usdcx run with a malformed E2E_ARC_PRIVATE_KEY exported', () => {
     const res = preflight('usdcx', DOCUMENT, { E2E_ARC_PRIVATE_KEY: '0x01' });
     expect(res.status).toBe(0);
+  }, 35_000);
+});
+
+describe('childEnvironments', () => {
+  const SEPOLIA_KEY = `0x${'22'.repeat(32)}`;
+  const CLI = '/cli/bin/miden-client';
+  // What parseArgs returns for `--suite usdcx`; each case changes only what it names.
+  const parsed = {
+    suite: 'usdcx',
+    network: 'testnet',
+    sepoliaRpc: 'https://sepolia.invalid',
+    sepoliaKey: undefined,
+    arcRpc: undefined,
+    arcKey: undefined,
+    headed: false
+  };
+
+  it('builds usdcx with no key in reach and tests it with the run env alone', () => {
+    expect(childEnvironments(parsed, SUITES.usdcx, CLI)).toStrictEqual({
+      build: { env: { E2E_NETWORK: 'testnet' }, unset: ['E2E_ARC_PRIVATE_KEY', 'E2E_SEPOLIA_PRIVATE_KEY'] },
+      test: {
+        env: { E2E_NETWORK: 'testnet', E2E_REAL_USDCX: 'true', MIDEN_CLIENT_BIN: CLI, E2E_HEADLESS: '1' },
+        unset: ['E2E_SEPOLIA_PRIVATE_KEY', 'E2E_ARC_PRIVATE_KEY']
+      }
+    });
+  });
+
+  it("hands usdcx-in's test, and no build, the key as 0x hex and the operator's Arc RPC", () => {
+    const opts = { ...parsed, suite: 'usdcx-in', arcKey: 'ab'.repeat(32), arcRpc: 'https://arc-rpc.example' };
+    expect(childEnvironments(opts, SUITES['usdcx-in'], CLI)).toStrictEqual({
+      build: { env: { E2E_NETWORK: 'testnet' }, unset: ['E2E_ARC_PRIVATE_KEY', 'E2E_SEPOLIA_PRIVATE_KEY'] },
+      test: {
+        env: {
+          E2E_NETWORK: 'testnet',
+          E2E_REAL_USDCX: 'true',
+          MIDEN_CLIENT_BIN: CLI,
+          E2E_ARC_RPC_URL: 'https://arc-rpc.example',
+          E2E_ARC_PRIVATE_KEY: `0x${'ab'.repeat(32)}`,
+          E2E_HEADLESS: '1'
+        },
+        unset: ['E2E_SEPOLIA_PRIVATE_KEY']
+      }
+    });
+  });
+
+  it('runs headed under --headed, and unsets an exported E2E_HEADLESS', () => {
+    const { test } = childEnvironments({ ...parsed, suite: 'usdcx-burn', headed: true }, SUITES['usdcx-burn'], CLI);
+    expect(test.env).not.toHaveProperty('E2E_HEADLESS');
+    expect(test.unset).toContain('E2E_HEADLESS');
+  });
+
+  it('gives a suite that is not usdcx the one environment it had, in both phases', () => {
+    const env = {
+      E2E_NETWORK: 'testnet',
+      E2E_REAL_EPOCH: 'true',
+      E2E_SEPOLIA_RPC_URL: 'https://sepolia.invalid',
+      E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY
+    };
+    expect(
+      childEnvironments({ ...parsed, suite: 'swap', sepoliaKey: SEPOLIA_KEY }, SUITES.swap, undefined)
+    ).toStrictEqual({ build: { env, unset: [] }, test: { env, unset: [] } });
+  });
+});
+
+describe('a usdcx run', () => {
+  const ARC_KEY: `0x${string}` = `0x${'11'.repeat(32)}`;
+  const SEPOLIA_KEY = `0x${'22'.repeat(32)}`;
+  const STUB_CLI = '/stub/cli/bin/miden-client';
+  interface Spawned {
+    command: string;
+    args: string[];
+    env?: Record<string, string>;
+  }
+  // The stub logs the CLI install and each child run() starts, with the environment names a phase sets or unsets.
+  const spawned = (requests: string): Spawned[] =>
+    requests
+      .split('\n')
+      .filter(line => line.startsWith('SPAWN '))
+      .map(line => JSON.parse(line.slice('SPAWN '.length)));
+  const testArgs = (grep: string) => [
+    'playwright',
+    'test',
+    '--config',
+    'playwright.usdcx.config.ts',
+    '--retries=0',
+    '--grep',
+    grep
+  ];
+
+  it('installs the pinned CLI, builds with neither key, then tests with the run env alone', () => {
+    const res = stubbed(['--suite', 'usdcx'], DOCUMENT, {
+      E2E_ARC_PRIVATE_KEY: ARC_KEY,
+      E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY
+    });
+    expect(spawned(res.requests)).toEqual([
+      { command: 'install-pinned-miden-cli', args: ['scripts/install-pinned-miden-cli.cjs', 'install'] },
+      { command: 'yarn', args: ['test:e2e:blockchain:build'], env: { E2E_NETWORK: 'testnet' } },
+      {
+        command: 'yarn',
+        args: testArgs('USDCx round trip'),
+        env: { E2E_NETWORK: 'testnet', E2E_REAL_USDCX: 'true', MIDEN_CLIENT_BIN: STUB_CLI, E2E_HEADLESS: '1' }
+      }
+    ]);
+    expect(res.output).not.toContain(ARC_KEY.slice(2));
+    expect(res.output).not.toContain(SEPOLIA_KEY.slice(2));
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  it("hands usdcx-in's test, and only it, the --arc-key and the --arc-rpc", () => {
+    const res = stubbed(
+      ['--suite', 'usdcx-in', '--arc-key', '11'.repeat(32), '--arc-rpc', 'https://arc-rpc.example'],
+      DOCUMENT,
+      { E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY }
+    );
+    const [, build, test] = spawned(res.requests);
+    expect(build.env).toEqual({ E2E_NETWORK: 'testnet' });
+    expect(test).toEqual({
+      command: 'yarn',
+      args: testArgs('funded Arc key'),
+      env: {
+        E2E_NETWORK: 'testnet',
+        E2E_REAL_USDCX: 'true',
+        MIDEN_CLIENT_BIN: STUB_CLI,
+        E2E_HEADLESS: '1',
+        E2E_ARC_PRIVATE_KEY: ARC_KEY,
+        E2E_ARC_RPC_URL: 'https://arc-rpc.example'
+      }
+    });
+    expect(res.output).toContain(privateKeyToAccount(ARC_KEY).address);
+    expect(res.output).not.toContain(ARC_KEY.slice(2));
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  it('takes an exported MIDEN_CLIENT_BIN and installs nothing', () => {
+    const res = stubbed(['--suite', 'usdcx-burn'], DOCUMENT, { MIDEN_CLIENT_BIN: '/operator/bin/miden-client' });
+    const children = spawned(res.requests);
+    expect(children.map(child => child.command)).toEqual(['yarn', 'yarn']);
+    expect(children[1].args).toEqual(testArgs('USDCx burn through the Send UI'));
+    expect(children[1].env).toMatchObject({ MIDEN_CLIENT_BIN: '/operator/bin/miden-client' });
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  it('runs headed under --headed, over an exported E2E_HEADLESS', () => {
+    const res = stubbed(['--suite', 'usdcx', '--headed'], DOCUMENT, { E2E_HEADLESS: '1' });
+    const test = spawned(res.requests)[2];
+    expect(test.args).toEqual([...testArgs('USDCx round trip'), '--headed']);
+    expect(test.env).not.toHaveProperty('E2E_HEADLESS');
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  it('builds and runs nothing when the pinned CLI does not install', () => {
+    const res = stubbed(['--suite', 'usdcx'], DOCUMENT, {}, { cliInstall: { status: 1, stdout: '' } });
+    expect(spawned(res.requests).map(child => child.command)).toEqual(['install-pinned-miden-cli']);
+    expect(res.output).toContain('the pinned miden-client CLI did not install (exit 1)');
+    expect(res.status).toBe(1);
+  }, 35_000);
+
+  // A guard: it holds before and after. The suites that are not usdcx keep one environment for both phases.
+  it('leaves a swap run as it was: no install, one environment for the build and the test', () => {
+    const res = stubbed(['--suite', 'swap'], DOCUMENT, { E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY });
+    const env = {
+      E2E_NETWORK: 'testnet',
+      E2E_REAL_EPOCH: 'true',
+      E2E_SEPOLIA_RPC_URL: 'https://ethereum-sepolia-rpc.publicnode.com',
+      E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY
+    };
+    expect(spawned(res.requests)).toEqual([
+      { command: 'yarn', args: ['test:e2e:blockchain:build'], env },
+      {
+        command: 'yarn',
+        args: [
+          'playwright',
+          'test',
+          '--config',
+          'playwright.swap.config.ts',
+          '--retries=1',
+          '--grep-invert',
+          'guardian maker'
+        ],
+        env
+      }
+    ]);
+    expect(res.status).toBe(0);
+  }, 35_000);
+});
+
+describe('the usage', () => {
+  it('documents the usdcx suites, the Arc flags, the pinned CLI and one usdcx run at a time', () => {
+    const res = runCli('-h');
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain(`  ${'usdcx-in'.padEnd(21)} ${SUITES['usdcx-in'].describe}`);
+    expect(res.stdout).toContain('--arc-rpc <url>');
+    expect(res.stdout).toContain('(env: E2E_ARC_RPC_URL)');
+    expect(res.stdout).toContain('--arc-key <0x...>');
+    expect(res.stdout).toContain('(env: E2E_ARC_PRIVATE_KEY)');
+    expect(res.stdout).toContain('unless MIDEN_CLIENT_BIN is set');
+    expect(res.stdout).toContain('Run one usdcx suite at a time');
   }, 35_000);
 });
