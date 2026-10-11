@@ -190,16 +190,19 @@ jest.mock('./EvmBridgeDepositReview', () => {
       symbol,
       label,
       route,
-      fee
+      fee,
+      sourceChainId
     }: {
       onConfirm: () => void;
       symbol: string;
       label?: string;
       route: Parameters<typeof actual.arrivingTokenName>[0];
       fee?: string;
+      sourceChainId?: number;
     }) => (
       <div>
         {fee && <span data-testid="review-fee">{fee}</span>}
+        <span data-testid="review-source">{String(sourceChainId)}</span>
         <span data-testid="review-symbols">{`${symbol}->${actual.arrivingTokenName(route, symbol, label ?? symbol)}`}</span>
         <button data-testid="confirm-deposit" onClick={onConfirm}>
           confirm
@@ -259,14 +262,17 @@ jest.mock('./EvmBridgeUsdcxRoute', () => ({
   EvmBridgeUsdcxRoute: ({
     confirmDisabled,
     onConfirm,
-    fee
+    fee,
+    sourceChainId
   }: {
     confirmDisabled?: boolean;
     onConfirm: () => void;
     fee?: string;
+    sourceChainId: number;
   }) => (
     <div>
       {fee && <span data-testid="usdcx-route-fee">{fee}</span>}
+      <span data-testid="usdcx-route-source">{String(sourceChainId)}</span>
       <button data-testid="usdcx-route-confirm" disabled={confirmDisabled} onClick={onConfirm}>
         usdcx
       </button>
@@ -673,5 +679,24 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       SIGNED_RECIPIENT,
       expect.anything()
     );
+  });
+
+  // Each source has its own arrival estimate, so the route card and the review are told which chain the deposit leaves.
+  it('hands the Arc Testnet source to the route card and the review', async () => {
+    renderScreen();
+    await reachUsdcxRoute();
+    expect(screen.getByTestId('usdcx-route-source')).toHaveTextContent('5042002');
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    expect(screen.getByTestId('review-source')).toHaveTextContent('5042002');
+  });
+
+  it('hands an executor source to the route card and the review', async () => {
+    renderScreen();
+    await reachBaseSepoliaRoute();
+    expect(screen.getByTestId('usdcx-route-source')).toHaveTextContent('84532');
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    expect(screen.getByTestId('review-source')).toHaveTextContent('84532');
   });
 });

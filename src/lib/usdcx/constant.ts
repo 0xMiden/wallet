@@ -273,6 +273,14 @@ export const USDCX_DESTINATIONS: ReadonlyMap<number, UsdcxDestination> = new Map
   destination(base)
 ]);
 
+/**
+ * The i18n key of a USDCx deposit's arrival time for its source chain: Arc Testnet reads ~1 min, every other source
+ * ~20 min. On Arc, Circle attests the deposit in seconds and the relayer mints within a minute.
+ */
+export function usdcxArrivalKey(sourceChainId: number): 'usdcxArrivalArc' | 'usdcxArrival' {
+  return sourceChainId === ARC_TESTNET.id ? 'usdcxArrivalArc' : 'usdcxArrival';
+}
+
 /** The source chain a bridge-in starts from until the screen offers a picker. */
 export const DEFAULT_USDCX_SOURCE_CHAIN_ID: number = E2E_USDCX_CHAIN === 'sepolia' ? sepolia.id : ARC_TESTNET.id;
 /** The destination pre-selected for a USDCx withdrawal. */

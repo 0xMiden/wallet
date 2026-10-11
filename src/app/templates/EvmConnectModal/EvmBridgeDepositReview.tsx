@@ -9,7 +9,7 @@ import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
 import { Skeleton } from 'components/ui/Skeleton';
 import { IBridgeProvider } from 'lib/miden/db/types';
-import { USDCX_SYMBOL } from 'lib/usdcx/constant';
+import { USDCX_SYMBOL, usdcxArrivalKey } from 'lib/usdcx/constant';
 import { approxFiatAmount } from 'screens/send-flow/amount-format';
 
 export interface EvmBridgeDepositReviewProps {
@@ -29,6 +29,8 @@ export interface EvmBridgeDepositReviewProps {
   fee?: string;
   /** Source network name (e.g. Sepolia). */
   networkName: string;
+  /** Source chain id; on the USDCx route it picks the arrival estimate (`usdcxArrivalKey`). */
+  sourceChainId?: number;
   /** Show a skeleton on the "You receive" row while the Fast quote is still loading. */
   youReceiveLoading?: boolean;
   /** Drives the confirm-button spinner while the bridge submit is in flight. */
@@ -76,6 +78,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   outputAmount,
   fee,
   networkName,
+  sourceChainId,
   youReceiveLoading = false,
   isSubmitting = false,
   canConfirm = false,
@@ -91,7 +94,10 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
       case 'agglayer':
         return { routeLabel: t('slow'), arrivalLabel: t('slowArrival') };
       case 'usdcx':
-        return { routeLabel: t('usdcxRouteName'), arrivalLabel: t('usdcxArrival') };
+        return {
+          routeLabel: t('usdcxRouteName'),
+          arrivalLabel: t(sourceChainId === undefined ? 'usdcxArrival' : usdcxArrivalKey(sourceChainId))
+        };
       case 'epoch':
       default:
         return { routeLabel: t('fast'), arrivalLabel: t('fastArrival') };

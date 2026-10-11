@@ -19,6 +19,7 @@ import {
   TOKEN_MESSENGER_WITH_FEES_ADDRESS,
   USDCX_DESTINATIONS,
   USDCX_SOURCE_CHAINS,
+  usdcxArrivalKey,
   XRESERVE_ADDRESS,
   XRESERVE_ATTESTATION_API_MAINNET,
   XRESERVE_ATTESTATION_API_TESTNET
@@ -145,6 +146,20 @@ describe('USDCx destinations', () => {
     ]);
     expect(DEFAULT_USDCX_DESTINATION_CHAIN_ID).toBe(ARC_TESTNET_ID);
   });
+});
+
+describe('USDCx deposit arrival estimate', () => {
+  // Circle attests an Arc deposit in seconds and the relayer mints within a minute.
+  it('reads about a minute for a deposit from Arc Testnet', () => {
+    expect(usdcxArrivalKey(ARC_TESTNET_ID)).toBe('usdcxArrivalArc');
+  });
+
+  it.each([sepolia.id, baseSepolia.id, arbitrumSepolia.id, arc.id, mainnet.id])(
+    'reads ~20 min for a deposit from chain %i',
+    chainId => {
+      expect(usdcxArrivalKey(chainId)).toBe('usdcxArrival');
+    }
+  );
 });
 
 describe('USDCx per-chain contracts', () => {

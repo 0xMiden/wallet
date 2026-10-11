@@ -1240,6 +1240,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               outputAmount={formatMoneyAmount(outputAmount, 'typed')}
               fee={usdcxQuotedFee}
               networkName={networkName}
+              sourceChainId={sourceChainId}
               youReceiveLoading={route === 'epoch' && epochStatus === 'quoting'}
               isSubmitting={submitting}
               canConfirm={reviewCanConfirm}
@@ -1256,6 +1257,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               <EvmBridgeUsdcxRoute
                 confirmDisabled={!canConfirmRoute}
                 onConfirm={handleContinueToReview}
+                sourceChainId={sourceChainId}
                 fee={usdcxQuotedFee === undefined ? undefined : t('usdcxForwardFee', { fee: usdcxQuotedFee })}
                 notice={
                   usdcxSource.route === 'cctp-executor'
@@ -1329,6 +1331,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       canConfirmRoute,
       outputAmount,
       networkName,
+      sourceChainId,
       submitting,
       reviewCanConfirm,
       reviewConfirmLabel,

@@ -4774,6 +4774,10 @@
     "message": "~20 min",
     "englishSource": "~20 min"
   },
+  "usdcxArrivalArc": {
+    "message": "~1 min",
+    "englishSource": "~1 min"
+  },
   "usdcxRouteNotice": {
     "message": "Circle xReserve mints USDCx on Miden 1:1 for the USDC you deposit.",
     "englishSource": "Circle xReserve mints USDCx on Miden 1:1 for the USDC you deposit."
