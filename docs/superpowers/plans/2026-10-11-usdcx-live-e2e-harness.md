@@ -11334,3 +11334,14 @@ POSITIVE hook row: `{ accountId: address, amount: String(M), faucetId: native, s
 - Commit 12 (Task 28): `playwright/e2e/tests/usdcx/usdcx-burn.spec.ts` (moved from `tests/bridge/bridge-out-usdcx.spec.ts`), `playwright/e2e/harness/spec-selection.test.ts`.
 - Commit 10 (Task 31): `scripts/e2e-real.mjs`, `scripts/e2e-real.test.ts`, `scripts/e2e-real.fetch-stub.mjs`; it lands after commit 12.
 - Commit 13 (Task 32): `playwright/e2e/docs/e2e-architecture.md`, `CHANGELOG.md`.
+
+## Amendments after execution
+
+The tasks above ran as written. These later decisions changed what landed, so where they disagree with the text above, the code follows them:
+
+- **Amounts.** Burns are 1 USDCx, the USDCx faucet's on-chain `min_burn_amount` (the wallet refuses anything from 0.100001 to 0.999999 USDCx). Each wallet takes one 10 USDCx public-faucet grant, the smallest tier that covers a burn and its fees. Deposits are 0.001 USDC: neither xReserve nor Circle sets a minimum, and the wallet auto-claims a note only above baseFee x 30 (210 base units). `GAS_RESERVE_UNITS` is 20_000 (approve plus depositToRemote measured about 188k gas).
+- **One harness Arc key.** Instead of a fresh key per run, one key in `~/.miden-e2e/arc-keys/harness.json` is the destination of every burn and the source of every deposit, so each burn's payout refills what deposits spend and no run needs Circle's faucet. A run lock beside the ledger keeps two runs from sharing it.
+- **Delta-mode payout gate.** `waitForGatewayPayout` takes `balanceBefore`, read right before each burn: it needs exactly one correlated AttestationUsed log whose value equals the balance rise. `usdcx-burn` waits for each burn's payout too, and probes the payout dependencies before the build (11 checks).
+- **Keys only from the environment.** `--arc-key` and `--sepolia-key` are refused (yarn echoes the command line and `ps` shows it); `E2E_ARC_PRIVATE_KEY` and `E2E_SEPOLIA_PRIVATE_KEY` remain. No private key reaches a build, the CLI install or a preflight child.
+- **Robustness.** Transient Arc errors (429, -32005, timeouts) are retried with endpoint failover for reads, the deposit is simulated only on its write endpoint and never sent after its step timed out, Arc read budgets cover every endpoint, and evidence records only an RPC URL's host.
+- **Measured live (2026-10-11).** Circle's payout fee is flat: 16_400 base units on Arc, 11_099 on Base Sepolia and Arbitrum Sepolia, all paid within about 20 s. Ethereum Sepolia payouts are not paid (0xMiden/miden-usdcx#308), so no suite burns there.
