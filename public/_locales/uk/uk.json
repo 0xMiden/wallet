@@ -937,7 +937,6 @@
   "dappLoadFailed": "Не вдається завантажити цей dApp",
   "dappLoadFailedHint": "Перевірте з'єднання та спробуйте ще раз.",
   "dappBrowserCapsule": "Заголовок браузера dApp",
-  "dragToMinimize": "Перетягніть вниз, щоб згорнути",
   "dappSwitcher": "Перемикач dApp",
   "closeDappSwitcher": "Закрити перемикач dApp",
   "openDappCountOne": "1 відкритий dApp",

@@ -937,7 +937,6 @@
   "dappLoadFailed": "이 dApp을 불러올 수 없습니다",
   "dappLoadFailedHint": "인터넷 연결 상태를 확인한 후 다시 시도해 주세요.",
   "dappBrowserCapsule": "dApp 브라우저 헤더",
-  "dragToMinimize": "아래로 드래그하여 최소화하세요",
   "dappSwitcher": "dApp 전환기",
   "closeDappSwitcher": "dApp 전환기 닫기",
   "openDappCountOne": "1개의 dApp 열기",

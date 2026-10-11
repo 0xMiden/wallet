@@ -937,7 +937,6 @@
   "dappLoadFailed": "無法載入此 dApp",
   "dappLoadFailedHint": "請檢查您的連線狀態，然後再試一次。",
   "dappBrowserCapsule": "dApp 瀏覽器頁首",
-  "dragToMinimize": "向下拖動以最小化",
   "dappSwitcher": "dApp 切換器",
   "closeDappSwitcher": "關閉 dApp 切換器",
   "openDappCountOne": "1 個已開啟的 dApp",

@@ -937,7 +937,6 @@
   "dappLoadFailed": "Nie można załadować tej aplikacji dApp",
   "dappLoadFailedHint": "Sprawdź połączenie i spróbuj ponownie.",
   "dappBrowserCapsule": "Nagłówek przeglądarki dApp",
-  "dragToMinimize": "Przeciągnij w dół, aby zminimalizować",
   "dappSwitcher": "przełącznik aplikacji dApp",
   "closeDappSwitcher": "Zamknij przełącznik aplikacji dApp",
   "openDappCountOne": "1 otwarta aplikacja dApp",

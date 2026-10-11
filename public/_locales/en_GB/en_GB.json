@@ -937,7 +937,6 @@
   "dappLoadFailed": "Can't load this dApp",
   "dappLoadFailedHint": "Check your connection and try again.",
   "dappBrowserCapsule": "dApp browser header",
-  "dragToMinimize": "Drag down to minimize",
   "dappSwitcher": "dApp switcher",
   "closeDappSwitcher": "Close dApp switcher",
   "openDappCountOne": "1 open dApp",
