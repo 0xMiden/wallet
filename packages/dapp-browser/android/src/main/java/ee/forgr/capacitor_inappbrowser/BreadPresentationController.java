@@ -52,6 +52,7 @@ final class BreadPresentationController {
     private ScriptHandler script;
     private boolean supported;
     private boolean installed;
+    private boolean initialNavigationStarted;
     private long pendingPaint = -1;
     private int layoutWidth;
     private int layoutHeight;
@@ -60,6 +61,12 @@ final class BreadPresentationController {
     private int theme = FALLBACK;
     private boolean hintShown;
     private boolean appliedFullscreen;
+    // Resume insets can still describe the hidden fullscreen frame; keep the browser snapshot.
+    private boolean browserPolicyCaptured;
+    private int browserBarsBehavior;
+    private int browserSystemUiVisibility;
+    private int browserVisibleBars;
+    private android.graphics.drawable.Drawable browserBackground;
     private final int browserAppBarVisibility;
     private final int browserStatusVisibility;
     private final int browserCutoutMode;
@@ -233,6 +240,12 @@ final class BreadPresentationController {
         } catch (Exception ignored) { }
     }
 
+    void navigationStarted() {
+        // Construction already primes the first document; its bootstrap can beat onPageStarted.
+        if (initialNavigationStarted) navigate();
+        else initialNavigationStarted = true;
+    }
+
     void navigate() {
         state.navigate(SystemClock.uptimeMillis());
         applyTheme(null);
@@ -271,6 +284,7 @@ final class BreadPresentationController {
     }
 
     void close() {
+        restoreWindow();
         state.close();
         cancelPaint();
         handler.removeCallbacksAndMessages(null);
@@ -286,6 +300,20 @@ final class BreadPresentationController {
         if (window == null) return;
         WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, window.getDecorView());
         if (fullscreen()) {
+            if (!browserPolicyCaptured) {
+                browserBarsBehavior = controller.getSystemBarsBehavior();
+                browserSystemUiVisibility = window.getDecorView().getSystemUiVisibility();
+                browserBackground = window.getDecorView().getBackground();
+                WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(window.getDecorView());
+                browserVisibleBars = 0;
+                if (insets == null || insets.isVisible(WindowInsetsCompat.Type.statusBars())) {
+                    browserVisibleBars |= WindowInsetsCompat.Type.statusBars();
+                }
+                if (insets == null || insets.isVisible(WindowInsetsCompat.Type.navigationBars())) {
+                    browserVisibleBars |= WindowInsetsCompat.Type.navigationBars();
+                }
+                browserPolicyCaptured = true;
+            }
             appliedFullscreen = true;
             WindowManager.LayoutParams params = window.getAttributes();
             params.width = params.height = WindowManager.LayoutParams.MATCH_PARENT;
@@ -307,22 +335,34 @@ final class BreadPresentationController {
             lp.setMargins(0, 0, 0, 0);
             content.setLayoutParams(lp);
         } else {
-            if (appliedFullscreen) {
-                appliedFullscreen = false;
-                owner.findViewById(R.id.app_bar_layout).setVisibility(browserAppBarVisibility);
-                owner.findViewById(R.id.status_bar_color_view).setVisibility(browserStatusVisibility);
-                View content = owner.findViewById(R.id.content_browser_layout);
-                androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams lp =
-                    (androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams) content.getLayoutParams();
-                lp.setBehavior(browserBehavior);
-                content.setLayoutParams(lp);
-                WindowManager.LayoutParams params = window.getAttributes();
-                params.layoutInDisplayCutoutMode = browserCutoutMode;
-                window.setAttributes(params);
-            }
-            controller.show(WindowInsetsCompat.Type.systemBars());
+            restoreWindow();
+            browserPolicyCaptured = false;
             owner.applyBrowserDimensions();
         }
+        ViewCompat.requestApplyInsets(webView);
+    }
+
+    private void restoreWindow() {
+        if (!appliedFullscreen) return;
+        appliedFullscreen = false;
+        Window window = owner.getWindow();
+        owner.findViewById(R.id.app_bar_layout).setVisibility(browserAppBarVisibility);
+        owner.findViewById(R.id.status_bar_color_view).setVisibility(browserStatusVisibility);
+        View content = owner.findViewById(R.id.content_browser_layout);
+        androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams lp =
+            (androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams) content.getLayoutParams();
+        lp.setBehavior(browserBehavior);
+        content.setLayoutParams(lp);
+        WindowManager.LayoutParams params = window.getAttributes();
+        params.layoutInDisplayCutoutMode = browserCutoutMode;
+        window.setAttributes(params);
+        WindowCompat.setDecorFitsSystemWindows(window, owner.browserDecorFitsSystemWindows());
+        WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, window.getDecorView());
+        controller.setSystemBarsBehavior(browserBarsBehavior);
+        controller.show(browserVisibleBars);
+        controller.hide(WindowInsetsCompat.Type.systemBars() & ~browserVisibleBars);
+        window.getDecorView().setSystemUiVisibility(browserSystemUiVisibility);
+        window.setBackgroundDrawable(browserBackground);
         ViewCompat.requestApplyInsets(webView);
     }
 
@@ -340,7 +380,10 @@ final class BreadPresentationController {
     void render() {
         if (state.phase() == BreadPresentationState.Phase.CLOSED) return;
         renderCover();
-        if (!state.active()) return;
+        if (!state.active()) {
+            restoreWindow();
+            return;
+        }
         applyWindow();
         if (state.phase() == BreadPresentationState.Phase.VISIBLE) {
             cover.setVisibility(View.GONE);

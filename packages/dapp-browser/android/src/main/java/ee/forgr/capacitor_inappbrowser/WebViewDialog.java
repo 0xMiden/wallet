@@ -109,6 +109,14 @@ public class WebViewDialog extends Dialog {
     private BreadPresentationController presentation;
     private boolean permanentlyClosed;
     private Runnable closedListener;
+    // Window has no public fitting getter; retain the policy selected during browser setup.
+    private boolean browserDecorFitsSystemWindows = true;
+
+    boolean browserDecorFitsSystemWindows() { return browserDecorFitsSystemWindows; }
+    private void setBrowserDecorFitsSystemWindows(boolean fits) {
+        browserDecorFitsSystemWindows = fits;
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), fits);
+    }
 
     public boolean isPresentationFullscreen() { return presentation != null && presentation.fullscreen(); }
     public void setClosedListener(Runnable listener) { closedListener = listener; }
@@ -1038,7 +1046,7 @@ public class WebViewDialog extends Dialog {
         if (getWindow() != null) {
             if (isAndroid15Plus) {
                 // Android 15+: Use edge-to-edge with proper insets handling
-                getWindow().setDecorFitsSystemWindows(false);
+                setBrowserDecorFitsSystemWindows(false);
                 getWindow().setStatusBarColor(Color.TRANSPARENT);
                 getWindow().setNavigationBarColor(Color.TRANSPARENT);
 
@@ -1780,7 +1788,7 @@ public class WebViewDialog extends Dialog {
             // setDecorFitsSystemWindows(false) is API 30+ (Android
             // 11+), which matches our minSdk constraints.
             if (Build.VERSION.SDK_INT >= 30 && getWindow() != null) {
-                getWindow().setDecorFitsSystemWindows(false);
+                setBrowserDecorFitsSystemWindows(false);
             }
 
             // Miden patch: the Dialog Window frame extends BELOW the
@@ -2582,7 +2590,7 @@ public class WebViewDialog extends Dialog {
                 @Override
                 public void onPageStarted(WebView view, String url, Bitmap favicon) {
                     super.onPageStarted(view, url, favicon);
-                    if (presentation != null) presentation.navigate();
+                    if (presentation != null) presentation.navigationStarted();
                     if (view == null || _webView == null) {
                         return;
                     }
