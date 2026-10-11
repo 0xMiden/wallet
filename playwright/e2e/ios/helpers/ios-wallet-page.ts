@@ -2,9 +2,17 @@ import type { CdpSession } from './cdp-bridge';
 import type { SimulatorControl } from './simulator-control';
 import type { PromptSettlement } from './system-alerts';
 import { ACTIVITY_PENDING_PATH } from '../../../../src/app/pages/activity-paths';
+import { NATIVE_ASSET_FEE_CACHE, NATIVE_ASSET_ID_CACHE } from '../../../../src/lib/miden-chain/native-asset-cache-keys';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
+import { toBaseUnits } from '../../helpers/balance-truth';
+import { bridgedSendRowOf, type BridgedSendRow } from '../../helpers/bridge';
 import { claimFromPendingList } from '../../helpers/claim-drain';
+import {
+  readTransactionRowsInPage,
+  type TransactionRowSnapshot,
+  type TransactionRowsQuery
+} from '../../helpers/history';
 import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 
@@ -31,6 +39,103 @@ const UNLOCKED_CONDITION_JS =
   `if (!s) return !!document.querySelector('[data-testid="explore-page"]'); ` +
   `var st = s.getState(); ` +
   `return (st.status === 2 || st.status === 'Ready') && !!st.currentAccount;`;
+
+/** `readTransactionRowsInPage`'s database and store (src/lib/miden/repo.ts), the same on every platform. */
+const TX_DB = 'TridentMain';
+const TX_STORE = 'transactions';
+
+// The Capacitor Preferences entries lib/miden-chain/native-asset writes, one per (RPC URL, network) scope; the
+// extension harness reads the same entries from chrome.storage (balance-truth.ts walletCacheEntry).
+const NATIVE_ASSET_CACHE_EXPR =
+  `(async function () { var P = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences; ` +
+  `if (!P) throw new Error('no Capacitor Preferences plugin'); var keys = (await P.keys()).keys || []; var out = {}; ` +
+  `for (var i = 0; i < keys.length; i++) { var k = keys[i]; ` +
+  `if (k.indexOf(${JSON.stringify(`${NATIVE_ASSET_ID_CACHE}:`)}) === 0 || ` +
+  `k.indexOf(${JSON.stringify(`${NATIVE_ASSET_FEE_CACHE}:`)}) === 0) out[k] = (await P.get({ key: k })).value; } ` +
+  `return out; })()`;
+
+// `balances` is keyed by the account's public key, so another account's rows cannot leak into the current one's.
+const CURRENT_ACCOUNT_ROWS_JS =
+  `var s = window.__TEST_STORE__; if (!s) return null; var st = s.getState(); ` +
+  `var pk = st.currentAccount && st.currentAccount.publicKey; if (!pk) return null; var meta = st.assetsMetadata || {}; ` +
+  `return { account: pk, displayFaucetId: (st.balancesDisplayFaucetId && st.balancesDisplayFaucetId[pk]) || null, ` +
+  `rows: ((st.balances && st.balances[pk]) || []).map(function (r) { var m = r.metadata || meta[r.tokenId] || {}; ` +
+  `return { tokenId: String(r.tokenId), symbol: m.symbol || '', decimals: m.decimals, balance: r.balance }; }) };`;
+
+interface CurrentAccountRows {
+  account: string;
+  displayFaucetId: string | null;
+  rows: Array<{ tokenId: string; symbol: string; decimals: number; balance: number }>;
+}
+
+/** The chain's native (fee) asset as the wallet discovered it and as the current account's balance row shows it. */
+export interface IosNativeAsset {
+  /** The composite id (`<bech32>_<suffix>`) the store keys the balance row by. */
+  tokenId: string;
+  symbol: string;
+  decimals: number;
+  /** The chain's `verification_base_fee`, which bounds a landed path's fee. */
+  baseFee: number;
+}
+
+/** The one Preferences value under `prefix`; a cache that has seen two chains would let key order pick one. */
+function onePreference(entries: Record<string, string | null>, prefix: string): string {
+  const keys = Object.keys(entries).filter(key => key.startsWith(`${prefix}:`));
+  const [key] = keys;
+  const value = key === undefined ? undefined : entries[key];
+  if (keys.length !== 1 || typeof value !== 'string') {
+    throw new Error(
+      `the wallet's ${prefix} cache has ${keys.length} entries (${keys.join(', ') || 'none'}), expected one`
+    );
+  }
+  return value;
+}
+
+function nativeAssetOf(entries: Record<string, string | null>, view: CurrentAccountRows | null): IosNativeAsset {
+  const tokenId = onePreference(entries, NATIVE_ASSET_ID_CACHE);
+  const fee: unknown = JSON.parse(onePreference(entries, NATIVE_ASSET_FEE_CACHE));
+  const feeFaucetId = fee !== null && typeof fee === 'object' ? Reflect.get(fee, 'faucetId') : undefined;
+  const baseFee = fee !== null && typeof fee === 'object' ? Reflect.get(fee, 'baseFee') : undefined;
+  if (feeFaucetId !== tokenId || typeof baseFee !== 'number' || !Number.isInteger(baseFee) || baseFee < 0) {
+    throw new Error(
+      `the wallet's ${NATIVE_ASSET_FEE_CACHE} entry ${JSON.stringify(fee)} has no base fee for ${tokenId}`
+    );
+  }
+  if (view?.displayFaucetId && view.displayFaucetId !== tokenId) {
+    throw new Error(`the store shows ${view.displayFaucetId} as the native token; the wallet discovered ${tokenId}`);
+  }
+  const row = view?.rows.find(candidate => candidate.tokenId === tokenId);
+  if (!row || row.symbol === '' || !Number.isInteger(row.decimals)) {
+    throw new Error(
+      `no balance row with a symbol and decimals for the native token ${tokenId}: ${JSON.stringify(view)}`
+    );
+  }
+  return { tokenId, symbol: row.symbol, decimals: row.decimals, baseFee };
+}
+
+/** A page route without its search: the onboarding bypass keeps `?password=` in `location.href` all session. */
+export function routeOf(href: string): string {
+  return new URL(href).hash;
+}
+
+const READ_ATTEMPTS = 3;
+const READ_RETRY_MS = 1_000;
+
+/**
+ * `read`, asked again after a failed CDP eval: an inspector reattach, or the bridge's 30 s eval cap while a local
+ * prove holds the WebView's JS thread. The live spec's polls run for minutes and `pollUntil` fails on one failed read,
+ * so only the third failure in a row counts.
+ */
+async function ridingOut<T>(read: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await read();
+    } catch (error) {
+      if (attempt >= READ_ATTEMPTS) throw error;
+      await sleep(READ_RETRY_MS);
+    }
+  }
+}
 
 interface IosWalletPageOpts {
   cdp: CdpSession;
@@ -75,6 +180,7 @@ export class IosWalletPage implements WalletPage {
   private beforeCapture?: () => Promise<void>;
   private settlePrompt?: () => Promise<PromptSettlement>;
   private pollStats: PollStats = { pollCount: 0, pollIterations: 0, pollMs: 0, pollSleepMs: 0 };
+  private stashSeq = 0;
 
   constructor(opts: IosWalletPageOpts) {
     this.cdp = opts.cdp;
@@ -290,7 +396,8 @@ export class IosWalletPage implements WalletPage {
 
   /** Run a Promise-returning hook expression and poll its stashed result. */
   private async stashAndPoll<T>(prefix: string, promiseExpr: string, timeoutMs = 30_000): Promise<T> {
-    const key = `${prefix}_${Date.now()}`;
+    // The sequence keeps two reads started in the same millisecond apart.
+    const key = `${prefix}_${Date.now()}_${++this.stashSeq}`;
     const k = JSON.stringify(key);
     await this.cdp.eval(
       `window[${k}] = undefined; ` +
@@ -301,13 +408,98 @@ export class IosWalletPage implements WalletPage {
     );
     const deadline = Date.now() + timeoutMs;
     for (;;) {
-      const r = await this.cdp.eval<{ ok: boolean; v?: T; e?: string } | null>(`return window[${k}] || null;`);
+      // Deleted once read: a burn row's stash holds about 0.5 MB of result bytes.
+      const r = await this.cdp.eval<{ ok: boolean; v?: T; e?: string } | null>(
+        `var r = window[${k}]; if (r) { delete window[${k}]; } return r || null;`
+      );
       if (r) {
         if (r.ok) return r.v as T;
         throw new Error(`stashAndPoll(${prefix}): ${r.e}`);
       }
       if (Date.now() > deadline) throw new Error(`stashAndPoll(${prefix}): timed out after ${timeoutMs}ms`);
       await new Promise(res => setTimeout(res, POLL_INTERVAL_MS));
+    }
+  }
+
+  // ── Row, native-asset and vault reads (the live USDCx spec) ─────────────
+
+  /**
+   * Transaction rows straight from the WebView's IndexedDB through history.ts's projection, the extension harness's
+   * own reader: its source closes over nothing, so it runs here as is (3 of 3 live spike runs). `withBytes` adds
+   * `outputNoteIds`, `requestBytes` and `resultBytes`; poll without them and read them once.
+   */
+  async readTransactionRows(query: { type?: string; withBytes?: boolean } = {}): Promise<TransactionRowSnapshot[]> {
+    const full: TransactionRowsQuery = { dbName: TX_DB, storeName: TX_STORE, ...query };
+    const rows = await ridingOut(() =>
+      this.stashAndPoll<TransactionRowSnapshot[] | null>(
+        '__tx_rows',
+        `(${readTransactionRowsInPage.toString()})(${JSON.stringify(full)})`,
+        60_000
+      )
+    );
+    return rows ?? [];
+  }
+
+  /** The `bridged-send` rows, typed as the extension harness types them. */
+  async readBridgedSendRows(withBytes = false): Promise<BridgedSendRow[]> {
+    return (await this.readTransactionRows({ type: 'bridged-send', withBytes })).map(bridgedSendRowOf);
+  }
+
+  /**
+   * The native asset from the wallet's Preferences cache, checked against the store's display id and the current
+   * account's balance row. Both land shortly after Ready, so it re-reads until `timeoutMs` and then reports the last
+   * problem.
+   */
+  async nativeAsset(timeoutMs = 60_000): Promise<IosNativeAsset> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      try {
+        const entries = await this.stashAndPoll<Record<string, string | null>>(
+          '__native_asset',
+          NATIVE_ASSET_CACHE_EXPR
+        );
+        return nativeAssetOf(entries, await this.cdp.eval<CurrentAccountRows | null>(CURRENT_ACCOUNT_ROWS_JS));
+      } catch (error) {
+        if (Date.now() >= deadline) throw error;
+      }
+      await sleep(2_000);
+    }
+  }
+
+  /**
+   * Exact spendable base units of `faucetId` in the current account, as the store last fetched them. Read it through
+   * `homeVaultBaseUnits`: the balance poll runs only on Home.
+   */
+  async readVaultBaseUnits(faucetId: string): Promise<bigint> {
+    const view = await ridingOut(() => this.cdp.eval<CurrentAccountRows | null>(CURRENT_ACCOUNT_ROWS_JS));
+    if (!view) throw new Error('readVaultBaseUnits: the store has no current account');
+    let total = 0n;
+    for (const row of view.rows.filter(candidate => candidate.tokenId === faucetId)) {
+      // toBaseUnits refuses more digits than the decimals hold: a float that does not round-trip.
+      total += toBaseUnits(String(row.balance), row.decimals);
+    }
+    return total;
+  }
+
+  /**
+   * Goes Home, where the balance poll runs, and re-reads the vault every second until `holds` accepts it. The store
+   * caught up within 5.1 s of the move in the spike.
+   */
+  async homeVaultBaseUnits(
+    faucetId: string,
+    holds: (units: bigint) => boolean,
+    timeoutMs: number,
+    want: string
+  ): Promise<bigint> {
+    await this.navigateHome();
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const units = await this.readVaultBaseUnits(faucetId);
+      if (holds(units)) return units;
+      if (Date.now() >= deadline) {
+        throw new Error(`the vault of ${faucetId} on Home never read ${want} within ${timeoutMs} ms; last ${units}`);
+      }
+      await sleep(1_000);
     }
   }
 
