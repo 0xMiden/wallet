@@ -376,7 +376,7 @@ Where each USDCx suite runs:
 | Suites | Runs | Arc key |
 |---|---|---|
 | `usdcx-in`, `usdcx-burn`, `usdcx` (extension) | E2E USDCx (`e2e-usdcx.yml`) after every push to main, in that order, each only once the one before passed, and on a branch by dispatch; by hand, `yarn e2e:real --suite <name>` | In CI, its own key ([below](#the-ci-key)); by hand, the harness key |
-| The iOS live bridge-in (`usdcx-live-deposit.ios.spec.ts`), the deposit leg only | E2E USDCx Bridge-IN (live) (`e2e-usdcx-live.yml`) after every push to main, nightly at 03:17 UTC and by dispatch | The repository secret `USDCX_LIVE_EVM_PRIVATE_KEY`, set only on the steps that check it and run the spec; a run spends about 0.016 USDC of it |
+| The iOS live round trip (`usdcx-live-deposit.ios.spec.ts`): the deposit leg, then the burn half back to the deposit key | E2E USDCx Bridge-IN (live) (`e2e-usdcx-live.yml`) after every push to main, nightly at 03:17 UTC and by dispatch | The repository secret `USDCX_LIVE_EVM_PRIVATE_KEY`, set only on the steps that check it and run the spec ([below](#the-ios-jobs-key)) |
 
 > #### Circle's payout is a hard gate
 > The round trip and both `usdcx-burn` tests fail when Circle has not paid the burn to the key within 10 minutes of the faucet consuming it. The proof is one Gateway `AttestationUsed` log on Arc whose mint carries the burn note id, so a transfer to the key from anywhere else does not count. The key keeps USDC between runs, so the proof is also that its balance rose, from a read taken right before the burn, by exactly that log's value; anything else that pays into or spends from the key in that window fails the run, and the message says so. Circle has paid Arc burns 10-12 s after the consume, but also 1 h 45 min and about 17 h late, and one burn was still unpaid days later. A red payout step therefore means a user would not have been paid in time; that can be Circle's doing rather than the wallet's, and the failure message says so.
@@ -414,11 +414,11 @@ Runs queue on one concurrency group, `usdcx-harness-arc-key`, and none is cancel
 - **Fund it:** send Arc Testnet USDC to that address, from Circle's faucet or another key, while no E2E USDCx run is going.
 - **Recover it:** GitHub never shows a secret again, so the key and its USDC are only as recoverable as the copy kept by whoever stored the secret. Import that copy into an EVM wallet on Arc Testnet (chain 5042002) to move the USDC, while no run is going. If the copy is lost, so is the USDC on the key: create a new key (`cast wallet new`), keep a copy, send it at least 0.021 USDC and store its private key, lowercase, with `gh secret set USDCX_HARNESS_ARC_KEY --repo 0xMiden/wallet`.
 
-### The iOS nightly's key
+### The iOS job's key
 
-`e2e-usdcx-live.yml` runs `playwright/e2e/ios/tests/usdcx-live-deposit.ios.spec.ts` every night on one Guardian wallet: the secret-funded key `USDCX_LIVE_EVM_PRIVATE_KEY` deposits 0.01 USDC in, and then the wallet burns 1 USDCx from a public faucet grant back to that key's own Arc address. Circle's payout of about 0.98 USDC more than refills the deposit and its gas (about 0.015 USDC), so the key needs no top-up, and the payout gate counts only what the burn added to its balance since a read taken right before the burn. A late payout from an earlier night, or any other transfer into or out of the key during a run, fails that gate, and the message says why.
+`e2e-usdcx-live.yml` runs `playwright/e2e/ios/tests/usdcx-live-deposit.ios.spec.ts` after every push to main, nightly and by dispatch, one run at a time, each on one fresh Guardian wallet: the secret-funded key `USDCX_LIVE_EVM_PRIVATE_KEY` deposits 0.01 USDC in, and then the wallet burns 1 USDCx from a public faucet grant back to that key's own Arc address. A run spends about 0.016 USDC of the key (the deposit and its gas), and Circle's payout of about 0.98 USDC more than refills that, so the key needs no top-up while runs pass. The payout gate counts only what the burn added to the key's balance since a read taken right before the burn: a late payout from an earlier run, or any other transfer into or out of the key during a run, fails that gate, and the message says why.
 
-Run the spec locally with `USDCX_LIVE_EVM_PRIVATE_KEY` set to the harness key while holding `~/.miden-e2e/usdcx-run.lock`, never with the nightly's key: a local run cannot see a nightly, and two payouts into one key fail the gate.
+Run the spec locally with `USDCX_LIVE_EVM_PRIVATE_KEY` set to the harness key while holding `~/.miden-e2e/usdcx-run.lock`, never with the iOS job's key: a local run cannot see a run of the job, and two payouts into one key fail the gate.
 
 ---
 

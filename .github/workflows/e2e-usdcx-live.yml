@@ -82,8 +82,8 @@ jobs:
       # NO USDCX_LIVE_EVM_PRIVATE_KEY here either: every step sees a job variable, the dependency install and the app
       # build among them, so the key is set only on the two steps that read it.
       # 0.01 USDC: Circle takes no deposit fee, a testnet claim's fee is about 0.0002 USDCx, and Arc gas for the
-      # approve and the deposit is about 0.006 USDC, so a run spends about 0.016 USDC and a 20 USDC faucet drip
-      # lasts about 1,200 runs.
+      # approve and the deposit is about 0.006 USDC, so a run spends about 0.016 USDC of the key. The burn half refills
+      # it: Circle pays about 0.98 USDC for the 1 USDCx burn back to that key, so it needs no top-up while runs pass.
       USDCX_LIVE_DEPOSIT_AMOUNT: ${{ inputs.deposit_amount || '0.01' }}
       USDCX_FAUCET_ACCOUNT_ID: ${{ vars.USDCX_FAUCET_ACCOUNT_ID }}
       USDCX_RELAYER_ACCOUNT_ID: ${{ vars.USDCX_RELAYER_ACCOUNT_ID }}
@@ -277,7 +277,8 @@ jobs:
           }
 
       - name: Run USDCx bridge-IN E2E (mobile, live testnets)
-        # NO retries: a retry sends a second real deposit. A failed run is read, not repeated.
+        # NO retries: a retry sends a second real deposit, and past the deposit leg it also burns again and Circle pays
+        # out again. A failed run is read, not repeated.
         env:
           USDCX_LIVE_EVM_PRIVATE_KEY: ${{ secrets.USDCX_LIVE_EVM_PRIVATE_KEY }}
         run: yarn test:e2e:mobile:usdcx-live:run
