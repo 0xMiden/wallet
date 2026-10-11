@@ -1,10 +1,9 @@
 import { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
-import { executeForSummary } from '@openzeppelin/miden-multisig-client';
+import { executeForSummaryAtTip } from '@openzeppelin/miden-multisig-client';
 
 import { importedNoteAssets, type AssetAmount } from 'app/confirm/decode';
 import { importedNoteIds, quarantineNoteIds } from 'lib/miden/note-quarantine';
-import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import {
   assertWasmHoldCurrent,
   getMidenClient,
@@ -78,7 +77,7 @@ function isAlreadyAuthorizedError(err: unknown): boolean {
 }
 
 /**
- * True when `executeForSummary` died because it had no signer for this account, rather than
+ * True when `executeForSummaryAtTip` died because it had no signer for this account, rather than
  * because the request itself is bad.
  *
  * Matched narrowly because the SDK reports signing failures as kernel event errors
@@ -190,7 +189,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         assertWasmHoldCurrent(hold, 'after the client build');
 
         // Quarantine BEFORE importing: these notes are about to land in the
-        // real client DB purely so `executeForSummary` can resolve them for
+        // real client DB purely so `executeForSummaryAtTip` can resolve them for
         // the dry run — the user hasn't approved anything yet. Quarantining
         // first (rather than after the import loop) means a failure partway
         // through the loop still leaves every already-imported note hidden.
@@ -226,55 +225,34 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         }
         assertWasmHoldCurrent(hold, 'after the note imports');
         await client.syncState();
-        // `accountIdStringToSdk` and `TransactionRequest.deserialize` below are
+        // `accountRefToSdk` and `TransactionRequest.deserialize` below are
         // WASM calls too, not just the execution — and the sync is the await
         // most likely to outlive the watchdog.
         assertWasmHoldCurrent(hold, 'after the sync');
 
-        // Fix C: executeForSummary wants a hex account-id string (it does
-        // AccountId.fromHex). The custom-tx address is usually bech32, but
-        // resolveAccountId elsewhere accepts hex too — pass hex through as-is.
-        const accountIdHex =
-          input.address.startsWith('0x') || input.address.startsWith('0X')
-            ? input.address
-            : accountIdStringToSdk(input.address).toString();
+        // The dApp address is parsed by the wallet's canonical account-reference parser, which reduces
+        // a composite `<address>_<suffix>` to its address and accepts either hex prefix case, and is
+        // passed on as the canonical hex id that `preview` and `executeRequest` below both resolve.
+        const accountIdHex = accountRefToSdk(input.address).toString();
         const request = TransactionRequest.deserialize(b64ToU8(input.transactionRequest));
         // ONLY the summary execution is caught here. A guard's own throw must never reach the
         // fallback below: `assertWasmHoldCurrent` fires when the mutex is already a successor's,
         // and retrying under it is the double borrow every guard in this callback exists to stop.
-        let summarized: Awaited<ReturnType<typeof executeForSummary>> | undefined;
+        let summary: Awaited<ReturnType<typeof executeForSummaryAtTip>> | undefined;
         let summaryFailure: unknown;
         try {
-          // The anchor this also returns is only useful to a party that has to
-          // reproduce the summary later — a cosigner or executor. This dry run
-          // displays the summary and discards it, so nothing here wants the
-          // anchor on the wire. It still has to be RELEASED rather than merely
-          // dropped: it owns a partial blockchain on the WASM heap, and the
-          // summary branch is the GUARDIAN one, so every confirm dialog a
-          // multisig account opens strands another one until the finalizer
-          // happens to run (#784).
-          summarized = await executeForSummary(client.client, accountIdHex, request);
+          // The summary binds the block the request's auth args name, which the dApp's own client
+          // chose and the sync above has moved this one past, so it executes at the tip like every
+          // other execution of a Guardian proposal.
+          summary = await executeForSummaryAtTip(client.client, accountIdHex, request);
         } catch (e) {
           summaryFailure = e;
         }
 
-        if (summarized !== undefined) {
-          const { summary, anchor } = summarized;
-          try {
-            // Inside the try, so an abandoned dry run still releases the anchor
-            // on its way out — the same placement the replace-hot-key proposal
-            // uses. `summary.serialize()` is a borrow of the evicted client's
-            // RefCell and must not run; `anchor.free()` is not, being a
-            // wasm-bindgen deallocation of the anchor's own box rather than a
-            // call through the client, and it is synchronous, so it cannot
-            // interleave with the successor's work. Skipping it instead would
-            // strand a partial blockchain on the WASM heap per abandoned confirm
-            // dialog, which is what #784 added this release to stop.
-            assertWasmHoldCurrent(hold, 'before the summary serialize');
-            return { summaryBytes: u8ToB64(summary.serialize()), introducedCredit, introducedCount };
-          } finally {
-            freeChainAnchor(anchor);
-          }
+        if (summary !== undefined) {
+          // `summary.serialize()` borrows the client, so an evicted hold must not reach it.
+          assertWasmHoldCurrent(hold, 'before the summary serialize');
+          return { summaryBytes: u8ToB64(summary.serialize()), introducedCredit, introducedCount };
         }
 
         // Only two summary failures are retryable locally: the account was already fully
@@ -291,7 +269,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         if (isSummarySigningUnavailable(summaryFailure) || isSummaryFeeFaucetMissing(summaryFailure)) {
           console.warn('[simulate-custom-tx] the summary client cannot execute; falling back to local execution');
         }
-        // The rejection still ends the executeForSummary parking await, so re-check before the
+        // The rejection still ends the executeForSummaryAtTip parking await, so re-check before the
         // fallback executes anything.
         assertWasmHoldCurrent(hold, 'before the local execution fallback');
         // Ordinary (non-guardian) account: nothing is pending authorization, so
@@ -304,7 +282,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // on the 0.16 line.
         //
         // A fresh deserialization: the first request handle was consumed by
-        // `executeForSummary` (wasm-bindgen moves it).
+        // `executeForSummaryAtTip` (wasm-bindgen moves it).
         const executed = await client.client.transactions.executeRequest(
           accountIdHex,
           TransactionRequest.deserialize(b64ToU8(input.transactionRequest))

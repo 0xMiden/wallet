@@ -1,5 +1,3 @@
-import { AccountId } from '@miden-sdk/miden-sdk';
-
 import {
   initiateBridgedSendTransaction,
   requestSWTransactionProcessing,
@@ -8,7 +6,7 @@ import {
 } from 'lib/miden/activity';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import * as Repo from 'lib/miden/repo';
-import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
+import { accountRefToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import { type SpendingLimitAuthorization, spendingLimitAssessmentFromError } from 'lib/miden/spending-limits/types';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
@@ -48,8 +46,8 @@ export interface BridgeNoteDeps {
  * is returned untouched.
  */
 export function ifHextoBech32(addr: string) {
-  if (addr.startsWith('0x')) {
-    return getBech32AddressFromAccountId(AccountId.fromHex(addr));
+  if (/^0x/i.test(addr)) {
+    return getBech32AddressFromAccountId(accountRefToSdk(addr));
   }
   return addr;
 }

@@ -3203,12 +3203,11 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
     expect(__test.inFlightSize()).toBe(0);
   });
 
-  // #784: this crossing is the ONLY place the proposal's chain anchor is put on
-  // the wire. Both sides of it are covered elsewhere — the caller by a mocked
-  // `dispatchGuardianPipeline`, the offscreen dispatch by a hand-built envelope
-  // — so without this the anchor could be dropped from the DTO entirely and
-  // every other suite would stay green.
-  it('#784: the proposal chain anchor crosses in the 4th DTO slot, as its wire-form base64', async () => {
+  // #784: wire compatibility only. The offscreen leaf reads nothing from the
+  // 4th slot, but the packer still fills it with the value it is handed, and
+  // this is the one test that drives the packer with a value: the caller is
+  // covered by a mocked `dispatchGuardianPipeline`, the leaf by hand-built envelopes.
+  it('#784: the retained 4th DTO slot carries the anchor base64 unchanged (wire compatibility only)', async () => {
     const { dispatchGuardianPipeline } = await loadProxy(true);
     fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
       ok: true,

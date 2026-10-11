@@ -57,10 +57,13 @@ jest.mock('./collateral-note', () => ({
 
 // Minimal SDK stand-in. `AccountId.fromHex(...).toBech32(net)` is kept working so a
 // regression to the hardcoded `NetworkId.testnet()` encoding fails with a readable
-// `mtst1…` vs `mlcl1…` diff rather than a TypeError.
+// `mtst1…` vs `mlcl1…` diff rather than a TypeError. Like the SDK's, fromHex takes only a literal `0x`.
 jest.mock('@miden-sdk/miden-sdk', () => ({
   AccountId: {
-    fromHex: (hex: string) => ({ hex, toBech32: (net: string) => `${net}1${hex.slice(2)}` })
+    fromHex: (hex: string) => {
+      if (!hex.startsWith('0x')) throw new Error('hex encoded data must start with 0x');
+      return { hex, toBech32: (net: string) => `${net}1${hex.slice(2)}` };
+    }
   },
   Address: {
     fromBech32: (addr: string) => ({
@@ -82,6 +85,10 @@ describe('epoch id encoding (ifHextoBech32)', () => {
 
   it('encodes a hex id under the EFFECTIVE network HRP, not a hardcoded testnet one', () => {
     expect(ifHextoBech32('0xdeadbeef')).toBe('mlcl1deadbeef');
+  });
+
+  it('encodes an id written with an uppercase 0X prefix the same as its 0x form', () => {
+    expect(ifHextoBech32('0Xdeadbeef')).toBe('mlcl1deadbeef');
   });
 
   it('passes an already-bech32 id through untouched', () => {

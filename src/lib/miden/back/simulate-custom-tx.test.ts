@@ -1,7 +1,8 @@
-import { executeForSummary } from '@openzeppelin/miden-multisig-client';
+import { Address } from '@miden-sdk/miden-sdk/lazy';
+import { executeForSummaryAtTip } from '@openzeppelin/miden-multisig-client';
 
 import { importedNoteIds, quarantineNoteIds } from 'lib/miden/note-quarantine';
-import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 
 import { simulateCustomTransaction } from './simulate-custom-tx';
 
@@ -44,23 +45,34 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
     }
   })
 }));
-jest.mock('lib/miden/sdk/helpers', () => ({
-  accountIdStringToSdk: jest.fn((s: string) => ({ toString: () => `hex:${s}` }))
-}));
+// The real account-reference parser over the SDK stand-in below, spied only so a test can assert it never ran.
+jest.mock('lib/miden/sdk/helpers', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/sdk/helpers')>('lib/miden/sdk/helpers');
+  return { ...actual, accountRefToSdk: jest.fn(actual.accountRefToSdk) };
+});
 jest.mock('lib/miden/note-quarantine', () => ({
   importedNoteIds: jest.fn((notes: string[] | undefined) => (notes ?? []).map(n => `id:${n}`)),
   quarantineNoteIds: jest.fn(async () => undefined)
 }));
+// As strict as the SDK where it matters: fromHex takes only a literal `0x` and returns the canonical
+// (lowercase) id, and fromBech32 rejects an underscore, standing in for a routing suffix it cannot decode.
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
-  TransactionRequest: { deserialize: jest.fn((bytes: Uint8Array) => ({ __req: bytes })) }
+  TransactionRequest: { deserialize: jest.fn((bytes: Uint8Array) => ({ __req: bytes })) },
+  AccountId: {
+    fromHex: jest.fn((hex: string) => {
+      if (!hex.startsWith('0x')) throw new Error('hex encoded data must start with 0x');
+      return { toString: () => hex.toLowerCase() };
+    })
+  },
+  Address: {
+    fromBech32: jest.fn((address: string) => {
+      if (address.includes('_')) throw new Error('invalid note tag length');
+      return { accountId: () => ({ toString: () => `hex:${address}` }) };
+    })
+  }
 }));
 jest.mock('@openzeppelin/miden-multisig-client', () => ({
-  // `free` on the default anchor so the ordinary cases exercise a successful
-  // release rather than `freeChainAnchor`'s swallow-and-warn branch.
-  executeForSummary: jest.fn(async () => ({
-    summary: { serialize: () => new Uint8Array([1, 2, 3]) },
-    anchor: { __anchor: true, free: jest.fn() }
-  }))
+  executeForSummaryAtTip: jest.fn(async () => ({ serialize: () => new Uint8Array([1, 2, 3]) }))
 }));
 jest.mock('lib/shared/helpers', () => ({
   b64ToU8: jest.fn((s: string) => new Uint8Array([s.length])),
@@ -81,66 +93,20 @@ describe('simulateCustomTransaction', () => {
     });
     expect(importNoteBytes).toHaveBeenCalledTimes(2);
     expect(syncState).toHaveBeenCalledTimes(1);
-    expect(executeForSummary).toHaveBeenCalledWith(fakeClient, 'hex:mtst1abc', { __req: expect.any(Uint8Array) });
+    expect(executeForSummaryAtTip).toHaveBeenCalledWith(fakeClient, 'hex:mtst1abc', { __req: expect.any(Uint8Array) });
     expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3' });
   });
 
-  // #784: the dry run has no use for the anchor, but "no use for it" is not the
-  // same as "may drop it" — it is a WASM handle over a partial blockchain, and
-  // the summary branch is the guardian one, so a multisig account would strand
-  // one per confirm dialog.
-  it('releases the anchor it never uses, on success and on a serialize failure', async () => {
-    const free = jest.fn();
-    (executeForSummary as jest.Mock).mockResolvedValueOnce({
-      summary: { serialize: () => new Uint8Array([1, 2, 3]) },
-      anchor: { __anchor: true, free }
-    });
-
-    await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
-    expect(free).toHaveBeenCalledTimes(1);
-
-    // The `finally` half: a summary that cannot serialize must not also leak.
-    // The free throws too, so the result assertion is load-bearing for the
-    // swallow — a raw `anchor.free()` would report the null pointer instead of
-    // the real failure.
-    const freeOnThrow = jest.fn(() => {
-      throw new Error('null pointer passed to rust');
-    });
-    (executeForSummary as jest.Mock).mockResolvedValueOnce({
-      summary: {
-        serialize: () => {
-          throw new Error('summary serialize failed');
-        }
-      },
-      anchor: { __anchor: true, free: freeOnThrow }
-    });
-
-    const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
-
-    expect(freeOnThrow).toHaveBeenCalledTimes(1);
-    // Releasing the anchor must not swallow or replace the real failure.
-    expect(res).toEqual({ error: 'summary serialize failed' });
-  });
-
-  // The success direction: there is no in-flight error here, so an unswallowed
-  // free would INVENT one and hand the dApp `{ error }` for a dry run that
-  // actually succeeded — turning a cleanup failure into a failed confirm.
-  it('still returns the summary when releasing the anchor fails', async () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    (executeForSummary as jest.Mock).mockResolvedValueOnce({
-      summary: { serialize: () => new Uint8Array([1, 2, 3]) },
-      anchor: {
-        __anchor: true,
-        free: jest.fn(() => {
-          throw new Error('null pointer passed to rust');
-        })
+  it('reports a summary that cannot serialize as { error }', async () => {
+    (executeForSummaryAtTip as jest.Mock).mockResolvedValueOnce({
+      serialize: () => {
+        throw new Error('summary serialize failed');
       }
     });
 
     const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
 
-    expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3' });
-    warn.mockRestore();
+    expect(res).toEqual({ error: 'summary serialize failed' });
   });
 
   it('quarantines the imported notes (derived ids) before importing them', async () => {
@@ -191,22 +157,35 @@ describe('simulateCustomTransaction', () => {
   });
 
   it('returns { error } when execution throws, without rethrowing', async () => {
-    (executeForSummary as jest.Mock).mockRejectedValueOnce(new Error('note not found'));
+    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(new Error('note not found'));
     const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
     expect(res).toEqual({ error: 'note not found' });
   });
 
   it('returns a string error when execution rejects with a non-Error value', async () => {
-    (executeForSummary as jest.Mock).mockRejectedValueOnce('boom');
+    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce('boom');
     const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
     expect(res).toEqual({ error: 'boom' });
   });
 
-  it('passes a hex address straight through without calling accountIdStringToSdk', async () => {
+  it('parses a hex address as hex, never through the bech32 parser', async () => {
     const res = await simulateCustomTransaction({ address: '0xabc', transactionRequest: 'reqB64' });
-    expect(executeForSummary).toHaveBeenCalledWith(fakeClient, '0xabc', { __req: expect.any(Uint8Array) });
-    expect(accountIdStringToSdk as jest.Mock).not.toHaveBeenCalled();
+    expect(executeForSummaryAtTip).toHaveBeenCalledWith(fakeClient, '0xabc', { __req: expect.any(Uint8Array) });
+    expect(Address.fromBech32).not.toHaveBeenCalled();
     expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3' });
+  });
+
+  it('lowercases an uppercase 0X prefix, which AccountId.fromHex rejects, for the summary and the fallback', async () => {
+    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(
+      Object.assign(new Error('nope'), { code: 'TRANSACTION_ALREADY_AUTHORIZED' })
+    );
+
+    const res = await simulateCustomTransaction({ address: '0XABC', transactionRequest: 'reqB64' });
+
+    expect(executeForSummaryAtTip).toHaveBeenCalledWith(fakeClient, '0xabc', { __req: expect.any(Uint8Array) });
+    expect(executeRequest).toHaveBeenCalledWith('0xabc', { __req: expect.any(Uint8Array) });
+    expect(Address.fromBech32).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ executedBytes: 'b64:9-9' });
   });
 
   // Regression: web-sdk 0.16 inverted `executeForSummary`'s contract — the summary
@@ -220,7 +199,7 @@ describe('simulateCustomTransaction', () => {
     ['a Node-style code-prefixed message', new Error('TRANSACTION_ALREADY_AUTHORIZED: no summary produced')],
     ['the SDK display text', new Error('transaction is already fully authorized, so no transaction summary')]
   ])('falls back to a local execution when the account is already authorized (%s)', async (_label, err) => {
-    (executeForSummary as jest.Mock).mockRejectedValueOnce(err);
+    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(err);
 
     const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
 
@@ -240,7 +219,7 @@ describe('simulateCustomTransaction', () => {
     ],
     ['the bare keystore miss', new Error('storage error: Failed to get secret key from IndexedDB')]
   ])('falls back to a local execution when the summary client cannot sign (%s)', async (_label, err) => {
-    (executeForSummary as jest.Mock).mockRejectedValueOnce(err);
+    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(err);
 
     const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
 
@@ -252,7 +231,7 @@ describe('simulateCustomTransaction', () => {
     ['the 0.17 create-time message', new Error('no fee faucet is known for network `mlcl`')],
     ['the option name', new Error('pass `feeFaucetId` when creating the client')]
   ])('falls back to a local execution when the summary client has no fee faucet (%s)', async (_label, err) => {
-    (executeForSummary as jest.Mock).mockRejectedValueOnce(err);
+    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(err);
 
     const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
 
@@ -261,7 +240,7 @@ describe('simulateCustomTransaction', () => {
   });
 
   it('still reports a genuine execution failure as { error } rather than executing locally', async () => {
-    (executeForSummary as jest.Mock).mockRejectedValueOnce(new Error('note not found'));
+    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(new Error('note not found'));
 
     const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
 
@@ -290,7 +269,7 @@ describe('simulateCustomTransaction', () => {
       expect(quarantineNoteIds).not.toHaveBeenCalled();
       expect(importNoteBytes).not.toHaveBeenCalled();
       expect(syncState).not.toHaveBeenCalled();
-      expect(executeForSummary).not.toHaveBeenCalled();
+      expect(executeForSummaryAtTip).not.toHaveBeenCalled();
     });
 
     it('during a provenance lookup: the loop stops before the next one, and the poison is not swallowed as "already held"', async () => {
@@ -341,16 +320,15 @@ describe('simulateCustomTransaction', () => {
       const res = await simulateCustomTransaction(input);
 
       expect(res).toEqual({ error: 'operation abandoned after the sync' });
-      expect(accountIdStringToSdk).not.toHaveBeenCalled();
-      expect(executeForSummary).not.toHaveBeenCalled();
+      expect(accountRefToSdk).not.toHaveBeenCalled();
+      expect(executeForSummaryAtTip).not.toHaveBeenCalled();
     });
 
-    it('during executeForSummary: the summary is not serialized, but the anchor is still freed', async () => {
+    it('during the summary execution: the summary is not serialized', async () => {
       const serialize = jest.fn(() => new Uint8Array([1, 2, 3]));
-      const free = jest.fn();
-      (executeForSummary as jest.Mock).mockImplementationOnce(async () => {
+      (executeForSummaryAtTip as jest.Mock).mockImplementationOnce(async () => {
         revokeWasmHold();
-        return { summary: { serialize }, anchor: { __anchor: true, free } };
+        return { serialize };
       });
 
       const res = await simulateCustomTransaction(input);
@@ -359,16 +337,10 @@ describe('simulateCustomTransaction', () => {
       // `summary.serialize()` reads through the evicted client's RefCell, which
       // is the double borrow the guard exists to prevent.
       expect(serialize).not.toHaveBeenCalled();
-      // The anchor's release is NOT that: it deallocates the anchor's own box
-      // rather than calling through the client, and it is synchronous, so it
-      // cannot interleave with the successor. Skipping it would strand a partial
-      // blockchain on the WASM heap per abandoned confirm dialog — the exact
-      // leak #784 added this release to stop.
-      expect(free).toHaveBeenCalledTimes(1);
     });
 
-    it('during an executeForSummary that ends already-authorized: the local fallback never executes', async () => {
-      (executeForSummary as jest.Mock).mockImplementationOnce(async () => {
+    it('during a summary execution that ends already-authorized: the local fallback never executes', async () => {
+      (executeForSummaryAtTip as jest.Mock).mockImplementationOnce(async () => {
         revokeWasmHold();
         throw Object.assign(new Error('nope'), { code: 'TRANSACTION_ALREADY_AUTHORIZED' });
       });
@@ -380,7 +352,7 @@ describe('simulateCustomTransaction', () => {
     });
 
     it('during the fallback executeRequest: its result is not serialized', async () => {
-      (executeForSummary as jest.Mock).mockRejectedValueOnce(
+      (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(
         Object.assign(new Error('nope'), { code: 'TRANSACTION_ALREADY_AUTHORIZED' })
       );
       const serialize = jest.fn(() => new Uint8Array([9, 9]));
@@ -399,7 +371,7 @@ describe('simulateCustomTransaction', () => {
   it('times out and returns { error: "Simulation timed out" } when the locked work hangs', async () => {
     jest.useFakeTimers();
     try {
-      (executeForSummary as jest.Mock).mockImplementationOnce(() => new Promise(() => {}));
+      (executeForSummaryAtTip as jest.Mock).mockImplementationOnce(() => new Promise(() => {}));
 
       const resultPromise = simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
 
@@ -421,7 +393,7 @@ describe('an abandoned dry run', () => {
     // poisoned (watchdog): held the WASM client lock past its watchdog ceiling" says nothing a
     // signer can act on, and naming our internals to an untrusted page is its own problem.
     const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
-    (executeForSummary as jest.Mock).mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
+    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(new WasmClientPoisonedError('watchdog'));
 
     const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
 
@@ -429,7 +401,7 @@ describe('an abandoned dry run', () => {
   });
 
   it('reports a dry run a terminated client refused as an interruption too', async () => {
-    (executeForSummary as jest.Mock).mockRejectedValueOnce(new Error('Client terminated'));
+    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(new Error('Client terminated'));
 
     const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
 
@@ -450,5 +422,21 @@ describe('introduced-note provenance', () => {
 
     expect(result.introducedCount).toBe(2);
     expect(result.introducedCredit).toEqual([]);
+  });
+});
+
+describe('the dApp account reference', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it("is parsed by its address part when a composite's routing suffix fails the bech32 parser", async () => {
+    (executeForSummaryAtTip as jest.Mock).mockRejectedValueOnce(
+      Object.assign(new Error('nope'), { code: 'TRANSACTION_ALREADY_AUTHORIZED' })
+    );
+
+    const res = await simulateCustomTransaction({ address: 'mtst1abc_qruqqypuyph', transactionRequest: 'reqB64' });
+
+    expect(executeForSummaryAtTip).toHaveBeenCalledWith(fakeClient, 'hex:mtst1abc', { __req: expect.any(Uint8Array) });
+    expect(executeRequest).toHaveBeenCalledWith('hex:mtst1abc', { __req: expect.any(Uint8Array) });
+    expect(res).toMatchObject({ executedBytes: 'b64:9-9' });
   });
 });

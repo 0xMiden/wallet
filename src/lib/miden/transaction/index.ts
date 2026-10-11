@@ -1684,17 +1684,13 @@ const generateTransactionWithProvider = async (
       // enqueue time would leave a row that waited behind a deep queue with no
       // budget at all, which is precisely the sustained-load case this exists for.
       //
-      // This is a BACKSTOP, and should stay one. The window it retries across is
-      // closable rather than irreducible: since protocol 0.16 a signed summary
-      // binds the reference block commitment, and the SDK takes the proposer's
-      // anchor through `executeRequest`'s `AnchoredOptions` precisely so the
-      // signed summary reproduces on a client whose sync height has moved. The
-      // proposal already carries that anchor (`chainAnchor` in its metadata);
-      // threading it into both leaves is in review as #786, at zero extra round
-      // trips. Until it lands, every retry here costs a fresh proposal and
-      // co-signature from a guardian that is by construction already loaded —
-      // which is why this arm should shrink when #786 does land, not stay at its
-      // current width.
+      // This is a BACKSTOP, and should stay one. A block landing between the
+      // co-signature and the execute no longer changes the summary: it binds the
+      // block its auth args name (the proposal's `boundBlockNum`), the request
+      // declares that block, and both leaves execute at the tip after
+      // `prepareGuardianTipExecution`, so a client whose sync height has moved
+      // reproduces it. Every retry here still costs a fresh proposal and
+      // co-signature from a guardian that is by construction already loaded.
       const nowSec = Math.floor(Date.now() / 1000);
       // Jittered so a fleet that all hit this at the same moment — which is the
       // shape of the incident, since the trigger is guardian latency under load
@@ -2056,7 +2052,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
     return transaction.requestBytes;
   }
   // A fresh salt per build. miden-client derives the native 1/1 conversion info from
-  // the execution reference header -- for a proposal, its chain anchor -- and commits
+  // the block the auth args bind -- for a proposal, its `boundBlockNum` -- and commits
   // `hash(CONVERSION_INFO || SALT)` into the auth arg itself. The salt is serialized
   // with the request, and these bytes are built once and persisted, so the co-signed
   // summary reproduces. Rebuilt only when nothing was broadcast; see PRE_SUBMIT_STAGES.
@@ -2751,13 +2747,12 @@ const generateDirectSwitchGuardianTransaction = async (
   // contacted at all, and the reason this path is running is that the outgoing
   // one could not be reached.
   await setTransactionStage(transaction.id, 'signing-locally');
-  const { request: tr, chainAnchorB64 } = await createDirectSwitchGuardianRequest(
+  const tr = await createDirectSwitchGuardianRequest(
     walletAccount,
     transaction.extraInputs.newGuardianEndpoint,
     guardianProvider.signWord
   );
 
-  // Keep the anchor transport slot for compatibility; final multisig execution uses the tip.
   await setTransactionStage(transaction.id, 'sending');
   const attempt = attemptContextOf(transaction);
   let result: TransactionResult;
@@ -2770,8 +2765,7 @@ const generateDirectSwitchGuardianTransaction = async (
         requestBytes,
         transaction.delegateTransaction,
         signCallback,
-        stageStampFor(transaction.id, attempt),
-        chainAnchorB64
+        stageStampFor(transaction.id, attempt)
       )
     );
   } else {
@@ -2779,8 +2773,7 @@ const generateDirectSwitchGuardianTransaction = async (
       transaction.accountId,
       tr,
       transaction.delegateTransaction,
-      stageStampFor(transaction.id, attempt),
-      chainAnchorB64
+      stageStampFor(transaction.id, attempt)
     );
   }
 

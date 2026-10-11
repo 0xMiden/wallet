@@ -7,8 +7,10 @@ import {
   SolveIntentParams,
   TaskType
 } from '@epoch-protocol/epoch-intents-sdk';
-import { AccountId, Address } from '@miden-sdk/miden-sdk';
+import { AccountId } from '@miden-sdk/miden-sdk';
 import { formatUnits, parseUnits } from 'viem';
+
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import type { CrossChainIntentParams, EVMToMidenIntentParams, IntentResult } from './types';
@@ -68,7 +70,7 @@ export function normalizeMidenIdToHex(id: string): string {
   // Already hex.
   if (raw.startsWith('0x') || raw.startsWith('0X')) {
     try {
-      return AccountId.fromHex(raw).toString();
+      return AccountId.fromHex(`0x${raw.slice(2)}`).toString();
     } catch {
       return raw;
     }
@@ -86,7 +88,7 @@ export function normalizeMidenIdToHex(id: string): string {
   // Bech32 (address or account). Wallet adapter often returns `mtst..._...`.
   try {
     if (raw.includes('_')) {
-      return Address.fromBech32(raw).accountId().toString();
+      return accountRefToSdk(raw).toString();
     }
   } catch {
     // fallthrough
