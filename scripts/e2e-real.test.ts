@@ -1406,6 +1406,9 @@ describe('the usdcx preflight', () => {
     gatewayMinter: call(ARC_XRESERVE, encodeFunctionData({ abi: VIEWS, functionName: 'gatewayMinter' }))
   };
   const BALANCE_OF = '"data":"0x70a08231';
+  // The stub's getRemoteToken answer, and Arc's xReserve as Circle's /v1/info lists it.
+  const REMOTE_TOKEN = '0x000000000000000000000000000000004cbdcaffe75f0a317482224dae643600';
+  const ARC_SOURCE = { chain: 'Arc', domain: ARC_CIRCLE_DOMAIN, contractAddress: ARC_XRESERVE };
   const missing = (requests: string, expected: string[]) => expected.filter(request => !requests.includes(request));
   const failedChecks = (output: string) =>
     /✗ preflight failed \(\d+\/\d+\): ([^\n]*)/.exec(output)?.[1].split(', ') ?? [];
@@ -1465,7 +1468,33 @@ describe('the usdcx preflight', () => {
     ],
     ['xReserve', 'usdcx', { registered: false }],
     ['xReserve pause', 'usdcx', { depositsPaused: true }],
-    ['Circle xReserve API', 'usdcx', { circleInfo: { sourceDomains: [], remoteDomains: [] } }],
+    // One row per check of Circle's /v1/info: Miden listed without the on-chain token, then another source contract.
+    [
+      'Circle xReserve API',
+      'usdcx',
+      {
+        circleInfo: {
+          sourceDomains: [ARC_SOURCE],
+          remoteDomains: [{ chain: 'Miden', domain: USDCX_REMOTE_DOMAIN, tokens: [] }]
+        }
+      }
+    ],
+    [
+      'Circle xReserve API',
+      'usdcx-burn',
+      {
+        circleInfo: {
+          sourceDomains: [{ ...ARC_SOURCE, contractAddress: `0x${'33'.repeat(20)}` }],
+          remoteDomains: [
+            {
+              chain: 'Miden',
+              domain: USDCX_REMOTE_DOMAIN,
+              tokens: [{ remoteToken: 'USDCx', remoteTokenIdentifier: REMOTE_TOKEN }]
+            }
+          ]
+        }
+      }
+    ],
     ['USDCx native asset', 'usdcx', { nativeAsset: { id: '0x01', bytes32: `0x${'0'.repeat(64)}` } }],
     [
       'Guardian identity',
