@@ -34,4 +34,29 @@ describe('the live iOS USDCx spec', () => {
     expect(spec).not.toMatch(/\$\{[\w.]*\.endpoint\}/);
     expect(spec).toMatch(/fs\.writeFileSync\(evidencePath, evidenceBody\(evidence, secrets\)\)/);
   });
+
+  // Circle's Arc payouts have run hours late, so the burn half comes last: it can redden a run only after the deposit
+  // leg passed.
+  it('burns only after the deposit leg and gates on the payout before the wallet confirmation', () => {
+    const markers = [
+      "'relayer_mints_and_wallet_claims'",
+      "'arc_state'",
+      "'grant'",
+      'await payoutLeg(step,',
+      "'burn_via_send'",
+      'await waitForPayout(',
+      "'wallet_confirms_payout'"
+    ];
+    const at = markers.map(marker => spec.indexOf(marker));
+    expect(markers.filter((_marker, i) => (at[i] ?? -1) <= (i === 0 ? -1 : (at[i - 1] ?? -1)))).toEqual([]);
+  });
+
+  // R20: the payout refills the key the deposit spent, and the gate counts from the leg's read right before the burn.
+  it('burns back to the deposit key and holds the wallet to the snapshot the payout gate counts from', () => {
+    expect(between('settle_grant', 'burn_via_send')).toMatch(
+      /key: \{ address: evmAddress,[\s\S]*takeKey: \(\) => depositKey,/
+    );
+    expect(between('burn_via_send', 'burn_completed')).toMatch(/destAddress: key\.address,/);
+    expect(between('burn_completed', 'burn_consumed')).toMatch(/before: snapshot\.balance\.toString\(\)/);
+  });
 });
