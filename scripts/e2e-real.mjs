@@ -253,6 +253,19 @@ const USDCX_REFUSED_EXPORTS = {
 };
 const ARC_KEY_PATTERN = /^(0x)?[0-9a-f]{64}$/i;
 
+/**
+ * Every private key the operator's shell may carry: the runner's two and the iOS nightly's Arc key. No child sees one
+ * its phase does not hand it, because the CLI install runs every crate's build script and proc macro under cargo.
+ */
+const PRIVATE_KEY_NAMES = ['E2E_ARC_PRIVATE_KEY', 'E2E_SEPOLIA_PRIVATE_KEY', 'USDCX_LIVE_EVM_PRIVATE_KEY'];
+
+/** This process's environment less every private key, for a child spawned outside run(). */
+function keylessEnv() {
+  const env = { ...process.env };
+  for (const name of PRIVATE_KEY_NAMES) delete env[name];
+  return env;
+}
+
 function isHttpUrl(value) {
   try {
     return ['http:', 'https:'].includes(new URL(value).protocol);
@@ -327,8 +340,8 @@ function parseArgs(argv) {
       fail(`unknown argument: ${arg.split('=', 1)[0]}=<value> (pass the value as its own argument)`);
     } else fail(`unknown argument: ${arg}`);
   }
-  // A flag is refused where it would not apply; the same value exported is left alone: a usdcx build unsets it, and a
-  // usdcx test gets the run's own key over it (childEnvironments).
+  // A flag is refused where it would not apply; the same value exported is left alone: only the usdcx specs read the
+  // Arc RPC, every phase unsets an exported key, and a usdcx test gets the run's own key (childEnvironments).
   opts.arcRpcFlag = seen.has('--arc-rpc');
   opts.arcKeyFlag = seen.has('--arc-key');
   if (opts.agglayerIndexerOnly) {
@@ -631,7 +644,7 @@ function tsNodeChild(script, { input, args = [], timeoutMs = 60_000 } = {}) {
     encoding: 'utf8',
     input,
     env: {
-      ...process.env,
+      ...keylessEnv(),
       NODE_PATH: 'src',
       TS_NODE_TRANSPILE_ONLY: '1',
       TS_NODE_COMPILER_OPTIONS: '{"module":"commonjs","moduleResolution":"node"}'
@@ -1620,9 +1633,10 @@ function formatUnits(value, decimals) {
 // ── run ─────────────────────────────────────────────────────────────────────
 
 /**
- * The environment of the build and of the test run, each as `{ env, unset }` for run(). A usdcx child gets what its
- * phase reads and loses what it must not: no build sees a private key, and each usdcx test sees the one Arc key it
- * burns to or deposits from (`arcKey`, from resolveArcKey: the harness key, or usdcx-in's operator key) and its role.
+ * The environment of the build and of the test run, each as `{ env, unset }` for run(). Every phase unsets every
+ * private key and gets back in `env` only the one it reads: no build sees a key, a test that is not usdcx sees the
+ * Sepolia key it is given, and each usdcx test sees the one Arc key it burns to or deposits from (`arcKey`, from
+ * resolveArcKey: the harness key, or usdcx-in's operator key) and its role.
  *
  * Exported for test.
  */
@@ -1635,14 +1649,17 @@ export function childEnvironments(opts, suite, cliBin, arcKey) {
       // it from the run's own environment record, so injecting it here would make
       // this table a second owner of the same fact. The table below stays because
       // probeGuardian reads it to decide what to probe.
-      E2E_SEPOLIA_RPC_URL: opts.sepoliaRpc,
-      ...(opts.sepoliaKey ? { E2E_SEPOLIA_PRIVATE_KEY: opts.sepoliaKey } : {})
+      E2E_SEPOLIA_RPC_URL: opts.sepoliaRpc
     };
-    return { build: { env, unset: [] }, test: { env, unset: [] } };
+    const sepoliaKey = opts.sepoliaKey ? { E2E_SEPOLIA_PRIVATE_KEY: opts.sepoliaKey } : {};
+    return {
+      build: { env, unset: [...PRIVATE_KEY_NAMES] },
+      test: { env: { ...env, ...sepoliaKey }, unset: [...PRIVATE_KEY_NAMES] }
+    };
   }
   const headless = suite.headlessByDefault === true && !opts.headed;
   return {
-    build: { env: { E2E_NETWORK: opts.network }, unset: ['E2E_ARC_PRIVATE_KEY', 'E2E_SEPOLIA_PRIVATE_KEY'] },
+    build: { env: { E2E_NETWORK: opts.network }, unset: [...PRIVATE_KEY_NAMES] },
     test: {
       env: {
         E2E_NETWORK: opts.network,
@@ -1656,7 +1673,7 @@ export function childEnvironments(opts, suite, cliBin, arcKey) {
         ...(headless ? { E2E_HEADLESS: '1' } : {})
       },
       // --headed must win over an exported E2E_HEADLESS, so it is unset rather than left to be inherited.
-      unset: ['E2E_SEPOLIA_PRIVATE_KEY', ...(headless ? [] : ['E2E_HEADLESS'])]
+      unset: [...PRIVATE_KEY_NAMES, ...(headless ? [] : ['E2E_HEADLESS'])]
     }
   };
 }
@@ -1671,6 +1688,7 @@ function installPinnedCli() {
   console.log('Installing the pinned miden-client CLI (a cold cache builds it with cargo, up to 35 min)\n');
   const res = spawnSync(process.execPath, ['scripts/install-pinned-miden-cli.cjs', 'install'], {
     cwd: REPO_ROOT,
+    env: keylessEnv(),
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'inherit'],
     timeout: 2_100_000,

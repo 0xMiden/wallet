@@ -78,6 +78,7 @@ function cleanEnv() {
     'MIDEN_REMOTE_CONFIG_URL',
     'E2E_ARC_RPC_URL',
     'E2E_ARC_PRIVATE_KEY',
+    'USDCX_LIVE_EVM_PRIVATE_KEY',
     'E2E_ARC_KEY_ROLE',
     'E2E_EVM_RPC_URL',
     'MIDEN_E2E_USDCX_CHAIN',
@@ -1658,10 +1659,12 @@ describe('childEnvironments', () => {
   // What resolveArcKey hands childEnvironments: the harness key, or usdcx-in's operator key.
   const HARNESS = { role: 'harness', privateKey: `0x${'cd'.repeat(32)}`, address: '0xharness' };
   const OPERATOR = { role: 'operator', privateKey: `0x${'ab'.repeat(32)}`, address: '0xoperator' };
+  // Every phase drops every private key the operator may have exported, and gets back in env only the one it reads.
+  const KEYS = ['E2E_ARC_PRIVATE_KEY', 'E2E_SEPOLIA_PRIVATE_KEY', 'USDCX_LIVE_EVM_PRIVATE_KEY'];
 
   it('builds usdcx with no key in reach and tests it with the harness key and its role', () => {
     expect(childEnvironments(parsed, SUITES.usdcx, CLI, HARNESS)).toStrictEqual({
-      build: { env: { E2E_NETWORK: 'testnet' }, unset: ['E2E_ARC_PRIVATE_KEY', 'E2E_SEPOLIA_PRIVATE_KEY'] },
+      build: { env: { E2E_NETWORK: 'testnet' }, unset: KEYS },
       test: {
         env: {
           E2E_NETWORK: 'testnet',
@@ -1671,7 +1674,7 @@ describe('childEnvironments', () => {
           E2E_ARC_KEY_ROLE: 'harness',
           E2E_HEADLESS: '1'
         },
-        unset: ['E2E_SEPOLIA_PRIVATE_KEY']
+        unset: KEYS
       }
     });
   });
@@ -1679,7 +1682,7 @@ describe('childEnvironments', () => {
   it("hands usdcx-in's test, and no build, the operator key and the operator's Arc RPC", () => {
     const opts = { ...parsed, suite: 'usdcx-in', arcKey: 'ab'.repeat(32), arcRpc: 'https://arc-rpc.example' };
     expect(childEnvironments(opts, SUITES['usdcx-in'], CLI, OPERATOR)).toStrictEqual({
-      build: { env: { E2E_NETWORK: 'testnet' }, unset: ['E2E_ARC_PRIVATE_KEY', 'E2E_SEPOLIA_PRIVATE_KEY'] },
+      build: { env: { E2E_NETWORK: 'testnet' }, unset: KEYS },
       test: {
         env: {
           E2E_NETWORK: 'testnet',
@@ -1690,7 +1693,7 @@ describe('childEnvironments', () => {
           E2E_ARC_KEY_ROLE: 'operator',
           E2E_HEADLESS: '1'
         },
-        unset: ['E2E_SEPOLIA_PRIVATE_KEY']
+        unset: KEYS
       }
     });
   });
@@ -1703,25 +1706,25 @@ describe('childEnvironments', () => {
       HARNESS
     );
     expect(test.env).not.toHaveProperty('E2E_HEADLESS');
-    expect(test.unset).toContain('E2E_HEADLESS');
+    expect(test.unset).toStrictEqual([...KEYS, 'E2E_HEADLESS']);
   });
 
-  it('gives a suite that is not usdcx the one environment it had, in both phases', () => {
-    const env = {
-      E2E_NETWORK: 'testnet',
-      E2E_REAL_EPOCH: 'true',
-      E2E_SEPOLIA_RPC_URL: 'https://sepolia.invalid',
-      E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY
-    };
+  it('builds a suite that is not usdcx with no key in reach, and hands its test the Sepolia key alone', () => {
+    const env = { E2E_NETWORK: 'testnet', E2E_REAL_EPOCH: 'true', E2E_SEPOLIA_RPC_URL: 'https://sepolia.invalid' };
     expect(
       childEnvironments({ ...parsed, suite: 'swap', sepoliaKey: SEPOLIA_KEY }, SUITES.swap, undefined)
-    ).toStrictEqual({ build: { env, unset: [] }, test: { env, unset: [] } });
+    ).toStrictEqual({
+      build: { env, unset: KEYS },
+      test: { env: { ...env, E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY }, unset: KEYS }
+    });
   });
 });
 
 describe('a usdcx run', () => {
   const ARC_KEY: `0x${string}` = `0x${'11'.repeat(32)}`;
   const SEPOLIA_KEY = `0x${'22'.repeat(32)}`;
+  // The iOS nightly's Arc key name, which an operator who runs both may have exported.
+  const IOS_KEY = `0x${'33'.repeat(32)}`;
   const STUB_CLI = '/stub/cli/bin/miden-client';
   interface Spawned {
     command: string;
@@ -1746,14 +1749,17 @@ describe('a usdcx run', () => {
   const lockOf = (home: string) => path.join(home, '.miden-e2e', 'usdcx-run.lock');
   const harnessFileOf = (home: string) => path.join(home, '.miden-e2e', 'arc-keys', 'harness.json');
 
-  it('creates the harness key under the lock, builds with neither key, then tests with the harness key', () => {
+  it('creates the harness key under the lock, installs, preflights and builds with no key, then tests with the harness key', () => {
     const res = stubbed(['--suite', 'usdcx'], DOCUMENT, {
       E2E_ARC_PRIVATE_KEY: ARC_KEY,
-      E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY
+      E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY,
+      USDCX_LIVE_EVM_PRIVATE_KEY: IOS_KEY
     });
     const harness = JSON.parse(readFileSync(harnessFileOf(res.home), 'utf8'));
+    // The installer runs every crate's build script under cargo, and the native-asset child is a ts-node preflight.
+    expect(res.requests).toContain('native asset https://rpc.testnet.miden.io {}\n');
     expect(spawned(res.requests)).toEqual([
-      { command: 'install-pinned-miden-cli', args: ['scripts/install-pinned-miden-cli.cjs', 'install'] },
+      { command: 'install-pinned-miden-cli', args: ['scripts/install-pinned-miden-cli.cjs', 'install'], env: {} },
       { command: 'yarn', args: ['test:e2e:blockchain:build'], env: { E2E_NETWORK: 'testnet' } },
       {
         command: 'yarn',
@@ -1775,6 +1781,7 @@ describe('a usdcx run', () => {
     expect(res.output).not.toContain(harness.privateKey.slice(2));
     expect(res.output).not.toContain(ARC_KEY.slice(2));
     expect(res.output).not.toContain(SEPOLIA_KEY.slice(2));
+    expect(res.output).not.toContain(IOS_KEY.slice(2));
     expect(existsSync(lockOf(res.home))).toBe(false);
     expect(res.status).toBe(0);
   }, 35_000);
@@ -1783,9 +1790,10 @@ describe('a usdcx run', () => {
     const res = stubbed(
       ['--suite', 'usdcx-in', '--arc-key', '11'.repeat(32), '--arc-rpc', 'https://arc-rpc.example'],
       DOCUMENT,
-      { E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY }
+      { E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY, USDCX_LIVE_EVM_PRIVATE_KEY: IOS_KEY }
     );
-    const [, build, test] = spawned(res.requests);
+    const [install, build, test] = spawned(res.requests);
+    expect(install.env).toEqual({});
     expect(build.env).toEqual({ E2E_NETWORK: 'testnet' });
     expect(test).toEqual({
       command: 'yarn',
@@ -1831,14 +1839,16 @@ describe('a usdcx run', () => {
     expect(res.status).toBe(1);
   }, 35_000);
 
-  // A guard: it holds before and after. The suites that are not usdcx keep one environment for both phases.
-  it('leaves a swap run as it was: no install, one environment for the build and the test', () => {
-    const res = stubbed(['--suite', 'swap'], DOCUMENT, { E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY });
+  it('gives a swap run no install, no key in its build, and the Sepolia key alone in its test', () => {
+    const res = stubbed(['--suite', 'swap'], DOCUMENT, {
+      E2E_ARC_PRIVATE_KEY: ARC_KEY,
+      E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY,
+      USDCX_LIVE_EVM_PRIVATE_KEY: IOS_KEY
+    });
     const env = {
       E2E_NETWORK: 'testnet',
       E2E_REAL_EPOCH: 'true',
-      E2E_SEPOLIA_RPC_URL: 'https://ethereum-sepolia-rpc.publicnode.com',
-      E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY
+      E2E_SEPOLIA_RPC_URL: 'https://ethereum-sepolia-rpc.publicnode.com'
     };
     expect(spawned(res.requests)).toEqual([
       { command: 'yarn', args: ['test:e2e:blockchain:build'], env },
@@ -1853,7 +1863,7 @@ describe('a usdcx run', () => {
           '--grep-invert',
           'guardian maker'
         ],
-        env
+        env: { ...env, E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY }
       }
     ]);
     expect(existsSync(path.join(res.home, '.miden-e2e'))).toBe(false);

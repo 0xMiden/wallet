@@ -2,9 +2,10 @@
  * Test-only: e2e-real.test.ts preloads this with `node --import`, so a run meets canned answers and never reaches the
  * network, a cargo install, a build or Playwright. E2E_REAL_FETCH_STUB carries `{ document, log, answers }`: the config
  * document to serve as `<network>.json`; a file each request is appended to (`<url>`, `<url> <body>` for any other
- * request with a body, `<url> <method> <params>` for JSON-RPC, `native asset <rpc>` for the native-asset discovery and
- * `SPAWN <json>` for the CLI install and each child run() starts); and overrides of ANSWERS, which hold what live
- * testnet answered, so a usdcx preflight passes on the defaults.
+ * request with a body, `<url> <method> <params>` for JSON-RPC, `native asset <rpc> <env>` for the native-asset
+ * discovery and `SPAWN <json>` for the CLI install and each child run() starts, each with the watched environment the
+ * child would see); and overrides of ANSWERS, which hold what live testnet answered, so a usdcx preflight passes on the
+ * defaults.
  */
 import { EventEmitter } from 'node:events';
 import { appendFileSync } from 'node:fs';
@@ -140,16 +141,21 @@ const WATCHED_ENV = [
   'E2E_ARC_PRIVATE_KEY',
   'E2E_ARC_KEY_ROLE',
   'E2E_HEADLESS',
-  'MIDEN_CLIENT_BIN'
+  'MIDEN_CLIENT_BIN',
+  'USDCX_LIVE_EVM_PRIVATE_KEY'
 ];
+// A child given no `env` inherits this process's, so that is what it would see.
+const watched = (env = process.env) =>
+  Object.fromEntries(WATCHED_ENV.filter(name => env[name] !== undefined).map(name => [name, env[name]]));
 childProcess.spawnSync = (command, args = [], options = {}) => {
   const line = args.join(' ');
   if (line.includes('install-pinned-miden-cli.cjs')) {
-    appendFileSync(log, `SPAWN ${JSON.stringify({ command: 'install-pinned-miden-cli', args })}\n`);
+    const env = watched(options.env);
+    appendFileSync(log, `SPAWN ${JSON.stringify({ command: 'install-pinned-miden-cli', args, env })}\n`);
     return { status: answers.cliInstall.status, stdout: answers.cliInstall.stdout, stderr: '' };
   }
   if (line.includes('discoverFeeFaucetId')) {
-    appendFileSync(log, `native asset ${args[args.length - 1]}\n`);
+    appendFileSync(log, `native asset ${args[args.length - 1]} ${JSON.stringify(watched(options.env))}\n`);
     const { error } = answers.nativeAsset;
     return error === undefined
       ? { status: 0, stdout: JSON.stringify(answers.nativeAsset), stderr: '' }
@@ -158,11 +164,7 @@ childProcess.spawnSync = (command, args = [], options = {}) => {
   return realSpawnSync(command, args, options);
 };
 childProcess.spawn = (command, args = [], options = {}) => {
-  const env = options.env ?? {};
-  const watched = Object.fromEntries(
-    WATCHED_ENV.filter(name => env[name] !== undefined).map(name => [name, env[name]])
-  );
-  appendFileSync(log, `SPAWN ${JSON.stringify({ command, args, env: watched })}\n`);
+  appendFileSync(log, `SPAWN ${JSON.stringify({ command, args, env: watched(options.env) })}\n`);
   const child = new EventEmitter();
   setImmediate(() => child.emit('close', answers.exitCodes[args[0] === 'playwright' ? 'test' : 'build']));
   return child;
