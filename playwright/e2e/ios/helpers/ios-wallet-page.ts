@@ -135,6 +135,11 @@ export function routeOf(href: string): string {
   return new URL(href).hash;
 }
 
+/** `text` with every `?query` cut out: a serialized URL's query holds no `#`, `"` or whitespace, so the cut ends there. */
+function withoutUrlQueries(text: string): string {
+  return text.replace(/\?[^\s#"]+/g, '');
+}
+
 const READ_ATTEMPTS = 3;
 const READ_RETRY_MS = 1_000;
 
@@ -847,22 +852,31 @@ export class IosWalletPage implements WalletPage {
     return view ?? { pill: null, arcTxLinks: [] };
   }
 
-  /** Re-runs a script body until `done` accepts its value; a failed eval (an inspector reattach) counts as not yet. */
+  /**
+   * Re-runs a script body until `done` accepts its value; a failed eval (an inspector reattach) counts as not yet, and
+   * the timeout names the last one.
+   */
   private async pollEval<T>(label: string, js: string, done: (value: T) => boolean, timeoutMs: number): Promise<T> {
     const deadline = Date.now() + timeoutMs;
     let last: { value: T } | undefined;
+    let lastError: string | undefined;
     for (;;) {
-      const read = await this.cdp.eval<T>(js).then(
-        value => ({ value }),
-        () => undefined
-      );
+      let read: { value: T } | undefined;
+      try {
+        read = { value: await this.cdp.eval<T>(js) };
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+      }
       if (read !== undefined) {
         if (done(read.value)) return read.value;
         last = read;
       }
       if (Date.now() >= deadline) {
         const seen = last === undefined ? 'none' : (JSON.stringify(last.value) ?? 'undefined').slice(0, 1_500);
-        throw new Error(`${label}: not met within ${timeoutMs} ms; last read ${seen}`);
+        // An eval error can quote location.href, whose search holds the onboarding ?password= all session.
+        const failed =
+          lastError === undefined ? '' : `; last failed eval ${withoutUrlQueries(lastError).slice(0, 500)}`;
+        throw new Error(`${label}: not met within ${timeoutMs} ms; last read ${seen}${failed}`);
       }
       await sleep(POLL_INTERVAL_MS);
     }

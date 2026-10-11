@@ -205,7 +205,15 @@ describe('IosWalletPage row reads', () => {
 
     await expect(page.readTransactionRows()).resolves.toEqual([{ id: 'row-1', status: 2 }]);
     expect(calls).toBe(3);
-  });
+
+    let failed = 0;
+    const never = pageWith(async () => {
+      failed += 1;
+      throw new Error('inspector detached');
+    });
+    await expect(never.readTransactionRows()).rejects.toThrow('inspector detached');
+    expect(failed).toBe(3);
+  }, 15_000);
 
   it('types bridged-send rows as the extension harness does', async () => {
     const page = pageWith(async () => null);
@@ -302,10 +310,13 @@ describe('IosWalletPage vault reads', () => {
     });
     await expect(once.readVaultBaseUnits('native')).resolves.toBe(99999867n);
 
+    let failed = 0;
     const never = pageWith(async () => {
+      failed += 1;
       throw new Error('eval: timed out after 30000ms');
     });
     await expect(never.readVaultBaseUnits('native')).rejects.toThrow('eval: timed out after 30000ms');
+    expect(failed).toBe(3);
   }, 15_000);
 
   // Only Home runs the balance poll: off it the spike's store held the pre-burn balance 60 s after the burn.
@@ -540,6 +551,38 @@ describe('IosWalletPage.burnUsdcxViaSendFlow review landing', () => {
     expect(message).toContain('the burn review: not met within 30000 ms; last read');
     expect(message).toContain('"hash":"#/send/review?amount=10');
     expect(message).not.toContain('password');
+  });
+});
+
+describe('IosWalletPage.pollEval', () => {
+  afterEach(() => jest.useRealTimers());
+
+  // A detached inspector or the bridge's 30 s eval cap fails every read; "last read none" alone named no cause.
+  it('names the last failed eval when every read rejects, with no URL query in it', async () => {
+    let calls = 0;
+    const page = pageWith(async () => {
+      calls += 1;
+      throw new Error(calls === 1 ? 'inspector reattached' : `eval: no page at ${HREF}`);
+    });
+    jest.useFakeTimers();
+
+    const failure = (
+      page as unknown as {
+        pollEval(label: string, js: string, done: () => boolean, timeoutMs: number): Promise<unknown>;
+      }
+    )
+      .pollEval('the burn review', 'return null;', () => true, 1_000)
+      .then(
+        () => 'resolved',
+        (error: unknown) => (error instanceof Error ? error.message : String(error))
+      );
+    await jest.advanceTimersByTimeAsync(1_100);
+    const message = await failure;
+
+    expect(calls).toBeGreaterThan(1);
+    expect(message).toBe(
+      'the burn review: not met within 1000 ms; last read none; last failed eval eval: no page at capacitor://localhost/#/send/review'
+    );
   });
 });
 
