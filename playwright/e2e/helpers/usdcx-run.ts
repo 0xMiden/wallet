@@ -16,7 +16,7 @@ export function errorText(error: unknown): string {
  * Throws unless `yarn e2e:real` started this run for a usdcx suite on testnet. The suites throw instead of skipping, so
  * a run that lacks its inputs never reports green. Messages name variables, never their values.
  */
-export function assertUsdcxLiveRun(env: NodeJS.ProcessEnv, opts: { needsArcKey: boolean }): void {
+export function assertUsdcxLiveRun(env: Record<string, string | undefined>, opts: { needsArcKey: boolean }): void {
   if (env.E2E_REAL_USDCX !== 'true') {
     throw new Error(
       'the USDCx live suites run only through `yarn e2e:real --suite usdcx|usdcx-in|usdcx-burn` ' +
@@ -32,7 +32,7 @@ export function assertUsdcxLiveRun(env: NodeJS.ProcessEnv, opts: { needsArcKey: 
 }
 
 /** The funded Arc key as `0x` and 64 lowercase hex digits. */
-export function arcPrivateKeyFromEnv(env: NodeJS.ProcessEnv): Hex {
+export function arcPrivateKeyFromEnv(env: Record<string, string | undefined>): Hex {
   const raw = (env.E2E_ARC_PRIVATE_KEY ?? '').trim();
   if (!ARC_PRIVATE_KEY.test(raw)) throw new Error('E2E_ARC_PRIVATE_KEY is not a 32-byte hex private key');
   return `0x${raw.replace(/^0x/i, '').toLowerCase()}`;
