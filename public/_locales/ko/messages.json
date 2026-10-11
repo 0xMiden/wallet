@@ -1703,6 +1703,10 @@
     "message": "토큰 검색",
     "englishSource": "Search for tokens"
   },
+  "sendUsdcxOnlyDestination": {
+    "message": "이 네트워크로는 USDCx만 전송할 수 있습니다.",
+    "englishSource": "Only USDCx can be sent to this network."
+  },
   "available": {
     "message": "구입 가능",
     "englishSource": "Available"

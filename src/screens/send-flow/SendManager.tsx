@@ -21,7 +21,7 @@ import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { useWalletStore } from 'lib/store';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
-import { isUsdcxWithdrawalAvailable } from 'lib/usdcx/withdrawal';
+import { isUsdcxWithdrawalAvailable, isUsdcxWithdrawalNetwork } from 'lib/usdcx/withdrawal';
 import { navigate, useLocation } from 'lib/woozie';
 import {
   detectAddressChain,
@@ -38,9 +38,9 @@ import {
   BridgeNetworkId,
   DEFAULT_BRIDGE_NETWORK,
   DEFAULT_USDCX_BRIDGE_NETWORK,
-  isUsdcxBridgeNetwork,
+  isEpochBridgeNetwork,
   SendNetworkId,
-  USDCX_BRIDGE_NETWORKS
+  sendBridgeNetworks
 } from './bridge-networks';
 import { ScanQrDrawer } from './ScanQrDrawer';
 import { SelectRecipient } from './SelectRecipient';
@@ -331,6 +331,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
       ? bridgeNetwork
       : 'miden'
     : recipientNetwork;
+  const offeredNetworks = sendBridgeNetworks(isUsdcxWithdrawalNetwork());
+  const usdcxOnly = !isEpochBridgeNetwork(displayedNetwork) && offeredNetworks.some(n => n.id === displayedNetwork);
   const selectedContact = useMemo(() => {
     const normalizedAddress = recipientAddress?.trim().toLowerCase();
     if (!normalizedAddress) return undefined;
@@ -484,6 +486,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
     setValue,
     getValues
   ]);
+
+  // Clear a token that the selected destination cannot receive.
+  useEffect(() => {
+    if (usdcxOnly && token && !usdcxAvailable) setValue('token', undefined);
+  }, [usdcxOnly, token, usdcxAvailable, setValue]);
 
   // What the user may actually send. The fee is withdrawn from this account's own
   // vault, so the full NATIVE balance is not spendable -- a send of everything is
@@ -772,15 +779,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
     [onAction]
   );
 
-  // USDCx pays out on any of its destination chains, pre-selecting the default; other routes use Sepolia.
+  // Keep an offered destination the user chose. Select the default when there is none, or when a contact,
+  // link or draft carries one this network does not offer.
   useEffect(() => {
-    if (!isBridge || !isValidRecipient) return;
-    if (usdcxAvailable) {
-      if (!isUsdcxBridgeNetwork(bridgeNetwork)) onSelectNetwork(DEFAULT_USDCX_BRIDGE_NETWORK.id);
-      return;
-    }
-    if (bridgeNetwork !== DEFAULT_BRIDGE_NETWORK.id) onSelectNetwork(DEFAULT_BRIDGE_NETWORK.id);
-  }, [isBridge, isValidRecipient, bridgeNetwork, onSelectNetwork, usdcxAvailable]);
+    if (!isBridge || !isValidRecipient || offeredNetworks.some(n => n.id === bridgeNetwork)) return;
+    onSelectNetwork(usdcxAvailable ? DEFAULT_USDCX_BRIDGE_NETWORK.id : DEFAULT_BRIDGE_NETWORK.id);
+  }, [isBridge, isValidRecipient, bridgeNetwork, offeredNetworks, onSelectNetwork, usdcxAvailable]);
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
   const onSelectRecent = useCallback(
@@ -854,7 +858,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         case SendFlowStep.SelectRecipient:
           return (
             <SelectRecipient
-              networks={usdcxAvailable ? USDCX_BRIDGE_NETWORKS : [DEFAULT_BRIDGE_NETWORK]}
+              networks={offeredNetworks}
               address={recipientAddress || ''}
               isValidAddress={isValidRecipient}
               error={errors.recipientAddress?.message?.toString()}
@@ -931,6 +935,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       onReceive,
       chain,
       displayedNetwork,
+      offeredNetworks,
       selectedContact?.name,
       bridgeRoute,
       usdcxAvailable,
@@ -949,7 +954,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
     <HomeGroupPaneRoot testId="send-flow">
       <Navigator renderRoute={renderStep} />
 
-      <SelectTokenDrawer open={showTokenDrawer} onOpenChange={setShowTokenDrawer} onSelect={onSelectToken} />
+      <SelectTokenDrawer
+        open={showTokenDrawer}
+        onOpenChange={setShowTokenDrawer}
+        onSelect={onSelectToken}
+        usdcxOnly={usdcxOnly}
+      />
 
       <AccountsListDrawer
         open={showContactsDrawer}

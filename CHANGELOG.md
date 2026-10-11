@@ -12,6 +12,7 @@
 
 ### Fixes
 
+- [FIX][all] On testnet, Send offers every USDCx bridge-out chain before a token is picked. Arc Testnet, Base Sepolia and Arbitrum Sepolia take only USDCx, so the token list disables other tokens there and says why, and choosing one of those chains clears an unsupported token; other networks offer Sepolia alone (#1403).
 - [FIX][ci] The iOS E2E bridge-deposit helpers look up the amount form inside the bridge page, where they used to click the Home tabs' hidden Swap selector (the bridge page slides over the tabs, which reuse the form's test ids), so the USDCx and Epoch bridge-IN specs can reach their deposits; the live USDCx spec waits for the wallet's own claim of the minted USDCx, which, as testnet's native asset, is claimed automatically and never waits in Pending.
 - [FIX][ci] The live USDCx bridge-IN E2E accepts a deposit row that goes from submitting straight to received, as a fast round trip does when the wallet claims the mint before it reads the Arc receipt, where it used to wait for a delivering phase that never came.
 - [FIX][ci] The live USDCx bridge-IN E2E fails at once when `USDCX_LIVE_EVM_PRIVATE_KEY` is not set, where its spec used to skip and the run passed having tested nothing.

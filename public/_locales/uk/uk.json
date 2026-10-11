@@ -374,6 +374,7 @@
   "calculatingQuote": "Обчислення",
   "selectAToken": "Виберіть токен",
   "searchForTokens": "Пошук токенів",
+  "sendUsdcxOnlyDestination": "У цю мережу можна надсилати лише USDCx.",
   "available": "У наявності",
   "approxFiatValue": "≈ $value$ доларів США",
   "reviewDetails": "Деталі огляду",

@@ -374,6 +374,7 @@
   "calculatingQuote": "計算中",
   "selectAToken": "トークンを選択してください",
   "searchForTokens": "トークンを検索する",
+  "sendUsdcxOnlyDestination": "このネットワークにはUSDCxのみを送金できます。",
   "available": "在庫あり",
   "approxFiatValue": "≈ $value$米ドル",
   "reviewDetails": "レビューの詳細",

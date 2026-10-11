@@ -48,7 +48,13 @@ import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/wooz
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { approxFiatAmount } from './amount-format';
-import { getBridgeNetwork, BridgeNetworkId, isBridgeNetworkId, isUsdcxBridgeNetwork } from './bridge-networks';
+import {
+  getBridgeNetwork,
+  BridgeNetworkId,
+  isBridgeNetworkId,
+  isEpochBridgeNetwork,
+  isUsdcxBridgeNetwork
+} from './bridge-networks';
 import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
@@ -556,7 +562,7 @@ export const ReviewTransaction: React.FC = () => {
     isBridge &&
     (!bridgeNetworkObj ||
       !route ||
-      (isUsdcxBurn ? !isUsdcxBridgeNetwork(network) : network !== 'sepolia') ||
+      (isUsdcxBurn ? !isUsdcxBridgeNetwork(network) : !isEpochBridgeNetwork(network)) ||
       (isUsdcxBurn && !!token && !isUsdcxWithdrawalAvailable(token.id)));
   const tokenInvalid = !!balanceData && (!token || parseFloat(amount) > token.balance);
   if (paramsInvalid || bridgeParamsInvalid || tokenInvalid) {

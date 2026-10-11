@@ -16,12 +16,14 @@ import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
+import { isUsdcxWithdrawalAvailable } from 'lib/usdcx/withdrawal';
 
 import { UIToken } from './types';
 import { uiTokenFromBalance } from './ui-token';
 
 export interface SelectTokenDrawerProps {
   open: boolean;
+  usdcxOnly?: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (token: UIToken) => void;
 }
@@ -36,7 +38,12 @@ export interface SelectTokenDrawerProps {
  * over its balance and the fiat value on the right — the same shape the swap
  * picker draws, so the two sheets read as one list.
  */
-export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOpenChange, onSelect }) => {
+export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({
+  open,
+  onOpenChange,
+  onSelect,
+  usdcxOnly = false
+}) => {
   const { t } = useTranslation();
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
@@ -83,6 +90,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
             data-testid="send-token-search"
             className="shrink-0"
           />
+          {usdcxOnly && <p className="shrink-0 pt-3 text-caption text-muted">{t('sendUsdcxOnlyDestination')}</p>}
           <div className="no-scrollbar min-h-0 overflow-y-auto pt-5">
             <div className="flex flex-col divide-y divide-rule-default">
               {filteredBalances.map(b => {
@@ -96,6 +104,7 @@ export const SelectTokenDrawer: React.FC<SelectTokenDrawerProps> = ({ open, onOp
                 return (
                   <AssetListItem
                     key={b.tokenId}
+                    disabled={usdcxOnly && !isUsdcxWithdrawalAvailable(b.tokenId)}
                     icon={<TokenLogo symbol={b.metadata.symbol} faucetId={b.tokenId} />}
                     name={name}
                     amount={
