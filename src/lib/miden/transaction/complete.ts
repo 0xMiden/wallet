@@ -40,13 +40,7 @@ import {
   updateTransactionStatus
 } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
-import {
-  applyBridgeInInfoForNotes,
-  applyBridgeInToConsumeRow,
-  noteIdKey,
-  takeAgglayerBridgeInInfo,
-  takeUsdcxBridgeInInfo
-} from '../activity/bridge-in';
+import { adoptBridgeDeliveries } from '../activity/bridge-in';
 import { feeFieldsFromResult, splitExecutedOutputNotes } from '../activity/fee';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
@@ -316,56 +310,25 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     resultBytes: result.serialize()
   });
 
-  // Best-effort bridge-in tagging: if this consume claimed a note parked by an
-  // EVM→Miden intent (plain bridge deposit OR a Smart Withdraw delivery), tag the
-  // row as "Bridged from EVM". A bridge-in with a `bridgeReceiveTxId` also flips
-  // that tracking row to `received`; one with an `earnWithdrawTxId` flips the
-  // linked Smart Withdraw row instead, with the actual consumed amount. Must never
+  // A note parked by an EVM→Miden intent, or minted for a tracked deposit, settles its bridge row. Each executed
+  // note goes over by its own first asset: the per-faucet totals above are no single delivery's amount. Must never
   // fail the consume itself.
   try {
-    const consumedNoteIds = inputNotes.map(inputNote => inputNote.note().id().toString());
-    // The registry takes at most one note; the batch below pairs every other one, by the registry's canonical id.
-    let registryNoteKey: string | undefined;
-    const applied = await applyBridgeInInfoForNotes(consumedNoteIds, info => {
-      if (info.midenNoteId) registryNoteKey = noteIdKey(info.midenNoteId);
-      return applyBridgeInToConsumeRow(id, info);
-    });
-    const accountId = dbTransaction?.accountId ?? '';
-    if (!applied && inputNotes.length === 1) {
-      // A note the USDCx faucet minted for an xReserve deposit is otherwise an ordinary faucet receive.
-      const info =
-        (await takeAgglayerBridgeInInfo({ accountId, senderAccountId: sender, amount })) ??
-        (await takeUsdcxBridgeInInfo({ accountId, senderAccountId: sender, faucetId, amount }));
-      if (info) await applyBridgeInToConsumeRow(id, { ...info, midenNoteId: consumedNoteIds[0] });
-    } else if (inputNotes.length > 1) {
-      // A batch's per-faucet total is no single delivery's amount, and native USDCx mints are auto-claimed together,
-      // so each note is paired by its own sender, faucet and amount, one at a time so two same-amount mints adopt two
-      // rows. Only the tracking rows move; the batch row keeps its own label.
-      for (const inputNote of inputNotes) {
-        const batchNote = inputNote.note();
-        if (registryNoteKey !== undefined && noteIdKey(batchNote.id().toString()) === registryNoteKey) continue;
-        const noteAsset = batchNote.assets().fungibleAssets()[0];
-        if (!noteAsset) continue;
-        const noteSender = getBech32AddressFromAccountId(batchNote.metadata().sender());
-        const noteFaucetId = getBech32AddressFromAccountId(noteAsset.faucetId());
-        const noteAmount = noteAsset.amount();
-        const info =
-          (await takeAgglayerBridgeInInfo({ accountId, senderAccountId: noteSender, amount: noteAmount })) ??
-          (await takeUsdcxBridgeInInfo({
-            accountId,
-            senderAccountId: noteSender,
-            faucetId: noteFaucetId,
-            amount: noteAmount
-          }));
-        if (!info?.bridgeReceiveTxId) continue;
-        await updateBridgedReceivePhase(
-          info.bridgeReceiveTxId,
-          'received',
-          { midenNoteId: batchNote.id().toString() },
-          { amount: noteAmount, faucetId: noteFaucetId, transactionId: executedTransaction.id().toHex() }
-        );
-      }
-    }
+    await adoptBridgeDeliveries(
+      id,
+      inputNotes.map(inputNote => {
+        const executed = inputNote.note();
+        const noteAsset = executed.assets().fungibleAssets()[0];
+        // A note with no fungible asset can only be a registry delivery, which pairs by id alone.
+        if (!noteAsset) return { id: executed.id().toString(), senderAddress: '', faucetId: '' };
+        return {
+          id: executed.id().toString(),
+          senderAddress: getBech32AddressFromAccountId(executed.metadata().sender()),
+          faucetId: getBech32AddressFromAccountId(noteAsset.faucetId()),
+          amount: noteAsset.amount()
+        };
+      })
+    );
   } catch (err) {
     console.warn('[bridge-in] consume tagging failed (non-fatal)', err);
   }
@@ -1556,7 +1519,14 @@ export const updateBridgedReceivePhase = async (
   extra?: Partial<
     Pick<
       IBridgedReceiveExtraInputs,
-      'evmTxHash' | 'intentNonce' | 'midenNoteId' | 'outputAmount' | 'outputSymbol' | 'cctp' | 'error'
+      | 'evmTxHash'
+      | 'intentNonce'
+      | 'midenNoteId'
+      | 'outputAmount'
+      | 'outputSymbol'
+      | 'cctp'
+      | 'error'
+      | 'usdcxRemoteRecipient'
     >
   >,
   received?: { amount: bigint; faucetId: string; transactionId?: string },
@@ -1568,13 +1538,23 @@ export const updateBridgedReceivePhase = async (
   await Repo.transactions.where({ id }).modify(tx => {
     const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
     if (!canMoveBridgedReceivePhase(inputs?.phase, phase)) return;
-    // A reopen clears only the Arc execute it saw revert: a newer execute saved meanwhile, with its proof, stands.
-    const reopened = extra?.cctp?.revertedExecuteTxHash;
+    // A reopen clears only the Arc execute it saw revert or stall: a newer execute saved meanwhile, with its proof,
+    // stands.
+    const reopened = extra?.cctp?.revertedExecuteTxHash ?? extra?.cctp?.stalledExecuteTxHash;
     if (reopened !== undefined && inputs?.cctp?.executeTxHash !== reopened) return;
     if (onlyIfNoExecuteHash && inputs?.cctp?.executeTxHash !== undefined) return;
+    const nowSec = Math.floor(Date.now() / 1000);
     // The CCTP leg is written a field at a time (the burn's domain, then the attestation, then the
     // execute hash), so a write merges into what the row holds instead of replacing it.
-    const cctp = extra?.cctp ? { ...inputs?.cctp, ...extra.cctp } : inputs?.cctp;
+    const merged = extra?.cctp ? { ...inputs?.cctp, ...extra.cctp } : inputs?.cctp;
+    const savedHash = extra?.cctp?.executeTxHash;
+    const cctp = merged && {
+      ...merged,
+      // The stall window runs from when the current hash was saved.
+      ...(savedHash !== undefined && savedHash !== inputs?.cctp?.executeTxHash ? { executeSavedAt: nowSec } : {}),
+      // A revert drops the message that kept the leg from timing out, so its week runs from here.
+      ...(extra?.cctp?.revertedExecuteTxHash === undefined ? {} : { revertedAt: nowSec })
+    };
     // Unlike the earn-withdraw writer there is no monotonic guard here, so the
     // only thing keeping one bridge from reporting twice is comparing against
     // the phase already on the row. `ready` and `received` are both terminal —
@@ -1587,7 +1567,16 @@ export const updateBridgedReceivePhase = async (
     ) {
       settled = tx;
     }
-    tx.extraInputs = { ...inputs, phase, ...(extra ?? {}), ...(cctp ? { cctp } : {}) };
+    // Once, so a row that later times out still says Circle attested it: only such a row takes a late mint. A row that
+    // was ready before the stamp existed takes it as it moves on.
+    const readyAt = inputs?.readyAt ?? (phase === 'ready' || fromPhase === 'ready' ? nowSec : undefined);
+    tx.extraInputs = {
+      ...inputs,
+      phase,
+      ...(extra ?? {}),
+      ...(cctp ? { cctp } : {}),
+      ...(readyAt === undefined ? {} : { readyAt })
+    };
     if (received) {
       tx.amount = received.amount;
       tx.faucetId = received.faucetId;

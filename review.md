@@ -139,3 +139,10 @@
    # .github/workflows/e2e-bridge-in.yml:909-917
    # Prove the selected runner exposes Hypervisor.framework before emulator boot.
    ```
+
+17. [Independent review, P3 fixed] Keep the wrong-architecture diagnostic aligned with the selected live runner label after moving Android startup to macOS 15.
+
+   ```yaml
+   # .github/workflows/e2e-bridge-in.yml:1025
+   echo "::error::macos-15-large must provide an x86_64 host for the Android image"
+   ```

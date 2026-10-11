@@ -20,8 +20,6 @@ name: E2E USDCx Bridge-IN (live)
 #
 # Required configuration:
 #   secrets.USDCX_LIVE_EVM_PRIVATE_KEY        funded Arc Testnet key (USDC is the gas token too)
-# Optional:
-#   vars.USDCX_FAUCET_ACCOUNT_ID              the USDCx faucet, for the claim step
 #
 # Local relayer only (all required when vars.USDCX_RELAYER_ACCOUNT_ID is set):
 #   vars.USDCX_RELAYER_ACCOUNT_ID             funded Miden account that creates the mint notes

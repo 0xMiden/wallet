@@ -63,6 +63,18 @@ describe('entering Unconfirmed (#1081)', () => {
     expect(report()).toHaveBeenCalledWith(expect.objectContaining({ result: 'errored' }));
   });
 
+  // The burn note lands on its own once submitted, so failing the row would hide a burn the faucet still consumes.
+  it('a USDCx burn waits for the verdict with its burn identity kept', async () => {
+    const usdcxBurn = { noteId: 'burn-note', destinationDomain: 26, phase: 'pending' };
+    const burn = generating({ type: 'bridged-send', extraInputs: { provider: 'usdcx', usdcxBurn } });
+    await Repo.transactions.put(burn);
+    await cancelTransactionAfterPipelineStopped(burn, indefinite());
+    const row = await read();
+    expect(row?.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(row?.extraInputs).toEqual({ provider: 'usdcx', usdcxBurn });
+    expect(notices().notifyBackgroundTransactionFailed).not.toHaveBeenCalled();
+  });
+
   it('marks an execute row`s entry with its origin', async () => {
     await Repo.transactions.put(generating({ type: 'execute' }));
     await cancelTransactionAfterPipelineStopped(generating({ type: 'execute' }), indefinite());

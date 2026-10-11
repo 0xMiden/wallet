@@ -89,6 +89,10 @@ const BOOT_TIMEOUT_MS = 300_000;
  * BOOT_TIMEOUT_MS instead, which costs nothing when the boot succeeds.
  */
 const EMULATOR_CORES = Math.max(2, Math.min(8, os.cpus().length));
+// The live Android Testnet startup runs one guest on the macOS runner. Keep its
+// vCPU topology conservative after QEMU 37.2.12 stopped making progress with
+// all six clamped guest CPUs on macOS 26.
+const BRIDGE_IN_EMULATOR_CORES = 4;
 const BOOT_POLL_MS = 1_000;
 
 interface DevicePair {
@@ -164,7 +168,7 @@ export class EmulatorControl {
     }
 
     await ensureAvdsExist([BASE_AVD]);
-    return bootAvd(BASE_AVD, 5554, true, false);
+    return bootAvd(BASE_AVD, 5554, true, false, BRIDGE_IN_EMULATOR_CORES);
   }
 
   /**
@@ -550,7 +554,13 @@ async function ensureAvdsExist(requiredAvds: string[] = [DEVICE_PAIR_AVD_A, DEVI
   }
 }
 
-async function bootAvd(avdName: string, port: number, visible = false, waitForBoot = true): Promise<string> {
+async function bootAvd(
+  avdName: string,
+  port: number,
+  visible = false,
+  waitForBoot = true,
+  cores = EMULATOR_CORES
+): Promise<string> {
   // If an emulator is already listening on this port from a previous run,
   // verify its AVD and (when required) visible launch mode before reuse.
   const expectedSerial = `emulator-${port}`;
@@ -610,9 +620,10 @@ async function bootAvd(avdName: string, port: number, visible = false, waitForBo
       // gradle-daemon stop), not giving each guest a bigger share of it.
       '-memory',
       '4096',
-      // Sized from the host — see EMULATOR_CORES.
+      // Pair emulators use host sizing; the live single-emulator boot passes
+      // its own conservative CPU count.
       '-cores',
-      String(EMULATOR_CORES)
+      String(cores)
     ],
     { detached: true, stdio: ['ignore', logFd, logFd] }
   );

@@ -28,7 +28,6 @@ import { evmToMidenMinTokenOut, MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive';
 import { IBridgeProvider } from 'lib/miden/db/types';
-import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -54,13 +53,13 @@ import {
   XRESERVE_ABI
 } from 'lib/usdcx/constant';
 import { isUsdcxDomainNotRegisteredError, runUsdcxDeposit, UsdcxSigner } from 'lib/usdcx/deposit';
+import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import {
   buildExecutorBurnIntent,
   quoteExecutorBurn,
   runUsdcxExecutorDeposit,
   UsdcxExecutorSigner
 } from 'lib/usdcx/executor';
-import { midenAccountHexToXReserveRecipient } from 'lib/usdcx/recipient';
 import { isUsdcxDepositAvailable } from 'lib/usdcx/use-bridge-in-availability';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { readNativeFeeFields } from 'lib/walletconnect/fees';
@@ -595,7 +594,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     let cancelled = false;
     (async () => {
       try {
-        const recipient = midenAccountHexToXReserveRecipient(accountRefToSdk(midenAccount.publicKey).toString());
+        const recipient = usdcxRemoteRecipientFor(midenAccount.publicKey);
         const quote = await quoteExecutorBurn(
           source,
           buildExecutorBurnIntent(quotedAmount, source, recipient, evmAddress)
@@ -829,7 +828,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       try {
         // Encoded inside the try so an id the faucet cannot mint to fails the row
         // instead of throwing out of the flow.
-        const recipient = midenAccountHexToXReserveRecipient(accountRefToSdk(midenAccount.publicKey).toString());
+        const recipient = usdcxRemoteRecipientFor(midenAccount.publicKey);
         if (!isAddress(evmAddress)) throw new Error(`Invalid EVM address: ${evmAddress}`);
         if (!nativeReownAvailable) await switchChainAsync({ chainId: usdcxChain.id });
         const readAllowance = (spender: `0x${string}`) => readCircleUsdcAllowance(evmAddress, spender, usdcxSource);
@@ -1241,6 +1240,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               outputAmount={formatMoneyAmount(outputAmount, 'typed')}
               fee={usdcxQuotedFee}
               networkName={networkName}
+              sourceChainId={sourceChainId}
               youReceiveLoading={route === 'epoch' && epochStatus === 'quoting'}
               isSubmitting={submitting}
               canConfirm={reviewCanConfirm}
@@ -1257,6 +1257,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               <EvmBridgeUsdcxRoute
                 confirmDisabled={!canConfirmRoute}
                 onConfirm={handleContinueToReview}
+                sourceChainId={sourceChainId}
                 fee={usdcxQuotedFee === undefined ? undefined : t('usdcxForwardFee', { fee: usdcxQuotedFee })}
                 notice={
                   usdcxSource.route === 'cctp-executor'
@@ -1330,6 +1331,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       canConfirmRoute,
       outputAmount,
       networkName,
+      sourceChainId,
       submitting,
       reviewCanConfirm,
       reviewConfirmLabel,

@@ -235,6 +235,33 @@ export function publicFaucetGrantAmount(baseUrl: string): Promise<bigint> {
 }
 
 /**
+ * The account the faucet sends its grants from, as its own metadata names it (`id`). A dApp journey counts a note from
+ * it as its own funding, so only a note from anyone else is a third party's. A 5xx is asked again, as for a grant.
+ */
+export async function publicFaucetAccountId(
+  baseUrl: string,
+  retryDelayMs: number = GRANT_RETRY_DELAY_MS,
+  sleep: (ms: number) => Promise<void> = ms => new Promise(resolve => setTimeout(resolve, ms))
+): Promise<string> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await faucetFetch(`${baseUrl}/get_metadata`, async response => {
+        if (!response.ok) throw await failedResponse('Public faucet metadata request failed', response);
+        const metadata: unknown = await response.json();
+        const id = metadata && typeof metadata === 'object' ? Reflect.get(metadata, 'id') : undefined;
+        if (typeof id !== 'string' || id === '') throw new Error('Public faucet metadata names no account id');
+        return id;
+      });
+    } catch (error) {
+      if (!(error instanceof FaucetServerError) || attempt >= GRANT_ATTEMPTS) {
+        throw publicFaucetFailure(error, 'metadata request');
+      }
+      await sleep(retryDelayMs * attempt);
+    }
+  }
+}
+
+/**
  * Requests `amount` base units of the native asset for `accountId` (bech32).
  * When omitted, asks for what the wallet's Fund button asks for (`faucetGrantAmount`), resolved
  * once and retained across retries.

@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
+import { usdcxArrivalKey } from 'lib/usdcx/constant';
 import { RouteCard } from 'screens/send-flow/Route';
 
 export interface EvmBridgeUsdcxRouteProps {
@@ -15,6 +16,8 @@ export interface EvmBridgeUsdcxRouteProps {
   notice?: string;
   /** The card's fee line, already formatted; the executor route shows Circle's quoted fee. Defaults to no fee. */
   fee?: string;
+  /** The deposit's source chain, which sets the card's arrival estimate. */
+  sourceChainId: number;
   onConfirm: () => void;
 }
 
@@ -28,6 +31,7 @@ export const EvmBridgeUsdcxRoute: React.FC<EvmBridgeUsdcxRouteProps> = ({
   footerClassName = 'pt-4 pb-24',
   notice,
   fee,
+  sourceChainId,
   onConfirm
 }) => {
   const { t } = useTranslation();
@@ -44,7 +48,7 @@ export const EvmBridgeUsdcxRoute: React.FC<EvmBridgeUsdcxRouteProps> = ({
             selected
             onSelect={() => undefined}
             fee={<span className="text-base font-bold text-ink">{fee ?? t('noFee')}</span>}
-            eta={t('usdcxArrival')}
+            eta={t(usdcxArrivalKey(sourceChainId))}
             testId="bridge-route-usdcx"
             accent="brand"
           />

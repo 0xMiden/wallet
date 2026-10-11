@@ -8,8 +8,13 @@
     "englishSource": "Burn submitted"
   },
   "usdcxMidenFees": {
-    "message": "Taxas da MIDEN",
-    "englishSource": "MIDEN fees"
+    "message": "Taxas de $symbol$",
+    "englishSource": "$symbol$ fees",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxBurnOnly": {
     "message": "Apenas queimar",
@@ -60,8 +65,13 @@
     "englishSource": "Minimum burn"
   },
   "usdcxSponsorshipFee": {
-    "message": "Pago em MIDEN, incluindo o patrocínio da execução pela “faucet”",
-    "englishSource": "Paid in MIDEN, including sponsorship of the execution by the faucet"
+    "message": "Pago em $symbol$, incluindo patrocínio para execução de faucet",
+    "englishSource": "Paid in $symbol$, including faucet execution sponsorship",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxInvalidDestination": {
     "message": "Insira um endereço válido em uma rede compatível para este saque.",
@@ -86,6 +96,36 @@
   "usdcxFaucetUnavailable": {
     "message": "Não foi possível ler a política de queima do USDCx faucet. Reabrir a revisão para tentar novamente.",
     "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+  },
+  "usdcxSendMoreThanPayoutFee": {
+    "message": "Envie mais de $amount$ USDCx para $network$: a taxa da Circle é deduzida do pagamento.",
+    "englishSource": "Send more than $amount$ USDCx to $network$: Circle's fee is taken from the payout.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxPayoutFeeUpTo": {
+    "message": "Até $amount$ em USDC",
+    "englishSource": "Up to $amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxPayoutAtLeast": {
+    "message": "Pelo menos $amount$ em USDC",
+    "englishSource": "At least $amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "activityFetchingHistoryAndNotes": {
     "message": "Como consultar seu histórico de transações e notes",
@@ -1702,6 +1742,10 @@
   "searchForTokens": {
     "message": "Pesquisar tokens",
     "englishSource": "Search for tokens"
+  },
+  "sendUsdcxOnlyDestination": {
+    "message": "Apenas USDCx pode ser enviado para esta rede.",
+    "englishSource": "Only USDCx can be sent to this network."
   },
   "available": {
     "message": "Disponível",
@@ -4763,6 +4807,10 @@
   "usdcxArrival": {
     "message": "~20 min",
     "englishSource": "~20 min"
+  },
+  "usdcxArrivalArc": {
+    "message": "~1 min",
+    "englishSource": "~1 min"
   },
   "usdcxRouteNotice": {
     "message": "A Circle xReserve emite USDCx na Miden na proporção de 1:1 para o USDC que você depositar.",

@@ -8,8 +8,13 @@
     "englishSource": "Burn submitted"
   },
   "usdcxMidenFees": {
-    "message": "MIDENの手数料",
-    "englishSource": "MIDEN fees"
+    "message": "$symbol$の手数料",
+    "englishSource": "$symbol$ fees",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxBurnOnly": {
     "message": "バーン（焼却）のみ",
@@ -60,8 +65,13 @@
     "englishSource": "Minimum burn"
   },
   "usdcxSponsorshipFee": {
-    "message": "MIDENで支払われ、faucetによる実行のスポンサーシップを含む",
-    "englishSource": "Paid in MIDEN, including sponsorship of the execution by the faucet"
+    "message": "$symbol$で支払われる（faucetの実行スポンサーシップを含む）",
+    "englishSource": "Paid in $symbol$, including faucet execution sponsorship",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxInvalidDestination": {
     "message": "この出金には、対応ネットワーク上の有効なアドレスを入力してください。",
@@ -86,6 +96,36 @@
   "usdcxFaucetUnavailable": {
     "message": "USDCxのfaucetのバーンポリシーを読み取ることができません。再審査を再開して再度試みてください。",
     "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+  },
+  "usdcxSendMoreThanPayoutFee": {
+    "message": "$amount$以上のUSDCxを$network$に送金してください：Circleの手数料は支払額から差し引かれます。",
+    "englishSource": "Send more than $amount$ USDCx to $network$: Circle's fee is taken from the payout.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxPayoutFeeUpTo": {
+    "message": "最大$amount$のUSDC",
+    "englishSource": "Up to $amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxPayoutAtLeast": {
+    "message": "少なくとも$amount$のUSDC",
+    "englishSource": "At least $amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "activityFetchingHistoryAndNotes": {
     "message": "取引履歴の取得とnotes",
@@ -1702,6 +1742,10 @@
   "searchForTokens": {
     "message": "トークンを検索する",
     "englishSource": "Search for tokens"
+  },
+  "sendUsdcxOnlyDestination": {
+    "message": "このネットワークにはUSDCxのみを送金できます。",
+    "englishSource": "Only USDCx can be sent to this network."
   },
   "available": {
     "message": "在庫あり",
@@ -4763,6 +4807,10 @@
   "usdcxArrival": {
     "message": "約20分",
     "englishSource": "~20 min"
+  },
+  "usdcxArrivalArc": {
+    "message": "約1分",
+    "englishSource": "~1 min"
   },
   "usdcxRouteNotice": {
     "message": "Circle xReserveは、ユーザーが預け入れたUSDCに対し、Miden上で1:1の比率でUSDCxを発行します。",

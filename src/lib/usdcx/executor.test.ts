@@ -32,6 +32,7 @@ jest.mock('lib/miden/activity', () => ({
 const SOURCE = getUsdcxExecutorSource(baseSepolia.id);
 const TARGET = SOURCE.target;
 const RECIPIENT = '0x00000000000000000000000000000000b64e1827414584510723cad8e145a400' as const;
+const MIXED_CASE_RECIPIENT = '0x00000000000000000000000000000000B64E1827414584510723CAD8E145A400' as const;
 const DEPOSITOR = '0x1111111111111111111111111111111111111111' as const;
 const APPROVE_HASH = `0x${'1'.repeat(64)}` as const;
 const BURN_HASH = `0x${'2'.repeat(64)}` as const;
@@ -242,9 +243,30 @@ describe('runUsdcxExecutorDeposit', () => {
     // for Circle's forward transaction instead of offering the execute.
     expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', {
       evmTxHash: BURN_HASH,
+      usdcxRemoteRecipient: RECIPIENT,
       cctp: { sourceDomain: 6, forwarded: true, forwardFee: '31908' }
     });
     expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'delivering', { evmTxHash: BURN_HASH });
+  });
+
+  // The executor's deposit names the same recipient, so the reconciler can match Circle's attestation of it.
+  it('persists the recipient it signed, lowercased, with the first phase write only', async () => {
+    const { deps } = makeDeps();
+
+    await runUsdcxExecutorDeposit('row-1', '1.5', MIXED_CASE_RECIPIENT, deps);
+
+    expect(jest.mocked(deps.updatePhase).mock.calls).toEqual([
+      [
+        'row-1',
+        'submitting',
+        {
+          evmTxHash: BURN_HASH,
+          usdcxRemoteRecipient: RECIPIENT,
+          cctp: { sourceDomain: 6, forwarded: true, forwardFee: '31908' }
+        }
+      ],
+      ['row-1', 'delivering', { evmTxHash: BURN_HASH }]
+    ]);
   });
 
   it('falls back to a manual burn through the plain token messenger when Circle does not quote', async () => {
@@ -276,6 +298,7 @@ describe('runUsdcxExecutorDeposit', () => {
     );
     expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', {
       evmTxHash: BURN_HASH,
+      usdcxRemoteRecipient: RECIPIENT,
       cctp: { sourceDomain: 6, forwarded: false }
     });
   });

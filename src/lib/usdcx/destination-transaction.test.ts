@@ -67,3 +67,16 @@ it('propagates RPC errors without a wider search', async () => {
   await expect(findUsdcxDestinationTransaction(args)).rejects.toThrow('timeout');
   expect(mockGetLogs).toHaveBeenCalledTimes(1);
 });
+
+// Circle charges a flat ~1,003,500 (about 1.0035 USDC) to pay a burn out on Ethereum; the allowance is 1.5 USDC.
+it('finds a Sepolia payout the flat fee cut under half the amount', async () => {
+  mockGetLogs.mockResolvedValueOnce([{ ...transfer, args: { value: 996500n } }]);
+  await expect(findUsdcxDestinationTransaction({ ...args, chainId: 11155111, amount: 2_000_000n })).resolves.toBe(hash);
+});
+
+it('does not search for a burn the allowance takes whole', async () => {
+  await expect(
+    findUsdcxDestinationTransaction({ ...args, chainId: 11155111, amount: 1_500_000n })
+  ).resolves.toBeUndefined();
+  expect(mockGetLogs).not.toHaveBeenCalled();
+});

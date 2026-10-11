@@ -1,4 +1,4 @@
-import { encodeBurnWithdrawal, validateUsdcxWithdrawal } from './withdrawal';
+import { encodeBurnWithdrawal, isUsdcxWithdrawalNetwork, UsdcxBurnError, validateUsdcxWithdrawal } from './withdrawal';
 
 const USDCX_FAUCET_ID_BECH32 = 'mtst1native';
 jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetIdSync: () => 'mtst1native' }));
@@ -55,11 +55,12 @@ describe('USDCx withdrawal encoding', () => {
   );
 
   it('requires the configured faucet, testnet, positive amount, and a testnet destination chain id', () => {
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 1n)).not.toThrow();
+    // 2 USDCx, since a burn must exceed its destination's payout fee allowance (1.5 USDC on Sepolia).
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 2_000_000n)).not.toThrow();
     // Sepolia, Base Sepolia and Arbitrum Sepolia are direct-payout destinations of the burn.
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 1n)).not.toThrow();
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 84532, 1n)).not.toThrow();
-    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 421614, 1n)).not.toThrow();
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 2_000_000n)).not.toThrow();
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 84532, 2_000_000n)).not.toThrow();
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 421614, 2_000_000n)).not.toThrow();
     expect(() => validateUsdcxWithdrawal('another-faucet', 5042002, 1n)).toThrow('usdcxUnsupportedFaucet');
     // Mainnet destinations are configured but not offered while withdrawals are testnet-only.
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 1, 1n)).toThrow('usdcxInvalidDestination');
@@ -67,6 +68,33 @@ describe('USDCx withdrawal encoding', () => {
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 0n)).toThrow('usdcxInvalidAmount');
     network = 'devnet';
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 1n)).toThrow('usdcxUnsupportedFaucet');
+    network = 'testnet';
+  });
+
+  // Circle takes its payout fee from the amount: a flat ~1.0035 USDC on Ethereum, against a 1.5 USDC allowance.
+  it('refuses a burn its destination fee allowance takes whole, naming the allowance and the chain', () => {
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 1_500_001n)).not.toThrow();
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 100_001n)).not.toThrow();
+    let refusal: unknown;
+    try {
+      validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 11155111, 1_500_000n);
+    } catch (error) {
+      refusal = error;
+    }
+    expect(refusal).toBeInstanceOf(UsdcxBurnError);
+    expect(refusal).toMatchObject({
+      translationKey: 'usdcxSendMoreThanPayoutFee',
+      values: { amount: '1.5', network: 'Sepolia' }
+    });
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 100_000n)).toThrow(
+      'usdcxSendMoreThanPayoutFee'
+    );
+  });
+
+  it('offers withdrawals on testnet only, whatever the token', () => {
+    expect(isUsdcxWithdrawalNetwork()).toBe(true);
+    network = 'devnet';
+    expect(isUsdcxWithdrawalNetwork()).toBe(false);
     network = 'testnet';
   });
 });

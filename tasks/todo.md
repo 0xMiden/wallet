@@ -548,3 +548,22 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 ### Review/results
 
 - `actionlint`, `git diff --check`, five-way consistency checks for each split cache key, prep/live exact-hit and provenance checks, and the exact workflow revision updater smoke checks pass. Independent review found no remaining cache-boundary or metadata blocker. Hosted runtime verification must still prove emulator startup and 100-loop completion.
+
+## Repair QEMU startup on current main and retry Android Testnet
+
+### Plan
+
+- [x] Confirm run `38119989926` is terminal and inspect its exact startup report, emulator log, and diagnostics.
+- [x] Fetch current `origin/main` and merge it into the recovery branch before another wallet harness run; resolve only the two overlapping test-hook imports/fields while retaining both branches' coverage.
+- [x] Record the QEMU/HVF boot failure on the macOS 26 Intel runner; QEMU froze with all six guest CPU threads before ADB was available.
+- [x] Move Android prep/live jobs to the 12-core Intel macOS 15 larger runner and cap only the live single guest at four cores.
+- [x] Validate merge resolution, workflow syntax, emulator helper changes, and independent review; update the stale architecture diagnostic caught in final review.
+- [ ] Publish to the recovery branch, prepare exact-SHA inputs, then keep dispatching Android Testnet attempts after each terminal failure until one run proves 100/100 loops.
+
+### Evidence
+
+- Run `38119989926` used recovery SHA `1c48782182f5781942967be7c99fdbc8df350cdb` and failed at visible emulator boot, before ADB, Playwright, any bridge loop, or any Testnet transaction. Its startup watchdog recorded no first loop.
+- The emulator log shows Android Emulator 37.2.12 clamped the requested eight cores to six, then QEMU's main loop and all six CPU threads stopped responding. The run was on `macos-26-large`; `-accel-check` had passed but did not prove QEMU guest progress.
+- Current `origin/main` was refreshed to `8e7ae16302d5a69d9479d14b8a721dc0944aca88`. It changed bridge-receive and faucet helpers, so the recovery merge carries those changes and combines both sides of the two conflicts.
+- `actionlint` and staged/unstaged whitespace checks pass. Local Jest is unavailable because this recovery checkout has no `node_modules`; the exact-SHA Android preparation workflow will compile the merged APK before live dispatch.
+- Independent review found no blocker in the runner, CPU scope, caches, provenance, or merge. It caught one stale `macos-26-large` diagnostic, now corrected to `macos-15-large`. The five-minute target and successful boot remain unproven until the next live run.

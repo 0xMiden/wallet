@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { formatUnits, parseUnits } from 'viem';
 
 import { useAppEnv } from 'app/env';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
@@ -26,6 +27,7 @@ import { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import {
   isSpendingLimitPriceUnavailable,
@@ -41,20 +43,27 @@ import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { classifyError } from 'lib/telemetry';
 import { initiateUsdcxBurn } from 'lib/usdcx/burn';
-import { USDCX_DECIMALS } from 'lib/usdcx/constant';
+import { USDCX_DECIMALS, usdcxPayoutFeeShortfall } from 'lib/usdcx/constant';
 import { useBurnPreflight } from 'lib/usdcx/use-burn-preflight';
 import { isUsdcxWithdrawalAvailable, UsdcxBurnError } from 'lib/usdcx/withdrawal';
 import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { approxFiatAmount } from './amount-format';
-import { getBridgeNetwork, BridgeNetworkId, isBridgeNetworkId, isUsdcxBridgeNetwork } from './bridge-networks';
+import {
+  getBridgeNetwork,
+  BridgeNetworkId,
+  isBridgeNetworkId,
+  isEpochBridgeNetwork,
+  isUsdcxBridgeNetwork
+} from './bridge-networks';
 import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
 import { SendStepLayout } from './SendStepLayout';
 import { BridgeRoute, UIToken } from './types';
 import { uiTokenFromBalance } from './ui-token';
+import { UsdcxPayoutRows } from './UsdcxPayoutRows';
 import { useEpochQuote } from './useEpochQuote';
 
 /**
@@ -110,6 +119,10 @@ export const ReviewTransaction: React.FC = () => {
     return match && uiTokenFromBalance(match, tokenPrices);
   }, [balanceData, tokenId, tokenPrices]);
   const tokenLabel = token ? midenTokenLabel(bridgeConfig, token.id, token.name) : '';
+  // A burn's fee and the faucet's sponsorship are paid in the native asset, whatever it is on this network.
+  const nativeFaucetId = useNativeFeeFaucetId();
+  const assetsMetadata = useWalletStore(s => s.assetsMetadata);
+  const nativeSymbol = resolveDisplayMetadata(nativeFaucetId ?? undefined, assetsMetadata, nativeFaucetId).symbol;
 
   const isUsdcxBurn = isBridge && route === 'usdcx';
   const burnPreflight = useBurnPreflight(isUsdcxBurn && isUsdcxWithdrawalAvailable(token?.id));
@@ -441,7 +454,7 @@ export const ReviewTransaction: React.FC = () => {
         settleSendFlow(flow => flow.fail(classifyError(error)));
         setSubmitError(
           error instanceof UsdcxBurnError
-            ? t(error.translationKey)
+            ? t(error.translationKey, error.values)
             : error instanceof Error
               ? error.message
               : String(error)
@@ -556,7 +569,7 @@ export const ReviewTransaction: React.FC = () => {
     isBridge &&
     (!bridgeNetworkObj ||
       !route ||
-      (isUsdcxBurn ? !isUsdcxBridgeNetwork(network) : network !== 'sepolia') ||
+      (isUsdcxBurn ? !isUsdcxBridgeNetwork(network) : !isEpochBridgeNetwork(network)) ||
       (isUsdcxBurn && !!token && !isUsdcxWithdrawalAvailable(token.id)));
   const tokenInvalid = !!balanceData && (!token || parseFloat(amount) > token.balance);
   if (paramsInvalid || bridgeParamsInvalid || tokenInvalid) {
@@ -594,6 +607,11 @@ export const ReviewTransaction: React.FC = () => {
     youReceiveAmount != null ? `≈ ${youReceiveAmount} ${youReceiveSymbol}`.trim() : youReceiveSymbol;
   const routeLabel = isUsdcxBurn ? t('usdcxRouteLabel') : route === 'agglayer' ? t('slow') : t('fast');
   const arrivalLabel = isUsdcxBurn ? '' : route === 'agglayer' ? t('slowArrival') : t('fastArrival');
+  // Circle takes its fee from the payout, so a burn must exceed its destination's fee allowance.
+  const payoutFeeShortfall =
+    isUsdcxBurn && bridgeNetworkObj && amountBaseUnits !== undefined
+      ? usdcxPayoutFeeShortfall(bridgeNetworkObj.chainId, amountBaseUnits)
+      : undefined;
   const burnValidationError = !isUsdcxBurn
     ? undefined
     : burnPreflight.error
@@ -602,7 +620,9 @@ export const ReviewTransaction: React.FC = () => {
         ? t('usdcxInvalidAmount')
         : burnPreflight.minimum !== undefined && amountBaseUnits < burnPreflight.minimum
           ? t('usdcxBelowMinimumBurn')
-          : undefined;
+          : payoutFeeShortfall
+            ? t('usdcxSendMoreThanPayoutFee', payoutFeeShortfall)
+            : undefined;
 
   const fiatValue =
     token && token.scaleIsKnown && token.fiatPrice > 0 ? parseFloat(amount) * token.fiatPrice : undefined;
@@ -684,7 +704,10 @@ export const ReviewTransaction: React.FC = () => {
                       `${formatUnits(burnPreflight.minimum, USDCX_DECIMALS)} USDCx`
                     )}
                   </DetailRow>
-                  <DetailRow label={t('networkFee')}>{t('usdcxSponsorshipFee')}</DetailRow>
+                  <DetailRow label={t('networkFee')}>{t('usdcxSponsorshipFee', { symbol: nativeSymbol })}</DetailRow>
+                  {bridgeNetworkObj && amountBaseUnits !== undefined && (
+                    <UsdcxPayoutRows chainId={bridgeNetworkObj.chainId} amount={amountBaseUnits} />
+                  )}
                 </>
               ) : (
                 <DetailRow label={t('youReceive')}>
@@ -702,7 +725,11 @@ export const ReviewTransaction: React.FC = () => {
             </DetailRow>
           )}
         </DetailCard>
-        {isUsdcxBurn && <p className="mt-3 px-4 text-caption text-muted">{t('usdcxWithdrawalNotice')}</p>}
+        {isUsdcxBurn && (
+          <p className="mt-3 px-4 text-caption text-muted" data-testid="usdcx-burn-notice">
+            {t('usdcxWithdrawalNotice')}
+          </p>
+        )}
         {/* The reassurance about an unclaimed payment is one caption under the card, not a paragraph
             squeezed into the value column. */}
         {!isBridge && recallBlocks ? (

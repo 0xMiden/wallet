@@ -1,4 +1,5 @@
 import type { AxisLabel, FailureEvidence } from './dapp-cells';
+import pinned from './dapp-pinned.json';
 
 /**
  * Known bugs the suite exposes (spec section 7). The assertions encode correct behaviour; a failure counts as a
@@ -124,18 +125,33 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
     signature: ({ source, evidence }) => source === 'hard' && evidence.crossOriginWaitServed === true
   },
   {
+    id: 'K8',
+    title:
+      'Guardian signBytes(signingInputs) fails after approval with an opaque keystore miss instead of signing with the hot key',
+    tracking: '0xMiden/wallet, file after the first run (Q6); fix per Q2',
+    cells: on(['G2a', 'G2b', 'G2c'], GUARDIAN),
+    // Only a `word` reaches the hot key (src/lib/miden/back/vault.ts:2227); signingInputs reads the keystore under the
+    // connect commitment (:2250), which the hot key is not stored under, and the dApp gets the miss as INVALID_PARAMS.
+    signature: ({ source, evidence }) =>
+      source === 'hard' &&
+      evidence.popupOpened === true &&
+      evidence.dappError?.causeName === 'InvalidParamsMidenWalletError' &&
+      (evidence.dappError?.message ?? '').includes(pinned.texts.G2.guardian.error)
+  },
+  {
     id: 'K9',
     title: 'A request from a session bound to a non-current account opens a popup instead of being refused',
     tracking: '0xMiden/wallet, file after the first run (Q6); fix per Q10',
     cells: on([...NON_CURRENT_CELLS, 'M4-reads'], BOTH),
-    // The cells approve the popup to see what follows: M9 a refusal after approval, or a consume that executes (K6);
-    // M4-reads the dApp's own vault served.
+    // The cells approve the popup to see what follows: M9 a refusal after approval with nothing run for any account, or
+    // a consume that executes for the stale account (K6); M4-reads each read served the dApp's own vault after its
+    // popup, or refused before one.
     signature: ({ cellId, source, evidence }) =>
       source === 'hard' &&
       evidence.nonCurrentPrompted === true &&
       (cellId === 'M4-reads'
-        ? evidence.nonCurrentReadLeaked === false
-        : evidence.dappError?.message === 'NOT_GRANTED' ||
+        ? evidence.nonCurrentReadsOwnOrRefused === true
+        : (evidence.dappError?.message === 'NOT_GRANTED' && evidence.nonCurrentRowRan === false) ||
           (cellId.startsWith('M9-consume') && evidence.staleConsumeExecuted === true))
   },
   {
@@ -152,6 +168,15 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
         : evidence.popupOpened === false &&
           (evidence.dappError?.message ?? '').includes('INVALID_PARAMS') &&
           (evidence.dappError?.message ?? '').includes('could not be resolved'))
+  },
+  {
+    id: 'K11',
+    title: 'A custom request whose transactionRequest cannot be deserialized opens a popup instead of being refused',
+    tracking: '0xMiden/wallet, file after the first run (Q6)',
+    cells: on(['R3-customUndecodable'], BOTH),
+    // The preview swallows the deserialize failure (src/lib/miden/back/dapp.ts:2867-2879) and the popup says it could
+    // not decode the request, so the refusal check sees a confirm page open.
+    signature: ({ source, evidence }) => source === 'hard' && evidence.popupOpened === true
   }
 ];
 

@@ -25,6 +25,8 @@ interface CreateBridgeReceiveArgs {
   amount: string; // base units (bigint as string across the evaluate boundary)
   faucetId: string;
   provider: IBridgeProvider;
+  /** Type only: the hook hands its args to `initiateBridgedReceiveTransaction`, which stores it. */
+  sourceChainId?: number;
   sourceAddress: string;
   sourceAmount: string;
   sourceSymbol: string;
@@ -34,14 +36,24 @@ interface CreateBridgeReceiveArgs {
   evmTxHash: string;
 }
 
-interface BridgeReceiveState {
+/** The deposit facts a spec checks a bridged-receive row against. */
+interface BridgeReceiveDepositFields {
+  evmTxHash?: string;
+  error?: string;
+  midenNoteId?: string;
+  sourceChainId?: number;
+  usdcxRemoteRecipient?: string;
+  /** Unix seconds the row first reached `ready`. */
+  readyAt?: number;
+}
+
+interface BridgeReceiveState extends BridgeReceiveDepositFields {
   found: boolean;
   phase?: IBridgedReceiveExtraInputs['phase'];
   displayMessage?: string;
   status?: ITransactionStatus;
   amount?: string;
   faucetId?: string;
-  midenNoteId?: string;
 }
 
 declare global {
@@ -59,13 +71,23 @@ declare global {
   var __TEST_LATEST_BRIDGE_RECEIVE__: (provider?: IBridgeProvider) => Promise<LatestBridgeReceive | null>;
 }
 
-interface LatestBridgeReceive {
+interface LatestBridgeReceive extends BridgeReceiveDepositFields {
   id: string;
   amount?: string;
   faucetId: string;
   phase?: IBridgedReceiveExtraInputs['phase'];
   displayMessage?: string;
-  evmTxHash?: string;
+}
+
+function depositFields(inputs: IBridgedReceiveExtraInputs | undefined): BridgeReceiveDepositFields {
+  return {
+    evmTxHash: inputs?.evmTxHash,
+    error: inputs?.error,
+    midenNoteId: inputs?.midenNoteId,
+    sourceChainId: inputs?.sourceChainId,
+    usdcxRemoteRecipient: inputs?.usdcxRemoteRecipient,
+    readyAt: inputs?.readyAt
+  };
 }
 
 export function installBridgeInTestHooks(): void {
@@ -99,7 +121,7 @@ export function installBridgeInTestHooks(): void {
       status: row.status,
       amount: row.amount != null ? row.amount.toString() : undefined,
       faucetId: row.faucetId,
-      midenNoteId: inputs?.midenNoteId
+      ...depositFields(inputs)
     };
   };
 
@@ -150,7 +172,7 @@ export function installBridgeInTestHooks(): void {
       faucetId: row.faucetId ?? '',
       phase: inputs?.phase,
       displayMessage: row.displayMessage,
-      evmTxHash: inputs?.evmTxHash
+      ...depositFields(inputs)
     };
   };
 
