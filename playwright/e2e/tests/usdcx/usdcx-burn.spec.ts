@@ -12,7 +12,8 @@ import {
   ARC_CIRCLE_DOMAIN,
   BURN_UNITS,
   minimumUsdcxPayout,
-  PAYOUT_TIMEOUT_MS
+  PAYOUT_TIMEOUT_MS,
+  USDCX_REMOTE_DOMAIN
 } from '../../helpers/usdcx-constants';
 import { guardianFailureContext, guardianIdentity } from '../../helpers/usdcx-guardian';
 import {
@@ -36,9 +37,10 @@ import {
   type StepContext
 } from '../../helpers/usdcx-run';
 
-/** Step budgets of spec section 5, steps 1 and 3 to 8. */
+/** Step budgets of spec section 5, steps 1 to 8. */
 const BUDGET = {
   wallet: 180_000,
+  arcState: 30_000,
   fund: 180_000,
   settle: 240_000,
   keySnapshot: 30_000,
@@ -57,7 +59,7 @@ const BUDGET = {
 test.describe('USDCx burn through the Send UI after a public faucet grant', () => {
   // The injected fee faucet masks the wallet's own native-asset discovery (two-wallets.ts:840).
   test.use({ injectFeeFaucet: false });
-  // At the worst, ~2 min of fixture setup, 13.5 min of steps up to the burn's submit, the 3 min row poll that sees the
+  // At the worst, ~2 min of fixture setup, 14 min of steps up to the burn's submit, the 3 min row poll that sees the
   // faucet consume it, then the payout gate's 10 min from that consume and its closing read: about 30 min a test, so
   // the two stay within the usdcx config's hour.
   test.describe.configure({ timeout: 1_800_000 });
@@ -95,6 +97,16 @@ test.describe('USDCx burn through the Send UI after a public faucet grant', () =
         evidence.ids.address = ids.address;
         evidence.ids.native = ids.native;
 
+        // Before the grant, so a bridge that cannot pay this burn out costs no grant and leaves no deferred payout.
+        const xreserve = await step('arc_state', BUDGET.arcState, async () => {
+          const state = await readXReserveDomainState(arc);
+          expect(
+            { registered: state.registered, paused: state.paused, withdrawalsPaused: state.withdrawalsPaused },
+            `xReserve domain ${USDCX_REMOTE_DOMAIN} read on ${state.endpoint}`
+          ).toEqual({ registered: true, paused: false, withdrawalsPaused: false });
+          return state;
+        });
+
         const funding = await step(
           'fund',
           BUDGET.fund,
@@ -109,12 +121,11 @@ test.describe('USDCx burn through the Send UI after a public faucet grant', () =
           : 0;
 
         // R21, R22: the harness key, read right before the burn; this test's payout must be exactly the rise above it.
-        const { key, snapshot, depositor } = await step('key_snapshot', BUDGET.keySnapshot, async () => {
+        const { key, snapshot } = await step('key_snapshot', BUDGET.keySnapshot, async () => {
           const { key, role } = takeRunArcKey(process.env);
           secrets.push(key.privateKey);
           expect(role, 'usdcx-burn burns to the harness key').toBe('harness');
-          const { depositor } = await readXReserveDomainState(arc);
-          return { key, depositor, snapshot: await readArcUsdcSnapshot(key.address, arc) };
+          return { key, snapshot: await readArcUsdcSnapshot(key.address, arc) };
         });
         evidence.ids.arcKey = key.address;
         evidence.ids.arcKeyRole = 'harness';
@@ -181,7 +192,7 @@ test.describe('USDCx burn through the Send UI after a public faucet grant', () =
                 balanceBefore: snapshot.balance,
                 consumeTsMs,
                 deadlineMs: consumeTsMs + PAYOUT_TIMEOUT_MS,
-                depositor,
+                depositor: xreserve.depositor,
                 minimumValue: minimumUsdcxPayout(ARC_CHAIN_ID, BURN_UNITS)
               },
               arc

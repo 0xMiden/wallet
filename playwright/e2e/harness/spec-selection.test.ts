@@ -101,6 +101,13 @@ const USDCX_PAYOUT_WIRING: RegExp[] = [
   /deadlineMs: consumeTsMs \+ PAYOUT_TIMEOUT_MS,/,
   /payoutContext\(arc, key, snapshot, burn\)/
 ];
+/**
+ * A burn xReserve cannot pay out fails only at the payout gate's deadline and leaves a deferred payout to land in a later
+ * run's window, so each burning test reads the domain and refuses it unregistered or with withdrawals paused before its
+ * faucet grant.
+ */
+const USDCX_PAYOUT_PRECHECK =
+  /step\('arc_state', BUDGET\.arcState, async \(\) => \{\s*const state = await readXReserveDomainState\(arc\);[^;]*\)\.toEqual\(\{ registered: true, paused: false, (?:depositsPaused: false, )?withdrawalsPaused: false \}\);[\s\S]*?'fund'[\s\S]*'burn_via_ui'/;
 /** A live USDCx spec in another config's listing, the burn spec under its old tests/bridge name included. */
 const USDCX_LIVE_SPEC = /usdcx-roundtrip\.spec\.ts|usdcx-burn\.spec\.ts|bridge-out-usdcx\.spec\.ts/;
 
@@ -152,6 +159,13 @@ describe('the USDCx live suites run under their own config only', () => {
     file => {
       const source = configSource(`${USDCX_TESTS_DIR}/${file}`);
       for (const wiring of USDCX_PAYOUT_WIRING) expect(source).toMatch(wiring);
+    }
+  );
+
+  it.each(['usdcx-roundtrip.spec.ts', 'usdcx-burn.spec.ts'])(
+    '%s refuses to burn, before its faucet grant, while xReserve cannot pay the burn out',
+    file => {
+      expect(configSource(`${USDCX_TESTS_DIR}/${file}`)).toMatch(USDCX_PAYOUT_PRECHECK);
     }
   );
 });
