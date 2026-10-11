@@ -38,6 +38,7 @@
 
 ### Changes
 
+- [CHANGE][ci] The iOS E2E page object reads a wallet's transaction rows, native asset and exact vault through the WebView, asking a failed read again, and burns USDCx to Arc Testnet through the Send screen with every lookup inside the Send flow or the review it opens, naming a refused review and never submitting once its step ran out of time.
 - [CHANGE][ci] The live USDCx bridge-IN E2E deposits into and claims with a Guardian account, so the co-signed claim runs against Circle's real attestation and the hosted testnet Guardian, and the spec checks the account's Guardian auth structure afterwards; a run deposits 0.01 USDC instead of 1, since a testnet claim costs about 0.0002 USDCx and the Arc gas about 0.006 USDC.
 - [CHANGE][ci] `E2E_HEADLESS=1` runs a local E2E suite without opening or focusing any Chrome window: the fixtures launch the full Chromium build in its new headless mode (the default headless shell cannot load an extension) with a 1600x1200 screen for confirm popups; without it, and in CI, runs stay headed.
 - [CHANGE][ci] A by-hand run of any E2E or build workflow from a pull request's branch builds against the web-sdk and Guardian PRs that pull request's `Web SDK PR:` and `Guardian PR:` markers name, as its own CI does, so a suite that otherwise runs only after merge can test an unreleased dependency first; a push, a release and a by-hand run on main or next still install the published packages.
