@@ -227,11 +227,32 @@
    else throw cleanupError;
    ```
 
-### Low
-
-26. [Independent review, fixed] Bound emulator-log collection by reading at most 128 KiB before retaining the last 250 non-empty lines; do not load and split an arbitrarily large process log during failure handling.
+26. [Independent review, fixed] Fail promptly if the emulator launcher process exits before ADB becomes ready. The prep watcher previously waited the full four-minute boot budget even though the recorded PID was already gone; include the exit code/signal and retain the emulator's known crash database when present.
 
    ```js
-   // scripts/android-warm-avd.cjs:172-177
+   // scripts/android-warm-avd.cjs:75-108,200-205
+   if (processExit) throw new Error(`Visible ${AVD_NAME} stopped before ADB boot readiness: ${processExit}.`);
+   ```
+
+   ```yaml
+   # .github/workflows/e2e-bridge-in.yml:319-339
+   crash_database="/tmp/android-runner/emu-crash-${ANDROID_EMULATOR_VERSION}.db"
+   ```
+
+27. [Independent review, fixed] Make the preparation's intended cold boot explicit with `-no-snapshot-load`. The prior launch omitted snapshot flags and the exact log shows a lookup for the absent `default_boot` snapshot; skip that lookup while keeping explicit snapshot saving available. The warning was not established as the process-exit cause.
+
+   ```js
+   // scripts/android-emulator-launch.cjs:36-41
+   } else if (snapshotName === null) {
+     args.push('-no-snapshot-load');
+   }
+   ```
+
+### Low
+
+28. [Independent review, fixed] Bound emulator-log collection by reading at most 128 KiB before retaining the last 250 non-empty lines; do not load and split an arbitrarily large process log during failure handling.
+
+   ```js
+   // scripts/android-warm-avd.cjs:193-199
    const { stdout } = await run('tail', ['-c', '131072', preparationLogPath()], 5_000);
    ```

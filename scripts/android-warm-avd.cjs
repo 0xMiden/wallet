@@ -19,6 +19,10 @@ const MEMORY_MB = 4096;
 const GPU = 'host';
 const FEATURES = '-Vulkan';
 const SNAPSHOT_PROOF_PROPERTY = 'debug.miden.warm_avd_proof';
+const EMULATOR_CRASH_DATABASE = path.join(
+  '/tmp/android-runner',
+  `emu-crash-${process.env.ANDROID_EMULATOR_VERSION ?? '37.2.12'}.db`
+);
 const IMAGE_PACKAGE = 'system-images;android-34;default;x86_64';
 const IMAGE_PACKAGE_XML = path.join(
   process.env.ANDROID_HOME ?? '',
@@ -68,23 +72,40 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function waitForBoot(timeoutMs) {
+async function waitForBoot(timeoutMs, emulatorProcess) {
   const startedAt = Date.now();
   let lastProbe = 'adb has not returned a boot property yet';
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      const { stdout } = await adbRun(['-s', SERIAL, 'shell', 'getprop', 'sys.boot_completed'], 10_000);
-      if (stdout.trim() === '1') return Date.now() - startedAt;
-      lastProbe = `adb returned sys.boot_completed=${JSON.stringify(stdout.trim())}`;
-    } catch (error) {
-      // ADB is expected to be unavailable briefly during guest startup.
-      lastProbe = error instanceof Error ? error.message : String(error);
+  let processExit;
+  const onExit = (code, signal) => {
+    processExit = `emulator launcher exited with code=${code ?? 'null'}, signal=${signal ?? 'none'}`;
+  };
+  const onError = error => {
+    processExit = `emulator launcher failed: ${error instanceof Error ? error.message : String(error)}`;
+  };
+  emulatorProcess.once('exit', onExit);
+  emulatorProcess.once('error', onError);
+  if (emulatorProcess.exitCode !== null || emulatorProcess.signalCode !== null) onExit(emulatorProcess.exitCode, emulatorProcess.signalCode);
+  try {
+    while (Date.now() - startedAt < timeoutMs) {
+      if (processExit) throw new Error(`Visible ${AVD_NAME} stopped before ADB boot readiness: ${processExit}.`);
+      try {
+        const { stdout } = await adbRun(['-s', SERIAL, 'shell', 'getprop', 'sys.boot_completed'], 10_000);
+        if (stdout.trim() === '1') return Date.now() - startedAt;
+        lastProbe = `adb returned sys.boot_completed=${JSON.stringify(stdout.trim())}`;
+      } catch (error) {
+        // ADB is expected to be unavailable briefly during guest startup.
+        lastProbe = error instanceof Error ? error.message : String(error);
+      }
+      if (processExit) throw new Error(`Visible ${AVD_NAME} stopped before ADB boot readiness: ${processExit}.`);
+      await delay(POLL_INTERVAL_MS);
     }
-    await delay(POLL_INTERVAL_MS);
+    throw new Error(
+      `Visible ${AVD_NAME} did not reach sys.boot_completed within ${timeoutMs}ms. Last ADB probe: ${lastProbe}`
+    );
+  } finally {
+    emulatorProcess.off('exit', onExit);
+    emulatorProcess.off('error', onError);
   }
-  throw new Error(
-    `Visible ${AVD_NAME} did not reach sys.boot_completed within ${timeoutMs}ms. Last ADB probe: ${lastProbe}`
-  );
 }
 
 async function stopEmulator() {
@@ -176,6 +197,12 @@ async function captureWarmAvdFailure(phase, emulatorPid, error) {
   } catch (logError) {
     sections.push(`Emulator log unavailable: ${logError instanceof Error ? logError.message : String(logError)}`);
   }
+  try {
+    const { size } = fs.statSync(EMULATOR_CRASH_DATABASE);
+    sections.push(`Emulator crash database: ${EMULATOR_CRASH_DATABASE} (${size} bytes)`);
+  } catch (crashDatabaseError) {
+    sections.push(`Emulator crash database unavailable: ${crashDatabaseError instanceof Error ? crashDatabaseError.message : String(crashDatabaseError)}`);
+  }
   const diagnostics = `${sections.join('\n\n')}\n`;
   fs.mkdirSync(path.dirname(diagnosticPath), { recursive: true });
   fs.appendFileSync(diagnosticPath, diagnostics);
@@ -231,10 +258,10 @@ async function prepare() {
 
   const apkSha256 = sha256(apkPath);
   const snapshotProof = crypto.randomBytes(32).toString('hex');
-  const coldBoot = launch(null); // Cold boot with Quick Boot enabled so an explicit clean snapshot can be saved.
+  const coldBoot = launch(null); // Cold boot without loading a snapshot, while keeping explicit snapshot saves enabled.
   let primaryError;
   try {
-    await waitForBoot(BOOT_TIMEOUT_MS);
+    await waitForBoot(BOOT_TIMEOUT_MS, coldBoot);
     await adbRun(['-s', SERIAL, 'install', '-r', '-t', apkPath], 180_000);
     await adbRun(['-s', SERIAL, 'shell', 'pm', 'grant', 'com.miden.wallet', 'android.permission.POST_NOTIFICATIONS'])
       .catch(() => {});
@@ -266,7 +293,7 @@ async function prepare() {
     const restore = launch(SNAPSHOT_NAME);
     let restoreError;
     try {
-      const elapsedMs = await waitForBoot(RESTORE_TIMEOUT_MS);
+      const elapsedMs = await waitForBoot(RESTORE_TIMEOUT_MS, restore);
       await assertInstalledApk(apkPath, apkSha256);
       await assertSnapshotProof(snapshotProof);
       restoreMs.push(elapsedMs);

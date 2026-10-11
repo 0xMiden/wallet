@@ -72,8 +72,9 @@ describe('Android emulator launch arguments', () => {
     expect(args).not.toContain('-no-snapshot');
   });
 
-  it('leaves snapshots enabled for preparation so the workflow can save a verified state', () => {
+  it('cold-boots without loading the absent default snapshot while keeping snapshot saving enabled', () => {
     const args = buildEmulatorArgs({ ...base, snapshotName: null });
+    expect(args).toContain('-no-snapshot-load');
     expect(args).not.toContain('-no-snapshot');
     expect(args).not.toContain('-snapshot');
   });

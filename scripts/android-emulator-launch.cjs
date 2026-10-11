@@ -35,6 +35,8 @@ function buildEmulatorArgs({ avdName, port, visible, cores, snapshotName }) {
 
   if (snapshotName === undefined) {
     args.push('-no-snapshot');
+  } else if (snapshotName === null) {
+    args.push('-no-snapshot-load');
   } else if (snapshotName !== null) {
     args.push('-snapshot', snapshotName, '-no-snapshot-save');
   }
