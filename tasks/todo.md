@@ -384,7 +384,7 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - [x] Fail early if the runner does not expose usable Hypervisor.framework acceleration; force accelerated emulator launch.
 - [x] Run focused helper tests, scoped lint, workflow lint, exact Playwright collection, and get an independent review.
 - [x] Publish only to the Android feature branch, preserving `main` and existing unrelated work.
-- [ ] Obtain fresh authorization before another live 100-loop Testnet dispatch; reconcile the terminal run artifacts.
+- [x] Reconcile the terminal run artifacts; the user's standing authorization now covers automatic retries through successful completion.
 
 ## Findings
 
@@ -428,7 +428,7 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - [x] Move only the Android workload to the 12-core Intel macOS larger runner and fail early if fewer than six logical CPUs are exposed.
 - [x] Run scoped workflow validation and obtain a fresh independent review.
 - [x] Push the reviewed repair only to the feature branch.
-- [ ] Obtain fresh authorization for one new live 100-loop Testnet run; the earlier per-run authorization expired when run `38091647355` completed.
+- [x] Record that the user's standing authorization covers automatic retries through successful completion.
 
 ## Emulator repair review/results
 
@@ -466,7 +466,7 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - Both the verified CLI cache and resumable Cargo-target cache were missing at the beginning of the run. The 736 MB Cargo cache and 13 MB CLI cache were written only after the cold compile, so GitHub cache availability cannot be assumed for a five-minute start target.
 - The preceding Android job spent 4m07s installing dependencies and 8m01s building the APK before Playwright could begin; both builds must move ahead of the live dispatch to satisfy the requested start latency.
 - The five-minute clock now starts at workflow `created_at`, so runner queue time counts. A job that reaches its first step after the deadline fails immediately; setup stages check the same deadline, and the Playwright watchdog terminates its process group if loop 1 has not entered by the deadline. WalletConnect starts after onboarding while CLI/Testnet preparation continues. Recipient fee funding starts only after WalletConnect succeeds and overlaps the first EVM deposit; it must finish before Miden delivery. The always-run finalizer records startup failure when an earlier setup step bypasses the watchdog.
-- The first-loop marker records entry into loop 1 before the first deposit UI action; it does not claim that a deposit has been submitted. The Android cache contains only the API 34 system image; emulator, platform tools, API 36 and build tools come from the verified hosted runner image. This source repair does not prove the target until a live run records dispatch-to-loop-entry timing.
+- The first-loop marker records entry into loop 1 before the first deposit UI action; it does not claim that a deposit has been submitted. The Android cache includes the API 34 system image and explicitly pinned emulator; platform tools, API 36 and build tools come from the verified hosted runner image.
 - Preparation run `38111623729` used commit `85d2f20e64372f4c5edd6eff9d2b96af536f409e`: CLI preparation passed and uploaded its artifact in 31 seconds; the Android dependency install and integrity check passed in 3m49s. SDK preflight then failed immediately because `sdkmanager` was not on `PATH`; no APK artifact, loop, or Testnet transaction was produced. Both live workload jobs were skipped.
 - Preparation run `38112184176` used commit `c0e973cbf0b063791b04e8dad8904819ae005a25`: CLI preparation passed in 29 seconds; SDK setup and package checks passed; the verified dependency cache was saved. The API 34 image downloaded and unpacked, then `yes | sdkmanager --licenses` failed because the SDK manager exited before `yes`, causing a broken pipe under `pipefail`; the API image cache and APK were not saved, and both workload jobs were skipped.
 - The corrected prep path runs `android-actions/setup-android@v3` to expose the hosted SDK tools and accept licenses, then saves verified dependency and API 34 image caches in explicit steps before later build stages. It no longer runs a redundant license pipeline.
@@ -507,16 +507,38 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - [x] Trace the `/Users/test-results-android/emulator-logs` path to `__dirname` from the `node -e`/ts-node startup loader.
 - [x] Use `GITHUB_WORKSPACE` as the Android helper's CI checkout root while retaining the module-relative local fallback.
 - [x] Validate CI/local root selection, run `actionlint` and `git diff --check`, and obtain independent review with no findings.
-- [ ] Commit and push the reviewed repair to the recovery branch, then prepare its exact-SHA inputs.
+- [x] Commit and push the reviewed repair to the recovery branch, then prepare its exact-SHA inputs.
 - [ ] Dispatch and automatically diagnose/retry failed Android Testnet runs until one records terminal success for all 100 loops.
 
 ### Evidence
 
 - Run `38115187911` used reviewed SHA `30b7e888e1193c02a3b043ae0fc41038e1506841`. SDK setup, image restore, acceleration, and AVD creation passed; startup failed at `Start visible emulator boot before Playwright setup` with `EACCES` creating `/Users/test-results-android/emulator-logs`. Playwright, emulator launch, loops, and Testnet transactions did not start.
 - The workflow invokes `EmulatorControl.startSingle()` through `node -r ts-node/register -e`. In that eval module, `__dirname` refers to the repository-root working directory. Ascending four directories resolves to `/Users`, while GitHub Actions supplies the exact checkout root as `GITHUB_WORKSPACE`.
+- Fix commit `f7cfbfce948e5fe6b6d0fcb8c18c8c197b3e2327` was pushed through the connected GitHub API after shell DNS failed; its tree matches the locally reviewed commit. Preparation run `38115771138` succeeded and uploaded exact-SHA CLI, APK, and combined provenance artifacts.
+- Live run `38116228586` used `f7cfbfce948e5fe6b6d0fcb8c18c8c197b3e2327`. The path fix worked: emulator logs were written under the checkout and uploaded. The job then failed before Playwright because the visible emulator did not become available to adb within 45 seconds; the startup report records `firstLoopStarted=false` at 181 seconds after dispatch. No loop or Testnet transaction started.
 
 ### Review/results
 
 - The exact root-selection expression resolves `GITHUB_WORKSPACE` to `/Users/runner/work/wallet/wallet` for the eval startup context and preserves the helper-relative `/repo` fallback for local use. `actionlint` and `git diff --check` pass. Local `node_modules` is absent, so no repository Jest/TypeScript checks were available in this checkout.
-- Independent review confirms the fix points emulator logs under `test-results-android/emulator-logs`, matching the workflow artifact upload path; no blocker found.
+- Independent review confirms the fix points emulator logs under `test-results-android/emulator-logs`, matching the workflow artifact upload path; no blocker found. Hosted runtime verification confirmed the path fix.
 - The user's standing authorization covers exact-SHA preparation and automatic retries through one successful 100-loop run.
+
+## Pin the Android emulator runtime across prep and live runners
+
+### Plan
+
+- [x] Inspect run `38116228586`'s exact emulator log and startup report; confirm zero loops and zero Testnet transactions.
+- [x] Compare the failing runner's emulator version with the previously used workflow-installed version and current Android stable release.
+- [x] Install, cache, version-check, and provenance-bind the same Android emulator package in preparation and live jobs.
+- [x] Replace the unversioned emulator SDK Manager install with the official pinned archive, SHA-256 verification, and build-specific cache/provenance identity after independent review caught the drift risk.
+- [x] Run `actionlint`, `git diff --check`, exact cache/provenance key checks, and the namespaced package.xml revision smoke check; independent re-review found no blockers.
+- [ ] Push the repair, prepare its exact SHA, and retry Android Testnet automatically until all 100 loops succeed.
+
+### Evidence
+
+- Run `38116228586` used the corrected log-root code and reached emulator startup 132 seconds after dispatch. Emulator `37.1.11.0` started but QEMU's main loop and CPU threads stopped responding; ADB never saw the device. The report records no first loop at 181 seconds after dispatch.
+- The earlier Android workflow explicitly installed the `emulator` SDK package and logged version `37.2.12.0`; the new prep/live workflow had relied on the host image, which supplied `37.1.11.0`. The first pin checked for `37.2.12` after asking SDK Manager for latest; independent review identified that the command would not install the pinned release after an upstream update. The current path downloads archive build `16428233`, checks SHA-256 `9fdae8c07ac92155aeb175835669ef9b12adf19130f5557792139fb4ebd01256`, updates the package revision, and binds that archive to the cache and exact-SHA provenance.
+
+### Review/results
+
+- `actionlint`, `git diff --check`, exact cache/provenance checks, and the namespaced package.xml revision smoke check pass. Independent re-review found no blockers in the archive checksum, package revision, cache marker, exact prep/live key, or artifact provenance. Hosted runtime verification must prove that the pinned release resolves QEMU startup.

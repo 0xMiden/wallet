@@ -96,11 +96,11 @@
    sdkmanager --install "system-images;android-34;default;x86_64"
    ```
 
-12. [Expert, addressed after independent review] Use the same API 34 cache key in preparation restore/save, artifact provenance, and the live restore. The first stable-key edit missed the live restore, which still used the workflow hash and would have failed its exact-cache gate. Align the live restore with the package-specific key.
+12. [Expert, addressed after independent review] Use the same API 34 image and emulator cache key in preparation restore/save, artifact provenance, and the live restore. The first stable-key edit missed the live restore, which still used the workflow hash and would have failed its exact-cache gate. Align all paths on the OS, architecture, image, and pinned emulator package.
 
    ```yaml
-   # .github/workflows/e2e-bridge-in.yml:183-185, 207-218, 789, 864-867
-   key: bridge-in-android-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
+   # .github/workflows/e2e-bridge-in.yml:180-263, 268-273, 843-852, 927-935
+   key: bridge-in-android-image-v3-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64-emulator-37.2.12-build-16428233
    ```
 
 13. [Expert, addressed and independently reviewed with no findings] Resolve repository artifact paths from `GITHUB_WORKSPACE` when CI loads the emulator helper through `node -e`. In that eval context, `__dirname` is the checkout working directory, so walking four levels upward placed emulator logs at `/Users/test-results-android/emulator-logs` and failed before boot. Keep the module-relative fallback for direct local execution.
@@ -112,16 +112,26 @@
      : path.resolve(__dirname, '../../../..');
    ```
 
+14. [Expert, fixed and independently re-reviewed with no blockers] Do not use the macOS image's preinstalled Android emulator in the live job. Run `38116228586` used image version `37.1.11.0`, which stalled its QEMU threads before ADB became available. The first repair requested the unversioned SDK Manager `emulator` package and only failed closed on version drift; independent review correctly found that this did not fetch the selected build. Download official macOS Intel archive build `16428233`, verify its published SHA-256, set the SDK package revision to `37.2.12`, and bind the version, build, checksum, and cache key into exact-SHA APK provenance. The second independent review found no remaining blocker.
+
+   ```yaml
+   # .github/workflows/e2e-bridge-in.yml:47-50, 180-263, 268-273, 291-301, 843-852, 894-907, 927-935, 971-995
+   ANDROID_EMULATOR_VERSION: '37.2.12'
+   ANDROID_EMULATOR_ARCHIVE_BUILD: '16428233'
+   echo "$ANDROID_EMULATOR_ARCHIVE_SHA256  $archive" | shasum -a 256 --check
+   key: bridge-in-android-image-v3-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64-emulator-37.2.12-build-16428233
+   ```
+
 ### Low
 
-14. [Expert, fixed] Run checkout and Cargo preparation through the process-tree-aware timeout helper so timed-out commands cannot race source cleanup.
+15. [Expert, fixed] Run checkout and Cargo preparation through the process-tree-aware timeout helper so timed-out commands cannot race source cleanup.
 
    ```js
    // scripts/install-pinned-miden-cli.cjs:91-97,318-324
    timeoutMs: 180_000
    ```
 
-15. [Expert, fixed] Name Hypervisor.framework as the macOS acceleration layer in the runner guidance.
+16. [Expert, fixed] Name Hypervisor.framework as the macOS acceleration layer in the runner guidance.
 
    ```yaml
    # .github/workflows/e2e-bridge-in.yml:909-917
