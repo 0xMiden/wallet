@@ -16,7 +16,7 @@ export default defineConfig({
   // dApp-browser specs run via playwright.ios.dapp.config.ts — they need no
   // chain, so they get their own (much faster) workflow.
   // The live USDCx spec runs via playwright.ios.usdcx-live.config.ts: it spends real
-  // Arc Testnet USDC and public faucet USDCx in its own nightly job.
+  // Arc Testnet USDC and public faucet USDCx in its own job.
   testIgnore: [
     '**/guardian-*.ios.spec.ts',
     '**/bridge-in-*.ios.spec.ts',

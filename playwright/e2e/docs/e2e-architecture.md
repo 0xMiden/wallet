@@ -420,6 +420,16 @@ Runs queue on one concurrency group, `usdcx-harness-arc-key`, and none is cancel
 
 Run the spec locally with `USDCX_LIVE_EVM_PRIVATE_KEY` set to the harness key while holding `~/.miden-e2e/usdcx-run.lock`, never with the iOS job's key: a local run cannot see a run of the job, and two payouts into one key fail the gate.
 
+A concurrent `e2e:real` usdcx suite on the same harness key would otherwise put two payouts in one window, so take the lock the way `acquireUsdcxRunLock` in `scripts/e2e-real.mjs` writes it (`{pid, suite, startedAt}`, mode 0600, created exclusively) and release it with a trap:
+
+```bash
+mkdir -p ~/.miden-e2e && (umask 077; set -C; printf '{"pid":%s,"suite":"ios-usdcx-live","startedAt":"%s"}\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" > ~/.miden-e2e/usdcx-run.lock) \
+  && trap 'rm -f ~/.miden-e2e/usdcx-run.lock' EXIT \
+  && USDCX_LIVE_EVM_PRIVATE_KEY="$HARNESS_KEY" yarn test:e2e:mobile:usdcx-live:run
+```
+
+If the redirect fails, the lock exists: another run holds it, so wait for it.
+
 ---
 
 ## Under the hood — running Ethereum locally

@@ -770,7 +770,7 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
         await test.info().attach('usdcx-relayer-log', { body: localRelayer.logs, contentType: 'text/plain' });
       }
       await cp.stop();
-      // In the run's artifact directory, which the nightly uploads (test-results-ios/).
+      // In the run's artifact directory, which the job uploads (test-results-ios/).
       const evidencePath = path.join(steps.outputDir, 'usdcx-live-ios-evidence.json');
       fs.mkdirSync(steps.outputDir, { recursive: true });
       fs.writeFileSync(evidencePath, evidenceBody(evidence, secrets));
