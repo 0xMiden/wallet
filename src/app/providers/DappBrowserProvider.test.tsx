@@ -1194,6 +1194,116 @@ describe('native presentation lifecycle', () => {
     expect(hook.result.current.mode).toBe('launcher');
   });
 
+  it('restores a live target whose native opening completes while another session is parking', async () => {
+    let finishOpen: () => void = () => {
+      throw new Error('open has not started');
+    };
+    mockPluginOpen.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          finishOpen = resolve;
+        })
+    );
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('closeEvent', expect.any(Function)));
+    act(() => {
+      hook.result.current.open(makeSession('target'));
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    await waitFor(() => expect(mockPluginOpen).toHaveBeenCalledTimes(1));
+    expect(hook.result.current.sessionStates.find(s => s.session.id === 'target')?.instance).toBeNull();
+    act(() => {
+      hook.result.current.open(makeSession('keep'));
+    });
+    await waitFor(() =>
+      expect(hook.result.current.sessionStates.find(s => s.session.id === 'keep')?.instance).not.toBeNull()
+    );
+    let finishSnapshot: (value: string) => void = () => {
+      throw new Error('capture has not started');
+    };
+    mockCaptureSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          finishSnapshot = resolve;
+        })
+    );
+    let restoring: Promise<void> | undefined;
+    act(() => {
+      restoring = hook.result.current.restore('target');
+    });
+    await act(async () => {
+      finishOpen();
+    });
+    const instance = hook.result.current.sessionStates.find(s => s.session.id === 'target')?.instance;
+    expect(instance).not.toBeNull();
+    mockSetActiveDappSession.mockClear();
+    await act(async () => {
+      finishSnapshot('data:image/jpeg;base64,AAAA');
+      await restoring;
+    });
+    expect(hook.result.current.session?.id).toBe('target');
+    expect(mockSetActiveDappSession).toHaveBeenCalledWith('target');
+    expect(hook.result.current.sessionStates.find(s => s.session.id === 'target')?.instance).toBe(instance);
+    expect(hook.result.current.sessionStates.find(s => s.session.id === 'keep')?.status).toBe('parked');
+  });
+
+  it('rejects an earlier restore when a target ID and timestamp are reused for a replacement session', async () => {
+    let finishOpen: () => void = () => {
+      throw new Error('open has not started');
+    };
+    mockPluginOpen.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          finishOpen = resolve;
+        })
+    );
+    const target = makeSession('target');
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('closeEvent', expect.any(Function)));
+    act(() => {
+      hook.result.current.open(target);
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    await waitFor(() => expect(mockPluginOpen).toHaveBeenCalledTimes(1));
+    act(() => {
+      hook.result.current.open(makeSession('keep'));
+    });
+    await waitFor(() =>
+      expect(hook.result.current.sessionStates.find(s => s.session.id === 'keep')?.instance).not.toBeNull()
+    );
+    let finishSnapshot: (value: string) => void = () => {
+      throw new Error('capture has not started');
+    };
+    mockCaptureSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          finishSnapshot = resolve;
+        })
+    );
+    let restoring: Promise<void> | undefined;
+    act(() => {
+      restoring = hook.result.current.restore('target');
+    });
+    await act(async () => {
+      await hook.result.current.close('target');
+    });
+    act(() => {
+      hook.result.current.open(target);
+    });
+    mockSetActiveDappSession.mockClear();
+    await act(async () => {
+      finishSnapshot('data:image/jpeg;base64,AAAA');
+      await restoring;
+    });
+    const selectedAgain = mockSetActiveDappSession.mock.calls.some(call => call[0] === 'target');
+    await act(async () => {
+      await hook.result.current.close('target');
+      finishOpen();
+    });
+    expect(selectedAgain).toBe(false);
+    expect(hook.result.current.sessionStates.map(s => s.session.id)).toEqual(['keep']);
+  });
+
   it('passes the native contract and captures presentation events before opening returns', async () => {
     const hook = renderHook(() => useDappBrowser(), { wrapper });
     await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('presentationChanged', expect.any(Function)));

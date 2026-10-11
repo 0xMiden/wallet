@@ -366,6 +366,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     return sessionStatesRef.current.find(s => s.session.id === id);
   }, []);
 
+  // Native handles can materialize later; lifetime identity changes only on removal and a new session.
+  const sessionLifetimes = useRef(new Map<string, symbol>());
   const openingSessions = useRef(new Set<string>());
   const listenerSetup = useRef<Promise<void>>(Promise.resolve());
   const finalizations = useRef(new Map<string, Promise<void>>());
@@ -375,6 +377,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       if (existing) return existing;
       if (!getSessionStateById(id)) return Promise.resolve();
       // Remove the session before notifying confirmation subscribers so it cannot auto-restore.
+      sessionLifetimes.current.delete(id);
       removeSession(id);
       if (foregroundIdRef.current === id) {
         foregroundIdRef.current = null;
@@ -623,7 +626,11 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
       // Merge into state — this path assumes there are no live sessions
       // yet (which is correct on first mount), so we can just set.
-      setSessionStates(prev => (prev.length === 0 ? coldStates : prev));
+      setSessionStates(prev => {
+        if (prev.length > 0) return prev;
+        for (const state of coldStates) sessionLifetimes.current.set(state.session.id, Symbol());
+        return coldStates;
+      });
     };
 
     void rehydrate();
@@ -776,6 +783,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       }
 
       finalizations.current.delete(next.id);
+      sessionLifetimes.current.set(next.id, Symbol());
 
       // Add the new session to state in the 'loading' phase. The effect
       // below will pick up foregroundId + slotRect and call openInternal
@@ -834,7 +842,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const restore = useCallback(
     async (sessionId: string) => {
       const state = getSessionStateById(sessionId);
-      if (!state) return;
+      const lifetime = sessionLifetimes.current.get(sessionId);
+      if (!state || !lifetime) return;
       // Park the current foreground (if any and different from the restore
       // target) so its bubble appears while the restored session takes the
       // active slot.
@@ -844,12 +853,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         parkedForeground = (await parkInternal(currentForeground)) === true;
       }
       const target = getSessionStateById(sessionId);
-      if (
-        !target ||
-        finalizations.current.has(sessionId) ||
-        target.instance !== state.instance ||
-        target.session.openedAt !== state.session.openedAt
-      ) {
+      if (!target || finalizations.current.has(sessionId) || sessionLifetimes.current.get(sessionId) !== lifetime) {
         if (parkedForeground && foregroundIdRef.current === currentForeground) {
           foregroundIdRef.current = null;
           setForegroundId(null);
