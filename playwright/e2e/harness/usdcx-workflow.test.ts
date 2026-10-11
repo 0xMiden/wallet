@@ -94,7 +94,7 @@ describe('E2E USDCx workflow', () => {
       /yarn install|\.\/\.github\/actions\/yarn-install/.test(step) ? [index] : []
     );
     const write = steps.indexOf(stepNamed(WRITE_STEP));
-    expect(installs.length).toBeGreaterThan(0);
+    expect(installs).not.toHaveLength(0);
     expect(write).toBeGreaterThan(Math.max(...installs));
     expect(steps.findIndex(isSuite)).toBeGreaterThan(write);
   });
