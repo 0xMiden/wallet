@@ -34,8 +34,8 @@ describe('known-bug registry', () => {
   });
 
   it('scopes the Guardian-only bugs to the Guardian axis', () => {
-    expect(knownBugRegistry.bugsFor('X1', 'offchain').map(entry => entry.id)).toEqual([]);
-    expect(knownBugRegistry.bugsFor('X1', 'guardian').map(entry => entry.id)).toEqual(['K3', 'K4']);
+    expect(knownBugRegistry.bugsFor('G2a', 'offchain').map(entry => entry.id)).toEqual([]);
+    expect(knownBugRegistry.bugsFor('G2a', 'guardian').map(entry => entry.id)).toEqual(['K8']);
   });
 
   it('K1 matches a provider that moved while the adapter kept the old address', () => {
@@ -53,21 +53,6 @@ describe('known-bug registry', () => {
     expect(
       bug('K2').signature(hard('W6', { popupOpened: true, dappError: { ...refused, message: 'NOT_GRANTED' } }))
     ).toBe(false);
-  });
-
-  it('K3 matches a proposal-stage anchor mismatch and nothing else', () => {
-    const anchor = { rowStatus: 3, stage: 'creating-proposal', rowError: 'SummaryAnchorMismatchError: anchor 9 != 6' };
-    expect(bug('K3').signature(hard('X1', anchor))).toBe(true);
-    expect(bug('K3').signature(hard('X1', { ...anchor, stage: 'sending' }))).toBe(false);
-    expect(bug('K3').signature(hard('X1', { ...anchor, rowError: 'FeeConversionInfoRequired' }))).toBe(false);
-  });
-
-  it('K4 matches the declared preview softly, and the R8 pre-popup refusal hard', () => {
-    expect(bug('K4').signature(soft('X1', { previewSimulationFailed: true }))).toBe(true);
-    expect(bug('K4').signature(hard('X1', { previewSimulationFailed: true }))).toBe(false);
-    const refused = { name: 'WalletTransactionError', message: 'NOT_GRANTED' };
-    expect(bug('K4').signature(hard('R8', { popupOpened: false, dappError: refused }))).toBe(true);
-    expect(bug('K4').signature(hard('R8', { popupOpened: true, dappError: refused }))).toBe(false);
   });
 
   it('K5 matches a locked-wallet refusal before any popup', () => {

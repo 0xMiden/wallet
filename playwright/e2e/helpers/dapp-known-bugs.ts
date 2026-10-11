@@ -31,11 +31,6 @@ export interface KnownBugRegistry {
 
 const BOTH: readonly AxisLabel[] = ['offchain', 'guardian'];
 const GUARDIAN: readonly AxisLabel[] = ['guardian'];
-// `SummaryAnchorMismatchError` by class name or by its message (`@openzeppelin/miden-multisig-client` 0.18.0,
-// `dist/transaction/summary.js:19-25`).
-const ANCHOR_MISMATCH = /SummaryAnchorMismatchError|the transaction summary binds block commitment/;
-// Every Guardian cell that sends a dApp-built custom request.
-const GUARDIAN_CUSTOM_CELLS = ['X1', 'X2', 'X3', 'X4', 'X5', 'X6', 'X11', 'M8-guardian'] as const;
 // The consume rows of M3 and M9: consume skips the post-approval re-check that send and custom run.
 const STALE_CONSUME_CELLS = [
   'M3-consume-switch',
@@ -73,31 +68,6 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
       evidence.popupOpened === true &&
       (evidence.dappError?.message ?? '').includes('INVALID_PARAMS') &&
       (evidence.dappError?.message ?? '').includes('not found')
-  },
-  {
-    id: 'K3',
-    title: 'Guardian custom request bound below the wallet height fails at proposal (anchor mismatch)',
-    tracking: 'OpenZeppelin/guardian#541 (merged), then a wallet bump to the Guardian release that carries it',
-    cells: on([...GUARDIAN_CUSTOM_CELLS, 'R8'], GUARDIAN),
-    signature: ({ source, evidence }) =>
-      source === 'hard' &&
-      evidence.rowStatus === 3 &&
-      evidence.stage === 'creating-proposal' &&
-      ANCHOR_MISMATCH.test(evidence.rowError ?? '')
-  },
-  {
-    id: 'K4',
-    title: 'Guardian custom preview cannot simulate a request bound below the wallet height',
-    tracking: '0xMiden/wallet#1380 (open)',
-    cells: on([...GUARDIAN_CUSTOM_CELLS, 'R8'], GUARDIAN),
-    signature: ({ cellId, source, evidence }) =>
-      (source === 'soft' && evidence.previewSimulationFailed === true) ||
-      // With a spending limit set, the outgoing total the failed simulation left undefined is refused before any
-      // popup (`src/lib/miden/back/dapp.ts:1651-1652`).
-      (source === 'hard' &&
-        cellId === 'R8' &&
-        evidence.popupOpened === false &&
-        evidence.dappError?.message === 'NOT_GRANTED')
   },
   {
     id: 'K5',
