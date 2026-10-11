@@ -31,6 +31,8 @@ final class BreadPresentationController: NSObject {
     private weak var hostWindow: UIWindow?
     private let cover = UIView()
     private let button = UIButton(type: .system)
+    private let capsuleBackground = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+    private var revealAnimator: UIViewPropertyAnimator?
     private let hint = UILabel()
     private let errorLabel = UILabel()
     private let retryButton = UIButton(type: .system)
@@ -60,6 +62,7 @@ final class BreadPresentationController: NSObject {
                 guard let self else { return }
                 self.tick()
                 self.state.setForeground(note.name == UIApplication.didBecomeActiveNotification)
+                self.invalidateLayout()
                 self.lastTick = ProcessInfo.processInfo.systemUptime
                 self.render()
             })
@@ -83,6 +86,7 @@ final class BreadPresentationController: NSObject {
         token = nil
         lastMetricKey = nil
         navigationCommitted = false
+        applyTheme(nil)
         invalidateLayout()
         render()
     }
@@ -140,17 +144,7 @@ final class BreadPresentationController: NSObject {
                 guard let raw = envelope["display"] as? String,
                       let display = BreadPresentationState.Display(rawValue: raw),
                       self.state.configure(display, generation: generation) else { return }
-                if let color = envelope["themeColor"] as? String,
-                   color.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil {
-                    let background = UIColor(hexString: color)
-                    self.cover.backgroundColor = background
-                    var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
-                    background.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-                    let foreground: UIColor = 0.2126 * red + 0.7152 * green + 0.0722 * blue < 0.5 ? .white : .black
-                    self.spinner.color = foreground
-                    self.errorLabel.textColor = foreground
-                    self.retryButton.setTitleColor(foreground, for: .normal)
-                }
+                self.applyTheme(envelope["themeColor"] as? String)
                 self.invalidateLayout()
                 self.publishMetrics()
                 self.owner?.capBrowserPlugin?.notifyListeners("presentationChanged", data: ["id": self.owner?.instanceId ?? "", "display": display.rawValue])
@@ -180,7 +174,55 @@ final class BreadPresentationController: NSObject {
         layoutRevision += 1
         preparingRevision = nil
         state.invalidateLayout()
+        cancelReveal()
+    }
+
+    private func applyTheme(_ color: String?) {
+        var background = UIColor.systemBackground
+        var foreground = UIColor.label
+        if let color, color.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil {
+            background = UIColor(hexString: color)
+            var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+            background.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+            foreground = 0.2126 * red + 0.7152 * green + 0.0722 * blue < 0.5 ? .white : .black
+        }
+        cover.backgroundColor = background
+        spinner.color = foreground
+        errorLabel.textColor = foreground
+        retryButton.setTitleColor(foreground, for: .normal)
+    }
+
+    private func cancelReveal() {
+        revealAnimator?.stopAnimation(true)
+        revealAnimator = nil
+        cover.alpha = 1
         cover.isHidden = false
+        webView?.accessibilityElementsHidden = true
+    }
+
+    private func reveal() {
+        guard !cover.isHidden, revealAnimator == nil else { return }
+        if UIAccessibility.isReduceMotionEnabled {
+            cover.isHidden = true
+            webView?.accessibilityElementsHidden = false
+            return
+        }
+        let generation = state.generation
+        let revision = layoutRevision
+        let animator = UIViewPropertyAnimator(duration: 0.18, curve: .easeOut) { [weak self] in
+            self?.cover.alpha = 0
+        }
+        revealAnimator = animator
+        animator.addCompletion { [weak self, weak animator] position in
+            guard let self, let animator, self.revealAnimator === animator,
+                  position == .end, self.state.generation == generation,
+                  self.layoutRevision == revision, self.state.phase == .visible else { return }
+            self.revealAnimator = nil
+            self.cover.isHidden = true
+            self.cover.alpha = 1
+            self.webView?.accessibilityElementsHidden = false
+        }
+        animator.startAnimation()
     }
 
     private func tick() {
@@ -207,14 +249,14 @@ final class BreadPresentationController: NSObject {
         owner.navigationController?.setNeedsStatusBarAppearanceUpdate()
         owner.navigationController?.setNeedsUpdateOfHomeIndicatorAutoHidden()
         hostWindow?.rootViewController?.setNeedsStatusBarAppearanceUpdate()
-        webView?.accessibilityElementsHidden = state.phase != .visible
-        cover.isHidden = state.phase == .visible
+        if state.phase == .visible { reveal() } else { cancelReveal() }
         let failed = state.phase == .error
         errorLabel.isHidden = !failed
         retryButton.isHidden = !failed
         spinner.isHidden = failed
         if !failed { spinner.startAnimating() } else { spinner.stopAnimating() }
         button.isHidden = state.display != .fullscreen && state.phase == .visible
+        capsuleBackground.isHidden = button.isHidden
         if state.display == .fullscreen && hintDeadline == nil {
             hintDeadline = ProcessInfo.processInfo.systemUptime + 5
             hint.isHidden = false
@@ -276,7 +318,7 @@ final class BreadPresentationController: NSObject {
     }
 
     private func installControls(in view: UIView) {
-        cover.backgroundColor = .systemBackground
+        applyTheme(nil)
         cover.isOpaque = true
         cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(cover)
@@ -301,7 +343,12 @@ final class BreadPresentationController: NSObject {
         ])
         button.accessibilityLabel = options.backLabel
         button.accessibilityIdentifier = "bread-presentation-close"
-        button.backgroundColor = .secondarySystemBackground
+        capsuleBackground.isUserInteractionEnabled = false
+        capsuleBackground.accessibilityElementsHidden = true
+        capsuleBackground.layer.cornerRadius = 24
+        capsuleBackground.clipsToBounds = true
+        view.addSubview(capsuleBackground)
+        button.backgroundColor = .clear
         button.layer.cornerRadius = 24
         button.imageView?.contentMode = .scaleAspectFit
         for directory in ["public", "www"] {
@@ -332,6 +379,7 @@ final class BreadPresentationController: NSObject {
         cover.frame = view.bounds
         let safe = view.safeAreaInsets
         button.frame = CGRect(x: safe.left + 12, y: safe.top + 8, width: 64, height: 48)
+        capsuleBackground.frame = button.frame
         let hintSize = hint.sizeThatFits(CGSize(width: max(0, view.bounds.width - safe.left - safe.right - 112), height: 80))
         hint.frame = CGRect(x: button.frame.maxX + 8, y: button.frame.midY - (hintSize.height + 16) / 2,
                             width: hintSize.width + 16, height: hintSize.height + 16)
@@ -350,6 +398,7 @@ final class BreadPresentationController: NSObject {
 
     func close() {
         guard state.close() else { return }
+        cancelReveal()
         timer?.invalidate()
         timer = nil
         observers.forEach(NotificationCenter.default.removeObserver)

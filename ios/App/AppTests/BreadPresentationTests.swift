@@ -97,4 +97,153 @@ final class BreadPresentationTests: XCTestCase {
         XCTAssertNil(window.rootViewController)
     }
 
+    @MainActor private struct LivePresentation {
+        let owner: WKWebViewController
+        let web: WKWebView
+        let presentation: BreadPresentationController
+        let window: UIWindow
+        let host: UIWindow?
+        let instance: WKWebViewInstance
+
+        var cover: UIView { owner.view.subviews.first { view in view.subviews.contains { $0 is UIStackView } }! }
+        func dispose() {
+            owner.cleanupWebView()
+            InAppBrowserPlugin.releaseContainerWindow(window)
+            WebViewRegistry.shared.remove(id: instance.id)
+            host?.makeKey()
+        }
+    }
+
+    private func livePresentation() async throws -> LivePresentation {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let host = scene.windows.first { $0.isKeyWindow }
+        let owner = WKWebViewController(url: URL(string: "about:blank")!, headers: [:], isInspectable: true,
+            preventDeeplink: false, blankNavigationTab: true, enabledSafeBottomMargin: false,
+            blockedHosts: [], authorizedAppLinks: [], enabledSafeTopMargin: false, breadPresentation: [
+                "script": "window.__breadPresentationToken='live'; window.__breadPresentationRespond=()=>{}; window.__breadPresentationUpdate=()=>{};",
+                "backLabel": "Back", "hintLabel": "Return", "retryLabel": "Retry", "errorLabel": "Error"
+            ])
+        let navigation = StatusBarForwardingNavigationController(rootViewController: owner)
+        navigation.setNavigationBarHidden(true, animated: false)
+        let instance = WKWebViewInstance(id: UUID().uuidString, controller: owner, navigationController: navigation)
+        instance.rect = scene.coordinateSpace.bounds
+        let window = UIWindow(windowScene: scene)
+        window.frame = instance.rect
+        window.windowLevel = .normal + 100
+        window.rootViewController = navigation
+        instance.containerWindow = window
+        WebViewRegistry.shared.register(instance)
+        let web = try XCTUnwrap(owner.capableWebView)
+        let presentation = try XCTUnwrap(owner.breadPresentation)
+        presentation.attach(instance, hostWindow: host)
+        web.loadHTMLString("<html><meta name='viewport' content='width=device-width,initial-scale=1'><body style='background:green'>Live paint</body></html>", baseURL: URL(string: "https://example.test"))
+        let loaded = try await eventually {
+            guard !web.isLoading else { return false }
+            return (try? await web.evaluateJavaScript("window.__breadPresentationToken")) as? String == "live"
+        }
+        XCTAssertTrue(loaded)
+        return LivePresentation(owner: owner, web: web, presentation: presentation, window: window, host: host, instance: instance)
+    }
+
+    private func eventually(_ condition: () async throws -> Bool) async throws -> Bool {
+        for _ in 0..<150 {
+            if try await condition() { return true }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return false
+    }
+
+    private func configure(_ live: LivePresentation, theme: String?) async throws {
+        var message = ["token": "live", "type": "configure", "display": "fullscreen"]
+        message["themeColor"] = theme
+        let json = String(data: try JSONSerialization.data(withJSONObject: message), encoding: .utf8)!
+        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify(\(json))); true")
+        try await Task.sleep(nanoseconds: 60_000_000)
+    }
+
+    func testForegroundResumeRetriesAnInterruptedRealPaint() async throws {
+        let live = try await livePresentation()
+        defer { live.dispose() }
+        try await configure(live, theme: nil)
+        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'ready',requestId:'initial'})); true")
+        let initialReveal = try await eventually { live.presentation.state.phase == .visible && live.cover.isHidden }
+        XCTAssertTrue(initialReveal)
+        live.presentation.setVisible(false)
+        _ = try await live.web.evaluateJavaScript("""
+            window.counter=7; window.realRAF=requestAnimationFrame; window.heldFrames=[];
+            window.requestAnimationFrame=callback => heldFrames.push(callback);
+            window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'ready',requestId:'ready'}));
+            true;
+            """)
+        live.presentation.setVisible(true)
+        let held = try await eventually { (try await live.web.evaluateJavaScript("heldFrames.length")) as? Int ?? 0 > 0 }
+        XCTAssertTrue(held)
+        NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+        _ = try await live.web.evaluateJavaScript("while(heldFrames.length) heldFrames.shift()(performance.now()); window.requestAnimationFrame=realRAF; true")
+        try await Task.sleep(nanoseconds: 150_000_000)
+        XCTAssertEqual(live.presentation.state.phase, .temporarilyHidden)
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        let revealed = try await eventually { live.presentation.state.phase == .visible && live.cover.isHidden }
+        XCTAssertTrue(revealed, "foreground must retry the hidden callback's abandoned paint")
+        let counter = try await live.web.evaluateJavaScript("counter") as? Int
+        XCTAssertEqual(counter, 7)
+    }
+
+    func testDocumentThemeFallsBackForNavigationMissingAndInvalidMetadata() async throws {
+        let live = try await livePresentation()
+        defer { live.dispose() }
+        for theme in [nil, "invalid"] as [String?] {
+            try await configure(live, theme: "#123456")
+            XCTAssertEqual(live.cover.backgroundColor, UIColor(hexString: "#123456"))
+            try await configure(live, theme: theme)
+            XCTAssertEqual(live.cover.backgroundColor, UIColor.systemBackground)
+            let stack = try XCTUnwrap(live.cover.subviews.first as? UIStackView)
+            let spinner = try XCTUnwrap(stack.arrangedSubviews.first as? UIActivityIndicatorView)
+            XCTAssertEqual(spinner.color, UIColor.label)
+        }
+        try await configure(live, theme: "#123456")
+        live.presentation.beginNavigation()
+        XCTAssertEqual(live.cover.backgroundColor, UIColor.systemBackground)
+    }
+
+    func testReturnCapsuleUsesNativeTranslucencyAndOriginalImage() async throws {
+        let live = try await livePresentation()
+        defer { live.dispose() }
+        let button = try XCTUnwrap(live.owner.view.subviews.first { $0 is UIButton } as? UIButton)
+        XCTAssertEqual(button.frame.size, CGSize(width: 64, height: 48))
+        XCTAssertEqual(button.image(for: .normal)?.renderingMode, .alwaysOriginal)
+        XCTAssertEqual(button.backgroundColor, UIColor.clear)
+        let material = live.owner.view.subviews.compactMap { $0 as? UIVisualEffectView }.first
+        XCTAssertTrue(material?.effect is UIBlurEffect)
+        XCTAssertEqual(material?.frame, button.frame)
+        XCTAssertFalse(material?.isUserInteractionEnabled ?? true)
+    }
+
+    func testRevealFadeCannotCompleteAfterInvalidation() async throws {
+        for action in ["hide", "navigation", "layout", "close"] {
+            let live = try await livePresentation()
+            defer { live.dispose() }
+            try await configure(live, theme: nil)
+            _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'ready',requestId:'ready'})); true")
+            let visible = try await eventually { live.presentation.state.phase == .visible }
+            XCTAssertTrue(visible)
+            if !UIAccessibility.isReduceMotionEnabled {
+                XCTAssertFalse(live.cover.isHidden, "paint completion starts a restrained reveal fade")
+            }
+            _ = try await live.web.evaluateJavaScript("window.requestAnimationFrame = () => 0; true")
+            switch action {
+            case "hide": live.presentation.setVisible(false)
+            case "navigation": live.presentation.beginNavigation()
+            case "layout":
+                live.owner.view.bounds.size.width -= 1
+                live.presentation.layoutChanged()
+            default: live.presentation.close()
+            }
+            try await Task.sleep(nanoseconds: 300_000_000)
+            XCTAssertFalse(live.cover.isHidden, action)
+            XCTAssertEqual(live.cover.alpha, 1, action)
+            XCTAssertTrue(live.web.accessibilityElementsHidden, action)
+        }
+    }
+
 }
