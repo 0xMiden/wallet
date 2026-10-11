@@ -4119,10 +4119,6 @@
     "message": "Nagłówek przeglądarki dApp",
     "englishSource": "dApp browser header"
   },
-  "dragToMinimize": {
-    "message": "Przeciągnij w dół, aby zminimalizować",
-    "englishSource": "Drag down to minimize"
-  },
   "dappSwitcher": {
     "message": "przełącznik aplikacji dApp",
     "englishSource": "dApp switcher"

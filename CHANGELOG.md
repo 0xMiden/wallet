@@ -35,6 +35,7 @@
 - [FIX][all] On testnet the bridge's own USDC, on Sepolia and on Miden, reads "Test Epoch USDC" in the bridge token picker, deposit and send-to-EVM screens, Home rows and the token page, the send token picker, transaction summaries and Activity, so it is no longer mistaken for Circle's Sepolia USDC, and the send-to-EVM review's Slow route now names the token it sends in its "you receive" line instead of USDC (#1247, #1356).
 - [FIX][all] A Guardian hot-key rotation made right after another Guardian transaction on the account no longer fails when the Guardian refuses it as built on the account's previous state: it is rebuilt once on fresh state with the same key.
 - [FIX][all] A dApp transaction that carries a note no longer races the wallet's automatic claim of that note, where one of the two used to fail: while the transaction is queued, running or waiting for the network's verdict, the note is left out of auto-consume and cannot be claimed.
+- [FIX][mobile] The dApp browser's top bar drops the grab strip above the page title, which did nothing on a tap and only duplicated the Minimize button, so the bar is 24px shorter and the dApp page gets that space.
 
 ### Changes
 

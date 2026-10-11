@@ -4119,10 +4119,6 @@
     "message": "En-tête du navigateur dApp",
     "englishSource": "dApp browser header"
   },
-  "dragToMinimize": {
-    "message": "Faites glisser vers le bas pour réduire la fenêtre",
-    "englishSource": "Drag down to minimize"
-  },
   "dappSwitcher": {
     "message": "Sélecteur de dApps",
     "englishSource": "dApp switcher"

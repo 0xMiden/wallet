@@ -937,7 +937,6 @@
   "dappLoadFailed": "Bu dApp yüklenemiyor",
   "dappLoadFailedHint": "Bağlantınızı kontrol edin ve tekrar deneyin.",
   "dappBrowserCapsule": "dApp tarayıcısı başlığı",
-  "dragToMinimize": "Küçültmek için aşağı sürükleyin",
   "dappSwitcher": "dApp değiştirici",
   "closeDappSwitcher": "dApp değiştiriciyi kapat",
   "openDappCountOne": "1 açık dApp",
