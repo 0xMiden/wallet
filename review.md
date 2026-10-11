@@ -103,16 +103,25 @@
    key: bridge-in-android-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
    ```
 
+13. [Expert, addressed and independently reviewed with no findings] Resolve repository artifact paths from `GITHUB_WORKSPACE` when CI loads the emulator helper through `node -e`. In that eval context, `__dirname` is the checkout working directory, so walking four levels upward placed emulator logs at `/Users/test-results-android/emulator-logs` and failed before boot. Keep the module-relative fallback for direct local execution.
+
+   ```ts
+   // playwright/e2e/android/helpers/emulator-control.ts:47-54
+   const ROOT_DIR = process.env.GITHUB_WORKSPACE
+     ? path.resolve(process.env.GITHUB_WORKSPACE)
+     : path.resolve(__dirname, '../../../..');
+   ```
+
 ### Low
 
-13. [Expert, fixed] Run checkout and Cargo preparation through the process-tree-aware timeout helper so timed-out commands cannot race source cleanup.
+14. [Expert, fixed] Run checkout and Cargo preparation through the process-tree-aware timeout helper so timed-out commands cannot race source cleanup.
 
    ```js
    // scripts/install-pinned-miden-cli.cjs:91-97,318-324
    timeoutMs: 180_000
    ```
 
-14. [Expert, fixed] Name Hypervisor.framework as the macOS acceleration layer in the runner guidance.
+15. [Expert, fixed] Name Hypervisor.framework as the macOS acceleration layer in the runner guidance.
 
    ```yaml
    # .github/workflows/e2e-bridge-in.yml:909-917

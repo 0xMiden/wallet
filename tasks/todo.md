@@ -489,11 +489,34 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - [x] Add job-local Android SDK PATH setup before live SDK verification and change the image cache key to encode OS, architecture, and the API 34 image package.
 - [x] Run workflow lint and diff checks.
 - [x] Address and re-review the cache-key mismatch caught during focused independent review; final review found no remaining findings.
-- [ ] Push the reviewed correction only to the recovery branch.
-- [ ] Obtain fresh authorization for an exact-SHA `android-prepare` run and a subsequent live 100-loop Testnet run; verify the five-minute first-loop outcome.
+- [x] Push the reviewed correction only to the recovery branch.
+- [x] Record the user's standing authorization to prepare, dispatch, repair, and automatically retry failed attempts until a live 100-loop Testnet run succeeds.
 
 ### Evidence
 
 - Run `38113670228` reached `Verify restored Android SDK packages` at `2026-10-11T05:08:04Z`; the first `command -v sdkmanager` exited 1. The finalizer and diagnostic artifact uploads completed, and Playwright was skipped.
 - Its dependency and Android image caches restored successfully, but the API image key depended on the entire workflow file. An unrelated startup-path edit would otherwise invalidate that cache.
 - Independent review confirmed SDK setup ordering and prep fallback-cache behavior, and caught one missed workflow-hash key in the live restore; the live key now matches prep and manifest, and final re-review found no remaining findings.
+- Reviewed fix `30b7e888e1193c02a3b043ae0fc41038e1506841` is pushed to the recovery branch. `actionlint`, the diff whitespace check, and the cache-key consistency check pass; the independent re-review found no remaining findings.
+
+## Repair Android eval-based emulator log root
+
+### Plan
+
+- [x] Inspect run `38115187911`'s exact job log and confirm no emulator boot or E2E loop began.
+- [x] Trace the `/Users/test-results-android/emulator-logs` path to `__dirname` from the `node -e`/ts-node startup loader.
+- [x] Use `GITHUB_WORKSPACE` as the Android helper's CI checkout root while retaining the module-relative local fallback.
+- [x] Validate CI/local root selection, run `actionlint` and `git diff --check`, and obtain independent review with no findings.
+- [ ] Commit and push the reviewed repair to the recovery branch, then prepare its exact-SHA inputs.
+- [ ] Dispatch and automatically diagnose/retry failed Android Testnet runs until one records terminal success for all 100 loops.
+
+### Evidence
+
+- Run `38115187911` used reviewed SHA `30b7e888e1193c02a3b043ae0fc41038e1506841`. SDK setup, image restore, acceleration, and AVD creation passed; startup failed at `Start visible emulator boot before Playwright setup` with `EACCES` creating `/Users/test-results-android/emulator-logs`. Playwright, emulator launch, loops, and Testnet transactions did not start.
+- The workflow invokes `EmulatorControl.startSingle()` through `node -r ts-node/register -e`. In that eval module, `__dirname` refers to the repository-root working directory. Ascending four directories resolves to `/Users`, while GitHub Actions supplies the exact checkout root as `GITHUB_WORKSPACE`.
+
+### Review/results
+
+- The exact root-selection expression resolves `GITHUB_WORKSPACE` to `/Users/runner/work/wallet/wallet` for the eval startup context and preserves the helper-relative `/repo` fallback for local use. `actionlint` and `git diff --check` pass. Local `node_modules` is absent, so no repository Jest/TypeScript checks were available in this checkout.
+- Independent review confirms the fix points emulator logs under `test-results-android/emulator-logs`, matching the workflow artifact upload path; no blocker found.
+- The user's standing authorization covers exact-SHA preparation and automatic retries through one successful 100-loop run.

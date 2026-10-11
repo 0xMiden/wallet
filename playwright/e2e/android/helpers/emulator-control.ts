@@ -44,7 +44,13 @@ export function listsPackageTask(dump: string, packageName: string): boolean {
   return entry.test(dump);
 }
 
-const ROOT_DIR = path.resolve(__dirname, '../../../..');
+// The CI startup command loads this helper through `node -e`, where ts-node's
+// eval module gives `__dirname` the eval working directory rather than this
+// file's directory. Prefer Actions' explicit checkout root in CI; retain the
+// module-relative path for local invocations.
+const ROOT_DIR = process.env.GITHUB_WORKSPACE
+  ? path.resolve(process.env.GITHUB_WORKSPACE)
+  : path.resolve(__dirname, '../../../..');
 const PAIR_FILE = path.join(ROOT_DIR, 'test-results-android', '.device-pair.json');
 
 const DEVICE_PAIR_AVD_A = 'miden_e2e_A';
