@@ -31,19 +31,34 @@ beforeAll(() => {
 });
 
 /** Configs whose testDir the base config ignores. */
-const overridingConfigs = ['playwright.resilience.config.ts', 'playwright.swap.config.ts'];
+const overridingConfigs = [
+  'playwright.resilience.config.ts',
+  'playwright.swap.config.ts',
+  'playwright.usdcx.config.ts'
+];
+
+/** A config's `testIgnore` value: one line, or a whole array literal however prettier wraps it. */
+const testIgnoreOf = (source: string) => /testIgnore:\s*(\[[^\]]*\]|[^\n]+)/.exec(source)?.[1];
 
 describe('dedicated e2e configs override the base testIgnore', () => {
   it.each(overridingConfigs)('%s clears the inherited ignore list', file => {
-    const testIgnore = /testIgnore:\s*(.+)/.exec(configSource(file))?.[1];
-    expect(testIgnore).toMatch(/^undefined,?$/);
+    expect(testIgnoreOf(configSource(file))).toMatch(/^undefined,?$/);
   });
 
   it('the base config is the reason the override is required', () => {
-    const base = configSource('playwright.e2e.config.ts');
-    const testIgnore = /testIgnore:\s*(.+)/.exec(base)?.[1];
+    const testIgnore = testIgnoreOf(configSource('playwright.e2e.config.ts'));
     expect(testIgnore).toMatch(/resilience/);
     expect(testIgnore).toMatch(/swap/);
+    expect(testIgnore).toMatch(/usdcx/);
+  });
+});
+
+describe('the USDCx live suites have a config of their own', () => {
+  it('playwright.usdcx.config.ts spreads the base config over tests/usdcx with an hour per test', () => {
+    const source = configSource('playwright.usdcx.config.ts');
+    expect(source).toMatch(/\.\.\.base,/);
+    expect(source).toMatch(/testDir: '\.\/playwright\/e2e\/tests\/usdcx',/);
+    expect(source).toMatch(/timeout: 3_600_000/);
   });
 });
 
