@@ -73,7 +73,7 @@ import {
   minimumUsdcxPayout,
   PAYOUT_TIMEOUT_MS
 } from './usdcx-constants';
-import { harnessPayoutLeg } from './usdcx-legs';
+import { harnessPayoutLeg, payoutLeg } from './usdcx-legs';
 import { newRunEvidence, withStepBudget, type NamedStep } from './usdcx-run';
 import type { XReserveAttestation } from '../../../src/lib/usdcx/attestation';
 import attestationVectors from '../../../src/lib/usdcx/attestation.vectors.json';
@@ -862,6 +862,37 @@ describe('harnessPayoutLeg (usdcx-legs.ts)', () => {
     expect(clock.slept).toEqual(Array(PAYOUT_TIMEOUT_MS / 5_000).fill(5_000));
     expect(evidence.hashes).toEqual({});
     expect(evidence.fees).toEqual([]);
+  });
+
+  // R20: the iOS nightly burns back to its deposit key, which no runner hands out, so the spec names that key itself.
+  it('takes any key the run names, records its role and names it by its label when Circle has not paid', async () => {
+    const { step, taken } = recordingSteps();
+    const evidence = newRunEvidence('usdcx-live-ios');
+    const secrets: string[] = [];
+    const chain = payoutChain({ balances: [HELD], logs: history });
+    const arc = {
+      endpoints: ['https://arc.example/v2/token-in-path'],
+      publicClient: () => stubClient(chain),
+      clock: fakeClock(CONSUME_MS)
+    };
+    const label = `deposit key ${KEY} (USDCX_LIVE_EVM_PRIVATE_KEY), which Circle pays,`;
+
+    const leg = await payoutLeg(step, {
+      takeKey: () => ({ key: { address: KEY, privateKey: ARC_KEY }, role: 'deposit', label }),
+      arc,
+      budget: BUDGET,
+      evidence,
+      secrets
+    });
+    const failure = leg.waitForPayout(burn, depositor);
+
+    await expect(failure).rejects.toThrow(`${label} held ${HELD} at Arc block 66483822 (read on arc.example); `);
+    expect(taken).toEqual([
+      ['key_snapshot', BUDGET.keySnapshot],
+      ['payout', BUDGET.payout]
+    ]);
+    expect(secrets).toEqual([ARC_KEY]);
+    expect(evidence.ids).toMatchObject({ arcKey: KEY, arcKeyRole: 'deposit', arcBalanceBefore: String(HELD) });
   });
 });
 

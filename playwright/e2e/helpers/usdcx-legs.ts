@@ -556,8 +556,8 @@ export type ConsumedBurn = Pick<BurnLeg, 'burnNoteId'> & {
   oracle: Pick<BurnEvidence, 'consumeBlock' | 'consumeTimestampSec'>;
 };
 
-/** Spec 5 step 8 failure body: the harness key and its pre-burn read, the burn's consume and xReserve's pause flags. */
-function payoutContext(arc: ArcReadDeps, key: ArcKey, snapshot: ArcUsdcSnapshot, burn: ConsumedBurn): StepContext {
+/** Spec 5 step 8 failure body: the payout key and its pre-burn read, the burn's consume and xReserve's pause flags. */
+function payoutContext(arc: ArcReadDeps, label: string, snapshot: ArcUsdcSnapshot, burn: ConsumedBurn): StepContext {
   return async () => {
     const flags = await readXReserveDomainState(arc).then(
       state =>
@@ -566,15 +566,23 @@ function payoutContext(arc: ArcReadDeps, key: ArcKey, snapshot: ArcUsdcSnapshot,
     );
     const consumedAt = new Date(burn.oracle.consumeTimestampSec * 1_000).toISOString();
     return (
-      `harness key ${key.address} (${HARNESS_ARC_KEY_FILE}) held ${snapshot.balance} at Arc block ` +
+      `${label} held ${snapshot.balance} at Arc block ` +
       `${snapshot.blockNumber} (read on ${arcHost(snapshot.endpoint)}); burn note ${burn.burnNoteId} consumed in ` +
       `Miden block ${burn.oracle.consumeBlock} at ${consumedAt}; xReserve ${flags}`
     );
   };
 }
 
-/** The harness key and its read right before a burn (R21), and the step that waits for that burn's payout (R22). */
-export interface HarnessPayoutLeg {
+/** The Arc key a payout leg waits on: the role the evidence records and the label a failure names, never its key. */
+export interface PayoutKey {
+  key: ArcKey;
+  role: string;
+  /** The key's address and where it is kept, e.g. `harness key 0x... (~/.miden-e2e/arc-keys/harness.json)`. */
+  label: string;
+}
+
+/** A payout key and its read right before a burn (R21), and the step that waits for that burn's payout (R22). */
+export interface PayoutLeg {
   key: ArcKey;
   snapshot: ArcUsdcSnapshot;
   /**
@@ -586,29 +594,29 @@ export interface HarnessPayoutLeg {
 }
 
 /**
- * The payout leg of every burn to the shared harness key: `key_snapshot` reads the key right before the burn, and the
- * test ends only once `waitForPayout` has proven Circle paid exactly that burn, so no payout is left to land in a later
- * run's window (R22). Both steps write their evidence.
+ * The payout leg of a burn to `takeKey`'s key: `key_snapshot` reads the key right before the burn, and the test ends
+ * only once `waitForPayout` has proven Circle paid exactly that burn, so no payout is left to land in a later run's
+ * window (R22). Both steps write their evidence.
  */
-export async function harnessPayoutLeg(
+export async function payoutLeg(
   step: NamedStep,
   opts: {
-    env: Record<string, string | undefined>;
+    takeKey: () => PayoutKey;
     arc: ArcReadDeps;
     budget: { keySnapshot: number; payout: number };
     evidence: RunEvidence;
     secrets: string[];
   }
-): Promise<HarnessPayoutLeg> {
+): Promise<PayoutLeg> {
   const { arc, evidence } = opts;
-  const { key, snapshot } = await step('key_snapshot', opts.budget.keySnapshot, async () => {
-    const { key, role } = takeRunArcKey(opts.env);
-    opts.secrets.push(key.privateKey);
-    expect(role, `${evidence.suite} burns to the harness key`).toBe('harness');
-    return { key, snapshot: await readArcUsdcSnapshot(key.address, arc) };
+  const { taken, snapshot } = await step('key_snapshot', opts.budget.keySnapshot, async () => {
+    const taken = opts.takeKey();
+    opts.secrets.push(taken.key.privateKey);
+    return { taken, snapshot: await readArcUsdcSnapshot(taken.key.address, arc) };
   });
+  const { key } = taken;
   evidence.ids.arcKey = key.address;
-  evidence.ids.arcKeyRole = 'harness';
+  evidence.ids.arcKeyRole = taken.role;
   evidence.ids.arcBalanceBefore = String(snapshot.balance);
   evidence.ids.arcSnapshotBlock = String(snapshot.blockNumber);
 
@@ -632,7 +640,7 @@ export async function harnessPayoutLeg(
           },
           arc
         ),
-      payoutContext(arc, key, snapshot, burn)
+      payoutContext(arc, taken.label, snapshot, burn)
     );
     expect({ domain: payout.sourceDomain, total: payout.value + payout.fee }).toEqual({
       domain: ARC_CIRCLE_DOMAIN,
@@ -644,6 +652,28 @@ export async function harnessPayoutLeg(
     return payout;
   };
   return { key, snapshot, waitForPayout };
+}
+
+/** `payoutLeg` on the harness key `yarn e2e:real` handed the run (R21), which every extension burn pays. */
+export async function harnessPayoutLeg(
+  step: NamedStep,
+  opts: {
+    env: Record<string, string | undefined>;
+    arc: ArcReadDeps;
+    budget: { keySnapshot: number; payout: number };
+    evidence: RunEvidence;
+    secrets: string[];
+  }
+): Promise<PayoutLeg> {
+  const { env, ...rest } = opts;
+  return payoutLeg(step, {
+    ...rest,
+    takeKey: () => {
+      const { key, role } = takeRunArcKey(env);
+      expect(role, `${opts.evidence.suite} burns to the harness key`).toBe('harness');
+      return { key, role, label: `harness key ${key.address} (${HARNESS_ARC_KEY_FILE})` };
+    }
+  });
 }
 
 /** Spec 5 step 7: the burn's details read Burn confirmed (or Confirmed once paid), name Arc Testnet and link the key. */
