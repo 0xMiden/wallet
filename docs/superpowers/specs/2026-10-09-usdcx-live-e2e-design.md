@@ -7,6 +7,7 @@ This is delivered as two stacked PRs off main (Q2), written after #1100 merged a
 - Every consume landing path adopts a delivered deposit, and burns take the verdict path.
 - A stale `ready` deposit times out, and a late mint still lands it.
 - Fee labels name the fee asset, and the arrival time follows the source chain.
+- An Ethereum burn shows Circle's fee and the least payout, must exceed the fee, and its payout floor is the amount minus the fee (10(g)).
 - Three more fixes of the same class (10(f)): the stranded executor manual leg, the dead Sepolia bridge-in source, and a retry of the burn's destination snapshot read.
 
 It keeps the nightly live workflow (`.github/workflows/e2e-usdcx-live.yml`) and repoints it at the new iOS round trip in PR 2; PR 2 deletes the local-relayer path with the old iOS live spec. Citations are file:line on cfb228a48 unless marked @6fdc2c127; the `src/lib/`, `src/` and `playwright/e2e/` prefixes are dropped where the rest of the path is unique.
@@ -61,7 +62,7 @@ Non-goals
 | Arc Testnet | chain 5042002, ~0.506 s blocks | cast 2026-10-09 |
 | xReserve | `0x008888878f94C0d87defdf0B07f46B93C1934442`: Arc domain 26, 10007 registered and unpaused; Sepolia (same address): 10007 NOT registered | `cast call isRemoteDomainRegistered(10007)`, 2026-10-10 19:20Z |
 | Bridge-out settlement | GatewayMinter `AttestationUsed` (topic2 = recipient, burn note id in the gatewayMint calldata) lands first; Arc `GatewayBurned` follows | receipts 2026-10-09; spike |
-| Payout record (Arc direct) | 1, 10 and 10 USDCx (spike included) paid 10-12 s after consume. 80.000001 USDCx paid 1 h 45 min late (block 66303813, 2026-10-09 12:06:35Z, 79,983,601). A 2 USDCx burn of 2026-10-08 19:10Z paid ~17 h late (2026-10-09 12:14:01Z, 1,983,600). A 1 USDCx burn (note `0xa9166ffc`, 2026-10-08 22:37Z) is unpaid at 2026-10-10 19:20Z. Base and Arbitrum Sepolia: one burn each, paid in 11-13 s. Sepolia: never observed | arc.io `eth_getLogs` AttestationUsed by recipient topic and Blockscout token transfers per recipient, 2026-10-10 19:20Z; spike; 2026-10-09 probe dumps (session scratchpad, not durable) |
+| Payout record (Arc direct) | 1, 10 and 10 USDCx (spike included) paid 10-12 s after consume. 80.000001 USDCx paid 1 h 45 min late (block 66303813, 2026-10-09 12:06:35Z, 79,983,601). A 2 USDCx burn of 2026-10-08 19:10Z paid ~17 h late (2026-10-09 12:14:01Z, 1,983,600). A 1 USDCx burn (note `0xa9166ffc`, 2026-10-08 22:37Z) is unpaid at 2026-10-10 19:20Z. Base and Arbitrum Sepolia: one burn each, paid in 11-13 s. Ethereum Sepolia (domain 0): the two burns of 2026-10-10 (5 and 2 USDCx) were consumed and never paid; likely cause the attester fee ceiling below Circle's flat 1,003,500 Ethereum fee, filed as 0xMiden/miden-usdcx#308 | arc.io `eth_getLogs` AttestationUsed by recipient topic and Blockscout token transfers per recipient, 2026-10-10 19:20Z; spike; 2026-10-09 probe dumps (session scratchpad, not durable) |
 | Payout fees | Arc flat 16,400 (4 samples); Base/Arbitrum 10 USDCx -> 9,988,001. Allowance 100_000 (usdcx/constant.ts:160), 1_500_000 for domain 0 (:161,230); `minimumUsdcxPayout(5042002, 10 USDCx)` = 9_900_000 (:238-243) | mint values above |
 | Circle attestation | 240-byte DepositIntent, magic `0x5a2e0acd` v1; 2.3-5.4 s; signer `0xad1b523Cf15F086EB4CE54A1eF1DE2D13Fd38816` | probe 2026-10-09 |
 | Relayer mint | 13 of 13 deposits minted, 26-34 s each | probe 2026-10-09 |
@@ -342,6 +343,15 @@ Runner tests (`scripts/e2e-real.test.ts`, stub `scripts/e2e-real.fetch-stub.mjs`
 - Checked, not a defect: a Guardian-recovered USDCx burn (proposed as `agglayer_bridged_send`, transaction/index.ts:3426-3427, recovered as a provider-less bridged-send, guardian/history.ts:91-93) never reaches bridge rendering: the list and details skip recovered rows (HistoryItem.tsx:54; HistoryView.tsx:129; HistoryDetails.tsx:550), so it shows the generic recovered action, not Pending.
 - Accepted limits, not defects (CLAUDE.md:385-403): Base/Arbitrum burns above ~890 USDCx exceed the 0.1 USDC allowance; spending from the destination before confirmation prevents it.
 
+(g) Ethereum payouts: show the fee, require more than the fee, fix the floor (Q15)
+- Defect: Circle takes a flat ~1,003,500 base units (1.0035 USDC) to pay a burn out on Ethereum (domain 0), against ~16,400 on Arc and ~11,300 on Base and Arbitrum (verified 2026-10-10/11). The expected payout is the sent amount minus the destination's allowance (1.5 USDC on Ethereum, 0.1 elsewhere) and never less than half the sent amount (`minimumUsdcxPayout`, usdcx/constant.ts:234-243), so a paid Ethereum burn under ~2.007 USDCx never reads Confirmed, and one of 1.5 USDCx or less, which the allowance takes whole, confirms on any credit of half its amount. Neither Route nor Review shows the fee or what arrives.
+- Fix (PR 1, plan Tasks 33 and 34, failing-first tests):
+  - The expected payout is exactly the sent amount minus the destination's allowance. `minimumUsdcxPayout` keeps its signature (PR 1b re-exports it; Arc 10 USDCx still reads 9_900_000). A floor that is not positive is never met by balance: `pollUsdcxDestination` returns before its RPC read, so an older burn the allowance takes whole stays at `Burn confirmed`, and the History transfer lookup does not search.
+  - A burn is allowed only when the sent amount is strictly greater than its destination's allowance, so the floor is always positive: the amount step and Review refuse a smaller amount with "Send more than <allowance> USDCx to <network>: Circle's fee is taken from the payout." (`usdcxSendMoreThanPayoutFee`; the network as its chip names it, e.g. "Sepolia"), Review's submit stays disabled, and `validateUsdcxWithdrawal` refuses it too.
+  - Route and Review show, for the chosen destination, "Circle fee: Up to <allowance> USDC" and "You Receive: At least <sent minus allowance> USDC" (`usdcx-payout-fee`, `usdcx-payout-net`), amounts with six decimals trimmed, as Review's minimum-burn row shows its amount.
+  - CLAUDE.md's "USDCx destination confirmation" section states the new floor.
+- Ethereum stays a burn destination (Q15). The allowance is still a ceiling, not a quote: a fee above it delays confirmation, an accepted limit (CLAUDE.md:385-403).
+
 ## 11 Failure reporting
 
 Every hard failure names its step. A Guardian failure also names `GUARDIAN_URL`, the step 1 identity and a best-effort `/status` re-read (5 s), showing both when they differ.
@@ -407,6 +417,7 @@ Two stacked PRs (Q2). PR 1 is the product fixes, the shared harness, the runner 
    6. `fix(usdcx): show each USDCx deposit source's own arrival time`
    7. `fix(usdcx): keep a stranded executor leg executable`, `fix(usdcx): make Sepolia an executor bridge-in source`, `fix(usdcx): retry the destination balance snapshot before a burn`
    8. `test(usdcx): burn notice test id and test-hook source chain and row fields`
+   8a. `fix(usdcx): expect a payout of the amount minus the fee and refuse a burn the fee takes whole` and `fix(usdcx): show Circle's payout fee and the least payout on the USDCx route and review` (10(g), Q15; plan Tasks 33-34)
    9. `test(e2e): shared USDCx harness modules and row readers`
    10. `test(e2e): usdcx, usdcx-in and usdcx-burn e2e:real suites`
    11. `test(e2e): extension Guardian USDCx round trip and funded-key bridge-in`
@@ -461,3 +472,4 @@ About 4,900 lines added in PR 1 and ~1,300 added and ~500 deleted in PR 2, over 
 - Q12 Arrival label: keyed on the source chain; Arc Testnet "~1 min", every other source "~20 min".
 - Q13 Dead Sepolia bridge-in source: (a) Sepolia becomes an executor source with an E2E override keeping it an xReserve source in E2E builds, in PR 1.
 - Q14 Burn destination snapshot: (a) one or two retries with backoff inside the 15 s budget, with a failing-first test.
+- Q15 Ethereum payouts (decided 2026-10-11): keep Ethereum as a burn destination; show Circle's expected fee and the net payout for the chosen destination on the Send flow's Route and Review screens; the expected payout is exactly the sent amount minus the destination's fee allowance, and a burn must exceed that allowance (10(g)). Sepolia finding (2026-10-10/11): Circle charges a flat ~1,003,500 base units (1.0035 USDC) to pay a Miden USDCx burn out on Ethereum Sepolia (domain 0), against ~16,400 on Arc and ~11,300 on Base and Arbitrum Sepolia; payouts to Ethereum are currently stuck pending the attester operator (issue filed separately).
