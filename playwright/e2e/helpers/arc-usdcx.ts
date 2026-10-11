@@ -93,9 +93,15 @@ const RECEIPT_POLL_MS = 1_000;
 const DEPOSIT_INTENT_MAGIC: Hex = '0x5a2e0acd';
 const DEPOSIT_INTENT_HEADER_BYTES = 240;
 
-/** Appended to every payout failure (spec section 11). */
+/** Appended to every payout failure but key-moved (spec section 11). */
 export const LATE_PAYOUT_NOTE =
   'Arc payouts have arrived up to ~17 h late and one 1 USDCx burn of 2026-10-08 was still unpaid after 45 h; red means a user was not paid in time';
+/** Ends a key-moved failure in place of LATE_PAYOUT_NOTE: a spend from the key says nothing about Circle's payout. */
+export const KEY_MOVED_NOTE =
+  'something spent from the payout key while the gate watched it (a manual sweep, a deposit a killed run left pending, a run that skipped the lock), so this red does not say whether Circle paid';
+/** Ends every uncorrelated reason when the key held USDC before the burn, as a key shared across runs does. */
+export const PREFUNDED_KEY_NOTE =
+  "the key held USDC before this burn, so another credit or spend in the window (an earlier burn's late payout, a manual transfer) breaks the proof: check the key on the explorer and rerun";
 
 function lowerHex(value: string): Hex {
   const lowered = value.toLowerCase();
@@ -225,6 +231,30 @@ export async function readArcUsdc(address: Address, deps: ArcReadDeps, blockNumb
   );
 }
 
+export interface ArcUsdcSnapshot {
+  endpoint: string;
+  blockNumber: bigint;
+  balance: bigint;
+}
+
+/**
+ * The head and `address`'s USDC at exactly that head, both from the first endpoint that answers: a delta-mode payout
+ * gate's `fromBlock` and `balanceBefore` must come from one read, or a credit between two reads breaks the delta.
+ */
+export async function readArcUsdcSnapshot(address: Address, deps: ArcReadDeps): Promise<ArcUsdcSnapshot> {
+  return onFirstEndpoint(deps, `Arc USDC snapshot of ${address}`, async (client, endpoint) => {
+    const blockNumber = await client.getBlockNumber();
+    const balance = await client.readContract({
+      address: ARC_USDC,
+      abi: ERC20_ABI,
+      functionName: 'balanceOf',
+      args: [address],
+      blockNumber
+    });
+    return { endpoint, blockNumber, balance };
+  });
+}
+
 export interface XReserveDomainState {
   endpoint: string;
   registered: boolean;
@@ -339,8 +369,10 @@ export async function scanArcLogs(
 
 export interface GatewayPayout {
   endpoint: string;
-  /** Equals the key's balance at `balanceBlock` and the AttestationUsed value. */
+  /** The AttestationUsed value, which equals `balance` less the gate's `balanceBefore`. */
   value: bigint;
+  /** The key's USDC at `balanceBlock`. */
+  balance: bigint;
   balanceBlock: bigint;
   logBlock: bigint;
   /** The gatewayMint transaction that emitted AttestationUsed. */
@@ -349,22 +381,27 @@ export interface GatewayPayout {
   sourceDepositor: Hex;
   /** burnUnits - value: Circle's payout fee. */
   fee: bigint;
-  /** First nonzero balance read minus the burn's consume time. */
+  /** First read above `balanceBefore` minus the burn's consume time. */
   latencyMs: number;
   ranges: ScannedRange[];
 }
 
-export type PayoutGateFailure = 'no-mint' | 'scan-gaps' | 'uncorrelated';
+export type PayoutGateFailure = 'no-mint' | 'scan-gaps' | 'uncorrelated' | 'key-moved';
 
 export class PayoutGateError extends Error {
   readonly failure: PayoutGateFailure;
   readonly details: Readonly<Record<string, string>>;
 
-  constructor(failure: PayoutGateFailure, headline: string, details: Record<string, string>) {
+  constructor(
+    failure: PayoutGateFailure,
+    headline: string,
+    details: Record<string, string>,
+    note: string = LATE_PAYOUT_NOTE
+  ) {
     super(
       `${headline}\n${Object.entries(details)
         .map(([key, value]) => `  ${key}: ${value}`)
-        .join('\n')}\n${LATE_PAYOUT_NOTE}`
+        .join('\n')}\n${note}`
     );
     this.name = 'PayoutGateError';
     this.failure = failure;
@@ -374,6 +411,10 @@ export class PayoutGateError extends Error {
 
 /** A cycle that saw the payout's balance but could not finish proving it: retried on the next endpoint. */
 class PayoutScanMiss extends Error {}
+
+function correlationReason(reason: string, balanceBefore: bigint): string {
+  return balanceBefore > 0n ? `${reason}; ${PREFUNDED_KEY_NOTE}` : reason;
+}
 
 function logChunkFor(endpoint: string): number {
   try {
@@ -393,13 +434,15 @@ function describeRanges(ranges: readonly ScannedRange[]): string {
 }
 
 export interface GatewayPayoutArgs {
-  /** The per-run key. */
+  /** The key Circle pays. */
   recipient: Address;
   /** `usdcxBurn.noteId`: Circle's TransferSpec carries it as the salt, so it is in the gatewayMint calldata. */
   burnNoteId: Hex;
   burnUnits: bigint;
-  /** `usdcxBurn.destinationBalanceBefore.blockNumber`, read before the burn was queued. */
+  /** The Arc block `balanceBefore` was read at, before the burn was queued; only logs after it count. */
   fromBlock: bigint;
+  /** The key's USDC at `fromBlock` (R20(d)); default 0n, an empty key. The payout must be exactly the rise above it. */
+  balanceBefore?: bigint;
   /** The burn's consume block time, in ms. */
   consumeTsMs: number;
   /** consumeTsMs + PAYOUT_TIMEOUT_MS. */
@@ -435,7 +478,18 @@ async function payoutCycle(
     blockNumber: balanceBlock
   });
   state.readOk = true;
-  if (balance === 0n) return undefined;
+  const before = args.balanceBefore ?? 0n;
+  // A head at or below the snapshot block reads the key before the burn: neither a payout nor a spend shows there.
+  if (balanceBlock <= args.fromBlock || balance === before) return undefined;
+  if (balance < before) {
+    throw new PayoutGateError(
+      'key-moved',
+      `the payout key moved during the payout window: balance ${balance} at block ${balanceBlock} is below ` +
+        `${before} at block ${args.fromBlock}`,
+      { ...base, endpoint, balanceBlock: String(balanceBlock), balance: String(balance) },
+      KEY_MOVED_NOTE
+    );
+  }
   const firstPaidMs = (state.firstPaidMs ??= clock.now());
 
   const lagDeadline = clock.now() + HEAD_LAG_BUDGET_MS;
@@ -446,12 +500,15 @@ async function payoutCycle(
   const scan = await scanArcLogs(client, endpoint, {
     address: GATEWAY_MINTER,
     topics: [ATTESTATION_USED_TOPIC, lowerHex(pad(ARC_USDC)), lowerHex(pad(args.recipient))],
-    fromBlock: args.fromBlock,
+    // balanceOf at fromBlock already counts a log in that block, so the window starts after it.
+    fromBlock: args.fromBlock + 1n,
     toBlock: balanceBlock,
     chunk: logChunkFor(endpoint)
   });
   state.ranges.push(...scan.ranges);
-  if (scan.logs.length === 0) throw new PayoutScanMiss(`found 0 AttestationUsed logs up to block ${balanceBlock}`);
+  if (scan.logs.length === 0) {
+    throw new PayoutScanMiss(`found 0 AttestationUsed logs after block ${args.fromBlock} up to block ${balanceBlock}`);
+  }
   const where = {
     ...base,
     endpoint,
@@ -460,10 +517,17 @@ async function payoutCycle(
     ranges: describeRanges(scan.ranges)
   };
   const uncorrelated = (reason: string) =>
-    new PayoutGateError('uncorrelated', `payout received but not correlated: ${reason}`, where);
+    new PayoutGateError(
+      'uncorrelated',
+      `payout received but not correlated: ${correlationReason(reason, before)}`,
+      where
+    );
   const decoded = parseEventLogs({ abi: GATEWAY_MINTER_ABI, logs: scan.logs });
   if (scan.logs.length > 1 || decoded.length !== 1) {
-    throw uncorrelated(`found ${scan.logs.length} AttestationUsed logs, ${decoded.length} decodable`);
+    throw uncorrelated(
+      `found ${scan.logs.length} AttestationUsed logs after block ${args.fromBlock} up to block ${balanceBlock}, ` +
+        `${decoded.length} decodable`
+    );
   }
   const [log] = decoded;
   if (!log || log.transactionHash === null || log.blockNumber === null)
@@ -474,8 +538,11 @@ async function payoutCycle(
   if (sourceDepositor.toLowerCase() !== args.depositor.toLowerCase()) {
     throw uncorrelated(`sourceDepositor ${sourceDepositor}, expected ${args.depositor}`);
   }
-  if (value !== balance)
-    throw uncorrelated(`log value ${value} differs from the balance ${balance} at ${balanceBlock}`);
+  if (value !== balance - before) {
+    throw uncorrelated(
+      `log value ${value} differs from the balance ${balance} at ${balanceBlock} less ${before} at ${args.fromBlock}`
+    );
+  }
   const transaction = await client.getTransaction({ hash: log.transactionHash });
   if (!transaction.input.toLowerCase().includes(args.burnNoteId.slice(2).toLowerCase())) {
     throw uncorrelated(`gatewayMint ${log.transactionHash} calldata lacks the burn note id ${args.burnNoteId}`);
@@ -486,6 +553,7 @@ async function payoutCycle(
   return {
     endpoint,
     value,
+    balance,
     balanceBlock,
     logBlock: log.blockNumber,
     transactionHash: log.transactionHash,
@@ -498,18 +566,21 @@ async function payoutCycle(
 }
 
 /**
- * Spec 5 step 8 (D3), the hard payout gate. Every 5 s reads the key's USDC balance at an explicit head B; once it is
- * nonzero, scans GatewayMinter's AttestationUsed logs for the key up to B on the same endpoint and requires exactly one,
- * from Arc's xReserve depositor, of exactly that balance, whose gatewayMint calldata carries the burn note id. An
- * endpoint error moves to the next endpoint with a fresh B. Throws a PayoutGateError at `deadlineMs`.
+ * Spec 5 step 8 (D3), the hard payout gate. Every 5 s reads the key's USDC balance at an explicit head B; once it rises
+ * above `balanceBefore` (R20(d); 0n, an empty key, by default), scans GatewayMinter's AttestationUsed logs for the key
+ * after `fromBlock` up to B on the same endpoint and requires exactly one, from Arc's xReserve depositor, of exactly
+ * that rise, whose gatewayMint calldata carries the burn note id. A balance below `balanceBefore` fails key-moved at
+ * once. An endpoint error moves to the next endpoint with a fresh B. Throws a PayoutGateError at `deadlineMs`.
  */
 export async function waitForGatewayPayout(args: GatewayPayoutArgs, deps: ArcReadDeps): Promise<GatewayPayout> {
   if (deps.endpoints.length === 0) throw new Error('waitForGatewayPayout: no Arc endpoints');
   const clock = deps.clock ?? realArcClock;
+  const before = args.balanceBefore ?? 0n;
   const base = {
     recipient: args.recipient,
     burnNoteId: args.burnNoteId,
     fromBlock: String(args.fromBlock),
+    balanceBefore: String(before),
     deadline: new Date(args.deadlineMs).toISOString()
   };
   const state: PayoutState = { readOk: false, ranges: [], errors: [] };
@@ -543,7 +614,8 @@ export async function waitForGatewayPayout(args: GatewayPayoutArgs, deps: ArcRea
     endpointErrors: state.errors.join(' || ') || 'none'
   };
   if (state.firstPaidMs !== undefined && state.lastMiss !== undefined) {
-    throw new PayoutGateError('uncorrelated', `payout received but not correlated: ${state.lastMiss}`, details);
+    const reason = correlationReason(state.lastMiss, before);
+    throw new PayoutGateError('uncorrelated', `payout received but not correlated: ${reason}`, details);
   }
   if (state.firstPaidMs !== undefined || !state.readOk) {
     throw new PayoutGateError('scan-gaps', `unknown: scan gaps ${describeRanges(state.ranges)}`, details);

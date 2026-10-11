@@ -29,10 +29,13 @@ import {
   assertDepositIntent,
   confirmDepositToMiden,
   decodeDepositIntent,
+  KEY_MOVED_NOTE,
   LATE_PAYOUT_NOTE,
   newArcKey,
   PayoutGateError,
+  PREFUNDED_KEY_NOTE,
   readArcUsdc,
+  readArcUsdcSnapshot,
   readXReserveDomainState,
   recordArcKey,
   scanArcLogs,
@@ -280,6 +283,26 @@ describe('readArcUsdc', () => {
       readArcUsdc(ARC_USDC, { endpoints: ['https://a', 'https://b'], publicClient: () => failing })
     ).rejects.toThrow(/no Arc endpoint answered\n {2}https:\/\/a: .*rate limit exceeded\n {2}https:\/\/b: /);
   });
+
+  it('snapshots the head and the balance at that head on one endpoint, moving on when one fails', async () => {
+    const blocks: unknown[] = [];
+    const clients: Record<string, PublicClient> = {
+      'https://a': stubClient(() => {
+        throw rpcError(-32005, 'rate limit exceeded');
+      }),
+      'https://b': stubClient((method, params) => {
+        if (method === 'eth_blockNumber') return '0x3f67664';
+        blocks.push(callOf(params).block);
+        return encodeUint(968_903n);
+      })
+    };
+    const snapshot = await readArcUsdcSnapshot(addressOf(SPIKE.recipient), {
+      endpoints: ['https://a', 'https://b'],
+      publicClient: endpoint => clients[endpoint] ?? stubClient(() => null)
+    });
+    expect(snapshot).toEqual({ endpoint: 'https://b', blockNumber: 66483812n, balance: 968_903n });
+    expect(blocks).toEqual(['0x3f67664']);
+  });
 });
 
 describe('readXReserveDomainState', () => {
@@ -391,8 +414,13 @@ describe('scanArcLogs', () => {
 type CapturedLog = (typeof arcVectors.payouts)[number]['log'];
 
 /** The payout gate's Arc: a head that moves, a scripted balance, and the captured logs and gatewayMint transactions. */
-function payoutChain(world: { balances: readonly bigint[]; logs: readonly CapturedLog[]; failLogs?: boolean }): Rpc {
-  let head = 66483820n;
+function payoutChain(world: {
+  balances: readonly bigint[];
+  logs: readonly CapturedLog[];
+  failLogs?: boolean;
+  head?: bigint;
+}): Rpc {
+  let head = world.head ?? 66483820n;
   let balanceReads = 0;
   const transactions = new Map<string, unknown>(
     arcVectors.payouts.map(payout => [payout.transaction.hash, payout.transaction])
@@ -460,6 +488,7 @@ describe('waitForGatewayPayout', () => {
     expect(payout).toMatchObject({
       endpoint: ARC_DRPC_URL,
       value: 9_983_600n,
+      balance: 9_983_600n,
       logBlock: 66483812n,
       transactionHash: SPIKE.transaction.hash,
       sourceDomain: 26,
@@ -469,8 +498,8 @@ describe('waitForGatewayPayout', () => {
     });
     expect(payout.balanceBlock >= 66483812n).toBe(true);
     expect(clock.slept).toEqual([5_000]);
-    // drpc: 100-block windows from the snapshot block to B.
-    expect(payout.ranges[0]).toEqual({ endpoint: ARC_DRPC_URL, fromBlock: 66483700n, toBlock: 66483799n });
+    // drpc: 100-block windows from the block after the snapshot to B.
+    expect(payout.ranges[0]).toEqual({ endpoint: ARC_DRPC_URL, fromBlock: 66483701n, toBlock: 66483800n });
   });
 
   it.each(arcVectors.payouts.map(payout => [payout.burnUnits, payout]))(
@@ -577,6 +606,105 @@ describe('waitForGatewayPayout', () => {
     });
     await expect(failure).rejects.toMatchObject({ failure: 'uncorrelated' });
     await expect(failure).rejects.toThrow('found 0 AttestationUsed logs');
+  });
+});
+
+describe('waitForGatewayPayout delta mode', () => {
+  const CONSUME_MS = 1_791_638_693_000;
+  // Payouts 1, 2 and 4 all paid 0xe88f...ff99: a real key that held USDC before a 1 USDCx burn (payout 4).
+  const [EARLIER, OTHER, ONE_USDCX] = [payoutAt(1), payoutAt(2), payoutAt(4)];
+  const HELD = BigInt(EARLIER.value) + BigInt(OTHER.value);
+  const args = {
+    recipient: addressOf(ONE_USDCX.recipient),
+    burnNoteId: hexOf(ONE_USDCX.burnNoteId),
+    burnUnits: BigInt(ONE_USDCX.burnUnits),
+    fromBlock: 66483700n,
+    balanceBefore: HELD,
+    consumeTsMs: CONSUME_MS,
+    deadlineMs: CONSUME_MS + PAYOUT_TIMEOUT_MS,
+    depositor: hexOf(arcVectors.remoteDomainDepositor),
+    minimumValue: minimumUsdcxPayout(ARC_CHAIN_ID, BigInt(ONE_USDCX.burnUnits))
+  };
+  // The key's earlier payouts, the second in the snapshot block itself: both are already inside balanceBefore.
+  const history = [movedTo(EARLIER.log, 66483650n), movedTo(OTHER.log, 66483700n)];
+  const paid = movedTo(ONE_USDCX.log, 66483812n);
+
+  it('proves a 1 USDCx payout to a key that already held USDC, its earlier payouts outside the window', async () => {
+    const clock = fakeClock(CONSUME_MS + 12_000);
+    // One chain for every cycle, so the scripted balances advance read by read.
+    const chain = payoutChain({ balances: [HELD, HELD, HELD + 983_600n], logs: [...history, paid] });
+    const payout = await waitForGatewayPayout(args, {
+      endpoints: [ARC_DRPC_URL],
+      publicClient: () => stubClient(chain),
+      clock
+    });
+    expect(payout).toMatchObject({
+      value: 983_600n,
+      balance: HELD + 983_600n,
+      logBlock: 66483812n,
+      transactionHash: ONE_USDCX.transaction.hash,
+      fee: 16_400n,
+      latencyMs: 22_000
+    });
+    expect(clock.slept).toEqual([5_000, 5_000]);
+    expect(payout.ranges[0]).toEqual({ endpoint: ARC_DRPC_URL, fromBlock: 66483701n, toBlock: 66483800n });
+  });
+
+  it('fails uncorrelated on a rise that is not the log value, saying the key held USDC before', async () => {
+    const failure = waitForGatewayPayout(args, {
+      endpoints: [ARC_DRPC_URL],
+      publicClient: () => stubClient(payoutChain({ balances: [HELD + 983_601n], logs: [...history, paid] })),
+      clock: fakeClock(CONSUME_MS)
+    });
+    await expect(failure).rejects.toMatchObject({ failure: 'uncorrelated' });
+    await expect(failure).rejects.toThrow(
+      `log value 983600 differs from the balance ${HELD + 983_601n} at 66483822 less ${HELD} at 66483700; ` +
+        PREFUNDED_KEY_NOTE
+    );
+    await expect(failure).rejects.toThrow(`balanceBefore: ${HELD}`);
+  });
+
+  it('waits while the balance stays at balanceBefore, and fails no-mint at the deadline', async () => {
+    const clock = fakeClock(CONSUME_MS);
+    const failure = waitForGatewayPayout(args, {
+      endpoints: [ARC_DRPC_URL],
+      publicClient: () => stubClient(payoutChain({ balances: [HELD], logs: history })),
+      clock
+    });
+    await expect(failure).rejects.toMatchObject({ failure: 'no-mint' });
+    expect(clock.slept).toEqual(Array(PAYOUT_TIMEOUT_MS / 5_000).fill(5_000));
+  });
+
+  it('fails key-moved at once when the key falls below balanceBefore, without the late-payout note', async () => {
+    const clock = fakeClock(CONSUME_MS);
+    const failure = waitForGatewayPayout(args, {
+      endpoints: [ARC_DRPC_URL],
+      publicClient: () => stubClient(payoutChain({ balances: [HELD - 14_697n], logs: history })),
+      clock
+    });
+    await expect(failure).rejects.toMatchObject({ failure: 'key-moved' });
+    await expect(failure).rejects.toThrow(
+      `the payout key moved during the payout window: balance ${HELD - 14_697n} at block 66483822 is below ` +
+        `${HELD} at block 66483700`
+    );
+    await expect(failure).rejects.toThrow(KEY_MOVED_NOTE);
+    await expect(failure).rejects.not.toThrow(LATE_PAYOUT_NOTE);
+    expect(clock.slept).toEqual([]);
+  });
+
+  it('reads nothing into a head at or below the snapshot block, then proves the payout once past it', async () => {
+    const clock = fakeClock(CONSUME_MS);
+    // A lagging endpoint reads the key as it was before the snapshot, here 5 below it.
+    const chain = payoutChain({
+      balances: [HELD - 5n, HELD - 5n, HELD - 5n, HELD + 983_600n],
+      logs: [...history, movedTo(ONE_USDCX.log, 66483827n)]
+    });
+    const payout = await waitForGatewayPayout(
+      { ...args, fromBlock: 66483826n },
+      { endpoints: [ARC_DRPC_URL], publicClient: () => stubClient(chain), clock }
+    );
+    expect(payout.value).toBe(983_600n);
+    expect(clock.slept).toEqual([5_000, 5_000, 5_000]);
   });
 });
 
