@@ -328,13 +328,14 @@ describe('TabLayout — tabs list composition', () => {
     expect(screen.getByTestId('nav-settings')).toBeInTheDocument();
   });
 
-  it('drops the Explore tab on the extension (3 tabs)', () => {
+  // Explore opens its dApps in new browser tabs there (BrowserScreen).
+  it('includes the Explore tab on the extension too', () => {
     mockPlatform.isExtension = true;
     renderLayout();
-    expect(screen.getByTestId('nav-home')).toBeInTheDocument();
-    expect(screen.queryByTestId('nav-explore')).toBeNull();
-    expect(screen.getByTestId('nav-activity')).toBeInTheDocument();
-    expect(screen.getByTestId('nav-settings')).toBeInTheDocument();
+    const ids = Array.from(screen.getByTestId('bottom-nav').querySelectorAll('[data-testid^="nav-"]')).map(el =>
+      el.getAttribute('data-testid')
+    );
+    expect(ids).toEqual(['nav-home', 'nav-explore', 'nav-activity', 'nav-settings', 'nav-unknown']);
   });
 
   it('orders Settings last, after Activity', () => {
