@@ -1,6 +1,10 @@
 import { expect, type Page } from '@playwright/test';
+import fs from 'fs';
+import path from 'path';
+import type { Hash } from 'viem';
 
 import { captureEpochTraffic, fastFeeExpectation, waitForFastQuote } from './epoch-quote';
+import { readTransactionRowsWithBytes, type JsonValue, type TransactionRowSnapshot } from './history';
 import type { MidenCli } from './miden-cli';
 import { swOf } from './swap';
 import type { ChromeWalletPageApi } from './wallet-page';
@@ -278,9 +282,51 @@ export async function bridgeOutSlow(wallet: Wallet, opts: BridgeOutSlowOptions):
   await selectSlowAndSubmit(wallet, opts.stepTimeoutMs);
 }
 
+/** A destination USDC balance a USDCx burn row saved, six-decimal base units and the block it was read at. */
+export interface UsdcxBalanceSnapshotRow {
+  balance: string;
+  blockNumber: string;
+}
+
+export interface UsdcxBurnRow {
+  noteId: string;
+  destinationDomain: number;
+  /** 'pending' | 'consuming' | 'confirmed' | 'discarded'. */
+  phase: string;
+  lastError?: string;
+  /** Read before the burn was queued (usdcx/burn.ts). */
+  destinationBalanceBefore?: UsdcxBalanceSnapshotRow;
+  /** The balance that met the expected payout: the wallet's own destination confirmation. */
+  destinationBalanceConfirmed?: UsdcxBalanceSnapshotRow;
+  attemptCount?: number;
+  lastAttemptBlockNum?: number;
+}
+
+export interface BridgedSendExtraInputsRow {
+  usdcxBurn?: UsdcxBurnRow;
+  /** The 0x recipient. */
+  destinationAddress?: string;
+  /** The destination's EVM chain id (or the L1 bridge's network id for agglayer). */
+  destinationNetwork?: number;
+  intentNonce?: string;
+  outputAmount?: string;
+  evmTxHash?: string;
+  /** 'agglayer' (Slow) | 'epoch' (Fast) | 'usdcx'. */
+  provider?: string;
+  /** AggLayer L1 claim lifecycle: 'pending' | 'ready' | 'claimed'. */
+  claimStatus?: string;
+  /** AggLayer: the indexer tx_hash of the row's exit, stored when the B2AGG note is built. */
+  agglayerExitTxHash?: string;
+}
+
 export interface BridgedSendRow {
-  /** ITransactionStatus: Queued=0, GeneratingTransaction=1, Completed=2, Failed=3. */
+  /** The Dexie row id, the `:txId` of the generating and history-details routes. */
+  id: string;
+  /** ITransactionStatus: Queued=0, GeneratingTransaction=1, Completed=2, Failed=3, Unconfirmed=4. */
   status: number;
+  stage?: string;
+  /** Wall-clock ms of each stage's first entry in the current attempt. */
+  stageTimestamps?: Record<string, number>;
   /** User-facing failure reason on a Failed row. */
   error?: string;
   /** The underlying failure, before any friendly rewrite -- the one worth reading. */
@@ -290,18 +336,15 @@ export interface BridgedSendRow {
   outputNoteIds?: string[];
   /** The request the row was queued with, as plain numbers: `page.evaluate` hands back JSON-safe values only. */
   requestBytes?: number[];
-  extraInputs?: {
-    usdcxBurn?: { noteId: string; destinationDomain: number; phase: string; lastError?: string };
-    intentNonce?: string;
-    outputAmount?: string;
-    evmTxHash?: string;
-    /** 'agglayer' (Slow) | 'epoch' (Fast). */
-    provider?: string;
-    /** AggLayer L1 claim lifecycle: 'pending' | 'ready' | 'claimed'. */
-    claimStatus?: string;
-    /** AggLayer: the indexer tx_hash of the row's exit, stored when the B2AGG note is built. */
-    agglayerExitTxHash?: string;
-  };
+  /** Fee paid, base units as a decimal string; absent on a landed path, which records no fee. */
+  feeAmount?: string;
+  feeFaucetId?: string;
+  completedAt?: number;
+  /** The serialized `TransactionResult`, base64. The reaper releases it 10 min after `completedAt`. */
+  resultBytes?: string;
+  resultReleasedAt?: number;
+  submitEvidence?: JsonValue[];
+  extraInputs?: BridgedSendExtraInputsRow;
 }
 
 export interface SentNoteShape {
@@ -370,58 +413,221 @@ export async function inspectSentNote(
 /**
  * All `bridged-send` rows in the wallet's Dexie `transactions` store, syncing
  * nothing (a pure read of already-persisted rows). A fresh wallet that has done
- * one bridge has exactly one. Mirrors the swap suite's direct IndexedDB read.
+ * one bridge has exactly one. The read is history.ts's projection, so the
+ * row's bigints and bytes arrive JSON-safe.
  */
 export async function readBridgedSendRows(page: Page): Promise<BridgedSendRow[]> {
-  return page.evaluate(async () => {
-    const idb = (window as unknown as { indexedDB: IDBFactory }).indexedDB;
-    const db: IDBDatabase = await new Promise((res, rej) => {
-      const r = idb.open('TridentMain');
-      r.onsuccess = () => res(r.result);
-      r.onerror = () => rej(r.error);
-    });
-    try {
-      if (!db.objectStoreNames.contains('transactions')) return [];
-      const all: Array<{
-        type?: string;
-        status?: number;
-        displayMessage?: string;
-        transactionId?: string;
-        // Carried so a Failed row can say WHY. Without these a bridge failure reads as a bare
-        // `Expected: 2 / Received: 3` -- a status code with no cause attached, which is what made
-        // the non-guardian fee-auth gap take a code read rather than a log read to find.
-        error?: string;
-        rawError?: string;
-        outputNoteIds?: string[];
-        requestBytes?: Uint8Array;
-        extraInputs?: {
-          usdcxBurn?: { noteId: string; destinationDomain: number; phase: string; lastError?: string };
-          intentNonce?: string;
-          outputAmount?: string;
-          evmTxHash?: string;
-          provider?: string;
-          claimStatus?: string;
-          agglayerExitTxHash?: string;
-        };
-      }> = await new Promise((res, rej) => {
-        const r = db.transaction('transactions', 'readonly').objectStore('transactions').getAll();
-        r.onsuccess = () => res(r.result);
-        r.onerror = () => rej(r.error);
-      });
-      return all
-        .filter(t => t.type === 'bridged-send')
-        .map(t => ({
-          status: t.status ?? -1,
-          displayMessage: t.displayMessage,
-          transactionId: t.transactionId,
-          error: t.error,
-          rawError: t.rawError,
-          outputNoteIds: t.outputNoteIds,
-          requestBytes: t.requestBytes instanceof Uint8Array ? Array.from(t.requestBytes) : undefined,
-          extraInputs: t.extraInputs
-        }));
-    } finally {
-      db.close();
+  return (await readTransactionRowsWithBytes(page, 'bridged-send')).map(bridgedSendRowOf);
+}
+
+type JsonObject = { [key: string]: JsonValue };
+
+function objectField(source: JsonObject | undefined, key: string): JsonObject | undefined {
+  const value = source?.[key];
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
+}
+
+function stringField(source: JsonObject | undefined, key: string): string | undefined {
+  const value = source?.[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function numberField(source: JsonObject | undefined, key: string): number | undefined {
+  const value = source?.[key];
+  return typeof value === 'number' ? value : undefined;
+}
+
+function balanceSnapshotOf(source: JsonObject | undefined): UsdcxBalanceSnapshotRow | undefined {
+  const balance = stringField(source, 'balance');
+  const blockNumber = stringField(source, 'blockNumber');
+  return balance !== undefined && blockNumber !== undefined ? { balance, blockNumber } : undefined;
+}
+
+function usdcxBurnOf(source: JsonObject | undefined): UsdcxBurnRow | undefined {
+  const noteId = stringField(source, 'noteId');
+  const destinationDomain = numberField(source, 'destinationDomain');
+  const phase = stringField(source, 'phase');
+  if (noteId === undefined || destinationDomain === undefined || phase === undefined) return undefined;
+  return {
+    noteId,
+    destinationDomain,
+    phase,
+    lastError: stringField(source, 'lastError'),
+    destinationBalanceBefore: balanceSnapshotOf(objectField(source, 'destinationBalanceBefore')),
+    destinationBalanceConfirmed: balanceSnapshotOf(objectField(source, 'destinationBalanceConfirmed')),
+    attemptCount: numberField(source, 'attemptCount'),
+    lastAttemptBlockNum: numberField(source, 'lastAttemptBlockNum')
+  };
+}
+
+/** One projected transaction row as a `BridgedSendRow`, keeping only the `extraInputs` fields the type names. */
+export function bridgedSendRowOf(row: TransactionRowSnapshot): BridgedSendRow {
+  const extra = row.extraInputs;
+  return {
+    id: row.id,
+    status: row.status ?? -1,
+    stage: row.stage,
+    stageTimestamps: row.stageTimestamps,
+    error: row.error,
+    rawError: row.rawError,
+    displayMessage: row.displayMessage,
+    transactionId: row.transactionId,
+    outputNoteIds: row.outputNoteIds,
+    requestBytes: row.requestBytes,
+    feeAmount: row.feeAmount,
+    feeFaucetId: row.feeFaucetId,
+    completedAt: row.completedAt,
+    resultBytes: row.resultBytes,
+    resultReleasedAt: row.resultReleasedAt,
+    submitEvidence: row.submitEvidence,
+    extraInputs:
+      extra === undefined
+        ? undefined
+        : {
+            usdcxBurn: usdcxBurnOf(objectField(extra, 'usdcxBurn')),
+            destinationAddress: stringField(extra, 'destinationAddress'),
+            destinationNetwork: numberField(extra, 'destinationNetwork'),
+            intentNonce: stringField(extra, 'intentNonce'),
+            outputAmount: stringField(extra, 'outputAmount'),
+            evmTxHash: stringField(extra, 'evmTxHash'),
+            provider: stringField(extra, 'provider'),
+            claimStatus: stringField(extra, 'claimStatus'),
+            agglayerExitTxHash: stringField(extra, 'agglayerExitTxHash')
+          }
+  };
+}
+
+const EN_LOCALE_PATH = path.resolve(__dirname, '../../../public/_locales/en/en.json');
+let enMessages: Record<string, unknown> | undefined;
+
+function readEnMessages(): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(fs.readFileSync(EN_LOCALE_PATH, 'utf8'));
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`enText: ${EN_LOCALE_PATH} is not a flat JSON object`);
+  }
+  return Object.fromEntries(Object.entries(parsed));
+}
+
+/**
+ * The English copy of `key` (public/_locales/en/en.json) with each `$name$` replaced by `values[name]`. Throws on a
+ * missing key, on a value whose placeholder the copy does not have (an assertion built on it would pass against
+ * stale copy), and on a placeholder left unreplaced.
+ */
+export function enText(key: string, values: Record<string, string> = {}): string {
+  enMessages ??= readEnMessages();
+  const template = enMessages[key];
+  if (typeof template !== 'string') throw new Error(`enText: public/_locales/en/en.json has no "${key}"`);
+  let text = template;
+  for (const [name, value] of Object.entries(values)) {
+    const placeholder = `$${name}$`;
+    if (!template.includes(placeholder)) {
+      throw new Error(`enText: "${key}" has no ${placeholder}; its English copy is ${JSON.stringify(template)}`);
     }
-  });
+    text = text.split(placeholder).join(value);
+  }
+  const unreplaced = /\$[A-Za-z0-9_.]+\$/.exec(text);
+  if (unreplaced) throw new Error(`enText: "${key}" still holds ${unreplaced[0]}; pass a value for it`);
+  return text;
+}
+
+export interface CreateUsdcxBridgeReceiveArgs {
+  accountId: string;
+  /** Base units, as a decimal string. */
+  amount: string;
+  faucetId: string;
+  sourceChainId: number;
+  sourceAddress: string;
+  sourceAmount: string;
+  sourceSymbol: string;
+  evmTxHash: Hash;
+}
+
+/**
+ * A `usdcx` bridged-receive tracking row through the service worker's `__TEST_CREATE_BRIDGE_RECEIVE__`, which moves it
+ * to `delivering` with `evmTxHash` as the deposit screen does. Returns the row id.
+ */
+export async function createUsdcxBridgeReceive(wallet: Wallet, args: CreateUsdcxBridgeReceiveArgs): Promise<string> {
+  const id: unknown = await swOf(wallet).evaluate(async hookArgs => {
+    const hook: unknown = Reflect.get(globalThis, '__TEST_CREATE_BRIDGE_RECEIVE__');
+    if (typeof hook !== 'function') {
+      throw new Error('__TEST_CREATE_BRIDGE_RECEIVE__ is missing: the wallet was not built with MIDEN_E2E_TEST=true');
+    }
+    return hook({ ...hookArgs, provider: 'usdcx' });
+  }, args);
+  if (typeof id !== 'string' || id === '') {
+    throw new Error(`__TEST_CREATE_BRIDGE_RECEIVE__ returned ${JSON.stringify(id)}, not a row id`);
+  }
+  return id;
+}
+
+export type BridgeReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
+
+export type BridgeReceiveStateSnapshot = {
+  found: boolean;
+  phase?: BridgeReceivePhase;
+  displayMessage?: string;
+  status?: number;
+  amount?: string;
+  faucetId?: string;
+  evmTxHash?: string;
+  error?: string;
+  midenNoteId?: string;
+  sourceChainId?: number;
+  usdcxRemoteRecipient?: string;
+  /** Unix seconds the row first reached `ready`. */
+  readyAt?: number;
+};
+
+function isBridgeReceivePhase(value: unknown): value is BridgeReceivePhase {
+  return (
+    value === 'submitting' || value === 'delivering' || value === 'ready' || value === 'received' || value === 'failed'
+  );
+}
+
+/** `__TEST_BRIDGE_RECEIVE_STATE__`'s answer, checked field by field, so a renamed hook field fails here by name. */
+export function parseBridgeReceiveState(value: unknown): BridgeReceiveStateSnapshot {
+  if (value === null || typeof value !== 'object') {
+    throw new Error(`__TEST_BRIDGE_RECEIVE_STATE__ returned ${JSON.stringify(value)}, not a state object`);
+  }
+  const field = (key: string): unknown => Reflect.get(value, key);
+  const text = (key: string): string | undefined => {
+    const item = field(key);
+    return typeof item === 'string' ? item : undefined;
+  };
+  const count = (key: string): number | undefined => {
+    const item = field(key);
+    return typeof item === 'number' ? item : undefined;
+  };
+  const found = field('found');
+  if (typeof found !== 'boolean') throw new Error('__TEST_BRIDGE_RECEIVE_STATE__ has no boolean found');
+  const phase = field('phase');
+  if (phase !== undefined && !isBridgeReceivePhase(phase)) {
+    throw new Error(`__TEST_BRIDGE_RECEIVE_STATE__ returned an unknown phase ${JSON.stringify(phase)}`);
+  }
+  return {
+    found,
+    phase,
+    displayMessage: text('displayMessage'),
+    status: count('status'),
+    amount: text('amount'),
+    faucetId: text('faucetId'),
+    evmTxHash: text('evmTxHash'),
+    error: text('error'),
+    midenNoteId: text('midenNoteId'),
+    sourceChainId: count('sourceChainId'),
+    usdcxRemoteRecipient: text('usdcxRemoteRecipient'),
+    readyAt: count('readyAt')
+  };
+}
+
+/** One bridged-receive row through the service worker's `__TEST_BRIDGE_RECEIVE_STATE__`. */
+export async function bridgeReceiveState(wallet: Wallet, txId: string): Promise<BridgeReceiveStateSnapshot> {
+  const state: unknown = await swOf(wallet).evaluate(async id => {
+    const hook: unknown = Reflect.get(globalThis, '__TEST_BRIDGE_RECEIVE_STATE__');
+    if (typeof hook !== 'function') {
+      throw new Error('__TEST_BRIDGE_RECEIVE_STATE__ is missing: the wallet was not built with MIDEN_E2E_TEST=true');
+    }
+    return hook(id);
+  }, txId);
+  return parseBridgeReceiveState(state);
 }

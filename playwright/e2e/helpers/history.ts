@@ -75,6 +75,9 @@ export const TRANSACTION_STUCK_REASON = 'Transaction took too long to process an
 const TX_DB = 'TridentMain';
 const TX_STORE = 'transactions';
 
+/** What a row's free-form fields become once they cross the evaluate boundary. */
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
 /**
  * The fields of an `ITransaction` row this suite asserts on, with `amount`
  * stringified (base units) so a bigint never has to cross the evaluate boundary.
@@ -125,6 +128,28 @@ export interface TransactionRowSnapshot {
   rotationFunding?: boolean;
   /** Whether the row was queued for a delegated prove; a dApp write carries the popup's setting (`confirmReq.delegate`). */
   delegateTransaction?: boolean;
+  /** bigints as decimal strings, Uint8Array as base64, recursively. */
+  extraInputs?: { [key: string]: JsonValue };
+  /** Wall-clock ms of each stage's first entry in the current attempt; a requeue clears it. */
+  stageTimestamps?: Record<string, number>;
+  /** One entry per attempt that may have crossed its submit (#1081), JSON-safe like `extraInputs`. */
+  submitEvidence?: JsonValue[];
+  /** Unix seconds at which the reaper released `resultBytes`; a Completed row without either took a landed path. */
+  resultReleasedAt?: number;
+  /** Only from {@link readTransactionRowsWithBytes}: the row's output note ids. */
+  outputNoteIds?: string[];
+  /** Only from {@link readTransactionRowsWithBytes}: the queued request, as plain numbers. */
+  requestBytes?: number[];
+  /** Only from {@link readTransactionRowsWithBytes}: the serialized `TransactionResult`, base64. */
+  resultBytes?: string;
+}
+
+/** Which rows {@link readTransactionRowsInPage} reads, and whether it carries their byte fields. */
+export interface TransactionRowsQuery {
+  dbName: string;
+  storeName: string;
+  type?: string;
+  withBytes?: boolean;
 }
 
 /** Anything with a Playwright page and hash navigation — both wallet page objects qualify. */
@@ -167,78 +192,154 @@ export async function readTransactionRowsOrNull(page: Page): Promise<Transaction
  * wallets at once in the stress drain. Rejects on a failed read.
  */
 function streamTransactionRows(page: Page): Promise<TransactionRowSnapshot[] | null> {
-  return page.evaluate(
-    async ({ dbName, storeName }) => {
-      const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const request = indexedDB.open(dbName);
-        // A blocked open can still succeed later; close that late connection rather than leak it.
-        let settled = false;
-        request.onsuccess = () => {
-          if (settled) {
-            request.result.close();
-            return;
-          }
-          settled = true;
-          resolve(request.result);
-        };
-        request.onerror = () => {
-          settled = true;
-          reject(request.error ?? new Error('readTransactionRows: open failed'));
-        };
-        request.onblocked = () => {
-          settled = true;
-          reject(new Error('readTransactionRows: open blocked'));
-        };
-      });
-      try {
-        if (!db.objectStoreNames.contains(storeName)) return null;
-        return await new Promise<TransactionRowSnapshot[]>((resolve, reject) => {
-          const rows: TransactionRowSnapshot[] = [];
-          const tx = db.transaction(storeName, 'readonly');
-          tx.onabort = () => reject(tx.error ?? new Error('readTransactionRows: transaction aborted'));
-          tx.onerror = () => reject(tx.error ?? new Error('readTransactionRows: transaction failed'));
-          const cursorRequest = tx.objectStore(storeName).openCursor();
-          cursorRequest.onerror = () => reject(cursorRequest.error ?? new Error('readTransactionRows: cursor failed'));
-          cursorRequest.onsuccess = () => {
-            const cursor = cursorRequest.result;
-            if (!cursor) {
-              resolve(rows);
-              return;
-            }
-            const row: Record<string, unknown> = cursor.value;
-            rows.push({
-              id: String(row.id ?? ''),
-              type: row.type === undefined ? undefined : String(row.type),
-              accountId: row.accountId === undefined ? undefined : String(row.accountId),
-              noteId: row.noteId === undefined ? undefined : String(row.noteId),
-              noteIds: Array.isArray(row.noteIds) ? row.noteIds.map(String) : undefined,
-              status: row.status === undefined ? undefined : Number(row.status),
-              amount: row.amount === undefined || row.amount === null ? undefined : String(row.amount),
-              faucetId: row.faucetId === undefined ? undefined : String(row.faucetId),
-              secondaryAccountId: row.secondaryAccountId === undefined ? undefined : String(row.secondaryAccountId),
-              transactionId: row.transactionId === undefined ? undefined : String(row.transactionId),
-              processingStartedAt: row.processingStartedAt === undefined ? undefined : Number(row.processingStartedAt),
-              stage: row.stage === undefined ? undefined : String(row.stage),
-              nextEligibleAt: row.nextEligibleAt === undefined ? undefined : Number(row.nextEligibleAt),
-              error: row.error === undefined ? undefined : String(row.error),
-              rawError: row.rawError === undefined ? undefined : String(row.rawError),
-              // Stringified like `amount`: a bigint cannot cross the evaluate boundary.
-              feeAmount: row.feeAmount === undefined || row.feeAmount === null ? undefined : String(row.feeAmount),
-              feeFaucetId: row.feeFaucetId === undefined ? undefined : String(row.feeFaucetId),
-              displayMessage: row.displayMessage === undefined ? undefined : String(row.displayMessage),
-              completedAt: row.completedAt === undefined ? undefined : Number(row.completedAt),
-              rotationFunding: row.rotationFunding === true ? true : undefined,
-              delegateTransaction: typeof row.delegateTransaction === 'boolean' ? row.delegateTransaction : undefined
-            });
-            cursor.continue();
-          };
-        });
-      } finally {
-        db.close();
-      }
-    },
-    { dbName: TX_DB, storeName: TX_STORE }
+  return page.evaluate(readTransactionRowsInPage, { dbName: TX_DB, storeName: TX_STORE });
+}
+
+/**
+ * Rows of one `type` with their byte fields (`outputNoteIds`, `requestBytes`, `resultBytes`), for a reader that needs
+ * the queued request or the result, such as `readBridgedSendRows`. `[]` when there is no transactions store.
+ */
+export async function readTransactionRowsWithBytes(page: Page, type: string): Promise<TransactionRowSnapshot[]> {
+  return (
+    (await page.evaluate(readTransactionRowsInPage, { dbName: TX_DB, storeName: TX_STORE, type, withBytes: true })) ??
+    []
   );
+}
+
+/**
+ * The projection itself, run inside the page by `page.evaluate`, so it closes over nothing: every helper it needs is
+ * declared in its body. Exported for the unit test, which runs it against fake-indexeddb.
+ */
+export async function readTransactionRowsInPage(query: TransactionRowsQuery): Promise<TransactionRowSnapshot[] | null> {
+  // By tag, not instanceof: the unit test's IndexedDB clones through another realm's Uint8Array.
+  const isBytes = (value: unknown): value is Uint8Array =>
+    Object.prototype.toString.call(value) === '[object Uint8Array]';
+  const base64 = (bytes: Uint8Array): string => {
+    let binary = '';
+    // Chunked: one spread of a 300 KB result would overflow the argument limit.
+    for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+    }
+    return btoa(binary);
+  };
+  const toJson = (value: unknown): JsonValue | undefined => {
+    if (value === null) return null;
+    switch (typeof value) {
+      case 'string':
+      case 'boolean':
+        return value;
+      case 'number':
+        return Number.isFinite(value) ? value : String(value);
+      case 'bigint':
+        return value.toString();
+      case 'object':
+        break;
+      default:
+        return undefined;
+    }
+    if (isBytes(value)) return base64(value);
+    if (Array.isArray(value)) return value.map(item => toJson(item) ?? null);
+    const out: { [key: string]: JsonValue } = {};
+    for (const [key, item] of Object.entries(value)) {
+      const json = toJson(item);
+      if (json !== undefined) out[key] = json;
+    }
+    return out;
+  };
+  const jsonObject = (value: unknown): { [key: string]: JsonValue } | undefined => {
+    const json = toJson(value);
+    return json !== null && typeof json === 'object' && !Array.isArray(json) ? json : undefined;
+  };
+  const numbers = (value: unknown): Record<string, number> | undefined => {
+    if (value === null || typeof value !== 'object') return undefined;
+    const out: Record<string, number> = {};
+    for (const [key, item] of Object.entries(value)) if (typeof item === 'number') out[key] = item;
+    return out;
+  };
+
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(query.dbName);
+    // A blocked open can still succeed later; close that late connection rather than leak it.
+    let settled = false;
+    request.onsuccess = () => {
+      if (settled) {
+        request.result.close();
+        return;
+      }
+      settled = true;
+      resolve(request.result);
+    };
+    request.onerror = () => {
+      settled = true;
+      reject(request.error ?? new Error('readTransactionRows: open failed'));
+    };
+    request.onblocked = () => {
+      settled = true;
+      reject(new Error('readTransactionRows: open blocked'));
+    };
+  });
+  try {
+    if (!db.objectStoreNames.contains(query.storeName)) return null;
+    return await new Promise<TransactionRowSnapshot[]>((resolve, reject) => {
+      const rows: TransactionRowSnapshot[] = [];
+      const tx = db.transaction(query.storeName, 'readonly');
+      tx.onabort = () => reject(tx.error ?? new Error('readTransactionRows: transaction aborted'));
+      tx.onerror = () => reject(tx.error ?? new Error('readTransactionRows: transaction failed'));
+      const cursorRequest = tx.objectStore(query.storeName).openCursor();
+      cursorRequest.onerror = () => reject(cursorRequest.error ?? new Error('readTransactionRows: cursor failed'));
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (!cursor) {
+          resolve(rows);
+          return;
+        }
+        const row: Record<string, unknown> = cursor.value;
+        if (query.type !== undefined && row.type !== query.type) {
+          cursor.continue();
+          return;
+        }
+        const snapshot: TransactionRowSnapshot = {
+          id: String(row.id ?? ''),
+          type: row.type === undefined ? undefined : String(row.type),
+          accountId: row.accountId === undefined ? undefined : String(row.accountId),
+          noteId: row.noteId === undefined ? undefined : String(row.noteId),
+          noteIds: Array.isArray(row.noteIds) ? row.noteIds.map(String) : undefined,
+          status: row.status === undefined ? undefined : Number(row.status),
+          amount: row.amount === undefined || row.amount === null ? undefined : String(row.amount),
+          faucetId: row.faucetId === undefined ? undefined : String(row.faucetId),
+          secondaryAccountId: row.secondaryAccountId === undefined ? undefined : String(row.secondaryAccountId),
+          transactionId: row.transactionId === undefined ? undefined : String(row.transactionId),
+          processingStartedAt: row.processingStartedAt === undefined ? undefined : Number(row.processingStartedAt),
+          stage: row.stage === undefined ? undefined : String(row.stage),
+          nextEligibleAt: row.nextEligibleAt === undefined ? undefined : Number(row.nextEligibleAt),
+          error: row.error === undefined ? undefined : String(row.error),
+          rawError: row.rawError === undefined ? undefined : String(row.rawError),
+          // Stringified like `amount`: a bigint cannot cross the evaluate boundary.
+          feeAmount: row.feeAmount === undefined || row.feeAmount === null ? undefined : String(row.feeAmount),
+          feeFaucetId: row.feeFaucetId === undefined ? undefined : String(row.feeFaucetId),
+          displayMessage: row.displayMessage === undefined ? undefined : String(row.displayMessage),
+          completedAt: row.completedAt === undefined ? undefined : Number(row.completedAt),
+          rotationFunding: row.rotationFunding === true ? true : undefined,
+          delegateTransaction: typeof row.delegateTransaction === 'boolean' ? row.delegateTransaction : undefined,
+          extraInputs: jsonObject(row.extraInputs),
+          stageTimestamps: numbers(row.stageTimestamps),
+          submitEvidence: Array.isArray(row.submitEvidence)
+            ? row.submitEvidence.map(entry => toJson(entry) ?? null)
+            : undefined,
+          resultReleasedAt: typeof row.resultReleasedAt === 'number' ? row.resultReleasedAt : undefined
+        };
+        if (query.withBytes) {
+          snapshot.outputNoteIds = Array.isArray(row.outputNoteIds) ? row.outputNoteIds.map(String) : undefined;
+          snapshot.requestBytes = isBytes(row.requestBytes) ? Array.from(row.requestBytes) : undefined;
+          snapshot.resultBytes = isBytes(row.resultBytes) ? base64(row.resultBytes) : undefined;
+        }
+        rows.push(snapshot);
+        cursor.continue();
+      };
+    });
+  } finally {
+    db.close();
+  }
 }
 
 /** One row by its Dexie uuid, or `null` when no such row exists. */
