@@ -61,7 +61,8 @@ export const PasscodeScreen: React.FC<PasscodeScreenProps> = ({
   'data-testid': dataTestId
 }) => {
   const messageClass = cn(
-    'mt-2 min-h-6 text-base text-center wrap-break-word',
+    // Nunito semibold, like an onboarding step's explainer line.
+    'mt-2 min-h-6 text-base font-semibold text-center wrap-break-word face-heading',
     isError ? 'text-negative-ink' : 'text-muted'
   );
 

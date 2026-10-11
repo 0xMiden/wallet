@@ -438,7 +438,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
         tokenPrices={tokenPrices}
       />
 
-      <div className="flex items-center justify-between pt-2">
+      <div className="-mb-1.5 flex items-center justify-between pt-2">
         <span id={assetsHeadingId} className="font-heading text-2xl font-extrabold text-text-primary-token">
           {t('assets')}
         </span>

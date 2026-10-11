@@ -82,6 +82,7 @@ import { getDappDisplayName } from 'lib/dapp-browser/dapp-session';
 import { captureSnapshot, clearSnapshot, snapshotStoreInternals } from 'lib/dapp-browser/snapshot-store';
 import { type WebViewRect } from 'lib/dapp-browser/webview-rect';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
+import { FAUCET_NO_TOP_SAFE_AREA_SCRIPT, isFaucetOrigin } from 'lib/mobile/faucet-top-inset';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
@@ -452,6 +453,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           await state.instance.executeScript(INJECTION_SCRIPT);
         } catch (e) {
           console.error('[DappBrowserProvider] Error injecting bridge:', e);
+        }
+        if (isFaucetOrigin(state.origin)) {
+          await state.instance.executeScript(FAUCET_NO_TOP_SAFE_AREA_SCRIPT).catch(() => undefined);
         }
         try {
           // JSON.stringify the id so a non-alphanumeric session id
