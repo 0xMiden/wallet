@@ -110,12 +110,13 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
         self.initWebview(isInspectable: isInspectable)
     }
 
-    public init(url: URL, headers: [String: String], isInspectable: Bool, credentials: WKWebViewCredentials? = nil, preventDeeplink: Bool, blankNavigationTab: Bool, enabledSafeBottomMargin: Bool, blockedHosts: [String], authorizedAppLinks: [String], enabledSafeTopMargin: Bool = true) {
+    public init(url: URL, headers: [String: String], isInspectable: Bool, credentials: WKWebViewCredentials? = nil, preventDeeplink: Bool, blankNavigationTab: Bool, enabledSafeBottomMargin: Bool, blockedHosts: [String], authorizedAppLinks: [String], enabledSafeTopMargin: Bool = true, breadPresentation: [String: Any]? = nil) {
         super.init(nibName: nil, bundle: nil)
         self.blankNavigationTab = blankNavigationTab
         self.enabledSafeBottomMargin = enabledSafeBottomMargin
         // Miden patch: set BEFORE initWebview() runs because that
         // triggers viewDidLoad which builds the WKWebView constraints.
+        self.breadOptions = BreadPresentationOptions(breadPresentation)
         self.enabledSafeTopMargin = enabledSafeTopMargin
         self.source = .remote(url)
         self.credentials = credentials
@@ -125,6 +126,13 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
         self.setAuthorizedAppLinks(authorizedAppLinks: authorizedAppLinks)
         self.initWebview(isInspectable: isInspectable)
     }
+
+    private var breadOptions: BreadPresentationOptions?
+    var breadPresentation: BreadPresentationController?
+    private var breadNavigation: WKNavigation?
+
+    override open var prefersStatusBarHidden: Bool { breadPresentation?.immersive ?? super.prefersStatusBarHidden }
+    override open var prefersHomeIndicatorAutoHidden: Bool { breadPresentation?.immersive ?? super.prefersHomeIndicatorAutoHidden }
 
     open var hasDynamicTitle = false
     open var source: WKWebSource?
@@ -570,6 +578,10 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
 
     // Method to receive messages from JavaScript
     public func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == "breadPresentation" {
+            breadPresentation?.receive(message)
+            return
+        }
         if message.name == "messageHandler" {
             if let messageBody = message.body as? [String: Any] {
                 iabDebug("Received message from JavaScript:", messageBody)
@@ -598,7 +610,7 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
             iabDebug("[InAppBrowser - preShowScriptError]: Error!!!!")
             semaphore.signal()
         } else if message.name == "close" {
-            closeView()
+            if breadPresentation == nil { closeView() }
         } else if message.name == "magicPrint" {
             if let webView = self.webView {
                 let printController = UIPrintInteractionController.shared
@@ -625,6 +637,9 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
                                         }
                                 },
                                 close: function() {
+                                        if (window.bread && window.bread.version === 1) {
+                                            return window.bread.presentation.close();
+                                        }
                                         window.webkit.messageHandlers.close.postMessage(null);
                                 }
                         };
@@ -657,6 +672,10 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
         let userContentController = WKUserContentController()
 
         let weakHandler = WeakScriptMessageHandler(self)
+        if let options = breadOptions {
+            userContentController.add(weakHandler, name: "breadPresentation")
+            userContentController.addUserScript(WKUserScript(source: options.script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
         userContentController.add(weakHandler, name: "messageHandler")
         userContentController.add(weakHandler, name: "preShowScriptError")
         userContentController.add(weakHandler, name: "preShowScriptSuccess")
@@ -832,6 +851,9 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
             webView.translatesAutoresizingMaskIntoConstraints = false
         }
         self.webView = webView
+        if let options = breadOptions {
+            breadPresentation = BreadPresentationController(options: options, owner: self, webView: webView)
+        }
 
         self.webView?.customUserAgent = self.customUserAgent ?? self.userAgent ?? self.originalUserAgent
 
@@ -887,7 +909,13 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
     }
 
     override open func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
-        //        self.view.frame.size.height = self.currentViewHeight!
+        super.viewWillTransition(to: size, with: coordinator)
+        breadPresentation?.transition(with: coordinator)
+    }
+
+    override open func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        breadPresentation?.layoutChanged()
     }
 
     override open func viewWillLayoutSubviews() {
@@ -1105,6 +1133,7 @@ public extension WKWebViewController {
     }
 
     open func cleanupWebView() {
+        breadPresentation?.close()
         guard let webView = self.webView else { return }
         webView.stopLoading()
         // Break delegate callbacks early
@@ -1121,6 +1150,7 @@ public extension WKWebViewController {
             observersRegistered = false
         }
 
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "breadPresentation")
         webView.configuration.userContentController.removeAllUserScripts()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "messageHandler")
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "close")
@@ -1609,35 +1639,13 @@ fileprivate extension WKWebViewController {
         self.present(activityViewController, animated: true, completion: nil)
     }
 
-    func closeView() {
+    internal func closeView() {
         var canDismiss = true
         if let url = self.source?.url {
             canDismiss = delegate?.webViewController?(self, canDismiss: url) ?? true
         }
         if canDismiss {
-            let currentUrl = webView?.url?.absoluteString ?? ""
-            cleanupWebView()
-            self.capBrowserPlugin?.notifyListeners("closeEvent", data: ["id": self.instanceId, "url": currentUrl])
-
-            // Miden patch: Architecture A instances live in their own
-            // dedicated UIWindow at windowLevel > .normal, NOT in a
-            // modal presentation. For those, `dismiss(animated:)` is
-            // a no-op and the window + webView are leaked. Tear the
-            // window down via the shared InAppBrowserPlugin helper so
-            // the scene detach + resignKey happen — without those iOS
-            // 15-17 keeps the window alive through the scene's window
-            // list and leaks the full WKWebView.
-            let ownWindow = self.view.window
-            if let window = ownWindow, window.windowLevel > .normal {
-                InAppBrowserPlugin.releaseContainerWindow(window)
-                if let instance = WebViewRegistry.shared.get(id: self.instanceId) {
-                    instance.containerWindow = nil
-                }
-                WebViewRegistry.shared.remove(id: self.instanceId)
-                return
-            }
-
-            dismiss(animated: true, completion: nil)
+            capBrowserPlugin?.closeInstance(id: instanceId, animated: true)
         }
     }
 
@@ -1666,10 +1674,7 @@ fileprivate extension WKWebViewController {
     func canRotate() {}
 
     func close() {
-        let currentUrl = webView?.url?.absoluteString ?? ""
-        cleanupWebView()
-        capBrowserPlugin?.notifyListeners("closeEvent", data: ["id": self.instanceId, "url": currentUrl])
-        dismiss(animated: true, completion: nil)
+        capBrowserPlugin?.closeInstance(id: instanceId, animated: true)
     }
 
     open func setUpNavigationBarAppearance() {
@@ -1903,6 +1908,8 @@ extension WKWebViewController: WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        breadNavigation = navigation
+        breadPresentation?.beginNavigation()
         updateBarButtonItems()
         self.progressView?.progress = 0
         if let urlValue = webView.url {
@@ -1910,6 +1917,10 @@ extension WKWebViewController: WKNavigationDelegate {
             delegate?.webViewController?(self, didStart: urlValue)
         }
     }
+    public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        if breadNavigation === navigation { breadPresentation?.committed() }
+    }
+
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         if !didpageInit && self.capBrowserPlugin?.isPresentAfterPageLoad == true {
             // Only inject preShowScript if it wasn't already injected at document start
@@ -1961,6 +1972,10 @@ extension WKWebViewController: WKNavigationDelegate {
             delegate?.webViewController?(self, didFail: url, withError: error)
         }
         guard !isNavigationCancellation(error) else { return }
+        if let breadPresentation {
+            if breadNavigation === navigation { breadPresentation.failed() }
+            return
+        }
         self.capBrowserPlugin?.notifyListeners("pageLoadError", data: ["id": self.instanceId])
     }
 
@@ -1972,6 +1987,10 @@ extension WKWebViewController: WKNavigationDelegate {
             delegate?.webViewController?(self, didFail: url, withError: error)
         }
         guard !isNavigationCancellation(error) else { return }
+        if let breadPresentation {
+            if breadNavigation === navigation { breadPresentation.failed() }
+            return
+        }
         self.capBrowserPlugin?.notifyListeners("pageLoadError", data: ["id": self.instanceId])
     }
 
@@ -2174,6 +2193,10 @@ class BlockBarButtonItem: UIBarButtonItem {
 /// that colour, decides instead and the clock stays legible on it.
 class StatusBarForwardingNavigationController: UINavigationController {
     var forwardsStatusBarStyle = false
+
+    override var childForStatusBarHidden: UIViewController? { topViewController }
+    override var childForHomeIndicatorAutoHidden: UIViewController? { topViewController }
+
 
     override var childForStatusBarStyle: UIViewController? {
         return forwardsStatusBarStyle ? topViewController : super.childForStatusBarStyle

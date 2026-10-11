@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		BCAD00000000000000000001 /* BreadPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAD00000000000000000002 /* BreadPresentationTests.swift */; };
 		E82100000000000000000001 /* UpdateAvailabilityLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82100000000000000000002 /* UpdateAvailabilityLogic.swift */; };
 		E82100000000000000000003 /* UpdateAvailabilityLogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82100000000000000000004 /* UpdateAvailabilityLogicTests.swift */; };
 		E82100000000000000000010 /* UpdateAvailabilityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82100000000000000000011 /* UpdateAvailabilityPlugin.swift */; };
@@ -43,6 +44,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		BCAD00000000000000000002 /* BreadPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreadPresentationTests.swift; sourceTree = "<group>"; };
 		E82100000000000000000002 /* UpdateAvailabilityLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateAvailabilityLogic.swift; sourceTree = "<group>"; };
 		E82100000000000000000004 /* UpdateAvailabilityLogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateAvailabilityLogicTests.swift; sourceTree = "<group>"; };
 		E82100000000000000000006 /* AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -141,6 +143,7 @@
 			isa = PBXGroup;
 			children = (
 				E82100000000000000000004 /* UpdateAvailabilityLogicTests.swift */,
+				BCAD00000000000000000002 /* BreadPresentationTests.swift */,
 			);
 			path = AppTests;
 			sourceTree = "<group>";
@@ -272,6 +275,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				E82100000000000000000003 /* UpdateAvailabilityLogicTests.swift in Sources */,
+				BCAD00000000000000000001 /* BreadPresentationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

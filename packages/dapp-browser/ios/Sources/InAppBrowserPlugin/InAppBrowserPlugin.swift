@@ -451,7 +451,8 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 enabledSafeBottomMargin: enabledSafeBottomMargin,
                 blockedHosts: blockedHosts,
                 authorizedAppLinks: authorizedAppLinks,
-                enabledSafeTopMargin: !positioned
+                enabledSafeTopMargin: !positioned,
+                breadPresentation: positioned ? call.getObject("breadPresentation") : nil
                 )
 
             guard let webViewController = self.webViewController else {
@@ -850,6 +851,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 window.rootViewController = instance.navigationController
                 window.isHidden = false
                 instance.containerWindow = window
+                instance.controller.breadPresentation?.attach(instance, hostWindow: self.bridge?.viewController?.view?.window)
                 presentedInWindow = true
             }
 
@@ -1014,6 +1016,10 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             webViewController.hasDynamicTitle = true
 
             self.navigationWebViewController = UINavigationController.init(rootViewController: webViewController)
+            if let navigation = self.navigationWebViewController {
+                WebViewRegistry.shared.register(WKWebViewInstance(id: webViewController.instanceId,
+                    controller: webViewController, navigationController: navigation))
+            }
             self.navigationWebViewController?.navigationBar.isTranslucent = false
 
             // Ensure no lines or borders appear by default
@@ -1048,65 +1054,38 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func close(_ call: CAPPluginCall) {
-        let isAnimated = call.getBool("isAnimated", true)
-        // Miden patch (PR-4 chunk 2): read the optional id parameter so a
-        // multi-instance caller can target a specific instance. Defaults to
-        // "default" for legacy single-instance callers.
         let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
-
+        let animated = call.getBool("isAnimated", true)
         DispatchQueue.main.async {
-            let currentUrl = self.webViewController?.url?.absoluteString ?? ""
+            self.closeInstance(id: instanceId, animated: animated) { call.resolve() }
+        }
+    }
 
-            self.webViewController?.cleanupWebView()
-
-            // Miden patch (PR-4 chunk 3): if this instance was presented in
-            // its own UIWindow (Architecture A), tear the window down. This
-            // releases the navController + WKWebView since UIWindow holds
-            // them via rootViewController. The closeEvent listeners + call
-            // resolve happen here, NOT in a dismiss completion handler,
-            // because windows aren't presented modally.
-            if let instance = WebViewRegistry.shared.get(id: instanceId),
-               let window = instance.containerWindow {
-                Self.releaseContainerWindow(window)
-                instance.containerWindow = nil
-                self.webViewController = nil
-                self.navigationWebViewController = nil
-                WebViewRegistry.shared.remove(id: instanceId)
-                self.notifyListeners("closeEvent", data: ["id": instanceId, "url": currentUrl])
-                call.resolve()
-                return
-            }
-
-            // Legacy modal presentation path (non-positioned webviews like
-            // faucet-webview). Resolve only after dismissal completes so the
-            // JS caller can safely call openWebView immediately after close
-            // — see the PR-1 part 2 patch comment for the race that fixed.
-            if let navController = self.navigationWebViewController {
-                let dismiss = {
-                    navController.dismiss(animated: isAnimated) {
-                        self.webViewController = nil
-                        self.navigationWebViewController = nil
-                        WebViewRegistry.shared.remove(id: instanceId)
-                        self.notifyListeners("closeEvent", data: ["id": instanceId, "url": currentUrl])
-                        call.resolve()
-                    }
-                }
-                // Miden patch: UIKit drops a dismiss requested while the
-                // present animation is still running and never calls its
-                // completion, so a close for a page that failed during
-                // presentation would never settle. Wait for the transition.
-                let deferred = navController.transitionCoordinator?.animate(alongsideTransition: nil) { _ in
-                    DispatchQueue.main.async(execute: dismiss)
-                } ?? false
-                if !deferred {
-                    dismiss()
-                }
-            } else {
-                self.webViewController = nil
-                WebViewRegistry.shared.remove(id: instanceId)
-                self.notifyListeners("closeEvent", data: ["id": instanceId, "url": currentUrl])
-                call.resolve()
-            }
+    func closeInstance(id: String, animated: Bool, completion: @escaping () -> Void = {}) {
+        guard let instance = WebViewRegistry.shared.get(id: id) else { completion(); return }
+        // Remove authority before cleanup can trigger delegate or provider re-entry.
+        WebViewRegistry.shared.remove(id: id)
+        let currentUrl = instance.controller.url?.absoluteString ?? ""
+        instance.controller.cleanupWebView()
+        if self.webViewController === instance.controller {
+            self.webViewController = nil
+            self.navigationWebViewController = nil
+        }
+        let finish = {
+            self.notifyListeners("closeEvent", data: ["id": id, "url": currentUrl])
+            completion()
+        }
+        if let window = instance.containerWindow {
+            Self.releaseContainerWindow(window)
+            instance.containerWindow = nil
+            finish()
+        } else {
+            let nav = instance.navigationController
+            let dismiss = { nav.dismiss(animated: animated, completion: finish) }
+            let deferred = nav.transitionCoordinator?.animate(alongsideTransition: nil) { _ in
+                DispatchQueue.main.async(execute: dismiss)
+            } ?? false
+            if !deferred { dismiss() }
         }
     }
 
@@ -1200,12 +1179,16 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             // worst.
             if let instance = WebViewRegistry.shared.get(id: instanceId),
                let window = instance.containerWindow {
-                let w = CGFloat(width ?? Float(window.frame.width))
-                let h = CGFloat(height ?? Float(window.frame.height))
-                let x = CGFloat(xPos ?? Float(window.frame.minX))
-                let y = CGFloat(yPos ?? Float(window.frame.minY))
-                window.frame = CGRect(x: x, y: y, width: w, height: h)
-                instance.rect = window.frame
+                let w = CGFloat(width ?? Float(instance.rect.width))
+                let h = CGFloat(height ?? Float(instance.rect.height))
+                let x = CGFloat(xPos ?? Float(instance.rect.minX))
+                let y = CGFloat(yPos ?? Float(instance.rect.minY))
+                instance.rect = CGRect(x: x, y: y, width: w, height: h)
+                if let presentation = instance.controller.breadPresentation {
+                    presentation.updateSlot()
+                } else {
+                    window.frame = instance.rect
+                }
             } else {
                 // Legacy modal path: forward to the controller's own
                 // dimension logic.
@@ -1267,6 +1250,11 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
             instance.isVisible = visible
+            if let presentation = instance.controller.breadPresentation {
+                presentation.setVisible(visible)
+                call.resolve()
+                return
+            }
             // Architecture A path: just toggle the UIWindow.
             if let window = instance.containerWindow {
                 window.isHidden = !visible
@@ -1445,6 +1433,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     static func releaseContainerWindow(_ window: UIWindow) {
         window.isHidden = true
         window.resignKey()
+        window.rootViewController = nil
         if #available(iOS 13.0, *) {
             window.windowScene = nil
         }
