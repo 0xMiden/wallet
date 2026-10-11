@@ -576,6 +576,8 @@ describe('waitForGatewayPayout', () => {
     });
     await expect(failure).rejects.toMatchObject({ failure: 'uncorrelated' });
     await expect(failure).rejects.toThrow('found 0 AttestationUsed logs');
+    // An empty key held nothing before the burn, so no earlier credit can be in the window.
+    await expect(failure).rejects.not.toThrow(PREFUNDED_KEY_NOTE);
   });
 });
 
@@ -632,6 +634,19 @@ describe('waitForGatewayPayout delta mode', () => {
         PREFUNDED_KEY_NOTE
     );
     await expect(failure).rejects.toThrow(`balanceBefore: ${HELD}`);
+  });
+
+  it('fails uncorrelated at the deadline when no complete scan finds the log, saying the key held USDC before', async () => {
+    const failure = waitForGatewayPayout(args, {
+      endpoints: [ARC_DRPC_URL],
+      publicClient: () => stubClient(payoutChain({ balances: [HELD + 983_600n], logs: history })),
+      clock: fakeClock(CONSUME_MS)
+    });
+    await expect(failure).rejects.toMatchObject({ failure: 'uncorrelated' });
+    await expect(failure).rejects.toThrow(
+      `payout received but not correlated: ${ARC_DRPC_URL}: found 0 AttestationUsed logs after block 66483700 ` +
+        `up to block 66483822; ${PREFUNDED_KEY_NOTE}`
+    );
   });
 
   it('waits while the balance stays at balanceBefore, and fails no-mint at the deadline', async () => {
