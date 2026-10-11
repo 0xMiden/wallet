@@ -3,8 +3,10 @@ import { isHash, type Address, type Hash, type Hex } from 'viem';
 
 import {
   arcHost,
+  readArcUsdc,
   readArcUsdcSnapshot,
   readXReserveDomainState,
+  realArcClock,
   waitForGatewayPayout,
   type ArcKey,
   type ArcReadDeps,
@@ -31,13 +33,15 @@ import { waitForPublicNoteCommitment } from './public-note-commitment';
 import {
   ARC_CHAIN_ID,
   ARC_CIRCLE_DOMAIN,
+  ARC_PUBLIC_URL,
   BURN_UNITS,
   GRANT_MARGIN_UNITS,
   GRANT_UNITS,
   HARNESS_ARC_KEY_FILE,
   minimumUsdcxPayout,
   PAYOUT_TIMEOUT_MS,
-  USDCX_BURN_TAG
+  USDCX_BURN_TAG,
+  WALLET_CONFIRM_TIMEOUT_MS
 } from './usdcx-constants';
 import { assertNoGuardianOpInFlight, burnFailureMessage } from './usdcx-guardian';
 import {
@@ -674,6 +678,64 @@ export async function harnessPayoutLeg(
       return { key, role, label: `harness key ${key.address} (${HARNESS_ARC_KEY_FILE})` };
     }
   });
+}
+
+/**
+ * Spec 5 step 8b (Q6, a hard gate): the wallet's own destination check confirms the payout Circle made, at exactly the
+ * balance the payout gate proved and no earlier than its log. The caller puts the wallet on Home, where the check runs,
+ * and keeps its own details-page checks; this returns when the confirmation was first read.
+ */
+export async function waitForWalletPayoutConfirmation(opts: {
+  /** The wallet's bridged-send rows, read the platform's way. */
+  readRows: () => Promise<BridgedSendRow[]>;
+  rowId: string;
+  /** The Arc block of the balance the wallet saved before the burn. */
+  arcFromBlock: bigint;
+  payout: Pick<GatewayPayout, 'value' | 'balance' | 'logBlock'>;
+  key: Pick<ArcKey, 'address'>;
+  arc: ArcReadDeps;
+  where: StepContext;
+  evidence: RunEvidence;
+}): Promise<number> {
+  const { payout, key, arc } = opts;
+  const clock = arc.clock ?? realArcClock;
+  const row = await pollUntil(
+    'the wallet confirming the payout',
+    async () => (await opts.readRows()).find(candidate => candidate.id === opts.rowId),
+    found => found?.extraInputs?.usdcxBurn?.destinationBalanceConfirmed !== undefined,
+    {
+      timeoutMs: WALLET_CONFIRM_TIMEOUT_MS,
+      intervalMs: 3_000,
+      now: () => clock.now(),
+      sleep: ms => clock.sleep(ms),
+      describe: async last => {
+        const keyNow = await readArcUsdc(key.address, arc).then(String, errorText);
+        const arcIo = await readArcUsdc(key.address, { ...arc, endpoints: [ARC_PUBLIC_URL] }).then(
+          balance => `arc.io reads ${balance}`,
+          (error: unknown) => `arc.io failed: ${errorText(error)}`
+        );
+        const before = JSON.stringify(last?.extraInputs?.usdcxBurn?.destinationBalanceBefore);
+        return (
+          `Circle paid this burn (harness proof) but the wallet never confirmed it; destinationBalanceBefore ` +
+          `${before}, key balance now ${keyNow}, ${arcIo}; ${await opts.where()}`
+        );
+      }
+    }
+  );
+  const confirmedAt = clock.now();
+  const confirmed = row?.extraInputs?.usdcxBurn?.destinationBalanceConfirmed;
+  const confirmedBlock = BigInt(confirmed?.blockNumber ?? '0');
+  expect(
+    {
+      balance: confirmed?.balance,
+      afterSnapshot: confirmedBlock > opts.arcFromBlock,
+      atOrAfterPayout: confirmedBlock >= payout.logBlock
+    },
+    `confirmation at Arc block ${confirmedBlock}, snapshot ${opts.arcFromBlock}, payout log ${payout.logBlock}, ` +
+      `${payout.balance - payout.value} on the key before the burn`
+  ).toEqual({ balance: payout.balance.toString(), afterSnapshot: true, atOrAfterPayout: true });
+  opts.evidence.ids.walletConfirmedBalance = String(confirmed?.balance);
+  return confirmedAt;
 }
 
 /** Spec 5 step 7: the burn's details read Burn confirmed (or Confirmed once paid), name Arc Testnet and link the key. */

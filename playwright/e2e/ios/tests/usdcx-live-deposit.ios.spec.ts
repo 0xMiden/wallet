@@ -20,7 +20,6 @@ import { waitForPublicNoteCommitment } from '../../helpers/public-note-commitmen
 import {
   ARC_CHAIN_ID,
   ARC_CIRCLE_DOMAIN,
-  ARC_PUBLIC_URL,
   ARC_READ_STEP_BUDGET_MS,
   BURN_UNITS,
   CLAIM_COST_FEE_MULTIPLE,
@@ -37,7 +36,7 @@ import {
   guardianIdentity,
   type GuardianIdentity
 } from '../../helpers/usdcx-guardian';
-import { payoutLeg, type PayoutKey } from '../../helpers/usdcx-legs';
+import { payoutLeg, waitForWalletPayoutConfirmation, type PayoutKey } from '../../helpers/usdcx-legs';
 import { accountHex, boundLandedFee, burnEvidence, burnOutputs, note, nullifier } from '../../helpers/usdcx-miden';
 import { readUsdcxRelayerEnv, UsdcxRelayer } from '../../helpers/usdcx-relayer';
 import {
@@ -723,40 +722,16 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
       // Q6, a hard gate: the wallet's own destination check confirms the payout Circle made.
       const confirmedAt = await step('wallet_confirms_payout', BUDGET.walletConfirmed, async () => {
         await walletA.navigateHome();
-        const row = await pollUntil(
-          'the wallet confirming the payout',
-          async () => (await walletA.readBridgedSendRows()).find(candidate => candidate.id === burned.row.id),
-          found => found?.extraInputs?.usdcxBurn?.destinationBalanceConfirmed !== undefined,
-          {
-            timeoutMs: WALLET_CONFIRM_TIMEOUT_MS,
-            intervalMs: 3_000,
-            describe: async last => {
-              const keyNow = await readArcUsdc(key.address, arc).then(String, errorText);
-              const arcIo = await readArcUsdc(key.address, { endpoints: [ARC_PUBLIC_URL] }).then(
-                balance => `arc.io reads ${balance}`,
-                (error: unknown) => `arc.io failed: ${errorText(error)}`
-              );
-              return (
-                `Circle paid this burn (harness proof) but the wallet never confirmed it; destinationBalanceBefore ` +
-                `${JSON.stringify(last?.extraInputs?.usdcxBurn?.destinationBalanceBefore)}, key balance now ` +
-                `${keyNow}, ${arcIo}; ${await where()}`
-              );
-            }
-          }
-        );
-        const at = Date.now();
-        const confirmed = row?.extraInputs?.usdcxBurn?.destinationBalanceConfirmed;
-        const block = BigInt(confirmed?.blockNumber ?? '0');
-        expect(
-          {
-            balance: confirmed?.balance,
-            afterSnapshot: block > burned.arcFromBlock,
-            atOrAfterPayout: block >= payout.logBlock
-          },
-          `confirmation at Arc block ${block}, snapshot ${burned.arcFromBlock}, payout log ${payout.logBlock}, ` +
-            `${snapshot.balance} on the key before the burn`
-        ).toEqual({ balance: payout.balance.toString(), afterSnapshot: true, atOrAfterPayout: true });
-        evidence.ids.walletConfirmedBalance = String(confirmed?.balance);
+        const at = await waitForWalletPayoutConfirmation({
+          readRows: () => walletA.readBridgedSendRows(),
+          rowId: burned.row.id,
+          arcFromBlock: burned.arcFromBlock,
+          payout,
+          key,
+          arc,
+          where,
+          evidence
+        });
         await walletA.openTransactionDetails(burned.row.id);
         const pills: string[] = [];
         await pollUntil(

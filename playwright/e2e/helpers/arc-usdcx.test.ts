@@ -47,6 +47,8 @@ import {
   type ArcClock
 } from './arc-usdcx';
 import arcVectors from './arc-usdcx.vectors.json';
+import type { BridgedSendRow } from './bridge';
+import { TxStatus } from './history';
 import {
   ARC_ATTESTATION_API,
   ARC_CHAIN_ID,
@@ -71,9 +73,10 @@ import {
   HARNESS_ARC_KEY_FILE,
   isWorthClaiming,
   minimumUsdcxPayout,
-  PAYOUT_TIMEOUT_MS
+  PAYOUT_TIMEOUT_MS,
+  WALLET_CONFIRM_TIMEOUT_MS
 } from './usdcx-constants';
-import { harnessPayoutLeg, payoutLeg } from './usdcx-legs';
+import { harnessPayoutLeg, payoutLeg, waitForWalletPayoutConfirmation } from './usdcx-legs';
 import { newRunEvidence, withStepBudget, type NamedStep } from './usdcx-run';
 import type { XReserveAttestation } from '../../../src/lib/usdcx/attestation';
 import attestationVectors from '../../../src/lib/usdcx/attestation.vectors.json';
@@ -893,6 +896,118 @@ describe('harnessPayoutLeg (usdcx-legs.ts)', () => {
     ]);
     expect(secrets).toEqual([ARC_KEY]);
     expect(evidence.ids).toMatchObject({ arcKey: KEY, arcKeyRole: 'deposit', arcBalanceBefore: String(HELD) });
+  });
+});
+
+describe('waitForWalletPayoutConfirmation (usdcx-legs.ts)', () => {
+  const KEY = addressOf(payoutAt(4).recipient);
+  const HELD = BigInt(payoutAt(1).value);
+  // The harnessPayoutLeg test's payout: the key's pre-burn read at 66483822, the log at 66483823.
+  const payout = { value: 983_600n, balance: HELD + 983_600n, logBlock: 66483823n };
+  const before = { balance: String(HELD), blockNumber: '66483822' };
+  const where = async () => 'route #/ (visible)';
+
+  function burnRow(id: string, confirmed?: { balance: string; blockNumber: string }): BridgedSendRow {
+    const usdcxBurn = { noteId: hexOf(payoutAt(4).burnNoteId), destinationDomain: 26, phase: 'confirmed' };
+    return {
+      id,
+      status: TxStatus.Completed,
+      extraInputs: {
+        provider: 'usdcx',
+        usdcxBurn: confirmed
+          ? { ...usdcxBurn, destinationBalanceBefore: before, destinationBalanceConfirmed: confirmed }
+          : { ...usdcxBurn, destinationBalanceBefore: before }
+      }
+    };
+  }
+
+  /** The wallet's rows, one list per read, the last list again on every read after. */
+  function rowReads(reads: BridgedSendRow[][]): () => Promise<BridgedSendRow[]> {
+    let next = 0;
+    return async () => reads[Math.min(next++, reads.length - 1)] ?? [];
+  }
+
+  it("waits for this burn row's own confirmation at the payout's balance and records it", async () => {
+    const clock = fakeClock(1_000);
+    const evidence = newRunEvidence('usdcx-live-ios');
+    const paid = { balance: String(payout.balance), blockNumber: '66483824' };
+
+    const confirmedAt = await waitForWalletPayoutConfirmation({
+      // Another burn's confirmation is never this one's.
+      readRows: rowReads([
+        [burnRow('other', paid), burnRow('burn')],
+        [burnRow('other', paid), burnRow('burn', paid)]
+      ]),
+      rowId: 'burn',
+      arcFromBlock: 66483822n,
+      payout,
+      key: { address: KEY },
+      arc: { endpoints: [ARC_DRPC_URL], clock },
+      where,
+      evidence
+    });
+
+    expect(confirmedAt).toBe(4_000);
+    expect(clock.slept).toEqual([3_000]);
+    expect(evidence.ids.walletConfirmedBalance).toBe(String(payout.balance));
+  });
+
+  it("fails a confirmation at another balance or before the payout's log, naming the key's pre-burn balance", async () => {
+    for (const confirmed of [
+      { balance: String(payout.balance + 1n), blockNumber: '66483824' },
+      { balance: String(payout.balance), blockNumber: '66483822' }
+    ]) {
+      const evidence = newRunEvidence('usdcx');
+      const failure = waitForWalletPayoutConfirmation({
+        readRows: rowReads([[burnRow('burn', confirmed)]]),
+        rowId: 'burn',
+        arcFromBlock: 66483822n,
+        payout,
+        key: { address: KEY },
+        arc: { endpoints: [ARC_DRPC_URL], clock: fakeClock() },
+        where,
+        evidence
+      });
+
+      await expect(failure).rejects.toThrow(
+        `confirmation at Arc block ${confirmed.blockNumber}, snapshot 66483822, payout log 66483823, ${HELD} on the ` +
+          'key before the burn'
+      );
+      expect(evidence.ids.walletConfirmedBalance).toBeUndefined();
+    }
+  });
+
+  it('names the saved balance, the key now on its endpoints and on arc.io, and the page when the wallet never confirms', async () => {
+    const clock = fakeClock();
+    const operator = 'https://arc.example/v2/token-in-path';
+    // arc.io lags the operator's endpoint, which already reads the payout.
+    const arc = {
+      endpoints: [operator],
+      publicClient: (endpoint: string) =>
+        stubClient(payoutChain({ balances: [endpoint === ARC_PUBLIC_URL ? HELD : payout.balance], logs: [] })),
+      clock
+    };
+
+    const failure = waitForWalletPayoutConfirmation({
+      readRows: rowReads([[burnRow('burn')]]),
+      rowId: 'burn',
+      arcFromBlock: 66483822n,
+      payout,
+      key: { address: KEY },
+      arc,
+      where,
+      evidence: newRunEvidence('usdcx')
+    });
+
+    await expect(failure).rejects.toThrow(
+      `the wallet confirming the payout: not reached within ${WALLET_CONFIRM_TIMEOUT_MS} ms; last read {"id":"burn"`
+    );
+    await expect(failure).rejects.toThrow(
+      `; Circle paid this burn (harness proof) but the wallet never confirmed it; destinationBalanceBefore ` +
+        `${JSON.stringify(before)}, key balance now ${payout.balance}, arc.io reads ${HELD}; route #/ (visible)`
+    );
+    await expect(failure).rejects.not.toThrow('token-in-path');
+    expect(clock.slept).toEqual(Array(WALLET_CONFIRM_TIMEOUT_MS / 3_000).fill(3_000));
   });
 });
 
