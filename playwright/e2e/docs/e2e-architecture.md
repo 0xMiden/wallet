@@ -395,6 +395,12 @@ Never commit `harness.json`, and never delete it while it holds USDC. Files name
 
 Only one usdcx run may go at a time. The runner takes `~/.miden-e2e/usdcx-run.lock` before anything else, and a second run refuses, naming the lock and the pid holding it. A run that dies leaves the lock behind, and the next run removes it once neither that run nor its test child is alive. Stop a run with Ctrl-C rather than `kill <pid>`: killing the runner alone leaves its Playwright child running, and the lock stays held while it does. Every test that burns waits for its own payout, so a green run leaves no payout to come; one that arrives after its run went red (see above) can still land inside a later run's payout window, and that run fails naming a credit it cannot account for, and a rerun passes.
 
+### The iOS nightly's key
+
+`e2e-usdcx-live.yml` runs `playwright/e2e/ios/tests/usdcx-live-deposit.ios.spec.ts` every night on one Guardian wallet: the secret-funded key `USDCX_LIVE_EVM_PRIVATE_KEY` deposits 0.01 USDC in, and then the wallet burns 1 USDCx from a public faucet grant back to that key's own Arc address. Circle's payout of about 0.98 USDC more than refills the deposit and its gas (about 0.015 USDC), so the key needs no top-up, and the payout gate counts only what the burn added to its balance since a read taken right before the burn. A late payout from an earlier night, or any other transfer into or out of the key during a run, fails that gate, and the message says why.
+
+Run the spec locally with `USDCX_LIVE_EVM_PRIVATE_KEY` set to the harness key while holding `~/.miden-e2e/usdcx-run.lock`, never with the nightly's key: a local run cannot see a nightly, and two payouts into one key fail the gate.
+
 ---
 
 ## Under the hood — running Ethereum locally

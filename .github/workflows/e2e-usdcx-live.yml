@@ -1,9 +1,16 @@
 name: E2E USDCx Bridge-IN (live)
 
-# Runs the USDCx bridge-IN deposit E2E (Arc Testnet -> Miden testnet) against the
-# LIVE networks. Nothing on the path is a double: the deposit goes to Circle's real
-# xReserve contract, Circle's attestation service signs it, and the deposit relayer
-# submits the mint note to the USDCx faucet. The wallet then claims the minted note.
+# Runs the live USDCx E2E on iOS against the LIVE networks (Arc Testnet and Miden
+# testnet), one test with two legs. Nothing on the path is a double.
+#   1. Bridge-IN: the deposit goes to Circle's real xReserve contract, Circle's
+#      attestation service signs it, the deposit relayer submits the mint note to
+#      the USDCx faucet, and the Guardian wallet claims the minted note.
+#   2. Burn, only once the deposit leg passed: the same wallet takes USDCx from the
+#      public faucet and burns 1 USDCx through Send back to the deposit key's Arc
+#      address. The run fails unless Circle pays that key within 10 minutes of the
+#      faucet consuming the burn and the wallet's own History then reads Confirmed.
+#      The payout, about 0.98 USDC, refills what the deposit and its gas spent, so
+#      the key funds itself.
 #
 # By default the DEPLOYED relayer mints: the faucet does not look at who sent a mint
 # note, so the job needs no relayer of its own and only the EVM key. To test a
@@ -15,8 +22,9 @@ name: E2E USDCx Bridge-IN (live)
 # EVM leg hermetically on every push to main. This job covers what that suite
 # cannot: the real contract, Circle's attestation and the mint.
 #
-# It spends real Arc Testnet USDC on each run, and it depends on Circle's service
-# and the relayer, so it is a nightly and on-demand signal, never a per-PR gate.
+# It spends real Arc Testnet USDC and public faucet USDCx on each run, and it depends
+# on Circle's service, the relayer and the faucet, so it is a nightly and on-demand
+# signal, never a per-PR gate.
 #
 # Required configuration:
 #   secrets.USDCX_LIVE_EVM_PRIVATE_KEY        funded Arc Testnet key (USDC is the gas token too)
