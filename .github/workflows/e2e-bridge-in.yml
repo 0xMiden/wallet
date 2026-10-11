@@ -158,8 +158,8 @@ jobs:
           java-version: '21'
 
       # The hosted image contains the Android SDK, but does not put sdkmanager and
-      # avdmanager on PATH. This action exposes the tools; only platform-tools are
-      # requested here, while the heavier runner-image packages are checked below.
+      # avdmanager on PATH. This action exposes the tools and accepts SDK licenses;
+      # only platform-tools are requested while heavier image packages are checked below.
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
@@ -187,7 +187,6 @@ jobs:
         run: |
           set -euo pipefail
           sdkmanager --install "system-images;android-34;default;x86_64"
-          yes | sdkmanager --licenses >/dev/null
 
       - name: Verify Android emulator host acceleration
         run: |

@@ -85,14 +85,15 @@
    process.exitCode = exceededDeadline || !firstLoop ? 1 : code ?? 1;
    ```
 
-11. [Runtime finding, addressed; hosted retry pending] Expose the hosted Android SDK tools on `PATH` before checking or invoking `sdkmanager` and `avdmanager`. Preparation run `38111623729` reached `command -v sdkmanager` and failed before APK build. Save verified dependency and system-image caches before later build steps so downstream failures retain completed preparation work.
+11. [Runtime findings, addressed; hosted retry pending] Expose the hosted Android SDK tools on `PATH` before checking or invoking `sdkmanager` and `avdmanager`. Preparation run `38111623729` failed at `command -v sdkmanager`. In run `38112184176`, the SDK and dependency checks passed and the API 34 image unpacked, but the redundant `yes | sdkmanager --licenses` failed with a broken pipe under `pipefail`; `android-actions/setup-android` already accepts those licenses. Save verified dependency and system-image caches before later build steps so downstream failures retain completed preparation work.
 
    ```yaml
-   # .github/workflows/e2e-bridge-in.yml:146-209
+   # .github/workflows/e2e-bridge-in.yml:146-207
    - uses: android-actions/setup-android@v3
      with:
        packages: platform-tools
    - uses: actions/cache/save@v4
+   sdkmanager --install "system-images;android-34;default;x86_64"
    ```
 
 ### Low
