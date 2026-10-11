@@ -1,19 +1,36 @@
+import fs from 'fs';
+import path from 'path';
+
 import type { CdpSession } from './cdp-bridge';
 import type { SimulatorControl } from './simulator-control';
 import type { PromptSettlement } from './system-alerts';
 import { ACTIVITY_PENDING_PATH } from '../../../../src/app/pages/activity-paths';
 import { NATIVE_ASSET_FEE_CACHE, NATIVE_ASSET_ID_CACHE } from '../../../../src/lib/miden-chain/native-asset-cache-keys';
+import { ARC_TESTNET } from '../../../../src/lib/walletconnect/config';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
 import { toBaseUnits } from '../../helpers/balance-truth';
-import { bridgedSendRowOf, type BridgedSendRow } from '../../helpers/bridge';
+import {
+  bridgedSendRowOf,
+  enText,
+  isArcSnapshotFailure,
+  reviewQueryParam,
+  USDCX_DESTINATION_CHIPS,
+  usdcxChipsProblem,
+  usdcxPayoutRowsText,
+  type BridgedSendRow,
+  type NetworkChipState
+} from '../../helpers/bridge';
 import { claimFromPendingList } from '../../helpers/claim-drain';
 import {
   readTransactionRowsInPage,
+  TxStatus,
   type TransactionRowSnapshot,
   type TransactionRowsQuery
 } from '../../helpers/history';
 import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
+import { ARC_CHAIN_ID } from '../../helpers/usdcx-constants';
+import { burnFailureMessage } from '../../helpers/usdcx-guardian';
 import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 
 const DEFAULT_PASSWORD = '123456';
@@ -135,6 +152,131 @@ async function ridingOut<T>(read: () => Promise<T>): Promise<T> {
       await sleep(READ_RETRY_MS);
     }
   }
+}
+
+const SEND_FLOW = '[data-testid="send-flow"]';
+// The review slides over the retained Send layer, whose route step holds the same payout rows and burn notice.
+const SEND_REVIEW = '[data-page-layer="/send/review"]';
+const ARC_CHIP = 'send-network-arc-testnet';
+// Mobile mounts the app as a full page, so the in-progress route is the -full variant.
+const GENERATING_ROUTE = /#\/generating-transaction(?:-full)?\/([^/?#]+)/;
+
+/** A script body whose lookups all run under `scope`; `text` reads a test id's text, `val` a DetailRow's value div. */
+function scopedJs(scope: string, body: string): string {
+  return (
+    `var root = document.querySelector(${JSON.stringify(scope)}); if (!root) return null; ` +
+    `function text(id) { var e = root.querySelector('[data-testid="' + id + '"]'); ` +
+    `return e ? (e.textContent || '').trim() : null; } ` +
+    `function val(id) { var e = root.querySelector('[data-testid="' + id + '"]'); ` +
+    `var d = e && e.querySelector(':scope > div'); return d ? (d.textContent || '').trim() : null; } ` +
+    body
+  );
+}
+
+const SEND_CHIPS_JS = scopedJs(
+  SEND_FLOW,
+  `return Array.from(root.querySelectorAll('[data-testid^="send-network-"]:not([data-testid="send-network-options"])'))` +
+    `.map(function (e) { return { testId: e.getAttribute('data-testid') || '', pressed: e.getAttribute('aria-pressed') }; });`
+);
+
+const USDCX_ROUTE_JS = scopedJs(
+  SEND_FLOW,
+  `var card = root.querySelector('[data-testid="bridge-route-usdcx"]'); if (!card) return null; ` +
+    `return { checked: card.getAttribute('aria-checked'), cardText: (card.textContent || '').trim(), ` +
+    `fee: val('usdcx-payout-fee'), net: val('usdcx-payout-net'), notice: text('usdcx-burn-notice') };`
+);
+
+// The href drops its search: the onboarding bypass's ?password= stays there all session, and a timed-out poll prints
+// its last read.
+const REVIEW_LANDING_JS =
+  `return { href: location.href.replace(location.search, ''), hash: location.hash, ` +
+  `submit: !!document.querySelector(${JSON.stringify(`${SEND_REVIEW} [data-testid="send-review-submit"]`)}) };`;
+
+/** The review's labelled rows: a label span whose next sibling is the value div (DetailRow). */
+function usdcxReviewJs(networkLabel: string, networkFeeLabel: string): string {
+  return scopedJs(
+    SEND_REVIEW,
+    `function row(label) { var s = Array.from(root.querySelectorAll('span')).find(function (x) { ` +
+      `return (x.textContent || '').trim() === label && x.nextElementSibling && x.nextElementSibling.tagName === 'DIV'; }); ` +
+      `return s ? (s.nextElementSibling.textContent || '').trim() : null; } ` +
+      `return { network: row(${JSON.stringify(networkLabel)}), networkFee: row(${JSON.stringify(networkFeeLabel)}), ` +
+      `fee: val('usdcx-payout-fee'), net: val('usdcx-payout-net'), notice: text('usdcx-burn-notice') };`
+  );
+}
+
+const REVIEW_READY_JS = scopedJs(
+  SEND_REVIEW,
+  `var e = root.querySelector('[data-testid="review-error"]'); ` +
+    `if (e) return { state: 'error', text: (e.textContent || '').trim() }; ` +
+    `var b = root.querySelector('[data-testid="send-review-submit"]'); ` +
+    `return b && !b.disabled && b.getAttribute('aria-disabled') !== 'true' ? { state: 'enabled' } : { state: 'waiting' };`
+);
+
+// Not scopedJs: the review layer is gone once the submit lands on the generating page.
+const SUBMIT_OUTCOME_JS =
+  `var root = document.querySelector(${JSON.stringify(SEND_REVIEW)}); ` +
+  `var e = root && root.querySelector('[data-testid="review-error"]'); ` +
+  `var b = root && root.querySelector('[data-testid="send-review-submit"]'); ` +
+  `return { hash: location.hash, error: e ? (e.textContent || '').trim() : null, ` +
+  `loading: !!(b && (b.disabled || b.getAttribute('aria-busy') === 'true')) };`;
+
+interface UsdcxRouteView {
+  checked: string | null;
+  cardText: string;
+  fee: string | null;
+  net: string | null;
+  notice: string | null;
+}
+
+interface UsdcxReviewView {
+  network: string | null;
+  networkFee: string | null;
+  fee: string | null;
+  net: string | null;
+  notice: string | null;
+}
+
+function sameChipSet(chips: readonly NetworkChipState[]): boolean {
+  return (
+    chips
+      .map(chip => chip.testId)
+      .sort()
+      .join(',') === [...USDCX_DESTINATION_CHIPS].sort().join(',')
+  );
+}
+
+/** The details page's own layer: it slides over the retained tabs. */
+function detailsLayer(rowId: string): string {
+  return `[data-page-layer="/history-details/${rowId}"]`;
+}
+
+export interface UsdcxBurnViaSendOptions {
+  /** The Arc address Circle pays. Never a private key: appium-remote-debugger logs every eval body. */
+  destAddress: `0x${string}`;
+  /** As typed: a whole number, since the amount field follows the simulator's locale for decimals. */
+  amount: string;
+  nativeTokenId: string;
+  nativeSymbol: string;
+  /** Where usdcx-route.png and the two review screenshots go. */
+  screenshotDir: string;
+  /** The step's abort signal (`namedSteps`): once it has fired, the driver never clicks submit. */
+  signal?: AbortSignal;
+}
+
+export interface UsdcxBurnSubmission {
+  /** The Dexie row id, the `:txId` of the generating and history-details routes. */
+  rowId: string;
+  /** `location.hash` only (routeOf). */
+  reviewRoute: string;
+  generatingRoute: string;
+  /** Chips pressed when the address validated, before the Arc click (R16 evidence). */
+  defaultPressed: string[];
+}
+
+export interface BurnStageSample {
+  status: number;
+  stage?: string;
+  atMs: number;
 }
 
 interface IosWalletPageOpts {
@@ -501,6 +643,233 @@ export class IosWalletPage implements WalletPage {
       }
       await sleep(1_000);
     }
+  }
+
+  // ── USDCx burn through the Send UI (the live USDCx spec) ────────────────
+
+  /**
+   * Burns the native USDCx to an Arc Testnet address through the real Send UI and returns once the wallet is on the
+   * generating page. Every read is scoped (SEND_FLOW, SEND_REVIEW). Checks on the way: exactly the four USDCx chips
+   * with Arc alone pressed, the route card, the payout rows and the notice on the route and the review, and the
+   * review's network and fee rows; a refusal is named from `review-error`, never left to a timeout. Nothing is
+   * submitted once `signal` has aborted (R26).
+   */
+  async burnUsdcxViaSendFlow(opts: UsdcxBurnViaSendOptions): Promise<UsdcxBurnSubmission> {
+    const symbol = opts.nativeSymbol.trim();
+    if (symbol === '' || symbol.toUpperCase() === 'MIDEN') {
+      throw new Error(`burnUsdcxViaSendFlow: "${opts.nativeSymbol}" cannot name USDCx, the asset a USDCx burn spends`);
+    }
+    // Throws before any UI when the amount does not exceed Arc's payout fee allowance (R14a).
+    const payout = usdcxPayoutRowsText(ARC_CHAIN_ID, opts.amount);
+    const routeFees = enText('usdcxMidenFees', { symbol });
+    const sponsorshipFee = enText('usdcxSponsorshipFee', { symbol });
+    const notice = enText('usdcxWithdrawalNotice');
+    const rowsBefore = new Set((await this.readBridgedSendRows()).map(row => row.id));
+    fs.mkdirSync(opts.screenshotDir, { recursive: true });
+
+    await this.navigateTo(`/send?tokenId=${encodeURIComponent(opts.nativeTokenId)}`);
+    await this.waitFor(SEND_FLOW, { timeoutMs: 15_000 });
+    // The carousel keeps Send mounted with its step and chip; only the recipient step has no back button.
+    for (let pop = 0; pop < 3 && (await this.exists(`${SEND_FLOW} [data-testid="flow-back"]`)); pop++) {
+      await this.click(`${SEND_FLOW} [data-testid="flow-back"]`);
+      await sleep(1_000);
+    }
+    await this.waitFor(`${SEND_FLOW} [data-testid="send-recipient-input"]`, { timeoutMs: 15_000 });
+    await this.fillInput(`${SEND_FLOW} [data-testid="send-recipient-input"]`, opts.destAddress);
+    const offered = await this.pollEval<NetworkChipState[] | null>(
+      'the four USDCx destination chips',
+      SEND_CHIPS_JS,
+      chips => chips !== null && sameChipSet(chips),
+      15_000
+    );
+    const defaultPressed = (offered ?? []).filter(chip => chip.pressed === 'true').map(chip => chip.testId);
+    // A chip kept from an earlier attempt overrides the default, so Arc is pressed explicitly every time.
+    await this.click(`${SEND_FLOW} [data-testid="${ARC_CHIP}"]`);
+    await this.pollEval<NetworkChipState[] | null>(
+      'Arc Testnet alone pressed among the four USDCx chips',
+      SEND_CHIPS_JS,
+      chips => chips !== null && usdcxChipsProblem(chips, ARC_CHIP) === undefined,
+      15_000
+    );
+    await this.clickWhenEnabled(`${SEND_FLOW} [data-testid="send-recipient-confirm"]`, 30_000);
+    await this.waitFor(`${SEND_FLOW} [data-testid="send-amount-input"]`, { timeoutMs: 30_000 });
+    // `available` renders only once a token is set: the ?tokenId= preselect landed (every spike run).
+    await this.waitFor(`${SEND_FLOW} [data-testid="send-amount-available"]`, { timeoutMs: 10_000 });
+    await this.fillInput(`${SEND_FLOW} [data-testid="send-amount-input"]`, opts.amount);
+    await this.clickWhenEnabled(`${SEND_FLOW} [data-testid="send-amount-confirm"]`, 45_000);
+
+    await this.pollEval<UsdcxRouteView | null>(
+      'the USDCx route card, payout rows and burn notice',
+      USDCX_ROUTE_JS,
+      view =>
+        view !== null &&
+        view.checked === 'true' &&
+        view.cardText.includes(routeFees) &&
+        view.fee === payout.fee &&
+        view.net === payout.net &&
+        view.notice === notice,
+      30_000
+    );
+    await this.screenshot({ path: path.join(opts.screenshotDir, 'usdcx-route.png') });
+    await this.clickWhenEnabled(`${SEND_FLOW} [data-testid="bridge-route-confirm"]`, 15_000);
+
+    const landing = await this.pollEval<{ href: string; hash: string; submit: boolean }>(
+      'the burn review',
+      REVIEW_LANDING_JS,
+      view => view.hash.startsWith('#/send/review?') && view.submit,
+      30_000
+    );
+    const wanted: Record<string, string> = { network: 'arc-testnet', route: 'usdcx', tokenId: opts.nativeTokenId };
+    for (const [name, value] of Object.entries(wanted)) {
+      const actual = reviewQueryParam(landing.href, name);
+      if (actual !== value) {
+        throw new Error(`the review route ${routeOf(landing.href)} has ${name}=${actual}, expected ${value}`);
+      }
+    }
+    await this.pollEval<UsdcxReviewView | null>(
+      'the burn review rows',
+      usdcxReviewJs(enText('network'), enText('networkFee')),
+      view =>
+        view !== null &&
+        view.network === ARC_TESTNET.name &&
+        view.networkFee === sponsorshipFee &&
+        view.fee === payout.fee &&
+        view.net === payout.net &&
+        view.notice === notice,
+      15_000
+    );
+    const ready = await this.pollEval<{ state: string; text?: string } | null>(
+      'send-review-submit enables, or review-error names the refusal',
+      REVIEW_READY_JS,
+      view => view !== null && view.state !== 'waiting',
+      60_000
+    );
+    if (ready?.state === 'error') {
+      throw new Error(`the review refused the burn before submit: review-error "${ready.text ?? ''}"`);
+    }
+    await this.screenshot({ path: path.join(opts.screenshotDir, 'usdcx-review-light.png') });
+    await this.cdp.eval(`document.documentElement.classList.add('dark'); return null;`);
+    await sleep(400);
+    await this.screenshot({ path: path.join(opts.screenshotDir, 'usdcx-review-dark.png') });
+    await this.cdp.eval(`document.documentElement.classList.remove('dark'); return null;`);
+
+    // An overrun step runs on after its test failed (R26): a burn submitted then pays out into a later run's window.
+    if (opts.signal?.aborted) {
+      const reason: unknown = opts.signal.reason;
+      throw new Error(`the burn was not submitted: ${reason instanceof Error ? reason.message : String(reason)}`, {
+        cause: reason
+      });
+    }
+    await this.click(`${SEND_REVIEW} [data-testid="send-review-submit"]`);
+    // Submit reads the minimum burn and the Arc snapshot (15 s budget, burn.ts) before it queues the row.
+    const outcome = await this.pollEval<{ hash: string; error: string | null; loading: boolean }>(
+      'the burn submit reaching the generating page or review-error',
+      SUBMIT_OUTCOME_JS,
+      view => GENERATING_ROUTE.test(view.hash) || (view.error !== null && !view.loading),
+      60_000
+    );
+    const rowId = GENERATING_ROUTE.exec(outcome.hash)?.[1];
+    if (!rowId) {
+      const fresh = (await this.readBridgedSendRows()).filter(
+        row => row.extraInputs?.provider === 'usdcx' && !rowsBefore.has(row.id)
+      );
+      const error = outcome.error ?? '';
+      throw new Error(
+        isArcSnapshotFailure(error, fresh.length)
+          ? `Arc RPC unavailable for the wallet's balance snapshot (burn.ts), infra: review-error "${error}"`
+          : `the review refused the burn: review-error "${error}", ${fresh.length} new usdcx rows`
+      );
+    }
+    return {
+      rowId: decodeURIComponent(rowId),
+      reviewRoute: routeOf(landing.href),
+      generatingRoute: outcome.hash,
+      defaultPressed
+    };
+  }
+
+  /**
+   * Stays on the generating page until the burn row is Completed: on mobile that page drives the transaction loop
+   * (GeneratingTransaction.tsx), so leaving it before the first tick leaves the row queued. Unconfirmed (4) waits
+   * for the node's verdict and is waited out. The bytes are read once, right after Completed: the reaper releases
+   * `resultBytes` 10 min after `completedAt`.
+   */
+  async waitForBurnCompleted(
+    rowId: string,
+    timeoutMs: number,
+    pollMs = 2_000
+  ): Promise<{ row: BridgedSendRow; stages: BurnStageSample[] }> {
+    const started = Date.now();
+    const stages: BurnStageSample[] = [];
+    for (;;) {
+      const hash = await ridingOut(() => this.cdp.eval<string>('return location.hash;'));
+      if (decodeURIComponent(GENERATING_ROUTE.exec(hash)?.[1] ?? '') !== rowId) {
+        throw new Error(`left the generating page for ${hash} before burn row ${rowId} completed`);
+      }
+      const row = (await this.readBridgedSendRows()).find(candidate => candidate.id === rowId);
+      const last = stages[stages.length - 1];
+      if (row && (last?.status !== row.status || last?.stage !== row.stage)) {
+        stages.push({ status: row.status, stage: row.stage, atMs: Date.now() - started });
+      }
+      if (row?.status === TxStatus.Completed) break;
+      if (row?.status === TxStatus.Failed) throw new Error(burnFailureMessage(row));
+      if (Date.now() - started >= timeoutMs) {
+        throw new Error(
+          `burn row ${rowId} not Completed within ${timeoutMs} ms (stages ${JSON.stringify(stages)}): ` +
+            (row ? burnFailureMessage(row) : 'no such row')
+        );
+      }
+      await sleep(pollMs);
+    }
+    const row = (await this.readBridgedSendRows(true)).find(candidate => candidate.id === rowId);
+    if (!row) throw new Error(`burn row ${rowId} vanished after it completed`);
+    return { row, stages };
+  }
+
+  /** Opens a transaction's history details and waits for its status pill. */
+  async openTransactionDetails(rowId: string): Promise<void> {
+    await this.navigateTo(`/history-details/${rowId}`);
+    await this.waitFor(`${detailsLayer(rowId)} [data-testid="history-status-pill"]`, { timeoutMs: 30_000 });
+  }
+
+  /** The open details page's status pill and every Arc explorer transaction link it renders. */
+  async transactionDetailsView(rowId: string): Promise<{ pill: string | null; arcTxLinks: string[] }> {
+    const prefix = `${ARC_TESTNET.blockExplorers.default.url}/tx/`;
+    const view = await ridingOut(() =>
+      this.cdp.eval<{ pill: string | null; arcTxLinks: string[] } | null>(
+        `var root = document.querySelector(${JSON.stringify(detailsLayer(rowId))}); if (!root) return null; ` +
+          `var pill = root.querySelector('[data-testid="history-status-pill"]'); ` +
+          `return { pill: pill ? (pill.textContent || '').trim() : null, ` +
+          `arcTxLinks: Array.from(root.querySelectorAll('a[href]')).map(function (a) { return a.getAttribute('href') || ''; })` +
+          `.filter(function (h) { return h.indexOf(${JSON.stringify(prefix)}) === 0; }) };`
+      )
+    );
+    return view ?? { pill: null, arcTxLinks: [] };
+  }
+
+  /** Re-runs a script body until `done` accepts its value; a failed eval (an inspector reattach) counts as not yet. */
+  private async pollEval<T>(label: string, js: string, done: (value: T) => boolean, timeoutMs: number): Promise<T> {
+    const deadline = Date.now() + timeoutMs;
+    let last: { value: T } | undefined;
+    for (;;) {
+      const read = await this.cdp.eval<T>(js).then(
+        value => ({ value }),
+        () => undefined
+      );
+      if (read !== undefined) {
+        if (done(read.value)) return read.value;
+        last = read;
+      }
+      if (Date.now() >= deadline) {
+        const seen = last === undefined ? 'none' : (JSON.stringify(last.value) ?? 'undefined').slice(0, 1_500);
+        throw new Error(`${label}: not met within ${timeoutMs} ms; last read ${seen}`);
+      }
+      await sleep(POLL_INTERVAL_MS);
+    }
+  }
+
+  private async exists(selector: string): Promise<boolean> {
+    return this.cdp.eval<boolean>(`return !!document.querySelector(${JSON.stringify(selector)});`);
   }
 
   // ── iOS-only helpers (used inline by .ios.spec.ts where Chrome reaches

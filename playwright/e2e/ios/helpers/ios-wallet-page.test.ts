@@ -1,9 +1,14 @@
 /**
  * @jest-environment node
  */
+import os from 'os';
+import path from 'path';
+import vm from 'vm';
+
 import type { CdpSession } from './cdp-bridge';
 import { IosWalletPage, routeOf } from './ios-wallet-page';
 import type { SimulatorControl } from './simulator-control';
+import { enText, type BridgedSendRow } from '../../helpers/bridge';
 import { readTransactionRowsInPage } from '../../helpers/history';
 
 describe('IosWalletPage.screenshot', () => {
@@ -344,5 +349,290 @@ describe('routeOf', () => {
         'capacitor://localhost/?__test_skip_onboarding=1&password=123456&walletType=guardian#/send/review?amount=10&network=arc-testnet'
       )
     ).toBe('#/send/review?amount=10&network=arc-testnet');
+  });
+});
+
+// What the spike's DOM answered at each read of the burn (ios-spike-evidence.json, run 3).
+const SEND = '[data-testid="send-flow"]';
+const REVIEW = '[data-page-layer="/send/review"]';
+const NATIVE = 'mtst1apxtmjhlua0s5vt5sg3ymtnyxclasaf0_qr7qqq9wr6w';
+const KEY = '0xd07e6586a66ddA1Bad34aF529c1f07156b167861';
+const CHIPS = [
+  'send-network-arc-testnet',
+  'send-network-sepolia',
+  'send-network-base-sepolia',
+  'send-network-arbitrum-sepolia'
+];
+const HREF =
+  'capacitor://localhost/?__test_skip_onboarding=1&password=123456&walletType=guardian' +
+  `#/send/review?amount=10&to=${KEY}&tokenId=${NATIVE}&network=arc-testnet&route=usdcx`;
+const BURN = {
+  destAddress: KEY,
+  amount: '10',
+  nativeTokenId: NATIVE,
+  nativeSymbol: 'USDCX',
+  screenshotDir: path.join(os.tmpdir(), 'ios-wallet-page-burn-test')
+} as const;
+
+function spikeAnswer(js: string, overrides: { ready?: unknown; outcome?: unknown } = {}): unknown {
+  if (js.includes('aria-pressed')) {
+    return CHIPS.map(testId => ({ testId, pressed: testId === CHIPS[0] ? 'true' : 'false' }));
+  }
+  if (js.includes('bridge-route-usdcx')) {
+    return {
+      checked: 'true',
+      cardText: 'USDCx (Circle xReserve)USDCX fees',
+      fee: 'Up to 0.1 USDC',
+      net: 'At least 9.9 USDC',
+      notice: enText('usdcxWithdrawalNotice')
+    };
+  }
+  if (js.includes('location.href')) return { href: HREF, hash: HREF.slice(HREF.indexOf('#')), submit: true };
+  if (js.includes('function row(')) {
+    return {
+      network: 'Arc Testnet',
+      networkFee: enText('usdcxSponsorshipFee', { symbol: 'USDCX' }),
+      fee: 'Up to 0.1 USDC',
+      net: 'At least 9.9 USDC',
+      notice: enText('usdcxWithdrawalNotice')
+    };
+  }
+  if (js.includes("state: 'enabled'")) return overrides.ready ?? { state: 'enabled' };
+  if (js.includes('loading')) {
+    return overrides.outcome ?? { hash: '#/generating-transaction-full/row-1', error: null, loading: false };
+  }
+  return null;
+}
+
+/** Stubs the DOM primitives the driver calls with a selector, records each selector, and backs out `backs` times. */
+function stubDom(page: IosWalletPage, backs = 0): string[] {
+  const selectors: string[] = [];
+  let left = backs;
+  const record = async (selector: string) => {
+    selectors.push(selector);
+  };
+  Object.assign(page as unknown as Record<string, unknown>, {
+    navigateTo: jest.fn(async () => undefined),
+    waitFor: jest.fn(record),
+    click: jest.fn(record),
+    clickWhenEnabled: jest.fn(record),
+    fillInput: jest.fn(record),
+    exists: jest.fn(async (selector: string) => {
+      selectors.push(selector);
+      return left-- > 0;
+    }),
+    screenshot: jest.fn(async () => undefined),
+    readBridgedSendRows: jest.fn(async () => [])
+  });
+  return selectors;
+}
+
+describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
+  // #1404 clicked the hidden Swap selector; here the review slides over a Send layer holding the same payout rows.
+  it('drives every step inside the Send flow and the review layer, presses Arc and returns routes without the password', async () => {
+    const bodies: string[] = [];
+    const page = pageWith(async js => {
+      bodies.push(js);
+      return spikeAnswer(js);
+    });
+    const selectors = stubDom(page);
+
+    const result = await page.burnUsdcxViaSendFlow(BURN);
+
+    expect(result).toEqual({
+      rowId: 'row-1',
+      reviewRoute: HREF.slice(HREF.indexOf('#')),
+      generatingRoute: '#/generating-transaction-full/row-1',
+      defaultPressed: ['send-network-arc-testnet']
+    });
+    expect(JSON.stringify(result)).not.toContain('password');
+    expect(selectors.filter(selector => !selector.startsWith(SEND) && !selector.startsWith(REVIEW))).toEqual([]);
+    expect(selectors.filter(selector => selector.includes('send-network-'))).toEqual([
+      `${SEND} [data-testid="send-network-arc-testnet"]`
+    ]);
+    const roots = bodies.flatMap(js =>
+      [...js.matchAll(/document\.querySelector(?:All)?\(("(?:[^"\\]|\\.)*")\)/g)].map(match =>
+        String(JSON.parse(match[1] ?? '""'))
+      )
+    );
+    expect(roots.length).toBeGreaterThan(5);
+    expect(roots.filter(root => !root.startsWith(SEND) && !root.startsWith(REVIEW))).toEqual([]);
+    expect(bodies.join('\n')).not.toMatch(/document\.querySelector(?:All)?\('/);
+  }, 15_000);
+
+  it("refuses an amount that does not exceed Arc's payout fee allowance before it touches the UI", async () => {
+    const page = pageWith(async js => spikeAnswer(js));
+    stubDom(page);
+
+    await expect(page.burnUsdcxViaSendFlow({ ...BURN, amount: '0.1' })).rejects.toThrow(
+      /does not exceed the 0\.1 USDC payout fee allowance on Arc Testnet/
+    );
+    expect((page as unknown as { navigateTo: jest.Mock }).navigateTo).not.toHaveBeenCalled();
+  });
+
+  it("names the review's refusal and never submits", async () => {
+    const page = pageWith(async js => spikeAnswer(js, { ready: { state: 'error', text: 'Not enough USDCX' } }));
+    const selectors = stubDom(page);
+
+    await expect(page.burnUsdcxViaSendFlow(BURN)).rejects.toThrow(
+      'the review refused the burn before submit: review-error "Not enough USDCX"'
+    );
+    expect(selectors).not.toContain(`${REVIEW} [data-testid="send-review-submit"]`);
+  }, 15_000);
+
+  // R26: withStepBudget aborts an overrun step's signal, and the step itself runs on after its test failed.
+  it('never clicks submit once its step has been aborted', async () => {
+    const page = pageWith(async js => spikeAnswer(js));
+    const selectors = stubDom(page);
+    const controller = new AbortController();
+    controller.abort(new Error('burn_via_send exceeded its 240000 ms budget'));
+
+    await expect(page.burnUsdcxViaSendFlow({ ...BURN, signal: controller.signal })).rejects.toThrow(
+      'the burn was not submitted: burn_via_send exceeded its 240000 ms budget'
+    );
+    expect(selectors).not.toContain(`${REVIEW} [data-testid="send-review-submit"]`);
+  }, 15_000);
+
+  it("tells the wallet's failed Arc snapshot apart from a refusal after submit", async () => {
+    const outcome = { hash: '#/send/review?amount=10', error: 'HTTP request failed.', loading: false };
+    const page = pageWith(async js => spikeAnswer(js, { outcome }));
+    stubDom(page);
+
+    await expect(page.burnUsdcxViaSendFlow(BURN)).rejects.toThrow(
+      `Arc RPC unavailable for the wallet's balance snapshot (burn.ts), infra: review-error "HTTP request failed."`
+    );
+  }, 15_000);
+
+  // The carousel keeps Send mounted with its step and its chip across hash navigations.
+  it('backs the persistent Send pane out to the recipient step before it fills the address', async () => {
+    const page = pageWith(async js => spikeAnswer(js));
+    const selectors = stubDom(page, 2);
+
+    await page.burnUsdcxViaSendFlow(BURN);
+
+    const back = `${SEND} [data-testid="flow-back"]`;
+    const clicks = (page as unknown as { click: jest.Mock }).click.mock.calls.map(call => String(call[0]));
+    expect(clicks.filter(selector => selector === back)).toHaveLength(2);
+    expect(selectors.lastIndexOf(back)).toBeLessThan(selectors.indexOf(`${SEND} [data-testid="send-recipient-input"]`));
+  }, 15_000);
+});
+
+describe('IosWalletPage.burnUsdcxViaSendFlow review landing', () => {
+  afterEach(() => jest.useRealTimers());
+
+  // location.href keeps the onboarding bypass's ?password= all session, and a timed-out poll prints its last read.
+  it("keeps the onboarding password out of the timed-out review poll's failure", async () => {
+    // The landing read runs as the WebView runs it; no submit button renders, so the poll runs out.
+    const webView = { location: new URL(HREF), document: { querySelector: () => null } };
+    const page = pageWith(async js =>
+      js.includes('location.href') ? vm.runInNewContext(`(function () { ${js} })()`, webView) : spikeAnswer(js)
+    );
+    stubDom(page);
+    jest.useFakeTimers();
+
+    const failure = page.burnUsdcxViaSendFlow(BURN).then(
+      () => 'resolved',
+      (error: unknown) => (error instanceof Error ? error.message : String(error))
+    );
+    await jest.advanceTimersByTimeAsync(31_000);
+    const message = await failure;
+
+    expect(message).toContain('the burn review: not met within 30000 ms; last read');
+    expect(message).toContain('"hash":"#/send/review?amount=10');
+    expect(message).not.toContain('password');
+  });
+});
+
+describe('IosWalletPage.waitForBurnCompleted', () => {
+  const ON_PAGE = '#/generating-transaction-full/row-1';
+
+  function burnPage(
+    hash: string | (() => Promise<string>),
+    rounds: BridgedSendRow[][]
+  ): { page: IosWalletPage; calls: boolean[] } {
+    const page = pageWith(async () => (typeof hash === 'string' ? hash : hash()));
+    const calls: boolean[] = [];
+    const withBytes: BridgedSendRow = { id: 'row-1', status: 2, stage: 'complete', resultBytes: 'AAAA' };
+    Object.assign(page as unknown as Record<string, unknown>, {
+      readBridgedSendRows: jest.fn(async (bytes = false) => {
+        calls.push(bytes);
+        return bytes ? [withBytes] : (rounds.shift() ?? []);
+      })
+    });
+    return { page, calls };
+  }
+
+  // On mobile the generating page drives the transaction loop; the reaper releases resultBytes 10 min after completion.
+  it('stays on the generating page through Unconfirmed until Completed, then reads the bytes once', async () => {
+    const { page, calls } = burnPage(ON_PAGE, [
+      [{ id: 'row-1', status: 1, stage: 'proving' }],
+      [{ id: 'row-1', status: 4, stage: 'submitting' }],
+      [{ id: 'row-1', status: 2, stage: 'complete' }]
+    ]);
+
+    const done = await page.waitForBurnCompleted('row-1', 60_000, 0);
+
+    expect(done.row.resultBytes).toBe('AAAA');
+    expect(done.stages.map(sample => sample.status)).toEqual([1, 4, 2]);
+    expect(calls).toEqual([false, false, false, true]);
+  });
+
+  it('fails a Failed row with the Guardian settle hint a 409 earns', async () => {
+    const { page } = burnPage(ON_PAGE, [
+      [{ id: 'row-1', status: 3, stage: 'submitting', rawError: 'HTTP 409 ConflictPendingDelta' }]
+    ]);
+
+    await expect(page.waitForBurnCompleted('row-1', 60_000, 0)).rejects.toThrow(
+      'the prior Guardian candidate had not settled'
+    );
+  });
+
+  it('fails when the page left the generating route before the row completed', async () => {
+    const { page } = burnPage('#/', [[{ id: 'row-1', status: 0 }]]);
+
+    await expect(page.waitForBurnCompleted('row-1', 1_000, 0)).rejects.toThrow(
+      'left the generating page for #/ before burn row row-1 completed'
+    );
+  });
+
+  it('asks a failed location read again instead of failing the burn', async () => {
+    let reads = 0;
+    const { page } = burnPage(async () => {
+      reads += 1;
+      if (reads === 1) throw new Error('inspector reattached');
+      return ON_PAGE;
+    }, [[{ id: 'row-1', status: 2, stage: 'complete' }]]);
+
+    await expect(page.waitForBurnCompleted('row-1', 60_000, 0)).resolves.toMatchObject({ row: { id: 'row-1' } });
+    expect(reads).toBe(2);
+  });
+});
+
+describe('IosWalletPage transaction details', () => {
+  const LAYER = '[data-page-layer="/history-details/row-1"]';
+
+  it('opens the details route and waits for the pill inside its own layer', async () => {
+    const page = pageWith(async () => null);
+    const navigateTo = jest.fn(async () => undefined);
+    const waitFor = jest.fn(async () => undefined);
+    Object.assign(page as unknown as Record<string, unknown>, { navigateTo, waitFor });
+
+    await page.openTransactionDetails('row-1');
+
+    expect(navigateTo).toHaveBeenCalledWith('/history-details/row-1');
+    expect(waitFor).toHaveBeenCalledWith(`${LAYER} [data-testid="history-status-pill"]`, { timeoutMs: 30_000 });
+  });
+
+  it('reads the pill and the Arc explorer links from the details layer only', async () => {
+    const bodies: string[] = [];
+    const view = { pill: 'Confirmed', arcTxLinks: ['https://explorer.testnet.arc.io/tx/0xde87'] };
+    const page = pageWith(async js => {
+      bodies.push(js);
+      return view;
+    });
+
+    await expect(page.transactionDetailsView('row-1')).resolves.toEqual(view);
+    expect(bodies[0]).toContain(`document.querySelector(${JSON.stringify(LAYER)})`);
+    expect(bodies[0]).toContain(JSON.stringify('https://explorer.testnet.arc.io/tx/'));
   });
 });
