@@ -5,6 +5,7 @@ import {
   vaultBalance,
   vaultBalanceByFaucetId,
   vaultBalanceOfCurrentAccount,
+  vaultReadingOfCurrentAccount,
   waitForVaultBalance,
   waitForVaultBalanceByFaucetId,
   waitForVaultBalanceOfCurrentAccount,
@@ -342,5 +343,80 @@ describe('current-account vault reads', () => {
     await expect(
       waitForVaultBalanceOfCurrentAccount(makePage(twoAccounts), 'fTST', 500_000_000n, { timeoutMs: 1_000 })
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('the vault a baseline reads', () => {
+  const store = {
+    currentAccount: { publicKey: 'acct1' },
+    balances: {
+      acct1: [
+        { tokenId: 'fTST', balance: 5, metadata: { symbol: 'TST', decimals: 8 } },
+        { tokenId: 'fNative', balance: 0, metadata: { symbol: 'MIDEN', decimals: 6 } }
+      ],
+      acct2: [{ tokenId: 'fTST', balance: 7, metadata: { symbol: 'TST', decimals: 8 } }]
+    },
+    assetsMetadata: {}
+  };
+  // The store and what the service worker last published beside it (sync-manager.ts:676-693).
+  function pagePublishing(published: unknown, state: unknown = store): Page {
+    return {
+      evaluate: async <Arg>(fn: (arg: Arg) => unknown, arg: Arg) => {
+        const previous = Reflect.get(globalThis, 'chrome');
+        const entries = published === undefined ? {} : { miden_sync_data: published };
+        Reflect.set(globalThis, 'chrome', { storage: { local: { get: async () => ({ ...entries }) } } });
+        Reflect.set(globalThis, '__TEST_STORE__', { getState: () => state });
+        try {
+          return await fn(arg);
+        } finally {
+          Reflect.set(globalThis, 'chrome', previous);
+          Reflect.deleteProperty(globalThis, '__TEST_STORE__');
+        }
+      }
+    } as unknown as Page;
+  }
+
+  it.each([
+    [1_791_650_000_123, 1_791_650_000_123],
+    [1_791_650_000, 1_791_650_000_000]
+  ])("reads the store's nonzero vault beside the last published sync stamped %p, in base units", async (stamp, ms) => {
+    const published = {
+      accountPublicKey: 'acct1',
+      syncedAt: stamp,
+      notes: [],
+      vaultAssets: [
+        { faucetId: 'fTST', amountBaseUnits: '500000000' },
+        { faucetId: 'fEmpty', amountBaseUnits: '0' }
+      ]
+    };
+    expect(await vaultReadingOfCurrentAccount(pagePublishing(published))).toEqual({
+      storeAccount: 'acct1',
+      store: { fTST: '500000000' },
+      sync: { account: 'acct1', syncedAtMs: ms, vault: { fTST: '500000000' } }
+    });
+  });
+
+  it("reads only the faucets it is given, from the store and the sync, another token's lossy row left alone", async () => {
+    const stranger = { tokenId: 'fStranger', balance: 1234.56789012, metadata: { symbol: 'ODD', decimals: 8 } };
+    const state = { ...store, balances: { ...store.balances, acct1: [...store.balances.acct1, stranger] } };
+    const published = {
+      accountPublicKey: 'acct1',
+      syncedAt: 1_791_650_000_123,
+      vaultAssets: [
+        { faucetId: 'fTST', amountBaseUnits: '500000000' },
+        { faucetId: 'fStranger', amountBaseUnits: '123456789012' }
+      ]
+    };
+    expect(await vaultReadingOfCurrentAccount(pagePublishing(published, state), ['fTST', 'fNative'])).toEqual({
+      storeAccount: 'acct1',
+      store: { fTST: '500000000' },
+      sync: { account: 'acct1', syncedAtMs: 1_791_650_000_123, vault: { fTST: '500000000' } }
+    });
+  });
+
+  it('reads no sync when none was published, or one with no stamp', async () => {
+    expect((await vaultReadingOfCurrentAccount(pagePublishing(undefined))).sync).toBeNull();
+    const unstamped = { accountPublicKey: 'acct1', vaultAssets: [{ faucetId: 'fTST', amountBaseUnits: '1' }] };
+    expect((await vaultReadingOfCurrentAccount(pagePublishing(unstamped))).sync).toBeNull();
   });
 });

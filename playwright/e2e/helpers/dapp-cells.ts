@@ -50,8 +50,13 @@ export interface FailureEvidence {
   staleConsumeExecuted?: boolean;
   /** A request made as a session's account while another account was current opened a popup (Q10, K9). */
   nonCurrentPrompted?: boolean;
-  /** Such a read was served a vault other than the session account's own: a leak, never K9. */
-  nonCurrentReadLeaked?: boolean;
+  /** Such a request left a row that ran, for any account: whatever the answer said, it was not refused (K9). */
+  nonCurrentRowRan?: boolean;
+  /**
+   * Every such read was refused before any popup with NOT_GRANTED or, after one, served its session account's own
+   * vault (`nonCurrentReadEvidence`); a leak, a failed approval or a read served with no popup is new, never K9.
+   */
+  nonCurrentReadsOwnOrRefused?: boolean;
   crossOriginWaitServed?: boolean;
   /** N4 listed every imported note by its own note id, then missed one asked by the id its import returned (K10). */
   returnedIdUnlisted?: boolean;
@@ -106,8 +111,8 @@ export class CellDeadlineExceeded extends Error {
  */
 export class InfrastructureFault extends Error {
   readonly abortsLeg: boolean;
-  constructor(message: string, options: { abortsLeg?: boolean } = {}) {
-    super(message);
+  constructor(message: string, options: { abortsLeg?: boolean; cause?: unknown } = {}) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.name = 'InfrastructureFault';
     this.abortsLeg = options.abortsLeg ?? true;
   }
@@ -199,23 +204,30 @@ export function describeFailure(error: unknown): string {
   return text.length > 2_000 ? `${text.slice(0, 2_000)}...` : text;
 }
 
+// The CLI's mint giving up after its own retries because the network's remote prover never answered (miden-cli.ts:779,
+// ledger 2026-10-10T09:48Z). Only the CLI writes that prefix, so no wallet or page failure can match.
+const CLI_PROVER_TIMEOUT = /^Mint failed after retries:[\s\S]*transaction proving failed[\s\S]*Timeout expired/;
+
 // The first link, the failure itself or down its cause chain, that makes it the environment's decides how far it
-// reaches: an InfrastructureFault carries its own scope, and a failure that names the public faucet stops the leg.
+// reaches: an InfrastructureFault carries its own scope, a failure that names the public faucet stops the leg, and the
+// CLI's prover timeout is the journey's alone.
 function infrastructureScope(error: unknown): 'leg' | 'cell' | undefined {
   // Bounded, so a cause cycle cannot spin.
   let link: unknown = error;
   for (let depth = 0; depth < 8 && link !== undefined && link !== null; depth += 1) {
     if (link instanceof InfrastructureFault) return link.abortsLeg ? 'leg' : 'cell';
     if (/public faucet/i.test(describeFailure(link))) return 'leg';
+    if (link instanceof Error && CLI_PROVER_TIMEOUT.test(link.message)) return 'cell';
     link = link instanceof Error ? link.cause : undefined;
   }
   return undefined;
 }
 
 /**
- * Whether a failure is the environment's rather than the wallet's: an InfrastructureFault, or a failure that names the
- * public faucet, itself or anywhere down its cause chain. Every public-faucet helper rejects with a message that begins
- * "Public faucet" (`PublicFaucetError`, public-faucet.ts), and the CLI names the faucet a funding note came from.
+ * Whether a failure is the environment's rather than the wallet's: an InfrastructureFault, a failure that names the
+ * public faucet, or the CLI's mint on the remote prover's timeout, itself or anywhere down its cause chain. Every
+ * public-faucet helper rejects with a message that begins "Public faucet" (`PublicFaucetError`, public-faucet.ts), and
+ * the CLI names the faucet a funding note came from.
  */
 export function isInfrastructureFailure(error: unknown): boolean {
   return infrastructureScope(error) !== undefined;
@@ -223,7 +235,7 @@ export function isInfrastructureFailure(error: unknown): boolean {
 
 /**
  * Whether such a failure writes INFRA_ABORT: a public-faucet failure or a leg-scoped fault does, a failed node request
- * (`abortsLeg: false`) never does.
+ * (`abortsLeg: false`) or the CLI's prover timeout never does.
  */
 export function abortsLeg(error: unknown): boolean {
   return infrastructureScope(error) === 'leg';
