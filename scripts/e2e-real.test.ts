@@ -16,20 +16,39 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { getAddress } from 'viem';
+import { encodeFunctionData, getAddress, parseAbi } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 
 import {
   AGGLAYER_MIDEN_NETWORK_ID,
+  ARC_CIRCLE_DOMAIN,
+  ARC_TESTNET_CHAIN_ID,
+  ARC_USDC,
+  ARC_XRESERVE,
+  DEFAULT_ARC_RPCS,
+  GATEWAY_MINTER,
   SUITES,
+  USDCX_DECIMALS,
+  USDCX_FUNDED_KEY_FLOOR_UNITS,
+  USDCX_GRANT_FLOOR_UNITS,
+  USDCX_REMOTE_DOMAIN,
+  XRESERVE_API_TESTNET,
   agglayerExitFilingProblem,
+  arcRpc,
+  arcRpcEndpoints,
+  circleGet,
   composeGrep,
   pricedAmountFrom,
   probeAgglayerIndexer,
   probeConfigDocument,
   resolveOperatorInput,
   run,
-  suiteRetries
+  suiteRetries,
+  usdcxGrantProblem
 } from './e2e-real.mjs';
+import * as harness from '../playwright/e2e/helpers/usdcx-constants';
+import * as wallet from '../src/lib/usdcx/constant';
+import { ARC_TESTNET } from '../src/lib/walletconnect/config';
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
@@ -1176,6 +1195,355 @@ describe('the usdcx refusals stay out of the other entry points', () => {
       PUBLISHED,
       `${INDEXER}/bridge?net_id=${AGGLAYER_MIDEN_NETWORK_ID}&deposit_cnt=0`
     ]);
+    expect(res.status).toBe(0);
+  }, 35_000);
+});
+
+describe('the bounded rate-limit retry on Arc and Circle calls', () => {
+  const reply = (status: number, body: unknown, headers: Record<string, string> = {}) => ({
+    status,
+    headers: { get: (name: string) => headers[name.toLowerCase()] ?? null },
+    text: async () => JSON.stringify(body)
+  });
+  const answer = (result: string) => reply(200, { jsonrpc: '2.0', id: 1, result });
+  const refusal = (code: number, message: string) => reply(200, { jsonrpc: '2.0', id: 1, error: { code, message } });
+  const ARC = 'https://arc-rpc.example';
+
+  it('asks again after 429 and 429, waiting what each Retry-After named up to 10 s, and takes the third answer', async () => {
+    const fetchImpl = jest
+      .fn()
+      .mockResolvedValueOnce(reply(429, 'Too Many Requests', { 'retry-after': '2' }))
+      .mockResolvedValueOnce(reply(429, 'Too Many Requests', { 'retry-after': '30' }))
+      .mockResolvedValueOnce(answer('0x4cef52'));
+    const sleep = jest.fn().mockResolvedValue(undefined);
+
+    await expect(arcRpc(ARC, 'eth_chainId', [], { fetchImpl, sleep })).resolves.toBe('0x4cef52');
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(sleep.mock.calls).toEqual([[2_000], [10_000]]);
+  });
+
+  it('asks again after a JSON-RPC -32005, waiting 1 s when nothing names a wait', async () => {
+    const fetchImpl = jest
+      .fn()
+      .mockResolvedValueOnce(refusal(-32005, 'limit exceeded'))
+      .mockResolvedValueOnce(answer('0x1'));
+    const sleep = jest.fn().mockResolvedValue(undefined);
+
+    await expect(arcRpc(ARC, 'eth_blockNumber', [], { fetchImpl, sleep })).resolves.toBe('0x1');
+    expect(sleep.mock.calls).toEqual([[1_000]]);
+  });
+
+  it('fails a -32012 at once: only a rate limit is asked again', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(refusal(-32012, 'credits exhausted'));
+    const sleep = jest.fn().mockResolvedValue(undefined);
+
+    await expect(arcRpc(ARC, 'eth_call', [], { fetchImpl, sleep })).rejects.toMatchObject({
+      code: -32012,
+      message: 'eth_call: credits exhausted'
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it('gives up after the third retry', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(reply(429, 'Too Many Requests', { 'retry-after': '1' }));
+    const sleep = jest.fn().mockResolvedValue(undefined);
+
+    await expect(arcRpc(ARC, 'eth_chainId', [], { fetchImpl, sleep })).rejects.toMatchObject({ status: 429 });
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    expect(sleep).toHaveBeenCalledTimes(3);
+  });
+
+  it('asks Circle again after a 429', async () => {
+    const fetchImpl = jest
+      .fn()
+      .mockResolvedValueOnce(reply(429, 'slow down'))
+      .mockResolvedValueOnce(reply(200, { remoteDomains: [] }));
+    const sleep = jest.fn().mockResolvedValue(undefined);
+
+    await expect(circleGet('https://circle.example/v1/info', { fetchImpl, sleep })).resolves.toMatchObject({
+      status: 200,
+      body: { remoteDomains: [] }
+    });
+    expect(sleep.mock.calls).toEqual([[1_000]]);
+  });
+});
+
+describe('arcRpcEndpoints', () => {
+  it("asks drpc, then QuickNode, then arc.io, the wallet's own Arc RPC, last", () => {
+    expect(arcRpcEndpoints(undefined)).toEqual([
+      'https://rpc.drpc.testnet.arc.io',
+      'https://rpc.quicknode.testnet.arc.io',
+      'https://rpc.testnet.arc.io'
+    ]);
+  });
+
+  it('asks an operator endpoint first', () => {
+    expect(arcRpcEndpoints('https://arc-rpc.example')).toEqual(['https://arc-rpc.example', ...DEFAULT_ARC_RPCS]);
+  });
+
+  it('asks a default the operator named once, first', () => {
+    expect(arcRpcEndpoints('https://rpc.testnet.arc.io')).toEqual([
+      'https://rpc.testnet.arc.io',
+      'https://rpc.drpc.testnet.arc.io',
+      'https://rpc.quicknode.testnet.arc.io'
+    ]);
+  });
+});
+
+describe('usdcxGrantProblem', () => {
+  // The live testnet faucet's get_metadata, 2026-10-10.
+  const LIVE = {
+    version: '0.17.1',
+    decimals: 6,
+    base_amount: 100000000,
+    token_amounts: [1, 10, 100],
+    balance: 999444411348973
+  };
+
+  it('passes the live faucet, whose grant is 100 USDCx', () => {
+    expect(usdcxGrantProblem(LIVE, 100_000_000n)).toBeUndefined();
+  });
+
+  it('passes a grant of exactly 11 USDCx: a 10 USDCx burn and the 1 USDCx its fees may take', () => {
+    expect(usdcxGrantProblem(LIVE, 11_000_000n)).toBeUndefined();
+  });
+
+  it('fails a grant below 11 USDCx', () => {
+    expect(usdcxGrantProblem(LIVE, 10_999_999n)).toContain('below the 11 USDCx');
+  });
+
+  it('fails a faucet that is not on six decimals', () => {
+    expect(usdcxGrantProblem({ ...LIVE, decimals: 18 }, 100_000_000n)).toContain("serves 18 decimals, not USDCx's 6");
+  });
+
+  it('fails a faucet holding less than one grant', () => {
+    expect(usdcxGrantProblem({ ...LIVE, balance: 50_000_000 }, 100_000_000n)).toContain('less than one grant');
+  });
+
+  it('fails a faucet that reports no balance', () => {
+    const { balance: _dropped, ...unreported } = LIVE;
+    expect(usdcxGrantProblem(unreported, 100_000_000n)).toBe('reports no readable balance');
+  });
+});
+
+// The runner reads no TypeScript at import, so it keeps copies; each must equal what the specs and the wallet use.
+// The wallet holds no GatewayMinter and no harness floors, so the harness stands in twice for those rows.
+describe('the usdcx constants are the ones the harness and the wallet use', () => {
+  it.each([
+    ['ARC_TESTNET_CHAIN_ID', ARC_TESTNET_CHAIN_ID, harness.ARC_CHAIN_ID, ARC_TESTNET.id],
+    ['ARC_XRESERVE', ARC_XRESERVE, harness.ARC_XRESERVE, wallet.XRESERVE_ADDRESS.get(ARC_TESTNET.id)],
+    ['ARC_USDC', ARC_USDC, harness.ARC_USDC, wallet.CIRCLE_USDC_ADDRESS.get(ARC_TESTNET.id)],
+    ['ARC_CIRCLE_DOMAIN', ARC_CIRCLE_DOMAIN, harness.ARC_CIRCLE_DOMAIN, wallet.CIRCLE_DOMAIN.get(ARC_TESTNET.id)],
+    ['USDCX_REMOTE_DOMAIN', USDCX_REMOTE_DOMAIN, harness.USDCX_REMOTE_DOMAIN, wallet.USDCX_REMOTE_DOMAIN],
+    [
+      'XRESERVE_API_TESTNET',
+      XRESERVE_API_TESTNET,
+      harness.ARC_ATTESTATION_API,
+      wallet.XRESERVE_ATTESTATION_API_TESTNET
+    ],
+    ['USDCX_DECIMALS', USDCX_DECIMALS, wallet.USDCX_DECIMALS, wallet.USDCX_DECIMALS],
+    ['GATEWAY_MINTER', GATEWAY_MINTER, harness.GATEWAY_MINTER, harness.GATEWAY_MINTER],
+    [
+      'USDCX_GRANT_FLOOR_UNITS',
+      USDCX_GRANT_FLOOR_UNITS,
+      harness.BURN_UNITS + harness.GRANT_MARGIN_UNITS,
+      harness.BURN_UNITS + harness.GRANT_MARGIN_UNITS
+    ],
+    [
+      'USDCX_FUNDED_KEY_FLOOR_UNITS',
+      USDCX_FUNDED_KEY_FLOOR_UNITS,
+      harness.DEPOSIT_UNITS + harness.GAS_RESERVE_UNITS,
+      harness.DEPOSIT_UNITS + harness.GAS_RESERVE_UNITS
+    ]
+  ])('%s matches', (_name, runner, harnessValue, walletValue) => {
+    expect([harnessValue, walletValue]).toEqual([runner, runner]);
+  });
+
+  it('tries the same Arc RPCs in the same order as the harness', () => {
+    expect(DEFAULT_ARC_RPCS).toEqual([...harness.DEFAULT_ARC_RPCS]);
+  });
+});
+
+describe('the usdcx preflight', () => {
+  // Any valid secp256k1 scalar: the stub answers every read, so nothing is ever signed or sent.
+  const ARC_KEY: `0x${string}` = `0x${'11'.repeat(32)}`;
+  const KEYED = { E2E_ARC_PRIVATE_KEY: ARC_KEY };
+  const VIEWS = parseAbi([
+    'function paused() view returns (bool)',
+    'function domainDepositsPaused(uint32) view returns (bool)',
+    'function domainWithdrawalsPaused(uint32) view returns (bool)',
+    'function getRemoteToken(uint32, address) view returns (bytes32)',
+    'function gatewayMinter() view returns (address)',
+    'function isRemoteDomainRegistered(uint32) view returns (bool)',
+    'function balanceOf(address) view returns (uint256)'
+  ]);
+  // How the stub logs an eth_call, so the runner's calldata is checked against viem's ABI encoding.
+  const call = (to: string, data: string) => `{"to":"${to}","data":"${data}"}`;
+  const XRESERVE_CALLS = {
+    registered: call(
+      ARC_XRESERVE,
+      encodeFunctionData({ abi: VIEWS, functionName: 'isRemoteDomainRegistered', args: [10007] })
+    ),
+    remoteToken: call(
+      ARC_XRESERVE,
+      encodeFunctionData({
+        abi: VIEWS,
+        functionName: 'getRemoteToken',
+        args: [10007, '0x3600000000000000000000000000000000000000']
+      })
+    ),
+    paused: call(ARC_XRESERVE, encodeFunctionData({ abi: VIEWS, functionName: 'paused' })),
+    depositsPaused: call(
+      ARC_XRESERVE,
+      encodeFunctionData({ abi: VIEWS, functionName: 'domainDepositsPaused', args: [10007] })
+    ),
+    withdrawalsPaused: call(
+      ARC_XRESERVE,
+      encodeFunctionData({ abi: VIEWS, functionName: 'domainWithdrawalsPaused', args: [10007] })
+    ),
+    gatewayMinter: call(ARC_XRESERVE, encodeFunctionData({ abi: VIEWS, functionName: 'gatewayMinter' }))
+  };
+  const BALANCE_OF = '"data":"0x70a08231';
+  const missing = (requests: string, expected: string[]) => expected.filter(request => !requests.includes(request));
+  const failedChecks = (output: string) =>
+    /✗ preflight failed \(\d+\/\d+\): ([^\n]*)/.exec(output)?.[1].split(', ') ?? [];
+
+  it('asks usdcx every Arc, Circle, Guardian and faucet question, the payout ones included', () => {
+    const res = preflight('usdcx');
+    expect(res.output).toContain('✓ preflight passed (11 checks)');
+    expect(res.status).toBe(0);
+    expect(
+      missing(res.requests, [
+        'https://rpc.drpc.testnet.arc.io eth_chainId []',
+        'https://rpc.drpc.testnet.arc.io eth_sendRawTransaction ["0x00"]',
+        `eth_getCode ["${ARC_XRESERVE}","latest"]`,
+        ...Object.values(XRESERVE_CALLS),
+        `eth_getCode ["${GATEWAY_MINTER}","latest"]`,
+        `${XRESERVE_API_TESTNET}/v1/info`,
+        'https://guardian.openzeppelin.com/status',
+        'https://guardian.openzeppelin.com/pubkey?scheme=ecdsa',
+        'https://faucet-api.testnet.miden.io/get_metadata',
+        'native asset https://rpc.testnet.miden.io'
+      ])
+    ).toEqual([]);
+    expect(res.requests).not.toContain(BALANCE_OF);
+    expect(res.requests).not.toContain('SPAWN');
+  }, 35_000);
+
+  it('asks usdcx-in for the funded key and no payout question, printing its address and never the key', () => {
+    const { address } = privateKeyToAccount(ARC_KEY);
+    const res = preflight('usdcx-in', DOCUMENT, KEYED);
+    expect(res.output).toContain('✓ preflight passed (10 checks)');
+    expect(res.status).toBe(0);
+    expect(res.requests).toContain(
+      call(ARC_USDC, encodeFunctionData({ abi: VIEWS, functionName: 'balanceOf', args: [address] }))
+    );
+    expect(res.requests).not.toContain(XRESERVE_CALLS.gatewayMinter);
+    expect(res.requests).not.toContain(XRESERVE_CALLS.withdrawalsPaused);
+    expect(res.output).toContain(address);
+    expect(res.output).not.toContain(ARC_KEY.slice(2));
+  }, 35_000);
+
+  it('asks usdcx-burn neither a payout nor a funded-key question', () => {
+    const res = preflight('usdcx-burn');
+    expect(res.output).toContain('✓ preflight passed (10 checks)');
+    expect(res.status).toBe(0);
+    expect(res.requests).toContain('https://faucet-api.testnet.miden.io/get_metadata');
+    expect(res.requests).not.toContain(XRESERVE_CALLS.gatewayMinter);
+    expect(res.requests).not.toContain(XRESERVE_CALLS.withdrawalsPaused);
+    expect(res.requests).not.toContain(BALANCE_OF);
+  }, 35_000);
+
+  it.each([
+    ['Arc RPC', 'usdcx', { arcChainId: '0xaa36a7' }],
+    [
+      'Arc write endpoint',
+      'usdcx',
+      { rawTransaction: { code: -32601, message: 'the method eth_sendRawTransaction does not exist/is not available' } }
+    ],
+    ['xReserve', 'usdcx', { registered: false }],
+    ['xReserve pause', 'usdcx', { depositsPaused: true }],
+    ['Circle xReserve API', 'usdcx', { circleInfo: { sourceDomains: [], remoteDomains: [] } }],
+    ['USDCx native asset', 'usdcx', { nativeAsset: { id: '0x01', bytes32: `0x${'0'.repeat(64)}` } }],
+    [
+      'Guardian identity',
+      'usdcx',
+      { guardianStatus: { status: 'ok', version: '0.18.0', git_commit: 'fab5f5cb2c3f', environment: 'devnet' } }
+    ],
+    // base_amount stays 100 USDCx: the probe judges what the harness asks for, the largest token_amounts entry.
+    [
+      'USDCx faucet grant',
+      'usdcx-burn',
+      {
+        faucet: {
+          version: 'stub',
+          decimals: 6,
+          base_amount: 100000000,
+          token_amounts: [1, 10],
+          balance: 999444411348973
+        }
+      }
+    ],
+    ['Gateway minter', 'usdcx', { gatewayMinter: `0x${'22'.repeat(20)}` }],
+    ['Arc funded key', 'usdcx-in', { usdcBalance: '1049999' }]
+  ])(
+    'fails %s alone on --suite %s when its answer is wrong',
+    (label, suite, answers) => {
+      const res = preflight(suite, DOCUMENT, KEYED, answers);
+      expect(failedChecks(res.output)).toEqual([label]);
+      expect(res.status).toBe(1);
+      expect(res.requests).not.toContain('SPAWN');
+    },
+    35_000
+  );
+
+  it.each([
+    ['usdcx', ['xReserve pause']],
+    ['usdcx-in', []],
+    ['usdcx-burn', []]
+  ])(
+    'on paused withdrawals --suite %s fails %j: only the payout leg withdraws',
+    (suite, failed) => {
+      const res = preflight(suite, DOCUMENT, KEYED, { withdrawalsPaused: true });
+      expect(failedChecks(res.output)).toEqual(failed);
+      expect(res.status).toBe(failed.length === 0 ? 0 : 1);
+    },
+    35_000
+  );
+
+  it('passes with drpc down, asking QuickNode everything after the chain checks', () => {
+    const res = preflight('usdcx', DOCUMENT, {}, { arcDown: ['rpc.drpc.testnet.arc.io'] });
+    expect(res.status).toBe(0);
+    expect(res.requests).toContain('https://rpc.quicknode.testnet.arc.io eth_sendRawTransaction ["0x00"]');
+    expect(res.requests).not.toContain('https://rpc.drpc.testnet.arc.io eth_sendRawTransaction');
+  }, 35_000);
+
+  it('asks a rate-limited endpoint again: 429, 429, then the answer', () => {
+    const res = preflight('usdcx', DOCUMENT, {}, { rateLimited: { eth_chainId: 2 } });
+    const asked = res.requests.split('\n').filter(line => line === 'https://rpc.drpc.testnet.arc.io eth_chainId []');
+    expect(asked).toHaveLength(3);
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  it('tries --arc-rpc first and never prints its path', () => {
+    const res = stubbed(
+      ['--suite', 'usdcx', '--arc-rpc', 'https://arc-rpc.example/secret-token', '--preflight-only'],
+      DOCUMENT
+    );
+    const arcCalls = res.requests.split('\n').filter(line => line.includes(' eth_'));
+    expect(arcCalls[0]).toBe('https://arc-rpc.example/secret-token eth_chainId []');
+    expect(res.requests).toContain('https://arc-rpc.example/secret-token eth_sendRawTransaction ["0x00"]');
+    expect(res.output).toContain(
+      'Arc RPC  arc-rpc.example, rpc.drpc.testnet.arc.io, rpc.quicknode.testnet.arc.io, rpc.testnet.arc.io'
+    );
+    expect(res.output).not.toContain('secret-token');
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  // run() unsets it for every usdcx child but usdcx-in's test, so nothing on usdcx reads it.
+  it('lets usdcx run with a malformed E2E_ARC_PRIVATE_KEY exported', () => {
+    const res = preflight('usdcx', DOCUMENT, { E2E_ARC_PRIVATE_KEY: '0x01' });
     expect(res.status).toBe(0);
   }, 35_000);
 });

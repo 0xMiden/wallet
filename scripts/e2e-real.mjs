@@ -61,6 +61,40 @@ const MIDEN_FAUCET_API = {
   devnet: 'https://faucet-api.devnet.miden.io'
 };
 
+/**
+ * Arc Testnet and Circle's xReserve as the usdcx suites use them. The runner reads no TypeScript at import time, so
+ * these copy src/lib/usdcx/constant.ts and playwright/e2e/helpers/usdcx-constants.ts; e2e-real.test.ts pins each copy
+ * to both.
+ */
+export const ARC_TESTNET_CHAIN_ID = 5042002;
+export const ARC_XRESERVE = '0x008888878f94C0d87defdf0B07f46B93C1934442';
+export const ARC_USDC = '0x3600000000000000000000000000000000000000';
+export const ARC_CIRCLE_DOMAIN = 26;
+export const USDCX_REMOTE_DOMAIN = 10007;
+export const USDCX_DECIMALS = 6;
+export const XRESERVE_API_TESTNET = 'https://xreserve-api-testnet.circle.com';
+/** Emits the AttestationUsed log the round trip's payout gate reads. */
+export const GATEWAY_MINTER = '0x0022222ABE238Cc2C7Bb1f21003F0a260052475B';
+/** arc.io last: it is the wallet's own Arc RPC (the burn snapshot and the payout confirmation), so the harness spares it. */
+export const DEFAULT_ARC_RPCS = [
+  'https://rpc.drpc.testnet.arc.io',
+  'https://rpc.quicknode.testnet.arc.io',
+  'https://rpc.testnet.arc.io'
+];
+/** A 10 USDCx burn plus the 1 USDCx its fees may take: BURN_UNITS + GRANT_MARGIN_UNITS. */
+export const USDCX_GRANT_FLOOR_UNITS = 11_000_000n;
+/** One 1 USDC deposit plus its Arc gas: DEPOSIT_UNITS + GAS_RESERVE_UNITS. */
+export const USDCX_FUNDED_KEY_FLOOR_UNITS = 1_050_000n;
+const ARC_SELECTORS = {
+  paused: '0x5c975abb',
+  domainDepositsPaused: '0x4a1b13ea',
+  domainWithdrawalsPaused: '0xe9cafc83',
+  getRemoteToken: '0xb3467549',
+  gatewayMinter: '0x0f41efea',
+  isRemoteDomainRegistered: '0xf54a69c3',
+  balanceOf: '0x70a08231'
+};
+
 export const SUITES = {
   'bridge-out-epoch': {
     config: 'playwright.bridge.config.ts',
@@ -433,8 +467,8 @@ function note(label, detail) {
  */
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 miden-wallet-e2e';
 
-async function getJson(url, init = {}, timeoutMs = 20_000) {
-  const res = await fetch(url, {
+async function getJson(url, init = {}, timeoutMs = 20_000, fetchImpl = fetch) {
+  const res = await fetchImpl(url, {
     ...init,
     headers: { 'user-agent': UA, ...(init.headers ?? {}) },
     signal: AbortSignal.timeout(timeoutMs)
@@ -446,21 +480,36 @@ async function getJson(url, init = {}, timeoutMs = 20_000) {
   } catch {
     body = text.slice(0, 200);
   }
-  return { status: res.status, body };
+  return { status: res.status, body, headers: res.headers };
 }
 
-async function rpc(url, method, params, timeoutMs = 20_000) {
-  const { status, body } = await getJson(
+/** Retry-After in milliseconds when it is a whole number of seconds; a date, or none, is undefined. */
+function retryAfterMs(headers) {
+  const value = headers?.get?.('retry-after')?.trim();
+  return value !== undefined && /^\d+$/.test(value) ? Number(value) * 1_000 : undefined;
+}
+
+async function rpc(url, method, params, { timeoutMs = 20_000, fetchImpl } = {}) {
+  const { status, body, headers } = await getJson(
     url,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
     },
-    timeoutMs
+    timeoutMs,
+    fetchImpl
   );
-  if (status !== 200) throw new Error(`${method}: HTTP ${status}`);
-  if (body?.error) throw new Error(`${method}: ${body.error.message ?? JSON.stringify(body.error)}`);
+  // The status, the JSON-RPC code and Retry-After ride on the error, so withRateLimitRetry can tell a rate limit
+  // from a refusal.
+  if (status !== 200) {
+    throw Object.assign(new Error(`${method}: HTTP ${status}`), { status, retryAfterMs: retryAfterMs(headers) });
+  }
+  if (body?.error) {
+    throw Object.assign(new Error(`${method}: ${body.error.message ?? JSON.stringify(body.error)}`), {
+      code: body.error.code
+    });
+  }
   // An absent `result` is not an empty answer, it is a reply this code could not
   // read - a proxy error page, a rate-limit body. Returning undefined let
   // probeSepoliaContracts measure `String(undefined)` as 3.5 bytes of contract
@@ -469,6 +518,46 @@ async function rpc(url, method, params, timeoutMs = 20_000) {
     throw new Error(`${method}: reply carried no result`);
   }
   return body.result;
+}
+
+const RATE_LIMIT_RETRIES = 3;
+const RETRY_AFTER_CAP_MS = 10_000;
+const sleepFor = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * `call`, asked again at most three times when it fails on a rate limit (HTTP 429 or JSON-RPC -32005), each time
+ * after the wait the limit named, capped at 10 s, else 1 s. arc.io and Circle answer intermittent 429s a preflight
+ * must not read as an outage; any other failure is thrown at once, so a real refusal costs no wait.
+ */
+async function withRateLimitRetry(call, { sleep = sleepFor } = {}) {
+  for (let retry = 0; ; retry++) {
+    try {
+      return await call();
+    } catch (err) {
+      const limited = err?.status === 429 || err?.code === -32005;
+      if (!limited || retry >= RATE_LIMIT_RETRIES) throw err;
+      await sleep(Math.min(err.retryAfterMs ?? 1_000, RETRY_AFTER_CAP_MS));
+    }
+  }
+}
+
+/** One Arc JSON-RPC call through the bounded rate-limit retry. Exported for test. */
+export function arcRpc(url, method, params, deps = {}) {
+  return withRateLimitRetry(() => rpc(url, method, params, deps), deps);
+}
+
+/** A Circle GET through the bounded rate-limit retry; a 429 is thrown so the retry sees it. Exported for test. */
+export function circleGet(url, deps = {}) {
+  return withRateLimitRetry(async () => {
+    const reply = await getJson(url, {}, 20_000, deps.fetchImpl);
+    if (reply.status === 429) {
+      throw Object.assign(new Error(`${url} answered HTTP 429`), {
+        status: 429,
+        retryAfterMs: retryAfterMs(reply.headers)
+      });
+    }
+    return reply;
+  }, deps);
 }
 
 // ── config document ─────────────────────────────────────────────────────────
@@ -507,27 +596,38 @@ function configDocumentUrl(network) {
 }
 
 /**
- * The document as the wallet's own parser reads it (src/lib/remote-config/schema.ts), or null where the wallet refuses
- * it, so the preflight never judges a document by rules of its own. The parser is TypeScript, so a child process runs
- * it through ts-node, transpiling only.
+ * Run `script` in a child under ts-node, transpiling only, so the preflight reads the TypeScript the wallet and the
+ * harness ship rather than a copy kept here. Returns its stdout; throws with the first line it wrote to stderr.
  */
-function parseLikeTheWallet(body, network, allowLocalHttp) {
-  const res = spawnSync(process.execPath, ['-r', 'ts-node/register', '-e', PARSE_SCRIPT], {
+function tsNodeChild(script, { input, args = [], timeoutMs = 60_000 } = {}) {
+  const res = spawnSync(process.execPath, ['-r', 'ts-node/register', '-e', script, ...args], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
-    input: JSON.stringify({ body, network, allowLocalHttp }),
+    input,
     env: {
       ...process.env,
       NODE_PATH: 'src',
       TS_NODE_TRANSPILE_ONLY: '1',
       TS_NODE_COMPILER_OPTIONS: '{"module":"commonjs","moduleResolution":"node"}'
     },
-    timeout: 60_000
+    timeout: timeoutMs
   });
-  if (res.status !== 0) {
-    throw new Error(`could not be parsed: ${res.error?.message ?? res.stderr.trim().split('\n')[0]}`);
+  if (res.status !== 0) throw new Error(res.error?.message ?? res.stderr.trim().split('\n')[0]);
+  return res.stdout;
+}
+
+/**
+ * The document as the wallet's own parser reads it (src/lib/remote-config/schema.ts), or null where the wallet refuses
+ * it, so the preflight never judges a document by rules of its own.
+ */
+function parseLikeTheWallet(body, network, allowLocalHttp) {
+  let stdout;
+  try {
+    stdout = tsNodeChild(PARSE_SCRIPT, { input: JSON.stringify({ body, network, allowLocalHttp }) });
+  } catch (err) {
+    throw new Error(`could not be parsed: ${err.message}`);
   }
-  return JSON.parse(res.stdout);
+  return JSON.parse(stdout);
 }
 
 /**
@@ -610,18 +710,21 @@ async function probeMidenNode(network) {
   }
 }
 
-async function probeMidenFaucet(network) {
+async function probeMidenFaucet(network, { grant = false } = {}) {
   const base = MIDEN_FAUCET_API[network];
   if (!base) return record(false, 'Miden faucet API', `no endpoint known for network "${network}"`);
+  let metadata;
   try {
     const { status, body } = await getJson(`${base}/get_metadata`);
     if (status !== 200) return record(false, 'Miden faucet API', `${base} answered HTTP ${status}`);
-    // Every fresh E2E account needs a native-MIDEN grant before its first fee-charged
-    // transaction, so a dead faucet fails the run at funding, not at the assertion.
-    return record(true, 'Miden faucet API', `node ${body.version}, base_amount ${body.base_amount}`);
+    metadata = body;
   } catch (err) {
     return record(false, 'Miden faucet API', `${base} unreachable: ${err.message}`);
   }
+  // Every fresh E2E account takes a grant of the chain's native asset (USDCx on testnet) before its first
+  // fee-charged transaction, so a dead faucet fails the run at funding, not at the assertion.
+  record(true, 'Miden faucet API', `node ${metadata.version}, base_amount ${metadata.base_amount}`);
+  return grant ? probeUsdcxGrant(metadata) : true;
 }
 
 async function probeEpochHealth(epochUrl) {
@@ -832,6 +935,321 @@ async function probeGuardian(network) {
   } catch (err) {
     return record(false, 'Guardian', `${url} unreachable: ${err.message}`);
   }
+}
+
+// ── usdcx ───────────────────────────────────────────────────────────────────
+
+const endpointHost = url => new URL(url).host;
+
+/** The Arc RPCs a usdcx spec reads and writes through, in order, an operator's first. Exported for test. */
+export function arcRpcEndpoints(override) {
+  return override ? [override, ...DEFAULT_ARC_RPCS.filter(url => url !== override)] : [...DEFAULT_ARC_RPCS];
+}
+
+/** Calldata of `selector` over static arguments: a number as a uint, a 0x address, each left-padded to a word. */
+function calldata(selector, ...args) {
+  const words = args.map(arg => (typeof arg === 'number' ? arg.toString(16) : arg.slice(2).toLowerCase()));
+  return selector + words.map(word => word.padStart(64, '0')).join('');
+}
+
+/** The one word an Arc view returns, lowercase. A revert's `0x` or a short answer throws, naming the view. */
+async function arcView(url, to, data, name) {
+  const word = await arcRpc(url, 'eth_call', [{ to, data }, 'latest']);
+  if (typeof word !== 'string' || !/^0x[0-9a-f]{64}$/i.test(word)) {
+    throw new Error(`${name} answered ${String(word).slice(0, 20)}, not one word`);
+  }
+  return word.toLowerCase();
+}
+
+const codeBytes = code => Math.max(0, (String(code).length - 2) / 2);
+
+/**
+ * Every Arc RPC a spec may use, by chain id and head. The specs fail over between them, so one healthy endpoint
+ * passes; the first is returned, and every later Arc probe asks it alone, as one spec read cycle does.
+ */
+async function probeArcRpc(endpoints) {
+  const states = [];
+  let healthy;
+  for (const url of endpoints) {
+    const host = endpointHost(url);
+    try {
+      const chainId = Number(await arcRpc(url, 'eth_chainId', []));
+      if (chainId !== ARC_TESTNET_CHAIN_ID) {
+        states.push(`${host} reports chain ${chainId}`);
+        continue;
+      }
+      states.push(`${host} #${Number(await arcRpc(url, 'eth_blockNumber', []))}`);
+      if (healthy === undefined) healthy = url;
+    } catch (err) {
+      states.push(`${host} ${err.message}`);
+    }
+  }
+  const detail =
+    healthy === undefined
+      ? `no endpoint serves chain ${ARC_TESTNET_CHAIN_ID}: ${states.join('; ')}`
+      : states.join('; ');
+  record(healthy !== undefined, 'Arc RPC', detail);
+  return healthy;
+}
+
+/**
+ * The deposit leg signs through the first healthy endpoint. An empty raw transaction costs nothing and tells an
+ * endpoint that would relay a real one (it fails to decode `0x00`) from one that refuses the method or the plan,
+ * which no read can show.
+ */
+async function probeArcWriteEndpoint(url) {
+  const host = endpointHost(url);
+  try {
+    await arcRpc(url, 'eth_sendRawTransaction', ['0x00']);
+    return record(false, 'Arc write endpoint', `${host} accepted an empty raw transaction`);
+  } catch (err) {
+    if (err.code !== undefined && /decod/i.test(err.message)) {
+      return record(true, 'Arc write endpoint', `${host} takes raw transactions (it failed to decode 0x00)`);
+    }
+    return record(false, 'Arc write endpoint', `${host} refused eth_sendRawTransaction: ${err.message}`);
+  }
+}
+
+/** The remote token xReserve names for USDCx, lowercase, or undefined after recording why there is none. */
+async function probeXReserve(url) {
+  const fail = detail => {
+    record(false, 'xReserve', detail);
+    return undefined;
+  };
+  try {
+    if (codeBytes(await arcRpc(url, 'eth_getCode', [ARC_XRESERVE, 'latest'])) === 0) {
+      return fail(`${ARC_XRESERVE} has no code on Arc Testnet`);
+    }
+    const registeredData = calldata(ARC_SELECTORS.isRemoteDomainRegistered, USDCX_REMOTE_DOMAIN);
+    if (BigInt(await arcView(url, ARC_XRESERVE, registeredData, 'isRemoteDomainRegistered')) !== 1n) {
+      return fail(`domain ${USDCX_REMOTE_DOMAIN} is not registered`);
+    }
+    const tokenData = calldata(ARC_SELECTORS.getRemoteToken, USDCX_REMOTE_DOMAIN, ARC_USDC);
+    const remoteToken = await arcView(url, ARC_XRESERVE, tokenData, 'getRemoteToken');
+    if (BigInt(remoteToken) === 0n) return fail(`getRemoteToken(${USDCX_REMOTE_DOMAIN}, USDC) is zero`);
+    record(
+      true,
+      'xReserve',
+      `domain ${USDCX_REMOTE_DOMAIN} registered at ${ARC_XRESERVE}, remote token ${remoteToken}`
+    );
+    return remoteToken;
+  } catch (err) {
+    return fail(`${endpointHost(url)}: ${err.message}`);
+  }
+}
+
+async function probeXReservePause(url, withWithdrawals) {
+  const views = [
+    ['paused', calldata(ARC_SELECTORS.paused)],
+    ['domainDepositsPaused', calldata(ARC_SELECTORS.domainDepositsPaused, USDCX_REMOTE_DOMAIN)],
+    ...(withWithdrawals
+      ? [['domainWithdrawalsPaused', calldata(ARC_SELECTORS.domainWithdrawalsPaused, USDCX_REMOTE_DOMAIN)]]
+      : [])
+  ];
+  try {
+    const set = [];
+    for (const [name, data] of views) {
+      if (BigInt(await arcView(url, ARC_XRESERVE, data, name)) !== 0n) set.push(name);
+    }
+    const names = views.map(([name]) => name).join(', ');
+    return record(set.length === 0, 'xReserve pause', set.length === 0 ? `${names} false` : `${set.join(', ')} true`);
+  } catch (err) {
+    return record(false, 'xReserve pause', `${endpointHost(url)}: ${err.message}`);
+  }
+}
+
+async function probeGatewayMinter(url) {
+  try {
+    const word = await arcView(url, ARC_XRESERVE, calldata(ARC_SELECTORS.gatewayMinter), 'gatewayMinter');
+    const minter = `0x${word.slice(26)}`;
+    if (minter !== GATEWAY_MINTER.toLowerCase()) {
+      return record(false, 'Gateway minter', `xReserve names ${minter}, not ${GATEWAY_MINTER}`);
+    }
+    if (codeBytes(await arcRpc(url, 'eth_getCode', [GATEWAY_MINTER, 'latest'])) === 0) {
+      return record(false, 'Gateway minter', `${GATEWAY_MINTER} has no code`);
+    }
+    return record(true, 'Gateway minter', `${GATEWAY_MINTER}, the emitter of the payout's AttestationUsed log`);
+  } catch (err) {
+    return record(false, 'Gateway minter', `${endpointHost(url)}: ${err.message}`);
+  }
+}
+
+/** usdcx-in deposits from this key, so it must hold one deposit and its gas. Only the address is printed. */
+async function probeArcFundedKey(url, privateKey) {
+  let address;
+  try {
+    const { privateKeyToAccount } = await import('viem/accounts');
+    ({ address } = privateKeyToAccount(`0x${privateKey.replace(/^0x/i, '')}`));
+  } catch {
+    return record(false, 'Arc funded key', 'not a valid private key (expect 32 bytes hex)');
+  }
+  try {
+    const word = await arcView(url, ARC_USDC, calldata(ARC_SELECTORS.balanceOf, address), 'balanceOf');
+    const balance = BigInt(word);
+    const held = `${address} holds ${formatUnits(balance, USDCX_DECIMALS)} USDC`;
+    if (balance < USDCX_FUNDED_KEY_FLOOR_UNITS) {
+      const floor = formatUnits(USDCX_FUNDED_KEY_FLOOR_UNITS, USDCX_DECIMALS);
+      return record(false, 'Arc funded key', `${held}, below the ${floor} USDC one deposit and its gas need`);
+    }
+    return record(true, 'Arc funded key', held);
+  } catch (err) {
+    return record(false, 'Arc funded key', `could not read ${address}: ${err.message}`);
+  }
+}
+
+/** Circle must attest deposits to Miden at the token xReserve names, from Arc's xReserve. */
+async function probeCircleXReserveApi(remoteToken) {
+  const url = `${XRESERVE_API_TESTNET}/v1/info`;
+  try {
+    const { status, body } = await circleGet(url);
+    if (status !== 200) return record(false, 'Circle xReserve API', `${url} answered HTTP ${status}`);
+    const remote = body?.remoteDomains?.find(domain => domain?.domain === USDCX_REMOTE_DOMAIN);
+    const listed = (remote?.tokens ?? []).map(token => String(token?.remoteTokenIdentifier).toLowerCase());
+    if (!listed.includes(remoteToken)) {
+      const found = remote ? `domain ${USDCX_REMOTE_DOMAIN} with ${listed.join(', ') || 'no token'}` : 'no domain';
+      return record(false, 'Circle xReserve API', `lists ${found}, not ${USDCX_REMOTE_DOMAIN} at ${remoteToken}`);
+    }
+    const source = body?.sourceDomains?.find(domain => domain?.domain === ARC_CIRCLE_DOMAIN);
+    if (String(source?.contractAddress).toLowerCase() !== ARC_XRESERVE.toLowerCase()) {
+      const at = source?.contractAddress ?? 'nothing';
+      return record(false, 'Circle xReserve API', `names source ${ARC_CIRCLE_DOMAIN} at ${at}, not ${ARC_XRESERVE}`);
+    }
+    return record(
+      true,
+      'Circle xReserve API',
+      `attests ${USDCX_REMOTE_DOMAIN} at the on-chain remote token, source ${ARC_CIRCLE_DOMAIN} at ${ARC_XRESERVE}`
+    );
+  } catch (err) {
+    return record(false, 'Circle xReserve API', `${url} unreachable: ${err.message}`);
+  }
+}
+
+// Discovers the node's native asset as the harness does, and encodes it as xReserve's remote token.
+const NATIVE_ASSET_SCRIPT = `
+const { discoverFeeFaucetId } = require('./playwright/e2e/helpers/fee-faucet.ts');
+const { midenAccountHexToXReserveRecipient } = require('./src/lib/usdcx/recipient.ts');
+discoverFeeFaucetId(process.argv[1]).then(
+  id => process.stdout.write(JSON.stringify({ id, bytes32: midenAccountHexToXReserveRecipient(id) })),
+  error => {
+    process.stderr.write(error.message);
+    process.exitCode = 1;
+  }
+);
+`;
+
+/** A grant pays the wallet's fees only when the faucet xReserve mints for is the chain's native asset. */
+async function probeUsdcxNativeAsset(network, remoteToken) {
+  try {
+    const stdout = tsNodeChild(NATIVE_ASSET_SCRIPT, { args: [MIDEN_RPC[network]], timeoutMs: 90_000 });
+    const { id, bytes32 } = JSON.parse(stdout);
+    if (String(bytes32).toLowerCase() !== remoteToken) {
+      return record(false, 'USDCx native asset', `${id} encodes as ${bytes32}, not the remote token ${remoteToken}`);
+    }
+    return record(true, 'USDCx native asset', `${id}, the remote token xReserve mints`);
+  } catch (err) {
+    return record(false, 'USDCx native asset', `not discovered: ${err.message}`);
+  }
+}
+
+/**
+ * The hosted Guardian a usdcx spec co-signs with, as the spec records it: `/status` ok for --network, and the ECDSA
+ * commitment the spec checks the account's auth against. GUARDIAN_URL is refused for these suites, so the table
+ * alone names it.
+ */
+async function probeUsdcxGuardian(network) {
+  const url = GUARDIAN_URL[network];
+  try {
+    const status = await getJson(`${url}/status`);
+    if (status.status !== 200 || status.body?.status !== 'ok') {
+      const reported = status.body?.status ?? 'none';
+      return record(false, 'Guardian identity', `${url}/status answered HTTP ${status.status}, status ${reported}`);
+    }
+    if (status.body.environment !== network) {
+      return record(false, 'Guardian identity', `${url} serves ${status.body.environment}, not ${network}`);
+    }
+    const key = await getJson(`${url}/pubkey?scheme=ecdsa`);
+    const commitment = String(key.body?.commitment);
+    if (
+      key.status !== 200 ||
+      !/^0x[0-9a-f]{64}$/i.test(commitment) ||
+      !/^0x[0-9a-f]+$/i.test(String(key.body?.pubkey))
+    ) {
+      return record(false, 'Guardian identity', `${url}/pubkey?scheme=ecdsa carried no ECDSA commitment and pubkey`);
+    }
+    const { version, git_commit: gitCommit } = status.body;
+    return record(true, 'Guardian identity', `${url} ${version} (${gitCommit}), ECDSA commitment ${commitment}`);
+  } catch (err) {
+    return record(false, 'Guardian identity', `${url} unreachable: ${err.message}`);
+  }
+}
+
+// What the harness's mintFromPublicFaucet asks for, from the metadata on stdin.
+const GRANT_SCRIPT = `
+const { faucetGrantAmount } = require('./src/lib/miden-chain/faucet-protocol.ts');
+let input = '';
+process.stdin.on('data', chunk => (input += chunk));
+process.stdin.on('end', () => {
+  try {
+    process.stdout.write(String(faucetGrantAmount(JSON.parse(input))));
+  } catch (error) {
+    process.stderr.write(error.message);
+    process.exitCode = 1;
+  }
+});
+`;
+
+/**
+ * Why the public faucet cannot fund a usdcx run, or undefined. `grantAmount` is what the harness asks for: the
+ * largest `token_amounts` entry when the faucet lists any, which is not `base_amount`.
+ *
+ * Exported for test.
+ */
+export function usdcxGrantProblem(metadata, grantAmount) {
+  const usdcx = units => formatUnits(units, USDCX_DECIMALS);
+  if (metadata?.decimals !== USDCX_DECIMALS) {
+    return `serves ${metadata?.decimals} decimals, not USDCx's ${USDCX_DECIMALS}`;
+  }
+  if (grantAmount < USDCX_GRANT_FLOOR_UNITS) {
+    return `grants ${usdcx(grantAmount)} USDCx, below the ${usdcx(USDCX_GRANT_FLOOR_UNITS)} USDCx a 10 USDCx burn and its fees need`;
+  }
+  let balance;
+  try {
+    balance = BigInt(metadata.balance);
+  } catch {
+    return 'reports no readable balance';
+  }
+  if (balance < grantAmount) return `holds ${usdcx(balance)} USDCx, less than one grant of ${usdcx(grantAmount)}`;
+  return undefined;
+}
+
+function probeUsdcxGrant(metadata) {
+  let amount;
+  try {
+    amount = BigInt(tsNodeChild(GRANT_SCRIPT, { input: JSON.stringify(metadata) }).trim());
+  } catch (err) {
+    return record(false, 'USDCx faucet grant', `could not read the grant amount: ${err.message}`);
+  }
+  const problem = usdcxGrantProblem(metadata, amount);
+  const held = problem ?? `grants ${formatUnits(amount, USDCX_DECIMALS)} USDCx`;
+  return record(problem === undefined, 'USDCx faucet grant', held);
+}
+
+/**
+ * The Arc, Circle and Miden facts a usdcx run depends on, read as its specs read them. Nothing on Arc can be checked
+ * without a healthy endpoint, and the Circle and native-asset checks compare with the remote token xReserve names on
+ * chain, so each stage needs the one before it.
+ */
+async function probeUsdcx(opts, needs) {
+  const endpoint = await probeArcRpc(arcRpcEndpoints(opts.arcRpc));
+  if (endpoint === undefined) return;
+  await probeArcWriteEndpoint(endpoint);
+  const remoteToken = await probeXReserve(endpoint);
+  await probeXReservePause(endpoint, needs.includes('arc-payout'));
+  if (needs.includes('arc-payout')) await probeGatewayMinter(endpoint);
+  if (needs.includes('funded-key')) await probeArcFundedKey(endpoint, opts.arcKey);
+  if (remoteToken === undefined) return;
+  await probeCircleXReserveApi(remoteToken);
+  await probeUsdcxNativeAsset(opts.network, remoteToken);
 }
 
 async function probeSepolia(sepoliaRpc) {
@@ -1058,6 +1476,8 @@ async function main() {
   console.log(`Network  ${opts.network}`);
   if (needsDocument) console.log(`Config   ${configDocumentUrl(opts.network)}`);
   if (needs.includes('sepolia')) console.log(`Sepolia  ${opts.sepoliaRpc}`);
+  // Hosts only: an operator's endpoint may carry its API key in the path.
+  if (needs.includes('usdcx')) console.log(`Arc RPC  ${arcRpcEndpoints(opts.arcRpc).map(endpointHost).join(', ')}`);
   console.log('');
   console.log('Preflight');
 
@@ -1065,7 +1485,7 @@ async function main() {
   // what pays fees for each fresh account, so a dead faucet fails the run at
   // funding rather than at the assertion.
   await probeMidenNode(opts.network);
-  await probeMidenFaucet(opts.network);
+  await probeMidenFaucet(opts.network, { grant: needs.includes('grant') });
 
   // What the probes ask about is what the wallet will use: the document it reads,
   // never a copy kept here. Without a usable one, nothing it names is probed.
@@ -1086,6 +1506,8 @@ async function main() {
   }
   if (targets && needs.includes('agglayer')) await probeAgglayerIndexer(targets.indexerUrl);
   if (needs.includes('guardian')) await probeGuardian(opts.network);
+  if (needs.includes('usdcx-guardian')) await probeUsdcxGuardian(opts.network);
+  if (needs.includes('usdcx')) await probeUsdcx(opts, needs);
   // Only for a suite that actually talks to Sepolia: a key handed to a swap run
   // must not make Sepolia's availability decide whether that run happens.
   if (needs.includes('sepolia') && opts.sepoliaKey) {
