@@ -19,8 +19,8 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -102,6 +102,42 @@ export const SUITES = {
     grep: 'guardian maker',
     probes: ['dex', 'guardian'],
     describe: 'a guardian-co-signed PSWAP maker order against a hosted testnet guardian'
+  },
+  // The usdcx suites spend real value end to end: a public faucet grant, a burn Circle pays out, a deposit Circle's
+  // relayer mints. A retry spends each again on a second fresh Guardian, so none gets one. Each grep selects exactly
+  // one describe of playwright/e2e/tests/usdcx, which e2e-real.test.ts checks against Playwright's own listing.
+  // `headlessByDefault`: the test run gets E2E_HEADLESS=1 unless --headed, because BridgeIntentWatcher, which moves
+  // the burn and deposit phases, polls only while its page reads visible, and new-headless Chromium keeps it so.
+  usdcx: {
+    config: 'playwright.usdcx.config.ts',
+    grep: 'USDCx round trip',
+    probes: ['usdcx', 'usdcx-guardian', 'grant', 'arc-payout'],
+    networks: ['testnet'],
+    usdcx: true,
+    headlessByDefault: true,
+    retries: 0,
+    describe: 'fresh Guardian: faucet grant, UI burn to a fresh Arc key, Circle payout, deposit back'
+  },
+  'usdcx-in': {
+    config: 'playwright.usdcx.config.ts',
+    grep: 'funded Arc key',
+    probes: ['usdcx', 'usdcx-guardian', 'funded-key'],
+    networks: ['testnet'],
+    usdcx: true,
+    arcKey: true,
+    headlessByDefault: true,
+    retries: 0,
+    describe: 'fresh Guardian: deposit from a funded Arc key (--arc-key), attest, mint, receive'
+  },
+  'usdcx-burn': {
+    config: 'playwright.usdcx.config.ts',
+    grep: 'USDCx burn through the Send UI',
+    probes: ['usdcx', 'usdcx-guardian', 'grant'],
+    networks: ['testnet'],
+    usdcx: true,
+    headlessByDefault: true,
+    retries: 0,
+    describe: 'standard and Guardian wallets: faucet grant, UI burn, faucet consume'
   }
 };
 
@@ -145,12 +181,35 @@ prover blocks WalletConnect's cross-origin requests.
 
 // ── args ────────────────────────────────────────────────────────────────────
 
+/**
+ * Exported variables a usdcx run refuses, each with why. An E2E build bakes the first three in, and nothing a usdcx
+ * spec runs reads GUARDIAN_URL, so each would move what the run checks, or seem to, without a word. Refused by name.
+ */
+const USDCX_REFUSED_EXPORTS = {
+  E2E_EVM_RPC_URL: 'an E2E build reads Sepolia, Base Sepolia and Arbitrum Sepolia through it',
+  MIDEN_E2E_USDCX_CHAIN: 'an E2E build then starts a bridge-in from Sepolia instead of Arc Testnet',
+  MIDEN_FEE_FAUCET_ID: 'an E2E build then pins the fee asset instead of discovering it from the node',
+  GUARDIAN_URL: 'the usdcx suites always use the hosted Guardian of --network, so it would silently not apply'
+};
+const ARC_KEY_PATTERN = /^(0x)?[0-9a-f]{64}$/i;
+
+function isHttpUrl(value) {
+  try {
+    return ['http:', 'https:'].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
 function parseArgs(argv) {
   const opts = {
     suite: undefined,
     network: 'testnet',
     sepoliaRpc: process.env.E2E_SEPOLIA_RPC_URL ?? DEFAULT_SEPOLIA_RPC,
     sepoliaKey: process.env.E2E_SEPOLIA_PRIVATE_KEY,
+    arcRpc: process.env.E2E_ARC_RPC_URL,
+    arcKey: process.env.E2E_ARC_PRIVATE_KEY,
+    refusedExports: Object.keys(USDCX_REFUSED_EXPORTS).filter(name => process.env[name] !== undefined),
     minEth: '0.02',
     preflightOnly: false,
     agglayerIndexerOnly: false,
@@ -170,6 +229,8 @@ function parseArgs(argv) {
     '--network': 'network',
     '--sepolia-rpc': 'sepoliaRpc',
     '--sepolia-key': 'sepoliaKey',
+    '--arc-rpc': 'arcRpc',
+    '--arc-key': 'arcKey',
     '--min-eth': 'minEth',
     '--grep': 'grep'
   };
@@ -206,6 +267,9 @@ function parseArgs(argv) {
       fail(`unknown argument: ${arg.split('=', 1)[0]}=<value> (pass the value as its own argument)`);
     } else fail(`unknown argument: ${arg}`);
   }
+  // A flag is refused where it would not apply; the same value exported is left alone (run() unsets it).
+  opts.arcRpcFlag = seen.has('--arc-rpc');
+  opts.arcKeyFlag = seen.has('--arc-key');
   if (opts.agglayerIndexerOnly) {
     // This probe reads the config document and no URL or key, so the empty-variable refusals below do not apply:
     // E2E Bridge sets E2E_SEPOLIA_RPC_URL from an optional secret, which is empty when the secret is unset.
@@ -281,6 +345,9 @@ export function resolveOperatorInput(opts) {
   if (!Object.hasOwn(MIDEN_RPC, opts.network)) {
     return { error: `--network must be one of: ${Object.keys(MIDEN_RPC).join(', ')}` };
   }
+  if (suite.networks && !suite.networks.includes(opts.network)) {
+    return { error: `--suite ${opts.suite} runs on ${suite.networks.join(', ')} only` };
+  }
   let grep;
   try {
     grep = composeGrep(suite.grep, opts.grep);
@@ -297,7 +364,40 @@ export function resolveOperatorInput(opts) {
         'the Sepolia key (--sepolia-key or E2E_SEPOLIA_PRIVATE_KEY) is not a valid private key: expect 32 bytes of hex, with an optional 0x prefix'
     };
   }
+  const usdcxProblem = usdcxInputProblem(opts, suite);
+  if (usdcxProblem !== undefined) return { error: usdcxProblem };
   return { suite, grep };
+}
+
+/**
+ * Why the input cannot run `suite`, for what only the usdcx suites read: the Arc flags, the refused exports and
+ * --skip-build. No message carries a value: a key, or a URL whose path may hold one.
+ */
+function usdcxInputProblem(opts, suite) {
+  if (!suite.usdcx) {
+    if (opts.arcRpcFlag) return '--arc-rpc applies only to the usdcx suites';
+    if (opts.arcKeyFlag) return '--arc-key applies only to --suite usdcx-in';
+    return undefined;
+  }
+  // The build bakes the network and the E2E flags these suites depend on, so a reused dist/ proves nothing.
+  if (opts.skipBuild) return `--skip-build is refused for --suite ${opts.suite}: it always builds`;
+  const exported = (opts.refusedExports ?? []).find(name => Object.hasOwn(USDCX_REFUSED_EXPORTS, name));
+  if (exported !== undefined) {
+    return `${exported} is set, and --suite ${opts.suite} refuses it: ${USDCX_REFUSED_EXPORTS[exported]}. Unset it.`;
+  }
+  if (opts.arcRpc === '') return 'E2E_ARC_RPC_URL is set but empty';
+  if (opts.arcRpc !== undefined && !isHttpUrl(opts.arcRpc)) {
+    return 'the Arc RPC (--arc-rpc or E2E_ARC_RPC_URL) is not an http(s) URL';
+  }
+  if (!suite.arcKey) return opts.arcKeyFlag ? '--arc-key applies only to --suite usdcx-in' : undefined;
+  if (opts.arcKey === undefined) {
+    return `--suite ${opts.suite} needs a funded Arc Testnet key: pass --arc-key or export E2E_ARC_PRIVATE_KEY (a paid usdcx run leaves one under ~/.miden-e2e/arc-keys)`;
+  }
+  if (opts.arcKey === '') return 'E2E_ARC_PRIVATE_KEY is set but empty';
+  if (!ARC_KEY_PATTERN.test(opts.arcKey)) {
+    return 'the Arc key (--arc-key or E2E_ARC_PRIVATE_KEY) is not a valid private key: expect 32 bytes of hex, with an optional 0x prefix';
+  }
+  return undefined;
 }
 
 function fail(message) {
@@ -884,9 +984,16 @@ function formatUnits(value, decimals) {
 
 // ── run ─────────────────────────────────────────────────────────────────────
 
-export function run(command, args, env) {
+/**
+ * Run `command` with `env` over this process's environment, less each name in `opts.unset`. A key a phase must not
+ * see has to be deleted: the child inherits everything the operator exported. A name both unset and given in `env`
+ * takes the given value.
+ */
+export function run(command, args, env, opts = {}) {
   return new Promise(resolve => {
-    const child = spawn(command, args, { cwd: REPO_ROOT, stdio: 'inherit', env: { ...process.env, ...env } });
+    const inherited = { ...process.env };
+    for (const name of opts.unset ?? []) delete inherited[name];
+    const child = spawn(command, args, { cwd: REPO_ROOT, stdio: 'inherit', env: { ...inherited, ...env } });
 
     // 'error' fires INSTEAD of 'close' when the spawn itself fails, so a
     // listener on 'close' alone leaves this promise pending forever and hangs

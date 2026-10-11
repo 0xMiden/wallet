@@ -8,13 +8,14 @@
  * `suiteRetries` decides whether a spent, non-idempotent run repeats itself.
  * Those are exactly the things that should not rest on having read the code
  * carefully once.
+ *
+ * @jest-environment node
  */
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-
 import { getAddress } from 'viem';
 
 import {
@@ -32,9 +33,8 @@ import {
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
-// The caller's environment without any variable the runner reads: a key, an
-// empty URL or a served config document there would add its own refusal, or its
-// own document, ahead of the one under test.
+// The caller's environment without any variable the runner reads or a usdcx child carries: a key, an empty URL
+// or a served config document there would add its own refusal, or its own document, ahead of the one under test.
 function cleanEnv() {
   const env = { ...process.env };
   for (const name of [
@@ -42,7 +42,18 @@ function cleanEnv() {
     'EPOCH_ALLOCATOR_URL',
     'EPOCH_POSITIONS_URL',
     'E2E_SEPOLIA_RPC_URL',
-    'MIDEN_REMOTE_CONFIG_URL'
+    'MIDEN_REMOTE_CONFIG_URL',
+    'E2E_ARC_RPC_URL',
+    'E2E_ARC_PRIVATE_KEY',
+    'E2E_EVM_RPC_URL',
+    'MIDEN_E2E_USDCX_CHAIN',
+    'MIDEN_FEE_FAUCET_ID',
+    'GUARDIAN_URL',
+    'MIDEN_CLIENT_BIN',
+    'E2E_HEADLESS',
+    'E2E_NETWORK',
+    'E2E_REAL_EPOCH',
+    'E2E_REAL_USDCX'
   ]) {
     delete env[name];
   }
@@ -243,7 +254,7 @@ describe('the command refuses operator input before any probe or build', () => {
 
   // A quoted unset variable arrives as '': `--grep "$UNSET"` would drop the
   // operator's narrowing and widen a real-money run.
-  it.each(['--suite', '--network', '--sepolia-rpc', '--sepolia-key', '--min-eth', '--grep'])(
+  it.each(['--suite', '--network', '--sepolia-rpc', '--sepolia-key', '--arc-rpc', '--arc-key', '--min-eth', '--grep'])(
     'refuses an empty value for %s',
     flag => {
       const res = runCli('--suite', 'swap', flag, '', '--min-eth', 'abc');
@@ -262,6 +273,8 @@ describe('the command refuses operator input before any probe or build', () => {
     ['--network', 'testnet', 'devnet'],
     ['--sepolia-rpc', 'https://a.example', 'https://b.example'],
     ['--sepolia-key', `0x${'1'.repeat(64)}`, `0x${'2'.repeat(64)}`],
+    ['--arc-rpc', 'https://c.example', 'https://d.example'],
+    ['--arc-key', `0x${'3'.repeat(64)}`, `0x${'4'.repeat(64)}`],
     ['--grep', 'aaa', 'bbb']
   ])(
     'refuses %s given twice',
@@ -322,6 +335,8 @@ describe('the command refuses operator input before any probe or build', () => {
     '--network',
     '--sepolia-rpc',
     '--sepolia-key',
+    '--arc-rpc',
+    '--arc-key',
     '--min-eth',
     '--grep',
     '--preflight-only',
@@ -452,27 +467,46 @@ const DOCUMENT = {
   features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
 };
 
+const STUB = pathToFileURL(path.join(__dirname, 'e2e-real.fetch-stub.mjs')).href;
+
+// The whole command, its every request answered by the stub and logged. `answers` overrides the stub's defaults
+// (ANSWERS in e2e-real.fetch-stub.mjs).
+function stubbed(
+  args: string[],
+  served: unknown,
+  env: Record<string, string> = {},
+  answers: Record<string, unknown> = {}
+) {
+  const log = path.join(mkdtempSync(path.join(os.tmpdir(), 'e2e-real-')), 'requests.log');
+  writeFileSync(log, '');
+  const res = spawnSync(process.execPath, ['--import', STUB, 'scripts/e2e-real.mjs', ...args], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    env: { ...cleanEnv(), ...env, E2E_REAL_FETCH_STUB: JSON.stringify({ document: served, log, answers }) },
+    timeout: 30_000
+  });
+  return {
+    status: res.status,
+    stdout: res.stdout,
+    stderr: res.stderr,
+    output: `${res.stdout}${res.stderr}`,
+    requests: readFileSync(log, 'utf8')
+  };
+}
+
+// The whole command under --preflight-only.
+function preflight(
+  suite: string,
+  served: unknown = DOCUMENT,
+  env: Record<string, string> = {},
+  answers: Record<string, unknown> = {}
+) {
+  return stubbed(['--suite', suite, '--preflight-only'], served, env, answers);
+}
+
 describe('the preflight reads what it probes from the network config document', () => {
-  const STUB = pathToFileURL(path.join(__dirname, 'e2e-real.fetch-stub.mjs')).href;
   // Any valid secp256k1 scalar: the stub answers every read, so nothing is ever signed or sent.
   const FUNDED_KEY = `0x${'11'.repeat(32)}`;
-
-  // The whole command under --preflight-only, its every request answered by the stub and logged.
-  function preflight(suite: string, served: unknown = DOCUMENT, env: Record<string, string> = {}) {
-    return stubbed(['--suite', suite, '--preflight-only'], served, env);
-  }
-
-  function stubbed(args: string[], served: unknown, env: Record<string, string> = {}) {
-    const log = path.join(mkdtempSync(path.join(os.tmpdir(), 'e2e-real-')), 'requests.log');
-    writeFileSync(log, '');
-    const res = spawnSync(process.execPath, ['--import', STUB, 'scripts/e2e-real.mjs', ...args], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-      env: { ...cleanEnv(), ...env, E2E_REAL_FETCH_STUB: JSON.stringify({ document: served, log }) },
-      timeout: 30_000
-    });
-    return { status: res.status, output: `${res.stdout}${res.stderr}`, requests: readFileSync(log, 'utf8') };
-  }
 
   it('probes the allocator, the USDC and the L1 bridge the published document names', () => {
     const res = preflight('bridge-out-epoch');
@@ -674,6 +708,30 @@ describe('run', () => {
     // 'close' alone left this pending forever and hung the whole script.
     await expect(run('this-command-does-not-exist-e2e-real', [], {})).resolves.not.toBe(0);
   }, 15_000);
+
+  // main() hands every child the operator's whole environment, so leaving a key out of `env` strips nothing.
+  it('deletes each unset name from the inherited environment, and a value given in env still wins', async () => {
+    const out = path.join(mkdtempSync(path.join(os.tmpdir(), 'e2e-real-run-')), 'env.json');
+    const dump = `require('fs').writeFileSync(${JSON.stringify(out)}, JSON.stringify(process.env))`;
+    process.env.E2E_REAL_RUN_INHERITED = 'inherited';
+    process.env.E2E_REAL_RUN_GIVEN = 'inherited';
+    try {
+      const code = await run(
+        process.execPath,
+        ['-e', dump],
+        { E2E_REAL_RUN_ADDED: 'added', E2E_REAL_RUN_GIVEN: 'given' },
+        { unset: ['E2E_REAL_RUN_INHERITED', 'E2E_REAL_RUN_GIVEN'] }
+      );
+      expect(code).toBe(0);
+      const env = JSON.parse(readFileSync(out, 'utf8'));
+      expect(env.E2E_REAL_RUN_INHERITED).toBeUndefined();
+      expect(env.E2E_REAL_RUN_ADDED).toBe('added');
+      expect(env.E2E_REAL_RUN_GIVEN).toBe('given');
+    } finally {
+      delete process.env.E2E_REAL_RUN_INHERITED;
+      delete process.env.E2E_REAL_RUN_GIVEN;
+    }
+  }, 15_000);
 });
 
 describe('pricedAmountFrom', () => {
@@ -835,4 +893,289 @@ describe('probeEpochQuote uses the shared parser', () => {
   it('keeps no inline copy of the path parse', () => {
     expect(body).not.toContain('token?.amount');
   });
+});
+
+// Every invocation here passes --preflight-only, so a refusal that regresses can reach the probes but never a build.
+describe('the usdcx suites refuse what would not apply, before any probe or build', () => {
+  const ARC_KEY = `0x${'5a'.repeat(32)}`;
+  const MALFORMED = `0x${'5a'.repeat(31)}zz`;
+  const printed = (res: { stdout: string; stderr: string }) => `${res.stdout}${res.stderr}`;
+
+  it.each(['usdcx', 'usdcx-in', 'usdcx-burn'])(
+    'refuses --network devnet for --suite %s',
+    suite => {
+      const res = runCli('--suite', suite, '--network', 'devnet', '--preflight-only');
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain(`--suite ${suite} runs on testnet only`);
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
+  it.each(['usdcx', 'usdcx-in', 'usdcx-burn'])(
+    'refuses --skip-build for --suite %s',
+    suite => {
+      const res = runCli({ E2E_ARC_PRIVATE_KEY: ARC_KEY }, '--suite', suite, '--skip-build', '--preflight-only');
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain(`--skip-build is refused for --suite ${suite}`);
+      expect(printed(res)).not.toContain(ARC_KEY.slice(2));
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
+  it.each([
+    ['E2E_EVM_RPC_URL', 'https://refused-evm-rpc.example'],
+    ['MIDEN_E2E_USDCX_CHAIN', 'refused-usdcx-chain'],
+    ['MIDEN_FEE_FAUCET_ID', '0xrefusedfeefaucet'],
+    ['GUARDIAN_URL', 'https://refused-guardian.example']
+  ])(
+    'refuses an exported %s by name, never by value',
+    (name, value) => {
+      const res = runCli({ [name]: value }, '--suite', 'usdcx-burn', '--preflight-only');
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain(`${name} is set, and --suite usdcx-burn refuses it`);
+      expect(printed(res)).not.toContain(value);
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
+  it('refuses usdcx-in with no key', () => {
+    const res = runCli('--suite', 'usdcx-in', '--preflight-only');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--suite usdcx-in needs a funded Arc Testnet key');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('refuses usdcx-in with E2E_ARC_PRIVATE_KEY set but empty', () => {
+    const res = runCli({ E2E_ARC_PRIVATE_KEY: '' }, '--suite', 'usdcx-in', '--preflight-only');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('E2E_ARC_PRIVATE_KEY is set but empty');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it.each([
+    ['--arc-key', {}, ['--arc-key', MALFORMED]],
+    ['E2E_ARC_PRIVATE_KEY', { E2E_ARC_PRIVATE_KEY: MALFORMED }, []]
+  ])(
+    'refuses a malformed key from %s without printing it',
+    (_source, env, args) => {
+      const res = runCli(env, '--suite', 'usdcx-in', ...args, '--preflight-only');
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain('the Arc key (--arc-key or E2E_ARC_PRIVATE_KEY) is not a valid private key');
+      expect(printed(res)).not.toContain('5a'.repeat(31));
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
+  it.each(['usdcx', 'usdcx-burn', 'swap'])(
+    'refuses --arc-key on --suite %s without printing it',
+    suite => {
+      const res = runCli('--suite', suite, '--arc-key', ARC_KEY, '--preflight-only');
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain('--arc-key applies only to --suite usdcx-in');
+      expect(printed(res)).not.toContain(ARC_KEY.slice(2));
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
+  it('refuses --arc-rpc on a suite that never reads Arc, without printing it', () => {
+    const res = runCli('--suite', 'swap', '--arc-rpc', 'https://arc-rpc.example/token-in-path', '--preflight-only');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--arc-rpc applies only to the usdcx suites');
+    expect(printed(res)).not.toContain('token-in-path');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('refuses E2E_ARC_RPC_URL set but empty on a usdcx suite', () => {
+    const res = runCli({ E2E_ARC_RPC_URL: '' }, '--suite', 'usdcx', '--preflight-only');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('E2E_ARC_RPC_URL is set but empty');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('refuses an Arc RPC that is not an http(s) URL, without printing it', () => {
+    const res = runCli('--suite', 'usdcx', '--arc-rpc', 'ftp://arc-rpc.example/token-in-path', '--preflight-only');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('the Arc RPC (--arc-rpc or E2E_ARC_RPC_URL) is not an http(s) URL');
+    expect(printed(res)).not.toContain('token-in-path');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('never echoes an --arc-key given with =', () => {
+    const res = runCli(`--arc-key=${ARC_KEY}`, '--suite', 'usdcx-in', '--preflight-only');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('unknown argument: --arc-key=<value>');
+    expect(printed(res)).not.toContain(ARC_KEY.slice(2));
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  it('refuses another option as the value of --arc-key', () => {
+    const res = runCli('--suite', 'usdcx-in', '--arc-key', '--preflight-only');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('--arc-key needs a value');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+});
+
+describe('resolveOperatorInput on the usdcx suites', () => {
+  const ARC_KEY = `0x${'ab'.repeat(32)}`;
+  // What parseArgs returns for `--suite usdcx` with nothing exported; each case changes only what it names.
+  const parsed = {
+    suite: 'usdcx',
+    network: 'testnet',
+    sepoliaRpc: 'https://sepolia.invalid',
+    sepoliaKey: undefined,
+    arcRpc: undefined,
+    arcKey: undefined,
+    arcRpcFlag: false,
+    arcKeyFlag: false,
+    refusedExports: [],
+    minEth: '0.02',
+    preflightOnly: false,
+    skipBuild: false,
+    headed: false,
+    grep: undefined
+  };
+  const resolve = (changed: Record<string, unknown> = {}) => resolveOperatorInput({ ...parsed, ...changed });
+
+  it.each([
+    ['usdcx', {}],
+    ['usdcx-burn', {}],
+    ['usdcx-in', { arcKey: ARC_KEY }],
+    ['usdcx-in', { arcKey: 'ab'.repeat(32), arcKeyFlag: true }],
+    ['usdcx', { arcRpc: 'https://arc-rpc.example', arcRpcFlag: true }]
+  ])('accepts --suite %s with %o', (suite, changed) => {
+    expect(resolve({ suite, ...changed })).toStrictEqual({ suite: SUITES[suite], grep: SUITES[suite].grep });
+  });
+
+  // run() unsets it for every usdcx child but usdcx-in's test, so no other usdcx suite reads it.
+  it('lets an exported key that is malformed pass on usdcx, which never reads it', () => {
+    expect(resolve({ arcKey: '0x01' }).error).toBeUndefined();
+  });
+
+  it('leaves the usdcx refusals off a suite that is not usdcx', () => {
+    expect(
+      resolve({ suite: 'swap-guardian', refusedExports: ['GUARDIAN_URL', 'E2E_EVM_RPC_URL'] }).error
+    ).toBeUndefined();
+  });
+});
+
+const PLAYWRIGHT_CLI = path.join(REPO_ROOT, 'node_modules', '@playwright', 'test', 'cli.js');
+
+interface ListedSuite {
+  title: string;
+  specs?: { title: string }[];
+  suites?: ListedSuite[];
+}
+
+// Playwright's own listing of playwright.usdcx.config.ts as `<describe> > <test>`, narrowed by `grep` the way the
+// runner passes it. usdcx-burn builds its two titles in a loop, so no reading of the spec source can stand in for
+// this. List mode loads the files and writes nothing: no global setup, no output-dir cleanup.
+function listUsdcxTests(grep?: string) {
+  const env = cleanEnv();
+  // Playwright refuses to declare a test while JEST_WORKER_ID is set, and this child inherits it from the worker.
+  delete env.JEST_WORKER_ID;
+  delete env.PLAYWRIGHT_JSON_OUTPUT_NAME;
+  delete env.PLAYWRIGHT_JSON_OUTPUT_FILE;
+  const res = spawnSync(
+    process.execPath,
+    [
+      PLAYWRIGHT_CLI,
+      'test',
+      '--list',
+      '--config',
+      'playwright.usdcx.config.ts',
+      '--reporter=json',
+      ...(grep === undefined ? [] : ['--grep', grep])
+    ],
+    { cwd: REPO_ROOT, encoding: 'utf8', env, timeout: 60_000, maxBuffer: 16 * 1024 * 1024 }
+  );
+  let report: { suites: ListedSuite[]; errors: unknown[] };
+  try {
+    report = JSON.parse(res.stdout);
+  } catch {
+    // A config that throws at load prints its error to stderr and no report.
+    throw new Error(
+      `playwright --list printed no JSON report (exit ${res.status}): ${res.stderr}\n${res.stdout.slice(0, 200)}`
+    );
+  }
+  const tests: string[] = [];
+  const walk = (suite: ListedSuite, titles: string[]) => {
+    for (const spec of suite.specs ?? []) tests.push([...titles, spec.title].join(' > '));
+    for (const child of suite.suites ?? []) walk(child, [...titles, child.title]);
+  };
+  for (const file of report.suites) walk(file, []);
+  return { tests: tests.sort(), errors: report.errors };
+}
+
+describe('the usdcx suites', () => {
+  const OWN: Record<string, string> = {
+    usdcx: 'USDCx round trip: burn to a fresh Arc key, Circle payout, deposit back',
+    'usdcx-in': 'USDCx bridge-in from a funded Arc key',
+    'usdcx-burn': 'USDCx burn through the Send UI after a public faucet grant'
+  };
+  let listed: ReturnType<typeof listUsdcxTests>;
+
+  beforeAll(() => {
+    listed = listUsdcxTests();
+  }, 60_000);
+
+  it('find the three describes and four tests the contract names under playwright.usdcx.config.ts', () => {
+    expect(listed.errors).toEqual([]);
+    expect([...new Set(listed.tests.map(test => test.split(' > ')[0]))].sort()).toEqual(Object.values(OWN).sort());
+    expect(listed.tests).toHaveLength(4);
+    expect(listed.tests.filter(test => test.startsWith(`${OWN['usdcx-burn']} > `))).toEqual([
+      `${OWN['usdcx-burn']} > Guardian wallet publishes a burn and the faucet consumes it`,
+      `${OWN['usdcx-burn']} > standard wallet publishes a burn and the faucet consumes it`
+    ]);
+  });
+
+  it.each(Object.keys(OWN))(
+    '--suite %s greps exactly the tests of its own describe',
+    name => {
+      const own = listed.tests.filter(test => test.startsWith(`${OWN[name]} > `));
+      expect(listUsdcxTests(composeGrep(SUITES[name].grep, undefined))).toEqual({ tests: own, errors: [] });
+    },
+    60_000
+  );
+
+  // Each spends a faucet grant, a burn Circle pays out or a deposit Circle mints; a retry spends it again.
+  it.each(Object.keys(OWN))('--suite %s runs playwright.usdcx.config.ts on testnet, with no retries', name => {
+    expect(SUITES[name]).toMatchObject({ config: 'playwright.usdcx.config.ts', networks: ['testnet'], usdcx: true });
+    expect(suiteRetries(SUITES[name])).toBe(0);
+  });
+
+  it('takes an Arc key on usdcx-in alone', () => {
+    expect(Object.keys(SUITES).filter(name => SUITES[name].arcKey)).toEqual(['usdcx-in']);
+  });
+});
+
+// Guards: both pass before this change and must after it.
+describe('the usdcx refusals stay out of the other entry points', () => {
+  it('swap-guardian still probes an exported GUARDIAN_URL override', () => {
+    const res = preflight('swap-guardian', DOCUMENT, { GUARDIAN_URL: 'https://guardian-override.example' });
+    expect(res.requests).toContain('https://guardian-override.example\n');
+    expect(res.output).not.toContain('GUARDIAN_URL is set');
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  it('--agglayer-indexer-only with every refused variable exported reads the document and asks only its indexer', () => {
+    const res = stubbed(['--agglayer-indexer-only'], DOCUMENT, {
+      E2E_EVM_RPC_URL: 'https://evm.example',
+      MIDEN_E2E_USDCX_CHAIN: 'sepolia',
+      MIDEN_FEE_FAUCET_ID: '0x01',
+      GUARDIAN_URL: 'https://guardian.example',
+      E2E_ARC_RPC_URL: '',
+      E2E_ARC_PRIVATE_KEY: ''
+    });
+    expect(res.requests.trim().split('\n')).toEqual([
+      PUBLISHED,
+      `${INDEXER}/bridge?net_id=${AGGLAYER_MIDEN_NETWORK_ID}&deposit_cnt=0`
+    ]);
+    expect(res.status).toBe(0);
+  }, 35_000);
 });
