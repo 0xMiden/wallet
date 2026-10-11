@@ -146,3 +146,9 @@ export async function openInFullPage() {
     url: browser.runtime.getURL(url)
   });
 }
+
+/** Opens a web page in a new browser tab. Unlike `window.open`, the page gets no `opener` back to the wallet. */
+export async function openUrlInNewTab(url: string) {
+  const browser = await getBrowser();
+  await browser.tabs.create({ url });
+}

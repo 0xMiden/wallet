@@ -30,7 +30,7 @@ import { usePreset } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
 import { hapticSelection } from 'lib/mobile/haptics';
 import { isReturningFromWebview } from 'lib/mobile/webview-state';
-import { isDesktop, isExtension, isIOS, isMobile } from 'lib/platform';
+import { isDesktop, isIOS, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { navigate, useLocation } from 'lib/woozie';
 
@@ -212,17 +212,11 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
       label: t('home'),
       icon: <Icon name={IconName.Home} className="w-6 h-6" fill="currentColor" />
     },
-    // Explore tab is a dApp browser surface — extension popup has no use
-    // for it (browser-the-product is already the host), so drop it there.
-    ...(isExtension()
-      ? []
-      : [
-          {
-            id: 'explore',
-            label: t('explore'),
-            icon: <Icon name={IconName.Explore} className="w-6 h-6" />
-          }
-        ]),
+    {
+      id: 'explore',
+      label: t('explore'),
+      icon: <Icon name={IconName.Explore} className="w-6 h-6" />
+    },
     {
       id: 'activity',
       label: t('activity'),

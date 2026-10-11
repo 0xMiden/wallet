@@ -4,7 +4,7 @@
 import { createHash, randomBytes } from 'crypto';
 
 import { isInfrastructureFailure } from './dapp-cells';
-import { mintFromPublicFaucet, PublicFaucetError, solvePow } from './public-faucet';
+import { mintFromPublicFaucet, PublicFaucetError, publicFaucetAccountId, solvePow } from './public-faucet';
 
 const NOTE_ID = '0x' + '01'.repeat(32);
 
@@ -497,6 +497,30 @@ describe('mintFromPublicFaucet', () => {
       expect(error).toMatchObject({ message: 'Public faucet mint failed (502): Bad Gateway' });
       expect(isInfrastructureFailure(error)).toBe(true);
     });
+  });
+
+  describe('publicFaucetAccountId', () => {
+    it('reads the account the faucet sends its grants from out of its metadata', async () => {
+      const urls = serve([reply(200, { id: 'mtst1faucet', base_amount: 100 })]);
+      await expect(publicFaucetAccountId(BASE)).resolves.toBe('mtst1faucet');
+      expect(urls).toEqual([`${BASE}/get_metadata`]);
+    });
+
+    it('asks again after a 5xx', async () => {
+      serve([reply(503, 'Unavailable'), reply(200, { id: 'mtst1faucet' })]);
+      await expect(publicFaucetAccountId(BASE, 0)).resolves.toBe('mtst1faucet');
+    });
+
+    it.each([{ base_amount: 100 }, { id: '' }, { id: 7 }])(
+      'names the faucet when its metadata %p names no account, so a journey calls it infrastructure',
+      async metadata => {
+        serve([reply(200, metadata)]);
+        const error = await publicFaucetAccountId(BASE).catch((failure: unknown) => failure);
+        expect(error).toBeInstanceOf(PublicFaucetError);
+        expect(error).toMatchObject({ message: 'Public faucet metadata names no account id' });
+        expect(isInfrastructureFailure(error)).toBe(true);
+      }
+    );
   });
 
   describe('with a body that stalls', () => {

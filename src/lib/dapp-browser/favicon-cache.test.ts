@@ -1,25 +1,26 @@
 import { buildFaviconUrl, getFaviconUrl, getFallbackColor, getFallbackLetter } from './favicon-cache';
 
 describe('buildFaviconUrl', () => {
-  it('targets the Google S2 service', () => {
+  // Not S2's own address: its redirect has no Cross-Origin-Resource-Policy, which the extension's COEP refuses.
+  it("asks S2's favicon host directly", () => {
     const url = buildFaviconUrl('https://miden.xyz');
-    expect(url).toContain('google.com/s2/favicons');
+    expect(url.startsWith('https://t0.gstatic.com/faviconV2?')).toBe(true);
   });
 
   it('URL-encodes the origin query parameter', () => {
     const url = buildFaviconUrl('https://app.example.com:8080');
-    expect(url).toContain('domain=https%3A%2F%2Fapp.example.com%3A8080');
+    expect(url).toContain('url=https%3A%2F%2Fapp.example.com%3A8080');
   });
 
   it('requests size 64', () => {
-    expect(buildFaviconUrl('https://miden.xyz')).toContain('sz=64');
+    expect(buildFaviconUrl('https://miden.xyz')).toContain('size=64');
   });
 });
 
 describe('getFaviconUrl', () => {
   it('returns a URL for a fresh origin', () => {
     const url = getFaviconUrl('https://fresh-origin-' + Date.now() + '.test');
-    expect(url).toContain('google.com/s2/favicons');
+    expect(url).toContain('gstatic.com/faviconV2');
   });
 
   it('returns a stable string across multiple calls (caching)', () => {

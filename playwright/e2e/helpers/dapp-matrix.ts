@@ -31,16 +31,91 @@ export const journeyTitle = (journey: JourneyId, axis: AxisLabel): string =>
 
 type CellList = ReadonlyArray<{ id: string; axes: readonly AxisLabel[] }>;
 const BOTH: readonly AxisLabel[] = ['offchain', 'guardian'];
+const GUARDIAN: readonly AxisLabel[] = ['guardian'];
+const OFFCHAIN: readonly AxisLabel[] = ['offchain'];
 const both = (...ids: string[]): CellList => ids.map(id => ({ id, axes: BOTH }));
+// The request types M3 and M9 issue once an authorization went stale or names an account that is not current.
+const STALE = ['send', 'transaction', 'consume', 'consumeBytes', 'custom'] as const;
 
 /** In run order. An empty list is a journey with no spec yet, which the axis coverage test does not look for. */
 export const DAPP_JOURNEY_CELLS: Record<JourneyId, CellList> = {
-  S: both('S1', 'S2'),
-  W: both('W1'),
-  R: [],
-  X: [],
-  XL: [],
-  M: []
+  S: both('S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S8', 'S9', 'S10', 'S11', 'S14', 'N1'),
+  W: both(
+    'N1-before-writes',
+    'N2',
+    'W1',
+    'W2',
+    'W3',
+    'W3-wire',
+    'N6',
+    'W4',
+    'W8',
+    'N3a',
+    'N3b',
+    'N3c',
+    'N4',
+    'W5a',
+    'W5b',
+    'W5c',
+    'W6',
+    'W4f',
+    'N1-after-writes'
+  ),
+  R: both(
+    'G1',
+    'G2a',
+    'G2b',
+    'G2c',
+    'G3',
+    'G4',
+    'R1-send',
+    'R1-consume',
+    'R1-custom',
+    'R1-assets',
+    'R1-consumableNotes',
+    'R1-privateNotes',
+    'R1-importPrivateNote',
+    'R2',
+    'R3-noteType',
+    'R3-recallBlocks',
+    'R3-sender',
+    'R3-customAddress',
+    'R3-customPayload',
+    'R3-customUndecodable',
+    'R3-consumeBytes',
+    'R3-consumeUnresolved',
+    'R3-network',
+    'R4',
+    'R5',
+    'R8',
+    'R9',
+    'R10',
+    'R6',
+    'R11'
+  ),
+  X: [
+    ...both('X1', 'X2', 'X3', 'X4', 'X5'),
+    { id: 'X5f', axes: OFFCHAIN },
+    { id: 'X7', axes: GUARDIAN },
+    ...both('X11')
+  ],
+  XL: both('X6'),
+  M: [
+    ...both(
+      'S7',
+      'M1',
+      'M2',
+      ...STALE.flatMap(request => [`M3-${request}-switch`, `M3-${request}-revoke`]),
+      ...STALE.map(request => `M9-${request}`),
+      'M4-reads',
+      'M4',
+      'M7'
+    ),
+    // The switch between kinds starts from a Guardian account, which only the Guardian leg has (spec M8).
+    { id: 'M8-single', axes: GUARDIAN },
+    { id: 'M8-guardian', axes: GUARDIAN },
+    ...both('M10', 'N5')
+  ]
 };
 
 export const cellIdsFor = (journey: JourneyId, axis: AxisLabel): string[] =>

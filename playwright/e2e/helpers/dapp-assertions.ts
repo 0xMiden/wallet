@@ -1,14 +1,28 @@
 import { expect, type Page } from '@playwright/test';
+import { isDeepStrictEqual } from 'node:util';
 
-import { vaultBalanceOfCurrentAccount, waitForVaultBalanceOfCurrentAccount } from './balance-truth';
+import {
+  vaultBalanceOfCurrentAccount,
+  vaultReadingOfCurrentAccount,
+  waitForVaultBalanceOfCurrentAccount,
+  type VaultReading
+} from './balance-truth';
 import type { DappAxis } from './dapp-axis';
-import type { CellContext } from './dapp-cells';
-import { canonicalAddress, normalizeHex } from './dapp-gates';
+import { CellDeadlineExceeded, deadlineIn, InfrastructureFault, type CellContext } from './dapp-cells';
+import {
+  canonicalAddress,
+  isForeignConsume,
+  normalizeHex,
+  storeHoldsSyncSince,
+  syncedSince,
+  type NonCurrentRead
+} from './dapp-gates';
 import {
   describeTransactionRow,
   readTransactionRow,
   readTransactionRows,
   TxStatus,
+  USER_CANCELLED_REASON,
   type TransactionRowSnapshot
 } from './history';
 import { callDapp, ensureUnlocked, pendingNotes, selectAccountIfNeeded, unwrap, type DappHandle } from './test-dapp';
@@ -31,6 +45,8 @@ export interface WriteSide {
   /** The same account as the page reports it after connect, for chain reads. */
   accountIdHex: string;
   nativeFaucetId: string;
+  /** Who may send this account a note during the journey (`Journey.senders`); anyone else is a third party. */
+  journeySenders(): readonly string[];
 }
 
 /** What a write is measured against, captured after the cell's quiesce and before the request. */
@@ -39,6 +55,8 @@ export interface Baseline {
   /** `null` for an account the node has never seen (a first transaction). */
   commitmentHex: string | null;
   rowIds: string[];
+  /** Unix seconds just before the reads, on the scale of a row's `completedAt`; the vault holds every row completed before. */
+  capturedAtSec: number;
 }
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
@@ -63,21 +81,67 @@ export async function pollUntil<T>(
   }
 }
 
+// What the wait for a fresh wallet sync leaves of the cell's deadline for the question to the node after it: a round trip
+// and a few of callDapp's 2 s retries.
+const NODE_QUESTION_RESERVE_MS = 15_000;
+
+/**
+ * The current account's nonzero vault once the store holds a sync stamped after `sinceMs` (`storeHoldsSyncSince`): every
+ * transaction the account completed before then is in it, a third party's consume the store had not polled among them.
+ * Syncs are forced only while the last one published is older or another account's. A wallet sync needs the node, so a
+ * wait that runs out asks `dapp`'s node: one that fails throws `ChainUnavailable`, and only one that answers leaves the
+ * failure the wallet's. With `faucetIds`, the store and the sync are read and compared on those faucets alone.
+ */
+export async function vaultSyncedAfter(
+  wallet: Pick<GuardianAwareWalletPage, 'page' | 'triggerSync'>,
+  dapp: DappHandle,
+  sinceMs: number,
+  ctx: CellContext,
+  faucetIds?: readonly string[]
+): Promise<Record<string, string>> {
+  const what = 'the store holding a wallet sync after the baseline stamp';
+  const wait = deadlineIn(Math.max(0, ctx.deadline.remainingMs() - NODE_QUESTION_RESERVE_MS), ctx.deadline.label);
+  const read = async () => {
+    const reading = await vaultReadingOfCurrentAccount(wallet.page, faucetIds);
+    if (syncedSince(reading, sinceMs)) return reading;
+    await wallet.triggerSync(true);
+    return vaultReadingOfCurrentAccount(wallet.page, faucetIds);
+  };
+  let last: VaultReading | null = null;
+  let ended = '';
+  try {
+    for (;;) {
+      last = await wait.race(read(), what);
+      if (storeHoldsSyncSince(last, sinceMs)) return last.store;
+      if (wait.remainingMs() < 1_000) break;
+      await sleep(1_000);
+    }
+  } catch (error) {
+    // A forced sync that never settles (a stalled node) is cut here; any other failure is not the wait running out.
+    if (!(error instanceof CellDeadlineExceeded)) throw error;
+    ended = `; ${error.message}`;
+  }
+  await callDapp(dapp, 'syncHeight', {}, ctx.deadline);
+  throw new Error(`${what}, the dApp's node answering: last read ${JSON.stringify(last)}${ended}`);
+}
+
 /** Baselines come after the quiesce, so nothing else moves these balances while the cell runs. */
 export async function captureBaseline(
   side: WriteSide,
   faucetIds: readonly string[],
   ctx: CellContext
 ): Promise<Baseline> {
+  const capturedAtSec = Math.floor(Date.now() / 1000);
   await selectAccountIfNeeded(side.wallet, side.account);
   const ids = [...new Set([...faucetIds, side.nativeFaucetId])];
-  const vault: Record<string, bigint> = {};
-  for (const id of ids) vault[id] = await vaultBalanceOfCurrentAccount(side.wallet.page, id);
+  const synced = await vaultSyncedAfter(side.wallet, side.dapp, capturedAtSec * 1000, ctx, ids);
+  const vault = Object.fromEntries(ids.map(id => [id, BigInt(synced[id] ?? '0')]));
   const chain = await callDapp(side.dapp, 'chainAccount', { accountId: side.accountIdHex }, ctx.deadline);
   return {
     vault,
     commitmentHex: chain.found ? (chain.commitmentHex ?? null) : null,
-    rowIds: (await readTransactionRows(side.wallet.page)).map(row => row.id)
+    rowIds: (await readTransactionRows(side.wallet.page)).map(row => row.id),
+    capturedAtSec
   };
 }
 
@@ -282,11 +346,14 @@ export async function expectWritesToTheEnd(
     ...vaultDelta,
     [side.nativeFaucetId]: (vaultDelta[side.nativeFaucetId] ?? 0n) - fee
   };
-  for (const [faucetId, delta] of Object.entries(deltas)) {
-    await waitForVaultBalanceOfCurrentAccount(side.wallet.page, faucetId, (baseline.vault[faucetId] ?? 0n) + delta, {
-      timeoutMs: ctx.deadline.remainingMs()
-    });
-  }
+  const txIds = writes.map(write => write.txId);
+  await unlessAThirdPartyMovedIt(side, baseline, txIds, async () => {
+    for (const [faucetId, delta] of Object.entries(deltas)) {
+      await waitForVaultBalanceOfCurrentAccount(side.wallet.page, faucetId, (baseline.vault[faucetId] ?? 0n) + delta, {
+        timeoutMs: ctx.deadline.remainingMs()
+      });
+    }
+  });
 
   // 6. The recipient, per note id.
   const received = pairs.flat().flatMap(([expected, actual]) =>
@@ -314,21 +381,102 @@ export async function expectWritesToTheEnd(
   for (const faucetId of new Set([...Object.keys(baseline.vault), ...Object.keys(deltas)])) {
     expectedVault[faucetId] = (baseline.vault[faucetId] ?? 0n) + (deltas[faucetId] ?? 0n);
   }
-  await expectVaultHolds(side, expectedVault, 'vault after the writes', ctx);
-  const txIds = new Set(writes.map(write => write.txId));
-  const others = (await rowsOfAccountSince(side, baseline)).filter(entry => !txIds.has(entry.id));
+  await unlessAThirdPartyMovedIt(side, baseline, txIds, () =>
+    expectVaultHolds(side, expectedVault, 'vault after the writes', ctx)
+  );
+  const others = ownRowsBesides(side, baseline, txIds, await readTransactionRows(side.wallet.page));
   expect(others.map(describeTransactionRow), 'rows the account ran besides these writes').toEqual([]);
   return results;
 }
 
-/** The executing account's rows the baseline did not hold; a row naming no account counts as the account's. */
-async function rowsOfAccountSince(side: WriteSide, baseline: Baseline): Promise<TransactionRowSnapshot[]> {
-  const account = canonicalAddress(side.account);
-  return (await readTransactionRows(side.wallet.page)).filter(
+/** Whose vault a third-party check reads, and who counts as the journey. */
+export type VaultOwner = Pick<WriteSide, 'wallet' | 'account' | 'journeySenders'>;
+/** The rows the account held, and when they were read: a third party's move counts from then on. */
+export type RowWindow = Pick<Baseline, 'rowIds' | 'capturedAtSec'>;
+
+/** Whether a row is the executing account's; a row naming no account counts as the account's. */
+const ofAccount = (owner: VaultOwner, entry: TransactionRowSnapshot) =>
+  entry.accountId === undefined || canonicalAddress(entry.accountId) === canonicalAddress(owner.account);
+
+/**
+ * The executing account's rows the baseline did not hold, other than `expected`. A consume of a third party's note is
+ * left out: nothing the cell asked for can make one (spec section 5, Writes step 7).
+ */
+function ownRowsBesides(
+  owner: VaultOwner,
+  since: RowWindow,
+  expected: readonly string[],
+  rows: readonly TransactionRowSnapshot[]
+): TransactionRowSnapshot[] {
+  return rows.filter(
     entry =>
-      !baseline.rowIds.includes(entry.id) &&
-      (entry.accountId === undefined || canonicalAddress(entry.accountId) === account)
+      !since.rowIds.includes(entry.id) &&
+      !expected.includes(entry.id) &&
+      ofAccount(owner, entry) &&
+      !isForeignConsume(entry, owner.journeySenders())
   );
+}
+
+/**
+ * What makes a failed exact check of the account's vault the environment's, for this cell alone: a consume of a third
+ * party's note moved the account since `since` (finished since its capture, or still running), and the account ran
+ * nothing else of its own besides `expected`. `null` when the failure stays the check's.
+ */
+async function thirdPartyMoveFault(
+  owner: VaultOwner,
+  since: RowWindow,
+  expected: readonly string[],
+  failure: unknown
+): Promise<InfrastructureFault | null> {
+  const rows = await readTransactionRows(owner.wallet.page);
+  const moved = rows.filter(
+    entry =>
+      ofAccount(owner, entry) &&
+      isForeignConsume(entry, owner.journeySenders()) &&
+      (!since.rowIds.includes(entry.id) || entry.completedAt === undefined || entry.completedAt >= since.capturedAtSec)
+  );
+  if (moved.length === 0 || ownRowsBesides(owner, since, expected, rows).length > 0) return null;
+  const consumes = moved.map(
+    entry => `${entry.id} consumed ${(entry.noteIds ?? [entry.noteId]).join(', ')} from ${entry.secondaryAccountId}`
+  );
+  return new InfrastructureFault(
+    `a note from outside the journey moved ${owner.account}'s vault during the cell (${consumes.join('; ')}): ` +
+      `${failure instanceof Error ? failure.message.split('\n')[0] : String(failure)}`,
+    { abortsLeg: false, cause: failure }
+  );
+}
+
+/** Runs an exact vault check; its failure is the environment's only as `thirdPartyMoveFault` says. */
+async function unlessAThirdPartyMovedIt(
+  side: WriteSide,
+  baseline: Baseline,
+  expected: readonly string[],
+  check: () => Promise<void>
+): Promise<void> {
+  try {
+    await check();
+  } catch (error) {
+    throw (await thirdPartyMoveFault(side, baseline, expected, error)) ?? error;
+  }
+}
+
+/**
+ * M4-reads: a read served after its popup a vault other than its account's own, captured at `since`. A move by a third
+ * party's note on that account explains it (`thirdPartyMoveFault`, the read making no row), unless the vault served is
+ * the other account's: a leak stays the wallet's. Anything else is left to K9's per-read rule.
+ */
+export async function unlessAThirdPartyMovedARead(
+  owner: VaultOwner,
+  since: RowWindow,
+  read: NonCurrentRead,
+  otherOwn: Record<string, string>
+): Promise<void> {
+  const { prompted, served, own } = read;
+  if (!prompted || served === null || isDeepStrictEqual(served, own)) return;
+  if (isDeepStrictEqual(served, otherOwn)) return;
+  const mismatch = new Error(`served ${JSON.stringify(served)}, not its own ${JSON.stringify(own)}`);
+  const fault = await thirdPartyMoveFault(owner, since, [], mismatch);
+  if (fault !== null) throw fault;
 }
 
 /** The exact refusal a dApp sees; `message` as a pattern only where the wallet interpolates into it. */
@@ -342,7 +490,9 @@ export const refusal = (name: string, message: string | RegExp, causeName?: stri
 });
 
 export async function expectNoNewRows(side: WriteSide, baseline: Baseline): Promise<void> {
-  const added = (await readTransactionRows(side.wallet.page)).filter(row => !baseline.rowIds.includes(row.id));
+  const added = (await readTransactionRows(side.wallet.page)).filter(
+    row => !baseline.rowIds.includes(row.id) && !isForeignConsume(row, side.journeySenders())
+  );
   expect(added.map(describeTransactionRow), 'rows a refused request added').toEqual([]);
 }
 
@@ -362,9 +512,33 @@ async function expectVaultHolds(
   }
 }
 
-/** Unchanged across two forced syncs, so a late debit has time to show. */
-export async function expectVaultUnchanged(side: WriteSide, baseline: Baseline, ctx: CellContext): Promise<void> {
-  await expectVaultHolds(side, baseline.vault, 'vault', ctx);
+/**
+ * Unchanged across two forced syncs, so a late debit has time to show. `expected` names every row the cell made, with no
+ * default: a row of the cell's own left out turns a third party's move of the vault into the wallet's failure.
+ */
+export async function expectVaultUnchanged(
+  side: WriteSide,
+  baseline: Baseline,
+  ctx: CellContext,
+  expected: readonly string[]
+): Promise<void> {
+  await unlessAThirdPartyMovedIt(side, baseline, expected, () => expectVaultHolds(side, baseline.vault, 'vault', ctx));
+}
+
+/**
+ * R4: a row the user cancelled while it was Queued, so the dApp's wait is refused with the cancel and the vault never
+ * moved; the cancelled row is the cell's own.
+ */
+export async function expectCancelledWhileQueued(
+  side: WriteSide,
+  baseline: Baseline,
+  txId: string,
+  ctx: CellContext
+): Promise<void> {
+  expect(await callDapp(side.dapp, 'waitForTransaction', { txId }, ctx.deadline)).toEqual(
+    refusal('WalletTransactionError', USER_CANCELLED_REASON)
+  );
+  await expectVaultUnchanged(side, baseline, ctx, [txId]);
 }
 
 /** Spec section 5, "Negative paths": stage and text are pinned, because waitForTransaction returns row.error verbatim. */
@@ -389,7 +563,7 @@ export async function expectFailedAfterEnqueue(
     ok: false,
     error: { name: 'WalletTransactionError', message: row?.error ?? '' }
   });
-  await expectVaultUnchanged(side, baseline, ctx);
+  await expectVaultUnchanged(side, baseline, ctx, [txId]);
 }
 
 /**
