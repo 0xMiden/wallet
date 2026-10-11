@@ -197,3 +197,11 @@
    // playwright/e2e/android/helpers/android-wallet-page.ts:247-251
    await this.pollForSelector('[data-testid="onboarding-welcome"]', 30_000);
    ```
+
+23. [Hosted prep test, fixed] The APK mismatch test's fake `sha256sum` output and expected hash were both 64 zeroes, so it described a matching installed APK and Jest correctly resolved the promise. Make the expected hash differ from the mocked digest.
+
+   ```ts
+   // playwright/e2e/android/helpers/emulator-control.test.ts:261-262
+   await expect(new EmulatorControl().assertInstalledApkSha256(SERIAL, PACKAGE, '1'.repeat(64)))
+     .rejects.toThrow(/SHA-256 mismatch/);
+   ```

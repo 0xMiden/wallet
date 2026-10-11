@@ -258,7 +258,7 @@ describe('EmulatorControl', () => {
         return {} as ReturnType<typeof execFile>;
       }) as unknown as typeof execFile);
 
-      await expect(new EmulatorControl().assertInstalledApkSha256(SERIAL, PACKAGE, '0'.repeat(64)))
+      await expect(new EmulatorControl().assertInstalledApkSha256(SERIAL, PACKAGE, '1'.repeat(64)))
         .rejects.toThrow(/SHA-256 mismatch/);
     });
   });
