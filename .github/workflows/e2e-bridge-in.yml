@@ -180,7 +180,9 @@ jobs:
         with:
           path: |
             ~/Library/Android/sdk/system-images/android-34/default/x86_64
-          key: bridge-in-android-image-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/e2e-bridge-in.yml') }}
+          key: bridge-in-android-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
+          restore-keys: |
+            bridge-in-android-image-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install the Android API 34 image on cache miss
         if: steps.sdk-cache.outputs.cache-hit != 'true'
@@ -202,7 +204,7 @@ jobs:
         with:
           path: |
             ~/Library/Android/sdk/system-images/android-34/default/x86_64
-          key: bridge-in-android-image-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/e2e-bridge-in.yml') }}
+          key: bridge-in-android-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
 
       - name: Build Testnet E2E APK
         run: yarn test:e2e:android:build
@@ -212,7 +214,7 @@ jobs:
           RUNNER_OS_NAME: ${{ runner.os }}
           RUNNER_ARCH_NAME: ${{ runner.arch }}
           NODE_MODULES_CACHE_KEY: bridge-in-node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node22-yarn1-${{ hashFiles('package.json', 'yarn.lock', '.yarnrc', '.npmrc', 'patches/**', 'packages/hd-key/src/**', 'packages/hd-key/tsconfig.json', 'packages/hd-key/package.json') }}
-          ANDROID_IMAGE_CACHE_KEY: bridge-in-android-image-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/e2e-bridge-in.yml') }}
+          ANDROID_IMAGE_CACHE_KEY: bridge-in-android-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
         run: |
           set -euo pipefail
           apk=android/app/build/outputs/apk/debug/app-debug.apk
@@ -784,7 +786,7 @@ jobs:
           PREBUILT_DIR: ${{ runner.temp }}/bridge-in-prebuilt
           PREBUILT_RUN_ID: ${{ steps.prepared.outputs.run-id }}
           EXPECTED_NODE_MODULES_CACHE_KEY: bridge-in-node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node22-yarn1-${{ hashFiles('package.json', 'yarn.lock', '.yarnrc', '.npmrc', 'patches/**', 'packages/hd-key/src/**', 'packages/hd-key/tsconfig.json', 'packages/hd-key/package.json') }}
-          EXPECTED_ANDROID_IMAGE_CACHE_KEY: bridge-in-android-image-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/e2e-bridge-in.yml') }}
+          EXPECTED_ANDROID_IMAGE_CACHE_KEY: bridge-in-android-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
         run: |
           set -euo pipefail
           cli="$PREBUILT_DIR/bin/miden-client"
@@ -862,7 +864,7 @@ jobs:
         with:
           path: |
             ~/Library/Android/sdk/system-images/android-34/default/x86_64
-          key: bridge-in-android-image-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/e2e-bridge-in.yml') }}
+          key: bridge-in-android-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
 
       - name: Check dispatch-based first-loop deadline
         run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline android_image_restore
@@ -887,6 +889,16 @@ jobs:
 
       - name: Check dispatch-based first-loop deadline
         run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline emulator_host_check
+
+      # Preparation and live workload use separate runners, so PATH changes are job-local.
+      - name: Add Android SDK tools to PATH
+        timeout-minutes: 1
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Check dispatch-based first-loop deadline
+        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline android_sdk_path_setup
 
       - name: Verify restored Android SDK packages
         timeout-minutes: 1

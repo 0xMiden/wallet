@@ -457,8 +457,8 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - [x] Publish only to the recovery branch and dispatch `android-prepare` for the reviewed commit; record the first prep run's SDK preflight failure.
 - [x] Fix the runner SDK PATH assumption; split cache restore/save so a later prep-stage failure cannot discard already-verified dependency and image caches; rerun static workflow validation.
 - [x] Diagnose the next prep failure: image unpacking succeeded, but the redundant license pipeline failed under `pipefail`; remove it because `setup-android` accepts SDK licenses.
-- [ ] Publish the correction only to the recovery branch and dispatch one preparation-only run against its exact SHA; verify CLI, APK, and packaged manifest artifacts.
-- [ ] Obtain fresh authorization before dispatching another live 100-loop Testnet run.
+- [x] Publish the correction only to the recovery branch and dispatch one preparation-only run against its exact SHA; verify CLI, APK, and packaged manifest artifacts.
+- [x] Obtain fresh authorization and dispatch one live 100-loop Testnet run against the prepared SHA; inspect its exact failure logs.
 
 ## Evidence
 
@@ -470,9 +470,30 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - Preparation run `38111623729` used commit `85d2f20e64372f4c5edd6eff9d2b96af536f409e`: CLI preparation passed and uploaded its artifact in 31 seconds; the Android dependency install and integrity check passed in 3m49s. SDK preflight then failed immediately because `sdkmanager` was not on `PATH`; no APK artifact, loop, or Testnet transaction was produced. Both live workload jobs were skipped.
 - Preparation run `38112184176` used commit `c0e973cbf0b063791b04e8dad8904819ae005a25`: CLI preparation passed in 29 seconds; SDK setup and package checks passed; the verified dependency cache was saved. The API 34 image downloaded and unpacked, then `yes | sdkmanager --licenses` failed because the SDK manager exited before `yes`, causing a broken pipe under `pipefail`; the API image cache and APK were not saved, and both workload jobs were skipped.
 - The corrected prep path runs `android-actions/setup-android@v3` to expose the hosted SDK tools and accept licenses, then saves verified dependency and API 34 image caches in explicit steps before later build stages. It no longer runs a redundant license pipeline.
+- Preparation run `38112626286` used commit `5cfe2a414b88532bf5ee0d493f733a0cabd262f9` and succeeded. The pinned CLI built and uploaded in 31 seconds; dependency cache verification passed; API 34 image install, verification, and cache save passed; APK build completed in 5m54s; the exact-SHA CLI/APK manifest bound and uploaded successfully. The Android Testnet and iOS jobs were skipped.
+- Live run `38113670228` used the same exact SHA. Dispatch-to-Android-job start was 5 seconds. Dependency cache restore took 1m21s; prepared CLI/APK download and verification took 11 seconds; Android image restore took 37 seconds. It failed at 2m31s in `Verify restored Android SDK packages`, specifically `command -v sdkmanager`; no emulator, Playwright test, bridge loop, or Testnet transaction started. The prep job's `setup-android` PATH mutation is runner-local and did not reach this live job.
 
 ## Review/results
 
-- `actionlint` and `git diff --check` pass after the prep correction. Earlier workflow YAML parsing, `bash -n` for all workflow run blocks, and `node --check` for the watchdog and embedded Node/GitHub Script blocks passed; scoped ESLint was unavailable because this checkout has no local dependency installation. No repository tests or live Android loop were run.
+- `actionlint` and `git diff --check` pass after the prep correction. Earlier workflow YAML parsing, `bash -n` for all workflow run blocks, and `node --check` for the watchdog and embedded Node/GitHub Script blocks passed; scoped ESLint was unavailable because this checkout has no local dependency installation. No repository tests were run; live run `38113670228` failed before Playwright and started zero loops.
 - Independent review findings for exact-repository artifact selection, bounded setup, cancellation forwarding, missing startup reports, Testnet fee side effects, and zero-loop success have been addressed. Final read-only re-review found no remaining P0/P1/P2 issues.
-- The first two `android-prepare` runs failed before APK build; their artifacts cannot satisfy the next commit's exact-SHA manifest. The Android and iOS workload jobs were skipped on both runs. No 100-loop Android Testnet run has been dispatched.
+- The first two `android-prepare` runs failed before APK build; their artifacts cannot satisfy the next commit's exact-SHA manifest. The latest preparation run succeeded and produced an exact-SHA artifact; its Android Testnet and iOS jobs were skipped.
+- The first live run on the prepared SHA failed before emulator startup because the fresh live runner lacked `sdkmanager` on `PATH`. Its startup artifact records zero loops. The cache key previously hashed the entire workflow; the current fix makes preparation restore/save, provenance, manifest verification, and live restore use one package-specific OS/architecture key.
+
+## Repair live Android SDK PATH and keep image cache stable
+
+### Plan
+
+- [x] Inspect exact run `38113670228`'s failed step log and prove the failure occurred before emulator or Playwright startup.
+- [x] Confirm `setup-android` ran only in the separate prep job and its PATH update cannot configure the live job's fresh runner.
+- [x] Add job-local Android SDK PATH setup before live SDK verification and change the image cache key to encode OS, architecture, and the API 34 image package.
+- [x] Run workflow lint and diff checks.
+- [x] Address and re-review the cache-key mismatch caught during focused independent review; final review found no remaining findings.
+- [ ] Push the reviewed correction only to the recovery branch.
+- [ ] Obtain fresh authorization for an exact-SHA `android-prepare` run and a subsequent live 100-loop Testnet run; verify the five-minute first-loop outcome.
+
+### Evidence
+
+- Run `38113670228` reached `Verify restored Android SDK packages` at `2026-10-11T05:08:04Z`; the first `command -v sdkmanager` exited 1. The finalizer and diagnostic artifact uploads completed, and Playwright was skipped.
+- Its dependency and Android image caches restored successfully, but the API image key depended on the entire workflow file. An unrelated startup-path edit would otherwise invalidate that cache.
+- Independent review confirmed SDK setup ordering and prep fallback-cache behavior, and caught one missed workflow-hash key in the live restore; the live key now matches prep and manifest, and final re-review found no remaining findings.

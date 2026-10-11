@@ -85,10 +85,10 @@
    process.exitCode = exceededDeadline || !firstLoop ? 1 : code ?? 1;
    ```
 
-11. [Runtime findings, addressed; hosted retry pending] Expose the hosted Android SDK tools on `PATH` before checking or invoking `sdkmanager` and `avdmanager`. Preparation run `38111623729` failed at `command -v sdkmanager`. In run `38112184176`, the SDK and dependency checks passed and the API 34 image unpacked, but the redundant `yes | sdkmanager --licenses` failed with a broken pipe under `pipefail`; `android-actions/setup-android` already accepts those licenses. Save verified dependency and system-image caches before later build steps so downstream failures retain completed preparation work.
+11. [Runtime findings, addressed and independently reviewed] Expose the hosted Android SDK tools on `PATH` in every job that invokes them. Preparation run `38111623729` failed at `command -v sdkmanager`; run `38112184176` then showed the redundant license pipeline failed under `pipefail`, so it was removed because setup-android already accepts those licenses. The successful prep run `38112626286` exposed a cross-job boundary: its PATH setup did not carry over to live run `38113670228`, which failed at `command -v sdkmanager` before emulator startup. Add setup-android to the live runner before this check. Key the system-image cache by OS, architecture, and image package, not the full workflow file, so unrelated edits do not invalidate it.
 
    ```yaml
-   # .github/workflows/e2e-bridge-in.yml:146-207
+   # .github/workflows/e2e-bridge-in.yml:160-213, 893-913
    - uses: android-actions/setup-android@v3
      with:
        packages: platform-tools
@@ -96,16 +96,23 @@
    sdkmanager --install "system-images;android-34;default;x86_64"
    ```
 
+12. [Expert, addressed after independent review] Use the same API 34 cache key in preparation restore/save, artifact provenance, and the live restore. The first stable-key edit missed the live restore, which still used the workflow hash and would have failed its exact-cache gate. Align the live restore with the package-specific key.
+
+   ```yaml
+   # .github/workflows/e2e-bridge-in.yml:183-185, 207-218, 789, 864-867
+   key: bridge-in-android-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
+   ```
+
 ### Low
 
-12. [Expert, fixed] Run checkout and Cargo preparation through the process-tree-aware timeout helper so timed-out commands cannot race source cleanup.
+13. [Expert, fixed] Run checkout and Cargo preparation through the process-tree-aware timeout helper so timed-out commands cannot race source cleanup.
 
    ```js
    // scripts/install-pinned-miden-cli.cjs:91-97,318-324
    timeoutMs: 180_000
    ```
 
-13. [Expert, fixed] Name Hypervisor.framework as the macOS acceleration layer in the runner guidance.
+14. [Expert, fixed] Name Hypervisor.framework as the macOS acceleration layer in the runner guidance.
 
    ```yaml
    # .github/workflows/e2e-bridge-in.yml:909-917
