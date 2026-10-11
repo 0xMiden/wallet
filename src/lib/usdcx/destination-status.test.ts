@@ -1,14 +1,16 @@
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 
-import { pollUsdcxDestination, readUsdcxDestinationBalance } from './destination-status';
+import { pollUsdcxDestination, readUsdcxDestinationBalance, readUsdcxDestinationSnapshot } from './destination-status';
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
 
 let stored: ITransaction;
 const mockReadContract = jest.fn();
 const mockGetBlockNumber = jest.fn();
+const mockHttp = jest.fn((url: string, options: { timeout: number; retryCount: number }) => ({ url, options }));
 jest.mock('viem', () => ({
   ...jest.requireActual<typeof import('viem')>('viem'),
+  http: (url: string, options: { timeout: number; retryCount: number }) => mockHttp(url, options),
   createPublicClient: () => ({ readContract: mockReadContract, getBlockNumber: mockGetBlockNumber })
 }));
 jest.mock('lib/miden/repo', () => ({
@@ -64,6 +66,117 @@ it('reads the recipient USDC balance at the reported block', async () => {
       blockNumber: 101n
     })
   );
+});
+
+it('times each request out at the budget it is handed, 15 s by default, and never retries inside viem', async () => {
+  mockGetBlockNumber.mockResolvedValueOnce(101n).mockResolvedValueOnce(101n);
+  mockReadContract.mockResolvedValueOnce(6000000n).mockResolvedValueOnce(6000000n);
+  await readUsdcxDestinationBalance(5042002, recipient);
+  await readUsdcxDestinationBalance(5042002, recipient, 4_000);
+  expect(mockHttp.mock.calls.map(([, options]) => options)).toEqual([
+    { timeout: 15_000, retryCount: 0 },
+    { timeout: 4_000, retryCount: 0 }
+  ]);
+});
+
+describe('readUsdcxDestinationSnapshot', () => {
+  const snapshot = { balance: '0', blockNumber: '66303813' };
+  const rateLimited = () => new Error('HTTP request failed. Status: 429');
+
+  /** A clock that moves only when the code under test sleeps or a read takes time. */
+  function fakeClock() {
+    let now = 1_000_000;
+    return {
+      now: () => now,
+      advance: (ms: number) => {
+        now += ms;
+      },
+      sleep: jest.fn(async (ms: number) => {
+        now += ms;
+      })
+    };
+  }
+
+  it('reads once and does not wait when the first read lands', async () => {
+    const clock = fakeClock();
+    const readBalance = jest.fn(async () => snapshot);
+
+    await expect(
+      readUsdcxDestinationSnapshot(5042002, recipient, { read: readBalance, now: clock.now, sleep: clock.sleep })
+    ).resolves.toEqual(snapshot);
+
+    expect(readBalance.mock.calls).toEqual([[5042002, recipient, 15_000]]);
+    expect(clock.sleep).not.toHaveBeenCalled();
+  });
+
+  // arc.io answers intermittent 429s; one failed read must not fail the burn before its row exists.
+  it('retries a failed read with backoff, each attempt drawing on what is left of the 15 s', async () => {
+    const clock = fakeClock();
+    const readBalance = jest
+      .fn()
+      .mockRejectedValueOnce(rateLimited())
+      .mockRejectedValueOnce(rateLimited())
+      .mockResolvedValueOnce(snapshot);
+
+    await expect(
+      readUsdcxDestinationSnapshot(5042002, recipient, { read: readBalance, now: clock.now, sleep: clock.sleep })
+    ).resolves.toEqual(snapshot);
+
+    expect(readBalance.mock.calls).toEqual([
+      [5042002, recipient, 15_000],
+      [5042002, recipient, 14_000],
+      [5042002, recipient, 12_000]
+    ]);
+    expect(clock.sleep.mock.calls).toEqual([[1_000], [2_000]]);
+  });
+
+  it('rethrows the last error after three attempts', async () => {
+    const clock = fakeClock();
+    const readBalance = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('first'))
+      .mockRejectedValueOnce(new Error('second'))
+      .mockRejectedValueOnce(new Error('third'));
+
+    await expect(
+      readUsdcxDestinationSnapshot(5042002, recipient, { read: readBalance, now: clock.now, sleep: clock.sleep })
+    ).rejects.toThrow('third');
+
+    expect(readBalance).toHaveBeenCalledTimes(3);
+    expect(clock.sleep.mock.calls).toEqual([[1_000], [2_000]]);
+  });
+
+  it('starts no attempt the 15 s budget cannot hold', async () => {
+    const clock = fakeClock();
+    const readBalance = jest.fn(async () => {
+      clock.advance(14_500);
+      throw new Error('timed out');
+    });
+
+    await expect(
+      readUsdcxDestinationSnapshot(5042002, recipient, { read: readBalance, now: clock.now, sleep: clock.sleep })
+    ).rejects.toThrow('timed out');
+
+    expect(readBalance).toHaveBeenCalledTimes(1);
+    expect(clock.sleep).not.toHaveBeenCalled();
+  });
+
+  it('waits on the real clock between attempts by default', async () => {
+    jest.useFakeTimers();
+    try {
+      mockGetBlockNumber.mockRejectedValueOnce(rateLimited()).mockResolvedValueOnce(101n);
+      mockReadContract.mockResolvedValueOnce(6000000n);
+
+      const outcome = readUsdcxDestinationSnapshot(5042002, recipient);
+      await jest.advanceTimersByTimeAsync(1_000);
+
+      await expect(outcome).resolves.toEqual(arrived);
+      expect(mockGetBlockNumber).toHaveBeenCalledTimes(2);
+      expect(mockHttp.mock.calls.map(([, options]) => options.timeout)).toEqual([15_000, 14_000]);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 it('confirms arrival and preserves burn confirmation', async () => {

@@ -12,12 +12,21 @@ export interface UsdcxBalanceSnapshot {
   blockNumber: string;
 }
 
+/** One destination read's request timeout, and the whole budget of the snapshot taken before a burn. */
+const DESTINATION_READ_TIMEOUT_MS = 15_000;
+/** The waits before the snapshot's second and third attempts. */
+const SNAPSHOT_BACKOFF_MS = [1_000, 2_000];
+
 /** Read USDC in six-decimal base units at one block. RPC errors stop this check. */
-export async function readUsdcxDestinationBalance(chainId: number, recipient: string): Promise<UsdcxBalanceSnapshot> {
+export async function readUsdcxDestinationBalance(
+  chainId: number,
+  recipient: string,
+  timeoutMs = DESTINATION_READ_TIMEOUT_MS
+): Promise<UsdcxBalanceSnapshot> {
   const chain = getChain(chainId);
   const token = CIRCLE_USDC_ADDRESS.get(chainId);
   if (!chain || !token || !isAddress(recipient)) throw new Error('Invalid USDC destination');
-  const client = createPublicClient({ transport: http(chain.rpcUrl, { timeout: 15_000, retryCount: 0 }) });
+  const client = createPublicClient({ transport: http(chain.rpcUrl, { timeout: timeoutMs, retryCount: 0 }) });
   const blockNumber = await client.getBlockNumber({ cacheTime: 0 });
   const balance = await client.readContract({
     address: token,
@@ -27,6 +36,38 @@ export async function readUsdcxDestinationBalance(chainId: number, recipient: st
     blockNumber
   });
   return { balance: balance.toString(), blockNumber: blockNumber.toString() };
+}
+
+export interface UsdcxSnapshotDeps {
+  read?: typeof readUsdcxDestinationBalance;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
+/**
+ * The balance a burn is later confirmed against, read before the burn is queued. Arc's public RPC answers
+ * intermittent 429s, so a failed read is tried twice more after a backoff, every attempt drawing on the 15 s one read
+ * used to have. The last error is rethrown: a burn whose every attempt fails still fails before any row exists.
+ */
+export async function readUsdcxDestinationSnapshot(
+  chainId: number,
+  recipient: string,
+  { read = readUsdcxDestinationBalance, now = Date.now, sleep = wait }: UsdcxSnapshotDeps = {}
+): Promise<UsdcxBalanceSnapshot> {
+  const deadline = now() + DESTINATION_READ_TIMEOUT_MS;
+  const attempt = async (backoffs: readonly number[]): Promise<UsdcxBalanceSnapshot> => {
+    try {
+      return await read(chainId, recipient, deadline - now());
+    } catch (error) {
+      const [backoff, ...later] = backoffs;
+      if (backoff === undefined || now() + backoff >= deadline) throw error;
+      await sleep(backoff);
+      return attempt(later);
+    }
+  };
+  return attempt(SNAPSHOT_BACKOFF_MS);
 }
 
 export function isUsdcxDestinationPending(burn: IUsdcxBurn): boolean {
