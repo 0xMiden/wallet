@@ -21,21 +21,23 @@ import {
   type Deadline,
   type JourneyId
 } from './dapp-cells';
-import { canonicalAddress } from './dapp-gates';
+import { canonicalAddress, isJourneySender, sessionHeld, sharedOpen, type SessionCheck } from './dapp-gates';
 import { knownBugRegistry } from './dapp-known-bugs';
 import { cellIdsFor } from './dapp-matrix';
 import pinned from './dapp-pinned.json';
 import { readTransactionRows, releaseQueueBlocker } from './history';
 import type { MidenCli } from './miden-cli';
 import { fundAndClaim, TOKEN, TOKEN_DECIMALS } from './money-path';
-import { publicFaucetApiUrl } from './public-faucet';
+import { publicFaucetAccountId, publicFaucetApiUrl } from './public-faucet';
 import {
   answerPrompt,
   callDapp,
   closeOpenConfirmPages,
+  dappSessionsFor,
   ensureUnlocked,
   openTestDapp,
   pendingNoteIds,
+  pendingNotes,
   recordConfirmPages,
   revokeDappSession,
   selectAccountIfNeeded,
@@ -69,6 +71,9 @@ export type DappCellImpl = Omit<DappCell, 'id'>;
 /** A wallet setting a cell changed, put back by the restore after it. */
 export type TouchedSetting = 'faults' | 'delegate' | 'autoConsume' | 'spendingLimit';
 
+/** The kind of the account in `slot`: `third` is single-sig on either leg (M8 switches kinds in one wallet). */
+export const slotAxis = (axis: DappAxis, slot: AccountSlot): DappAxis => (slot === 'third' ? offchainDappAxis : axis);
+
 export const UNIT = 10n ** BigInt(TOKEN_DECIMALS);
 /** TST amounts in base units, from whole tokens with at most two decimals. */
 export const tst = (units: number): bigint => (BigInt(Math.round(units * 100)) * UNIT) / 100n;
@@ -96,6 +101,10 @@ export interface Journey {
   readonly tokenFaucetId: string;
   readonly nativeFaucetId: string;
   readonly addressB: string;
+  /** The account the network's public faucet sends its grants from. */
+  readonly publicFaucetId: string;
+  /** Everyone the journey may receive a note from: both wallets' accounts so far, the CLI faucet, the public faucet. */
+  senders(): readonly string[];
   /** Values one cell leaves for a later one (a note id, a tx id), by name. */
   readonly memo: Map<string, string>;
   readonly init: (label: string) => DappInit;
@@ -119,6 +128,8 @@ export interface StartJourneyInput {
 }
 
 const quiesceContext = (deadline: Deadline): CellContext => ({ deadline, evidence: {}, softFail: () => undefined });
+/** A cell-shaped context for setup work outside any cell (producing notes, connecting B's dApp). */
+export const setupContext = (ms: number, label: string): CellContext => quiesceContext(deadlineIn(ms, label));
 
 async function waitFor<T>(read: () => Promise<T | null>, what: string, timeoutMs: number): Promise<T> {
   const deadline = Date.now() + timeoutMs;
@@ -140,7 +151,8 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
   const { journey, axis, walletA, walletB, midenCli, envConfig, steps, testInfo } = input;
   // Live networks only (the merge-only ruling): every grant comes from the network's public faucet, which a local
   // chain lacks.
-  if (publicFaucetApiUrl(envConfig.name) === undefined) {
+  const faucetApi = publicFaucetApiUrl(envConfig.name);
+  if (faucetApi === undefined) {
     throw new HarnessFault(
       `the dApp suite runs on testnet or devnet; E2E_NETWORK=${envConfig.name} has no public faucet`
     );
@@ -172,7 +184,7 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
     throw new InfrastructureFault(`an earlier journey hit an infrastructure failure: ${aborted}`);
   }
 
-  let funded: { a: string; b: string; cliFaucetId: string };
+  let funded: { a: string; b: string; cliFaucetId: string; publicFaucetId: string };
   try {
     axis.prepare(walletA);
     const a = await axis.create(walletA);
@@ -192,7 +204,7 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
       await walletB.claimAllNotes(180_000);
       await waitForVaultBalance(walletB.page, TOKEN, FUND_B, { timeoutMs: 180_000, decimals: TOKEN_DECIMALS });
     });
-    funded = { a: a.address, b: b.address, cliFaucetId };
+    funded = { a: a.address, b: b.address, cliFaucetId, publicFaucetId: await publicFaucetAccountId(faucetApi) };
   } catch (error) {
     // A public-faucet failure anywhere in the funding is the environment's (spec section 6); a wallet claim failure
     // is not, and leaves the cells not-run for the judge.
@@ -227,9 +239,21 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
     runner.setupFailed(error);
     throw error;
   }
-  let two: Promise<DappHandle> | undefined;
-  let ofB: Promise<DappHandle> | undefined;
   const network = envConfig.name;
+  const dappTwo = sharedOpen(() => openTestDapp(contextA, 'two', init('A-two')));
+  const dappB = sharedOpen(async () => {
+    const contextB = walletB.page.context();
+    const handle = await openTestDapp(contextB, 'one', init('B-one'));
+    const ctx = quiesceContext(deadlineIn(120_000, "B's dApp connect"));
+    const { result } = await answerPrompt(
+      handle,
+      () => callDapp(handle, 'connect', { permission: 'UponRequest', network }),
+      { kind: 'connect', decision: 'approve', origin: handle.origin },
+      ctx
+    );
+    unwrap(result, "B's dApp connect", ctx);
+    return handle;
+  });
 
   const journeyValue: Journey = {
     id: journey,
@@ -246,32 +270,20 @@ export async function startJourney(input: StartJourneyInput): Promise<Journey> {
     tokenFaucetId,
     nativeFaucetId,
     addressB: funded.b,
+    publicFaucetId: funded.publicFaucetId,
+    senders: () => [...accounts.values(), funded.b, funded.cliFaucetId, tokenFaucetId, funded.publicFaucetId],
     memo: new Map(),
     init,
     account: async slot => {
       const known = accounts.get(slot);
       if (known !== undefined) return known;
-      // `third` is a single-sig account on either leg (M8 switches between kinds in one wallet).
-      const created = await walletA.createAdditionalAccount(slot === 'third' ? 'off-chain' : axis.walletType);
+      const created = await walletA.createAdditionalAccount(slotAxis(axis, slot).walletType);
       accounts.set(slot, created.address);
       await selectAccountIfNeeded(walletA, funded.a);
       return created.address;
     },
-    dappTwo: () => (two ??= openTestDapp(contextA, 'two', init('A-two'))),
-    dappB: () =>
-      (ofB ??= (async () => {
-        const contextB = walletB.page.context();
-        const handle = await openTestDapp(contextB, 'one', init('B-one'));
-        const ctx = quiesceContext(deadlineIn(120_000, "B's dApp connect"));
-        const { result } = await answerPrompt(
-          handle,
-          () => callDapp(handle, 'connect', { permission: 'UponRequest', network }),
-          { kind: 'connect', decision: 'approve', origin: handle.origin },
-          ctx
-        );
-        unwrap(result, "B's dApp connect", ctx);
-        return handle;
-      })()),
+    dappTwo,
+    dappB,
     touch: setting => void touched.add(setting)
   };
   holder.journey = journeyValue;
@@ -293,13 +305,15 @@ async function quiesce(j: Journey, cell: DappCell, deadline: Deadline, previous?
   await j.walletA.waitForQueueDrained(deadline.remainingMs());
   // After the drain: the settle ledger is complete only once nothing is left to push (guardian-commitments.ts:141-143).
   await j.axis.settle(j.walletA);
-  const pendingAtB = await pendingNoteIds(j.walletB.page);
+  const pendingAtB = await pendingNotes(j.walletB.page);
   // A cell that ran clean claimed every note it sent B (expectReceivedByRecipient), so a note still pending after one
   // is a payment no write accounted for, such as a second payment that landed late. It blocks the journey instead of
-  // being claimed; after any other outcome the cell's own unclaimed notes are claimed.
-  if (pendingAtB.length > 0 && ranClean(previous)) {
+  // being claimed; after any other outcome the cell's own unclaimed notes are claimed. A note a third party sent B is
+  // no write's, so it is claimed with the rest.
+  const unaccounted = pendingAtB.filter(note => isJourneySender(note.senderAddress, j.senders()));
+  if (unaccounted.length > 0 && ranClean(previous)) {
     throw new Error(
-      `wallet B holds notes no write accounted for after ${previous?.id} passed: ${pendingAtB.join(', ')}`
+      `wallet B holds notes no write accounted for after ${previous?.id} passed: ${unaccounted.map(note => note.id).join(', ')}`
     );
   }
   if (pendingAtB.length > 0) await j.walletB.claimAllNotes(deadline.remainingMs());
@@ -319,13 +333,14 @@ async function establishSession(
   const sameAccount = (address: string | null) =>
     address !== null && canonicalAddress(address) === canonicalAddress(account);
   const permission = wanted === 'auto' ? 'AUTO' : 'UPON_REQUEST';
-  const already =
-    wanted !== 'none' &&
-    view.adapterConnected &&
-    sameAccount(view.adapterAddress) &&
-    sameAccount(view.providerAddress) &&
-    view.connected?.privateDataPermission === permission;
-  if (already) return;
+  const state: SessionCheck = {
+    adapterConnected: view.adapterConnected,
+    adapterAddress: view.adapterAddress,
+    providerAddress: view.providerAddress,
+    privateDataPermission: view.connected?.privateDataPermission ?? null,
+    walletSessionAccounts: await dappSessionsFor(j.walletA, dapp.origin)
+  };
+  if (wanted !== 'none' && sessionHeld(state, account, permission)) return;
   // From nothing: the adapter disconnects and the wallet forgets the origin, so the connect below must prompt.
   await callDapp(dapp, 'disconnect', {}, deadline);
   await revokeDappSession(j.walletA, dapp.origin);

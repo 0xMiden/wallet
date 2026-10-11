@@ -22,7 +22,9 @@ import {
   NoteAttachmentScheme,
   NoteDetails,
   NoteFile,
+  NoteFilterTypes,
   NoteId,
+  NoteScript,
   NoteType,
   PublicKey,
   RpcClient,
@@ -40,9 +42,17 @@ import {
   WalletAdapterNetwork,
   WalletReadyState,
   b64ToU8,
-  u8ToB64
+  u8ToB64,
+  type InputNoteDetails
 } from '@miden-sdk/miden-wallet-adapter-base';
-import { MidenWalletAdapter, type MidenWallet } from '@miden-sdk/miden-wallet-adapter-miden';
+import {
+  MidenWalletAdapter,
+  getBehaviorCases,
+  getSurfaceCases,
+  runConformance,
+  type MidenWallet,
+  type ProviderLike
+} from '@miden-sdk/miden-wallet-adapter-miden';
 
 import { guardianRequestBuilder, previewTwinSummary } from './guardian-request-builder.js';
 import type {
@@ -53,7 +63,9 @@ import type {
   DappInput,
   DappOutput,
   NoteTypeName,
+  NoteView,
   Outcome,
+  OutputNoteView,
   RawArg,
   SessionEvent,
   TestDappWindowApi
@@ -107,6 +119,20 @@ const toAccountId = (id: string): AccountId =>
   id.startsWith('0x') ? AccountId.fromHex(id) : AccountId.fromBech32(canonical(id));
 const noteTypeOf = (name: NoteTypeName): NoteType => (name === 'public' ? NoteType.Public : NoteType.Private);
 const noteTypeName = (type: NoteType): NoteTypeName => (type === NoteType.Public ? 'public' : 'private');
+// By script root, as the wallet's own guardian-history.ts reads a payment note.
+function scriptOf(note: Note): OutputNoteView['script'] {
+  const root = note.script().root().toHex();
+  if (root === NoteScript.p2id().root().toHex()) return 'p2id';
+  return root === NoteScript.p2ide().root().toHex() ? 'p2ide' : 'other';
+}
+// The note type and state are stringified as the wallet sent them, so the view stays JSON whichever form they take.
+const noteView = (note: InputNoteDetails): NoteView => ({
+  noteId: note.noteId,
+  nullifier: note.nullifier,
+  noteType: String(note.noteType),
+  state: String(note.state),
+  assets: note.assets.map(asset => ({ faucetId: asset.faucetId, amount: String(asset.amount) }))
+});
 // Only the live networks the suite runs on. A connect naming any other network goes through `raw` (R3), so a name
 // missing here is a harness fault, not a refusal to record.
 const NETWORKS: Record<string, WalletAdapterNetwork> = {
@@ -351,6 +377,24 @@ const handlers: Partial<DappHandlers> = {
       return { ...info };
     }),
 
+  assets: () =>
+    outcome(async () =>
+      (await state.adapter.requestAssets()).map(asset => ({ faucetId: asset.faucetId, amount: String(asset.amount) }))
+    ),
+
+  consumableNotes: () => outcome(async () => (await state.adapter.requestConsumableNotes()).map(noteView)),
+
+  // The ids go to the wallet as given, so N4 can ask by the id an import returned (K10) as well as by the note's own.
+  privateNotes: ({ filter, noteIds }) =>
+    outcome(async () => (await state.adapter.requestPrivateNotes(NoteFilterTypes[filter], noteIds)).map(noteView)),
+
+  // Not an Outcome: each case's failure is a row in `failed`, and S11 asserts the list is empty.
+  conformance: async () => {
+    // The live injected provider, not a copy: its methods live on the prototype.
+    const live: ProviderLike = Reflect.get(window, 'midenWallet');
+    return runConformance([...getSurfaceCases(live), ...getBehaviorCases(live)]);
+  },
+
   syncHeight: async () => {
     const ownClient = client();
     await fromNode('syncChain', () => ownClient.syncChain());
@@ -592,7 +636,8 @@ const handlers: Partial<DappHandlers> = {
           noteType: noteTypeName(note.metadata().noteType()),
           bytesB64: u8ToB64(note.serialize()),
           // The adapter deserializes with the bare specifier, so one import map means one SDK instance.
-          isSameSdkNote: note instanceof Note
+          isSameSdkNote: note instanceof Note,
+          script: scriptOf(note)
         }))
       };
     }),

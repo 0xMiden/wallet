@@ -96,6 +96,8 @@ export interface OutputNoteView {
   bytesB64: string;
   /** The adapter's note is an instance of the page's own `Note`, which holds only when page and adapter share one SDK. */
   isSameSdkNote: boolean;
+  /** The standard script the note carries, by its root: a send with `recallBlocks` is a P2IDE (spec W3). */
+  script: 'p2id' | 'p2ide' | 'other';
 }
 export interface SignatureView {
   signatureB64: string;

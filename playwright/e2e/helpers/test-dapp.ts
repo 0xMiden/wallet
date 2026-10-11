@@ -23,12 +23,14 @@ import {
 import { PASSWORD } from './wallet-page';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
 import type {
+  ConnectedView,
   DappCommandName,
   DappError,
   DappInput,
   DappOutput,
   Outcome,
   RawArg,
+  SessionView,
   TestDappWindowApi
 } from '../test-dapp/protocol';
 
@@ -219,6 +221,14 @@ async function popupOrigin(popup: Page, kind: ConfirmKind): Promise<string | nul
     .getAttribute('title', { timeout: 30_000 });
 }
 
+// The input is sr-only (src/app/atoms/Checkbox.tsx): a click aimed at it, even a forced one, lands on whatever covers its
+// 1px box and changes nothing. A user clicks the row's label, so the tick goes there and the state is read back.
+async function tickPrivateData(popup: Page): Promise<void> {
+  const input = popup.locator('input[name="confirmPrivateDataPermission"]');
+  await popup.locator('label').filter({ has: input }).click();
+  await expect(input, 'private-data checkbox ticked').toBeChecked();
+}
+
 /**
  * Starts a request and answers the popup it opens. A request the wallet refuses before any popup settles first;
  * that is recorded (`popupOpened: false`, the error) and fails the cell rather than waiting for a popup.
@@ -257,7 +267,7 @@ export async function answerPrompt<T>(
         `the ${plan.kind} popup names ${named ?? 'no origin'}, expected ${plan.origin}; not answering it`
       );
     }
-    if (plan.tickPrivateData) await popup.locator('input[name="confirmPrivateDataPermission"]').check({ force: true });
+    if (plan.tickPrivateData) await tickPrivateData(popup);
     await plan.whileOpen?.(popup);
     if (plan.decision === 'close') await popup.close();
     else await popup.getByTestId(plan.decision === 'approve' ? ids.approve : ids.decline).click();
@@ -265,6 +275,67 @@ export async function answerPrompt<T>(
   const result = await ctx.deadline.race(pending, `${plan.kind} answer`);
   if (failedOutcome(result)) ctx.evidence.dappError = result.error;
   return { result, popup };
+}
+
+// One queue serves every origin (actions.ts:98-102), so a popup is approved only once it names the dApp that asked.
+async function approveNamed(popup: Page, kind: ConfirmKind, origin: string): Promise<void> {
+  await popup.getByTestId(CONFIRM_ACTIONS[kind].approve).waitFor({ state: 'visible', timeout: 60_000 });
+  const named = await popupOrigin(popup, kind);
+  if (named !== origin) throw new Error(`the ${kind} popup names ${named ?? 'no origin'}, expected ${origin}`);
+  await popup.getByTestId(CONFIRM_ACTIONS[kind].approve).click();
+}
+
+/**
+ * Starts a request and approves its popup if the wallet opens one, checking the popup names this dApp; `prompted`
+ * says whether it did. The popup is awaited for the whole cell budget unless `waitMs` is given, since the wallet
+ * opens one only after its preview, which a Guardian custom request runs as a dry run first.
+ */
+export async function answerIfPrompted<T>(
+  dapp: DappHandle,
+  start: () => Promise<T>,
+  kind: ConfirmKind,
+  ctx: CellContext,
+  waitMs = ctx.deadline.remainingMs()
+): Promise<{ result: T; prompted: boolean }> {
+  // Armed before the request starts, as in answerPrompt, and raced with it, so an answer that comes first is kept.
+  const popupPromise = waitForConfirmPopup(dapp.context, waitMs).catch(() => null);
+  const pending = start();
+  const first = await ctx.deadline.race(
+    Promise.race([popupPromise.then(popup => ({ popup })), pending.then(result => ({ result }))]),
+    `${kind} popup or answer`
+  );
+  const popup = 'popup' in first ? first.popup : null;
+  if (popup !== null) await approveNamed(popup, kind, dapp.origin);
+  const result = await ctx.deadline.race(pending, `${kind} answer`);
+  if (failedOutcome(result)) ctx.evidence.dappError = result.error;
+  return { result, prompted: popup !== null };
+}
+
+/** Connects as the wallet's current account, answering the connect popup only if the wallet asks. */
+export async function connectAsCurrent(dapp: DappHandle, network: string, ctx: CellContext): Promise<ConnectedView> {
+  const { result } = await answerIfPrompted(
+    dapp,
+    () => callDapp(dapp, 'connect', { permission: 'UponRequest', network }, ctx.deadline),
+    'connect',
+    ctx
+  );
+  return unwrap(result, 'connect as the current account', ctx);
+}
+
+/** The session view once `done` holds, or the last one read after `ms`; the caller asserts on it. */
+export async function sessionWithin(
+  dapp: DappHandle,
+  done: (view: SessionView) => boolean,
+  ms: number,
+  ctx: CellContext
+): Promise<SessionView> {
+  const until = Date.now() + ms;
+  let view = await callDapp(dapp, 'session', {}, ctx.deadline);
+  while (!done(view) && Date.now() < until) {
+    await dapp.page.waitForTimeout(1_000);
+    view = await callDapp(dapp, 'session', {}, ctx.deadline);
+  }
+  return view;
 }
 
 const confirmPagesOpen = (context: BrowserContext): Page[] =>
@@ -285,11 +356,12 @@ export async function waitForNoConfirmPages(context: BrowserContext, timeoutMs =
 }
 
 /**
- * Runs a request that must not prompt, and proves no confirm.html page opened while it ran: only pages opened after
- * the listener is attached count. With `refusal`, the spec's positive control (section 5, Negative paths) also holds:
- * the promise settled before the next block the dApp observes, so nothing waited on a prompt or a timer. The height
- * after the request is asked once, since a repeat lands later and widens the difference; when the node fails it, the
- * control cannot be measured and its ChainUnavailable leaves the cell blocked by infrastructure.
+ * Runs a request that must not prompt, and proves no confirm.html page opened while it ran: only pages opened after the
+ * listener is attached count, and one that opens ends the call at once as `popupOpened`. With `refusal`, the spec's
+ * positive control (section 5, Negative paths) also holds: the promise settled before the next block the dApp observes,
+ * so nothing waited on a prompt or a timer. The height after the request is asked once, since a repeat lands later and
+ * widens the difference; when the node fails it, the control cannot be measured and its ChainUnavailable leaves the
+ * cell blocked by infrastructure.
  */
 export async function expectNoPrompt<T>(
   dapp: DappHandle,
@@ -299,11 +371,30 @@ export async function expectNoPrompt<T>(
 ): Promise<T> {
   await ctx.deadline.race(waitForNoConfirmPages(dapp.context), 'earlier confirm pages closed');
   const opened: Page[] = [];
-  const onPage = (page: Page): void => void opened.push(page);
+  // A request the wallet prompts for waits on the popup, so it fails when the popup opens rather than at the deadline.
+  let prompted: (url: string) => void = () => undefined;
+  const promptOpened = new Promise<{ promptUrl: string }>(resolve => (prompted = url => resolve({ promptUrl: url })));
+  const onPage = (page: Page): void => {
+    opened.push(page);
+    void page
+      .waitForLoadState('domcontentloaded')
+      .catch(() => undefined)
+      .then(() => {
+        if (page.url().includes('confirm.html')) prompted(page.url());
+      });
+  };
   dapp.context.on('page', onPage);
   try {
     const before = options.refusal === true ? (await callDapp(dapp, 'syncHeight', {}, ctx.deadline)).height : 0;
-    const result = await ctx.deadline.race(start(), 'request that must not prompt');
+    const settled = await ctx.deadline.race(
+      Promise.race([start().then(value => ({ value })), promptOpened]),
+      'request that must not prompt'
+    );
+    if ('promptUrl' in settled) {
+      ctx.evidence.popupOpened = true;
+      throw new Error(`a confirm.html page opened for a request that must not prompt: ${settled.promptUrl}`);
+    }
+    const result = settled.value;
     const after =
       options.refusal === true ? (await callDapp(dapp, 'syncHeight', {}, ctx.deadline, { once: true })).height : 0;
     await Promise.all(opened.map(page => page.waitForLoadState('domcontentloaded').catch(() => undefined)));
@@ -426,6 +517,18 @@ export async function revokeDappSession(wallet: GuardianAwareWalletPage, origin:
   }, origin);
 }
 
+/** The account ids the wallet holds a session for under one origin (`dapp_sessions`, dapp.ts:2367-2372). */
+export async function dappSessionsFor(wallet: GuardianAwareWalletPage, origin: string): Promise<string[]> {
+  return wallet.page.evaluate(async target => {
+    const got = await chrome.storage.local.get('dapp_sessions');
+    const all: unknown = Reflect.get(got, 'dapp_sessions');
+    const sessions: unknown = typeof all === 'object' && all !== null ? Reflect.get(all, target) : undefined;
+    return (Array.isArray(sessions) ? sessions : []).map(session =>
+      String(Reflect.get(Object(session), 'accountId') ?? '')
+    );
+  }, origin);
+}
+
 async function walletStatus(page: Page): Promise<number> {
   return page
     .evaluate(() => {
@@ -471,6 +574,8 @@ export interface PendingNote {
   id: string;
   amountBaseUnits: string;
   faucetId: string;
+  /** `''` when the wallet did not record one. */
+  senderAddress: string;
 }
 
 /** The current account's discovered, unconsumed notes, as the service worker last published them. */
@@ -482,7 +587,8 @@ export async function pendingNotes(page: Page): Promise<PendingNote[]> {
     return (Array.isArray(notes) ? notes : []).map(note => ({
       id: String(Reflect.get(Object(note), 'id') ?? ''),
       amountBaseUnits: String(Reflect.get(Object(note), 'amountBaseUnits') ?? '0'),
-      faucetId: String(Reflect.get(Object(note), 'faucetId') ?? '')
+      faucetId: String(Reflect.get(Object(note), 'faucetId') ?? ''),
+      senderAddress: String(Reflect.get(Object(note), 'senderAddress') ?? '')
     }));
   });
 }

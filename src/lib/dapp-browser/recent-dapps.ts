@@ -1,5 +1,6 @@
 /**
- * Recent dApps storage backed by `@capacitor/preferences`.
+ * Recent dApps, kept in the platform's key-value store (`lib/platform/storage-adapter`), so every
+ * wallet reset wipes them with the rest of it.
  *
  * Stores up to `MAX_RECENTS` entries keyed by URL with a `lastOpenedAt`
  * timestamp; `getRecentDapps` returns them newest-first, and Explore's
@@ -8,14 +9,11 @@
  * the address bar) except a web search, and DappActionsSheet's My-dApps
  * toggle saves (under the same no-search rule) or removes the open dApp.
  * The actions sheet's Reopen starts a fresh session without recording, and
- * a desktop open goes to its own window and records nothing.
- *
- * On extension/desktop platforms `@capacitor/preferences` falls back to
- * an in-memory store, which is fine — recents are non-critical and the
- * user typically has only one shell open at a time.
+ * a desktop open goes to its own window and records nothing. On the extension
+ * BrowserScreen records each dApp it opens in a new tab, under the same rule.
  */
 
-import { Preferences } from '@capacitor/preferences';
+import { fetchFromStorage, putToStorage, registerStorageReread } from 'lib/miden/front/storage';
 
 const STORAGE_KEY = 'miden:dapp-browser:recents';
 const MAX_RECENTS = 12;
@@ -42,7 +40,7 @@ let cache: RecentDapp[] | null = null;
  * Hostnames that were once shipped as featured dApps but have since
  * been removed (X / Twitter when replaced by Lumina; Uniswap when
  * replaced by Qash). Stale entries can survive in user
- * `@capacitor/preferences` storage indefinitely, and the only way to remove
+ * storage indefinitely, and the only way to remove
  * a recent is the actions sheet's toggle on an open dApp - so we sweep them
  * on every read. Match is by
  * hostname (with the `www.` prefix stripped) so any URL pointing at
@@ -55,7 +53,7 @@ const PURGED_RECENT_HOSTS = new Set(['x.com', 'twitter.com', 'app.uniswap.org', 
  *
  * 1. Before BrowserScreen.handleOpen started deriving a hostname-
  *    style name, recents were written with the raw `https://…` URL
- *    as `name`. Those entries persist in `@capacitor/preferences`
+ *    as `name`. Those entries persist in storage
  *    across upgrades, show the raw URL as the Recents row's title, and
  *    make 'H' the initial drawn when its logo fails to load. Replace the
  *    bad name with the hostname.
@@ -88,15 +86,15 @@ function migrateLegacyEntries(list: RecentDapp[]): { list: RecentDapp[]; migrate
   return { list: next, migrated };
 }
 
+// A wipe empties storage under this realm's copy, which would otherwise keep showing the old list.
+registerStorageReread(async () => {
+  cache = null;
+});
+
 async function read(): Promise<RecentDapp[]> {
   if (cache) return cache;
   try {
-    const { value } = await Preferences.get({ key: STORAGE_KEY });
-    if (!value) {
-      cache = [];
-      return cache;
-    }
-    const parsed = JSON.parse(value) as RecentDapp[];
+    const parsed = await fetchFromStorage<RecentDapp[]>(STORAGE_KEY);
     if (!Array.isArray(parsed)) {
       cache = [];
       return cache;
@@ -117,7 +115,7 @@ async function read(): Promise<RecentDapp[]> {
 async function write(list: RecentDapp[]): Promise<void> {
   cache = list;
   try {
-    await Preferences.set({ key: STORAGE_KEY, value: JSON.stringify(list) });
+    await putToStorage(STORAGE_KEY, list);
   } catch {
     // Persistence is best-effort; in-memory cache still serves the session.
   }
@@ -134,7 +132,7 @@ export async function recordRecentDapp(entry: Omit<RecentDapp, 'lastOpenedAt'>):
   const list = await read();
   const stored = list.find(d => d.url === entry.url);
   const filtered = list.filter(d => d.url !== entry.url);
-  // Both writers pass `favicon: undefined` when they have none, so a spread would erase a stored one.
+  // DappActionsSheet passes `favicon: undefined` when it has none, so a spread would erase a stored one.
   filtered.unshift({ ...entry, favicon: entry.favicon ?? stored?.favicon, lastOpenedAt: Date.now() });
   await write(filtered.slice(0, MAX_RECENTS));
 }

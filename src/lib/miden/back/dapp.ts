@@ -2286,11 +2286,13 @@ const generatePromisifyConsumeTransaction = async (
         // `manualRetry`: the user just approved THIS consume on the sheet, so it
         // must not be dropped by auto-consume's exponential backoff — which
         // would queue nothing and answer the dApp with the previous attempt's
-        // Failed row id.
+        // Failed row id. The last `true` refuses a note another transaction holds
+        // rather than answer with that transaction (see the callee).
         return await initiateConsumeTransactionFromId(
           req.sourcePublicKey,
           noteId,
           delegateFromConfirmation(result),
+          true,
           true
         );
       });
@@ -2329,8 +2331,15 @@ const generatePromisifyConsumeTransaction = async (
                 await queueNoteImport(noteBytes);
               }
               // `manualRetry`: approved on the confirm page — see the
-              // non-extension branch above for why the backoff must not apply.
-              return await initiateConsumeTransactionFromId(req.sourcePublicKey, noteId, confirmReq.delegate, true);
+              // non-extension branch above for why the backoff must not apply,
+              // and why the last `true`.
+              return await initiateConsumeTransactionFromId(
+                req.sourcePublicKey,
+                noteId,
+                confirmReq.delegate,
+                true,
+                true
+              );
             });
             startDappBackgroundProcessing();
             resolve({

@@ -185,7 +185,9 @@ jest.mock('../helpers', () => ({
 }));
 
 jest.mock('../sdk/helpers', () => ({
-  getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech32-stub')
+  getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech32-stub'),
+  // Mirrors the real helper for the consume dedup's note-holding read: a `_<suffix>` names the same account.
+  sameWalletAccountId: (a: string, b: string) => a.split('_')[0] === b.split('_')[0]
 }));
 
 const mockGetIntercom = jest.fn(() => ({

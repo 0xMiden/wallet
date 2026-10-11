@@ -12,8 +12,9 @@
  * claimable-notes read path until the transaction is actually confirmed.
  *
  * Lifecycle: the dry-run QUARANTINES the ids it actually INTRODUCED; CONFIRM
- * RELEASES them (the transaction will consume them; if it fails to submit
- * they simply reappear as claimable, which is correct); CANCEL/decline
+ * RELEASES them (the transaction will consume them, and its queued row holds
+ * them from every claim until it ends, see `ITransaction.heldNoteIds`; if it
+ * fails to submit they simply reappear as claimable, which is correct); CANCEL/decline
  * releases nothing, so notes the dry-run introduced stay hidden.
  *
  * TWO bounds make "stay hidden" safe, because the ids come from

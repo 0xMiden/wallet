@@ -750,7 +750,19 @@ describe('transactions utilities', () => {
     );
   });
 
+  // The consume dedup reads the account's note-holding rows (`getNoteHoldingTransactions`) before its per-note
+  // lookups; these suites hold none. A test's own `mockReturnValueOnce` still comes first.
+  const noNoteHoldingRows = () => {
+    beforeEach(() => {
+      mockTransactionsFilter.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
+    });
+    afterEach(() => {
+      mockTransactionsFilter.mockReturnValue(undefined);
+    });
+  };
+
   describe('initiateConsumeTransaction', () => {
+    noNoteHoldingRows();
     const note = {
       id: 'note-123',
       faucetId: 'faucet',
@@ -1182,6 +1194,7 @@ describe('transactions utilities', () => {
   });
 
   describe('initiateConsumeTransactionFromId', () => {
+    noNoteHoldingRows();
     it('creates consume transaction from note id', async () => {
       mockGetInputNote.mockReturnValueOnce({
         metadata: () => ({ noteType: () => 'public' })
