@@ -1703,6 +1703,10 @@
     "message": "Rechercher des jetons",
     "englishSource": "Search for tokens"
   },
+  "sendUsdcxOnlyDestination": {
+    "message": "Seuls les USDCx peuvent être envoyés sur ce réseau.",
+    "englishSource": "Only USDCx can be sent to this network."
+  },
   "available": {
     "message": "Disponible",
     "englishSource": "Available"

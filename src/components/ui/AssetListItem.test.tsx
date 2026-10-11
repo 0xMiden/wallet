@@ -10,7 +10,8 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
 
-const renderItem = (props: Partial<React.ComponentProps<typeof AssetListItem>> = {}) =>
+// A disabled row is rendered directly: the props type admits `disabled` only together with `onClick`.
+const renderItem = (props: Partial<React.ComponentProps<typeof AssetListItem>> & { disabled?: undefined } = {}) =>
   render(<AssetListItem icon={<svg data-testid="glyph" />} name="Miden" amount="12.5 MIDEN" {...props} />);
 
 describe('AssetListItem', () => {
@@ -190,12 +191,28 @@ describe('AssetListItem', () => {
 
       const button = screen.getByRole('button');
       expect(button.tagName).toBe('BUTTON');
-      expect(button.className).toContain('cursor-pointer');
+      expect(button.className.split(' ')).toContain('cursor-pointer');
 
       fireEvent.click(button);
 
       expect(hapticLight).toHaveBeenCalledTimes(1);
       expect(onClick).toHaveBeenCalledTimes(1);
+    });
+
+    it('is a disabled button in the shared disabled style that fires neither haptics nor onClick', () => {
+      const onClick = jest.fn();
+      render(<AssetListItem icon={<svg />} name="Miden" amount="12.5 MIDEN" onClick={onClick} disabled />);
+
+      const button = screen.getByRole('button');
+      expect(button).toBeDisabled();
+      expect(button.className.split(' ')).toEqual(
+        expect.arrayContaining(['disabled:cursor-default', 'disabled:opacity-50'])
+      );
+
+      fireEvent.click(button);
+
+      expect(hapticLight).not.toHaveBeenCalled();
+      expect(onClick).not.toHaveBeenCalled();
     });
 
     it('has no button role and does not fire haptics when onClick is absent', () => {

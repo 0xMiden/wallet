@@ -374,6 +374,7 @@
   "calculatingQuote": "Hesaplanıyor",
   "selectAToken": "Bir jeton seçin",
   "searchForTokens": "Jetonları ara",
+  "sendUsdcxOnlyDestination": "Bu ağa yalnızca USDCx gönderilebilir.",
   "available": "Mevcut",
   "approxFiatValue": "≈ $value$ ABD doları",
   "reviewDetails": "İnceleme Ayrıntıları",

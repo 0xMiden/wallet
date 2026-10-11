@@ -374,6 +374,7 @@
   "calculatingQuote": "Calcul en cours",
   "selectAToken": "Sélectionnez un jeton",
   "searchForTokens": "Rechercher des jetons",
+  "sendUsdcxOnlyDestination": "Seuls les USDCx peuvent être envoyés sur ce réseau.",
   "available": "Disponible",
   "approxFiatValue": "≈ $value$ USD",
   "reviewDetails": "Détails de l'avis",
