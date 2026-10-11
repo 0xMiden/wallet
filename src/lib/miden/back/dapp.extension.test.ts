@@ -13,7 +13,7 @@
 
 import { WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
 
-import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { MidenDAppConsumeRequest, MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MidenMessageType } from 'lib/miden/types';
 
@@ -949,6 +949,27 @@ describe('Full confirmation cycles in extension mode', () => {
     // and answer the dApp with a previous attempt's Failed row id.
     const sdk = require('lib/miden/transaction');
     expect(sdk.initiateConsumeTransactionFromId.mock.calls[0][3]).toBe(true);
+  });
+
+  it('requestConsumeTransaction refuses a note another transaction holds rather than answer with it', async () => {
+    // As the real call: a dApp's request is refused, the wallet's own claim is answered with the holding row.
+    const sdk = require('lib/miden/transaction');
+    sdk.initiateConsumeTransactionFromId.mockImplementationOnce(async (...args: unknown[]) => {
+      if (args[4] === true) throw new Error('This note is being consumed by another transaction');
+      return 'other-dapp-transaction';
+    });
+    const request: MidenDAppConsumeRequest = {
+      type: MidenDAppMessageType.ConsumeRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'private', amount: 50 }
+    };
+    await expect(
+      driveConfirmation(
+        () => dapp.requestConsumeTransaction('https://miden.xyz', request),
+        MidenMessageType.DAppTransactionConfirmationRequest,
+        { confirmed: true, delegate: true }
+      )
+    ).rejects.toThrow('This note is being consumed by another transaction');
   });
 
   it('requestPrivateNotes rejects when user declines (covers onDecline at L641)', async () => {

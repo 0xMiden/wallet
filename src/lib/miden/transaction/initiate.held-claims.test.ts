@@ -11,11 +11,11 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
 }));
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ isNoteTransportConfigured: () => false }));
-jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: {} }));
+jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: { getInputNoteSummary: async () => ({}) } }));
 jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { initiateConsumeNotesTransaction, queueConsumeNotes } = require('./initiate');
+const { initiateConsumeNotesTransaction, initiateConsumeTransactionFromId, queueConsumeNotes } = require('./initiate');
 
 const ACCOUNT = 'mtst1account';
 const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
@@ -148,5 +148,46 @@ describe('the consume dedup and the notes a dApp transaction will consume', () =
     expect(coveringTxIdByNoteId.get('n1')).toBe(holder);
     expect(coveringTxIdByNoteId.get('n2')).toBe(committedId);
     expect((await Repo.transactions.get(committedId))?.noteIds).toEqual(['n2']);
+  });
+});
+
+describe("a dApp's consume request for a note another transaction holds", () => {
+  const putDappTransaction = async (overrides: {
+    status: ITransactionStatus;
+    completedAt?: number;
+    type?: 'consume';
+  }) => {
+    const row = new Transaction(ACCOUNT, new Uint8Array([1]));
+    await Repo.transactions.put({ ...row, heldNoteIds: ['n1'], ...overrides });
+    return row.id;
+  };
+
+  it('is refused, never answered with the dApp transaction holding the note', async () => {
+    const holder = await putDappTransaction({ status: ITransactionStatus.Queued });
+    const answer = initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, true);
+    await expect(answer).rejects.toThrow('This note is being consumed by another transaction');
+    expect(await Repo.transactions.count()).toBe(1);
+    expect(await Repo.transactions.get(holder)).toBeDefined();
+  });
+
+  it('is refused when the holder is a completed dApp transaction its completion re-typed as a consume', async () => {
+    await putDappTransaction({
+      status: ITransactionStatus.Completed,
+      completedAt: Math.floor(Date.now() / 1000) - 10,
+      type: 'consume'
+    });
+    await expect(initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, true)).rejects.toThrow(
+      'This note is being consumed by another transaction'
+    );
+  });
+
+  it('is answered with a claim that holds the note, as before', async () => {
+    const claim = await existingClaim(ITransactionStatus.Queued, []);
+    expect(await initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true, true)).toBe(claim);
+  });
+
+  it("leaves the wallet's own claim pointing at the dApp transaction that holds the note", async () => {
+    const holder = await putDappTransaction({ status: ITransactionStatus.Queued });
+    expect(await initiateConsumeTransactionFromId(ACCOUNT, 'n1', false, true)).toBe(holder);
   });
 });

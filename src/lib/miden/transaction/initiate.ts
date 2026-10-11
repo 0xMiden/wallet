@@ -40,7 +40,7 @@ import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { queueOutgoingTransaction, spendsOf } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
-import { EARN_DEPOSIT_MISSING_REQUEST_ERROR } from './constants';
+import { EARN_DEPOSIT_MISSING_REQUEST_ERROR, NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR } from './constants';
 import { getNoteHoldingTransactions } from './get';
 import { holdsNotes } from './verdict-rules';
 
@@ -92,7 +92,11 @@ export const initiateConsumeTransactionFromId = async (
   // consume sheet, the failed-bridge "Reclaim funds" button), so they pass
   // `true`: auto-consume's backoff must not swallow a claim the user just
   // approved and answer it with the previous attempt's Failed row.
-  manualRetry?: boolean
+  manualRetry?: boolean,
+  // A dApp's own consume request. The dedup may answer with the dApp transaction holding the note, and that id would
+  // let this dApp read another transaction's outcome and output notes, private ones included (`waitForTransaction`),
+  // so only a claim may answer it. The wallet's own callers link the user to the holder instead.
+  dappRequest?: boolean
 ): Promise<string> => {
   // Routed through `midenClientProxy.getInputNoteSummary` (issue #260, slice 7a):
   // flag-ON it reads the OFFSCREEN client that owns the note (the SW client is
@@ -111,7 +115,15 @@ export const initiateConsumeTransactionFromId = async (
     type: summary.noteType !== undefined ? toNoteTypeString(summary.noteType) : 'unknown'
   };
 
-  return await initiateConsumeTransaction(accountId, note, delegateTransaction, manualRetry);
+  const id = await initiateConsumeTransaction(accountId, note, delegateTransaction, manualRetry);
+  if (dappRequest) {
+    // A dApp transaction carries `heldNoteIds` whatever its type, since completion can re-type it as a consume.
+    const row = await Repo.transactions.where({ id }).first();
+    if (row?.type !== 'consume' || row.heldNoteIds !== undefined) {
+      throw new Error(NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR);
+    }
+  }
+  return id;
 };
 
 // NOTE: this used to take a `background` flag that routed Guardian auto-consume
