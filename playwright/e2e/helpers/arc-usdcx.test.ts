@@ -953,15 +953,17 @@ describe('waitForWalletPayoutConfirmation (usdcx-legs.ts)', () => {
   });
 
   it("fails a confirmation at another balance or before the payout's log, naming the key's pre-burn balance", async () => {
-    for (const confirmed of [
-      { balance: String(payout.balance + 1n), blockNumber: '66483824' },
-      { balance: String(payout.balance), blockNumber: '66483822' }
+    // Each case fails exactly one of the three checks, so none of them is proven only through another.
+    for (const { confirmed, arcFromBlock } of [
+      { confirmed: { balance: String(payout.balance + 1n), blockNumber: '66483824' }, arcFromBlock: 66483822n },
+      { confirmed: { balance: String(payout.balance), blockNumber: '66483822' }, arcFromBlock: 66483821n },
+      { confirmed: { balance: String(payout.balance), blockNumber: '66483823' }, arcFromBlock: 66483823n }
     ]) {
       const evidence = newRunEvidence('usdcx');
       const failure = waitForWalletPayoutConfirmation({
         readRows: rowReads([[burnRow('burn', confirmed)]]),
         rowId: 'burn',
-        arcFromBlock: 66483822n,
+        arcFromBlock,
         payout,
         key: { address: KEY },
         arc: { endpoints: [ARC_DRPC_URL], clock: fakeClock() },
@@ -970,8 +972,8 @@ describe('waitForWalletPayoutConfirmation (usdcx-legs.ts)', () => {
       });
 
       await expect(failure).rejects.toThrow(
-        `confirmation at Arc block ${confirmed.blockNumber}, snapshot 66483822, payout log 66483823, ${HELD} on the ` +
-          'key before the burn'
+        `confirmation at Arc block ${confirmed.blockNumber}, snapshot ${arcFromBlock}, payout log 66483823, ${HELD} ` +
+          'on the key before the burn'
       );
       expect(evidence.ids.walletConfirmedBalance).toBeUndefined();
     }
