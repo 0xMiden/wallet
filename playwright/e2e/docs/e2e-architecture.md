@@ -98,6 +98,7 @@ flowchart TB
 - [5 · Guardian security — two signatures to move money](#5--guardian-security--two-signatures-to-move-money)
 - [6 · Bringing value in on iPhone](#6--bringing-value-in-on-iphone)
 - [7 · dApps - a real dApp against the wallet](#7--dapps---a-real-dapp-against-the-wallet)
+- [8 · USDCx on live testnet - out to Arc and back](#8--usdcx-on-live-testnet---out-to-arc-and-back)
 - [Under the hood — running Ethereum locally](#under-the-hood--running-ethereum-locally)
 - [How real is it, really?](#how-real-is-it-really)
 
@@ -182,6 +183,7 @@ The flow is exercised at **two levels of realism**, each suited to a different p
 
 - **On demand (`yarn e2e:real --suite bridge-out-epoch`):** against the **real** hosted bridge service and the **real** Ethereum test network (Sepolia). The test then confirms that **actual USDC arrives** at the destination - an end-to-end check that includes the third-party solver settling the Ethereum side. It is opt-in rather than automatic, because it spends a real solver fill and a third party declining to quote should not turn `main` red; the runner probes the live solver for a quote before it builds anything.
 - **Post-merge (after every merge to main):** the AggLayer route against the real bridge, asserting the Miden leg.
+- **On demand (`yarn e2e:real --suite usdcx-burn`, and with Circle's payout `--suite usdcx`):** a USDCx burn to Arc Testnet through Circle's Gateway, on live testnet; see [section 8](#8--usdcx-on-live-testnet---out-to-arc-and-back).
 - **Every pull request:** a fully self-contained version using a **stand-in** bridge service and a **local** Ethereum node, so the guardian-secured bridge path is verified on every commit without depending on external infrastructure.
 
 There are also two bridge *routes* — a **fast** one via the Epoch service and a **slower** one via a bridge network called **AggLayer** — and both are covered.
@@ -354,6 +356,42 @@ The test dApp is a small page served next to the wallet under test. It loads the
 Every capability is a named cell from the suite's capability matrix, run on both account kinds. A write passes only when the dApp's own `waitForTransaction` returns the hash, the wallet's row reads Completed, the node serves the note or nullifier, and every balance moved by exactly the amount plus the fee. Refusals are pinned to their exact error and checked for side effects. A known wallet or adapter bug is recorded against the cell it breaks, so the suite stays meaningful while the bug is open, and the record fails the run the day the bug is fixed until the entry is removed.
 
 Where it runs: `e2e-dapp.yml`, after every merge, against the branch's live network (testnet from `main`, devnet from `next`) with that network's public faucet and hosted Guardian. No pull request runs it; a branch can dispatch it by hand.
+
+---
+
+## 8 · USDCx on live testnet - out to Arc and back
+
+**What these tests verify:** a Guardian user can take USDCx from the public faucet, send it to Arc Testnet as USDC through the Send screen, be paid by Circle, and bring USDC back to Miden as USDCx, with every hop checked to the base unit against the chain, Circle and the wallet's own records.
+
+Nothing in this group is stood in for. The wallet runs on the public Miden testnet with the hosted OpenZeppelin Guardian, the funds come from the public faucet (USDCx is the testnet fee asset), and Circle's xReserve, its attestation service, its Gateway payouts and Arc Testnet are the real services. The suites need no secret but spend public testnet funds and depend on services the project does not run, so no workflow runs them: each is started by hand, one at a time, with `yarn e2e:real`.
+
+| Suite | Command | What it covers |
+|---|---|---|
+| `usdcx` | `yarn e2e:real --suite usdcx` | A fresh Guardian wallet takes one faucet grant and burns 10 USDCx through Send to a fresh Arc key. Circle pays the key, the wallet shows the payout as Confirmed, the key deposits 1 USDC back through xReserve, Circle attests it, Circle's relayer mints it and the wallet receives it. Up to 60 min. |
+| `usdcx-in` | `E2E_ARC_PRIVATE_KEY=<key> yarn e2e:real --suite usdcx-in` | The deposit leg alone, into a fresh Guardian wallet, from a key that already holds USDC on Arc. Up to 30 min. |
+| `usdcx-burn` | `yarn e2e:real --suite usdcx-burn` | One faucet grant and a burn through Send, on a fresh standard wallet and on a fresh Guardian wallet. |
+
+> #### Circle's payout is a hard gate
+> The round trip fails when Circle has not paid the burn to the key within 10 minutes of the faucet consuming it. The proof is one Gateway `AttestationUsed` log on Arc whose mint carries the burn note id, so a transfer to the key from anywhere else does not count. Circle has paid Arc burns 10-12 s after the consume, but also 1 h 45 min and about 17 h late, and one burn was still unpaid days later. A red payout step therefore means a user would not have been paid in time; that can be Circle's doing rather than the wallet's, and the failure message says so.
+
+> #### The wallet's own records are checked too
+> Beside the chain and Circle, each run reads the wallet's rows: the burn's phases (Burn confirmed, then Confirmed once the wallet sees the payout on Arc), the deposit's phases, and the fee each transaction paid. A deposit row claiming a real deposit that Circle attested to another Miden account must fail, never read Confirmed. A transaction that completed without keeping its result (a landed path) records no fee, so its fee is bounded from the vault instead of read exactly, and the evidence file says which. Each run attaches its evidence as JSON (`usdcx-round-trip-evidence.json`, `usdcx-in-evidence.json`, `usdcx-burn-evidence.json`), never with a private key in it.
+
+The harness reads Arc through drpc and QuickNode first and through `rpc.testnet.arc.io` last, because that endpoint is the one the wallet itself uses and it rate-limits; `--arc-rpc <url>` puts another endpoint in front.
+
+### Arc keys and getting their USDC back
+
+Every `usdcx` and `usdcx-burn` run pays out to a key made for that run. Before the burn, the key is written to `~/.miden-e2e/arc-keys/<time>-<address>.json` (mode 0600, outside the repository and `test-results/`) with its `address`, `privateKey`, the time and the Miden `walletAddress` that paid it. The key is never logged or attached to a report, and a run that dies after its burn still leaves its file behind.
+
+After a `usdcx` run the key holds about 9 USDC (the payout less the 1 USDC deposited back and its gas); after a `usdcx-burn` run, each of its two keys holds about 9.98 USDC once Circle pays. To use one:
+
+- **Fund `usdcx-in` with it:** `E2E_ARC_PRIVATE_KEY="$(jq -r .privateKey ~/.miden-e2e/arc-keys/<file>.json)" yarn e2e:real --suite usdcx-in`. The suite needs 1.05 USDC on the key: the 1 USDC deposit and its gas. (`--arc-key` works too, but leaves the key in your shell history.)
+- **Read its balance:** `cast call 0x3600000000000000000000000000000000000000 'balanceOf(address)(uint256)' <address> --rpc-url https://rpc.drpc.testnet.arc.io` (six decimals).
+- **Move its USDC:** import the key into any EVM wallet on Arc Testnet (chain 5042002) and send the USDC on, keeping about 0.05 USDC for gas.
+
+These are testnet keys holding testnet USDC. Never commit one, and delete a file once its key is empty.
+
+Only one of these suites may run at a time: nothing locks a run, and two runs would share the hosted Guardian's and Arc's rate limits.
 
 ---
 
