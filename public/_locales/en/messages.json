@@ -109,6 +109,24 @@
       }
     }
   },
+  "usdcxPayoutFeeUpTo": {
+    "message": "Up to $amount$ USDC",
+    "englishSource": "Up to $amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxPayoutAtLeast": {
+    "message": "At least $amount$ USDC",
+    "englishSource": "At least $amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "activityFetchingHistoryAndNotes": {
     "message": "Fetching your transaction history and notes",
     "englishSource": "Fetching your transaction history and notes"

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
@@ -12,7 +12,11 @@ import { AgglayerEligibility } from './useAgglayerEligibility';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, params?: { symbol?: string }) => (params?.symbol === undefined ? key : `${key}|${params.symbol}`)
+    // A fee label names its asset and a payout row its amount; every other key reads as itself.
+    t: (key: string, params?: { symbol?: string; amount?: string }) => {
+      const value = params?.symbol ?? params?.amount;
+      return value === undefined ? key : `${key}|${value}`;
+    }
   })
 }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
@@ -183,5 +187,67 @@ describe('RouteOptions', () => {
     );
 
     expect(screen.getByTestId('usdcx-burn-notice')).toHaveTextContent('usdcxWithdrawalNotice');
+  });
+
+  // Circle charges a flat ~1,003,500 (about 1.0035 USDC) to pay a burn out on Ethereum; the allowance is 1.5 USDC.
+  it.each([
+    [11155111, 10_000_000n, '1.5', '8.5'],
+    [5042002, 1_000_001n, '0.1', '0.900001']
+  ])('shows Circle fee and the least payout for a burn to chain %i', (chainId, amount, fee, payout) => {
+    render(
+      <RouteOptions
+        usdcxAvailable
+        route="usdcx"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        usdcxPayout={{ chainId, amount }}
+        {...UP}
+      />
+    );
+
+    const feeRow = within(screen.getByTestId('usdcx-payout-fee'));
+    expect(feeRow.getByText('usdcxCircleFee')).toBeInTheDocument();
+    expect(feeRow.getByText(`usdcxPayoutFeeUpTo|${fee}`)).toBeInTheDocument();
+    const payoutRow = within(screen.getByTestId('usdcx-payout-net'));
+    expect(payoutRow.getByText('youReceive')).toBeInTheDocument();
+    expect(payoutRow.getByText(`usdcxPayoutAtLeast|${payout}`)).toBeInTheDocument();
+  });
+
+  it('leaves out the payout while the fee allowance takes the whole amount', () => {
+    render(
+      <RouteOptions
+        usdcxAvailable
+        route="usdcx"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        usdcxPayout={{ chainId: 11155111, amount: 1_500_000n }}
+        {...UP}
+      />
+    );
+
+    expect(screen.getByTestId('usdcx-payout-fee')).toBeInTheDocument();
+    expect(screen.queryByTestId('usdcx-payout-net')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['before the send has a destination and an amount', undefined],
+    ['for a chain that is not a USDCx destination', { chainId: 999, amount: 10_000_000n }]
+  ])('shows no payout figures %s', (_case, usdcxPayout) => {
+    render(
+      <RouteOptions
+        usdcxAvailable
+        route="usdcx"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        usdcxPayout={usdcxPayout}
+        {...UP}
+      />
+    );
+
+    expect(screen.queryByTestId('usdcx-payout-fee')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('usdcx-payout-net')).not.toBeInTheDocument();
   });
 });

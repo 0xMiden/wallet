@@ -258,6 +258,9 @@ jest.mock('./SendRoute', () => ({
       <span data-testid="route-fee">{String(props.fastFeeUsd)}</span>
       <span data-testid="route-selected">{props.route}</span>
       <span data-testid="route-usdcx">{String(props.usdcxAvailable)}</span>
+      <span data-testid="route-usdcx-payout">
+        {props.usdcxPayout ? `${props.usdcxPayout.chainId}:${props.usdcxPayout.amount}` : ''}
+      </span>
     </>
   )
 }));
@@ -1817,5 +1820,26 @@ describe('USDCx withdrawal wiring', () => {
     });
     expect(screen.getByTestId('sa-error')).toBeEmptyDOMElement();
     expect(screen.getByTestId('sa-valid')).toHaveTextContent('true');
+  });
+
+  it("hands the Route step the USDCx burn's destination chain and its amount in base units", () => {
+    // Six decimals, as USDCx has; the shared mock drops them.
+    stringToBigIntMock.mockImplementation((s: string) => BigInt(Math.round(parseFloat(s) * 1_000_000)));
+    setSendDraft({
+      amount: '2.5',
+      recipientAddress: '0xrecip',
+      tokenId: usdcxToken.id,
+      bridgeNetwork: 'sepolia',
+      bridgeRoute: 'usdcx'
+    });
+    mockCardStack = [{ name: SendFlowStep.Route }];
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: usdcxToken.id, metadata: { symbol: 'USDCx', decimals: 6 }, balance: 100, fiatPrice: 0 }]
+    });
+    renderFlow();
+    expect(screen.getByTestId('route-usdcx-payout')).toHaveTextContent(/^11155111:2500000$/);
+
+    pickToken(otherToken);
+    expect(screen.getByTestId('route-usdcx-payout')).toBeEmptyDOMElement();
   });
 });

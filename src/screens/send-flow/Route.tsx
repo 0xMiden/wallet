@@ -9,6 +9,7 @@ import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUn
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { FlowFooter } from 'components/flow/FlowFooter';
 import { ChoiceCardGroup } from 'components/ui/ChoiceCard';
+import { DetailCard } from 'components/ui/DetailCard';
 import { Skeleton } from 'components/ui/Skeleton';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
@@ -17,6 +18,7 @@ import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { useWalletStore } from 'lib/store';
 
 import { BridgeRoute } from './types';
+import { UsdcxPayoutRows, UsdcxPayoutTarget } from './UsdcxPayoutRows';
 import { AgglayerEligibility } from './useAgglayerEligibility';
 
 export interface RouteStepProps {
@@ -91,10 +93,19 @@ export type RouteOptionsProps = Pick<
   | 'usdcxAvailable'
   | 'fastAvailability'
   | 'slowAvailability'
-> & { accent?: FlowAccent; slowStatus: AgglayerEligibility };
+> & {
+  accent?: FlowAccent;
+  slowStatus: AgglayerEligibility;
+  /** A USDCx burn's destination and amount, once the send has both: the card shows Circle's fee and the payout. */
+  usdcxPayout?: UsdcxPayoutTarget;
+};
 
 /** The USDCx burn's one route card. Its fees are paid in the native asset, so the subtitle names that asset. */
-const UsdcxRouteOption: React.FC<Pick<RouteOptionsProps, 'route' | 'onRouteChange'>> = ({ route, onRouteChange }) => {
+const UsdcxRouteOption: React.FC<Pick<RouteOptionsProps, 'route' | 'onRouteChange' | 'usdcxPayout'>> = ({
+  route,
+  onRouteChange,
+  usdcxPayout
+}) => {
   const { t } = useTranslation();
   const nativeFaucetId = useNativeFeeFaucetId();
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
@@ -115,6 +126,11 @@ const UsdcxRouteOption: React.FC<Pick<RouteOptionsProps, 'route' | 'onRouteChang
         onChange={() => onRouteChange('usdcx')}
         aria-label={t('route')}
       />
+      {usdcxPayout && (
+        <DetailCard>
+          <UsdcxPayoutRows chainId={usdcxPayout.chainId} amount={usdcxPayout.amount} />
+        </DetailCard>
+      )}
       <p className="text-caption text-muted" data-testid="usdcx-burn-notice">
         {t('usdcxWithdrawalNotice')}
       </p>
@@ -133,7 +149,8 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   slowStatus,
   fastAvailability,
   slowAvailability,
-  accent = 'brand'
+  accent = 'brand',
+  usdcxPayout
 }) => {
   const { t } = useTranslation();
   const slowAllowed = slowStatus === 'allowed';
@@ -161,7 +178,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   };
 
   if (usdcxAvailable) {
-    return <UsdcxRouteOption route={route} onRouteChange={onRouteChange} />;
+    return <UsdcxRouteOption route={route} onRouteChange={onRouteChange} usdcxPayout={usdcxPayout} />;
   }
 
   // Built in plain JS (not JSX) so the em-dash fallback doesn't trip the

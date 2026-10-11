@@ -57,6 +57,7 @@ import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry'
 import { SendStepLayout } from './SendStepLayout';
 import { BridgeRoute, UIToken } from './types';
 import { uiTokenFromBalance } from './ui-token';
+import { UsdcxPayoutRows } from './UsdcxPayoutRows';
 import { useEpochQuote } from './useEpochQuote';
 
 /**
@@ -698,6 +699,9 @@ export const ReviewTransaction: React.FC = () => {
                     )}
                   </DetailRow>
                   <DetailRow label={t('networkFee')}>{t('usdcxSponsorshipFee', { symbol: nativeSymbol })}</DetailRow>
+                  {bridgeNetworkObj && amountBaseUnits !== undefined && (
+                    <UsdcxPayoutRows chainId={bridgeNetworkObj.chainId} amount={amountBaseUnits} />
+                  )}
                 </>
               ) : (
                 <DetailRow label={t('youReceive')}>

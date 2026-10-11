@@ -909,6 +909,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
           return (
             <SendRoute
               usdcxAvailable={usdcxAvailable}
+              usdcxPayout={usdcxPayout}
               faucetId={spendableToken?.id ?? ''}
               route={bridgeRoute ?? 'epoch'}
               onRouteChange={onRouteChange}
@@ -950,6 +951,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       selectedContact?.name,
       bridgeRoute,
       usdcxAvailable,
+      usdcxPayout,
       onRouteChange,
       fastFeeUsd,
       epochQuote.loading,
