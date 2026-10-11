@@ -81,6 +81,43 @@ describe('updateBridgedReceivePhase', () => {
   });
 });
 
+// A row that times out keeps saying it was once attested, which is what lets a late mint still land it.
+describe('updateBridgedReceivePhase readyAt', () => {
+  let nowSpy: jest.SpyInstance<number, []>;
+  beforeEach(() => {
+    nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000_000);
+  });
+  afterEach(() => nowSpy.mockRestore());
+
+  it('stamps the first ready write in seconds and never moves it', async () => {
+    const id = await seed('delivering');
+
+    await updateBridgedReceivePhase(id, 'ready');
+    nowSpy.mockReturnValue(2_000_000_000);
+    await updateBridgedReceivePhase(id, 'ready');
+    await updateBridgedReceivePhase(id, 'failed', { error: 'Bridge delivery timed out.' });
+
+    expect((await Repo.transactions.get(id))?.extraInputs).toMatchObject({ phase: 'failed', readyAt: 1_000_000 });
+  });
+
+  it('stamps a ready row from before the stamp when it moves on', async () => {
+    const id = await seed('ready');
+
+    await updateBridgedReceivePhase(id, 'failed', { error: 'Bridge delivery timed out.' });
+
+    expect((await Repo.transactions.get(id))?.extraInputs).toMatchObject({ phase: 'failed', readyAt: 1_000_000 });
+  });
+
+  it('never stamps a row that was not ready', async () => {
+    const id = await seed('delivering');
+
+    await updateBridgedReceivePhase(id, 'failed', { error: 'Bridge delivery timed out.' });
+    await updateBridgedReceivePhase(id, 'ready');
+
+    expect((await Repo.transactions.get(id))?.extraInputs.readyAt).toBeUndefined();
+  });
+});
+
 // The executor route writes its CCTP leg a field at a time, and a reopen after a reverted Arc execute clears the
 // hash it saw revert. Run against the real writer: every consumer suite mocks it.
 describe('updateBridgedReceivePhase on a USDCx CCTP leg', () => {

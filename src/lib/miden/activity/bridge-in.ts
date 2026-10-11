@@ -177,6 +177,9 @@ export function setAgglayerSenderForE2E(senderAccountId: string): void {
  */
 export const BRIDGE_RECEIVE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** The error the reconciler fails a tracker with once it outlived `BRIDGE_RECEIVE_MAX_AGE_MS`. */
+export const BRIDGE_DELIVERY_TIMED_OUT = 'Bridge delivery timed out.';
+
 /** What the bridge delivers for a deposit tracked in wei: floored at the native-ETH faucet's registry scale (#1326). */
 export function agglayerDeliveredAmount(trackedWei: bigint, scale: number): bigint {
   return trackedWei / 10n ** BigInt(scale);
@@ -267,12 +270,19 @@ export async function takeAgglayerBridgeInInfo(args: {
   };
 }
 
+/** A tracker the reconciler timed out after Circle attested its deposit, so its mint can still come. */
+function isAttestedTimeout(inputs: IBridgedReceiveExtraInputs): boolean {
+  return inputs.phase === 'failed' && inputs.readyAt !== undefined && inputs.error === BRIDGE_DELIVERY_TIMED_OUT;
+}
+
 /**
  * Match a note the USDCx faucet minted to the oldest compatible xReserve tracking row.
  * The faucet is the chain's native asset and also sends ordinary faucet requests, so the
  * sender alone proves nothing. The row must be a broadcast deposit (it has its EVM hash)
  * of the same account and the same amount, which xReserve mints 1:1. The rows are read
  * first, so a consume with no open USDCx deposit never waits for the native asset id.
+ * A row that timed out after Circle attested it still takes a late mint, at any age, but
+ * only after every open row: its deposit was proven, so its mint can still come.
  */
 export async function takeUsdcxBridgeInInfo(args: {
   accountId: string;
@@ -289,21 +299,19 @@ export async function takeUsdcxBridgeInInfo(args: {
       // A restored tracker must not adopt a genuine incoming note, as for an AggLayer delivery.
       if (tx.restoredFromBackup) return false;
       const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
-      return (
-        inputs?.provider === 'usdcx' &&
-        inputs.evmTxHash !== undefined &&
-        inputs.phase !== 'received' &&
-        inputs.phase !== 'failed' &&
-        tx.initiatedAt >= cutoffSec &&
-        tx.amount === args.amount
-      );
+      if (inputs?.provider !== 'usdcx' || inputs.evmTxHash === undefined || tx.amount !== args.amount) return false;
+      if (isAttestedTimeout(inputs)) return true;
+      return inputs.phase !== 'received' && inputs.phase !== 'failed' && tx.initiatedAt >= cutoffSec;
     })
     .toArray();
   // The mint follows Circle's attestation of the deposit, so a row whose deposit is attested (`ready`) is the
   // one this note belongs to; a row still `delivering` is a fallback for a mint the watcher has not caught up
   // with. Among equals the oldest wins. Age alone paired a note with an older deposit that was never executed
   // and left the attested one at "Pending".
-  const rank = (tx: ITransaction): number => (tx.extraInputs?.phase === 'ready' ? 0 : 1);
+  const rank = (tx: ITransaction): number => {
+    if (tx.extraInputs?.phase === 'ready') return 0;
+    return tx.extraInputs?.phase === 'failed' ? 2 : 1;
+  };
   matches.sort((a, b) => rank(a) - rank(b) || a.initiatedAt - b.initiatedAt);
   const match = matches[0];
   if (!match) return undefined;

@@ -17,7 +17,12 @@ import { USDCX_SOURCE_CHAINS, UsdcxExecutorSource } from 'lib/usdcx/constant';
 import { usdcxExpectedRemoteTokenFor, usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import { readEvmReceiptOutcome, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 
-import { BRIDGE_RECEIVE_MAX_AGE_MS, registerPendingBridgeIn, resolveBridgeInNoteId } from './bridge-in';
+import {
+  BRIDGE_DELIVERY_TIMED_OUT,
+  BRIDGE_RECEIVE_MAX_AGE_MS,
+  registerPendingBridgeIn,
+  resolveBridgeInNoteId
+} from './bridge-in';
 import { IBridgedReceiveExtraInputs, ITransaction } from '../db/types';
 import { updateBridgedReceivePhase } from '../transaction/complete';
 
@@ -303,10 +308,14 @@ async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans:
     await updateBridgedReceivePhase(row.id, 'failed', { error: RESTORED_BRIDGE_UNVERIFIABLE });
     return;
   }
-  if (row.initiatedAt < cutoffSec) {
-    await updateBridgedReceivePhase(row.id, 'failed', { error: 'Bridge delivery timed out.' });
+  // A ready row's week runs from its attestation, so a deposit attested late in its first week gets its own.
+  const since = inputs.phase === 'ready' ? (inputs.readyAt ?? row.initiatedAt) : row.initiatedAt;
+  if (since < cutoffSec) {
+    await updateBridgedReceivePhase(row.id, 'failed', { error: BRIDGE_DELIVERY_TIMED_OUT });
     return;
   }
+  // Circle already attested a ready row; only its mint's consume moves it on.
+  if (inputs.phase === 'ready') return;
   if (inputs.phase === 'submitting' && !resumeOrphans) return;
 
   switch (inputs.provider) {
@@ -332,9 +341,11 @@ async function readUnsettledRows(): Promise<ITransaction[]> {
       // written row without `extraInputs` would silently disable reconciliation
       // for every genuine row, on every tick.
       const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
-      return (
-        inputs !== undefined && inputs.phase !== 'ready' && inputs.phase !== 'received' && inputs.phase !== 'failed'
-      );
+      if (inputs === undefined || inputs.phase === 'received' || inputs.phase === 'failed') return false;
+      // A ready USDCx row stays for the cutoff alone: no consume tagged it, so it could otherwise read Confirmed
+      // forever. A restored one is left out, since reading it would fail it.
+      if (inputs.phase === 'ready') return inputs.provider === 'usdcx' && tx.restoredFromBackup !== true;
+      return true;
     })
     .toArray();
 }

@@ -189,6 +189,8 @@ export interface IBridgedReceiveExtraInputs {
    * first phase write. Absent on rows written before this field and on E2E hook rows.
    */
   usdcxRemoteRecipient?: string;
+  /** Unix seconds at which the row first reached `ready`. Written once, never cleared, and kept through `failed`. */
+  readyAt?: number;
 }
 
 /** Audit metadata for a Guardian operator switch. `previousGuardianEndpoint`

@@ -70,6 +70,7 @@ jest.mock('../transaction/complete', () => ({
 }));
 jest.mock('./bridge-in', () => ({
   BRIDGE_RECEIVE_MAX_AGE_MS: jest.requireActual('./bridge-in').BRIDGE_RECEIVE_MAX_AGE_MS,
+  BRIDGE_DELIVERY_TIMED_OUT: jest.requireActual('./bridge-in').BRIDGE_DELIVERY_TIMED_OUT,
   registerPendingBridgeIn: (...args: unknown[]) => registerBridgeIn(...args),
   resolveBridgeInNoteId: (...args: unknown[]) => resolveNoteId(...args)
 }));
@@ -906,6 +907,55 @@ describe('reconcileBridgedReceives with a USDCx row', () => {
     expect(fetchAttestations).toHaveBeenCalledWith(`0x${'4'.repeat(64)}`, {
       baseUrl: 'https://xreserve-api-testnet.circle.com'
     });
+  });
+
+  // A `ready` row is never polled again, so only the cutoff can end one whose mint never came.
+  it('times out a USDCx row that has been ready for longer than the tracking age', async () => {
+    rows.push(
+      usdcxRow({ phase: 'ready', readyAt: WEEK_AGO_SEC }, { id: 'usdcx-stale-ready', initiatedAt: WEEK_AGO_SEC })
+    );
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-stale-ready', 'failed', { error: 'Bridge delivery timed out.' });
+  });
+
+  it('times out a ready USDCx row from before readyAt by its age', async () => {
+    rows.push(usdcxRow({ phase: 'ready' }, { id: 'usdcx-legacy-ready', initiatedAt: WEEK_AGO_SEC }));
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-legacy-ready', 'failed', { error: 'Bridge delivery timed out.' });
+  });
+
+  it('never asks Circle again about a fresh ready USDCx row, nor writes it', async () => {
+    rows.push(usdcxRow({ phase: 'ready', readyAt: Math.floor(Date.now() / 1000) }));
+
+    await reconcileBridgedReceives();
+
+    expect(fetchAttestations).not.toHaveBeenCalled();
+    expect(updatePhase).not.toHaveBeenCalled();
+  });
+
+  // The cutoff runs from when the row was attested: a deposit attested late in its week still gets its own week.
+  it('keeps a USDCx row that became ready recently, however old its deposit', async () => {
+    rows.push(usdcxRow({ phase: 'ready', readyAt: Math.floor(Date.now() / 1000) }, { initiatedAt: WEEK_AGO_SEC }));
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['an AggLayer row', { provider: 'agglayer' }, {}],
+    ['a USDCx row restored from a backup', {}, { restoredFromBackup: true }]
+  ])('leaves %s that is ready alone', async (_label, extraInputs, row) => {
+    rows.push(usdcxRow({ phase: 'ready', ...extraInputs }, { initiatedAt: WEEK_AGO_SEC, ...row }));
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).not.toHaveBeenCalled();
+    expect(fetchDeposits).not.toHaveBeenCalled();
   });
 
   it('still times out a stale USDCx row', async () => {

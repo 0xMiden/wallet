@@ -1594,7 +1594,17 @@ export const updateBridgedReceivePhase = async (
     ) {
       settled = tx;
     }
-    tx.extraInputs = { ...inputs, phase, ...(extra ?? {}), ...(cctp ? { cctp } : {}) };
+    // Once, so a row that later times out still says Circle attested it: only such a row takes a late mint. A row that
+    // was ready before the stamp existed takes it as it moves on.
+    const readyAt =
+      inputs?.readyAt ?? (phase === 'ready' || fromPhase === 'ready' ? Math.floor(Date.now() / 1000) : undefined);
+    tx.extraInputs = {
+      ...inputs,
+      phase,
+      ...(extra ?? {}),
+      ...(cctp ? { cctp } : {}),
+      ...(readyAt === undefined ? {} : { readyAt })
+    };
     if (received) {
       tx.amount = received.amount;
       tx.faucetId = received.faucetId;
