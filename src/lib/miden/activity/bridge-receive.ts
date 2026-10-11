@@ -1,4 +1,4 @@
-import { isHash, isHex } from 'viem';
+import { isHash } from 'viem';
 
 import { midenAddrToEvmAddr } from 'lib/agglayer/contract';
 import { fetchDeposits, isAgglayerDepositReady } from 'lib/agglayer/status';
@@ -162,7 +162,7 @@ function usdcxExpectationOf(
   try {
     const signed = inputs.usdcxRemoteRecipient;
     return {
-      remoteRecipient: signed !== undefined && isHex(signed) ? signed : usdcxRemoteRecipientFor(row.accountId),
+      remoteRecipient: signed !== undefined && isHash(signed) ? signed : usdcxRemoteRecipientFor(row.accountId),
       remoteToken: usdcxExpectedRemoteTokenFor(row.faucetId),
       amount: row.amount
     };

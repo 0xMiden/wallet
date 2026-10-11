@@ -830,6 +830,14 @@ describe('reconcileBridgedReceives with a USDCx row', () => {
     expect(matchAttestation).toHaveBeenCalledWith([], { ...derived, remoteRecipient: signed });
   });
 
+  it('derives the recipient when the one the row persisted is hex but not 32 bytes', async () => {
+    rows.push(usdcxRow({ usdcxRemoteRecipient: '0xabcd' }));
+
+    await reconcileBridgedReceives();
+
+    expect(matchAttestation).toHaveBeenCalledWith([], derived);
+  });
+
   it('derives the recipient when the one the row persisted is not hex', async () => {
     rows.push(usdcxRow({ usdcxRemoteRecipient: 'not-hex' }));
 
