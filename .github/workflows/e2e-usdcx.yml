@@ -11,7 +11,7 @@ name: E2E USDCx
 # The suites burn to and deposit from ONE Arc key, so each burn's payout refills what the deposits spend; a green run
 # leaves the key about 2.9 USDC richer. CI has its own, the repository secret USDCX_HARNESS_ARC_KEY: never a
 # developer's harness key and never the iOS job's. Only the step that writes it to the runner's key file reads the
-# secret; the suites read the file through the runner, and no upload includes it.
+# secret; the suites read the file through the runner, and no cache or upload includes it.
 #
 # Not a per-PR gate: it spends public testnet funds and depends on services the project does not run.
 
@@ -109,12 +109,14 @@ jobs:
 
       # In turn, narrowest first, and each only once the one before passed: a red suite can leave a payout or a
       # deposit still landing on the key, inside the next suite's payout window. Each Playwright run empties
-      # test-results/, so each suite's results upload before the next suite starts.
+      # test-results/, so each suite's results upload before the next suite starts. An upload may fail without failing
+      # the job: the suites after it run only when every step before them passed, and its failure is never the wallet's.
       - name: Run usdcx-in
         id: usdcx_in
         run: node scripts/e2e-real.mjs --suite usdcx-in
       - name: Upload usdcx-in results
         if: always() && steps.usdcx_in.outcome != 'skipped'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: usdcx-in-e2e-${{ github.run_id }}
@@ -127,6 +129,7 @@ jobs:
         run: node scripts/e2e-real.mjs --suite usdcx-burn
       - name: Upload usdcx-burn results
         if: always() && steps.usdcx_burn.outcome != 'skipped'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: usdcx-burn-e2e-${{ github.run_id }}
@@ -139,6 +142,7 @@ jobs:
         run: node scripts/e2e-real.mjs --suite usdcx
       - name: Upload usdcx results
         if: always() && steps.usdcx_round_trip.outcome != 'skipped'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: usdcx-round-trip-e2e-${{ github.run_id }}

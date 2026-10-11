@@ -267,10 +267,16 @@ const ARC_KEY_PATTERN = /^(0x)?[0-9a-f]{64}$/i;
 const KEY_FLAGS = { '--arc-key': 'E2E_ARC_PRIVATE_KEY', '--sepolia-key': 'E2E_SEPOLIA_PRIVATE_KEY' };
 
 /**
- * Every private key the operator's shell may carry: the runner's two and the iOS nightly's Arc key. No child sees one
- * its phase does not hand it, because the CLI install runs every crate's build script and proc macro under cargo.
+ * Every private key the operator's shell or a CI step may carry: the runner's two, the iOS job's Arc key and E2E
+ * USDCx's key secret. No child sees one its phase does not hand it, because the CLI install runs every crate's build
+ * script and proc macro under cargo.
  */
-const PRIVATE_KEY_NAMES = ['E2E_ARC_PRIVATE_KEY', 'E2E_SEPOLIA_PRIVATE_KEY', 'USDCX_LIVE_EVM_PRIVATE_KEY'];
+const PRIVATE_KEY_NAMES = [
+  'E2E_ARC_PRIVATE_KEY',
+  'E2E_SEPOLIA_PRIVATE_KEY',
+  'USDCX_LIVE_EVM_PRIVATE_KEY',
+  'USDCX_HARNESS_ARC_KEY'
+];
 
 /** This process's environment less every private key, for a child spawned outside run(). */
 function keylessEnv() {
