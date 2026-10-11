@@ -170,6 +170,32 @@ describe('withStepBudget', () => {
     ).catch((error: unknown) => errorText(error));
     await expect(outcome).resolves.toBe('settle_grant: not canonical\n(context unavailable: guardian down)');
   });
+
+  it("aborts the step's signal at its deadline, naming the step, and not before", async () => {
+    jest.useFakeTimers();
+    let handed: AbortSignal | undefined;
+    const outcome = withStepBudget('deposit_submit', 1_000, signal => {
+      handed = signal;
+      return new Promise<never>(() => undefined);
+    }).catch((error: unknown) => errorText(error));
+    await jest.advanceTimersByTimeAsync(999);
+    expect(handed?.aborted).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(handed?.aborted).toBe(true);
+    expect(errorText(handed?.reason)).toBe('deposit_submit exceeded its 1000 ms budget');
+    await expect(outcome).resolves.toBe('deposit_submit: exceeded its 1000 ms budget');
+  });
+
+  it('never aborts the signal of a step that ended within its budget', async () => {
+    jest.useFakeTimers();
+    let handed: AbortSignal | undefined;
+    await withStepBudget('deposit_submit', 1_000, async signal => {
+      handed = signal;
+      return 7;
+    });
+    await jest.advanceTimersByTimeAsync(5_000);
+    expect(handed?.aborted).toBe(false);
+  });
 });
 
 describe('namedSteps', () => {
@@ -190,6 +216,23 @@ describe('namedSteps', () => {
     await expect(step('mint', 1_000, async () => Promise.reject(new Error('no note')))).rejects.toThrow(
       'mint: no note'
     );
+  });
+
+  it("hands each step its budget's signal", async () => {
+    jest.useFakeTimers();
+    try {
+      let handed: AbortSignal | undefined;
+      const step = namedSteps({ step: async (_name, fn) => fn() });
+      const outcome = step('deposit_submit', 1_000, signal => {
+        handed = signal;
+        return new Promise<never>(() => undefined);
+      }).catch((error: unknown) => errorText(error));
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(handed?.aborted).toBe(true);
+      await expect(outcome).resolves.toBe('deposit_submit: exceeded its 1000 ms budget');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 

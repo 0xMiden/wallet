@@ -872,14 +872,16 @@ const timedOut = () => new TimeoutError({ body: {}, url: ARC_DRPC_URL });
 
 /**
  * The write side of Arc: a read-only endpoint first, which answers reads but refuses raw transactions, then drpc, which
- * takes them. `faults` lists what drpc answers, in order, before it answers a method normally; `sent` holds every raw
- * transaction drpc was handed, faulted or not, and `calls` every request as `<endpoint> <method>`.
+ * takes them. `faults` lists what drpc answers, in order, before it answers a method normally (an eth_call by its
+ * function as `eth_call <function>`); `sent` holds every raw transaction drpc was handed, faulted or not, `calls` every
+ * request as `<endpoint> <method>`, and `onCall` sees each one as it arrives.
  */
 function depositChain(opts: {
   allowance: bigint;
   revert?: Hex;
   alreadyKnown?: boolean;
   faults?: Record<string, Error[]>;
+  onCall?: (call: string) => void;
 }) {
   const sent: Hex[] = [];
   const nonces: number[] = [];
@@ -889,6 +891,7 @@ function depositChain(opts: {
     (at: 'read-only' | 'drpc'): Rpc =>
     (method, params) => {
       calls.push(`${at} ${method}`);
+      opts.onCall?.(`${at} ${method}`);
       const probe = method === 'eth_sendRawTransaction' && params[0] === '0x00';
       if (at === 'read-only' && method === 'eth_sendRawTransaction') throw rpcError(-32601, 'method not supported');
       if (method === 'eth_sendRawTransaction' && !probe) {
@@ -897,7 +900,8 @@ function depositChain(opts: {
         sent.push(raw);
         nonces.push(parseTransaction(raw).nonce ?? -1);
       }
-      const fault = probe ? undefined : faults.get(method)?.shift();
+      const faultKey = method === 'eth_call' ? `eth_call ${callOf(params).functionName}` : method;
+      const fault = probe ? undefined : (faults.get(faultKey) ?? faults.get(method))?.shift();
       if (fault) throw fault;
       switch (method) {
         case 'eth_chainId':
@@ -1081,18 +1085,137 @@ describe('submitDepositToMiden', () => {
   it('moves a pre-send read that answers -32005 to the next endpoint', async () => {
     const chain = depositChain({
       allowance: DEPOSIT_UNITS,
-      faults: { eth_estimateGas: [rpcError(-32005, 'rate limit exceeded')] }
+      faults: { eth_getTransactionCount: [rpcError(-32005, 'rate limit exceeded')] }
     });
     const submission = await submitDepositToMiden(
       { privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'if-short' },
       chain.deps
     );
     expect(submission.endpoint).toBe(ARC_DRPC_URL);
-    expect(chain.calls.filter(call => call.endsWith('eth_estimateGas'))).toEqual([
-      'drpc eth_estimateGas',
-      'read-only eth_estimateGas'
+    expect(chain.calls.filter(call => call.endsWith('eth_getTransactionCount'))).toEqual([
+      'drpc eth_getTransactionCount',
+      'read-only eth_getTransactionCount'
     ]);
     expect(chain.sent).toHaveLength(1);
+  });
+
+  it.each([
+    ['HTTP 429', http429],
+    ['JSON-RPC -32005', () => rpcError(-32005, 'rate limit exceeded')]
+  ])('simulates the deposit again after the simulation answers %s once, then deposits', async (_what, fault) => {
+    const chain = depositChain({ allowance: DEPOSIT_UNITS, faults: { 'eth_call depositToRemote': [fault()] } });
+    const submission = await submitDepositToMiden(
+      { privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'if-short' },
+      chain.deps
+    );
+    expect(chain.sent).toHaveLength(1);
+    expect(submission.depositHash).toBe(keccak256(chain.sent[0] ?? '0x'));
+    expect(chain.clock.slept).toEqual([2_000]);
+  });
+
+  it('reports a simulation that stays rate-limited as not simulated, never as a revert', async () => {
+    const limited = () => rpcError(-32005, 'rate limit exceeded');
+    const chain = depositChain({
+      allowance: DEPOSIT_UNITS,
+      faults: { 'eth_call depositToRemote': [limited(), limited(), limited(), limited()] }
+    });
+    const failure = submitDepositToMiden(
+      { privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'if-short' },
+      chain.deps
+    );
+    await expect(failure).rejects.toThrow(
+      'xReserve depositToRemote could not be simulated on rpc.drpc.testnet.arc.io: '
+    );
+    await expect(failure).rejects.not.toThrow('would revert');
+    expect(chain.sent).toEqual([]);
+    expect(chain.clock.slept).toEqual([2_000, 4_000, 8_000]);
+  });
+
+  // An endpoint a block behind the approve reads a short allowance, so the deposit would decode a revert it never had.
+  it('keeps every simulation and gas estimate on the write endpoint through transient errors', async () => {
+    const chain = depositChain({
+      allowance: 0n,
+      faults: {
+        'eth_call approve': [http429()],
+        'eth_call depositToRemote': [rpcError(-32005, 'rate limit exceeded'), timedOut()],
+        eth_estimateGas: [timedOut(), http429()]
+      }
+    });
+    const submission = await submitDepositToMiden(
+      { privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'exact' },
+      chain.deps
+    );
+    expect(submission.approved).toBe(true);
+    expect(chain.sent).toHaveLength(2);
+    expect(chain.calls.filter(call => call.startsWith('read-only'))).toEqual([
+      'read-only eth_chainId',
+      'read-only eth_sendRawTransaction'
+    ]);
+    expect(chain.calls.filter(call => call.endsWith('eth_estimateGas'))).toEqual(Array(4).fill('drpc eth_estimateGas'));
+  });
+
+  it('sends nothing when the step was aborted before its approve', async () => {
+    const controller = new AbortController();
+    controller.abort(new Error('deposit_submit exceeded its 120000 ms budget'));
+    const chain = depositChain({ allowance: 0n });
+    const failure = submitDepositToMiden(
+      { privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'exact' },
+      chain.deps,
+      controller.signal
+    );
+    await expect(failure).rejects.toThrow('USDC approve not sent: deposit_submit exceeded its 120000 ms budget');
+    await expect(failure).rejects.toMatchObject({ name: 'AbortError' });
+    expect(chain.sent).toEqual([]);
+  });
+
+  it('sends no deposit once its step is aborted after the approve went out', async () => {
+    const controller = new AbortController();
+    const chain = depositChain({
+      allowance: 0n,
+      onCall: call => {
+        if (call === 'drpc eth_getTransactionReceipt') {
+          controller.abort(new Error('deposit_submit exceeded its 120000 ms budget'));
+        }
+      }
+    });
+    await expect(
+      submitDepositToMiden(
+        { privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'exact' },
+        chain.deps,
+        controller.signal
+      )
+    ).rejects.toThrow('xReserve depositToRemote not sent: deposit_submit exceeded its 120000 ms budget');
+    expect(
+      chain.sent.map(raw => decodeFunctionData({ abi: CALL_ABI, data: parseTransaction(raw).data ?? '0x' }))
+    ).toMatchObject([{ functionName: 'approve' }]);
+    const afterAbort = chain.calls.slice(chain.calls.indexOf('drpc eth_getTransactionReceipt'));
+    expect(afterAbort.filter(call => call.endsWith('eth_sendRawTransaction'))).toEqual([]);
+  });
+
+  it('never re-sends a deposit whose step was aborted while its send was retried', async () => {
+    const controller = new AbortController();
+    let sends = 0;
+    const chain = depositChain({
+      allowance: DEPOSIT_UNITS,
+      faults: { eth_sendRawTransaction: [timedOut()] },
+      onCall: call => {
+        // The first drpc send is the write probe, the second the deposit's own.
+        if (call === 'drpc eth_sendRawTransaction' && ++sends === 2) {
+          controller.abort(new Error('deposit_submit exceeded its 120000 ms budget'));
+        }
+      }
+    });
+    await expect(
+      submitDepositToMiden(
+        { privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'if-short' },
+        chain.deps,
+        controller.signal
+      )
+    ).rejects.toThrow(
+      /^xReserve depositToRemote resend of 0x[0-9a-f]{64} not sent: deposit_submit exceeded its 120000 ms budget$/
+    );
+    expect(chain.sent).toHaveLength(1);
+    expect(chain.clock.slept).toEqual([2_000]);
   });
 });
 

@@ -665,17 +665,20 @@ async function pickWriteEndpoint(deps: ArcWriteDeps): Promise<string> {
 /**
  * `call` on `endpoints[0]`, asked again at most TRANSIENT_RETRIES times after a transient error, each time after a
  * doubling backoff and on the next of `endpoints` (the same one when there is one). Any other error, and the last
- * transient one, is thrown at once through `failure`, which names the endpoint.
+ * transient one, is thrown at once through `failure`, which names the endpoint. `before` runs ahead of each attempt,
+ * outside the retry, so what it throws ends the call as it is.
  */
 async function withTransientRetry<T>(
   endpoints: readonly string[],
   deps: ArcReadDeps,
   call: (client: PublicClient, attempt: number) => Promise<T>,
-  failure: (endpoint: string, error: unknown) => Error
+  failure: (endpoint: string, error: unknown) => Error,
+  before?: (attempt: number) => void
 ): Promise<T> {
   const clock = deps.clock ?? realArcClock;
   for (let attempt = 0; ; attempt++) {
     const endpoint = endpoints[attempt % endpoints.length] ?? '';
+    before?.(attempt);
     try {
       return await call(clientFor(deps)(endpoint), attempt);
     } catch (error) {
@@ -704,29 +707,40 @@ function arcRead<T>(
   );
 }
 
+/** `run` on the write endpoint alone, retried there on a transient error: another endpoint may not hold the approve. */
 async function simulate(
   what: string,
-  endpoints: readonly string[],
+  write: string,
   deps: ArcReadDeps,
   run: (client: PublicClient) => Promise<unknown>
 ): Promise<void> {
-  await withTransientRetry(endpoints, deps, run, (endpoint, error) => {
+  await withTransientRetry([write], deps, run, (endpoint, error) => {
     const outcome = isTransientArcError(error) ? 'could not be simulated' : 'would revert';
     return new Error(`${what} ${outcome} on ${arcHost(endpoint)}: ${errorText(error)}`, { cause: error });
   });
 }
 
+/** Throws in place of a send once `signal` is aborted: an overrun step runs on after its test failed, sending nothing. */
+function refuseSendIfAborted(signal: AbortSignal | undefined, what: string): void {
+  if (!signal?.aborted) return;
+  const error = new Error(`${what} not sent: ${errorText(signal.reason)}`, { cause: signal.reason });
+  error.name = 'AbortError';
+  throw error;
+}
+
 /**
- * Signs `tx` and sends it to `endpoints.write`, which takes writes; its gas and fees are reads that fail over across
- * `endpoints.reads`. A send that fails transiently is sent again as the same signed bytes, so the hash cannot change.
+ * Signs `tx` and sends it to `endpoints.write`, which takes writes and estimates its gas, since the estimate executes
+ * it; its fees are reads that fail over across `endpoints.reads`. A send that fails transiently is sent again as the
+ * same signed bytes, so the hash cannot change. Nothing is sent, first time or again, once `signal` is aborted.
  */
 async function sendSigned(
   deps: ArcWriteDeps,
   endpoints: { write: string; reads: readonly string[] },
   account: PrivateKeyAccount,
-  tx: { to: Address; data: Hex; nonce: number }
+  tx: { what: string; to: Address; data: Hex; nonce: number },
+  signal: AbortSignal | undefined
 ): Promise<Hash> {
-  const gas = await arcRead('Arc gas estimate', endpoints.reads, deps, client =>
+  const gas = await arcRead('Arc gas estimate', [endpoints.write], deps, client =>
     client.estimateGas({ account: account.address, to: tx.to, data: tx.data })
   );
   const fees = await arcRead('Arc fee estimate', endpoints.reads, deps, client => client.estimateFeesPerGas());
@@ -758,7 +772,8 @@ async function sendSigned(
       }
     },
     (endpoint, error) =>
-      new Error(`Arc transaction ${hash} was not sent on ${arcHost(endpoint)}: ${errorText(error)}`, { cause: error })
+      new Error(`Arc transaction ${hash} was not sent on ${arcHost(endpoint)}: ${errorText(error)}`, { cause: error }),
+    attempt => refuseSendIfAborted(signal, attempt === 0 ? tx.what : `${tx.what} resend of ${hash}`)
   );
   return hash;
 }
@@ -808,12 +823,15 @@ async function waitForReceipt(
 /**
  * Approve (when asked) and `depositToRemote(units, 10007, recipient, USDC, 0, 0x)` from the key, sent to one write
  * endpoint with a local nonce; reads and receipts fail over to the other endpoints on a rate limit or a timeout. Each
- * call is simulated first so a revert decodes; the approve is mined before the deposit's simulation reads its
- * allowance. 'exact' always approves exactly `units`; 'if-short' only when the allowance is short.
+ * call is simulated and its gas estimated on the write endpoint first, so a revert decodes and an endpoint behind the
+ * approve never reports a false one; the approve is mined before the deposit's simulation reads its allowance. 'exact'
+ * always approves exactly `units`; 'if-short' only when the allowance is short. Once `signal` is aborted (the step ran
+ * out of budget) nothing more is sent.
  */
 export async function submitDepositToMiden(
   args: { privateKey: Hex; units: bigint; recipientHex: string; approve: 'exact' | 'if-short' },
-  deps: ArcWriteDeps
+  deps: ArcWriteDeps,
+  signal?: AbortSignal
 ): Promise<DepositSubmission> {
   const account = privateKeyToAccount(args.privateKey);
   const remoteRecipient = midenAccountHexToXReserveRecipient(args.recipientHex);
@@ -833,7 +851,7 @@ export async function submitDepositToMiden(
   const approved = args.approve === 'exact' || allowance < args.units;
   let approveHash: Hash | undefined;
   if (approved) {
-    await simulate('USDC approve', endpoints.reads, deps, client =>
+    await simulate('USDC approve', endpoints.write, deps, client =>
       client.simulateContract({
         account: account.address,
         address: ARC_USDC,
@@ -842,11 +860,18 @@ export async function submitDepositToMiden(
         args: [ARC_XRESERVE, args.units]
       })
     );
-    approveHash = await sendSigned(deps, endpoints, account, {
-      to: ARC_USDC,
-      data: encodeFunctionData({ abi: ERC20_ABI, functionName: 'approve', args: [ARC_XRESERVE, args.units] }),
-      nonce
-    });
+    approveHash = await sendSigned(
+      deps,
+      endpoints,
+      account,
+      {
+        what: 'USDC approve',
+        to: ARC_USDC,
+        data: encodeFunctionData({ abi: ERC20_ABI, functionName: 'approve', args: [ARC_XRESERVE, args.units] }),
+        nonce
+      },
+      signal
+    );
     nonce += 1;
     await waitForReceipt(endpoints.reads, deps, approveHash);
   }
@@ -858,7 +883,7 @@ export async function submitDepositToMiden(
     0n,
     '0x'
   ];
-  await simulate('xReserve depositToRemote', endpoints.reads, deps, client =>
+  await simulate('xReserve depositToRemote', endpoints.write, deps, client =>
     client.simulateContract({
       account: account.address,
       address: ARC_XRESERVE,
@@ -867,11 +892,18 @@ export async function submitDepositToMiden(
       args: depositArgs
     })
   );
-  const depositHash = await sendSigned(deps, endpoints, account, {
-    to: ARC_XRESERVE,
-    data: encodeFunctionData({ abi: XRESERVE_HARNESS_ABI, functionName: 'depositToRemote', args: depositArgs }),
-    nonce
-  });
+  const depositHash = await sendSigned(
+    deps,
+    endpoints,
+    account,
+    {
+      what: 'xReserve depositToRemote',
+      to: ARC_XRESERVE,
+      data: encodeFunctionData({ abi: XRESERVE_HARNESS_ABI, functionName: 'depositToRemote', args: depositArgs }),
+      nonce
+    },
+    signal
+  );
   return { endpoint, approveHash, depositHash, approved };
 }
 

@@ -77,19 +77,24 @@ export type StepContext = () => Promise<string>;
 
 /**
  * Runs one step under its budget. A failure and an overrun both reject with a message that starts with the step's
- * name; `context` is appended best-effort.
+ * name; `context` is appended best-effort. An overrun also aborts the signal `run` is handed, with a reason naming the
+ * step: the step itself runs on after its test failed, so one that sends a transaction checks the signal first.
  */
 export async function withStepBudget<T>(
   name: string,
   budgetMs: number,
-  run: () => Promise<T>,
+  run: (signal: AbortSignal) => Promise<T>,
   context?: StepContext
 ): Promise<T> {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const overrun = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error(`exceeded its ${budgetMs} ms budget`)), budgetMs);
+    timer = setTimeout(() => {
+      controller.abort(new Error(`${name} exceeded its ${budgetMs} ms budget`));
+      reject(new Error(`exceeded its ${budgetMs} ms budget`));
+    }, budgetMs);
   });
-  const work = run();
+  const work = run(controller.signal);
   // The losing side of the race keeps running, and a Playwright worker fails the test on its unhandled rejection.
   work.catch(() => undefined);
   try {
@@ -112,11 +117,16 @@ export interface StepRecorder {
   step(name: string, fn: () => Promise<void>): Promise<void>;
 }
 
-export type NamedStep = <T>(name: string, budgetMs: number, run: () => Promise<T>, context?: StepContext) => Promise<T>;
+export type NamedStep = <T>(
+  name: string,
+  budgetMs: number,
+  run: (signal: AbortSignal) => Promise<T>,
+  context?: StepContext
+) => Promise<T>;
 
 /** Each step is a checkpoint in the run's report, runs under its own budget, and hands its result back. */
 export function namedSteps(recorder: StepRecorder): NamedStep {
-  return <T>(name: string, budgetMs: number, run: () => Promise<T>, context?: StepContext) =>
+  return <T>(name: string, budgetMs: number, run: (signal: AbortSignal) => Promise<T>, context?: StepContext) =>
     new Promise<T>((resolve, reject) => {
       recorder
         .step(name, async () => {

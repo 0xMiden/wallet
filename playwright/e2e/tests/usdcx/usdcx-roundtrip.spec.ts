@@ -225,16 +225,18 @@ async function depositLeg(
 ): Promise<DepositRun> {
   // R is derived in Node from the account id, apart from the wallet's own derivation (usdcx/deposit-target.ts).
   const recipient = midenAccountHexToXReserveRecipient(ids.accountHex);
-  const submission = await step('deposit_submit', BUDGET.depositSubmit, async () => {
+  const submission = await step('deposit_submit', BUDGET.depositSubmit, async signal => {
     if (opts.keyBalance < DEPOSIT_UNITS + GAS_RESERVE_UNITS) {
       throw new Error(
         `key ${opts.key.address} holds ${opts.keyBalance} USDC base units, ` +
           `needs ${DEPOSIT_UNITS + GAS_RESERVE_UNITS} for the deposit and its gas`
       );
     }
+    // An overrun step runs on after the test failed; the signal stops it before it sends the approve or the deposit.
     const submission = await submitDepositToMiden(
       { privateKey: opts.key.privateKey, units: DEPOSIT_UNITS, recipientHex: ids.accountHex, approve: opts.approve },
-      opts.arc
+      opts.arc,
+      signal
     );
     // 'exact' approves the deposit amount even over an allowance an earlier run left on the harness key, so the round
     // trip always sends the approve the product sends (the allowance check in runUsdcxDeposit, usdcx/deposit.ts).
