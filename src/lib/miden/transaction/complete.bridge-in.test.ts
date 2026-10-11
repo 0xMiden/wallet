@@ -1,41 +1,31 @@
 import type { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
-// The registry's native-ETH faucet sends every bridge delivery.
-import { TEST_NATIVE_ETH_FAUCET as DELIVERY_SENDER } from 'lib/epoch/testing/bridge-config';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
 import { completeConsumeTransaction } from './complete';
-import {
-  applyBridgeInInfoForNotes,
-  applyBridgeInToConsumeRow,
-  takeAgglayerBridgeInInfo,
-  takeUsdcxBridgeInInfo
-} from '../activity/bridge-in';
+import { adoptBridgeDeliveries } from '../activity/bridge-in';
 
+// The pairing itself runs against the real matchers in bridge-in.adopt.test.ts; here the consume only hands it over.
 jest.mock('../activity/bridge-in', () => ({
-  noteIdKey: jest.requireActual('../activity/bridge-in').noteIdKey,
-  applyBridgeInInfoForNotes: jest.fn(async () => false),
-  applyBridgeInToConsumeRow: jest.fn(),
-  takeAgglayerBridgeInInfo: jest.fn(async () => undefined),
-  takeUsdcxBridgeInInfo: jest.fn(async () => undefined)
+  adoptBridgeDeliveries: jest.fn(async () => undefined)
 }));
 jest.mock('../sdk/helpers', () => ({
   ...jest.requireActual('../sdk/helpers'),
   getBech32AddressFromAccountId: (id: string) => id
 }));
 
-const mockedTake = jest.mocked(takeAgglayerBridgeInInfo);
-
-const bridgeNote = (id: string, amount: bigint) => ({
+const executedNote = (id: string, sender: string, assets: Array<[string, bigint]>) => ({
   note: () => ({
     id: () => ({ toString: () => id }),
-    metadata: () => ({ sender: () => DELIVERY_SENDER, noteType: () => 0 }),
-    assets: () => ({ fungibleAssets: () => [{ faucetId: () => 'eth-faucet', amount: () => amount }] })
+    metadata: () => ({ sender: () => sender, noteType: () => 0 }),
+    assets: () => ({
+      fungibleAssets: () => assets.map(([faucetId, amount]) => ({ faucetId: () => faucetId, amount: () => amount }))
+    })
   })
 });
 
-function consumeOf(notes: ReturnType<typeof bridgeNote>[]): TransactionResult {
+function consumeOf(notes: readonly object[]): TransactionResult {
   const result: TransactionResult = Object.create(null);
   Object.assign(result, {
     executedTransaction: () => ({
@@ -48,9 +38,7 @@ function consumeOf(notes: ReturnType<typeof bridgeNote>[]): TransactionResult {
 }
 
 beforeEach(async () => {
-  mockedTake.mockClear();
-  jest.mocked(takeUsdcxBridgeInInfo).mockClear();
-  jest.mocked(applyBridgeInToConsumeRow).mockClear();
+  jest.mocked(adoptBridgeDeliveries).mockClear();
   await Repo.transactions.clear();
   await Repo.transactions.add({
     id: 'consume',
@@ -62,83 +50,54 @@ beforeEach(async () => {
   });
 });
 
-it('never pairs a consume of two bridge deliveries with a tracker by their summed amount', async () => {
-  await completeConsumeTransaction('consume', consumeOf([bridgeNote('note-1', 1n), bridgeNote('note-2', 2n)]));
+// A batch's per-faucet total is no single delivery's amount: each note goes over by its own first asset.
+it('hands the adopter each executed note by its own sender, faucet and amount, once the row is Completed', async () => {
+  let statusAtAdoption: ITransactionStatus | undefined;
+  jest.mocked(adoptBridgeDeliveries).mockImplementationOnce(async id => {
+    statusAtAdoption = (await Repo.transactions.get(id))?.status;
+  });
+
+  await completeConsumeTransaction(
+    'consume',
+    consumeOf([
+      executedNote('note-1', 'usdcx-faucet', [['usdcx-faucet', 1n]]),
+      executedNote('note-2', 'wallet', [
+        ['usdcx-faucet', 2n],
+        ['other-faucet', 9n]
+      ])
+    ])
+  );
+
+  expect(adoptBridgeDeliveries).toHaveBeenCalledTimes(1);
+  expect(adoptBridgeDeliveries).toHaveBeenCalledWith('consume', [
+    { id: 'note-1', senderAddress: 'usdcx-faucet', faucetId: 'usdcx-faucet', amount: 1n },
+    { id: 'note-2', senderAddress: 'wallet', faucetId: 'usdcx-faucet', amount: 2n }
+  ]);
+  expect(statusAtAdoption).toBe(ITransactionStatus.Completed);
+});
+
+it('offers a note with no fungible asset to the registry pass alone', async () => {
+  await completeConsumeTransaction(
+    'consume',
+    consumeOf([executedNote('note-1', 'usdcx-faucet', [['usdcx-faucet', 1n]]), executedNote('note-2', 'wallet', [])])
+  );
+
+  expect(adoptBridgeDeliveries).toHaveBeenCalledWith('consume', [
+    { id: 'note-1', senderAddress: 'usdcx-faucet', faucetId: 'usdcx-faucet', amount: 1n },
+    { id: 'note-2', senderAddress: '', faucetId: '' }
+  ]);
+});
+
+it('completes the consume even when a note cannot be read for adoption', async () => {
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  const withoutId = {
+    metadata: () => ({ sender: () => 'usdcx-faucet', noteType: () => 0 }),
+    assets: () => ({ fungibleAssets: () => [{ faucetId: () => 'usdcx-faucet', amount: () => 1n }] })
+  };
+
+  await completeConsumeTransaction('consume', consumeOf([{ note: () => withoutId }]));
 
   expect((await Repo.transactions.get('consume'))?.status).toBe(ITransactionStatus.Completed);
-  expect(takeAgglayerBridgeInInfo).not.toHaveBeenCalledWith(expect.objectContaining({ amount: 3n }));
-  expect(takeUsdcxBridgeInInfo).not.toHaveBeenCalledWith(expect.objectContaining({ amount: 3n }));
-});
-
-// USDCx is the native asset and native notes are auto-claimed together, so a batch pairs each note by its own sender,
-// faucet and amount, one at a time, and moves each matched tracking row to received; the batch row keeps its label.
-it('pairs each note of a batch claim by its own amount and moves each tracking row to received', async () => {
-  for (const id of ['row-a', 'row-b']) {
-    await Repo.transactions.add({
-      id,
-      type: 'bridged-receive',
-      accountId: 'account',
-      status: ITransactionStatus.Completed,
-      displayIcon: 'RECEIVE',
-      initiatedAt: 1,
-      extraInputs: {
-        provider: 'usdcx',
-        phase: 'ready',
-        sourceAddress: '0xsource',
-        sourceAmount: '1',
-        sourceSymbol: 'USDC'
-      }
-    });
-  }
-  jest
-    .mocked(takeUsdcxBridgeInInfo)
-    .mockResolvedValueOnce({ provider: 'usdcx', sourceAmount: '1', sourceSymbol: 'USDC', bridgeReceiveTxId: 'row-a' })
-    .mockResolvedValueOnce({ provider: 'usdcx', sourceAmount: '2', sourceSymbol: 'USDC', bridgeReceiveTxId: 'row-b' });
-
-  await completeConsumeTransaction('consume', consumeOf([bridgeNote('note-1', 1n), bridgeNote('note-2', 2n)]));
-
-  expect(jest.mocked(takeUsdcxBridgeInInfo).mock.calls.map(([args]) => args.amount)).toEqual([1n, 2n]);
-  const [a, b] = [await Repo.transactions.get('row-a'), await Repo.transactions.get('row-b')];
-  expect(a?.extraInputs).toMatchObject({ phase: 'received', midenNoteId: 'note-1' });
-  expect(a?.amount).toBe(1n);
-  expect(b?.extraInputs).toMatchObject({ phase: 'received', midenNoteId: 'note-2' });
-  expect(b?.amount).toBe(2n);
-  expect(b?.transactionId).toBe('chain-tx');
-  expect(applyBridgeInToConsumeRow).not.toHaveBeenCalled();
-});
-
-it("pairs a single-delivery consume by that note's sender and amount", async () => {
-  await completeConsumeTransaction('consume', consumeOf([bridgeNote('note-1', 2n)]));
-
-  expect(takeAgglayerBridgeInInfo).toHaveBeenCalledTimes(1);
-  expect(takeAgglayerBridgeInInfo).toHaveBeenCalledWith({
-    accountId: 'account',
-    senderAccountId: DELIVERY_SENDER,
-    amount: 2n
-  });
-});
-
-it('offers a single-note consume no AggLayer tracker took to the USDCx trackers', async () => {
-  await completeConsumeTransaction('consume', consumeOf([bridgeNote('note-1', 2n)]));
-
-  expect(takeUsdcxBridgeInInfo).toHaveBeenCalledWith({
-    accountId: 'account',
-    senderAccountId: DELIVERY_SENDER,
-    faucetId: 'eth-faucet',
-    amount: 2n
-  });
-});
-
-// The registry can take one note of a batch; every other note is still paired. The registry's id is canonical only
-// after normalising, as allocator and SDK ids differ in prefix and case.
-it('pairs the notes the registry did not take', async () => {
-  jest.mocked(applyBridgeInInfoForNotes).mockImplementationOnce(async (_ids, apply) => {
-    await apply({ provider: 'epoch', sourceAmount: '2', sourceSymbol: 'USDC', midenNoteId: '0xNOTE-2' });
-    return true;
-  });
-
-  await completeConsumeTransaction('consume', consumeOf([bridgeNote('note-1', 1n), bridgeNote('note-2', 2n)]));
-
-  expect(jest.mocked(takeUsdcxBridgeInInfo).mock.calls.map(([args]) => args.amount)).toEqual([1n]);
-  expect(jest.mocked(takeAgglayerBridgeInInfo).mock.calls.map(([args]) => args.amount)).toEqual([1n]);
+  expect(adoptBridgeDeliveries).not.toHaveBeenCalled();
+  warn.mockRestore();
 });

@@ -4,10 +4,14 @@ import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 
-import { USDCX_DESTINATIONS } from './constant';
+import { USDCX_DESTINATIONS, usdcxPayoutFeeShortfall } from './constant';
 
 export class UsdcxBurnError extends Error {
-  constructor(readonly translationKey: string) {
+  /** `values` fills the copy's placeholders, such as the fee allowance a burn must exceed. */
+  constructor(
+    readonly translationKey: string,
+    readonly values?: Record<string, string>
+  ) {
     super(translationKey);
     this.name = 'UsdcxBurnError';
   }
@@ -71,4 +75,7 @@ export function validateUsdcxWithdrawal(faucetId: string, destinationChainId: nu
   if (!isUsdcxWithdrawalAvailable(faucetId)) throw new UsdcxBurnError('usdcxUnsupportedFaucet');
   if (!isUsdcxDestinationChain(destinationChainId)) throw new UsdcxBurnError('usdcxInvalidDestination');
   if (amount <= 0n) throw new UsdcxBurnError('usdcxInvalidAmount');
+  // Circle takes its fee from the payout, so a burn its fee allowance takes whole may pay out nothing.
+  const shortfall = usdcxPayoutFeeShortfall(destinationChainId, amount);
+  if (shortfall) throw new UsdcxBurnError('usdcxSendMoreThanPayoutFee', shortfall);
 }

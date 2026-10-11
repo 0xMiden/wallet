@@ -117,11 +117,24 @@ export function revertedExecuteLeg(sourceDomain: number, hash: string): IUsdcxCc
   return {
     sourceDomain,
     executeTxHash: undefined,
+    executeSavedAt: undefined,
     message: undefined,
     attestation: undefined,
     forwarded: false,
     revertedExecuteTxHash: hash
   };
+}
+
+/** How long an Arc execute may stay unmined before the wallet offers the execute again. */
+export const USDCX_EXECUTE_STALL_SEC = 30 * 60;
+
+/**
+ * The CCTP leg after the Arc execute `hash` stayed unmined for `USDCX_EXECUTE_STALL_SEC`: the message and proof
+ * stay, so the wallet can execute again, and `hash` is never adopted as the execute again. A second execute of a
+ * message that already landed reverts on Arc, so the message is never minted twice.
+ */
+export function stalledExecuteLeg(sourceDomain: number, hash: string): IUsdcxCctpLeg {
+  return { sourceDomain, executeTxHash: undefined, executeSavedAt: undefined, stalledExecuteTxHash: hash };
 }
 
 /** A signed fee quote from Iris `POST /v2/quote/burn/usdc/{source}/{destination}`. */

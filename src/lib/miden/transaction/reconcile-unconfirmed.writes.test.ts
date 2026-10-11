@@ -110,6 +110,31 @@ describe('the landed write (#1081)', () => {
     expect(reportOperation).toHaveBeenCalledWith({ operation: expect.any(String), result: 'completed' });
   });
 
+  // The landed write has no result to read a fee or outputs from: the burn keeps the identity its poll reads, and
+  // nothing else is invented for it.
+  it('completes a USDCx burn that landed with its burn identity intact and no fee or outputs', async () => {
+    const usdcxBurn = { noteId: NOTE, destinationDomain: 26, phase: 'pending' };
+    const extraInputs = { provider: 'usdcx', destinationAddress: '0xkey', destinationNetwork: 5042002, usdcxBurn };
+    await Repo.transactions.put(unconfirmed({ type: 'bridged-send', displayIcon: 'SEND', extraInputs }));
+
+    const outcome = await judgeAndWrite(
+      'tx-1',
+      context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } }))
+    );
+
+    expect(outcome.kind).toBe('landed');
+    const row = await read();
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      displayMessage: 'Bridged to EVM',
+      transactionId: hex(2),
+      extraInputs
+    });
+    expect(row?.feeAmount).toBeUndefined();
+    expect(row?.resultBytes).toBeUndefined();
+    expect(row?.resultReleasedAt).toBeUndefined();
+  });
+
   it.each<[ITransaction['type'], ITransaction['displayIcon']]>([
     ['send', 'SEND'],
     ['swap', 'SWAP'],

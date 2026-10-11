@@ -31,7 +31,7 @@ import {
   USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME,
   USDCX_MIN_BURN_SLOT
 } from './constant';
-import { readUsdcxDestinationBalance } from './destination-status';
+import { readUsdcxDestinationSnapshot } from './destination-status';
 import { readWithOwnRpcClient } from './rpc-client';
 import { encodeBurnWithdrawal, requireUsdcxFaucetId, UsdcxBurnError, validateUsdcxWithdrawal } from './withdrawal';
 
@@ -100,7 +100,7 @@ export async function initiateUsdcxBurn(args: {
     destinationDomain: domain,
     faucetBech32: getBech32AddressFromAccountId(accountRefToSdk(requireUsdcxFaucetId()))
   };
-  const destinationBalanceBefore = await readUsdcxDestinationBalance(destinationChainId, destinationAddress);
+  const destinationBalanceBefore = await readUsdcxDestinationSnapshot(destinationChainId, destinationAddress);
   return initiateBridgedSendTransaction(
     senderPublicKey,
     amount,

@@ -1,4 +1,4 @@
-import type { Address, Chain, Hex } from 'viem';
+import { Address, Chain, formatUnits, Hex } from 'viem';
 import { arbitrum, arbitrumSepolia, arc, base, baseSepolia, mainnet, sepolia } from 'viem/chains';
 
 import { ARC_TESTNET } from 'lib/walletconnect/config';
@@ -232,23 +232,39 @@ function destination(chain: Chain): [number, UsdcxDestination] {
 }
 
 /**
- * The least USDC a burn of `amount` is expected to pay out on `chainId`: the amount minus the chain's fee
- * allowance, and never less than half the amount, so a small burn is not confirmed by an unrelated credit.
+ * The least USDC a burn of `amount` is expected to pay out on `chainId`: the amount minus the chain's fee allowance.
+ * It is not positive when the allowance takes the whole amount. Any unrelated credit meets such a floor, so the wallet
+ * refuses that burn (`usdcxPayoutFeeShortfall`) and never confirms an older one by balance.
  */
 export function minimumUsdcxPayout(chainId: number, amount: bigint): bigint {
-  const allowance = USDCX_DESTINATIONS.get(chainId)?.payoutFeeAllowance ?? 0n;
-  const afterFee = amount - allowance;
-  const half = (amount + 1n) / 2n;
-  return afterFee > half ? afterFee : half;
+  return amount - (USDCX_DESTINATIONS.get(chainId)?.payoutFeeAllowance ?? 0n);
 }
 
 /**
- * Every chain a bridge-in can start from, keyed by EVM chain id. Testnet entries first. Chains with a local
- * xReserve deposit directly; Base and Arbitrum reach Arc's xReserve through Circle's executor.
+ * The fee allowance a burn of `amount` to `chainId` fails to exceed, in USDCx, and the chain's name, as the refusal
+ * names them; undefined once the amount exceeds it, and for no amount or an unknown chain, which other checks refuse.
+ */
+export function usdcxPayoutFeeShortfall(
+  chainId: number,
+  amount: bigint
+): { amount: string; network: string } | undefined {
+  const destination = USDCX_DESTINATIONS.get(chainId);
+  if (!destination || amount <= 0n || minimumUsdcxPayout(chainId, amount) > 0n) return undefined;
+  return { amount: formatUnits(destination.payoutFeeAllowance, USDCX_DECIMALS), network: destination.chain.name };
+}
+
+// Circle has not registered Miden on Sepolia's xReserve (a deposit there reverts), so a Sepolia deposit goes through
+// the executor on Arc. The e2e build's Sepolia fork registers Miden itself and keeps the xReserve route.
+const SEPOLIA_SOURCE =
+  E2E_USDCX_CHAIN === 'sepolia' ? sourceChain(sepolia) : executorSource(sepolia, ARC_TESTNET_EXECUTOR);
+
+/**
+ * Every chain a bridge-in can start from, keyed by EVM chain id. Testnet entries first. Arc and Ethereum deposit
+ * into their own xReserve; Sepolia, Base and Arbitrum reach Arc's xReserve through Circle's executor.
  */
 export const USDCX_SOURCE_CHAINS: ReadonlyMap<number, UsdcxSourceChain> = new Map([
   sourceChain(ARC_TESTNET),
-  sourceChain(sepolia),
+  SEPOLIA_SOURCE,
   executorSource(baseSepolia, ARC_TESTNET_EXECUTOR),
   executorSource(arbitrumSepolia, ARC_TESTNET_EXECUTOR),
   sourceChain(arc),
@@ -272,6 +288,14 @@ export const USDCX_DESTINATIONS: ReadonlyMap<number, UsdcxDestination> = new Map
   destination(arbitrum),
   destination(base)
 ]);
+
+/**
+ * The i18n key of a USDCx deposit's arrival time for its source chain: Arc Testnet reads ~1 min, every other source
+ * ~20 min. On Arc, Circle attests the deposit in seconds and the relayer mints within a minute.
+ */
+export function usdcxArrivalKey(sourceChainId: number): 'usdcxArrivalArc' | 'usdcxArrival' {
+  return sourceChainId === ARC_TESTNET.id ? 'usdcxArrivalArc' : 'usdcxArrival';
+}
 
 /** The source chain a bridge-in starts from until the screen offers a picker. */
 export const DEFAULT_USDCX_SOURCE_CHAIN_ID: number = E2E_USDCX_CHAIN === 'sepolia' ? sepolia.id : ARC_TESTNET.id;

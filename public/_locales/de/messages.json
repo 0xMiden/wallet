@@ -8,8 +8,13 @@
     "englishSource": "Burn submitted"
   },
   "usdcxMidenFees": {
-    "message": "MIDEN-Gebühren",
-    "englishSource": "MIDEN fees"
+    "message": "$symbol$-Gebühren",
+    "englishSource": "$symbol$ fees",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxBurnOnly": {
     "message": "Nur verbrennen",
@@ -60,8 +65,13 @@
     "englishSource": "Minimum burn"
   },
   "usdcxSponsorshipFee": {
-    "message": "Bezahlt in MIDEN, einschließlich der Finanzierung der Ausführung durch den „faucet“",
-    "englishSource": "Paid in MIDEN, including sponsorship of the execution by the faucet"
+    "message": "Bezahlung in $symbol$, einschließlich Sponsoring für die Durchführung von faucets",
+    "englishSource": "Paid in $symbol$, including faucet execution sponsorship",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxInvalidDestination": {
     "message": "Geben Sie für diese Auszahlung eine gültige Adresse in einem unterstützten Netzwerk ein.",
@@ -86,6 +96,36 @@
   "usdcxFaucetUnavailable": {
     "message": "Die Verbrennungsrichtlinie des USDCx-faucets kann nicht gelesen werden. Überprüfen Sie den Antrag erneut, um es noch einmal zu versuchen.",
     "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+  },
+  "usdcxSendMoreThanPayoutFee": {
+    "message": "Senden Sie mehr als $amount$ USDCx an $network$: Die Gebühr von Circle wird von der Auszahlung abgezogen.",
+    "englishSource": "Send more than $amount$ USDCx to $network$: Circle's fee is taken from the payout.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxPayoutFeeUpTo": {
+    "message": "Bis zu $amount$ USDC",
+    "englishSource": "Up to $amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxPayoutAtLeast": {
+    "message": "Mindestens $amount$ USDC",
+    "englishSource": "At least $amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "activityFetchingHistoryAndNotes": {
     "message": "Abrufen Ihres Transaktionsverlaufs und von „notes“",
@@ -4767,6 +4807,10 @@
   "usdcxArrival": {
     "message": "~20 Min.",
     "englishSource": "~20 min"
+  },
+  "usdcxArrivalArc": {
+    "message": "~1 Min.",
+    "englishSource": "~1 min"
   },
   "usdcxRouteNotice": {
     "message": "Circle xReserve prägt USDCx auf Miden im Verhältnis 1:1 für den von Ihnen eingezahlten USDC.",

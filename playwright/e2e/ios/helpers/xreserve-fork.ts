@@ -9,7 +9,7 @@ import {
 } from 'viem';
 import { sepolia } from 'viem/chains';
 
-import { getUsdcxXReserveSource, USDCX_REMOTE_DOMAIN } from '../../../../src/lib/usdcx/constant';
+import { CIRCLE_USDC_ADDRESS, USDCX_REMOTE_DOMAIN, XRESERVE_ADDRESS } from '../../../../src/lib/usdcx/constant';
 
 /**
  * Prepares a local Anvil FORK of Sepolia for the USDCx bridge-in deposit, so the
@@ -33,7 +33,16 @@ import { getUsdcxXReserveSource, USDCX_REMOTE_DOMAIN } from '../../../../src/lib
  * Every step was run by hand against a Sepolia fork before it was written here.
  */
 
-const { usdc: SEPOLIA_USDC, xReserve: XRESERVE } = getUsdcxXReserveSource(sepolia.id);
+// Read from the address maps, not the source table: this module loads in the Playwright process, which has no
+// MIDEN_E2E_TEST, and there Sepolia is an executor source with no xReserve route.
+function sepoliaAddress(addresses: ReadonlyMap<number, Address>, name: string): Address {
+  const address = addresses.get(sepolia.id);
+  if (!address) throw new Error(`xreserve-fork: no Sepolia ${name} address is configured`);
+  return address;
+}
+
+const SEPOLIA_USDC = sepoliaAddress(CIRCLE_USDC_ADDRESS, 'USDC');
+const XRESERVE = sepoliaAddress(XRESERVE_ADDRESS, 'xReserve');
 
 /**
  * The remote token the fork registers for the Miden domain: the faucet id Circle

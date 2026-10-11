@@ -1,3 +1,5 @@
+import { mainnet, sepolia } from 'viem/chains';
+
 import { USDCX_DEPOSIT_HOOK_DATA, USDCX_DEPOSIT_MAX_FEE, USDCX_REMOTE_DOMAIN, XRESERVE_ADDRESS } from './constant';
 import {
   buildDepositToRemoteArgs,
@@ -12,8 +14,8 @@ jest.mock('lib/miden/activity', () => ({
 }));
 
 const RECIPIENT = '0x00000000000000000000000000000000b64e1827414584510723cad8e145a400' as const;
+const MIXED_CASE_RECIPIENT = '0x00000000000000000000000000000000B64E1827414584510723CAD8E145A400' as const;
 const ARC_TESTNET_ID = 5042002;
-const SEPOLIA_ID = 11155111;
 const APPROVE_HASH = `0x${'1'.repeat(64)}` as const;
 const DEPOSIT_HASH = `0x${'2'.repeat(64)}` as const;
 
@@ -64,11 +66,12 @@ describe('buildDepositToRemoteArgs', () => {
   });
 
   it('names the USDC of the source chain as the local token', () => {
-    expect(buildDepositToRemoteArgs('1', RECIPIENT, SEPOLIA_ID)[3]).toBe('0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238');
+    expect(buildDepositToRemoteArgs('1', RECIPIENT, mainnet.id)[3]).toBe('0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48');
   });
 
-  it('refuses a chain with no xReserve', () => {
-    expect(() => buildDepositToRemoteArgs('1', RECIPIENT, 84532)).toThrow('no local xReserve');
+  // Sepolia's xReserve has no Miden domain, so outside the e2e build Sepolia deposits through the executor.
+  it.each([84532, sepolia.id])('refuses chain %i, which has no local xReserve', chainId => {
+    expect(() => buildDepositToRemoteArgs('1', RECIPIENT, chainId)).toThrow('no local xReserve');
   });
 
   it('trims the amount', () => {
@@ -96,8 +99,24 @@ describe('runUsdcxDeposit', () => {
     expect(deps.signer.depositToRemote).toHaveBeenCalledWith(
       buildDepositToRemoteArgs('1.5', RECIPIENT, ARC_TESTNET_ID)
     );
-    expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', { evmTxHash: DEPOSIT_HASH });
+    expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', {
+      evmTxHash: DEPOSIT_HASH,
+      usdcxRemoteRecipient: RECIPIENT
+    });
     expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'delivering', { evmTxHash: DEPOSIT_HASH });
+  });
+
+  // The reconciler trusts Circle's attestation only when it names this recipient, so it lands with the hash, before
+  // a receipt wait can strand the row.
+  it('persists the recipient it signed, lowercased, with the first phase write only', async () => {
+    const { deps } = makeDeps();
+
+    await runUsdcxDeposit('row-1', '1', MIXED_CASE_RECIPIENT, deps);
+
+    expect(jest.mocked(deps.updatePhase).mock.calls).toEqual([
+      ['row-1', 'submitting', { evmTxHash: DEPOSIT_HASH, usdcxRemoteRecipient: RECIPIENT }],
+      ['row-1', 'delivering', { evmTxHash: DEPOSIT_HASH }]
+    ]);
   });
 
   it('reads the allowance xReserve has', async () => {
@@ -109,12 +128,12 @@ describe('runUsdcxDeposit', () => {
   });
 
   it('takes the xReserve and USDC of the chain the deps name', async () => {
-    const { deps } = makeDeps({ sourceChainId: SEPOLIA_ID });
+    const { deps } = makeDeps({ sourceChainId: mainnet.id });
 
     await runUsdcxDeposit('row-1', '1', RECIPIENT, deps);
 
-    expect(deps.readAllowance).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(SEPOLIA_ID));
-    expect(deps.signer.depositToRemote).toHaveBeenCalledWith(buildDepositToRemoteArgs('1', RECIPIENT, SEPOLIA_ID));
+    expect(deps.readAllowance).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(mainnet.id));
+    expect(deps.signer.depositToRemote).toHaveBeenCalledWith(buildDepositToRemoteArgs('1', RECIPIENT, mainnet.id));
   });
 
   // 1.5 USDC is 1_500_000 base units: an allowance equal to it, or more than it, covers the deposit.
@@ -174,7 +193,10 @@ describe('runUsdcxDeposit', () => {
     await expect(runUsdcxDeposit('row-1', '1', RECIPIENT, deps)).rejects.toThrow('Transaction reverted');
 
     expect(deps.updatePhase).toHaveBeenCalledTimes(1);
-    expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', { evmTxHash: DEPOSIT_HASH });
+    expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', {
+      evmTxHash: DEPOSIT_HASH,
+      usdcxRemoteRecipient: RECIPIENT
+    });
   });
 
   it('does not deposit when the approval fails', async () => {

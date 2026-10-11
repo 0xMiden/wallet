@@ -5,6 +5,7 @@ import { toFunctionSelector } from 'viem';
 
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { runUsdcxDeposit } from 'lib/usdcx/deposit';
+import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import { buildExecutorBurnIntent, quoteExecutorBurn, runUsdcxExecutorDeposit } from 'lib/usdcx/executor';
 import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
@@ -101,6 +102,16 @@ jest.mock('lib/usdcx/deposit', () => ({
   isUsdcxDomainNotRegisteredError: () => false
 }));
 
+// The real derivation, spied on: a test can hand the screen a recipient no other path would produce.
+jest.mock('lib/usdcx/deposit-target', () => {
+  const actual = jest.requireActual<typeof import('lib/usdcx/deposit-target')>('lib/usdcx/deposit-target');
+  return { ...actual, usdcxRemoteRecipientFor: jest.fn(actual.usdcxRemoteRecipientFor) };
+});
+const { usdcxRemoteRecipientFor: actualUsdcxRemoteRecipientFor } =
+  jest.requireActual<typeof import('lib/usdcx/deposit-target')>('lib/usdcx/deposit-target');
+/** A recipient only `usdcxRemoteRecipientFor` returns, never the bytes the account id encodes to. */
+const SIGNED_RECIPIENT = `0x${'ab'.repeat(32)}` as const;
+
 jest.mock('lib/usdcx/executor', () => ({
   runUsdcxExecutorDeposit: jest.fn().mockResolvedValue(`0x${'2'.repeat(64)}`),
   // The route card's display quote; Circle is not reached from this suite.
@@ -179,16 +190,19 @@ jest.mock('./EvmBridgeDepositReview', () => {
       symbol,
       label,
       route,
-      fee
+      fee,
+      sourceChainId
     }: {
       onConfirm: () => void;
       symbol: string;
       label?: string;
       route: Parameters<typeof actual.arrivingTokenName>[0];
       fee?: string;
+      sourceChainId?: number;
     }) => (
       <div>
         {fee && <span data-testid="review-fee">{fee}</span>}
+        <span data-testid="review-source">{String(sourceChainId)}</span>
         <span data-testid="review-symbols">{`${symbol}->${actual.arrivingTokenName(route, symbol, label ?? symbol)}`}</span>
         <button data-testid="confirm-deposit" onClick={onConfirm}>
           confirm
@@ -248,14 +262,17 @@ jest.mock('./EvmBridgeUsdcxRoute', () => ({
   EvmBridgeUsdcxRoute: ({
     confirmDisabled,
     onConfirm,
-    fee
+    fee,
+    sourceChainId
   }: {
     confirmDisabled?: boolean;
     onConfirm: () => void;
     fee?: string;
+    sourceChainId: number;
   }) => (
     <div>
       {fee && <span data-testid="usdcx-route-fee">{fee}</span>}
+      <span data-testid="usdcx-route-source">{String(sourceChainId)}</span>
       <button data-testid="usdcx-route-confirm" disabled={confirmDisabled} onClick={onConfirm}>
         usdcx
       </button>
@@ -313,6 +330,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockUseDebounce.mockImplementation((value: unknown) => [value]);
+    jest.mocked(usdcxRemoteRecipientFor).mockImplementation(actualUsdcxRemoteRecipientFor);
     jest.mocked(quoteExecutorBurn).mockRejectedValue(new Error('no quote in tests'));
     mockNativeAvailable = false;
     jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
@@ -531,54 +549,73 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(mockSwitchChain.mock.calls).toEqual(native ? [] : [[{ chainId: 84532 }]]);
   });
 
-  it.each([false, true])('pins the deposit to the source chain picked in the drawer (native=%s)', async native => {
-    mockNativeAvailable = native;
-    jest.mocked(runUsdcxDeposit).mockImplementationOnce(async (_id, _amount, recipient, deps) => {
-      await deps.isRemoteDomainRegistered(10007);
-      await deps.signer.approve('0x008888878f94C0d87defdf0B07f46B93C1934442', 1_500_000n);
-      const hash = await deps.signer.depositToRemote([
-        1_500_000n,
-        10007,
-        recipient,
-        '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
-        0n,
-        '0x'
-      ]);
-      await deps.waitForReceipt(hash);
-      return hash;
-    });
-    renderScreen();
-    await pickToken('pick-circle-usdc');
-    fireEvent.click(screen.getByTestId('open-network-drawer'));
-    await settle();
-    fireEvent.click(screen.getByTestId('pick-network-sepolia'));
-    await settle();
-    // The balance of the chosen chain's USDC is read once the drawer closes.
-    expect(global.fetch).toHaveBeenCalledWith('https://rpc.test/11155111', expect.any(Object));
-    await reachRouteStep();
-    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
-    await settle();
-    fireEvent.click(screen.getByTestId('confirm-deposit'));
-    await settle();
+  // Circle has not registered Miden on Sepolia's xReserve, so a Sepolia deposit burns through CCTP to the executor on
+  // Arc, as Base and Arbitrum do; only the e2e build's Sepolia fork keeps the xReserve route.
+  it.each([false, true])(
+    'burns a Sepolia deposit through the executor on Arc, pinned to Sepolia (native=%s)',
+    async native => {
+      mockNativeAvailable = native;
+      jest.mocked(runUsdcxExecutorDeposit).mockImplementationOnce(async (_id, _amount, recipient, deps) => {
+        await deps.isRemoteDomainRegistered(10007);
+        await deps.signer.approve('0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA', 1_500_000n);
+        const hash = await deps.signer.depositForBurnWithHook([
+          1_500_000n,
+          26,
+          `0x${'0'.repeat(24)}edc81040756accff070c21d37b265b9d0b5ba45e`,
+          '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+          `0x${'0'.repeat(24)}edc81040756accff070c21d37b265b9d0b5ba45e`,
+          0n,
+          2000,
+          `0x${recipient.slice(2)}`
+        ]);
+        await deps.waitForReceipt(hash);
+        return hash;
+      });
+      renderScreen();
+      await pickToken('pick-circle-usdc');
+      fireEvent.click(screen.getByTestId('open-network-drawer'));
+      await settle();
+      fireEvent.click(screen.getByTestId('pick-network-sepolia'));
+      await settle();
+      // The balance of the chosen chain's USDC is read once the drawer closes.
+      expect(global.fetch).toHaveBeenCalledWith('https://rpc.test/11155111', expect.any(Object));
+      await reachRouteStep();
+      fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+      await settle();
+      fireEvent.click(screen.getByTestId('confirm-deposit'));
+      await settle();
 
-    expect(runUsdcxDeposit).toHaveBeenCalledWith(
-      expect.any(String),
-      '1.5',
-      expect.any(String),
-      expect.objectContaining({ sourceChainId: 11155111 })
-    );
-    const signer = native ? mockNativeSend : mockWriteContract;
-    expect(signer).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        chainId: 11155111,
-        [native ? 'to' : 'address']: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
-      })
-    );
-    expect(signer).toHaveBeenNthCalledWith(2, expect.objectContaining({ chainId: 11155111 }));
-    expect(waitForEvmReceipt).toHaveBeenCalledWith(`0x${'2'.repeat(64)}`, expect.objectContaining({ id: 11155111 }));
-    expect(mockSwitchChain.mock.calls).toEqual(native ? [] : [[{ chainId: 11155111 }]]);
-  });
+      expect(runUsdcxDeposit).not.toHaveBeenCalled();
+      expect(runUsdcxExecutorDeposit).toHaveBeenCalledWith(
+        expect.any(String),
+        '1.5',
+        expect.any(String),
+        expect.objectContaining({
+          source: expect.objectContaining({ route: 'cctp-executor', chain: expect.objectContaining({ id: 11155111 }) })
+        })
+      );
+      // Sepolia's xReserve shares Arc's address, so the URL is what proves the check read Arc, where the deposit lands.
+      expect(registrationReadUrls('0x008888878f94C0d87defdf0B07f46B93C1934442')).toEqual(['https://rpc.test/5042002']);
+      const signer = native ? mockNativeSend : mockWriteContract;
+      expect(signer).toHaveBeenCalledTimes(2);
+      expect(signer).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          chainId: 11155111,
+          [native ? 'to' : 'address']: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
+        })
+      );
+      expect(signer).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          chainId: 11155111,
+          [native ? 'to' : 'address']: '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA'
+        })
+      );
+      expect(waitForEvmReceipt).toHaveBeenCalledWith(`0x${'2'.repeat(64)}`, expect.objectContaining({ id: 11155111 }));
+      expect(mockSwitchChain.mock.calls).toEqual(native ? [] : [[{ chainId: 11155111 }]]);
+    }
+  );
 
   const reachBaseSepoliaRoute = async () => {
     await pickToken('pick-circle-usdc');
@@ -621,5 +658,64 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       expect.anything()
     );
     expect(screen.queryByTestId('usdcx-route-fee')).toBeNull();
+  });
+
+  // The reconciler re-derives the recipient with the same helper, so the bytes a deposit signs are the bytes Circle's
+  // attestation is matched against.
+  it('signs an xReserve deposit for the recipient usdcxRemoteRecipientFor derives from the account', async () => {
+    jest.mocked(usdcxRemoteRecipientFor).mockReturnValue(SIGNED_RECIPIENT);
+    renderScreen();
+    await reachUsdcxRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(usdcxRemoteRecipientFor).toHaveBeenCalledWith(midenAccount.publicKey);
+    expect(runUsdcxDeposit).toHaveBeenCalledWith('bridge-tx', '1.5', SIGNED_RECIPIENT, expect.anything());
+  });
+
+  it('quotes and burns an executor deposit for the recipient usdcxRemoteRecipientFor derives', async () => {
+    jest.mocked(usdcxRemoteRecipientFor).mockReturnValue(SIGNED_RECIPIENT);
+    renderScreen();
+    await reachBaseSepoliaRoute();
+
+    expect(buildExecutorBurnIntent).toHaveBeenCalledWith(
+      '1.5',
+      expect.objectContaining({ route: 'cctp-executor' }),
+      SIGNED_RECIPIENT,
+      '0x1111111111111111111111111111111111111111'
+    );
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(usdcxRemoteRecipientFor).toHaveBeenCalledWith(midenAccount.publicKey);
+    expect(runUsdcxExecutorDeposit).toHaveBeenCalledWith(
+      expect.any(String),
+      '1.5',
+      SIGNED_RECIPIENT,
+      expect.anything()
+    );
+  });
+
+  // Each source has its own arrival estimate, so the route card and the review are told which chain the deposit leaves.
+  it('hands the Arc Testnet source to the route card and the review', async () => {
+    renderScreen();
+    await reachUsdcxRoute();
+    expect(screen.getByTestId('usdcx-route-source')).toHaveTextContent('5042002');
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    expect(screen.getByTestId('review-source')).toHaveTextContent('5042002');
+  });
+
+  it('hands an executor source to the route card and the review', async () => {
+    renderScreen();
+    await reachBaseSepoliaRoute();
+    expect(screen.getByTestId('usdcx-route-source')).toHaveTextContent('84532');
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    expect(screen.getByTestId('review-source')).toHaveTextContent('84532');
   });
 });

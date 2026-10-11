@@ -1,21 +1,56 @@
+import { initiateBridgedSendTransaction } from 'lib/miden/transaction/initiate';
 import { RpcTimeoutError } from 'lib/miden-chain/rpc-timeout';
 
-import { readUsdcxMinimumBurn } from './burn';
+import { initiateUsdcxBurn, readUsdcxMinimumBurn } from './burn';
+import { readUsdcxDestinationBalance, readUsdcxDestinationSnapshot } from './destination-status';
 
 const mockGetAccountDetails = jest.fn();
 const mockFree = jest.fn();
-jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
-  NoteScript: { burn: () => ({ root: () => 'burn-root' }) },
-  RpcClient: jest.fn(() => ({ getAccountDetails: mockGetAccountDetails, free: mockFree }))
+// Enough of the SDK for `buildUsdcxBurnRequest` to assemble a request out of stand-ins.
+jest.mock('@miden-sdk/miden-sdk/lazy', () => {
+  const felts = { toFelts: () => [] };
+  const builder = {
+    withOwnOutputNotes: () => builder,
+    withFeeConversionSalt: () => builder,
+    build: () => ({ serialize: () => new Uint8Array([1]) })
+  };
+  return {
+    NoteScript: { burn: () => ({ root: () => 'burn-root' }) },
+    RpcClient: jest.fn(() => ({ getAccountDetails: mockGetAccountDetails, free: mockFree })),
+    FeltArray: jest.fn(),
+    FungibleAsset: jest.fn(() => ({ vaultKey: () => felts, intoWord: () => felts })),
+    NetworkAccountTarget: jest.fn(() => ({ toAttachment: () => ({}) })),
+    Note: { withAttachments: () => ({ id: () => ({ toString: () => 'burn-note-id' }) }) },
+    NoteArray: jest.fn(),
+    NoteAssets: jest.fn(),
+    NoteAttachment: { fromWords: () => ({}) },
+    NoteAttachmentScheme: jest.fn(),
+    NoteExecutionHint: { always: () => ({}) },
+    NoteMetadata: jest.fn(),
+    NoteRecipient: { fromScript: () => ({}) },
+    NoteStorage: jest.fn(),
+    NoteTag: jest.fn(),
+    NoteType: { Public: 1 },
+    TransactionRequestBuilder: jest.fn(() => builder),
+    Word: jest.fn()
+  };
+});
+jest.mock('lib/miden/sdk/helpers', () => ({
+  accountRefToSdk: (ref: string) => ref,
+  getBech32AddressFromAccountId: () => 'mtst1usdcxfaucet',
+  randomFeeSalt: () => ({})
 }));
-jest.mock('lib/miden/sdk/helpers', () => ({ accountRefToSdk: (ref: string) => ref }));
 jest.mock('lib/miden/transaction/initiate', () => ({ initiateBridgedSendTransaction: jest.fn() }));
 jest.mock('lib/miden-chain/constants', () => ({ getRpcEndpoint: () => 'https://rpc.example' }));
 jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetId: jest.fn() }));
-jest.mock('./destination-status', () => ({ readUsdcxDestinationBalance: jest.fn() }));
+jest.mock('./destination-status', () => ({
+  readUsdcxDestinationBalance: jest.fn(),
+  readUsdcxDestinationSnapshot: jest.fn()
+}));
 jest.mock('./withdrawal', () => ({
   ...jest.requireActual<typeof import('./withdrawal')>('./withdrawal'),
-  requireUsdcxFaucetId: () => 'usdcx-faucet'
+  requireUsdcxFaucetId: () => 'usdcx-faucet',
+  validateUsdcxWithdrawal: () => undefined
 }));
 
 const word = (value: bigint) => ({ toFelts: () => [{ asInt: () => value }] });
@@ -52,4 +87,43 @@ it('times out a minimum-burn read that never answers, after one retry', async ()
   } finally {
     jest.useRealTimers();
   }
+});
+
+describe('initiateUsdcxBurn', () => {
+  const args = {
+    senderPublicKey: 'mtst1sender',
+    faucetId: 'usdcx-faucet',
+    amount: 10_000_000n,
+    destinationAddress: '0x1111111111111111111111111111111111111111',
+    destinationChainId: 5042002
+  };
+
+  beforeEach(() => {
+    mockGetAccountDetails.mockResolvedValue(account(1n, 1_000_000n));
+    jest.mocked(initiateBridgedSendTransaction).mockResolvedValue('burn-row');
+  });
+
+  it('saves the destination balance through the retrying snapshot read', async () => {
+    const snapshot = { balance: '0', blockNumber: '66303813' };
+    jest.mocked(readUsdcxDestinationSnapshot).mockResolvedValueOnce(snapshot);
+
+    await expect(initiateUsdcxBurn(args)).resolves.toBe('burn-row');
+
+    expect(readUsdcxDestinationSnapshot).toHaveBeenCalledWith(5042002, args.destinationAddress);
+    expect(readUsdcxDestinationBalance).not.toHaveBeenCalled();
+    expect(jest.mocked(initiateBridgedSendTransaction).mock.calls[0]?.[11]).toEqual({
+      noteId: 'burn-note-id',
+      destinationDomain: 26,
+      phase: 'pending',
+      destinationBalanceBefore: snapshot
+    });
+  });
+
+  it('queues no row when every snapshot attempt fails', async () => {
+    jest.mocked(readUsdcxDestinationSnapshot).mockRejectedValueOnce(new Error('HTTP request failed. Status: 429'));
+
+    await expect(initiateUsdcxBurn(args)).rejects.toThrow('Status: 429');
+
+    expect(initiateBridgedSendTransaction).not.toHaveBeenCalled();
+  });
 });

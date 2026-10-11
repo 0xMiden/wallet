@@ -138,6 +138,15 @@ export interface IConsumedAssetTotal {
   amount: bigint;
 }
 
+/** One note a consume claimed, as it was queued. */
+export interface IConsumedNote {
+  id: string;
+  senderAddress: string;
+  faucetId: string;
+  /** Base units of the note's first fungible asset; absent when the claimable note carried no amount. */
+  amount?: bigint;
+}
+
 /**
  * The CCTP leg of a USDCx deposit from a chain with no xReserve (Base, Arbitrum): the burn on the source
  * chain mints to Circle's executor on Arc, which deposits into Arc's xReserve. Circle's forwarder does not
@@ -151,8 +160,14 @@ export interface IUsdcxCctpLeg {
   attestation?: string;
   /** The Arc transaction that executed the message, which is the xReserve deposit Circle attests. */
   executeTxHash?: string;
+  /** Unix seconds the current `executeTxHash` was saved, from either side. */
+  executeSavedAt?: number;
+  /** An Arc execute that stayed unmined past the stall window: never adopted again, still asked about. */
+  stalledExecuteTxHash?: string;
   /** An Arc execute, the wallet's or Circle's forward, that reverted; never adopted again as the execute. */
   revertedExecuteTxHash?: string;
+  /** Unix seconds the last revert reopened the leg, stamped by its writer: the leg's week runs from here. */
+  revertedAt?: number;
   /** Whether the burn paid Circle's forward fee, so Circle executes on Arc; absent on rows before the fee flow. */
   forwarded?: boolean;
   /** The quoted fee the burn paid on top of the amount, in source USDC base units. */
@@ -184,6 +199,13 @@ export interface IBridgedReceiveExtraInputs {
   /** usdcx: the CCTP leg of an executor-route deposit; absent on a direct xReserve deposit. */
   cctp?: IUsdcxCctpLeg;
   error?: string;
+  /**
+   * usdcx: the xReserve `remoteRecipient` bytes32 the wallet signed (0x + 64 lowercase hex), written at the deposit's
+   * first phase write. Absent on rows written before this field and on E2E hook rows.
+   */
+  usdcxRemoteRecipient?: string;
+  /** Unix seconds at which the row first reached `ready`. Written once, never cleared, and kept through `failed`. */
+  readyAt?: number;
 }
 
 /** Audit metadata for a Guardian operator switch. `previousGuardianEndpoint`
@@ -634,6 +656,8 @@ export interface ITransaction {
   noteType?: NoteType;
   /** Consume only: per-faucet totals of a batch claim (see `ConsumeTransaction`). */
   assetTotals?: IConsumedAssetTotal[];
+  /** Consume only: each claimed note's facts, as queued (see `ConsumeTransaction`). Not indexed. */
+  consumedNotes?: IConsumedNote[];
   /**
    * Consume only: queued by the everyday-key rotation gate to fund the rotation's fee
    * (#805). Generation signs such a row with the recovery key after proving every note
@@ -1081,6 +1105,12 @@ export class ConsumeTransaction implements ITransaction {
    * to recompute from.
    */
   assetTotals?: IConsumedAssetTotal[];
+  /**
+   * Each claimed note's sender, faucet and amount, as queued. A consume that completes without a transaction result,
+   * through a landing the node proved, has nothing else to adopt its bridge deliveries by. Absent on rows queued
+   * before it.
+   */
+  consumedNotes?: IConsumedNote[];
   /** See `ITransaction.rotationFunding`. */
   rotationFunding?: true;
   transactionId?: string;
@@ -1133,6 +1163,12 @@ export class ConsumeTransaction implements ITransaction {
       total => total.faucetId !== ''
     );
     this.assetTotals = identifiedTotals.length > 0 ? identifiedTotals : undefined;
+    this.consumedNotes = list.map(note => ({
+      id: note.id,
+      senderAddress: note.senderAddress,
+      faucetId: note.faucetId,
+      ...(note.amount === '' ? {} : { amount: BigInt(note.amount) })
+    }));
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.queuedSeq = nextQueuedSeq();
