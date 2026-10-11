@@ -79,6 +79,7 @@ function cleanEnv() {
     'E2E_ARC_RPC_URL',
     'E2E_ARC_PRIVATE_KEY',
     'USDCX_LIVE_EVM_PRIVATE_KEY',
+    'USDCX_HARNESS_ARC_KEY',
     'E2E_ARC_KEY_ROLE',
     'E2E_EVM_RPC_URL',
     'MIDEN_E2E_USDCX_CHAIN',
@@ -1709,7 +1710,12 @@ describe('childEnvironments', () => {
   const HARNESS = { role: 'harness', privateKey: `0x${'cd'.repeat(32)}`, address: '0xharness' };
   const OPERATOR = { role: 'operator', privateKey: `0x${'ab'.repeat(32)}`, address: '0xoperator' };
   // Every phase drops every private key the operator may have exported, and gets back in env only the one it reads.
-  const KEYS = ['E2E_ARC_PRIVATE_KEY', 'E2E_SEPOLIA_PRIVATE_KEY', 'USDCX_LIVE_EVM_PRIVATE_KEY'];
+  const KEYS = [
+    'E2E_ARC_PRIVATE_KEY',
+    'E2E_SEPOLIA_PRIVATE_KEY',
+    'USDCX_LIVE_EVM_PRIVATE_KEY',
+    'USDCX_HARNESS_ARC_KEY'
+  ];
 
   it('builds usdcx with no key in reach and tests it with the harness key and its role', () => {
     expect(childEnvironments(parsed, SUITES.usdcx, CLI, HARNESS)).toStrictEqual({
@@ -1774,6 +1780,8 @@ describe('a usdcx run', () => {
   const SEPOLIA_KEY = `0x${'22'.repeat(32)}`;
   // The iOS nightly's Arc key name, which an operator who runs both may have exported.
   const IOS_KEY = `0x${'33'.repeat(32)}`;
+  // E2E USDCx's CI key secret, which only the workflow step that writes the key file is given.
+  const CI_KEY = `0x${'44'.repeat(32)}`;
   const STUB_CLI = '/stub/cli/bin/miden-client';
   interface Spawned {
     command: string;
@@ -1802,7 +1810,8 @@ describe('a usdcx run', () => {
     const res = stubbed(['--suite', 'usdcx'], DOCUMENT, {
       E2E_ARC_PRIVATE_KEY: ARC_KEY,
       E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY,
-      USDCX_LIVE_EVM_PRIVATE_KEY: IOS_KEY
+      USDCX_LIVE_EVM_PRIVATE_KEY: IOS_KEY,
+      USDCX_HARNESS_ARC_KEY: CI_KEY
     });
     const harness = JSON.parse(readFileSync(harnessFileOf(res.home), 'utf8'));
     // The installer runs every crate's build script under cargo, and the native-asset child is a ts-node preflight.
@@ -1831,6 +1840,7 @@ describe('a usdcx run', () => {
     expect(res.output).not.toContain(ARC_KEY.slice(2));
     expect(res.output).not.toContain(SEPOLIA_KEY.slice(2));
     expect(res.output).not.toContain(IOS_KEY.slice(2));
+    expect(res.output).not.toContain(CI_KEY.slice(2));
     expect(existsSync(lockOf(res.home))).toBe(false);
     expect(res.status).toBe(0);
   }, 35_000);
@@ -1839,7 +1849,8 @@ describe('a usdcx run', () => {
     const res = stubbed(['--suite', 'usdcx-in', '--arc-rpc', 'https://arc-rpc.example'], DOCUMENT, {
       E2E_ARC_PRIVATE_KEY: '11'.repeat(32),
       E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY,
-      USDCX_LIVE_EVM_PRIVATE_KEY: IOS_KEY
+      USDCX_LIVE_EVM_PRIVATE_KEY: IOS_KEY,
+      USDCX_HARNESS_ARC_KEY: CI_KEY
     });
     const [install, build, test] = spawned(res.requests);
     expect(install.env).toEqual({});
@@ -1892,7 +1903,8 @@ describe('a usdcx run', () => {
     const res = stubbed(['--suite', 'swap'], DOCUMENT, {
       E2E_ARC_PRIVATE_KEY: ARC_KEY,
       E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY,
-      USDCX_LIVE_EVM_PRIVATE_KEY: IOS_KEY
+      USDCX_LIVE_EVM_PRIVATE_KEY: IOS_KEY,
+      USDCX_HARNESS_ARC_KEY: CI_KEY
     });
     const env = {
       E2E_NETWORK: 'testnet',

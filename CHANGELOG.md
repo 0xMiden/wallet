@@ -38,6 +38,7 @@
 
 ### Changes
 
+- [CHANGE][ci] The live USDCx E2E runs after every push to main: E2E USDCx (`e2e-usdcx.yml`, also dispatchable) runs the extension's `usdcx-in`, `usdcx-burn` and `usdcx` suites in turn through the `yarn e2e:real` runner with a CI Arc key of its own (the `USDCX_HARNESS_ARC_KEY` secret, which only the step writing it 0600 to the runner's harness key file reads, its runs queued so none shares the key), and E2E USDCx Bridge-IN (live) runs on every push as well as nightly, its Arc key set only on the two steps that read it.
 - [CHANGE][ci] The iOS E2E page object reads a wallet's transaction rows, native asset and exact vault through the WebView, asking a failed read again, and burns USDCx to Arc Testnet through the Send screen with every lookup inside the Send flow or the review it opens, naming a refused review and never submitting once its step ran out of time.
 - [CHANGE][ci] The live USDCx bridge-IN E2E deposits into and claims with a Guardian account, so the co-signed claim runs against Circle's real attestation and the hosted testnet Guardian, and the spec checks the account's Guardian auth structure afterwards; a run deposits 0.01 USDC instead of 1, since a testnet claim costs about 0.0002 USDCx and the Arc gas about 0.006 USDC.
 - [CHANGE][ci] `E2E_HEADLESS=1` runs a local E2E suite without opening or focusing any Chrome window: the fixtures launch the full Chromium build in its new headless mode (the default headless shell cannot load an extension) with a 1600x1200 screen for confirm popups; without it, and in CI, runs stay headed.
