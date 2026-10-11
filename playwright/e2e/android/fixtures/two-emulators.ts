@@ -85,17 +85,29 @@ export async function launchEmuWalletInstance(
   const terminateMs = ms(tTerminate);
 
   const firstInstall = !installedSerials.has(serial);
+  const preinstalledApkSha256 = process.env.E2E_ANDROID_PREINSTALLED_APK_SHA256;
   let uninstallMs = 0;
   let installMs = 0;
+  let preinstalledVerifyMs = 0;
   let wipeMs = 0;
   if (firstInstall) {
-    const tUninstall = phaseStart();
-    await emu.uninstall(serial, PACKAGE_NAME);
-    uninstallMs = ms(tUninstall);
+    if (preinstalledApkSha256) {
+      const tVerify = phaseStart();
+      await emu.assertInstalledApkSha256(serial, PACKAGE_NAME, preinstalledApkSha256);
+      preinstalledVerifyMs = ms(tVerify);
 
-    const tInstall = phaseStart();
-    await emu.install(serial, APK_PATH, PACKAGE_NAME);
-    installMs = ms(tInstall);
+      const tWipe = phaseStart();
+      await emu.wipeAppState(serial, PACKAGE_NAME);
+      wipeMs = ms(tWipe);
+    } else {
+      const tUninstall = phaseStart();
+      await emu.uninstall(serial, PACKAGE_NAME);
+      uninstallMs = ms(tUninstall);
+
+      const tInstall = phaseStart();
+      await emu.install(serial, APK_PATH, PACKAGE_NAME);
+      installMs = ms(tInstall);
+    }
     installedSerials.add(serial);
   } else {
     const tWipe = phaseStart();
@@ -137,6 +149,11 @@ export async function launchEmuWalletInstance(
     hostPort
   });
   const cdpConnectMs = ms(tCdp);
+  const setupDescription = firstInstall
+    ? preinstalledApkSha256
+      ? `preinstalledVerify=${preinstalledVerifyMs}ms wipe=${wipeMs}ms`
+      : `uninstall=${uninstallMs}ms install=${installMs}ms`
+    : `wipe=${wipeMs}ms`;
 
   cdp.onConsoleLog(entry => {
     // eslint-disable-next-line no-console
@@ -151,7 +168,7 @@ export async function launchEmuWalletInstance(
     wallet: label,
     message:
       `Wallet ${label} launched on serial ${serial} ` +
-      `(terminate=${terminateMs}ms ${firstInstall ? `uninstall=${uninstallMs}ms install=${installMs}ms` : `wipe=${wipeMs}ms`} ` +
+      `(terminate=${terminateMs}ms ${setupDescription} ` +
       `launch=${launchMs}ms sleep=${sleepMs}ms cdp=${cdpConnectMs}ms)`,
     data: {
       serial,
@@ -160,6 +177,7 @@ export async function launchEmuWalletInstance(
         terminateMs,
         uninstallMs,
         installMs,
+        preinstalledVerifyMs,
         wipeMs,
         launchMs,
         sleepMs,

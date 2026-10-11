@@ -146,3 +146,54 @@
    # .github/workflows/e2e-bridge-in.yml:1025
    echo "::error::macos-15-large must provide an x86_64 host for the Android image"
    ```
+
+## Independent re-review — warm AVD startup
+
+### High
+
+18. [Expert, fixed] Require guest-memory proof on every restore. A named snapshot present in the cache and a `-snapshot` process argument prove availability and request, not that the live guest loaded it. Save an unpredictable `debug.*` property inside the guest before snapshot creation, verify it on both preparation restores and the live runner, and stop if it is absent.
+
+   ```js
+   // scripts/android-warm-avd.cjs:171-194
+   await adbRun(['-s', SERIAL, 'shell', 'setprop', SNAPSHOT_PROOF_PROPERTY, snapshotProof]);
+   await assertSnapshotProof(snapshotProof);
+   ```
+
+   ```ts
+   // playwright/e2e/android/helpers/emulator-control.ts:36-51, 870-884
+   return launchedAt + WARM_AVD_STARTUP_TIMEOUT_MS;
+   await assertWarmAvdSnapshotProof(serial, startupDeadlineAt);
+   ```
+
+19. [Expert, fixed] Anchor the 45-second warm-start allowance to the launch receipt and carry its remaining duration through reservation, device discovery, AVD checks, boot completion, boot-animation and Play Services polling, and each subprocess timeout. `ensureBooted()` previously retained a separate 300-second budget after reservation returned an online device.
+
+   ```ts
+   // playwright/e2e/android/helpers/emulator-control.ts:220-231, 254-297, 700-779
+   const startupDeadlineAt = warmAvdStartupDeadline(serial, BASE_AVD);
+   const deadlineAt = startupDeadlineAt ?? start + BOOT_TIMEOUT_MS;
+   ```
+
+20. [Expert, fixed] Use hardware graphics for the warm snapshot and disable Vulkan. Android documents snapshots as unreliable with software rendering; require the matching `host`/Vulkan-disabled profile in both preparation and live process checks.
+
+   ```js
+   // scripts/android-emulator-launch.cjs:10-29
+   '-gpu', BRIDGE_IN_GPU,
+   '-feature', '-Vulkan',
+   ```
+
+### Medium
+
+21. [Expert, fixed] Hash the installed APK on the guest with a 30-second limit instead of copying the full APK over ADB on the five-minute startup path.
+
+   ```ts
+   // playwright/e2e/android/helpers/emulator-control.ts:362-370
+   ['-s', serial, 'shell', 'sha256sum', installedPaths[0]!],
+   ADB_APK_HASH_TIMEOUT_MS
+   ```
+
+22. [Expert, resolved by existing first-run assertion] `pm clear` preserves package installation history, but the route requires clean wallet data and explicitly drives first-run onboarding. Keep the onboarding welcome selector as the precondition to `createNewWallet()` so the warm-installed package cannot silently reuse a wallet.
+
+   ```ts
+   // playwright/e2e/android/helpers/android-wallet-page.ts:247-251
+   await this.pollForSelector('[data-testid="onboarding-welcome"]', 30_000);
+   ```

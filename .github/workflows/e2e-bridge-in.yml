@@ -125,6 +125,7 @@ jobs:
       E2E_NETWORK: testnet
       E2E_EVM_RPC_URL: http://127.0.0.1:8545
       MIDEN_REMOTE_CONFIG_URL: http://127.0.0.1:8550
+      ANDROID_AVD_HOME: ${{ github.workspace }}/.android-avd
     steps:
       - uses: actions/checkout@v4
 
@@ -147,6 +148,9 @@ jobs:
 
       - name: Verify prepared dependency tree
         run: yarn check:deps
+
+      - name: Run focused Android emulator startup and APK identity tests
+        run: yarn test playwright/e2e/android/helpers/emulator-control.test.ts --runInBand
 
       - name: Save verified Android E2E dependency cache
         if: steps.deps-cache.outputs.cache-hit != 'true'
@@ -295,6 +299,29 @@ jobs:
       - name: Build Testnet E2E APK
         run: yarn test:e2e:android:build
 
+      - name: Create and verify the exact-SHA visible warm AVD snapshot
+        timeout-minutes: 12
+        env:
+          E2E_ANDROID_EMULATOR_START_MARKER: ${{ runner.temp }}/bridge-in-warm-avd-start-${{ github.run_id }}.json
+          WARM_AVD_CACHE_KEY: bridge-in-android-warm-avd-v1-macOS-X64-${{ github.sha }}-${{ github.run_id }}
+          WARM_AVD_ARTIFACT_MANIFEST: ${{ runner.temp }}/bridge-in-apk/warm-avd.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$ANDROID_AVD_HOME" "$RUNNER_TEMP/bridge-in-apk"
+          echo no | avdmanager create avd \
+            --name Pixel_API_34 \
+            --package "system-images;android-34;default;x86_64" \
+            --device pixel_6 \
+            --force
+          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -qx 'Pixel_API_34'
+          node scripts/android-warm-avd.cjs prepare
+
+      - name: Save the exact verified warm AVD cache
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.android-avd
+          key: bridge-in-android-warm-avd-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}-${{ github.run_id }}
+
       - name: Record APK build provenance
         env:
           RUNNER_OS_NAME: ${{ runner.os }}
@@ -302,6 +329,7 @@ jobs:
           NODE_MODULES_CACHE_KEY: bridge-in-node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node22-yarn1-${{ hashFiles('package.json', 'yarn.lock', '.yarnrc', '.npmrc', 'patches/**', 'packages/hd-key/src/**', 'packages/hd-key/tsconfig.json', 'packages/hd-key/package.json') }}
           ANDROID_IMAGE_CACHE_KEY: bridge-in-android-system-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
           ANDROID_EMULATOR_CACHE_KEY: bridge-in-android-emulator-v1-${{ runner.os }}-${{ runner.arch }}-37.2.12-build-16428233
+          WARM_AVD_CACHE_KEY: bridge-in-android-warm-avd-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}-${{ github.run_id }}
         run: |
           set -euo pipefail
           apk=android/app/build/outputs/apk/debug/app-debug.apk
@@ -318,6 +346,15 @@ jobs:
           const targetSdkApi = Number(androidVariables.match(/targetSdkVersion\s*=\s*(\d+)/)?.[1]);
           if (!Number.isInteger(compileSdkApi) || !Number.isInteger(targetSdkApi)) {
             throw new Error('Could not resolve the Android compile and target SDKs.');
+          }
+          const apk = 'android/app/build/outputs/apk/debug/app-debug.apk';
+          const hash = file => require('node:crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+          const warmAvd = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/bridge-in-apk/warm-avd.json`, 'utf8'));
+          if (warmAvd.commit !== process.env.GITHUB_SHA ||
+              warmAvd.workflowRunId !== process.env.GITHUB_RUN_ID ||
+              warmAvd.cacheKey !== process.env.WARM_AVD_CACHE_KEY ||
+              warmAvd.apkSha256 !== hash(apk)) {
+            throw new Error('Warm AVD snapshot provenance does not match this preparation run and APK.');
           }
           const metadata = {
             buildOs: process.env.RUNNER_OS_NAME,
@@ -338,6 +375,7 @@ jobs:
             nodeModulesCacheReady: true,
             androidImageCacheKey: process.env.ANDROID_IMAGE_CACHE_KEY,
             androidImageCacheReady: true,
+            warmAvd,
             flags: {
               MIDEN_E2E_TEST: 'true',
               MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES: 'true',
@@ -380,6 +418,7 @@ jobs:
           CLI_DIR: ${{ runner.temp }}/bridge-in-cli
           APK_DIR: ${{ runner.temp }}/bridge-in-apk
           PREPARATION_MODE: ${{ inputs.platform }}
+          WARM_AVD_CACHE_KEY: bridge-in-android-warm-avd-v1-macOS-X64-${{ github.sha }}-${{ github.run_id }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/bridge-in-prebuilt/bin" "$RUNNER_TEMP/bridge-in-prebuilt/android/app/build/outputs/apk/debug"
@@ -415,6 +454,26 @@ jobs:
           if (apkMeta.buildOs !== 'macOS' || apkMeta.buildArch !== 'X64') throw new Error('APK must be built on Intel macOS.');
           if (apkMeta.nodeModulesCacheReady !== true || apkMeta.androidImageCacheReady !== true) {
             throw new Error('The exact Android dependency and system-image caches were not verified.');
+          }
+          const warmAvd = apkMeta.warmAvd;
+          if (warmAvd?.schemaVersion !== 1 || warmAvd.commit !== process.env.GITHUB_SHA ||
+              warmAvd.workflowRunId !== process.env.GITHUB_RUN_ID ||
+              warmAvd.cacheKey !== process.env.WARM_AVD_CACHE_KEY ||
+              warmAvd.runnerOs !== 'macOS' || warmAvd.runnerArch !== 'X64' ||
+              warmAvd.emulatorVersion !== apkMeta.androidEmulatorVersion ||
+              warmAvd.emulatorArchiveBuild !== apkMeta.androidEmulatorArchiveBuild ||
+              warmAvd.emulatorArchiveSha256 !== apkMeta.androidEmulatorArchiveSha256 ||
+              warmAvd.avdName !== 'Pixel_API_34' || warmAvd.api !== 34 || warmAvd.abi !== 'x86_64' ||
+              warmAvd.imagePackage !== 'system-images;android-34;default;x86_64' ||
+              !/^[a-f0-9]{64}$/.test(warmAvd.systemImagePackageXmlSha256) ||
+              !/^[a-f0-9]{64}$/.test(warmAvd.snapshotProof) ||
+              warmAvd.gpu !== 'host' || warmAvd.features !== '-Vulkan' ||
+              warmAvd.cores !== 4 || warmAvd.memoryMb !== 4096 ||
+              warmAvd.snapshotName !== 'bridge-in-warm' || warmAvd.visible !== true ||
+              warmAvd.apkSha256 !== sha256(apkPath) || !Array.isArray(warmAvd.restoreMs) ||
+              !Number.isSafeInteger(warmAvd.avdBytes) || warmAvd.avdBytes <= 0 ||
+              warmAvd.restoreMs.length !== 2 || warmAvd.restoreMs.some(ms => !Number.isSafeInteger(ms) || ms > 45000)) {
+            throw new Error('The exact-SHA warm AVD snapshot was not prepared and restored twice within 45 seconds.');
           }
           fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
           console.log(`Prepared ${manifest.artifactName}: CLI ${manifest.cli.versionText}; APK SHA-256 ${manifest.apk.sha256}.`);
@@ -934,28 +993,39 @@ jobs:
       - name: Check dispatch-based first-loop deadline
         run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline hypervisor_check
 
-      - name: Create base AVD
-        timeout-minutes: 1
-        run: |
-          mkdir -p "$ANDROID_AVD_HOME"
-          echo no | avdmanager create avd \
-            --name Pixel_API_34 \
-            --package "system-images;android-34;default;x86_64" \
-            --device pixel_6 \
-            --force
-          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -qx 'Pixel_API_34' || {
-            echo "::error::avdmanager created Pixel_API_34 but the emulator cannot list it" >&2
-            ls -la "$ANDROID_AVD_HOME" || true
-            exit 1
-          }
+      - name: Restore the exact prepared visible Android AVD snapshot
+        id: warm-avd-cache
+        timeout-minutes: 2
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.android-avd
+          key: bridge-in-android-warm-avd-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}-${{ steps.prepared.outputs.run-id }}
 
       - name: Check dispatch-based first-loop deadline
-        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline avd_creation
+        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline warm_avd_restore
+
+      - name: Require the exact prepared warm Android AVD cache
+        if: steps.warm-avd-cache.outputs.cache-hit != 'true'
+        run: |
+          echo "::error::The exact prepared warm AVD cache is missing. Run e2e-bridge-in.yml with platform=android-prepare for this commit before starting the live workflow."
+          exit 1
+
+      - name: Verify warm Android AVD provenance and snapshot
+        timeout-minutes: 1
+        env:
+          PREPARED_RUN_ID: ${{ steps.prepared.outputs.run-id }}
+          WARM_AVD_CACHE_KEY: bridge-in-android-warm-avd-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}-${{ steps.prepared.outputs.run-id }}
+        run: node scripts/android-warm-avd.cjs verify-cache
+
+      - name: Check dispatch-based first-loop deadline
+        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline warm_avd_verification
 
       - name: Start visible emulator boot before Playwright setup
         timeout-minutes: 1
         env:
           E2E_ANDROID_EMULATOR_START_MARKER: ${{ runner.temp }}/bridge-in-emulator-start-${{ github.run_id }}.json
+          E2E_ANDROID_AVD_SNAPSHOT_MODE: restore
+          E2E_ANDROID_WARM_AVD_SNAPSHOT_NAME: bridge-in-warm
         run: node scripts/android-emulator-launch.cjs
 
       - name: Check dispatch-based first-loop deadline
@@ -1003,6 +1073,7 @@ jobs:
           PREBUILT_RUN_ID: ${{ steps.prepared.outputs.run-id }}
           EXPECTED_NODE_MODULES_CACHE_KEY: bridge-in-node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node22-yarn1-${{ hashFiles('package.json', 'yarn.lock', '.yarnrc', '.npmrc', 'patches/**', 'packages/hd-key/src/**', 'packages/hd-key/tsconfig.json', 'packages/hd-key/package.json') }}
           EXPECTED_ANDROID_IMAGE_CACHE_KEY: bridge-in-android-system-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
+          EXPECTED_WARM_AVD_CACHE_KEY: bridge-in-android-warm-avd-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}-${{ steps.prepared.outputs.run-id }}
           EXPECTED_ANDROID_EMULATOR_CACHE_KEY: bridge-in-android-emulator-v1-${{ runner.os }}-${{ runner.arch }}-37.2.12-build-16428233
           EXPECTED_ANDROID_EMULATOR_VERSION: ${{ env.ANDROID_EMULATOR_VERSION }}
           EXPECTED_ANDROID_EMULATOR_ARCHIVE_BUILD: ${{ env.ANDROID_EMULATOR_ARCHIVE_BUILD }}
@@ -1064,6 +1135,47 @@ jobs:
               JSON.stringify(manifest.apk?.flags) !== JSON.stringify(expectedApkFlags)) {
             throw new Error('Prepared APK build environment does not match this workflow.');
           }
+          const warmAvd = manifest.apk?.warmAvd;
+          const cachedWarmAvd = JSON.parse(fs.readFileSync(
+            path.join(process.env.ANDROID_AVD_HOME, '.wallet-warm-avd.json'), 'utf8'
+          ));
+          const expectedWarmAvd = {
+            schemaVersion: 1,
+            commit: process.env.GITHUB_SHA,
+            workflowRunId: process.env.PREBUILT_RUN_ID,
+            cacheKey: process.env.EXPECTED_WARM_AVD_CACHE_KEY,
+            avdName: 'Pixel_API_34',
+            api: 34,
+            abi: 'x86_64',
+            imagePackage: 'system-images;android-34;default;x86_64',
+            runnerOs: process.env.RUNNER_OS,
+            runnerArch: process.env.RUNNER_ARCH,
+            imageOs: process.env.ImageOS ?? null,
+            imageVersion: process.env.ImageVersion ?? null,
+            emulatorVersion: process.env.EXPECTED_ANDROID_EMULATOR_VERSION,
+            emulatorArchiveBuild: process.env.EXPECTED_ANDROID_EMULATOR_ARCHIVE_BUILD,
+            emulatorArchiveSha256: process.env.EXPECTED_ANDROID_EMULATOR_ARCHIVE_SHA256,
+            gpu: 'host',
+            features: '-Vulkan',
+            visible: true,
+            cores: 4,
+            memoryMb: 4096,
+            snapshotName: 'bridge-in-warm',
+          };
+          for (const [field, expected] of Object.entries(expectedWarmAvd)) {
+            if (warmAvd?.[field] !== expected || cachedWarmAvd[field] !== expected) {
+              throw new Error(`Prepared warm AVD ${field} does not match this live workflow.`);
+            }
+          }
+          for (const field of ['apkSha256', 'avdConfigSha256', 'systemImagePackageXmlSha256',
+            'snapshotProof', 'avdBytes', 'restoreMs']) {
+            if (JSON.stringify(warmAvd?.[field]) !== JSON.stringify(cachedWarmAvd[field])) {
+              throw new Error(`Prepared artifact and warm AVD cache disagree on ${field}.`);
+            }
+          }
+          if (warmAvd.apkSha256 !== manifest.apk.sha256) {
+            throw new Error('Warm AVD app bytes do not match the prepared APK.');
+          }
           for (const file of [cli, apk]) {
             if (!fs.statSync(file).isFile()) throw new Error(`Prepared artifact is not a file: ${file}`);
           }
@@ -1073,6 +1185,8 @@ jobs:
           const cliVersion = require('node:child_process').execFileSync(cli, ['--version'], { encoding: 'utf8' }).trim();
           if (cliVersion !== manifest.cli.versionText) throw new Error('Prepared CLI version text does not match its manifest.');
           console.log(`Verified prepared artifacts for ${manifest.commit}; ${cliVersion}.`);
+          fs.appendFileSync(process.env.GITHUB_ENV,
+            `E2E_ANDROID_PREINSTALLED_APK_SHA256=${manifest.apk.sha256}\n`);
           NODE
           mkdir -p android/app/build/outputs/apk/debug
           cp "$PREBUILT_DIR/android/app/build/outputs/apk/debug/app-debug.apk" android/app/build/outputs/apk/debug/app-debug.apk
@@ -1097,6 +1211,7 @@ jobs:
           E2E_STARTUP_WATCHDOG_REPORT: ${{ runner.temp }}/bridge-in-startup-watchdog-${{ github.run_id }}.json
           E2E_ANDROID_STARTUP_DEADLINE_MS: '300000'
           E2E_ANDROID_EMULATOR_START_MARKER: ${{ runner.temp }}/bridge-in-emulator-start-${{ github.run_id }}.json
+          E2E_ANDROID_WARM_AVD_SNAPSHOT_NAME: bridge-in-warm
         run: |
           rm -f "$E2E_FIRST_LOOP_MARKER" "$E2E_FIRST_LOOP_MARKER.tmp" "$E2E_STARTUP_WATCHDOG_REPORT"
           node scripts/run-android-bridge-in-with-startup-deadline.cjs \

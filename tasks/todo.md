@@ -616,3 +616,25 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - A fresh fetch confirmed `origin/main` is `8e7ae16302d5a69d9479d14b8a721dc0944aca88`, an ancestor of the recovery branch. Run `38122687423` is terminal failure; no matching workflow is in progress.
 - Commit `52111da49` is pushed to `codex/android-agglayer-bridge-recovery-20261010`; the exact workflow and source checks passed before publication.
 - Pending exact-SHA preparation and the authorized live retry loop.
+
+## Meet the five-minute first-loop deadline with a verified warm Android AVD
+
+### Plan
+
+- [x] Save and inspect run `38124210876`'s exact watchdog report, Android diagnostics, and job log; establish how much time cold AVD startup consumes.
+- [x] Prepare a reproducible API 34 AVD quick-boot snapshot bound to the pinned emulator, system image revision, runner image, AVD settings, exact APK, and preparation run.
+- [x] Restore and verify that snapshot twice before live launch, retain a visible window, and keep the five-minute workflow-created deadline and marker semantics unchanged.
+- [x] Make the live fixture verify the preinstalled APK bytes and clear app state instead of reinstalling it.
+- [x] Obtain fresh independent review and finish focused source/workflow checks.
+- [ ] Publish the reviewed exact SHA, prepare inputs, and automatically retry Android Testnet after terminal failures until all 100 loops complete.
+
+### Evidence
+
+- Run `38124210876` used exact SHA `9b13095a2808a7003e9d20c02b640b523495cc0b` and ended at `08:21:33Z` with `startup_deadline_exceeded`; the real first-loop marker was absent at the `08:21:13Z` deadline.
+- The job log and watchdog report are saved under `/home/jovan_lomoljo/wallet/test-results-android/ci-run-38124210876/`. The workflow launched the guest at `08:17:19Z`; Playwright reached Android global setup at `08:20:38Z`, after roughly 198 seconds of cold boot. The wallet package was still being installed at the deadline. The previous change eliminated the duplicate AVD process but did not make the cold-start path fit the SLA.
+
+### Review/results
+
+- Independent re-review found and closed the missing guest-memory proof, the timeout that could restart a 300-second wait after reservation, and the software-rendered snapshot profile. The same absolute 45-second deadline is now carried from the exact launch receipt through device discovery, AVD checks, boot, and Play Services checks.
+- Local checks pass: `node --check` on all Android launch scripts, `node --check` on all four embedded workflow Node heredocs, `actionlint`, and `git diff --check`. Focused Jest cannot run locally because this checkout has no `node_modules`; the exact-SHA preparation workflow runs that suite before it creates a snapshot or permits a live dispatch.
+- Review references are in `review.md` items 18–22. The source is ready for publication after a fresh `origin/main` fetch and ancestry check; hosted preparation and actual 100-loop completion remain unproven.

@@ -1,10 +1,16 @@
 /** @jest-environment node */
 import { execFile, spawn } from 'child_process';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { EmulatorControl, listsPackageTask } from './emulator-control';
+import {
+  assertSnapshotEmulatorProcess,
+  EmulatorControl,
+  listsPackageTask,
+  warmAvdStartupDeadline,
+} from './emulator-control';
 
 jest.mock('child_process', () => ({ execFile: jest.fn(), spawn: jest.fn() }));
 
@@ -30,6 +36,132 @@ type Callback = (error: Error | null, output: { stdout: string; stderr: string }
 
 const run = jest.mocked(execFile);
 const launch = jest.mocked(spawn);
+const { buildEmulatorArgs, getLiveLaunchReceipt } = require('../../../../scripts/android-emulator-launch.cjs') as {
+  buildEmulatorArgs(options: {
+    avdName: string;
+    port: number;
+    visible: boolean;
+    cores: number;
+    snapshotName?: string | null;
+  }): string[];
+  getLiveLaunchReceipt(
+    markerPath: string,
+    avdName: string,
+    port: number,
+    requireVisible: boolean,
+    expectedSnapshotName?: string
+  ): { pid: number; snapshotName?: string | null } | null;
+};
+
+describe('Android emulator launch arguments', () => {
+  const base = { avdName: 'Pixel_API_34', port: 5554, visible: true, cores: 4 };
+
+  it('keeps ordinary launches cold when no snapshot mode is requested', () => {
+    expect(buildEmulatorArgs(base)).toContain('-no-snapshot');
+  });
+
+  it('loads only the named snapshot without saving live-run state', () => {
+    const args = buildEmulatorArgs({ ...base, snapshotName: 'bridge-in-warm' });
+    expect(args).toContain('-snapshot');
+    expect(args).toContain('bridge-in-warm');
+    expect(args).toContain('-no-snapshot-save');
+    expect(args).toContain('-gpu');
+    expect(args).toContain('host');
+    expect(args).toContain('-feature');
+    expect(args).toContain('-Vulkan');
+    expect(args).not.toContain('-no-snapshot');
+  });
+
+  it('leaves snapshots enabled for preparation so the workflow can save a verified state', () => {
+    const args = buildEmulatorArgs({ ...base, snapshotName: null });
+    expect(args).not.toContain('-no-snapshot');
+    expect(args).not.toContain('-snapshot');
+  });
+
+  it('rejects a visible launch receipt for a different warm snapshot', () => {
+    const marker = path.join(os.tmpdir(), `android-emulator-receipt-${process.pid}.json`);
+    fs.writeFileSync(marker, JSON.stringify({
+      pid: process.pid,
+      avdName: 'Pixel_API_34',
+      port: 5554,
+      visible: true,
+      snapshotName: 'bridge-in-warm',
+    }));
+    try {
+      expect(getLiveLaunchReceipt(marker, 'Pixel_API_34', 5554, true, 'bridge-in-warm')).not.toBeNull();
+      expect(() => getLiveLaunchReceipt(marker, 'Pixel_API_34', 5554, true, 'other-snapshot')).toThrow(/not launched from snapshot/);
+    } finally {
+      fs.rmSync(marker, { force: true });
+    }
+  });
+});
+
+describe('warm Android emulator process contract', () => {
+  const processLine =
+    '/opt/android-sdk/emulator/emulator -avd Pixel_API_34 -port 5554 -snapshot bridge-in-warm ' +
+    '-no-snapshot-save -gpu host -feature -Vulkan';
+
+  it('accepts only the visible hardware-rendered snapshot profile used by CI', () => {
+    expect(() => assertSnapshotEmulatorProcess(processLine, 'bridge-in-warm', 'Pixel_API_34', 5554)).not.toThrow();
+  });
+
+  it('rejects a software renderer or missing Vulkan snapshot guard', () => {
+    expect(() => assertSnapshotEmulatorProcess(
+      processLine.replace('-gpu host', '-gpu swiftshader_indirect'),
+      'bridge-in-warm', 'Pixel_API_34', 5554
+    )).toThrow(/graphics profile/);
+    expect(() => assertSnapshotEmulatorProcess(
+      processLine.replace(' -feature -Vulkan', ''),
+      'bridge-in-warm', 'Pixel_API_34', 5554
+    )).toThrow(/graphics profile/);
+  });
+});
+
+describe('warm Android startup receipt deadline', () => {
+  const marker = path.join(os.tmpdir(), `android-emulator-deadline-${process.pid}.json`);
+  const previousMarker = process.env.E2E_ANDROID_EMULATOR_START_MARKER;
+  const previousSnapshotName = process.env.E2E_ANDROID_WARM_AVD_SNAPSHOT_NAME;
+
+  afterAll(() => {
+    if (previousMarker === undefined) delete process.env.E2E_ANDROID_EMULATOR_START_MARKER;
+    else process.env.E2E_ANDROID_EMULATOR_START_MARKER = previousMarker;
+    if (previousSnapshotName === undefined) delete process.env.E2E_ANDROID_WARM_AVD_SNAPSHOT_NAME;
+    else process.env.E2E_ANDROID_WARM_AVD_SNAPSHOT_NAME = previousSnapshotName;
+    fs.rmSync(marker, { force: true });
+  });
+
+  it('anchors the 45-second limit to the visible emulator launch receipt', () => {
+    const startedAt = new Date(Date.now() - 12_000).toISOString();
+    process.env.E2E_ANDROID_EMULATOR_START_MARKER = marker;
+    process.env.E2E_ANDROID_WARM_AVD_SNAPSHOT_NAME = 'bridge-in-warm';
+    fs.writeFileSync(marker, JSON.stringify({
+      pid: process.pid,
+      avdName: 'Pixel_API_34',
+      port: 5554,
+      visible: true,
+      snapshotName: 'bridge-in-warm',
+      startedAt,
+    }));
+
+    expect(warmAvdStartupDeadline(SERIAL, 'Pixel_API_34')).toBe(Date.parse(startedAt) + 45_000);
+  });
+
+  it('rejects an expired startup deadline instead of starting a new 300-second wait', async () => {
+    process.env.E2E_ANDROID_EMULATOR_START_MARKER = marker;
+    process.env.E2E_ANDROID_WARM_AVD_SNAPSHOT_NAME = 'bridge-in-warm';
+    fs.writeFileSync(marker, JSON.stringify({
+      pid: process.pid,
+      avdName: 'Pixel_API_34',
+      port: 5554,
+      visible: true,
+      snapshotName: 'bridge-in-warm',
+      startedAt: new Date(Date.now() - 46_000).toISOString(),
+    }));
+
+    await expect(new EmulatorControl().ensureBooted(SERIAL)).rejects.toThrow(/45 seconds/);
+    expect(run).not.toHaveBeenCalled();
+  });
+});
 
 /** Answers every adb call from `reply` and records its arguments and timeout. */
 function adbAnswers(reply: (args: string[]) => AdbReply): { args: string[]; timeout?: number }[] {
@@ -94,6 +226,40 @@ describe('EmulatorControl', () => {
       );
       await jest.advanceTimersByTimeAsync(16_000);
       await expect(outcome).resolves.toContain(`still lists a task of ${PACKAGE}`);
+    });
+  });
+
+  describe('assertInstalledApkSha256', () => {
+    it('accepts only the exact prepared base APK installed in the warm snapshot', async () => {
+      const bytes = Buffer.from('exact prepared wallet APK');
+      const expectedSha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+      run.mockImplementation(((_file: string, args: string[], _options: { timeout?: number }, callback: Callback) => {
+        if (args.includes('path')) {
+          callback(null, { stdout: 'package:/data/app/~~abc/com.miden.wallet-xyz/base.apk\n', stderr: '' });
+        } else if (args[3] === 'sha256sum') {
+          callback(null, { stdout: `${expectedSha256}  ${args[4]}\n`, stderr: '' });
+        } else {
+          callback(new Error(`Unexpected adb command: ${args.join(' ')}`), { stdout: '', stderr: '' });
+        }
+        return {} as ReturnType<typeof execFile>;
+      }) as unknown as typeof execFile);
+
+      await expect(new EmulatorControl().assertInstalledApkSha256(SERIAL, PACKAGE, expectedSha256)).resolves.toBeUndefined();
+      expect(run).toHaveBeenCalledTimes(2);
+    });
+
+    it('fails when the exact prepared APK bytes differ from the installed package', async () => {
+      run.mockImplementation(((_file: string, args: string[], _options: { timeout?: number }, callback: Callback) => {
+        if (args.includes('path')) {
+          callback(null, { stdout: 'package:/data/app/~~abc/com.miden.wallet-xyz/base.apk\n', stderr: '' });
+        } else {
+          callback(null, { stdout: `${'0'.repeat(64)}  ${args[4]}\n`, stderr: '' });
+        }
+        return {} as ReturnType<typeof execFile>;
+      }) as unknown as typeof execFile);
+
+      await expect(new EmulatorControl().assertInstalledApkSha256(SERIAL, PACKAGE, '0'.repeat(64)))
+        .rejects.toThrow(/SHA-256 mismatch/);
     });
   });
 

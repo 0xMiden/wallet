@@ -12,10 +12,12 @@ const execFileAsync = promisify(execFile);
  */
 const ADB_TIMEOUT_MS = 30_000;
 const ADB_INSTALL_TIMEOUT_MS = 180_000;
+const ADB_APK_HASH_TIMEOUT_MS = 30_000;
 const ADB_LAUNCH_TIMEOUT_MS = 90_000;
 // The task leaves the hierarchy about 2 s after a force-stop on a CI emulator, 3 s with animations slowed tenfold.
 const TASK_REMOVAL_TIMEOUT_MS = 15_000;
 const TASK_REMOVAL_POLL_MS = 250;
+const WARM_AVD_STARTUP_TIMEOUT_MS = 45_000;
 
 function adb(args: string[], timeout: number = ADB_TIMEOUT_MS): Promise<{ stdout: string; stderr: string }> {
   return execFileAsync('adb', args, { timeout, maxBuffer: 16 * 1024 * 1024 });
@@ -28,6 +30,41 @@ function describeAdbError(err: unknown): string {
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Use the workflow's launch receipt as one absolute warm-snapshot startup deadline. */
+export function warmAvdStartupDeadline(serial: string, avdName: string): number | undefined {
+  const expectedSnapshotName = process.env.E2E_ANDROID_WARM_AVD_SNAPSHOT_NAME;
+  if (!expectedSnapshotName) return undefined;
+  const port = serial.match(/^emulator-(\d+)$/)?.[1];
+  if (port === undefined) throw new Error(`Cannot establish the warm AVD deadline for unexpected serial ${serial}.`);
+  const receipt = getLiveLaunchReceipt(
+    launchMarkerPath(Number(port)),
+    avdName,
+    Number(port),
+    true,
+    expectedSnapshotName
+  );
+  if (!receipt) throw new Error(`The exact warm AVD launch receipt is missing for ${serial}.`);
+  const launchedAt = Date.parse(receipt.startedAt);
+  if (!Number.isFinite(launchedAt)) throw new Error(`The warm AVD launch receipt has an invalid timestamp for ${serial}.`);
+  return launchedAt + WARM_AVD_STARTUP_TIMEOUT_MS;
+}
+
+function timeoutForDeadline(deadlineAt: number | undefined, phase: string): number {
+  if (deadlineAt === undefined) return ADB_TIMEOUT_MS;
+  const remainingMs = Math.floor(deadlineAt - Date.now());
+  if (remainingMs <= 0) {
+    throw new Error(`Warm AVD snapshot exceeded its 45-second launch deadline during ${phase}.`);
+  }
+  return Math.min(ADB_TIMEOUT_MS, remainingMs);
+}
+
+function warmDeadlineError(serial: string, action: string, deadlineAt: number | undefined): Error {
+  if (deadlineAt !== undefined) {
+    return new Error(`Emulator ${serial} did not ${action} within 45 seconds of its visible snapshot launch.`);
+  }
+  return new Error(`Emulator ${serial} did not ${action} within ${BOOT_TIMEOUT_MS}ms`);
 }
 
 /**
@@ -66,8 +103,16 @@ interface AndroidEmulatorLaunchModule {
     markerPath: string,
     avdName: string,
     port: number,
-    requireVisible: boolean
-  ): { pid: number; avdName: string; port: number; visible: boolean; startedAt: string } | null;
+    requireVisible: boolean,
+    expectedSnapshotName?: string
+  ): {
+    pid: number;
+    avdName: string;
+    port: number;
+    visible: boolean;
+    snapshotName?: string | null;
+    startedAt: string;
+  } | null;
   launchEmulator(options: {
     emulatorBin: string;
     avdName: string;
@@ -76,6 +121,7 @@ interface AndroidEmulatorLaunchModule {
     cores: number;
     logPath: string;
     markerPath?: string;
+    snapshotName?: string | null;
   }): { pid?: number; unref(): void };
   launchMarkerPath(port: number): string;
 }
@@ -171,15 +217,16 @@ export class EmulatorControl {
   /** Reserve only wallet A for single-wallet routes that use a host counterparty. */
   static async reserveSingle(): Promise<string> {
     const serial = 'emulator-5554';
-    if ((await EmulatorControl.listBootedSerials()).has(serial)) {
-      await assertRunningAvd(serial, BASE_AVD, true);
+    const startupDeadlineAt = warmAvdStartupDeadline(serial, BASE_AVD);
+    if ((await EmulatorControl.listBootedSerials(timeoutForDeadline(startupDeadlineAt, 'device discovery'))).has(serial)) {
+      await assertRunningAvd(serial, BASE_AVD, true, startupDeadlineAt);
       return serial;
     }
 
     // The bridge-in workflow already creates this AVD. Reusing it avoids
     // copying a second userdata image for a route that needs only one device.
-    await ensureAvdsExist([BASE_AVD]);
-    return bootAvd(BASE_AVD, 5554, { visible: true });
+    await ensureAvdsExist([BASE_AVD], startupDeadlineAt);
+    return bootAvd(BASE_AVD, 5554, { visible: true, startupDeadlineAt });
   }
 
   /** Start the visible bridge-in emulator without making unrelated setup wait for its cold boot. */
@@ -205,30 +252,43 @@ export class EmulatorControl {
    * `getprop sys.boot_completed == 1` for `am start` to actually work.
    */
   async ensureBooted(serial: string): Promise<void> {
+    const startupDeadlineAt = warmAvdStartupDeadline(serial, BASE_AVD);
     const start = Date.now();
+    const deadlineAt = startupDeadlineAt ?? start + BOOT_TIMEOUT_MS;
     // Phase 1: sys.boot_completed flips to 1 — userland is up enough for adb shell.
-    while (Date.now() - start < BOOT_TIMEOUT_MS) {
+    while (Date.now() < deadlineAt) {
       try {
-        const { stdout } = await adb(['-s', serial, 'shell', 'getprop', 'sys.boot_completed']);
+        const { stdout } = await adb(
+          ['-s', serial, 'shell', 'getprop', 'sys.boot_completed'],
+          timeoutForDeadline(deadlineAt, 'Android boot completion')
+        );
         if (stdout.trim() === '1') break;
       } catch {
         // device not reachable yet — keep polling
       }
-      await sleep(BOOT_POLL_MS);
+      await sleep(Math.min(BOOT_POLL_MS, Math.max(0, deadlineAt - Date.now())));
     }
-    if (Date.now() - start >= BOOT_TIMEOUT_MS) {
-      throw new Error(`Emulator ${serial} did not reach boot_completed within ${BOOT_TIMEOUT_MS}ms`);
+    if (Date.now() >= deadlineAt) {
+      throw warmDeadlineError(serial, 'reach boot_completed', startupDeadlineAt);
     }
     // Phase 2: boot animation stops. Fires after sys.boot_completed.
-    while (Date.now() - start < BOOT_TIMEOUT_MS) {
+    let bootAnimationStopped = false;
+    while (Date.now() < deadlineAt) {
       try {
-        const { stdout } = await adb(['-s', serial, 'shell', 'getprop', 'init.svc.bootanim']);
-        if (stdout.trim() === 'stopped') break;
+        const { stdout } = await adb(
+          ['-s', serial, 'shell', 'getprop', 'init.svc.bootanim'],
+          timeoutForDeadline(deadlineAt, 'Android boot animation')
+        );
+        if (stdout.trim() === 'stopped') {
+          bootAnimationStopped = true;
+          break;
+        }
       } catch {
         // ignore
       }
-      await sleep(BOOT_POLL_MS);
+      await sleep(Math.min(BOOT_POLL_MS, Math.max(0, deadlineAt - Date.now())));
     }
+    if (!bootAnimationStopped) throw warmDeadlineError(serial, 'finish the boot animation', startupDeadlineAt);
     // Phase 3: GMS persistent process is up and steady. On cold boots GMS
     // can crash within the first ~30s after boot_completed, taking down any
     // app that bound to its FontsProvider (we saw com.miden.wallet killed
@@ -241,15 +301,23 @@ export class EmulatorControl {
     // moment the workflow switched images. The wait exists to dodge a GMS crash
     // taking the app with it; with no GMS there is neither a process to wait for
     // nor a crash to dodge.
-    if (!(await deviceHasPackage(serial, 'com.google.android.gms'))) {
+    if (!(await deviceHasPackage(
+      serial,
+      'com.google.android.gms',
+      timeoutForDeadline(deadlineAt, 'Play Services check')
+    ))) {
+      if (Date.now() >= deadlineAt) throw warmDeadlineError(serial, 'check Play Services', startupDeadlineAt);
       console.log(`[emulator] ${serial}: no Play Services on this image — skipping the GMS settle wait`);
       return;
     }
     const GMS_STABLE_MS = 5_000;
     let gmsRunningSince: number | null = null;
-    while (Date.now() - start < BOOT_TIMEOUT_MS) {
+    while (Date.now() < deadlineAt) {
       try {
-        const { stdout } = await adb(['-s', serial, 'shell', 'pgrep', '-f', 'com.google.android.gms.persistent']);
+        const { stdout } = await adb(
+          ['-s', serial, 'shell', 'pgrep', '-f', 'com.google.android.gms.persistent'],
+          timeoutForDeadline(deadlineAt, 'Play Services stabilization')
+        );
         if (stdout.trim().length > 0) {
           if (gmsRunningSince === null) gmsRunningSince = Date.now();
           if (Date.now() - gmsRunningSince >= GMS_STABLE_MS) return;
@@ -259,9 +327,9 @@ export class EmulatorControl {
       } catch {
         gmsRunningSince = null;
       }
-      await sleep(BOOT_POLL_MS);
+      await sleep(Math.min(BOOT_POLL_MS, Math.max(0, deadlineAt - Date.now())));
     }
-    throw new Error(`Emulator ${serial} did not stabilize within ${BOOT_TIMEOUT_MS}ms`);
+    throw warmDeadlineError(serial, 'stabilize Play Services', startupDeadlineAt);
   }
 
   /** Map a device loopback TCP port to the same port on the host. */
@@ -328,6 +396,35 @@ export class EmulatorControl {
       await adb(['-s', serial, 'shell', 'pm', 'clear', packageName]);
     } catch {
       // not installed → nothing to wipe
+    }
+  }
+
+  /** Verify a package preinstalled into the exact-SHA CI AVD snapshot before clearing its first-launch state. */
+  async assertInstalledApkSha256(serial: string, packageName: string, expectedSha256: string): Promise<void> {
+    if (!/^[a-f0-9]{64}$/i.test(expectedSha256)) {
+      throw new Error('The prepared Android APK SHA-256 is missing or malformed.');
+    }
+    const { stdout } = await adb(['-s', serial, 'shell', 'pm', 'path', packageName]);
+    const installedPaths = stdout
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.startsWith('package:'))
+      .map(line => line.slice('package:'.length));
+    if (installedPaths.length !== 1 || path.basename(installedPaths[0]!) !== 'base.apk') {
+      throw new Error(
+        `Expected one preinstalled base APK for ${packageName}; Android reported ${installedPaths.length} package paths.`
+      );
+    }
+
+    const { stdout: hashOutput } = await adb(
+      ['-s', serial, 'shell', 'sha256sum', installedPaths[0]!],
+      ADB_APK_HASH_TIMEOUT_MS
+    );
+    const actualSha256 = hashOutput.trim().split(/\s+/)[0] ?? '';
+    if (!/^[a-f0-9]{64}$/i.test(actualSha256) || actualSha256.toLowerCase() !== expectedSha256.toLowerCase()) {
+      throw new Error(
+        `Preinstalled ${packageName} APK SHA-256 mismatch: expected ${expectedSha256}, got ${actualSha256}.`
+      );
     }
   }
 
@@ -452,8 +549,8 @@ export class EmulatorControl {
     }
   }
 
-  static async listBootedSerials(): Promise<Set<string>> {
-    const { stdout } = await adb(['devices']);
+  static async listBootedSerials(timeoutMs: number = ADB_TIMEOUT_MS): Promise<Set<string>> {
+    const { stdout } = await adb(['devices'], timeoutMs);
     const serials = new Set<string>();
     for (const line of stdout.split('\n').slice(1)) {
       const m = line.match(/^(\S+)\s+device$/);
@@ -487,17 +584,22 @@ function avdIsUsable(avdHome: string, avd: string): boolean {
 }
 
 /** Is `pkg` installed on this device? Used to skip GMS-only wait steps on AOSP images. */
-async function deviceHasPackage(serial: string, pkg: string): Promise<boolean> {
+async function deviceHasPackage(serial: string, pkg: string, timeoutMs: number = ADB_TIMEOUT_MS): Promise<boolean> {
   try {
-    const { stdout } = await adb(['-s', serial, 'shell', 'pm', 'list', 'packages', pkg]);
+    const { stdout } = await adb(['-s', serial, 'shell', 'pm', 'list', 'packages', pkg], timeoutMs);
     return stdout.includes(pkg);
   } catch {
     return false;
   }
 }
 
-async function ensureAvdsExist(requiredAvds: string[] = [DEVICE_PAIR_AVD_A, DEVICE_PAIR_AVD_B]): Promise<void> {
-  const { stdout } = await execFileAsync(getEmulatorBin(), ['-list-avds'], { timeout: ADB_TIMEOUT_MS });
+async function ensureAvdsExist(
+  requiredAvds: string[] = [DEVICE_PAIR_AVD_A, DEVICE_PAIR_AVD_B],
+  startupDeadlineAt?: number
+): Promise<void> {
+  const { stdout } = await execFileAsync(getEmulatorBin(), ['-list-avds'], {
+    timeout: timeoutForDeadline(startupDeadlineAt, 'AVD listing')
+  });
   const present = new Set(
     stdout
       .split('\n')
@@ -566,7 +668,7 @@ async function ensureAvdsExist(requiredAvds: string[] = [DEVICE_PAIR_AVD_A, DEVI
   // The listing alone accepts phantoms, while filesystem checks alone miss
   // AVD-home mismatches between avdmanager and the emulator process.
   const { stdout: verifiedStdout } = await execFileAsync(getEmulatorBin(), ['-list-avds'], {
-    timeout: ADB_TIMEOUT_MS
+    timeout: timeoutForDeadline(startupDeadlineAt, 'AVD verification')
   });
   const verified = new Set(
     verifiedStdout
@@ -586,16 +688,20 @@ interface BootAvdOptions {
   cores?: number;
   /** Return after launching so independent workflow setup can overlap a cold boot. */
   returnAfterSpawn?: boolean;
+  /** Absolute end of the visible warm-snapshot startup budget. */
+  startupDeadlineAt?: number;
 }
 
 async function bootAvd(avdName: string, port: number, options: BootAvdOptions = {}): Promise<string> {
   const { visible = false, cores = EMULATOR_CORES, returnAfterSpawn = false } = options;
+  const expectedSerial = `emulator-${port}`;
+  const expectedSnapshotName = process.env.E2E_ANDROID_WARM_AVD_SNAPSHOT_NAME;
+  const startupDeadlineAt = options.startupDeadlineAt ?? warmAvdStartupDeadline(expectedSerial, avdName);
   // If an emulator is already listening on this port from a previous run,
   // verify its AVD and (when required) visible launch mode before reuse.
-  const expectedSerial = `emulator-${port}`;
-  const live = await EmulatorControl.listBootedSerials();
+  const live = await EmulatorControl.listBootedSerials(timeoutForDeadline(startupDeadlineAt, 'device discovery'));
   if (live.has(expectedSerial)) {
-    await assertRunningAvd(expectedSerial, avdName, visible);
+    await assertRunningAvd(expectedSerial, avdName, visible, startupDeadlineAt);
     return expectedSerial;
   }
 
@@ -607,13 +713,25 @@ async function bootAvd(avdName: string, port: number, options: BootAvdOptions = 
   // lock. The receipt also covers the short gap before the OS exposes the child
   // in `ps`.
   const markerPath = launchMarkerPath(port);
-  const launchReceipt = getLiveLaunchReceipt(markerPath, avdName, port, visible);
-  const existingProcess = launchReceipt ? null : await findEmulatorProcess(avdName, port);
+  const launchReceipt = getLiveLaunchReceipt(markerPath, avdName, port, visible, expectedSnapshotName);
+  const existingProcess = launchReceipt ? null : await findEmulatorProcess(
+    avdName,
+    port,
+    timeoutForDeadline(startupDeadlineAt, 'emulator process discovery')
+  );
   if (!launchReceipt) {
     if (existingProcess) {
       if (visible) assertVisibleEmulatorProcess(existingProcess, avdName, port);
+      if (expectedSnapshotName) assertSnapshotEmulatorProcess(existingProcess, expectedSnapshotName, avdName, port);
     } else {
-      launchAvd(avdName, port, visible, cores, returnAfterSpawn ? markerPath : undefined);
+      launchAvd(
+        avdName,
+        port,
+        visible,
+        cores,
+        returnAfterSpawn ? markerPath : undefined,
+        expectedSnapshotName
+      );
     }
   }
 
@@ -623,29 +741,40 @@ async function bootAvd(avdName: string, port: number, options: BootAvdOptions = 
   // workflow launch returns above; the later Playwright reservation waits here
   // while Foundry installation and test-runner setup overlap the cold boot.
   const start = Date.now();
-  while (Date.now() - start < BOOT_TIMEOUT_MS) {
-    const present = await EmulatorControl.listBootedSerials();
+  const bootDeadlineAt = startupDeadlineAt ?? start + BOOT_TIMEOUT_MS;
+  const bootTimeoutMs = bootDeadlineAt - start;
+  while (Date.now() < bootDeadlineAt) {
+    const present = await EmulatorControl.listBootedSerials(timeoutForDeadline(bootDeadlineAt, 'emulator boot'));
     if (present.has(expectedSerial)) {
       let bootCompleted = false;
       try {
-        const { stdout } = await adb(['-s', expectedSerial, 'shell', 'getprop', 'sys.boot_completed']);
+        const { stdout } = await adb(
+          ['-s', expectedSerial, 'shell', 'getprop', 'sys.boot_completed'],
+          timeoutForDeadline(bootDeadlineAt, 'emulator boot completion')
+        );
         bootCompleted = stdout.trim() === '1';
       } catch {
         // not responsive yet — keep polling
       }
       if (bootCompleted) {
-        await assertRunningAvd(expectedSerial, avdName, visible);
+        await assertRunningAvd(expectedSerial, avdName, visible, bootDeadlineAt);
         return expectedSerial;
       }
     }
-    await sleep(BOOT_POLL_MS);
+    await sleep(Math.min(BOOT_POLL_MS, Math.max(0, bootDeadlineAt - Date.now())));
   }
-  throw new Error(
-    `Emulator ${avdName} on port ${port} did not boot within ${BOOT_TIMEOUT_MS}ms — see ${emulatorLogPath(avdName, port)}`
-  );
+  if (startupDeadlineAt) throw warmDeadlineError(expectedSerial, 'restore the prepared snapshot', startupDeadlineAt);
+  throw new Error(`Emulator ${avdName} on port ${port} did not boot within ${bootTimeoutMs}ms — see ${emulatorLogPath(avdName, port)}`);
 }
 
-function launchAvd(avdName: string, port: number, visible: boolean, cores: number, markerPath?: string): void {
+function launchAvd(
+  avdName: string,
+  port: number,
+  visible: boolean,
+  cores: number,
+  markerPath?: string,
+  snapshotName?: string
+): void {
   const logPath = emulatorLogPath(avdName, port);
   launchEmulator({
     emulatorBin: getEmulatorBin(),
@@ -654,7 +783,8 @@ function launchAvd(avdName: string, port: number, visible: boolean, cores: numbe
     visible,
     cores,
     logPath,
-    ...(markerPath ? { markerPath } : {})
+    ...(markerPath ? { markerPath } : {}),
+    ...(snapshotName ? { snapshotName } : {})
   });
 }
 
@@ -662,8 +792,12 @@ function emulatorLogPath(avdName: string, port: number): string {
   return path.join(ROOT_DIR, 'test-results-android', 'emulator-logs', `${avdName}-${port}.log`);
 }
 
-async function findEmulatorProcess(avdName: string, port: number): Promise<string | null> {
-  const { stdout } = await execFileAsync('ps', ['-ww', '-axo', 'command='], { timeout: ADB_TIMEOUT_MS });
+async function findEmulatorProcess(
+  avdName: string,
+  port: number,
+  timeoutMs: number = ADB_TIMEOUT_MS
+): Promise<string | null> {
+  const { stdout } = await execFileAsync('ps', ['-ww', '-axo', 'command='], { timeout: timeoutMs });
   const escapedAvd = escapeRegExp(avdName);
   const escapedPort = escapeRegExp(String(port));
   return (
@@ -680,8 +814,16 @@ async function findEmulatorProcess(avdName: string, port: number): Promise<strin
 }
 
 /** Fail closed if a live serial belongs to another AVD or is hidden when the route requires a visible window. */
-async function assertRunningAvd(serial: string, avdName: string, requireVisible: boolean): Promise<void> {
-  const { stdout: avdOutput } = await adb(['-s', serial, 'emu', 'avd', 'name']);
+async function assertRunningAvd(
+  serial: string,
+  avdName: string,
+  requireVisible: boolean,
+  startupDeadlineAt?: number
+): Promise<void> {
+  const { stdout: avdOutput } = await adb(
+    ['-s', serial, 'emu', 'avd', 'name'],
+    timeoutForDeadline(startupDeadlineAt, 'AVD identity verification')
+  );
   const runningAvd = avdOutput
     .split('\n')
     .map(line => line.trim())
@@ -696,12 +838,64 @@ async function assertRunningAvd(serial: string, avdName: string, requireVisible:
   if (serialPort === undefined) {
     throw new Error(`Cannot verify the launch flags for ${avdName} on unexpected serial ${serial}.`);
   }
-  if (getLiveLaunchReceipt(launchMarkerPath(Number(serialPort)), avdName, Number(serialPort), true)) return;
-  const processLine = await findEmulatorProcess(avdName, Number(serialPort));
+  const expectedSnapshotName = process.env.E2E_ANDROID_WARM_AVD_SNAPSHOT_NAME;
+  if (
+    getLiveLaunchReceipt(
+      launchMarkerPath(Number(serialPort)),
+      avdName,
+      Number(serialPort),
+      true,
+      expectedSnapshotName
+    )
+  ) {
+    if (expectedSnapshotName) await assertWarmAvdSnapshotProof(serial, startupDeadlineAt);
+    return;
+  }
+  const processLine = await findEmulatorProcess(
+    avdName,
+    Number(serialPort),
+    timeoutForDeadline(startupDeadlineAt, 'emulator launch verification')
+  );
   if (!processLine) {
     throw new Error(`Cannot verify the launch flags for ${avdName} on ${serial}; refusing to reuse it.`);
   }
   assertVisibleEmulatorProcess(processLine, avdName, Number(serialPort));
+  if (expectedSnapshotName) {
+    assertSnapshotEmulatorProcess(processLine, expectedSnapshotName, avdName, Number(serialPort));
+    await assertWarmAvdSnapshotProof(serial, startupDeadlineAt);
+  }
+}
+
+async function assertWarmAvdSnapshotProof(serial: string, startupDeadlineAt?: number): Promise<void> {
+  const expectedProof = process.env.E2E_ANDROID_WARM_AVD_PROOF;
+  if (!expectedProof || !/^[a-f0-9]{64}$/.test(expectedProof)) {
+    throw new Error('The exact prepared warm AVD guest proof is missing or malformed.');
+  }
+  const { stdout } = await adb(
+    ['-s', serial, 'shell', 'getprop', 'debug.miden.warm_avd_proof'],
+    Math.min(10_000, timeoutForDeadline(startupDeadlineAt, 'snapshot proof verification'))
+  );
+  if (stdout.trim() !== expectedProof) {
+    throw new Error('The visible emulator did not restore the exact prepared warm AVD snapshot.');
+  }
+}
+
+export function assertSnapshotEmulatorProcess(processLine: string, snapshotName: string, avdName: string, port: number): void {
+  const snapshotFlag = new RegExp(`(?:^|\\s)-snapshot\\s+${escapeRegExp(snapshotName)}(?:\\s|$)`);
+  const noSnapshotSaveFlag = /(?:^|\s)-no-snapshot-save(?:\s|$)/;
+  const hardwareGpuFlag = /(?:^|\s)-gpu\s+host(?:\s|$)/;
+  const vulkanDisabledFlag = /(?:^|\s)-feature\s+-Vulkan(?:\s|$)/;
+  if (
+    !snapshotFlag.test(processLine) ||
+    !noSnapshotSaveFlag.test(processLine) ||
+    !hardwareGpuFlag.test(processLine) ||
+    !vulkanDisabledFlag.test(processLine) ||
+    /(?:^|\s)-no-snapshot(?:\s|$)/.test(processLine)
+  ) {
+    throw new Error(
+      `Emulator ${avdName} on port ${port} did not use the required warm snapshot and graphics profile.`
+    );
+  }
 }
 
 function assertVisibleEmulatorProcess(processLine: string, avdName: string, port: number): void {

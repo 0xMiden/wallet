@@ -8,32 +8,45 @@ const path = require('node:path');
 const BRIDGE_IN_AVD = 'Pixel_API_34';
 const BRIDGE_IN_PORT = 5554;
 const BRIDGE_IN_CORES = 4;
+const BRIDGE_IN_GPU = 'host';
 
-function launchEmulator({ emulatorBin, avdName, port, visible, cores, logPath, markerPath }) {
+function buildEmulatorArgs({ avdName, port, visible, cores, snapshotName }) {
+  const args = [
+    '-avd',
+    avdName,
+    '-port',
+    String(port),
+    '-accel',
+    'on',
+    '-no-audio',
+    // Hardware rendering keeps Quick Boot snapshots supported on the visible CI AVD.
+    '-gpu',
+    BRIDGE_IN_GPU,
+    '-no-boot-anim',
+    '-feature',
+    '-Vulkan',
+    ...(!visible ? ['-no-window'] : []),
+    // Keep the measured guest memory ceiling for the visible wallet path.
+    '-memory',
+    '4096',
+    '-cores',
+    String(cores)
+  ];
+
+  if (snapshotName === undefined) {
+    args.push('-no-snapshot');
+  } else if (snapshotName !== null) {
+    args.push('-snapshot', snapshotName, '-no-snapshot-save');
+  }
+  return args;
+}
+
+function launchEmulator({ emulatorBin, avdName, port, visible, cores, logPath, markerPath, snapshotName }) {
   fs.mkdirSync(path.dirname(logPath), { recursive: true });
   const logFd = fs.openSync(logPath, 'a');
   const child = spawn(
     emulatorBin,
-    [
-      '-avd',
-      avdName,
-      '-port',
-      String(port),
-      '-accel',
-      'on',
-      '-no-snapshot',
-      '-no-audio',
-      '-gpu',
-      'swiftshader_indirect',
-      '-no-boot-anim',
-      ...(!visible ? ['-no-window'] : []),
-      // Keep the measured guest memory ceiling; the visible wallet path uses
-      // software rendering to avoid host-GPU memory spikes under HVF.
-      '-memory',
-      '4096',
-      '-cores',
-      String(cores)
-    ],
+    buildEmulatorArgs({ avdName, port, visible, cores, snapshotName }),
     { detached: true, stdio: ['ignore', logFd, logFd] }
   );
   child.unref();
@@ -45,6 +58,7 @@ function launchEmulator({ emulatorBin, avdName, port, visible, cores, logPath, m
       avdName,
       port,
       visible,
+      snapshotName: snapshotName ?? null,
       startedAt: new Date().toISOString()
     };
     fs.mkdirSync(path.dirname(markerPath), { recursive: true });
@@ -63,7 +77,7 @@ function launchMarkerPath(port) {
   return path.join(tempDir, `miden-wallet-android-emulator-${port}.json`);
 }
 
-function getLiveLaunchReceipt(markerPath, avdName, port, requireVisible) {
+function getLiveLaunchReceipt(markerPath, avdName, port, requireVisible, expectedSnapshotName) {
   let marker;
   try {
     marker = JSON.parse(fs.readFileSync(markerPath, 'utf8'));
@@ -77,6 +91,11 @@ function getLiveLaunchReceipt(markerPath, avdName, port, requireVisible) {
   }
   if (requireVisible && marker.visible !== true) {
     throw new Error(`Emulator ${avdName} on port ${port} was not launched visibly.`);
+  }
+  if (expectedSnapshotName !== undefined && marker.snapshotName !== expectedSnapshotName) {
+    throw new Error(
+      `Emulator ${avdName} on port ${port} was not launched from snapshot "${expectedSnapshotName}".`
+    );
   }
 
   try {
@@ -97,6 +116,17 @@ function launchBridgeInEmulatorFromEnvironment() {
     process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT ?? path.join(os.homedir(), 'Library/Android/sdk');
   const serial = `emulator-${BRIDGE_IN_PORT}`;
   const logPath = path.join(rootDir, 'test-results-android', 'emulator-logs', `${BRIDGE_IN_AVD}-${BRIDGE_IN_PORT}.log`);
+  const snapshotName = process.env.E2E_ANDROID_WARM_AVD_SNAPSHOT_NAME;
+  const snapshotMode = process.env.E2E_ANDROID_AVD_SNAPSHOT_MODE;
+  if (snapshotMode === 'save' && snapshotName) {
+    throw new Error('Snapshot preparation must boot without selecting a named snapshot.');
+  }
+  if (snapshotMode && snapshotMode !== 'save' && snapshotMode !== 'restore') {
+    throw new Error(`Unsupported Android AVD snapshot mode: ${snapshotMode}`);
+  }
+  if (snapshotMode === 'restore' && !snapshotName) {
+    throw new Error('Snapshot restore requires E2E_ANDROID_WARM_AVD_SNAPSHOT_NAME.');
+  }
   const child = launchEmulator({
     emulatorBin: path.join(androidHome, 'emulator', 'emulator'),
     avdName: BRIDGE_IN_AVD,
@@ -104,12 +134,17 @@ function launchBridgeInEmulatorFromEnvironment() {
     visible: true,
     cores: BRIDGE_IN_CORES,
     logPath,
-    markerPath: launchMarkerPath(BRIDGE_IN_PORT)
+    markerPath: launchMarkerPath(BRIDGE_IN_PORT),
+    ...(snapshotMode === 'save'
+      ? { snapshotName: null }
+      : snapshotMode === 'restore'
+        ? { snapshotName }
+        : {})
   });
   console.log(`Visible Android emulator boot started on ${serial} (pid ${child.pid}).`);
 }
 
-module.exports = { getLiveLaunchReceipt, launchEmulator, launchMarkerPath };
+module.exports = { buildEmulatorArgs, getLiveLaunchReceipt, launchEmulator, launchMarkerPath };
 
 if (require.main === module) {
   try {
