@@ -10,6 +10,7 @@ import {
   encodeFunctionData,
   formatLog,
   http,
+  HttpRequestError,
   isAddressEqual,
   isHex,
   keccak256,
@@ -37,6 +38,7 @@ import {
   ARC_CIRCLE_DOMAIN,
   ARC_DRPC_LOG_CHUNK,
   ARC_LOG_CHUNK,
+  ARC_RPC_TIMEOUT_MS,
   ARC_USDC,
   ARC_XRESERVE,
   ATTESTATION_USED_TOPIC,
@@ -87,6 +89,9 @@ const PAYOUT_POLL_MS = 5_000;
 const HEAD_LAG_BUDGET_MS = 60_000;
 const RECEIPT_TIMEOUT_MS = 120_000;
 const RECEIPT_POLL_MS = 1_000;
+/** A deposit leg's call is asked again at most this often after a transient error, 2, 4 and 8 s apart. */
+const TRANSIENT_RETRIES = 3;
+const TRANSIENT_BACKOFF_MS = 2_000;
 const DEPOSIT_INTENT_MAGIC: Hex = '0x5a2e0acd';
 const DEPOSIT_INTENT_HEADER_BYTES = 240;
 
@@ -128,6 +133,30 @@ export function errorText(error: unknown): string {
   return parts.length > 0 ? parts.join(' | ') : String(error);
 }
 
+/**
+ * A rate limit (HTTP 429, JSON-RPC -32005 or 429) or a request timeout anywhere in the cause chain: the same call can
+ * answer a moment later or on another endpoint. Anything else, a revert included, is final.
+ */
+function isTransientArcError(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; current instanceof Error && depth < 6; depth++, current = current.cause) {
+    if (current.name === 'TimeoutError') return true;
+    if (current instanceof HttpRequestError && current.status === 429) return true;
+    const code = Reflect.get(current, 'code');
+    if (code === -32005 || code === 429) return true;
+  }
+  return false;
+}
+
+/** An Arc endpoint as evidence and messages name it: an operator's URL may carry its API key in the path or query. */
+export function arcHost(endpoint: string): string {
+  try {
+    return new URL(endpoint).host;
+  } catch {
+    return 'an unparseable Arc endpoint';
+  }
+}
+
 function rpcCode(error: unknown): number | undefined {
   let current: unknown = error;
   for (let depth = 0; current instanceof Error && depth < 6; depth++, current = current.cause) {
@@ -167,7 +196,7 @@ function defaultPublicClient(endpoint: string): PublicClient {
   return createPublicClient({
     chain: ARC_TESTNET,
     cacheTime: 0,
-    transport: http(endpoint, { retryCount: 0, timeout: 15_000 })
+    transport: http(endpoint, { retryCount: 0, timeout: ARC_RPC_TIMEOUT_MS })
   });
 }
 
@@ -185,7 +214,7 @@ async function onFirstEndpoint<T>(
     try {
       return await read(clientFor(deps)(endpoint), endpoint);
     } catch (error) {
-      failures.push(`${endpoint}: ${errorText(error)}`);
+      failures.push(`${arcHost(endpoint)}: ${errorText(error)}`);
     }
   }
   throw new Error(`${what}: no Arc endpoint answered\n  ${failures.join('\n  ') || 'no endpoints'}`);
@@ -396,7 +425,9 @@ function describeRanges(ranges: readonly ScannedRange[]): string {
   const byEndpoint = new Map<string, ScannedRange[]>();
   for (const range of ranges) byEndpoint.set(range.endpoint, [...(byEndpoint.get(range.endpoint) ?? []), range]);
   return [...byEndpoint]
-    .map(([endpoint, list]) => `${endpoint} ${list.map(range => `${range.fromBlock}-${range.toBlock}`).join(',')}`)
+    .map(
+      ([endpoint, list]) => `${arcHost(endpoint)} ${list.map(range => `${range.fromBlock}-${range.toBlock}`).join(',')}`
+    )
     .join('; ');
 }
 
@@ -453,7 +484,7 @@ async function payoutCycle(
       'key-moved',
       `the payout key moved during the payout window: balance ${balance} at block ${balanceBlock} is below ` +
         `${before} at block ${args.fromBlock}`,
-      { ...base, endpoint, balanceBlock: String(balanceBlock), balance: String(balance) },
+      { ...base, endpoint: arcHost(endpoint), balanceBlock: String(balanceBlock), balance: String(balance) },
       KEY_MOVED_NOTE
     );
   }
@@ -478,7 +509,7 @@ async function payoutCycle(
   }
   const where = {
     ...base,
-    endpoint,
+    endpoint: arcHost(endpoint),
     balanceBlock: String(balanceBlock),
     balance: String(balance),
     ranges: describeRanges(scan.ranges)
@@ -565,7 +596,7 @@ export async function waitForGatewayPayout(args: GatewayPayoutArgs, deps: ArcRea
       failuresInRow = 0;
     } catch (error) {
       if (error instanceof PayoutGateError) throw error;
-      const reason = `${endpoint}: ${errorText(error)}`;
+      const reason = `${arcHost(endpoint)}: ${errorText(error)}`;
       if (error instanceof PayoutScanMiss) state.lastMiss = reason;
       state.errors = [...state.errors, reason].slice(-6);
       index += 1;
@@ -615,37 +646,90 @@ async function acceptsRawTransactions(client: PublicClient): Promise<boolean> {
 }
 
 /** The first endpoint on Arc Testnet that takes raw transactions: a garbage one must fail to decode, not be refused. */
-async function pickWriteEndpoint(deps: ArcWriteDeps): Promise<{ client: PublicClient; endpoint: string }> {
+async function pickWriteEndpoint(deps: ArcWriteDeps): Promise<string> {
   const failures: string[] = [];
   for (const endpoint of deps.endpoints) {
     const client = clientFor(deps)(endpoint);
     try {
       const chainId = await client.getChainId();
-      if (chainId !== ARC_CHAIN_ID) failures.push(`${endpoint}: chain ${chainId}`);
-      else if (await acceptsRawTransactions(client)) return { client, endpoint };
-      else failures.push(`${endpoint}: refuses eth_sendRawTransaction`);
+      if (chainId !== ARC_CHAIN_ID) failures.push(`${arcHost(endpoint)}: chain ${chainId}`);
+      else if (await acceptsRawTransactions(client)) return endpoint;
+      else failures.push(`${arcHost(endpoint)}: refuses eth_sendRawTransaction`);
     } catch (error) {
-      failures.push(`${endpoint}: ${errorText(error)}`);
+      failures.push(`${arcHost(endpoint)}: ${errorText(error)}`);
     }
   }
   throw new Error(`no Arc endpoint takes writes\n  ${failures.join('\n  ') || 'no endpoints'}`);
 }
 
-async function simulate(endpoint: string, what: string, run: () => Promise<unknown>): Promise<void> {
-  try {
-    await run();
-  } catch (error) {
-    throw new Error(`${what} would revert on ${endpoint}: ${errorText(error)}`, { cause: error });
+/**
+ * `call` on `endpoints[0]`, asked again at most TRANSIENT_RETRIES times after a transient error, each time after a
+ * doubling backoff and on the next of `endpoints` (the same one when there is one). Any other error, and the last
+ * transient one, is thrown at once through `failure`, which names the endpoint.
+ */
+async function withTransientRetry<T>(
+  endpoints: readonly string[],
+  deps: ArcReadDeps,
+  call: (client: PublicClient, attempt: number) => Promise<T>,
+  failure: (endpoint: string, error: unknown) => Error
+): Promise<T> {
+  const clock = deps.clock ?? realArcClock;
+  for (let attempt = 0; ; attempt++) {
+    const endpoint = endpoints[attempt % endpoints.length] ?? '';
+    try {
+      return await call(clientFor(deps)(endpoint), attempt);
+    } catch (error) {
+      if (!isTransientArcError(error) || attempt >= TRANSIENT_RETRIES) throw failure(endpoint, error);
+      await clock.sleep(TRANSIENT_BACKOFF_MS * 2 ** attempt);
+    }
   }
 }
 
+/** `endpoints` with `first` in front: a deposit leg's reads start on its write endpoint and fail over to the rest. */
+function startingAt(endpoints: readonly string[], first: string): string[] {
+  return [first, ...endpoints.filter(endpoint => endpoint !== first)];
+}
+
+function arcRead<T>(
+  what: string,
+  endpoints: readonly string[],
+  deps: ArcReadDeps,
+  read: (client: PublicClient) => Promise<T>
+): Promise<T> {
+  return withTransientRetry(
+    endpoints,
+    deps,
+    read,
+    (endpoint, error) => new Error(`${what} on ${arcHost(endpoint)}: ${errorText(error)}`, { cause: error })
+  );
+}
+
+async function simulate(
+  what: string,
+  endpoints: readonly string[],
+  deps: ArcReadDeps,
+  run: (client: PublicClient) => Promise<unknown>
+): Promise<void> {
+  await withTransientRetry(endpoints, deps, run, (endpoint, error) => {
+    const outcome = isTransientArcError(error) ? 'could not be simulated' : 'would revert';
+    return new Error(`${what} ${outcome} on ${arcHost(endpoint)}: ${errorText(error)}`, { cause: error });
+  });
+}
+
+/**
+ * Signs `tx` and sends it to `endpoints.write`, which takes writes; its gas and fees are reads that fail over across
+ * `endpoints.reads`. A send that fails transiently is sent again as the same signed bytes, so the hash cannot change.
+ */
 async function sendSigned(
-  client: PublicClient,
+  deps: ArcWriteDeps,
+  endpoints: { write: string; reads: readonly string[] },
   account: PrivateKeyAccount,
   tx: { to: Address; data: Hex; nonce: number }
 ): Promise<Hash> {
-  const gas = await client.estimateGas({ account: account.address, to: tx.to, data: tx.data });
-  const fees = await client.estimateFeesPerGas();
+  const gas = await arcRead('Arc gas estimate', endpoints.reads, deps, client =>
+    client.estimateGas({ account: account.address, to: tx.to, data: tx.data })
+  );
+  const fees = await arcRead('Arc fee estimate', endpoints.reads, deps, client => client.estimateFeesPerGas());
   const serializedTransaction = await account.signTransaction({
     chainId: ARC_CHAIN_ID,
     type: 'eip1559',
@@ -657,57 +741,99 @@ async function sendSigned(
     maxPriorityFeePerGas: fees.maxPriorityFeePerGas
   });
   const hash = keccak256(serializedTransaction);
-  try {
-    await client.sendRawTransaction({ serializedTransaction });
-  } catch (error) {
-    // The node already holding this exact transaction is not a failure: the hash is the signed bytes' own.
-    if (!/already known/i.test(errorText(error))) throw error;
-  }
+  await withTransientRetry(
+    [endpoints.write],
+    deps,
+    async (client, attempt) => {
+      try {
+        await client.sendRawTransaction({ serializedTransaction });
+      } catch (error) {
+        const text = errorText(error);
+        // The node already holding this exact transaction is not a failure: the hash is the signed bytes' own.
+        if (/already known/i.test(text)) return;
+        // A resend after a transient failure finds the nonce spent when the first send landed; the receipt wait on
+        // `hash` fails if another transaction took the nonce instead.
+        if (attempt > 0 && /nonce too low/i.test(text)) return;
+        throw error;
+      }
+    },
+    (endpoint, error) =>
+      new Error(`Arc transaction ${hash} was not sent on ${arcHost(endpoint)}: ${errorText(error)}`, { cause: error })
+  );
   return hash;
 }
 
-async function waitForReceipt(client: PublicClient, hash: Hash, clock: ArcClock): Promise<TransactionReceipt> {
+/**
+ * Polls `hash`'s receipt from `endpoints[0]` for RECEIPT_TIMEOUT_MS. A transient error counts as no receipt yet and
+ * moves the poll to the next endpoint; a revert, or any other error, fails at once.
+ */
+async function waitForReceipt(
+  endpoints: readonly string[],
+  deps: ArcReadDeps,
+  hash: Hash
+): Promise<TransactionReceipt> {
+  const clock = deps.clock ?? realArcClock;
   const deadline = clock.now() + RECEIPT_TIMEOUT_MS;
+  let index = 0;
+  let lastTransient = 'none';
   for (;;) {
-    const receipt = await client.getTransactionReceipt({ hash }).catch((error: unknown) => {
-      if (error instanceof TransactionReceiptNotFoundError) return undefined;
-      throw error;
-    });
+    const endpoint = endpoints[index % endpoints.length] ?? '';
+    let receipt: TransactionReceipt | undefined;
+    try {
+      receipt = await clientFor(deps)(endpoint).getTransactionReceipt({ hash });
+    } catch (error) {
+      if (isTransientArcError(error)) {
+        lastTransient = `${arcHost(endpoint)}: ${errorText(error)}`;
+        index += 1;
+      } else if (!(error instanceof TransactionReceiptNotFoundError)) {
+        throw new Error(`Arc transaction ${hash} receipt on ${arcHost(endpoint)}: ${errorText(error)}`, {
+          cause: error
+        });
+      }
+    }
     if (receipt) {
       if (receipt.status !== 'success')
         throw new Error(`Arc transaction ${hash} reverted in block ${receipt.blockNumber}`);
       return receipt;
     }
-    if (clock.now() >= deadline)
-      throw new Error(`Arc transaction ${hash} has no receipt after ${RECEIPT_TIMEOUT_MS} ms`);
+    if (clock.now() >= deadline) {
+      throw new Error(
+        `Arc transaction ${hash} has no receipt after ${RECEIPT_TIMEOUT_MS} ms (last transient error: ${lastTransient})`
+      );
+    }
     await clock.sleep(RECEIPT_POLL_MS);
   }
 }
 
 /**
- * Approve (when asked) and `depositToRemote(units, 10007, recipient, USDC, 0, 0x)` from the key, on one write endpoint
- * with a local nonce. Each call is simulated first so a revert decodes; the approve is mined before the deposit's
- * simulation reads its allowance. 'exact' always approves exactly `units`; 'if-short' only when the allowance is short.
+ * Approve (when asked) and `depositToRemote(units, 10007, recipient, USDC, 0, 0x)` from the key, sent to one write
+ * endpoint with a local nonce; reads and receipts fail over to the other endpoints on a rate limit or a timeout. Each
+ * call is simulated first so a revert decodes; the approve is mined before the deposit's simulation reads its
+ * allowance. 'exact' always approves exactly `units`; 'if-short' only when the allowance is short.
  */
 export async function submitDepositToMiden(
   args: { privateKey: Hex; units: bigint; recipientHex: string; approve: 'exact' | 'if-short' },
   deps: ArcWriteDeps
 ): Promise<DepositSubmission> {
-  const clock = deps.clock ?? realArcClock;
   const account = privateKeyToAccount(args.privateKey);
   const remoteRecipient = midenAccountHexToXReserveRecipient(args.recipientHex);
-  const { client, endpoint } = await pickWriteEndpoint(deps);
-  let nonce = await client.getTransactionCount({ address: account.address, blockTag: 'pending' });
-  const allowance = await client.readContract({
-    address: ARC_USDC,
-    abi: ERC20_ABI,
-    functionName: 'allowance',
-    args: [account.address, ARC_XRESERVE]
-  });
+  const endpoint = await pickWriteEndpoint(deps);
+  const endpoints = { write: endpoint, reads: startingAt(deps.endpoints, endpoint) };
+  let nonce = await arcRead('Arc nonce', endpoints.reads, deps, client =>
+    client.getTransactionCount({ address: account.address, blockTag: 'pending' })
+  );
+  const allowance = await arcRead('USDC allowance', endpoints.reads, deps, client =>
+    client.readContract({
+      address: ARC_USDC,
+      abi: ERC20_ABI,
+      functionName: 'allowance',
+      args: [account.address, ARC_XRESERVE]
+    })
+  );
   const approved = args.approve === 'exact' || allowance < args.units;
   let approveHash: Hash | undefined;
   if (approved) {
-    await simulate(endpoint, 'USDC approve', () =>
+    await simulate('USDC approve', endpoints.reads, deps, client =>
       client.simulateContract({
         account: account.address,
         address: ARC_USDC,
@@ -716,13 +842,13 @@ export async function submitDepositToMiden(
         args: [ARC_XRESERVE, args.units]
       })
     );
-    approveHash = await sendSigned(client, account, {
+    approveHash = await sendSigned(deps, endpoints, account, {
       to: ARC_USDC,
       data: encodeFunctionData({ abi: ERC20_ABI, functionName: 'approve', args: [ARC_XRESERVE, args.units] }),
       nonce
     });
     nonce += 1;
-    await waitForReceipt(client, approveHash, clock);
+    await waitForReceipt(endpoints.reads, deps, approveHash);
   }
   const depositArgs: readonly [bigint, number, Hex, Address, bigint, Hex] = [
     args.units,
@@ -732,7 +858,7 @@ export async function submitDepositToMiden(
     0n,
     '0x'
   ];
-  await simulate(endpoint, 'xReserve depositToRemote', () =>
+  await simulate('xReserve depositToRemote', endpoints.reads, deps, client =>
     client.simulateContract({
       account: account.address,
       address: ARC_XRESERVE,
@@ -741,7 +867,7 @@ export async function submitDepositToMiden(
       args: depositArgs
     })
   );
-  const depositHash = await sendSigned(client, account, {
+  const depositHash = await sendSigned(deps, endpoints, account, {
     to: ARC_XRESERVE,
     data: encodeFunctionData({ abi: XRESERVE_HARNESS_ABI, functionName: 'depositToRemote', args: depositArgs }),
     nonce
@@ -760,17 +886,17 @@ export interface DepositedToRemoteEvent {
   blockNumber: bigint;
 }
 
-/** The submission's receipts, on its write endpoint, and the one DepositedToRemote xReserve emitted. */
+/**
+ * The submission's receipts, read from its write endpoint first and failing over to the others, and the one
+ * DepositedToRemote xReserve emitted.
+ */
 export async function confirmDepositToMiden(
   submission: DepositSubmission,
   deps: ArcReadDeps
 ): Promise<{ approveBlock?: bigint; depositBlock: bigint; event: DepositedToRemoteEvent; gasCostWei: bigint }> {
-  const clock = deps.clock ?? realArcClock;
-  const client = clientFor(deps)(submission.endpoint);
-  const approveReceipt = submission.approveHash
-    ? await waitForReceipt(client, submission.approveHash, clock)
-    : undefined;
-  const depositReceipt = await waitForReceipt(client, submission.depositHash, clock);
+  const reads = startingAt(deps.endpoints, submission.endpoint);
+  const approveReceipt = submission.approveHash ? await waitForReceipt(reads, deps, submission.approveHash) : undefined;
+  const depositReceipt = await waitForReceipt(reads, deps, submission.depositHash);
   const events = parseEventLogs({
     abi: XRESERVE_HARNESS_ABI,
     eventName: 'DepositedToRemote',

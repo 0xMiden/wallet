@@ -52,6 +52,13 @@ export const ARC_QUICKNODE_URL = 'https://rpc.quicknode.testnet.arc.io';
 export const ARC_PUBLIC_URL: string = ARC_TESTNET.rpcUrls.default.http[0];
 /** arc.io is the wallet's only Arc RPC (burn snapshot and payout confirmation), so the harness reads it last. */
 export const DEFAULT_ARC_RPCS: readonly string[] = [ARC_DRPC_URL, ARC_QUICKNODE_URL, ARC_PUBLIC_URL];
+/** Each Arc request's transport timeout: a read moves to the next endpoint only once one has stalled this long. */
+export const ARC_RPC_TIMEOUT_MS = 15_000;
+/**
+ * The budget of a step that reads Arc: every endpoint a run can have (an operator's `--arc-rpc`, then the defaults) may
+ * stall for one transport timeout before the last one answers, plus 15 s.
+ */
+export const ARC_READ_STEP_BUDGET_MS = (DEFAULT_ARC_RPCS.length + 1) * ARC_RPC_TIMEOUT_MS + 15_000;
 /** The harness Arc key and the per-run keys from before it, mode 0600, outside test-results and the repository. */
 export const ARC_KEY_LEDGER_DIR = path.join(os.homedir(), '.miden-e2e', 'arc-keys');
 /** R21: the one key every usdcx suite burns to and deposits from; scripts/e2e-real.mjs creates it on first use. */

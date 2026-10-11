@@ -6,6 +6,7 @@ import { midenAccountHexToXReserveRecipient } from '../../../../src/lib/usdcx/re
 import { expect, test, type GuardianAwareWalletPage } from '../../fixtures/two-wallets';
 import {
   arcEndpoints,
+  arcHost,
   assertDepositIntent,
   confirmDepositToMiden,
   readArcUsdc,
@@ -31,6 +32,7 @@ import {
   ARC_ATTESTATION_API,
   ARC_CHAIN_ID,
   ARC_PUBLIC_URL,
+  ARC_READ_STEP_BUDGET_MS,
   ARC_USDC,
   BURN_UNITS,
   DEPOSIT_UNITS,
@@ -87,11 +89,12 @@ import {
 /** Step budgets of spec sections 5 and 6, each a small multiple of the spike's step time. */
 const BUDGET = {
   guardianWallet: 180_000,
-  arcState: 30_000,
+  // Each Arc read step outlasts a stall on every endpoint before the last one answers.
+  arcState: ARC_READ_STEP_BUDGET_MS,
   fund: 180_000,
   settle: 240_000,
-  keySnapshot: 30_000,
-  fundedKey: 10_000,
+  keySnapshot: ARC_READ_STEP_BUDGET_MS,
+  fundedKey: ARC_READ_STEP_BUDGET_MS,
   burnViaUi: 180_000,
   burnRowPoll: 180_000,
   burnConfirmed: 300_000,
@@ -242,9 +245,8 @@ async function depositLeg(
   });
   opts.evidence.hashes.deposit = submission.depositHash;
   opts.evidence.hashes.approve = submission.approveHash ?? 'none';
-  opts.evidence.notes.push(
-    `deposit approve (${opts.approve}) ${submission.approved ? 'sent' : 'not needed'} via ${submission.endpoint}`
-  );
+  const approved = submission.approved ? 'sent' : 'not needed';
+  opts.evidence.notes.push(`deposit approve (${opts.approve}) ${approved} via ${arcHost(submission.endpoint)}`);
 
   // The hook persists no recipient, so both rows exercise the reconciler's derive-from-row path. `provider` and
   // `sourceChainId` keep them off the Epoch branch and the legacy Sepolia default (the provider switch and
@@ -593,7 +595,7 @@ test.describe('USDCx round trip: burn to the harness Arc key, Circle payout, dep
             depositsPaused: state.depositsPaused,
             withdrawalsPaused: state.withdrawalsPaused
           },
-          `xReserve domain ${USDCX_REMOTE_DOMAIN} read on ${state.endpoint}`
+          `xReserve domain ${USDCX_REMOTE_DOMAIN} read on ${arcHost(state.endpoint)}`
         ).toEqual({ registered: true, paused: false, depositsPaused: false, withdrawalsPaused: false });
         return state;
       });
@@ -746,7 +748,7 @@ test.describe('USDCx round trip: burn to the harness Arc key, Circle payout, dep
 
 test.describe('USDCx bridge-in from a funded Arc key', () => {
   test.use({ injectFeeFaucet: false });
-  // Budgets add up to ~21 min, plus ~2 min of fixture setup charged to the test.
+  // Budgets add up to ~22 min, plus ~2 min of fixture setup charged to the test.
   test.describe.configure({ timeout: 1_800_000 });
   test.beforeAll(() => {
     assertUsdcxLiveRun(process.env);
@@ -786,7 +788,7 @@ test.describe('USDCx bridge-in from a funded Arc key', () => {
         const state = await readXReserveDomainState(arc);
         expect(
           { registered: state.registered, paused: state.paused, depositsPaused: state.depositsPaused },
-          `xReserve domain ${USDCX_REMOTE_DOMAIN} read on ${state.endpoint}`
+          `xReserve domain ${USDCX_REMOTE_DOMAIN} read on ${arcHost(state.endpoint)}`
         ).toEqual({ registered: true, paused: false, depositsPaused: false });
         expect(state.remoteToken.toLowerCase(), "xReserve's remote token is the wallet's native faucet").toBe(
           midenAccountHexToXReserveRecipient(ids.nativeHex)
@@ -803,9 +805,9 @@ test.describe('USDCx bridge-in from a funded Arc key', () => {
             `the ${role} key ${key.address} holds ${balance} USDC base units, needs ` +
               `${DEPOSIT_UNITS + GAS_RESERVE_UNITS}; ` +
               (role === 'harness'
-                ? "refill it with yarn e2e:real --suite usdcx (each run's payout adds about 0.98 USDC), or pass " +
-                  '--arc-key with a funded key'
-                : 'fund it, or drop --arc-key and E2E_ARC_PRIVATE_KEY to deposit from the harness key')
+                ? "refill it with yarn e2e:real --suite usdcx (each run's payout adds about 0.98 USDC), or export " +
+                  'E2E_ARC_PRIVATE_KEY with a funded key'
+                : 'fund it, or unset E2E_ARC_PRIVATE_KEY to deposit from the harness key')
           );
         }
         return { key, role, balance };

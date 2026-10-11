@@ -377,7 +377,7 @@ Nothing in this group is stood in for. The wallet runs on the public Miden testn
 > #### The wallet's own records are checked too
 > Beside the chain and Circle, each run reads the wallet's rows: the burn's phases (Burn confirmed, then Confirmed once the wallet sees the payout on Arc), the deposit's phases, and the fee each transaction paid. A deposit row claiming a real deposit that Circle attested to another Miden account must fail, never read Confirmed. A transaction that completed without keeping its result (a landed path) records no fee, so its fee is bounded from the vault instead of read exactly, and the evidence file says which. Each run attaches its evidence as JSON (`usdcx-round-trip-evidence.json`, `usdcx-in-evidence.json`, `usdcx-burn-evidence.json`), never with a private key in it.
 
-The harness reads Arc through drpc and QuickNode first and through `rpc.testnet.arc.io` last, because that endpoint is the one the wallet itself uses and it rate-limits; `--arc-rpc <url>` puts another endpoint in front.
+The harness reads Arc through drpc and QuickNode first and through `rpc.testnet.arc.io` last, because that endpoint is the one the wallet itself uses and it rate-limits; `--arc-rpc <url>` puts another endpoint in front. A rate limit or a timeout moves a read, or the wait for a receipt, to the next endpoint, and a deposit's send is retried a few times on its endpoint. Reports and failure messages name each endpoint by its host only, because an endpoint's URL can carry an API key in its path.
 
 The amounts are the smallest that prove each hop. 1 USDCx is the USDCx faucet's on-chain minimum burn (the review refuses less), one 10 USDCx grant is the faucet's smallest tier that covers that burn and its fees, and the 0.001 USDC deposit clears the wallet's unattended claim floor (its base fee x 30, 210 base units at testnet's base fee of 7), so the wallet claims the mint by itself. A run whose live base fee has outgrown the deposit fails before it spends anything.
 
@@ -389,7 +389,7 @@ Each `usdcx` run leaves the key about 0.98 USDC richer (the 0.9836 USDC payout l
 
 - **Read its balance:** `cast call 0x3600000000000000000000000000000000000000 'balanceOf(address)(uint256)' "$(jq -r .address ~/.miden-e2e/arc-keys/harness.json)" --rpc-url https://rpc.drpc.testnet.arc.io` (six decimals).
 - **Move its USDC:** only while no run holds the lock, since a transfer during a run breaks that run's payout proof. Import the key into any EVM wallet on Arc Testnet (chain 5042002) and send the USDC on, keeping about 0.01 USDC for gas.
-- **Deposit from another key:** `E2E_ARC_PRIVATE_KEY="$(jq -r .privateKey <file>)" yarn e2e:real --suite usdcx-in` (`--arc-key` works too, but leaves the key in your shell history).
+- **Deposit from another key:** `E2E_ARC_PRIVATE_KEY="$(jq -r .privateKey <file>)" yarn e2e:real --suite usdcx-in`. A key is taken only from the environment: yarn prints the whole command line and `ps` shows it to every local user, so the runner refuses `--arc-key` and `--sepolia-key`, and a key typed on a command line should be rotated.
 
 Never commit `harness.json`, and never delete it while it holds USDC. Files named `<time>-<address>.json` in the same directory are per-run keys from before the harness key; read and move their USDC the same way, and delete a file once its key is empty.
 

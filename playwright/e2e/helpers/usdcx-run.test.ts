@@ -10,6 +10,7 @@ import {
   assertUsdcxLiveRun,
   boundedTerm,
   burnCompletionPath,
+  burnOutputNoteProblem,
   consumeFeePath,
   depositClaimProblem,
   describePage,
@@ -381,6 +382,30 @@ describe('burnCompletionPath', () => {
 
   it('calls a row with neither a landed path', () => {
     expect(burnCompletionPath({})).toEqual({ kind: 'landed' });
+  });
+});
+
+describe('burnOutputNoteProblem', () => {
+  const NOTE = `0x${'ab'.repeat(32)}`;
+  const LOCAL = { kind: 'result', resultBytes: 'AAEC' } as const;
+
+  // Only the local completion path writes outputNoteIds; a landed path is proven by the node (burnEvidence).
+  it('passes a burn that completed through a landed path and lists no output notes', () => {
+    expect(burnOutputNoteProblem({ kind: 'landed' }, { id: 'tx-landed' }, NOTE)).toBeUndefined();
+    expect(burnOutputNoteProblem({ kind: 'landed' }, { id: 'tx-landed', outputNoteIds: [] }, NOTE)).toBeUndefined();
+  });
+
+  it('passes a local completion that lists the burn note', () => {
+    expect(burnOutputNoteProblem(LOCAL, { id: 'tx-local', outputNoteIds: [NOTE] }, NOTE)).toBeUndefined();
+  });
+
+  it('fails a local completion that does not list the burn note, naming what it lists', () => {
+    expect(burnOutputNoteProblem(LOCAL, { id: 'tx-local' }, NOTE)).toBe(
+      `burn tx-local completed locally, but its outputNoteIds [] do not name burn note ${NOTE}`
+    );
+    expect(burnOutputNoteProblem(LOCAL, { id: 'tx-local', outputNoteIds: ['0x01'] }, NOTE)).toBe(
+      `burn tx-local completed locally, but its outputNoteIds [0x01] do not name burn note ${NOTE}`
+    );
   });
 });
 

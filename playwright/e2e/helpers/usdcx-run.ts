@@ -46,7 +46,7 @@ export function arcPrivateKeyFromEnv(env: Record<string, string | undefined>): H
 
 export type ArcKeyRole = 'harness' | 'operator';
 
-/** Whose Arc key the run holds: the harness key every usdcx suite shares, or the key usdcx-in's --arc-key named. */
+/** Whose Arc key the run holds: the harness key every usdcx suite shares, or usdcx-in's exported operator key. */
 export function arcKeyRoleFromEnv(env: Record<string, string | undefined>): ArcKeyRole {
   const role = env.E2E_ARC_KEY_ROLE;
   if (role === 'harness' || role === 'operator') return role;
@@ -330,6 +330,23 @@ export function burnCompletionPath(row: { resultBytes?: string; resultReleasedAt
     );
   }
   return { kind: 'landed' };
+}
+
+/**
+ * Why a confirmed burn row does not list its burn note, or undefined. Only the local completion path writes
+ * `outputNoteIds`, with `resultBytes`; a landed path writes neither, and the node proves that burn instead (burnEvidence:
+ * the note canonical, its sender and amount, the faucet's consume).
+ */
+export function burnOutputNoteProblem(
+  path: BurnCompletionPath,
+  row: { id: string; outputNoteIds?: string[] },
+  burnNoteId: string
+): string | undefined {
+  if (path.kind === 'landed') return undefined;
+  const listed = row.outputNoteIds ?? [];
+  if (listed.includes(burnNoteId)) return undefined;
+  const named = `[${listed.join(', ')}]`;
+  return `burn ${row.id} completed locally, but its outputNoteIds ${named} do not name burn note ${burnNoteId}`;
 }
 
 function isoSeconds(seconds: number): string {

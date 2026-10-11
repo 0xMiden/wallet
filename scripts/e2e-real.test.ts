@@ -260,7 +260,7 @@ describe('the command refuses operator input before any probe or build', () => {
   }, 35_000);
 
   it('refuses a Sepolia key that is not 32 bytes of hex', () => {
-    const res = runCli('--suite', 'bridge-out-agglayer', '--sepolia-key', '0x01', '--preflight-only');
+    const res = runCli({ E2E_SEPOLIA_PRIVATE_KEY: '0x01' }, '--suite', 'bridge-out-agglayer', '--preflight-only');
     expect(res.status).toBe(1);
     expect(res.stderr).toContain('not a valid private key');
     expect(res.stdout).not.toContain('Preflight');
@@ -268,7 +268,14 @@ describe('the command refuses operator input before any probe or build', () => {
 
   it('refuses an --min-eth that is not a plain decimal', () => {
     const key = `0x${'1'.repeat(64)}`;
-    const res = runCli('--suite', 'bridge-out-agglayer', '--sepolia-key', key, '--min-eth', 'abc', '--preflight-only');
+    const res = runCli(
+      { E2E_SEPOLIA_PRIVATE_KEY: key },
+      '--suite',
+      'bridge-out-agglayer',
+      '--min-eth',
+      'abc',
+      '--preflight-only'
+    );
     expect(res.status).toBe(1);
     expect(res.stderr).toContain('--min-eth must be a plain non-negative decimal');
     expect(res.stdout).not.toContain('Preflight');
@@ -282,11 +289,43 @@ describe('the command refuses operator input before any probe or build', () => {
   }, 35_000);
 
   it('never echoes a value given with =', () => {
-    const res = runCli(`--sepolia-key=0x${'1'.repeat(64)}`);
+    const res = runCli('--arc-rpc=https://arc-rpc.example/token-in-path');
     expect(res.status).toBe(1);
-    expect(res.stderr).toContain('unknown argument: --sepolia-key=<value>');
-    expect(res.stderr).not.toContain('1'.repeat(64));
+    expect(res.stderr).toContain('unknown argument: --arc-rpc=<value>');
+    expect(res.stderr).not.toContain('token-in-path');
     expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
+
+  // yarn prints the whole command line before the runner starts and ps shows it to every local user, so a key flag
+  // has exposed its key before the runner reads it: refused by name in either form, ahead of every other refusal.
+  const keyRefusal = (flag: string, env: string) =>
+    `${flag} is refused: yarn prints the whole command line and ps shows it to every local user, so a key passed as ` +
+    `a flag is already exposed. Export ${env} instead, and rotate the key if you typed it on a command line.`;
+  it.each([
+    ['--arc-key', 'E2E_ARC_PRIVATE_KEY', 'usdcx-in', false],
+    ['--arc-key', 'E2E_ARC_PRIVATE_KEY', 'usdcx-in', true],
+    ['--sepolia-key', 'E2E_SEPOLIA_PRIVATE_KEY', 'bridge-out-agglayer', false],
+    ['--sepolia-key', 'E2E_SEPOLIA_PRIVATE_KEY', 'bridge-out-agglayer', true]
+  ])(
+    'refuses %s by name, saying to export %s instead and rotate the key (suite %s, with = %s)',
+    (flag, env, suite, joined) => {
+      const key = `0x${'7c'.repeat(32)}`;
+      const given = joined ? [`${flag}=${key}`] : [flag, key];
+      const res = runCli('--suite', suite, ...given, '--preflight-only');
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain(keyRefusal(flag, env));
+      expect(`${res.stdout}${res.stderr}`).not.toContain('7c'.repeat(32));
+      expect(res.stdout).not.toContain('Preflight');
+    },
+    35_000
+  );
+
+  it('refuses a key flag ahead of an unknown suite and a bad --min-eth', () => {
+    const res = runCli('--suite', 'nope', '--min-eth', 'abc', '--arc-key', '0x11');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain(keyRefusal('--arc-key', 'E2E_ARC_PRIVATE_KEY'));
+    expect(res.stderr).not.toContain('0x11');
+    expect(res.stderr).not.toContain('unknown suite');
   }, 35_000);
 
   it('refuses a flag given no value', () => {
@@ -298,7 +337,7 @@ describe('the command refuses operator input before any probe or build', () => {
 
   // A quoted unset variable arrives as '': `--grep "$UNSET"` would drop the
   // operator's narrowing and widen a real-money run.
-  it.each(['--suite', '--network', '--sepolia-rpc', '--sepolia-key', '--arc-rpc', '--arc-key', '--min-eth', '--grep'])(
+  it.each(['--suite', '--network', '--sepolia-rpc', '--arc-rpc', '--min-eth', '--grep'])(
     'refuses an empty value for %s',
     flag => {
       const res = runCli('--suite', 'swap', flag, '', '--min-eth', 'abc');
@@ -316,9 +355,7 @@ describe('the command refuses operator input before any probe or build', () => {
     ['--suite', 'swap', 'swap'],
     ['--network', 'testnet', 'devnet'],
     ['--sepolia-rpc', 'https://a.example', 'https://b.example'],
-    ['--sepolia-key', `0x${'1'.repeat(64)}`, `0x${'2'.repeat(64)}`],
     ['--arc-rpc', 'https://c.example', 'https://d.example'],
-    ['--arc-key', `0x${'3'.repeat(64)}`, `0x${'4'.repeat(64)}`],
     ['--grep', 'aaa', 'bbb']
   ])(
     'refuses %s given twice',
@@ -378,9 +415,7 @@ describe('the command refuses operator input before any probe or build', () => {
     '--suite',
     '--network',
     '--sepolia-rpc',
-    '--sepolia-key',
     '--arc-rpc',
-    '--arc-key',
     '--min-eth',
     '--grep',
     '--preflight-only',
@@ -399,15 +434,15 @@ describe('the command refuses operator input before any probe or build', () => {
     35_000
   );
 
-  // Taken as a value, the key would be printed by whatever refused or ran it.
+  // Taken as a value, a URL whose path holds a key would be printed by whatever refused or ran it.
   it.each(['--suite', '--min-eth', '--grep'])(
     'refuses an option given with = as the value of %s',
     flag => {
-      const key = `0x${'1'.repeat(64)}`;
-      const res = runCli('--suite', 'bridge-out-agglayer', '--min-eth', 'abc', flag, `--sepolia-key=${key}`);
+      const url = 'https://sepolia.example/token-in-path';
+      const res = runCli('--suite', 'bridge-out-agglayer', '--min-eth', 'abc', flag, `--sepolia-rpc=${url}`);
       expect(res.status).toBe(1);
       expect(res.stderr).toContain(`${flag} needs a value`);
-      expect(res.stderr).not.toContain('1'.repeat(64));
+      expect(res.stderr).not.toContain('token-in-path');
       expect(res.stdout).not.toContain('Preflight');
     },
     35_000
@@ -999,7 +1034,7 @@ describe('the usdcx suites refuse what would not apply, before any probe or buil
     const res = runCli('--suite', 'usdcx-in', '--preflight-only');
     expect(res.status).toBe(1);
     expect(res.stderr).toContain(
-      '--suite usdcx-in has no Arc key: pass --arc-key or export E2E_ARC_PRIVATE_KEY, or run --suite usdcx first'
+      '--suite usdcx-in has no Arc key: export E2E_ARC_PRIVATE_KEY, or run --suite usdcx first'
     );
     expect(res.stdout).not.toContain('Preflight');
   }, 35_000);
@@ -1011,27 +1046,21 @@ describe('the usdcx suites refuse what would not apply, before any probe or buil
     expect(res.stdout).not.toContain('Preflight');
   }, 35_000);
 
-  it.each([
-    ['--arc-key', {}, ['--arc-key', MALFORMED]],
-    ['E2E_ARC_PRIVATE_KEY', { E2E_ARC_PRIVATE_KEY: MALFORMED }, []]
-  ])(
-    'refuses a malformed key from %s without printing it',
-    (_source, env, args) => {
-      const res = runCli(env, '--suite', 'usdcx-in', ...args, '--preflight-only');
-      expect(res.status).toBe(1);
-      expect(res.stderr).toContain('the Arc key (--arc-key or E2E_ARC_PRIVATE_KEY) is not a valid private key');
-      expect(printed(res)).not.toContain('5a'.repeat(31));
-      expect(res.stdout).not.toContain('Preflight');
-    },
-    35_000
-  );
+  it('refuses a malformed E2E_ARC_PRIVATE_KEY without printing it', () => {
+    const res = runCli({ E2E_ARC_PRIVATE_KEY: MALFORMED }, '--suite', 'usdcx-in', '--preflight-only');
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('the Arc key (E2E_ARC_PRIVATE_KEY) is not a valid private key');
+    expect(printed(res)).not.toContain('5a'.repeat(31));
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
 
-  it.each(['usdcx', 'usdcx-burn', 'swap'])(
-    'refuses --arc-key on --suite %s without printing it',
+  it.each(['usdcx-in', 'usdcx', 'usdcx-burn', 'swap'])(
+    'refuses --arc-key on --suite %s by name, never by value',
     suite => {
       const res = runCli('--suite', suite, '--arc-key', ARC_KEY, '--preflight-only');
       expect(res.status).toBe(1);
-      expect(res.stderr).toContain('--arc-key applies only to --suite usdcx-in');
+      expect(res.stderr).toContain('--arc-key is refused');
+      expect(res.stderr).toContain('Export E2E_ARC_PRIVATE_KEY instead');
       expect(printed(res)).not.toContain(ARC_KEY.slice(2));
       expect(res.stdout).not.toContain('Preflight');
     },
@@ -1064,15 +1093,15 @@ describe('the usdcx suites refuse what would not apply, before any probe or buil
   it('never echoes an --arc-key given with =', () => {
     const res = runCli(`--arc-key=${ARC_KEY}`, '--suite', 'usdcx-in', '--preflight-only');
     expect(res.status).toBe(1);
-    expect(res.stderr).toContain('unknown argument: --arc-key=<value>');
+    expect(res.stderr).toContain('--arc-key is refused');
     expect(printed(res)).not.toContain(ARC_KEY.slice(2));
     expect(res.stdout).not.toContain('Preflight');
   }, 35_000);
 
-  it('refuses another option as the value of --arc-key', () => {
+  it('refuses --arc-key given no value', () => {
     const res = runCli('--suite', 'usdcx-in', '--arc-key', '--preflight-only');
     expect(res.status).toBe(1);
-    expect(res.stderr).toContain('--arc-key needs a value');
+    expect(res.stderr).toContain('--arc-key is refused');
     expect(res.stdout).not.toContain('Preflight');
   }, 35_000);
 });
@@ -1088,7 +1117,6 @@ describe('resolveOperatorInput on the usdcx suites', () => {
     arcRpc: undefined,
     arcKey: undefined,
     arcRpcFlag: false,
-    arcKeyFlag: false,
     refusedExports: [],
     minEth: '0.02',
     preflightOnly: false,
@@ -1103,7 +1131,7 @@ describe('resolveOperatorInput on the usdcx suites', () => {
     ['usdcx-burn', {}],
     ['usdcx-in', {}],
     ['usdcx-in', { arcKey: ARC_KEY }],
-    ['usdcx-in', { arcKey: 'ab'.repeat(32), arcKeyFlag: true }],
+    ['usdcx-in', { arcKey: 'ab'.repeat(32) }],
     ['usdcx', { arcRpc: 'https://arc-rpc.example', arcRpcFlag: true }]
   ])('accepts --suite %s with %o', (suite, changed) => {
     expect(resolve({ suite, ...changed })).toStrictEqual({ suite: SUITES[suite], grep: SUITES[suite].grep });
@@ -1606,7 +1634,8 @@ describe('the usdcx preflight', () => {
     expect(failedChecks(res.output)).toEqual(['Arc funded key']);
     expect(res.output).toContain(
       `harness key ${address} holds 0.0209 USDC, below the 0.021 USDC one deposit and its gas need; refill it with ` +
-        "yarn e2e:real --suite usdcx (each run's payout adds about 0.98 USDC), or pass --arc-key with a funded key"
+        "yarn e2e:real --suite usdcx (each run's payout adds about 0.98 USDC), or export E2E_ARC_PRIVATE_KEY with a " +
+        'funded key'
     );
     expect(res.output).not.toContain(privateKey.slice(2));
     expect(res.status).toBe(1);
@@ -1806,12 +1835,12 @@ describe('a usdcx run', () => {
     expect(res.status).toBe(0);
   }, 35_000);
 
-  it("hands usdcx-in's test, and only it, the --arc-key and the --arc-rpc", () => {
-    const res = stubbed(
-      ['--suite', 'usdcx-in', '--arc-key', '11'.repeat(32), '--arc-rpc', 'https://arc-rpc.example'],
-      DOCUMENT,
-      { E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY, USDCX_LIVE_EVM_PRIVATE_KEY: IOS_KEY }
-    );
+  it("hands usdcx-in's test, and only it, the exported E2E_ARC_PRIVATE_KEY and the --arc-rpc", () => {
+    const res = stubbed(['--suite', 'usdcx-in', '--arc-rpc', 'https://arc-rpc.example'], DOCUMENT, {
+      E2E_ARC_PRIVATE_KEY: '11'.repeat(32),
+      E2E_SEPOLIA_PRIVATE_KEY: SEPOLIA_KEY,
+      USDCX_LIVE_EVM_PRIVATE_KEY: IOS_KEY
+    });
     const [install, build, test] = spawned(res.requests);
     expect(install.env).toEqual({});
     expect(build.env).toEqual({ E2E_NETWORK: 'testnet' });
@@ -2094,14 +2123,18 @@ describe('acquireUsdcxRunLock', () => {
 });
 
 describe('the usage', () => {
-  it('documents the usdcx suites, the Arc flags, the pinned CLI and one usdcx run at a time', () => {
+  it('documents the usdcx suites, the Arc flag, the keys as exports only, the pinned CLI and one usdcx run at a time', () => {
     const res = runCli('-h');
     expect(res.status).toBe(0);
     expect(res.stdout).toContain(`  ${'usdcx-in'.padEnd(21)} ${SUITES['usdcx-in'].describe}`);
     expect(res.stdout).toContain('--arc-rpc <url>');
     expect(res.stdout).toContain('(env: E2E_ARC_RPC_URL)');
-    expect(res.stdout).toContain('--arc-key <0x...>');
-    expect(res.stdout).toContain('(env: E2E_ARC_PRIVATE_KEY)');
+    expect(res.stdout).not.toMatch(/--arc-key|--sepolia-key/);
+    expect(res.stdout).toContain('Private keys, exported only');
+    expect(res.stdout).toContain('  E2E_ARC_PRIVATE_KEY       usdcx-in only: deposit from this funded Arc Testnet key');
+    expect(res.stdout).toContain(
+      '  E2E_SEPOLIA_PRIVATE_KEY   funded Sepolia EOA key, for suites with a signed EVM leg'
+    );
     expect(res.stdout).toContain('unless MIDEN_CLIENT_BIN is set');
     expect(res.stdout).toContain('A lock, ~/.miden-e2e/usdcx-run.lock, lets one usdcx run go');
     expect(res.stdout).toContain('usdcx and usdcx-burn burn to one harness Arc');

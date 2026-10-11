@@ -1,7 +1,12 @@
 import { expect, test } from '../../fixtures/two-wallets';
-import { arcEndpoints, readXReserveDomainState, type ArcReadDeps } from '../../helpers/arc-usdcx';
+import { arcEndpoints, arcHost, readXReserveDomainState, type ArcReadDeps } from '../../helpers/arc-usdcx';
 import { enText } from '../../helpers/bridge';
-import { BURN_UNITS, PAYOUT_TIMEOUT_MS, USDCX_REMOTE_DOMAIN } from '../../helpers/usdcx-constants';
+import {
+  ARC_READ_STEP_BUDGET_MS,
+  BURN_UNITS,
+  PAYOUT_TIMEOUT_MS,
+  USDCX_REMOTE_DOMAIN
+} from '../../helpers/usdcx-constants';
 import { guardianFailureContext, guardianIdentity } from '../../helpers/usdcx-guardian';
 import {
   assertBurnDetails,
@@ -27,10 +32,11 @@ import {
 /** Step budgets of spec section 5, steps 1 to 8. */
 const BUDGET = {
   wallet: 180_000,
-  arcState: 30_000,
+  // Each Arc read step outlasts a stall on every endpoint before the last one answers.
+  arcState: ARC_READ_STEP_BUDGET_MS,
   fund: 180_000,
   settle: 240_000,
-  keySnapshot: 30_000,
+  keySnapshot: ARC_READ_STEP_BUDGET_MS,
   burnViaUi: 180_000,
   burnRowPoll: 180_000,
   burnConfirmed: 300_000,
@@ -46,7 +52,8 @@ const BUDGET = {
 test.describe('USDCx burn through the Send UI after a public faucet grant', () => {
   // The injected fee faucet masks the wallet's own native-asset discovery (two-wallets.ts:840).
   test.use({ injectFeeFaucet: false });
-  // ~2 min setup + 14 min of steps to the submit + 3 min row poll + the 10 min gate + 2 min closing read <= 35 min.
+  // ~2 min setup + 32.5 min of Guardian step budgets (15.5 to the submit, 5 to confirm the burn, the 10 min gate and
+  // its 2 min closing read) <= 35 min.
   test.describe.configure({ timeout: 2_100_000 });
   test.beforeAll(() => {
     assertUsdcxLiveRun(process.env);
@@ -88,7 +95,7 @@ test.describe('USDCx burn through the Send UI after a public faucet grant', () =
           const state = await readXReserveDomainState(arc);
           expect(
             { registered: state.registered, paused: state.paused, withdrawalsPaused: state.withdrawalsPaused },
-            `xReserve domain ${USDCX_REMOTE_DOMAIN} read on ${state.endpoint}`
+            `xReserve domain ${USDCX_REMOTE_DOMAIN} read on ${arcHost(state.endpoint)}`
           ).toEqual({ registered: true, paused: false, withdrawalsPaused: false });
           return state;
         });

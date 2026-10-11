@@ -2,6 +2,7 @@ import { expect, type Page, type TestInfo } from '@playwright/test';
 import { isHash, type Address, type Hash, type Hex } from 'viem';
 
 import {
+  arcHost,
   readArcUsdcSnapshot,
   readXReserveDomainState,
   waitForGatewayPayout,
@@ -53,6 +54,7 @@ import {
   anyOf,
   boundedTerm,
   burnCompletionPath,
+  burnOutputNoteProblem,
   consumeFeePath,
   describePage,
   errorText,
@@ -535,7 +537,8 @@ export async function confirmBurn(
     domain: burn.destinationDomain
   }).toEqual({ destination: opts.destination.toLowerCase(), network: ARC_CHAIN_ID, domain: ARC_CIRCLE_DOMAIN });
   expect(row.transactionId).toMatch(/^0x[0-9a-f]+$/);
-  expect(row.outputNoteIds ?? []).toContain(burnNoteId);
+  const unlisted = burnOutputNoteProblem(path, row, burnNoteId);
+  if (unlisted !== undefined) throw new Error(unlisted);
   return {
     row,
     burnNoteId,
@@ -564,8 +567,8 @@ function payoutContext(arc: ArcReadDeps, key: ArcKey, snapshot: ArcUsdcSnapshot,
     const consumedAt = new Date(burn.oracle.consumeTimestampSec * 1_000).toISOString();
     return (
       `harness key ${key.address} (${HARNESS_ARC_KEY_FILE}) held ${snapshot.balance} at Arc block ` +
-      `${snapshot.blockNumber} (read on ${snapshot.endpoint}); burn note ${burn.burnNoteId} consumed in Miden block ` +
-      `${burn.oracle.consumeBlock} at ${consumedAt}; xReserve ${flags}`
+      `${snapshot.blockNumber} (read on ${arcHost(snapshot.endpoint)}); burn note ${burn.burnNoteId} consumed in ` +
+      `Miden block ${burn.oracle.consumeBlock} at ${consumedAt}; xReserve ${flags}`
     );
   };
 }

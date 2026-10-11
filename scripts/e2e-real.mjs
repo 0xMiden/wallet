@@ -169,7 +169,7 @@ export const SUITES = {
     arcKey: true,
     headlessByDefault: true,
     retries: 0,
-    describe: 'fresh Guardian: deposit from the harness Arc key (or --arc-key), attest, mint, receive'
+    describe: 'fresh Guardian: deposit from the harness Arc key (or E2E_ARC_PRIVATE_KEY), attest, mint, receive'
   },
   'usdcx-burn': {
     config: 'playwright.usdcx.config.ts',
@@ -199,13 +199,8 @@ Options
   --suite <name>            which suite to run (required)
   --network <net>           testnet | devnet            (default: testnet; usdcx suites: testnet only)
   --sepolia-rpc <url>       Sepolia RPC                 (default: a public node)
-  --sepolia-key <0x...>     funded Sepolia EOA key, for suites with a signed EVM leg
-                            (env: E2E_SEPOLIA_PRIVATE_KEY)
   --arc-rpc <url>           Arc Testnet RPC the usdcx suites try first, then drpc,
                             QuickNode and arc.io (env: E2E_ARC_RPC_URL)
-  --arc-key <0x...>         usdcx-in only: deposit from this funded Arc Testnet key
-                            instead of the harness key; only its address is printed
-                            (env: E2E_ARC_PRIVATE_KEY)
   --min-eth <amount>        preflight gas floor in ether (default: 0.02)
   --preflight-only          probe the services and exit; build and run nothing
   --agglayer-indexer-only   probe only the AggLayer indexer's Miden exit filing and exit;
@@ -216,6 +211,12 @@ Options
   --grep <pattern>          further narrow the tests within the suite
   -h, --help                this message
 
+Private keys, exported only: yarn prints the whole command line and ps shows it
+to every local user, so a key flag is refused
+  E2E_SEPOLIA_PRIVATE_KEY   funded Sepolia EOA key, for suites with a signed EVM leg
+  E2E_ARC_PRIVATE_KEY       usdcx-in only: deposit from this funded Arc Testnet key
+                            instead of the harness key; only its address is printed
+
 The Epoch allocator, the Sepolia USDC, the AggLayer bridge and its indexer come
 from the network's config document, read as the wallet reads it:
 MIDEN_REMOTE_CONFIG_URL when set, else the published 0xMiden/wallet-config.
@@ -224,11 +225,11 @@ The usdcx suites need no secret. usdcx and usdcx-burn burn to one harness Arc
 key, ~/.miden-e2e/arc-keys/harness.json (mode 0600), which the first real run
 creates; the round trip and usdcx-in deposit from it and Circle's payouts refill
 it, so no run needs Circle's faucet. usdcx-in needs the key to hold 0.021 USDC,
-or an --arc-key that does.
+or an exported E2E_ARC_PRIVATE_KEY that does.
 
 Bridge-out is solver-fulfilled and swap is Miden-side, so neither signs on EVM;
---sepolia-key is accepted so a funded account's gas and test-USDC balance can be
-READ ahead of a suite that does sign.
+E2E_SEPOLIA_PRIVATE_KEY is read so a funded account's gas and test-USDC balance
+can be checked ahead of a suite that does sign.
 
 usdcx-in runs bridge-in on the extension with a deposit signed in Node, not
 through WalletConnect, which the extension's COEP isolation for the WASM prover
@@ -257,6 +258,13 @@ const USDCX_REFUSED_EXPORTS = {
   E2E_WALLET_B_PROFILE: 'the test then opens wallet B in the browser profile it names instead of a fresh one'
 };
 const ARC_KEY_PATTERN = /^(0x)?[0-9a-f]{64}$/i;
+
+/**
+ * Each key flag and the variable an operator exports instead. yarn prints the whole command line before the runner
+ * starts and ps shows it to every local user, so a key passed as a flag is exposed before parseArgs sees it: refused by
+ * name, in either form, ahead of every other refusal, and never by value.
+ */
+const KEY_FLAGS = { '--arc-key': 'E2E_ARC_PRIVATE_KEY', '--sepolia-key': 'E2E_SEPOLIA_PRIVATE_KEY' };
 
 /**
  * Every private key the operator's shell may carry: the runner's two and the iOS nightly's Arc key. No child sees one
@@ -306,9 +314,7 @@ function parseArgs(argv) {
     '--suite': 'suite',
     '--network': 'network',
     '--sepolia-rpc': 'sepoliaRpc',
-    '--sepolia-key': 'sepoliaKey',
     '--arc-rpc': 'arcRpc',
-    '--arc-key': 'arcKey',
     '--min-eth': 'minEth',
     '--grep': 'grep'
   };
@@ -320,9 +326,19 @@ function parseArgs(argv) {
   // wallet used another.
   const retired = ['--epoch-url', '--epoch-positions-url'];
   const optionNames = new Set([...helpNames, ...retired, ...Object.keys(booleanFlags), ...Object.keys(takesValue)]);
-  // `--sepolia-key=<key>` names an option too, so it is never a value either:
-  // whatever later refused or ran that value would print the key.
+  // `--arc-rpc=<url>` names an option too, so it is never a value either:
+  // whatever later refused or ran that value would print a URL whose path may hold a key.
   const namesAnOption = token => optionNames.has(token.split('=', 1)[0]);
+  for (const arg of argv) {
+    const name = arg.split('=', 1)[0];
+    if (Object.hasOwn(KEY_FLAGS, name)) {
+      fail(
+        `${name} is refused: yarn prints the whole command line and ps shows it to every local user, so a key passed ` +
+          `as a flag is already exposed. Export ${KEY_FLAGS[name]} instead, and rotate the key if you typed it on a ` +
+          'command line.'
+      );
+    }
+  }
   const seen = new Set();
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -346,9 +362,8 @@ function parseArgs(argv) {
     } else fail(`unknown argument: ${arg}`);
   }
   // A flag is refused where it would not apply; the same value exported is left alone: only the usdcx specs read the
-  // Arc RPC, every phase unsets an exported key, and a usdcx test gets the run's own key (childEnvironments).
+  // Arc RPC.
   opts.arcRpcFlag = seen.has('--arc-rpc');
-  opts.arcKeyFlag = seen.has('--arc-key');
   if (opts.agglayerIndexerOnly) {
     // This probe reads the config document and no URL or key, so the empty-variable refusals below do not apply:
     // E2E Bridge sets E2E_SEPOLIA_RPC_URL from an optional secret, which is empty when the secret is unset.
@@ -440,7 +455,7 @@ export function resolveOperatorInput(opts) {
   if (suite.probes?.includes('sepolia') && opts.sepoliaKey && !/^(0x)?[0-9a-fA-F]{64}$/.test(opts.sepoliaKey)) {
     return {
       error:
-        'the Sepolia key (--sepolia-key or E2E_SEPOLIA_PRIVATE_KEY) is not a valid private key: expect 32 bytes of hex, with an optional 0x prefix'
+        'the Sepolia key (E2E_SEPOLIA_PRIVATE_KEY) is not a valid private key: expect 32 bytes of hex, with an optional 0x prefix'
     };
   }
   const usdcxProblem = usdcxInputProblem(opts, suite);
@@ -449,15 +464,11 @@ export function resolveOperatorInput(opts) {
 }
 
 /**
- * Why the input cannot run `suite`, for what only the usdcx suites read: the Arc flags, the refused exports and
+ * Why the input cannot run `suite`, for what only the usdcx suites read: the Arc RPC and key, the refused exports and
  * --skip-build. No message carries a value: a key, or a URL whose path may hold one.
  */
 function usdcxInputProblem(opts, suite) {
-  if (!suite.usdcx) {
-    if (opts.arcRpcFlag) return '--arc-rpc applies only to the usdcx suites';
-    if (opts.arcKeyFlag) return '--arc-key applies only to --suite usdcx-in';
-    return undefined;
-  }
+  if (!suite.usdcx) return opts.arcRpcFlag ? '--arc-rpc applies only to the usdcx suites' : undefined;
   // The build bakes the network and the E2E flags these suites depend on, so a reused dist/ proves nothing.
   if (opts.skipBuild) return `--skip-build is refused for --suite ${opts.suite}: it always builds`;
   const exported = (opts.refusedExports ?? []).find(name => Object.hasOwn(USDCX_REFUSED_EXPORTS, name));
@@ -468,12 +479,13 @@ function usdcxInputProblem(opts, suite) {
   if (opts.arcRpc !== undefined && !isHttpUrl(opts.arcRpc)) {
     return 'the Arc RPC (--arc-rpc or E2E_ARC_RPC_URL) is not an http(s) URL';
   }
-  if (!suite.arcKey) return opts.arcKeyFlag ? '--arc-key applies only to --suite usdcx-in' : undefined;
+  // usdcx and usdcx-burn take the harness key over an exported one (runSuite prints a line saying so).
+  if (!suite.arcKey) return undefined;
   // No key is fine here: usdcx-in then deposits from the harness key, or refuses after the lock (resolveArcKey).
   if (opts.arcKey === undefined) return undefined;
   if (opts.arcKey === '') return 'E2E_ARC_PRIVATE_KEY is set but empty';
   if (!ARC_KEY_PATTERN.test(opts.arcKey)) {
-    return 'the Arc key (--arc-key or E2E_ARC_PRIVATE_KEY) is not a valid private key: expect 32 bytes of hex, with an optional 0x prefix';
+    return 'the Arc key (E2E_ARC_PRIVATE_KEY) is not a valid private key: expect 32 bytes of hex, with an optional 0x prefix';
   }
   return undefined;
 }
@@ -1129,8 +1141,8 @@ async function probeArcFundedKey(url, arcKey) {
       const floor = formatUnits(USDCX_FUNDED_KEY_FLOOR_UNITS, USDCX_DECIMALS);
       const refill =
         arcKey.role === 'harness'
-          ? "; refill it with yarn e2e:real --suite usdcx (each run's payout adds about 0.98 USDC), or pass " +
-            '--arc-key with a funded key'
+          ? "; refill it with yarn e2e:real --suite usdcx (each run's payout adds about 0.98 USDC), or export " +
+            'E2E_ARC_PRIVATE_KEY with a funded key'
           : '';
       return record(false, 'Arc funded key', `${held}, below the ${floor} USDC one deposit and its gas need${refill}`);
     }
@@ -1477,9 +1489,9 @@ export async function harnessArcKey(file, { create }) {
 }
 
 /**
- * The Arc key a usdcx run hands its test (R21): usdcx-in's operator key when --arc-key or E2E_ARC_PRIVATE_KEY names
- * one, else the harness key, which a real usdcx or usdcx-burn run creates on first use. `{ error }` when usdcx-in has
- * neither. No message carries a key.
+ * The Arc key a usdcx run hands its test (R21): usdcx-in's operator key when E2E_ARC_PRIVATE_KEY names one, else the
+ * harness key, which a real usdcx or usdcx-burn run creates on first use. `{ error }` when usdcx-in has neither. No
+ * message carries a key.
  */
 async function resolveArcKey(opts, suite) {
   if (suite.arcKey && opts.arcKey !== undefined) {
@@ -1488,14 +1500,14 @@ async function resolveArcKey(opts, suite) {
     try {
       return { role: 'operator', privateKey, address: privateKeyToAccount(privateKey).address };
     } catch {
-      return { error: 'the Arc key (--arc-key or E2E_ARC_PRIVATE_KEY) is not a valid secp256k1 private key' };
+      return { error: 'the Arc key (E2E_ARC_PRIVATE_KEY) is not a valid secp256k1 private key' };
     }
   }
   const harness = await harnessArcKey(HARNESS_ARC_KEY_FILE, { create: !suite.arcKey && !opts.preflightOnly });
   if (harness.missing && suite.arcKey) {
     return {
       error:
-        `--suite ${opts.suite} has no Arc key: pass --arc-key or export E2E_ARC_PRIVATE_KEY, or run --suite usdcx ` +
+        `--suite ${opts.suite} has no Arc key: export E2E_ARC_PRIVATE_KEY, or run --suite usdcx ` +
         `first, which creates the harness key ${HARNESS_ARC_KEY_FILE} and refills it with Circle's payout`
     };
   }
@@ -1504,7 +1516,7 @@ async function resolveArcKey(opts, suite) {
 
 /** The banner's Arc key line: the role and the address, never the key. */
 function describeArcKey(arcKey) {
-  if (arcKey.role === 'operator') return `operator ${arcKey.address} (--arc-key or E2E_ARC_PRIVATE_KEY)`;
+  if (arcKey.role === 'operator') return `operator ${arcKey.address} (E2E_ARC_PRIVATE_KEY)`;
   if (arcKey.missing) {
     return `harness: none yet; the first real usdcx or usdcx-burn run creates ${HARNESS_ARC_KEY_FILE}`;
   }

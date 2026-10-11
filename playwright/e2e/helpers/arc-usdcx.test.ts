@@ -10,12 +10,14 @@ import {
   encodeAbiParameters,
   encodeErrorResult,
   hexToBigInt,
+  HttpRequestError,
   isAddress,
   isHex,
   keccak256,
   parseAbi,
   pad,
   parseTransaction,
+  TimeoutError,
   toBytes,
   toHex,
   type Address,
@@ -26,6 +28,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 
 import {
   arcEndpoints,
+  arcHost,
   assertDepositIntent,
   confirmDepositToMiden,
   decodeDepositIntent,
@@ -52,6 +55,8 @@ import {
   ARC_KEY_LEDGER_DIR,
   ARC_PUBLIC_URL,
   ARC_QUICKNODE_URL,
+  ARC_READ_STEP_BUDGET_MS,
+  ARC_RPC_TIMEOUT_MS,
   ARC_USDC,
   ARC_XRESERVE,
   ATTESTATION_USED_TOPIC,
@@ -123,6 +128,28 @@ describe('usdcx-constants', () => {
     // One burn's payout floor pays one deposit back and its gas reserve.
     expect(minimumUsdcxPayout(ARC_CHAIN_ID, BURN_UNITS) >= DEPOSIT_UNITS + GAS_RESERVE_UNITS).toBe(true);
     expect(isWorthClaiming(DEPOSIT_UNITS, 7)).toBe(true);
+  });
+
+  // A stalled endpoint is left only after the transport timeout, so a read step must outlast one on every endpoint.
+  it('gives a step that reads Arc one transport timeout per endpoint an operator run can have, plus 15 s', () => {
+    expect(ARC_RPC_TIMEOUT_MS).toBe(15_000);
+    expect(ARC_READ_STEP_BUDGET_MS).toBeGreaterThanOrEqual(
+      arcEndpoints('https://operator.example').length * ARC_RPC_TIMEOUT_MS + 15_000
+    );
+    expect(ARC_READ_STEP_BUDGET_MS).toBeGreaterThanOrEqual(60_000);
+  });
+});
+
+describe('arcHost', () => {
+  it('names an endpoint by its host, never the API key its path or query may carry', () => {
+    expect(arcHost('https://arc-testnet.example.com:8443/v2/token-in-path?key=token-in-query')).toBe(
+      'arc-testnet.example.com:8443'
+    );
+    expect(arcHost(ARC_DRPC_URL)).toBe('rpc.drpc.testnet.arc.io');
+  });
+
+  it('never echoes an endpoint it cannot parse', () => {
+    expect(arcHost('token-in-path/not-a-url')).toBe('an unparseable Arc endpoint');
   });
 });
 
@@ -249,13 +276,18 @@ describe('readArcUsdc', () => {
     expect(blocks).toEqual(['0x3f67664']);
   });
 
-  it('names every endpoint when none answers', async () => {
+  it('names every endpoint by its host when none answers', async () => {
     const failing = stubClient(() => {
       throw rpcError(-32005, 'rate limit exceeded');
     });
-    await expect(
-      readArcUsdc(ARC_USDC, { endpoints: ['https://a', 'https://b'], publicClient: () => failing })
-    ).rejects.toThrow(/no Arc endpoint answered\n {2}https:\/\/a: .*rate limit exceeded\n {2}https:\/\/b: /);
+    const failure = readArcUsdc(ARC_USDC, {
+      endpoints: ['https://a.example/v2/token-in-path', 'https://b.example/?key=token-in-query'],
+      publicClient: () => failing
+    });
+    await expect(failure).rejects.toThrow(
+      /no Arc endpoint answered\n {2}a\.example: .*rate limit exceeded\n {2}b\.example: /
+    );
+    await expect(failure).rejects.not.toThrow(/token-in/);
   });
 
   it('snapshots the head and the balance at that head on one endpoint, moving on when one fails', async () => {
@@ -567,6 +599,32 @@ describe('waitForGatewayPayout', () => {
     await expect(failure).rejects.toThrow('unknown: scan gaps none');
   });
 
+  it('names each endpoint by its host in a failure, never the token in its path', async () => {
+    const operator = 'https://arc.example/v2/token-in-path';
+    const failing = stubClient(() => {
+      throw rpcError(-32005, 'rate limit exceeded');
+    });
+    const uncorrelated = waitForGatewayPayout(
+      { ...args, burnNoteId: hexOf(payoutAt(1).burnNoteId) },
+      {
+        endpoints: [operator],
+        publicClient: () => stubClient(payoutChain({ balances: [9_983_600n], logs: [SPIKE.log] })),
+        clock: fakeClock(CONSUME_MS)
+      }
+    );
+    await expect(uncorrelated).rejects.toThrow('  endpoint: arc.example\n');
+    await expect(uncorrelated).rejects.toThrow('  ranges: arc.example 66483701-');
+    await expect(uncorrelated).rejects.not.toThrow('token-in-path');
+    const noMint = waitForGatewayPayout(args, {
+      endpoints: [operator, ARC_DRPC_URL],
+      publicClient: endpoint =>
+        endpoint === operator ? failing : stubClient(payoutChain({ balances: [0n], logs: [] })),
+      clock: fakeClock(CONSUME_MS)
+    });
+    await expect(noMint).rejects.toThrow('endpointErrors: arc.example: ');
+    await expect(noMint).rejects.not.toThrow('token-in-path');
+  });
+
   it('fails uncorrelated at the deadline when every complete scan finds no log', async () => {
     const failure = waitForGatewayPayout(args, {
       endpoints: [ARC_DRPC_URL],
@@ -658,8 +716,8 @@ describe('waitForGatewayPayout delta mode', () => {
     });
     await expect(failure).rejects.toMatchObject({ failure: 'uncorrelated' });
     await expect(failure).rejects.toThrow(
-      `payout received but not correlated: ${ARC_DRPC_URL}: found 0 AttestationUsed logs after block 66483700 ` +
-        `up to block 66483822; ${PREFUNDED_KEY_NOTE}`
+      'payout received but not correlated: rpc.drpc.testnet.arc.io: found 0 AttestationUsed logs after block ' +
+        `66483700 up to block 66483822; ${PREFUNDED_KEY_NOTE}`
     );
   });
 
@@ -781,12 +839,13 @@ describe('harnessPayoutLeg (usdcx-legs.ts)', () => {
     });
   });
 
-  it("fails the payout step at the consume's deadline, naming the key's pre-burn read and the consume", async () => {
+  it("fails the payout step at the consume's deadline, naming the key's pre-burn read by host", async () => {
     const { step } = recordingSteps();
     const evidence = newRunEvidence('usdcx');
     const clock = fakeClock(CONSUME_MS);
     const chain = payoutChain({ balances: [HELD], logs: history });
-    const arc = { endpoints: [ARC_DRPC_URL], publicClient: () => stubClient(chain), clock };
+    const operator = 'https://arc.example/v2/token-in-path';
+    const arc = { endpoints: [operator], publicClient: () => stubClient(chain), clock };
 
     const leg = await harnessPayoutLeg(step, { env: { ...ENV }, arc, budget: BUDGET, evidence, secrets: [] });
     const failure = leg.waitForPayout(burn, depositor);
@@ -795,72 +854,98 @@ describe('harnessPayoutLeg (usdcx-legs.ts)', () => {
       `payout: no destination mint for this key by ${new Date(CONSUME_MS + PAYOUT_TIMEOUT_MS).toISOString()}`
     );
     await expect(failure).rejects.toThrow(
-      `harness key ${KEY} (${HARNESS_ARC_KEY_FILE}) held ${HELD} at Arc block 66483822 (read on ${ARC_DRPC_URL}); ` +
+      `harness key ${KEY} (${HARNESS_ARC_KEY_FILE}) held ${HELD} at Arc block 66483822 (read on arc.example); ` +
         `burn note ${burn.burnNoteId} consumed in Miden block 412345 at ${new Date(CONSUME_MS).toISOString()}; ` +
         'xReserve '
     );
+    await expect(failure).rejects.not.toThrow('token-in-path');
     expect(clock.slept).toEqual(Array(PAYOUT_TIMEOUT_MS / 5_000).fill(5_000));
     expect(evidence.hashes).toEqual({});
     expect(evidence.fees).toEqual([]);
   });
 });
 
-/** The write side of Arc: two endpoints, the first refusing raw transactions, the second taking them. */
-function depositChain(opts: { allowance: bigint; revert?: Hex; alreadyKnown?: boolean }) {
+/** HTTP 429 as viem's http transport throws it. */
+const http429 = () => new HttpRequestError({ status: 429, url: ARC_DRPC_URL, details: 'Too Many Requests' });
+/** A request that outlived the transport timeout, as viem's http transport throws it. */
+const timedOut = () => new TimeoutError({ body: {}, url: ARC_DRPC_URL });
+
+/**
+ * The write side of Arc: a read-only endpoint first, which answers reads but refuses raw transactions, then drpc, which
+ * takes them. `faults` lists what drpc answers, in order, before it answers a method normally; `sent` holds every raw
+ * transaction drpc was handed, faulted or not, and `calls` every request as `<endpoint> <method>`.
+ */
+function depositChain(opts: {
+  allowance: bigint;
+  revert?: Hex;
+  alreadyKnown?: boolean;
+  faults?: Record<string, Error[]>;
+}) {
   const sent: Hex[] = [];
   const nonces: number[] = [];
-  const rpc: Rpc = (method, params) => {
-    switch (method) {
-      case 'eth_chainId':
-        return toHex(ARC_CHAIN_ID);
-      case 'eth_getTransactionCount':
-        return '0x5';
-      case 'eth_estimateGas':
-        return '0x20551';
-      case 'eth_maxPriorityFeePerGas':
-        return '0x0';
-      case 'eth_getBlockByNumber':
-        return {
-          number: '0x3f6763c',
-          hash: `0x${'11'.repeat(32)}`,
-          timestamp: '0x6a87a0a0',
-          baseFeePerGas: '0x5d21dba00',
-          transactions: []
-        };
-      case 'eth_call': {
-        const call = callOf(params);
-        if (call.functionName === 'allowance') return encodeUint(opts.allowance);
-        if (call.functionName === 'approve') return encodeBool(true);
-        if (opts.revert) throw rpcError(3, 'execution reverted', opts.revert);
-        return '0x';
-      }
-      case 'eth_sendRawTransaction': {
+  const calls: string[] = [];
+  const faults = new Map(Object.entries(opts.faults ?? {}).map(([method, errors]) => [method, [...errors]]));
+  const answer =
+    (at: 'read-only' | 'drpc'): Rpc =>
+    (method, params) => {
+      calls.push(`${at} ${method}`);
+      const probe = method === 'eth_sendRawTransaction' && params[0] === '0x00';
+      if (at === 'read-only' && method === 'eth_sendRawTransaction') throw rpcError(-32601, 'method not supported');
+      if (method === 'eth_sendRawTransaction' && !probe) {
         const raw = params[0];
-        if (raw === '0x00') throw rpcError(-32602, 'failed to decode signed transaction');
         if (!isHex(raw)) throw new Error('raw transaction is not hex');
         sent.push(raw);
         nonces.push(parseTransaction(raw).nonce ?? -1);
-        if (opts.alreadyKnown && sent.length === 1) throw rpcError(-32000, 'already known');
-        return keccak256(raw);
       }
-      case 'eth_getTransactionReceipt':
-        return { ...DEPOSIT_RECEIPT, transactionHash: params[0], logs: [], status: '0x1' };
-      default:
-        throw new Error(`unexpected ${method}`);
-    }
-  };
-  const refusing = stubClient((method, params) => {
-    if (method === 'eth_chainId') return toHex(ARC_CHAIN_ID);
-    if (method === 'eth_sendRawTransaction' && params[0] === '0x00') throw rpcError(-32601, 'method not supported');
-    throw new Error(`unexpected ${method} on the refusing endpoint`);
-  });
+      const fault = probe ? undefined : faults.get(method)?.shift();
+      if (fault) throw fault;
+      switch (method) {
+        case 'eth_chainId':
+          return toHex(ARC_CHAIN_ID);
+        case 'eth_getTransactionCount':
+          return '0x5';
+        case 'eth_estimateGas':
+          return '0x20551';
+        case 'eth_maxPriorityFeePerGas':
+          return '0x0';
+        case 'eth_getBlockByNumber':
+          return {
+            number: '0x3f6763c',
+            hash: `0x${'11'.repeat(32)}`,
+            timestamp: '0x6a87a0a0',
+            baseFeePerGas: '0x5d21dba00',
+            transactions: []
+          };
+        case 'eth_call': {
+          const call = callOf(params);
+          if (call.functionName === 'allowance') return encodeUint(opts.allowance);
+          if (call.functionName === 'approve') return encodeBool(true);
+          if (opts.revert) throw rpcError(3, 'execution reverted', opts.revert);
+          return '0x';
+        }
+        case 'eth_sendRawTransaction': {
+          const raw = params[0];
+          if (probe) throw rpcError(-32602, 'failed to decode signed transaction');
+          if (opts.alreadyKnown && sent.length === 1) throw rpcError(-32000, 'already known');
+          return keccak256(hexOf(String(raw)));
+        }
+        case 'eth_getTransactionReceipt':
+          return { ...DEPOSIT_RECEIPT, transactionHash: params[0], logs: [], status: '0x1' };
+        default:
+          throw new Error(`unexpected ${method}`);
+      }
+    };
+  const clients = { 'read-only': stubClient(answer('read-only')), drpc: stubClient(answer('drpc')) };
+  const clock = fakeClock();
   return {
     sent,
     nonces,
+    calls,
+    clock,
     deps: {
       endpoints: ['https://read-only.example', ARC_DRPC_URL],
-      publicClient: (endpoint: string) => (endpoint === ARC_DRPC_URL ? stubClient(rpc) : refusing),
-      clock: fakeClock()
+      publicClient: (endpoint: string) => (endpoint === ARC_DRPC_URL ? clients.drpc : clients['read-only']),
+      clock
     }
   };
 }
@@ -892,6 +977,11 @@ describe('submitDepositToMiden', () => {
       args: [DEPOSIT_UNITS, 10007, midenAccountHexToXReserveRecipient(recipientHex), ARC_USDC, 0n, '0x']
     });
     expect(approve?.chainId).toBe(ARC_CHAIN_ID);
+    // With no fault, every read and send goes to the write endpoint; the read-only one only answered the probes.
+    expect(chain.calls.filter(call => call.startsWith('read-only'))).toEqual([
+      'read-only eth_chainId',
+      'read-only eth_sendRawTransaction'
+    ]);
   });
 
   it("skips the approve when 'if-short' finds the allowance already covers the units", async () => {
@@ -910,7 +1000,7 @@ describe('submitDepositToMiden', () => {
     const chain = depositChain({ allowance: DEPOSIT_UNITS, revert: paused });
     await expect(
       submitDepositToMiden({ privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'if-short' }, chain.deps)
-    ).rejects.toThrow(`xReserve depositToRemote would revert on ${ARC_DRPC_URL}`);
+    ).rejects.toThrow('xReserve depositToRemote would revert on rpc.drpc.testnet.arc.io: ');
     await expect(
       submitDepositToMiden({ privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'if-short' }, chain.deps)
     ).rejects.toThrow('DomainDepositsPaused(10007)');
@@ -924,6 +1014,85 @@ describe('submitDepositToMiden', () => {
       chain.deps
     );
     expect(submission.depositHash).toBe(keccak256(chain.sent[0] ?? '0x'));
+  });
+
+  // arc.io answers bursts with 429 or -32005, and any endpoint can stall past the transport timeout.
+  it.each([
+    ['HTTP 429', http429],
+    ['JSON-RPC -32005', () => rpcError(-32005, 'rate limit exceeded')],
+    ['a request timeout', timedOut]
+  ])('sends again after the send answers %s once, re-broadcasting the same signed bytes', async (_what, fault) => {
+    const chain = depositChain({ allowance: DEPOSIT_UNITS, faults: { eth_sendRawTransaction: [fault()] } });
+    const submission = await submitDepositToMiden(
+      { privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'if-short' },
+      chain.deps
+    );
+    expect(chain.sent).toHaveLength(2);
+    expect(chain.sent[1]).toBe(chain.sent[0]);
+    expect(submission.depositHash).toBe(keccak256(chain.sent[0] ?? '0x'));
+    expect(chain.clock.slept).toEqual([2_000]);
+  });
+
+  it("counts 'nonce too low' on a resend of the same bytes as sent: the first send landed", async () => {
+    const chain = depositChain({
+      allowance: DEPOSIT_UNITS,
+      faults: { eth_sendRawTransaction: [timedOut(), rpcError(-32000, 'nonce too low')] }
+    });
+    const submission = await submitDepositToMiden(
+      { privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'if-short' },
+      chain.deps
+    );
+    expect(chain.sent[1]).toBe(chain.sent[0]);
+    expect(submission.depositHash).toBe(keccak256(chain.sent[0] ?? '0x'));
+  });
+
+  it.each([
+    ['insufficient funds for gas * price + value', 'a refusal'],
+    ['nonce too low', "a first send's spent nonce"]
+  ])('fails at once on %s (%s), naming the write endpoint by its host', async (message, _why) => {
+    const chain = depositChain({
+      allowance: DEPOSIT_UNITS,
+      faults: { eth_sendRawTransaction: [rpcError(-32000, message)] }
+    });
+    const failure = submitDepositToMiden(
+      { privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'if-short' },
+      chain.deps
+    );
+    await expect(failure).rejects.toThrow(
+      /^Arc transaction 0x[0-9a-f]{64} was not sent on rpc\.drpc\.testnet\.arc\.io: /
+    );
+    await expect(failure).rejects.toThrow(message);
+    expect(chain.sent).toHaveLength(1);
+    expect(chain.clock.slept).toEqual([]);
+  });
+
+  it('gives up on a send after three retries, 2, 4 and 8 s apart', async () => {
+    const chain = depositChain({
+      allowance: DEPOSIT_UNITS,
+      faults: { eth_sendRawTransaction: [http429(), http429(), http429(), http429()] }
+    });
+    await expect(
+      submitDepositToMiden({ privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'if-short' }, chain.deps)
+    ).rejects.toThrow('was not sent on rpc.drpc.testnet.arc.io: HTTP request failed.');
+    expect(chain.sent).toHaveLength(4);
+    expect(chain.clock.slept).toEqual([2_000, 4_000, 8_000]);
+  });
+
+  it('moves a pre-send read that answers -32005 to the next endpoint', async () => {
+    const chain = depositChain({
+      allowance: DEPOSIT_UNITS,
+      faults: { eth_estimateGas: [rpcError(-32005, 'rate limit exceeded')] }
+    });
+    const submission = await submitDepositToMiden(
+      { privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'if-short' },
+      chain.deps
+    );
+    expect(submission.endpoint).toBe(ARC_DRPC_URL);
+    expect(chain.calls.filter(call => call.endsWith('eth_estimateGas'))).toEqual([
+      'drpc eth_estimateGas',
+      'read-only eth_estimateGas'
+    ]);
+    expect(chain.sent).toHaveLength(1);
   });
 });
 
@@ -954,14 +1123,63 @@ describe('confirmDepositToMiden', () => {
     });
   });
 
-  it('refuses a reverted deposit', async () => {
-    const client = stubClient(() => ({ ...DEPOSIT_RECEIPT, status: '0x0' }));
+  it('refuses a reverted deposit at once, asking no other endpoint', async () => {
+    const calls: string[] = [];
+    const reverted = stubClient(() => ({ ...DEPOSIT_RECEIPT, status: '0x0' }), calls);
+    const other = stubClient(() => DEPOSIT_RECEIPT, calls);
+    const clock = fakeClock();
     await expect(
       confirmDepositToMiden(
         { endpoint: ARC_DRPC_URL, depositHash: hexOf(arcVectors.deposit.transactionHash), approved: false },
-        { endpoints: [ARC_DRPC_URL], publicClient: () => client, clock: fakeClock() }
+        {
+          endpoints: [ARC_DRPC_URL, ARC_QUICKNODE_URL],
+          publicClient: endpoint => (endpoint === ARC_DRPC_URL ? reverted : other),
+          clock
+        }
       )
     ).rejects.toThrow(`Arc transaction ${arcVectors.deposit.transactionHash} reverted in block 66290091`);
+    expect(calls).toEqual(['eth_getTransactionReceipt']);
+    expect(clock.slept).toEqual([]);
+  });
+
+  it('reads the receipt from the next endpoint when the write endpoint times out', async () => {
+    const asked: string[] = [];
+    const slow = 'https://slow.example/v2/token-in-path';
+    const confirmed = await confirmDepositToMiden(
+      { endpoint: slow, depositHash: hexOf(arcVectors.deposit.transactionHash), approved: false },
+      {
+        endpoints: [ARC_DRPC_URL, slow],
+        publicClient: endpoint =>
+          stubClient(method => {
+            asked.push(`${endpoint} ${method}`);
+            if (endpoint === slow) throw timedOut();
+            return DEPOSIT_RECEIPT;
+          }),
+        clock: fakeClock()
+      }
+    );
+    expect(confirmed.depositBlock).toBe(66290091n);
+    expect(asked).toEqual([`${slow} eth_getTransactionReceipt`, `${ARC_DRPC_URL} eth_getTransactionReceipt`]);
+  });
+
+  it('fails at once on a receipt error that is not transient, naming the endpoint by its host', async () => {
+    const operator = 'https://arc.example/v2/token-in-path';
+    const failure = confirmDepositToMiden(
+      { endpoint: operator, depositHash: hexOf(arcVectors.deposit.transactionHash), approved: false },
+      {
+        endpoints: [operator, ARC_DRPC_URL],
+        publicClient: endpoint =>
+          stubClient(() => {
+            if (endpoint === operator) throw rpcError(-32602, 'invalid argument 0: hex string has length 62');
+            return DEPOSIT_RECEIPT;
+          }),
+        clock: fakeClock()
+      }
+    );
+    await expect(failure).rejects.toThrow(
+      `Arc transaction ${arcVectors.deposit.transactionHash} receipt on arc.example: `
+    );
+    await expect(failure).rejects.not.toThrow('token-in-path');
   });
 });
 
