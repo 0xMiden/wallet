@@ -138,6 +138,15 @@ export interface IConsumedAssetTotal {
   amount: bigint;
 }
 
+/** One note a consume claimed, as it was queued. */
+export interface IConsumedNote {
+  id: string;
+  senderAddress: string;
+  faucetId: string;
+  /** Base units of the note's first fungible asset; absent when the claimable note carried no amount. */
+  amount?: bigint;
+}
+
 /**
  * The CCTP leg of a USDCx deposit from a chain with no xReserve (Base, Arbitrum): the burn on the source
  * chain mints to Circle's executor on Arc, which deposits into Arc's xReserve. Circle's forwarder does not
@@ -641,6 +650,8 @@ export interface ITransaction {
   noteType?: NoteType;
   /** Consume only: per-faucet totals of a batch claim (see `ConsumeTransaction`). */
   assetTotals?: IConsumedAssetTotal[];
+  /** Consume only: each claimed note's facts, as queued (see `ConsumeTransaction`). Not indexed. */
+  consumedNotes?: IConsumedNote[];
   /**
    * Consume only: queued by the everyday-key rotation gate to fund the rotation's fee
    * (#805). Generation signs such a row with the recovery key after proving every note
@@ -1077,6 +1088,12 @@ export class ConsumeTransaction implements ITransaction {
    * to recompute from.
    */
   assetTotals?: IConsumedAssetTotal[];
+  /**
+   * Each claimed note's sender, faucet and amount, as queued. A consume that completes without a transaction result,
+   * through a landing the node proved, has nothing else to adopt its bridge deliveries by. Absent on rows queued
+   * before it.
+   */
+  consumedNotes?: IConsumedNote[];
   /** See `ITransaction.rotationFunding`. */
   rotationFunding?: true;
   transactionId?: string;
@@ -1129,6 +1146,12 @@ export class ConsumeTransaction implements ITransaction {
       total => total.faucetId !== ''
     );
     this.assetTotals = identifiedTotals.length > 0 ? identifiedTotals : undefined;
+    this.consumedNotes = list.map(note => ({
+      id: note.id,
+      senderAddress: note.senderAddress,
+      faucetId: note.faucetId,
+      ...(note.amount === '' ? {} : { amount: BigInt(note.amount) })
+    }));
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.queuedSeq = nextQueuedSeq();

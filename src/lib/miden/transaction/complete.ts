@@ -40,13 +40,7 @@ import {
   updateTransactionStatus
 } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
-import {
-  applyBridgeInInfoForNotes,
-  applyBridgeInToConsumeRow,
-  noteIdKey,
-  takeAgglayerBridgeInInfo,
-  takeUsdcxBridgeInInfo
-} from '../activity/bridge-in';
+import { adoptBridgeDeliveries } from '../activity/bridge-in';
 import { feeFieldsFromResult, splitExecutedOutputNotes } from '../activity/fee';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
@@ -316,56 +310,25 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     resultBytes: result.serialize()
   });
 
-  // Best-effort bridge-in tagging: if this consume claimed a note parked by an
-  // EVM→Miden intent (plain bridge deposit OR a Smart Withdraw delivery), tag the
-  // row as "Bridged from EVM". A bridge-in with a `bridgeReceiveTxId` also flips
-  // that tracking row to `received`; one with an `earnWithdrawTxId` flips the
-  // linked Smart Withdraw row instead, with the actual consumed amount. Must never
+  // A note parked by an EVM→Miden intent, or minted for a tracked deposit, settles its bridge row. Each executed
+  // note goes over by its own first asset: the per-faucet totals above are no single delivery's amount. Must never
   // fail the consume itself.
   try {
-    const consumedNoteIds = inputNotes.map(inputNote => inputNote.note().id().toString());
-    // The registry takes at most one note; the batch below pairs every other one, by the registry's canonical id.
-    let registryNoteKey: string | undefined;
-    const applied = await applyBridgeInInfoForNotes(consumedNoteIds, info => {
-      if (info.midenNoteId) registryNoteKey = noteIdKey(info.midenNoteId);
-      return applyBridgeInToConsumeRow(id, info);
-    });
-    const accountId = dbTransaction?.accountId ?? '';
-    if (!applied && inputNotes.length === 1) {
-      // A note the USDCx faucet minted for an xReserve deposit is otherwise an ordinary faucet receive.
-      const info =
-        (await takeAgglayerBridgeInInfo({ accountId, senderAccountId: sender, amount })) ??
-        (await takeUsdcxBridgeInInfo({ accountId, senderAccountId: sender, faucetId, amount }));
-      if (info) await applyBridgeInToConsumeRow(id, { ...info, midenNoteId: consumedNoteIds[0] });
-    } else if (inputNotes.length > 1) {
-      // A batch's per-faucet total is no single delivery's amount, and native USDCx mints are auto-claimed together,
-      // so each note is paired by its own sender, faucet and amount, one at a time so two same-amount mints adopt two
-      // rows. Only the tracking rows move; the batch row keeps its own label.
-      for (const inputNote of inputNotes) {
-        const batchNote = inputNote.note();
-        if (registryNoteKey !== undefined && noteIdKey(batchNote.id().toString()) === registryNoteKey) continue;
-        const noteAsset = batchNote.assets().fungibleAssets()[0];
-        if (!noteAsset) continue;
-        const noteSender = getBech32AddressFromAccountId(batchNote.metadata().sender());
-        const noteFaucetId = getBech32AddressFromAccountId(noteAsset.faucetId());
-        const noteAmount = noteAsset.amount();
-        const info =
-          (await takeAgglayerBridgeInInfo({ accountId, senderAccountId: noteSender, amount: noteAmount })) ??
-          (await takeUsdcxBridgeInInfo({
-            accountId,
-            senderAccountId: noteSender,
-            faucetId: noteFaucetId,
-            amount: noteAmount
-          }));
-        if (!info?.bridgeReceiveTxId) continue;
-        await updateBridgedReceivePhase(
-          info.bridgeReceiveTxId,
-          'received',
-          { midenNoteId: batchNote.id().toString() },
-          { amount: noteAmount, faucetId: noteFaucetId, transactionId: executedTransaction.id().toHex() }
-        );
-      }
-    }
+    await adoptBridgeDeliveries(
+      id,
+      inputNotes.map(inputNote => {
+        const executed = inputNote.note();
+        const noteAsset = executed.assets().fungibleAssets()[0];
+        // A note with no fungible asset can only be a registry delivery, which pairs by id alone.
+        if (!noteAsset) return { id: executed.id().toString(), senderAddress: '', faucetId: '' };
+        return {
+          id: executed.id().toString(),
+          senderAddress: getBech32AddressFromAccountId(executed.metadata().sender()),
+          faucetId: getBech32AddressFromAccountId(noteAsset.faucetId()),
+          amount: noteAsset.amount()
+        };
+      })
+    );
   } catch (err) {
     console.warn('[bridge-in] consume tagging failed (non-fatal)', err);
   }

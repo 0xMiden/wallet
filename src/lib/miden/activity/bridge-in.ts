@@ -330,6 +330,127 @@ export async function takeUsdcxBridgeInInfo(args: {
   };
 }
 
+/** A claimed note's facts, as adoption pairs it with a tracking row. */
+export interface AdoptableNote {
+  id: string;
+  senderAddress: string;
+  faucetId: string;
+  /** Absent for a note with no readable amount: the intent registry, which pairs by id alone, is its only match. */
+  amount?: bigint;
+}
+
+/**
+ * The notes a completed consume adopts by: the per-note facts it kept at queue time, else the one note a single-note
+ * row from before them names. Undefined for an older batch, which kept nothing per note.
+ */
+export function adoptableNotesOf(
+  tx: Pick<ITransaction, 'consumedNotes' | 'noteId' | 'noteIds' | 'secondaryAccountId' | 'faucetId' | 'amount'>
+): AdoptableNote[] | undefined {
+  if (tx.consumedNotes !== undefined) return [...tx.consumedNotes];
+  if ((tx.noteIds?.length ?? 1) > 1) return undefined;
+  const { noteId, secondaryAccountId, faucetId, amount } = tx;
+  if (!noteId) return [];
+  return [{ id: noteId, senderAddress: secondaryAccountId ?? '', faucetId: faucetId ?? '', amount }];
+}
+
+async function takeDeliveryInfo(accountId: string, note: AdoptableNote): Promise<IBridgeInInfo | undefined> {
+  const { senderAddress, faucetId, amount } = note;
+  // A note missing a pairing fact can only be a registry delivery, which the registry pass pairs by id.
+  if (!senderAddress || !faucetId || amount === undefined) return undefined;
+  return (
+    (await takeAgglayerBridgeInInfo({ accountId, senderAccountId: senderAddress, amount })) ??
+    (await takeUsdcxBridgeInInfo({ accountId, senderAccountId: senderAddress, faucetId, amount }))
+  );
+}
+
+/** The notes some tracking row already names as its delivery. */
+async function adoptedNoteKeys(notes: readonly AdoptableNote[]): Promise<Set<string>> {
+  const keys = new Set(notes.map(note => noteIdKey(note.id)));
+  const named = (tx: ITransaction): string | undefined => {
+    const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
+    return inputs?.midenNoteId === undefined ? undefined : noteIdKey(inputs.midenNoteId);
+  };
+  const rows = await Repo.transactions
+    .where('type')
+    .equals('bridged-receive')
+    .filter(tx => {
+      const key = named(tx);
+      return key !== undefined && keys.has(key);
+    })
+    .toArray();
+  return new Set(rows.flatMap(tx => named(tx) ?? []));
+}
+
+/**
+ * Settle the bridge deliveries a completed consume claimed: the intent registry first, then a single note by its own
+ * sender and amount, which makes the consume the deposit's receipt, then each note of a batch by its own sender,
+ * faucet and amount, one at a time so two same-amount mints take two rows (only the tracking rows move). Six landing
+ * paths call this, so a note a tracking row already names is skipped: a second call must not take another deposit of
+ * the same amount. Never throws: tagging must never fail the consume.
+ */
+export async function adoptBridgeDeliveries(consumeId: string, notes: readonly AdoptableNote[]): Promise<void> {
+  try {
+    const consume = await Repo.transactions.where({ id: consumeId }).first();
+    if (!consume || consume.extraInputs?.bridgeIn) return;
+    const adopted = await adoptedNoteKeys(notes);
+    const open = notes.filter(note => !adopted.has(noteIdKey(note.id)));
+    if (open.length === 0) return;
+    // The registry takes at most one note; the batch below pairs every other one, by the registry's canonical id.
+    let registryNoteKey: string | undefined;
+    const applied = await applyBridgeInInfoForNotes(
+      open.map(note => note.id),
+      info => {
+        if (info.midenNoteId) registryNoteKey = noteIdKey(info.midenNoteId);
+        return applyBridgeInToConsumeRow(consumeId, info);
+      }
+    );
+    const batch = notes.length > 1 || (consume.noteIds?.length ?? notes.length) > 1;
+    const [single] = open;
+    if (!batch) {
+      if (applied || !single) return;
+      // A note the USDCx faucet minted for an xReserve deposit is otherwise an ordinary faucet receive.
+      const info = await takeDeliveryInfo(consume.accountId, single);
+      if (info) await applyBridgeInToConsumeRow(consumeId, { ...info, midenNoteId: single.id });
+      return;
+    }
+    // A batch's per-faucet total is no single delivery's amount, and native USDCx mints are auto-claimed together.
+    for (const note of open) {
+      if (registryNoteKey !== undefined && noteIdKey(note.id) === registryNoteKey) continue;
+      const info = await takeDeliveryInfo(consume.accountId, note);
+      if (!info?.bridgeReceiveTxId || note.amount === undefined) continue;
+      const { updateBridgedReceivePhase } = await import('../transaction/complete');
+      await updateBridgedReceivePhase(
+        info.bridgeReceiveTxId,
+        'received',
+        { midenNoteId: note.id },
+        { amount: note.amount, faucetId: note.faucetId, transactionId: consume.transactionId }
+      );
+    }
+  } catch (err) {
+    console.warn('[bridge-in] consume tagging failed (non-fatal)', consumeId, err);
+  }
+}
+
+/**
+ * Adoption for a consume completed with no transaction result, by a landing the node proved: the per-note facts the
+ * row kept are all there is to pair by. Never throws.
+ */
+export async function adoptLandedConsume(consumeId: string): Promise<void> {
+  try {
+    const consume = await Repo.transactions.where({ id: consumeId }).first();
+    if (consume?.type !== 'consume' || consume.status !== ITransactionStatus.Completed || consume.restoredFromBackup)
+      return;
+    const notes = adoptableNotesOf(consume);
+    if (notes === undefined) {
+      console.warn('[bridge-in] a landed batch consume kept no per-note facts, so none is adopted', consumeId);
+      return;
+    }
+    await adoptBridgeDeliveries(consumeId, notes);
+  } catch (err) {
+    console.warn('[bridge-in] landed consume adoption failed (non-fatal)', consumeId, err);
+  }
+}
+
 /** Persist each submitted owner/nonce once, before its delivery is known. */
 export async function registerPendingBridgeIn(
   userAddress: string,

@@ -15,6 +15,7 @@ import { applyVerifiedLanding, reportVerifiedLanding, verifiedLandingRowFields }
 import { accountOthers, deferralHolds, judgeSubmitEvidence, RowJudgement } from './reconcile-judge';
 import { createNodeReads, NodeReads, observedCadenceMs } from './reconcile-reads';
 import { awaitingVerdict, evidenceKey, isCheckable, nowSeconds } from './verdict-rules';
+import { adoptLandedConsume } from '../activity/bridge-in';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 import { sameWalletAccountId } from '../sdk/helpers';
 
@@ -137,6 +138,7 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
   });
   if (landed === undefined) return false;
   reportVerifiedLanding(landed);
+  if (landed.type === 'consume') await adoptLandedConsume(landed.id);
   return true;
 }
 
