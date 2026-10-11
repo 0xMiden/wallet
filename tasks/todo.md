@@ -587,4 +587,30 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 
 - `actionlint -ignore 'label "macos-(15-large|26-xlarge)" is unknown' .github/workflows/e2e-bridge-in.yml` and `git diff --check` pass. The helper test is added; this checkout has no `node_modules`, so it cannot run locally. Exact-SHA preparation and hosted runtime verification are still required.
 - Independent review found no actionable P0/P1/P2 issue. It confirmed the workflow serializes launch then reservation, the offline process check avoids a duplicate AVD, and the five-minute dispatch-based watchdog remains fail-closed. Live execution is still needed to prove both the first-loop target and 100-loop outcome.
-- Pending publication, exact-SHA preparation, hosted runtime verification, and 100-loop completion.
+- Commit `54e5d1774b3d26601c079d0e3d6d8b01fc436f65` was published and prepared successfully in run `38122242714`. Live run `38122687423` passed the asynchronous launch step but timed out before loop 1. The emulator log proved a second process attempted to open the same AVD; the process-name lookup missed the first launch.
+
+## Prevent duplicate bridge-in emulator launch and start boot earlier
+
+### Plan
+
+- [x] Inspect run `38122687423`'s exact job log, startup report, and emulator diagnostics; identify the duplicate launch and startup time cost.
+- [x] Record the spawned emulator PID in a shared per-run receipt; have Playwright validate and wait on that exact visible process instead of a process-name scan.
+- [x] Launch through a dependency-free shared Node script and move dependency and prepared-artifact restores after emulator startup, so guest boot overlaps those long steps.
+- [x] Run source/workflow checks and obtain a fresh independent review.
+- [x] Refresh current `origin/main` and verify the recovery branch contains it.
+- [ ] Publish the reviewed fix and prepare exact-SHA inputs.
+- [ ] Automatically retry Android Testnet after each terminal failure until one run proves all 100 loops complete.
+
+### Evidence
+
+- Run `38122687423` used SHA `54e5d1774b3d26601c079d0e3d6d8b01fc436f65`. The visible launch step passed at `2026-10-11T07:52:32Z`; Playwright started at `07:52:46Z`. The dispatch-based watchdog expired at `07:54:45Z` without a first-loop marker.
+- Its diagnostics showed `emulator-5554` was attached but the wallet app had not started. The exact emulator log ended with `FATAL | Running multiple emulators with the same AVD is an experimental feature`, confirming a duplicate boot while the first emulator was still starting. No loop entry or loop artifacts were produced.
+- The dependency cache restore and prepared CLI/APK download occurred before emulator launch. Moving them after launch overlaps roughly 60 seconds of dependency restore plus artifact transfer with the AVD cold boot while retaining the five-minute workflow-created deadline.
+
+### Review/results
+
+- `actionlint`, `git diff --check`, `node --check scripts/android-emulator-launch.cjs`, and a mocked Node launch/receipt check pass. The focused Jest suite cannot run in this checkout because `node_modules` is absent.
+- Independent review found no actionable issue. It confirmed the launcher uses Node built-ins, the start/Playwright steps share the same run-scoped receipt, and the dependency/artifact restores now follow emulator start while the original five-minute deadline remains fail-closed.
+- The exact failure report and artifacts are saved under `/home/jovan_lomoljo/wallet/test-results-android/ci-run-38122687423/`.
+- A fresh fetch confirmed `origin/main` is `8e7ae16302d5a69d9479d14b8a721dc0944aca88`, an ancestor of the recovery branch. Run `38122687423` is terminal failure; no matching workflow is in progress.
+- Pending commit/publication of this fix, exact-SHA preparation, and the authorized live retry loop.

@@ -1,4 +1,4 @@
-import { execFile, spawn } from 'child_process';
+import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -60,6 +60,29 @@ const DEVICE_PAIR_AVD_B = 'miden_e2e_B';
 // have a known activity-resolution bug that makes `am start` fail on freshly
 // installed APKs (see investigation notes in the wiktor/mt-wasm-mobile branch).
 const BASE_AVD = 'Pixel_API_34';
+
+interface AndroidEmulatorLaunchModule {
+  getLiveLaunchReceipt(
+    markerPath: string,
+    avdName: string,
+    port: number,
+    requireVisible: boolean
+  ): { pid: number; avdName: string; port: number; visible: boolean; startedAt: string } | null;
+  launchEmulator(options: {
+    emulatorBin: string;
+    avdName: string;
+    port: number;
+    visible: boolean;
+    cores: number;
+    logPath: string;
+    markerPath?: string;
+  }): { pid?: number; unref(): void };
+  launchMarkerPath(port: number): string;
+}
+
+const { getLiveLaunchReceipt, launchEmulator, launchMarkerPath } = require(
+  '../../../../scripts/android-emulator-launch.cjs'
+) as AndroidEmulatorLaunchModule;
 
 /**
  * Boot budget. 120s was tuned on a 10-core M-series host, where a cold arm64
@@ -579,13 +602,19 @@ async function bootAvd(avdName: string, port: number, options: BootAvdOptions = 
   // adb reports a booting emulator as `offline`, so it is intentionally absent
   // from listBootedSerials(). The workflow launches the bridge-in guest before
   // installing Foundry and setting up Playwright; when global setup reserves it,
-  // recognize that exact AVD/port process and wait for its existing boot rather
-  // than racing a second emulator against its userdata lock.
-  const existingProcess = await findEmulatorProcess(avdName, port);
-  if (existingProcess) {
-    if (visible) assertVisibleEmulatorProcess(existingProcess, avdName, port);
-  } else {
-    launchAvd(avdName, port, visible, cores);
+  // use the launch receipt's live PID or the exact AVD/port process and wait for
+  // its existing boot rather than racing a second emulator against its userdata
+  // lock. The receipt also covers the short gap before the OS exposes the child
+  // in `ps`.
+  const markerPath = launchMarkerPath(port);
+  const launchReceipt = getLiveLaunchReceipt(markerPath, avdName, port, visible);
+  const existingProcess = launchReceipt ? null : await findEmulatorProcess(avdName, port);
+  if (!launchReceipt) {
+    if (existingProcess) {
+      if (visible) assertVisibleEmulatorProcess(existingProcess, avdName, port);
+    } else {
+      launchAvd(avdName, port, visible, cores, returnAfterSpawn ? markerPath : undefined);
+    }
   }
 
   if (returnAfterSpawn) return expectedSerial;
@@ -616,59 +645,17 @@ async function bootAvd(avdName: string, port: number, options: BootAvdOptions = 
   );
 }
 
-function launchAvd(avdName: string, port: number, visible: boolean, cores: number): void {
+function launchAvd(avdName: string, port: number, visible: boolean, cores: number, markerPath?: string): void {
   const logPath = emulatorLogPath(avdName, port);
-  fs.mkdirSync(path.dirname(logPath), { recursive: true });
-  const logFd = fs.openSync(logPath, 'a');
-  const child = spawn(
-    getEmulatorBin(),
-    [
-      '-avd',
-      avdName,
-      '-port',
-      String(port),
-      // The bridge-in workflow checks VM acceleration before expensive setup.
-      // Keep the emulator fail-closed so it cannot silently fall back to slow
-      // software CPU emulation on a misconfigured runner.
-      '-accel',
-      'on',
-      '-no-snapshot',
-      '-no-audio',
-      // Software GPU. `-gpu host` allocates large host-GPU buffers backing
-      // the emulated display, which combined with HVF-resident guest RAM
-      // pushed QEMU RSS to ~22 GB per emulator — two of them tipped the
-      // 32 GB host into swap. The wallet UI is mostly static so
-      // swiftshader_indirect is fast enough for the test path.
-      '-gpu',
-      'swiftshader_indirect',
-      '-no-boot-anim',
-      ...(!visible ? ['-no-window'] : []),
-      // Override config.ini's `hw.ramSize` — emulator silently clamps the
-      // file value to ~2 GB at boot when regenerating hardware-qemu.ini.
-      //
-      // 4 GB, measured — do not raise this without re-measuring.
-      //
-      // Origin: chosen on an Apple Silicon host (3 GB OOM-killed the Chromium
-      // sandboxed renderer; 6 GB inflated qemu RSS to ~22 GB per emulator under
-      // HVF). On the Linux CI runner the guest's own low-memory killer still
-      // reaps the wallet sometimes, so 5 GB was tried — and made it strictly
-      // WORSE: at 5 GB x 2 the host is short enough that the emulator no longer
-      // even finishes starting.
-      //
-      //   4 GB x 2:  passes ~half the time; guest LMK kills the app on the rest
-      //   5 GB x 2:  "Emulator emulator-5556 did not stabilize within 300000ms"
-      //
-      // Two full emulators are simply close to what a 16 GB runner can host.
-      // The lever that helps is giving the HOST more room (see the workflow's
-      // gradle-daemon stop), not giving each guest a bigger share of it.
-      '-memory',
-      '4096',
-      '-cores',
-      String(cores)
-    ],
-    { detached: true, stdio: ['ignore', logFd, logFd] }
-  );
-  child.unref();
+  launchEmulator({
+    emulatorBin: getEmulatorBin(),
+    avdName,
+    port,
+    visible,
+    cores,
+    logPath,
+    ...(markerPath ? { markerPath } : {})
+  });
 }
 
 function emulatorLogPath(avdName: string, port: number): string {
@@ -709,6 +696,7 @@ async function assertRunningAvd(serial: string, avdName: string, requireVisible:
   if (serialPort === undefined) {
     throw new Error(`Cannot verify the launch flags for ${avdName} on unexpected serial ${serial}.`);
   }
+  if (getLiveLaunchReceipt(launchMarkerPath(Number(serialPort)), avdName, Number(serialPort), true)) return;
   const processLine = await findEmulatorProcess(avdName, Number(serialPort));
   if (!processLine) {
     throw new Error(`Cannot verify the launch flags for ${avdName} on ${serial}; refusing to reuse it.`);

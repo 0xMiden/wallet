@@ -836,6 +836,131 @@ jobs:
       - name: Check dispatch-based first-loop deadline
         run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline runner_setup
 
+      - name: Restore prepared Android API 34 system image
+        id: android-image-cache
+        timeout-minutes: 2
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/Library/Android/sdk/system-images/android-34/default/x86_64
+          key: bridge-in-android-system-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
+
+      - name: Check dispatch-based first-loop deadline
+        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline android_image_restore
+
+      - name: Restore exact prepared Android emulator
+        id: android-emulator-cache
+        timeout-minutes: 2
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/Library/Android/sdk/emulator
+          key: bridge-in-android-emulator-v1-${{ runner.os }}-${{ runner.arch }}-37.2.12-build-16428233
+
+      - name: Check dispatch-based first-loop deadline
+        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline android_emulator_restore
+
+      - name: Require prepared Android API 34 image
+        if: steps.android-image-cache.outputs.cache-hit != 'true'
+        run: |
+          echo "::error::The exact Android API 34 image cache is missing. Run e2e-bridge-in.yml with platform=android-prepare for this commit before starting the live workflow."
+          exit 1
+
+      - name: Require exact prepared Android emulator
+        if: steps.android-emulator-cache.outputs.cache-hit != 'true'
+        run: |
+          echo "::error::The exact pinned Android emulator cache is missing. Run e2e-bridge-in.yml with platform=android-prepare for this commit before starting the live workflow."
+          exit 1
+
+      # Emulator 37.2.12 explicitly reduced the guest to one vCPU on hosts with
+      # fewer than six logical cores, then QEMU stalled before adb became ready.
+      - name: Verify Android emulator host capacity
+        timeout-minutes: 1
+        run: |
+          host_cores=$(sysctl -n hw.ncpu)
+          if ! [[ "$host_cores" =~ ^[0-9]+$ ]] || (( host_cores < 6 )); then
+            echo "::error::The Android x86_64 emulator requires at least 6 host logical CPUs; this runner reports '$host_cores'."
+            exit 1
+          fi
+          echo "Android emulator host exposes $host_cores logical CPUs."
+
+      - name: Check dispatch-based first-loop deadline
+        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline emulator_host_check
+
+      # Preparation and live workload use separate runners, so PATH changes are job-local.
+      - name: Add Android SDK tools to PATH
+        timeout-minutes: 1
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Check dispatch-based first-loop deadline
+        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline android_sdk_path_setup
+
+      - name: Verify restored Android SDK packages
+        timeout-minutes: 1
+        run: |
+          command -v sdkmanager
+          command -v avdmanager
+          if [[ "$(uname -m)" != "x86_64" ]]; then
+            echo "::error::macos-15-large must provide an x86_64 host for the Android image"
+            exit 1
+          fi
+          test -x "$ANDROID_HOME/emulator/emulator"
+          test -x "$ANDROID_HOME/platform-tools/adb"
+          test -s "$ANDROID_HOME/platforms/android-36/android.jar"
+          test -s "$ANDROID_HOME/system-images/android-34/default/x86_64/package.xml"
+          expected_emulator_marker="$ANDROID_EMULATOR_VERSION $ANDROID_EMULATOR_ARCHIVE_BUILD $ANDROID_EMULATOR_ARCHIVE_SHA256"
+          test -s "$ANDROID_HOME/emulator/.wallet-emulator-package"
+          if [[ "$(cat "$ANDROID_HOME/emulator/.wallet-emulator-package")" != "$expected_emulator_marker" ]]; then
+            echo "::error::Restored emulator archive marker does not match the pinned version, build, and checksum."
+            exit 1
+          fi
+          emulator_version=$("$ANDROID_HOME/emulator/emulator" -version 2>&1 | sed -n '1s/^Android emulator version \([0-9.]*\).*/\1/p')
+          emulator_version=${emulator_version%.0}
+          if [[ "$emulator_version" != "$ANDROID_EMULATOR_VERSION" ]]; then
+            echo "::error::Expected cached Android emulator $ANDROID_EMULATOR_VERSION, found '${emulator_version:-unknown}'."
+            exit 1
+          fi
+
+      - name: Check dispatch-based first-loop deadline
+        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline android_sdk_verification
+
+      # Prove the selected runner exposes Hypervisor.framework before emulator boot.
+      - name: Verify Android VM acceleration
+        # The exact Intel runner must expose Hypervisor.framework before the
+        # visible emulator is booted; APK compilation has already happened in preparation.
+        timeout-minutes: 1
+        run: '"$ANDROID_HOME/emulator/emulator" -accel-check'
+
+      - name: Check dispatch-based first-loop deadline
+        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline hypervisor_check
+
+      - name: Create base AVD
+        timeout-minutes: 1
+        run: |
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo no | avdmanager create avd \
+            --name Pixel_API_34 \
+            --package "system-images;android-34;default;x86_64" \
+            --device pixel_6 \
+            --force
+          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -qx 'Pixel_API_34' || {
+            echo "::error::avdmanager created Pixel_API_34 but the emulator cannot list it" >&2
+            ls -la "$ANDROID_AVD_HOME" || true
+            exit 1
+          }
+
+      - name: Check dispatch-based first-loop deadline
+        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline avd_creation
+
+      - name: Start visible emulator boot before Playwright setup
+        timeout-minutes: 1
+        env:
+          E2E_ANDROID_EMULATOR_START_MARKER: ${{ runner.temp }}/bridge-in-emulator-start-${{ github.run_id }}.json
+        run: node scripts/android-emulator-launch.cjs
+
+      - name: Check dispatch-based first-loop deadline
+        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline emulator_launch
+
       # Dependency installation took over four minutes cold. The preparation mode
       # seeds this exact lockfile/platform cache; never install dependencies on the live path.
       - name: Restore prepared Android E2E dependencies
@@ -957,129 +1082,6 @@ jobs:
       - name: Check dispatch-based first-loop deadline
         run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline prepared_artifact_verification
 
-      - name: Restore prepared Android API 34 system image
-        id: android-image-cache
-        timeout-minutes: 2
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/Library/Android/sdk/system-images/android-34/default/x86_64
-          key: bridge-in-android-system-image-v1-${{ runner.os }}-${{ runner.arch }}-android-34-default-x86_64
-
-      - name: Check dispatch-based first-loop deadline
-        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline android_image_restore
-
-      - name: Restore exact prepared Android emulator
-        id: android-emulator-cache
-        timeout-minutes: 2
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/Library/Android/sdk/emulator
-          key: bridge-in-android-emulator-v1-${{ runner.os }}-${{ runner.arch }}-37.2.12-build-16428233
-
-      - name: Check dispatch-based first-loop deadline
-        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline android_emulator_restore
-
-      - name: Require prepared Android API 34 image
-        if: steps.android-image-cache.outputs.cache-hit != 'true'
-        run: |
-          echo "::error::The exact Android API 34 image cache is missing. Run e2e-bridge-in.yml with platform=android-prepare for this commit before starting the live workflow."
-          exit 1
-
-      - name: Require exact prepared Android emulator
-        if: steps.android-emulator-cache.outputs.cache-hit != 'true'
-        run: |
-          echo "::error::The exact pinned Android emulator cache is missing. Run e2e-bridge-in.yml with platform=android-prepare for this commit before starting the live workflow."
-          exit 1
-
-      # Emulator 37.2.12 explicitly reduced the guest to one vCPU on hosts with
-      # fewer than six logical cores, then QEMU stalled before adb became ready.
-      - name: Verify Android emulator host capacity
-        timeout-minutes: 1
-        run: |
-          host_cores=$(sysctl -n hw.ncpu)
-          if ! [[ "$host_cores" =~ ^[0-9]+$ ]] || (( host_cores < 6 )); then
-            echo "::error::The Android x86_64 emulator requires at least 6 host logical CPUs; this runner reports '$host_cores'."
-            exit 1
-          fi
-          echo "Android emulator host exposes $host_cores logical CPUs."
-
-      - name: Check dispatch-based first-loop deadline
-        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline emulator_host_check
-
-      # Preparation and live workload use separate runners, so PATH changes are job-local.
-      - name: Add Android SDK tools to PATH
-        timeout-minutes: 1
-        uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-
-      - name: Check dispatch-based first-loop deadline
-        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline android_sdk_path_setup
-
-      - name: Verify restored Android SDK packages
-        timeout-minutes: 1
-        run: |
-          command -v sdkmanager
-          command -v avdmanager
-          if [[ "$(uname -m)" != "x86_64" ]]; then
-            echo "::error::macos-15-large must provide an x86_64 host for the Android image"
-            exit 1
-          fi
-          test -x "$ANDROID_HOME/emulator/emulator"
-          test -x "$ANDROID_HOME/platform-tools/adb"
-          test -s "$ANDROID_HOME/platforms/android-36/android.jar"
-          test -s "$ANDROID_HOME/system-images/android-34/default/x86_64/package.xml"
-          expected_emulator_marker="$ANDROID_EMULATOR_VERSION $ANDROID_EMULATOR_ARCHIVE_BUILD $ANDROID_EMULATOR_ARCHIVE_SHA256"
-          test -s "$ANDROID_HOME/emulator/.wallet-emulator-package"
-          if [[ "$(cat "$ANDROID_HOME/emulator/.wallet-emulator-package")" != "$expected_emulator_marker" ]]; then
-            echo "::error::Restored emulator archive marker does not match the pinned version, build, and checksum."
-            exit 1
-          fi
-          emulator_version=$("$ANDROID_HOME/emulator/emulator" -version 2>&1 | sed -n '1s/^Android emulator version \([0-9.]*\).*/\1/p')
-          emulator_version=${emulator_version%.0}
-          if [[ "$emulator_version" != "$ANDROID_EMULATOR_VERSION" ]]; then
-            echo "::error::Expected cached Android emulator $ANDROID_EMULATOR_VERSION, found '${emulator_version:-unknown}'."
-            exit 1
-          fi
-
-      - name: Check dispatch-based first-loop deadline
-        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline android_sdk_verification
-
-      # Prove the selected runner exposes Hypervisor.framework before emulator boot.
-      - name: Verify Android VM acceleration
-        # The exact Intel runner must expose Hypervisor.framework before the
-        # visible emulator is booted; APK compilation has already happened in preparation.
-        timeout-minutes: 1
-        run: '"$ANDROID_HOME/emulator/emulator" -accel-check'
-
-      - name: Check dispatch-based first-loop deadline
-        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline hypervisor_check
-
-      - name: Create base AVD
-        timeout-minutes: 1
-        run: |
-          mkdir -p "$ANDROID_AVD_HOME"
-          echo no | avdmanager create avd \
-            --name Pixel_API_34 \
-            --package "system-images;android-34;default;x86_64" \
-            --device pixel_6 \
-            --force
-          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -qx 'Pixel_API_34' || {
-            echo "::error::avdmanager created Pixel_API_34 but the emulator cannot list it" >&2
-            ls -la "$ANDROID_AVD_HOME" || true
-            exit 1
-          }
-
-      - name: Check dispatch-based first-loop deadline
-        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline avd_creation
-
-      - name: Start visible emulator boot before Playwright setup
-        timeout-minutes: 1
-        run: |
-          node -r ts-node/register -e "require('./playwright/e2e/android/helpers/emulator-control').EmulatorControl.startSingle().then(serial => console.log('Visible Android emulator boot started on ' + serial)).catch(error => { console.error(error); process.exitCode = 1 })"
-
-      - name: Check dispatch-based first-loop deadline
-        run: node scripts/run-android-bridge-in-with-startup-deadline.cjs --check-startup-deadline emulator_launch
 
       - name: Install Foundry (anvil)
         timeout-minutes: 1
@@ -1094,6 +1096,7 @@ jobs:
           E2E_FIRST_LOOP_MARKER: ${{ runner.temp }}/bridge-in-first-loop-${{ github.run_id }}.json
           E2E_STARTUP_WATCHDOG_REPORT: ${{ runner.temp }}/bridge-in-startup-watchdog-${{ github.run_id }}.json
           E2E_ANDROID_STARTUP_DEADLINE_MS: '300000'
+          E2E_ANDROID_EMULATOR_START_MARKER: ${{ runner.temp }}/bridge-in-emulator-start-${{ github.run_id }}.json
         run: |
           rm -f "$E2E_FIRST_LOOP_MARKER" "$E2E_FIRST_LOOP_MARKER.tmp" "$E2E_STARTUP_WATCHDOG_REPORT"
           node scripts/run-android-bridge-in-with-startup-deadline.cjs \

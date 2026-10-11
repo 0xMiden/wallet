@@ -144,16 +144,31 @@ describe('EmulatorControl', () => {
     it('waits for the already-launched visible AVD when adb still reports it offline', async () => {
       const previousAndroidHome = process.env.ANDROID_HOME;
       const previousAvdHome = process.env.ANDROID_AVD_HOME;
+      const previousLaunchMarker = process.env.E2E_ANDROID_EMULATOR_START_MARKER;
       const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wallet-android-offline-avd-'));
       const avdHome = path.join(tempRoot, 'avd');
       const baseDir = path.join(avdHome, 'Pixel_API_34.avd');
+      const launchMarker = path.join(tempRoot, 'emulator-start.json');
       fs.mkdirSync(baseDir, { recursive: true });
       fs.writeFileSync(path.join(avdHome, 'Pixel_API_34.ini'), `path=${baseDir}\n`);
       fs.writeFileSync(path.join(baseDir, 'config.ini'), 'AvdId=Pixel_API_34\n');
+      const launchReceipt = {
+        pid: process.pid,
+        avdName: 'Pixel_API_34',
+        port: 5554,
+        visible: true,
+        startedAt: new Date().toISOString()
+      };
+      fs.writeFileSync(
+        launchMarker,
+        `${JSON.stringify(launchReceipt)}\n`
+      );
       process.env.ANDROID_HOME = tempRoot;
       process.env.ANDROID_AVD_HOME = avdHome;
+      process.env.E2E_ANDROID_EMULATOR_START_MARKER = launchMarker;
 
       const deviceStates = ['offline', 'offline', 'device'];
+      let processListChecks = 0;
       run.mockImplementation(((_file: string, args: string[], _options: { timeout?: number }, callback: Callback) => {
         let stdout = '';
         if (args[0] === 'devices') {
@@ -165,6 +180,7 @@ describe('EmulatorControl', () => {
         } else if (args.includes('emu')) {
           stdout = 'Pixel_API_34\nOK\n';
         } else if (_file === 'ps') {
+          processListChecks += 1;
           stdout = '/opt/android-sdk/emulator/emulator -avd Pixel_API_34 -port 5554 -no-snapshot -no-audio\n';
         }
         callback(null, { stdout, stderr: '' });
@@ -176,12 +192,18 @@ describe('EmulatorControl', () => {
         await jest.advanceTimersByTimeAsync(1_000);
         await expect(reservation).resolves.toBe(SERIAL);
         expect(deviceStates).toHaveLength(0);
+        expect(processListChecks).toBe(0);
         expect(launch).not.toHaveBeenCalled();
       } finally {
         if (previousAndroidHome === undefined) delete process.env.ANDROID_HOME;
         else process.env.ANDROID_HOME = previousAndroidHome;
         if (previousAvdHome === undefined) delete process.env.ANDROID_AVD_HOME;
         else process.env.ANDROID_AVD_HOME = previousAvdHome;
+        if (previousLaunchMarker === undefined) {
+          delete process.env.E2E_ANDROID_EMULATOR_START_MARKER;
+        } else {
+          process.env.E2E_ANDROID_EMULATOR_START_MARKER = previousLaunchMarker;
+        }
         fs.rmSync(tempRoot, { recursive: true, force: true });
       }
     });
@@ -220,14 +242,17 @@ describe('EmulatorControl', () => {
     it('starts the workflow-provided visible base AVD without waiting for adb or creating pair clones', async () => {
       const previousAndroidHome = process.env.ANDROID_HOME;
       const previousAvdHome = process.env.ANDROID_AVD_HOME;
+      const previousLaunchMarker = process.env.E2E_ANDROID_EMULATOR_START_MARKER;
       const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wallet-android-single-avd-'));
       const avdHome = path.join(tempRoot, 'avd');
       const baseDir = path.join(avdHome, 'Pixel_API_34.avd');
+      const launchMarker = path.join(tempRoot, 'emulator-start.json');
       fs.mkdirSync(baseDir, { recursive: true });
       fs.writeFileSync(path.join(avdHome, 'Pixel_API_34.ini'), `path=${baseDir}\n`);
       fs.writeFileSync(path.join(baseDir, 'config.ini'), 'AvdId=Pixel_API_34\n');
       process.env.ANDROID_HOME = tempRoot;
       process.env.ANDROID_AVD_HOME = avdHome;
+      process.env.E2E_ANDROID_EMULATOR_START_MARKER = launchMarker;
 
       const originalMkdirSync = fs.mkdirSync;
       jest.spyOn(fs, 'mkdirSync').mockImplementation((directory, options) => {
@@ -235,7 +260,7 @@ describe('EmulatorControl', () => {
         return originalMkdirSync(directory, options);
       });
       jest.spyOn(fs, 'openSync').mockReturnValue(0);
-      launch.mockReturnValue({ unref: jest.fn() } as never);
+      launch.mockReturnValue({ pid: 4242, unref: jest.fn() } as never);
 
       let deviceChecks = 0;
       run.mockImplementation(((_file: string, args: string[], _options: { timeout?: number }, callback: Callback) => {
@@ -262,6 +287,12 @@ describe('EmulatorControl', () => {
         expect(launchArgs).not.toContain('-no-window');
         const coreArgIndex = launchArgs.indexOf('-cores');
         expect(launchArgs.slice(coreArgIndex, coreArgIndex + 2)).toEqual(['-cores', '4']);
+        expect(JSON.parse(fs.readFileSync(launchMarker, 'utf8'))).toMatchObject({
+          pid: 4242,
+          avdName: 'Pixel_API_34',
+          port: 5554,
+          visible: true
+        });
         expect(fs.existsSync(path.join(avdHome, 'miden_e2e_A.ini'))).toBe(false);
         expect(fs.existsSync(path.join(avdHome, 'miden_e2e_B.ini'))).toBe(false);
       } finally {
@@ -269,6 +300,11 @@ describe('EmulatorControl', () => {
         else process.env.ANDROID_HOME = previousAndroidHome;
         if (previousAvdHome === undefined) delete process.env.ANDROID_AVD_HOME;
         else process.env.ANDROID_AVD_HOME = previousAvdHome;
+        if (previousLaunchMarker === undefined) {
+          delete process.env.E2E_ANDROID_EMULATOR_START_MARKER;
+        } else {
+          process.env.E2E_ANDROID_EMULATOR_START_MARKER = previousLaunchMarker;
+        }
         jest.restoreAllMocks();
         fs.rmSync(tempRoot, { recursive: true, force: true });
       }
