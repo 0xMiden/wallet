@@ -256,3 +256,12 @@
    // scripts/android-warm-avd.cjs:193-199
    const { stdout } = await run('tail', ['-c', '131072', preparationLogPath()], 5_000);
    ```
+
+29. [Expert, deferred P2] This final candidate supersedes item 20's hardware-renderer recommendation with an explicit software-renderer trial. Keep the cold-boot, snapshot-save, and two named-restore checks as hard pre-dispatch gates. Add a rendered-frame assertion during both restores before publishing the manifest so the gate proves the software renderer produced a usable image as well as a booted guest and restored proof.
+
+   ```js
+   // scripts/android-warm-avd.cjs:331-340
+   await assertInstalledApk(apkPath, apkSha256);
+   await assertSnapshotProof(snapshotProof);
+   restoreMs.push(elapsedMs);
+   ```

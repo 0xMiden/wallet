@@ -883,12 +883,12 @@ async function assertWarmAvdSnapshotProof(serial: string, startupDeadlineAt?: nu
 export function assertSnapshotEmulatorProcess(processLine: string, snapshotName: string, avdName: string, port: number): void {
   const snapshotFlag = new RegExp(`(?:^|\\s)-snapshot\\s+${escapeRegExp(snapshotName)}(?:\\s|$)`);
   const noSnapshotSaveFlag = /(?:^|\s)-no-snapshot-save(?:\s|$)/;
-  const hardwareGpuFlag = /(?:^|\s)-gpu\s+host(?:\s|$)/;
+  const softwareGpuFlag = /(?:^|\s)-gpu\s+software(?:\s|$)/;
   const vulkanDisabledFlag = /(?:^|\s)-feature\s+-Vulkan(?:\s|$)/;
   if (
     !snapshotFlag.test(processLine) ||
     !noSnapshotSaveFlag.test(processLine) ||
-    !hardwareGpuFlag.test(processLine) ||
+    !softwareGpuFlag.test(processLine) ||
     !vulkanDisabledFlag.test(processLine) ||
     /(?:^|\s)-no-snapshot(?:\s|$)/.test(processLine)
   ) {

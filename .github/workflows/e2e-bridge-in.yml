@@ -320,9 +320,23 @@ jobs:
         if: always()
         run: |
           crash_database="/tmp/android-runner/emu-crash-${ANDROID_EMULATOR_VERSION}.db"
+          staged_database="test-results-android/emulator-logs/emu-crash-${ANDROID_EMULATOR_VERSION}.db"
           if [[ -f "$crash_database" ]]; then
             mkdir -p test-results-android/emulator-logs
-            cp "$crash_database" test-results-android/emulator-logs/
+            temporary_database="${staged_database}.tmp.$$"
+            trap 'rm -f "$temporary_database"' EXIT
+            cp "$crash_database" "$temporary_database"
+            cmp -s "$crash_database" "$temporary_database"
+            mv -f "$temporary_database" "$staged_database"
+            trap - EXIT
+            cmp -s "$crash_database" "$staged_database"
+            printf 'Staged emulator crash database: %s (%s bytes)\n' "$staged_database" "$(wc -c < "$staged_database" | tr -d ' ')"
+            shasum -a 256 "$staged_database"
+          elif [[ -s "$staged_database" ]]; then
+            printf 'Emulator crash database was already staged by the boot diagnostics helper: %s\n' "$staged_database"
+            shasum -a 256 "$staged_database"
+          else
+            echo 'No emulator crash database was available to stage.'
           fi
 
       - name: Upload warm AVD preparation diagnostics
@@ -489,7 +503,7 @@ jobs:
               warmAvd.imagePackage !== 'system-images;android-34;default;x86_64' ||
               !/^[a-f0-9]{64}$/.test(warmAvd.systemImagePackageXmlSha256) ||
               !/^[a-f0-9]{64}$/.test(warmAvd.snapshotProof) ||
-              warmAvd.gpu !== 'host' || warmAvd.features !== '-Vulkan' ||
+              warmAvd.gpu !== 'software' || warmAvd.features !== '-Vulkan' ||
               warmAvd.cores !== 4 || warmAvd.memoryMb !== 4096 ||
               warmAvd.snapshotName !== 'bridge-in-warm' || warmAvd.visible !== true ||
               warmAvd.apkSha256 !== sha256(apkPath) || !Array.isArray(warmAvd.restoreMs) ||
@@ -1177,7 +1191,7 @@ jobs:
             emulatorVersion: process.env.EXPECTED_ANDROID_EMULATOR_VERSION,
             emulatorArchiveBuild: process.env.EXPECTED_ANDROID_EMULATOR_ARCHIVE_BUILD,
             emulatorArchiveSha256: process.env.EXPECTED_ANDROID_EMULATOR_ARCHIVE_SHA256,
-            gpu: 'host',
+            gpu: 'software',
             features: '-Vulkan',
             visible: true,
             cores: 4,

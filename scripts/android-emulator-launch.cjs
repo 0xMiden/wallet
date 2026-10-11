@@ -8,7 +8,7 @@ const path = require('node:path');
 const BRIDGE_IN_AVD = 'Pixel_API_34';
 const BRIDGE_IN_PORT = 5554;
 const BRIDGE_IN_CORES = 4;
-const BRIDGE_IN_GPU = 'host';
+const BRIDGE_IN_GPU = 'software';
 
 function buildEmulatorArgs({ avdName, port, visible, cores, snapshotName }) {
   const args = [
@@ -19,7 +19,8 @@ function buildEmulatorArgs({ avdName, port, visible, cores, snapshotName }) {
     '-accel',
     'on',
     '-no-audio',
-    // Hardware rendering keeps Quick Boot snapshots supported on the visible CI AVD.
+    // Keep preparation and live restore on one explicit profile; prep validates
+    // cold boot, snapshot creation, and two snapshot restores before live dispatch.
     '-gpu',
     BRIDGE_IN_GPU,
     '-no-boot-anim',

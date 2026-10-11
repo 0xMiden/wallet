@@ -647,5 +647,26 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - Independent review references: failure cleanup #25, early emulator process exit and crash-database collection #26, explicit cold-boot behavior #27, bounded log read #28.
 - User correction: progress updates must lead with actual completed loops; setup-gate success is not workload progress. Current accepted loop count remains 0/100.
 - [x] Publish the reviewed diagnostics changes as `39d8be0edc2e011c197d13ce34edb08fac281e26`; run `38128409921` confirmed the emulator process died before ADB was available.
-- [ ] Review and publish early-exit/crash-database capture, rerun exact-SHA preparation, then automatically retry Android Testnet after each terminal failure until one run proves all 100 loops complete.
-- [ ] Record exact hosted test results, failure artifact, first-loop timing, final 100-loop evidence, and final review in this section before completion.
+- [x] Publish the reviewed early-exit, cold-boot, and diagnostic changes as `5ffd4940322a6d2f8165c83e8f275e64eaa270be`; verify current `origin/main` ancestry and run exactly one final preparation attempt.
+- [x] Record the final preparation failure and preserve its exact diagnostic artifact; do not dispatch a live workload or another retry after the user's final-attempt limit.
+
+### Final attempt result — run `38129585667`
+
+- Run `38129585667` used SHA `5ffd4940322a6d2f8165c83e8f275e64eaa270be`, based on current `origin/main` `8e7ae16302d5a69d9479d14b8a721dc0944aca88`. The CLI build, focused Android tests, dependency/cache checks, SDK setup, and emulator acceleration passed; the Testnet APK build passed in 6m35s.
+- Warm AVD preparation failed 17 seconds after emulator launch: the pinned emulator exited with `SIGSEGV`, `adb devices -l` was empty, and no guest boot/loop began. The log shows gfxstream with Apple's Software Renderer, but that is correlation only; the root cause of SIGSEGV is unproven.
+- The exact-run diagnostic logs are saved under `/home/jovan_lomoljo/wallet/test-results-android/ci-run-38129585667/`. The helper reported a 224-byte crash database at `/tmp/android-runner/emu-crash-37.2.12.db`, but the downloaded artifact contains only the two log files; the crash database was not preserved in the artifact.
+- Final workload result at that point: **0/100 loops**. No Android live workflow was dispatched. The then-current one-final-attempt instruction ended that attempt; a later explicit user instruction resumed the standing retry goal.
+
+### Resumed recovery plan
+
+- [x] Re-fetch `origin/main`, verify it is an ancestor of the recovery branch, and confirm run `38129585667` is terminal with no live duplicate.
+- [x] Compare the exact SIGSEGV log with prior run `38119989926`; record that renderer correlation does not prove the cause and confirm the crash database is missing from the uploaded artifact.
+- [x] Trial the explicit `-gpu software` profile consistently in the visible launcher, warm AVD preparation, tests, and prepared/live provenance gates. Android documents that software-rendered snapshots can be unreliable, so require the exact preparation run to pass cold boot, snapshot creation, and two restore proofs before allowing any live dispatch.
+- [x] Stage the exact emulator crash database before cleanup with atomic copy and source/staged SHA-256 equality checks; report the staged path and digest before artifact upload.
+- [x] Run Node syntax, actionlint, diff, direct crash-staging behavior checks, and an independent staff-engineer review; refresh `origin/main` (`8e7ae16302d5a69d9479d14b8a721dc0944aca88`) and verify it is an ancestor of the recovery branch.
+- [ ] Make one final exact-SHA preparation attempt. If and only if preparation passes every gate, dispatch one live Android Testnet run at 100 loops; if either run fails, preserve its exact artifacts and stop without another dispatch.
+- [ ] Record exact hosted results, actual loop count, first-loop timing, terminal 100-loop evidence if achieved, and final review in this section before completion.
+
+### Final candidate review
+
+- Independent review found no blocker in the fail-closed software renderer trial or atomic crash database staging. It recorded one deferred P2 improvement: verify a rendered frame on both snapshot restores. The current gate still proves cold boot, snapshot save, ADB readiness, installed APK digest, per-run guest proof, and two bounded named restores before any live dispatch. The local checkout has no `node_modules`, so the added focused Jest cases will run as a required gate in the preparation workflow.

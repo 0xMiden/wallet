@@ -16,7 +16,7 @@ const PORT = 5554;
 const SNAPSHOT_NAME = 'bridge-in-warm';
 const CORES = 4;
 const MEMORY_MB = 4096;
-const GPU = 'host';
+const GPU = 'software';
 const FEATURES = '-Vulkan';
 const SNAPSHOT_PROOF_PROPERTY = 'debug.miden.warm_avd_proof';
 const EMULATOR_CRASH_DATABASE = path.join(
@@ -48,6 +48,40 @@ async function adbRun(args, timeout = 30_000) {
 
 function sha256(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+function stageCrashDatabase(sourcePath, destinationPath) {
+  const source = fs.statSync(sourcePath);
+  if (!source.isFile()) throw new Error(`Emulator crash database is not a file: ${sourcePath}`);
+  const sourceSha256 = sha256(sourcePath);
+  fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+  const temporaryPath = `${destinationPath}.tmp-${process.pid}-${crypto.randomBytes(8).toString('hex')}`;
+  try {
+    fs.copyFileSync(sourcePath, temporaryPath, fs.constants.COPYFILE_EXCL);
+    const staged = fs.statSync(temporaryPath);
+    const stagedSha256 = sha256(temporaryPath);
+    const sourceSha256AfterCopy = sha256(sourcePath);
+    if (!staged.isFile() || staged.size !== source.size ||
+        sourceSha256AfterCopy !== sourceSha256 || stagedSha256 !== sourceSha256) {
+      throw new Error(
+        `Crash database copy verification failed: source=${source.size} bytes/${sourceSha256}, ` +
+        `staged=${staged.size} bytes/${stagedSha256}, sourceAfterCopy=${sourceSha256AfterCopy}.`
+      );
+    }
+    fs.renameSync(temporaryPath, destinationPath);
+    const committed = fs.statSync(destinationPath);
+    const committedSha256 = sha256(destinationPath);
+    if (!committed.isFile() || committed.size !== source.size || committedSha256 !== sourceSha256) {
+      fs.rmSync(destinationPath, { force: true });
+      throw new Error(
+        `Crash database artifact verification failed: expected ${source.size} bytes/${sourceSha256}, ` +
+        `got ${committed.size} bytes/${committedSha256}.`
+      );
+    }
+    return { size: committed.size, sha256: committedSha256 };
+  } finally {
+    fs.rmSync(temporaryPath, { force: true });
+  }
 }
 
 function directoryBytes(directory) {
@@ -200,6 +234,13 @@ async function captureWarmAvdFailure(phase, emulatorPid, error) {
   try {
     const { size } = fs.statSync(EMULATOR_CRASH_DATABASE);
     sections.push(`Emulator crash database: ${EMULATOR_CRASH_DATABASE} (${size} bytes)`);
+    try {
+      const stagedCrashDatabase = path.join(path.dirname(diagnosticPath), path.basename(EMULATOR_CRASH_DATABASE));
+      const staged = stageCrashDatabase(EMULATOR_CRASH_DATABASE, stagedCrashDatabase);
+      sections.push(`Staged emulator crash database: ${stagedCrashDatabase} (${staged.size} bytes; SHA-256 ${staged.sha256})`);
+    } catch (stagingError) {
+      sections.push(`Emulator crash database staging failed: ${stagingError instanceof Error ? stagingError.message : String(stagingError)}`);
+    }
   } catch (crashDatabaseError) {
     sections.push(`Emulator crash database unavailable: ${crashDatabaseError instanceof Error ? crashDatabaseError.message : String(crashDatabaseError)}`);
   }
@@ -440,4 +481,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { main };
+module.exports = { main, stageCrashDatabase };

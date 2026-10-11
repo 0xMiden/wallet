@@ -52,6 +52,49 @@ const { buildEmulatorArgs, getLiveLaunchReceipt } = require('../../../../scripts
     expectedSnapshotName?: string
   ): { pid: number; snapshotName?: string | null } | null;
 };
+const { stageCrashDatabase } = require('../../../../scripts/android-warm-avd.cjs') as {
+  stageCrashDatabase(sourcePath: string, destinationPath: string): { size: number; sha256: string };
+};
+
+describe('Android emulator crash database staging', () => {
+  it('copies and verifies the exact crash database before artifact upload', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'android-crash-database-'));
+    const source = path.join(directory, 'source', 'emu-crash-37.2.12.db');
+    const destination = path.join(directory, 'artifacts', 'emulator-logs', 'emu-crash-37.2.12.db');
+    const contents = Buffer.from('emulator crash database fixture');
+    fs.mkdirSync(path.dirname(source), { recursive: true });
+    fs.writeFileSync(source, contents);
+    try {
+      const staged = stageCrashDatabase(source, destination);
+      expect(fs.readFileSync(destination)).toEqual(contents);
+      expect(staged).toEqual({
+        size: contents.length,
+        sha256: crypto.createHash('sha256').update(contents).digest('hex'),
+      });
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a corrupted staged copy without publishing a partial artifact', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'android-crash-database-corrupt-'));
+    const source = path.join(directory, 'source', 'emu-crash-37.2.12.db');
+    const destination = path.join(directory, 'artifacts', 'emulator-logs', 'emu-crash-37.2.12.db');
+    fs.mkdirSync(path.dirname(source), { recursive: true });
+    fs.writeFileSync(source, Buffer.from('original emulator crash database'));
+    const copyFile = jest.spyOn(fs, 'copyFileSync').mockImplementation((_source, target) => {
+      fs.writeFileSync(target, Buffer.from('corrupt'));
+    });
+    try {
+      expect(() => stageCrashDatabase(source, destination)).toThrow(/copy verification failed/);
+      expect(fs.existsSync(destination)).toBe(false);
+      expect(fs.readdirSync(path.dirname(destination))).toHaveLength(0);
+    } finally {
+      copyFile.mockRestore();
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('Android emulator launch arguments', () => {
   const base = { avdName: 'Pixel_API_34', port: 5554, visible: true, cores: 4 };
@@ -66,7 +109,7 @@ describe('Android emulator launch arguments', () => {
     expect(args).toContain('bridge-in-warm');
     expect(args).toContain('-no-snapshot-save');
     expect(args).toContain('-gpu');
-    expect(args).toContain('host');
+    expect(args).toContain('software');
     expect(args).toContain('-feature');
     expect(args).toContain('-Vulkan');
     expect(args).not.toContain('-no-snapshot');
@@ -100,15 +143,15 @@ describe('Android emulator launch arguments', () => {
 describe('warm Android emulator process contract', () => {
   const processLine =
     '/opt/android-sdk/emulator/emulator -avd Pixel_API_34 -port 5554 -snapshot bridge-in-warm ' +
-    '-no-snapshot-save -gpu host -feature -Vulkan';
+    '-no-snapshot-save -gpu software -feature -Vulkan';
 
-  it('accepts only the visible hardware-rendered snapshot profile used by CI', () => {
+  it('accepts only the visible software-rendered snapshot profile used by CI', () => {
     expect(() => assertSnapshotEmulatorProcess(processLine, 'bridge-in-warm', 'Pixel_API_34', 5554)).not.toThrow();
   });
 
-  it('rejects a software renderer or missing Vulkan snapshot guard', () => {
+  it('rejects the host renderer or a missing Vulkan snapshot guard', () => {
     expect(() => assertSnapshotEmulatorProcess(
-      processLine.replace('-gpu host', '-gpu swiftshader_indirect'),
+      processLine.replace('-gpu software', '-gpu host'),
       'bridge-in-warm', 'Pixel_API_34', 5554
     )).toThrow(/graphics profile/);
     expect(() => assertSnapshotEmulatorProcess(
