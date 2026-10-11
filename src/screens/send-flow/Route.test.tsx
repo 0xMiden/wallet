@@ -169,4 +169,19 @@ describe('RouteOptions', () => {
     expect(screen.getByTestId('bridge-route-usdcx')).toHaveTextContent('usdcxMidenFees|USDCx');
     expect(resolveDisplayMetadata).toHaveBeenCalledWith('mtst1usdcxnative', {}, 'mtst1usdcxnative');
   });
+
+  it('marks the withdrawal notice under the USDCx route for the e2e harness', () => {
+    render(
+      <RouteOptions
+        usdcxAvailable
+        route="usdcx"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        {...UP}
+      />
+    );
+
+    expect(screen.getByTestId('usdcx-burn-notice')).toHaveTextContent('usdcxWithdrawalNotice');
+  });
 });

@@ -708,7 +708,11 @@ export const ReviewTransaction: React.FC = () => {
             </DetailRow>
           )}
         </DetailCard>
-        {isUsdcxBurn && <p className="mt-3 px-4 text-caption text-muted">{t('usdcxWithdrawalNotice')}</p>}
+        {isUsdcxBurn && (
+          <p className="mt-3 px-4 text-caption text-muted" data-testid="usdcx-burn-notice">
+            {t('usdcxWithdrawalNotice')}
+          </p>
+        )}
         {/* The reassurance about an unclaimed payment is one caption under the card, not a paragraph
             squeezed into the value column. */}
         {!isBridge && recallBlocks ? (

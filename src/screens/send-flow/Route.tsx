@@ -115,7 +115,9 @@ const UsdcxRouteOption: React.FC<Pick<RouteOptionsProps, 'route' | 'onRouteChang
         onChange={() => onRouteChange('usdcx')}
         aria-label={t('route')}
       />
-      <p className="text-caption text-muted">{t('usdcxWithdrawalNotice')}</p>
+      <p className="text-caption text-muted" data-testid="usdcx-burn-notice">
+        {t('usdcxWithdrawalNotice')}
+      </p>
     </div>
   );
 };

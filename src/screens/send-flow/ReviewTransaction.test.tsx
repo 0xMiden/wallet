@@ -513,6 +513,12 @@ describe('USDCx burn review', () => {
     expect(screen.getByText('usdcxInvalidAmount')).toBeInTheDocument();
   });
 
+  it('marks the withdrawal notice for the e2e harness', async () => {
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('usdcx-burn-notice')).toHaveTextContent('usdcxWithdrawalNotice');
+  });
+
   it('names the native fee asset in the burn fee row, never MIDEN', async () => {
     mockNativeMetadata = { symbol: 'USDCx', decimals: 6 };
     render(<ReviewTransaction />);
