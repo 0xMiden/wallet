@@ -1703,6 +1703,10 @@
     "message": "トークンを検索する",
     "englishSource": "Search for tokens"
   },
+  "sendUsdcxOnlyDestination": {
+    "message": "このネットワークにはUSDCxのみを送金できます。",
+    "englishSource": "Only USDCx can be sent to this network."
+  },
   "available": {
     "message": "在庫あり",
     "englishSource": "Available"

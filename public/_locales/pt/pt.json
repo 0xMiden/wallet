@@ -374,6 +374,7 @@
   "calculatingQuote": "A calcular",
   "selectAToken": "Selecione um token",
   "searchForTokens": "Pesquisar tokens",
+  "sendUsdcxOnlyDestination": "Apenas USDCx pode ser enviado para esta rede.",
   "available": "Disponível",
   "approxFiatValue": "≈ $value$ USD",
   "reviewDetails": "Detalhes da avaliação",
