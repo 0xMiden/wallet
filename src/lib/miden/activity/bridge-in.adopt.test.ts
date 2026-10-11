@@ -9,6 +9,7 @@ import '../transaction/complete';
 // Real store, real matchers and real writers: only the SDK's id parse, the discovered native asset (USDCx, read in
 // hex as the wallet discovers it), the bridge config and the intent registry are stood in for.
 const USDCX_FAUCET = 'mtst1usdcxfaucet000000000000000';
+const ETH_FAUCET = 'mtst1ethfaucet00000000000000000';
 const ACCOUNT = 'mtst1account000000000000000000_qruqqypuyph';
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   ...jest.requireActual('@miden-sdk/miden-sdk/lazy'),
@@ -17,6 +18,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     fromBech32: (address: string) => {
       const known: Record<string, string> = {
         mtst1usdcxfaucet000000000000000: '0x4cbdcaffe75f0a317482224dae6436',
+        mtst1ethfaucet00000000000000000: '0x0b372f2735e33e91216d995bf29b91',
         mtst1account000000000000000000: '0x8da911727d5b53916f2c221c00c091'
       };
       const hex = known[address];
@@ -28,8 +30,25 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: async () => '0x4cbdcaffe75f0a317482224dae6436'
 }));
+// The registry names its native-ETH faucet (scale 10), so every note meets the AggLayer matcher before the USDCx one.
 jest.mock('lib/remote-config/runtime', () => ({
-  getBridgeConfigSnapshot: () => ({}),
+  getBridgeConfigSnapshot: () => ({
+    derived: {
+      agglayer: {
+        tokens: {
+          state: 'ok',
+          value: [
+            {
+              midenFaucetId: '0x0b372f2735e33e91216d995bf29b91',
+              originToken: '0x0000000000000000000000000000000000000000',
+              originNetwork: 0,
+              scale: 10
+            }
+          ]
+        }
+      }
+    }
+  }),
   initBridgeConfig: async () => ({})
 }));
 // The intent registry is empty unless a test names one.
@@ -74,6 +93,36 @@ const mint = (id: string, amount = DEPOSIT): AdoptableNote => ({
   senderAddress: USDCX_FAUCET,
   faucetId: USDCX_FAUCET,
   amount
+});
+
+// An AggLayer tracker is born with no faucet and the deposit in wei; the bridge delivers it at the faucet's scale.
+const ETH_DELIVERED = 3_000_000n;
+const addEthDeposit = async (id: string) => {
+  await Repo.transactions.add({
+    id,
+    type: 'bridged-receive',
+    accountId: ACCOUNT,
+    amount: ETH_DELIVERED * 10n ** 10n,
+    faucetId: '',
+    status: ITransactionStatus.Completed,
+    displayIcon: 'RECEIVE',
+    initiatedAt: Math.floor(Date.now() / 1000),
+    extraInputs: {
+      provider: 'agglayer',
+      phase: 'delivering',
+      sourceAddress: '0xsource',
+      sourceAmount: '0.03',
+      sourceSymbol: 'ETH',
+      evmTxHash: `0x${'6'.repeat(64)}`
+    }
+  });
+};
+
+const ethDelivery = (id: string): AdoptableNote => ({
+  id,
+  senderAddress: ETH_FAUCET,
+  faucetId: ETH_FAUCET,
+  amount: ETH_DELIVERED
 });
 
 const addConsume = async (overrides: Partial<ITransaction> = {}) => {
@@ -151,6 +200,42 @@ describe('adoptBridgeDeliveries', () => {
 
     const phases = await Promise.all(['deposit-a', 'deposit-b', 'deposit-c'].map(phaseOf));
     expect(phases.filter(inputs => inputs?.phase === 'received')).toHaveLength(noteIds.length);
+  });
+
+  it('tags a single AggLayer delivery as the receipt of its ETH deposit', async () => {
+    await addEthDeposit('eth-deposit');
+    await addConsume({
+      noteIds: ['note-eth'],
+      secondaryAccountId: ETH_FAUCET,
+      faucetId: ETH_FAUCET,
+      amount: ETH_DELIVERED
+    });
+
+    await adoptBridgeDeliveries('consume', [ethDelivery('note-eth')]);
+
+    expect(await phaseOf('eth-deposit')).toMatchObject({ phase: 'received', midenNoteId: 'note-eth' });
+    expect(await Repo.transactions.get('eth-deposit')).toMatchObject({ amount: ETH_DELIVERED, faucetId: ETH_FAUCET });
+    const consume = await Repo.transactions.get('consume');
+    expect(consume?.displayMessage).toBe('Bridged from EVM');
+    expect(consume?.extraInputs?.bridgeIn).toMatchObject({ provider: 'agglayer', bridgeReceiveTxId: 'eth-deposit' });
+  });
+
+  // Each deposit takes its own note's amount and faucet, never the batch row's.
+  it('lands an AggLayer delivery and a USDCx mint of one batch at their own amounts and faucets', async () => {
+    await addEthDeposit('eth-deposit');
+    await addDeposit('usdcx-deposit', 'ready');
+    await addConsume({ noteIds: ['note-eth', 'note-usdcx'] });
+
+    await adoptBridgeDeliveries('consume', [ethDelivery('note-eth'), mint('note-usdcx')]);
+
+    expect(await phaseOf('eth-deposit')).toMatchObject({ phase: 'received', midenNoteId: 'note-eth' });
+    expect(await Repo.transactions.get('eth-deposit')).toMatchObject({
+      amount: ETH_DELIVERED,
+      faucetId: ETH_FAUCET,
+      transactionId: 'chain-tx'
+    });
+    expect(await phaseOf('usdcx-deposit')).toMatchObject({ phase: 'received', midenNoteId: 'note-usdcx' });
+    expect(await Repo.transactions.get('usdcx-deposit')).toMatchObject({ amount: DEPOSIT, faucetId: USDCX_FAUCET });
   });
 
   it('pairs a batch note by its own amount, never by the batch total', async () => {
