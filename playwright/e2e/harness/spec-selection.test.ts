@@ -69,17 +69,27 @@ const ROUND_TRIP_TEST =
 const BRIDGE_IN_TEST =
   'usdcx-roundtrip.spec.ts › USDCx bridge-in from a funded Arc key › ' +
   'Guardian wallet receives a Node-signed xReserve deposit';
+const BURN_TESTS = [
+  'usdcx-burn.spec.ts › USDCx burn through the Send UI after a public faucet grant › ' +
+    'standard wallet publishes a burn and the faucet consumes it',
+  'usdcx-burn.spec.ts › USDCx burn through the Send UI after a public faucet grant › ' +
+    'Guardian wallet publishes a burn and the faucet consumes it'
+];
 /** Every test `playwright.usdcx.config.ts` must list, and nothing else. */
-const USDCX_LIVE_TESTS = [ROUND_TRIP_TEST, BRIDGE_IN_TEST];
+const USDCX_LIVE_TESTS = [ROUND_TRIP_TEST, BRIDGE_IN_TEST, ...BURN_TESTS];
 /** Each runner suite's grep, compiled case-insensitive as scripts/e2e-real.mjs does, and the tests it must select. */
 const USDCX_RUNNER_GREPS: Array<[grep: string, tests: string[]]> = [
   ['USDCx round trip', [ROUND_TRIP_TEST]],
-  ['funded Arc key', [BRIDGE_IN_TEST]]
+  ['funded Arc key', [BRIDGE_IN_TEST]],
+  ['USDCx burn through the Send UI', BURN_TESTS]
 ];
 /** Each live spec file and how many describes it guards. */
-const USDCX_LIVE_SPECS: Array<[file: string, describes: number]> = [['usdcx-roundtrip.spec.ts', 2]];
-/** A live USDCx spec in another config's listing. */
-const USDCX_LIVE_SPEC = /usdcx-roundtrip\.spec\.ts|usdcx-burn\.spec\.ts/;
+const USDCX_LIVE_SPECS: Array<[file: string, describes: number]> = [
+  ['usdcx-roundtrip.spec.ts', 2],
+  ['usdcx-burn.spec.ts', 1]
+];
+/** A live USDCx spec in another config's listing, the burn spec under its old tests/bridge name included. */
+const USDCX_LIVE_SPEC = /usdcx-roundtrip\.spec\.ts|usdcx-burn\.spec\.ts|bridge-out-usdcx\.spec\.ts/;
 
 /** `playwright test --list` lines as `file › describe › test`, without the line and column. */
 const listedTests = (listing: string): string[] =>
