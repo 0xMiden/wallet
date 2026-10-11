@@ -745,6 +745,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       if (snapshotDataUrl) {
         void writeSnapshotToDisk(id, snapshotDataUrl);
       }
+      return true;
     },
     [getSessionStateById, updateSession]
   );
@@ -838,8 +839,23 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // target) so its bubble appears while the restored session takes the
       // active slot.
       const currentForeground = foregroundIdRef.current;
+      let parkedForeground = false;
       if (currentForeground && currentForeground !== sessionId) {
-        await parkInternal(currentForeground);
+        parkedForeground = (await parkInternal(currentForeground)) === true;
+      }
+      const target = getSessionStateById(sessionId);
+      if (
+        !target ||
+        finalizations.current.has(sessionId) ||
+        target.instance !== state.instance ||
+        target.session.openedAt !== state.session.openedAt
+      ) {
+        if (parkedForeground && foregroundIdRef.current === currentForeground) {
+          foregroundIdRef.current = null;
+          setForegroundId(null);
+          setActiveDappSession(null);
+        }
+        return;
       }
       // PR-6 cold-bubble lifecycle: if this session has no live native
       // instance yet (rehydrated from persistence at app launch), mark
@@ -847,7 +863,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // once the slot rect is reported. The bubble's cached snapshot
       // stays visible under the loading state until browserPageLoaded
       // fires — see DappActive for the crossfade.
-      if (!state.instance || state.isCold) {
+      if (!target.instance || target.isCold) {
         updateSession(sessionId, s => ({
           ...s,
           status: 'loading',

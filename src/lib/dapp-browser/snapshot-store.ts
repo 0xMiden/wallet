@@ -14,6 +14,7 @@
 import { InAppBrowser } from '@miden/dapp-browser';
 
 const snapshots = new Map<string, string>();
+const pendingCaptures = new Map<string, Set<symbol>>();
 const listeners = new Set<() => void>();
 
 /** Take a snapshot via the patched plugin method and store it.
@@ -25,14 +26,13 @@ const listeners = new Set<() => void>();
  * when multiple instances are open.
  */
 export async function captureSnapshot(sessionId: string, scale = 0.5, quality = 0.7): Promise<string | null> {
+  const captures = pendingCaptures.get(sessionId) ?? new Set<symbol>();
+  const token = Symbol();
+  captures.add(token);
+  pendingCaptures.set(sessionId, captures);
   try {
-    // The native method was added by patches/@capgo+inappbrowser+8.0.6.patch.
-    // It's not in the upstream .d.ts, so we cast to call it.
-    const result = await (
-      InAppBrowser as unknown as {
-        snapshot: (opts: { id?: string; scale: number; quality: number }) => Promise<{ data: string }>;
-      }
-    ).snapshot({ id: sessionId, scale, quality });
+    const result = await InAppBrowser.snapshot({ id: sessionId, scale, quality });
+    if (!captures.has(token)) return null;
     if (result?.data) {
       snapshots.set(sessionId, result.data);
       notify();
@@ -42,6 +42,9 @@ export async function captureSnapshot(sessionId: string, scale = 0.5, quality = 
   } catch (err) {
     console.warn('[snapshot-store] capture failed:', err);
     return null;
+  } finally {
+    captures.delete(token);
+    if (captures.size === 0 && pendingCaptures.get(sessionId) === captures) pendingCaptures.delete(sessionId);
   }
 }
 
@@ -50,12 +53,17 @@ export function getSnapshot(sessionId: string): string | undefined {
 }
 
 export function clearSnapshot(sessionId: string): void {
+  // Invalidate captures already awaiting native output, including an otherwise empty cache.
+  pendingCaptures.get(sessionId)?.clear();
+  pendingCaptures.delete(sessionId);
   if (snapshots.delete(sessionId)) {
     notify();
   }
 }
 
 export function clearAllSnapshots(): void {
+  pendingCaptures.forEach(captures => captures.clear());
+  pendingCaptures.clear();
   if (snapshots.size > 0) {
     snapshots.clear();
     notify();
