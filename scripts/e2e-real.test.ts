@@ -84,6 +84,9 @@ function cleanEnv() {
     'MIDEN_E2E_USDCX_CHAIN',
     'MIDEN_FEE_FAUCET_ID',
     'GUARDIAN_URL',
+    'EXTENSION_DIST',
+    'E2E_WALLET_A_PROFILE',
+    'E2E_WALLET_B_PROFILE',
     'MIDEN_CLIENT_BIN',
     'E2E_HEADLESS',
     'E2E_NETWORK',
@@ -976,7 +979,10 @@ describe('the usdcx suites refuse what would not apply, before any probe or buil
     ['E2E_EVM_RPC_URL', 'https://refused-evm-rpc.example'],
     ['MIDEN_E2E_USDCX_CHAIN', 'refused-usdcx-chain'],
     ['MIDEN_FEE_FAUCET_ID', '0xrefusedfeefaucet'],
-    ['GUARDIAN_URL', 'https://refused-guardian.example']
+    ['GUARDIAN_URL', 'https://refused-guardian.example'],
+    ['EXTENSION_DIST', '/refused/extension-dist'],
+    ['E2E_WALLET_A_PROFILE', '/refused/wallet-a-profile'],
+    ['E2E_WALLET_B_PROFILE', '/refused/wallet-b-profile']
   ])(
     'refuses an exported %s by name, never by value',
     (name, value) => {
@@ -1103,6 +1109,17 @@ describe('resolveOperatorInput on the usdcx suites', () => {
     expect(resolve({ suite, ...changed })).toStrictEqual({ suite: SUITES[suite], grep: SUITES[suite].grep });
   });
 
+  // The wallet fixture reads each in place of what the run builds and makes, so a green run would vouch for another.
+  it.each([
+    ['EXTENSION_DIST', 'the test then loads the extension build it names instead of the one this run builds'],
+    ['E2E_WALLET_A_PROFILE', 'the test then opens wallet A in the browser profile it names instead of a fresh one'],
+    ['E2E_WALLET_B_PROFILE', 'the test then opens wallet B in the browser profile it names instead of a fresh one']
+  ])('refuses an exported %s, saying what it would replace', (name, why) => {
+    expect(resolve({ refusedExports: [name] }).error).toBe(
+      `${name} is set, and --suite usdcx refuses it: ${why}. Unset it.`
+    );
+  });
+
   // The runner hands usdcx and usdcx-burn the harness key over an exported one, so neither reads it.
   it('lets an exported key that is malformed pass on usdcx, which never reads it', () => {
     expect(resolve({ arcKey: '0x01' }).error).toBeUndefined();
@@ -1110,7 +1127,7 @@ describe('resolveOperatorInput on the usdcx suites', () => {
 
   it('leaves the usdcx refusals off a suite that is not usdcx', () => {
     expect(
-      resolve({ suite: 'swap-guardian', refusedExports: ['GUARDIAN_URL', 'E2E_EVM_RPC_URL'] }).error
+      resolve({ suite: 'swap-guardian', refusedExports: ['GUARDIAN_URL', 'E2E_EVM_RPC_URL', 'EXTENSION_DIST'] }).error
     ).toBeUndefined();
   });
 });
@@ -1220,6 +1237,9 @@ describe('the usdcx refusals stay out of the other entry points', () => {
       MIDEN_E2E_USDCX_CHAIN: 'sepolia',
       MIDEN_FEE_FAUCET_ID: '0x01',
       GUARDIAN_URL: 'https://guardian.example',
+      EXTENSION_DIST: '/extension-dist',
+      E2E_WALLET_A_PROFILE: '/wallet-a-profile',
+      E2E_WALLET_B_PROFILE: '/wallet-b-profile',
       E2E_ARC_RPC_URL: '',
       E2E_ARC_PRIVATE_KEY: ''
     });

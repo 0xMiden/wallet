@@ -242,14 +242,19 @@ next run removes a lock whose run died.
 // ── args ────────────────────────────────────────────────────────────────────
 
 /**
- * Exported variables a usdcx run refuses, each with why. An E2E build bakes the first three in, and nothing a usdcx
- * spec runs reads GUARDIAN_URL, so each would move what the run checks, or seem to, without a word. Refused by name.
+ * Exported variables a usdcx run refuses, each with why. An E2E build bakes the first three in, nothing a usdcx spec
+ * runs reads GUARDIAN_URL, and the wallet fixture (two-wallets.ts) reads the last three in place of the build this run
+ * makes and the fresh profiles its wallets start from, so each would move what the run checks, or seem to, without a
+ * word. Refused by name.
  */
 const USDCX_REFUSED_EXPORTS = {
   E2E_EVM_RPC_URL: 'an E2E build reads Sepolia, Base Sepolia and Arbitrum Sepolia through it',
   MIDEN_E2E_USDCX_CHAIN: 'an E2E build then starts a bridge-in from Sepolia instead of Arc Testnet',
   MIDEN_FEE_FAUCET_ID: 'an E2E build then pins the fee asset instead of discovering it from the node',
-  GUARDIAN_URL: 'the usdcx suites always use the hosted Guardian of --network, so it would silently not apply'
+  GUARDIAN_URL: 'the usdcx suites always use the hosted Guardian of --network, so it would silently not apply',
+  EXTENSION_DIST: 'the test then loads the extension build it names instead of the one this run builds',
+  E2E_WALLET_A_PROFILE: 'the test then opens wallet A in the browser profile it names instead of a fresh one',
+  E2E_WALLET_B_PROFILE: 'the test then opens wallet B in the browser profile it names instead of a fresh one'
 };
 const ARC_KEY_PATTERN = /^(0x)?[0-9a-f]{64}$/i;
 
