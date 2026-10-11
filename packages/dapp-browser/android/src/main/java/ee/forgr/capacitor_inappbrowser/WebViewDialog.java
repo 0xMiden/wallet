@@ -106,6 +106,30 @@ public class WebViewDialog extends Dialog {
     }
 
     private WebView _webView;
+    private BreadPresentationController presentation;
+    private boolean permanentlyClosed;
+    private Runnable closedListener;
+
+    public boolean isPresentationFullscreen() { return presentation != null && presentation.fullscreen(); }
+    public void setClosedListener(Runnable listener) { closedListener = listener; }
+    public void presentationForeground(boolean foreground) {
+        if (presentation != null) presentation.foreground(foreground);
+    }
+    void presentationChanged(boolean fullscreen) {
+        _options.getCallbacks().presentationChanged(fullscreen);
+    }
+    void applyBrowserDimensions() { applyDimensions(); }
+
+    @Override public void show() {
+        if (permanentlyClosed) return;
+        super.show();
+        if (presentation != null) presentation.visibility(true);
+    }
+    @Override public void hide() {
+        if (presentation != null) presentation.visibility(false);
+        super.hide();
+    }
+
     private Toolbar _toolbar;
     private Options _options = null;
     private final Context _context;
@@ -171,6 +195,7 @@ public class WebViewDialog extends Dialog {
 
         @JavascriptInterface
         public void close() {
+            if (_options.getBreadPresentation() != null) return;
             try {
                 // close webview safely
                 if (activity == null) {
@@ -180,12 +205,7 @@ public class WebViewDialog extends Dialog {
 
                 activity.runOnUiThread(() -> {
                     try {
-                        String currentUrl = getUrl();
                         dismiss();
-
-                        if (_options != null && _options.getCallbacks() != null) {
-                            _options.getCallbacks().closeEvent(currentUrl);
-                        }
                     } catch (Exception e) {
                         Log.e("InAppBrowser", "Error closing WebView: " + e.getMessage());
                     }
@@ -310,6 +330,7 @@ public class WebViewDialog extends Dialog {
             getWindow()
                 .getDecorView()
                 .post(() -> {
+                    if (isPresentationFullscreen()) return;
                     // Get status bar height
                     int statusBarHeight = 0;
                     int resourceId = getContext().getResources().getIdentifier("status_bar_height", "dimen", "android");
@@ -859,6 +880,12 @@ public class WebViewDialog extends Dialog {
             }
         }
 
+        setupToolbar();
+        setWebViewClient();
+        if (_options.getBreadPresentation() != null) {
+            presentation = new BreadPresentationController(this, _webView, _options.getBreadPresentation());
+            presentation.install();
+        }
         _webView.loadUrl(this._options.getUrl(), requestHeaders);
         _webView.requestFocus();
         _webView.requestFocusFromTouch();
@@ -877,9 +904,6 @@ public class WebViewDialog extends Dialog {
                 Log.d("InAppBrowser", "JavaScript interface injected early after URL load");
             }
         });
-
-        setupToolbar();
-        setWebViewClient();
 
         if (!this._options.isPresentAfterPageLoad()) {
             show();
@@ -932,6 +956,7 @@ public class WebViewDialog extends Dialog {
                 // Apply fixes for Android 15+ using a delayed post
                 final int finalBgColor = backgroundColor;
                 _webView.post(() -> {
+                    if (isPresentationFullscreen()) return;
                     // Get status bar height
                     int statusBarHeight = 0;
                     int resourceId = getContext().getResources().getIdentifier("status_bar_height", "dimen", "android");
@@ -991,19 +1016,19 @@ public class WebViewDialog extends Dialog {
             ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) v.getLayoutParams();
 
             // Apply safe margin inset to bottom margin if enabled in options or fallback to 0px
-            int navBottom = _options.getEnabledSafeMargin() ? bars.bottom : 0;
+            int navBottom = !isPresentationFullscreen() && _options.getEnabledSafeMargin() ? bars.bottom : 0;
 
             // Apply top inset only if useTopInset option is enabled or fallback to 0px
             int navTop = _options.getUseTopInset() ? bars.top : 0;
 
             // Avoid double-applying top inset; AppBar/status bar handled above on Android 15+
-            mlp.topMargin = isAndroid15Plus ? 0 : navTop;
+            mlp.topMargin = isAndroid15Plus || isPresentationFullscreen() ? 0 : navTop;
 
             // Apply larger of navigation bar or keyboard inset to bottom margin
             mlp.bottomMargin = Math.max(navBottom, ime.bottom);
 
-            mlp.leftMargin = bars.left;
-            mlp.rightMargin = bars.right;
+            mlp.leftMargin = isPresentationFullscreen() ? 0 : bars.left;
+            mlp.rightMargin = isPresentationFullscreen() ? 0 : bars.right;
             v.setLayoutParams(mlp);
 
             return WindowInsetsCompat.CONSUMED;
@@ -1139,10 +1164,13 @@ public class WebViewDialog extends Dialog {
                 })();
                 """;
 
+            final String bridgeScript = _options.getBreadPresentation() == null ? script
+                : script.replace("window.AndroidInterface.close();", "return window.bread.presentation.close();")
+                    + "if(window.mobileApp)window.mobileApp.close=()=>window.bread.presentation.close();";
             _webView.post(() -> {
                 if (_webView != null) {
                     try {
-                        _webView.evaluateJavascript(script, null);
+                        _webView.evaluateJavascript(bridgeScript, null);
                     } catch (Exception e) {
                         Log.e("InAppBrowser", "Error injecting JavaScript interface: " + e.getMessage());
                     }
@@ -1611,7 +1639,6 @@ public class WebViewDialog extends Dialog {
                                         if (_options != null && _options.getCallbacks() != null) {
                                             // Notify that confirm was clicked
                                             _options.getCallbacks().confirmBtnClicked(currentUrl);
-                                            _options.getCallbacks().closeEvent(currentUrl);
                                         }
                                     }
                                 }
@@ -1619,11 +1646,7 @@ public class WebViewDialog extends Dialog {
                             .setNegativeButton(_options.getCloseModalCancel(), null)
                             .show();
                     } else {
-                        String currentUrl = getUrl();
                         dismiss();
-                        if (_options != null && _options.getCallbacks() != null) {
-                            _options.getCallbacks().closeEvent(currentUrl);
-                        }
                     }
                 }
             }
@@ -2559,6 +2582,7 @@ public class WebViewDialog extends Dialog {
                 @Override
                 public void onPageStarted(WebView view, String url, Bitmap favicon) {
                     super.onPageStarted(view, url, favicon);
+                    if (presentation != null) presentation.navigate();
                     if (view == null || _webView == null) {
                         return;
                     }
@@ -2690,6 +2714,7 @@ public class WebViewDialog extends Dialog {
                 @Override
                 public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                     super.onReceivedError(view, request, error);
+                    if (presentation != null && request.isForMainFrame()) presentation.failed();
                     if (view == null || _webView == null) {
                         return;
                     }
@@ -2741,12 +2766,7 @@ public class WebViewDialog extends Dialog {
         ) {
             _webView.goBack();
         } else if (!_options.getDisableGoBackOnNativeApplication()) {
-            String currentUrl = getUrl();
-            _options.getCallbacks().closeEvent(currentUrl);
-            if (_webView != null) {
-                _webView.destroy();
-            }
-            super.onBackPressed();
+            dismiss();
         }
     }
 
@@ -2825,6 +2845,12 @@ public class WebViewDialog extends Dialog {
 
     @Override
     public void dismiss() {
+        if (permanentlyClosed) return;
+        permanentlyClosed = true;
+        String closedUrl = getUrl();
+        if (presentation != null) presentation.close();
+        if (closedListener != null) closedListener.run();
+        if (_options != null && _options.getCallbacks() != null) _options.getCallbacks().closeEvent(closedUrl);
         // First, stop any ongoing operations and disable further interactions
         if (_webView != null) {
             try {
@@ -3072,6 +3098,11 @@ public class WebViewDialog extends Dialog {
      * Apply dimensions to the webview window
      */
     private void applyDimensions() {
+        if (permanentlyClosed) return;
+        if (isPresentationFullscreen()) {
+            presentation.applyWindow();
+            return;
+        }
         Integer width = _options.getWidth();
         Integer height = _options.getHeight();
         Integer x = _options.getX();

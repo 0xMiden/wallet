@@ -1,6 +1,8 @@
 package ee.forgr.capacitor_inappbrowser;
 
 public interface WebViewCallbacks {
+    default void presentationChanged(boolean fullscreen) {}
+
     public void urlChangeEvent(String url);
 
     public void closeEvent(String url);

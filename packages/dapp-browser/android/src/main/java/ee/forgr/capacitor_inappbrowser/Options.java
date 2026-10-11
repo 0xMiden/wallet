@@ -11,6 +11,29 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 public class Options {
+    public static final class BreadPresentation {
+        final String script, logoSvg, backLabel, hintLabel, retryLabel, errorLabel;
+        final long readinessTimeoutMs;
+        BreadPresentation(JSObject value) {
+            readinessTimeoutMs = Math.max(1, value.optLong("readinessTimeoutMs", 30000));
+            script = value.getString("script", "");
+            logoSvg = value.getString("logoSvg", "");
+            backLabel = value.getString("backLabel", "");
+            hintLabel = value.getString("hintLabel", "");
+            retryLabel = value.getString("retryLabel", "");
+            errorLabel = value.getString("errorLabel", "");
+            if (script.isEmpty() || backLabel.isEmpty() || retryLabel.isEmpty() || errorLabel.isEmpty()) {
+                throw new IllegalArgumentException("Invalid breadPresentation options");
+            }
+        }
+    }
+
+    private BreadPresentation breadPresentation;
+    public BreadPresentation getBreadPresentation() { return breadPresentation; }
+    public void setBreadPresentation(JSObject value) {
+        breadPresentation = value == null ? null : new BreadPresentation(value);
+    }
+
 
     public static class ButtonNearDone {
 

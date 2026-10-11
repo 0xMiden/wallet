@@ -70,6 +70,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     // NavbarView instances (Activity + Dialog-scoped), and the
     // re-parenting arbitration logic.
     private NavbarOverlayManager navbarManager;
+    private boolean presentationAppForeground = true;
 
     @Override
     public void load() {
@@ -590,6 +591,8 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         }
         currentUrl = url;
         final Options options = new Options();
+        try { options.setBreadPresentation(call.getObject("breadPresentation")); }
+        catch (IllegalArgumentException error) { call.reject(error.getMessage()); return; }
         options.setUrl(url);
         options.setHeaders(call.getObject("headers"));
         options.setCredentials(call.getObject("credentials"));
@@ -739,6 +742,11 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         //    options.getToolbarItemTypes().add(ToolbarItemType.RELOAD); TODO: fix this
         options.setCallbacks(
             new WebViewCallbacks() {
+                @Override public void presentationChanged(boolean fullscreen) {
+                    notifyListeners("presentationChanged", new JSObject().put("id", callbackInstanceId[0])
+                        .put("display", fullscreen ? "fullscreen" : "browser"));
+                    if (navbarManager != null) navbarManager.notifyDialogVisibilityChanged(null);
+                }
                 @Override
                 public void urlChangeEvent(String url) {
                     notifyListeners(
@@ -926,6 +934,12 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     // the dApp content without any Window z-order
                     // wrestling.
                     final WebViewDialog createdDialog = webViewDialog;
+                    createdDialog.setClosedListener(() -> {
+                        if (WebViewRegistry.getShared().get(instanceId) == createdDialog) {
+                            WebViewRegistry.getShared().remove(instanceId);
+                        }
+                        if (webViewDialog == createdDialog) webViewDialog = null;
+                    });
                     createdDialog.setOnShowListener(
                         new android.content.DialogInterface.OnShowListener() {
                             @Override
@@ -947,12 +961,13 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                         }
                     );
 
-                    webViewDialog.presentWebView();
+                    WebViewRegistry.getShared().register(instanceId, createdDialog);
+                    createdDialog.presentWebView();
+                    createdDialog.presentationForeground(presentationAppForeground);
                     // Mirror in the multi-instance registry. Unlike iOS,
                     // Android Dialog already supports multiple concurrent
                     // instances natively (each Dialog has its own Window),
                     // so we don't need a separate UIWindow refactor.
-                    WebViewRegistry.getShared().register(instanceId, webViewDialog);
                     call.resolve();
                 }
             }
@@ -1119,82 +1134,12 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
 
     @PluginMethod
     public void close(PluginCall call) {
-        // Miden patch (PR-4 chunk 5): id-aware. Defaults to "default" so
-        // legacy single-instance callers still work.
-        final String instanceId = call.getString("id") != null
-            ? call.getString("id")
-            : WebViewRegistry.DEFAULT_INSTANCE_ID;
-        // For multi-instance callers, look up the dialog from the registry
-        // instead of using the legacy webViewDialog field. The legacy field
-        // tracks only the most recently opened dialog, which would close
-        // the wrong instance for multi-instance callers.
-        final WebViewDialog dialog = WebViewRegistry.getShared().get(instanceId);
-        final boolean isLegacyDefault = instanceId.equals(WebViewRegistry.DEFAULT_INSTANCE_ID);
-
-        if (dialog == null && webViewDialog == null) {
-            // Fallback: try to bring main activity to foreground
-            try {
-                Intent intent = new Intent(getContext(), getBridge().getActivity().getClass());
-                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                getContext().startActivity(intent);
-                call.resolve();
-            } catch (Exception e) {
-                Log.e("InAppBrowser", "Error bringing main activity to foreground: " + e.getMessage());
-                call.reject("WebView is not initialized and failed to restore main activity");
-            }
-            return;
-        }
-
-        this.getActivity().runOnUiThread(
-            new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        WebViewDialog targetDialog = (dialog != null) ? dialog : webViewDialog;
-                        if (targetDialog != null) {
-                            String currentUrl = "";
-                            try {
-                                currentUrl = targetDialog.getUrl();
-                                if (currentUrl == null) {
-                                    currentUrl = "";
-                                }
-                            } catch (Exception e) {
-                                Log.e("InAppBrowser", "Error getting URL before close: " + e.getMessage());
-                                currentUrl = "";
-                            }
-
-                            // Notify listeners about the close event.
-                            // PR-4 chunk 7: tag with instance id.
-                            notifyListeners(
-                                "closeEvent",
-                                new JSObject().put("url", currentUrl).put("id", instanceId)
-                            );
-
-                            targetDialog.dismiss();
-                            WebViewRegistry.getShared().remove(instanceId);
-                            if (isLegacyDefault) {
-                                webViewDialog = null;
-                            }
-                            call.resolve();
-                        } else {
-                            // Secondary fallback inside UI thread
-                            try {
-                                Intent intent = new Intent(getContext(), getBridge().getActivity().getClass());
-                                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                                getContext().startActivity(intent);
-                                call.resolve();
-                            } catch (Exception e) {
-                                Log.e("InAppBrowser", "Error in secondary fallback: " + e.getMessage());
-                                call.reject("WebView is not initialized");
-                            }
-                        }
-                    } catch (Exception e) {
-                        Log.e("InAppBrowser", "Error closing WebView: " + e.getMessage());
-                        call.reject("Failed to close WebView: " + e.getMessage());
-                    }
-                }
-            }
-        );
+        final String id = call.getString("id", WebViewRegistry.DEFAULT_INSTANCE_ID);
+        getActivity().runOnUiThread(() -> {
+            WebViewDialog dialog = WebViewRegistry.getShared().get(id);
+            if (dialog != null) dialog.dismiss();
+            call.resolve();
+        });
     }
 
     private Bundle getHeaders(PluginCall pluginCall) {
@@ -1211,6 +1156,10 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     }
 
     protected void handleOnResume() {
+        presentationAppForeground = true;
+        for (java.util.Map.Entry<String, WebViewDialog> entry : WebViewRegistry.getShared().snapshot()) {
+            entry.getValue().presentationForeground(true);
+        }
         boolean ok = CustomTabsClient.bindCustomTabsService(getContext(), CUSTOM_TAB_PACKAGE_NAME, connection);
         if (!ok) {
             Log.e(getLogTag(), "Error binding to custom tabs service");
@@ -1218,6 +1167,10 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     }
 
     protected void handleOnPause() {
+        presentationAppForeground = false;
+        for (java.util.Map.Entry<String, WebViewDialog> entry : WebViewRegistry.getShared().snapshot()) {
+            entry.getValue().presentationForeground(false);
+        }
         getContext().unbindService(connection);
     }
 
@@ -1244,14 +1197,10 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
 
     @Override
     protected void handleOnDestroy() {
-        if (webViewDialog != null) {
-            try {
-                webViewDialog.dismiss();
-            } catch (Exception e) {
-                // Ignore, dialog may already be dismissed
-            }
-            webViewDialog = null;
+        for (java.util.Map.Entry<String, WebViewDialog> entry : WebViewRegistry.getShared().snapshot()) {
+            entry.getValue().dismiss();
         }
+        webViewDialog = null;
         // Miden navbar — tear down the overlay manager so the
         // Activity-scoped NavbarView detaches from the decor view
         // and unsubscribes from the state holder. Without this,
@@ -1394,22 +1343,8 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 @Override
                 public void run() {
                     try {
-                        if (visible) {
-                            // Dialog.show() is the right primitive — it
-                            // re-attaches the existing Window without
-                            // recreating the WebView.
-                            if (!dialog.isShowing()) {
-                                dialog.show();
-                            }
-                        } else {
-                            // Dialog.hide() detaches the Window from the
-                            // screen but keeps the Dialog instance + its
-                            // WebView alive in memory. State preservation
-                            // works the same way as iOS UIWindow.isHidden.
-                            if (dialog.isShowing()) {
-                                dialog.hide();
-                            }
-                        }
+                        if (visible) dialog.show();
+                        else dialog.hide();
                         // Miden navbar — notify the overlay manager so
                         // it re-picks the topmost visible NavbarView.
                         // Without this, parking a dApp leaves the
@@ -1448,8 +1383,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     /**
      * Miden plugin method (PR-4 chunk 5): close every registered instance.
      * Used on app shutdown / wallet reset. Each dialog is dismissed and the
-     * registry is cleared. Individual closeEvent listeners are NOT fired —
-     * callers know they're tearing everything down.
+     * registry is cleared. Each session emits its terminal close event.
      */
     @PluginMethod
     public void closeAll(PluginCall call) {

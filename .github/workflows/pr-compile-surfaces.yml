@@ -72,7 +72,7 @@ jobs:
       # The JVM logic tests (Play update classification, hot-key rules) run
       # nowhere else: assembleDebug never compiles src/test.
       - name: Run Android unit tests
-        run: cd android && ./gradlew :app:testDebugUnitTest --console=plain
+        run: cd android && ./gradlew :app:testDebugUnitTest :miden-dapp-browser:testDebugUnitTest --console=plain
 
   desktop:
     name: Compile desktop (Tauri)
