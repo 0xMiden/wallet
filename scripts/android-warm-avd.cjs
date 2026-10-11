@@ -70,16 +70,21 @@ function delay(ms) {
 
 async function waitForBoot(timeoutMs) {
   const startedAt = Date.now();
+  let lastProbe = 'adb has not returned a boot property yet';
   while (Date.now() - startedAt < timeoutMs) {
     try {
       const { stdout } = await adbRun(['-s', SERIAL, 'shell', 'getprop', 'sys.boot_completed'], 10_000);
       if (stdout.trim() === '1') return Date.now() - startedAt;
-    } catch {
+      lastProbe = `adb returned sys.boot_completed=${JSON.stringify(stdout.trim())}`;
+    } catch (error) {
       // ADB is expected to be unavailable briefly during guest startup.
+      lastProbe = error instanceof Error ? error.message : String(error);
     }
     await delay(POLL_INTERVAL_MS);
   }
-  throw new Error(`Visible ${AVD_NAME} did not reach sys.boot_completed within ${timeoutMs}ms.`);
+  throw new Error(
+    `Visible ${AVD_NAME} did not reach sys.boot_completed within ${timeoutMs}ms. Last ADB probe: ${lastProbe}`
+  );
 }
 
 async function stopEmulator() {
@@ -136,9 +141,66 @@ async function assertSnapshotProof(expectedProof) {
   }
 }
 
-function launch(snapshotName) {
-  const logPath = path.join(process.env.GITHUB_WORKSPACE ?? process.cwd(), 'test-results-android', 'emulator-logs',
+function preparationLogPath() {
+  return path.join(process.env.GITHUB_WORKSPACE ?? process.cwd(), 'test-results-android', 'emulator-logs',
     `${AVD_NAME}-${PORT}-warm-preparation.log`);
+}
+
+async function captureWarmAvdFailure(phase, emulatorPid, error) {
+  const diagnosticPath = preparationLogPath().replace(/\.log$/, '-diagnostics.log');
+  const sections = [`===== ${phase} failure =====`, error instanceof Error ? error.stack ?? error.message : String(error)];
+  if (Number.isInteger(emulatorPid)) {
+    try {
+      process.kill(emulatorPid, 0);
+      sections.push(`Emulator PID ${emulatorPid}: alive before cleanup`);
+    } catch (processError) {
+      sections.push(`Emulator PID ${emulatorPid}: ${processError instanceof Error ? processError.message : String(processError)}`);
+    }
+    try {
+      const { stdout, stderr } = await run('ps', ['-p', String(emulatorPid), '-o', 'pid=,stat=,command='], 5_000);
+      sections.push(`Host emulator process:\n${stdout}${stderr}`);
+    } catch (processError) {
+      sections.push(`Host emulator process lookup failed: ${processError instanceof Error ? processError.message : String(processError)}`);
+    }
+  }
+  try {
+    const { stdout, stderr } = await adbRun(['devices', '-l'], 5_000);
+    sections.push(`adb devices -l:\n${stdout}${stderr}`);
+  } catch (adbError) {
+    sections.push(`adb devices -l failed: ${adbError instanceof Error ? adbError.message : String(adbError)}`);
+  }
+  try {
+    const { stdout } = await run('tail', ['-c', '131072', preparationLogPath()], 5_000);
+    const log = stdout;
+    sections.push(`Emulator log tail:\n${log.split('\n').filter(Boolean).slice(-250).join('\n')}`);
+  } catch (logError) {
+    sections.push(`Emulator log unavailable: ${logError instanceof Error ? logError.message : String(logError)}`);
+  }
+  const diagnostics = `${sections.join('\n\n')}\n`;
+  fs.mkdirSync(path.dirname(diagnosticPath), { recursive: true });
+  fs.appendFileSync(diagnosticPath, diagnostics);
+  process.stderr.write(`${diagnostics}\nSaved warm AVD failure diagnostics to ${diagnosticPath}\n`);
+}
+
+function reportSecondaryFailure(primaryError, context, secondaryError) {
+  const detail = `${context}: ${secondaryError instanceof Error ? secondaryError.stack ?? secondaryError.message : String(secondaryError)}`;
+  try {
+    process.stderr.write(`${detail}\n`);
+  } catch {
+    // Reporting a secondary failure must never replace the primary failure.
+  }
+  if (primaryError instanceof Error) {
+    try {
+      primaryError.message += `\n${context}: ${secondaryError instanceof Error ? secondaryError.message : String(secondaryError)}`;
+      primaryError.stack = `${primaryError.stack ?? primaryError.message}\n${detail}`;
+    } catch {
+      // Keep the original exception intact if it cannot be annotated.
+    }
+  }
+}
+
+function launch(snapshotName) {
+  const logPath = preparationLogPath();
   const markerPath = launchMarkerPath(PORT);
   return launchEmulator({
     emulatorBin: emulator,
@@ -169,7 +231,8 @@ async function prepare() {
 
   const apkSha256 = sha256(apkPath);
   const snapshotProof = crypto.randomBytes(32).toString('hex');
-  launch(null); // Cold boot with Quick Boot enabled so an explicit clean snapshot can be saved.
+  const coldBoot = launch(null); // Cold boot with Quick Boot enabled so an explicit clean snapshot can be saved.
+  let primaryError;
   try {
     await waitForBoot(BOOT_TIMEOUT_MS);
     await adbRun(['-s', SERIAL, 'install', '-r', '-t', apkPath], 180_000);
@@ -180,21 +243,48 @@ async function prepare() {
     await adbRun(['-s', SERIAL, 'shell', 'setprop', SNAPSHOT_PROOF_PROPERTY, snapshotProof]);
     await assertSnapshotProof(snapshotProof);
     await adbRun(['-s', SERIAL, 'emu', 'avd', 'snapshot', 'save', SNAPSHOT_NAME], 60_000);
+  } catch (error) {
+    primaryError = error;
+    try {
+      await captureWarmAvdFailure('cold boot and snapshot creation', coldBoot.pid, error);
+    } catch (diagnosticError) {
+      reportSecondaryFailure(error, 'Warm AVD diagnostic capture failed', diagnosticError);
+    }
+    throw error;
   } finally {
-    await stopEmulator();
+    try {
+      await stopEmulator();
+    } catch (cleanupError) {
+      if (primaryError) reportSecondaryFailure(primaryError, 'Warm AVD cleanup failed', cleanupError);
+      else throw cleanupError;
+    }
   }
 
   await listSnapshots();
   const restoreMs = [];
   for (let attempt = 1; attempt <= 2; attempt += 1) {
-    launch(SNAPSHOT_NAME);
+    const restore = launch(SNAPSHOT_NAME);
+    let restoreError;
     try {
       const elapsedMs = await waitForBoot(RESTORE_TIMEOUT_MS);
       await assertInstalledApk(apkPath, apkSha256);
       await assertSnapshotProof(snapshotProof);
       restoreMs.push(elapsedMs);
+    } catch (error) {
+      restoreError = error;
+      try {
+        await captureWarmAvdFailure(`snapshot restore ${attempt}`, restore.pid, error);
+      } catch (diagnosticError) {
+        reportSecondaryFailure(error, 'Warm AVD diagnostic capture failed', diagnosticError);
+      }
+      throw error;
     } finally {
-      await stopEmulator();
+      try {
+        await stopEmulator();
+      } catch (cleanupError) {
+        if (restoreError) reportSecondaryFailure(restoreError, 'Warm AVD cleanup failed', cleanupError);
+        else throw cleanupError;
+      }
     }
   }
 

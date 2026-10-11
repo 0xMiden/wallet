@@ -205,3 +205,33 @@
    await expect(new EmulatorControl().assertInstalledApkSha256(SERIAL, PACKAGE, '1'.repeat(64)))
      .rejects.toThrow(/SHA-256 mismatch/);
    ```
+
+24. [Independent review, fixed] A cold warm-AVD boot failure skipped the later success-only APK artifact upload, so its emulator process log was lost and the timeout could not distinguish host QEMU, guest initialization, or ADB failure. Capture bounded process/ADB/log-tail details before cleanup and upload prep diagnostics with `if: always()`.
+
+   ```js
+   // scripts/android-warm-avd.cjs:71-87,149-183,234-260
+   await captureWarmAvdFailure('cold boot and snapshot creation', coldBoot.pid, error);
+   ```
+
+   ```yaml
+   # .github/workflows/e2e-bridge-in.yml:319-329
+   - name: Upload warm AVD preparation diagnostics
+     if: always()
+   ```
+
+25. [Independent review, fixed] Preserve the original boot or snapshot error when diagnostic writing or emulator shutdown also fails. Report those secondary failures on the original exception; surface cleanup as the primary failure only when preparation itself succeeded.
+
+   ```js
+   // scripts/android-warm-avd.cjs:185-200,246-260,273-287
+   if (primaryError) reportSecondaryFailure(primaryError, 'Warm AVD cleanup failed', cleanupError);
+   else throw cleanupError;
+   ```
+
+### Low
+
+26. [Independent review, fixed] Bound emulator-log collection by reading at most 128 KiB before retaining the last 250 non-empty lines; do not load and split an arbitrarily large process log during failure handling.
+
+   ```js
+   // scripts/android-warm-avd.cjs:172-177
+   const { stdout } = await run('tail', ['-c', '131072', preparationLogPath()], 5_000);
+   ```

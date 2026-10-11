@@ -316,6 +316,18 @@ jobs:
           "$ANDROID_HOME/emulator/emulator" -list-avds | grep -qx 'Pixel_API_34'
           node scripts/android-warm-avd.cjs prepare
 
+      - name: Upload warm AVD preparation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridge-in-android-warm-avd-diagnostics-${{ github.run_id }}
+          path: |
+            test-results-android/emulator-logs/Pixel_API_34-5554-warm-preparation*.log
+            ${{ runner.temp }}/bridge-in-warm-avd-start-${{ github.run_id }}.json
+            ${{ runner.temp }}/bridge-in-apk/warm-avd.json
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Save the exact verified warm AVD cache
         uses: actions/cache/save@v4
         with:
