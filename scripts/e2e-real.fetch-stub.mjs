@@ -142,7 +142,8 @@ const WATCHED_ENV = [
   'E2E_ARC_KEY_ROLE',
   'E2E_HEADLESS',
   'MIDEN_CLIENT_BIN',
-  'USDCX_LIVE_EVM_PRIVATE_KEY'
+  'USDCX_LIVE_EVM_PRIVATE_KEY',
+  'USDCX_HARNESS_ARC_KEY'
 ];
 // A child given no `env` inherits this process's, so that is what it would see.
 const watched = (env = process.env) =>

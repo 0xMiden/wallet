@@ -21,8 +21,9 @@ export default defineConfig({
   // fake Epoch allocator/positions services + a local Anvil, so they run via
   // playwright.earn.config.ts on the dedicated earn job, not here. dApp specs
   // need a Guardian on one axis and run via playwright.dapp.config.ts. USDCx
-  // live specs spend public testnet funds and run only through `yarn e2e:real`
-  // (playwright.usdcx.config.ts), never in CI.
+  // live specs spend public testnet funds and run only through the `yarn
+  // e2e:real` runner (playwright.usdcx.config.ts), which E2E USDCx calls after
+  // every push to main.
   testIgnore: [
     '**/guardian-*.spec.ts',
     '**/swap/**',
