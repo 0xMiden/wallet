@@ -109,7 +109,17 @@ export interface CloseWebviewOptions {
      */
     id?: string;
 }
+export interface BreadPresentationOptions {
+    script: string;
+    logoSvg: string;
+    backLabel: string;
+    hintLabel: string;
+    retryLabel: string;
+    errorLabel: string;
+    readinessTimeoutMs: number;
+}
 export interface OpenWebViewOptions {
+    breadPresentation?: BreadPresentationOptions;
     /**
      * Miden patch (PR-4 chunk 5): id for the multi-instance webview being
      * opened. Defaults to 'default' for legacy single-instance callers.
@@ -580,6 +590,10 @@ export interface DimensionOptions {
     y?: number;
 }
 export interface InAppBrowserPlugin {
+    addListener(eventName: 'presentationChanged', listenerFunc: (event: {
+        id: string;
+        display: 'browser' | 'fullscreen';
+    }) => void): Promise<PluginListenerHandle>;
     /**
      * Navigates back in the WebView's history if possible
      *

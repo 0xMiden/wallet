@@ -1387,5 +1387,8 @@
   "testIethExecution": "The swap executes through a smart contract on Miden Testnet.",
   "swapExecutionTitle": "Where the swap executes",
   "tokenInfoLabel": "About $token$",
-  "externalPageLoadFailed": "Couldn't open this page. Check your connection and try again."
+  "externalPageLoadFailed": "Couldn't open this page. Check your connection and try again.",
+  "breadPresentationBack": "Back to Bread",
+  "breadPresentationHint": "Tap Bread to return",
+  "breadPresentationError": "This app did not finish loading. Try again or return to Bread."
 }

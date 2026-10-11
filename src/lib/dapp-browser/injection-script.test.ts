@@ -1209,3 +1209,19 @@ describe('account switch (#174)', () => {
     });
   });
 });
+
+describe('native presentation padding policy', () => {
+  it('removes browser padding for native fullscreen, including warm reinjection', () => {
+    const win = makeWindow();
+    inject(win, document);
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    expect(document.getElementById('miden-wallet-bottom-pad')?.textContent).toContain('96px');
+    win.__breadPresentationState = Object.freeze({ display: 'fullscreen' });
+    inject(win, document);
+    document.dispatchEvent(new Event('DOMContentLoaded'));
+    expect(document.getElementById('miden-wallet-bottom-pad')).toBeNull();
+    win.__breadPresentationState = Object.freeze({ display: 'browser' });
+    document.dispatchEvent(new Event('breadpresentationchange'));
+    expect(document.getElementById('miden-wallet-bottom-pad')?.textContent).toContain('96px');
+  });
+});

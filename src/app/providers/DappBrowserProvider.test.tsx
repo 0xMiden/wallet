@@ -53,6 +53,8 @@ function makeInstance(id: string) {
   };
 }
 
+jest.mock('app/icons/brand/new-bread.svg?raw', () => '<svg />', { virtual: true });
+
 jest.mock('@miden/dapp-browser', () => ({
   InAppBrowser: {
     addListener: (...args: unknown[]) => mockAddListener(...args)
@@ -60,7 +62,7 @@ jest.mock('@miden/dapp-browser', () => ({
   ToolBarType: { BLANK: 'BLANK' },
   dappWebViewManager: {
     open: async (opts: { id: string }) => {
-      mockPluginOpen(opts);
+      await mockPluginOpen(opts);
       return makeInstance(opts.id);
     }
   }
@@ -998,5 +1000,178 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
     expect(document.body.hasAttribute('data-drawer-open')).toBe(true);
     sheet2.rerender({ overlay: false });
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
+  });
+});
+
+describe('native presentation lifecycle', () => {
+  function listenerFor(event: string): (value: unknown) => Promise<void> {
+    const call = mockAddListener.mock.calls.find(c => c[0] === event);
+    if (!call) throw new Error(`Missing listener: ${event}`);
+    return call[1];
+  }
+
+  it('native close rejects its approval, clears all session storage, and preserves an unrelated approval', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('closeEvent', expect.any(Function)));
+    act(() => hook.result.current.open(makeSession('dapp-b')));
+    act(() => hook.result.current.open(makeSession('dapp-a')));
+    const other = dappConfirmationStore.requestConfirmation(makeConfirmationRequest('dapp-b'));
+    const pending = dappConfirmationStore.requestConfirmation(makeConfirmationRequest('dapp-a'));
+    await act(async () => {
+      await listenerFor('closeEvent')({ id: 'dapp-a' });
+    });
+    expect(dappConfirmationStore.getPendingRequest('dapp-a')).toBeNull();
+    await expect(pending).resolves.toEqual({ confirmed: false });
+    expect(dappConfirmationStore.getPendingRequest('dapp-b')).not.toBeNull();
+    expect(hook.result.current.sessionStates.map(s => s.session.id)).toEqual(['dapp-b']);
+    expect(mockClearSnapshot).toHaveBeenCalledWith('dapp-a');
+    expect(mockRemovePersistedSession).toHaveBeenCalledWith('dapp-a');
+    expect(mockRemoveSnapshotFromDisk).toHaveBeenCalledWith('dapp-a');
+    expect(mockSetActiveDappSession).toHaveBeenCalledWith(null);
+    dappConfirmationStore.resolveConfirmation('dapp-b', { confirmed: false });
+    await other;
+  });
+
+  it('finalizes once when explicit close triggers native closeEvent', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('closeEvent', expect.any(Function)));
+    act(() => {
+      hook.result.current.open(makeSession('dapp-a'));
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    await waitFor(() => expect(mockPluginOpen).toHaveBeenCalled());
+    mockInstanceClose.mockImplementationOnce(() => listenerFor('closeEvent')({ id: 'dapp-a' }));
+    await act(async () => {
+      await hook.result.current.close('dapp-a');
+    });
+    expect(hook.result.current.sessionStates).toHaveLength(0);
+    expect(mockClearSnapshot).toHaveBeenCalledTimes(1);
+    expect(mockRemovePersistedSession).toHaveBeenCalledTimes(1);
+    expect(mockRemoveSnapshotFromDisk).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for presentation listener registration before opening the page', async () => {
+    let register: (() => void) | undefined;
+    mockAddListener.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          register = () => resolve({ remove: jest.fn() });
+        })
+    );
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => {
+      hook.result.current.open(makeSession('dapp-a'));
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    expect(mockPluginOpen).not.toHaveBeenCalled();
+    await act(async () => {
+      register?.();
+    });
+    await waitFor(() => expect(mockPluginOpen).toHaveBeenCalled());
+  });
+
+  it('closes an instance returned after its session has already been finalized', async () => {
+    let finishOpen: (() => void) | undefined;
+    mockPluginOpen.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          finishOpen = resolve;
+        })
+    );
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('closeEvent', expect.any(Function)));
+    act(() => {
+      hook.result.current.open(makeSession('dapp-a'));
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    await waitFor(() => expect(mockPluginOpen).toHaveBeenCalled());
+    await act(async () => {
+      await hook.result.current.close('dapp-a');
+    });
+    await act(async () => {
+      finishOpen?.();
+    });
+    expect(mockInstanceClose).toHaveBeenCalledWith('dapp-a');
+    expect(hook.result.current.sessionStates).toHaveLength(0);
+    expect(mockClearSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not persist a parked snapshot that finishes after native close', async () => {
+    let finishSnapshot: ((value: string) => void) | undefined;
+    mockCaptureSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          finishSnapshot = resolve;
+        })
+    );
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('closeEvent', expect.any(Function)));
+    act(() => {
+      hook.result.current.open(makeSession('dapp-a'));
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    await waitFor(() => expect(mockPluginOpen).toHaveBeenCalled());
+    let parking: Promise<void> | undefined;
+    act(() => {
+      parking = hook.result.current.park('dapp-a');
+    });
+    await act(async () => {
+      await listenerFor('closeEvent')({ id: 'dapp-a' });
+    });
+    await act(async () => {
+      finishSnapshot?.('data:image/jpeg;base64,AAAA');
+      await parking;
+    });
+    expect(mockUpsertPersistedSession).not.toHaveBeenCalled();
+    expect(mockWriteSnapshotToDisk).not.toHaveBeenCalled();
+    expect(hook.result.current.sessionStates).toHaveLength(0);
+  });
+
+  it('opens a loading session once when its slot changes before native opening finishes', async () => {
+    let finishOpen: (() => void) | undefined;
+    mockPluginOpen.mockImplementation(
+      () =>
+        new Promise<void>(resolve => {
+          finishOpen = resolve;
+        })
+    );
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('closeEvent', expect.any(Function)));
+    act(() => {
+      hook.result.current.open(makeSession('dapp-a'));
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    await waitFor(() => expect(mockPluginOpen).toHaveBeenCalled());
+    await act(async () => {
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 600, height: 375 });
+    });
+    const opens = mockPluginOpen.mock.calls.length;
+    await act(async () => {
+      finishOpen?.();
+    });
+    mockPluginOpen.mockReset();
+    expect(opens).toBe(1);
+  });
+
+  it('passes the native contract and captures presentation events before opening returns', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('presentationChanged', expect.any(Function)));
+    mockPluginOpen.mockImplementationOnce((options: { id: string }) => {
+      void listenerFor('presentationChanged')({ id: options.id, display: 'fullscreen' });
+    });
+    act(() => {
+      hook.result.current.open(makeSession('dapp-a'));
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    await waitFor(() => expect(hook.result.current.sessionStates[0]).toMatchObject({ presentation: 'fullscreen' }));
+    expect(mockPluginOpen.mock.calls[0]![0].breadPresentation).toMatchObject({
+      script: expect.any(String),
+      logoSvg: expect.any(String),
+      backLabel: 'breadPresentationBack',
+      hintLabel: 'breadPresentationHint',
+      retryLabel: 'retry',
+      errorLabel: 'breadPresentationError',
+      readinessTimeoutMs: 30000
+    });
   });
 });

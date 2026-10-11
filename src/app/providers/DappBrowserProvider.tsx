@@ -53,6 +53,7 @@ import { AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { DappWebViewInstance, InAppBrowser, ToolBarType, dappWebViewManager } from '@miden/dapp-browser';
+import breadLogoSvg from 'app/icons/brand/new-bread.svg?raw';
 import { DappConfirmationModal } from 'app/pages/Browser/DappConfirmationModal';
 import { DappPeekTray } from 'app/pages/Browser/DappPeekTray';
 import { DappSwitcher } from 'app/pages/Browser/DappSwitcher';
@@ -79,6 +80,7 @@ import {
 // through the native plugin.
 import { dappConfirmationStore } from 'lib/dapp-browser/confirmation-store';
 import { getDappDisplayName } from 'lib/dapp-browser/dapp-session';
+import { PRESENTATION_SCRIPT } from 'lib/dapp-browser/presentation-script';
 import { captureSnapshot, clearSnapshot, snapshotStoreInternals } from 'lib/dapp-browser/snapshot-store';
 import { type WebViewRect } from 'lib/dapp-browser/webview-rect';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
@@ -157,6 +159,8 @@ export interface DappSessionState {
    * or explicit reload.
    */
   error: string | null;
+  /** Native-confirmed display policy, independent of wallet permissions. */
+  presentation: 'browser' | 'fullscreen';
 }
 
 interface DappBrowserContextValue {
@@ -354,12 +358,42 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   }, []);
 
   const removeSession = useCallback((id: string) => {
+    sessionStatesRef.current = sessionStatesRef.current.filter(s => s.session.id !== id);
     setSessionStates(prev => prev.filter(s => s.session.id !== id));
   }, []);
 
   const getSessionStateById = useCallback((id: string): DappSessionState | undefined => {
     return sessionStatesRef.current.find(s => s.session.id === id);
   }, []);
+
+  const openingSessions = useRef(new Set<string>());
+  const listenerSetup = useRef<Promise<void>>(Promise.resolve());
+  const finalizations = useRef(new Map<string, Promise<void>>());
+  const finalizeSession = useCallback(
+    (id: string): Promise<void> => {
+      const existing = finalizations.current.get(id);
+      if (existing) return existing;
+      if (!getSessionStateById(id)) return Promise.resolve();
+      // Remove the session before notifying confirmation subscribers so it cannot auto-restore.
+      removeSession(id);
+      if (foregroundIdRef.current === id) {
+        foregroundIdRef.current = null;
+        setForegroundId(null);
+        setActiveDappSession(null);
+      }
+      dappConfirmationStore.resolveConfirmation(id, { confirmed: false });
+      clearSnapshot(id);
+      markReturningFromWebview();
+      const finalized = Promise.all([
+        removePersistedSession(id).catch(error => console.warn('[DappBrowserProvider] remove session failed:', error)),
+        removeSnapshotFromDisk(id).catch(error => console.warn('[DappBrowserProvider] remove snapshot failed:', error)),
+        resetViewportAfterWebview()
+      ]).then(() => undefined);
+      finalizations.current.set(id, finalized);
+      return finalized;
+    },
+    [getSessionStateById, removeSession, setActiveDappSession]
+  );
 
   // ─── Plugin event listeners ─────────────────────────────────────────────
   //
@@ -374,6 +408,11 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     let mounted = true;
 
     const wire = async () => {
+      const presentationL = await InAppBrowser.addListener('presentationChanged', event => {
+        updateSession(event.id, s => ({ ...s, presentation: event.display }));
+      });
+      listenerRemovers.push(() => presentationL.remove());
+
       const messageL = await InAppBrowser.addListener('messageFromWebview', async event => {
         const id = (event as { id?: string })?.id ?? 'default';
         const state = getSessionStateById(id);
@@ -509,18 +548,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
       const closeL = await InAppBrowser.addListener('closeEvent', async event => {
         const id = (event as { id?: string })?.id ?? 'default';
-        const state = getSessionStateById(id);
-        if (!state) return;
-        // Native plugin closed itself (e.g. user backed out, or our own
-        // close() triggered this event as part of its teardown). Remove
-        // the session from state.
-        clearSnapshot(id);
-        removeSession(id);
-        if (foregroundIdRef.current === id) {
-          setForegroundId(null);
-        }
-        markReturningFromWebview();
-        await resetViewportAfterWebview();
+        await finalizeSession(id);
       });
       listenerRemovers.push(() => closeL.remove());
 
@@ -530,7 +558,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       }
     };
 
-    void wire();
+    listenerSetup.current = wire();
 
     return () => {
       mounted = false;
@@ -589,7 +617,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           isLoading: false,
           isCold: true,
           originConfirmed: false,
-          error: null
+          error: null,
+          presentation: 'browser'
         }));
 
       // Merge into state — this path assumes there are no live sessions
@@ -607,7 +636,11 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
   const openInternal = useCallback(
     async (session: DappSession, rect: WebViewRect) => {
+      if (openingSessions.current.has(session.id)) return;
+      openingSessions.current.add(session.id);
       try {
+        await listenerSetup.current;
+        if (finalizations.current.has(session.id)) return;
         const instance = await dappWebViewManager.open({
           id: session.id,
           url: session.url,
@@ -623,8 +656,26 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           // this so users can't poke at the runtime. The flag is plumbed
           // through to WKWebViewConfiguration.isInspectable in the iOS
           // plugin (Capacitor inappbrowser openWebView option).
+          ...(isMobile()
+            ? {
+                breadPresentation: {
+                  script: PRESENTATION_SCRIPT,
+                  logoSvg: breadLogoSvg,
+                  backLabel: t('breadPresentationBack'),
+                  hintLabel: t('breadPresentationHint'),
+                  retryLabel: t('retry'),
+                  errorLabel: t('breadPresentationError'),
+                  readinessTimeoutMs: 30000
+                }
+              }
+            : {}),
           isInspectable: process.env.NODE_ENV !== 'production'
         });
+        // An early native close can arrive while openWebView is still pending.
+        if (finalizations.current.has(session.id)) {
+          await instance.close();
+          return;
+        }
         updateSession(session.id, s => ({
           ...s,
           instance,
@@ -640,6 +691,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       } catch (error) {
         console.error('[DappBrowserProvider] Error opening webview:', error);
         updateSession(session.id, s => ({ ...s, isLoading: false, status: 'closing' }));
+      } finally {
+        openingSessions.current.delete(session.id);
       }
     },
     [t, updateSession]
@@ -669,11 +722,13 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       } catch (e) {
         console.warn('[DappBrowserProvider] snapshot capture failed:', e);
       }
+      if (finalizations.current.has(id) || getSessionStateById(id)?.instance !== state.instance) return;
       try {
         await state.instance.setVisible(false);
       } catch (e) {
         console.warn('[DappBrowserProvider] setVisible(false) failed:', e);
       }
+      if (finalizations.current.has(id) || getSessionStateById(id)?.instance !== state.instance) return;
       updateSession(id, s => ({ ...s, status: 'parked' }));
 
       // PR-6 cold-bubble persistence: write both the session metadata and
@@ -719,6 +774,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         void parkInternal(currentForeground);
       }
 
+      finalizations.current.delete(next.id);
+
       // Add the new session to state in the 'loading' phase. The effect
       // below will pick up foregroundId + slotRect and call openInternal
       // once the layout has reported a target rect.
@@ -732,7 +789,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           isLoading: true,
           isCold: false,
           originConfirmed: false,
-          error: null
+          error: null,
+          presentation: 'browser'
         }
       ]);
       setForegroundId(next.id);
@@ -747,34 +805,15 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       if (!id) return;
       const state = getSessionStateById(id);
       if (!state) return;
-      // Resolve any pending confirmation for this session BEFORE tearing
-      // down state. Without this the dapp.ts promise chain is leaked,
-      // the confirmationStore Map entry lives forever, and the
-      // auto-restore effect below re-fires on every store notification
-      // trying to restore a session that no longer exists. Treated as
-      // implicit rejection — the user closed the dApp so they clearly
-      // aren't confirming.
-      dappConfirmationStore.resolveConfirmation(id, { confirmed: false });
-      updateSession(id, s => ({ ...s, status: 'closing' }));
+      const finalized = finalizeSession(id);
       try {
         await state.instance?.close();
       } catch (e) {
         console.warn('[DappBrowserProvider] instance.close() failed:', e);
       }
-      clearSnapshot(id);
-      removeSession(id);
-      if (foregroundIdRef.current === id) {
-        setForegroundId(null);
-        setActiveDappSession(null);
-      }
-      // PR-6: drop the persisted session + snapshot so it doesn't reappear
-      // as a cold bubble on the next app launch.
-      void removePersistedSession(id);
-      void removeSnapshotFromDisk(id);
-      markReturningFromWebview();
-      await resetViewportAfterWebview();
+      await finalized;
     },
-    [getSessionStateById, removeSession, setActiveDappSession, updateSession]
+    [finalizeSession, getSessionStateById]
   );
 
   const park = useCallback(
