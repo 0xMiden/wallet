@@ -127,9 +127,9 @@ jobs:
         with:
           node-version: 22
 
-      - name: Restore or seed Android E2E dependency cache
+      - name: Restore Android E2E dependency cache
         id: deps-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             node_modules
@@ -143,12 +143,28 @@ jobs:
       - name: Verify prepared dependency tree
         run: yarn check:deps
 
+      - name: Save verified Android E2E dependency cache
+        if: steps.deps-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            node_modules
+            packages/hd-key/dist
+          key: bridge-in-node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node22-yarn1-${{ hashFiles('package.json', 'yarn.lock', '.yarnrc', '.npmrc', 'patches/**', 'packages/hd-key/src/**', 'packages/hd-key/tsconfig.json', 'packages/hd-key/package.json') }}
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
 
-      - name: Verify Android SDK components provided by the runner image
+      # The hosted image contains the Android SDK, but does not put sdkmanager and
+      # avdmanager on PATH. This action exposes the tools; only platform-tools are
+      # requested here, while the heavier runner-image packages are checked below.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Verify Android SDK components
         run: |
           command -v sdkmanager
           command -v avdmanager
@@ -158,9 +174,9 @@ jobs:
           test -x "$ANDROID_HOME/build-tools/36.0.0/aapt"
           "$ANDROID_HOME/emulator/emulator" -accel-check
 
-      - name: Restore or seed the Android API 34 image cache
+      - name: Restore Android API 34 image cache
         id: sdk-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/Library/Android/sdk/system-images/android-34/default/x86_64
@@ -180,6 +196,14 @@ jobs:
           test -s "$ANDROID_HOME/platforms/android-36/android.jar"
           test -s "$ANDROID_HOME/system-images/android-34/default/x86_64/package.xml"
           "$ANDROID_HOME/emulator/emulator" -accel-check
+
+      - name: Save verified Android API 34 image cache
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/Library/Android/sdk/system-images/android-34/default/x86_64
+          key: bridge-in-android-image-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/e2e-bridge-in.yml') }}
 
       - name: Build Testnet E2E APK
         run: yarn test:e2e:android:build

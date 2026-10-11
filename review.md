@@ -5,14 +5,14 @@
 1. [Expert, fixed] Compare the prepared artifact's repository ID to `GITHUB_REPOSITORY_ID`; the GitHub Script `context` has no `repoId` property, which rejected every preparation artifact.
 
    ```yaml
-   # .github/workflows/e2e-bridge-in.yml:694-700
+   # .github/workflows/e2e-bridge-in.yml:720-724
    artifact.workflow_run?.head_repository_id === Number(process.env.GITHUB_REPOSITORY_ID)
    ```
 
 2. [Expert, fixed] Bound Android host checks, VM acceleration, and AVD creation, then check the dispatch deadline after each stage so a stuck command cannot consume the live startup budget without a prompt failure.
 
    ```yaml
-   # .github/workflows/e2e-bridge-in.yml:855-911
+   # .github/workflows/e2e-bridge-in.yml:879-935
    - name: Create base AVD
      timeout-minutes: 1
      ...
@@ -40,7 +40,7 @@
 5. [Expert, addressed] Dispatch the Android job with `platform=android`; the combined workflow retains iOS as its default input.
 
    ```yaml
-   # .github/workflows/e2e-bridge-in.yml:35-40,537-542
+   # .github/workflows/e2e-bridge-in.yml:35-40,559-566
    default: ios
    if: github.event_name == 'workflow_dispatch' && inputs.platform == 'android'
    ```
@@ -48,7 +48,7 @@
 6. [Expert, fixed] Run the x86_64 AVD on the 12-core Intel macOS larger runner and fail before boot if fewer than six host CPUs are available.
 
    ```yaml
-   # .github/workflows/e2e-bridge-in.yml:542,855-863
+   # .github/workflows/e2e-bridge-in.yml:566,879-887
    runs-on: macos-26-large
    if ... host_cores < 6; then exit 1; fi
    ```
@@ -64,7 +64,7 @@
 8. [Expert, fixed] Write a structured startup result on every ordinary setup exit, including failures before the Playwright watchdog begins.
 
    ```yaml
-   # .github/workflows/e2e-bridge-in.yml:941-1000
+   # .github/workflows/e2e-bridge-in.yml:965-1024
    if: always()
    uses: actions/github-script@v7
    ```
@@ -85,18 +85,28 @@
    process.exitCode = exceededDeadline || !firstLoop ? 1 : code ?? 1;
    ```
 
+11. [Runtime finding, addressed; hosted retry pending] Expose the hosted Android SDK tools on `PATH` before checking or invoking `sdkmanager` and `avdmanager`. Preparation run `38111623729` reached `command -v sdkmanager` and failed before APK build. Save verified dependency and system-image caches before later build steps so downstream failures retain completed preparation work.
+
+   ```yaml
+   # .github/workflows/e2e-bridge-in.yml:146-209
+   - uses: android-actions/setup-android@v3
+     with:
+       packages: platform-tools
+   - uses: actions/cache/save@v4
+   ```
+
 ### Low
 
-11. [Expert, fixed] Run checkout and Cargo preparation through the process-tree-aware timeout helper so timed-out commands cannot race source cleanup.
+12. [Expert, fixed] Run checkout and Cargo preparation through the process-tree-aware timeout helper so timed-out commands cannot race source cleanup.
 
    ```js
    // scripts/install-pinned-miden-cli.cjs:91-97,318-324
    timeoutMs: 180_000
    ```
 
-12. [Expert, fixed] Name Hypervisor.framework as the macOS acceleration layer in the runner guidance.
+13. [Expert, fixed] Name Hypervisor.framework as the macOS acceleration layer in the runner guidance.
 
    ```yaml
-   # .github/workflows/e2e-bridge-in.yml:885-890
+   # .github/workflows/e2e-bridge-in.yml:909-917
    # Prove the selected runner exposes Hypervisor.framework before emulator boot.
    ```
