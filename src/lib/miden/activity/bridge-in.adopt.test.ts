@@ -175,6 +175,17 @@ describe('adoptBridgeDeliveries', () => {
     expect(await phaseOf('deposit')).toMatchObject({ phase: 'received', midenNoteId: 'note-1' });
   });
 
+  // The reconciler counts a ready deposit's week from its attestation, so its mint lands however old the deposit is.
+  it('lands a mint in a deposit that became ready this week, however old its deposit', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    await addDeposit('deposit', 'ready', now - 10 * 24 * 60 * 60, { readyAt: now - 60 });
+    await addConsume({ noteIds: ['note-1'] });
+
+    await adoptBridgeDeliveries('consume', [mint('note-1')]);
+
+    expect(await phaseOf('deposit')).toMatchObject({ phase: 'received', midenNoteId: 'note-1' });
+  });
+
   it('never throws, whatever the store does', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     const where = jest.spyOn(Repo.transactions, 'where').mockImplementation(() => {

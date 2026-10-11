@@ -633,6 +633,30 @@ describe('takeUsdcxBridgeInInfo', () => {
     await expect(takeUsdcxBridgeInInfo({ ...mint, ...overrides, amount: 5_000_000n })).resolves.toBeUndefined();
   });
 
+  // A row is live for as long as the reconciler tracks it, which can be well past its deposit's first week.
+  const EXECUTE_HASH = `0x${'7'.repeat(64)}`;
+  it.each<[string, Record<string, unknown>]>([
+    ['became ready this week', { phase: 'ready', readyAt: 9 }],
+    [
+      'saved its Arc execute this week',
+      {
+        phase: 'delivering',
+        sourceChainId: 84532,
+        cctp: { sourceDomain: 6, executeTxHash: EXECUTE_HASH, executeSavedAt: 9 }
+      }
+    ],
+    [
+      'holds a message to execute',
+      { phase: 'delivering', sourceChainId: 84532, cctp: { sourceDomain: 6, message: '0x1234', attestation: '0xabcd' } }
+    ]
+  ])('takes the mint of an old deposit that %s', async (_label, extraInputs) => {
+    mockTransactions.push(tracker({ id: 'old', initiatedAt: -10 * 24 * 60 * 60 }, extraInputs));
+
+    await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toMatchObject({
+      bridgeReceiveTxId: 'old'
+    });
+  });
+
   // A mint that arrives after its ready row timed out still lands it, after any live deposit of the same amount.
   describe('a deposit that timed out after Circle attested it', () => {
     const timedOut = (overrides: Record<string, unknown> = {}, extraInputs: Record<string, unknown> = {}) =>

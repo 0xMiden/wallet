@@ -7,6 +7,7 @@ import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { getBridgeConfigSnapshot, initBridgeConfig } from 'lib/remote-config/runtime';
 import { selectNativeEthFaucet, selectNativeEthToken } from 'lib/remote-config/values';
 
+import { withinDeliveryWindow } from './bridge-receive-window';
 import { compareAccountIds } from './utils';
 import {
   IBridgeInInfo,
@@ -281,8 +282,10 @@ function isAttestedTimeout(inputs: IBridgedReceiveExtraInputs): boolean {
  * sender alone proves nothing. The row must be a broadcast deposit (it has its EVM hash)
  * of the same account and the same amount, which xReserve mints 1:1. The rows are read
  * first, so a consume with no open USDCx deposit never waits for the native asset id.
- * A row that timed out after Circle attested it still takes a late mint, at any age, but
- * only after every open row: its deposit was proven, so its mint can still come.
+ * An open row is one the reconciler still tracks, which a deposit attested or executed
+ * after its first week still is. A row that timed out after Circle attested it still takes
+ * a late mint, at any age, but only after every open row: its deposit was proven, so its
+ * mint can still come.
  */
 export async function takeUsdcxBridgeInInfo(args: {
   accountId: string;
@@ -301,7 +304,7 @@ export async function takeUsdcxBridgeInInfo(args: {
       const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
       if (inputs?.provider !== 'usdcx' || inputs.evmTxHash === undefined || tx.amount !== args.amount) return false;
       if (isAttestedTimeout(inputs)) return true;
-      return inputs.phase !== 'received' && inputs.phase !== 'failed' && tx.initiatedAt >= cutoffSec;
+      return inputs.phase !== 'received' && inputs.phase !== 'failed' && withinDeliveryWindow(tx, inputs, cutoffSec);
     })
     .toArray();
   // The mint follows Circle's attestation of the deposit, so a row whose deposit is attested (`ready`) is the
