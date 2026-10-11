@@ -1,6 +1,7 @@
 import type { Hex } from 'viem';
 
 import type { JsonValue } from './history';
+import { CLAIM_COST_FEE_MULTIPLE, isWorthClaiming } from './usdcx-constants';
 
 const ARC_PRIVATE_KEY = /^(0x)?[0-9a-f]{64}$/i;
 const POSITIVE_UNITS = /^[1-9]\d*$/;
@@ -371,6 +372,19 @@ export async function describePage(url: string, visibility: () => Promise<string
 
 export function ledgerLine(terms: ReadonlyArray<readonly [string, bigint]>): string {
   return terms.map(([name, amount]) => `${name}=${amount}`).join(' ');
+}
+
+/**
+ * Why the wallet's unattended claim would leave a mint of `units` unclaimed at `baseFee`, or undefined. The wallet
+ * claims a batch only above baseFee x CLAIM_COST_FEE_MULTIPLE (isWorthClaiming), and a deposit leg waits for that claim.
+ */
+export function depositClaimProblem(units: bigint, baseFee: number): string | undefined {
+  if (isWorthClaiming(units, baseFee)) return undefined;
+  const floor = BigInt(Math.trunc(baseFee)) * BigInt(CLAIM_COST_FEE_MULTIPLE);
+  return (
+    `a deposit of ${units} does not exceed the wallet's claim floor ${floor} (base fee ${baseFee} x ` +
+    `${CLAIM_COST_FEE_MULTIPLE}), so the wallet would leave its mint unclaimed: raise DEPOSIT_UNITS`
+  );
 }
 
 /** Matches exactly one of `texts`, as a pill reads it. */

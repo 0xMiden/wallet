@@ -126,8 +126,8 @@ global.fetch = async (input, init = {}) => {
 };
 
 // The CLI install and the native-asset discovery answer from ANSWERS. run()'s children log their command and the
-// environment names a usdcx phase sets or unsets, then close. Every other child (the ts-node readers of the config
-// document and the faucet grant) runs for real. syncBuiltinESMExports carries the swap into the runner's named imports.
+// environment names a usdcx phase sets or unsets, then close. Every other child (the ts-node reader of the config
+// document) runs for real. syncBuiltinESMExports carries the swap into the runner's named imports.
 const childProcess = createRequire(import.meta.url)('node:child_process');
 const realSpawnSync = childProcess.spawnSync;
 const WATCHED_ENV = [

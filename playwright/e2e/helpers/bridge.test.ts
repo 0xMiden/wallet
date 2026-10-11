@@ -5,6 +5,7 @@ import type { Page } from '@playwright/test';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { formatUnits } from 'viem';
 import { sepolia } from 'viem/chains';
 
 import {
@@ -20,7 +21,7 @@ import {
   usdcxPayoutRowsText,
   waitForReviewSubmitEnabled
 } from './bridge';
-import { ARC_CHAIN_ID } from './usdcx-constants';
+import { ARC_CHAIN_ID, BURN_UNITS, USDCX_DECIMALS } from './usdcx-constants';
 import type { ChromeWalletPageApi } from './wallet-page';
 
 const EN = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../public/_locales/en/en.json'), 'utf8'));
@@ -252,7 +253,11 @@ describe('readNativeDisplaySymbol', () => {
 
 describe('usdcxPayoutRowsText', () => {
   it("reads both payout rows from the destination's own fee allowance in the wallet", () => {
-    expect(usdcxPayoutRowsText(ARC_CHAIN_ID, '10')).toEqual({ fee: 'Up to 0.1 USDC', net: 'At least 9.9 USDC' });
+    // The harness's own burn, whose two rows the small-burn probe read live.
+    expect(usdcxPayoutRowsText(ARC_CHAIN_ID, formatUnits(BURN_UNITS, USDCX_DECIMALS))).toEqual({
+      fee: 'Up to 0.1 USDC',
+      net: 'At least 0.9 USDC'
+    });
     expect(usdcxPayoutRowsText(sepolia.id, '10')).toEqual({ fee: 'Up to 1.5 USDC', net: 'At least 8.5 USDC' });
   });
 

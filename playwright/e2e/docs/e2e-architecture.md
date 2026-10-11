@@ -367,9 +367,9 @@ Nothing in this group is stood in for. The wallet runs on the public Miden testn
 
 | Suite | Command | What it covers |
 |---|---|---|
-| `usdcx` | `yarn e2e:real --suite usdcx` | A fresh Guardian wallet takes one faucet grant and burns 10 USDCx through Send to a fresh Arc key. Circle pays the key, the wallet shows the payout as Confirmed, the key deposits 1 USDC back through xReserve, Circle attests it, Circle's relayer mints it and the wallet receives it. Up to 60 min. |
+| `usdcx` | `yarn e2e:real --suite usdcx` | A fresh Guardian wallet takes one 10 USDCx faucet grant and burns 1 USDCx, the USDCx faucet's minimum burn, through Send to a fresh Arc key. Circle pays the key, the wallet shows the payout as Confirmed, the key deposits 0.001 USDC back through xReserve, Circle attests it, Circle's relayer mints it and the wallet receives it. Up to 60 min. |
 | `usdcx-in` | `E2E_ARC_PRIVATE_KEY=<key> yarn e2e:real --suite usdcx-in` | The deposit leg alone, into a fresh Guardian wallet, from a key that already holds USDC on Arc. Up to 30 min. |
-| `usdcx-burn` | `yarn e2e:real --suite usdcx-burn` | One faucet grant and a burn through Send, on a fresh standard wallet and on a fresh Guardian wallet. |
+| `usdcx-burn` | `yarn e2e:real --suite usdcx-burn` | One 10 USDCx faucet grant and a 1 USDCx burn through Send, on a fresh standard wallet and on a fresh Guardian wallet. |
 
 > #### Circle's payout is a hard gate
 > The round trip fails when Circle has not paid the burn to the key within 10 minutes of the faucet consuming it. The proof is one Gateway `AttestationUsed` log on Arc whose mint carries the burn note id, so a transfer to the key from anywhere else does not count. Circle has paid Arc burns 10-12 s after the consume, but also 1 h 45 min and about 17 h late, and one burn was still unpaid days later. A red payout step therefore means a user would not have been paid in time; that can be Circle's doing rather than the wallet's, and the failure message says so.
@@ -379,15 +379,17 @@ Nothing in this group is stood in for. The wallet runs on the public Miden testn
 
 The harness reads Arc through drpc and QuickNode first and through `rpc.testnet.arc.io` last, because that endpoint is the one the wallet itself uses and it rate-limits; `--arc-rpc <url>` puts another endpoint in front.
 
+The amounts are the smallest that prove each hop. 1 USDCx is the USDCx faucet's on-chain minimum burn (the review refuses less), one 10 USDCx grant is the faucet's smallest tier that covers that burn and its fees, and the 0.001 USDC deposit clears the wallet's unattended claim floor (its base fee x 30, 210 base units at testnet's base fee of 7), so the wallet claims the mint by itself. A run whose live base fee has outgrown the deposit fails before it spends anything.
+
 ### Arc keys and getting their USDC back
 
 Every `usdcx` and `usdcx-burn` run pays out to a key made for that run. Before the burn, the key is written to `~/.miden-e2e/arc-keys/<time>-<address>.json` (mode 0600, outside the repository and `test-results/`) with its `address`, `privateKey`, the time and the Miden `walletAddress` that paid it. The key is never logged or attached to a report, and a run that dies after its burn still leaves its file behind.
 
-After a `usdcx` run the key holds about 9 USDC (the payout less the 1 USDC deposited back and its gas); after a `usdcx-burn` run, each of its two keys holds about 9.98 USDC once Circle pays. To use one:
+After a `usdcx` run the key holds about 0.98 USDC (the 0.9836 USDC payout less the 0.001 USDC deposited back and about 0.006 USDC of gas); after a `usdcx-burn` run, each of its two keys holds about 0.98 USDC once Circle pays. To use one:
 
-- **Fund `usdcx-in` with it:** `E2E_ARC_PRIVATE_KEY="$(jq -r .privateKey ~/.miden-e2e/arc-keys/<file>.json)" yarn e2e:real --suite usdcx-in`. The suite needs 1.05 USDC on the key: the 1 USDC deposit and its gas. (`--arc-key` works too, but leaves the key in your shell history.)
+- **Fund `usdcx-in` with it:** `E2E_ARC_PRIVATE_KEY="$(jq -r .privateKey ~/.miden-e2e/arc-keys/<file>.json)" yarn e2e:real --suite usdcx-in`. The suite needs 0.021 USDC on the key: the 0.001 USDC deposit and a 0.02 USDC gas reserve. (`--arc-key` works too, but leaves the key in your shell history.)
 - **Read its balance:** `cast call 0x3600000000000000000000000000000000000000 'balanceOf(address)(uint256)' <address> --rpc-url https://rpc.drpc.testnet.arc.io` (six decimals).
-- **Move its USDC:** import the key into any EVM wallet on Arc Testnet (chain 5042002) and send the USDC on, keeping about 0.05 USDC for gas.
+- **Move its USDC:** import the key into any EVM wallet on Arc Testnet (chain 5042002) and send the USDC on, keeping about 0.01 USDC for gas.
 
 These are testnet keys holding testnet USDC. Never commit one, and delete a file once its key is empty.
 

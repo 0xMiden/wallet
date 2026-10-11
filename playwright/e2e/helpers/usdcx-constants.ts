@@ -17,16 +17,24 @@ export {
   USDCX_DESTINATIONS,
   USDCX_REMOTE_DOMAIN
 } from '../../../src/lib/usdcx/constant';
-export { FEE_RESERVE_MULTIPLE } from '../../../src/lib/miden/fees/spendable';
+export { CLAIM_COST_FEE_MULTIPLE, FEE_RESERVE_MULTIPLE, isWorthClaiming } from '../../../src/lib/miden/fees/spendable';
 
-/** The UI burn: 10 USDCx. */
-export const BURN_UNITS = 10_000_000n;
-/** The deposit back: 1 USDC. */
-export const DEPOSIT_UNITS = 1_000_000n;
-/** Arc gas is paid in USDC; approve plus depositToRemote cost 0.0038-0.0067 USDC (spec section 3). */
-export const GAS_RESERVE_UNITS = 50_000n;
+/** The UI burn: 1 USDCx, the USDCx faucet's on-chain min_burn_amount; the review refuses anything less. */
+export const BURN_UNITS = 1_000_000n;
+/**
+ * The deposit back: 0.001 USDC. The wallet claims a mint unattended only above base fee x 30 (210 at testnet's 7), and
+ * a Guardian claim costs 133, so this is about 5x the one and 7.5x the other.
+ */
+export const DEPOSIT_UNITS = 1_000n;
+/**
+ * Arc gas is paid in USDC: approve plus depositToRemote use 187_847 gas, 0.0047 USDC at 25 gwei and 0.0061 at 32.5.
+ * This covers them and the deposit's upfront gas check up to about 85 gwei.
+ */
+export const GAS_RESERVE_UNITS = 20_000n;
 /** What the grant must leave above the burn for the burn's own fees. */
 export const GRANT_MARGIN_UNITS = 1_000_000n;
+/** One public faucet grant from the 10 USDCx tier: a 1 USDCx grant leaves 999_867, short of the 1_000_252 a burn takes. */
+export const GRANT_UNITS = 10_000_000n;
 /** D3: red this long after the burn's consume without a destination mint. */
 export const PAYOUT_TIMEOUT_MS = 600_000;
 /** Step 8b: the wallet's own confirmation of a payout the harness already proved. */

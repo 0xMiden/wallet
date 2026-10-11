@@ -18,7 +18,14 @@ import {
 } from './history';
 import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
 import { waitForPublicNoteCommitment } from './public-note-commitment';
-import { ARC_CHAIN_ID, ARC_CIRCLE_DOMAIN, BURN_UNITS, GRANT_MARGIN_UNITS, USDCX_BURN_TAG } from './usdcx-constants';
+import {
+  ARC_CHAIN_ID,
+  ARC_CIRCLE_DOMAIN,
+  BURN_UNITS,
+  GRANT_MARGIN_UNITS,
+  GRANT_UNITS,
+  USDCX_BURN_TAG
+} from './usdcx-constants';
 import { assertNoGuardianOpInFlight, burnFailureMessage } from './usdcx-guardian';
 import {
   accountHex,
@@ -253,8 +260,8 @@ export interface GrantFunding {
 }
 
 /**
- * Spec 5 step 3: one public faucet grant, which the service worker consumes by itself (a claim call would add a
- * second consume row). The grant consume is also the account's deploy.
+ * Spec 5 step 3: one public faucet grant of the 10 USDCx tier (R19), which the service worker consumes by itself (a
+ * claim call would add a second consume row). The grant consume is also the account's deploy.
  */
 export async function fundFromPublicFaucet(
   page: Page,
@@ -264,8 +271,9 @@ export async function fundFromPublicFaucet(
 ): Promise<GrantFunding> {
   const faucetApi = publicFaucetApiUrl('testnet');
   if (!faucetApi) throw new Error('the harness names no public faucet for testnet');
-  // No amount: the helper asks for what the wallet's Fund button asks for, and once more at a cap the faucet names.
-  const { noteId } = await mintFromPublicFaucet(faucetApi, ids.bare);
+  // The 10 USDCx tier, not the Fund button's largest: an explicit amount is never re-asked at a cap, so a faucet that
+  // drops the tier fails here, named.
+  const { noteId } = await mintFromPublicFaucet(faucetApi, ids.bare, GRANT_UNITS);
   if (!isHash(noteId)) throw new Error(`the public faucet returned note id ${noteId}, not 32 bytes of hex`);
   await waitForPublicNoteCommitment(rpcUrl, noteId, 60_000);
   // G is what the node holds in the note, not what the faucet said it would grant.
@@ -276,6 +284,7 @@ export async function fundFromPublicFaucet(
     item => `${item.faucetHex} ${item.amount}`
   );
   expect(asset.faucetHex.toLowerCase(), 'the grant is the native (USDCx) asset').toBe(ids.nativeHex.toLowerCase());
+  expect(asset.amount, 'the faucet granted the tier it was asked for').toBe(GRANT_UNITS);
   const consume = await waitForConsumeOf(page, noteId, 'grant', 90_000, where);
   const { fee: f0, vault } = await consumeFeeAndVault(page, ids, consume, {
     fee: 'f0',

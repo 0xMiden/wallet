@@ -799,7 +799,7 @@ export async function waitForReviewSubmitEnabled(page: Page, timeoutMs: number):
 
 export interface BridgeOutUsdcxOptions {
   destAddress: `0x${string}`;
-  /** Human amount, as typed, e.g. '10'. */
+  /** Human amount, as typed, e.g. '1'. */
   amount: string;
   /** The composite native id (`<bech32>_<suffix>`) the wallet discovered (balance-truth.ts). */
   nativeTokenId: string;

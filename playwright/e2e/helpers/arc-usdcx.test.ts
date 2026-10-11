@@ -57,9 +57,12 @@ import {
   BURN_UNITS,
   DEFAULT_ARC_RPCS,
   DEPOSIT_UNITS,
+  FEE_RESERVE_MULTIPLE,
   GAS_RESERVE_UNITS,
   GATEWAY_MINTER,
   GRANT_MARGIN_UNITS,
+  GRANT_UNITS,
+  isWorthClaiming,
   minimumUsdcxPayout,
   PAYOUT_TIMEOUT_MS
 } from './usdcx-constants';
@@ -102,10 +105,19 @@ describe('usdcx-constants', () => {
     expect(ARC_KEY_LEDGER_DIR).toBe(path.join(os.homedir(), '.miden-e2e', 'arc-keys'));
   });
 
-  it('sizes the round trip so the payout floor and the deposit back both fit', () => {
-    expect(BURN_UNITS).toBe(10_000_000n);
-    expect(GRANT_MARGIN_UNITS).toBe(1_000_000n);
+  it("sizes the run on the faucet's minimum burn, one 10 USDCx grant and a deposit the wallet claims", () => {
+    expect([BURN_UNITS, GRANT_UNITS, GRANT_MARGIN_UNITS, DEPOSIT_UNITS, GAS_RESERVE_UNITS]).toEqual([
+      1_000_000n,
+      10_000_000n,
+      1_000_000n,
+      1_000n,
+      20_000n
+    ]);
+    // The grant clears the burn floor after its own consume fee, at most baseFee x 30 at testnet's base fee of 7.
+    expect(GRANT_UNITS - 7n * BigInt(FEE_RESERVE_MULTIPLE) >= BURN_UNITS + GRANT_MARGIN_UNITS).toBe(true);
+    // One burn's payout floor pays one deposit back and its gas reserve.
     expect(minimumUsdcxPayout(ARC_CHAIN_ID, BURN_UNITS) >= DEPOSIT_UNITS + GAS_RESERVE_UNITS).toBe(true);
+    expect(isWorthClaiming(DEPOSIT_UNITS, 7)).toBe(true);
   });
 });
 
@@ -430,7 +442,7 @@ describe('waitForGatewayPayout', () => {
     consumeTsMs: CONSUME_MS,
     deadlineMs: CONSUME_MS + PAYOUT_TIMEOUT_MS,
     depositor: hexOf(arcVectors.remoteDomainDepositor),
-    minimumValue: minimumUsdcxPayout(ARC_CHAIN_ID, BURN_UNITS)
+    minimumValue: minimumUsdcxPayout(ARC_CHAIN_ID, BigInt(SPIKE.burnUnits))
   };
   // Another recipient's payout inside the scanned range: only the recipient topic keeps it out.
   const neighbour = movedTo(payoutAt(1).log, 66483790n);

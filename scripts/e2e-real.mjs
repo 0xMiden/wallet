@@ -81,10 +81,12 @@ export const DEFAULT_ARC_RPCS = [
   'https://rpc.quicknode.testnet.arc.io',
   'https://rpc.testnet.arc.io'
 ];
-/** A 10 USDCx burn plus the 1 USDCx its fees may take: BURN_UNITS + GRANT_MARGIN_UNITS. */
-export const USDCX_GRANT_FLOOR_UNITS = 11_000_000n;
-/** One 1 USDC deposit plus its Arc gas: DEPOSIT_UNITS + GAS_RESERVE_UNITS. */
-export const USDCX_FUNDED_KEY_FLOOR_UNITS = 1_050_000n;
+/** A 1 USDCx burn plus the 1 USDCx its fees may take: BURN_UNITS + GRANT_MARGIN_UNITS. */
+export const USDCX_GRANT_FLOOR_UNITS = 2_000_000n;
+/** The faucet tier every usdcx wallet asks for by amount: GRANT_UNITS, 10 USDCx. */
+export const USDCX_GRANT_UNITS = 10_000_000n;
+/** One 0.001 USDC deposit plus its Arc gas reserve: DEPOSIT_UNITS + GAS_RESERVE_UNITS. */
+export const USDCX_FUNDED_KEY_FLOOR_UNITS = 21_000n;
 const ARC_SELECTORS = {
   paused: '0x5c975abb',
   domainDepositsPaused: '0x4a1b13ea',
@@ -211,9 +213,9 @@ The Epoch allocator, the Sepolia USDC, the AggLayer bridge and its indexer come
 from the network's config document, read as the wallet reads it:
 MIDEN_REMOTE_CONFIG_URL when set, else the published 0xMiden/wallet-config.
 
-Only usdcx-in needs a secret: an Arc Testnet key holding at least 1.05 USDC.
-Every paid usdcx run records its fresh key, with ~9 USDC left on it, under
-~/.miden-e2e/arc-keys (mode 0600), and that key serves. Bridge-out is
+Only usdcx-in needs a secret: an Arc Testnet key holding at least 0.021 USDC.
+Every paid usdcx run records its fresh key, with about 0.98 USDC left on it,
+under ~/.miden-e2e/arc-keys (mode 0600), and that key serves. Bridge-out is
 solver-fulfilled and swap is Miden-side, so neither signs on EVM; --sepolia-key
 is accepted so a funded account's gas and test-USDC balance can be READ ahead of
 a suite that does sign.
@@ -1196,34 +1198,21 @@ async function probeUsdcxGuardian(network) {
   }
 }
 
-// What the harness's mintFromPublicFaucet asks for, from the metadata on stdin.
-const GRANT_SCRIPT = `
-const { faucetGrantAmount } = require('./src/lib/miden-chain/faucet-protocol.ts');
-let input = '';
-process.stdin.on('data', chunk => (input += chunk));
-process.stdin.on('end', () => {
-  try {
-    process.stdout.write(String(faucetGrantAmount(JSON.parse(input))));
-  } catch (error) {
-    process.stderr.write(error.message);
-    process.exitCode = 1;
-  }
-});
-`;
-
 /**
- * Why the public faucet cannot fund a usdcx run, or undefined. `grantAmount` is what the harness asks for: the
- * largest `token_amounts` entry when the faucet lists any, which is not `base_amount`.
+ * Why the public faucet cannot fund a usdcx run, or undefined. Every usdcx wallet asks for USDCX_GRANT_UNITS by amount
+ * (R19), so the faucet must list that tier and hold one grant of it.
  *
  * Exported for test.
  */
-export function usdcxGrantProblem(metadata, grantAmount) {
+export function usdcxGrantProblem(metadata) {
   const usdcx = units => formatUnits(units, USDCX_DECIMALS);
   if (metadata?.decimals !== USDCX_DECIMALS) {
     return `serves ${metadata?.decimals} decimals, not USDCx's ${USDCX_DECIMALS}`;
   }
-  if (grantAmount < USDCX_GRANT_FLOOR_UNITS) {
-    return `grants ${usdcx(grantAmount)} USDCx, below the ${usdcx(USDCX_GRANT_FLOOR_UNITS)} USDCx a 10 USDCx burn and its fees need`;
+  const tiers = Array.isArray(metadata.token_amounts) ? metadata.token_amounts : [];
+  const tier = USDCX_GRANT_UNITS / 10n ** BigInt(USDCX_DECIMALS);
+  if (!tiers.some(tokens => Number.isSafeInteger(tokens) && BigInt(tokens) === tier)) {
+    return `offers token_amounts [${tiers.join(', ')}], not the ${usdcx(USDCX_GRANT_UNITS)} USDCx tier every usdcx wallet asks for`;
   }
   let balance;
   try {
@@ -1231,20 +1220,16 @@ export function usdcxGrantProblem(metadata, grantAmount) {
   } catch {
     return 'reports no readable balance';
   }
-  if (balance < grantAmount) return `holds ${usdcx(balance)} USDCx, less than one grant of ${usdcx(grantAmount)}`;
+  if (balance < USDCX_GRANT_UNITS) {
+    return `holds ${usdcx(balance)} USDCx, less than one grant of ${usdcx(USDCX_GRANT_UNITS)} USDCx`;
+  }
   return undefined;
 }
 
 function probeUsdcxGrant(metadata) {
-  let amount;
-  try {
-    amount = BigInt(tsNodeChild(GRANT_SCRIPT, { input: JSON.stringify(metadata) }).trim());
-  } catch (err) {
-    return record(false, 'USDCx faucet grant', `could not read the grant amount: ${err.message}`);
-  }
-  const problem = usdcxGrantProblem(metadata, amount);
-  const held = problem ?? `grants ${formatUnits(amount, USDCX_DECIMALS)} USDCx`;
-  return record(problem === undefined, 'USDCx faucet grant', held);
+  const problem = usdcxGrantProblem(metadata);
+  const offered = `offers the ${formatUnits(USDCX_GRANT_UNITS, USDCX_DECIMALS)} USDCx tier every usdcx wallet asks for`;
+  return record(problem === undefined, 'USDCx faucet grant', problem ?? offered);
 }
 
 /**

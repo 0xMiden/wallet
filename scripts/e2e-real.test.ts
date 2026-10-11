@@ -31,6 +31,7 @@ import {
   USDCX_DECIMALS,
   USDCX_FUNDED_KEY_FLOOR_UNITS,
   USDCX_GRANT_FLOOR_UNITS,
+  USDCX_GRANT_UNITS,
   USDCX_REMOTE_DOMAIN,
   XRESERVE_API_TESTNET,
   agglayerExitFilingProblem,
@@ -1302,29 +1303,40 @@ describe('usdcxGrantProblem', () => {
     balance: 999444411348973
   };
 
-  it('passes the live faucet, whose grant is 100 USDCx', () => {
-    expect(usdcxGrantProblem(LIVE, 100_000_000n)).toBeUndefined();
+  it('passes the live faucet, which offers the 10 USDCx tier every usdcx wallet asks for', () => {
+    expect(usdcxGrantProblem(LIVE)).toBeUndefined();
   });
 
-  it('passes a grant of exactly 11 USDCx: a 10 USDCx burn and the 1 USDCx its fees may take', () => {
-    expect(usdcxGrantProblem(LIVE, 11_000_000n)).toBeUndefined();
+  it('asks the smallest live tier that leaves a 1 USDCx burn and its fees their margin', () => {
+    // 210: the most a grant's consume fee takes at testnet's base fee of 7 (base fee x 30).
+    const covering = LIVE.token_amounts
+      .map(tokens => BigInt(tokens) * 10n ** BigInt(USDCX_DECIMALS))
+      .filter(units => units - 210n >= USDCX_GRANT_FLOOR_UNITS);
+    expect(covering[0]).toBe(USDCX_GRANT_UNITS);
   });
 
-  it('fails a grant below 11 USDCx', () => {
-    expect(usdcxGrantProblem(LIVE, 10_999_999n)).toContain('below the 11 USDCx');
+  it('fails a faucet whose token_amounts lack the 10 USDCx tier', () => {
+    expect(usdcxGrantProblem({ ...LIVE, token_amounts: [1, 100] })).toBe(
+      'offers token_amounts [1, 100], not the 10 USDCx tier every usdcx wallet asks for'
+    );
+  });
+
+  it('fails a faucet that lists no token_amounts', () => {
+    const { token_amounts: _dropped, ...untiered } = LIVE;
+    expect(usdcxGrantProblem(untiered)).toContain('offers token_amounts [], not the 10 USDCx tier');
   });
 
   it('fails a faucet that is not on six decimals', () => {
-    expect(usdcxGrantProblem({ ...LIVE, decimals: 18 }, 100_000_000n)).toContain("serves 18 decimals, not USDCx's 6");
+    expect(usdcxGrantProblem({ ...LIVE, decimals: 18 })).toContain("serves 18 decimals, not USDCx's 6");
   });
 
   it('fails a faucet holding less than one grant', () => {
-    expect(usdcxGrantProblem({ ...LIVE, balance: 50_000_000 }, 100_000_000n)).toContain('less than one grant');
+    expect(usdcxGrantProblem({ ...LIVE, balance: 9_999_999 })).toContain('less than one grant of 10 USDCx');
   });
 
   it('fails a faucet that reports no balance', () => {
     const { balance: _dropped, ...unreported } = LIVE;
-    expect(usdcxGrantProblem(unreported, 100_000_000n)).toBe('reports no readable balance');
+    expect(usdcxGrantProblem(unreported)).toBe('reports no readable balance');
   });
 });
 
@@ -1356,7 +1368,8 @@ describe('the usdcx constants are the ones the harness and the wallet use', () =
       USDCX_FUNDED_KEY_FLOOR_UNITS,
       harness.DEPOSIT_UNITS + harness.GAS_RESERVE_UNITS,
       harness.DEPOSIT_UNITS + harness.GAS_RESERVE_UNITS
-    ]
+    ],
+    ['USDCX_GRANT_UNITS', USDCX_GRANT_UNITS, harness.GRANT_UNITS, harness.GRANT_UNITS]
   ])('%s matches', (_name, runner, harnessValue, walletValue) => {
     expect([harnessValue, walletValue]).toEqual([runner, runner]);
   });
@@ -1501,7 +1514,7 @@ describe('the usdcx preflight', () => {
       'usdcx',
       { guardianStatus: { status: 'ok', version: '0.18.0', git_commit: 'fab5f5cb2c3f', environment: 'devnet' } }
     ],
-    // base_amount stays 100 USDCx: the probe judges what the harness asks for, the largest token_amounts entry.
+    // Every usdcx wallet asks for the 10 USDCx tier by amount, so a faucet without it fails, whatever else it offers.
     [
       'USDCx faucet grant',
       'usdcx-burn',
@@ -1510,13 +1523,13 @@ describe('the usdcx preflight', () => {
           version: 'stub',
           decimals: 6,
           base_amount: 100000000,
-          token_amounts: [1, 10],
+          token_amounts: [1, 100],
           balance: 999444411348973
         }
       }
     ],
     ['Gateway minter', 'usdcx', { gatewayMinter: `0x${'22'.repeat(20)}` }],
-    ['Arc funded key', 'usdcx-in', { usdcBalance: '1049999' }]
+    ['Arc funded key', 'usdcx-in', { usdcBalance: '20999' }]
   ])(
     'fails %s alone on --suite %s when its answer is wrong',
     (label, suite, answers) => {

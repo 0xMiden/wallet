@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import type { JsonValue } from './history';
+import { DEPOSIT_UNITS } from './usdcx-constants';
 import {
   anyOf,
   arcPrivateKeyFromEnv,
@@ -7,6 +8,7 @@ import {
   boundedTerm,
   burnCompletionPath,
   consumeFeePath,
+  depositClaimProblem,
   describePage,
   errorText,
   evidenceJson,
@@ -369,10 +371,25 @@ describe('fee and ledger text', () => {
   it('prints every ledger term', () => {
     expect(
       ledgerLine([
-        ['G', 100_000_000n],
+        ['G', 10_000_000n],
         ['f0', 133n]
       ])
-    ).toBe('G=100000000 f0=133');
+    ).toBe('G=10000000 f0=133');
+  });
+});
+
+describe('depositClaimProblem', () => {
+  it("passes the suites' deposit at testnet's base fee of 7, and the least deposit over the floor", () => {
+    expect(depositClaimProblem(DEPOSIT_UNITS, 7)).toBeUndefined();
+    expect(depositClaimProblem(211n, 7)).toBeUndefined();
+  });
+
+  it('names the floor a deposit does not exceed, the floor itself included', () => {
+    expect(depositClaimProblem(210n, 7)).toBe(
+      "a deposit of 210 does not exceed the wallet's claim floor 210 (base fee 7 x 30), so the wallet would leave " +
+        'its mint unclaimed: raise DEPOSIT_UNITS'
+    );
+    expect(depositClaimProblem(1_000n, 34)).toContain("the wallet's claim floor 1020 (base fee 34 x 30)");
   });
 });
 

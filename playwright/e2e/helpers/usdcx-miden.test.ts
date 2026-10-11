@@ -249,18 +249,18 @@ describe('waitForUsdcxMint', () => {
 
 describe('boundLandedFee', () => {
   it('derives the fee from the vault delta and holds it under baseFee x FEE_RESERVE_MULTIPLE', () => {
-    // A landed burn: V1 - V2 = N + f1 + s with N 10 USDCx, s 119, f1 133, base fee 7.
-    expect(boundLandedFee({ vaultDelta: 10_000_252n, knownTerms: 10_000_119n, baseFee: 7 })).toEqual({
+    // A landed burn: V1 - V2 = N + f1 + s with N 1 USDCx, s 119, f1 133, base fee 7 (the small-burn probe's vault).
+    expect(boundLandedFee({ vaultDelta: 1_000_252n, knownTerms: 1_000_119n, baseFee: 7 })).toEqual({
       fee: 133n,
       ceiling: 210n
     });
-    // A landed consume of M = 1 USDCx: V2 - V3 = f2 - M.
-    expect(boundLandedFee({ vaultDelta: 133n - 1_000_000n, knownTerms: -1_000_000n, baseFee: 7 }).fee).toBe(133n);
+    // A landed consume of M = 0.001 USDCx: V2 - V3 = f2 - M.
+    expect(boundLandedFee({ vaultDelta: 133n - 1_000n, knownTerms: -1_000n, baseFee: 7 }).fee).toBe(133n);
     expect(boundLandedFee({ vaultDelta: 210n, knownTerms: 0n, baseFee: 7 }).fee).toBe(210n);
   });
 
   it('refuses a fee of zero or one above the ceiling', () => {
-    expect(() => boundLandedFee({ vaultDelta: 10_000_119n, knownTerms: 10_000_119n, baseFee: 7 })).toThrow(
+    expect(() => boundLandedFee({ vaultDelta: 1_000_119n, knownTerms: 1_000_119n, baseFee: 7 })).toThrow(
       'landed-path fee 0'
     );
     expect(() => boundLandedFee({ vaultDelta: 211n, knownTerms: 0n, baseFee: 7 })).toThrow('outside (0, 210]');
@@ -285,6 +285,13 @@ describe('usdcx-chain-evidence.mjs', () => {
       units: 1_000_000n,
       nonce: '0x6ff37d71883632f16af4b01d811e26a8141517663bca88e5cfc23d7fcbe0a3b4',
       minted: '0xbedb2cea0b47a01b8ebc6c10e428d0ff3bb782406e2784b4380ab171757b301e'
+    },
+    {
+      deposit: 'the 2026-10-11 min-deposit probe 0x0fe5eced, 1000 units, claimed by its CLI account',
+      recipientHex: '0xcd66b826c325f2011c5aaf6790043f',
+      units: 1_000n,
+      nonce: '0xf356b45ab7e473dc72893884904c97a9e5048c4d37293389ae8164852f003b03',
+      minted: '0x5770ac9fa73326171c22360a099f985baa353f007d67ac1110db1e52c22a6c85'
     }
   ] as const)('derives the note miden-usdcx minted for $deposit', async ({ recipientHex, units, nonce, minted }) => {
     await expect(deriveUsdcxMintNoteId({ faucetHex: FAUCET_HEX, recipientHex, units, nonce })).resolves.toBe(minted);

@@ -67,6 +67,7 @@ import { deriveUsdcxMintNoteId, waitForUsdcxMint, type MidenNoteRead } from '../
 import {
   arcPrivateKeyFromEnv,
   assertUsdcxLiveRun,
+  depositClaimProblem,
   errorText,
   jsonObject,
   jsonString,
@@ -181,6 +182,9 @@ async function guardianWallet(
   };
   const address = await createGuardianUsdcxWallet(wallet, guardianUrl);
   const ids = await resolveUsdcxIds(wallet.page, address);
+  // R20: a base fee that has outgrown the deposit would leave its mint unclaimed until the receive step timed out.
+  const unclaimable = depositClaimProblem(DEPOSIT_UNITS, ids.baseFee);
+  if (unclaimable !== undefined) throw new Error(unclaimable);
   evidence.ids.address = ids.address;
   evidence.ids.native = ids.native;
   return { identity, ids };
@@ -838,7 +842,7 @@ test.describe('USDCx bridge-in from a funded Arc key', () => {
         if (balance < DEPOSIT_UNITS + GAS_RESERVE_UNITS) {
           throw new Error(
             `funded key ${key.address} holds ${balance} USDC base units, needs ${DEPOSIT_UNITS + GAS_RESERVE_UNITS}; ` +
-              'any paid usdcx run leaves about 9 USDC on its key in ~/.miden-e2e/arc-keys'
+              'any paid usdcx run leaves about 0.98 USDC on its key in ~/.miden-e2e/arc-keys'
           );
         }
         return { key, balance };
