@@ -1538,13 +1538,21 @@ export const updateBridgedReceivePhase = async (
   await Repo.transactions.where({ id }).modify(tx => {
     const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
     if (!canMoveBridgedReceivePhase(inputs?.phase, phase)) return;
-    // A reopen clears only the Arc execute it saw revert: a newer execute saved meanwhile, with its proof, stands.
-    const reopened = extra?.cctp?.revertedExecuteTxHash;
+    // A reopen clears only the Arc execute it saw revert or stall: a newer execute saved meanwhile, with its proof,
+    // stands.
+    const reopened = extra?.cctp?.revertedExecuteTxHash ?? extra?.cctp?.stalledExecuteTxHash;
     if (reopened !== undefined && inputs?.cctp?.executeTxHash !== reopened) return;
     if (onlyIfNoExecuteHash && inputs?.cctp?.executeTxHash !== undefined) return;
+    const nowSec = Math.floor(Date.now() / 1000);
     // The CCTP leg is written a field at a time (the burn's domain, then the attestation, then the
     // execute hash), so a write merges into what the row holds instead of replacing it.
-    const cctp = extra?.cctp ? { ...inputs?.cctp, ...extra.cctp } : inputs?.cctp;
+    const merged = extra?.cctp ? { ...inputs?.cctp, ...extra.cctp } : inputs?.cctp;
+    // The stall window runs from when the current hash was saved.
+    const savedHash = extra?.cctp?.executeTxHash;
+    const cctp =
+      merged && savedHash !== undefined && savedHash !== inputs?.cctp?.executeTxHash
+        ? { ...merged, executeSavedAt: nowSec }
+        : merged;
     // Unlike the earn-withdraw writer there is no monotonic guard here, so the
     // only thing keeping one bridge from reporting twice is comparing against
     // the phase already on the row. `ready` and `received` are both terminal —
@@ -1559,8 +1567,7 @@ export const updateBridgedReceivePhase = async (
     }
     // Once, so a row that later times out still says Circle attested it: only such a row takes a late mint. A row that
     // was ready before the stamp existed takes it as it moves on.
-    const readyAt =
-      inputs?.readyAt ?? (phase === 'ready' || fromPhase === 'ready' ? Math.floor(Date.now() / 1000) : undefined);
+    const readyAt = inputs?.readyAt ?? (phase === 'ready' || fromPhase === 'ready' ? nowSec : undefined);
     tx.extraInputs = {
       ...inputs,
       phase,

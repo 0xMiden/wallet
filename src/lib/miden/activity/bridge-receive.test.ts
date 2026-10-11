@@ -1092,6 +1092,148 @@ describe('reconcileBridgedReceives with a USDCx executor row', () => {
     expect(updatePhase).not.toHaveBeenCalled();
   });
 
+  // A saved hash that never mines reads pending forever: past the stall window the Execute button comes back, with
+  // the message the leg still holds, and xReserve is still asked about the stalled hash.
+  describe('an execute that never mines', () => {
+    const NOW_SEC = Math.floor(Date.now() / 1000);
+    const held = { sourceDomain: 6, message: '0x1234', attestation: '0xabcd', executeTxHash: EXECUTE_HASH };
+    const stalledLeg = {
+      sourceDomain: 6,
+      executeTxHash: undefined,
+      executeSavedAt: undefined,
+      stalledExecuteTxHash: EXECUTE_HASH
+    };
+
+    it('reopens the execute once the hash has been pending for the stall window', async () => {
+      rows.push(executorRow({ ...held, executeSavedAt: NOW_SEC - 31 * 60 }));
+
+      await reconcileBridgedReceives();
+
+      expect(updatePhase).toHaveBeenCalledTimes(1);
+      expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'delivering', { cctp: stalledLeg });
+    });
+
+    it('waits while the hash is younger than the stall window', async () => {
+      rows.push(executorRow({ ...held, executeSavedAt: NOW_SEC - 29 * 60 }));
+
+      await reconcileBridgedReceives();
+
+      expect(updatePhase).not.toHaveBeenCalled();
+    });
+
+    it('times a hash saved before the stamp from the deposit', async () => {
+      rows.push({ ...executorRow(held), initiatedAt: NOW_SEC - 31 * 60 });
+
+      await reconcileBridgedReceives();
+
+      expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'delivering', { cctp: stalledLeg });
+    });
+
+    it('never reopens a leg that holds no message to execute', async () => {
+      rows.push(executorRow({ sourceDomain: 6, executeTxHash: EXECUTE_HASH, executeSavedAt: NOW_SEC - 31 * 60 }));
+
+      await reconcileBridgedReceives();
+
+      expect(updatePhase).not.toHaveBeenCalled();
+    });
+
+    it('lands the row when the stalled execute mines after all', async () => {
+      matchAttestation.mockReturnValue({ kind: 'attested' });
+      rows.push(
+        executorRow({ sourceDomain: 6, message: '0x1234', attestation: '0xabcd', stalledExecuteTxHash: EXECUTE_HASH })
+      );
+
+      await reconcileBridgedReceives();
+
+      expect(fetchAttestations).toHaveBeenCalledWith(EXECUTE_HASH, { baseUrl: ATTESTATIONS });
+      expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'ready');
+    });
+
+    it('never adopts a stalled forward again', async () => {
+      fetchAttestedMessage.mockResolvedValue({
+        message: '0x1234',
+        attestation: '0xabcd',
+        forwardState: 'COMPLETE',
+        forwardTxHash: EXECUTE_HASH
+      });
+      rows.push(
+        executorRow({
+          sourceDomain: 6,
+          forwarded: true,
+          forwardState: 'FAILED',
+          message: '0x1234',
+          attestation: '0xabcd',
+          stalledExecuteTxHash: EXECUTE_HASH
+        })
+      );
+
+      await reconcileBridgedReceives();
+
+      expect(updatePhase).toHaveBeenCalledTimes(1);
+      expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'delivering', {
+        cctp: { sourceDomain: 6, forwardState: 'COMPLETE' }
+      });
+    });
+  });
+
+  // An attested message on Arc can be executed at any time: failing the row would hide the button that recovers it.
+  it('never times out an executor row that holds a message to execute', async () => {
+    rows.push({
+      ...executorRow({ sourceDomain: 6, message: '0x1234', attestation: '0xabcd' }),
+      initiatedAt: WEEK_AGO_SEC
+    });
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('still times out an executor row whose burn Circle never attested', async () => {
+    rows.push({ ...executorRow({ sourceDomain: 6 }), initiatedAt: WEEK_AGO_SEC });
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'failed', { error: 'Bridge delivery timed out.' });
+  });
+
+  // An execute that mined but whose deposit Circle attests to something else never reopens: without a week from its
+  // save, the row would stay delivering, and be polled, forever.
+  it('times out an executor row a week after its execute hash was saved', async () => {
+    readOutcome.mockResolvedValue('success');
+    matchAttestation.mockReturnValue({ kind: 'mismatch', field: 'recipient' });
+    rows.push({
+      ...executorRow({
+        sourceDomain: 6,
+        message: '0x1234',
+        attestation: '0xabcd',
+        executeTxHash: EXECUTE_HASH,
+        executeSavedAt: WEEK_AGO_SEC
+      }),
+      initiatedAt: WEEK_AGO_SEC
+    });
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'failed', { error: 'Bridge delivery timed out.' });
+  });
+
+  it('keeps an old executor deposit whose execute hash was saved this week', async () => {
+    rows.push({
+      ...executorRow({
+        sourceDomain: 6,
+        message: '0x1234',
+        attestation: '0xabcd',
+        executeTxHash: EXECUTE_HASH,
+        executeSavedAt: Math.floor(Date.now() / 1000) - 60
+      }),
+      initiatedAt: WEEK_AGO_SEC
+    });
+
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).not.toHaveBeenCalled();
+  });
+
   it('never adopts a reverted forward again and offers the execute with the attested message', async () => {
     fetchAttestedMessage.mockResolvedValue({
       message: '0x1234',

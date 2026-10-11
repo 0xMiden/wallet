@@ -1,6 +1,6 @@
 import { BridgedReceiveTransaction, IBridgedReceiveExtraInputs, IBridgedReceivePhase } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { revertedExecuteLeg } from 'lib/usdcx/cctp';
+import { revertedExecuteLeg, stalledExecuteLeg } from 'lib/usdcx/cctp';
 
 import { updateBridgedReceivePhase } from './complete';
 
@@ -130,7 +130,11 @@ describe('updateBridgedReceivePhase on a USDCx CCTP leg', () => {
 
     await updateBridgedReceivePhase(id, 'delivering', { cctp: { sourceDomain: 6, executeTxHash: H1 } });
 
-    expect((await Repo.transactions.get(id))?.extraInputs.cctp).toEqual({ ...held, executeTxHash: H1 });
+    expect((await Repo.transactions.get(id))?.extraInputs.cctp).toEqual({
+      ...held,
+      executeTxHash: H1,
+      executeSavedAt: expect.any(Number)
+    });
   });
 
   it('reopens the execute it saw revert, clearing its hash and proof', async () => {
@@ -167,7 +171,11 @@ describe('updateBridgedReceivePhase on a USDCx CCTP leg', () => {
 
     await updateBridgedReceivePhase(id, 'delivering', { cctp: { sourceDomain: 6, executeTxHash: H1 } });
 
-    expect((await Repo.transactions.get(id))?.extraInputs.cctp).toEqual({ ...held, executeTxHash: H1 });
+    expect((await Repo.transactions.get(id))?.extraInputs.cctp).toEqual({
+      ...held,
+      executeTxHash: H1,
+      executeSavedAt: expect.any(Number)
+    });
   });
 
   it('accepts the same execute hash written again', async () => {
@@ -182,6 +190,45 @@ describe('updateBridgedReceivePhase on a USDCx CCTP leg', () => {
       executeTxHash: H1,
       forwardState: 'COMPLETE'
     });
+  });
+
+  // The stall window runs from when the current hash was saved, whichever side saved it.
+  it('stamps the time an execute hash is saved, and only when the hash changes', async () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000_000);
+    try {
+      const id = await seed('delivering', { cctp: held });
+
+      await updateBridgedReceivePhase(id, 'delivering', { cctp: { sourceDomain: 6, executeTxHash: H1 } });
+      nowSpy.mockReturnValue(2_000_000_000);
+      await updateBridgedReceivePhase(id, 'delivering', {
+        cctp: { sourceDomain: 6, executeTxHash: H1, forwardState: 'COMPLETE' }
+      });
+      expect((await Repo.transactions.get(id))?.extraInputs.cctp?.executeSavedAt).toBe(1_000_000);
+
+      await updateBridgedReceivePhase(id, 'delivering', { cctp: { sourceDomain: 6, executeTxHash: H2 } });
+      expect((await Repo.transactions.get(id))?.extraInputs.cctp?.executeSavedAt).toBe(2_000_000);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it('reopens a stalled execute keeping its message and proof, and remembers the hash', async () => {
+    const id = await seed('delivering', { cctp: { ...held, executeTxHash: H1, executeSavedAt: 5 } });
+
+    await updateBridgedReceivePhase(id, 'delivering', { cctp: stalledExecuteLeg(6, H1) });
+
+    const cctp = (await Repo.transactions.get(id))?.extraInputs.cctp;
+    expect(cctp).toMatchObject({ ...held, stalledExecuteTxHash: H1 });
+    expect(cctp?.executeTxHash).toBeUndefined();
+    expect(cctp?.executeSavedAt).toBeUndefined();
+  });
+
+  it('keeps a newer execute hash saved after the stall was observed', async () => {
+    const id = await seed('delivering', { cctp: { ...held, executeTxHash: H2 } });
+
+    await updateBridgedReceivePhase(id, 'delivering', { cctp: stalledExecuteLeg(6, H1) });
+
+    expect((await Repo.transactions.get(id))?.extraInputs.cctp).toEqual({ ...held, executeTxHash: H2 });
   });
 
   it('keeps a newer execute hash saved after the revert was observed', async () => {

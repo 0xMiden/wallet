@@ -160,6 +160,10 @@ export interface IUsdcxCctpLeg {
   attestation?: string;
   /** The Arc transaction that executed the message, which is the xReserve deposit Circle attests. */
   executeTxHash?: string;
+  /** Unix seconds the current `executeTxHash` was saved, from either side. */
+  executeSavedAt?: number;
+  /** An Arc execute that stayed unmined past the stall window: never adopted again, still asked about. */
+  stalledExecuteTxHash?: string;
   /** An Arc execute, the wallet's or Circle's forward, that reverted; never adopted again as the execute. */
   revertedExecuteTxHash?: string;
   /** Whether the burn paid Circle's forward fee, so Circle executes on Arc; absent on rows before the fee flow. */

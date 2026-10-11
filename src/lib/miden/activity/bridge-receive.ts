@@ -12,8 +12,14 @@ import {
   UsdcxAttestationMismatchField,
   UsdcxDepositExpectation
 } from 'lib/usdcx/attestation';
-import { fetchAttestedCctpMessage, isCctpForwardFailed, revertedExecuteLeg } from 'lib/usdcx/cctp';
-import { USDCX_SOURCE_CHAINS, UsdcxExecutorSource } from 'lib/usdcx/constant';
+import {
+  fetchAttestedCctpMessage,
+  isCctpForwardFailed,
+  revertedExecuteLeg,
+  stalledExecuteLeg,
+  USDCX_EXECUTE_STALL_SEC
+} from 'lib/usdcx/cctp';
+import { isUsdcxExecutorSource, USDCX_SOURCE_CHAINS, UsdcxExecutorSource } from 'lib/usdcx/constant';
 import { usdcxExpectedRemoteTokenFor, usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import { readEvmReceiptOutcome, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 
@@ -23,7 +29,7 @@ import {
   registerPendingBridgeIn,
   resolveBridgeInNoteId
 } from './bridge-in';
-import { IBridgedReceiveExtraInputs, ITransaction } from '../db/types';
+import { IBridgedReceiveExtraInputs, ITransaction, IUsdcxCctpLeg } from '../db/types';
 import { updateBridgedReceivePhase } from '../transaction/complete';
 
 const SUBMISSION_LOCK = 'bridge-receive-submission';
@@ -216,14 +222,43 @@ async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtra
   }
 }
 
+/** A leg that holds the message to execute again, whose hash has been unmined for the whole stall window. */
+function executeStalled(row: ITransaction, leg: IUsdcxCctpLeg): boolean {
+  if (leg.message === undefined || leg.attestation === undefined) return false;
+  // A hash saved before the stamp existed is timed from the deposit, which only ever reopens it sooner.
+  const savedAt = leg.executeSavedAt ?? row.initiatedAt;
+  return Math.floor(Date.now() / 1000) - savedAt >= USDCX_EXECUTE_STALL_SEC;
+}
+
+/** An executor deposit whose attested message is on the row and not yet executed: it can be executed at any age. */
+function holdsExecutableMessage(inputs: IBridgedReceiveExtraInputs): boolean {
+  return (
+    inputs.provider === 'usdcx' &&
+    inputs.phase === 'delivering' &&
+    isUsdcxExecutorSource(inputs.sourceChainId) &&
+    inputs.cctp?.message !== undefined &&
+    inputs.cctp.attestation !== undefined &&
+    inputs.cctp.executeTxHash === undefined
+  );
+}
+
+/**
+ * When a row's week starts: a ready row's at its attestation and a saved Arc execute's when it was saved, so a deposit
+ * attested or executed late in its first week gets a week of its own.
+ */
+function cutoffStart(row: ITransaction, inputs: IBridgedReceiveExtraInputs): number {
+  if (inputs.phase === 'ready') return inputs.readyAt ?? row.initiatedAt;
+  return inputs.cctp?.executeTxHash === undefined ? row.initiatedAt : (inputs.cctp.executeSavedAt ?? row.initiatedAt);
+}
+
 /**
  * An executor-route deposit has two Circle attestations. First Iris attests the CCTP burn. A forwarded burn
  * is then executed on Arc by Circle, and the reconciler waits for the forward transaction hash; a manual
  * burn, or a forward Circle gave up on, keeps the attested message on the row, where the status screen and
  * Activity offer the execute. Once an Arc transaction hash is on the row, from either side, the reconciler
  * asks xReserve's attestation service for it, which is the deposit, and the row becomes `ready` as a direct
- * deposit would. An Arc execute that reverted, seen here or by the foreground hook, reopens the leg for the
- * wallet to execute, and its hash is never adopted again.
+ * deposit would. An Arc execute that reverted, seen here or by the foreground hook, or that stayed unmined past
+ * the stall window, reopens the leg for the wallet to execute, and its hash is never adopted again.
  */
 async function reconcileUsdcxExecutorRow(
   row: ITransaction,
@@ -244,22 +279,38 @@ async function reconcileUsdcxExecutorRow(
       warnUsdcxRowOnce(row.id, `execute attestation ${verdict.kind}`, leg.executeTxHash);
       return;
     }
+    if (!isHash(leg.executeTxHash)) return;
     // The foreground hook sees a revert only while its screen is open.
-    if (isHash(leg.executeTxHash) && (await readEvmReceiptOutcome(leg.executeTxHash, target.chain)) === 'reverted') {
+    const outcome = await readEvmReceiptOutcome(leg.executeTxHash, target.chain);
+    if (outcome === 'reverted') {
       await updateBridgedReceivePhase(row.id, 'delivering', {
         cctp: revertedExecuteLeg(leg.sourceDomain, leg.executeTxHash)
+      });
+    } else if (outcome === 'pending' && executeStalled(row, leg)) {
+      await updateBridgedReceivePhase(row.id, 'delivering', {
+        cctp: stalledExecuteLeg(leg.sourceDomain, leg.executeTxHash)
       });
     }
     return;
   }
+  // A stalled execute can still mine, and its deposit then lands the row.
+  if (leg.stalledExecuteTxHash) {
+    const verdict = await matchUsdcxDeposit(row, inputs, leg.stalledExecuteTxHash, target.attestationApi);
+    if (verdict?.kind === 'attested') {
+      await updateBridgedReceivePhase(row.id, 'ready');
+      return;
+    }
+  }
   if (leg.attestation && !leg.forwarded) return;
   const attested = await fetchAttestedCctpMessage(leg.sourceDomain, inputs.evmTxHash, { baseUrl: source.irisApi });
   if (!attested) return;
-  const forwardReverted =
-    attested.forwardTxHash !== undefined &&
-    leg.revertedExecuteTxHash !== undefined &&
-    sameHash(attested.forwardTxHash, leg.revertedExecuteTxHash);
-  if (attested.forwardTxHash && !forwardReverted) {
+  const forwardTxHash = attested.forwardTxHash;
+  const forwardRefused =
+    forwardTxHash !== undefined &&
+    [leg.revertedExecuteTxHash, leg.stalledExecuteTxHash].some(
+      hash => hash !== undefined && sameHash(forwardTxHash, hash)
+    );
+  if (attested.forwardTxHash && !forwardRefused) {
     await updateBridgedReceivePhase(
       row.id,
       'delivering',
@@ -308,9 +359,7 @@ async function reconcileRow(row: ITransaction, cutoffSec: number, resumeOrphans:
     await updateBridgedReceivePhase(row.id, 'failed', { error: RESTORED_BRIDGE_UNVERIFIABLE });
     return;
   }
-  // A ready row's week runs from its attestation, so a deposit attested late in its first week gets its own.
-  const since = inputs.phase === 'ready' ? (inputs.readyAt ?? row.initiatedAt) : row.initiatedAt;
-  if (since < cutoffSec) {
+  if (cutoffStart(row, inputs) < cutoffSec && !holdsExecutableMessage(inputs)) {
     await updateBridgedReceivePhase(row.id, 'failed', { error: BRIDGE_DELIVERY_TIMED_OUT });
     return;
   }

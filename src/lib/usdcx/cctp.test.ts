@@ -3,7 +3,9 @@ import {
   fetchAttestedCctpMessage,
   fetchCctpBurnQuote,
   fetchCctpMessages,
-  isCctpForwardFailed
+  isCctpForwardFailed,
+  revertedExecuteLeg,
+  stalledExecuteLeg
 } from './cctp';
 
 const fetchMock = jest.fn();
@@ -120,6 +122,32 @@ describe('isCctpForwardFailed', () => {
     expect(isCctpForwardFailed('COMPLETE')).toBe(false);
     expect(isCctpForwardFailed('FAILED')).toBe(true);
     expect(isCctpForwardFailed('forward_rejected')).toBe(true);
+  });
+});
+
+// A stalled execute leaves the message, so the Execute button returns; a reverted one also drops the proof, which the
+// reconciler reads again from Iris. Either clears the hash and its saved time.
+describe('reopened execute legs', () => {
+  it('keeps the message and proof of a stalled execute and remembers its hash', () => {
+    expect(stalledExecuteLeg(6, TX_HASH)).toEqual({
+      sourceDomain: 6,
+      executeTxHash: undefined,
+      executeSavedAt: undefined,
+      stalledExecuteTxHash: TX_HASH
+    });
+  });
+
+  it('drops the message and proof of a reverted execute and remembers its hash', () => {
+    expect(revertedExecuteLeg(6, TX_HASH)).toEqual({
+      sourceDomain: 6,
+      executeTxHash: undefined,
+      executeSavedAt: undefined,
+      message: undefined,
+      attestation: undefined,
+      forwarded: false,
+      revertedExecuteTxHash: TX_HASH
+    });
+    expect(Object.keys(revertedExecuteLeg(6, TX_HASH))).toContain('executeSavedAt');
   });
 });
 
