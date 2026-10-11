@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { formatUnits, parseUnits } from 'viem';
 
 import { useAppEnv } from 'app/env';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
@@ -26,6 +27,7 @@ import { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import {
   isSpendingLimitPriceUnavailable,
@@ -110,6 +112,10 @@ export const ReviewTransaction: React.FC = () => {
     return match && uiTokenFromBalance(match, tokenPrices);
   }, [balanceData, tokenId, tokenPrices]);
   const tokenLabel = token ? midenTokenLabel(bridgeConfig, token.id, token.name) : '';
+  // A burn's fee and the faucet's sponsorship are paid in the native asset, whatever it is on this network.
+  const nativeFaucetId = useNativeFeeFaucetId();
+  const assetsMetadata = useWalletStore(s => s.assetsMetadata);
+  const nativeSymbol = resolveDisplayMetadata(nativeFaucetId ?? undefined, assetsMetadata, nativeFaucetId).symbol;
 
   const isUsdcxBurn = isBridge && route === 'usdcx';
   const burnPreflight = useBurnPreflight(isUsdcxBurn && isUsdcxWithdrawalAvailable(token?.id));
@@ -684,7 +690,7 @@ export const ReviewTransaction: React.FC = () => {
                       `${formatUnits(burnPreflight.minimum, USDCX_DECIMALS)} USDCx`
                     )}
                   </DetailRow>
-                  <DetailRow label={t('networkFee')}>{t('usdcxSponsorshipFee')}</DetailRow>
+                  <DetailRow label={t('networkFee')}>{t('usdcxSponsorshipFee', { symbol: nativeSymbol })}</DetailRow>
                 </>
               ) : (
                 <DetailRow label={t('youReceive')}>

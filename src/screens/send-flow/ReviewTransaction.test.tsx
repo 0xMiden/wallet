@@ -45,6 +45,8 @@ let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: st
   symbol: 'USDC'
 };
 let mockBurnPreflight = { minimum: 1n, loading: false, error: undefined };
+// The native asset's chain metadata; null until a test discovers one, as before discovery.
+let mockNativeMetadata: { symbol: string; decimals: number } | null = null;
 jest.mock('lib/usdcx/burn', () => ({ initiateUsdcxBurn: jest.fn(async () => 'burn-tx') }));
 jest.mock('lib/usdcx/use-burn-preflight', () => ({ useBurnPreflight: () => mockBurnPreflight }));
 
@@ -108,9 +110,13 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    // The recall note's only parameter is the amount it names; every other key reads as itself.
-    t: (key: string, params?: { amount?: string }) =>
-      key === 'recallReturnsNote' && params?.amount ? `${key} ${params.amount}` : key
+    // The recall note names its amount and a fee label its fee asset; every other key reads as itself.
+    t: (key: string, params?: { amount?: string; symbol?: string }) =>
+      key === 'recallReturnsNote' && params?.amount
+        ? `${key} ${params.amount}`
+        : params?.symbol !== undefined
+          ? `${key}|${params.symbol}`
+          : key
   })
 }));
 
@@ -255,7 +261,8 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 const USDCX_FAUCET_ID_BECH32 = 'mtst1usdcxnative';
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset'),
-  getNativeAssetIdSync: () => 'mtst1usdcxnative'
+  getNativeAssetIdSync: () => 'mtst1usdcxnative',
+  getNativeAssetMetadataSync: () => mockNativeMetadata
 }));
 
 jest.mock('lib/miden-chain/constants', () => ({
@@ -428,6 +435,7 @@ beforeEach(() => {
   mockTokensMeta = [];
   mockDetectedChain = 'miden';
   mockEpochQuote = { amount: undefined, loading: false, error: null, symbol: 'USDC' };
+  mockNativeMetadata = null;
 
   delete process.env.MIDEN_E2E_TEST;
 });
@@ -503,6 +511,13 @@ describe('USDCx burn review', () => {
     await flush();
     expect(screen.getByTestId('send-review-submit')).toBeDisabled();
     expect(screen.getByText('usdcxInvalidAmount')).toBeInTheDocument();
+  });
+
+  it('names the native fee asset in the burn fee row, never MIDEN', async () => {
+    mockNativeMetadata = { symbol: 'USDCx', decimals: 6 };
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByText('usdcxSponsorshipFee|USDCx')).toBeInTheDocument();
   });
 
   it('rejects a deep link trying to burn a different faucet', async () => {

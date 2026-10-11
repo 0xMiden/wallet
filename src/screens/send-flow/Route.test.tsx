@@ -4,13 +4,27 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
+import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 
 import { Route, RouteOptions } from './Route';
 import { AgglayerEligibility } from './useAgglayerEligibility';
 
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string, params?: { symbol?: string }) => (params?.symbol === undefined ? key : `${key}|${params.symbol}`)
+  })
+}));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
+// The USDCx card names the native fee asset as the wallet resolves it; on testnet that is USDCx.
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => 'mtst1usdcxnative' }));
+jest.mock('lib/store', () => ({
+  useWalletStore: (selector: (state: { assetsMetadata: Record<string, never> }) => unknown) =>
+    selector({ assetsMetadata: {} })
+}));
+jest.mock('lib/miden/metadata/resolve', () => ({
+  resolveDisplayMetadata: jest.fn(() => ({ symbol: 'USDCx', name: 'USDCx', decimals: 6 }))
+}));
 jest.mock('lib/platform', () => ({ isMobile: () => true }));
 jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn() }));
 
@@ -138,5 +152,21 @@ describe('RouteOptions', () => {
     expect(screen.getByTestId('bridge-route-fast')).toBeDisabled();
     expect(screen.getByTestId('bridge-route-slow')).toBeDisabled();
     expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
+  });
+
+  it('names the native fee asset under the USDCx route, never MIDEN', () => {
+    render(
+      <RouteOptions
+        usdcxAvailable
+        route="usdcx"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        {...UP}
+      />
+    );
+
+    expect(screen.getByTestId('bridge-route-usdcx')).toHaveTextContent('usdcxMidenFees|USDCx');
+    expect(resolveDisplayMetadata).toHaveBeenCalledWith('mtst1usdcxnative', {}, 'mtst1usdcxnative');
   });
 });
