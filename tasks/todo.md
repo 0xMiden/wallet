@@ -598,7 +598,8 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - [x] Launch through a dependency-free shared Node script and move dependency and prepared-artifact restores after emulator startup, so guest boot overlaps those long steps.
 - [x] Run source/workflow checks and obtain a fresh independent review.
 - [x] Refresh current `origin/main` and verify the recovery branch contains it.
-- [ ] Publish the reviewed fix and prepare exact-SHA inputs.
+- [x] Publish the reviewed fix.
+- [ ] Prepare exact-SHA inputs.
 - [ ] Automatically retry Android Testnet after each terminal failure until one run proves all 100 loops complete.
 
 ### Evidence
@@ -613,4 +614,5 @@ Review: both failed native grants committed after their fixture deadlines; CLI 0
 - Independent review found no actionable issue. It confirmed the launcher uses Node built-ins, the start/Playwright steps share the same run-scoped receipt, and the dependency/artifact restores now follow emulator start while the original five-minute deadline remains fail-closed.
 - The exact failure report and artifacts are saved under `/home/jovan_lomoljo/wallet/test-results-android/ci-run-38122687423/`.
 - A fresh fetch confirmed `origin/main` is `8e7ae16302d5a69d9479d14b8a721dc0944aca88`, an ancestor of the recovery branch. Run `38122687423` is terminal failure; no matching workflow is in progress.
-- Pending commit/publication of this fix, exact-SHA preparation, and the authorized live retry loop.
+- Commit `52111da49` is pushed to `codex/android-agglayer-bridge-recovery-20261010`; the exact workflow and source checks passed before publication.
+- Pending exact-SHA preparation and the authorized live retry loop.
