@@ -74,7 +74,7 @@ export function buildDepositToRemoteArgs(
  * Order: check the remote domain is registered (so an unregistered domain fails
  * before any wallet prompt), read the allowance xReserve has, approve xReserve
  * for the amount and wait for that receipt only when the allowance is less than
- * the amount, call `depositToRemote`, record the hash on the row, wait for the
+ * the amount, call `depositToRemote`, record the hash and the signed recipient on the row, wait for the
  * deposit receipt, then move the row to `delivering`. Circle signs the
  * attestation and the relayer mints on Miden after that; nothing here waits
  * for them.
@@ -104,7 +104,10 @@ export async function runUsdcxDeposit(
   }
 
   const depositHash = await signer.depositToRemote(args);
-  await updatePhase(trackingTxId, 'submitting', { evmTxHash: depositHash });
+  await updatePhase(trackingTxId, 'submitting', {
+    evmTxHash: depositHash,
+    usdcxRemoteRecipient: remoteRecipient.toLowerCase()
+  });
   await waitForReceipt(depositHash);
   await updatePhase(trackingTxId, 'delivering', { evmTxHash: depositHash });
   return depositHash;

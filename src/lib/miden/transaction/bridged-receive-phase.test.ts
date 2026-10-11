@@ -63,6 +63,22 @@ describe('updateBridgedReceivePhase', () => {
 
     expect((await Repo.transactions.get(id))?.extraInputs).toMatchObject({ phase: 'submitting', evmTxHash: '0xhash' });
   });
+
+  // The reconciler matches Circle's attestation to the recipient the deposit signed, written at its first phase write.
+  it('keeps the signed USDCx recipient through every later phase write', async () => {
+    const recipient = `0x${'0'.repeat(32)}8da911727d5b53916f2c221c00c09100`;
+    const id = await seed('submitting');
+
+    await updateBridgedReceivePhase(id, 'submitting', { usdcxRemoteRecipient: recipient });
+    await updateBridgedReceivePhase(id, 'delivering', { evmTxHash: '0xhash' });
+    await updateBridgedReceivePhase(id, 'ready');
+
+    expect((await Repo.transactions.get(id))?.extraInputs).toMatchObject({
+      phase: 'ready',
+      evmTxHash: '0xhash',
+      usdcxRemoteRecipient: recipient
+    });
+  });
 });
 
 // The executor route writes its CCTP leg a field at a time, and a reopen after a reverted Arc execute clears the

@@ -1556,7 +1556,14 @@ export const updateBridgedReceivePhase = async (
   extra?: Partial<
     Pick<
       IBridgedReceiveExtraInputs,
-      'evmTxHash' | 'intentNonce' | 'midenNoteId' | 'outputAmount' | 'outputSymbol' | 'cctp' | 'error'
+      | 'evmTxHash'
+      | 'intentNonce'
+      | 'midenNoteId'
+      | 'outputAmount'
+      | 'outputSymbol'
+      | 'cctp'
+      | 'error'
+      | 'usdcxRemoteRecipient'
     >
   >,
   received?: { amount: bigint; faucetId: string; transactionId?: string },

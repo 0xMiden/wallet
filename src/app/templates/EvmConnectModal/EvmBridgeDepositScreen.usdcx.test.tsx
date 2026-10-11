@@ -5,6 +5,7 @@ import { toFunctionSelector } from 'viem';
 
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { runUsdcxDeposit } from 'lib/usdcx/deposit';
+import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import { buildExecutorBurnIntent, quoteExecutorBurn, runUsdcxExecutorDeposit } from 'lib/usdcx/executor';
 import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
@@ -100,6 +101,16 @@ jest.mock('lib/usdcx/deposit', () => ({
   runUsdcxDeposit: jest.fn().mockResolvedValue(`0x${'2'.repeat(64)}`),
   isUsdcxDomainNotRegisteredError: () => false
 }));
+
+// The real derivation, spied on: a test can hand the screen a recipient no other path would produce.
+jest.mock('lib/usdcx/deposit-target', () => {
+  const actual = jest.requireActual<typeof import('lib/usdcx/deposit-target')>('lib/usdcx/deposit-target');
+  return { ...actual, usdcxRemoteRecipientFor: jest.fn(actual.usdcxRemoteRecipientFor) };
+});
+const { usdcxRemoteRecipientFor: actualUsdcxRemoteRecipientFor } =
+  jest.requireActual<typeof import('lib/usdcx/deposit-target')>('lib/usdcx/deposit-target');
+/** A recipient only `usdcxRemoteRecipientFor` returns, never the bytes the account id encodes to. */
+const SIGNED_RECIPIENT = `0x${'ab'.repeat(32)}` as const;
 
 jest.mock('lib/usdcx/executor', () => ({
   runUsdcxExecutorDeposit: jest.fn().mockResolvedValue(`0x${'2'.repeat(64)}`),
@@ -313,6 +324,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockUseDebounce.mockImplementation((value: unknown) => [value]);
+    jest.mocked(usdcxRemoteRecipientFor).mockImplementation(actualUsdcxRemoteRecipientFor);
     jest.mocked(quoteExecutorBurn).mockRejectedValue(new Error('no quote in tests'));
     mockNativeAvailable = false;
     jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
@@ -621,5 +633,45 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       expect.anything()
     );
     expect(screen.queryByTestId('usdcx-route-fee')).toBeNull();
+  });
+
+  // The reconciler re-derives the recipient with the same helper, so the bytes a deposit signs are the bytes Circle's
+  // attestation is matched against.
+  it('signs an xReserve deposit for the recipient usdcxRemoteRecipientFor derives from the account', async () => {
+    jest.mocked(usdcxRemoteRecipientFor).mockReturnValue(SIGNED_RECIPIENT);
+    renderScreen();
+    await reachUsdcxRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(usdcxRemoteRecipientFor).toHaveBeenCalledWith(midenAccount.publicKey);
+    expect(runUsdcxDeposit).toHaveBeenCalledWith('bridge-tx', '1.5', SIGNED_RECIPIENT, expect.anything());
+  });
+
+  it('quotes and burns an executor deposit for the recipient usdcxRemoteRecipientFor derives', async () => {
+    jest.mocked(usdcxRemoteRecipientFor).mockReturnValue(SIGNED_RECIPIENT);
+    renderScreen();
+    await reachBaseSepoliaRoute();
+
+    expect(buildExecutorBurnIntent).toHaveBeenCalledWith(
+      '1.5',
+      expect.objectContaining({ route: 'cctp-executor' }),
+      SIGNED_RECIPIENT,
+      '0x1111111111111111111111111111111111111111'
+    );
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(usdcxRemoteRecipientFor).toHaveBeenCalledWith(midenAccount.publicKey);
+    expect(runUsdcxExecutorDeposit).toHaveBeenCalledWith(
+      expect.any(String),
+      '1.5',
+      SIGNED_RECIPIENT,
+      expect.anything()
+    );
   });
 });

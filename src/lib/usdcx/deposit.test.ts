@@ -12,6 +12,7 @@ jest.mock('lib/miden/activity', () => ({
 }));
 
 const RECIPIENT = '0x00000000000000000000000000000000b64e1827414584510723cad8e145a400' as const;
+const MIXED_CASE_RECIPIENT = '0x00000000000000000000000000000000B64E1827414584510723CAD8E145A400' as const;
 const ARC_TESTNET_ID = 5042002;
 const SEPOLIA_ID = 11155111;
 const APPROVE_HASH = `0x${'1'.repeat(64)}` as const;
@@ -96,8 +97,24 @@ describe('runUsdcxDeposit', () => {
     expect(deps.signer.depositToRemote).toHaveBeenCalledWith(
       buildDepositToRemoteArgs('1.5', RECIPIENT, ARC_TESTNET_ID)
     );
-    expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', { evmTxHash: DEPOSIT_HASH });
+    expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', {
+      evmTxHash: DEPOSIT_HASH,
+      usdcxRemoteRecipient: RECIPIENT
+    });
     expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'delivering', { evmTxHash: DEPOSIT_HASH });
+  });
+
+  // The reconciler trusts Circle's attestation only when it names this recipient, so it lands with the hash, before
+  // a receipt wait can strand the row.
+  it('persists the recipient it signed, lowercased, with the first phase write only', async () => {
+    const { deps } = makeDeps();
+
+    await runUsdcxDeposit('row-1', '1', MIXED_CASE_RECIPIENT, deps);
+
+    expect(jest.mocked(deps.updatePhase).mock.calls).toEqual([
+      ['row-1', 'submitting', { evmTxHash: DEPOSIT_HASH, usdcxRemoteRecipient: RECIPIENT }],
+      ['row-1', 'delivering', { evmTxHash: DEPOSIT_HASH }]
+    ]);
   });
 
   it('reads the allowance xReserve has', async () => {
@@ -174,7 +191,10 @@ describe('runUsdcxDeposit', () => {
     await expect(runUsdcxDeposit('row-1', '1', RECIPIENT, deps)).rejects.toThrow('Transaction reverted');
 
     expect(deps.updatePhase).toHaveBeenCalledTimes(1);
-    expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', { evmTxHash: DEPOSIT_HASH });
+    expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', {
+      evmTxHash: DEPOSIT_HASH,
+      usdcxRemoteRecipient: RECIPIENT
+    });
   });
 
   it('does not deposit when the approval fails', async () => {

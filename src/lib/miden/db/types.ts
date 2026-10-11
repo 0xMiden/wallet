@@ -184,6 +184,11 @@ export interface IBridgedReceiveExtraInputs {
   /** usdcx: the CCTP leg of an executor-route deposit; absent on a direct xReserve deposit. */
   cctp?: IUsdcxCctpLeg;
   error?: string;
+  /**
+   * usdcx: the xReserve `remoteRecipient` bytes32 the wallet signed (0x + 64 lowercase hex), written at the deposit's
+   * first phase write. Absent on rows written before this field and on E2E hook rows.
+   */
+  usdcxRemoteRecipient?: string;
 }
 
 /** Audit metadata for a Guardian operator switch. `previousGuardianEndpoint`

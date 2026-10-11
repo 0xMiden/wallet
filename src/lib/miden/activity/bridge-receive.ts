@@ -1,13 +1,20 @@
-import { isHash } from 'viem';
+import { isHash, isHex } from 'viem';
 
 import { midenAddrToEvmAddr } from 'lib/agglayer/contract';
 import { fetchDeposits, isAgglayerDepositReady } from 'lib/agglayer/status';
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
-import { isUsdcxDepositAttested } from 'lib/usdcx/attestation';
+import {
+  fetchXReserveAttestations,
+  matchUsdcxDepositAttestation,
+  UsdcxAttestationMatch,
+  UsdcxAttestationMismatchField,
+  UsdcxDepositExpectation
+} from 'lib/usdcx/attestation';
 import { fetchAttestedCctpMessage, isCctpForwardFailed, revertedExecuteLeg } from 'lib/usdcx/cctp';
 import { USDCX_SOURCE_CHAINS, UsdcxExecutorSource } from 'lib/usdcx/constant';
+import { usdcxExpectedRemoteTokenFor, usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import { readEvmReceiptOutcome, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 
 import { BRIDGE_RECEIVE_MAX_AGE_MS, registerPendingBridgeIn, resolveBridgeInNoteId } from './bridge-in';
@@ -113,11 +120,64 @@ async function reconcileEpochRow(row: ITransaction, inputs: IBridgedReceiveExtra
   }
 }
 
+const USDCX_MISMATCH_ERRORS: Record<UsdcxAttestationMismatchField, string> = {
+  remoteDomain: 'Circle attested this deposit to a different network.',
+  remoteToken: 'Circle attested this deposit to a different token.',
+  recipient: 'Circle attested this deposit to a different Miden account.',
+  amount: 'Circle attested this deposit to a different amount.'
+};
+
+const warnedUsdcxRows = new Set<string>();
+
+// Once per row and reason: the watcher polls every 8 s and the verdict it reports does not change.
+function warnUsdcxRowOnce(rowId: string, reason: string, detail?: unknown): void {
+  const key = `${rowId}:${reason}`;
+  if (warnedUsdcxRows.has(key)) return;
+  warnedUsdcxRows.add(key);
+  console.warn(`[bridge-receive] USDCx ${reason}`, rowId, detail);
+}
+
 /**
- * Circle's attestation proves the deposit, so the row becomes `ready`: Activity shows it as
- * Confirmed and the timeout no longer fails it. A row that has its hash but lost its screen
- * before the source-chain receipt settles the same way. The consume of the minted note then
- * moves the row to `received` (`takeUsdcxBridgeInInfo`).
+ * What the deposit signed: the recipient its writer persisted, else the one its account derives, as the deposit screen
+ * derived it, so a row written before the recipient was kept still settles. Undefined when the row names no faucet or
+ * amount, or its account is no account id.
+ */
+function usdcxExpectationOf(
+  row: ITransaction,
+  inputs: IBridgedReceiveExtraInputs
+): UsdcxDepositExpectation | undefined {
+  if (row.faucetId === undefined || row.amount === undefined) return undefined;
+  try {
+    const signed = inputs.usdcxRemoteRecipient;
+    return {
+      remoteRecipient: signed !== undefined && isHex(signed) ? signed : usdcxRemoteRecipientFor(row.accountId),
+      remoteToken: usdcxExpectedRemoteTokenFor(row.faucetId),
+      amount: row.amount
+    };
+  } catch (error) {
+    warnUsdcxRowOnce(row.id, 'deposit has no readable recipient or token', error);
+    return undefined;
+  }
+}
+
+/** Circle's verdict on the xReserve deposit `txHash` against what the row signed; undefined with nothing to ask. */
+async function matchUsdcxDeposit(
+  row: ITransaction,
+  inputs: IBridgedReceiveExtraInputs,
+  txHash: string | undefined,
+  attestationApi: string | undefined
+): Promise<UsdcxAttestationMatch | undefined> {
+  if (txHash === undefined || !isHash(txHash)) return undefined;
+  const expected = usdcxExpectationOf(row, inputs);
+  if (expected === undefined) return undefined;
+  return matchUsdcxDepositAttestation(await fetchXReserveAttestations(txHash, { baseUrl: attestationApi }), expected);
+}
+
+/**
+ * Circle's attestation of what the wallet signed proves the deposit, so the row becomes `ready`: Activity shows it as
+ * Confirmed. An attestation of anything else fails the row, naming what differs. A row that has its hash but lost its
+ * screen before the source-chain receipt settles the same way. The consume of the minted note then moves the row to
+ * `received` (`takeUsdcxBridgeInInfo`).
  */
 async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtraInputs): Promise<void> {
   // Reached only once no flow holds the submission: with no hash, nothing can ever move the row on.
@@ -132,8 +192,19 @@ async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtra
       return;
     }
     // A legacy Sepolia row has no source chain and reads the testnet service, the attestation default.
-    if (await isUsdcxDepositAttested(inputs.evmTxHash, source?.attestationApi)) {
-      await updateBridgedReceivePhase(row.id, 'ready');
+    const verdict = await matchUsdcxDeposit(row, inputs, inputs.evmTxHash, source?.attestationApi);
+    switch (verdict?.kind) {
+      case 'attested':
+        await updateBridgedReceivePhase(row.id, 'ready');
+        return;
+      case 'mismatch':
+        await updateBridgedReceivePhase(row.id, 'failed', { error: USDCX_MISMATCH_ERRORS[verdict.field] });
+        return;
+      case 'unreadable':
+        warnUsdcxRowOnce(row.id, 'attestation unreadable', inputs.evmTxHash);
+        return;
+      default:
+        return;
     }
   } catch (error) {
     console.warn('[bridge-receive] USDCx attestation poll failed', row.id, error);
@@ -158,8 +229,14 @@ async function reconcileUsdcxExecutorRow(
   if (!leg) return;
   const { target } = source;
   if (leg.executeTxHash) {
-    if (await isUsdcxDepositAttested(leg.executeTxHash, target.attestationApi)) {
+    const verdict = await matchUsdcxDeposit(row, inputs, leg.executeTxHash, target.attestationApi);
+    if (verdict?.kind === 'attested') {
       await updateBridgedReceivePhase(row.id, 'ready');
+      return;
+    }
+    // The hash can be a forward Iris reported rather than a transaction this wallet signed: a mismatch only warns.
+    if (verdict?.kind === 'mismatch' || verdict?.kind === 'unreadable') {
+      warnUsdcxRowOnce(row.id, `execute attestation ${verdict.kind}`, leg.executeTxHash);
       return;
     }
     // The foreground hook sees a revert only while its screen is open.

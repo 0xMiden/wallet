@@ -11,7 +11,8 @@ const registerBridgeIn = jest.fn();
 const fetchDeposits = jest.fn();
 const resolveNoteId = jest.fn();
 const getIntentStatus = jest.fn();
-const isAttested = jest.fn();
+const fetchAttestations = jest.fn();
+const matchAttestation = jest.fn();
 
 // Only the type index is read: a pass that falls back to walking the table has no `filter` to call here.
 jest.mock('lib/miden/repo', () => ({
@@ -26,7 +27,16 @@ jest.mock('lib/miden/repo', () => ({
   }
 }));
 jest.mock('lib/usdcx/attestation', () => ({
-  isUsdcxDepositAttested: (...args: unknown[]) => isAttested(...args)
+  fetchXReserveAttestations: (...args: unknown[]) => fetchAttestations(...args),
+  matchUsdcxDepositAttestation: (...args: unknown[]) => matchAttestation(...args)
+}));
+// The SDK's id parse stands in as a tag of the ref it was given; bridge-receive.usdcx.test.ts runs the real one.
+jest.mock('lib/usdcx/deposit-target', () => ({
+  usdcxRemoteRecipientFor: (ref: string) => {
+    if (ref === 'no-account') throw new Error('not an account id');
+    return `recipient-of:${ref}`;
+  },
+  usdcxExpectedRemoteTokenFor: (ref: string) => `token-of:${ref}`
 }));
 const fetchAttestedMessage = jest.fn();
 jest.mock('lib/usdcx/cctp', () => ({
@@ -69,7 +79,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   waitForReceipt.mockResolvedValue(undefined);
   updatePhase.mockResolvedValue(undefined);
-  isAttested.mockResolvedValue(false);
+  fetchAttestations.mockResolvedValue([]);
+  matchAttestation.mockReturnValue({ kind: 'pending' });
   readOutcome.mockResolvedValue('pending');
   registerBridgeIn.mockResolvedValue(undefined);
   fetchDeposits.mockResolvedValue([]);
@@ -246,7 +257,7 @@ describe('reconcileBridgedReceives', () => {
     expect(updatePhase).toHaveBeenCalledWith('usdcx-interrupted', 'failed', {
       error: 'Bridge submission was interrupted before a transaction hash was recorded.'
     });
-    expect(isAttested).not.toHaveBeenCalled();
+    expect(fetchAttestations).not.toHaveBeenCalled();
     expect(fetchAttestedMessage).not.toHaveBeenCalled();
   });
 
@@ -766,13 +777,21 @@ describe('deposit submissions', () => {
 // SDK with no intent nonce on every tick.
 describe('reconcileBridgedReceives with a USDCx row', () => {
   const DEPOSIT_HASH = `0x${'5'.repeat(64)}`;
-  const usdcxRow = (extraInputs: Record<string, unknown> = {}) => ({
+  const usdcxRow = (extraInputs: Record<string, unknown> = {}, row: Record<string, unknown> = {}) => ({
     id: 'usdcx-row',
     type: 'bridged-receive',
     accountId: 'miden-account',
+    faucetId: 'usdcx-faucet',
+    amount: 5_000_000n,
     initiatedAt: Math.floor(Date.now() / 1000),
+    ...row,
     extraInputs: { provider: 'usdcx', phase: 'delivering', evmTxHash: DEPOSIT_HASH, ...extraInputs }
   });
+  const derived = {
+    remoteRecipient: 'recipient-of:miden-account',
+    remoteToken: 'token-of:usdcx-faucet',
+    amount: 5_000_000n
+  };
 
   it('leaves a delivering USDCx row untouched while Circle has not attested it', async () => {
     rows.push(usdcxRow());
@@ -780,25 +799,98 @@ describe('reconcileBridgedReceives with a USDCx row', () => {
     await reconcileBridgedReceives();
 
     // A legacy row names no source chain, so the attestation module's testnet default applies.
-    expect(isAttested).toHaveBeenCalledWith(DEPOSIT_HASH, undefined);
+    expect(fetchAttestations).toHaveBeenCalledWith(DEPOSIT_HASH, { baseUrl: undefined });
     expect(getIntentStatus).not.toHaveBeenCalled();
     expect(fetchDeposits).not.toHaveBeenCalled();
     expect(waitForReceipt).not.toHaveBeenCalled();
     expect(updatePhase).not.toHaveBeenCalled();
   });
 
-  it('moves an attested USDCx row to ready', async () => {
-    isAttested.mockResolvedValue(true);
+  it('moves a USDCx row to ready once Circle attested what it signed', async () => {
+    const list = [{ remoteDomain: 10007 }];
+    fetchAttestations.mockResolvedValue(list);
+    matchAttestation.mockReturnValue({ kind: 'attested' });
+    rows.push(usdcxRow());
+
+    await reconcileBridgedReceives();
+
+    // A row written before the signed recipient was kept derives it from its own account.
+    expect(matchAttestation).toHaveBeenCalledWith(list, derived);
+    expect(updatePhase).toHaveBeenCalledTimes(1);
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-row', 'ready');
+  });
+
+  it('compares the recipient the deposit persisted rather than the one its account derives', async () => {
+    const signed = `0x${'0'.repeat(32)}${'ab'.repeat(15)}00`;
+    rows.push(usdcxRow({ usdcxRemoteRecipient: signed }));
+
+    await reconcileBridgedReceives();
+
+    expect(matchAttestation).toHaveBeenCalledWith([], { ...derived, remoteRecipient: signed });
+  });
+
+  it('derives the recipient when the one the row persisted is not hex', async () => {
+    rows.push(usdcxRow({ usdcxRemoteRecipient: 'not-hex' }));
+
+    await reconcileBridgedReceives();
+
+    expect(matchAttestation).toHaveBeenCalledWith([], derived);
+  });
+
+  it.each([
+    ['remoteDomain', 'Circle attested this deposit to a different network.'],
+    ['remoteToken', 'Circle attested this deposit to a different token.'],
+    ['recipient', 'Circle attested this deposit to a different Miden account.'],
+    ['amount', 'Circle attested this deposit to a different amount.']
+  ])('fails a USDCx row whose attestation differs in %s, saying so', async (field, error) => {
+    matchAttestation.mockReturnValue({ kind: 'mismatch', field });
     rows.push(usdcxRow());
 
     await reconcileBridgedReceives();
 
     expect(updatePhase).toHaveBeenCalledTimes(1);
-    expect(updatePhase).toHaveBeenCalledWith('usdcx-row', 'ready');
+    expect(updatePhase).toHaveBeenCalledWith('usdcx-row', 'failed', { error });
+  });
+
+  it('writes nothing for an attestation it cannot read, and warns once', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    matchAttestation.mockReturnValue({ kind: 'unreadable' });
+    rows.push(usdcxRow({}, { id: 'usdcx-unreadable' }));
+
+    await reconcileBridgedReceives();
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).not.toHaveBeenCalled();
+    expect(warn.mock.calls.filter(([message]) => String(message).includes('attestation unreadable'))).toHaveLength(1);
+    warn.mockRestore();
+  });
+
+  it.each([
+    ['names no faucet', { faucetId: undefined }],
+    ['has no amount', { amount: undefined }],
+    ['belongs to no account id', { accountId: 'no-account' }]
+  ])('asks Circle nothing for a row that %s', async (_label, row) => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    rows.push(usdcxRow({}, row));
+
+    await reconcileBridgedReceives();
+
+    expect(fetchAttestations).not.toHaveBeenCalled();
+    expect(updatePhase).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('makes no request for a hash that is not a transaction hash', async () => {
+    rows.push(usdcxRow({ evmTxHash: 'not-a-hash' }));
+
+    await reconcileBridgedReceives();
+
+    expect(fetchAttestations).not.toHaveBeenCalled();
+    expect(updatePhase).not.toHaveBeenCalled();
   });
 
   it('leaves the row for the next pass when the attestation request fails', async () => {
-    isAttested.mockRejectedValue(new Error('HTTP 503'));
+    fetchAttestations.mockRejectedValue(new Error('HTTP 503'));
     rows.push(usdcxRow());
 
     await expect(reconcileBridgedReceives()).resolves.toBeUndefined();
@@ -807,17 +899,13 @@ describe('reconcileBridgedReceives with a USDCx row', () => {
   });
 
   it("asks the attestation service of the direct row's own source chain", async () => {
-    rows.push({
-      id: 'usdcx-arc',
-      type: 'bridged-receive',
-      accountId: 'miden-account',
-      initiatedAt: Math.floor(Date.now() / 1000),
-      extraInputs: { provider: 'usdcx', phase: 'delivering', sourceChainId: 5042002, evmTxHash: `0x${'4'.repeat(64)}` }
-    });
+    rows.push(usdcxRow({ sourceChainId: 5042002, evmTxHash: `0x${'4'.repeat(64)}` }, { id: 'usdcx-arc' }));
 
     await reconcileBridgedReceives();
 
-    expect(isAttested).toHaveBeenCalledWith(`0x${'4'.repeat(64)}`, 'https://xreserve-api-testnet.circle.com');
+    expect(fetchAttestations).toHaveBeenCalledWith(`0x${'4'.repeat(64)}`, {
+      baseUrl: 'https://xreserve-api-testnet.circle.com'
+    });
   });
 
   it('still times out a stale USDCx row', async () => {
@@ -847,6 +935,8 @@ describe('reconcileBridgedReceives with a USDCx executor row', () => {
     id: 'usdcx-executor-row',
     type: 'bridged-receive',
     accountId: 'miden-account',
+    faucetId: 'usdcx-faucet',
+    amount: 5_000_000n,
     initiatedAt: Math.floor(Date.now() / 1000),
     extraInputs: { provider: 'usdcx', phase: 'delivering', sourceChainId: 84532, evmTxHash: BURN_HASH, cctp }
   });
@@ -858,7 +948,7 @@ describe('reconcileBridgedReceives with a USDCx executor row', () => {
     await reconcileBridgedReceives();
 
     expect(fetchAttestedMessage).toHaveBeenCalledWith(6, BURN_HASH, { baseUrl: IRIS });
-    expect(isAttested).not.toHaveBeenCalled();
+    expect(fetchAttestations).not.toHaveBeenCalled();
     expect(updatePhase).toHaveBeenCalledTimes(1);
     expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'delivering', {
       cctp: { sourceDomain: 6, message: '0x1234', attestation: '0xabcd' }
@@ -880,20 +970,46 @@ describe('reconcileBridgedReceives with a USDCx executor row', () => {
     await reconcileBridgedReceives();
 
     expect(fetchAttestedMessage).not.toHaveBeenCalled();
-    expect(isAttested).not.toHaveBeenCalled();
+    expect(fetchAttestations).not.toHaveBeenCalled();
     expect(updatePhase).not.toHaveBeenCalled();
   });
 
   it('asks xReserve for the execute transaction and moves the row to ready once attested', async () => {
-    isAttested.mockResolvedValue(true);
+    matchAttestation.mockReturnValue({ kind: 'attested' });
     rows.push(executorRow({ sourceDomain: 6, message: '0x1234', attestation: '0xabcd', executeTxHash: EXECUTE_HASH }));
 
     await reconcileBridgedReceives();
 
-    expect(isAttested).toHaveBeenCalledWith(EXECUTE_HASH, ATTESTATIONS);
+    expect(fetchAttestations).toHaveBeenCalledWith(EXECUTE_HASH, { baseUrl: ATTESTATIONS });
+    expect(matchAttestation).toHaveBeenCalledWith([], {
+      remoteRecipient: 'recipient-of:miden-account',
+      remoteToken: 'token-of:usdcx-faucet',
+      amount: 5_000_000n
+    });
     expect(fetchAttestedMessage).not.toHaveBeenCalled();
     expect(readOutcome).not.toHaveBeenCalled();
     expect(updatePhase).toHaveBeenCalledWith('usdcx-executor-row', 'ready');
+  });
+
+  // The execute hash can be a forward Iris reported, so an attestation of something else fails nothing.
+  it.each([
+    ['attested to something else', { kind: 'mismatch', field: 'recipient' }],
+    ['unreadable', { kind: 'unreadable' }]
+  ])('writes nothing and warns once on an execute %s', async (_label, verdict) => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    matchAttestation.mockReturnValue(verdict);
+    rows.push({
+      ...executorRow({ sourceDomain: 6, message: '0x1234', attestation: '0xabcd', executeTxHash: EXECUTE_HASH }),
+      id: `usdcx-executor-${verdict.kind}`
+    });
+
+    await reconcileBridgedReceives();
+    await reconcileBridgedReceives();
+
+    expect(updatePhase).not.toHaveBeenCalled();
+    expect(readOutcome).not.toHaveBeenCalled();
+    expect(warn.mock.calls.filter(([message]) => String(message).includes('execute attestation'))).toHaveLength(1);
+    warn.mockRestore();
   });
 
   // The foreground hook sees a revert only while its screen is open: the reconciler reads the saved hash's Arc
