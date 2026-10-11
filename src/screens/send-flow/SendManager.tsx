@@ -21,6 +21,7 @@ import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { useWalletStore } from 'lib/store';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
+import { usdcxPayoutFeeShortfall } from 'lib/usdcx/constant';
 import { isUsdcxWithdrawalAvailable } from 'lib/usdcx/withdrawal';
 import { navigate, useLocation } from 'lib/woozie';
 import {
@@ -381,6 +382,19 @@ export const SendManager: React.FC<SendManagerProps> = ({
     if (usdcxAvailable && bridgeRoute !== 'usdcx') setValue('bridgeRoute', 'usdcx');
     if (!usdcxAvailable && bridgeRoute === 'usdcx') setValue('bridgeRoute', 'epoch');
   }, [usdcxAvailable, bridgeRoute, setValue]);
+
+  // A USDCx burn's destination and amount. Circle takes its fee from the payout there, so the amount must exceed it.
+  const usdcxPayout = useMemo(() => {
+    const chainId =
+      usdcxAvailable && isBridge
+        ? USDCX_BRIDGE_NETWORKS.find(network => network.id === bridgeNetwork)?.chainId
+        : undefined;
+    return chainId === undefined || amountBaseUnits === undefined ? undefined : { chainId, amount: amountBaseUnits };
+  }, [usdcxAvailable, isBridge, bridgeNetwork, amountBaseUnits]);
+  const payoutFeeShortfall = useMemo(
+    () => usdcxPayout && usdcxPayoutFeeShortfall(usdcxPayout.chainId, usdcxPayout.amount),
+    [usdcxPayout]
+  );
 
   const epochQuote = useEpochQuote({
     amount: amountBaseUnits,
@@ -878,8 +892,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
             <SendAmount
               token={spendableToken}
               amount={amount || ''}
-              isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
-              error={errors.amount?.message?.toString()}
+              isValidAmount={!errors.amount && !payoutFeeShortfall && validations.amount.isValidSync(amount)}
+              error={errors.amount?.message?.toString() ?? (payoutFeeShortfall && 'usdcxSendMoreThanPayoutFee')}
+              errorValues={errors.amount ? undefined : payoutFeeShortfall}
               recipientAddress={recipientAddress || ''}
               recipientName={selectedContact?.name}
               network={displayedNetwork}
@@ -920,6 +935,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       onPaste,
       errors.recipientAddress,
       errors.amount,
+      payoutFeeShortfall,
       onAddressChange,
       onScan,
       amount,

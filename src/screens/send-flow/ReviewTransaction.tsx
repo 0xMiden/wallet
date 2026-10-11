@@ -43,7 +43,7 @@ import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { classifyError } from 'lib/telemetry';
 import { initiateUsdcxBurn } from 'lib/usdcx/burn';
-import { USDCX_DECIMALS } from 'lib/usdcx/constant';
+import { USDCX_DECIMALS, usdcxPayoutFeeShortfall } from 'lib/usdcx/constant';
 import { useBurnPreflight } from 'lib/usdcx/use-burn-preflight';
 import { isUsdcxWithdrawalAvailable, UsdcxBurnError } from 'lib/usdcx/withdrawal';
 import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
@@ -447,7 +447,7 @@ export const ReviewTransaction: React.FC = () => {
         settleSendFlow(flow => flow.fail(classifyError(error)));
         setSubmitError(
           error instanceof UsdcxBurnError
-            ? t(error.translationKey)
+            ? t(error.translationKey, error.values)
             : error instanceof Error
               ? error.message
               : String(error)
@@ -600,6 +600,11 @@ export const ReviewTransaction: React.FC = () => {
     youReceiveAmount != null ? `≈ ${youReceiveAmount} ${youReceiveSymbol}`.trim() : youReceiveSymbol;
   const routeLabel = isUsdcxBurn ? t('usdcxRouteLabel') : route === 'agglayer' ? t('slow') : t('fast');
   const arrivalLabel = isUsdcxBurn ? '' : route === 'agglayer' ? t('slowArrival') : t('fastArrival');
+  // Circle takes its fee from the payout, so a burn must exceed its destination's fee allowance.
+  const payoutFeeShortfall =
+    isUsdcxBurn && bridgeNetworkObj && amountBaseUnits !== undefined
+      ? usdcxPayoutFeeShortfall(bridgeNetworkObj.chainId, amountBaseUnits)
+      : undefined;
   const burnValidationError = !isUsdcxBurn
     ? undefined
     : burnPreflight.error
@@ -608,7 +613,9 @@ export const ReviewTransaction: React.FC = () => {
         ? t('usdcxInvalidAmount')
         : burnPreflight.minimum !== undefined && amountBaseUnits < burnPreflight.minimum
           ? t('usdcxBelowMinimumBurn')
-          : undefined;
+          : payoutFeeShortfall
+            ? t('usdcxSendMoreThanPayoutFee', payoutFeeShortfall)
+            : undefined;
 
   const fiatValue =
     token && token.scaleIsKnown && token.fiatPrice > 0 ? parseFloat(amount) * token.fiatPrice : undefined;

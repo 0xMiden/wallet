@@ -1,4 +1,4 @@
-import type { Address, Chain, Hex } from 'viem';
+import { Address, Chain, formatUnits, Hex } from 'viem';
 import { arbitrum, arbitrumSepolia, arc, base, baseSepolia, mainnet, sepolia } from 'viem/chains';
 
 import { ARC_TESTNET } from 'lib/walletconnect/config';
@@ -232,14 +232,25 @@ function destination(chain: Chain): [number, UsdcxDestination] {
 }
 
 /**
- * The least USDC a burn of `amount` is expected to pay out on `chainId`: the amount minus the chain's fee
- * allowance, and never less than half the amount, so a small burn is not confirmed by an unrelated credit.
+ * The least USDC a burn of `amount` is expected to pay out on `chainId`: the amount minus the chain's fee allowance.
+ * It is not positive when the allowance takes the whole amount. Any unrelated credit meets such a floor, so the wallet
+ * refuses that burn (`usdcxPayoutFeeShortfall`) and never confirms an older one by balance.
  */
 export function minimumUsdcxPayout(chainId: number, amount: bigint): bigint {
-  const allowance = USDCX_DESTINATIONS.get(chainId)?.payoutFeeAllowance ?? 0n;
-  const afterFee = amount - allowance;
-  const half = (amount + 1n) / 2n;
-  return afterFee > half ? afterFee : half;
+  return amount - (USDCX_DESTINATIONS.get(chainId)?.payoutFeeAllowance ?? 0n);
+}
+
+/**
+ * The fee allowance a burn of `amount` to `chainId` fails to exceed, in USDCx, and the chain's name, as the refusal
+ * names them; undefined once the amount exceeds it, and for no amount or an unknown chain, which other checks refuse.
+ */
+export function usdcxPayoutFeeShortfall(
+  chainId: number,
+  amount: bigint
+): { amount: string; network: string } | undefined {
+  const destination = USDCX_DESTINATIONS.get(chainId);
+  if (!destination || amount <= 0n || minimumUsdcxPayout(chainId, amount) > 0n) return undefined;
+  return { amount: formatUnits(destination.payoutFeeAllowance, USDCX_DECIMALS), network: destination.chain.name };
 }
 
 // Circle has not registered Miden on Sepolia's xReserve (a deposit there reverts), so a Sepolia deposit goes through

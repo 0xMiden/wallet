@@ -23,7 +23,10 @@ export async function findUsdcxDestinationTransaction({
 }): Promise<string | undefined> {
   const chain = getChain(chainId);
   const token = CIRCLE_USDC_ADDRESS.get(chainId);
-  if (!chain || !token || !isAddress(recipient) || amount <= 0n) return undefined;
+  // The payout is the sent amount minus Circle's fee, so match the range the balance check accepts. A burn the fee
+  // allowance takes whole has no such range.
+  const minimum = minimumUsdcxPayout(chainId, amount);
+  if (!chain || !token || !isAddress(recipient) || minimum <= 0n) return undefined;
   const toBlock = BigInt(confirmedBlock);
   const firstBlock = BigInt(beforeBlock) + 1n;
   if (firstBlock > toBlock) return undefined;
@@ -38,8 +41,6 @@ export async function findUsdcxDestinationTransaction({
     toBlock,
     strict: true
   });
-  // The payout is the sent amount minus Circle's fee, so match the range the balance check accepts.
-  const minimum = minimumUsdcxPayout(chainId, amount);
   const matches = logs.filter(log => !log.removed && log.args.value >= minimum && log.args.value <= amount);
   return matches.length === 1 ? (matches[0]?.transactionHash ?? undefined) : undefined;
 }

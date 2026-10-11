@@ -94,12 +94,14 @@ export async function pollUsdcxDestination(tx: ITransaction, readBalance = readU
     return;
   }
 
+  // Circle deducts its fee from the payout, so the balance rises by less than the sent amount. A burn the fee
+  // allowance takes whole has no floor an unrelated credit could not meet, so it stays at Burn confirmed.
+  const minimum = minimumUsdcxPayout(extra.destinationNetwork, tx.amount);
+  if (minimum <= 0n) return;
+
   const observed = await readBalance(extra.destinationNetwork, extra.destinationAddress);
   if (BigInt(observed.blockNumber) <= BigInt(before.blockNumber)) return;
-  // Circle deducts its fee from the payout, so the balance rises by less than the sent amount.
-  if (BigInt(observed.balance) < BigInt(before.balance) + minimumUsdcxPayout(extra.destinationNetwork, tx.amount)) {
-    return;
-  }
+  if (BigInt(observed.balance) < BigInt(before.balance) + minimum) return;
 
   await Repo.transactions.where({ id: tx.id }).modify(row => {
     const current: IBridgedSendExtraInputs | undefined = row.extraInputs;

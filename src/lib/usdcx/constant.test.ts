@@ -20,6 +20,7 @@ import {
   USDCX_DESTINATIONS,
   USDCX_SOURCE_CHAINS,
   usdcxArrivalKey,
+  usdcxPayoutFeeShortfall,
   XRESERVE_ADDRESS,
   XRESERVE_ATTESTATION_API_MAINNET,
   XRESERVE_ATTESTATION_API_TESTNET
@@ -166,12 +167,27 @@ describe('USDCx destinations', () => {
     expect(() => getUsdcxDestination(999)).toThrow('not configured');
   });
 
-  it('expects a payout of the amount minus the fee allowance, and never less than half the amount', () => {
+  // Circle charges a flat ~1,003,500 (about 1.0035 USDC) to pay a burn out on Ethereum, more than half of a 2 USDCx
+  // burn, so the floor is the amount minus the allowance and nothing else.
+  it('expects a payout of the amount minus the fee allowance, not positive once the allowance takes it whole', () => {
     expect(minimumUsdcxPayout(baseSepolia.id, 3_000_000n)).toBe(2_900_000n);
     expect(minimumUsdcxPayout(sepolia.id, 5_000_000n)).toBe(3_500_000n);
-    expect(minimumUsdcxPayout(baseSepolia.id, 150_001n)).toBe(75_001n);
-    expect(minimumUsdcxPayout(sepolia.id, 1_000_000n)).toBe(500_000n);
+    expect(minimumUsdcxPayout(sepolia.id, 2_000_000n)).toBe(500_000n);
+    expect(minimumUsdcxPayout(baseSepolia.id, 150_001n)).toBe(50_001n);
+    expect(minimumUsdcxPayout(sepolia.id, 1_500_001n)).toBe(1n);
+    expect(minimumUsdcxPayout(sepolia.id, 1_500_000n)).toBe(0n);
+    expect(minimumUsdcxPayout(sepolia.id, 1_000_000n)).toBe(-500_000n);
     expect(minimumUsdcxPayout(999, 1_000_000n)).toBe(1_000_000n);
+  });
+
+  it('names the allowance a burn must exceed and its chain, until the amount exceeds it', () => {
+    expect(usdcxPayoutFeeShortfall(sepolia.id, 1_500_000n)).toEqual({ amount: '1.5', network: 'Sepolia' });
+    expect(usdcxPayoutFeeShortfall(ARC_TESTNET_ID, 100_000n)).toEqual({ amount: '0.1', network: 'Arc Testnet' });
+    expect(usdcxPayoutFeeShortfall(sepolia.id, 1_500_001n)).toBeUndefined();
+    expect(usdcxPayoutFeeShortfall(ARC_TESTNET_ID, 100_001n)).toBeUndefined();
+    // No amount, or no destination: the amount and destination checks refuse those.
+    expect(usdcxPayoutFeeShortfall(sepolia.id, 0n)).toBeUndefined();
+    expect(usdcxPayoutFeeShortfall(999, 1n)).toBeUndefined();
   });
 
   it('splits the table by network family and pre-selects Arc Testnet', () => {

@@ -20,6 +20,7 @@ import { isExtension } from 'lib/platform';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { initiateUsdcxBurn } from 'lib/usdcx/burn';
+import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
 import { goBack, navigate } from 'lib/woozie';
 import { isValidMidenAddress } from 'utils/miden';
 
@@ -110,13 +111,16 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    // The recall note names its amount and a fee label its fee asset; every other key reads as itself.
-    t: (key: string, params?: { amount?: string; symbol?: string }) =>
+    // The recall note names its amount, a fee label its fee asset and a USDCx payout line its amount and network;
+    // every other key reads as itself.
+    t: (key: string, params?: { amount?: string; symbol?: string; network?: string }) =>
       key === 'recallReturnsNote' && params?.amount
         ? `${key} ${params.amount}`
         : params?.symbol !== undefined
           ? `${key}|${params.symbol}`
-          : key
+          : params?.amount !== undefined
+            ? [key, params.amount, params.network].filter(part => part !== undefined).join('|')
+            : key
   })
 }));
 
@@ -480,7 +484,10 @@ describe('USDCx burn review', () => {
     ['base-sepolia', 84532],
     ['arbitrum-sepolia', 421614]
   ])('accepts a USDCx deep link targeting %s', async (network, chainId) => {
-    mockSearch = mockSearch.replace('network=arc-testnet', `network=${network}`);
+    // 2.000001 USDCx, since a burn must exceed its destination's payout fee allowance (1.5 USDC on Sepolia).
+    mockSearch = mockSearch
+      .replace('network=arc-testnet', `network=${network}`)
+      .replace('amount=1.000001', 'amount=2.000001');
     render(<ReviewTransaction />);
     await flush();
     fireEvent.click(screen.getByTestId('send-review-submit'));
@@ -533,6 +540,29 @@ describe('USDCx burn review', () => {
     await flush();
     expect(screen.getByTestId('redirect')).toBeInTheDocument();
     expect(initiateUsdcxBurn).not.toHaveBeenCalled();
+  });
+
+  // Circle takes a flat ~1.0035 USDC from a Sepolia payout; the allowance a burn there must exceed is 1.5 USDC.
+  it('disables submission of a burn the Sepolia fee allowance takes whole, naming the allowance and the network', async () => {
+    mockSearch = mockSearch.replace('network=arc-testnet', 'network=sepolia').replace('amount=1.000001', 'amount=1.5');
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('usdcxSendMoreThanPayoutFee|1.5|Sepolia');
+  });
+
+  it('names the allowance and the network a refused burn carries', async () => {
+    jest
+      .mocked(initiateUsdcxBurn)
+      .mockRejectedValueOnce(
+        new UsdcxBurnError('usdcxSendMoreThanPayoutFee', { amount: '0.1', network: 'Arc Testnet' })
+      );
+    render(<ReviewTransaction />);
+    await flush();
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() =>
+      expect(screen.getByTestId('review-error')).toHaveTextContent('usdcxSendMoreThanPayoutFee|0.1|Arc Testnet')
+    );
   });
 });
 

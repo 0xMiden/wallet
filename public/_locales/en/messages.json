@@ -97,6 +97,18 @@
     "message": "Unable to read the USDCx faucet's burn policy. Reopen review to try again.",
     "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
   },
+  "usdcxSendMoreThanPayoutFee": {
+    "message": "Send more than $amount$ USDCx to $network$: Circle's fee is taken from the payout.",
+    "englishSource": "Send more than $amount$ USDCx to $network$: Circle's fee is taken from the payout.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
   "activityFetchingHistoryAndNotes": {
     "message": "Fetching your transaction history and notes",
     "englishSource": "Fetching your transaction history and notes"

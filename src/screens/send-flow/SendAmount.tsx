@@ -30,6 +30,8 @@ export interface SendAmountProps {
   isValidAmount: boolean;
   /** Untranslated error key from the send form. */
   error?: string;
+  /** The values of the error copy's placeholders. */
+  errorValues?: Record<string, string>;
   recipientAddress: string;
   /** Saved contact name for the recipient, shown instead of the address. */
   recipientName?: string;
@@ -52,6 +54,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   amount,
   isValidAmount,
   error,
+  errorValues,
   recipientAddress,
   recipientName,
   network,
@@ -77,7 +80,8 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   // gets a notice with a way out instead of turning the amount red. An empty
   // field isn't an invalid amount yet.
   const feeShortfall = error === 'insufficientFeeAsset';
-  const amountError = error && !feeShortfall && (amount || error !== 'invalidAmount') ? t(error) : undefined;
+  const amountError =
+    error && !feeShortfall && (amount || error !== 'invalidAmount') ? t(error, errorValues) : undefined;
 
   const fiatValue =
     token && scaleIsKnown && token.fiatPrice > 0 && amount

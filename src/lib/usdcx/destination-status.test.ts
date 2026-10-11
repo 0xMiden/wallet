@@ -249,3 +249,25 @@ it('does not overwrite confirmation from another window', async () => {
   });
   expect(stored.extraInputs.usdcxBurn.destinationBalanceConfirmed).toEqual(other);
 });
+
+// Circle charges a flat ~1,003,500 (about 1.0035 USDC) to pay a burn out on Ethereum; the allowance is 1.5 USDC.
+describe('a burn paid out on Sepolia', () => {
+  function onSepolia(amount: bigint): ITransaction {
+    const base = row();
+    return { ...base, amount, extraInputs: { ...base.extraInputs, destinationNetwork: 11155111 } };
+  }
+
+  it('confirms a 2 USDCx burn that arrived less the flat fee, under half the amount', async () => {
+    stored = onSepolia(2_000_000n);
+    const paid = { balance: '5996500', blockNumber: '101' };
+    await pollUsdcxDestination(stored, async () => paid);
+    expect(stored.extraInputs.usdcxBurn.destinationBalanceConfirmed).toEqual(paid);
+  });
+
+  it('neither reads nor confirms an older burn the allowance takes whole', async () => {
+    stored = onSepolia(1_500_000n);
+    await pollUsdcxDestination(stored, read);
+    expect(read).not.toHaveBeenCalled();
+    expect(stored.extraInputs.usdcxBurn.destinationBalanceConfirmed).toBeUndefined();
+  });
+});

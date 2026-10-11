@@ -163,6 +163,7 @@ jest.mock('./SendAmount', () => ({
       <span data-testid="sa-amount">{props.amount}</span>
       <span data-testid="sa-valid">{String(props.isValidAmount)}</span>
       <span data-testid="sa-error">{props.error ?? ''}</span>
+      <span data-testid="sa-error-values">{JSON.stringify(props.errorValues ?? null)}</span>
       <span data-testid="sa-recipient">{props.recipientName ?? props.recipientAddress}</span>
       <span data-testid="sa-network">{props.network ?? ''}</span>
       <button data-testid="sa-receive" onClick={props.onReceive} />
@@ -1788,5 +1789,33 @@ describe('USDCx withdrawal wiring', () => {
 
     pickToken(otherToken);
     expect(useEpochQuoteMock).toHaveBeenLastCalledWith(expect.objectContaining({ faucetId: 'T1', enabled: true }));
+  });
+
+  // Circle takes a flat ~1.0035 USDC from a Sepolia payout; the allowance a burn there must exceed is 1.5 USDC.
+  it('blocks a USDCx amount the Sepolia fee allowance takes whole, naming the allowance and the network', () => {
+    // Six decimals, as USDCx has; the shared mock drops them.
+    stringToBigIntMock.mockImplementation((s: string) => BigInt(Math.round(parseFloat(s) * 1_000_000)));
+    setSendDraft({
+      amount: '1.5',
+      recipientAddress: '0xrecip',
+      tokenId: usdcxToken.id,
+      bridgeNetwork: 'sepolia',
+      bridgeRoute: 'usdcx'
+    });
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: usdcxToken.id, metadata: { symbol: 'USDCx', decimals: 6 }, balance: 100, fiatPrice: 0 }]
+    });
+    renderFlow();
+
+    expect(screen.getByTestId('sa-error')).toHaveTextContent(/^usdcxSendMoreThanPayoutFee$/);
+    expect(screen.getByTestId('sa-error-values')).toHaveTextContent('{"amount":"1.5","network":"Sepolia"}');
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
+
+    act(() => {
+      fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '1.500001' } });
+    });
+    expect(screen.getByTestId('sa-error')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('true');
   });
 });

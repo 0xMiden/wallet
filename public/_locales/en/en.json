@@ -21,6 +21,7 @@
   "usdcxBelowMinimumBurn": "The amount is below the faucet's minimum burn amount.",
   "usdcxIncompatibleBurnScript": "The wallet's burn script does not match the USDCx faucet.",
   "usdcxFaucetUnavailable": "Unable to read the USDCx faucet's burn policy. Reopen review to try again.",
+  "usdcxSendMoreThanPayoutFee": "Send more than $amount$ USDCx to $network$: Circle's fee is taken from the payout.",
   "activityFetchingHistoryAndNotes": "Fetching your transaction history and notes",
   "guardianHistorySwap": "Swap",
   "guardianHistoryBridgeOut": "Bridge out",
