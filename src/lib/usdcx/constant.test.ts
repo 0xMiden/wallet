@@ -48,7 +48,7 @@ describe('USDCx source chains', () => {
 
   it('gives each xReserve source its own contract and the attestation API of its network family', () => {
     const sources = [...USDCX_SOURCE_CHAINS.values()].filter(source => source.route === 'xreserve');
-    expect(sources.map(source => source.chain.id)).toEqual([ARC_TESTNET_ID, sepolia.id, arc.id, mainnet.id]);
+    expect(sources.map(source => source.chain.id)).toEqual([ARC_TESTNET_ID, arc.id, mainnet.id]);
     expect(sources.map(source => source.xReserve)).toEqual(
       sources.map(source => XRESERVE_ADDRESS.get(source.chain.id))
     );
@@ -61,7 +61,13 @@ describe('USDCx source chains', () => {
 
   it('gives each executor source the token messenger, Iris and an Arc target of its network family', () => {
     const sources = [...USDCX_SOURCE_CHAINS.values()].filter(source => source.route === 'cctp-executor');
-    expect(sources.map(source => source.chain.id)).toEqual([baseSepolia.id, arbitrumSepolia.id, base.id, arbitrum.id]);
+    expect(sources.map(source => source.chain.id)).toEqual([
+      sepolia.id,
+      baseSepolia.id,
+      arbitrumSepolia.id,
+      base.id,
+      arbitrum.id
+    ]);
     expect(sources.map(source => source.tokenMessenger)).toEqual(sources.map(() => TOKEN_MESSENGER_V2_ADDRESS));
     expect(sources.map(source => source.irisApi)).toEqual(
       sources.map(source => (source.chain.testnet ? IRIS_API_TESTNET : IRIS_API_MAINNET))
@@ -81,22 +87,59 @@ describe('USDCx source chains', () => {
     );
   });
 
-  it('routes Base and Arbitrum through the executor on Arc of the same network family', () => {
+  it('routes Sepolia, Base and Arbitrum through the executor on Arc of the same network family', () => {
+    expect(getUsdcxExecutorSource(sepolia.id).target.chain.id).toBe(ARC_TESTNET_ID);
     expect(getUsdcxExecutorSource(baseSepolia.id).target.chain.id).toBe(ARC_TESTNET_ID);
     expect(getUsdcxExecutorSource(arbitrumSepolia.id).target.chain.id).toBe(ARC_TESTNET_ID);
     expect(getUsdcxExecutorSource(base.id).target.chain.id).toBe(arc.id);
     expect(getUsdcxExecutorSource(arbitrum.id).target.chain.id).toBe(arc.id);
     expect(isUsdcxExecutorSource(baseSepolia.id)).toBe(true);
-    expect(isUsdcxExecutorSource(sepolia.id)).toBe(false);
+    expect(isUsdcxExecutorSource(sepolia.id)).toBe(true);
+    expect(isUsdcxExecutorSource(ARC_TESTNET_ID)).toBe(false);
     expect(isUsdcxExecutorSource(undefined)).toBe(false);
   });
 
   it('starts from Arc Testnet outside the e2e build and narrows each route', () => {
     expect(DEFAULT_USDCX_SOURCE_CHAIN_ID).toBe(ARC_TESTNET_ID);
-    expect(getUsdcxXReserveSource(sepolia.id).chain.name).toBe('Sepolia');
+    expect(getUsdcxExecutorSource(sepolia.id).chain.name).toBe('Sepolia');
+    expect(() => getUsdcxXReserveSource(sepolia.id)).toThrow('no local xReserve');
     expect(() => getUsdcxXReserveSource(baseSepolia.id)).toThrow('no local xReserve');
-    expect(() => getUsdcxExecutorSource(sepolia.id)).toThrow('not an executor source');
+    expect(() => getUsdcxExecutorSource(ARC_TESTNET_ID)).toThrow('not an executor source');
     expect(() => getUsdcxSourceChain(999)).toThrow('not configured');
+  });
+});
+
+describe('USDCx Sepolia source under the e2e flags', () => {
+  const ENV = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...ENV };
+  });
+
+  // The hermetic Bridge-IN job deposits into a Sepolia fork that registers Miden itself.
+  it('keeps Sepolia an xReserve source, and the default, in an e2e build that picks the Sepolia fork', () => {
+    process.env.MIDEN_E2E_TEST = 'true';
+    process.env.MIDEN_E2E_USDCX_CHAIN = 'sepolia';
+    jest.isolateModules(() => {
+      const e2e: typeof import('./constant') = require('./constant');
+      expect(e2e.DEFAULT_USDCX_SOURCE_CHAIN_ID).toBe(sepolia.id);
+      expect(e2e.getUsdcxXReserveSource(sepolia.id)).toMatchObject({
+        xReserve: XRESERVE_ADDRESS.get(sepolia.id),
+        usdc: CIRCLE_USDC_ADDRESS.get(sepolia.id),
+        attestationApi: XRESERVE_ATTESTATION_API_TESTNET
+      });
+      expect(e2e.isUsdcxExecutorSource(sepolia.id)).toBe(false);
+    });
+  });
+
+  it('keeps Sepolia an executor source when only the chain flag is set, outside an e2e build', () => {
+    delete process.env.MIDEN_E2E_TEST;
+    process.env.MIDEN_E2E_USDCX_CHAIN = 'sepolia';
+    jest.isolateModules(() => {
+      const production: typeof import('./constant') = require('./constant');
+      expect(production.DEFAULT_USDCX_SOURCE_CHAIN_ID).toBe(ARC_TESTNET_ID);
+      expect(production.getUsdcxExecutorSource(sepolia.id).target.chain.id).toBe(ARC_TESTNET_ID);
+    });
   });
 });
 
@@ -163,10 +206,21 @@ describe('USDCx deposit arrival estimate', () => {
 });
 
 describe('USDCx per-chain contracts', () => {
-  it('resolves Arc and Sepolia independently without silently falling back', () => {
+  it('resolves Arc Testnet and Ethereum independently without silently falling back', () => {
     expect(getUsdcxXReserveSource(5042002).usdc).toBe('0x3600000000000000000000000000000000000000');
-    expect(getUsdcxXReserveSource(sepolia.id).usdc).toBe('0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238');
+    expect(getUsdcxXReserveSource(mainnet.id).usdc).toBe('0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48');
     expect(() => getUsdcxXReserveSource(999)).toThrow('not configured');
+  });
+
+  // The address maps keep Sepolia's xReserve: the e2e Sepolia fork deposits into it.
+  it('configures CCTP, not local xReserve, for Sepolia, whose xReserve has no Miden domain', () => {
+    expect(getUsdcxExecutorSource(sepolia.id).usdc).toBe('0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238');
+    expect(getUsdcxExecutorSource(sepolia.id).tokenMessengerWithFees).toBe(
+      TOKEN_MESSENGER_WITH_FEES_ADDRESS.get(sepolia.id)
+    );
+    expect(CIRCLE_DOMAIN.get(sepolia.id)).toBe(0);
+    expect(XRESERVE_ADDRESS.get(sepolia.id)).toBe('0x008888878f94C0d87defdf0B07f46B93C1934442');
+    expect(() => getUsdcxXReserveSource(sepolia.id)).toThrow('no local xReserve');
   });
 
   it.each([arbitrum, arbitrumSepolia, base, baseSepolia])('configures CCTP, not local xReserve, for $name', chain => {

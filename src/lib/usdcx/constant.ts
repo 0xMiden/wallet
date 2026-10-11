@@ -242,13 +242,18 @@ export function minimumUsdcxPayout(chainId: number, amount: bigint): bigint {
   return afterFee > half ? afterFee : half;
 }
 
+// Circle has not registered Miden on Sepolia's xReserve (a deposit there reverts), so a Sepolia deposit goes through
+// the executor on Arc. The e2e build's Sepolia fork registers Miden itself and keeps the xReserve route.
+const SEPOLIA_SOURCE =
+  E2E_USDCX_CHAIN === 'sepolia' ? sourceChain(sepolia) : executorSource(sepolia, ARC_TESTNET_EXECUTOR);
+
 /**
- * Every chain a bridge-in can start from, keyed by EVM chain id. Testnet entries first. Chains with a local
- * xReserve deposit directly; Base and Arbitrum reach Arc's xReserve through Circle's executor.
+ * Every chain a bridge-in can start from, keyed by EVM chain id. Testnet entries first. Arc and Ethereum deposit
+ * into their own xReserve; Sepolia, Base and Arbitrum reach Arc's xReserve through Circle's executor.
  */
 export const USDCX_SOURCE_CHAINS: ReadonlyMap<number, UsdcxSourceChain> = new Map([
   sourceChain(ARC_TESTNET),
-  sourceChain(sepolia),
+  SEPOLIA_SOURCE,
   executorSource(baseSepolia, ARC_TESTNET_EXECUTOR),
   executorSource(arbitrumSepolia, ARC_TESTNET_EXECUTOR),
   sourceChain(arc),

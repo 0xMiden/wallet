@@ -549,54 +549,73 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(mockSwitchChain.mock.calls).toEqual(native ? [] : [[{ chainId: 84532 }]]);
   });
 
-  it.each([false, true])('pins the deposit to the source chain picked in the drawer (native=%s)', async native => {
-    mockNativeAvailable = native;
-    jest.mocked(runUsdcxDeposit).mockImplementationOnce(async (_id, _amount, recipient, deps) => {
-      await deps.isRemoteDomainRegistered(10007);
-      await deps.signer.approve('0x008888878f94C0d87defdf0B07f46B93C1934442', 1_500_000n);
-      const hash = await deps.signer.depositToRemote([
-        1_500_000n,
-        10007,
-        recipient,
-        '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
-        0n,
-        '0x'
-      ]);
-      await deps.waitForReceipt(hash);
-      return hash;
-    });
-    renderScreen();
-    await pickToken('pick-circle-usdc');
-    fireEvent.click(screen.getByTestId('open-network-drawer'));
-    await settle();
-    fireEvent.click(screen.getByTestId('pick-network-sepolia'));
-    await settle();
-    // The balance of the chosen chain's USDC is read once the drawer closes.
-    expect(global.fetch).toHaveBeenCalledWith('https://rpc.test/11155111', expect.any(Object));
-    await reachRouteStep();
-    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
-    await settle();
-    fireEvent.click(screen.getByTestId('confirm-deposit'));
-    await settle();
+  // Circle has not registered Miden on Sepolia's xReserve, so a Sepolia deposit burns through CCTP to the executor on
+  // Arc, as Base and Arbitrum do; only the e2e build's Sepolia fork keeps the xReserve route.
+  it.each([false, true])(
+    'burns a Sepolia deposit through the executor on Arc, pinned to Sepolia (native=%s)',
+    async native => {
+      mockNativeAvailable = native;
+      jest.mocked(runUsdcxExecutorDeposit).mockImplementationOnce(async (_id, _amount, recipient, deps) => {
+        await deps.isRemoteDomainRegistered(10007);
+        await deps.signer.approve('0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA', 1_500_000n);
+        const hash = await deps.signer.depositForBurnWithHook([
+          1_500_000n,
+          26,
+          `0x${'0'.repeat(24)}edc81040756accff070c21d37b265b9d0b5ba45e`,
+          '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+          `0x${'0'.repeat(24)}edc81040756accff070c21d37b265b9d0b5ba45e`,
+          0n,
+          2000,
+          `0x${recipient.slice(2)}`
+        ]);
+        await deps.waitForReceipt(hash);
+        return hash;
+      });
+      renderScreen();
+      await pickToken('pick-circle-usdc');
+      fireEvent.click(screen.getByTestId('open-network-drawer'));
+      await settle();
+      fireEvent.click(screen.getByTestId('pick-network-sepolia'));
+      await settle();
+      // The balance of the chosen chain's USDC is read once the drawer closes.
+      expect(global.fetch).toHaveBeenCalledWith('https://rpc.test/11155111', expect.any(Object));
+      await reachRouteStep();
+      fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+      await settle();
+      fireEvent.click(screen.getByTestId('confirm-deposit'));
+      await settle();
 
-    expect(runUsdcxDeposit).toHaveBeenCalledWith(
-      expect.any(String),
-      '1.5',
-      expect.any(String),
-      expect.objectContaining({ sourceChainId: 11155111 })
-    );
-    const signer = native ? mockNativeSend : mockWriteContract;
-    expect(signer).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        chainId: 11155111,
-        [native ? 'to' : 'address']: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
-      })
-    );
-    expect(signer).toHaveBeenNthCalledWith(2, expect.objectContaining({ chainId: 11155111 }));
-    expect(waitForEvmReceipt).toHaveBeenCalledWith(`0x${'2'.repeat(64)}`, expect.objectContaining({ id: 11155111 }));
-    expect(mockSwitchChain.mock.calls).toEqual(native ? [] : [[{ chainId: 11155111 }]]);
-  });
+      expect(runUsdcxDeposit).not.toHaveBeenCalled();
+      expect(runUsdcxExecutorDeposit).toHaveBeenCalledWith(
+        expect.any(String),
+        '1.5',
+        expect.any(String),
+        expect.objectContaining({
+          source: expect.objectContaining({ route: 'cctp-executor', chain: expect.objectContaining({ id: 11155111 }) })
+        })
+      );
+      // Sepolia's xReserve shares Arc's address, so the URL is what proves the check read Arc, where the deposit lands.
+      expect(registrationReadUrls('0x008888878f94C0d87defdf0B07f46B93C1934442')).toEqual(['https://rpc.test/5042002']);
+      const signer = native ? mockNativeSend : mockWriteContract;
+      expect(signer).toHaveBeenCalledTimes(2);
+      expect(signer).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          chainId: 11155111,
+          [native ? 'to' : 'address']: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
+        })
+      );
+      expect(signer).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          chainId: 11155111,
+          [native ? 'to' : 'address']: '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA'
+        })
+      );
+      expect(waitForEvmReceipt).toHaveBeenCalledWith(`0x${'2'.repeat(64)}`, expect.objectContaining({ id: 11155111 }));
+      expect(mockSwitchChain.mock.calls).toEqual(native ? [] : [[{ chainId: 11155111 }]]);
+    }
+  );
 
   const reachBaseSepoliaRoute = async () => {
     await pickToken('pick-circle-usdc');
