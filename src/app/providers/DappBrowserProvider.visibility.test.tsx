@@ -46,7 +46,7 @@ jest.mock('@miden/dapp-browser', () => ({
     close: async () => {},
     addListener: async (
       event: string,
-      listener: (event: { id: string; display?: 'fullscreen'; detail?: unknown }) => void
+      listener: (event: { id: string; display?: 'fullscreen' | 'browser'; detail?: unknown }) => void
     ) => {
       nativeListeners.set(event, listener);
       return {
@@ -101,7 +101,27 @@ jest.mock('lib/store', () => ({
 jest.mock('lib/woozie', () => ({ navigate: jest.fn(), useLocation: () => ({ pathname: mockPath }) }));
 jest.mock('lib/mobile/viewport-reset', () => ({ resetViewportAfterWebview: () => mockResetViewport() }));
 jest.mock('lib/mobile/webview-state', () => ({ markReturningFromWebview: () => {} }));
-jest.mock('lib/mobile/useMobileBackHandler', () => ({ useMobileBackHandler: () => {} }));
+let mockRealApproval = false;
+const mockBackHandlers: { handler: () => boolean | void; overlay: boolean; active: boolean }[] = [];
+jest.mock('lib/mobile/useMobileBackHandler', () => ({
+  useMobileBackHandler: (...args: unknown[]) => {
+    const real = jest.requireActual<typeof import('lib/mobile/useMobileBackHandler')>(
+      'lib/mobile/useMobileBackHandler'
+    );
+    if (mockRealApproval) real.useMobileBackHandler(...(args as Parameters<typeof real.useMobileBackHandler>));
+  }
+}));
+jest.mock('lib/mobile/back-handler', () => ({
+  registerMobileBackHandler: (handler: () => boolean | void, options: { overlay?: boolean } = {}) => {
+    const entry = { handler, overlay: options.overlay === true, active: true };
+    mockBackHandlers.push(entry);
+    return () => {
+      entry.active = false;
+    };
+  }
+}));
+jest.mock('lib/biometric', () => ({ confirmSensitiveAction: jest.fn() }));
+jest.mock('lib/miden/back/protector-probe', () => ({ probeHardwareProtector: jest.fn() }));
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn(),
   hapticMedium: jest.fn(),
@@ -140,8 +160,16 @@ jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
 }));
 jest.mock('app/pages/Browser/DappPeekTray', () => ({ DappPeekTray: () => null }));
 jest.mock('app/pages/Browser/DappSwitcher', () => ({ DappSwitcher: () => null }));
-// Approval data/hook are real; the approval modal's rendering is a separate native acceptance gate.
-jest.mock('app/pages/Browser/DappConfirmationModal', () => ({ DappConfirmationModal: () => null }));
+jest.mock('app/pages/Browser/DappConfirmationModal', () => ({
+  DappConfirmationModal: (
+    props: React.ComponentProps<typeof import('app/pages/Browser/DappConfirmationModal').DappConfirmationModal>
+  ) => {
+    const { DappConfirmationModal } = jest.requireActual<typeof import('app/pages/Browser/DappConfirmationModal')>(
+      'app/pages/Browser/DappConfirmationModal'
+    );
+    return mockRealApproval ? <DappConfirmationModal {...props} /> : null;
+  }
+}));
 // Only the capsule trigger is adapted; DappActive and its actions Drawer remain production components.
 jest.mock('app/pages/Browser/CapsuleBar', () => ({
   CapsuleBar: ({ onOpenActions }: { onOpenActions: () => void }) => (
@@ -278,6 +306,8 @@ function approval(): DAppConfirmationRequest {
 }
 
 beforeEach(async () => {
+  mockRealApproval = false;
+  mockBackHandlers.length = 0;
   mockSetVisible.mockClear();
   mockSetRect.mockClear();
   mockOpen.mockClear();
@@ -918,4 +948,121 @@ it('cancels a resolved-policy acknowledgement while host bounds are pending unde
   mockSetRect.mockImplementation(async () => {});
   await closeAlert();
   await waitFor(() => expect(mockSetVisible).toHaveBeenCalledWith('policy-popup', true, 2));
+});
+
+describe('public approval reopening through real AnimatePresence', () => {
+  async function reopen(settled: boolean) {
+    mockRealApproval = true;
+    await openForeground();
+    const first = { ...approval(), id: 'approval-a', type: 'sign' as const, transactionMessages: ['Request A'] };
+    let firstAnswer: Promise<unknown> | undefined;
+    act(() => {
+      firstAnswer = dappConfirmationStore.requestConfirmation(first);
+    });
+    const oldDialog = screen.getByText('Request A').closest('[role="dialog"]') as HTMLElement;
+    await waitFor(() => expect(oldDialog).toHaveStyle({ opacity: '1' }));
+    act(() => externalPageFailed());
+    const alert = screen.getByRole('alertdialog', { name: en.error });
+    await waitFor(() => expect(alert).toContainElement(document.activeElement as HTMLElement));
+    await act(async () => {
+      expect(dappConfirmationStore.resolveConfirmation('origin', { confirmed: false }, first.id)).toBe(true);
+      await expect(firstAnswer).resolves.toEqual({ confirmed: false });
+    });
+    expect(dappConfirmationStore.getAllPendingRequests()).toHaveLength(0);
+    expect(oldDialog.isConnected).toBe(true);
+    expect(lastVisibility()).toBe(false);
+    if (settled) await waitFor(() => expect(oldDialog.isConnected).toBe(false));
+    const second = { ...first, id: 'approval-b', origin: 'https://second.test', transactionMessages: ['Request B'] };
+    const secondResult = jest.fn();
+    act(() => {
+      void dappConfirmationStore.requestConfirmation(second).then(secondResult);
+    });
+    const newDialog = screen.getByText('Request B').closest('[role="dialog"]') as HTMLElement;
+    expect(dappConfirmationStore.resolveConfirmation('origin', { confirmed: true }, first.id)).toBe(false);
+    expect(secondResult).not.toHaveBeenCalled();
+    expect(dappConfirmationStore.getPendingRequest('origin')?.id).toBe(second.id);
+    expect(lastVisibility()).toBe(false);
+    return { oldDialog, newDialog, alert, secondResult };
+  }
+
+  it('keeps retained A actions bound to A while B is pending', async () => {
+    const { oldDialog, newDialog, secondResult } = await reopen(false);
+    expect(oldDialog.isConnected).toBe(true);
+    expect(oldDialog).toHaveTextContent('Request A');
+    expect(newDialog).toHaveTextContent('Request B');
+    for (const button of Array.from(oldDialog.querySelectorAll('button'))) fireEvent.click(button);
+    await settle();
+    expect(secondResult).not.toHaveBeenCalled();
+    expect(dappConfirmationStore.getPendingRequest('origin')?.id).toBe('approval-b');
+    expect(lastVisibility()).toBe(false);
+    fireEvent.click(within(newDialog).getByRole('button', { name: en.deny }));
+    await waitFor(() => expect(secondResult).toHaveBeenCalledWith({ confirmed: false }));
+    expect(secondResult).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps distinct title associations for retained A and current B', async () => {
+    const { oldDialog, newDialog } = await reopen(false);
+    expect(oldDialog.isConnected).toBe(true);
+    const oldTitle = oldDialog.querySelector('h2')!;
+    const newTitle = newDialog.querySelector('h2')!;
+    expect(oldTitle.id).not.toBe(newTitle.id);
+    expect(oldDialog).toHaveAttribute('aria-labelledby', oldTitle.id);
+    expect(newDialog).toHaveAttribute('aria-labelledby', newTitle.id);
+    expect(oldDialog).toHaveAttribute('aria-hidden', 'true');
+    expect(oldTitle).toHaveTextContent('https://origin.test');
+    expect(newDialog).toHaveAccessibleName('https:// second.test');
+  });
+
+  it.each([false, true])('renews focus and pointer ownership after prior exit settled=%s', async settled => {
+    const { oldDialog, newDialog, alert } = await reopen(settled);
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    const layers = Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"]'));
+    expect({
+      reusedPriorDialog: newDialog === oldDialog,
+      ownsFocus: newDialog.contains(document.activeElement),
+      pointerEvents: newDialog.style.pointerEvents,
+      underlyingPointerEvents: alert.style.pointerEvents,
+      portalAfterAlert: layers.indexOf(newDialog) > layers.indexOf(alert)
+    }).toEqual({
+      reusedPriorDialog: false,
+      ownsFocus: true,
+      pointerEvents: 'auto',
+      underlyingPointerEvents: 'none',
+      portalAfterAlert: true
+    });
+    const buttons = within(newDialog).getAllByRole('button');
+    buttons.at(-1)!.focus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Tab' });
+    expect(buttons[0]).toHaveFocus();
+  });
+
+  it.each([
+    [false, 'Escape'],
+    [false, 'Back'],
+    [true, 'Escape'],
+    [true, 'Back']
+  ] as const)('dismisses only B and keeps the remaining alert hold, settled=%s via %s', async (settled, method) => {
+    const { newDialog, alert, secondResult } = await reopen(settled);
+    if (method === 'Escape') fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    else {
+      act(() => {
+        for (const overlay of [true, false]) {
+          const handlers = mockBackHandlers.filter(entry => entry.active && entry.overlay === overlay).reverse();
+          for (const entry of handlers) if (entry.handler() === true) return;
+        }
+      });
+    }
+    await waitFor(() => expect(secondResult).toHaveBeenCalledWith({ confirmed: false }));
+    expect(secondResult).toHaveBeenCalledTimes(1);
+    expect(dappConfirmationStore.getAllPendingRequests()).toHaveLength(0);
+    expect(alert).toHaveAttribute('data-state', 'open');
+    expect(lastVisibility()).toBe(false);
+    await waitFor(() => expect(newDialog.isConnected).toBe(false));
+    await waitFor(() => expect(alert).toContainElement(document.activeElement as HTMLElement));
+    await closeAlert();
+    await waitFor(() => expect(lastVisibility()).toBe(true));
+    expect(mockOpen).toHaveBeenCalledTimes(1);
+  });
 });

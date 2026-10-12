@@ -215,7 +215,6 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
             transition={{ duration: 0.18 }}
             role="dialog"
             aria-modal="true"
-            aria-labelledby="dapp-confirmation-title"
           >
             <motion.div
               ref={containerRef}
@@ -233,7 +232,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
                 <div className="min-w-0 flex-1">
                   {/* The injected providers send only the page's hostname as appMeta.name, so any other name is forged. */}
                   <Dialog.Title asChild>
-                    <h2 id="dapp-confirmation-title" className="text-lg font-semibold text-ink">
+                    <h2 className="text-lg font-semibold text-ink">
                       <DappOrigin origin={request.origin} data-testid="dapp-confirmation-origin" />
                     </h2>
                   </Dialog.Title>
