@@ -1386,5 +1386,10 @@
   "testIethExecution": "该更换操作通过 Miden 测试网上的智能合约执行。",
   "swapExecutionTitle": "交换操作的执行位置",
   "tokenInfoLabel": "关于 $token$",
-  "externalPageLoadFailed": "无法打开此页面。请检查网络连接并重试。"
+  "externalPageLoadFailed": "无法打开此页面。请检查网络连接并重试。",
+  "breadCloseError": "无法返回 Bread。",
+  "breadExitNow": "立即退出",
+  "breadPresentationBack": "返回 Bread",
+  "breadPresentationHint": "轻点 Bread 即可返回",
+  "breadPresentationError": "此应用未完成加载。请重试或返回 Bread。"
 }

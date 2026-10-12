@@ -1386,5 +1386,10 @@
   "testIethExecution": "Der Austausch erfolgt über einen Smart Contract im Miden-Testnetz.",
   "swapExecutionTitle": "Wo der Austausch stattfindet",
   "tokenInfoLabel": "Über „$token$“",
-  "externalPageLoadFailed": "Diese Seite konnte nicht geöffnet werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut."
+  "externalPageLoadFailed": "Diese Seite konnte nicht geöffnet werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+  "breadCloseError": "Rückkehr zu Bread fehlgeschlagen.",
+  "breadExitNow": "Jetzt verlassen",
+  "breadPresentationBack": "Zurück zu Bread",
+  "breadPresentationHint": "Tippe auf Bread, um zurückzukehren",
+  "breadPresentationError": "Diese App wurde nicht vollständig geladen. Versuche es erneut oder kehre zu Bread zurück."
 }
