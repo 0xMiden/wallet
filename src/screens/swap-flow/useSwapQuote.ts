@@ -49,7 +49,11 @@ const IDLE: SwapQuoteState = { loading: false };
 const PENDING: SwapQuoteState = { loading: true };
 
 /** Every non-idle state records the pair it was fetched for, as `offer|request` faucet ids. */
-type PairedState = SwapQuoteState & { pair?: string };
+type PairedState = SwapQuoteState & {
+  pair?: string;
+  /** When the last request for this pair landed or failed; the refresh timer counts from it. */
+  settledAt?: number;
+};
 
 const pairOf = (offerFaucetId: string, requestFaucetId: string) => `${offerFaucetId}|${requestFaucetId}`;
 
@@ -74,7 +78,8 @@ const failed = (pair: string, error: unknown): PairedState => ({
   loading: false,
   pair,
   error: error instanceof Error ? error.message : 'Quote failed',
-  errorCode: swapQuoteErrorCode(error)
+  errorCode: swapQuoteErrorCode(error),
+  settledAt: Date.now()
 });
 
 /**
@@ -142,7 +147,7 @@ export function useSwapQuote({
       ...(quoteKey.ra === null ? {} : { requestedAmount: BigInt(quoteKey.ra) })
     }).then(
       quote => {
-        if (id === reqId.current) setState({ loading: false, pair, quote });
+        if (id === reqId.current) setState({ loading: false, pair, quote, settledAt: quote.fetchedAt });
         return quote;
       },
       (error: unknown) => {
@@ -170,13 +175,15 @@ export function useSwapQuote({
   }, [debouncedKey, livePair, refreshTick, runQuote]);
 
   // The periodic refresh: once a quote lands and the page is on screen, re-quote after the window.
-  const landedAt = state.quote?.fetchedAt;
+  // A failed one is retried on the same clock, so a service that comes back finds the review
+  // whole again instead of a receive field it emptied for good.
+  const settledAt = state.settledAt;
   useEffect(() => {
-    if (!active || landedAt === undefined || !debouncedKey) return;
-    const due = Math.max(0, landedAt + SWAP_QUOTE_REFRESH_MS - Date.now());
+    if (!active || settledAt === undefined || !debouncedKey) return;
+    const due = Math.max(0, settledAt + SWAP_QUOTE_REFRESH_MS - Date.now());
     const timer = setTimeout(() => setRefreshTick(tick => tick + 1), due);
     return () => clearTimeout(timer);
-  }, [active, landedAt, debouncedKey]);
+  }, [active, settledAt, debouncedKey]);
 
   const quoteNow = useCallback(
     (requestedAmount?: bigint): Promise<SwapQuote> => {

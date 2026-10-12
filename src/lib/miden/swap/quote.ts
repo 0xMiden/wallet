@@ -139,11 +139,20 @@ export interface SwapEta {
   median24hSeconds: number | null;
 }
 
-/** A price, the ask built from it (or the user's own), and the solver's verdict on that ask. */
+/**
+ * A price, the ask built from it (or the user's own), and the solver's verdict on that ask. It
+ * carries the inputs it was built from, so a caller can tell a quote for the inputs on screen from
+ * one the hook kept on screen while a newer set reloads.
+ */
 export interface SwapQuote {
   price: SwapPairPrice;
+  /** The offered amount the quote was built for, in offered base units. */
+  offeredAmount: bigint;
   /** The ask `eta` was checked with, in requested base units. */
   requestedAmount: bigint;
+  /** The wallet built `requestedAmount` from the price at `slippageBps`; false for a user's own ask. */
+  builtAsk: boolean;
+  slippageBps: number;
   eta: SwapEta;
   /** `Date.now()` when the price was fetched; the refresh timer counts from it. */
   fetchedAt: number;
@@ -329,7 +338,15 @@ export async function quoteSwap(
     const price = await fetchPrice();
     const ask = requestedAmount ?? buildRequestedAmount(offerAmountRaw, price, slippageBps);
     const eta = await getSwapEta(offerToken, offerAmountRaw, requestToken, ask);
-    return { price, requestedAmount: ask, eta, fetchedAt };
+    return {
+      price,
+      offeredAmount: offerAmountRaw,
+      requestedAmount: ask,
+      builtAsk: requestedAmount === undefined,
+      slippageBps,
+      eta,
+      fetchedAt
+    };
   };
   const first = await check();
   if (requestedAmount !== undefined || first.eta.priceBand !== 'off_market') return first;

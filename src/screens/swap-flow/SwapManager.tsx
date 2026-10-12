@@ -230,6 +230,14 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   });
   const { quoteNow } = swapQuote;
 
+  const offerAmountBaseUnits = useMemo(() => {
+    try {
+      return stringToBigInt(offerAmount, offerToken.decimals);
+    } catch {
+      return undefined;
+    }
+  }, [offerAmount, offerToken.decimals]);
+
   // The wallet-built receive amount: the ask the quote checked, in display units. The field is
   // auto-filled from this but stays editable, so it and `requestAmount` can diverge once the user
   // overrides it; the quote then checks their ask instead of building one.
@@ -237,10 +245,23 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     if (requestEdited) return undefined;
     const { quote, error } = swapQuote;
     // No pay amount, a failed quote, or a pair whose first quote is still on its way: nothing to show.
-    if (!(Number(offerAmount) > 0) || error !== undefined || quote === undefined) return '';
+    if (
+      offerAmountBaseUnits === undefined ||
+      offerAmountBaseUnits <= 0n ||
+      error !== undefined ||
+      quote === undefined
+    ) {
+      return '';
+    }
+    // The hook keeps the last quote on screen while a same-pair change reloads, and that quote's
+    // ask is for the inputs that produced it. A new pay amount or slippage empties the field until
+    // its own quote lands: an old ask under a larger offer would be signed as a worse order.
+    if (!quote.builtAsk || quote.offeredAmount !== offerAmountBaseUnits || quote.slippageBps !== slippageBps) {
+      return '';
+    }
     const amount = formatBigInt(quote.requestedAmount, requestToken.decimals);
     return amount === '0' ? '' : amount;
-  }, [swapQuote, requestEdited, offerAmount, requestToken.decimals]);
+  }, [swapQuote, requestEdited, offerAmountBaseUnits, slippageBps, requestToken.decimals]);
 
   // Mirror the quote into the editable receive field unless the user has taken
   // it over. `requestEdited` is cleared whenever they change the pay amount or
@@ -299,13 +320,6 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     [nativeFaucetId, offerBalanceKey, offerBalance, verificationBaseFee, offerToken.decimals]
   );
   const offerAmountValue = Number(offerAmount);
-  const offerAmountBaseUnits = useMemo(() => {
-    try {
-      return stringToBigInt(offerAmount, offerToken.decimals);
-    } catch {
-      return undefined;
-    }
-  }, [offerAmount, offerToken.decimals]);
   const requestAmountBaseUnits = useMemo(() => {
     try {
       return stringToBigInt(requestAmount, requestToken.decimals);
@@ -318,7 +332,8 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   const offerAmountExceedsBalance = offerAmountValue > offerSpendable;
   // A landed wallet-built ask of zero (a price too small for the receive token's precision) gives
   // the field nothing to show: it reads as unavailable, so the field leaves its skeleton for entry.
-  const quoteAskIsZero = !requestEdited && swapQuote.quote?.requestedAmount === 0n;
+  const quoteAskIsZero =
+    !requestEdited && swapQuote.quote !== undefined && swapQuote.quote.builtAsk && swapQuote.quote.requestedAmount === 0n;
   const quoteUnavailable = swapQuote.error !== undefined || quoteAskIsZero;
   const expirySecondsValue = Number(expirySeconds);
   // Whole seconds inside the wallet's own reclaim window, not merely "a positive integer":

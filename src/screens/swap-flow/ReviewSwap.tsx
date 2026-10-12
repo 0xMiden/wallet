@@ -14,6 +14,7 @@ import { Hero } from 'components/ui/Hero';
 import { InfoHint } from 'components/ui/InfoHint';
 import { Pill } from 'components/ui/Pill';
 import { SegmentedControl } from 'components/ui/SegmentedControl';
+import { TextField } from 'components/ui/TextField';
 import { formatBigInt } from 'lib/i18n/numbers';
 import { SWAP_VERDICT_LABEL_KEYS, SwapQuote, swapVerdict, swapVerdictBlocksSubmit } from 'lib/miden/swap/quote';
 import { SwapToken } from 'lib/miden/swap/tokens';
@@ -309,31 +310,26 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
               {t(requestEdited ? 'swapSlippageEditedNote' : 'swapSlippageNote')}
             </InfoHint>
           }
+          stacked
           data-testid="swap-slippage-row"
         >
-          <div className="flex flex-col items-end gap-1">
-            <span className="inline-flex items-center gap-1">
-              <input
-                data-testid="swap-slippage-percent"
-                type="text"
-                inputMode="decimal"
-                enterKeyHint="done"
-                aria-label={t('swapSlippage')}
-                aria-invalid={slippageOutOfRange}
-                aria-describedby={slippageOutOfRange ? 'swap-slippage-range' : undefined}
-                value={slippageDraft}
-                disabled={submitting || requestEdited}
-                onChange={event => onSlippageChange(event.target.value)}
-                className="w-16 appearance-none rounded-lg border border-hairline bg-transparent px-2 py-1 text-right font-heading text-[15px] font-bold text-ink outline-none focus:border-accent-swap disabled:opacity-50 aria-[invalid=true]:border-negative-ink"
-              />
-              <span className="text-ink">{t('percentSign')}</span>
-            </span>
-            {slippageOutOfRange && (
-              <span id="swap-slippage-range" role="alert" className="text-caption text-negative-ink">
-                {t('swapSlippageRange', SLIPPAGE_PERCENT_BOUNDS)}
-              </span>
-            )}
-          </div>
+          {/* The shared field in its compact size, with the unit in its trailing slot and its own
+              error line, so the row reads like every other field in the wallet. */}
+          <TextField
+            size="sm"
+            containerClassName="w-32"
+            inputMode="decimal"
+            enterKeyHint="done"
+            aria-label={t('swapSlippage')}
+            value={slippageDraft}
+            disabled={submitting || requestEdited}
+            clearable={false}
+            onChange={event => onSlippageChange(event.target.value)}
+            trailing={<span className="text-body text-muted">{t('percentSign')}</span>}
+            error={slippageOutOfRange ? t('swapSlippageRange', SLIPPAGE_PERCENT_BOUNDS) : undefined}
+            errorTestId="swap-slippage-range"
+            data-testid="swap-slippage-percent"
+          />
         </DetailRow>
         {networkFee && (
           // Kept as its own row so the solver spread noted above isn't read as the whole price

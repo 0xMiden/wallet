@@ -105,8 +105,11 @@ const quoteAtRate = (fillPrice: string, eta: Partial<SwapEta> = {}): SwapQuote =
     requestedDecimals: 8,
     asOf: 0
   },
-  // 3 IETH at 8 decimals: the receive amount the fixture props show.
+  // 1.5 IMIDEN for 3 IETH at 8 decimals: the amounts the fixture props show.
+  offeredAmount: 150000000n,
   requestedAmount: 300000000n,
+  builtAsk: true,
+  slippageBps: 20,
   eta: {
     offeredFaucet: 'f-offer',
     requestedFaucet: 'f-request',

@@ -356,10 +356,18 @@ const renderFlow = () => render(<SwapFlow />);
  * stand-in shows those as whole display units) and the solver's usual pre-sign testnet verdict:
  * at market, nothing to match yet.
  */
-const quoteAt = (fillPrice: string, requestedAmount: bigint, eta: Record<string, unknown> = {}) => ({
+const quoteAt = (
+  fillPrice: string,
+  requestedAmount: bigint,
+  eta: Record<string, unknown> = {},
+  // The inputs the quote was built for: the suite's usual pay amount of 10 at the default slippage.
+  inputs: { offeredAmount?: bigint; slippageBps?: number; builtAsk?: boolean } = {}
+) => ({
   price: { fillPrice, marketPrice: fillPrice, feePpm: 50, offeredDecimals: 8, requestedDecimals: 8, asOf: 0 },
+  offeredAmount: inputs.offeredAmount ?? 10n,
   requestedAmount,
-  builtAsk: true,
+  builtAsk: inputs.builtAsk ?? true,
+  slippageBps: inputs.slippageBps ?? 5,
   eta: {
     priceBand: 'at_market',
     fillStatus: 'none',
@@ -427,6 +435,32 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
 });
+
+/**
+ * The mocked hook answers for whatever pay amount is typed, as the real one does once its quote
+ * lands. One object per amount, so a re-render sees the same quote, as with the real hook's state.
+ */
+const quoteFollowsOffer = () => {
+  const byOffer = new Map<string, NonNullable<typeof mockSwapQuoteResult.quote>>();
+  mockUseSwapQuote.mockImplementation(
+    ({ offerAmount, offerToken }: { offerAmount: string; offerToken: typeof mockTokenA }) => {
+      const quote = mockSwapQuoteResult.quote;
+      let offeredAmount: bigint | undefined;
+      try {
+        offeredAmount = mockStringToBigInt(offerAmount, offerToken.decimals);
+      } catch {
+        offeredAmount = undefined;
+      }
+      if (quote === undefined || offeredAmount === undefined) {
+        return { ...mockSwapQuoteResult, quoteNow: mockQuoteNow };
+      }
+      const key = offeredAmount.toString();
+      const followed = byOffer.get(key) ?? { ...quote, offeredAmount };
+      byOffer.set(key, followed);
+      return { ...mockSwapQuoteResult, quote: followed, quoteNow: mockQuoteNow };
+    }
+  );
+};
 
 // A new market quote: a new rate, a new receive amount and a new fill time together.
 const moveMarket = () => {
@@ -538,6 +572,11 @@ describe('SwapFlow / SwapManager', () => {
     // user signed. Send already reserves for this; swap quoted and enforced the raw
     // balance, so the same signed-then-failed outcome was still reachable here.
     // Reserve = baseFee * FEE_RESERVE_MULTIPLE / 10^decimals = 10000*30/1e8 = 0.003.
+    // These offer 1, so the quote on screen is one built for 1, as the hook would answer.
+    beforeEach(() => {
+      mockSwapQuoteResult = { loading: false, quote: quoteAt('2', 5n, {}, { offeredAmount: 1n }) };
+    });
+
     it('fee identity: reserves the actual native offer despite a different legacy display override', () => {
       mockLegacyFeeIdentity = 'legacy-B';
       mockNativeFaucetId = 'bech32-faucet-A';
@@ -649,10 +688,12 @@ describe('SwapFlow / SwapManager', () => {
       const { stringToBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
       mockStringToBigInt.mockImplementation(stringToBigInt);
       // The hook hides its quote for an edited ask it cannot quote (see useSwapQuote.test.ts).
-      mockUseSwapQuote.mockImplementation(({ requestEdited, requestAmount }) =>
-        requestEdited && !(Number(requestAmount) > 0)
+      quoteFollowsOffer();
+      const followOffer = mockUseSwapQuote.getMockImplementation();
+      mockUseSwapQuote.mockImplementation(opts =>
+        opts.requestEdited && !(Number(opts.requestAmount) > 0)
           ? { loading: false, quoteNow: mockQuoteNow }
-          : { ...mockSwapQuoteResult, quoteNow: mockQuoteNow }
+          : followOffer?.(opts)
       );
       renderFlow();
       setOffer('10');
@@ -1157,6 +1198,7 @@ describe('SwapFlow / SwapManager', () => {
     beforeEach(() => {
       mockGetSwapTokens.mockReturnValue([{ ...mockTokenA, decimals: 0 }, { ...mockTokenB, decimals: 0 }, mockTokenC]);
       mockStringToBigInt.mockImplementation((str, decimals) => BigInt(Math.trunc(Number(str) * 10 ** decimals)));
+      quoteFollowsOffer();
     });
 
     it.each(['offer', 'request'])('refuses a positive display %s amount that becomes zero raw units', async side => {
@@ -2183,6 +2225,49 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockWalletState.assessSpendingLimit).not.toHaveBeenCalled();
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapPriceUnavailable');
       expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'false');
+    });
+  });
+
+  describe('a kept quote for other inputs', () => {
+    // The hook keeps the last same-pair quote on screen while a changed input reloads. Its ask was
+    // built for the old inputs, so it must not fill the receive field, enable Continue or be signed.
+    it('empties the receive field and blocks Continue when the pay amount changes, until its own quote lands', async () => {
+      const { rerender } = renderFlow();
+      setOffer('10');
+      expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('5');
+
+      setOffer('20');
+      expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('true');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+      expect(mockQuoteNow).not.toHaveBeenCalled();
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+
+      mockSwapQuoteResult = { loading: false, quote: quoteAt('2', 10n, {}, { offeredAmount: 20n }) };
+      rerender(<SwapFlow />);
+      expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('10');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+    });
+
+    it('empties the receive field when the slippage changes, until a quote at that slippage lands', () => {
+      const { rerender } = renderFlow();
+      setOffer('10');
+      fireEvent.click(screen.getByTestId('rs-set-slippage'));
+      expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('');
+
+      mockSwapQuoteResult = { loading: false, quote: quoteAt('2', 4n, {}, { slippageBps: 50 }) };
+      rerender(<SwapFlow />);
+      expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('4');
+    });
+
+    it('never fills the receive field from a quote of the user own ask once they hand it back', () => {
+      mockSwapQuoteResult = { loading: false, quote: quoteAt('2', 9n, {}, { builtAsk: false }) };
+      renderFlow();
+      setOffer('10');
+      expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('');
     });
   });
 

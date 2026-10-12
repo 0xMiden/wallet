@@ -272,7 +272,15 @@ describe('quoteSwap', () => {
       () => ({ status: 200, body: eta })
     ]);
     const quote = await quoteSwap(TEST_TOKEN_IETH, 50000000n, TEST_TOKEN_IUSDT, { slippageBps: 20, now });
-    expect(quote).toEqual({ price: IETH_IUSDT_PRICE, requestedAmount: 124160211179n, eta, fetchedAt: 1_000 });
+    expect(quote).toEqual({
+      price: IETH_IUSDT_PRICE,
+      offeredAmount: 50000000n,
+      requestedAmount: 124160211179n,
+      builtAsk: true,
+      slippageBps: 20,
+      eta,
+      fetchedAt: 1_000
+    });
     expect(calls[1]?.url).toContain('&requested_amount=124160211179');
   });
 
@@ -288,6 +296,7 @@ describe('quoteSwap', () => {
       now
     });
     expect(quote.requestedAmount).toBe(300000000000n);
+    expect(quote.builtAsk).toBe(false);
     expect(quote.eta).toBe(offMarket);
     expect(calls).toHaveLength(2);
     expect(calls[1]?.url).toContain('&requested_amount=300000000000');

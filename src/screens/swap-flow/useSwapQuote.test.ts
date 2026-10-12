@@ -239,6 +239,28 @@ describe('useSwapQuote', () => {
     });
   });
 
+  describe('after a refresh fails', () => {
+    it('retries 30 s later while the page is active, so a service that comes back restores the review', async () => {
+      const { result } = renderHook((props: UseSwapQuoteOpts) => useSwapQuote(props), { initialProps: opts() });
+      pastDebounce();
+      await settle(0, 'resolve', quoteWith('0.0003', Date.now()));
+      act(() => jest.advanceTimersByTime(30_000));
+      expect(mockQuoteSwap).toHaveBeenCalledTimes(2);
+      await settle(1, 'reject', new Error('offline'));
+      expect(result.current).toMatchObject({ loading: false, error: 'offline' });
+      expect(result.current.quote).toBeUndefined();
+
+      act(() => jest.advanceTimersByTime(29_999));
+      expect(mockQuoteSwap).toHaveBeenCalledTimes(2);
+      act(() => jest.advanceTimersByTime(1));
+      expect(mockQuoteSwap).toHaveBeenCalledTimes(3);
+      const back = quoteWith('0.00032', Date.now());
+      await settle(2, 'resolve', back);
+      expect(result.current).toMatchObject({ loading: false, quote: back });
+      expect(result.current.error).toBeUndefined();
+    });
+  });
+
   describe('quoteNow', () => {
     it('quotes the live inputs at once, skipping the debounce, and lands the answer in the state', async () => {
       // A fresh key is quoted on mount; a later input change waits for the debounce, quoteNow does not.
