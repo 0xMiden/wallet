@@ -853,6 +853,8 @@
   "unavailable": "Indisponível",
   "bridgeFeatureUnavailableTitle": "Temporariamente indisponível",
   "bridgeFeatureUnavailableBody": "Este serviço externo está indisponível no momento. Tente novamente mais tarde.",
+  "swapUnavailableTitle": "A troca não está disponível nesta rede",
+  "swapUnavailableBody": "Ainda não há tokens de swap configurados para esta rede.",
   "agglayerCheckingToken": "Verificando se este token suporta a rota Slow…",
   "agglayerTokenUnsupported": "Este token não suporta a rota Slow.",
   "agglayerTokenCheckFailed": "Não foi possível verificar este token. Volte e tente novamente.",
