@@ -459,6 +459,14 @@ describe('deriveRequestAmount', () => {
     expect(deriveRequestAmount('1', '1', 1)).toBe('0.9');
   });
 
+  it.each([
+    ['11', '1', '10'],
+    ['200', '1', '190'],
+    ['2000', '1', '1900']
+  ])('preserves significant integer zeros for offer %s at zero decimals', (offer, rate, expected) => {
+    expect(deriveRequestAmount(offer, rate, 0)).toBe(expected);
+  });
+
   it('returns empty for a missing or unusable offered amount', () => {
     expect(deriveRequestAmount('', '2', TEST_SWAP_TOKEN_DECIMALS)).toBe('');
     expect(deriveRequestAmount('0', '2', TEST_SWAP_TOKEN_DECIMALS)).toBe('');
@@ -466,6 +474,7 @@ describe('deriveRequestAmount', () => {
   });
 
   it('returns empty for a missing or non-finite rate', () => {
+    expect(deriveRequestAmount('10', null, TEST_SWAP_TOKEN_DECIMALS)).toBe('');
     expect(deriveRequestAmount('10', undefined, TEST_SWAP_TOKEN_DECIMALS)).toBe('');
     expect(deriveRequestAmount('10', '0', TEST_SWAP_TOKEN_DECIMALS)).toBe('');
     expect(deriveRequestAmount('10', 'not-a-rate', TEST_SWAP_TOKEN_DECIMALS)).toBe('');

@@ -296,6 +296,7 @@ export function deriveRequestAmount(offerAmount: string, marketPrice: string | n
   if (!Number.isFinite(quote) || quote <= 0) {
     return '';
   }
-  const formatted = toFixedRoundedDown(quote, decimals).replace(/\.?0+$/, '');
+  const fixed = toFixedRoundedDown(quote, decimals);
+  const formatted = fixed.includes('.') ? fixed.replace(/\.?0+$/, '') : fixed;
   return formatted === '0' ? '' : formatted;
 }
