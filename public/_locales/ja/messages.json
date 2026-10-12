@@ -5977,6 +5977,35 @@
       }
     }
   },
+  "swapExpiryLabel": {
+    "message": "記入されていない場合はキャンセルしてください",
+    "englishSource": "Cancel if not filled in"
+  },
+  "swapExpiryPreset2Min": {
+    "message": "2分",
+    "englishSource": "2 min"
+  },
+  "swapExpiryPreset1Hour": {
+    "message": "1時間",
+    "englishSource": "1 hour"
+  },
+  "swapExpiryPreset1Day": {
+    "message": "1日",
+    "englishSource": "1 day"
+  },
+  "swapExpiryPreset7Days": {
+    "message": "7日間",
+    "englishSource": "7 days"
+  },
+  "swapExpiryNote": {
+    "message": "その時点で約定していない場合、スワップはキャンセルされ、$amount$が返還されます。",
+    "englishSource": "Not filled by then? The swap is cancelled and your $amount$ comes back.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "activityView": {
     "message": "アクティビティ表示",
     "englishSource": "Activity view"

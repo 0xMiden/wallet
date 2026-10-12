@@ -5977,6 +5977,35 @@
       }
     }
   },
+  "swapExpiryLabel": {
+    "message": "若未填寫，請取消",
+    "englishSource": "Cancel if not filled in"
+  },
+  "swapExpiryPreset2Min": {
+    "message": "2 分鐘",
+    "englishSource": "2 min"
+  },
+  "swapExpiryPreset1Hour": {
+    "message": "1 小時",
+    "englishSource": "1 hour"
+  },
+  "swapExpiryPreset1Day": {
+    "message": "1 天",
+    "englishSource": "1 day"
+  },
+  "swapExpiryPreset7Days": {
+    "message": "7 天",
+    "englishSource": "7 days"
+  },
+  "swapExpiryNote": {
+    "message": "若屆時仍未完成？則該兌換將被取消，您的 $amount$ 將退還。",
+    "englishSource": "Not filled by then? The swap is cancelled and your $amount$ comes back.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "activityView": {
     "message": "活動檢視",
     "englishSource": "Activity view"

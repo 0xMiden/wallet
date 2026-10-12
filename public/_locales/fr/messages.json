@@ -5977,6 +5977,35 @@
       }
     }
   },
+  "swapExpiryLabel": {
+    "message": "À effacer si non renseigné",
+    "englishSource": "Cancel if not filled in"
+  },
+  "swapExpiryPreset2Min": {
+    "message": "2 min",
+    "englishSource": "2 min"
+  },
+  "swapExpiryPreset1Hour": {
+    "message": "1 heure",
+    "englishSource": "1 hour"
+  },
+  "swapExpiryPreset1Day": {
+    "message": "1 jour",
+    "englishSource": "1 day"
+  },
+  "swapExpiryPreset7Days": {
+    "message": "7 jours",
+    "englishSource": "7 days"
+  },
+  "swapExpiryNote": {
+    "message": "Pas encore exécuté à ce moment-là ? L'échange est annulé et votre $amount$ vous est restitué.",
+    "englishSource": "Not filled by then? The swap is cancelled and your $amount$ comes back.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "activityView": {
     "message": "Vue de l'activité",
     "englishSource": "Activity view"
