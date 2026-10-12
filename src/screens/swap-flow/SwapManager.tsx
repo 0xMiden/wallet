@@ -4,9 +4,11 @@ import { useTranslation } from 'react-i18next';
 
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
-import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
+import { Icon, IconName } from 'app/icons/v2';
+import { HomeGroupPaneBody, HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
+import { Notice } from 'components/ui/Notice';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { initiateSwapTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
@@ -20,9 +22,11 @@ import {
   SpendingLimitAuthorization,
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
-import { deriveRequestAmount, getDefaultSwapPair, SwapToken } from 'lib/miden/swap/tokens';
+import { deriveRequestAmount, getDefaultSwapPair, SwapPair, SwapToken } from 'lib/miden/swap/tokens';
+import { swapAvailability, useSwapTokens } from 'lib/miden/swap/use-swap-tokens';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
@@ -44,7 +48,12 @@ const ROUTES: Route[] = [
   { name: SwapFlowStep.ReviewSwap, animationIn: 'push', animationOut: 'pop' }
 ];
 
-const SwapManager: React.FC = () => {
+interface SwapManagerProps {
+  /** The pair the form opens on; `SwapFlow` remounts the manager when it changes. */
+  defaultPair: SwapPair;
+}
+
+const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
   const { t } = useTranslation();
   const { navigateTo, goBack, cardStack } = useNavigator();
   const { pathname } = useLocation();
@@ -55,8 +64,8 @@ const SwapManager: React.FC = () => {
   const verificationBaseFee = useVerificationBaseFee();
   const feeAssetMissing = hasNoFeeAsset(balanceData, nativeFaucetId, verificationBaseFee);
 
-  const [offerToken, setOfferToken] = useState<SwapToken>(() => getDefaultSwapPair().offer);
-  const [requestToken, setRequestToken] = useState<SwapToken>(() => getDefaultSwapPair().request);
+  const [offerToken, setOfferToken] = useState<SwapToken>(defaultPair.offer);
+  const [requestToken, setRequestToken] = useState<SwapToken>(defaultPair.request);
   const [offerAmount, setOfferAmount] = useState('');
   const [requestAmount, setRequestAmount] = useState('');
   // True once the user manually edits the receive amount, which pauses the
@@ -616,10 +625,53 @@ const SwapManager: React.FC = () => {
   );
 };
 
-const NavigatorWrapper: React.FC = () => (
-  <NavigatorProvider routes={ROUTES} initialRouteName={SwapFlowStep.SwapAmounts}>
-    <SwapManager />
-  </NavigatorProvider>
-);
+/**
+ * The pane while the network's document names no swap pair: a notice in the pane's own shell, so
+ * the tab keeps its frame. Nothing while the document is still being read, like a bridge control.
+ */
+const SwapUnavailable: React.FC<{ loading: boolean }> = ({ loading }) => {
+  const { t } = useTranslation();
+  return (
+    <HomeGroupPaneRoot testId="swap-flow">
+      <HomeGroupPaneBody title={t('swap')}>
+        {!loading && (
+          <Notice
+            tone="warning"
+            icon={<Icon name={IconName.WarningFill} size="xs" fill="currentColor" />}
+            title={t('swapUnavailableTitle')}
+            data-testid="swap-unavailable-notice"
+          >
+            {t('swapUnavailableBody')}
+          </Notice>
+        )}
+      </HomeGroupPaneBody>
+    </HomeGroupPaneRoot>
+  );
+};
 
-export { NavigatorWrapper as SwapFlow };
+/**
+ * Opens the swap on the registry's default pair, once the bridge config lists one. Keyed on that
+ * pair's faucet ids, so a document that renames the pair, and the SDK's WASM turning a listed hex
+ * id into its bech32 form, each remount the form on fresh tokens rather than leaving it on stale
+ * ones; a swap in flight continues in the queue either way.
+ */
+const SwapFlowGate: React.FC = () => {
+  useSwapTokens();
+  const snapshot = useBridgeConfigSnapshot();
+  const availability = swapAvailability(snapshot);
+  const defaultPair = getDefaultSwapPair();
+  if (availability.state !== 'available' || defaultPair === null) {
+    return <SwapUnavailable loading={availability.state === 'loading'} />;
+  }
+  return (
+    <NavigatorProvider
+      key={`${defaultPair.offer.faucetId}:${defaultPair.request.faucetId}`}
+      routes={ROUTES}
+      initialRouteName={SwapFlowStep.SwapAmounts}
+    >
+      <SwapManager defaultPair={defaultPair} />
+    </NavigatorProvider>
+  );
+};
+
+export { SwapFlowGate as SwapFlow };

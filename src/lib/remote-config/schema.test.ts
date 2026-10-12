@@ -48,7 +48,56 @@ it('parses the published testnet document, lowercasing addresses', () => {
       earnProtocol: 'dummy-lending'
     },
     features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true },
-    mainnetCountdown: { enabled: true, launchAt: Date.UTC(2026, 9, 26) }
+    mainnetCountdown: { enabled: true, launchAt: Date.UTC(2026, 9, 26) },
+    swap: { tokens: [] }
+  });
+});
+
+describe('swap tokens', () => {
+  const tokens = [
+    { symbol: 'IMIDEN', faucetId: '0x750052a4af10cd51141f52c0ec2ada', decimals: 8, logo: 'MIDEN' },
+    { symbol: 'IETH', faucetId: '0xE33498F1176661512B5AC4DED86EC7', decimals: 8, logo: 'ETH', priceSymbol: 'ETH' }
+  ];
+  const withTokens = (list: unknown) => doc({ swap: { tokens: list } });
+
+  it('reads the list in order, lowercasing faucet ids and keeping the logo and price symbol', () => {
+    expect(parseBridgeConfig(withTokens(tokens), 'testnet')?.swap).toStrictEqual({
+      tokens: [
+        { symbol: 'IMIDEN', faucetId: '0x750052a4af10cd51141f52c0ec2ada', decimals: 8, logo: 'MIDEN' },
+        { symbol: 'IETH', faucetId: '0xe33498f1176661512b5ac4ded86ec7', decimals: 8, logo: 'ETH', priceSymbol: 'ETH' }
+      ]
+    });
+  });
+
+  it('reads a missing section, or a missing list, as no tokens', () => {
+    expect(parseBridgeConfig(doc({ swap: {} }), 'testnet')?.swap).toStrictEqual({ tokens: [] });
+    expect(parseBridgeConfig(withTokens([]), 'testnet')?.swap).toStrictEqual({ tokens: [] });
+  });
+
+  it('drops a logo the wallet does not ship and a price symbol the feed does not quote, keeping the token', () => {
+    const [imiden] = tokens;
+    const parsed = parseBridgeConfig(withTokens([{ ...imiden, logo: 'SOL', priceSymbol: 'SOL' }]), 'testnet');
+    expect(parsed?.swap?.tokens).toStrictEqual([
+      { symbol: 'IMIDEN', faucetId: '0x750052a4af10cd51141f52c0ec2ada', decimals: 8 }
+    ]);
+  });
+
+  it.each([
+    ['a list that is not an array', { IETH: '0xe33498f1176661512b5ac4ded86ec7' }],
+    ['an entry that is not an object', ['IETH']],
+    ['a lower-case symbol', [{ ...tokens[1], symbol: 'iEth' }]],
+    ['a seven-letter symbol', [{ ...tokens[1], symbol: 'IBITCON' }]],
+    ['a bech32 faucet id', [{ ...tokens[1], faucetId: 'mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h' }]],
+    ['a missing faucet id', [{ symbol: 'IETH', decimals: 8 }]],
+    ['fractional decimals', [{ ...tokens[1], decimals: 8.5 }]],
+    ['decimals above 12', [{ ...tokens[1], decimals: 13 }]],
+    ['negative decimals', [{ ...tokens[1], decimals: -1 }]],
+    ['a logo that is not a string', [{ ...tokens[1], logo: 1 }]],
+    ['a price symbol that is not a string', [{ ...tokens[1], priceSymbol: null }]],
+    ['two entries for one faucet', [tokens[1], { ...tokens[1], symbol: 'IBTC' }]],
+    ['two entries for one symbol', [tokens[1], { ...tokens[1], faucetId: '0xaf8444c4a7c091114666adba25c5d0' }]]
+  ])('refuses the document over %s', (_name, list) => {
+    expect(parseBridgeConfig(withTokens(list), 'testnet')).toBeNull();
   });
 });
 
@@ -95,7 +144,8 @@ it('reads absent sections as empty and absent switches as off', () => {
     agglayer: {},
     epoch: {},
     features: ALL_OFF,
-    mainnetCountdown: { enabled: false }
+    mainnetCountdown: { enabled: false },
+    swap: { tokens: [] }
   });
 });
 
@@ -114,7 +164,8 @@ it('leaves an absent field out of its section', () => {
     agglayer: { l1Bridge: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f' },
     epoch: { allocatorUrl: 'https://allocator.example' },
     features: { ...ALL_OFF, earn: true },
-    mainnetCountdown: { enabled: false }
+    mainnetCountdown: { enabled: false },
+    swap: { tokens: [] }
   });
 });
 

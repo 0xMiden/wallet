@@ -10,7 +10,8 @@ import {
 import type * as FaucetIdSettingModule from 'lib/miden/assets/faucet-id-setting';
 import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { MidenMessageType } from 'lib/miden/types';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { CARD_COLOR_STORAGE_KEY, NOMINAL_UNQUOTED_PRICE_STORAGE_KEY } from 'lib/settings/constants';
@@ -30,6 +31,10 @@ import {
 } from './index';
 import { fetchingAddresses } from './utils/fetchBalances';
 import type * as FetchBalancesModule from './utils/fetchBalances';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 // A balance read a case holds open. Every other case reads through the real module, which is
 // reached lazily: the module is part of an import cycle, so its exports are not ready at mock time.
@@ -702,7 +707,9 @@ describe('useWalletStore', () => {
     });
 
     it("keeps testnet iETH's own metadata under an override stored for it, since the wallet names it itself (#477)", async () => {
-      const IETH = TOKEN_IETH.faucetId;
+      // The document lists IETH, which testnet names itself.
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      const IETH = TEST_TOKEN_IETH.faucetId;
       const ieth = { name: 'iETH', symbol: 'IETH', decimals: 8 };
       useWalletStore.getState().setAssetsMetadata({ [IETH]: ieth });
 

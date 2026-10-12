@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { hapticLight } from 'lib/mobile/haptics';
 import { SendStepLayout } from 'screens/send-flow/SendStepLayout';
 
@@ -119,6 +119,11 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getTestNetworkNameKey: () => 'testnet'
 }));
 
+// The testnet document, whose swap tokens name the iETH faucet the labels read.
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useBridgeConfigSnapshot: () => jest.requireActual('lib/epoch/testing/bridge-config').TEST_BRIDGE_CONFIG_SNAPSHOT
+}));
+
 type SwapToken = SwapAmountsProps['offerToken'];
 
 const offerToken: SwapToken = {
@@ -183,12 +188,12 @@ describe('SwapAmounts', () => {
     });
 
     it('names the registry iETH "Test iETH" on its side and leaves another token on its symbol (#477)', () => {
-      renderComponent({ requestToken: { ...requestToken, faucetId: TOKEN_IETH.faucetId } });
+      renderComponent({ requestToken: { ...requestToken, faucetId: TEST_TOKEN_IETH.faucetId } });
 
       expect(screen.getByTestId('select-amount-youReceive')).toHaveAttribute('data-token-label', 'Test iETH');
       expect(screen.getByTestId('select-amount-youPay')).toHaveAttribute('data-token-label', 'IMIDEN');
 
-      renderComponent({ offerToken: { ...offerToken, symbol: 'IETH', faucetId: TOKEN_IETH.faucetId } });
+      renderComponent({ offerToken: { ...offerToken, symbol: 'IETH', faucetId: TEST_TOKEN_IETH.faucetId } });
       expect(screen.getAllByTestId('select-amount-youPay')[1]).toHaveAttribute('data-token-label', 'Test iETH');
     });
 

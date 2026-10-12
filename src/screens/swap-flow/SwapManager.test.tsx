@@ -195,16 +195,21 @@ jest.mock('components/SpendingLimitChallenge', () => ({
 
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokens: () => mockGetSwapTokens(),
-  // The form seeds its pair by SYMBOL, not list position, so a cold and a warm
-  // start open on the same pair; mirror that here over the mocked registry.
+  // The form opens on the document's first two tokens; mirror that over the mocked registry.
   getDefaultSwapPair: () => {
-    const tokens = mockGetSwapTokens();
-    const bySymbol = (symbol: string) => tokens.find((token: { symbol: string }) => token.symbol === symbol);
-    const offer = bySymbol('IMIDEN') ?? tokens[0];
-    const request = bySymbol('IETH') ?? tokens[1];
-    return { offer, request };
+    const [offer, request] = mockGetSwapTokens();
+    return offer && request ? { offer, request } : null;
   },
   deriveRequestAmount: (...args: unknown[]) => mockDeriveRequestAmount(...args)
+}));
+
+// The gate reads the registry and the bridge config through these; the registry mock above decides the pair.
+jest.mock('lib/miden/swap/use-swap-tokens', () => ({
+  useSwapTokens: () => mockGetSwapTokens(),
+  swapAvailability: () => (mockGetSwapTokens().length >= 2 ? { state: 'available' } : { state: 'loading' })
+}));
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useBridgeConfigSnapshot: () => ({ network: 'testnet', status: 'ready', config: null, derived: null, lastFetch: null })
 }));
 
 jest.mock('./useSwapEta', () => ({

@@ -4,11 +4,16 @@ import { render, screen } from '@testing-library/react';
 import BigNumber from 'bignumber.js';
 
 import { TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID } from 'lib/epoch/testing/bridge-config';
-import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 
 import Balance from './Balance';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 // The totals under test follow the default rule, no figure without a quote; pinned here against
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
@@ -122,7 +127,7 @@ describe('Balance', () => {
   it('folds balance × quoted price across every token into the fiat total', () => {
     const tokens: TokenBalance[] = [
       { tokenId: MIDEN_AGGLAYER_FAUCET_ID, balance: 2, metadata: { symbol: 'ETH' } },
-      { tokenId: TOKEN_IBTC.faucetId, balance: 3, metadata: { symbol: 'BTC' } }
+      { tokenId: TEST_TOKEN_IBTC.faucetId, balance: 3, metadata: { symbol: 'BTC' } }
     ];
     mockUseAllBalances.mockReturnValue(balancesReturn(tokens));
 
@@ -134,7 +139,7 @@ describe('Balance', () => {
 
   it('values IETH at the ETH price, the symbol the feed quotes it under', () => {
     mockUseAllBalances.mockReturnValue(
-      balancesReturn([{ tokenId: TOKEN_IETH.faucetId, balance: 0.38, metadata: { symbol: 'IETH' } }])
+      balancesReturn([{ tokenId: TEST_TOKEN_IETH.faucetId, balance: 0.38, metadata: { symbol: 'IETH' } }])
     );
     mockStoreState = { tokenPrices: { ETH: quote(3000) } };
 
@@ -199,7 +204,7 @@ describe('Balance', () => {
     mockUseAllBalances.mockReturnValue(
       balancesReturn([
         {
-          tokenId: TOKEN_IETH.faucetId,
+          tokenId: TEST_TOKEN_IETH.faucetId,
           balance: 1_000_000,
           metadata: { symbol: 'ETH', name: 'Unknown', decimals: 6, scaleIsUnknown: true }
         }
@@ -216,7 +221,7 @@ describe('Balance', () => {
     const tokens: TokenBalance[] = [
       { tokenId: MIDEN_AGGLAYER_FAUCET_ID, balance: 2, metadata: { symbol: 'ETH' } },
       {
-        tokenId: TOKEN_IETH.faucetId,
+        tokenId: TEST_TOKEN_IETH.faucetId,
         balance: 1_000_000,
         metadata: { symbol: 'ETH', name: 'Unknown', decimals: 6, scaleIsUnknown: true }
       }
@@ -231,10 +236,10 @@ describe('Balance', () => {
   it('leaves a hidden token out of the total, as Home leaves it out of the list', () => {
     const tokens: TokenBalance[] = [
       { tokenId: MIDEN_AGGLAYER_FAUCET_ID, balance: 2, metadata: { symbol: 'ETH' } },
-      { tokenId: TOKEN_IBTC.faucetId, balance: 3, metadata: { symbol: 'BTC' } }
+      { tokenId: TEST_TOKEN_IBTC.faucetId, balance: 3, metadata: { symbol: 'BTC' } }
     ];
     mockUseAllBalances.mockReturnValue(balancesReturn(tokens));
-    mockHiddenIds.add(TOKEN_IBTC.faucetId);
+    mockHiddenIds.add(TEST_TOKEN_IBTC.faucetId);
 
     render(<Balance>{renderChild()}</Balance>);
 

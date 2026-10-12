@@ -10,7 +10,8 @@ import {
 } from 'lib/guardian-note-recovery-progress';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { putToStorage } from 'lib/miden/front/storage';
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 
@@ -50,6 +51,10 @@ import {
   useWalletPromptStorage,
   withFaucetFundingMarkerLock
 } from './wallet-prompts';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
@@ -253,7 +258,7 @@ describe('wallet prompts', () => {
     const ieth = {
       id: 'note-2',
       amount: '200000000',
-      faucetId: TOKEN_IETH.faucetId,
+      faucetId: TEST_TOKEN_IETH.faucetId,
       metadata: { decimals: 8, symbol: 'IETH', name: 'IETH' }
     };
 
@@ -277,7 +282,7 @@ describe('wallet prompts', () => {
       const unsized = {
         id: 'note-4',
         amount: '38000000',
-        faucetId: TOKEN_IETH.faucetId,
+        faucetId: TEST_TOKEN_IETH.faucetId,
         metadata: { decimals: 6, symbol: 'Unknown', name: 'Unknown', scaleIsUnknown: true }
       };
       expect(getPendingNotesUsdTotal([usdc, unsized], prices)).toBeNull();

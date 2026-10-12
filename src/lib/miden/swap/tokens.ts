@@ -9,31 +9,38 @@ import {
 // The pure module, not the lib/prices index: the index reaches the store, which reaches this file.
 import { quotedPrice, type TokenPriceInfo, type TokenPrices } from 'lib/prices/binance';
 import { isE2eFixtureSymbol } from 'lib/prices/constant';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import type { SwapTokenConfig } from 'lib/remote-config/schema';
 import { withRequestTimeout } from 'lib/remote-json';
 
 import { bridgePriceAllowlist } from './bridge-price-allowlist';
-import { canonicalFaucetId, IETH_FAUCET_ID, normalizedFaucetId } from './faucet-ids';
+import { canonicalFaucetId, normalizedFaucetId } from './faucet-ids';
 
 export { _resetNormalizedFaucetIdsForTest, canonicalFaucetId, normalizedFaucetId } from './faucet-ids';
 
 /**
- * Swap starts with this fixed set of Miden testnet 0.16 DEX tokens and prepends the
- * network's discovered native asset at runtime. The fixed test tokens use
- * 8 decimals (`SWAP_TOKEN_DECIMALS`): the user enters a human-readable amount
- * and `stringToBigInt(amount, token.decimals)` converts it to base units.
+ * The swap registry: the tokens the network's bridge config lists under `swap.tokens`
+ * (`0xMiden/wallet-config`, `<network>.json`), with the network's discovered native asset
+ * prepended at runtime. Nothing is compiled in: a network whose document names no tokens has
+ * no swap registry, and the swap entry point reads as unavailable (`swapAvailability`).
  *
- * INVARIANT: `SWAP_TOKEN_DECIMALS` must match each fixed test faucet's real
- * on-chain decimals. A mismatch would scale its offered/requested amount by
- * `10^(diff)`. The native entry instead uses its discovered metadata (falling
- * back to the wallet's native metadata).
+ * The user enters a human-readable amount and `stringToBigInt(amount, token.decimals)` converts
+ * it to base units, so each entry's `decimals` must be the faucet's real on-chain decimals: a
+ * mismatch would scale its offered/requested amount by `10^(diff)`. The native entry instead
+ * uses its discovered metadata.
  *
  * Shared between the swap flow (token picker + amount/quote logic) and the
  * Generating-transaction summary badge (resolving symbol/logo/decimals for a
- * persisted swap tx, whose `faucetId`/`extraInputs.requestedFaucetId` are the
- * `mtst1…` strings below).
+ * persisted swap tx, whose `faucetId`/`extraInputs.requestedFaucetId` are the bech32
+ * strings the registry carried when the swap was made).
  */
 export interface SwapToken {
   symbol: string;
+  /**
+   * The SDK's bech32 form of the faucet id, the form every persisted row and balance key
+   * carries. The document spells a faucet in hex, so until the SDK's WASM can convert it the
+   * entry carries the hex; `getSwapTokenByFaucetId` compares canonically for that reason.
+   */
   faucetId: string;
   decimals: number;
   /** Symbol understood by `TokenLogo` (MIDEN/ETH/USDC/BTC) for the round logo. */
@@ -45,55 +52,45 @@ export interface SwapToken {
   priceSymbol?: string;
 }
 
-export const SWAP_TOKEN_DECIMALS = 8;
-
-export const TOKEN_IMIDEN: SwapToken = {
-  symbol: 'IMIDEN',
-  faucetId: 'mtst1arqxg9er3xclayt95nud82jnpggl9azj',
-  decimals: SWAP_TOKEN_DECIMALS,
-  logoSymbol: 'MIDEN'
-};
-export const TOKEN_IETH: SwapToken = {
-  symbol: 'IETH',
-  faucetId: IETH_FAUCET_ID,
-  decimals: SWAP_TOKEN_DECIMALS,
-  logoSymbol: 'ETH',
-  priceSymbol: 'ETH'
-};
-export const TOKEN_IBTC: SwapToken = {
-  symbol: 'IBTC',
-  faucetId: 'mtst1apqk2y2uky2mkyfcjv95fjm5zgnrwk6x',
-  decimals: SWAP_TOKEN_DECIMALS,
-  logoSymbol: 'BTC',
-  priceSymbol: 'BTC'
-};
-export const TOKEN_IUSDT: SwapToken = {
-  symbol: 'IUSDT',
-  faucetId: 'mtst1arvdwvzllvg3s5fzjle7nkljeuhkcufr',
-  decimals: SWAP_TOKEN_DECIMALS,
-  logoSymbol: 'USDC'
-};
-
-export const SWAP_TOKENS: SwapToken[] = [TOKEN_IMIDEN, TOKEN_IETH, TOKEN_IUSDT, TOKEN_IBTC];
-
 let _swapTokensOverride: SwapToken[] | undefined;
 
+function configuredSwapToken(token: SwapTokenConfig): SwapToken {
+  return {
+    symbol: token.symbol,
+    faucetId: normalizedFaucetId(token.faucetId),
+    decimals: token.decimals,
+    logoSymbol: token.logo ?? token.symbol,
+    ...(token.priceSymbol === undefined ? {} : { priceSymbol: token.priceSymbol })
+  };
+}
+
+/** The document's tokens in its order, or an E2E suite's override; never the native asset. */
+function listedSwapTokens(): SwapToken[] {
+  if (_swapTokensOverride) return _swapTokensOverride;
+  const tokens = getBridgeConfigSnapshot().config?.swap?.tokens ?? [];
+  return tokens.map(configuredSwapToken);
+}
+
+const sameFaucet = (a: string, b: string): boolean => normalizedFaucetId(a) === normalizedFaucetId(b);
+
 /**
- * Live registry read — all consumers use this so an E2E override takes effect.
+ * Live registry read — all consumers use this so a loaded document, and an E2E override, take
+ * effect. A component reads it through `useSwapTokens`, which re-renders when the document lands.
  *
  * The native asset ID is network-derived and may not be available during the
  * first render. Once discovery populates the synchronous cache, put MIDEN ahead
- * of the fixed DEX test tokens. Callers naturally re-read this accessor
- * on their next render (for example, when opening the token drawer).
+ * of the listed tokens. Callers naturally re-read this accessor on their next
+ * render (for example, when opening the token drawer).
  */
 export const getSwapTokens = (): SwapToken[] => {
-  if (_swapTokensOverride) return _swapTokensOverride;
+  const listed = listedSwapTokens();
+  if (_swapTokensOverride) return listed;
 
   const nativeAssetId = getNativeAssetIdSync();
-  if (!nativeAssetId || SWAP_TOKENS.some(token => token.faucetId === nativeAssetId)) return SWAP_TOKENS;
+  if (!nativeAssetId || listed.some(token => sameFaucet(token.faucetId, nativeAssetId))) return listed;
 
   const nativeMetadata = getNativeAssetMetadataSync();
-  if (!nativeMetadata || !hasKnownScale({ ...nativeMetadata, name: nativeMetadata.symbol })) return SWAP_TOKENS;
+  if (!nativeMetadata || !hasKnownScale({ ...nativeMetadata, name: nativeMetadata.symbol })) return listed;
   return [
     {
       symbol: nativeMetadata.symbol,
@@ -101,23 +98,25 @@ export const getSwapTokens = (): SwapToken[] => {
       decimals: nativeMetadata.decimals,
       logoSymbol: nativeMetadata.symbol === 'USDCX' ? 'USDC' : 'MIDEN'
     },
-    ...SWAP_TOKENS
+    ...listed
   ];
 };
 
+export interface SwapPair {
+  offer: SwapToken;
+  request: SwapToken;
+}
+
 /**
- * The pair the swap form opens on. Chosen by SYMBOL, never by list position:
- * `getSwapTokens()` puts the discovered native asset first once discovery has
- * landed, so seeding from index 0/1 gave a cold start into /swap a different
- * default pair than a warm one - same build, same user, different defaults on a
- * money screen. Falls back to the fixed list when a symbol is not present.
+ * The pair the swap form opens on: the document's first two tokens, in its order. Read from the
+ * listed tokens and never from `getSwapTokens()`, which puts the discovered native asset first
+ * once discovery has landed: seeding from that list gave a cold start into /swap a different
+ * default pair than a warm one - same build, same user, different defaults on a money screen.
+ * Null while the document is not loaded or names fewer than two tokens.
  */
-export const getDefaultSwapPair = (): { offer: SwapToken; request: SwapToken } => {
-  const tokens = getSwapTokens();
-  const bySymbol = (symbol: string) => tokens.find(token => token.symbol === symbol);
-  const offer = bySymbol(TOKEN_IMIDEN.symbol) ?? tokens[0]!;
-  const request = bySymbol(TOKEN_IETH.symbol) ?? tokens[1]!;
-  return { offer, request };
+export const getDefaultSwapPair = (): SwapPair | null => {
+  const [offer, request] = listedSwapTokens();
+  return offer && request ? { offer, request } : null;
 };
 
 /** Test-only setter (also driven via the E2E window hook). Pass undefined to reset. */
@@ -125,8 +124,9 @@ export const _setSwapTokensForTest = (tokens: SwapToken[] | undefined): void => 
   _swapTokensOverride = tokens;
 };
 
+/** The registry token for a faucet in any spelling of its id (a persisted row's bech32, the document's hex). */
 export const getSwapTokenByFaucetId = (faucetId?: string): SwapToken | undefined =>
-  faucetId ? getSwapTokens().find(token => token.faucetId === faucetId) : undefined;
+  faucetId ? getSwapTokens().find(token => sameFaucet(token.faucetId, faucetId)) : undefined;
 
 export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
   getSwapTokens().find(token => token.symbol === symbol);

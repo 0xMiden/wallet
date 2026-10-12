@@ -14,7 +14,8 @@ import {
   reportGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
 import type { TokenBalanceData } from 'lib/miden/front';
-import { _setSwapTokensForTest, SWAP_TOKENS } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import {
   FaucetAmountOverCapError,
   FaucetOutcomeUnknownError,
@@ -717,7 +718,7 @@ describe('HomePrompts', () => {
     // The registry entry a future allowlist listing of the native asset would add.
     _setSwapTokensForTest([
       { symbol: 'MIDEN', faucetId: NATIVE_FAUCET_ID, decimals: 6, logoSymbol: 'MIDEN', priceSymbol: 'MIDEN' },
-      ...SWAP_TOKENS
+      ...TEST_SWAP_TOKENS
     ]);
     try {
       mockUseWalletPromptStorage.mockReturnValue(makePromptState());
