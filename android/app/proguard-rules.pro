@@ -28,21 +28,12 @@
     *;
 }
 -keep class uniffi.** { *; }
--keepclassmembers class ** {
-    public *;
-    protected *;
-}
 -dontwarn uniffi.**
 -dontwarn com.sun.jna.**
 
 # Keep Parcelable implementations
 -keepclassmembers class * implements android.os.Parcelable {
     static ** CREATOR;
-}
-
-# Keep R8 from stripping interface methods
--keep interface * {
-    <methods>;
 }
 
 # Preserve the line number information for debugging stack traces.
