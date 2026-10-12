@@ -23,7 +23,8 @@ jest.mock('lib/woozie', () => ({
 
 const mockHapticLight = jest.fn();
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: () => mockHapticLight() }));
-jest.mock('app/icons/v2', () => ({ Icon: () => null, IconName: { User: 'user' } }));
+jest.mock('app/icons/v2', () => ({ Icon: () => null, IconName: { User: 'user', Add: 'add', Close: 'close' } }));
+jest.mock('app/icons/v2/chevron-right-lucide.svg', () => ({ ReactComponent: () => null }));
 
 let mockSupported = true;
 jest.mock('lib/miden/name/config', () => ({
@@ -77,8 +78,9 @@ describe('MidenNameReceiveRow', () => {
   it('offers to claim a name when the account has none', () => {
     render(<MidenNameReceiveRow address="mtst1account" />);
     const row = screen.getByTestId('receive-miden-name');
-    expect(row).toHaveTextContent('midenNameClaimCta');
-    expect(row).toHaveTextContent('midenNameClaimCtaSubtitle_.miden');
+    // The same dashed slot as the top of Settings.
+    expect(row).toHaveTextContent('midenNameClaimSlotPlaceholder.miden');
+    expect(row).toHaveTextContent('midenNameClaimSlotSubtitle');
     fireEvent.click(row);
     expect(mockHapticLight).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/miden-name');
@@ -107,6 +109,6 @@ describe('MidenNameReceiveRow', () => {
   it('offers a new claim when every registration failed', () => {
     mockRows = [registerRow('reg-1', 'alice', 'failed')];
     render(<MidenNameReceiveRow address="mtst1account" />);
-    expect(screen.getByTestId('receive-miden-name')).toHaveTextContent('midenNameClaimCta');
+    expect(screen.getByTestId('receive-miden-name')).toHaveTextContent('midenNameClaimSlotPlaceholder');
   });
 });

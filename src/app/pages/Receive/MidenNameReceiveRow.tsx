@@ -3,10 +3,11 @@ import React, { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { MidenNameClaimSlot } from 'app/templates/MidenNameClaimSlot';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { isMidenNameSupported } from 'lib/miden/name/config';
-import { formatMidenName, MIDEN_NAME_SUFFIX } from 'lib/miden/name/encoding';
+import { formatMidenName } from 'lib/miden/name/encoding';
 import {
   ownedLabelOf,
   phaseOf,
@@ -68,16 +69,6 @@ export const MidenNameReceiveRow: FC<MidenNameReceiveRowProps> = ({ address }) =
     );
   }
 
-  return (
-    <ListGroup data-testid="receive-miden-name-group">
-      <ListRow
-        icon={icon}
-        title={t('midenNameClaimCta')}
-        subtitle={t('midenNameClaimCtaSubtitle', { suffix: MIDEN_NAME_SUFFIX })}
-        chevron
-        onClick={() => navigate('/miden-name')}
-        data-testid="receive-miden-name"
-      />
-    </ListGroup>
-  );
+  // No name yet: the same dashed slot as the top of Settings, so the offer looks the same everywhere.
+  return <MidenNameClaimSlot data-testid="receive-miden-name" />;
 };

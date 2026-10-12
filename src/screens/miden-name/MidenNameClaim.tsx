@@ -258,7 +258,7 @@ export const MidenNameClaim: FC = () => {
   })();
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col bg-app-bg" data-testid="miden-name-claim-page">
+    <div className="flex h-full min-h-0 flex-1 flex-col bg-app-bg **:font-heading" data-testid="miden-name-claim-page">
       <NetworkModeBanner />
       <FlowLayout
         title={t('midenNameClaimTitle')}
@@ -308,7 +308,7 @@ export const MidenNameClaim: FC = () => {
           <AvailabilityLine state={quoteState} />
 
           {shownQuote && total !== undefined && (
-            <DetailCard>
+            <DetailCard surface="outline" className="*:*:first:font-semibold">
               <DetailRow
                 label={t('midenNamePrice', {
                   length:

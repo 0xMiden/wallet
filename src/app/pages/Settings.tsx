@@ -15,6 +15,7 @@ import GeneralSettings from 'app/templates/GeneralSettings';
 import GuardianSettings from 'app/templates/GuardianSettings';
 import KeysSettings from 'app/templates/KeysSettings';
 import LanguageSettings from 'app/templates/LanguageSettings';
+import { MidenNameClaimSlot, useMidenNameClaimOffer } from 'app/templates/MidenNameClaimSlot';
 import MidenNameSettings from 'app/templates/MidenNameSettings';
 import RecoveryPhraseSettings from 'app/templates/RecoveryPhraseSettings';
 import RevealSecret from 'app/templates/RevealSecret';
@@ -23,6 +24,7 @@ import SpendingLimits from 'app/templates/SpendingLimits';
 import VerifySeedPhraseFlow from 'app/templates/VerifySeedPhraseFlow';
 import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
+import { Pill } from 'components/ui/Pill';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { SubPageHeaderProvider, SubPageLayout } from 'components/ui/SubPageLayout';
 // Imported from the module rather than the `components/ui` barrel: the barrel
@@ -390,6 +392,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
   const isGuardianAccount = currentAccountType === WalletType.Guardian;
   const hasActivatedHotKey = Boolean(currentAccountHotPublicKey);
   const walletNeedsFileBackup = useWalletStore(s => s.accounts.some(a => a.type !== WalletType.Guardian));
+  const midenNameOffer = useMidenNameClaimOffer();
 
   // Whether the account HAS this page at all. A non-Guardian account has no
   // Guardian page in any sense, so these gates block the route as well as the row.
@@ -569,6 +572,9 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
           // the React BottomNav. No top padding: the 8px under the rule is
           // TabRootHeader's, the same 8px the other tab roots' filter rows get.
           <div className="flex w-full flex-col gap-5 px-4 pb-22">
+            {midenNameOffer.canClaim && !midenNameOffer.dismissed && (
+              <MidenNameClaimSlot onDismiss={midenNameOffer.dismiss} />
+            )}
             {tabGroups.map(group => (
               <section key={group.titleI18nKey}>
                 {/* h2: the only heading above these is the page title the header
@@ -601,7 +607,16 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
                         // No `hapticLight()` here: ListRow fires one for every branch
                         // it renders, so adding one buzzed twice per tap.
                         onClick={isExternal ? undefined : handleClick}
-                        value={tab.slug === 'language' ? languageLabel : undefined}
+                        value={
+                          tab.slug === 'language' ? (
+                            languageLabel
+                          ) : tab.slug === 'miden-name' && midenNameOffer.canClaim && midenNameOffer.dismissed ? (
+                            // Once the slot at the top is closed, the offer lives on here.
+                            <Pill size="sm" tone="neutral" data-testid="miden-name-claim-pill">
+                              {t('midenNameClaimAnyTime')}
+                            </Pill>
+                          ) : undefined
+                        }
                         // Every row opens something: a page, a sheet or a site.
                         chevron
                         data-testid={tab.testID}
