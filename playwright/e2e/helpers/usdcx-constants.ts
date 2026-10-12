@@ -189,6 +189,11 @@ export const ARBITRUM_SEPOLIA_PAYOUT: PayoutChain = payoutChainFor(421614, {
   logChunk: () => L2_LOG_CHUNK
 });
 
+/** viem's error text quotes the request URL, whose WalletConnect project id an operator's build may set. */
+export function redactProjectId(text: string): string {
+  return text.replace(/(projectId=)[^&\s"']+/g, '$1<redacted>');
+}
+
 /** Every wait in the Arc and Miden oracles runs on this, so unit tests drive time instead of sleeping. */
 export interface ArcClock {
   now(): number;
