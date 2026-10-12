@@ -286,7 +286,11 @@ export const SOLVER_MARGIN = 0.05;
  * precision; returns '' when the inputs aren't usable yet (no amount, no rate,
  * or a non-positive result).
  */
-export function deriveRequestAmount(offerAmount: string, marketPrice: string | null | undefined, decimals: number): string {
+export function deriveRequestAmount(
+  offerAmount: string,
+  marketPrice: string | null | undefined,
+  decimals: number
+): string {
   const offered = Number(offerAmount);
   const rate = Number(marketPrice);
   if (!offered || !rate || !Number.isFinite(rate)) {
