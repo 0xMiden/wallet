@@ -104,7 +104,7 @@ jest.mock('lib/i18n/numbers', () => ({
 }));
 // Every fixture note is 1 TOK (1000000 at 6 decimals) from the Earn collateral faucet, priced under
 // USDC at $2, so the row's total is $2 per LISTED transfer - the arithmetic the assertions below count on.
-const mockTokenPrices = { USDC: { price: 2, priceChange24h: 0 } };
+const mockTokenPrices = { USDC: { price: 2, priceChange24h: 0 }, ETH: { price: 1, priceChange24h: 0 } };
 jest.mock('lib/store', () => ({
   useWalletStore: (select: (state: { tokenPrices: unknown }) => unknown) => select({ tokenPrices: mockTokenPrices })
 }));
@@ -231,7 +231,7 @@ it('revalues an unchanged pending list on config-only price changes and removes 
     expect(screen.getByTestId('pending-row-total')).toHaveTextContent('$2.00');
 
     act(() => {
-      mockBridgeSnapshot = snapshotFor('USDCX');
+      mockBridgeSnapshot = snapshotFor('ETH');
       publishMockBridgeSnapshot();
     });
     expect(screen.getByTestId('pending-row-total')).toHaveTextContent('$1.00');
