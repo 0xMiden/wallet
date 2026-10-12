@@ -25,6 +25,8 @@ const Balance = memo<BalanceProps>(({ children }) => {
   const { isHidden } = useHiddenTokens(account.publicKey);
 
   return useMemo(() => {
+    // Pricing helpers read the runtime singleton; its snapshot invalidates cached values.
+    void bridgeConfig;
     // A token whose decimals were never resolved contributes a `balance` that was
     // divided by the placeholder's guessed 6, so it can be off by a factor of a
     // trillion. Folding that into the portfolio total does not make the total

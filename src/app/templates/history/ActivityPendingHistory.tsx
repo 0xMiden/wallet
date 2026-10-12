@@ -60,14 +60,14 @@ export const ActivityPendingHistory = ({ search, filter, programId, onInitialLoa
   // All is about to accept - so it is read off the SAME list the cards below come from, which is
   // `isShown`'s, and a declined transfer is not on it. `HomePrompts` reads the same set through
   // the same store, which is what makes the banner and this row agree.
-  const waitingTotalUsd = useMemo(
-    () =>
-      getPendingNotesUsdTotal(
-        listItems.map(item => item.note),
-        tokenPrices
-      ),
-    [listItems, tokenPrices, bridgeConfig]
-  );
+  const waitingTotalUsd = useMemo(() => {
+    // Pricing helpers read the runtime singleton; its snapshot invalidates cached values.
+    void bridgeConfig;
+    return getPendingNotesUsdTotal(
+      listItems.map(item => item.note),
+      tokenPrices
+    );
+  }, [listItems, tokenPrices, bridgeConfig]);
   // Pinned to the total's own precision, so a figure travelling towards a dust total does not
   // change width on the way (`AnimatedNumber`).
   const formatWaitingTotal = useMemo(() => usdFormatterFor(waitingTotalUsd ?? 0), [waitingTotalUsd]);

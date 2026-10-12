@@ -49,11 +49,12 @@ const ROUTES: Route[] = [
 ];
 
 interface SwapManagerProps {
-  /** The pair the form opens on; `SwapFlow` remounts the manager when it changes. */
+  /** The pair the form opens on; idle registry changes remount the manager. */
   defaultPair: SwapPair;
+  onBusyChange: (busy: boolean) => void;
 }
 
-const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
+const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) => {
   const { t } = useTranslation();
   const { navigateTo, goBack, cardStack } = useNavigator();
   const { pathname } = useLocation();
@@ -79,6 +80,11 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [spendingLimitChallenge, setSpendingLimitChallenge] =
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
+  const submissionPhase = useRef<'idle' | 'checking' | 'challenge' | 'executing'>('idle');
+  const releaseSubmission = useCallback(() => {
+    submissionPhase.current = 'idle';
+    onBusyChange(false);
+  }, [onBusyChange]);
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
   const readSpendingLimit = useWalletStore(state => state.readSpendingLimit);
   // The account's spending-limit revision never crosses the intercom port - `serializeInternalError`
@@ -90,6 +96,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
       if (!publicKey) return false;
       const configuration = await readSpendingLimit(publicKey);
       if (configuration === undefined) return false;
+      submissionPhase.current = 'challenge';
       setSpendingLimitChallenge({
         unpriced: { accountId: publicKey, spends: [...spends], revision: configuration.revision }
       });
@@ -105,9 +112,10 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
   useMobileBackHandler(() => {
     // A submission in flight holds the whole intent still (ReviewSwap disables its controls and Back);
     // a hardware or swipe back is consumed, not followed.
-    if (submitting) return true;
+    if (submitting || submissionPhase.current === 'checking' || submissionPhase.current === 'executing') return true;
     if (spendingLimitChallenge !== undefined) {
       setSpendingLimitChallenge(undefined);
+      releaseSubmission();
       return true;
     }
     if (showTokenDrawer) {
@@ -120,7 +128,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
     }
     onClose();
     return true;
-  }, [submitting, spendingLimitChallenge, showTokenDrawer, cardStack.length, goBack, onClose]);
+  }, [submitting, spendingLimitChallenge, showTokenDrawer, cardStack.length, goBack, onClose, releaseSubmission]);
 
   // Reset the leftover completion state on flow entry (see SendManager for the
   // full rationale — entering a swap is a clear "starting a new tx" signal).
@@ -283,6 +291,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
   const requestCalculating = !sameToken && hasOfferAmount && !requestEdited && !requestAmount && !quoteUnavailable;
   const canProceed =
     !submitting &&
+    spendingLimitChallenge === undefined &&
     !sameToken &&
     hasOfferAmount &&
     !offerAmountExceedsBalance &&
@@ -344,6 +353,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
 
   const runSwap = useCallback(
     async (authorization?: SpendingLimitAuthorization) => {
+      if (submissionPhase.current !== (authorization === undefined ? 'checking' : 'challenge')) return;
       if (
         !publicKey ||
         offerAmountBaseUnits === undefined ||
@@ -351,12 +361,16 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
         requestAmountBaseUnits === undefined ||
         requestAmountBaseUnits <= 0n
       ) {
+        releaseSubmission();
         return;
       }
       if (authorization !== undefined && authorization.accountId !== publicKey) {
         setSpendingLimitChallenge(undefined);
+        releaseSubmission();
         return;
       }
+      submissionPhase.current = 'executing';
+      onBusyChange(true);
       setSubmitting(true);
       setSubmitError(null);
       setSpendingLimitChallenge(undefined);
@@ -383,11 +397,13 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
         // Settled before navigation: that navigation unmounts this component and
         // the route cleanup would otherwise report the swap as abandoned.
         settleSwap(flow => flow.complete());
+        releaseSubmission();
         navigate(`/generating-transaction/${encodeURIComponent(txId)}`, HistoryAction.Replace);
       } catch (error) {
         const spends = [{ faucetId: offerToken.faucetId, amount: offerAmountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
         if (assessment !== undefined) {
+          submissionPhase.current = 'challenge';
           setSpendingLimitChallenge({ assessment, spends });
           setSubmitting(false);
           return;
@@ -408,6 +424,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
         settleSwap(flow => flow.fail(classifyError(error)));
         setSubmitError(error instanceof Error ? error.message : String(error));
         setSubmitting(false);
+        releaseSubmission();
       }
     },
     [
@@ -415,16 +432,18 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
       expirySecondsValue,
       offerAmountBaseUnits,
       offerToken.faucetId,
+      onBusyChange,
       openUnpricedChallenge,
       publicKey,
       requestAmountBaseUnits,
       requestToken.faucetId,
+      releaseSubmission,
       settleSwap
     ]
   );
 
   const onSubmit = useCallback(async () => {
-    if (submitting || !publicKey) return;
+    if (submissionPhase.current !== 'idle' || submitting || spendingLimitChallenge !== undefined || !publicKey) return;
     // A previous attempt that failed settled its flow errored, so a retry is a
     // fresh flow rather than an unreported second try inside a closed one. Same
     // contract as `enterSendFlow`.
@@ -434,13 +453,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
     // live quote can empty the receive field between review and tap. Re-validate
     // here so an invalid amount shows a clear message instead of a BigInt(NaN)
     // throw from `stringToBigInt('')`.
-    if (
-      sameToken ||
-      !hasOfferAmount ||
-      !hasRequestAmount ||
-      offerAmountExceedsBalance ||
-      !validExpiry
-    ) {
+    if (sameToken || !hasOfferAmount || !hasRequestAmount || offerAmountExceedsBalance || !validExpiry) {
       setSubmitError(t('swapInvalidAmounts'));
       // Deliberately not settled: the user is still on the review screen and can
       // fix the amount, so this is one attempt failing inside a flow that is
@@ -454,18 +467,22 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
       setSubmitError(t('insufficientFeeAsset'));
       return;
     }
+    submissionPhase.current = 'checking';
+    onBusyChange(true);
     setSubmitting(true);
     try {
       if (offerAmountBaseUnits === undefined) throw new Error(t('swapInvalidAmounts'));
       const spends = [{ faucetId: offerToken.faucetId, amount: offerAmountBaseUnits }];
       const assessment = await assessSpendingLimit(publicKey, spends);
       if (assessment !== undefined && assessment.breach !== undefined) {
+        submissionPhase.current = 'challenge';
         setSpendingLimitChallenge({ assessment, spends });
         setSubmitting(false);
         return;
       }
       if (!(await confirmSensitiveAction(t('confirmSwapReason'), probeHardwareProtector))) {
         setSubmitting(false);
+        releaseSubmission();
         return;
       }
       await runSwap();
@@ -488,12 +505,16 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
       }
       setSubmitError(error instanceof Error ? error.message : String(error));
       setSubmitting(false);
+      releaseSubmission();
     }
   }, [
     assessSpendingLimit,
     offerAmountBaseUnits,
     openUnpricedChallenge,
+    onBusyChange,
+    releaseSubmission,
     submitting,
+    spendingLimitChallenge,
     publicKey,
     sameToken,
     offerAmountExceedsBalance,
@@ -511,10 +532,12 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
 
   const handleSpendingLimitResult = useCallback(
     (authorization: SpendingLimitAuthorization | undefined) => {
+      if (submissionPhase.current !== 'challenge') return;
       setSpendingLimitChallenge(undefined);
       if (authorization !== undefined) void runSwap(authorization);
+      else releaseSubmission();
     },
-    [runSwap]
+    [runSwap, releaseSubmission]
   );
 
   // The account is the only identity both the `assessment` and `unpriced` challenge shapes carry
@@ -526,8 +549,9 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
     const accountId = spendingLimitChallenge.assessment?.accountId ?? spendingLimitChallenge.unpriced?.accountId;
     if (accountId !== publicKey) {
       setSpendingLimitChallenge(undefined);
+      releaseSubmission();
     }
-  }, [publicKey, spendingLimitChallenge]);
+  }, [publicKey, spendingLimitChallenge, releaseSubmission]);
 
   const statusMessage = useMemo(() => {
     if (sameToken) return { text: t('swapSameToken'), isError: true };
@@ -665,24 +689,32 @@ const SwapUnavailable: React.FC<{ loading: boolean }> = ({ loading }) => {
 };
 
 /**
- * Opens on the configured default pair. Material registry changes remount the draft with fresh
- * tokens and precision; an already captured submission continues with its original amounts.
+ * Idle registry changes reset the draft. A captured submission or challenge retains its manager
+ * and pair until settlement, including when the latest configuration removes every token.
  */
 const SwapFlowGate: React.FC = () => {
   const tokens = useSwapTokens();
   const snapshot = useBridgeConfigSnapshot();
   const availability = swapAvailability(snapshot);
   const defaultPair = getDefaultSwapPair();
-  if (availability.state !== 'available' || defaultPair === null) {
+  const registryKey = JSON.stringify({ tokens, defaultPair });
+  const [, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const onBusyChange = useCallback((busy: boolean) => {
+    // External-store refreshes can render before React commits the submitting state.
+    busyRef.current = busy;
+    setBusy(busy);
+  }, []);
+  const [activeRegistry, setActiveRegistry] = useState(() => ({ key: registryKey, defaultPair }));
+  if (!busyRef.current && activeRegistry.key !== registryKey) {
+    setActiveRegistry({ key: registryKey, defaultPair });
+  }
+  if (activeRegistry.defaultPair === null || (!busyRef.current && availability.state !== 'available')) {
     return <SwapUnavailable loading={availability.state === 'loading'} />;
   }
   return (
-    <NavigatorProvider
-      key={JSON.stringify(tokens)}
-      routes={ROUTES}
-      initialRouteName={SwapFlowStep.SwapAmounts}
-    >
-      <SwapManager defaultPair={defaultPair} />
+    <NavigatorProvider key={activeRegistry.key} routes={ROUTES} initialRouteName={SwapFlowStep.SwapAmounts}>
+      <SwapManager defaultPair={activeRegistry.defaultPair} onBusyChange={onBusyChange} />
     </NavigatorProvider>
   );
 };

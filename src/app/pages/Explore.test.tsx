@@ -423,6 +423,7 @@ describe('Explore', () => {
 
     it('updates price readiness on a config-only change with an unchanged empty feed', async () => {
       _setSwapTokensForTest(undefined);
+      mockedHasUnquotedDefaultPrice.mockReturnValue(true);
       mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
       mockAllBalances = [makeToken(TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IETH.symbol, 'Ether', 1)];
       mockTokenPrices = {};
@@ -441,8 +442,7 @@ describe('Explore', () => {
                   {
                     symbol: TEST_TOKEN_IETH.symbol,
                     faucetId: TEST_TOKEN_IETH.faucetId,
-                    decimals: TEST_TOKEN_IETH.decimals,
-                    priceSymbol: 'USDCX'
+                    decimals: TEST_TOKEN_IETH.decimals
                   }
                 ]
               }
@@ -452,6 +452,7 @@ describe('Explore', () => {
         });
         expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
       } finally {
+        mockedHasUnquotedDefaultPrice.mockReturnValue(false);
         _setSwapTokensForTest(TEST_SWAP_TOKENS);
       }
     });

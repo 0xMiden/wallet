@@ -2,8 +2,10 @@ import React from 'react';
 
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 
+import { SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { applyOverrideFor } from 'lib/miden/metadata/overrides';
+import { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 // Import after the mocks are registered.
@@ -128,28 +130,32 @@ jest.mock('./SwapAmounts', () => {
   };
 });
 
+let mockReviewSubmit: () => Promise<void>;
 jest.mock('./ReviewSwap', () => ({
-  ReviewSwap: (props: Record<string, any>) => (
-    <div data-testid="review-swap" data-submitting={String(Boolean(props.submitting))}>
-      <span data-testid="rs-offer-token">{props.offerToken.symbol}</span>
-      <span data-testid="rs-request-token">{props.requestToken.symbol}</span>
-      <span data-testid="rs-offer-amount">{props.offerAmount}</span>
-      <span data-testid="rs-request-amount">{props.requestAmount}</span>
-      <span data-testid="rs-market-price">{String(props.swapEta?.marketPrice)}</span>
-      <span data-testid="rs-fill-seconds">{String(props.swapEta?.estimatedSeconds)}</span>
-      <input
-        data-testid="rs-expiry"
-        value={props.expirySeconds}
-        onChange={event => props.onExpirySecondsChange(event.target.value)}
-      />
-      <button data-testid="rs-auto-consume" onClick={() => props.onAutoConsumeChange(!props.autoConsume)}>
-        {String(props.autoConsume)}
-      </button>
-      <span data-testid="rs-submit-error">{props.submitError ?? ''}</span>
-      <button data-testid="rs-go-back" onClick={props.onGoBack} />
-      <button data-testid="rs-submit" onClick={props.onSubmit} />
-    </div>
-  )
+  ReviewSwap: (props: Record<string, any>) => {
+    mockReviewSubmit = props.onSubmit;
+    return (
+      <div data-testid="review-swap" data-submitting={String(Boolean(props.submitting))}>
+        <span data-testid="rs-offer-token">{props.offerToken.symbol}</span>
+        <span data-testid="rs-request-token">{props.requestToken.symbol}</span>
+        <span data-testid="rs-offer-amount">{props.offerAmount}</span>
+        <span data-testid="rs-request-amount">{props.requestAmount}</span>
+        <span data-testid="rs-market-price">{String(props.swapEta?.marketPrice)}</span>
+        <span data-testid="rs-fill-seconds">{String(props.swapEta?.estimatedSeconds)}</span>
+        <input
+          data-testid="rs-expiry"
+          value={props.expirySeconds}
+          onChange={event => props.onExpirySecondsChange(event.target.value)}
+        />
+        <button data-testid="rs-auto-consume" onClick={() => props.onAutoConsumeChange(!props.autoConsume)}>
+          {String(props.autoConsume)}
+        </button>
+        <span data-testid="rs-submit-error">{props.submitError ?? ''}</span>
+        <button data-testid="rs-go-back" onClick={props.onGoBack} />
+        <button data-testid="rs-submit" onClick={props.onSubmit} />
+      </div>
+    );
+  }
 }));
 
 jest.mock('./SelectSwapToken', () => ({
@@ -170,9 +176,11 @@ jest.mock('./SelectSwapToken', () => ({
 let mockAuthorizationAccountOverride: string | undefined;
 
 let mockChallengeCloseOnBack: boolean | undefined;
+let mockChallengeResult: SpendingLimitChallengeProps['onResult'];
 jest.mock('components/SpendingLimitChallenge', () => ({
   SpendingLimitChallenge: (props: any) => {
     mockChallengeCloseOnBack = props.closeOnBack;
+    mockChallengeResult = props.onResult;
     const source = props.assessment ?? props.unpriced;
     return (
       <div data-testid="spending-limit-challenge">
@@ -731,14 +739,17 @@ describe('SwapFlow / SwapManager', () => {
 
   describe('live registry changes', () => {
     const selectThirdOffer = () => {
+      act(() => void jest.advanceTimersByTime(ROUTE_DWELL_MS));
       fireEvent.click(screen.getByTestId('sa-select-offer'));
       act(() => mockDrawerProps.onSelect(mockTokenC));
       setOffer('10');
     };
 
     beforeEach(() => {
+      jest.useFakeTimers();
       mockAllBalancesReturn = { data: [{ tokenId: 'bech32-faucet-C', balance: 100 }] };
     });
+    afterEach(() => jest.useRealTimers());
 
     it.each([
       { change: 'faucet', token: { ...mockTokenC, faucetId: 'replacement-C' } },
@@ -787,16 +798,117 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('10');
     });
 
-    it('preserves an already captured submission across registry removal', async () => {
+    it.each([
+      { change: 'selected-token removal', tokens: [mockTokenA, mockTokenB] },
+      { change: 'metadata refresh', tokens: [mockTokenA, mockTokenB, { ...mockTokenC, decimals: 0 }] },
+      { change: 'entire-registry removal', tokens: [] }
+    ])('holds the busy review and original flow across $change', async ({ tokens }) => {
       let confirm: (value: boolean) => void = () => undefined;
       mockConfirmSensitive.mockReturnValueOnce(new Promise<boolean>(resolve => (confirm = resolve)));
       const { rerender } = renderFlow();
       selectThirdOffer();
       await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
-      mockGetSwapTokens.mockReturnValue([mockTokenA, mockTokenB]);
+      mockGetSwapTokens.mockReturnValue(tokens);
       rerender(<SwapFlow />);
+      expect(screen.getByTestId('rs-offer-token')).toHaveTextContent('CCC');
+      expect(screen.getByTestId('rs-offer-amount')).toHaveTextContent('10');
+      expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'true');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      expect(swapFlow().cancel).not.toHaveBeenCalled();
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(mockWalletState.assessSpendingLimit).toHaveBeenCalledTimes(1);
       await act(async () => confirm(true));
+      expect(mockInitiateSwap).toHaveBeenCalledTimes(1);
       expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-C', 10n, 'faucet-B', 5n, false, 120, true);
+      expect(swapFlow().complete).toHaveBeenCalledTimes(1);
+      expect(swapFlow().cancel).not.toHaveBeenCalled();
+      if (tokens.length === 0) expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
+      else {
+        expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('AAA');
+        expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+      }
+    });
+
+    it('owns review presses synchronously before assessment resolves', async () => {
+      let assess: (value: undefined) => void = () => undefined;
+      mockWalletState.assessSpendingLimit.mockReturnValueOnce(new Promise<undefined>(resolve => (assess = resolve)));
+      renderFlow();
+      selectThirdOffer();
+      await act(async () => {
+        void mockReviewSubmit();
+        void mockReviewSubmit();
+      });
+      expect(mockWalletState.assessSpendingLimit).toHaveBeenCalledTimes(1);
+      await act(async () => assess(undefined));
+      expect(mockInitiateSwap).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      { change: 'selected-token removal', tokens: [mockTokenA, mockTokenB] },
+      { change: 'entire-registry removal', tokens: [] }
+    ])('holds the approval challenge through $change until cancellation', async ({ tokens }) => {
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+      const { rerender } = renderFlow();
+      selectThirdOffer();
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      mockGetSwapTokens.mockReturnValue(tokens);
+      rerender(<SwapFlow />);
+      expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+      expect(screen.getByTestId('rs-offer-token')).toHaveTextContent('CCC');
+      expect(screen.getByTestId('rs-offer-amount')).toHaveTextContent('10');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      expect(swapFlow().cancel).not.toHaveBeenCalled();
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(mockWalletState.assessSpendingLimit).toHaveBeenCalledTimes(1);
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'cancel-limit' })));
+      expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      if (tokens.length === 0) expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
+      else expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+    });
+
+    it('executes a held challenge once despite duplicate authorization callbacks', async () => {
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+      let finish: (value: string) => void = () => undefined;
+      mockInitiateSwap.mockReturnValueOnce(new Promise<string>(resolve => (finish = resolve)));
+      const { rerender } = renderFlow();
+      selectThirdOffer();
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      const authorize = mockChallengeResult;
+      mockGetSwapTokens.mockReturnValue([]);
+      rerender(<SwapFlow />);
+      await act(async () => {
+        const authorization: SpendingLimitAuthorization = {
+          kind: 'usd',
+          id: 'authorization-1',
+          accountId: 'pk-1',
+          usdAmount: 10n,
+          spendsDigest: 'spends-1',
+          revision: 'revision-1',
+          issuedAt: 120,
+          expiresAt: 240
+        };
+        authorize(authorization);
+        authorize(authorization);
+      });
+      expect(mockInitiateSwap).toHaveBeenCalledTimes(1);
+      expect(mockInitiateSwap).toHaveBeenCalledWith(
+        'pk-1',
+        'faucet-C',
+        10n,
+        'faucet-B',
+        5n,
+        false,
+        120,
+        true,
+        expect.objectContaining({ id: 'authorization-1' })
+      );
+      expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'true');
+      expect(swapFlow().cancel).not.toHaveBeenCalled();
+      await act(async () => finish('tx-held'));
+      expect(swapFlow().complete).toHaveBeenCalledTimes(1);
+      expect(swapFlow().cancel).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
     });
   });
 

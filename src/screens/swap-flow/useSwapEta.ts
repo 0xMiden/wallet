@@ -86,8 +86,13 @@ export function useSwapEta({
       setState(IDLE);
       return;
     }
-    const { of, oa, rf, ra, etaUrl: quoteUrl }: { of: string; oa: string; rf: string; ra: string; etaUrl?: string } =
-      JSON.parse(debouncedKey);
+    const {
+      of,
+      oa,
+      rf,
+      ra,
+      etaUrl: quoteUrl
+    }: { of: string; oa: string; rf: string; ra: string; etaUrl?: string } = JSON.parse(debouncedKey);
     const pair = pairOf(of, rf, quoteUrl);
     const id = ++reqId.current;
     // Only a same-pair amount change keeps the previous quote on screen while it reloads.
