@@ -501,7 +501,7 @@ describe('getDefaultSwapPair', () => {
       config: {
         ...LOADED.config!,
         swap: {
-          tokens: [TEST_SWAP_TOKEN_CONFIG[2]!, TEST_SWAP_TOKEN_CONFIG[3]!, ...TEST_SWAP_TOKEN_CONFIG.slice(0, 2)]
+          tokens: [TEST_SWAP_TOKEN_CONFIG[3]!, TEST_SWAP_TOKEN_CONFIG[2]!, ...TEST_SWAP_TOKEN_CONFIG.slice(0, 2)]
         }
       }
     });
