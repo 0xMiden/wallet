@@ -84,7 +84,7 @@ import {
   WALLET_CONFIRM_TIMEOUT_MS
 } from './usdcx-constants';
 import l2Vectors from './usdcx-l2.vectors.json';
-import { harnessPayoutLeg, payoutLeg, waitForWalletPayoutConfirmation } from './usdcx-legs';
+import { burnTarget, harnessPayoutLeg, payoutLeg, waitForWalletPayoutConfirmation } from './usdcx-legs';
 import { newRunEvidence, withStepBudget, type NamedStep } from './usdcx-run';
 import type { XReserveAttestation } from '../../../src/lib/usdcx/attestation';
 import attestationVectors from '../../../src/lib/usdcx/attestation.vectors.json';
@@ -1106,6 +1106,112 @@ describe('harnessPayoutLeg (usdcx-legs.ts)', () => {
       fees: [{ name: 'circle payout fee', amount: 16_400n, kind: 'exact' }],
       latenciesMs: { consumeToPayout: 12_000 }
     });
+    // An Arc run's evidence keeps exactly the keys it had before the L2 suite.
+    expect(evidence.ids).not.toHaveProperty('payoutChainId');
+  });
+
+  it('reads and proves an L2 payout on the L2 alone, reading Arc for nothing about the key', async () => {
+    const { step, taken } = recordingSteps();
+    const evidence = newRunEvidence('usdcx-burn-l2 base-sepolia');
+    const secrets: string[] = [];
+    const base = l2PayoutOn(84532);
+    const arcReads: string[] = [];
+    const arc = {
+      endpoints: [ARC_DRPC_URL],
+      publicClient: () =>
+        stubClient(method => {
+          arcReads.push(method);
+          throw new Error('the L2 leg read Arc');
+        })
+    };
+    const l2 = payoutChain({ balances: [HELD, HELD + 988_901n], logs: [paidTo(base.log, KEY, 66483823n)] });
+    const payoutReads = {
+      endpoints: [BASE_SEPOLIA_PAYOUT.rpcUrls[0] ?? ''],
+      publicClient: () => stubClient(l2),
+      clock: fakeClock(CONSUME_MS + 7_000),
+      payoutChain: BASE_SEPOLIA_PAYOUT
+    };
+
+    const leg = await harnessPayoutLeg(step, { env: { ...ENV }, arc, payoutReads, budget: BUDGET, evidence, secrets });
+    expect(leg.snapshot).toEqual({
+      endpoint: 'https://base-sepolia-rpc.publicnode.com',
+      blockNumber: 66483822n,
+      balance: HELD
+    });
+    const payout = await leg.waitForPayout(
+      {
+        burnNoteId: hexOf(base.burnNoteId),
+        oracle: { consumeTimestampSec: CONSUME_MS / 1_000, consumeBlock: 412_345 }
+      },
+      hexOf(l2Vectors.depositor)
+    );
+
+    expect(payout).toMatchObject({
+      value: 988_901n,
+      fee: 11_099n,
+      sourceDomain: 26,
+      transactionHash: base.transaction.hash,
+      latencyMs: 7_000
+    });
+    expect(arcReads).toEqual([]);
+    expect(taken).toEqual([
+      ['key_snapshot', BUDGET.keySnapshot],
+      ['payout', BUDGET.payout]
+    ]);
+    expect(evidence).toMatchObject({
+      ids: {
+        arcKey: KEY,
+        arcKeyRole: 'harness',
+        arcBalanceBefore: String(HELD),
+        arcSnapshotBlock: '66483822',
+        payoutChainId: '84532'
+      },
+      hashes: { payout: base.transaction.hash },
+      fees: [{ name: 'circle payout fee', amount: 11_099n, kind: 'exact' }]
+    });
+  });
+
+  it("fails an L2 payout step naming the key's read on that L2 and xReserve's flags read on Arc", async () => {
+    const { step } = recordingSteps();
+    const evidence = newRunEvidence('usdcx-burn-l2 base-sepolia');
+    const flags: Record<string, Hex> = {
+      isRemoteDomainRegistered: encodeBool(true),
+      paused: encodeBool(false),
+      domainDepositsPaused: encodeBool(false),
+      domainWithdrawalsPaused: encodeBool(true),
+      getRemoteToken: `0x${'00'.repeat(32)}`,
+      getRemoteDomainDepositor: encodeAbiParameters(
+        [{ type: 'address' }],
+        ['0xb21c91a0f4d4c03f4b6a0fc5214f06e431ff2b2d']
+      ),
+      gatewayMinter: encodeAbiParameters([{ type: 'address' }], [GATEWAY_MINTER])
+    };
+    const arc = {
+      endpoints: [ARC_DRPC_URL],
+      publicClient: () => stubClient((_method, params) => flags[callOf(params).functionName])
+    };
+    const payoutReads = {
+      endpoints: [BASE_SEPOLIA_PAYOUT.rpcUrls[0] ?? ''],
+      publicClient: () => stubClient(payoutChain({ balances: [HELD], logs: [] })),
+      clock: fakeClock(CONSUME_MS),
+      payoutChain: BASE_SEPOLIA_PAYOUT
+    };
+
+    const leg = await harnessPayoutLeg(step, {
+      env: { ...ENV },
+      arc,
+      payoutReads,
+      budget: BUDGET,
+      evidence,
+      secrets: []
+    });
+    const failure = leg.waitForPayout(burn, depositor);
+
+    await expect(failure).rejects.toThrow(
+      `harness key ${KEY} (${HARNESS_ARC_KEY_FILE}) held ${HELD} at Base Sepolia block 66483822 (read on ` +
+        'base-sepolia-rpc.publicnode.com); '
+    );
+    await expect(failure).rejects.toThrow('xReserve paused false, deposits paused false, withdrawals paused true');
   });
 
   it("fails the payout step at the consume's deadline, naming the key's pre-burn read by host", async () => {
@@ -1276,6 +1382,105 @@ describe('waitForWalletPayoutConfirmation (usdcx-legs.ts)', () => {
     );
     await expect(failure).rejects.not.toThrow('token-in-path');
     expect(clock.slept).toEqual(Array(WALLET_CONFIRM_TIMEOUT_MS / 3_000).fill(3_000));
+  });
+
+  it("names the L2's wallet RPC by host, never its project id, when the wallet never confirms", async () => {
+    const reads = {
+      endpoints: [BASE_SEPOLIA_PAYOUT.rpcUrls[0] ?? ''],
+      payoutChain: BASE_SEPOLIA_PAYOUT,
+      // The wallet's WalletConnect backend lags the harness's endpoint, which already reads the payout.
+      publicClient: (endpoint: string) =>
+        stubClient(
+          payoutChain({ balances: [endpoint === BASE_SEPOLIA_PAYOUT.walletRpcUrl ? HELD : payout.balance], logs: [] })
+        ),
+      clock: fakeClock()
+    };
+
+    const failure = waitForWalletPayoutConfirmation({
+      readRows: rowReads([[burnRow('burn')]]),
+      rowId: 'burn',
+      arcFromBlock: 66483822n,
+      payout,
+      key: { address: KEY },
+      arc: reads,
+      where,
+      evidence: newRunEvidence('usdcx-burn-l2 base-sepolia')
+    });
+
+    await expect(failure).rejects.toThrow(
+      `key balance now ${payout.balance}, rpc.walletconnect.org reads ${HELD}; route #/ (visible)`
+    );
+    await expect(failure).rejects.not.toThrow('projectId=');
+  });
+
+  // viem's error text quotes the request URL, so a failed read through the wallet's RPC would print its project id.
+  it('redacts the project id when the read through the L2 wallet RPC itself fails', async () => {
+    const reads = {
+      endpoints: [BASE_SEPOLIA_PAYOUT.rpcUrls[0] ?? ''],
+      payoutChain: BASE_SEPOLIA_PAYOUT,
+      publicClient: (endpoint: string) =>
+        endpoint === BASE_SEPOLIA_PAYOUT.walletRpcUrl
+          ? stubClient(() => {
+              // errorText keeps each message's first line alone, so the URL rides on it, as a fetch error's text can.
+              throw new Error(
+                'HTTP request failed. URL: https://rpc.walletconnect.org/v1?chainId=eip155:84532&projectId=operator-project'
+              );
+            })
+          : stubClient(payoutChain({ balances: [payout.balance], logs: [] })),
+      clock: fakeClock()
+    };
+
+    const failure = waitForWalletPayoutConfirmation({
+      readRows: rowReads([[burnRow('burn')]]),
+      rowId: 'burn',
+      arcFromBlock: 66483822n,
+      payout,
+      key: { address: KEY },
+      arc: reads,
+      where,
+      evidence: newRunEvidence('usdcx-burn-l2 base-sepolia')
+    });
+
+    await expect(failure).rejects.toThrow(
+      `key balance now ${payout.balance}, rpc.walletconnect.org failed: Base Sepolia USDC balance of ${KEY}`
+    );
+    await expect(failure).rejects.toThrow('projectId=<redacted>');
+    await expect(failure).rejects.not.toThrow('operator-project');
+  });
+
+  it("fails an L2 confirmation read before the payout's log, naming the L2's block", async () => {
+    const failure = waitForWalletPayoutConfirmation({
+      readRows: rowReads([[burnRow('burn', { balance: String(payout.balance), blockNumber: '66483822' })]]),
+      rowId: 'burn',
+      arcFromBlock: 66483821n,
+      payout,
+      key: { address: KEY },
+      arc: { endpoints: [BASE_SEPOLIA_PAYOUT.rpcUrls[0] ?? ''], payoutChain: BASE_SEPOLIA_PAYOUT, clock: fakeClock() },
+      where,
+      evidence: newRunEvidence('usdcx-burn-l2 base-sepolia')
+    });
+
+    await expect(failure).rejects.toThrow(
+      `confirmation at Base Sepolia block 66483822, snapshot 66483821, payout log 66483823, ${HELD} on the key ` +
+        'before the burn'
+    );
+  });
+});
+
+describe('burnTarget (usdcx-legs.ts)', () => {
+  const KEY = addressOf('0x6aF7413CbC1FC53454539Da54aAefFE1114FDC66');
+
+  it("carries the destination's own domain on the burn and its row, never the payout's source domain", () => {
+    expect([ARC_PAYOUT, BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT].map(chain => burnTarget(chain, KEY))).toEqual([
+      { destination: KEY.toLowerCase(), network: 5042002, domain: 26 },
+      { destination: KEY.toLowerCase(), network: 84532, domain: 6 },
+      { destination: KEY.toLowerCase(), network: 421614, domain: 3 }
+    ]);
+    expect(
+      [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT].map(
+        chain => burnTarget(chain, KEY).domain === chain.attestationSourceDomain
+      )
+    ).toEqual([false, false]);
   });
 });
 

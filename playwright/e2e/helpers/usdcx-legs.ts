@@ -31,17 +31,17 @@ import {
 import { mintFromPublicFaucet, publicFaucetApiUrl } from './public-faucet';
 import { waitForPublicNoteCommitment } from './public-note-commitment';
 import {
-  ARC_CHAIN_ID,
-  ARC_CIRCLE_DOMAIN,
-  ARC_PUBLIC_URL,
+  ARC_PAYOUT,
   BURN_UNITS,
   GRANT_MARGIN_UNITS,
   GRANT_UNITS,
   HARNESS_ARC_KEY_FILE,
   minimumUsdcxPayout,
   PAYOUT_TIMEOUT_MS,
+  redactProjectId,
   USDCX_BURN_TAG,
-  WALLET_CONFIRM_TIMEOUT_MS
+  WALLET_CONFIRM_TIMEOUT_MS,
+  type PayoutChain
 } from './usdcx-constants';
 import { assertNoGuardianOpInFlight, burnFailureMessage } from './usdcx-guardian';
 import {
@@ -76,17 +76,16 @@ import {
   type StepContext
 } from './usdcx-run';
 import { USDCX_DECIMALS } from '../../../src/lib/usdcx/constant';
-import { ARC_TESTNET } from '../../../src/lib/walletconnect/config';
 import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
 
 /**
  * The legs the live USDCx specs share: a Guardian or standard wallet funded by one public faucet grant, and a burn
- * through Send to an Arc key. Their pure decisions live in usdcx-run.ts, which has the unit tests; this file is the
- * live wiring, run by `yarn e2e:real --suite usdcx|usdcx-in|usdcx-burn`.
+ * through Send to a key on Arc or an L2 (`PayoutChain`, Arc by default). Their pure decisions live in usdcx-run.ts,
+ * which has the unit tests; this file is the live wiring, run by
+ * `yarn e2e:real --suite usdcx|usdcx-in|usdcx-burn|usdcx-burn-l2`.
  */
 
 const VAULT_TIMEOUT_MS = 120_000;
-const ARC_EXPLORER = ARC_TESTNET.blockExplorers.default.url;
 
 /** A wallet's ids in each form the run needs: composite for the wallet, bare bech32 and hex for the Node oracle. */
 export interface UsdcxWalletIds {
@@ -325,7 +324,7 @@ export async function fundFromPublicFaucet(
 export async function submitBurn(
   wallet: GuardianAwareWalletPage,
   ids: UsdcxWalletIds,
-  opts: { destination: Address; units: bigint; screenshotDir: string }
+  opts: { destination: Address; units: bigint; screenshotDir: string; payoutChain?: PayoutChain }
 ): Promise<ReadonlySet<string>> {
   // A Guardian burn is not requeued on a pending-delta 409 (REQUEUEABLE_ON_PENDING_CONFLICT in transaction/index.ts
   // leaves out bridged-send), so nothing may be in flight.
@@ -336,7 +335,8 @@ export async function submitBurn(
     amount: fromBaseUnits(opts.units, USDCX_DECIMALS),
     nativeTokenId: ids.native,
     nativeSymbol: await readNativeDisplaySymbol(wallet.page, ids.native),
-    screenshotDir: opts.screenshotDir
+    screenshotDir: opts.screenshotDir,
+    payoutChain: opts.payoutChain
   });
   // The burn and destination watchers poll from the provider while a wallet route is visible.
   await wallet.navigateHome();
@@ -350,6 +350,7 @@ export interface BurnLeg {
   sponsorship: bigint;
   vault: bigint;
   oracle: BurnEvidence;
+  /** The payout chain's block of the balance the wallet saved before the burn. */
   arcFromBlock: bigint;
   phases: PhaseTimeline;
 }
@@ -365,6 +366,19 @@ export interface ConfirmBurnOptions {
   guardian: boolean;
   timeoutMs: number;
   where: StepContext;
+  /** Where Circle pays the burn (default Arc): the chain and domain the node and the row must carry. */
+  payoutChain?: PayoutChain;
+}
+
+/**
+ * What a burn to `destination` on `chain` carries, on the node and on its row: the recipient, the chain id and the
+ * destination's Circle domain (26, 6 or 3). The payout names Arc's domain instead, so the two are never compared.
+ */
+export function burnTarget(
+  chain: PayoutChain,
+  destination: Address
+): { destination: string; network: number; domain: number } {
+  return { destination: destination.toLowerCase(), network: chain.chainId, domain: chain.burnDomain };
 }
 
 async function burnVerdict(noteId: string | undefined, rpcUrl: string): Promise<string> {
@@ -459,13 +473,15 @@ export async function confirmBurn(
   if (!burn) throw new Error(`burn row ${row.id} has no usdcxBurn record`);
   const burnNoteId = burn.noteId;
   if (!isHash(burnNoteId)) throw new Error(`burn row ${row.id} names note ${burnNoteId}, not 32 bytes of hex`);
+  const chain = opts.payoutChain ?? ARC_PAYOUT;
+  const target = burnTarget(chain, opts.destination);
 
   // The node, not the row, proves the burn: its amount, tag, scheme-5 target and sender, and the faucet's consume.
   const oracle = await burnEvidence(opts.rpcUrl, {
     faucetBech32: ids.nativeBare,
     noteId: burnNoteId,
     senderBech32: ids.bare,
-    domain: ARC_CIRCLE_DOMAIN,
+    domain: target.domain,
     recipient: opts.destination,
     amount: opts.units
   });
@@ -483,8 +499,8 @@ export async function confirmBurn(
     amount: opts.units,
     tag: USDCX_BURN_TAG,
     sender: ids.accountHex.toLowerCase(),
-    domain: ARC_CIRCLE_DOMAIN,
-    recipient: opts.destination.toLowerCase(),
+    domain: target.domain,
+    recipient: target.destination,
     nullifierCommitted: true
   });
   expect(oracle.scriptRoot).toMatch(/^0x[0-9a-f]{64}$/i);
@@ -528,7 +544,7 @@ export async function confirmBurn(
   expect(before?.blockNumber).toMatch(/^[1-9]\d*$/);
   if (opts.keySnapshot !== undefined && before?.balance !== opts.keySnapshot.balance.toString()) {
     throw new Error(
-      `the wallet saved ${before?.balance} for the key at Arc block ${before?.blockNumber}, but the harness read ` +
+      `the wallet saved ${before?.balance} for the key at ${chain.label} block ${before?.blockNumber}, but the harness read ` +
         `${opts.keySnapshot.balance} at block ${opts.keySnapshot.blockNumber} right before the burn: something paid ` +
         'or spent from the key in between, so its payout cannot be proven'
     );
@@ -539,7 +555,7 @@ export async function confirmBurn(
     destination: row.extraInputs?.destinationAddress?.toLowerCase(),
     network: row.extraInputs?.destinationNetwork,
     domain: burn.destinationDomain
-  }).toEqual({ destination: opts.destination.toLowerCase(), network: ARC_CHAIN_ID, domain: ARC_CIRCLE_DOMAIN });
+  }).toEqual(target);
   expect(row.transactionId).toMatch(/^0x[0-9a-f]+$/);
   const unlisted = burnOutputNoteProblem(path, row, burnNoteId);
   if (unlisted !== undefined) throw new Error(unlisted);
@@ -561,7 +577,13 @@ export type ConsumedBurn = Pick<BurnLeg, 'burnNoteId'> & {
 };
 
 /** Spec 5 step 8 failure body: the payout key and its pre-burn read, the burn's consume and xReserve's pause flags. */
-function payoutContext(arc: ArcReadDeps, label: string, snapshot: ArcUsdcSnapshot, burn: ConsumedBurn): StepContext {
+function payoutContext(
+  arc: ArcReadDeps,
+  chain: PayoutChain,
+  label: string,
+  snapshot: ArcUsdcSnapshot,
+  burn: ConsumedBurn
+): StepContext {
   return async () => {
     const flags = await readXReserveDomainState(arc).then(
       state =>
@@ -570,7 +592,7 @@ function payoutContext(arc: ArcReadDeps, label: string, snapshot: ArcUsdcSnapsho
     );
     const consumedAt = new Date(burn.oracle.consumeTimestampSec * 1_000).toISOString();
     return (
-      `${label} held ${snapshot.balance} at Arc block ` +
+      `${label} held ${snapshot.balance} at ${chain.label} block ` +
       `${snapshot.blockNumber} (read on ${arcHost(snapshot.endpoint)}); burn note ${burn.burnNoteId} consumed in ` +
       `Miden block ${burn.oracle.consumeBlock} at ${consumedAt}; xReserve ${flags}`
     );
@@ -607,22 +629,29 @@ export async function payoutLeg(
   opts: {
     takeKey: () => PayoutKey;
     arc: ArcReadDeps;
+    /** The payout chain's reads (`payoutChain` set); absent, the payout is on Arc and read through `arc`. */
+    payoutReads?: ArcReadDeps;
     budget: { keySnapshot: number; payout: number };
     evidence: RunEvidence;
     secrets: string[];
   }
 ): Promise<PayoutLeg> {
   const { arc, evidence } = opts;
+  // xReserve's pause flags are Arc's for every destination; the key is read and its payout proven where Circle pays.
+  const reads = opts.payoutReads ?? arc;
+  const chain = reads.payoutChain ?? ARC_PAYOUT;
   const { taken, snapshot } = await step('key_snapshot', opts.budget.keySnapshot, async () => {
     const taken = opts.takeKey();
     opts.secrets.push(taken.key.privateKey);
-    return { taken, snapshot: await readArcUsdcSnapshot(taken.key.address, arc) };
+    return { taken, snapshot: await readArcUsdcSnapshot(taken.key.address, reads) };
   });
   const { key } = taken;
   evidence.ids.arcKey = key.address;
   evidence.ids.arcKeyRole = taken.role;
   evidence.ids.arcBalanceBefore = String(snapshot.balance);
   evidence.ids.arcSnapshotBlock = String(snapshot.blockNumber);
+  // An Arc run's evidence keeps exactly the keys it always had.
+  if (chain.chainId !== ARC_PAYOUT.chainId) evidence.ids.payoutChainId = String(chain.chainId);
 
   const waitForPayout = async (burn: ConsumedBurn, depositor: Hex): Promise<GatewayPayout> => {
     const consumeTsMs = burn.oracle.consumeTimestampSec * 1_000;
@@ -640,14 +669,14 @@ export async function payoutLeg(
             consumeTsMs,
             deadlineMs: consumeTsMs + PAYOUT_TIMEOUT_MS,
             depositor,
-            minimumValue: minimumUsdcxPayout(ARC_CHAIN_ID, BURN_UNITS)
+            minimumValue: minimumUsdcxPayout(chain.chainId, BURN_UNITS)
           },
-          arc
+          reads
         ),
-      payoutContext(arc, taken.label, snapshot, burn)
+      payoutContext(arc, chain, taken.label, snapshot, burn)
     );
     expect({ domain: payout.sourceDomain, total: payout.value + payout.fee }).toEqual({
-      domain: ARC_CIRCLE_DOMAIN,
+      domain: chain.attestationSourceDomain,
       total: BURN_UNITS
     });
     evidence.hashes.payout = payout.transactionHash;
@@ -664,6 +693,7 @@ export async function harnessPayoutLeg(
   opts: {
     env: Record<string, string | undefined>;
     arc: ArcReadDeps;
+    payoutReads?: ArcReadDeps;
     budget: { keySnapshot: number; payout: number };
     evidence: RunEvidence;
     secrets: string[];
@@ -689,15 +719,17 @@ export async function waitForWalletPayoutConfirmation(opts: {
   /** The wallet's bridged-send rows, read the platform's way. */
   readRows: () => Promise<BridgedSendRow[]>;
   rowId: string;
-  /** The Arc block of the balance the wallet saved before the burn. */
+  /** The payout chain's block of the balance the wallet saved before the burn. */
   arcFromBlock: bigint;
   payout: Pick<GatewayPayout, 'value' | 'balance' | 'logBlock'>;
   key: Pick<ArcKey, 'address'>;
+  /** The payout chain's reads; their `payoutChain` (Arc when absent) names the wallet's own RPC there. */
   arc: ArcReadDeps;
   where: StepContext;
   evidence: RunEvidence;
 }): Promise<number> {
   const { payout, key, arc } = opts;
+  const chain = arc.payoutChain ?? ARC_PAYOUT;
   const clock = arc.clock ?? realArcClock;
   const row = await pollUntil(
     'the wallet confirming the payout',
@@ -710,14 +742,15 @@ export async function waitForWalletPayoutConfirmation(opts: {
       sleep: ms => clock.sleep(ms),
       describe: async last => {
         const keyNow = await readArcUsdc(key.address, arc).then(String, errorText);
-        const arcIo = await readArcUsdc(key.address, { ...arc, endpoints: [ARC_PUBLIC_URL] }).then(
-          balance => `arc.io reads ${balance}`,
-          (error: unknown) => `arc.io failed: ${errorText(error)}`
+        const walletRpc = await readArcUsdc(key.address, { ...arc, endpoints: [chain.walletRpcUrl] }).then(
+          balance => `${chain.walletRpcName} reads ${balance}`,
+          // viem's error text quotes the URL; arc.io's carries no project id, so Arc's message is unchanged.
+          (error: unknown) => `${chain.walletRpcName} failed: ${redactProjectId(errorText(error))}`
         );
         const before = JSON.stringify(last?.extraInputs?.usdcxBurn?.destinationBalanceBefore);
         return (
           `Circle paid this burn (harness proof) but the wallet never confirmed it; destinationBalanceBefore ` +
-          `${before}, key balance now ${keyNow}, ${arcIo}; ${await opts.where()}`
+          `${before}, key balance now ${keyNow}, ${walletRpc}; ${await opts.where()}`
         );
       }
     }
@@ -731,26 +764,28 @@ export async function waitForWalletPayoutConfirmation(opts: {
       afterSnapshot: confirmedBlock > opts.arcFromBlock,
       atOrAfterPayout: confirmedBlock >= payout.logBlock
     },
-    `confirmation at Arc block ${confirmedBlock}, snapshot ${opts.arcFromBlock}, payout log ${payout.logBlock}, ` +
+    `confirmation at ${chain.label} block ${confirmedBlock}, snapshot ${opts.arcFromBlock}, ` +
+      `payout log ${payout.logBlock}, ` +
       `${payout.balance - payout.value} on the key before the burn`
   ).toEqual({ balance: payout.balance.toString(), afterSnapshot: true, atOrAfterPayout: true });
   opts.evidence.ids.walletConfirmedBalance = String(confirmed?.balance);
   return confirmedAt;
 }
 
-/** Spec 5 step 7: the burn's details read Burn confirmed (or Confirmed once paid), name Arc Testnet and link the key. */
+/** Spec 5 step 7: the burn's details read Burn confirmed (or Confirmed once paid), name the chain and link the key. */
 export async function assertBurnDetails(
   wallet: GuardianAwareWalletPage,
   rowId: string,
-  destination: Address
+  destination: Address,
+  chain: PayoutChain = ARC_PAYOUT
 ): Promise<void> {
   await openHistoryDetails(wallet, rowId);
   const page = wallet.page;
   await expect(page.getByTestId('history-status-pill')).toHaveText(
     anyOf([enText('usdcxBurnConfirmed'), enText('confirmed')])
   );
-  await expect(page.locator(`a[href="${ARC_EXPLORER}/address/${destination}" i]`)).toBeVisible();
-  await expect(page.getByText(ARC_TESTNET.name, { exact: true }).first()).toBeVisible();
+  await expect(page.locator(`a[href="${chain.explorer}/address/${destination}" i]`)).toBeVisible();
+  await expect(page.getByText(chain.networkName, { exact: true }).first()).toBeVisible();
 }
 
 /** The details pill of `rowId` as it reads once rendered. */
@@ -765,8 +800,12 @@ export async function historyPill(wallet: GuardianAwareWalletPage, rowId: string
  * The receiving-tx link's hash if the open details page renders it within `timeoutMs`, else null. The link is a
  * best-effort RPC match the details page looks up once (Q7), so its absence is recorded, never failed.
  */
-export async function receivingTxHash(page: Page, timeoutMs: number): Promise<string | null> {
-  const link = page.locator(`a[href^="${ARC_EXPLORER}/tx/"]`).first();
+export async function receivingTxHash(
+  page: Page,
+  timeoutMs: number,
+  chain: PayoutChain = ARC_PAYOUT
+): Promise<string | null> {
+  const link = page.locator(`a[href^="${chain.explorer}/tx/"]`).first();
   const rendered = await link.waitFor({ state: 'attached', timeout: timeoutMs }).then(
     () => true,
     () => false
