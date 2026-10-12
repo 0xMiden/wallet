@@ -41,6 +41,7 @@ final class BreadPresentationController: NSObject {
     private var lastTick = ProcessInfo.processInfo.systemUptime
     private var token: String?
     private var lastMetricKey: String?
+    private var metricRevision = 0
     private var layoutRevision = 0
     private var preparingRevision: Int?
     private var lastBounds = CGRect.zero
@@ -271,40 +272,72 @@ final class BreadPresentationController: NSObject {
         preparePaint()
     }
 
-    private func publishMetrics() {
-        guard let token, let webView, !webView.bounds.isEmpty else { return }
+    static let metricScript = """
+        if (window.__breadPresentationToken !== token) return false;
+        const previous = window.__breadNativeMetrics;
+        if (previous?.token === token && previous.revision > revision) return false;
+        const metrics = {token, revision, display, inset, width};
+        window.__breadNativeMetrics = metrics;
+        if (!window.__breadReprojectMetrics) {
+            window.__breadReprojectMetrics = () => {
+                const current = window.__breadNativeMetrics;
+                if (!current || window.__breadPresentationToken !== current.token) return;
+                const controlInsetTop = current.inset * innerWidth / current.width;
+                if (current.projectedInset === controlInsetTop) return;
+                current.projectedInset = controlInsetTop;
+                window.__breadPresentationUpdate({token: current.token, display: current.display, controlInsetTop});
+            };
+            addEventListener('resize', window.__breadReprojectMetrics);
+        }
+        const isCurrent = () => window.__breadPresentationToken === token &&
+            window.__breadNativeMetrics.token === token && window.__breadNativeMetrics.revision === revision;
+        window.__breadReprojectMetrics();
+        if (!fence) return true;
+        return await new Promise(resolve => requestAnimationFrame(() => {
+            if (!isCurrent()) { resolve(false); return; }
+            window.__breadReprojectMetrics();
+            const paintedWidth = innerWidth;
+            requestAnimationFrame(() => resolve(isCurrent() && innerWidth === paintedWidth));
+        }));
+        """
+
+    private func metricArguments() -> [String: Any]? {
+        guard let token, let webView, !webView.bounds.isEmpty else { return nil }
         let inset = state.display == .fullscreen ? button.frame.maxY + 8 : 0
-        let key = "\(token):\(state.display.rawValue):\(inset):\(webView.bounds.width)"
-        guard key != lastMetricKey else { return }
-        lastMetricKey = key
-        webView.callAsyncJavaScript("""
-            if (window.__breadPresentationToken === token)
-                window.__breadPresentationUpdate({token, display, controlInsetTop: inset * innerWidth / width});
-            """, arguments: ["token": token, "display": state.display.rawValue,
-                             "inset": inset, "width": webView.bounds.width], in: nil, in: .page)
+        let key = "\(token):\(layoutRevision):\(state.display.rawValue):\(inset):\(webView.bounds.width)"
+        if key != lastMetricKey {
+            lastMetricKey = key
+            metricRevision += 1
+        }
+        return ["token": token, "revision": metricRevision, "display": state.display.rawValue,
+                "inset": inset, "width": webView.bounds.width, "fence": false]
+    }
+
+    private func publishMetrics() {
+        let previousRevision = metricRevision
+        guard let arguments = metricArguments(), metricRevision != previousRevision else { return }
+        webView?.callAsyncJavaScript(Self.metricScript, arguments: arguments, in: nil, in: .page)
     }
 
     private func preparePaint() {
-        guard let owner, let webView, let token, !rotating, state.phase == .preparing,
+        guard let owner, let webView, token != nil, !rotating, state.phase == .preparing,
               state.documentReady, webView.window != nil, !webView.bounds.isEmpty,
               preparingRevision != layoutRevision else { return }
         let revision = layoutRevision
         let generation = state.generation
         preparingRevision = revision
         owner.view.layoutIfNeeded()
-        let inset = state.display == .fullscreen ? button.frame.maxY + 8 : 0
-        let display = state.display.rawValue
-        // Two document frames apply the CSS metric before a native snapshot fences WebKit paint.
-        webView.callAsyncJavaScript("""
-            if (window.__breadPresentationToken !== token) return false;
-            window.__breadPresentationUpdate({token, display, controlInsetTop: inset * innerWidth / width});
-            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-            return window.__breadPresentationToken === token;
-            """, arguments: ["token": token, "display": display, "inset": inset, "width": webView.bounds.width], in: nil, in: .page) { [weak self] result in
+        guard var arguments = metricArguments() else { preparingRevision = nil; return }
+        let metrics = metricRevision
+        arguments["fence"] = true
+        // Reproject after viewport layout, then fence the resulting WebKit paint before revealing it.
+        webView.callAsyncJavaScript(Self.metricScript, arguments: arguments, in: nil, in: .page) { [weak self] result in
                 guard let self, self.state.generation == generation, self.layoutRevision == revision,
                       self.state.phase == .preparing else { return }
-                guard case .success(let value) = result, (value as? Bool) == true else {
+                guard case .success(let value) = result, (value as? Bool) == true,
+                      self.metricRevision == metrics else {
                     self.preparingRevision = nil
+                    if case .success = result { self.preparePaint() }
                     return
                 }
                 let configuration = WKSnapshotConfiguration()
@@ -313,6 +346,7 @@ final class BreadPresentationController: NSObject {
                     guard let self, self.state.generation == generation, self.layoutRevision == revision,
                           self.state.phase == .preparing else { return }
                     self.preparingRevision = nil
+                    guard self.metricRevision == metrics else { self.preparePaint(); return }
                     guard image != nil, error == nil else { return }
                     self.state.layoutPrepared(generation: generation)
                     self.render()

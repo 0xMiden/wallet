@@ -13,6 +13,121 @@ private final class CloseFenceWebView: WKWebView {
 
 @MainActor
 final class BreadPresentationTests: XCTestCase {
+    private func metricFixture() async throws -> (WKWebView, UIWindow) {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 402, height: 400))
+        web.scrollView.contentInsetAdjustmentBehavior = .never
+        let owner = UIViewController()
+        owner.view.addSubview(web)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.rootViewController = owner
+        window.isHidden = false
+        web.loadHTMLString("""
+            <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+            <script>
+            window.__breadPresentationToken='metrics';
+            window.values=[];
+            addEventListener('resize',()=>window.resizedWidth=innerWidth);
+            window.__breadPresentationUpdate=value=>{window.values.push(value);document.body.style.paddingTop=value.controlInsetTop+'px'};
+            </script><body>Metric fixture</body>
+            """, baseURL: nil)
+        let loaded = try await eventually {
+            guard !web.isLoading else { return false }
+            return (try? await web.evaluateJavaScript("innerWidth")) as? Int == 402
+        }
+        XCTAssertTrue(loaded)
+        return (web, window)
+    }
+
+    private func project(_ web: WKWebView, revision: Int, width: Int = 874, inset: Int = 88,
+                         display: String = "fullscreen", token: String = "metrics", fence: Bool = false) async throws -> Bool {
+        try await web.callAsyncJavaScript(BreadPresentationController.metricScript,
+            arguments: ["token": token, "revision": revision, "width": width, "inset": inset,
+                        "display": display, "fence": fence], in: nil, contentWorld: .page) as? Bool == true
+    }
+
+    func testNativeMetricsReprojectWhenViewportResizeArrivesAfterPublication() async throws {
+        let (web, window) = try await metricFixture()
+        defer { InAppBrowserPlugin.releaseContainerWindow(window) }
+        let published = try await project(web, revision: 1)
+        XCTAssertTrue(published)
+        let initial = try await web.evaluateJavaScript("values.at(-1).controlInsetTop") as? Double
+        XCTAssertEqual(try XCTUnwrap(initial), 88 * 402 / 874.0, accuracy: 0.001)
+        web.frame.size.width = 874
+        let resized = try await eventually { (try await web.evaluateJavaScript("window.resizedWidth")) as? Int == 874 }
+        XCTAssertTrue(resized)
+        let projected = try await web.evaluateJavaScript("values.at(-1).controlInsetTop") as? Double
+        XCTAssertEqual(projected, 88)
+    }
+
+    func testNativeMetricsRejectStaleTupleAndDocumentAndKeepBrowserInsetZero() async throws {
+        let (web, window) = try await metricFixture()
+        defer { InAppBrowserPlugin.releaseContainerWindow(window) }
+        _ = try await project(web, revision: 2, width: 402, inset: 126)
+        let stale = try await project(web, revision: 1)
+        XCTAssertFalse(stale)
+        var value = try await web.evaluateJavaScript("values.at(-1).controlInsetTop") as? Double
+        XCTAssertEqual(value, 126)
+        _ = try await project(web, revision: 3, inset: 0, display: "browser")
+        web.frame.size.width = 600
+        let resized = try await eventually { (try await web.evaluateJavaScript("window.resizedWidth")) as? Int == 600 }
+        XCTAssertTrue(resized)
+        value = try await web.evaluateJavaScript("values.at(-1).controlInsetTop") as? Double
+        XCTAssertEqual(value, 0)
+        _ = try await web.evaluateJavaScript("window.__breadPresentationToken='next'; window.values=[]; true")
+        let oldDocument = try await project(web, revision: 4)
+        XCTAssertFalse(oldDocument)
+        _ = try await web.evaluateJavaScript("dispatchEvent(new Event('resize')); true")
+        let count = try await web.evaluateJavaScript("values.length") as? Int
+        XCTAssertEqual(count, 0)
+        let next = try await project(web, revision: 1, width: 600, inset: 126, token: "next")
+        XCTAssertTrue(next)
+        value = try await web.evaluateJavaScript("values.at(-1).controlInsetTop") as? Double
+        XCTAssertEqual(value, 126)
+        web.loadHTMLString("""
+            <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+            <script>window.__breadPresentationToken='navigated';window.values=[];
+            window.__breadPresentationUpdate=value=>values.push(value);</script><body>Next document</body>
+            """, baseURL: nil)
+        let navigated = try await eventually {
+            (try? await web.evaluateJavaScript("window.__breadPresentationToken")) as? String == "navigated"
+        }
+        XCTAssertTrue(navigated)
+        let retained = try await web.evaluateJavaScript("typeof window.__breadNativeMetrics") as? String
+        XCTAssertEqual(retained, "undefined")
+        let obsoleteNavigation = try await project(web, revision: 5, token: "next")
+        XCTAssertFalse(obsoleteNavigation)
+        let fresh = try await project(web, revision: 1, width: 600, inset: 0, display: "browser", token: "navigated")
+        XCTAssertTrue(fresh)
+        value = try await web.evaluateJavaScript("values.at(-1).controlInsetTop") as? Double
+        XCTAssertEqual(value, 0)
+    }
+
+    func testNativeMetricPaintFenceAppliesAfterViewportResizeAndRejectsSupersededPaint() async throws {
+        let (web, window) = try await metricFixture()
+        defer { InAppBrowserPlugin.releaseContainerWindow(window) }
+        _ = try await web.evaluateJavaScript("window.frames=[]; window.requestAnimationFrame=callback=>frames.push(callback); true")
+        let painting = Task { try await self.project(web, revision: 1, fence: true) }
+        let waiting = try await eventually { (try await web.evaluateJavaScript("frames.length")) as? Int ?? 0 > 0 }
+        XCTAssertTrue(waiting)
+        web.frame.size.width = 874
+        let resized = try await eventually { (try await web.evaluateJavaScript("window.resizedWidth")) as? Int == 874 }
+        XCTAssertTrue(resized)
+        _ = try await web.evaluateJavaScript("while(frames.length) frames.shift()(performance.now()); true")
+        let painted = try await painting.value
+        XCTAssertTrue(painted)
+        let value = try await web.evaluateJavaScript("values.at(-1).controlInsetTop") as? Double
+        XCTAssertEqual(value, 88)
+        let superseded = Task { try await self.project(web, revision: 2, fence: true) }
+        let secondWaiting = try await eventually { (try await web.evaluateJavaScript("frames.length")) as? Int ?? 0 > 0 }
+        XCTAssertTrue(secondWaiting)
+        _ = try await project(web, revision: 3, width: 874, inset: 0, display: "browser")
+        _ = try await web.evaluateJavaScript("while(frames.length) frames.shift()(performance.now()); true")
+        let obsolete = try await superseded.value
+        XCTAssertFalse(obsolete)
+    }
+
     func testManagedCloseHoldsTheOriginalWindowAndRejectsStaleReceipts() {
         let plugin = InAppBrowserPlugin()
         let owner = WKWebViewController()
