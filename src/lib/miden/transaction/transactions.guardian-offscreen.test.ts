@@ -215,6 +215,12 @@ jest.mock('../front', () => ({
   onStorageChanged: jest.fn()
 }));
 
+const mockPrepareCustomRequestBytes = jest.fn(async (_client: unknown, _account: string, bytes: Uint8Array) => bytes);
+jest.mock('lib/miden/sdk/custom-request', () => ({
+  prepareCustomRequestBytes: (client: unknown, account: string, bytes: Uint8Array) =>
+    mockPrepareCustomRequestBytes(client, account, bytes)
+}));
+
 jest.mock('lib/settings/constants', () => ({}));
 
 const mockIsGuardianAccount = jest.fn();
@@ -2357,12 +2363,11 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     expect(mockDispatchGuardianPipeline.mock.calls[0][2]).toBe(true);
   });
 
-  // #784: the co-signatures were collected over a summary that binds the
-  // proposal's reference block, so the offscreen realm must execute AT that
-  // block. The anchor crosses in its wire form — the proposal metadata's base64
-  // string — and is decoded offscreen-side (a WASM ChainAnchor cannot cross the
-  // message boundary).
-  it('crosses the proposal chain anchor to dispatchGuardianPipeline in its wire-form base64 (#784)', async () => {
+  // #784: wire compatibility only. The proposal metadata's base64 anchor still
+  // fills dispatchGuardianPipeline's last parameter unchanged, though the
+  // offscreen leaf reads nothing from it: it executes at the tip against the
+  // block the request's auth args bind.
+  it('hands dispatchGuardianPipeline the metadata anchor unchanged, for wire compatibility only (#784)', async () => {
     process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
     mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
     const row = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
@@ -2539,9 +2544,9 @@ describe('guardian leaf records the submit crossing', () => {
 
 // A request the wallet built itself is proposed re-bound to the current sync height, and the
 // rebased bytes replace the row's: signing and execution rebuild from `requestBytes`, so they
-// must be the bytes the proposal was made from. A dApp's request is not the wallet's to
-// rebuild, so `execute` proposes its bytes as they are.
-describe('guardian custom proposals: wallet-built rows propose rebased bytes, dApp execute does not', () => {
+// must be the bytes the proposal was made from. Authenticated dApp requests keep their bytes;
+// supported requests missing auth receive wallet-resolved auth before proposing.
+describe('guardian custom proposals preserve the prepared request through signing', () => {
   const walletBuiltCases = () => [
     // A Guardian approval expiration rides with each wallet-built type that set a request delta (#1081).
     { ...valueMovingCases().find(c => c.type === 'swap')!, proposalType: 'swap', approvalExpirationDelta: 180 },
@@ -2568,6 +2573,22 @@ describe('guardian custom proposals: wallet-built rows propose rebased bytes, dA
       expect(Array.from(txStore.find(r => r.id === id)!.requestBytes as Uint8Array)).toEqual(REBASED_BYTES);
     }
   );
+
+  it('execute: persists enriched bytes before proposing and signs those exact bytes', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'enriched-execute';
+    const { service } = arrange(id, executeCase.row);
+    const enriched = new Uint8Array([71, 72, 73]);
+    mockPrepareCustomRequestBytes.mockResolvedValueOnce(enriched);
+    service.createCustomProposal.mockImplementationOnce(async () => {
+      expect(txStore.find(row => row.id === id)?.requestBytes).toBe(enriched);
+      return { id: 'prop', nonce: 7 };
+    });
+    await generateTransaction(buildTx(id, executeCase.row) as never, signCallback, false, provider as never);
+    expect(service.createCustomProposal).toHaveBeenCalledWith(enriched);
+    expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop', enriched);
+    expect(Array.from(txStore.find(row => row.id === id)!.requestBytes as Uint8Array)).toEqual([71, 72, 73]);
+  });
 
   it('execute: proposes the dApp bytes as they are and signs those same bytes', async () => {
     const executeCase = valueMovingCases().find(c => c.type === 'execute')!;

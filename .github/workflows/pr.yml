@@ -240,6 +240,10 @@ jobs:
         timeout-minutes: 5
         run: node scripts/consume-request-equivalence.mjs
 
+      - name: Run guarded custom request regressions
+        timeout-minutes: 5
+        run: yarn test:custom-request
+
       - name: Install Chrome
         uses: browser-actions/setup-chrome@v1
 

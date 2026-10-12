@@ -239,6 +239,6 @@ describe('bundledGridCardCount', () => {
     process.env.E2E_NETWORK = 'devnet';
     expect(bundledGridCardCount()).toBe(1);
     delete process.env.E2E_NETWORK;
-    expect(bundledGridCardCount()).toBe(2);
+    expect(bundledGridCardCount()).toBe(3);
   });
 });
