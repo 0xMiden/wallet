@@ -259,7 +259,8 @@ export interface UsdcxExecutorDepositDeps {
  * quote the burn goes through the fee entry point for the amount plus the fee and Circle forwards and executes
  * it on Arc; when Circle refuses or cannot be reached the burn goes through the plain token messenger for the
  * amount and the wallet executes it on Arc itself. Either way the approval is sent only when the allowance is
- * short, the hash is recorded on the row before the receipt is awaited, and the row then moves to `delivering`.
+ * short, the hash and the signed recipient are recorded on the row before the receipt is awaited, and the row then
+ * moves to `delivering`.
  * Nothing here waits for Circle. A quote lives about two minutes, so after an approval the burn signs a second
  * quote; the approval covers twice the quoted fee, and a fee beyond that takes the manual route.
  */
@@ -323,6 +324,7 @@ export async function runUsdcxExecutorDeposit(
     : await signer.depositForBurnWithHook(buildDepositForBurnWithHookArgs(amount, source, remoteRecipient, depositor));
   await updatePhase(trackingTxId, 'submitting', {
     evmTxHash: burnHash,
+    usdcxRemoteRecipient: remoteRecipient.toLowerCase(),
     cctp: quote
       ? { sourceDomain: source.domain, forwarded: true, forwardFee: quote.feeTotalAmount.toString() }
       : { sourceDomain: source.domain, forwarded: false }

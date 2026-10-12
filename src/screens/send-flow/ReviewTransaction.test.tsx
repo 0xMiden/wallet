@@ -20,6 +20,7 @@ import { isExtension } from 'lib/platform';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { initiateUsdcxBurn } from 'lib/usdcx/burn';
+import { UsdcxBurnError } from 'lib/usdcx/withdrawal';
 import { goBack, navigate } from 'lib/woozie';
 import { isValidMidenAddress } from 'utils/miden';
 
@@ -45,6 +46,8 @@ let mockEpochQuote: { amount?: string; loading: boolean; error: null; symbol: st
   symbol: 'USDC'
 };
 let mockBurnPreflight = { minimum: 1n, loading: false, error: undefined };
+// The native asset's chain metadata; null until a test discovers one, as before discovery.
+let mockNativeMetadata: { symbol: string; decimals: number } | null = null;
 jest.mock('lib/usdcx/burn', () => ({ initiateUsdcxBurn: jest.fn(async () => 'burn-tx') }));
 jest.mock('lib/usdcx/use-burn-preflight', () => ({ useBurnPreflight: () => mockBurnPreflight }));
 
@@ -108,9 +111,16 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    // The recall note's only parameter is the amount it names; every other key reads as itself.
-    t: (key: string, params?: { amount?: string }) =>
-      key === 'recallReturnsNote' && params?.amount ? `${key} ${params.amount}` : key
+    // The recall note names its amount, a fee label its fee asset and a USDCx payout line its amount and network;
+    // every other key reads as itself.
+    t: (key: string, params?: { amount?: string; symbol?: string; network?: string }) =>
+      key === 'recallReturnsNote' && params?.amount
+        ? `${key} ${params.amount}`
+        : params?.symbol !== undefined
+          ? `${key}|${params.symbol}`
+          : params?.amount !== undefined
+            ? [key, params.amount, params.network].filter(part => part !== undefined).join('|')
+            : key
   })
 }));
 
@@ -255,7 +265,8 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 const USDCX_FAUCET_ID_BECH32 = 'mtst1usdcxnative';
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset'),
-  getNativeAssetIdSync: () => 'mtst1usdcxnative'
+  getNativeAssetIdSync: () => 'mtst1usdcxnative',
+  getNativeAssetMetadataSync: () => mockNativeMetadata
 }));
 
 jest.mock('lib/miden-chain/constants', () => ({
@@ -428,6 +439,7 @@ beforeEach(() => {
   mockTokensMeta = [];
   mockDetectedChain = 'miden';
   mockEpochQuote = { amount: undefined, loading: false, error: null, symbol: 'USDC' };
+  mockNativeMetadata = null;
 
   delete process.env.MIDEN_E2E_TEST;
 });
@@ -447,11 +459,13 @@ describe('USDCx burn review', () => {
     mockSearch = `amount=1.000001&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
   });
 
-  it('submits the exact base-unit burn and shows no destination payout estimate', async () => {
+  it('submits the exact base-unit burn and shows Circle fee and the least payout', async () => {
     render(<ReviewTransaction />);
     await flush();
     expect(screen.getByText('usdcxWithdrawalNotice')).toBeInTheDocument();
-    expect(screen.queryByText('youReceive')).not.toBeInTheDocument();
+    // The review now shows the payout Circle's fee leaves, where it used to show no payout figure at all.
+    expect(screen.getByText('usdcxPayoutFeeUpTo|0.1')).toBeInTheDocument();
+    expect(screen.getByText('usdcxPayoutAtLeast|0.900001')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('send-review-submit'));
     await waitFor(() =>
       expect(initiateUsdcxBurn).toHaveBeenCalledWith(
@@ -472,7 +486,10 @@ describe('USDCx burn review', () => {
     ['base-sepolia', 84532],
     ['arbitrum-sepolia', 421614]
   ])('accepts a USDCx deep link targeting %s', async (network, chainId) => {
-    mockSearch = mockSearch.replace('network=arc-testnet', `network=${network}`);
+    // 2.000001 USDCx, since a burn must exceed its destination's payout fee allowance (1.5 USDC on Sepolia).
+    mockSearch = mockSearch
+      .replace('network=arc-testnet', `network=${network}`)
+      .replace('amount=1.000001', 'amount=2.000001');
     render(<ReviewTransaction />);
     await flush();
     fireEvent.click(screen.getByTestId('send-review-submit'));
@@ -505,6 +522,19 @@ describe('USDCx burn review', () => {
     expect(screen.getByText('usdcxInvalidAmount')).toBeInTheDocument();
   });
 
+  it('marks the withdrawal notice for the e2e harness', async () => {
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('usdcx-burn-notice')).toHaveTextContent('usdcxWithdrawalNotice');
+  });
+
+  it('names the native fee asset in the burn fee row, never MIDEN', async () => {
+    mockNativeMetadata = { symbol: 'USDCx', decimals: 6 };
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByText('usdcxSponsorshipFee|USDCx')).toBeInTheDocument();
+  });
+
   it('rejects a deep link trying to burn a different faucet', async () => {
     mockBalanceData = [VALID_TOKEN];
     mockSearch = mockSearch.replace(USDCX_FAUCET_ID_BECH32, 'tok1');
@@ -512,6 +542,41 @@ describe('USDCx burn review', () => {
     await flush();
     expect(screen.getByTestId('redirect')).toBeInTheDocument();
     expect(initiateUsdcxBurn).not.toHaveBeenCalled();
+  });
+
+  // Circle takes a flat ~1.0035 USDC from a Sepolia payout; the allowance a burn there must exceed is 1.5 USDC.
+  it('disables submission of a burn the Sepolia fee allowance takes whole, naming the allowance and the network', async () => {
+    mockSearch = mockSearch.replace('network=arc-testnet', 'network=sepolia').replace('amount=1.000001', 'amount=1.5');
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('usdcxSendMoreThanPayoutFee|1.5|Sepolia');
+  });
+
+  it('names the allowance and the network a refused burn carries', async () => {
+    jest
+      .mocked(initiateUsdcxBurn)
+      .mockRejectedValueOnce(
+        new UsdcxBurnError('usdcxSendMoreThanPayoutFee', { amount: '0.1', network: 'Arc Testnet' })
+      );
+    render(<ReviewTransaction />);
+    await flush();
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() =>
+      expect(screen.getByTestId('review-error')).toHaveTextContent('usdcxSendMoreThanPayoutFee|0.1|Arc Testnet')
+    );
+  });
+
+  // Circle charges a flat ~1,003,500 (about 1.0035 USDC) to pay a burn out on Ethereum; the allowance is 1.5 USDC.
+  it('shows the Sepolia fee allowance and the payout it leaves', async () => {
+    mockSearch = mockSearch.replace('network=arc-testnet', 'network=sepolia').replace('amount=1.000001', 'amount=10');
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByText('usdcxCircleFee')).toBeInTheDocument();
+    expect(screen.getByText('usdcxPayoutFeeUpTo|1.5')).toBeInTheDocument();
+    expect(screen.getByText('youReceive')).toBeInTheDocument();
+    expect(screen.getByText('usdcxPayoutAtLeast|8.5')).toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
   });
 });
 

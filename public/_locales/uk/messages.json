@@ -8,8 +8,13 @@
     "englishSource": "Burn submitted"
   },
   "usdcxMidenFees": {
-    "message": "Комісії MIDEN",
-    "englishSource": "MIDEN fees"
+    "message": "Комісії $symbol$",
+    "englishSource": "$symbol$ fees",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxBurnOnly": {
     "message": "Тільки спалення",
@@ -60,8 +65,13 @@
     "englishSource": "Minimum burn"
   },
   "usdcxSponsorshipFee": {
-    "message": "Оплата в MIDEN, включаючи спонсорство виконання через «faucet»",
-    "englishSource": "Paid in MIDEN, including sponsorship of the execution by the faucet"
+    "message": "Оплата в $symbol$, включаючи спонсорство виконання faucet",
+    "englishSource": "Paid in $symbol$, including faucet execution sponsorship",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxInvalidDestination": {
     "message": "Введіть дійсну адресу в підтримуваній мережі для цього виведення коштів.",
@@ -86,6 +96,36 @@
   "usdcxFaucetUnavailable": {
     "message": "Не вдалося прочитати політику спалювання USDCx faucet. Відкрийте перегляд, щоб спробувати ще раз.",
     "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+  },
+  "usdcxSendMoreThanPayoutFee": {
+    "message": "Надіслати понад $amount$ USDCx до $network$: комісія Circle стягується з суми виплати.",
+    "englishSource": "Send more than $amount$ USDCx to $network$: Circle's fee is taken from the payout.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxPayoutFeeUpTo": {
+    "message": "До $amount$ USDC",
+    "englishSource": "Up to $amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxPayoutAtLeast": {
+    "message": "Щонайменше $amount$ USDC",
+    "englishSource": "At least $amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "activityFetchingHistoryAndNotes": {
     "message": "Отримання історії транзакцій та «notes»",
@@ -4079,10 +4119,6 @@
     "message": "Заголовок браузера dApp",
     "englishSource": "dApp browser header"
   },
-  "dragToMinimize": {
-    "message": "Перетягніть вниз, щоб згорнути",
-    "englishSource": "Drag down to minimize"
-  },
   "dappSwitcher": {
     "message": "Перемикач dApp",
     "englishSource": "dApp switcher"
@@ -4767,6 +4803,10 @@
   "usdcxArrival": {
     "message": "~20 хв",
     "englishSource": "~20 min"
+  },
+  "usdcxArrivalArc": {
+    "message": "~1 хв",
+    "englishSource": "~1 min"
   },
   "usdcxRouteNotice": {
     "message": "Circle xReserve емітує USDCx на Miden у співвідношенні 1:1 до USDC, які ви депонуєте.",

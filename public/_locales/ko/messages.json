@@ -8,8 +8,13 @@
     "englishSource": "Burn submitted"
   },
   "usdcxMidenFees": {
-    "message": "MIDEN 수수료",
-    "englishSource": "MIDEN fees"
+    "message": "$symbol$ 수수료",
+    "englishSource": "$symbol$ fees",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxBurnOnly": {
     "message": "소각 전용",
@@ -60,8 +65,13 @@
     "englishSource": "Minimum burn"
   },
   "usdcxSponsorshipFee": {
-    "message": "MIDEN으로 지급되며, 여기에는 faucet을 통한 실행 후원도 포함됩니다.",
-    "englishSource": "Paid in MIDEN, including sponsorship of the execution by the faucet"
+    "message": "$symbol$로 지급됨(faucet 실행 후원 포함)",
+    "englishSource": "Paid in $symbol$, including faucet execution sponsorship",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxInvalidDestination": {
     "message": "이 출금을 위해 지원되는 네트워크상의 유효한 주소를 입력하십시오.",
@@ -86,6 +96,36 @@
   "usdcxFaucetUnavailable": {
     "message": "USDCx faucet의 소각 정책을 읽을 수 없습니다. 재검토를 요청하여 다시 시도해 주세요.",
     "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+  },
+  "usdcxSendMoreThanPayoutFee": {
+    "message": "$amount$ 이상의 USDCx를 $network$로 전송하세요: Circle의 수수료는 지급 금액에서 공제됩니다.",
+    "englishSource": "Send more than $amount$ USDCx to $network$: Circle's fee is taken from the payout.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxPayoutFeeUpTo": {
+    "message": "최대 $amount$ USDC",
+    "englishSource": "Up to $amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxPayoutAtLeast": {
+    "message": "최소 $amount$ USDC",
+    "englishSource": "At least $amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "activityFetchingHistoryAndNotes": {
     "message": "거래 내역 조회 및 notes",
@@ -4079,10 +4119,6 @@
     "message": "dApp 브라우저 헤더",
     "englishSource": "dApp browser header"
   },
-  "dragToMinimize": {
-    "message": "아래로 드래그하여 최소화하세요",
-    "englishSource": "Drag down to minimize"
-  },
   "dappSwitcher": {
     "message": "dApp 전환기",
     "englishSource": "dApp switcher"
@@ -4767,6 +4803,10 @@
   "usdcxArrival": {
     "message": "~20분",
     "englishSource": "~20 min"
+  },
+  "usdcxArrivalArc": {
+    "message": "~1분",
+    "englishSource": "~1 min"
   },
   "usdcxRouteNotice": {
     "message": "Circle xReserve는 사용자가 예치한 USDC에 대해 Miden에서 1:1 비율로 USDCx를 발행합니다.",

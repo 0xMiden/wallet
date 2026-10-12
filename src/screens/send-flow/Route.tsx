@@ -3,17 +3,22 @@ import React from 'react';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { Button, ButtonVariant } from 'components/Button';
 import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { FlowFooter } from 'components/flow/FlowFooter';
 import { ChoiceCardGroup } from 'components/ui/ChoiceCard';
+import { DetailCard } from 'components/ui/DetailCard';
 import { Skeleton } from 'components/ui/Skeleton';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
+import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hapticLight } from 'lib/mobile/haptics';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
+import { useWalletStore } from 'lib/store';
 
 import { BridgeRoute } from './types';
+import { UsdcxPayoutRows, UsdcxPayoutTarget } from './UsdcxPayoutRows';
 import { AgglayerEligibility } from './useAgglayerEligibility';
 
 export interface RouteStepProps {
@@ -88,7 +93,50 @@ export type RouteOptionsProps = Pick<
   | 'usdcxAvailable'
   | 'fastAvailability'
   | 'slowAvailability'
-> & { accent?: FlowAccent; slowStatus: AgglayerEligibility };
+> & {
+  accent?: FlowAccent;
+  slowStatus: AgglayerEligibility;
+  /** A USDCx burn's destination and amount, once the send has both: the card shows Circle's fee and the payout. */
+  usdcxPayout?: UsdcxPayoutTarget;
+};
+
+/** The USDCx burn's one route card. Its fees are paid in the native asset, so the subtitle names that asset. */
+const UsdcxRouteOption: React.FC<Pick<RouteOptionsProps, 'route' | 'onRouteChange' | 'usdcxPayout'>> = ({
+  route,
+  onRouteChange,
+  usdcxPayout
+}) => {
+  const { t } = useTranslation();
+  const nativeFaucetId = useNativeFeeFaucetId();
+  const assetsMetadata = useWalletStore(state => state.assetsMetadata);
+  const nativeSymbol = resolveDisplayMetadata(nativeFaucetId ?? undefined, assetsMetadata, nativeFaucetId).symbol;
+
+  return (
+    <div className="mt-6 flex flex-col gap-4">
+      <ChoiceCardGroup
+        items={[
+          {
+            id: 'usdcx',
+            title: t('usdcxRouteLabel'),
+            subtitle: t('usdcxMidenFees', { symbol: nativeSymbol }),
+            'data-testid': 'bridge-route-usdcx'
+          }
+        ]}
+        value={route === 'usdcx' ? 'usdcx' : null}
+        onChange={() => onRouteChange('usdcx')}
+        aria-label={t('route')}
+      />
+      {usdcxPayout && (
+        <DetailCard>
+          <UsdcxPayoutRows chainId={usdcxPayout.chainId} amount={usdcxPayout.amount} />
+        </DetailCard>
+      )}
+      <p className="text-caption text-muted" data-testid="usdcx-burn-notice">
+        {t('usdcxWithdrawalNotice')}
+      </p>
+    </div>
+  );
+};
 
 /** The Fast / Slow route cards and their notice, shared by every route step's layout. */
 export const RouteOptions: React.FC<RouteOptionsProps> = ({
@@ -101,7 +149,8 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   slowStatus,
   fastAvailability,
   slowAvailability,
-  accent = 'brand'
+  accent = 'brand',
+  usdcxPayout
 }) => {
   const { t } = useTranslation();
   const slowAllowed = slowStatus === 'allowed';
@@ -129,24 +178,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   };
 
   if (usdcxAvailable) {
-    return (
-      <div className="mt-6 flex flex-col gap-4">
-        <ChoiceCardGroup
-          items={[
-            {
-              id: 'usdcx',
-              title: t('usdcxRouteLabel'),
-              subtitle: t('usdcxMidenFees'),
-              'data-testid': 'bridge-route-usdcx'
-            }
-          ]}
-          value={route === 'usdcx' ? 'usdcx' : null}
-          onChange={() => onRouteChange('usdcx')}
-          aria-label={t('route')}
-        />
-        <p className="text-caption text-muted">{t('usdcxWithdrawalNotice')}</p>
-      </div>
-    );
+    return <UsdcxRouteOption route={route} onRouteChange={onRouteChange} usdcxPayout={usdcxPayout} />;
   }
 
   // Built in plain JS (not JSX) so the em-dash fallback doesn't trip the

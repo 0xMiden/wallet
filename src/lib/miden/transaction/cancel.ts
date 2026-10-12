@@ -33,6 +33,7 @@ import {
   updateTransactionStatus
 } from './helper';
 import { canAwaitVerdict, upsertEvidenceEntry } from './verdict-rules';
+import { adoptLandedConsume } from '../activity/bridge-in';
 import {
   notifyBackgroundTransactionFailed,
   notifyBackgroundTransactionNotConfirmed
@@ -976,6 +977,7 @@ const verifyStuckTransactions = async (): Promise<number> => {
           completedAt: Math.floor(Date.now() / 1000)
         });
         resolvedCount++;
+        await adoptLandedConsume(tx.id);
       } catch (e) {
         // Deliberately not diagnosed as "no longer in progress": the throw is
         // also what a deleted row ('No transaction found to update') and a real

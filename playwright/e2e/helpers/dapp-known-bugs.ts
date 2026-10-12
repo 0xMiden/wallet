@@ -49,7 +49,7 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
   {
     id: 'K1',
     title: 'MidenWalletAdapter never follows the provider accountChange',
-    tracking: '0xMiden/web-sdk, file after the first run (Q6)',
+    tracking: '0xMiden/web-sdk#469 (open)',
     cells: on(['S7', 'M1'], BOTH),
     signature: ({ source, evidence }) =>
       source === 'hard' &&
@@ -61,7 +61,7 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
   {
     id: 'K2',
     title: 'requestConsume with noteBytes of an unheld note fails after approval',
-    tracking: '0xMiden/wallet, file after the first run (Q6)',
+    tracking: '0xMiden/wallet#1413 (open)',
     cells: on(['W6'], BOTH),
     signature: ({ source, evidence }) =>
       source === 'hard' &&
@@ -71,8 +71,8 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
   },
   {
     id: 'K5',
-    title: 'Every non-connect request while locked is refused before any prompt as INVALID_PARAMS',
-    tracking: '0xMiden/wallet, file after the first run (Q6); fix per Q1',
+    title: 'Send, consume, custom and note or asset reads while locked are refused before any prompt as INVALID_PARAMS',
+    tracking: '0xMiden/wallet#1414 (open)',
     cells: on(['S9'], BOTH),
     signature: ({ source, evidence }) =>
       source === 'hard' &&
@@ -83,14 +83,14 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
   {
     id: 'K6',
     title: 'An approved consume executes for an account whose authorization went stale',
-    tracking: '0xMiden/wallet, file after the first run (Q6); fix per Q9',
+    tracking: '0xMiden/wallet#1415 (open)',
     cells: on(STALE_CONSUME_CELLS, BOTH),
     signature: ({ source, evidence }) => source === 'hard' && evidence.staleConsumeExecuted === true
   },
   {
     id: 'K7',
     title: 'waitForTransaction has no session or origin gate',
-    tracking: '0xMiden/wallet, file after the first run (Q6); fix per Q8',
+    tracking: '0xMiden/wallet#1416 (open)',
     cells: on(['M7'], BOTH),
     signature: ({ source, evidence }) => source === 'hard' && evidence.crossOriginWaitServed === true
   },
@@ -98,7 +98,7 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
     id: 'K8',
     title:
       'Guardian signBytes(signingInputs) fails after approval with an opaque keystore miss instead of signing with the hot key',
-    tracking: '0xMiden/wallet, file after the first run (Q6); fix per Q2',
+    tracking: '0xMiden/wallet#1417 (open)',
     cells: on(['G2a', 'G2b', 'G2c'], GUARDIAN),
     // Only a `word` reaches the hot key (src/lib/miden/back/vault.ts:2227); signingInputs reads the keystore under the
     // connect commitment (:2250), which the hot key is not stored under, and the dApp gets the miss as INVALID_PARAMS.
@@ -111,7 +111,7 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
   {
     id: 'K9',
     title: 'A request from a session bound to a non-current account opens a popup instead of being refused',
-    tracking: '0xMiden/wallet, file after the first run (Q6); fix per Q10',
+    tracking: '0xMiden/wallet#1419 (open)',
     cells: on([...NON_CURRENT_CELLS, 'M4-reads'], BOTH),
     // The cells approve the popup to see what follows: M9 a refusal after approval with nothing run for any account, or
     // a consume that executes for the stale account (K6); M4-reads each read served the dApp's own vault after its
@@ -142,7 +142,7 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
   {
     id: 'K11',
     title: 'A custom request whose transactionRequest cannot be deserialized opens a popup instead of being refused',
-    tracking: '0xMiden/wallet, file after the first run (Q6)',
+    tracking: '0xMiden/wallet#1418 (open)',
     cells: on(['R3-customUndecodable'], BOTH),
     // The preview swallows the deserialize failure (src/lib/miden/back/dapp.ts:2867-2879) and the popup says it could
     // not decode the request, so the refusal check sees a confirm page open.

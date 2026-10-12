@@ -13,7 +13,9 @@ import { SendAmount, SendAmountProps } from './SendAmount';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, params?: Record<string, string>) => (params?.value ? `${key}:${params.value}` : key)
+    // A fiat line names its value and a USDCx amount refusal its amount and network; other keys read as themselves.
+    t: (key: string, params?: Record<string, string>) =>
+      params?.value ? `${key}:${params.value}` : params?.network ? `${key}:${params.amount}:${params.network}` : key
   })
 }));
 jest.mock('lib/platform', () => ({
@@ -189,6 +191,18 @@ describe('SendAmount', () => {
     renderAmount({ amount: '99', error: 'amountMustBeLessThanBalance' });
 
     expect(screen.getByTestId('amount-error')).toHaveTextContent('amountMustBeLessThanBalance');
+    expect(screen.getByTestId('send-amount-input')).toHaveAttribute('data-invalid', 'true');
+  });
+
+  it('fills the error copy with the values the send form hands it', () => {
+    renderAmount({
+      amount: '1.5',
+      network: 'sepolia',
+      error: 'usdcxSendMoreThanPayoutFee',
+      errorValues: { amount: '1.5', network: 'Sepolia' }
+    });
+
+    expect(screen.getByTestId('amount-error')).toHaveTextContent('usdcxSendMoreThanPayoutFee:1.5:Sepolia');
     expect(screen.getByTestId('send-amount-input')).toHaveAttribute('data-invalid', 'true');
   });
 

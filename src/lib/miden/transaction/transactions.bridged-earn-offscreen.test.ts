@@ -277,11 +277,10 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
       });
 
       expect(mockProxyNewTransaction).toHaveBeenCalledTimes(1);
-      // Only an Agglayer bridge awaits the node's verdict, so only it carries a stage stamp (#1081).
-      const stampType = provider === 'agglayer' ? 'function' : 'undefined';
+      // Both bridges await the node's verdict, so both carry a stage stamp (#1081).
       const [account, bytes, delegate, callback, stamp] = mockProxyNewTransaction.mock.calls[0] ?? [];
       expect([account, bytes, delegate, callback]).toEqual(['acc-1', requestBytes, true, signCallback]);
-      expect(typeof stamp).toBe(stampType);
+      expect(typeof stamp).toBe('function');
       expect(mockProxySendTransaction).not.toHaveBeenCalled();
       expect(mockGetMidenClient).not.toHaveBeenCalled();
       expect(mockInlineNewTransaction).not.toHaveBeenCalled();

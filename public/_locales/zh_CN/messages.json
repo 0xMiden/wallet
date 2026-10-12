@@ -8,8 +8,13 @@
     "englishSource": "Burn submitted"
   },
   "usdcxMidenFees": {
-    "message": "MIDEN 费用",
-    "englishSource": "MIDEN fees"
+    "message": "$symbol$手续费",
+    "englishSource": "$symbol$ fees",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxBurnOnly": {
     "message": "仅限销毁",
@@ -60,8 +65,13 @@
     "englishSource": "Minimum burn"
   },
   "usdcxSponsorshipFee": {
-    "message": "以MIDEN支付，包括由faucet赞助的执行费用",
-    "englishSource": "Paid in MIDEN, including sponsorship of the execution by the faucet"
+    "message": "以$symbol$支付，包括faucet执行赞助",
+    "englishSource": "Paid in $symbol$, including faucet execution sponsorship",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
   },
   "usdcxInvalidDestination": {
     "message": "请输入一个位于受支持网络上的有效地址以进行此次提现。",
@@ -86,6 +96,36 @@
   "usdcxFaucetUnavailable": {
     "message": "无法读取 USDCx faucet 的销毁政策。请重新开启审核以再次尝试。",
     "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+  },
+  "usdcxSendMoreThanPayoutFee": {
+    "message": "向$network$网络发送超过$amount$的USDCx：Circle的手续费将从支付金额中扣除。",
+    "englishSource": "Send more than $amount$ USDCx to $network$: Circle's fee is taken from the payout.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxPayoutFeeUpTo": {
+    "message": "最高$amount$ USDC",
+    "englishSource": "Up to $amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxPayoutAtLeast": {
+    "message": "至少$amount$ USDC",
+    "englishSource": "At least $amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
   },
   "activityFetchingHistoryAndNotes": {
     "message": "查询您的交易记录和notes",
@@ -4079,10 +4119,6 @@
     "message": "dApp 浏览器页眉",
     "englishSource": "dApp browser header"
   },
-  "dragToMinimize": {
-    "message": "向下拖动以最小化",
-    "englishSource": "Drag down to minimize"
-  },
   "dappSwitcher": {
     "message": "dApp 切换器",
     "englishSource": "dApp switcher"
@@ -4767,6 +4803,10 @@
   "usdcxArrival": {
     "message": "约20分钟",
     "englishSource": "~20 min"
+  },
+  "usdcxArrivalArc": {
+    "message": "~1 分钟",
+    "englishSource": "~1 min"
   },
   "usdcxRouteNotice": {
     "message": "Circle xReserve 会根据您存入的 USDC，在 Miden 上按 1:1 的比例铸造 USDCx。",

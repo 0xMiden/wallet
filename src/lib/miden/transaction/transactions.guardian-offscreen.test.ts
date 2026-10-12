@@ -2754,16 +2754,12 @@ describe('guardian bridged-send / earn-deposit byte-identity — flag ON result 
   );
 });
 
-// An Agglayer bridged-send can await the node's verdict, so its killed attempt keeps the candidate (#1081); a USDCx
-// burn and an earn deposit cannot, so they still abandon at once.
+// An Agglayer bridged-send and a USDCx burn can await the node's verdict, so a killed attempt keeps the candidate
+// (#1081); an earn deposit cannot, so it still abandons at once.
 type KillCase = Case & { abandons: number[][]; evidence: unknown };
 const bridgeEarnKillCases = (): KillCase[] => [
   { ...bridgeEarnCase('agglayer'), abandons: [], evidence: KEPT_AT_7 },
-  {
-    ...bridgeEarnCase('usdcx'),
-    abandons: [[7]],
-    evidence: expect.not.arrayContaining([expect.objectContaining({ candidateKept: true })])
-  },
+  { ...bridgeEarnCase('usdcx'), abandons: [], evidence: KEPT_AT_7 },
   {
     ...bridgeEarnCase('earn-deposit'),
     abandons: [[7]],

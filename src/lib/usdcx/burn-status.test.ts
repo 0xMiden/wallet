@@ -116,6 +116,17 @@ it.each(['confirmed', 'discarded'])('does not overwrite %s with a stale response
   expect(stored.extraInputs.usdcxBurn.phase).toBe(terminal);
 });
 
+// The unconfirmed reconciler completes a burn with no result bytes or fee; its burn identity is all the poll reads.
+it('advances a burn the unconfirmed reconciler landed', async () => {
+  stored = {
+    ...row(),
+    displayMessage: 'Bridged to EVM',
+    submitEvidence: [{ attemptId: 'a1', capturedAt: 1, source: 'stage' }]
+  };
+  await pollUsdcxBurn(stored, async () => ({ status: 'NullifierCommitted', attemptCount: 1 }));
+  expect(stored.extraInputs.usdcxBurn.phase).toBe('confirmed');
+});
+
 it('does not poll restored, unsubmitted, or terminal rows', async () => {
   const read = jest.fn(async () => ({ status: 'Pending', attemptCount: 0 }));
   await pollUsdcxBurn({ ...stored, restoredFromBackup: true }, read);

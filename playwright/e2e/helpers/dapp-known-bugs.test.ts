@@ -25,10 +25,10 @@ const soft = (cellId: string, evidence: FailureEvidence, text = 'preview-verifie
 });
 
 describe('known-bug registry', () => {
-  it('has unique ids, a tracking note and at least one cell each', () => {
+  it('has unique ids, a tracking issue or pull request and at least one cell each', () => {
     expect(new Set(KNOWN_BUGS.map(entry => entry.id)).size).toBe(KNOWN_BUGS.length);
     for (const entry of KNOWN_BUGS) {
-      expect(entry.tracking.length).toBeGreaterThan(3);
+      expect(entry.tracking).toMatch(/^[\w.-]+\/[\w.-]+#\d+ /);
       expect(Object.keys(entry.cells)).not.toHaveLength(0);
     }
   });

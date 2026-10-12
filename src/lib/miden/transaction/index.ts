@@ -105,6 +105,7 @@ import {
 import type { CandidateRelease } from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
 import { canAwaitVerdict } from './verdict-rules';
+import { adoptLandedConsume } from '../activity/bridge-in';
 import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
@@ -1230,6 +1231,7 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
     displayMessage: reclaimed ? 'Reclaimed' : 'Received',
     completedAt: Math.floor(Date.now() / 1000) // seconds
   });
+  await adoptLandedConsume(transaction.id);
   return true;
 }
 
@@ -1470,6 +1472,7 @@ const generateTransactionWithProvider = async (
           // updateTransactionStatus throws if the tx is already finalized — fine.
           console.warn('[Guardian] could not re-mark Completed (likely already finalized):', markErr);
         }
+        if (transaction.type === 'consume') await adoptLandedConsume(transaction.id);
         return;
       }
       // An offscreen wedge-kill (deadline / `closeDocument`) surfaces as a
@@ -4355,6 +4358,7 @@ export const generateTransactionsLoop = async (
           ...landedRowFields(tx, e),
           completedAt: Math.floor(Date.now() / 1000)
         });
+        if (tx.type === 'consume') await adoptLandedConsume(tx.id);
       }
       return false;
     }

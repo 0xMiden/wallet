@@ -2,3 +2,4 @@ dist
 node_modules
 xcode
 public/popup.html
+src/lib/usdcx/attestation.vectors.json

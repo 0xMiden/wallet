@@ -388,9 +388,10 @@ The user approved balance-based destination confirmation on 2026-10-09. Keep
 `Burn confirmed` when the faucet consumes the burn note. Show `Confirmed` when
 the recipient's USDC balance is at least the balance saved before submission plus
 the expected payout. Circle deducts its fee from the payout, so the expected payout
-is the sent amount minus the destination's fee allowance and never less than half
-the sent amount (`minimumUsdcxPayout` in `lib/usdcx/constant.ts`, approved
-2026-10-10; 0.1 USDC, and 1.5 USDC on Ethereum). Replace the allowance when an API
+is the sent amount minus the destination's fee allowance (`minimumUsdcxPayout` in
+`lib/usdcx/constant.ts`, approved 2026-10-11; 0.1 USDC, and 1.5 USDC on Ethereum). The Send flow
+refuses a burn that does not exceed that allowance, and an older one it takes whole stays at
+`Burn confirmed`. Replace the allowance when an API
 reports the fee of one burn. Use the six-decimal ERC-20 USDC balance on the destination chain.
 RPC failures must leave the row open for another check. Old rows without a saved
 balance must stay at `Burn confirmed`.

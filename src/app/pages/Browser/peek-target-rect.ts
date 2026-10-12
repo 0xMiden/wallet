@@ -8,16 +8,17 @@ export interface SlotRect {
 // When the live slot rect isn't available (no dApp has been foregrounded
 // this session yet AND nothing is cached), fall back to a computed slot
 // that matches DappActive's layout:
-//   - FALLBACK_CAPSULE_HEIGHT (145): safe-area-inset-top (~62) + the
-//     capsule's drag handle + content row (83). Nothing tops the page above
-//     it: the test network is named in Home's pill, not a banner.
+//   - FALLBACK_CAPSULE_HEIGHT (121): safe-area-inset-top (~62) + the
+//     capsule's content row and hairline (57) + the progress bar (2).
+//     Nothing tops the page above it: the test network is named in Home's
+//     pill, not a banner.
 //   - FALLBACK_BOTTOM_GUTTER (34): safe-area-inset-bottom on devices
 //     with a home indicator. Subtract the bottom safe area directly as
 //     a constant instead of trying to derive it from live CSS.
 // These defaults are iPhone 17-class. Other devices differ slightly
 // but the cache (populated the moment a dApp is foregrounded) covers
 // every case after the first restore.
-export const FALLBACK_CAPSULE_HEIGHT = 145;
+export const FALLBACK_CAPSULE_HEIGHT = 121;
 export const FALLBACK_BOTTOM_GUTTER = 34;
 
 const isMeasured = (rect: SlotRect | null): rect is SlotRect => !!rect && rect.width > 0 && rect.height > 0;

@@ -633,6 +633,76 @@ describe('takeUsdcxBridgeInInfo', () => {
     await expect(takeUsdcxBridgeInInfo({ ...mint, ...overrides, amount: 5_000_000n })).resolves.toBeUndefined();
   });
 
+  // A row is live for as long as the reconciler tracks it, which can be well past its deposit's first week.
+  const EXECUTE_HASH = `0x${'7'.repeat(64)}`;
+  it.each<[string, Record<string, unknown>]>([
+    ['became ready this week', { phase: 'ready', readyAt: 9 }],
+    [
+      'saved its Arc execute this week',
+      {
+        phase: 'delivering',
+        sourceChainId: 84532,
+        cctp: { sourceDomain: 6, executeTxHash: EXECUTE_HASH, executeSavedAt: 9 }
+      }
+    ],
+    [
+      'holds a message to execute',
+      { phase: 'delivering', sourceChainId: 84532, cctp: { sourceDomain: 6, message: '0x1234', attestation: '0xabcd' } }
+    ],
+    [
+      'had its Arc execute revert this week',
+      {
+        phase: 'delivering',
+        sourceChainId: 84532,
+        cctp: { sourceDomain: 6, forwarded: false, revertedExecuteTxHash: EXECUTE_HASH, revertedAt: 9 }
+      }
+    ]
+  ])('takes the mint of an old deposit that %s', async (_label, extraInputs) => {
+    mockTransactions.push(tracker({ id: 'old', initiatedAt: -10 * 24 * 60 * 60 }, extraInputs));
+
+    await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toMatchObject({
+      bridgeReceiveTxId: 'old'
+    });
+  });
+
+  // A mint that arrives after its ready row timed out still lands it, after any live deposit of the same amount.
+  describe('a deposit that timed out after Circle attested it', () => {
+    const timedOut = (overrides: Record<string, unknown> = {}, extraInputs: Record<string, unknown> = {}) =>
+      tracker(
+        { initiatedAt: -9 * 24 * 60 * 60, ...overrides },
+        { phase: 'failed', readyAt: -8 * 24 * 60 * 60, error: 'Bridge delivery timed out.', ...extraInputs }
+      );
+
+    it('takes the late mint, past the delivery window', async () => {
+      mockTransactions.push(timedOut({ id: 'timed-out' }));
+
+      await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toMatchObject({
+        bridgeReceiveTxId: 'timed-out'
+      });
+    });
+
+    it('yields to a live deposit of the same amount, even one still delivering', async () => {
+      mockTransactions.push(
+        timedOut({ id: 'timed-out' }),
+        tracker({ id: 'live', initiatedAt: 5 }, { phase: 'delivering' })
+      );
+
+      await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toMatchObject({
+        bridgeReceiveTxId: 'live'
+      });
+    });
+
+    it.each([
+      ['timed out before Circle attested it', timedOut({}, { readyAt: undefined })],
+      ['failed for another reason', timedOut({}, { error: 'Circle attested this deposit to a different amount.' })],
+      ['was restored from a backup', timedOut({ restoredFromBackup: true })]
+    ])('leaves a failed deposit that %s', async (_label, row) => {
+      mockTransactions.push(row);
+
+      await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toBeUndefined();
+    });
+  });
+
   it.each([
     ['was never broadcast', tracker({}, { evmTxHash: undefined, phase: 'submitting' })],
     ['already received its note', tracker({}, { phase: 'received' })],
