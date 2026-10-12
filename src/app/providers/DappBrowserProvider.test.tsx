@@ -64,6 +64,7 @@ jest.mock('@miden/dapp-browser', () => ({
   },
   ToolBarType: { BLANK: 'BLANK' },
   dappWebViewManager: {
+    reserveClose: jest.fn(),
     forget: jest.fn(),
     open: async (opts: { id: string }) => {
       await mockPluginOpen(opts);
@@ -1114,6 +1115,34 @@ describe('native presentation lifecycle', () => {
     );
     expect(hook.result.current.sessionStates).toHaveLength(0);
     expect(mockClearSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a rejected old open after terminal cleanup and same-id replacement', async () => {
+    let rejectOpen: (error: Error) => void = () => {};
+    mockPluginOpen.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectOpen = reject;
+        })
+    );
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('closeEvent', expect.any(Function)));
+    act(() => {
+      hook.result.current.open(makeSession('dapp-a'));
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    await waitFor(() => expect(mockPluginOpen).toHaveBeenCalledTimes(1));
+    const token = mockPluginOpen.mock.calls[0][0].managedHostClose?.token;
+    await act(async () => {
+      await listenerFor('closeEvent')({ id: 'dapp-a', managedHostCloseToken: token });
+    });
+    act(() => hook.result.current.open(makeSession('dapp-a')));
+    await waitFor(() => expect(hook.result.current.sessionStates[0]?.status).toBe('active'));
+    const errors = jest.spyOn(console, 'error').mockImplementation(() => {});
+    await act(async () => rejectOpen(new Error('retired open rejected')));
+    expect(hook.result.current.sessionStates[0]?.status).toBe('active');
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
   });
 
   it('does not persist a parked snapshot that finishes after native close', async () => {

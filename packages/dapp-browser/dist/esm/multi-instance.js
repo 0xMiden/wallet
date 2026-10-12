@@ -69,8 +69,11 @@ export class DappWebViewInstance {
   close() {
     if (this.closePromise) return this.closePromise;
     if (this.closed) return Promise.resolve();
+    if (this.managedHostCloseToken) closingInstances.set(this.id, this.managedHostCloseToken);
     this.closePromise = InAppBrowser.close({ id: this.id, managedHostCloseToken: this.managedHostCloseToken })
       .finally(() => {
+        // A host-owned reservation also waits for its persisted cleanup.
+        if (!this.closed && closingInstances.get(this.id) === this.managedHostCloseToken) closingInstances.delete(this.id);
         this.closed = true;
         if (liveInstances.get(this.id)?.instance === this) liveInstances.delete(this.id);
       });
@@ -79,6 +82,7 @@ export class DappWebViewInstance {
 }
 
 const liveInstances = new Map();
+const closingInstances = new Map();
 
 export const dappWebViewManager = {
   /**
@@ -89,7 +93,10 @@ export const dappWebViewManager = {
    */
   async open(opts) {
     const id = opts.id || generateId();
+    if (closingInstances.has(id)) throw new Error("A managed instance is closing");
     const existing = liveInstances.get(id);
+    if (existing?.instance.managedHostCloseToken && existing.instance.managedHostCloseToken !== opts.managedHostClose?.token)
+      throw new Error("A managed instance already owns this id");
     if (existing) return existing.opening;
     const instance = new DappWebViewInstance(id, opts.managedHostClose?.token);
     const entry = { instance, opening: null };
@@ -102,7 +109,16 @@ export const dappWebViewManager = {
     return entry.opening;
   },
 
+  reserveClose(id, token) {
+    const entry = liveInstances.get(id);
+    if (!entry || entry.instance.managedHostCloseToken !== token) return;
+    closingInstances.set(id, token);
+    entry.instance.closed = true;
+    liveInstances.delete(id);
+  },
+
   forget(id, token) {
+    if (closingInstances.get(id) === token) closingInstances.delete(id);
     const entry = liveInstances.get(id);
     if (!entry || entry.instance.managedHostCloseToken !== token) return;
     entry.instance.closed = true;
@@ -133,7 +149,7 @@ export const dappWebViewManager = {
       }
     }
     for (const id of result.ids || []) {
-      if (liveInstances.has(id)) continue;
+      if (liveInstances.has(id) || closingInstances.has(id)) continue;
       const instance = new DappWebViewInstance(id);
       liveInstances.set(id, { instance, opening: Promise.resolve(instance) });
     }
@@ -141,8 +157,13 @@ export const dappWebViewManager = {
 
   /** Close every live instance. Used on app shutdown / wallet reset. */
   async closeAll() {
-    for (const entry of liveInstances.values()) entry.instance.closed = true;
+    for (const [id, entry] of liveInstances) {
+      entry.instance.closed = true;
+      if (entry.instance.managedHostCloseToken) closingInstances.set(id, entry.instance.managedHostCloseToken);
+    }
+    const closing = new Map(closingInstances);
     liveInstances.clear();
     await InAppBrowser.closeAll();
+    for (const [id, token] of closing) if (closingInstances.get(id) === token) closingInstances.delete(id);
   }
 };

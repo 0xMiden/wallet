@@ -197,10 +197,14 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func openWebView(_ call: CAPPluginCall) {
+        if WebViewRegistry.shared.get(id: call.getString("id") ?? WebViewRegistry.defaultInstanceId)?.managedClose != nil {
+            call.reject("A managed instance already owns this id")
+            return
+        }
+
         if !self.isSetupDone {
             self.setup()
         }
-        self.currentPluginCall = call
 
         guard let urlString = call.getString("url") else {
             call.reject("Must provide a URL to open")
@@ -427,6 +431,11 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         DispatchQueue.main.async {
+            if WebViewRegistry.shared.get(id: call.getString("id") ?? WebViewRegistry.defaultInstanceId)?.managedClose != nil {
+                call.reject("A managed instance already owns this id")
+                return
+            }
+            self.currentPluginCall = call
             guard let url = URL(string: urlString) else {
                 call.reject("Invalid URL format")
                 return
@@ -973,6 +982,11 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func open(_ call: CAPPluginCall) {
+        if WebViewRegistry.shared.get(id: call.getString("id") ?? WebViewRegistry.defaultInstanceId)?.managedClose != nil {
+            call.reject("A managed instance already owns this id")
+            return
+        }
+
         if !self.isSetupDone {
             self.setup()
         }
@@ -981,7 +995,6 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         let preventDeeplink = call.getBool("preventDeeplink", false)
         self.isPresentAfterPageLoad = call.getBool("isPresentAfterPageLoad", false)
 
-        self.currentPluginCall = call
 
         guard let urlString = call.getString("url") else {
             call.reject("Must provide a URL to open")
@@ -997,6 +1010,11 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         let credentials = self.readCredentials(call)
 
         DispatchQueue.main.async {
+            if WebViewRegistry.shared.get(id: call.getString("id") ?? WebViewRegistry.defaultInstanceId)?.managedClose != nil {
+                call.reject("A managed instance already owns this id")
+                return
+            }
+            self.currentPluginCall = call
             guard let url = URL(string: urlString) else {
                 call.reject("Invalid URL format")
                 return

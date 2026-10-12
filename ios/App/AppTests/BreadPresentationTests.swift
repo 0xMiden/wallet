@@ -49,7 +49,55 @@ final class BreadPresentationTests: XCTestCase {
         XCTAssertNil(WebViewRegistry.shared.get(id: instance.id))
     }
 
+    func testManagedIdCannotBeReplacedByEitherNativeOpenPathUntilTerminal() async throws {
+        let plugin = InAppBrowserPlugin()
+        let owner = WKWebViewController()
+        owner.initWebview()
+        let instance = WKWebViewInstance(id: UUID().uuidString, controller: owner, navigationController: UINavigationController(rootViewController: owner))
+        instance.managedClose = ManagedHostClose(options: ["token": "reserved"], instance: instance,
+            host: { owner.webViewForManagedClose }, notify: { _ in }, finish: { WebViewRegistry.shared.remove(id: instance.id) })
+        WebViewRegistry.shared.register(instance)
+        defer { instance.managedClose?.force(); owner.cleanupWebView() }
+        let rejectedReplacement = WKWebViewInstance(id: instance.id, controller: owner, navigationController: instance.navigationController)
+        WebViewRegistry.shared.register(rejectedReplacement)
+        XCTAssertTrue(WebViewRegistry.shared.get(id: instance.id) === instance)
+        guard WebViewRegistry.shared.get(id: instance.id) === instance else { return }
+        for closing in [false, true] {
+            if closing { instance.managedClose?.request() }
+            for method in ["open", "openWebView"] {
+                var rejected = false
+                let call = CAPPluginCall(callbackId: "duplicate", methodName: method, options: ["id": instance.id, "url": "https://example.test"], success: { _, _ in XCTFail("Duplicate must reject") }, error: { error in
+                    rejected = error?.message.contains("managed instance") == true
+                })!
+                if method == "open" { plugin.open(call) } else { plugin.openWebView(call) }
+                XCTAssertTrue(rejected)
+                XCTAssertTrue(WebViewRegistry.shared.get(id: instance.id) === instance)
+            }
+        }
+        var joined = 0
+        instance.managedClose?.request { joined += 1 }
+        instance.managedClose?.request { joined += 1 }
+        let closed = expectation(description: "closeAll settles reserved lifetime")
+        let closeCall = CAPPluginCall(callbackId: "all", methodName: "closeAll", options: [:], success: { _, _ in closed.fulfill() }, error: { _ in XCTFail("closeAll failed") })!
+        plugin.closeAll(closeCall)
+        await fulfillment(of: [closed], timeout: 2)
+        XCTAssertEqual(joined, 2)
+        XCTAssertNil(WebViewRegistry.shared.get(id: instance.id))
+        let replacement = WKWebViewInstance(id: instance.id, controller: owner, navigationController: instance.navigationController)
+        WebViewRegistry.shared.register(replacement)
+        XCTAssertTrue(WebViewRegistry.shared.get(id: instance.id) === replacement)
+        WebViewRegistry.shared.remove(id: instance.id)
+    }
+
     func testManagedHostSnapshotFailureRetainsCoverageUntilSuccessfulRetry() async throws {
+        try await exerciseManagedSnapshotFailure(exitNow: false)
+    }
+
+    func testManagedFailureExitNowGivesFeedbackAndTerminates() async throws {
+        try await exerciseManagedSnapshotFailure(exitNow: true)
+    }
+
+    private func exerciseManagedSnapshotFailure(exitNow: Bool) async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let previous = scene.windows.first { $0.isKeyWindow }
         let host = CloseFenceWebView(frame: scene.coordinateSpace.bounds, configuration: WKWebViewConfiguration())
@@ -72,6 +120,7 @@ final class BreadPresentationTests: XCTestCase {
         instance.containerWindow = window
         WebViewRegistry.shared.register(instance)
         var completed = 0
+        var feedback = 0
         let managed = ManagedHostClose(options: ["token": "host-fence", "errorLabel": "Error", "retryLabel": "Retry", "exitLabel": "Exit now"],
             instance: instance, host: { host }, notify: { _ in }, finish: {
                 completed += 1
@@ -80,6 +129,7 @@ final class BreadPresentationTests: XCTestCase {
                 WebViewRegistry.shared.remove(id: instance.id)
             })!
         instance.managedClose = managed
+        managed.userActionFeedback = { feedback += 1 }
         defer {
             managed.force()
             InAppBrowserPlugin.releaseContainerWindow(hostWindow)
@@ -101,7 +151,12 @@ final class BreadPresentationTests: XCTestCase {
         failedSnapshot(nil, NSError(domain: "snapshot", code: 1))
         XCTAssertTrue(managed.failed)
         XCTAssertFalse(window.isHidden)
-        managed.retry()
+        XCTAssertEqual(feedback, 0)
+        let panel = try XCTUnwrap(owner.view.subviews.compactMap { $0 as? UIVisualEffectView }.last)
+        let stack = try XCTUnwrap(panel.contentView.subviews.first as? UIStackView)
+        let retry = try XCTUnwrap(stack.arrangedSubviews[1] as? UIButton)
+        retry.sendActions(for: .touchUpInside)
+        XCTAssertEqual(feedback, 1)
         host.snapshotCompletion = nil
         XCTAssertTrue(managed.complete(token: "host-fence", requestID: managed.requestID!, commit: 2))
         failedSnapshot(UIImage(), nil)
@@ -110,9 +165,19 @@ final class BreadPresentationTests: XCTestCase {
             if host.snapshotCompletion != nil { break }
             try await Task.sleep(nanoseconds: 20_000_000)
         }
-        try XCTUnwrap(host.snapshotCompletion)(UIImage(), nil)
+        if exitNow {
+            try XCTUnwrap(host.snapshotCompletion)(nil, NSError(domain: "snapshot", code: 2))
+            XCTAssertEqual(feedback, 1)
+            let exitPanel = try XCTUnwrap(owner.view.subviews.compactMap { $0 as? UIVisualEffectView }.last)
+            let exitStack = try XCTUnwrap(exitPanel.contentView.subviews.first as? UIStackView)
+            let exit = try XCTUnwrap(exitStack.arrangedSubviews[2] as? UIButton)
+            exit.sendActions(for: .touchUpInside)
+        } else {
+            try XCTUnwrap(host.snapshotCompletion)(UIImage(), nil)
+        }
         XCTAssertTrue(window.isHidden)
         XCTAssertEqual(completed, 1)
+        XCTAssertEqual(feedback, exitNow ? 2 : 1)
     }
 
     func testTargetedCloseReleasesOnlyItsWindowOnce() {

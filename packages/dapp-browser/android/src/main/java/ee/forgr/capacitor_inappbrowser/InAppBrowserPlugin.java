@@ -584,6 +584,11 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
 
     @PluginMethod
     public void openWebView(PluginCall call) {
+        WebViewDialog existing = WebViewRegistry.getShared().get(call.getString("id", WebViewRegistry.DEFAULT_INSTANCE_ID));
+        if (existing != null && existing.managedClose() != null) {
+            call.reject("A managed instance already owns this id");
+            return;
+        }
         String url = call.getString("url");
         if (url == null || TextUtils.isEmpty(url)) {
             call.reject("Invalid URL");
@@ -917,6 +922,11 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
             new Runnable() {
                 @Override
                 public void run() {
+                    WebViewDialog existing = WebViewRegistry.getShared().get(instanceId);
+                    if (existing != null && existing.managedClose() != null) {
+                        call.reject("A managed instance already owns this id");
+                        return;
+                    }
                     webViewDialog = new WebViewDialog(
                         getContext(),
                         android.R.style.Theme_NoTitleBar,

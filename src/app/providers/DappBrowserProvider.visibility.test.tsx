@@ -22,6 +22,7 @@ const mockOpen = jest.fn(
   async (_options: { id: string; initiallyVisible?: boolean; managedHostClose?: { token: string } }) => {}
 );
 const mockCompleteClose = jest.fn(async (_options: unknown) => {});
+const mockRemoveSession = jest.fn(async () => {});
 const mockResetViewport = jest.fn(async () => {});
 const mockClose = jest.fn(async (_id: string) => {});
 const nativeListeners = new Map<
@@ -56,6 +57,7 @@ jest.mock('@miden/dapp-browser', () => ({
   },
   ToolBarType: { BLANK: 'BLANK' },
   dappWebViewManager: {
+    reserveClose: jest.fn(),
     forget: jest.fn(),
     open: async (options: { id: string; initiallyVisible?: boolean }) => {
       await mockOpen(options);
@@ -112,7 +114,7 @@ jest.mock('lib/dapp-browser', () => ({
   parseOrigin: (url: string) => new URL(url).origin,
   loadPersistedSessions: async () => [],
   readSnapshotFromDisk: async () => null,
-  removePersistedSession: async () => {},
+  removePersistedSession: () => mockRemoveSession(),
   removeSnapshotFromDisk: async () => {},
   upsertPersistedSession: async () => {},
   writeSnapshotToDisk: async () => {},
@@ -676,4 +678,85 @@ it('joins an already pending native close and ignores terminal events from an ol
   });
   expect(settled).toBe(true);
   expect(control().sessionStates).toHaveLength(0);
+});
+
+it('reserves a managed id until the retained native close reaches terminal', async () => {
+  await openForeground({ held: true });
+  const token = mockOpen.mock.calls[0]?.[0].managedHostClose?.token;
+  act(() =>
+    nativeListeners.get('hostCloseRequested')?.({ id: 'origin', token, requestId: 'reserved', visible: false })
+  );
+  await settle();
+  act(() => control().open(session('origin')));
+  await settle();
+  expect(control().sessionStates).toHaveLength(0);
+  expect(mockOpen).toHaveBeenCalledTimes(1);
+  await act(async () => nativeListeners.get('closeEvent')?.({ id: 'origin', managedHostCloseToken: token }));
+  act(() => control().open(session('origin')));
+  await waitFor(() => expect(mockOpen).toHaveBeenCalledTimes(2));
+});
+
+it('holds the id through persistence after native terminal without parking another foreground', async () => {
+  await openForeground({ held: true });
+  const token = mockOpen.mock.calls[0]?.[0].managedHostClose?.token;
+  let finishStorage = () => {};
+  mockRemoveSession.mockImplementationOnce(
+    () =>
+      new Promise<void>(resolve => {
+        finishStorage = resolve;
+      })
+  );
+  act(() => nativeListeners.get('hostCloseRequested')?.({ id: 'origin', token, requestId: 'storage', visible: false }));
+  act(() => control().open(session('other')));
+  await waitFor(() => expect(mockOpen).toHaveBeenCalledTimes(2));
+  let joined = false;
+  const close = control()
+    .close('origin')
+    .then(() => {
+      joined = true;
+    });
+  const terminal = nativeListeners.get('closeEvent')?.({ id: 'origin', managedHostCloseToken: token });
+  act(() => control().open(session('origin')));
+  await settle();
+  expect(control().session?.id).toBe('other');
+  expect(control().sessionStates.map(s => s.session.id)).toEqual(['other']);
+  expect(joined).toBe(false);
+  await act(async () => {
+    finishStorage();
+    await terminal;
+    await close;
+  });
+  expect(joined).toBe(true);
+  act(() => control().open(session('origin')));
+  await waitFor(() => expect(mockOpen).toHaveBeenCalledTimes(3));
+});
+
+it('keeps the managed reservation when its pending open rejects during the retained hold', async () => {
+  let rejectOpen: (error: Error) => void = () => {};
+  mockOpen.mockImplementationOnce(
+    () =>
+      new Promise<void>((_resolve, reject) => {
+        rejectOpen = reject;
+      })
+  );
+  currentTree = render(<Tree held />);
+  await waitFor(() => expect(nativeListeners.has('presentationChanged')).toBe(true));
+  act(() => {
+    control().open(session('origin'));
+    control().setSlotRect(RECT);
+  });
+  await waitFor(() => expect(mockOpen).toHaveBeenCalledTimes(1));
+  const token = mockOpen.mock.calls[0]?.[0].managedHostClose?.token;
+  act(() =>
+    nativeListeners.get('hostCloseRequested')?.({ id: 'origin', token, requestId: 'reject-held', visible: false })
+  );
+  await settle();
+  await act(async () => rejectOpen(new Error('retired open rejected')));
+  act(() => control().open(session('origin')));
+  await settle();
+  expect(control().sessionStates).toHaveLength(0);
+  expect(mockOpen).toHaveBeenCalledTimes(1);
+  await act(async () => nativeListeners.get('closeEvent')?.({ id: 'origin', managedHostCloseToken: token }));
+  act(() => control().open(session('origin')));
+  await waitFor(() => expect(mockOpen).toHaveBeenCalledTimes(2));
 });

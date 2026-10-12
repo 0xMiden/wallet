@@ -148,6 +148,8 @@ final class ManagedHostClose {
         else { layoutChanged(); startFence() }
     }
 
+    var userActionFeedback: () -> Void = { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+
     private func fail() {
         guard closing, !failed else { return }
         if !visible { force(); return }
@@ -167,11 +169,11 @@ final class ManagedHostClose {
         message.numberOfLines = 0
         let retry = UIButton(type: .system)
         retry.setTitle(labels["retryLabel"] as? String, for: .normal)
-        retry.addAction(UIAction { [weak self] _ in self?.retry() }, for: .touchUpInside)
+        retry.addAction(UIAction { [weak self] _ in self?.userActionFeedback(); self?.retry() }, for: .touchUpInside)
         let exit = UIButton(type: .system)
         exit.setTitle(labels["exitLabel"] as? String, for: .normal)
         exit.accessibilityIdentifier = "bread-close-exit-now"
-        exit.addAction(UIAction { [weak self] _ in self?.force() }, for: .touchUpInside)
+        exit.addAction(UIAction { [weak self] _ in self?.userActionFeedback(); self?.force() }, for: .touchUpInside)
         [message, retry, exit].forEach(stack.addArrangedSubview)
         panel.contentView.addSubview(stack)
         view.addSubview(panel)

@@ -29,6 +29,7 @@ export declare class DappWebViewInstance {
 }
 
 export interface DappWebViewManager {
+  reserveClose(id: string, token: string): void;
   forget(id: string, token?: string): void;
   /**
    * Open a new dApp webview. If `id` is omitted, a UUID is generated.

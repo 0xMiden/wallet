@@ -189,6 +189,29 @@ public class BreadPresentationControllerTest {
         verify(callbacks, times(1)).closeEvent(anyString());
     }
 
+    @Test public void nativeOpenCannotReplaceManagedIdBeforeOrDuringClose() {
+        open(true, true, "default");
+        WebViewRegistry.getShared().register("managed", dialog);
+        dialog.configureManagedClose("managed", new JSObject().put("token", "reserved"), ignored -> {});
+        WebViewRegistry.getShared().register("managed", mock(WebViewDialog.class));
+        assertSame(dialog, WebViewRegistry.getShared().get("managed"));
+        InAppBrowserPlugin plugin = new InAppBrowserPlugin();
+        for (boolean closing : new boolean[]{false, true}) {
+            if (closing) dialog.requestClose(() -> {});
+            PluginCall call = mock(PluginCall.class);
+            when(call.getString("id", WebViewRegistry.DEFAULT_INSTANCE_ID)).thenReturn("managed");
+            when(call.getString("url")).thenReturn("https://example.test");
+            plugin.openWebView(call);
+            verify(call).reject(contains("managed instance"));
+            assertSame(dialog, WebViewRegistry.getShared().get("managed"));
+        }
+        dialog.forceClose();
+        WebViewRegistry.getShared().remove("managed");
+        WebViewDialog replacement = mock(WebViewDialog.class);
+        WebViewRegistry.getShared().register("managed", replacement);
+        assertSame(replacement, WebViewRegistry.getShared().get("managed"));
+    }
+
     @Test @Config(shadows = PaintWebView.class)
     public void managedCloseWaitsForTheHostFenceAndDiscardsThePreRotationFence() {
         open(true, true, "default");
@@ -257,8 +280,40 @@ public class BreadPresentationControllerTest {
         assertTrue(dialog.isShowing());
         View failure = ReflectionHelpers.getField(dialog.managedClose(), "failureView");
         assertNotNull(failure);
-        assertTrue(((ViewGroup) failure).getChildAt(2).performClick());
+        View retry = ((ViewGroup) failure).getChildAt(1);
+        assertEquals(-1, shadowOf(retry).lastHapticFeedbackPerformed());
+        String request = dialog.managedClose().requestId();
+        retry.performClick();
+        assertEquals(android.view.HapticFeedbackConstants.VIRTUAL_KEY, shadowOf(retry).lastHapticFeedbackPerformed());
+        assertNotEquals(request, dialog.managedClose().requestId());
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(6));
+        ViewGroup retriedFailure = ReflectionHelpers.getField(dialog.managedClose(), "failureView");
+        View exit = retriedFailure.getChildAt(2);
+        assertEquals(-1, shadowOf(exit).lastHapticFeedbackPerformed());
+        assertTrue(exit.performClick());
+        assertEquals(android.view.HapticFeedbackConstants.VIRTUAL_KEY, shadowOf(exit).lastHapticFeedbackPerformed());
         assertFalse(dialog.isShowing());
+    }
+
+    @Test public void rejectedDuplicateCannotEscapeCloseAllOrActivityDestruction() {
+        for (boolean destroy : new boolean[]{false, true}) {
+            open(true, true, "default");
+            WebViewRegistry.getShared().register("managed", dialog);
+            dialog.setClosedListener(() -> WebViewRegistry.getShared().remove("managed"));
+            dialog.configureManagedClose("managed", new JSObject().put("token", "reserved"), ignored -> {});
+            Runnable completed = mock(Runnable.class);
+            dialog.requestClose(completed);
+            WebViewRegistry.getShared().register("managed", mock(WebViewDialog.class));
+            InAppBrowserPlugin plugin = spy(new InAppBrowserPlugin());
+            androidx.appcompat.app.AppCompatActivity pluginActivity = mock(androidx.appcompat.app.AppCompatActivity.class);
+            doAnswer(call -> { ((Runnable) call.getArgument(0)).run(); return null; }).when(pluginActivity).runOnUiThread(any());
+            doReturn(pluginActivity).when(plugin).getActivity();
+            if (destroy) plugin.handleOnDestroy();
+            else { plugin.closeAll(mock(PluginCall.class)); shadowOf(Looper.getMainLooper()).idle(); }
+            assertFalse(dialog.isShowing());
+            verify(completed, times(1)).run();
+            assertNull(WebViewRegistry.getShared().get("managed"));
+        }
     }
 
     private boolean fits() { return ReflectionHelpers.callInstanceMethod(dialog.getWindow(), "decorFitsSystemWindows"); }

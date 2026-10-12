@@ -416,7 +416,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // Remove the session before notifying confirmation subscribers so it cannot auto-restore.
       sessionLifetimes.current.delete(id);
       const token = managedTokens.current.get(id);
-      if (token) dappWebViewManager.forget(id, token);
+      if (token) dappWebViewManager.reserveClose(id, token);
       removeSession(id);
       if (foregroundIdRef.current === id) {
         foregroundIdRef.current = null;
@@ -498,8 +498,10 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       providerEpoch.current = Symbol();
       openings.clear();
       for (const [id, token] of tokens) {
-        dappWebViewManager.forget(id, token);
-        void InAppBrowser.close({ id, managedHostCloseToken: token, force: true }).catch(() => {});
+        dappWebViewManager.reserveClose(id, token);
+        void InAppBrowser.close({ id, managedHostCloseToken: token, force: true })
+          .catch(() => {})
+          .finally(() => dappWebViewManager.forget(id, token));
       }
       tokens.clear();
       for (const record of closings.values()) record.settle();
@@ -667,11 +669,11 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           const record = managedClosings.current.get(token);
           const current = managedTokens.current.get(id) === token;
           if (!current && !record) return;
-          managedClosings.current.delete(token);
-          if (current) managedTokens.current.delete(id);
+          await (record?.finalized ?? (current ? finalizeSession(id, false) : Promise.resolve()));
+          if (managedClosings.current.get(token) === record) managedClosings.current.delete(token);
+          if (managedTokens.current.get(id) === token) managedTokens.current.delete(id);
           dappWebViewManager.forget(id, token);
           record?.settle();
-          await (record?.finalized ?? (current ? finalizeSession(id, false) : Promise.resolve()));
         } else if (!managedTokens.current.has(id)) {
           await finalizeSession(id);
         }
@@ -823,9 +825,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           providerEpoch.current !== epoch ||
           sessionLifetimes.current.get(session.id) !== lifetime
         ) {
-          dappWebViewManager.forget(session.id, token);
-          if (!managedClosings.current.has(token))
+          if (!managedClosings.current.has(token)) {
             await InAppBrowser.close({ id: session.id, managedHostCloseToken: token, force: true });
+            if (managedTokens.current.get(session.id) === token) await finalizations.current.get(session.id);
+            if (managedTokens.current.get(session.id) === token) managedTokens.current.delete(session.id);
+            dappWebViewManager.forget(session.id, token);
+          }
           return;
         }
         updateSession(session.id, s => ({
@@ -841,6 +846,18 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           originConfirmed: false
         }));
       } catch (error) {
+        if (managedClosings.current.has(token)) return;
+        if (
+          !providerAlive.current ||
+          providerEpoch.current !== epoch ||
+          sessionLifetimes.current.get(session.id) !== lifetime
+        ) {
+          if (managedTokens.current.get(session.id) === token) await finalizations.current.get(session.id);
+          if (managedTokens.current.get(session.id) === token) managedTokens.current.delete(session.id);
+          dappWebViewManager.forget(session.id, token);
+          return;
+        }
+        if (managedTokens.current.get(session.id) === token) managedTokens.current.delete(session.id);
         console.error('[DappBrowserProvider] Error opening webview:', error);
         updateSession(session.id, s => ({ ...s, isLoading: false, status: 'closing' }));
       } finally {
@@ -914,6 +931,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         void restoreRef.current?.(next.id);
         return;
       }
+      if (managedTokens.current.has(next.id)) return;
       const existingByUrl = sessionStatesRef.current.find(s => s.session.url === next.url && s.status !== 'closing');
       if (existingByUrl) {
         void restoreRef.current?.(existingByUrl.session.id);

@@ -32,6 +32,7 @@ import UIKit
     @objc public func register(_ instance: WKWebViewInstance) {
         lock.lock()
         defer { lock.unlock() }
+        if let existing = instances[instance.id], existing !== instance, existing.managedClose != nil { return }
         instances[instance.id] = instance
     }
 

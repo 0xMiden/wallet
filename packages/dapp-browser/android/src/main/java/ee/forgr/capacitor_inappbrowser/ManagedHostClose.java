@@ -5,6 +5,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -178,10 +179,10 @@ final class ManagedHostClose {
         message.setTextColor(android.graphics.Color.BLACK);
         Button retry = new Button(owner.getContext());
         retry.setText(options.getString("retryLabel", ""));
-        retry.setOnClickListener(view -> retry());
+        retry.setOnClickListener(view -> { view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); retry(); });
         Button exit = new Button(owner.getContext());
         exit.setText(options.getString("exitLabel", ""));
-        exit.setOnClickListener(view -> force());
+        exit.setOnClickListener(view -> { view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); force(); });
         panel.addView(message); panel.addView(retry); panel.addView(exit);
         android.widget.FrameLayout.LayoutParams layout = new android.widget.FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);

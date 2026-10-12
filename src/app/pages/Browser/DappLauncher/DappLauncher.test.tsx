@@ -604,5 +604,7 @@ it('refreshes recents when the retained launcher becomes active again', async ()
   view.rerender(<BrowserScreen />);
   await act(async () => {});
   expect(screen.getByTestId('explore-launcher')).toBe(launcher);
-  expect(within(screen.getByTestId('explore-recents')).getByRole('button', { name: 'New recent' })).toBeVisible();
+  await waitFor(() =>
+    expect(within(screen.getByTestId('explore-recents')).getByRole('button', { name: 'New recent' })).toBeVisible()
+  );
 });
