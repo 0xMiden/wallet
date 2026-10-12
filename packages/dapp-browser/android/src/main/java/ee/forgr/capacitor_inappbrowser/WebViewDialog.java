@@ -108,6 +108,19 @@ public class WebViewDialog extends Dialog {
     private WebView _webView;
     private BreadPresentationController presentation;
     private boolean permanentlyClosed;
+    private ManagedHostClose managedClose;
+    boolean managedClosing() { return managedClose != null && managedClose.closing(); }
+    ManagedHostClose managedClose() { return managedClose; }
+    void disableClosingPage() { if (_webView != null) _webView.setEnabled(false); }
+    void configureManagedClose(String id, JSObject options, java.util.function.Consumer<JSObject> notify) {
+        if (options != null && !options.getString("token", "").isEmpty())
+            managedClose = new ManagedHostClose(id, this, capacitorWebView, options, notify, this::finishDismiss);
+    }
+    void requestClose(Runnable completion) {
+        if (managedClose != null) managedClose.request(completion);
+        else { finishDismiss(); completion.run(); }
+    }
+    void forceClose() { if (managedClose != null) managedClose.force(); else finishDismiss(); }
     private Runnable closedListener;
     // Window has no public fitting getter; retain the policy selected during browser setup.
     private boolean browserDecorFitsSystemWindows = true;
@@ -121,7 +134,8 @@ public class WebViewDialog extends Dialog {
     public boolean isPresentationFullscreen() { return presentation != null && presentation.fullscreen(); }
     public void setClosedListener(Runnable listener) { closedListener = listener; }
     public void presentationForeground(boolean foreground) {
-        if (presentation != null) presentation.foreground(foreground);
+        if (managedClose != null) managedClose.foreground(foreground);
+        if (!managedClosing() && presentation != null) presentation.foreground(foreground);
     }
     void presentationChanged(boolean fullscreen) {
         _options.getCallbacks().presentationChanged(fullscreen);
@@ -129,11 +143,12 @@ public class WebViewDialog extends Dialog {
     void applyBrowserDimensions() { applyDimensions(); }
 
     @Override public void show() {
-        if (permanentlyClosed) return;
+        if (permanentlyClosed || managedClosing()) return;
         super.show();
         if (presentation != null) presentation.visibility(true);
     }
     @Override public void hide() {
+        if (managedClosing()) return;
         if (presentation != null) presentation.visibility(false);
         super.hide();
     }
@@ -183,6 +198,7 @@ public class WebViewDialog extends Dialog {
 
         @JavascriptInterface
         public void postMessage(String message) {
+            if (managedClosing() || permanentlyClosed) return;
             try {
                 // Handle message from JavaScript safely
                 if (message == null || message.isEmpty()) {
@@ -1469,6 +1485,7 @@ public class WebViewDialog extends Dialog {
     }
 
     public void reload() {
+        if (managedClosing() || permanentlyClosed) return;
         if (_webView == null) {
             Log.w("InAppBrowser", "Cannot reload - WebView is null");
             return;
@@ -1534,6 +1551,7 @@ public class WebViewDialog extends Dialog {
     }
 
     public void setUrl(String url) {
+        if (managedClosing() || permanentlyClosed) return;
         if (_webView == null) {
             Log.w("InAppBrowser", "Cannot set URL - WebView is null");
             return;
@@ -2257,6 +2275,7 @@ public class WebViewDialog extends Dialog {
 
                 @Override
                 public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                    if (managedClosing() || permanentlyClosed) return true;
                     if (view == null || _webView == null) {
                         return false;
                     }
@@ -2852,7 +2871,9 @@ public class WebViewDialog extends Dialog {
     }
 
     @Override
-    public void dismiss() {
+    public void dismiss() { requestClose(() -> {}); }
+
+    private void finishDismiss() {
         if (permanentlyClosed) return;
         permanentlyClosed = true;
         String closedUrl = getUrl();
@@ -3106,7 +3127,7 @@ public class WebViewDialog extends Dialog {
      * Apply dimensions to the webview window
      */
     private void applyDimensions() {
-        if (permanentlyClosed) return;
+        if (permanentlyClosed || managedClosing()) return;
         if (isPresentationFullscreen()) {
             presentation.applyWindow();
             return;

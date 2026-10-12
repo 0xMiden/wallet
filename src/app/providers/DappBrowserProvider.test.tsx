@@ -42,6 +42,7 @@ const mockSetVisible: jest.Mock = jest.fn(() => Promise.resolve());
 const mockSetRect: jest.Mock = jest.fn(() => Promise.resolve());
 const mockExecuteScript: jest.Mock = jest.fn(() => Promise.resolve());
 const mockInstanceClose: jest.Mock = jest.fn(() => Promise.resolve());
+const mockNativeClose = jest.fn(async (_options: unknown) => {});
 
 function makeInstance(id: string) {
   return {
@@ -57,10 +58,13 @@ jest.mock('app/icons/brand/new-bread.svg?raw', () => '<svg />', { virtual: true 
 
 jest.mock('@miden/dapp-browser', () => ({
   InAppBrowser: {
+    close: (options: unknown) => mockNativeClose(options),
+    completeManagedClose: jest.fn(async () => {}),
     addListener: (...args: unknown[]) => mockAddListener(...args)
   },
   ToolBarType: { BLANK: 'BLANK' },
   dappWebViewManager: {
+    forget: jest.fn(),
     open: async (opts: { id: string }) => {
       await mockPluginOpen(opts);
       return makeInstance(opts.id);
@@ -1022,7 +1026,11 @@ describe('native presentation lifecycle', () => {
     const other = dappConfirmationStore.requestConfirmation(makeConfirmationRequest('dapp-b'));
     const pending = dappConfirmationStore.requestConfirmation(makeConfirmationRequest('dapp-a'));
     await act(async () => {
-      await listenerFor('closeEvent')({ id: 'dapp-a' });
+      await listenerFor('closeEvent')({
+        id: 'dapp-a',
+        managedHostCloseToken: mockPluginOpen.mock.calls.find(call => call[0].id === 'dapp-a')?.[0].managedHostClose
+          ?.token
+      });
     });
     expect(dappConfirmationStore.getPendingRequest('dapp-a')).toBeNull();
     await expect(pending).resolves.toEqual({ confirmed: false });
@@ -1044,7 +1052,13 @@ describe('native presentation lifecycle', () => {
       hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
     });
     await waitFor(() => expect(mockPluginOpen).toHaveBeenCalled());
-    mockInstanceClose.mockImplementationOnce(() => listenerFor('closeEvent')({ id: 'dapp-a' }));
+    mockInstanceClose.mockImplementationOnce(() =>
+      listenerFor('closeEvent')({
+        id: 'dapp-a',
+        managedHostCloseToken: mockPluginOpen.mock.calls.find(call => call[0].id === 'dapp-a')?.[0].managedHostClose
+          ?.token
+      })
+    );
     await act(async () => {
       await hook.result.current.close('dapp-a');
     });
@@ -1095,7 +1109,9 @@ describe('native presentation lifecycle', () => {
     await act(async () => {
       finishOpen?.();
     });
-    expect(mockInstanceClose).toHaveBeenCalledWith('dapp-a');
+    expect(mockNativeClose).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'dapp-a', force: true, managedHostCloseToken: expect.any(String) })
+    );
     expect(hook.result.current.sessionStates).toHaveLength(0);
     expect(mockClearSnapshot).toHaveBeenCalledTimes(1);
   });
@@ -1120,7 +1136,11 @@ describe('native presentation lifecycle', () => {
       parking = hook.result.current.park('dapp-a');
     });
     await act(async () => {
-      await listenerFor('closeEvent')({ id: 'dapp-a' });
+      await listenerFor('closeEvent')({
+        id: 'dapp-a',
+        managedHostCloseToken: mockPluginOpen.mock.calls.find(call => call[0].id === 'dapp-a')?.[0].managedHostClose
+          ?.token
+      });
     });
     await act(async () => {
       finishSnapshot?.('data:image/jpeg;base64,AAAA');
@@ -1186,7 +1206,11 @@ describe('native presentation lifecycle', () => {
       restoring = hook.result.current.restore('target');
     });
     await act(async () => {
-      await listenerFor('closeEvent')({ id: 'target' });
+      await listenerFor('closeEvent')({
+        id: 'target',
+        managedHostCloseToken: mockPluginOpen.mock.calls.find(call => call[0].id === 'target')?.[0].managedHostClose
+          ?.token
+      });
     });
     mockSetActiveDappSession.mockClear();
     await act(async () => {

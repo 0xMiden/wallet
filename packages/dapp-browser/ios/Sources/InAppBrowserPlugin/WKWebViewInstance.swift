@@ -12,6 +12,7 @@ import UIKit
 /// `WebViewRegistry.defaultInstanceId` ("default") so the legacy code
 /// path works unchanged.
 @objc public class WKWebViewInstance: NSObject {
+    var managedClose: ManagedHostClose?
     @objc public let id: String
     @objc public let controller: WKWebViewController
     @objc public let navigationController: UINavigationController

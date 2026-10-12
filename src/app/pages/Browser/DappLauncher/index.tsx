@@ -20,6 +20,7 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { IconName } from 'app/icons/v2';
+import { usePageActive } from 'app/layouts/page-active';
 import { TabHeaderAction, TabRootHeader } from 'components/ui';
 import type { SegmentedControlItem } from 'components/ui/SegmentedControl';
 import { useExploreMotion } from 'lib/animation';
@@ -51,6 +52,7 @@ const FIRST_SECTION_REVEAL = 0;
 
 export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
   const { t, i18n } = useTranslation();
+  const active = usePageActive();
   const motionTokens = useExploreMotion();
   const [recents, setRecents] = useState<RecentDapp[]>([]);
   const [filter, setFilter] = useState<ExploreFilter>('all');
@@ -137,8 +139,8 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
     setQuery(next);
   };
 
-  // Load recents from preferences on mount.
   useEffect(() => {
+    if (!active) return;
     let cancelled = false;
     getRecentDapps()
       .then(list => {
@@ -150,7 +152,7 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [active]);
 
   return (
     <>

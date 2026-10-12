@@ -44,6 +44,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState
@@ -52,7 +53,13 @@ import React, {
 import { AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { DappWebViewInstance, InAppBrowser, ToolBarType, dappWebViewManager } from '@miden/dapp-browser';
+import {
+  DappWebViewInstance,
+  type HostCloseRequest,
+  InAppBrowser,
+  ToolBarType,
+  dappWebViewManager
+} from '@miden/dapp-browser';
 import breadLogoSvg from 'app/icons/brand/new-bread.svg?raw';
 import { DappConfirmationModal } from 'app/pages/Browser/DappConfirmationModal';
 import { DappPeekTray } from 'app/pages/Browser/DappPeekTray';
@@ -164,7 +171,18 @@ export interface DappSessionState {
   presentation: 'browser' | 'fullscreen';
 }
 
+interface ManagedCloseRecord {
+  request: HostCloseRequest;
+  ready: boolean;
+  needsDestination: boolean;
+  finalized: Promise<void>;
+  terminal: Promise<void>;
+  settle: () => void;
+}
+
 interface DappBrowserContextValue {
+  reportLauncherCommit: (active: boolean) => void;
+
   /** The foregrounded session, or null if the launcher is showing. */
   session: DappSession | null;
   /** Convenience — 'active' if a session is foregrounded, 'launcher' otherwise. */
@@ -377,16 +395,28 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
   // Native handles can materialize later; lifetime identity changes only on removal and a new session.
   const sessionLifetimes = useRef(new Map<string, symbol>());
-  const openingSessions = useRef(new Set<string>());
+  const openingSessions = useRef(new Map<string, symbol>());
   const listenerSetup = useRef<Promise<void>>(Promise.resolve());
   const finalizations = useRef(new Map<string, Promise<void>>());
+  const managedTokens = useRef(new Map<string, string>());
+  const managedClosings = useRef(new Map<string, ManagedCloseRecord>());
+  const providerAlive = useRef(true);
+  const providerEpoch = useRef(Symbol());
+  const launcherCommitted = useRef(false);
+  const hostCommitGeneration = useRef(0);
+  const [closeRevision, setCloseRevision] = useState(0);
+  const reportLauncherCommit = useCallback((active: boolean) => {
+    launcherCommitted.current = active;
+  }, []);
   const finalizeSession = useCallback(
-    (id: string): Promise<void> => {
+    (id: string, resetViewport = true): Promise<void> => {
       const existing = finalizations.current.get(id);
       if (existing) return existing;
       if (!getSessionStateById(id)) return Promise.resolve();
       // Remove the session before notifying confirmation subscribers so it cannot auto-restore.
       sessionLifetimes.current.delete(id);
+      const token = managedTokens.current.get(id);
+      if (token) dappWebViewManager.forget(id, token);
       removeSession(id);
       if (foregroundIdRef.current === id) {
         foregroundIdRef.current = null;
@@ -395,17 +425,87 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       }
       dappConfirmationStore.resolveConfirmation(id, { confirmed: false });
       clearSnapshot(id);
-      markReturningFromWebview();
+      if (resetViewport) markReturningFromWebview();
       const finalized = Promise.all([
         removePersistedSession(id).catch(error => console.warn('[DappBrowserProvider] remove session failed:', error)),
         removeSnapshotFromDisk(id).catch(error => console.warn('[DappBrowserProvider] remove snapshot failed:', error)),
-        resetViewportAfterWebview()
+        resetViewport ? resetViewportAfterWebview() : Promise.resolve()
       ]).then(() => undefined);
       finalizations.current.set(id, finalized);
       return finalized;
     },
     [getSessionStateById, removeSession, setActiveDappSession]
   );
+
+  const requestManagedClose = useCallback(
+    (event: HostCloseRequest) => {
+      if (!providerAlive.current || managedTokens.current.get(event.id) !== event.token) return;
+      const existing = managedClosings.current.get(event.token);
+      if (existing) {
+        if (existing.request.requestId !== event.requestId) {
+          existing.request = event;
+          setCloseRevision(n => n + 1);
+        }
+        return;
+      }
+      const needsDestination = event.visible === true;
+      const resetViewport = needsDestination && foregroundIdRef.current === event.id && !foregroundBlockedRef.current;
+      let settle = () => {};
+      const terminal = new Promise<void>(resolve => {
+        settle = resolve;
+      });
+      const record: ManagedCloseRecord = {
+        request: event,
+        ready: false,
+        needsDestination,
+        finalized: Promise.resolve(),
+        terminal,
+        settle
+      };
+      managedClosings.current.set(event.token, record);
+      record.finalized = finalizeSession(event.id, resetViewport);
+      void record.finalized.finally(() => {
+        if (!providerAlive.current || managedClosings.current.get(event.token) !== record) return;
+        record.ready = true;
+        setCloseRevision(n => n + 1);
+      });
+      setCloseRevision(n => n + 1);
+    },
+    [finalizeSession]
+  );
+
+  // A child layout receipt certifies the retained launcher. Other host destinations commit here.
+  useLayoutEffect(() => {
+    const generation = ++hostCommitGeneration.current;
+    for (const record of managedClosings.current.values()) {
+      if (!record.ready) continue;
+      const needsLauncher =
+        record.needsDestination && location.pathname === '/browser' && !foregroundBlocked && !foregroundId;
+      if (needsLauncher && (!launcherCommitted.current || slotRect)) continue;
+      void InAppBrowser.completeManagedClose({ ...record.request, hostCommitGeneration: generation }).catch(() => {
+        // Native retains the surface and offers Retry/Exit now after a failed fence.
+      });
+    }
+  }, [closeRevision, location.pathname, foregroundBlocked, foregroundId, slotRect]);
+
+  useEffect(() => {
+    providerAlive.current = true;
+    const openings = openingSessions.current;
+    const tokens = managedTokens.current;
+    const closings = managedClosings.current;
+    return () => {
+      providerAlive.current = false;
+      providerEpoch.current = Symbol();
+      openings.clear();
+      for (const [id, token] of tokens) {
+        dappWebViewManager.forget(id, token);
+        void InAppBrowser.close({ id, managedHostCloseToken: token, force: true }).catch(() => {});
+      }
+      tokens.clear();
+      for (const record of closings.values()) record.settle();
+      closings.clear();
+    };
+  }, []);
 
   // ─── Plugin event listeners ─────────────────────────────────────────────
   //
@@ -420,6 +520,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     let mounted = true;
 
     const wire = async () => {
+      const managedL = await InAppBrowser.addListener('hostCloseRequested', requestManagedClose);
+      listenerRemovers.push(() => managedL.remove());
       const presentationL = await InAppBrowser.addListener('presentationChanged', event => {
         updateSession(event.id, s => ({ ...s, presentation: event.display }));
       });
@@ -560,7 +662,19 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
       const closeL = await InAppBrowser.addListener('closeEvent', async event => {
         const id = (event as { id?: string })?.id ?? 'default';
-        await finalizeSession(id);
+        const token = event.managedHostCloseToken;
+        if (token) {
+          const record = managedClosings.current.get(token);
+          const current = managedTokens.current.get(id) === token;
+          if (!current && !record) return;
+          managedClosings.current.delete(token);
+          if (current) managedTokens.current.delete(id);
+          dappWebViewManager.forget(id, token);
+          record?.settle();
+          await (record?.finalized ?? (current ? finalizeSession(id, false) : Promise.resolve()));
+        } else if (!managedTokens.current.has(id)) {
+          await finalizeSession(id);
+        }
       });
       listenerRemovers.push(() => closeL.remove());
 
@@ -652,11 +766,20 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
   const openInternal = useCallback(
     async (session: DappSession, rect: WebViewRect) => {
-      if (openingSessions.current.has(session.id)) return;
-      openingSessions.current.add(session.id);
+      const lifetime = sessionLifetimes.current.get(session.id);
+      if (!lifetime || openingSessions.current.get(session.id) === lifetime) return;
+      openingSessions.current.set(session.id, lifetime);
+      const epoch = providerEpoch.current;
+      const token = crypto.randomUUID();
+      managedTokens.current.set(session.id, token);
       try {
         await listenerSetup.current;
-        if (finalizations.current.has(session.id)) return;
+        if (
+          !providerAlive.current ||
+          providerEpoch.current !== epoch ||
+          sessionLifetimes.current.get(session.id) !== lifetime
+        )
+          return;
         const instance = await dappWebViewManager.open({
           id: session.id,
           url: session.url,
@@ -675,6 +798,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           ...(isMobile()
             ? {
                 initiallyVisible: false,
+                managedHostClose: {
+                  token,
+                  errorLabel: t('breadCloseError'),
+                  retryLabel: t('retry'),
+                  exitLabel: t('breadExitNow')
+                },
                 breadPresentation: {
                   script: PRESENTATION_SCRIPT,
                   logoSvg: breadLogoSvg,
@@ -689,8 +818,14 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           isInspectable: process.env.NODE_ENV !== 'production'
         });
         // An early native close can arrive while openWebView is still pending.
-        if (finalizations.current.has(session.id)) {
-          await instance.close();
+        if (
+          !providerAlive.current ||
+          providerEpoch.current !== epoch ||
+          sessionLifetimes.current.get(session.id) !== lifetime
+        ) {
+          dappWebViewManager.forget(session.id, token);
+          if (!managedClosings.current.has(token))
+            await InAppBrowser.close({ id: session.id, managedHostCloseToken: token, force: true });
           return;
         }
         updateSession(session.id, s => ({
@@ -709,7 +844,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         console.error('[DappBrowserProvider] Error opening webview:', error);
         updateSession(session.id, s => ({ ...s, isLoading: false, status: 'closing' }));
       } finally {
-        openingSessions.current.delete(session.id);
+        if (openingSessions.current.get(session.id) === lifetime) openingSessions.current.delete(session.id);
       }
     },
     [t, updateSession]
@@ -822,8 +957,19 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     async (sessionId?: string) => {
       const id = sessionId ?? foregroundIdRef.current;
       if (!id) return;
+      const token = managedTokens.current.get(id);
+      const closing = token ? managedClosings.current.get(token) : undefined;
+      if (closing) {
+        await Promise.all([closing.terminal, closing.finalized]);
+        return;
+      }
       const state = getSessionStateById(id);
       if (!state) return;
+      if (state.instance?.managedHostCloseToken) {
+        await state.instance.close();
+        await finalizations.current.get(id);
+        return;
+      }
       const finalized = finalizeSession(id);
       try {
         await state.instance?.close();
@@ -1084,7 +1230,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       closeSwitcher,
       setSlotRect,
       slotRect,
-      holdHostOverlay
+      holdHostOverlay,
+      reportLauncherCommit
     }),
     [
       session,
@@ -1100,7 +1247,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       openSwitcher,
       closeSwitcher,
       slotRect,
-      holdHostOverlay
+      holdHostOverlay,
+      reportLauncherCommit
     ]
   );
 

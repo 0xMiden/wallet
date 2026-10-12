@@ -30,8 +30,10 @@ function generateId() {
 }
 
 export class DappWebViewInstance {
-  constructor(id) {
+  constructor(id, managedHostCloseToken) {
     this.id = id;
+    this.managedHostCloseToken = managedHostCloseToken;
+    this.closed = false;
   }
 
   /** Move the webview to the given rect (delegates to updateDimensions). */
@@ -65,7 +67,14 @@ export class DappWebViewInstance {
 
   /** Close this instance and tear down its WebView. */
   close() {
-    return InAppBrowser.close({ id: this.id });
+    if (this.closePromise) return this.closePromise;
+    if (this.closed) return Promise.resolve();
+    this.closePromise = InAppBrowser.close({ id: this.id, managedHostCloseToken: this.managedHostCloseToken })
+      .finally(() => {
+        this.closed = true;
+        if (liveInstances.get(this.id)?.instance === this) liveInstances.delete(this.id);
+      });
+    return this.closePromise;
   }
 }
 
@@ -81,21 +90,33 @@ export const dappWebViewManager = {
   async open(opts) {
     const id = opts.id || generateId();
     const existing = liveInstances.get(id);
-    if (existing) return existing;
-    await InAppBrowser.openWebView({ ...opts, id });
-    const instance = new DappWebViewInstance(id);
-    liveInstances.set(id, instance);
-    return instance;
+    if (existing) return existing.opening;
+    const instance = new DappWebViewInstance(id, opts.managedHostClose?.token);
+    const entry = { instance, opening: null };
+    liveInstances.set(id, entry);
+    entry.opening = InAppBrowser.openWebView({ ...opts, id }).then(() => instance, error => {
+      instance.closed = true;
+      if (liveInstances.get(id) === entry) liveInstances.delete(id);
+      throw error;
+    });
+    return entry.opening;
+  },
+
+  forget(id, token) {
+    const entry = liveInstances.get(id);
+    if (!entry || entry.instance.managedHostCloseToken !== token) return;
+    entry.instance.closed = true;
+    liveInstances.delete(id);
   },
 
   /** Look up a previously-opened instance by id. */
   get(id) {
-    return liveInstances.get(id);
+    return liveInstances.get(id)?.instance;
   },
 
   /** Snapshot of all live JS-side instances. Doesn't query the native registry. */
   list() {
-    return Array.from(liveInstances.values());
+    return Array.from(liveInstances.values(), entry => entry.instance);
   },
 
   /**
@@ -105,15 +126,23 @@ export const dappWebViewManager = {
    */
   async sync() {
     const result = await InAppBrowser.listInstances();
-    liveInstances.clear();
+    for (const [id, entry] of liveInstances) {
+      if (!(result.ids || []).includes(id)) {
+        entry.instance.closed = true;
+        liveInstances.delete(id);
+      }
+    }
     for (const id of result.ids || []) {
-      liveInstances.set(id, new DappWebViewInstance(id));
+      if (liveInstances.has(id)) continue;
+      const instance = new DappWebViewInstance(id);
+      liveInstances.set(id, { instance, opening: Promise.resolve(instance) });
     }
   },
 
   /** Close every live instance. Used on app shutdown / wallet reset. */
   async closeAll() {
-    await InAppBrowser.closeAll();
+    for (const entry of liveInstances.values()) entry.instance.closed = true;
     liveInstances.clear();
+    await InAppBrowser.closeAll();
   }
 };

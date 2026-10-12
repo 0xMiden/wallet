@@ -18,11 +18,28 @@ import en from '../../../public/_locales/en/en.json';
 
 const mockSetVisible = jest.fn(async (_id: string, _visible: boolean) => {});
 const mockSetRect = jest.fn(async (_id: string, _rect: unknown) => {});
-const mockOpen = jest.fn(async (_options: { id: string; initiallyVisible?: boolean }) => {});
+const mockOpen = jest.fn(
+  async (_options: { id: string; initiallyVisible?: boolean; managedHostClose?: { token: string } }) => {}
+);
+const mockCompleteClose = jest.fn(async (_options: unknown) => {});
+const mockResetViewport = jest.fn(async () => {});
 const mockClose = jest.fn(async (_id: string) => {});
-const nativeListeners = new Map<string, (event: { id: string; display?: 'fullscreen'; detail?: unknown }) => void>();
+const nativeListeners = new Map<
+  string,
+  (event: {
+    id: string;
+    display?: 'fullscreen';
+    detail?: unknown;
+    token?: string;
+    requestId?: string;
+    visible?: boolean;
+    managedHostCloseToken?: string;
+  }) => void
+>();
 jest.mock('@miden/dapp-browser', () => ({
   InAppBrowser: {
+    completeManagedClose: (options: unknown) => mockCompleteClose(options),
+    close: async () => {},
     addListener: async (
       event: string,
       listener: (event: { id: string; display?: 'fullscreen'; detail?: unknown }) => void
@@ -39,6 +56,7 @@ jest.mock('@miden/dapp-browser', () => ({
   },
   ToolBarType: { BLANK: 'BLANK' },
   dappWebViewManager: {
+    forget: jest.fn(),
     open: async (options: { id: string; initiallyVisible?: boolean }) => {
       await mockOpen(options);
       return {
@@ -75,7 +93,7 @@ jest.mock('lib/store', () => ({
   selectIsReady: (state: { status: number }) => state.status === WalletStatus.Ready
 }));
 jest.mock('lib/woozie', () => ({ navigate: jest.fn(), useLocation: () => ({ pathname: mockPath }) }));
-jest.mock('lib/mobile/viewport-reset', () => ({ resetViewportAfterWebview: async () => {} }));
+jest.mock('lib/mobile/viewport-reset', () => ({ resetViewportAfterWebview: () => mockResetViewport() }));
 jest.mock('lib/mobile/webview-state', () => ({ markReturningFromWebview: () => {} }));
 jest.mock('lib/mobile/useMobileBackHandler', () => ({ useMobileBackHandler: () => {} }));
 jest.mock('lib/mobile/haptics', () => ({
@@ -238,6 +256,8 @@ beforeEach(async () => {
   mockSetRect.mockClear();
   mockOpen.mockClear();
   mockClose.mockClear();
+  mockCompleteClose.mockClear();
+  mockResetViewport.mockReset().mockResolvedValue(undefined);
   mockStatus = WalletStatus.Ready;
   mockHydrated = true;
   mockPath = '/browser';
@@ -588,4 +608,72 @@ it('does not restart the foreground reveal when an unrelated native session clos
   expect(control().session?.id).toBe('replacement');
   expect(mockSetRect).not.toHaveBeenCalledWith('replacement', expect.anything());
   expect(mockSetVisible).not.toHaveBeenCalledWith('replacement', true);
+});
+
+it('removes managed-close authority before waiting for the host reset and destination commit', async () => {
+  await openForeground();
+  let resetFinished = () => {};
+  mockResetViewport.mockImplementationOnce(
+    () =>
+      new Promise<void>(resolve => {
+        resetFinished = resolve;
+      })
+  );
+  const token = mockOpen.mock.calls[0]?.[0].managedHostClose?.token;
+  expect(typeof token).toBe('string');
+  act(() => nativeListeners.get('hostCloseRequested')?.({ id: 'origin', token, requestId: 'close-1', visible: true }));
+  expect(control().sessionStates).toHaveLength(0);
+  expect(control().mode).toBe('launcher');
+  expect(mockCompleteClose).not.toHaveBeenCalled();
+  // This harness has no BrowserScreen, so a launcher receipt must not be invented.
+  await act(async () => resetFinished());
+  expect(mockCompleteClose).not.toHaveBeenCalled();
+  mockPath = '/settings';
+  currentTree?.rerender(<Tree />);
+  await settle();
+  expect(mockCompleteClose).toHaveBeenCalledWith(
+    expect.objectContaining({ id: 'origin', token, requestId: 'close-1' })
+  );
+});
+
+it('does not reset the unrelated foreground viewport when a hidden origin closes', async () => {
+  await openForeground();
+  const token = mockOpen.mock.calls[0]?.[0].managedHostClose?.token;
+  expect(typeof token).toBe('string');
+  await act(async () => control().park('origin'));
+  mockResetViewport.mockClear();
+  act(() =>
+    nativeListeners.get('hostCloseRequested')?.({ id: 'origin', token, requestId: 'hidden-close', visible: false })
+  );
+  await settle();
+  expect(control().sessionStates).toHaveLength(0);
+  expect(mockResetViewport).not.toHaveBeenCalled();
+  expect(mockCompleteClose).toHaveBeenCalledWith(expect.objectContaining({ requestId: 'hidden-close' }));
+});
+
+it('joins an already pending native close and ignores terminal events from an old lifetime', async () => {
+  await openForeground({ held: true });
+  const token = mockOpen.mock.calls[0]?.[0].managedHostClose?.token;
+  act(() =>
+    nativeListeners.get('hostCloseRequested')?.({ id: 'origin', token, requestId: 'close-join', visible: false })
+  );
+  await settle();
+  let settled = false;
+  const joined = control()
+    .close('origin')
+    .then(() => {
+      settled = true;
+    });
+  await settle();
+  expect(settled).toBe(false);
+  await act(async () => {
+    nativeListeners.get('closeEvent')?.({ id: 'origin', managedHostCloseToken: 'old-lifetime' });
+  });
+  expect(settled).toBe(false);
+  await act(async () => {
+    nativeListeners.get('closeEvent')?.({ id: 'origin', managedHostCloseToken: token });
+    await joined;
+  });
+  expect(settled).toBe(true);
+  expect(control().sessionStates).toHaveLength(0);
 });

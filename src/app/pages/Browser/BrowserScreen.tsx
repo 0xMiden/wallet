@@ -21,10 +21,10 @@
  * launcher and opens every pick in a new browser tab.
  */
 
-import React, { type FC, useCallback } from 'react';
+import React, { type FC, useCallback, useLayoutEffect, useRef } from 'react';
 
 import { openUrlInNewTab } from 'app/env';
-import { usePageActive } from 'app/layouts/page-active';
+import { PageActiveContext, usePageActive } from 'app/layouts/page-active';
 import { useDappBrowser } from 'app/providers/DappBrowserProvider';
 import { createDappSession, getDappDisplayName, parseOrigin, recordRecentDapp } from 'lib/dapp-browser';
 import { isDesktop, isExtension } from 'lib/platform';
@@ -45,7 +45,7 @@ function recordOpenedDapp(url: string): Promise<void> {
 }
 
 const EmbeddedBrowserScreen: FC = () => {
-  const { mode, open } = useDappBrowser();
+  const { mode, open, reportLauncherCommit } = useDappBrowser();
   // A tab pane or page layer stays mounted off screen, but the dApp surface must not: its unmount clears the slot
   // rect, which is what parks the foreground dApp and hides its native window.
   const onScreen = usePageActive();
@@ -70,8 +70,36 @@ const EmbeddedBrowserScreen: FC = () => {
     [open]
   );
 
-  if (mode === 'active') return onScreen ? <DappActive /> : null;
-  return <DappLauncher onOpen={handleOpen} />;
+  const launcherVisible = mode !== 'active';
+  const launcher = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = launcher.current;
+    if (!element) return;
+    element.inert = !launcherVisible || !onScreen;
+    if ((!launcherVisible || !onScreen) && element.contains(document.activeElement)) {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    }
+  }, [launcherVisible, onScreen]);
+  useLayoutEffect(() => {
+    reportLauncherCommit?.(launcherVisible && onScreen);
+    return () => reportLauncherCommit?.(false);
+  });
+
+  return (
+    <>
+      <div
+        ref={launcher}
+        hidden={!launcherVisible}
+        aria-hidden={!launcherVisible || !onScreen}
+        className={launcherVisible ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}
+      >
+        <PageActiveContext.Provider value={launcherVisible && onScreen}>
+          <DappLauncher onOpen={handleOpen} />
+        </PageActiveContext.Provider>
+      </div>
+      {mode === 'active' && onScreen && <DappActive />}
+    </>
+  );
 };
 
 const ExtensionBrowserScreen: FC = () => {

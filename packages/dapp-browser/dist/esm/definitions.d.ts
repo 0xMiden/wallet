@@ -1,5 +1,7 @@
 import type { PluginListenerHandle } from '@capacitor/core';
 export interface UrlEvent {
+    id?: string;
+    managedHostCloseToken?: string;
     /**
      * Emit when the url changes
      *
@@ -98,6 +100,8 @@ export interface DisclaimerOptions {
     cancelBtn: string;
 }
 export interface CloseWebviewOptions {
+    managedHostCloseToken?: string;
+    force?: boolean;
     /**
      * Whether the webview closing is animated or not, ios only
      * @default true
@@ -118,7 +122,21 @@ export interface BreadPresentationOptions {
     errorLabel: string;
     readinessTimeoutMs: number;
 }
+export interface ManagedHostCloseOptions {
+    token: string;
+    errorLabel: string;
+    retryLabel: string;
+    exitLabel: string;
+}
+export interface HostCloseRequest {
+    visible?: boolean;
+    id: string;
+    token: string;
+    requestId: string;
+}
 export interface OpenWebViewOptions {
+    /** Internal host handoff. Omission preserves immediate native close. */
+    managedHostClose?: ManagedHostCloseOptions;
     /** Initial visibility of a positioned native window. Defaults to true. */
     initiallyVisible?: boolean;
     breadPresentation?: BreadPresentationOptions;
@@ -592,6 +610,8 @@ export interface DimensionOptions {
     y?: number;
 }
 export interface InAppBrowserPlugin {
+    addListener(eventName: 'hostCloseRequested', listenerFunc: (event: HostCloseRequest) => void): Promise<PluginListenerHandle>;
+    completeManagedClose(options: HostCloseRequest & { hostCommitGeneration: number }): Promise<void>;
     addListener(eventName: 'presentationChanged', listenerFunc: (event: {
         id: string;
         display: 'browser' | 'fullscreen';

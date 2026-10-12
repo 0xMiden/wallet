@@ -1,6 +1,8 @@
 package ee.forgr.capacitor_inappbrowser;
 
 import android.app.Activity;
+import android.os.Looper;
+import android.view.ViewGroup;
 import android.net.Uri;
 import org.robolectric.annotation.Implementation;
 import org.robolectric.annotation.Implements;
@@ -61,7 +63,7 @@ public class BreadPresentationControllerTest {
     private final List<String> installed = new ArrayList<>();
 
     @Before public void setUp() {
-        activity = Robolectric.buildActivity(Activity.class).setup().get();
+        activity = Robolectric.buildActivity(Activity.class).setup().visible().get();
         activity.setTheme(androidx.appcompat.R.style.Theme_AppCompat_Light_NoActionBar);
         features = mockStatic(WebViewFeature.class);
         features.when(() -> WebViewFeature.isFeatureSupported(WebViewFeature.NAVIGATION_LISTENER_V1)).thenReturn(true);
@@ -155,9 +157,108 @@ public class BreadPresentationControllerTest {
     }
 
     @After public void tearDown() {
-        if (dialog != null) dialog.dismiss();
+        if (dialog != null) dialog.forceClose();
+        WebViewRegistry.getShared().clear();
         webkit.close(); features.close();
         activity.finish();
+    }
+
+    @Test public void managedCloseRetainsTheDialogAndRejectsStaleReceipts() {
+        open(true, true, "default");
+        List<JSObject> requests = new ArrayList<>();
+        WebViewRegistry.getShared().register("managed", dialog);
+        dialog.configureManagedClose("managed", new JSObject().put("token", "lifetime")
+            .put("errorLabel", "Error").put("retryLabel", "Retry").put("exitLabel", "Exit now"), requests::add);
+        Runnable completion = mock(Runnable.class);
+        dialog.requestClose(completion);
+        dialog.requestClose(completion);
+        assertEquals(1, requests.size());
+        assertTrue(dialog.isShowing());
+        verify(completion, never()).run();
+        dialog.hide();
+        assertTrue(dialog.isShowing());
+        ManagedHostClose managed = dialog.managedClose();
+        assertFalse(managed.complete("old", managed.requestId(), 1));
+        String old = managed.requestId();
+        managed.retry();
+        assertFalse(managed.complete("lifetime", old, 2));
+        dialog.forceClose();
+        dialog.forceClose();
+        assertFalse(dialog.isShowing());
+        verify(completion, times(2)).run();
+        verify(callbacks, times(1)).closeEvent(anyString());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void managedCloseWaitsForTheHostFenceAndDiscardsThePreRotationFence() {
+        open(true, true, "default");
+        WebView host = spy((WebView) ReflectionHelpers.getField(dialog, "capacitorWebView"));
+        ReflectionHelpers.setField(dialog, "capacitorWebView", host);
+        activity.setContentView(host);
+        doReturn(390).when(host).getWidth();
+        doReturn(844).when(host).getHeight();
+        doReturn(true).when(host).isAttachedToWindow();
+        doReturn(false).when(host).isHardwareAccelerated();
+        WebViewRegistry.getShared().register("managed", dialog);
+        dialog.configureManagedClose("managed", new JSObject().put("token", "lifetime"), ignored -> {});
+        dialog.dismiss();
+        ManagedHostClose managed = dialog.managedClose();
+        assertTrue(managed.complete("lifetime", managed.requestId(), 1));
+        PaintWebView renderer = Shadow.extract(host);
+        assertNotNull(renderer.fence);
+        WebView.VisualStateCallback stale = renderer.fence;
+        long staleRequest = renderer.request;
+        doReturn(844).when(host).getWidth();
+        doReturn(390).when(host).getHeight();
+        ReflectionHelpers.callInstanceMethod(managed, "geometryChanged");
+        stale.onComplete(staleRequest);
+        assertTrue(dialog.isShowing());
+        renderer.fence.onComplete(renderer.request);
+        assertFalse(dialog.isShowing());
+        verify(callbacks, times(1)).closeEvent(anyString());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void managedCloseWaitsForHardwareFrameCommitAfterHostVisualReadiness() {
+        open(true, true, "default");
+        WebView host = spy((WebView) ReflectionHelpers.getField(dialog, "capacitorWebView"));
+        ReflectionHelpers.setField(dialog, "capacitorWebView", host);
+        doReturn(390).when(host).getWidth(); doReturn(844).when(host).getHeight();
+        doReturn(true).when(host).isAttachedToWindow(); doReturn(true).when(host).isHardwareAccelerated();
+        android.view.ViewTreeObserver observer = mock(android.view.ViewTreeObserver.class);
+        doReturn(observer).when(host).getViewTreeObserver();
+        WebViewRegistry.getShared().register("managed", dialog);
+        dialog.configureManagedClose("managed", new JSObject().put("token", "lifetime"), ignored -> {});
+        dialog.dismiss();
+        ManagedHostClose managed = dialog.managedClose();
+        assertTrue(managed.complete("lifetime", managed.requestId(), 1));
+        PaintWebView renderer = Shadow.extract(host);
+        renderer.fence.onComplete(renderer.request);
+        assertTrue(dialog.isShowing());
+        org.mockito.ArgumentCaptor<Runnable> submitted = org.mockito.ArgumentCaptor.forClass(Runnable.class);
+        verify(observer).registerFrameCommitCallback(submitted.capture());
+        submitted.getValue().run();
+        shadowOf(Looper.getMainLooper()).idle();
+        assertFalse(dialog.isShowing());
+        verify(callbacks, times(1)).closeEvent(anyString());
+    }
+
+    @Test public void failedManagedCloseKeepsTheLogoAndExposesExplicitRecovery() {
+        open(true, true, "default");
+        WebViewRegistry.getShared().register("managed", dialog);
+        dialog.configureManagedClose("managed", new JSObject().put("token", "lifetime")
+            .put("errorLabel", "Error").put("retryLabel", "Retry").put("exitLabel", "Exit now"), ignored -> {});
+        dialog.dismiss();
+        dialog.presentationForeground(false);
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(6));
+        assertNull(ReflectionHelpers.getField(dialog.managedClose(), "failureView"));
+        dialog.presentationForeground(true);
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(6));
+        assertTrue(dialog.isShowing());
+        View failure = ReflectionHelpers.getField(dialog.managedClose(), "failureView");
+        assertNotNull(failure);
+        assertTrue(((ViewGroup) failure).getChildAt(2).performClick());
+        assertFalse(dialog.isShowing());
     }
 
     private boolean fits() { return ReflectionHelpers.callInstanceMethod(dialog.getWindow(), "decorFitsSystemWindows"); }

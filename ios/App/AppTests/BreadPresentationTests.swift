@@ -4,8 +4,117 @@ import WebKit
 import Capacitor
 @testable import InappbrowserPlugin
 
+private final class CloseFenceWebView: WKWebView {
+    var snapshotCompletion: ((UIImage?, Error?) -> Void)?
+    override func takeSnapshot(with configuration: WKSnapshotConfiguration?, completionHandler: @escaping (UIImage?, Error?) -> Void) {
+        snapshotCompletion = completionHandler
+    }
+}
+
 @MainActor
 final class BreadPresentationTests: XCTestCase {
+    func testManagedCloseHoldsTheOriginalWindowAndRejectsStaleReceipts() {
+        let plugin = InAppBrowserPlugin()
+        let owner = WKWebViewController()
+        owner.initWebview()
+        let nav = UINavigationController(rootViewController: owner)
+        let instance = WKWebViewInstance(id: UUID().uuidString, controller: owner, navigationController: nav)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = nav
+        window.isHidden = false
+        instance.containerWindow = window
+        WebViewRegistry.shared.register(instance)
+        var requests = [[String: Any]]()
+        var completions = 0
+        let managed = ManagedHostClose(options: ["token": "lifetime", "errorLabel": "Error", "retryLabel": "Retry", "exitLabel": "Exit now"],
+            instance: instance, host: { owner.webViewForManagedClose }, notify: { requests.append($0) }, finish: {
+                instance.managedClose = nil
+                plugin.closeInstance(id: instance.id, animated: false)
+            })!
+        instance.managedClose = managed
+        plugin.closeInstance(id: instance.id, animated: false) { completions += 1 }
+        plugin.closeInstance(id: instance.id, animated: false) { completions += 1 }
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(completions, 0)
+        XCTAssertFalse(window.isHidden)
+        XCTAssertNotNil(owner.webViewForManagedClose)
+        XCTAssertFalse(managed.complete(token: "old", requestID: managed.requestID!, commit: 1))
+        managed.retry()
+        XCTAssertFalse(managed.complete(token: "lifetime", requestID: requests[0]["requestId"] as! String, commit: 2))
+        XCTAssertFalse(window.isHidden)
+        managed.force()
+        managed.force()
+        XCTAssertEqual(completions, 2)
+        XCTAssertTrue(window.isHidden)
+        XCTAssertNil(WebViewRegistry.shared.get(id: instance.id))
+    }
+
+    func testManagedHostSnapshotFailureRetainsCoverageUntilSuccessfulRetry() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let host = CloseFenceWebView(frame: scene.coordinateSpace.bounds, configuration: WKWebViewConfiguration())
+        let hostController = UIViewController()
+        hostController.view = host
+        let hostWindow = UIWindow(windowScene: scene)
+        hostWindow.frame = scene.coordinateSpace.bounds
+        hostWindow.rootViewController = hostController
+        hostWindow.makeKeyAndVisible()
+        host.loadHTMLString("<html><body>Retained launcher</body></html>", baseURL: nil)
+        let owner = WKWebViewController()
+        owner.initWebview()
+        let navigation = UINavigationController(rootViewController: owner)
+        let instance = WKWebViewInstance(id: UUID().uuidString, controller: owner, navigationController: navigation)
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
+        window.windowLevel = .normal + 100
+        window.rootViewController = navigation
+        window.isHidden = false
+        instance.containerWindow = window
+        WebViewRegistry.shared.register(instance)
+        var completed = 0
+        let managed = ManagedHostClose(options: ["token": "host-fence", "errorLabel": "Error", "retryLabel": "Retry", "exitLabel": "Exit now"],
+            instance: instance, host: { host }, notify: { _ in }, finish: {
+                completed += 1
+                InAppBrowserPlugin.releaseContainerWindow(window)
+                owner.cleanupWebView()
+                WebViewRegistry.shared.remove(id: instance.id)
+            })!
+        instance.managedClose = managed
+        defer {
+            managed.force()
+            InAppBrowserPlugin.releaseContainerWindow(hostWindow)
+            previous?.makeKey()
+        }
+        for _ in 0..<100 {
+            if !host.isLoading { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        managed.request()
+        XCTAssertTrue(managed.complete(token: "host-fence", requestID: managed.requestID!, commit: 1))
+        for _ in 0..<100 {
+            if host.snapshotCompletion != nil { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let failedSnapshot = try XCTUnwrap(host.snapshotCompletion)
+        XCTAssertFalse(window.isHidden)
+        XCTAssertEqual(completed, 0)
+        failedSnapshot(nil, NSError(domain: "snapshot", code: 1))
+        XCTAssertTrue(managed.failed)
+        XCTAssertFalse(window.isHidden)
+        managed.retry()
+        host.snapshotCompletion = nil
+        XCTAssertTrue(managed.complete(token: "host-fence", requestID: managed.requestID!, commit: 2))
+        failedSnapshot(UIImage(), nil)
+        XCTAssertEqual(completed, 0)
+        for _ in 0..<100 {
+            if host.snapshotCompletion != nil { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        try XCTUnwrap(host.snapshotCompletion)(UIImage(), nil)
+        XCTAssertTrue(window.isHidden)
+        XCTAssertEqual(completed, 1)
+    }
+
     func testTargetedCloseReleasesOnlyItsWindowOnce() {
         let plugin = InAppBrowserPlugin()
         let first = WKWebViewController()

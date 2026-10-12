@@ -14,7 +14,8 @@ export interface Rect {
 
 export declare class DappWebViewInstance {
   readonly id: string;
-  constructor(id: string);
+  readonly managedHostCloseToken?: string;
+  constructor(id: string, managedHostCloseToken?: string);
   /** Move the webview to the given rect (delegates to updateDimensions). */
   setRect(rect: Rect): Promise<void>;
   /** Toggle this instance's visibility. The WebView's JS context survives. */
@@ -28,6 +29,7 @@ export declare class DappWebViewInstance {
 }
 
 export interface DappWebViewManager {
+  forget(id: string, token?: string): void;
   /**
    * Open a new dApp webview. If `id` is omitted, a UUID is generated.
    * If an instance with the given id already exists, the existing one is

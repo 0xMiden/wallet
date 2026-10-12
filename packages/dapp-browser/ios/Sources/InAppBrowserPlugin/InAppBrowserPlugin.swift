@@ -51,6 +51,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "setUrl", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "show", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "close", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "completeManagedClose", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "executeScript", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "postMessage", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "updateDimensions", returnType: CAPPluginReturnPromise),
@@ -792,6 +793,20 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                         height: CGFloat(h)
                     )
                 }
+                instance.managedClose = ManagedHostClose(options: call.getObject("managedHostClose"), instance: instance,
+                    host: { [weak self] in self?.bridge?.webView },
+                    notify: { [weak self] data in self?.notifyListeners("hostCloseRequested", data: data) },
+                    finish: { [weak self, weak instance] in
+                        guard let instance else { return }
+                        if let self { self.finishCloseInstance(instance, animated: false) }
+                        else {
+                            if WebViewRegistry.shared.get(id: instance.id) === instance { WebViewRegistry.shared.remove(id: instance.id) }
+                            if let window = instance.containerWindow { Self.releaseContainerWindow(window) }
+                            instance.controller.cleanupWebView()
+                            instance.containerWindow = nil
+                        }
+                    })
+                wvc.managedClose = instance.managedClose
                 WebViewRegistry.shared.register(instance)
                 registeredInstance = instance
             }
@@ -880,7 +895,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         // Miden patch (PR-4 chunk 7): id-aware routing.
         let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
         let controller = WebViewRegistry.shared.get(id: instanceId)?.controller ?? self.webViewController
-        controller?.reload()
+        if controller?.managedClose?.closing != true { controller?.reload() }
         call.resolve()
     }
 
@@ -898,7 +913,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         // Miden patch (PR-4 chunk 7): id-aware routing.
         let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
         let controller = WebViewRegistry.shared.get(id: instanceId)?.controller ?? self.webViewController
-        controller?.load(remote: url)
+        if controller?.managedClose?.closing != true { controller?.load(remote: url) }
         call.resolve()
     }
 
@@ -1056,14 +1071,32 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
         let instanceId = call.getString("id") ?? WebViewRegistry.defaultInstanceId
         let animated = call.getBool("isAnimated", true)
         DispatchQueue.main.async {
+            guard let instance = WebViewRegistry.shared.get(id: instanceId) else { call.resolve(); return }
+            if let token = call.getString("managedHostCloseToken"), instance.managedClose?.token != token { call.resolve(); return }
+            if call.getBool("force", false), let managed = instance.managedClose { managed.force(); call.resolve(); return }
             self.closeInstance(id: instanceId, animated: animated) { call.resolve() }
         }
     }
 
     func closeInstance(id: String, animated: Bool, completion: @escaping () -> Void = {}) {
         guard let instance = WebViewRegistry.shared.get(id: id) else { completion(); return }
-        // Remove authority before cleanup can trigger delegate or provider re-entry.
-        WebViewRegistry.shared.remove(id: id)
+        if let managed = instance.managedClose { managed.request(completion: completion); return }
+        finishCloseInstance(instance, animated: animated, completion: completion)
+    }
+
+    @objc func completeManagedClose(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard let id = call.getString("id"), let token = call.getString("token"),
+                  let requestID = call.getString("requestId"), let commit = call.getInt("hostCommitGeneration"),
+                  let managed = WebViewRegistry.shared.get(id: id)?.managedClose,
+                  managed.complete(token: token, requestID: requestID, commit: commit) else { call.reject("Stale close receipt"); return }
+            call.resolve()
+        }
+    }
+
+    private func finishCloseInstance(_ instance: WKWebViewInstance, animated: Bool, completion: @escaping () -> Void = {}) {
+        let id = instance.id
+        if WebViewRegistry.shared.get(id: id) === instance { WebViewRegistry.shared.remove(id: id) }
         let currentUrl = instance.controller.url?.absoluteString ?? ""
         instance.controller.cleanupWebView()
         if self.webViewController === instance.controller {
@@ -1071,7 +1104,9 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             self.navigationWebViewController = nil
         }
         let finish = {
-            self.notifyListeners("closeEvent", data: ["id": id, "url": currentUrl])
+            var data: [String: Any] = ["id": id, "url": currentUrl]
+            if let token = instance.managedClose?.token { data["managedHostCloseToken"] = token }
+            self.notifyListeners("closeEvent", data: data)
             completion()
         }
         if let window = instance.containerWindow {
@@ -1160,6 +1195,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
 
+            if webViewController.managedClose?.closing == true { call.resolve(); return }
             // Miden patch (PR-6/7 polish): for Architecture A instances
             // (with a containerWindow), resize the UIWindow itself to
             // the new slot rect. This is load-bearing for:
@@ -1248,6 +1284,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("instance not found: \(instanceId)")
                 return
             }
+            if instance.managedClose?.closing == true { call.resolve(); return }
             instance.isVisible = visible
             if let presentation = instance.controller.breadPresentation {
                 presentation.setVisible(visible)
@@ -1300,6 +1337,7 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             WebViewRegistry.shared.removeAll()
             for instance in snapshot {
+                if let managed = instance.managedClose { managed.force(); continue }
                 if let window = instance.containerWindow {
                     Self.releaseContainerWindow(window)
                 }

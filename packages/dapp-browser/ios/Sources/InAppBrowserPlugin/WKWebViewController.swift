@@ -130,6 +130,8 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
 
     var initiallyVisible = true
     private var breadOptions: BreadPresentationOptions?
+    weak var managedClose: ManagedHostClose?
+    var webViewForManagedClose: WKWebView? { webView }
     var breadPresentation: BreadPresentationController?
     private var breadNavigation: WKNavigation?
 
@@ -912,12 +914,15 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
 
     override open func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
         super.viewWillTransition(to: size, with: coordinator)
-        breadPresentation?.transition(with: coordinator)
+        if managedClose?.closing == true {
+            coordinator.animate(alongsideTransition: nil) { [weak self] _ in self?.managedClose?.layoutChanged() }
+        } else { breadPresentation?.transition(with: coordinator) }
     }
 
     override open func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        breadPresentation?.layoutChanged()
+        if managedClose?.closing == true { managedClose?.layoutChanged() }
+        else { breadPresentation?.layoutChanged() }
     }
 
     override open func viewWillLayoutSubviews() {
@@ -2057,6 +2062,7 @@ extension WKWebViewController: WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if managedClose?.closing == true { decisionHandler(.cancel); return }
         var actionPolicy: WKNavigationActionPolicy = self.preventDeeplink ? .preventDeeplinkActionPolicy : .allow
 
         guard let url = navigationAction.request.url else {

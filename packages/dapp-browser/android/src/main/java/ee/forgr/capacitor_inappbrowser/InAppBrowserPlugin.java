@@ -761,6 +761,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     notifyListeners(
                         "closeEvent",
                         new JSObject().put("url", url).put("id", callbackInstanceId[0])
+                            .put("managedHostCloseToken", call.getObject("managedHostClose") == null ? null : call.getObject("managedHostClose").getString("token"))
                     );
                 }
 
@@ -935,6 +936,8 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     // the dApp content without any Window z-order
                     // wrestling.
                     final WebViewDialog createdDialog = webViewDialog;
+                    createdDialog.configureManagedClose(instanceId, call.getObject("managedHostClose"),
+                        data -> notifyListeners("hostCloseRequested", data));
                     createdDialog.setClosedListener(() -> {
                         if (WebViewRegistry.getShared().get(instanceId) == createdDialog) {
                             WebViewRegistry.getShared().remove(instanceId);
@@ -1138,7 +1141,22 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         final String id = call.getString("id", WebViewRegistry.DEFAULT_INSTANCE_ID);
         getActivity().runOnUiThread(() -> {
             WebViewDialog dialog = WebViewRegistry.getShared().get(id);
-            if (dialog != null) dialog.dismiss();
+            if (dialog == null) { call.resolve(); return; }
+            String token = call.getString("managedHostCloseToken");
+            if (token != null && (dialog.managedClose() == null || !token.equals(dialog.managedClose().token))) { call.resolve(); return; }
+            if (Boolean.TRUE.equals(call.getBoolean("force", false))) { dialog.forceClose(); call.resolve(); }
+            else dialog.requestClose(() -> call.resolve());
+        });
+    }
+
+    @PluginMethod
+    public void completeManagedClose(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            WebViewDialog dialog = WebViewRegistry.getShared().get(call.getString("id", ""));
+            if (dialog == null || dialog.managedClose() == null || !dialog.managedClose().complete(
+                call.getString("token", ""), call.getString("requestId", ""), call.getInt("hostCommitGeneration", -1))) {
+                call.reject("Stale close receipt"); return;
+            }
             call.resolve();
         });
     }
@@ -1199,7 +1217,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
     @Override
     protected void handleOnDestroy() {
         for (java.util.Map.Entry<String, WebViewDialog> entry : WebViewRegistry.getShared().snapshot()) {
-            entry.getValue().dismiss();
+            entry.getValue().forceClose();
         }
         webViewDialog = null;
         // Miden navbar — tear down the overlay manager so the
@@ -1394,7 +1412,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 public void run() {
                     for (java.util.Map.Entry<String, WebViewDialog> entry : WebViewRegistry.getShared().snapshot()) {
                         try {
-                            entry.getValue().dismiss();
+                            entry.getValue().forceClose();
                         } catch (Exception e) {
                             Log.w("InAppBrowser", "closeAll: dismiss failed for " + entry.getKey() + ": " + e.getMessage());
                         }

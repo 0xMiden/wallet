@@ -128,13 +128,14 @@ final class BreadPresentationController: NSObject {
     }
 
     func receive(_ message: WKScriptMessage) {
+        guard owner?.managedClose?.closing != true else { return }
         guard navigationCommitted, message.frameInfo.isMainFrame, let webView, state.phase != .closed,
               let body = message.body as? String, let data = body.data(using: .utf8),
               let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let messageToken = envelope["token"] as? String, let type = envelope["type"] as? String else { return }
         let generation = state.generation
         webView.evaluateJavaScript("window.__breadPresentationToken") { [weak self] result, error in
-            guard let self, error == nil, self.state.phase != .closed,
+            guard let self, error == nil, self.state.phase != .closed, self.owner?.managedClose?.closing != true,
                   BreadPresentationState.acceptsMessage(mainFrame: message.frameInfo.isMainFrame,
                     messageToken: messageToken, documentToken: result as? String,
                     startedGeneration: generation, currentGeneration: self.state.generation) else { return }
@@ -171,6 +172,7 @@ final class BreadPresentationController: NSObject {
     }
 
     private func invalidateLayout() {
+        guard owner?.managedClose?.closing != true else { return }
         layoutRevision += 1
         preparingRevision = nil
         state.invalidateLayout()
@@ -234,6 +236,7 @@ final class BreadPresentationController: NSObject {
     }
 
     private func render() {
+        guard owner?.managedClose?.closing != true else { return }
         guard state.phase != .closed, let owner else { return }
         if let window = instance?.containerWindow {
             let frame = state.display == .fullscreen ? window.windowScene?.coordinateSpace.bounds : instance?.rect

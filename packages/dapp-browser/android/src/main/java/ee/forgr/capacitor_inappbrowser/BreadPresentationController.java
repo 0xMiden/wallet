@@ -263,6 +263,7 @@ final class BreadPresentationController {
     }
 
     private void validate(JSONObject message) {
+        if (owner.managedClosing()) return;
         if (currentNavigation == null || state.phase() == BreadPresentationState.Phase.CLOSED) return;
         if (!committed) {
             if (!pendingMessages.contains(message)) pendingMessages.add(message);
@@ -272,7 +273,7 @@ final class BreadPresentationController {
         long generation = state.navigationGeneration();
         long epoch = retryEpoch;
         webView.evaluateJavascript("window.__breadPresentationToken", result -> {
-            if (epoch != retryEpoch || state.phase() == BreadPresentationState.Phase.CLOSED) return;
+            if (owner.managedClosing() || epoch != retryEpoch || state.phase() == BreadPresentationState.Phase.CLOSED) return;
             if (generation != state.navigationGeneration()) {
                 // Discard the old read; only a new read in this generation can grant authority.
                 validate(message);
@@ -385,6 +386,7 @@ final class BreadPresentationController {
     }
 
     void applyWindow() {
+        if (owner.managedClosing()) return;
         if (!state.active()) return;
         Window window = owner.getWindow();
         if (window == null) return;
@@ -468,6 +470,7 @@ final class BreadPresentationController {
     }
 
     void render() {
+        if (owner.managedClosing()) return;
         if (state.phase() == BreadPresentationState.Phase.CLOSED) return;
         if (supported && navigationListener == null) {
             overlay.setVisibility(View.GONE);

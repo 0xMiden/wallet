@@ -7,8 +7,22 @@ import { buildFaviconUrl } from 'lib/dapp-browser/favicon-cache';
 import type { ExploreCatalog } from 'lib/explore-config/schema';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
 
+import { BrowserScreen } from '../BrowserScreen';
 import { DappLauncher } from './index';
 import { markRevealed, resetRevealed } from './reveal-once';
+
+let mockBrowserMode = 'launcher';
+jest.mock('app/providers/DappBrowserProvider', () => ({
+  useDappBrowser: () => ({ mode: mockBrowserMode, open: jest.fn() })
+}));
+jest.mock('../DappActive', () => ({ DappActive: () => null }));
+jest.mock('app/env', () => ({ openUrlInNewTab: jest.fn() }));
+jest.mock('lib/platform', () => ({
+  isMobile: () => true,
+  isDesktop: () => false,
+  isExtension: () => false,
+  isIOS: () => false
+}));
 
 let mockLanguage: string | undefined = 'en';
 jest.mock('react-i18next', () => ({
@@ -42,9 +56,12 @@ jest.mock('lib/explore-config/runtime', () => ({
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
 
 let mockBackHandler: (() => boolean | void) | null = null;
-jest.mock('lib/mobile/useMobileBackHandler', () => ({
-  useMobileBackHandler: (handler: () => boolean | void) => {
+jest.mock('lib/mobile/back-handler', () => ({
+  registerMobileBackHandler: (handler: () => boolean | void) => {
     mockBackHandler = handler;
+    return () => {
+      mockBackHandler = null;
+    };
   }
 }));
 
@@ -547,4 +564,45 @@ describe('DappLauncher header search', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onOpen).toHaveBeenCalledWith('https://quest.example/');
   });
+});
+
+it('retains the actual launcher and its query, category and scroll through active play', async () => {
+  mockBrowserMode = 'launcher';
+  const view = render(<BrowserScreen />);
+  await act(async () => {});
+  fireEvent.click(screen.getByTestId('explore-chip-games'));
+  fireEvent.click(screen.getByTestId('explore-search-toggle'));
+  const search = screen.getByTestId('dapp-hero-search');
+  fireEvent.change(search, { target: { value: 'Quest' } });
+  const launcher = screen.getByTestId('explore-launcher');
+  launcher.scrollTop = 124;
+  search.focus();
+  mockBrowserMode = 'active';
+  view.rerender(<BrowserScreen />);
+  expect(screen.queryByTestId('explore-launcher')).toBe(launcher);
+  expect(launcher).not.toBeVisible();
+  expect(mockBackHandler).toBeNull();
+  expect(document.activeElement).not.toBe(search);
+  mockBrowserMode = 'launcher';
+  view.rerender(<BrowserScreen />);
+  expect(screen.getByTestId('explore-launcher')).toBe(launcher);
+  expect(search).toHaveValue('Quest');
+  expect(screen.getByTestId('explore-chip-games')).toHaveAttribute('aria-checked', 'true');
+  expect(launcher.scrollTop).toBe(124);
+  await act(async () => {});
+});
+
+it('refreshes recents when the retained launcher becomes active again', async () => {
+  mockBrowserMode = 'launcher';
+  const view = render(<BrowserScreen />);
+  await act(async () => {});
+  const launcher = screen.getByTestId('explore-launcher');
+  mockBrowserMode = 'active';
+  view.rerender(<BrowserScreen />);
+  mockRecents = [{ ...recent, name: 'New recent', url: 'https://new.example/' }];
+  mockBrowserMode = 'launcher';
+  view.rerender(<BrowserScreen />);
+  await act(async () => {});
+  expect(screen.getByTestId('explore-launcher')).toBe(launcher);
+  expect(within(screen.getByTestId('explore-recents')).getByRole('button', { name: 'New recent' })).toBeVisible();
 });
