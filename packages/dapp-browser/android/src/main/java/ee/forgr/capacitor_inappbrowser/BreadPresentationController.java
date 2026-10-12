@@ -52,7 +52,12 @@ final class BreadPresentationController {
     private ScriptHandler script;
     private boolean supported;
     private boolean installed;
-    private boolean initialNavigationStarted;
+    private String documentToken;
+    private String startedDocumentToken;
+    private String blockedDocumentToken;
+    private boolean awaitingStartedDocument;
+    private JSONObject configuration;
+    private JSONObject readiness;
     private long pendingPaint = -1;
     private int layoutWidth;
     private int layoutHeight;
@@ -113,6 +118,7 @@ final class BreadPresentationController {
         retry.setText(options.retryLabel);
         retry.setOnClickListener(v -> {
             v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+            blockedDocumentToken = documentToken;
             navigate();
             if (supported) webView.reload();
         });
@@ -200,33 +206,59 @@ final class BreadPresentationController {
 
     private void receive(String raw, boolean mainFrame) {
         if (!mainFrame || state.phase() == BreadPresentationState.Phase.CLOSED) return;
-        try {
-            JSONObject message = new JSONObject(raw);
-            String token = message.optString("token", "");
-            long generation = state.navigationGeneration();
-            webView.evaluateJavascript("window.__breadPresentationToken", result -> {
-                try {
-                    Object current = new JSONTokener(result).nextValue();
-                    if (!(current instanceof String) || !state.authorizes(mainFrame, token, (String) current, generation)) return;
-                    String type = message.optString("type");
-                    if ("configure".equals(type)) {
-                        String display = message.optString("display");
-                        if (!"browser".equals(display) && !"fullscreen".equals(display)) return;
-                        boolean previous = state.fullscreen();
-                        state.configure(token, "fullscreen".equals(display), message.optBoolean("manualReady"));
-                        applyTheme(message.optString("themeColor"));
-                        if (previous != state.fullscreen()) owner.presentationChanged(state.fullscreen());
-                        render();
-                    } else if ("ready".equals(type) && token.equals(state.token())) {
-                        state.ready();
-                        respond(message, null);
-                        render();
-                    } else if ("close".equals(type)) {
-                        respond(message, owner::dismiss);
-                    }
-                } catch (Exception ignored) { }
-            });
-        } catch (Exception ignored) { }
+        try { validate(new JSONObject(raw)); } catch (Exception ignored) { }
+    }
+
+    private void validate(JSONObject message) {
+        if (state.phase() == BreadPresentationState.Phase.CLOSED) return;
+        String token = message.optString("token", "");
+        long generation = state.navigationGeneration();
+        webView.evaluateJavascript("window.__breadPresentationToken", result -> {
+            if (state.phase() == BreadPresentationState.Phase.CLOSED) return;
+            if (generation != state.navigationGeneration()) {
+                // Discard the old read; only a new read in this generation can grant authority.
+                validate(message);
+                return;
+            }
+            try {
+                Object current = new JSONTokener(result).nextValue();
+                if (!(current instanceof String) || !state.authorizes(true, token, (String) current, generation)) return;
+                if (token.equals(blockedDocumentToken)) return;
+                String type = message.optString("type");
+                if (!"configure".equals(type) && !"ready".equals(type) && !"close".equals(type)) return;
+                if (!token.equals(documentToken)) {
+                    documentToken = token;
+                    configuration = readiness = null;
+                    navigate();
+                }
+                if (awaitingStartedDocument) {
+                    startedDocumentToken = token;
+                    blockedDocumentToken = null;
+                    awaitingStartedDocument = false;
+                }
+                if ("configure".equals(type)) {
+                    String display = message.optString("display");
+                    if (!"browser".equals(display) && !"fullscreen".equals(display)) return;
+                    configuration = message;
+                    boolean previous = state.fullscreen();
+                    state.configure(token, "fullscreen".equals(display), message.optBoolean("manualReady"));
+                    applyTheme(message.optString("themeColor"));
+                    if (previous != state.fullscreen()) owner.presentationChanged(state.fullscreen());
+                    applyReadiness();
+                    render();
+                } else if ("ready".equals(type)) {
+                    readiness = message;
+                    applyReadiness();
+                    render();
+                } else respond(message, owner::dismiss);
+            } catch (Exception ignored) { }
+        });
+    }
+
+    private void applyReadiness() {
+        if (configuration == null || readiness == null) return;
+        state.ready();
+        respond(readiness, null);
     }
 
     private void respond(JSONObject message, Runnable completion) {
@@ -235,15 +267,20 @@ final class BreadPresentationController {
                 .put("requestId", message.getString("requestId")).put("ok", true);
             long generation = state.navigationGeneration();
             webView.evaluateJavascript("window.__breadPresentationRespond(" + response + ")", result -> {
-                if (completion != null && generation == state.navigationGeneration()) completion.run();
+                if (completion == null) return;
+                if (generation == state.navigationGeneration()) completion.run();
+                else validate(message);
             });
         } catch (Exception ignored) { }
     }
 
     void navigationStarted() {
-        // Construction already primes the first document; its bootstrap can beat onPageStarted.
-        if (initialNavigationStarted) navigate();
-        else initialNavigationStarted = true;
+        // A replacement bootstrap can precede this callback; the prior start still owns its old token.
+        blockedDocumentToken = startedDocumentToken;
+        awaitingStartedDocument = true;
+        navigate();
+        if (configuration != null) validate(configuration);
+        else if (readiness != null) validate(readiness);
     }
 
     void navigate() {
