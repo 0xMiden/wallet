@@ -7,13 +7,18 @@ import {
   TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
-import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { isUsdcxWithdrawalAvailable } from 'lib/usdcx/withdrawal';
 
 import { SelectTokenDrawer } from './SelectToken';
 import { UIToken } from './types';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 jest.mock('lib/usdcx/withdrawal', () => ({ isUsdcxWithdrawalAvailable: jest.fn(() => false) }));
 
@@ -134,7 +139,7 @@ type Balance = {
 };
 
 const BTC: Balance = {
-  tokenId: TOKEN_IBTC.faucetId,
+  tokenId: TEST_TOKEN_IBTC.faucetId,
   metadata: { symbol: 'BTC', name: 'Bitcoin', decimals: 8 },
   balance: 1.5,
   fiatPrice: 50000
@@ -163,7 +168,7 @@ const MIDEN: Balance = {
 
 // A swap test token that stands for ETH, held under its registry faucet id.
 const IETH: Balance = {
-  tokenId: TOKEN_IETH.faucetId,
+  tokenId: TEST_TOKEN_IETH.faucetId,
   metadata: { symbol: 'IETH', decimals: 8 },
   balance: 2,
   fiatPrice: 0
@@ -341,7 +346,7 @@ describe('SelectTokenDrawer', () => {
     fireEvent.click(screen.getByTestId('send-token-BTC'));
 
     const expected: UIToken = {
-      id: TOKEN_IBTC.faucetId,
+      id: TEST_TOKEN_IBTC.faucetId,
       name: 'BTC',
       decimals: 8,
       balance: 1.5,
@@ -429,7 +434,7 @@ describe('SelectTokenDrawer', () => {
     const row = screen.getByTestId('send-token-IETH');
     expect(within(row).getByText('$6.00')).toBeInTheDocument();
     fireEvent.click(row);
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: TOKEN_IETH.faucetId, fiatPrice: 3 }));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: TEST_TOKEN_IETH.faucetId, fiatPrice: 3 }));
   });
 
   it('stacks the rows unboxed at 72px, divided by a hairline like the home assets list', () => {

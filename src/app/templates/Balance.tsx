@@ -8,6 +8,7 @@ import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { tokenQuote } from 'lib/miden/swap/tokens';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
 
 type BalanceProps = {
@@ -20,9 +21,12 @@ const Balance = memo<BalanceProps>(({ children }) => {
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: allTokenBalances = [] } = useAllBalances(account.publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const { isHidden } = useHiddenTokens(account.publicKey);
 
   return useMemo(() => {
+    // Pricing helpers read the runtime singleton; its snapshot invalidates cached values.
+    void bridgeConfig;
     // A token whose decimals were never resolved contributes a `balance` that was
     // divided by the placeholder's guessed 6, so it can be off by a factor of a
     // trillion. Folding that into the portfolio total does not make the total
@@ -65,7 +69,7 @@ const Balance = memo<BalanceProps>(({ children }) => {
         })}
       </CSSTransition>
     );
-  }, [children, allTokenBalances, isHidden, tokenPrices]);
+  }, [children, allTokenBalances, isHidden, tokenPrices, bridgeConfig]);
 });
 
 export default Balance;

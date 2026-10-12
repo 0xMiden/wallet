@@ -853,6 +853,8 @@
   "unavailable": "Niedostępne",
   "bridgeFeatureUnavailableTitle": "Tymczasowo niedostępne",
   "bridgeFeatureUnavailableBody": "Ta usługa zewnętrzna jest obecnie niedostępna. Spróbuj ponownie później.",
+  "swapUnavailableTitle": "Funkcja swap nie jest dostępna w tej sieci",
+  "swapUnavailableBody": "W tej sieci nie skonfigurowano jeszcze żadnych tokenów typu swap.",
   "agglayerCheckingToken": "Sprawdzanie, czy ten token obsługuje trasę Slow…",
   "agglayerTokenUnsupported": "Ten token nie obsługuje trasy Slow.",
   "agglayerTokenCheckFailed": "Nie udało się zweryfikować tego tokenu. Cofnij się i spróbuj ponownie.",

@@ -3,6 +3,11 @@ import { act, renderHook } from '@testing-library/react';
 import { useSwapEta, UseSwapEtaOpts } from './useSwapEta';
 
 const mockGetSwapEta = jest.fn();
+let mockEtaUrl: string | undefined;
+
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useBridgeConfigSnapshot: () => ({ config: { swap: { etaUrl: mockEtaUrl } } })
+}));
 
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapEta: (...args: unknown[]) => mockGetSwapEta(...args)
@@ -51,6 +56,7 @@ const settle = async (index: number, how: 'resolve' | 'reject', value: unknown) 
 };
 
 beforeEach(() => {
+  mockEtaUrl = 'https://quotes.first';
   jest.useFakeTimers();
   pending = [];
   mockGetSwapEta.mockReset();
@@ -62,6 +68,58 @@ afterEach(() => {
 });
 
 describe('useSwapEta', () => {
+  it('drops a cached quote and refetches when only the configured service changes', async () => {
+    const { result, rerender } = renderHook((props: UseSwapEtaOpts) => useSwapEta(props), { initialProps: opts() });
+    await settle(0, 'resolve', etaWith('2'));
+    mockEtaUrl = 'https://quotes.second';
+    rerender(opts());
+    expect(result.current).toEqual({ loading: true });
+    pastDebounce();
+    expect(mockGetSwapEta).toHaveBeenCalledTimes(2);
+    await settle(1, 'resolve', etaWith('3'));
+    expect(result.current).toEqual({ loading: false, eta: etaWith('3') });
+  });
+
+  it('supersedes an old service response before the new debounce expires', async () => {
+    const { result, rerender } = renderHook((props: UseSwapEtaOpts) => useSwapEta(props), { initialProps: opts() });
+    mockEtaUrl = 'https://quotes.second';
+    rerender(opts());
+    await settle(0, 'resolve', etaWith('2'));
+    expect(result.current).toEqual({ loading: true });
+    pastDebounce();
+    expect(mockGetSwapEta).toHaveBeenCalledTimes(2);
+    await settle(1, 'resolve', etaWith('3'));
+    expect(result.current).toEqual({ loading: false, eta: etaWith('3') });
+  });
+
+  it('ignores an old service rejection after the configured URL changes', async () => {
+    const { result, rerender } = renderHook((props: UseSwapEtaOpts) => useSwapEta(props), { initialProps: opts() });
+    mockEtaUrl = 'https://quotes.second';
+    rerender(opts());
+    await settle(0, 'reject', new Error('old service failed'));
+    expect(result.current).toEqual({ loading: true });
+    pastDebounce();
+    await settle(1, 'resolve', etaWith('3'));
+    expect(result.current).toEqual({ loading: false, eta: etaWith('3') });
+  });
+
+  it('invalidates a removed service and recovers when a service is configured again', async () => {
+    const { result, rerender } = renderHook((props: UseSwapEtaOpts) => useSwapEta(props), { initialProps: opts() });
+    await settle(0, 'resolve', etaWith('2'));
+    mockEtaUrl = undefined;
+    rerender(opts());
+    expect(result.current).toEqual({ loading: true });
+    pastDebounce();
+    await settle(1, 'reject', new Error('No quote service'));
+    expect(result.current).toEqual({ loading: false, error: 'No quote service' });
+    mockEtaUrl = 'https://quotes.second';
+    rerender(opts());
+    expect(result.current).toEqual({ loading: true });
+    pastDebounce();
+    await settle(2, 'resolve', etaWith('3'));
+    expect(result.current).toEqual({ loading: false, eta: etaWith('3') });
+  });
+
   it('drops the old pair quote the moment the pair flips, until the new pair quote lands', async () => {
     const { result, rerender } = renderHook((props: UseSwapEtaOpts) => useSwapEta(props), { initialProps: opts() });
     pastDebounce();

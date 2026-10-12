@@ -5,13 +5,16 @@ import BigNumber from 'bignumber.js';
 
 import { resetHiddenTokens, useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
   TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
 } from 'lib/epoch/testing/bridge-config';
 import { deferred } from 'lib/epoch/testing/earn-locks';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
-import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -20,6 +23,10 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 // used for real so the redirect branch reflects production behaviour.
 
 import Explore from './Explore';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 // The figures under test follow the default rule, no figure without a quote; pinned here against
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
@@ -367,6 +374,89 @@ describe('Explore', () => {
   });
 
   describe('base rendering', () => {
+    it('reorders stable balances when the configured price symbols change', async () => {
+      _setSwapTokensForTest(undefined);
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      mockAllBalances = [
+        makeToken(TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IETH.symbol, 'Ether', 1),
+        makeToken(TEST_TOKEN_IBTC.faucetId, TEST_TOKEN_IBTC.symbol, 'Bitcoin', 1)
+      ];
+      mockTokenPrices = {
+        ETH: { price: 100, change24h: 0, percentageChange24h: 0 },
+        BTC: { price: 50, change24h: 0, percentageChange24h: 0 }
+      };
+      const listedIds = () => screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
+      try {
+        await renderExplore();
+        expect(listedIds()).toEqual([TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IBTC.faucetId]);
+
+        act(() => {
+          mockBridgeSnapshot = {
+            ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+            config: {
+              ...TEST_BRIDGE_CONFIG,
+              swap: {
+                tokens: [
+                  {
+                    symbol: TEST_TOKEN_IETH.symbol,
+                    faucetId: TEST_TOKEN_IETH.faucetId,
+                    decimals: TEST_TOKEN_IETH.decimals,
+                    priceSymbol: 'BTC'
+                  },
+                  {
+                    symbol: TEST_TOKEN_IBTC.symbol,
+                    faucetId: TEST_TOKEN_IBTC.faucetId,
+                    decimals: TEST_TOKEN_IBTC.decimals,
+                    priceSymbol: 'ETH'
+                  }
+                ]
+              }
+            }
+          };
+          publishMockBridgeSnapshot();
+        });
+        expect(listedIds()).toEqual([TEST_TOKEN_IBTC.faucetId, TEST_TOKEN_IETH.faucetId]);
+      } finally {
+        _setSwapTokensForTest(TEST_SWAP_TOKENS);
+      }
+    });
+
+    it('updates price readiness on a config-only change with an unchanged empty feed', async () => {
+      _setSwapTokensForTest(undefined);
+      mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      mockAllBalances = [makeToken(TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IETH.symbol, 'Ether', 1)];
+      mockTokenPrices = {};
+      mockPortfolioTotal = new BigNumber(100);
+      try {
+        await renderExplore();
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^\u2014$/);
+
+        act(() => {
+          mockBridgeSnapshot = {
+            ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+            config: {
+              ...TEST_BRIDGE_CONFIG,
+              swap: {
+                tokens: [
+                  {
+                    symbol: TEST_TOKEN_IETH.symbol,
+                    faucetId: TEST_TOKEN_IETH.faucetId,
+                    decimals: TEST_TOKEN_IETH.decimals
+                  }
+                ]
+              }
+            }
+          };
+          publishMockBridgeSnapshot();
+        });
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+      } finally {
+        mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+        _setSwapTokensForTest(TEST_SWAP_TOKENS);
+      }
+    });
+
     it('renders the page shell, banner, balance card, prompts and asset rows', async () => {
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden'),
@@ -500,7 +590,7 @@ describe('Explore', () => {
       mockedHasUnquotedDefaultPrice.mockReturnValue(true);
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden', 100),
-        makeToken(TOKEN_IETH.faucetId, 'IETH', 'IETH', 0.1)
+        makeToken(TEST_TOKEN_IETH.faucetId, 'IETH', 'IETH', 0.1)
       ];
       mockTokenPrices = {};
       mockPortfolioTotal = new BigNumber(100);
@@ -531,9 +621,9 @@ describe('Explore', () => {
       it('does not hold back the total when it is hidden', async () => {
         mockAllBalances = [
           makeToken('faucet-native', 'MIDEN', 'Miden', 100),
-          makeToken(TOKEN_IETH.faucetId, 'IETH', 'IETH', 0.1)
+          makeToken(TEST_TOKEN_IETH.faucetId, 'IETH', 'IETH', 0.1)
         ];
-        mockStoredHiddenTokens = [TOKEN_IETH.faucetId];
+        mockStoredHiddenTokens = [TEST_TOKEN_IETH.faucetId];
 
         await renderBeforeAnyPrice();
 
@@ -544,7 +634,7 @@ describe('Explore', () => {
       it('does not hold back the total when its balance is zero', async () => {
         mockAllBalances = [
           makeToken('faucet-native', 'MIDEN', 'Miden', 100),
-          makeToken(TOKEN_IETH.faucetId, 'IETH', 'IETH', 0)
+          makeToken(TEST_TOKEN_IETH.faucetId, 'IETH', 'IETH', 0)
         ];
 
         await renderBeforeAnyPrice();
@@ -556,7 +646,7 @@ describe('Explore', () => {
         mockAllBalances = [
           makeToken('faucet-native', 'MIDEN', 'Miden', 100),
           {
-            tokenId: TOKEN_IETH.faucetId,
+            tokenId: TEST_TOKEN_IETH.faucetId,
             balance: 0.1,
             metadata: { symbol: 'IETH', name: 'IETH', scaleIsUnknown: true }
           }
@@ -581,7 +671,7 @@ describe('Explore', () => {
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden', 100),
         makeToken(MIDEN_AGGLAYER_FAUCET_ID, 'ETH', 'Ethereum', 1),
-        makeToken(TOKEN_IBTC.faucetId, 'BTC', 'Bitcoin', 2)
+        makeToken(TEST_TOKEN_IBTC.faucetId, 'BTC', 'Bitcoin', 2)
       ];
       mockTokenPrices = {
         MIDEN: { price: 1, change24h: 0, percentageChange24h: 0 },
@@ -592,7 +682,7 @@ describe('Explore', () => {
       await renderExplore();
 
       const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
-      expect(tokens).toEqual(['faucet-native', TOKEN_IBTC.faucetId, MIDEN_AGGLAYER_FAUCET_ID]);
+      expect(tokens).toEqual(['faucet-native', TEST_TOKEN_IBTC.faucetId, MIDEN_AGGLAYER_FAUCET_ID]);
     });
 
     it('orders by the price-symbol value, IETH at ETH, and puts tokens with no price after every priced one', async () => {
@@ -600,7 +690,7 @@ describe('Explore', () => {
         makeToken('faucet-native', 'MIDEN', 'Miden', 100),
         makeToken('t-other', 'OTH', 'Other', 1000),
         makeToken(MIDEN_AGGLAYER_FAUCET_ID, 'ETH', 'Ethereum', 1),
-        makeToken(TOKEN_IETH.faucetId, 'IETH', 'IETH', 0.1)
+        makeToken(TEST_TOKEN_IETH.faucetId, 'IETH', 'IETH', 0.1)
       ];
       mockTokenPrices = { ETH: { price: 3000, change24h: 0, percentageChange24h: 0 } };
 
@@ -608,7 +698,7 @@ describe('Explore', () => {
 
       // ETH 1 * 3000 = 3000, IETH 0.1 * 3000 (its ETH quote) = 300, OTH has no quote at all.
       const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
-      expect(tokens).toEqual(['faucet-native', MIDEN_AGGLAYER_FAUCET_ID, TOKEN_IETH.faucetId, 't-other']);
+      expect(tokens).toEqual(['faucet-native', MIDEN_AGGLAYER_FAUCET_ID, TEST_TOKEN_IETH.faucetId, 't-other']);
     });
 
     it('ranks a token whose scale is unknown as worth nothing, even when its symbol is quoted', async () => {
@@ -618,7 +708,7 @@ describe('Explore', () => {
         // The placeholder's guessed decimals make this balance meaningless; at the ETH quote it
         // would outrank everything by a factor of a million.
         {
-          tokenId: TOKEN_IETH.faucetId,
+          tokenId: TEST_TOKEN_IETH.faucetId,
           balance: 1_000_000,
           metadata: { symbol: 'ETH', name: 'Unknown', scaleIsUnknown: true }
         }
@@ -628,7 +718,7 @@ describe('Explore', () => {
       await renderExplore();
 
       const tokens = screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
-      expect(tokens).toEqual(['faucet-native', MIDEN_AGGLAYER_FAUCET_ID, TOKEN_IETH.faucetId]);
+      expect(tokens).toEqual(['faucet-native', MIDEN_AGGLAYER_FAUCET_ID, TEST_TOKEN_IETH.faucetId]);
     });
 
     it('renders with no asset rows when balances are undefined (destructuring default)', async () => {
