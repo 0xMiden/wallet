@@ -8,6 +8,7 @@ import {
   IBuyPhase,
   IEarnDepositExtraInputs,
   IEarnWithdrawExtraInputs,
+  ISellPhase,
   ITransaction,
   ITransactionStatus,
   ITransactionType
@@ -23,6 +24,7 @@ import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { formatAmount } from 'lib/shared/format';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { buyInputsOf, formatBuyTokenAmount } from 'screens/buy-status/buy-status-helpers';
+import { sellInputsOf } from 'screens/sell-status/sell-status-helpers';
 
 import { IHistoryEntry, IHistoryExtraAmount } from './IHistoryEntry';
 
@@ -529,6 +531,40 @@ export const buyHistoryFieldsOf = (tx: ITransaction): BuyHistoryFields | undefin
     buyTokenAmount: formatBuyTokenAmount(inputs),
     buyTokenSymbol: inputs.tokenSymbol
   };
+};
+
+/** `sell` rows are fiat off-ramp orders that the sell watcher tracks. */
+export const isSellEntry = (entry: IHistoryEntry): boolean => entry.txType === 'sell';
+
+/**
+ * The status chip of a `sell` row. The row is born Completed, so its status tells nothing about the
+ * sale. The phase does: `completed` is Confirmed, `failed` is Failed, and every other phase is
+ * Pending. A Failed row status still wins, as in `buyStatusOf`.
+ */
+export const sellStatusOf = (entry: IHistoryEntry): BridgeStatus => {
+  if (entry.status === ITransactionStatus.Failed) return 'failed';
+  switch (entry.sellPhase) {
+    case 'completed':
+      return 'confirmed';
+    case 'failed':
+      return 'failed';
+    default:
+      return 'pending';
+  }
+};
+
+/** The `IHistoryEntry` fields of a `sell` row. */
+export interface SellHistoryFields {
+  sellPhase: ISellPhase;
+  sellAmount: string;
+  sellTokenSymbol: string;
+}
+
+/** Read the sell fields of a row. Return `undefined` for a row that is not a valid `sell` row. */
+export const sellHistoryFieldsOf = (tx: ITransaction): SellHistoryFields | undefined => {
+  const inputs = sellInputsOf(tx);
+  if (!inputs) return undefined;
+  return { sellPhase: inputs.phase, sellAmount: inputs.cryptoAmount, sellTokenSymbol: inputs.tokenSymbol };
 };
 
 export const fontColorForType = (type: ITransactionType): string => {

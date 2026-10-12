@@ -3,7 +3,10 @@
  *
  * The session is opened with `walletRedirection=true`, so the widget does not draw its "Complete your transfer" page:
  * it sends `TRANSAK_WALLET_REDIRECTION` with the deposit address and the amount, which `depositFromWalletRedirection`
- * reads. The page read `readDepositFromWidget` is the fallback for a widget that draws the page all the same.
+ * reads. The wallet then closes the widget, because the widget has nothing more to show. The page read
+ * `readDepositFromWidget` is the fallback for a widget that draws the page all the same. Such a widget stays open:
+ * `keepWidgetForPaidClick` hides it while the sale is in progress, and `settleKeptWidget` clicks its "Yes, I have
+ * paid" button after the relay.
  *
  * `InAppBrowser.executeScript` gives no return value (its promise resolves with nothing on iOS and Android). Thus each
  * injected script sends its result back through the plugin bridge `window.mobileApp.postMessage`, under the
@@ -21,7 +24,7 @@ import { isEvmAddress } from 'lib/epoch/evm-address';
 import { isWebviewEventFor } from 'lib/mobile/external-browser';
 
 import { TRANSAK_WALLET_REDIRECTION, type TransakEvent } from './transak-guard';
-import { TRANSAK_INSTANCE_ID } from './transak-webview';
+import { closeTransakWidget, setTransakWidgetRect, TRANSAK_INSTANCE_ID } from './transak-webview';
 
 /** The time that `readDepositFromWidget` waits for the "Complete your transfer" page. */
 export const DEPOSIT_READ_TIMEOUT_MS = 90_000;
@@ -252,4 +255,45 @@ export async function clickPaidButton(): Promise<boolean> {
     timeoutMs: PAID_CLICK_TIMEOUT_MS
   });
   return clicked ?? false;
+}
+
+/**
+ * The order whose widget drew its deposit page and is still open. In memory only: a widget does not survive an app
+ * restart, and then Transak finds the deposit on the chain or the user confirms it in Transak.
+ */
+let keptWidgetOrderId: string | null = null;
+
+/**
+ * Keep the widget of a page deposit for its "Yes, I have paid" click, and hide it while the sale is in progress.
+ * The relay comes many minutes later, and the status page must not be under a native window for that time.
+ */
+export async function keepWidgetForPaidClick(orderId: string): Promise<void> {
+  keptWidgetOrderId = orderId;
+  await setWidgetVisible(false);
+}
+
+/** Forget the kept widget. Call it when the widget closes. */
+export function forgetKeptWidget(): void {
+  keptWidgetOrderId = null;
+}
+
+/**
+ * After the relay of `orderId`: click "Yes, I have paid" in its kept widget. Give null when no widget is kept for
+ * this order. Give true after a click, and the widget then closes. Give false when the page had no such button: the
+ * widget then shows again, so that the user can finish in Transak.
+ */
+export async function settleKeptWidget(orderId: string): Promise<boolean | null> {
+  if (keptWidgetOrderId !== orderId) return null;
+  const clicked = await clickPaidButton();
+  // The widget can close during the click.
+  if (keptWidgetOrderId !== orderId) return clicked;
+  if (clicked) {
+    keptWidgetOrderId = null;
+    await closeTransakWidget();
+    return true;
+  }
+  // The page that docked the widget is gone, so the widget takes the screen.
+  await setTransakWidgetRect({ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight });
+  await setWidgetVisible(true);
+  return false;
 }

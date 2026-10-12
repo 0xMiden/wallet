@@ -1,70 +1,63 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { formatUnits, parseUnits } from 'viem';
-
-import { useAccount } from 'lib/miden/front';
-import { BackendOrder, getOrder } from 'lib/onramp/buy-api';
-import { midenAccountIdToHex, SELL_RELAY_AMOUNT_DIVISOR } from 'lib/onramp/buy-batch';
-import { SellSignRefusal, SellSignRefusedError, signSellOrder } from 'lib/onramp/sell-signer';
-import { clickPaidButton, readDepositFromWidget, WidgetDeposit } from 'lib/onramp/sell-widget';
-import type { TransactionStepState } from 'screens/generating-transaction/types';
-
-/** The time between two backend reads of the order. */
-export const SELL_ORDER_POLL_MS = 3_000;
-/** The time that the backend has to prepare the relay values. */
-export const SELL_PREPARE_TIMEOUT_MS = 5 * 60_000;
-/** The time that the relay has to be mined. Transak expires an unpaid order in about an hour. */
-export const SELL_RELAY_TIMEOUT_MS = 15 * 60_000;
-/** TEMPORARY: the time of the mock bridge-out, until the real USDCx burn is in place. */
-export const SELL_MOCK_BRIDGE_MS = 1_500;
-
-/** Circle's USDC on Sepolia has 6 decimals. */
-const RELAY_TOKEN_DECIMALS = 6;
+import { isEvmAddress } from 'lib/epoch/evm-address';
+import { requestSWTransactionProcessing, startBackgroundTransactionProcessing } from 'lib/miden/activity';
+import {
+  SellEndedState,
+  SELL_START_POLL_MS,
+  setSellPaidClick,
+  SellStartError,
+  SellStartFailure,
+  startSellOrder
+} from 'lib/miden/activity/sell-order';
+import type { ISellDepositSource } from 'lib/miden/db/types';
+import { useAccount, useMidenContext } from 'lib/miden/front';
+import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { getOrder } from 'lib/onramp/buy-api';
+import { SELL_RELAY_TOKEN, SellSignRefusal } from 'lib/onramp/sell-signer';
+import { resolveSellToken, SellTokenBlock, SellTokenResolution } from 'lib/onramp/sell-token';
+import { keepWidgetForPaidClick, readDepositFromWidget, settleKeptWidget, WidgetDeposit } from 'lib/onramp/sell-widget';
+import { isExtension } from 'lib/platform';
+import { useWalletStore } from 'lib/store';
+import { navigate } from 'lib/woozie';
 
 /**
  * - `idle`: no sell order. The provider page shows.
  * - `reading`: the order exists; the wallet waits for the widget to name the deposit (its `TRANSAK_WALLET_REDIRECTION`
  *   event, or its deposit page as the fallback) under the visible widget.
  * - `unreadable`: the widget did not name the deposit in time.
- * - `confirm`: the widget is docked under the notification; the user confirms the widget values while the backend
- *   check runs.
- * - `running`: the steps run.
- * - `success` / `failed`: the steps stopped.
+ * - `confirm`: the user approves the deposit while the backend check and the token check run.
+ * - `starting`: the wallet signs the relay and queues the bridge-out. When that is done, the status page opens and
+ *   the tracking row owns the progress.
+ * - `failed`: the sale did not start. Nothing left the wallet.
  */
-export type SellRelayPhase = 'idle' | 'reading' | 'unreadable' | 'confirm' | 'running' | 'success' | 'failed';
+export type SellRelayPhase = 'idle' | 'reading' | 'unreadable' | 'confirm' | 'starting' | 'failed';
 
-/** The backend check of the deposit address that the page showed. */
+/** The backend check of the deposit address that the widget named. */
 export type SellBackendCheck = 'pending' | 'verified' | 'mismatch';
 
-export type SellStepId = 'bridge' | 'prepare' | 'relay' | 'paid';
-
-export interface SellStep {
-  id: SellStepId;
-  state: TransactionStepState;
-}
+/** The check of the token to sell: in progress, ready, or the reason the sale cannot start. */
+export type SellTokenCheck = { kind: 'pending' } | { kind: 'ready' } | { kind: 'blocked'; reason: SellTokenBlock };
 
 export type SellRelayError =
   | { kind: 'refused'; reason: SellSignRefusal }
-  | { kind: 'order'; state: EndedState; message: string | null }
+  | { kind: 'order'; state: SellEndedState; message: string | null }
   | { kind: 'timeout' }
+  | { kind: 'bridge'; message: string }
   | { kind: 'unexpected' };
-
-export interface SellRelayResult {
-  relayTxHash: string | null;
-  /**
-   * False when the wallet did not find the "Yes, I have paid" button: the user must tap it. Always true when the
-   * widget named the deposit in its event, because that widget has no such button.
-   */
-  paidClicked: boolean;
-}
 
 export interface SellRelay {
   phase: SellRelayPhase;
   pageDeposit: WidgetDeposit | null;
   backendCheck: SellBackendCheck;
-  steps: SellStep[];
+  tokenCheck: SellTokenCheck;
+  /** The symbol of the Miden token that the sale really sends. */
+  tokenSymbol: string;
+  /** Unix seconds at which Transak expires the unpaid order, when the backend gave it. */
+  expiresAt: number | null;
   error: SellRelayError | null;
-  result: SellRelayResult | null;
+  /** True when Confirm can start the sale. */
+  canConfirm: boolean;
   /** Start the overlay for a sell order that the widget created. */
   start: (orderId: string) => void;
   /**
@@ -73,9 +66,9 @@ export interface SellRelay {
    */
   offerDeposit: (deposit: WidgetDeposit) => void;
   confirm: () => void;
-  /** Stop before the steps run. The widget gets the full screen again. */
+  /** Stop before the sale starts. The widget gets the full screen again. */
   cancel: () => void;
-  /** Close the notification after the steps stopped. The widget stays open. */
+  /** Close the notification after a failed start. */
   dismiss: () => void;
   /** Tell the hook that the widget closed. */
   widgetClosed: () => void;
@@ -83,72 +76,63 @@ export interface SellRelay {
   back: () => boolean;
 }
 
-/** Where the deposit came from: the widget's `TRANSAK_WALLET_REDIRECTION` event, or its deposit page. */
-type DepositSource = 'event' | 'page';
+const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
-/** The `paid` step clicks a button of the deposit page. A widget that sent the event draws no such page. */
-const stepIds = (source: DepositSource): SellStepId[] => {
-  switch (source) {
-    case 'event':
-      return ['bridge', 'prepare', 'relay'];
-    case 'page':
-      return ['bridge', 'prepare', 'relay', 'paid'];
+function errorOf(failure: SellStartFailure): SellRelayError | null {
+  switch (failure.kind) {
+    case 'stopped':
+      return null;
+    case 'refused':
+      return { kind: 'refused', reason: failure.reason };
+    case 'order':
+      return { kind: 'order', state: failure.state, message: failure.message };
+    case 'timeout':
+      return { kind: 'timeout' };
+    case 'bridge':
+      return { kind: 'bridge', message: failure.message };
+  }
+}
+
+const tokenCheckOf = (resolution: SellTokenResolution | null): SellTokenCheck => {
+  switch (resolution?.kind) {
+    case undefined:
+      return { kind: 'pending' };
+    case 'ready':
+      return { kind: 'ready' };
+    case 'blocked':
+      return { kind: 'blocked', reason: resolution.reason };
   }
 };
 
-const pendingSteps = (source: DepositSource = 'page'): SellStep[] =>
-  stepIds(source).map(id => ({ id, state: 'pending' }));
-
-/** The backend states in which a sell order stops for good before its relay is mined. */
-export type EndedState = 'failed' | 'expired' | 'cancelled';
-
-function endedState(order: BackendOrder): EndedState | null {
-  switch (order.state) {
-    case 'failed':
-    case 'expired':
-    case 'cancelled':
-      return order.state;
-    default:
-      return null;
+const symbolOf = (resolution: SellTokenResolution | null): string => {
+  switch (resolution?.kind) {
+    case undefined:
+      return SELL_RELAY_TOKEN.symbol;
+    case 'ready':
+      return resolution.token.symbol;
+    case 'blocked':
+      return resolution.symbol;
   }
-}
-
-type PollOutcome = { kind: 'match'; order: BackendOrder } | { kind: 'ended'; order: BackendOrder; state: EndedState };
-
-/** Thrown when the run stopped (cancel, close or unmount). The flow then sets no state. */
-class SellRunStopped extends Error {}
-
-class SellRunTimeout extends Error {}
-
-const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+};
 
 /**
- * TEMPORARY test aid: the USDC amount the test relay sends for `amount`, as the backend scales it
- * (`SELL_RELAY_AMOUNT_DIVISOR`). Null for an amount that is not a decimal number.
- */
-export function sellRelayTestAmount(amount: string): string | null {
-  try {
-    return formatUnits(parseUnits(amount, RELAY_TOKEN_DECIMALS) / SELL_RELAY_AMOUNT_DIVISOR, RELAY_TOKEN_DECIMALS);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The state machine of the Transak sell overlay: read the deposit page, check its address with the backend, then
- * bridge out (mock), sign the relay, wait for the relay and tell Transak that the transfer is paid.
+ * The state machine of the Transak sell overlay: take the deposit that the widget names, check its address with the
+ * backend and find the token to sell, then on Confirm hand the sale to `startSellOrder` and open its status page.
+ * From there the sale is a tracked row (`SellOrderWatcher`), not state of this hook.
  *
  * Each start makes a new run. A cancel, a close or an unmount ends the run, and each async step checks its run
  * before it sets state, so no state changes after the page closes.
  */
 export function useSellRelay(): SellRelay {
   const account = useAccount();
-  const [phase, setPhase] = useState<SellRelayPhase>('idle');
+  const { signTransaction } = useMidenContext();
+  const balances = useWalletStore(state => state.balances[account.publicKey]);
+  const [phase, setPhaseState] = useState<SellRelayPhase>('idle');
   const [pageDeposit, setPageDeposit] = useState<WidgetDeposit | null>(null);
   const [backendCheck, setBackendCheck] = useState<SellBackendCheck>('pending');
-  const [steps, setSteps] = useState<SellStep[]>(pendingSteps);
+  const [resolution, setResolution] = useState<SellTokenResolution | null>(null);
+  const [expiresAt, setExpiresAt] = useState<number | null>(null);
   const [error, setError] = useState<SellRelayError | null>(null);
-  const [result, setResult] = useState<SellRelayResult | null>(null);
 
   const mounted = useRef(true);
   const run = useRef(0);
@@ -160,16 +144,20 @@ export function useSellRelay(): SellRelay {
   // The page read of the run, stopped by an offer or a reset.
   const pageRead = useRef<AbortController | null>(null);
   // Where the deposit of the run came from.
-  const depositSource = useRef<DepositSource>('page');
+  const depositSource = useRef<ISellDepositSource>('page');
+  // The phase, written in the same call that sets the state: a widget callback can come before the next render.
+  const phaseRef = useRef<SellRelayPhase>('idle');
   // The current values for the callbacks, which outlive a render.
-  const phaseRef = useRef(phase);
-  phaseRef.current = phase;
   const accountRef = useRef(account);
   accountRef.current = account;
+  const signRef = useRef(signTransaction);
+  signRef.current = signTransaction;
   const depositRef = useRef(pageDeposit);
   depositRef.current = pageDeposit;
   const checkRef = useRef(backendCheck);
   checkRef.current = backendCheck;
+  const resolutionRef = useRef(resolution);
+  resolutionRef.current = resolution;
 
   useEffect(() => {
     mounted.current = true;
@@ -181,12 +169,10 @@ export function useSellRelay(): SellRelay {
 
   const isLive = (token: number) => mounted.current && run.current === token;
 
-  const ensureLive = (token: number) => {
-    if (!isLive(token)) throw new SellRunStopped();
+  const setPhase = (next: SellRelayPhase) => {
+    phaseRef.current = next;
+    setPhaseState(next);
   };
-
-  const setStep = (id: SellStepId, state: TransactionStepState) =>
-    setSteps(current => current.map(step => (step.id === id ? { ...step, state } : step)));
 
   const reset = () => {
     run.current += 1;
@@ -198,43 +184,19 @@ export function useSellRelay(): SellRelay {
     setPhase('idle');
     setPageDeposit(null);
     setBackendCheck('pending');
-    setSteps(pendingSteps());
+    setResolution(null);
+    setExpiresAt(null);
     setError(null);
-    setResult(null);
-  };
-
-  /** Read the order until `accept` takes it or it ends. A failed read is retried at the next poll. */
-  const pollOrder = async (
-    token: number,
-    id: string,
-    accept: (order: BackendOrder) => boolean,
-    timeoutMs: number
-  ): Promise<PollOutcome> => {
-    const attempts = Math.ceil(timeoutMs / SELL_ORDER_POLL_MS);
-    for (let attempt = 0; attempt < attempts; attempt++) {
-      if (attempt > 0) await wait(SELL_ORDER_POLL_MS);
-      ensureLive(token);
-      let order: BackendOrder;
-      try {
-        order = await getOrder(id);
-      } catch {
-        continue;
-      }
-      ensureLive(token);
-      if (accept(order)) return { kind: 'match', order };
-      const ended = endedState(order);
-      if (ended !== null) return { kind: 'ended', order, state: ended };
-    }
-    throw new SellRunTimeout();
   };
 
   const checkBackendAddress = async (token: number, id: string, deposit: WidgetDeposit) => {
-    // Until the backend names an address. The page is the source of truth: a different address keeps Confirm off.
+    // Until the backend names an address. The widget is the source of truth: a different address keeps Confirm off.
     for (;;) {
       if (!isLive(token)) return;
       try {
         const order = await getOrder(id);
         if (!isLive(token)) return;
+        if (typeof order.autoExpiresAt === 'number') setExpiresAt(order.autoExpiresAt);
         const named = order.depositAddress;
         if (named !== null && named !== undefined) {
           setBackendCheck(named.toLowerCase() === deposit.address.toLowerCase() ? 'verified' : 'mismatch');
@@ -243,7 +205,7 @@ export function useSellRelay(): SellRelay {
       } catch {
         // Try again at the next poll.
       }
-      await wait(SELL_ORDER_POLL_MS);
+      await wait(SELL_START_POLL_MS);
     }
   };
 
@@ -288,20 +250,19 @@ export function useSellRelay(): SellRelay {
     setPhase('reading');
     setPageDeposit(null);
     setBackendCheck('pending');
-    setSteps(pendingSteps());
+    setResolution(null);
+    setExpiresAt(null);
     setError(null);
-    setResult(null);
 
     (async () => {
       const deposit = await readDeposit();
       if (!isLive(token)) return;
-      // The widget stays open: the page docks it under the notification.
       if (deposit === null) {
         setPhase('unreadable');
         return;
       }
+      depositRef.current = deposit;
       setPageDeposit(deposit);
-      setSteps(pendingSteps(depositSource.current));
       setPhase('confirm');
       await checkBackendAddress(token, id, deposit);
     })();
@@ -327,93 +288,86 @@ export function useSellRelay(): SellRelay {
     }
   }, []);
 
-  const fail = (token: number, step: SellStepId, cause: SellRelayError) => {
-    if (!isLive(token)) return;
-    setStep(step, 'failed');
-    setError(cause);
-    setPhase('failed');
-  };
-
-  const runSteps = async (token: number, id: string, deposit: WidgetDeposit) => {
-    let step: SellStepId = 'bridge';
-    try {
-      setStep('bridge', 'active');
-      // TODO(sell): burn the USDCx here (the real bridge-out to Sepolia through xReserve). This wait is a mock.
-      await wait(SELL_MOCK_BRIDGE_MS);
-      ensureLive(token);
-      setStep('bridge', 'complete');
-
-      step = 'prepare';
-      setStep('prepare', 'active');
-      const prepared = await pollOrder(
-        token,
-        id,
-        order => order.state === 'awaiting_signature' && order.prepare !== null,
-        SELL_PREPARE_TIMEOUT_MS
-      );
-      if (prepared.kind === 'ended') {
-        fail(token, step, { kind: 'order', state: prepared.state, message: prepared.order.error });
-        return;
-      }
-      const { publicKey, evmAddress } = accountRef.current;
-      await signSellOrder({
-        account: { publicKey, evmAddress: evmAddress ?? '', midenAccountHex: midenAccountIdToHex(publicKey) },
-        // The PAGE values, not the backend values: `signSellOrder` refuses a backend that disagrees with them.
-        depositAddress: deposit.address,
-        cryptoAmount: deposit.amount,
-        order: prepared.order
+  // Find the token to sell while the user reads the card, and again when the balances change.
+  const cryptoAmount = pageDeposit?.amount;
+  useEffect(() => {
+    if (phase !== 'confirm' || cryptoAmount === undefined) return;
+    const token = run.current;
+    let stale = false;
+    resolveSellToken({ cryptoAmount, balances: balances ?? [] })
+      .then(result => {
+        if (!stale && isLive(token)) setResolution(result);
+      })
+      .catch(cause => {
+        console.warn('[transak]', 'sell token check failed', cause);
+        if (stale || !isLive(token)) return;
+        setResolution({ kind: 'blocked', reason: 'unavailable', symbol: SELL_RELAY_TOKEN.symbol });
       });
-      ensureLive(token);
-      setStep('prepare', 'complete');
+    return () => {
+      stale = true;
+    };
+    // `isLive` reads refs only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, cryptoAmount, balances]);
 
-      step = 'relay';
-      setStep('relay', 'active');
-      const relayed = await pollOrder(token, id, order => order.state === 'deposited', SELL_RELAY_TIMEOUT_MS);
-      if (relayed.kind === 'ended') {
-        fail(token, step, { kind: 'order', state: relayed.state, message: relayed.order.error });
-        return;
-      }
-      setStep('relay', 'complete');
-
-      if (depositSource.current === 'event') {
-        // The widget has no "Yes, I have paid" button here: Transak finds the deposit on the chain.
-        setResult({ relayTxHash: relayed.order.relayTxHash, paidClicked: true });
-        setPhase('success');
-        return;
-      }
-
-      step = 'paid';
-      setStep('paid', 'active');
-      // Best effort: the relay is mined, so the sale stands even when the click does not land.
-      const paidClicked = await clickPaidButton();
-      ensureLive(token);
-      setStep('paid', 'complete');
-      setResult({ relayTxHash: relayed.order.relayTxHash, paidClicked });
-      setPhase('success');
-    } catch (cause) {
-      switch (true) {
-        case cause instanceof SellRunStopped:
-          return;
-        case cause instanceof SellSignRefusedError:
-          fail(token, step, { kind: 'refused', reason: cause.reason });
-          return;
-        case cause instanceof SellRunTimeout:
-          fail(token, step, { kind: 'timeout' });
-          return;
-        default:
-          console.warn('[transak]', 'sell relay failed', cause);
-          fail(token, step, { kind: 'unexpected' });
-      }
+  const kickTransactions = () => {
+    if (isExtension()) {
+      requestSWTransactionProcessing();
+      return;
     }
+    startBackgroundTransactionProcessing(signRef.current, false, zustandProvider);
   };
 
   const confirm = useCallback(() => {
     const id = orderId.current;
     const deposit = depositRef.current;
-    if (phaseRef.current !== 'confirm' || checkRef.current !== 'verified' || id === null || deposit === null) return;
+    const resolved = resolutionRef.current;
+    const { publicKey, evmAddress } = accountRef.current;
+    if (
+      phaseRef.current !== 'confirm' ||
+      checkRef.current !== 'verified' ||
+      resolved?.kind !== 'ready' ||
+      id === null ||
+      deposit === null ||
+      !isEvmAddress(evmAddress)
+    ) {
+      return;
+    }
     const token = run.current;
-    setPhase('running');
-    runSteps(token, id, deposit);
+    const source = depositSource.current;
+    setPhase('starting');
+
+    (async () => {
+      try {
+        const txId = await startSellOrder({
+          account: { publicKey, evmAddress },
+          orderId: id,
+          deposit,
+          depositSource: source,
+          token: resolved.token,
+          guardianProvider: zustandProvider,
+          kickTransactions,
+          isLive: () => isLive(token)
+        });
+        // The sale is a tracked row from here, also when this page closed in the meantime.
+        // A widget that drew its deposit page stays open, hidden, for its "Yes, I have paid" click after the relay.
+        if (source === 'page') {
+          setSellPaidClick(settleKeptWidget);
+          await keepWidgetForPaidClick(id);
+        }
+        if (!isLive(token)) return;
+        navigate(`/sell-status/${encodeURIComponent(txId)}`);
+        reset();
+      } catch (cause) {
+        if (!isLive(token)) return;
+        const unexpected: SellRelayError = { kind: 'unexpected' };
+        const failure = cause instanceof SellStartError ? errorOf(cause.failure) : unexpected;
+        if (!(cause instanceof SellStartError)) console.warn('[transak]', 'sell start failed', cause);
+        if (failure === null) return;
+        setError(failure);
+        setPhase('failed');
+      }
+    })();
     // The callbacks read refs only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -431,19 +385,12 @@ export function useSellRelay(): SellRelay {
   }, []);
 
   const dismiss = useCallback(() => {
-    switch (phaseRef.current) {
-      case 'success':
-      case 'failed':
-        reset();
-        return;
-      default:
-        return;
-    }
+    if (phaseRef.current === 'failed') reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const widgetClosed = useCallback(() => {
-    // Only the read stops. A run that signed goes on: the relay and its result still matter.
+    // Only the read stops. An approval goes on: the wallet closes the widget itself after its event.
     if (phaseRef.current === 'reading') reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -457,23 +404,26 @@ export function useSellRelay(): SellRelay {
       case 'unreadable':
         cancel();
         return true;
-      case 'running':
-        // The steps cannot stop after the signature. Stay on the overlay.
+      case 'starting':
+        // The start cannot stop after the signature. Stay on the overlay.
         return true;
-      case 'success':
       case 'failed':
         dismiss();
         return true;
     }
   }, [cancel, dismiss]);
 
+  const tokenCheck = tokenCheckOf(resolution);
+
   return {
     phase,
     pageDeposit,
     backendCheck,
-    steps,
+    tokenCheck,
+    tokenSymbol: symbolOf(resolution),
+    expiresAt,
     error,
-    result,
+    canConfirm: phase === 'confirm' && backendCheck === 'verified' && tokenCheck.kind === 'ready',
     start,
     offerDeposit,
     confirm,

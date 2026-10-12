@@ -59,9 +59,9 @@ rejects each signature. The shape of the bridge call (the function, the order of
 address format) is code on both sides.
 
 Token addresses and decimals are fixed in `src/tokens.ts`, by chain ID. A buy moves the bought token: Ethereum
-mainnet USDC with 6 decimals, and on Sepolia the Transak staging token (TRNSK) with 18 decimals. A sell moves
-Circle's USDC (6 decimals), which the bridge-out of USDCx releases. The order API reads these values from the map;
-orders do not store them.
+mainnet USDC with 6 decimals, and on Sepolia the Transak staging token (TRNSK) with 18 decimals. A sell moves the
+same tokens: USDC on mainnet, and TRNSK on Sepolia, because the Transak sandbox reconciles a sell only when it
+receives TRNSK. The order API reads these values from the map; orders do not store them.
 This schema requires a new database file. Startup does not migrate an old database.
 
 The `orders` table stores payment data and purchase state for buys and sells (`side`). The `relays` table stores
@@ -232,17 +232,21 @@ All errors are JSON: `{ "error": string }`.
   signature never opens a sell.
 - `POST /transak/sell/session` with `{ nonce, signature }`. Returns `{ widgetUrl, widgetParams }` for a `SELL`
   session of USDC on Ethereum with `cryptoAmount` locked, `walletAddress` (the source wallet) locked to `evmAddress`,
-  and `walletRedirection` on. The server stores an order with ID = `nonce` and `side: 'sell'` in state `checkout`,
+  and `walletRedirection` on: the widget sends `TRANSAK_WALLET_REDIRECTION` with the deposit address and the amount,
+  draws no "Complete your transfer" page, and Transak completes the order when it receives the deposit on the chain.
+  The server stores an order with ID = `nonce` and `side: 'sell'` in state `checkout`,
   cancels the earlier open sell of the address (an open buy stays), subscribes to its Transak feed and reads it at
   once. A sell nonce on the buy route, or a buy nonce here, gives 401 and burns the nonce.
 - `GET /orders/:id` returns the public status:
   `{ id, side, state, transakStatus, tokenAddress, tokenDecimals, tokenAmount, relayTxHash, error, depositAddress,
   depositAmount, autoExpiresAt, prepare }`. `side` is `buy` or `sell`. `tokenAddress` is the token the relay moves:
-  the bought token for a buy, Circle's USDC for a sell. `depositAddress`, `depositAmount` and `autoExpiresAt` (unix
-  seconds) are the Transak order's values for a sell and null for a buy.
+  the bought token for a buy, the sold token for a sell (TRNSK on Sepolia for both). `depositAddress`,
+  `depositAmount` and `autoExpiresAt` (unix seconds) are the Transak order's values for a sell and null for a buy.
   `state` is one of `checkout`, `awaiting_signature`, `signed`, `relay_sent`, `deposited`, `failed`, `expired`,
   `cancelled`. `tokenAmount` is in base units. An unknown ID gives 404.
-  In `deposited`, `relayTxHash` is the mined Sepolia transaction. The wallet finds the Agglayer deposit with it.
+  In `deposited`, `relayTxHash` is the mined Sepolia transaction. For a buy, the wallet finds the Agglayer deposit
+  with it. For a sell, `transakStatus` stays fresh after `deposited` until Transak reaches a final status, so the
+  wallet can show the payout (`PENDING_DELIVERY_FROM_TRANSAK`, then `COMPLETED`).
   `prepare` is not null only in `awaiting_signature`. The server reads it fresh from Sepolia on each call:
   `{ chainId, calibur, evmAddress, midenAccountHex, executor, batchNonce, salt, deadline, needsAuthorization,
   authorizationNonce, tokenAmount, depositAddress }`. `deadline` is now + 1 day, or the Transak expiry of a sell when
@@ -313,7 +317,8 @@ runs.
 | `relay_sent` | Receipt success → `deposited`, and the signature and authorization are deleted. Reverted → back to `awaiting_signature` (a reverted batch does not use its nonce). After 3 reverted relays → `failed`. No receipt after 15 min → one warning in the log. |
 
 Terminal states: `deposited`, `failed`, `expired`, `cancelled`. The backend does not read the Agglayer indexer. In
-`deposited` the funds are in the bridge on Sepolia, and the wallet reads the indexer for the claim on Miden.
+`deposited` the funds of a buy are in the bridge on Sepolia, and the wallet reads the indexer for the claim on Miden.
+A `deposited` sell keeps its state, but the worker still reads its Transak status (see Sells).
 
 ### Sells
 
@@ -326,20 +331,38 @@ no order). Each read keeps the deposit address, the deposit amount and the expir
 `sell_order_fields` log line prints every address in the order with its path on each status change, so a change of
 shape shows.
 
+The sequence of a sell on testnet:
+
+1. The wallet opens the Transak `SELL` session. Transak names a deposit address and an amount.
+2. The wallet signs the transfer of the full amount to the deposit address. The token does not have to be on the
+   EVM address at this time: the prepare values and the signature check do not read the balance.
+3. The wallet bridges the token out of Miden through Agglayer to the account's own EVM address on Sepolia. This
+   takes up to about 30 minutes. An auto-claimer sends the claim on Sepolia; the backend sends no claim.
+4. When the balance of the EVM address covers the amount, the worker relays the signed transfer.
+5. Transak receives the deposit and pays out. The worker keeps `transakStatus` fresh until the status is final.
+
 | State | What the worker does for a sell |
 | --- | --- |
-| `checkout` | Waits for `AWAITING_PAYMENT_FROM_USER` with a deposit address and amount → `awaiting_signature`, with `tokenAmount` = the deposit amount in Circle USDC base units divided by `SELL_RELAY_AMOUNT_DIVISOR` (100 on testnet for now: a 100 USDCx test sale relays 1 USDC; the wallet pins the same divisor). A terminal Transak status → `failed`. Expiry within 2 min → `expired`. No Transak order after 1 h → `expired`. |
-| `awaiting_signature` | The wallet signs one ERC-20 `transfer` to the deposit address under the off-ramp nonce key, with a deadline no later than `autoExpiresAt`. A terminal status → `failed`. Expiry within 2 min, or 24 h → `expired`. |
-| `signed` | Relays while Transak still awaits the payment (`AWAITING_PAYMENT_FROM_USER` or `PAYMENT_DONE_MARKED_BY_USER`), the expiry is more than 2 min away, and the USDC balance covers the amount. Expiry near → `expired` with the signature removed. Any other status → waits (a terminal one fails). |
+| `checkout` | Waits for `AWAITING_PAYMENT_FROM_USER` with a deposit address and amount → `awaiting_signature`, with `tokenAmount` = the full deposit amount in base units of the sell token (TRNSK, 18 decimals, on Sepolia). A terminal Transak status → `failed`. Expiry within 2 min → `expired`. No Transak order after 1 h → `expired`. |
+| `awaiting_signature` | The wallet signs one ERC-20 `transfer` to the deposit address under the off-ramp nonce key, with a deadline no later than `autoExpiresAt`. The balance is not read. A terminal status → `failed`. Expiry within 2 min, or 24 h → `expired`. |
+| `signed` | Each tick, in this order: a terminal Transak status → `failed`. A status that is not `AWAITING_PAYMENT_FROM_USER` or `PAYMENT_DONE_MARKED_BY_USER` → waits. Expiry within 2 min → `expired` with the signature removed. A balance of the sell token below `tokenAmount` → stays `signed`, with no relay attempt and no error (the bridged funds are not there yet; one `sell_funds_waiting` log line). A balance at or above `tokenAmount` → one `sell_funds_arrived` log line, then the relay as for a buy → `relay_sent`. |
 | `relay_sent` | As for a buy. `deposited` means the transfer to Transak is mined. |
+| `deposited` | The state does not change. The worker reads the Transak status (feed event or slow poll, and one time immediately after the receipt) and stores it in `transakStatus`, until the status is `COMPLETED`, `FAILED`, `CANCELLED`, `EXPIRED` or `REFUNDED`, or until 7 days after the deposit. |
 
-The bridge-out of the sold USDCx is the wallet's step and is not part of the backend.
+The funds wait has no timer of its own. The Transak expiry (`autoExpiresAt`, 1 h after creation on staging) is the
+limit: the bridge-out must release the token more than 2 min before it.
+
+The balance check reads the full balance of the address. On Sepolia a buy and a sell move the same token (TRNSK),
+so an open buy and an open sell of one address can use the tokens of each other.
+
+The bridge-out of the sold token is the wallet's step and is not part of the backend.
 
 ### Transak feed and slow poll
 
 The Transak order feed is a public Pusher channel per order: `{TRANSAK_API_KEY}_{orderId}` (the order ID is the
 Transak `partnerOrderId`). At the start of each tick, the worker subscribes to the channels of the orders in
-`checkout`, `awaiting_signature` and `signed`, and unsubscribes from the other channels. `POST /transak/session`
+`checkout`, `awaiting_signature` and `signed`, and of the `deposited` sells with no final Transak status, and
+unsubscribes from the other channels. `POST /transak/session`
 subscribes to the channel of the new order at once.
 
 The feed is only a trigger. The server never uses the event payload for the state or the amount. On an event
@@ -386,6 +409,8 @@ The server writes one JSON line per event to stdout: `{ ts, level, event, orderI
 | `relay_receipt` | `orderId`, `hash`, `status` |
 | `relay_receipt_missing` | `orderId`, `hash` (no receipt after 15 min) |
 | `order_underdelivered`, `order_no_delivery` | `orderId`, `tokenAmount`, `balance` |
+| `sell_funds_waiting` | `orderId`, `tokenAmount`, `balance` (a signed sell waits for its bridged funds; one line per wait, and one more after a restart) |
+| `sell_funds_arrived` | `orderId`, `tokenAmount`, `balance` (the balance covers the amount after a wait) |
 | `prepare_failed` | `orderId`, `error` |
 | `order_created_hook_failed` | `orderId`, `error` (the feed subscribe or the first advance after `POST /transak/session` or `POST /transak/sell/session`) |
 | `sell_order_fields` | `orderId`, `transakOrderId`, `status`, `keys`, `addresses` (each address in the sell order with its path), `depositPath`, `depositAddress`, `autoExpiresAt` |

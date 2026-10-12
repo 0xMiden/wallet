@@ -49,9 +49,9 @@ export function buildWidgetParams({
 /**
  * The exact widget params of a sell, without `apiKey`. On a sell `walletAddress` is the SOURCE wallet, the one the
  * user sends from: the wallet's own EVM address, locked, which also answers Transak's "where are you sending funds
- * from" step. Transak gives its deposit address in the order, and the wallet reads it from the widget events.
- * `walletRedirection` makes the widget send `TRANSAK_WALLET_REDIRECTION` with that address when the user starts
- * the transfer.
+ * from" step. `walletRedirection` is on: the widget sends `TRANSAK_WALLET_REDIRECTION` with the deposit address and
+ * the amount, and draws no "Complete your transfer" page. Transak completes the order when it receives the deposit
+ * on the chain.
  */
 export interface SellWidgetParamsMirror {
   referrerDomain: string;

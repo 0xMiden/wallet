@@ -14,10 +14,12 @@ export const ONRAMP_TOKENS = {
 } satisfies Record<1 | 11155111, RelayToken>;
 
 /**
- * Fixed tokens for the sell route: what the bridge-out of USDCx releases to the address, and what the relay sends
- * to Transak's deposit address. Circle's USDC, which xReserve releases for a burn.
+ * Fixed tokens for the sell route: what the bridge-out releases to the address, and what the relay sends to
+ * Transak's deposit address.
  */
 export const OFFRAMP_TOKENS = {
+  // Ethereum USDC, the same Circle token as the buy route.
   1: { address: getAddress('0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'), decimals: 6 },
-  11155111: { address: getAddress('0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'), decimals: 6 }
+  // On Sepolia the sell releases and relays TRNSK: Transak's sandbox reconciles a sell only when it receives TRNSK.
+  11155111: { address: getAddress('0x0c86a754a29714c4fe9c6f1359fa7099ed174c0b'), decimals: 18 }
 } satisfies Record<1 | 11155111, RelayToken>;

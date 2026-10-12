@@ -9,6 +9,7 @@ const EXPECTED: Record<ITransactionType, FlowAccent> = {
   consume: 'receive',
   'bridged-receive': 'receive',
   buy: 'receive',
+  sell: 'send',
   'earn-deposit': 'earn',
   'earn-withdraw': 'earn',
   swap: 'swap',

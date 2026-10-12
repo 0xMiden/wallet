@@ -29,7 +29,7 @@ const GOLDEN: BatchInput = {
   deadline: 1900000000n
 };
 
-const GOLDEN_DIGEST = '0x5812ce6a00bac139b8002a52b3bfa4ba58385427cba9f12ef28409ee68458638';
+const GOLDEN_DIGEST = '0x53ced547f87f74297962f3bd574f25ca7a8f3392fea412b02e942b8ffcea29d2';
 
 /** The golden sell vector. The wallet test asserts the same digest. */
 const GOLDEN_SELL: BatchInput = {
@@ -64,11 +64,12 @@ describe('calibur buy batch', () => {
       getAddress(AGGLAYER_BRIDGE_ADDRESS),
       10n ** 18n
     ]);
+    assert.equal(AGGLAYER_BRIDGE_ADDRESS, '0x528e26b25a34a4a5d0dbda1d57d318153d2ed582');
     assert.equal(bridge.to, AGGLAYER_BRIDGE_ADDRESS);
     const decoded = decodeFunctionData({ abi: BRIDGE_ASSET_ABI, data: bridge.data });
     assert.equal(decoded.functionName, 'bridgeAsset');
     assert.deepEqual(decoded.args, [
-      86,
+      73,
       getAddress(`0x00000000${'0a'.repeat(15)}00`),
       10n ** 18n,
       getAddress(GOLDEN.token),

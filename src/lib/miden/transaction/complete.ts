@@ -69,9 +69,12 @@ import {
   IEarnWithdrawPhase,
   IEarnWithdrawPreparedExecution,
   INoteDeliveryState,
+  ISellExtraInputs,
+  ISellPhase,
   ITransaction,
   ITransactionStatus,
   ReplaceHotKeyTransaction,
+  SELL_PHASES,
   SendTransaction,
   SwapTransaction,
   SwitchGuardianTransaction,
@@ -1618,6 +1621,76 @@ export const updateBuyPhase = async (
   });
 
   if (moved) console.info('[buy]', 'phase', { id, from: fromPhase, to: phase });
+
+  // The row is `Completed` from birth and never makes a terminal write through `updateTransactionStatus`, so this
+  // is the only place that can report its outcome.
+  if (settled !== undefined) {
+    reportOperation({
+      operation: operationOfType(settled.type),
+      result: phase === 'failed' ? 'errored' : 'completed',
+      durationMs: elapsedMsSince(settled.initiatedAt),
+      ...(phase === 'failed' ? { errorKind: classifyError(patch?.error), step: 'submitting' } : {})
+    });
+  }
+};
+
+/**
+ * A sell phase moves forward in `SELL_PHASES` order only. A write at the same phase is accepted, so a writer can add
+ * fields. `failed` can follow any phase before `completed`. `completed` is final. `failed` gives way only to
+ * `completed`: Transak paid out after the row failed.
+ */
+const canMoveSellPhase = (from: ISellPhase | undefined, to: ISellPhase): boolean => {
+  switch (from) {
+    case undefined:
+      return true;
+    case 'completed':
+      return false;
+    case 'failed':
+      return to === 'completed';
+    default:
+      return to === 'failed' || SELL_PHASES.indexOf(to) >= SELL_PHASES.indexOf(from);
+  }
+};
+
+/**
+ * Advance a tracking-only sell row. The row is `Completed` from birth, so only `extraInputs` changes. The first write
+ * at each phase stamps `phaseTimestamps[phase]`; a later write at the same phase keeps that stamp. A write that would
+ * move the row back is dropped whole.
+ */
+export const updateSellPhase = async (
+  id: string,
+  phase: ISellPhase,
+  patch?: Partial<Omit<ISellExtraInputs, 'phase' | 'phaseTimestamps'>>
+): Promise<void> => {
+  let settled: ITransaction | undefined;
+  let fromPhase: ISellPhase | undefined;
+  let moved = false;
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.type !== 'sell') return;
+    const inputs: ISellExtraInputs | undefined = tx.extraInputs;
+    if (!inputs || !canMoveSellPhase(inputs.phase, phase)) return;
+    fromPhase = inputs.phase;
+    moved = fromPhase !== phase;
+    const phaseTimestamps = { ...inputs.phaseTimestamps };
+    if (phaseTimestamps[phase] === undefined) phaseTimestamps[phase] = Date.now();
+    const next: ISellExtraInputs = { ...inputs, ...(patch ?? {}), phase, phaseTimestamps };
+    tx.extraInputs = next;
+    if (moved && (phase === 'completed' || phase === 'failed')) settled = tx;
+    switch (phase) {
+      case 'completed':
+        tx.displayMessage = 'Sold';
+        tx.error = undefined;
+        break;
+      case 'failed':
+        tx.displayMessage = 'Sale failed';
+        if (patch?.error) tx.error = patch.error;
+        break;
+      default:
+        break;
+    }
+  });
+
+  if (moved) console.info('[sell]', 'phase', { id, from: fromPhase, to: phase });
 
   // The row is `Completed` from birth and never makes a terminal write through `updateTransactionStatus`, so this
   // is the only place that can report its outcome.

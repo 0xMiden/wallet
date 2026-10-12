@@ -16,6 +16,8 @@ import {
   earnDepositSettlementOf,
   isBuyEntry,
   isFaucetRequest,
+  isSellEntry,
+  sellStatusOf,
   TRANSACTION_COLORS
 } from './transactionUtils';
 
@@ -88,6 +90,11 @@ export const getTransactionIconBackgroundColor = (entry: IHistoryEntry): string 
   // A buy brings money in, so it takes the received green. A failed order goes red.
   if (isBuyEntry(entry)) {
     return buyStatusOf(entry) === 'failed' ? '#CC5D5D' : TRANSACTION_COLORS.receive;
+  }
+
+  // A sell sends money out, so it takes the sent blue. A failed sale goes red.
+  if (isSellEntry(entry)) {
+    return sellStatusOf(entry) === 'failed' ? '#CC5D5D' : TRANSACTION_COLORS.send;
   }
 
   if (isFaucetRequest(entry)) return TRANSACTION_COLORS.faucet;
@@ -183,6 +190,26 @@ const TransactionIcon: FC<TransactionIconProps> = ({ entry, size = 'sm' }) => {
         className={`${config.container} flex items-center justify-center rounded-full`}
         style={{ backgroundColor: TRANSACTION_COLORS.receive }}
         data-testid="buy-transaction-icon"
+      >
+        <Icon name={IconName.Cash} size={size === 'lg' ? 'lg' : 'sm'} className="text-pure-white" />
+      </div>
+    );
+  }
+
+  // A sell row keeps the Cash glyph too, on the sent colour. A failed sale shows the failed cross.
+  if (isSellEntry(entry)) {
+    if (sellStatusOf(entry) === 'failed') {
+      return (
+        <div className={`${config.container} rounded-10 flex items-center justify-center bg-status-negative`}>
+          <FailedCrossIcon className={config.sendIcon} />
+        </div>
+      );
+    }
+    return (
+      <div
+        className={`${config.container} flex items-center justify-center rounded-full`}
+        style={{ backgroundColor: TRANSACTION_COLORS.send }}
+        data-testid="sell-transaction-icon"
       >
         <Icon name={IconName.Cash} size={size === 'lg' ? 'lg' : 'sm'} className="text-pure-white" />
       </div>

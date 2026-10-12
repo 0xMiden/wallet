@@ -439,8 +439,9 @@ describe('POST /transak/sell/session', () => {
     const view = orderResponseSchema.parse(status.body);
     assert.equal(view.side, 'sell');
     assert.equal(view.state, 'checkout');
-    assert.equal(view.tokenAddress.toLowerCase(), '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238');
-    assert.equal(view.tokenDecimals, 6);
+    // The Transak sandbox reconciles a sell only in TRNSK.
+    assert.equal(view.tokenAddress.toLowerCase(), '0x0c86a754a29714c4fe9c6f1359fa7099ed174c0b');
+    assert.equal(view.tokenDecimals, 18);
     assert.equal(view.depositAddress, null);
     assert.equal(view.autoExpiresAt, null);
   });

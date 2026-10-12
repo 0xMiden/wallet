@@ -31,6 +31,7 @@ import EarnVaultDetail from 'screens/earn-flow/EarnVaultDetail';
 import EarnWithdrawReview from 'screens/earn-flow/EarnWithdrawReview';
 import EarnWithdrawStatus from 'screens/earn-flow/EarnWithdrawStatus';
 import { GeneratingTransactionPage } from 'screens/generating-transaction/GeneratingTransaction';
+import SellStatus from 'screens/sell-status/SellStatus';
 import { ReviewTransaction } from 'screens/send-flow/ReviewTransaction';
 import { SendFlow } from 'screens/send-flow/SendManager';
 import { SwapFlow } from 'screens/swap-flow/SwapManager';
@@ -402,6 +403,15 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
     onlyReady(({ txId }) => (
       <FullScreenPage>
         <BuyStatus txId={txId!} />
+      </FullScreenPage>
+    ))
+  ],
+  // The progress of one fiat sale, by the id of its tracking row. Registered like `/buy-status/:txId`.
+  [
+    '/sell-status/:txId',
+    onlyReady(({ txId }) => (
+      <FullScreenPage>
+        <SellStatus txId={txId!} />
       </FullScreenPage>
     ))
   ],

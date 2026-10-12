@@ -4,7 +4,16 @@ import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import type { Address, Hex } from 'viem';
 import { z } from 'zod';
 
-import { NONCE_STATES, ORDER_SIDES, ORDER_STATES, WORKER_STATES, type OrderSide, type OrderState } from './states.js';
+import {
+  isWorkerOrder,
+  NONCE_STATES,
+  ORDER_SIDES,
+  ORDER_STATES,
+  SELL_PAYOUT_SYNC_MS,
+  WORKER_STATES,
+  type OrderSide,
+  type OrderState
+} from './states.js';
 import { logEvent } from '../log.js';
 import { RELAY_SCHEMA, RelayStore, type NewRelay } from '../relays/store.js';
 
@@ -220,13 +229,24 @@ export class OrderStore {
     return row === undefined ? null : rowSchema.parse(row);
   }
 
-  /** The orders that the worker advances, oldest first. */
+  /**
+   * The orders that the worker advances, oldest first: the orders in a worker state, and the `deposited` sells
+   * that Transak has not settled yet (`isPayoutSync`). The query limits the `deposited` rows by side and age, and
+   * `isWorkerOrder` applies the status rule.
+   */
   listForWorker(): Order[] {
+    const at = this.now();
     const placeholders = WORKER_STATES.map(() => '?').join(', ');
     return this.db
-      .prepare(`SELECT * FROM orders WHERE state IN (${placeholders}) ORDER BY created_at, id`)
-      .all(...WORKER_STATES)
-      .map(row => rowSchema.parse(row));
+      .prepare(
+        `SELECT * FROM orders
+         WHERE state IN (${placeholders})
+            OR (state = 'deposited' AND side = 'sell' AND state_changed_at > ?)
+         ORDER BY created_at, id`
+      )
+      .all(...WORKER_STATES, at - SELL_PAYOUT_SYNC_MS)
+      .map(row => rowSchema.parse(row))
+      .filter(order => isWorkerOrder(order, at));
   }
 
   /**

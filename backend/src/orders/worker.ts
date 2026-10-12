@@ -1,11 +1,14 @@
 import { advanceOrder, type OrderDeps } from './advance.js';
-import { TRANSAK_FEED_STATES, WORKER_STATES } from './states.js';
+import { isWorkerOrder, watchesTransakFeed } from './states.js';
 import type { Order } from './store.js';
 import { errorText, logEvent, type LogFields } from '../log.js';
 import { TransakError } from '../transak/client.js';
 import type { TransakFeed } from '../transak/feed.js';
 
-export interface WorkerOptions extends Omit<OrderDeps, 'receiptWarnings' | 'loggedCryptoAmounts' | 'transakPoll'> {
+export interface WorkerOptions extends Omit<
+  OrderDeps,
+  'receiptWarnings' | 'loggedCryptoAmounts' | 'fundsWaits' | 'transakPoll'
+> {
   intervalMs: number;
   /** The minimum time between two Transak API calls for one order, when no feed event comes. */
   transakPollIntervalMs: number;
@@ -45,6 +48,7 @@ export function createWorker(options: WorkerOptions): Worker {
     ...rest,
     receiptWarnings: new Set(),
     loggedCryptoAmounts: new Map(),
+    fundsWaits: new Set(),
     transakPoll: { intervalMs: transakPollIntervalMs, lastCallAt: new Map(), dirty: new Set() }
   };
   let running = false;
@@ -82,7 +86,7 @@ export function createWorker(options: WorkerOptions): Worker {
         logEvent('error', 'worker_error', { orderId, ...errorFields(error) });
         continue;
       }
-      if (order !== null && WORKER_STATES.includes(order.state)) {
+      if (order !== null && isWorkerOrder(order, deps.now())) {
         await advance(order);
       }
     }
@@ -108,8 +112,13 @@ export function createWorker(options: WorkerOptions): Worker {
         deps.transakPoll.dirty.delete(orderId);
       }
     }
+    for (const orderId of deps.fundsWaits) {
+      if (!active.has(orderId)) {
+        deps.fundsWaits.delete(orderId);
+      }
+    }
     try {
-      feed.retain(orders.filter(order => TRANSAK_FEED_STATES.includes(order.state)).map(order => order.id));
+      feed.retain(orders.filter(order => watchesTransakFeed(order, deps.now())).map(order => order.id));
     } catch (error) {
       // The slow poll still reads Transak without the feed.
       logEvent('error', 'worker_error', errorFields(error));

@@ -22,7 +22,7 @@ import { toLocalFormat } from 'lib/i18n/numbers';
 import { initiateBuyTransaction } from 'lib/miden/activity';
 import { useAccount } from 'lib/miden/front';
 import { midenAccountIdToHex } from 'lib/onramp/buy-batch';
-import { depositFromWalletRedirection } from 'lib/onramp/sell-widget';
+import { depositFromWalletRedirection, forgetKeptWidget } from 'lib/onramp/sell-widget';
 import { createTransakBuySession, createTransakSellSession, TransakSessionError } from 'lib/onramp/transak-client';
 import {
   TRANSAK_ORDER_CREATED,
@@ -30,7 +30,7 @@ import {
   TransakEvent,
   TransakExpectation
 } from 'lib/onramp/transak-guard';
-import { openTransakWidget, setTransakWidgetRect } from 'lib/onramp/transak-webview';
+import { closeTransakWidget, openTransakWidget, setTransakWidgetRect } from 'lib/onramp/transak-webview';
 import { isMobile } from 'lib/platform';
 import { navigate } from 'lib/woozie';
 
@@ -112,8 +112,13 @@ interface Checkout {
 /**
  * Buy and Sell on mobile open the Transak checkout. On the extension and desktop they stay a preview.
  *
- * A buy makes its tracking row before the widget opens. A sell opens the widget; when the widget creates the order,
- * the wallet hides it and the sell notification (`useSellRelay`, `SellRelayNotification`) shows on this page.
+ * A buy makes its tracking row before the widget opens. A sell opens the widget; when the widget names the deposit
+ * in its `TRANSAK_WALLET_REDIRECTION` event, the wallet closes the widget and the sell notification (`useSellRelay`,
+ * `SellRelayNotification`) shows on this page for the approval. After Confirm the sale has a tracking row and the
+ * page goes to `/sell-status/:txId`.
+ *
+ * The docking of the widget above the notification is for the fallback only: a widget that draws its deposit page
+ * stays open, so the notification takes the bottom of the screen under it.
  */
 const CashProviders = ({ action, amount, onBack, sellRelay }: CashProvidersProps) => {
   const { t } = useTranslation();
@@ -195,6 +200,9 @@ const CashProviders = ({ action, amount, onBack, sellRelay }: CashProvidersProps
             const deposit = depositFromWalletRedirection(event);
             if (deposit !== null) sellRelay.offerDeposit(deposit);
             sellRelay.start(sellOrderId);
+            // The widget has nothing more to show after this event, so the wallet closes it. An event with no
+            // valid deposit leaves the widget open for the page read.
+            if (deposit !== null) closeTransakWidget();
             return;
           }
           default:
@@ -213,6 +221,8 @@ const CashProviders = ({ action, amount, onBack, sellRelay }: CashProvidersProps
           if (mounted.current) setMismatchClosed(true);
         },
         onClosed: () => {
+          // Before the mounted check: a widget kept for its "Yes, I have paid" click can close after this page.
+          if (sellOrderId !== undefined) forgetKeptWidget();
           if (!mounted.current) return;
           setWidgetDocking(false);
           if (sellOrderId !== undefined) sellRelay.widgetClosed();
@@ -297,7 +307,7 @@ const CashProviders = ({ action, amount, onBack, sellRelay }: CashProvidersProps
       <AnimatePresence initial={false}>
         {saleActive && (
           <motion.div ref={notificationRef} key="sell-notification" className="overflow-hidden" {...reveal}>
-            <SellRelayNotification relay={sellRelay} evmAddress={evmAddress} />
+            <SellRelayNotification relay={sellRelay} />
           </motion.div>
         )}
       </AnimatePresence>

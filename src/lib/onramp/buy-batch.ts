@@ -31,16 +31,10 @@ export const ONRAMP_NONCE_KEY = BigInt(keccak256(stringToHex('miden.onramp'))) >
 export const OFFRAMP_NONCE_KEY = BigInt(keccak256(stringToHex('miden.offramp'))) >> 64n;
 /** A signed batch stays valid for this number of seconds. */
 export const BUY_BATCH_TTL_SECONDS = 86_400;
-/**
- * TEMPORARY, testnet only: the relay of a sell sends `cryptoAmount / 100` of the token, so a 100 USDCx test sale
- * moves 1 USDC. The backend has the same constant (`SELL_RELAY_AMOUNT_DIVISOR` in `chain-testnet/offramp.ts`).
- * Set both to 1 when the sell relays the full amount.
- */
-export const SELL_RELAY_AMOUNT_DIVISOR = 100n;
 
 // The Agglayer bridge on Sepolia and the Agglayer network ID of Miden testnet (not an EVM chain ID).
-export const AGGLAYER_BRIDGE_ADDRESS: Address = '0x1348947e282138d8f377b467f7d9c2eb0f335d1f';
-export const MIDEN_AGGLAYER_NETWORK_ID = 86;
+export const AGGLAYER_BRIDGE_ADDRESS: Address = '0x528e26b25a34a4a5d0dbda1d57d318153d2ed582';
+export const MIDEN_AGGLAYER_NETWORK_ID = 73;
 
 export const CALIBUR_ABI = parseAbi([
   'struct Call { address to; uint256 value; bytes data; }',

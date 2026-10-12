@@ -8,17 +8,15 @@
  * transfer of the expected amount to the address the user saw, through the pinned Calibur code.
  */
 import { isAddress, isAddressEqual, parseUnits, type Address, type Hex } from 'viem';
-import { sepolia } from 'viem/chains';
 
+import { TRNSK_DECIMALS, TRNSK_SEPOLIA_ADDRESS, TRNSK_SYMBOL } from 'lib/agglayer/constant';
 import { buildVaultEvmWalletClient } from 'lib/epoch/evm-account';
-import { CIRCLE_USDC_DECIMALS, getUsdcxContracts } from 'lib/usdcx/constant';
 
 import { BackendOrder, BuyAuthorization, BuyOrderPrepare, BuyOrderState, postBuySignature } from './buy-api';
 import {
   BUY_BATCH_TTL_SECONDS,
   CALIBUR_SEPOLIA_ADDRESS,
   OFFRAMP_NONCE_KEY,
-  SELL_RELAY_AMOUNT_DIVISOR,
   SEPOLIA_CHAIN_ID,
   SellBatchInput,
   sellBatchTypedData
@@ -27,10 +25,14 @@ import {
 /** Clock skew that the deadline check accepts, in seconds. */
 const DEADLINE_SKEW_SECONDS = 60;
 
-/** The token the relay of a sell transfers: Circle's USDC on Sepolia, which xReserve releases for burnt USDCx. */
-export const SELL_RELAY_TOKEN: { address: Address; decimals: number } = {
-  address: getUsdcxContracts(sepolia.id).usdc,
-  decimals: CIRCLE_USDC_DECIMALS
+/**
+ * The token the relay of a sell transfers: TRNSK on Sepolia, which the Agglayer bridge-out of the sale releases at
+ * the account's EVM address. Twin of the backend's `OFFRAMP_TOKENS[11155111]`.
+ */
+export const SELL_RELAY_TOKEN: { address: Address; decimals: number; symbol: string } = {
+  address: TRNSK_SEPOLIA_ADDRESS,
+  decimals: TRNSK_DECIMALS,
+  symbol: TRNSK_SYMBOL
 };
 
 export type SellSignRefusal =
@@ -82,10 +84,18 @@ function refuse(reason: SellSignRefusal, message: string): never {
   throw new SellSignRefusedError(reason, message);
 }
 
-/** The exact base units the relay of a sell transfers for a crypto amount shown by Transak. */
+/**
+ * The exact base units the relay of a sell transfers for a crypto amount shown by Transak: the full amount, in the
+ * decimals of the relay token. An amount with more fraction digits than the token has is refused, because
+ * `parseUnits` rounds it.
+ */
 export function sellRelayTokenAmount(cryptoAmount: string): bigint {
-  if (!/^\d+(\.\d+)?$/.test(cryptoAmount)) refuse('crypto-amount', 'Crypto amount is not a decimal number');
-  return parseUnits(cryptoAmount, SELL_RELAY_TOKEN.decimals) / SELL_RELAY_AMOUNT_DIVISOR;
+  const match = /^\d+(?:\.(\d+))?$/.exec(cryptoAmount);
+  if (match === null) return refuse('crypto-amount', 'Crypto amount is not a decimal number');
+  if ((match[1]?.length ?? 0) > SELL_RELAY_TOKEN.decimals) {
+    return refuse('crypto-amount', 'Crypto amount has more decimals than the token');
+  }
+  return parseUnits(cryptoAmount, SELL_RELAY_TOKEN.decimals);
 }
 
 /**

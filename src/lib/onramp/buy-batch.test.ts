@@ -31,7 +31,7 @@ const GOLDEN_INPUT: BuyBatchInput = {
 };
 
 // The backend test (`backend/src/chain-testnet/calibur.test.ts`) asserts the same digest. If one changes, both must change.
-const GOLDEN_DIGEST = '0x5812ce6a00bac139b8002a52b3bfa4ba58385427cba9f12ef28409ee68458638';
+const GOLDEN_DIGEST = '0x53ced547f87f74297962f3bd574f25ca7a8f3392fea412b02e942b8ffcea29d2';
 // The sell twin: `calibur sell batch` in the same backend test asserts this digest.
 const GOLDEN_SELL_DIGEST = '0xf51b1837c41f5128f295dcc17b811a4d7905ae66d6be235b9327df25a055a96d';
 
@@ -44,13 +44,14 @@ describe('buy batch', () => {
     expect(ONRAMP_NONCE_KEY.toString(16)).toBe('eb4d3c43f120977c674e52a7fbb9e6b354db3b4533691842');
   });
 
-  it('bridges the whole amount to the Miden account on network 86', () => {
+  it('bridges the whole amount to the Miden account on network 73', () => {
     const batch = buildBuyBatch(GOLDEN_INPUT);
     const bridgeCall = batch.batchedCall.calls[1];
     expect(bridgeCall?.to).toBe(AGGLAYER_BRIDGE_ADDRESS);
     const decoded = decodeFunctionData({ abi: BRIDGE_ASSET_ABI, data: bridgeCall?.data ?? '0x' });
     const [network, destination, amount, token, forceUpdate, permitData] = decoded.args;
-    expect(network).toBe(86);
+    expect(network).toBe(73);
+    expect(AGGLAYER_BRIDGE_ADDRESS).toBe('0x528e26b25a34a4a5d0dbda1d57d318153d2ed582');
     expect(destination.toLowerCase()).toBe('0x000000000a0a0a0a0a0a0a0a0a0a0a0a0a0a0a00');
     expect(amount).toBe(10n ** 18n);
     expect(token.toLowerCase()).toBe(GOLDEN_INPUT.token);

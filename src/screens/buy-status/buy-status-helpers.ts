@@ -1,6 +1,17 @@
 import { BUY_PHASES, IBuyExtraInputs, IBuyPhase, ITransaction } from 'lib/miden/db/types';
 import { formatAmount } from 'lib/shared/format';
 import type { TransactionStepState } from 'screens/generating-transaction/types';
+import {
+  isPhaseTerminal,
+  phaseActiveIndex,
+  phaseProgressFraction,
+  phaseStepDurationsMs,
+  phaseStepState,
+  PhaseTrack
+} from 'screens/order-status/phase-progress';
+
+/** The phases of a buy, for the progress functions that the buy and the sell screens share. */
+export const BUY_TRACK: PhaseTrack<IBuyPhase> = { phases: BUY_PHASES, completed: 'completed', failed: 'failed' };
 
 /** The Sepolia explorer page of a relay transaction. */
 export const sepoliaTxUrl = (hash: string): string => `https://sepolia.etherscan.io/tx/${hash}`;
@@ -48,45 +59,18 @@ export const buyInputsOf = (row: ITransaction | undefined): IBuyExtraInputs | un
  * A failed order has no index of its own. Its step is the last phase that has a timestamp, because
  * that phase is where the order stopped.
  */
-export const buyActiveIndex = (inputs: IBuyExtraInputs): number => {
-  switch (inputs.phase) {
-    case 'failed': {
-      let last = 0;
-      BUY_PHASES.forEach((phase, index) => {
-        if (inputs.phaseTimestamps?.[phase] !== undefined) last = index;
-      });
-      return last;
-    }
-    default:
-      return Math.max(0, BUY_PHASES.indexOf(inputs.phase));
-  }
-};
+export const buyActiveIndex = (inputs: IBuyExtraInputs): number => phaseActiveIndex(BUY_TRACK, inputs);
 
 /**
  * Get the filled part of the progress bar, from 0 to 1.
  *
  * A step that is in progress fills half of its segment. The completed order fills the full bar.
  */
-export const buyProgressFraction = (inputs: IBuyExtraInputs): number => {
-  const index = buyActiveIndex(inputs);
-  const segment = inputs.phase === 'completed' ? 1 : 0.5;
-  return Math.min(1, (index + segment) / BUY_PHASES.length);
-};
+export const buyProgressFraction = (inputs: IBuyExtraInputs): number => phaseProgressFraction(BUY_TRACK, inputs);
 
 /** Get the state of the step at `index`. */
-export const buyStepState = (inputs: IBuyExtraInputs, index: number): TransactionStepState => {
-  const active = buyActiveIndex(inputs);
-  if (index < active) return 'complete';
-  if (index > active) return 'pending';
-  switch (inputs.phase) {
-    case 'completed':
-      return 'complete';
-    case 'failed':
-      return 'failed';
-    default:
-      return 'active';
-  }
-};
+export const buyStepState = (inputs: IBuyExtraInputs, index: number): TransactionStepState =>
+  phaseStepState(BUY_TRACK, inputs, index);
 
 /**
  * Get the duration of each step in milliseconds, or `undefined` when it is not known.
@@ -95,22 +79,8 @@ export const buyStepState = (inputs: IBuyExtraInputs, index: number): Transactio
  * `failed` timestamp. The active step stops at `now`, so its value increases while the screen is
  * open. The last step (`completed`) has no duration.
  */
-export const buyStepDurationsMs = (inputs: IBuyExtraInputs, now: number): (number | undefined)[] => {
-  const stamps = inputs.phaseTimestamps ?? {};
-  const active = buyActiveIndex(inputs);
-  return BUY_PHASES.map((phase, index) => {
-    if (phase === 'completed') return undefined;
-    const start = stamps[phase];
-    if (start === undefined) return undefined;
-    const nextStamp = BUY_PHASES.slice(index + 1)
-      .map(later => stamps[later])
-      .find(stamp => stamp !== undefined);
-    const inProgress = index === active && inputs.phase !== 'failed' && inputs.phase !== 'completed';
-    const end = nextStamp ?? stamps.failed ?? (inProgress ? now : undefined);
-    if (end === undefined || end < start) return undefined;
-    return end - start;
-  });
-};
+export const buyStepDurationsMs = (inputs: IBuyExtraInputs, now: number): (number | undefined)[] =>
+  phaseStepDurationsMs(BUY_TRACK, inputs, now);
 
 /**
  * Get the token part of the summary, for example "19.8 USDC". When the token amount is not known,
@@ -132,12 +102,4 @@ export const formatBuyTokenAmount = (inputs: IBuyExtraInputs): string | undefine
 };
 
 /** True when the order cannot change any more. */
-export const isBuyTerminal = (phase: IBuyPhase): boolean => {
-  switch (phase) {
-    case 'completed':
-    case 'failed':
-      return true;
-    default:
-      return false;
-  }
-};
+export const isBuyTerminal = (phase: IBuyPhase): boolean => isPhaseTerminal(BUY_TRACK, phase);

@@ -209,6 +209,9 @@ jest.mock('./transactionUtils', () => ({
   // Buy rows: the real predicate and chip, so the buy branch of `buildRowProps` runs as it ships.
   isBuyEntry: jest.requireActual('./transactionUtils').isBuyEntry,
   buyStatusOf: jest.requireActual('./transactionUtils').buyStatusOf,
+  // Sell rows: the real predicate and chip, so the sell branch of `buildRowProps` runs as it ships.
+  isSellEntry: jest.requireActual('./transactionUtils').isSellEntry,
+  sellStatusOf: jest.requireActual('./transactionUtils').sellStatusOf,
   formatMoneyAmount: jest.requireActual('./transactionUtils').formatMoneyAmount,
   // TransactionIcon (imported by HistoryView) reads the bridge slate from here at module load.
   TRANSACTION_COLORS: jest.requireActual('./transactionUtils').TRANSACTION_COLORS
@@ -1771,6 +1774,49 @@ describe('HistoryView buy rows', () => {
     expect(row).toHaveAttribute('data-status', 'failed');
     expect(row).toHaveAttribute('data-iconbg', 'bg-status-negative');
     expect(row).toHaveAttribute('data-amount-value', '');
+  });
+});
+
+describe('HistoryView sell rows', () => {
+  const renderSell = (overrides: Partial<IHistoryEntry> = {}) => {
+    const entry = makeEntry({
+      txType: 'sell',
+      message: 'Selling',
+      status: 2,
+      sellAmount: '100',
+      sellTokenSymbol: 'TRNSK',
+      sellPhase: 'bridging',
+      ...overrides
+    });
+    render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
+    return rowByTitle('sellRowTitle');
+  };
+
+  it('reads pending while the sale is in progress, with the Cash glyph on the sent colour and the amount out', () => {
+    const row = renderSell();
+    expect(row).toHaveAttribute('data-status', 'pending');
+    expect(row).toHaveAttribute('data-subtitle', 'sellRowSubtitle');
+    expect(row).toHaveAttribute('data-iconbg', 'bg-tx-sent');
+    expect(iconNameIn(row)).toBe('Cash');
+    expect(row).toHaveAttribute('data-amount-value', '-100');
+    expect(row).toHaveAttribute('data-amount-symbol', 'TRNSK');
+    expect(row).toHaveAttribute('data-amount-direction', 'negative');
+  });
+
+  it('reads confirmed when Transak completed the payout', () => {
+    expect(renderSell({ sellPhase: 'completed' })).toHaveAttribute('data-status', 'confirmed');
+  });
+
+  it('reads failed on a failed sale, with the failure colour and no amount', () => {
+    const row = renderSell({ sellPhase: 'failed' });
+    expect(row).toHaveAttribute('data-status', 'failed');
+    expect(row).toHaveAttribute('data-iconbg', 'bg-status-negative');
+    expect(row).toHaveAttribute('data-amount-value', '');
+  });
+
+  it('opens the status page of the sale, not the details page', () => {
+    fireEvent.click(renderSell({ txId: 'sell-1' }));
+    expect(navigate).toHaveBeenCalledWith('/sell-status/sell-1');
   });
 });
 

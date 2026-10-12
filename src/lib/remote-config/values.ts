@@ -86,6 +86,11 @@ export function selectNativeEthFaucet(s: BridgeConfigSnapshot): string | null {
   return selectNativeEthToken(s)?.midenFaucetId ?? null;
 }
 
+/** Every token the bridge registry lists, or null while that read has not succeeded. */
+export function findAgglayerTokens(): BridgeToken[] | null {
+  return okValue(getBridgeConfigSnapshot().derived?.agglayer.tokens);
+}
+
 // Read synchronously: each realm hydrates its snapshot at startup, and an entry point stays greyed until its values are
 // in it, so code past one only reaches a null through a deep link or a document that changed under it.
 function getValue<T>(value: string, select: (s: BridgeConfigSnapshot) => T | null): T {

@@ -44,6 +44,7 @@ import {
   isFaucetRequest as isFaucetEntry,
   labelHistoryEntry,
   resolveConsumeExtraAmounts,
+  sellHistoryFieldsOf,
   resolveSwapHistoryFields,
   swapSettlementOf
 } from './transactionUtils';
@@ -515,6 +516,8 @@ async function fetchTransactionsAsHistoryEntries(
     const extraAmounts = await resolveConsumeExtraAmounts(tx);
     // A buy row is born Completed, so only this list reads it. Its progress is on `extraInputs`.
     const buy = buyHistoryFieldsOf(tx);
+    // A sell row is born Completed in the same way. The value moves in its bridge-out row.
+    const sell = sellHistoryFieldsOf(tx);
     const entry = {
       address: address,
       key: `completed-${tx.id}`,
@@ -599,7 +602,10 @@ async function fetchTransactionsAsHistoryEntries(
       buyPhase: buy?.buyPhase,
       buyFiatAmount: buy?.buyFiatAmount,
       buyTokenAmount: buy?.buyTokenAmount,
-      buyTokenSymbol: buy?.buyTokenSymbol
+      buyTokenSymbol: buy?.buyTokenSymbol,
+      sellPhase: sell?.sellPhase,
+      sellAmount: sell?.sellAmount,
+      sellTokenSymbol: sell?.sellTokenSymbol
     } as IHistoryEntry;
 
     return entry;

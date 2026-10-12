@@ -14,6 +14,7 @@ import {
   startBackgroundTransactionProcessing,
   waitForTransactionCompletion
 } from 'lib/miden/activity';
+import type { ISellOrderLink } from 'lib/miden/db/types';
 import { isGuardianAccount, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { expirationDeltaBlocks } from 'lib/miden/helpers';
 import {
@@ -88,8 +89,18 @@ export async function initiateB2AggBridge(args: {
   senderPublicKey: string;
   guardianProvider: GuardianAccountProvider;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
+  /** The fiat sale that this bridge-out pays for. It is stored on the row in the write that queues it. */
+  sellOrder?: ISellOrderLink;
 }): Promise<string> {
-  const { amount, faucetId, destinationAddress, senderPublicKey, guardianProvider, spendingLimitAuthorization } = args;
+  const {
+    amount,
+    faucetId,
+    destinationAddress,
+    senderPublicKey,
+    guardianProvider,
+    spendingLimitAuthorization,
+    sellOrder
+  } = args;
   // Read before the lock: the note addresses the configured bridge, with the L1 bridge's networkID() as its
   // destination, which the row records too.
   const { midenBridge, evmNetworkId } = getAgglayerBridgeOut();
@@ -175,7 +186,9 @@ export async function initiateB2AggBridge(args: {
     true,
     undefined,
     spendingLimitAuthorization,
-    exitTxHash
+    exitTxHash,
+    undefined,
+    sellOrder
   );
 }
 

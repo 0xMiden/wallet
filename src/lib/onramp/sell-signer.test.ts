@@ -43,8 +43,9 @@ const OTHER = '0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359';
 const MIDEN_HEX = '0x' + '0a'.repeat(15);
 const SALT: Hex = `0x${'0'.repeat(24)}00000cabfc76478c1537dd418ab00967cbbe4ae6`;
 const SIGNATURE: Hex = `0x${'11'.repeat(65)}`;
-/** 100 USDC sold, scaled by 100: 1 USDC in base units. */
-const AMOUNT = 1_000_000n.toString();
+/** 100 TRNSK sold: the full amount in base units, 18 decimals. */
+const AMOUNT_UNITS = 100n * 10n ** 18n;
+const AMOUNT = AMOUNT_UNITS.toString();
 
 function goodPrepare(): BuyOrderPrepare {
   return {
@@ -117,9 +118,18 @@ beforeEach(() => {
 });
 
 describe('sellRelayTokenAmount', () => {
-  it('scales the shown crypto amount by the test divisor, in USDC base units', () => {
-    expect(sellRelayTokenAmount('100')).toBe(1_000_000n);
-    expect(sellRelayTokenAmount('12.5')).toBe(125_000n);
+  it('gives the full shown crypto amount in TRNSK base units', () => {
+    expect(SELL_RELAY_TOKEN).toEqual({
+      address: '0x0c86a754a29714c4fe9c6f1359fa7099ed174c0b',
+      decimals: 18,
+      symbol: 'TRNSK'
+    });
+    expect(sellRelayTokenAmount('100')).toBe(100n * 10n ** 18n);
+    expect(sellRelayTokenAmount('12.5')).toBe(125n * 10n ** 17n);
+  });
+
+  it('refuses an amount that the token cannot hold exactly', () => {
+    expect(() => sellRelayTokenAmount(`0.${'1'.repeat(19)}`)).toThrow(SellSignRefusedError);
   });
 });
 
@@ -136,7 +146,7 @@ describe('validateSellPrepare', () => {
     ['evm-address', inputWith(orderWith({ evmAddress: OTHER }))],
     ['miden-account', inputWith(orderWith({ midenAccountHex: '0x' + '0b'.repeat(15) }))],
     ['token', inputWith(orderWith({}, { tokenAddress: OTHER }))],
-    ['token', inputWith(orderWith({}, { tokenDecimals: 18 }))],
+    ['token', inputWith(orderWith({}, { tokenDecimals: 6 }))],
     // The backend names another deposit address than the Transak page did.
     ['deposit-address', inputWith(orderWith({ depositAddress: OTHER }))],
     ['deposit-address', inputWith(orderWith({ depositAddress: null }))],
@@ -146,7 +156,9 @@ describe('validateSellPrepare', () => {
     ['deadline', inputWith(orderWith({ deadline: NOW - 1 }))],
     // Past the Transak expiry: the signature must die with the order.
     ['deadline', inputWith(orderWith({ deadline: NOW + 3600 + 120 }))],
-    ['amount', inputWith(orderWith({ tokenAmount: '2000000' }))],
+    // The old test relay sent a hundredth of the amount: the full amount is the only one accepted.
+    ['amount', inputWith(orderWith({ tokenAmount: (AMOUNT_UNITS / 100n).toString() }))],
+    ['amount', inputWith(orderWith({ tokenAmount: '100000000' }))],
     ['amount', inputWith(orderWith(), { cryptoAmount: '50' })],
     ['crypto-amount', inputWith(orderWith(), { cryptoAmount: 'ten' })]
   ];
@@ -173,7 +185,7 @@ describe('signSellOrder', () => {
         evmAddress: EVM_ADDRESS,
         token: SELL_RELAY_TOKEN.address,
         depositAddress: DEPOSIT,
-        amount: 1_000_000n,
+        amount: AMOUNT_UNITS,
         batchNonce: BigInt(prepare.batchNonce),
         salt: SALT,
         executor: prepare.executor,

@@ -1,6 +1,6 @@
 import type { PluginListenerHandle } from '@capacitor/core';
-import { InAppBrowser, ToolBarType } from '@miden/dapp-browser';
 
+import { InAppBrowser, ToolBarType } from '@miden/dapp-browser';
 import type { WebViewRect } from 'lib/dapp-browser/webview-rect';
 import { addWebviewCloseListener, isWebviewEventFor } from 'lib/mobile/external-browser';
 import { captureCrash } from 'lib/telemetry/crash';
@@ -61,6 +61,15 @@ export async function setTransakWidgetRect(rect: WebViewRect): Promise<void> {
     await InAppBrowser.updateDimensions({ id: TRANSAK_INSTANCE_ID, ...rect });
   } catch (error) {
     console.warn('[transak]', 'cannot move the widget', error);
+  }
+}
+
+/** Close the widget. Best effort: the widget can be closed already. Its close listener then calls `onClosed`. */
+export async function closeTransakWidget(): Promise<void> {
+  try {
+    await InAppBrowser.close({ id: TRANSAK_INSTANCE_ID });
+  } catch (error) {
+    console.warn('[transak]', 'cannot close the widget', error);
   }
 }
 

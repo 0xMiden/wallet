@@ -8,14 +8,16 @@ import {
   CHECKOUT_TIMEOUT_MS,
   MAX_RELAY_ATTEMPTS,
   RECEIPT_WARNING_MS,
+  SELL_EXPIRY_MARGIN_SECONDS,
   SIGNATURE_TIMEOUT_MS,
   UNDERDELIVERY_GRACE_MS,
   type OrderDeps
 } from './advance.js';
-import type { OrderState } from './states.js';
+import { SELL_PAYOUT_SYNC_MS, type OrderState } from './states.js';
 import { OrderConflictError, type Order, type OrderStore } from './store.js';
 import { createWorker } from './worker.js';
 import { CALIBUR_ABI } from '../chain-testnet/calibur.js';
+import { ERC20_ABI } from '../chain-testnet/erc20.js';
 import { batchNonceOf } from '../chain-testnet/preparation.js';
 import {
   CALIBUR_SALT,
@@ -61,6 +63,7 @@ beforeEach(() => {
     now: () => now,
     receiptWarnings: new Set(),
     loggedCryptoAmounts: new Map(),
+    fundsWaits: new Set(),
     // An interval of 0 calls Transak on each step. The slow-poll tests set a longer interval.
     transakPoll: { intervalMs: 0, lastCallAt: new Map(), dirty: new Set() }
   };
@@ -121,6 +124,9 @@ function checkout(evmAddress: `0x${string}` = BUYER): string {
   return id;
 }
 
+/** The relay amount of the test sell: the full 100 tokens of the Transak order, in TRNSK base units. */
+const SELL_AMOUNT = 100n * ONE;
+
 /** A sell of 100 USDCx at checkout. */
 function sellCheckout(evmAddress: `0x${string}` = BUYER): string {
   const id = newId();
@@ -133,11 +139,11 @@ function sellRaw(expiresInSeconds = 3600): object {
   return {
     cryptoPaymentData: { paymentAddress: DEPOSIT },
     autoExpiresAt: new Date(now + expiresInSeconds * 1000).toISOString(),
-    tokenContractAddress: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
+    tokenContractAddress: '0x0c86a754a29714c4fe9c6f1359fa7099ed174c0b'
   };
 }
 
-/** A sell that signed its transfer: 100 USDCx shown, 1 USDC relayed (the test divisor). */
+/** A sell that signed its transfer of the full 100 tokens. The balance is 0: the bridged funds are not there yet. */
 async function signedSell(): Promise<string> {
   const id = sellCheckout();
   transak.set(id, 'AWAITING_PAYMENT_FROM_USER', 100, sellRaw());
@@ -263,8 +269,8 @@ describe('sell', () => {
     assert.equal(order.depositAddress, DEPOSIT);
     assert.equal(order.depositAmount, 100);
     assert.equal(order.autoExpiresAt, Math.floor(now / 1000) + 3600);
-    // 100 USDC shown, divided by the test divisor, in 6 decimals.
-    assert.equal(order.tokenAmount, '1000000');
+    // The full 100 tokens, in the 18 decimals of TRNSK.
+    assert.equal(order.tokenAmount, SELL_AMOUNT.toString());
     assert.equal(entries('sell_order_fields').length, 1);
   });
 
@@ -282,7 +288,7 @@ describe('sell', () => {
     assertState(await step(id), 'expired');
 
     const signed = await signedSell();
-    chain.account.balance = 1_000_000n;
+    chain.account.balance = SELL_AMOUNT;
     now += 3600 * 1000 - 60 * 1000;
     transak.set(signed, 'AWAITING_PAYMENT_FROM_USER', 100, sellRaw(60));
     deps.transakPoll.dirty.add(signed);
@@ -292,27 +298,166 @@ describe('sell', () => {
     assert.equal(chain.sent.length, 0);
   });
 
-  it('relays the transfer while Transak awaits the payment and the balance covers it', async () => {
+  it('stays signed with no relay and no error while the bridged funds are below the amount', async () => {
+    const id = await signedSell();
+    // The wallet signed before the bridge-out released the token: the balance is 0, then one base unit short.
+    for (const balance of [0n, SELL_AMOUNT / 2n, SELL_AMOUNT - 1n]) {
+      chain.account.balance = balance;
+      now += 10 * 60 * 1000;
+      const order = await step(id);
+      assertState(order, 'signed');
+      assert.equal(order.error, null);
+      assert.equal(order.signature, SIGNATURE);
+    }
+    assert.equal(chain.prepared.size, 0);
+    assert.equal(chain.broadcasts.length, 0);
+    assert.equal(store.relays.get(id), null);
+    // One line for the wait, not one for each tick.
+    assert.equal(entries('sell_funds_waiting').length, 1);
+    assert.equal(entries('sell_funds_arrived').length, 0);
+  });
+
+  it('relays the full amount when the balance reaches it, and logs the arrival once', async () => {
     const id = await signedSell();
     assertState(await step(id), 'signed');
     assert.equal(chain.sent.length, 0);
-    chain.account.balance = 1_000_000n;
+    chain.account.balance = SELL_AMOUNT;
     const order = await step(id);
     assertState(order, 'relay_sent');
+    assert.equal(entries('sell_funds_waiting').length, 1);
+    assert.equal(entries('sell_funds_arrived').length, 1);
     const sent = chain.sent[0];
     assert.ok(sent);
     assert.equal(sent.to, BUYER);
     const decoded = decodeFunctionData({ abi: CALIBUR_ABI, data: sent.data });
     assert.equal(decoded.functionName, 'execute');
+    // The batch is one transfer of the full order amount to the deposit address of Transak.
+    const [signedBatch] = decoded.args;
+    const [call] = signedBatch.batchedCall.calls;
+    assert.ok(call);
+    assert.equal(call.to.toLowerCase(), '0x0c86a754a29714c4fe9c6f1359fa7099ed174c0b');
+    assert.deepEqual(decodeFunctionData({ abi: ERC20_ABI, data: call.data }).args, [DEPOSIT, SELL_AMOUNT]);
     assert.equal(entries('relay_sent')[0]?.side, 'sell');
 
     chain.receipts.set(relayOf(id).txHash, 'success');
     assertState(await step(id), 'deposited');
   });
 
+  it('relays at once, with no funds log, when the balance is there at the signature', async () => {
+    const id = await signedSell();
+    chain.account.balance = SELL_AMOUNT + 1n;
+    assertState(await step(id), 'relay_sent');
+    assert.equal(entries('sell_funds_waiting').length, 0);
+    assert.equal(entries('sell_funds_arrived').length, 0);
+  });
+
+  it('expires a sell that waits for its funds when the Transak expiry is near', async () => {
+    const id = await signedSell();
+    assertState(await step(id), 'signed');
+    // The funds did not come. 2 min before the Transak expiry the order expires and the signature is removed.
+    now += (3600 - SELL_EXPIRY_MARGIN_SECONDS) * 1000;
+    assertState(await step(id), 'signed');
+    now += 1000;
+    const order = await step(id);
+    assertState(order, 'expired');
+    assert.equal(order.signature, null);
+    assert.equal(chain.broadcasts.length, 0);
+  });
+
+  it('fails a sell that waits for its funds when Transak ends the order', async () => {
+    const id = await signedSell();
+    assertState(await step(id), 'signed');
+    transak.set(id, 'EXPIRED', 100, sellRaw());
+    const order = await step(id);
+    assertState(order, 'failed');
+    assert.equal(order.error, 'Transak order EXPIRED');
+    assert.equal(chain.broadcasts.length, 0);
+  });
+
+  it('keeps the Transak status of a deposited sell fresh until it is final, and keeps the state', async () => {
+    const id = await signedSell();
+    chain.account.balance = SELL_AMOUNT;
+    assertState(await step(id), 'relay_sent');
+    chain.receipts.set(relayOf(id).txHash, 'success');
+    assertState(await step(id), 'deposited');
+    assert.equal(
+      store.listForWorker().some(active => active.id === id),
+      true
+    );
+
+    transak.set(id, 'PENDING_DELIVERY_FROM_TRANSAK', 100, sellRaw());
+    let order = await step(id);
+    assertState(order, 'deposited');
+    assert.equal(order.transakStatus, 'PENDING_DELIVERY_FROM_TRANSAK');
+
+    transak.set(id, 'COMPLETED', 100, sellRaw());
+    order = await step(id);
+    assertState(order, 'deposited');
+    assert.equal(order.transakStatus, 'COMPLETED');
+    assert.equal(order.error, null);
+
+    // COMPLETED is final: the worker drops the order and calls Transak no more.
+    assert.equal(
+      store.listForWorker().some(active => active.id === id),
+      false
+    );
+    const calls = transak.calls.length;
+    assertState(await step(id), 'deposited');
+    assert.equal(transak.calls.length, calls);
+  });
+
+  it('reads the status of a deposited sell at once after the deposit, then with the slow poll', async () => {
+    deps.transakPoll.intervalMs = 60_000;
+    const id = await signedSell();
+    chain.account.balance = SELL_AMOUNT;
+    assertState(await step(id), 'relay_sent');
+    chain.receipts.set(relayOf(id).txHash, 'success');
+    transak.set(id, 'PROCESSING', 100, sellRaw());
+    const before = transak.calls.length;
+    assertState(await step(id), 'deposited');
+    // The receipt step marks the sell dirty, so the next step calls Transak inside the interval.
+    assert.equal((await step(id)).transakStatus, 'PROCESSING');
+    assert.equal(transak.calls.length, before + 1);
+    transak.set(id, 'PENDING_DELIVERY_FROM_TRANSAK', 100, sellRaw());
+    assert.equal((await step(id)).transakStatus, 'PROCESSING');
+    now += 60_000;
+    assert.equal((await step(id)).transakStatus, 'PENDING_DELIVERY_FROM_TRANSAK');
+    assert.equal(transak.calls.length, before + 2);
+  });
+
+  it('keeps a refund of a deposited sell as the status only, and stops the read after 7 days', async () => {
+    const id = await signedSell();
+    chain.account.balance = SELL_AMOUNT;
+    await step(id);
+    chain.receipts.set(relayOf(id).txHash, 'success');
+    assertState(await step(id), 'deposited');
+    now += SELL_PAYOUT_SYNC_MS - 1;
+    assert.equal(
+      store.listForWorker().some(active => active.id === id),
+      true
+    );
+    now += 1;
+    assert.equal(
+      store.listForWorker().some(active => active.id === id),
+      false
+    );
+    const calls = transak.calls.length;
+    await step(id);
+    assert.equal(transak.calls.length, calls);
+
+    const other = await signedSell();
+    await step(other);
+    chain.receipts.set(relayOf(other).txHash, 'success');
+    await step(other);
+    transak.set(other, 'REFUNDED', 100, sellRaw());
+    const order = await step(other);
+    assertState(order, 'deposited');
+    assert.equal(order.transakStatus, 'REFUNDED');
+  });
+
   it('does not relay once Transak moved the order on', async () => {
     const id = await signedSell();
-    chain.account.balance = 1_000_000n;
+    chain.account.balance = SELL_AMOUNT;
     transak.set(id, 'PENDING_DELIVERY_FROM_TRANSAK', 100, sellRaw());
     deps.transakPoll.dirty.add(id);
     assertState(await step(id), 'signed');
@@ -725,6 +870,36 @@ describe('worker', () => {
     }
     assert.deepEqual(feed.retained[0], [open]);
     assert.equal(feed.retained[0]?.includes(inFlight), false);
+  });
+
+  it('watches the feed of a deposited sell and reads Transak on its events, until the status is final', async () => {
+    const id = await signedSell();
+    chain.account.balance = SELL_AMOUNT;
+    await step(id);
+    chain.receipts.set(relayOf(id).txHash, 'success');
+    assertState(await step(id), 'deposited');
+    const feed = new FakeFeed();
+    const worker = createWorker(workerOptions(feed));
+    try {
+      await worker.tick();
+      assert.deepEqual(feed.retained[0], [id]);
+      // A feed event in the slow-poll interval makes the worker read Transak at once.
+      transak.set(id, 'PENDING_DELIVERY_FROM_TRANSAK', 100, sellRaw());
+      await worker.trigger(id);
+      assert.equal(current(id).transakStatus, 'PENDING_DELIVERY_FROM_TRANSAK');
+      transak.set(id, 'COMPLETED', 100, sellRaw());
+      await worker.trigger(id);
+      assert.equal(current(id).transakStatus, 'COMPLETED');
+      assertState(current(id), 'deposited');
+      // The status is final: the next tick drops the channel, and an event calls Transak no more.
+      await worker.tick();
+      assert.deepEqual(feed.retained[1], []);
+      const calls = transak.calls.length;
+      await worker.trigger(id);
+      assert.equal(transak.calls.length, calls);
+    } finally {
+      await worker.stop();
+    }
   });
 
   it('logs the TransakError detail in worker_error', async () => {

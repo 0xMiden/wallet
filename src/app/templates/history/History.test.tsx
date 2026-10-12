@@ -129,6 +129,7 @@ jest.mock('lib/miden/db/types', () => ({
   ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3, Unconfirmed: 4 },
   STRUCTURAL_GUARDIAN_TYPES: jest.requireActual('lib/miden/db/types').STRUCTURAL_GUARDIAN_TYPES,
   BUY_PHASES: jest.requireActual('lib/miden/db/types').BUY_PHASES,
+  SELL_PHASES: jest.requireActual('lib/miden/db/types').SELL_PHASES,
   formatTransactionStatus: (...args: unknown[]) => mockFormatTransactionStatus(...args)
 }));
 
@@ -149,6 +150,8 @@ jest.mock('./transactionUtils', () => ({
   swapSettlementOf: jest.requireActual('./transactionUtils').swapSettlementOf,
   // Real: the buy mapping is what the buy tests below assert.
   buyHistoryFieldsOf: jest.requireActual('./transactionUtils').buyHistoryFieldsOf,
+  // Real: the sell mapping is what the sell test below asserts.
+  sellHistoryFieldsOf: jest.requireActual('./transactionUtils').sellHistoryFieldsOf,
   // The real naming, so a label assertion runs the rule the list renders with.
   labelHistoryEntry: jest.requireActual('./transactionUtils').labelHistoryEntry,
   resolveConsumeExtraAmounts: (...args: unknown[]) => mockResolveConsumeExtraAmounts(...args)
@@ -1752,6 +1755,39 @@ describe('History earn entries', () => {
     const early = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-B2');
     expect(early.buyPhase).toBe('payment');
     expect(early.buyTokenAmount).toBeUndefined();
+  });
+
+  it('maps a sell row: phase, amount and the symbol of the token that is sold', async () => {
+    withRows([
+      {
+        id: 'S',
+        type: 'sell',
+        status: 2,
+        initiatedAt: 4000,
+        completedAt: 5000,
+        extraInputs: {
+          orderId: 'order-9',
+          provider: 'transak',
+          cryptoAmount: '100',
+          tokenSymbol: 'TRNSK',
+          depositAddress: '0x5A3a5f32490d24Cc420d8A5F9c64F9ccd38F06bB',
+          bridgeTxId: 'bridge-1',
+          phase: 'on-ethereum',
+          phaseTimestamps: { submitting: 1, bridging: 2, 'on-ethereum': 3 }
+        },
+        displayMessage: 'Selling',
+        displayIcon: 'SEND'
+      }
+    ]);
+
+    await renderHistory();
+
+    const entry = mockHistoryViewProps.entries.find((e: { key: string }) => e.key === 'completed-S');
+    expect(entry.txType).toBe('sell');
+    expect(entry.sellPhase).toBe('on-ethereum');
+    expect(entry.sellAmount).toBe('100');
+    expect(entry.sellTokenSymbol).toBe('TRNSK');
+    expect(entry.buyPhase).toBeUndefined();
   });
 
   it('leaves the buy fields unset on a row that is not a buy', async () => {

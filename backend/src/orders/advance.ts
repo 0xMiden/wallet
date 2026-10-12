@@ -1,7 +1,7 @@
+import { isPayoutSync } from './states.js';
 import type { Order, OrderPatch, OrderStore } from './store.js';
 import { syncTransak, toBaseUnits, transakPhase, type TransakPollState } from './transak-sync.js';
 import { encodeExecution, nonceKeyOf } from '../chain-testnet/calibur.js';
-import { SELL_RELAY_AMOUNT_DIVISOR } from '../chain-testnet/offramp.js';
 import { batchInputOf, batchNonceOf } from '../chain-testnet/preparation.js';
 import type { Chain } from '../chain-testnet/sepolia.js';
 import { authorizationSchema, toSignedAuthorization } from '../chain-testnet/signature.js';
@@ -37,6 +37,8 @@ export interface OrderDeps {
   receiptWarnings: Set<string>;
   /** The last Transak `cryptoAmount` that the log shows for each order. The worker keeps this map. */
   loggedCryptoAmounts: Map<string, number | null>;
+  /** The signed sells that already got the `sell_funds_waiting` log line. The worker keeps this set. */
+  fundsWaits: Set<string>;
   /** The slow poll of the Transak API. The worker keeps this state. */
   transakPoll: TransakPollState;
 }
@@ -87,9 +89,28 @@ async function handleUnderdelivery(order: Order, deps: OrderDeps, balance: bigin
   }
 }
 
-/** The base units the relay of a sell transfers for the crypto amount Transak asks for. */
+/** The base units the relay of a sell transfers: the full crypto amount Transak asks for. */
 export function sellRelayTokenAmount(depositAmount: number): bigint {
-  return toBaseUnits(depositAmount, tokenOf('sell').decimals) / SELL_RELAY_AMOUNT_DIVISOR;
+  return toBaseUnits(depositAmount, tokenOf('sell').decimals);
+}
+
+/**
+ * The funds gate of a signed sell. The wallet signs before the bridge-out releases the token on Sepolia, so the
+ * balance can stay below the amount for about 30 minutes. Return true when the balance covers the amount.
+ * The log shows the start of the wait and the arrival of the funds, one line each.
+ */
+function sellFundsPresent(order: Order, tokenAmount: bigint, balance: bigint, deps: OrderDeps): boolean {
+  if (balance < tokenAmount) {
+    if (!deps.fundsWaits.has(order.id)) {
+      deps.fundsWaits.add(order.id);
+      logEvent('info', 'sell_funds_waiting', { orderId: order.id, tokenAmount, balance });
+    }
+    return false;
+  }
+  if (deps.fundsWaits.delete(order.id)) {
+    logEvent('info', 'sell_funds_arrived', { orderId: order.id, tokenAmount, balance });
+  }
+  return true;
 }
 
 /** True when Transak expires the sell order in less than the margin, so a relay could land too late. */
@@ -161,8 +182,7 @@ function advanceSellCheckout(synced: Order, status: string, deps: OrderDeps): vo
     transakStatus: status,
     cryptoAmount: synced.depositAmount,
     tokenAmount,
-    tokenDecimals: tokenOf('sell').decimals,
-    divisor: SELL_RELAY_AMOUNT_DIVISOR
+    tokenDecimals: tokenOf('sell').decimals
   });
   deps.store.transition(
     synced.id,
@@ -242,9 +262,10 @@ function staleReason(
 }
 
 /**
- * The gate of a signed order: true when the relay may go now. A buy relays once Transak settled the delivery. A
- * sell relays while Transak still accepts the deposit, and not within the expiry margin. On false the order waits
- * or has moved on.
+ * The Transak gate of a signed order: true when Transak permits the relay now. A buy relays once Transak settled
+ * the delivery. A sell relays while Transak still accepts the deposit, and not within the expiry margin. On false
+ * the order waits or has moved on. The balance check comes after this gate, so a sell that waits for its bridged
+ * funds still expires when the Transak expiry is near.
  */
 async function relayGateOpen(synced: Order, status: string | null, deps: OrderDeps): Promise<boolean> {
   switch (synced.side) {
@@ -285,9 +306,18 @@ async function advanceSigned(order: Order, deps: OrderDeps): Promise<void> {
   }
   const token = tokenOf(synced.side);
   const balance = await deps.chain.readBalance(synced.evmAddress, token.address);
-  if (balance < BigInt(synced.tokenAmount)) {
-    if (synced.side === 'buy') await handleUnderdelivery(synced, deps, balance);
-    return;
+  const tokenAmount = BigInt(synced.tokenAmount);
+  switch (synced.side) {
+    case 'buy':
+      if (balance < tokenAmount) {
+        await handleUnderdelivery(synced, deps, balance);
+        return;
+      }
+      break;
+    case 'sell':
+      // No relay attempt and no failure while the bridged token is not on the address. The order stays `signed`.
+      if (!sellFundsPresent(synced, tokenAmount, balance, deps)) return;
+      break;
   }
 
   const fresh = await deps.chain.readAccount(synced.evmAddress, token.address, nonceKeyOf(synced.side));
@@ -368,6 +398,8 @@ async function advanceRelaySent(order: Order, deps: OrderDeps): Promise<void> {
         signature: null,
         authorization: null
       });
+      // A sell: read Transak on the next step, with no wait for the slow poll. Transak sees the deposit soon.
+      if (order.side === 'sell') deps.transakPoll.dirty.add(order.id);
       return;
     case 'reverted':
       if (relay.attempts >= MAX_RELAY_ATTEMPTS) {
@@ -396,6 +428,17 @@ async function advanceRelaySent(order: Order, deps: OrderDeps): Promise<void> {
   }
 }
 
+/**
+ * A `deposited` order does not change its state. For a sell, the worker keeps the Transak status on the row fresh
+ * until Transak reaches a final status, with the feed and the slow poll: the wallet shows the payout from it.
+ */
+async function advanceDeposited(order: Order, deps: OrderDeps): Promise<void> {
+  if (!isPayoutSync(order, deps.now())) {
+    return;
+  }
+  await syncTransak(order, deps);
+}
+
 /** Advance one order by one step. The worker calls this in sequence for each order in a tick. */
 export async function advanceOrder(order: Order, deps: OrderDeps): Promise<void> {
   switch (order.state) {
@@ -408,6 +451,7 @@ export async function advanceOrder(order: Order, deps: OrderDeps): Promise<void>
     case 'relay_sent':
       return advanceRelaySent(order, deps);
     case 'deposited':
+      return advanceDeposited(order, deps);
     case 'failed':
     case 'expired':
     case 'cancelled':

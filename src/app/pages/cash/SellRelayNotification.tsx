@@ -8,55 +8,40 @@ import { FlowSpinner } from 'components/flow/FlowSpinner';
 import { Button, ButtonVariant } from 'components/ui/Button';
 import { Card } from 'components/ui/Card';
 import { CopyButton } from 'components/ui/CopyButton';
-import { CopyChip } from 'components/ui/CopyChip';
 import { IconCircle } from 'components/ui/FactRow';
 import { Notice } from 'components/ui/Notice';
+import type { SellEndedState } from 'lib/miden/activity/sell-order';
+import type { SellTokenBlock } from 'lib/onramp/sell-token';
 import { cn } from 'lib/ui/util';
+import { formatDeadline } from 'screens/sell-status/sell-status-helpers';
 import { truncateHash } from 'utils/string';
 
-import {
-  EndedState,
-  SellBackendCheck,
-  sellRelayTestAmount,
-  SellRelay,
-  SellRelayError,
-  SellStep,
-  SellStepId
-} from './useSellRelay';
+import { SellBackendCheck, SellRelay, SellRelayError, SellTokenCheck } from './useSellRelay';
 
 /** A sale sends value out of the wallet, so the notification uses the send colour. */
-const SELL_ACCENT: FlowAccent = accentForTransactionType('send');
+const SELL_ACCENT: FlowAccent = accentForTransactionType('sell');
 
 /** The spinner size in px: the glyph size of an `IconCircle`. */
 const SPINNER_SIZE = 16;
 
-type NotificationTone = 'send' | 'positive' | 'negative';
+/**
+ * The time the sale needs before the relay, in ms: about 30 minutes of bridge-out, and the 2 minutes before
+ * Transak's expiry at which the backend stops the order. With less time left, the card warns the user.
+ */
+export const SELL_TIME_NEEDED_MS = 32 * 60_000;
+
+type NotificationTone = 'send' | 'negative';
 
 const circleClassName = (tone: NotificationTone): string => {
   switch (tone) {
     case 'send':
       return 'bg-accent-send-tint text-accent-send-ink';
-    case 'positive':
-      return 'bg-positive-tint text-positive-tint-ink';
     case 'negative':
       return 'bg-negative-tint text-negative-tint-ink';
   }
 };
 
-const stepLabelKey = (id: SellStepId): string => {
-  switch (id) {
-    case 'bridge':
-      return 'cashSellStepBridge';
-    case 'prepare':
-      return 'cashSellStepPrepare';
-    case 'relay':
-      return 'cashSellStepRelay';
-    case 'paid':
-      return 'cashSellStepPaid';
-  }
-};
-
-const orderEndedKey = (state: EndedState): string => {
+const orderEndedKey = (state: SellEndedState): string => {
   switch (state) {
     case 'failed':
       return 'cashSellOrderFailed';
@@ -67,7 +52,32 @@ const orderEndedKey = (state: EndedState): string => {
   }
 };
 
-const backendCheckView = (check: SellBackendCheck): { key: string; className: string; role: 'status' | 'alert' } => {
+const tokenBlockKey = (reason: SellTokenBlock): string => {
+  switch (reason) {
+    case 'no-token':
+      return 'cashSellBlockedNoToken';
+    case 'ambiguous-token':
+      return 'cashSellBlockedAmbiguous';
+    case 'unknown-scale':
+      return 'cashSellBlockedUnknownScale';
+    case 'not-registered':
+      return 'cashSellBlockedNotRegistered';
+    case 'amount':
+      return 'cashSellBlockedAmount';
+    case 'insufficient-balance':
+      return 'cashSellBlockedBalance';
+    case 'unavailable':
+      return 'cashSellBlockedUnavailable';
+  }
+};
+
+interface CheckView {
+  key: string;
+  className: string;
+  role: 'status' | 'alert';
+}
+
+const backendCheckView = (check: SellBackendCheck): CheckView => {
   switch (check) {
     case 'pending':
       return { key: 'cashSellBackendChecking', className: 'text-muted', role: 'status' };
@@ -78,13 +88,20 @@ const backendCheckView = (check: SellBackendCheck): { key: string; className: st
   }
 };
 
-/** The steps as `id:state` pairs, for the tests. */
-const stepsAttribute = (steps: SellStep[]): string => steps.map(step => `${step.id}:${step.state}`).join(',');
+const tokenCheckView = (check: SellTokenCheck): CheckView => {
+  switch (check.kind) {
+    case 'pending':
+      return { key: 'cashSellTokenChecking', className: 'text-muted', role: 'status' };
+    case 'ready':
+      return { key: 'cashSellTokenReady', className: 'text-muted', role: 'status' };
+    case 'blocked':
+      return { key: tokenBlockKey(check.reason), className: 'text-negative-ink', role: 'alert' };
+  }
+};
 
 interface ShellProps {
   tone: NotificationTone;
   phase: string;
-  steps: SellStep[];
   role: 'status' | 'alert';
   /** The glyph in the leading circle. */
   glyph: React.ReactNode;
@@ -99,26 +116,9 @@ interface ShellProps {
 }
 
 /** The one layout of the notification: the circle, the title over its lines, a trailing action and a footer. */
-const Shell: React.FC<ShellProps> = ({
-  tone,
-  phase,
-  steps,
-  role,
-  glyph,
-  title,
-  children,
-  trailing,
-  footer,
-  testId
-}) => (
+const Shell: React.FC<ShellProps> = ({ tone, phase, role, glyph, title, children, trailing, footer, testId }) => (
   <Card surface="outline" padding="tile" className="flex flex-col gap-3.5">
-    <div
-      role={role}
-      className="flex items-center gap-3"
-      data-testid="cash-sell-notification"
-      data-phase={phase}
-      data-steps={stepsAttribute(steps)}
-    >
+    <div role={role} className="flex items-center gap-3" data-testid="cash-sell-notification" data-phase={phase}>
       <IconCircle size="lg" className={circleClassName(tone)}>
         {glyph}
       </IconCircle>
@@ -134,17 +134,16 @@ const Shell: React.FC<ShellProps> = ({
 
 interface SellRelayNotificationProps {
   relay: SellRelay;
-  /** The Sepolia address of the account: the temporary test aid shows it. */
-  evmAddress: string | undefined;
 }
 
 /**
- * The card that reports a Transak sale on the provider page: the approval of the deposit the widget named, then the
- * progress of the relay and its result. The page under it stays in place.
+ * The card that starts a Transak sale on the provider page: the approval of the deposit that the widget named, then
+ * the short start (signature and bridge-out). After the start the status page shows the progress. The page under
+ * the card stays in place.
  */
-export const SellRelayNotification: React.FC<SellRelayNotificationProps> = ({ relay, evmAddress }) => {
+export const SellRelayNotification: React.FC<SellRelayNotificationProps> = ({ relay }) => {
   const { t } = useTranslation();
-  const { phase, pageDeposit, backendCheck, steps, error, result } = relay;
+  const { phase, pageDeposit, backendCheck, tokenCheck, tokenSymbol, expiresAt, error } = relay;
 
   const errorText = (cause: SellRelayError): string => {
     switch (cause.kind) {
@@ -154,23 +153,29 @@ export const SellRelayNotification: React.FC<SellRelayNotificationProps> = ({ re
         return t(orderEndedKey(cause.state));
       case 'timeout':
         return t('cashSellTimeout');
+      case 'bridge':
+        return t('cashSellBridgeNotStarted');
       case 'unexpected':
         return t('cashSellUnexpected');
     }
   };
 
-  const dismissButton = (labelKey: string, onClick: () => void, testId: string) => (
-    <Button variant={ButtonVariant.Secondary} size="sm" onClick={onClick} data-testid={testId}>
-      {t(labelKey)}
-    </Button>
-  );
+  const errorDetail = (cause: SellRelayError): string | null => {
+    switch (cause.kind) {
+      case 'order':
+        return cause.message;
+      case 'bridge':
+        return cause.message;
+      default:
+        return null;
+    }
+  };
 
   if (phase === 'unreadable' || pageDeposit === null) {
     return (
       <Shell
         tone="negative"
         phase={phase}
-        steps={steps}
         role="alert"
         glyph={<Icon name={IconName.Warning} size="xs" fill="currentColor" />}
         title={t('cashSellUnreadableTitle')}
@@ -195,17 +200,60 @@ export const SellRelayNotification: React.FC<SellRelayNotificationProps> = ({ re
   const amount = pageDeposit.amount;
 
   switch (phase) {
-    case 'confirm': {
-      const check = backendCheckView(backendCheck);
-      const testAmount = sellRelayTestAmount(amount);
+    case 'failed': {
+      const detail = error === null ? null : errorDetail(error);
+      return (
+        <Shell
+          tone="negative"
+          phase={phase}
+          role="alert"
+          glyph={<Icon name={IconName.Warning} size="xs" fill="currentColor" />}
+          title={t('cashSellFailedTitle')}
+          trailing={
+            <Button variant={ButtonVariant.Secondary} size="sm" onClick={relay.dismiss} data-testid="cash-sell-done">
+              {t('promptCardDismiss')}
+            </Button>
+          }
+        >
+          {error && (
+            <span className="select-text text-caption text-muted" data-testid="cash-sell-error">
+              {errorText(error)}
+            </span>
+          )}
+          {detail && (
+            <span className="select-text text-caption text-muted" data-testid="cash-sell-error-detail">
+              {detail}
+            </span>
+          )}
+        </Shell>
+      );
+    }
+    case 'starting':
       return (
         <Shell
           tone="send"
           phase={phase}
-          steps={steps}
+          role="status"
+          glyph={<FlowSpinner accent={SELL_ACCENT} size={SPINNER_SIZE} />}
+          title={t('cashSellStartingTitle', { amount, symbol: tokenSymbol })}
+        >
+          <span className="text-caption text-muted" data-testid="cash-sell-step">
+            {t('cashSellStarting')}
+          </span>
+        </Shell>
+      );
+    default: {
+      const backend = backendCheckView(backendCheck);
+      const token = tokenCheckView(tokenCheck);
+      const deadlineMs = expiresAt === null ? null : expiresAt * 1000;
+      const shortOfTime = deadlineMs !== null && deadlineMs - Date.now() < SELL_TIME_NEEDED_MS;
+      return (
+        <Shell
+          tone="send"
+          phase={phase}
           role="status"
           glyph={<Icon name={IconName.ArrowUp} size="xs" fill="currentColor" />}
-          title={t('cashSellSendTitle', { amount })}
+          title={t('cashSellSendTitle', { amount, symbol: tokenSymbol })}
           trailing={
             <CopyButton
               text={pageDeposit.address}
@@ -217,18 +265,12 @@ export const SellRelayNotification: React.FC<SellRelayNotificationProps> = ({ re
           }
           footer={
             <>
-              {/* TEMPORARY test aid: the testnet relay sends Sepolia USDC from the account's own EVM address, so the
-                  tester must fund it first. Remove it with the real bridge-out. */}
-              {evmAddress && (
-                <Notice tone="warning" title={t('cashSellTestFundingTitle')} data-testid="cash-sell-test-funding">
-                  <span className="flex flex-col gap-2">
-                    <span>{t('cashSellTestFunding', { amount: testAmount ?? amount })}</span>
-                    <span className="select-text break-all text-ink">{evmAddress}</span>
-                    <CopyButton text={evmAddress} icon="leading" className="self-start" />
-                  </span>
+              {shortOfTime && (
+                <Notice tone="warning" role="status" data-testid="cash-sell-short-of-time">
+                  {t('cashSellShortOfTime')}
                 </Notice>
               )}
-              <div className="flex gap-2">
+              <div className="flex gap-2.5">
                 <Button
                   variant={ButtonVariant.Secondary}
                   size="sm"
@@ -242,7 +284,7 @@ export const SellRelayNotification: React.FC<SellRelayNotificationProps> = ({ re
                   size="sm"
                   className="flex-1"
                   accent={SELL_ACCENT}
-                  disabled={backendCheck !== 'verified'}
+                  disabled={!relay.canConfirm}
                   onClick={relay.confirm}
                   data-testid="cash-sell-confirm"
                 >
@@ -260,84 +302,24 @@ export const SellRelayNotification: React.FC<SellRelayNotificationProps> = ({ re
             {t('cashSellToAddress', { address: truncateHash(pageDeposit.address) })}
           </span>
           <span
-            role={check.role}
-            className={cn('text-caption', check.className)}
+            role={backend.role}
+            className={cn('text-caption', backend.className)}
             data-state={backendCheck}
             data-testid="cash-sell-backend-check"
           >
-            {t(check.key)}
+            {t(backend.key)}
           </span>
-        </Shell>
-      );
-    }
-    case 'success':
-      return (
-        <Shell
-          tone="positive"
-          phase={phase}
-          steps={steps}
-          role="status"
-          glyph={<Icon name={IconName.Checkmark} size="xs" fill="currentColor" />}
-          title={t('cashSellSuccessTitle')}
-          trailing={dismissButton('done', relay.dismiss, 'cash-sell-done')}
-          footer={
-            result && !result.paidClicked ? (
-              <Notice tone="warning" role="status" data-testid="cash-sell-tap-paid">
-                {t('cashSellTapPaid')}
-              </Notice>
-            ) : undefined
-          }
-        >
-          <span className="text-caption text-muted">{t('cashSellSoldAmount', { amount })}</span>
-          {result?.relayTxHash && (
-            <CopyChip text={result.relayTxHash} className="min-w-0 self-start" data-testid="cash-sell-relay-hash">
-              {truncateHash(result.relayTxHash)}
-            </CopyChip>
-          )}
-        </Shell>
-      );
-    case 'failed':
-      return (
-        <Shell
-          tone="negative"
-          phase={phase}
-          steps={steps}
-          role="alert"
-          glyph={<Icon name={IconName.Warning} size="xs" fill="currentColor" />}
-          title={t('cashSellFailedTitle')}
-          trailing={dismissButton('promptCardDismiss', relay.dismiss, 'cash-sell-done')}
-        >
-          {error && (
-            <span className="select-text text-caption text-muted" data-testid="cash-sell-error">
-              {errorText(error)}
-            </span>
-          )}
-          {error?.kind === 'order' && error.message && (
-            <span className="select-text text-caption text-muted" data-testid="cash-sell-error-detail">
-              {error.message}
-            </span>
-          )}
-        </Shell>
-      );
-    default: {
-      const activeIndex = steps.findIndex(step => step.state === 'active');
-      const active = steps[activeIndex];
-      return (
-        <Shell
-          tone="send"
-          phase={phase}
-          steps={steps}
-          role="status"
-          glyph={<FlowSpinner accent={SELL_ACCENT} size={SPINNER_SIZE} />}
-          title={t('cashSellSendingTitle', { amount })}
-        >
-          {active && (
-            <span className="text-caption text-muted" data-testid="cash-sell-step">
-              {t('cashSellStepProgress', {
-                step: t(stepLabelKey(active.id)),
-                current: activeIndex + 1,
-                total: steps.length
-              })}
+          <span
+            role={token.role}
+            className={cn('text-caption', token.className)}
+            data-state={tokenCheck.kind}
+            data-testid="cash-sell-token-check"
+          >
+            {t(token.key, { symbol: tokenSymbol })}
+          </span>
+          {deadlineMs !== null && (
+            <span className="text-caption text-muted" data-testid="cash-sell-deadline">
+              {t('cashSellDeadline', { time: formatDeadline(deadlineMs) })}
             </span>
           )}
         </Shell>

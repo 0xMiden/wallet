@@ -42,6 +42,18 @@ jest.mock('./transactionUtils', () => ({
         return 'pending';
     }
   },
+  // Faithful to the real sell helpers: the phase drives the state of a sell row.
+  isSellEntry: (entry: { txType?: string }) => entry.txType === 'sell',
+  sellStatusOf: (entry: { sellPhase?: string }) => {
+    switch (entry.sellPhase) {
+      case 'completed':
+        return 'confirmed';
+      case 'failed':
+        return 'failed';
+      default:
+        return 'pending';
+    }
+  },
   TRANSACTION_COLORS: { send: '#7697B2', receive: '#839A7D', faucet: '#BA839F', bridge: '#777487' }
 }));
 
@@ -91,6 +103,22 @@ describe('TransactionIcon', () => {
 
     it('renders the failed cross and the red accent for a failed order', () => {
       const entry = makeEntry({ txType: 'buy', buyPhase: 'failed' });
+      const { container } = render(<TransactionIcon entry={entry} />);
+      expect(root(container)).toHaveClass('bg-status-negative');
+      expect(getTransactionIconBackgroundColor(entry)).toBe('#CC5D5D');
+    });
+  });
+
+  describe('sell transaction branch', () => {
+    it('renders the Cash glyph on the sent blue while the sale is in progress', () => {
+      const { getByTestId } = render(<TransactionIcon entry={makeEntry({ txType: 'sell', sellPhase: 'bridging' })} />);
+      expect(getByTestId('sell-transaction-icon')).toHaveStyle({ backgroundColor: '#7697B2' });
+      expect(getByTestId('v2-icon')).toHaveAttribute('data-name', 'cash');
+      expect(getTransactionIconBackgroundColor(makeEntry({ txType: 'sell', sellPhase: 'completed' }))).toBe('#7697B2');
+    });
+
+    it('renders the failed cross and the red accent for a failed sale', () => {
+      const entry = makeEntry({ txType: 'sell', sellPhase: 'failed' });
       const { container } = render(<TransactionIcon entry={entry} />);
       expect(root(container)).toHaveClass('bg-status-negative');
       expect(getTransactionIconBackgroundColor(entry)).toBe('#CC5D5D');
