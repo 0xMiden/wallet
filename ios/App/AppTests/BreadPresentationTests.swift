@@ -89,7 +89,11 @@ final class BreadPresentationTests: XCTestCase {
             let failure = directory.appendingPathComponent("\(requestID).error")
             let device = try XCTUnwrap(ProcessInfo.processInfo.environment["SIMULATOR_UDID"])
             let request = try JSONSerialization.data(withJSONObject: ["id": requestID, "device": device,
-                "requestedAt": Date().timeIntervalSince1970 * 1000])
+                "requestedAt": Date().timeIntervalSince1970 * 1000, "directory": directory.path,
+                "label": label, "rotating": active])
+            let requestAttachment = XCTAttachment(data: request, uniformTypeIdentifier: "public.json")
+            requestAttachment.name = "\(label)-capture-request"
+            requestAttachment.lifetime = .keepAlways; add(requestAttachment)
             try request.write(to: directory.appendingPathComponent("request.json"), options: .atomic)
             let captured = try await eventually {
                 FileManager.default.fileExists(atPath: screenshot.path) || FileManager.default.fileExists(atPath: failure.path)

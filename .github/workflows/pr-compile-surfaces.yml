@@ -184,11 +184,13 @@ jobs:
       # is chosen by id so a runner image that renames its devices still works.
       - name: Run iOS unit tests
         run: |
+          node --test scripts/ios-test-screenshots.test.cjs
           UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; devices=json.load(sys.stdin)['devices']; print(next(d['udid'] for runtime, items in devices.items() if 'iOS' in runtime for d in items if d['name'].startswith('iPhone')))")
-          node scripts/ios-test-screenshots.cjs "$UDID" &
-          SCREENSHOT_PID=$!
-          trap 'kill "$SCREENSHOT_PID"' EXIT
+          xcrun simctl bootstatus "$UDID" -b
           mkdir -p artifacts
+          node scripts/ios-test-screenshots.cjs "$UDID" > artifacts/ios-screenshot-helper.log 2>&1 &
+          SCREENSHOT_PID=$!
+          trap 'kill "$SCREENSHOT_PID"; wait "$SCREENSHOT_PID" || true' EXIT
           xcodebuild \
             -project ios/App/App.xcodeproj \
             -scheme App \
@@ -205,5 +207,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ios-unit-test-results
-          path: artifacts/ios-unit-tests.xcresult
+          path: |
+            artifacts/ios-unit-tests.xcresult
+            artifacts/ios-screenshot-helper.log
           if-no-files-found: ignore
