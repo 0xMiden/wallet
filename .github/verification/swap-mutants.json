@@ -1,5 +1,5 @@
 {
-  "productSha": "c2702a5013d7efc9fec784df89a7f1777dab4448",
+  "productSha": "196046b2f982d49853344f8c8c2a507577d3ae64",
   "tests": [
     "src/screens/swap-flow/SwapManager.test.tsx",
     "src/lib/miden/swap/tokens.test.ts",
@@ -574,6 +574,27 @@
           "test": "holds\\ the\\ approval\\ challenge\\ through\\ selected\\-token\\ removal\\ until\\ cancellation",
           "message": "false",
           "description": "Expected canProceedfalse while awaiting approval; mutant permits true."
+        }
+      ]
+    },
+    {
+      "id": "registry-default-pair-key",
+      "changes": [
+        {
+          "path": "src/screens/swap-flow/SwapManager.tsx",
+          "before": "const registryKey = JSON.stringify({ tokens, defaultPair });",
+          "after": "const registryKey = JSON.stringify(tokens);"
+        }
+      ],
+      "tests": [
+        "src/screens/swap-flow/SwapManager.test.tsx"
+      ],
+      "namePattern": "resets\\ an\\ idle\\ draft\\ when\\ the\\ default\\ pair\\ changes\\ within\\ stable\\ effective\\ tokens",
+      "predictions": [
+        {
+          "test": "resets\\ an\\ idle\\ draft\\ when\\ the\\ default\\ pair\\ changes\\ within\\ stable\\ effective\\ tokens",
+          "message": "MIDEN",
+          "description": "Expected new offer MIDEN/requestAAA and empty draft after listed-pair-only change with identical effective native-injected tokens; mutant retains offerAAA/requestBBB/amount10."
         }
       ]
     }

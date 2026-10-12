@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      PRODUCT_SHA: c2702a5013d7efc9fec784df89a7f1777dab4448
+      PRODUCT_SHA: 196046b2f982d49853344f8c8c2a507577d3ae64
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@v4
