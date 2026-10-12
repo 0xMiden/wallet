@@ -95,10 +95,17 @@ final class BreadPresentationTests: XCTestCase {
             requestAttachment.name = "\(label)-capture-request"
             requestAttachment.lifetime = .keepAlways; add(requestAttachment)
             try request.write(to: directory.appendingPathComponent("request.json"), options: .atomic)
-            let captured = try await eventually {
-                FileManager.default.fileExists(atPath: screenshot.path) || FileManager.default.fileExists(atPath: failure.path)
+            // Host screenshot transport can exceed native UI deadlines.
+            let receiptDeadline = CACurrentMediaTime() + 30
+            var captured = false
+            while CACurrentMediaTime() < receiptDeadline {
+                if FileManager.default.fileExists(atPath: screenshot.path) || FileManager.default.fileExists(atPath: failure.path) {
+                    captured = true
+                    break
+                }
+                try await Task.sleep(nanoseconds: 20_000_000)
             }
-            XCTAssertTrue(captured, "Run scripts/ios-test-screenshots.cjs for this simulator during XCTest")
+            XCTAssertTrue(captured, "Screenshot transport did not publish PNG/error within 30s for \(requestID); inspect artifacts/ios-screenshot-helper.log")
             if FileManager.default.fileExists(atPath: failure.path) {
                 throw NSError(domain: "SimulatorScreenshot", code: 1,
                     userInfo: [NSLocalizedDescriptionKey: try String(contentsOf: failure, encoding: .utf8)])
