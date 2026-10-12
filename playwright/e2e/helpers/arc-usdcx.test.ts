@@ -33,6 +33,7 @@ import {
   confirmDepositToMiden,
   decodeDepositIntent,
   KEY_MOVED_NOTE,
+  L2_LATE_PAYOUT_NOTE,
   LATE_PAYOUT_NOTE,
   PayoutGateError,
   PREFUNDED_KEY_NOTE,
@@ -50,11 +51,13 @@ import arcVectors from './arc-usdcx.vectors.json';
 import type { BridgedSendRow } from './bridge';
 import { TxStatus } from './history';
 import {
+  ARBITRUM_SEPOLIA_PAYOUT,
   ARC_ATTESTATION_API,
   ARC_CHAIN_ID,
   ARC_CIRCLE_DOMAIN,
   ARC_DRPC_URL,
   ARC_KEY_LEDGER_DIR,
+  ARC_PAYOUT,
   ARC_PUBLIC_URL,
   ARC_QUICKNODE_URL,
   ARC_READ_STEP_BUDGET_MS,
@@ -62,6 +65,8 @@ import {
   ARC_USDC,
   ARC_XRESERVE,
   ATTESTATION_USED_TOPIC,
+  BASE_OFFICIAL_LOG_CHUNK,
+  BASE_SEPOLIA_PAYOUT,
   BURN_UNITS,
   DEFAULT_ARC_RPCS,
   DEPOSIT_UNITS,
@@ -72,16 +77,19 @@ import {
   GRANT_UNITS,
   HARNESS_ARC_KEY_FILE,
   isWorthClaiming,
+  L2_LOG_CHUNK,
   minimumUsdcxPayout,
   PAYOUT_TIMEOUT_MS,
+  payoutChainFor,
   WALLET_CONFIRM_TIMEOUT_MS
 } from './usdcx-constants';
+import l2Vectors from './usdcx-l2.vectors.json';
 import { harnessPayoutLeg, payoutLeg, waitForWalletPayoutConfirmation } from './usdcx-legs';
 import { newRunEvidence, withStepBudget, type NamedStep } from './usdcx-run';
 import type { XReserveAttestation } from '../../../src/lib/usdcx/attestation';
 import attestationVectors from '../../../src/lib/usdcx/attestation.vectors.json';
 import { midenAccountHexToXReserveRecipient } from '../../../src/lib/usdcx/recipient';
-import { ARC_TESTNET } from '../../../src/lib/walletconnect/config';
+import { ARC_TESTNET, WC_PROJECT_ID } from '../../../src/lib/walletconnect/config';
 
 function addressOf(value: string): Address {
   if (!isAddress(value, { strict: false })) throw new Error(`${value} is not an address`);
@@ -215,6 +223,12 @@ function fakeClock(start = 0): ArcClock & { slept: number[] } {
 function payoutAt(index: number): (typeof arcVectors.payouts)[number] {
   const payout = arcVectors.payouts[index];
   if (!payout) throw new Error(`arc-usdcx.vectors.json has no payout ${index}`);
+  return payout;
+}
+
+function l2PayoutOn(chainId: number): (typeof l2Vectors.payouts)[number] {
+  const payout = l2Vectors.payouts.find(candidate => candidate.chainId === chainId);
+  if (!payout) throw new Error(`usdcx-l2.vectors.json has no payout on chain ${chainId}`);
   return payout;
 }
 
@@ -427,7 +441,7 @@ function payoutChain(world: { balances: readonly bigint[]; logs: readonly Captur
   let head = 66483820n;
   let balanceReads = 0;
   const transactions = new Map<string, unknown>(
-    arcVectors.payouts.map(payout => [payout.transaction.hash, payout.transaction])
+    [...arcVectors.payouts, ...l2Vectors.payouts].map(payout => [payout.transaction.hash, payout.transaction])
   );
   return (method, params) => {
     switch (method) {
@@ -765,6 +779,258 @@ describe('waitForGatewayPayout delta mode', () => {
     );
     expect(payout.value).toBe(983_600n);
     expect(clock.slept).toEqual([5_000, 5_000, 5_000]);
+  });
+});
+
+describe('payout chains (usdcx-constants.ts)', () => {
+  it("keeps Arc's payout chain exactly the Arc values every Arc test read before the L2 suite", () => {
+    expect(ARC_PAYOUT).toMatchObject({
+      chainId: ARC_CHAIN_ID,
+      chain: ARC_TESTNET,
+      label: 'Arc',
+      rpcUrls: DEFAULT_ARC_RPCS,
+      usdc: ARC_USDC,
+      burnDomain: ARC_CIRCLE_DOMAIN,
+      attestationSourceDomain: ARC_CIRCLE_DOMAIN,
+      chip: 'send-network-arc-testnet',
+      reviewNetwork: 'arc-testnet',
+      networkName: 'Arc Testnet',
+      explorer: ARC_TESTNET.blockExplorers.default.url,
+      walletRpcUrl: ARC_PUBLIC_URL,
+      walletRpcName: 'arc.io'
+    });
+  });
+
+  it("reads each L2 from the wallet's tables: the burn carries its own domain, every payout Arc's 26", () => {
+    expect(BASE_SEPOLIA_PAYOUT).toMatchObject({
+      chainId: 84532,
+      label: 'Base Sepolia',
+      rpcUrls: [
+        'https://base-sepolia-rpc.publicnode.com',
+        'https://base-sepolia.gateway.tenderly.co',
+        'https://sepolia.base.org'
+      ],
+      usdc: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+      burnDomain: 6,
+      attestationSourceDomain: 26,
+      chip: 'send-network-base-sepolia',
+      reviewNetwork: 'base-sepolia',
+      networkName: 'Base Sepolia',
+      explorer: 'https://sepolia.basescan.org',
+      walletRpcName: 'rpc.walletconnect.org'
+    });
+    expect(ARBITRUM_SEPOLIA_PAYOUT).toMatchObject({
+      chainId: 421614,
+      label: 'Arbitrum Sepolia',
+      rpcUrls: [
+        'https://sepolia-rollup.arbitrum.io/rpc',
+        'https://arbitrum-sepolia-rpc.publicnode.com',
+        'https://arbitrum-sepolia.gateway.tenderly.co'
+      ],
+      usdc: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
+      burnDomain: 3,
+      attestationSourceDomain: 26,
+      chip: 'send-network-arbitrum-sepolia',
+      reviewNetwork: 'arbitrum-sepolia',
+      networkName: 'Arbitrum Sepolia',
+      explorer: 'https://sepolia.arbiscan.io',
+      walletRpcName: 'rpc.walletconnect.org'
+    });
+    for (const chain of [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT]) {
+      expect(chain.walletRpcUrl).toBe(
+        `https://rpc.walletconnect.org/v1?chainId=eip155:${chain.chainId}&projectId=${WC_PROJECT_ID}`
+      );
+      // drpc fails near the head on both L2s, and the wallet's own RPC is what the tests check.
+      expect(chain.rpcUrls.filter(url => /drpc|walletconnect/.test(url))).toEqual([]);
+    }
+  });
+
+  it('refuses Ethereum Sepolia by name, since Circle never pays a burn out there, and a chain Send does not offer', () => {
+    const reads = { rpcUrls: [], logChunk: () => L2_LOG_CHUNK };
+    expect(() => payoutChainFor(11155111, reads)).toThrow(
+      'Ethereum Sepolia (11155111) is no harness payout chain: Circle consumes a burn to it but never pays it out ' +
+        '(0xMiden/miden-usdcx#308)'
+    );
+    expect(() => payoutChainFor(1, reads)).toThrow('chain 1 is not a Send destination');
+  });
+
+  it("scans Base Sepolia's own RPC in 200-block windows, Arc's drpc in 100 and every other endpoint in 1000", () => {
+    expect([BASE_OFFICIAL_LOG_CHUNK, L2_LOG_CHUNK]).toEqual([200, 1000]);
+    expect(BASE_SEPOLIA_PAYOUT.rpcUrls.map(url => BASE_SEPOLIA_PAYOUT.logChunk(url))).toEqual([1000, 1000, 200]);
+    expect(ARBITRUM_SEPOLIA_PAYOUT.rpcUrls.map(url => ARBITRUM_SEPOLIA_PAYOUT.logChunk(url))).toEqual([
+      1000, 1000, 1000
+    ]);
+    expect(DEFAULT_ARC_RPCS.map(url => ARC_PAYOUT.logChunk(url))).toEqual([100, 1000, 1000]);
+  });
+
+  it('gives an L2 read step the Arc read budget, which outlasts a stall on every L2 endpoint', () => {
+    for (const chain of [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT]) {
+      expect(chain.rpcUrls.length * ARC_RPC_TIMEOUT_MS + 15_000).toBeLessThanOrEqual(ARC_READ_STEP_BUDGET_MS);
+    }
+  });
+});
+
+describe('reads on an L2 payout chain', () => {
+  const RECIPIENT = addressOf(l2PayoutOn(84532).recipient);
+
+  it("reads the L2's own USDC and names the L2 when no endpoint answers", async () => {
+    const asked: string[] = [];
+    const answering = stubClient((_method, params) => {
+      const [request] = params;
+      asked.push(String(request !== null && typeof request === 'object' ? Reflect.get(request, 'to') : ''));
+      return encodeUint(988_901n);
+    });
+    const reads = {
+      endpoints: ['https://base-sepolia-rpc.publicnode.com'],
+      publicClient: () => answering,
+      payoutChain: BASE_SEPOLIA_PAYOUT
+    };
+    await expect(readArcUsdc(RECIPIENT, reads)).resolves.toBe(988_901n);
+    expect(asked.map(to => to.toLowerCase())).toEqual([BASE_SEPOLIA_PAYOUT.usdc.toLowerCase()]);
+    const failing = stubClient(() => {
+      throw rpcError(-32005, 'rate limit exceeded');
+    });
+    await expect(readArcUsdcSnapshot(RECIPIENT, { ...reads, publicClient: () => failing })).rejects.toThrow(
+      /^Base Sepolia USDC snapshot of 0x[0-9a-fA-F]{40}: no Base Sepolia endpoint answered\n {2}base-sepolia-rpc\.publicnode\.com: /
+    );
+  });
+
+  it('refuses an L2 deps object where only Arc applies: the xReserve state and both deposit legs, building no client', async () => {
+    const built: string[] = [];
+    const l2 = {
+      endpoints: ['https://base-sepolia-rpc.publicnode.com'],
+      payoutChain: BASE_SEPOLIA_PAYOUT,
+      publicClient: (endpoint: string) => {
+        built.push(endpoint);
+        return stubClient(() => null);
+      }
+    };
+    await expect(readXReserveDomainState(l2)).rejects.toThrow(
+      'xReserve domain state runs on Arc only, not on Base Sepolia'
+    );
+    await expect(
+      submitDepositToMiden(
+        {
+          privateKey: `0x${'11'.repeat(32)}`,
+          units: DEPOSIT_UNITS,
+          recipientHex: '0xf2f42cda8d010f417d1cad5dc4d52b',
+          approve: 'exact'
+        },
+        l2
+      )
+    ).rejects.toThrow('the xReserve deposit runs on Arc only, not on Base Sepolia');
+    await expect(
+      confirmDepositToMiden(
+        {
+          endpoint: 'https://base-sepolia-rpc.publicnode.com',
+          depositHash: hexOf(arcVectors.deposit.transactionHash),
+          approved: false
+        },
+        l2
+      )
+    ).rejects.toThrow('the xReserve deposit receipt runs on Arc only, not on Base Sepolia');
+    expect(built).toEqual([]);
+  });
+});
+
+describe('waitForGatewayPayout on an L2', () => {
+  const CONSUME_MS = 1_791_638_693_000;
+  const BASE = l2PayoutOn(84532);
+  const ENDPOINT = 'https://base-sepolia-rpc.publicnode.com';
+  const args = {
+    recipient: addressOf(BASE.recipient),
+    burnNoteId: hexOf(BASE.burnNoteId),
+    burnUnits: BigInt(BASE.burnUnits),
+    fromBlock: 66483700n,
+    consumeTsMs: CONSUME_MS,
+    deadlineMs: CONSUME_MS + PAYOUT_TIMEOUT_MS,
+    depositor: hexOf(l2Vectors.depositor),
+    minimumValue: minimumUsdcxPayout(84532, BigInt(BASE.burnUnits))
+  };
+  const paid = movedTo(BASE.log, 66483812n);
+  const baseReads = (world: Rpc, endpoint = ENDPOINT) => ({
+    endpoints: [endpoint],
+    publicClient: () => stubClient(world),
+    clock: fakeClock(CONSUME_MS + 7_000),
+    payoutChain: BASE_SEPOLIA_PAYOUT
+  });
+
+  it("proves the probe's Base Sepolia payout: Base's USDC in the token topic, Arc's domain 26 as the source", async () => {
+    const payout = await waitForGatewayPayout(args, baseReads(payoutChain({ balances: [988_901n], logs: [paid] })));
+    expect(payout).toMatchObject({
+      endpoint: ENDPOINT,
+      value: 988_901n,
+      balance: 988_901n,
+      logBlock: 66483812n,
+      transactionHash: BASE.transaction.hash,
+      sourceDomain: 26,
+      sourceDepositor: l2Vectors.depositor,
+      fee: 11_099n,
+      latencyMs: 7_000
+    });
+  });
+
+  it.each(l2Vectors.payouts.map(payout => [payout.chainId, payout]))(
+    'correlates the probe payout on chain %s, Circle keeping 11099',
+    async (chainId, payout) => {
+      const chain = [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT].find(candidate => candidate.chainId === chainId);
+      if (!chain) throw new Error(`no payout chain ${chainId}`);
+      const correlated = await waitForGatewayPayout(
+        {
+          ...args,
+          recipient: addressOf(payout.recipient),
+          burnNoteId: hexOf(payout.burnNoteId),
+          minimumValue: minimumUsdcxPayout(chain.chainId, BigInt(payout.burnUnits))
+        },
+        {
+          endpoints: [chain.rpcUrls[0] ?? ''],
+          publicClient: () =>
+            stubClient(payoutChain({ balances: [BigInt(payout.value)], logs: [movedTo(payout.log, 66483812n)] })),
+          clock: fakeClock(CONSUME_MS),
+          payoutChain: chain
+        }
+      );
+      expect({ value: correlated.value, fee: correlated.fee }).toEqual({ value: 988_901n, fee: 11_099n });
+    }
+  );
+
+  // The token topic is the paid chain's USDC: under Arc's, an L2 payout is invisible.
+  it("finds no log for an L2 payout under Arc's token topic, so the gate must filter on the L2's USDC", async () => {
+    const failure = waitForGatewayPayout(args, {
+      endpoints: [ENDPOINT],
+      publicClient: () => stubClient(payoutChain({ balances: [988_901n], logs: [paid] })),
+      clock: fakeClock(CONSUME_MS)
+    });
+    await expect(failure).rejects.toMatchObject({ failure: 'uncorrelated' });
+    await expect(failure).rejects.toThrow('found 0 AttestationUsed logs');
+    await expect(failure).rejects.toThrow(LATE_PAYOUT_NOTE);
+  });
+
+  it("fails uncorrelated on a payout naming the burn's domain 6 as its source, ending with the L2 note", async () => {
+    const asBurnDomain = { ...paid, data: `0x${(6).toString(16).padStart(64, '0')}${paid.data.slice(66)}` };
+    const failure = waitForGatewayPayout(args, baseReads(payoutChain({ balances: [988_901n], logs: [asBurnDomain] })));
+    await expect(failure).rejects.toMatchObject({ failure: 'uncorrelated' });
+    await expect(failure).rejects.toThrow('sourceDomain 6, expected 26');
+    await expect(failure).rejects.toThrow(L2_LATE_PAYOUT_NOTE);
+    await expect(failure).rejects.not.toThrow(LATE_PAYOUT_NOTE);
+  });
+
+  it("scans Base Sepolia's own RPC in 200-block windows from the block after the snapshot", async () => {
+    const payout = await waitForGatewayPayout(
+      { ...args, fromBlock: 66483400n },
+      baseReads(payoutChain({ balances: [988_901n], logs: [paid] }), 'https://sepolia.base.org')
+    );
+    expect(payout.ranges.map(range => `${range.fromBlock}-${range.toBlock}`)).toEqual([
+      '66483401-66483600',
+      '66483601-66483800',
+      '66483801-66483822'
+    ]);
+  });
+
+  it('names the L2 when the gate has no endpoint', async () => {
+    await expect(waitForGatewayPayout(args, { endpoints: [], payoutChain: BASE_SEPOLIA_PAYOUT })).rejects.toThrow(
+      'waitForGatewayPayout: no Base Sepolia endpoints'
+    );
   });
 });
 

@@ -1,13 +1,15 @@
 /**
- * The fixed numbers of the USDCx live suites (spec section 5) and the Arc Testnet addresses, read from the product's
- * own tables so the harness and the wallet cannot drift apart. Nothing here reads the environment.
+ * The fixed numbers of the USDCx live suites (spec section 5), the Arc Testnet addresses and the chains a burn's payout
+ * is read on, read from the product's own tables so the harness and the wallet cannot drift apart. Nothing here reads
+ * the environment; an L2's `walletRpcUrl` is the wallet module's, whose project id follows WALLETCONNECT_PROJECT_ID.
  */
 import os from 'os';
 import path from 'path';
-import type { Address, Hex } from 'viem';
+import type { Address, Chain, Hex } from 'viem';
 
-import { getUsdcxXReserveSource } from '../../../src/lib/usdcx/constant';
-import { ARC_TESTNET } from '../../../src/lib/walletconnect/config';
+import { getUsdcxDestination, getUsdcxXReserveSource } from '../../../src/lib/usdcx/constant';
+import { ARC_TESTNET, getChain } from '../../../src/lib/walletconnect/config';
+import { getBridgeNetworkByChainId } from '../../../src/screens/send-flow/bridge-networks';
 
 export {
   minimumUsdcxPayout,
@@ -71,6 +73,121 @@ export const ARC_USDC: Address = ARC_SOURCE.usdc;
 export const ARC_ATTESTATION_API: string = ARC_SOURCE.attestationApi;
 export const ARC_CIRCLE_DOMAIN: number = ARC_SOURCE.domain;
 export const GUARDIAN_ECDSA_SCHEME = 'ecdsa';
+
+/** Every L2 endpoint below served 10_000-block eth_getLogs when probed (2026-10-11); 1000 keeps a scan to a few calls. */
+export const L2_LOG_CHUNK = 1000;
+/** Base Sepolia's own RPC refuses an eth_getLogs over more than 200 blocks (-32614 `limited to a 200 range`). */
+export const BASE_OFFICIAL_LOG_CHUNK = 200;
+const BASE_SEPOLIA_OFFICIAL_URL = 'https://sepolia.base.org';
+/**
+ * The harness's L2 read endpoints, in the order the payout gate tries them. drpc is left out: near the head it fails
+ * even a 100-block log scan. Never the wallet's own RPC (rpc.walletconnect.org), whose reads the tests check.
+ */
+export const DEFAULT_BASE_SEPOLIA_RPCS: readonly string[] = [
+  'https://base-sepolia-rpc.publicnode.com',
+  'https://base-sepolia.gateway.tenderly.co',
+  BASE_SEPOLIA_OFFICIAL_URL
+];
+export const DEFAULT_ARBITRUM_SEPOLIA_RPCS: readonly string[] = [
+  'https://sepolia-rollup.arbitrum.io/rpc',
+  'https://arbitrum-sepolia-rpc.publicnode.com',
+  'https://arbitrum-sepolia.gateway.tenderly.co'
+];
+/** Ethereum Sepolia takes a burn, but Circle has never paid one out there (0xMiden/miden-usdcx#308). */
+const ETHEREUM_SEPOLIA_CHAIN_ID = 11155111;
+
+/**
+ * A chain a burn's payout lands on: what the harness reads there, the domains the burn and the payout carry, and what
+ * the Send flow and the details page show. Arc's values are exactly the ones its tests read before the L2 suite.
+ */
+export interface PayoutChain {
+  chainId: number;
+  /** The viem chain the harness's read clients are built on. */
+  chain: Chain;
+  /** How messages name the chain; Arc's `Arc` keeps every Arc message as it was. */
+  label: string;
+  rpcUrls: readonly string[];
+  usdc: Address;
+  /** The destination's Circle domain, which the burn note's attachment and its row carry: 26, 6 or 3. */
+  burnDomain: number;
+  /** `AttestationUsed.sourceDomain`, the Gateway source: Arc's 26 for every destination, never `burnDomain`. */
+  attestationSourceDomain: number;
+  logChunk(endpoint: string): number;
+  /** The Send flow's chip test id, the review's `network=` and its Network row (bridge-networks.ts). */
+  chip: string;
+  reviewNetwork: string;
+  networkName: string;
+  /** The explorer the details page links (walletconnect/config.ts). */
+  explorer: string;
+  /** The wallet's own RPC for the chain, and the name a message gives it: never the URL, which carries a project id. */
+  walletRpcUrl: string;
+  walletRpcName: string;
+}
+
+const hostnameOf = (endpoint: string): string => {
+  try {
+    return new URL(endpoint).hostname;
+  } catch {
+    return '';
+  }
+};
+
+/** drpc refuses a 1000-block eth_getLogs on Arc with a misleading "ranges over 10000 blocks"; the rest take 1000. */
+function arcLogChunk(endpoint: string): number {
+  return hostnameOf(endpoint).includes('drpc') ? ARC_DRPC_LOG_CHUNK : ARC_LOG_CHUNK;
+}
+
+/**
+ * The payout chain of `chainId`, its values read from the wallet's own tables; `reads` is the harness's side. Refuses
+ * Ethereum Sepolia by name, and any chain the Send flow does not offer.
+ */
+export function payoutChainFor(
+  chainId: number,
+  reads: { rpcUrls: readonly string[]; logChunk(endpoint: string): number; label?: string; walletRpcName?: string }
+): PayoutChain {
+  if (chainId === ETHEREUM_SEPOLIA_CHAIN_ID) {
+    throw new Error(
+      'Ethereum Sepolia (11155111) is no harness payout chain: Circle consumes a burn to it but never pays it out ' +
+        '(0xMiden/miden-usdcx#308)'
+    );
+  }
+  const network = getBridgeNetworkByChainId(chainId);
+  const evm = getChain(chainId);
+  if (network === undefined || evm === undefined) throw new Error(`chain ${chainId} is not a Send destination`);
+  const destination = getUsdcxDestination(chainId);
+  return {
+    chainId,
+    chain: destination.chain,
+    label: reads.label ?? network.name,
+    rpcUrls: reads.rpcUrls,
+    usdc: destination.usdc,
+    burnDomain: destination.domain,
+    attestationSourceDomain: ARC_CIRCLE_DOMAIN,
+    logChunk: reads.logChunk,
+    chip: `send-network-${network.id}`,
+    reviewNetwork: network.id,
+    networkName: network.name,
+    explorer: evm.explorer,
+    walletRpcUrl: evm.rpcUrl,
+    walletRpcName: reads.walletRpcName ?? hostnameOf(evm.rpcUrl)
+  };
+}
+
+export const ARC_PAYOUT: PayoutChain = payoutChainFor(ARC_CHAIN_ID, {
+  rpcUrls: DEFAULT_ARC_RPCS,
+  logChunk: arcLogChunk,
+  label: 'Arc',
+  walletRpcName: 'arc.io'
+});
+export const BASE_SEPOLIA_PAYOUT: PayoutChain = payoutChainFor(84532, {
+  rpcUrls: DEFAULT_BASE_SEPOLIA_RPCS,
+  logChunk: endpoint =>
+    hostnameOf(endpoint) === hostnameOf(BASE_SEPOLIA_OFFICIAL_URL) ? BASE_OFFICIAL_LOG_CHUNK : L2_LOG_CHUNK
+});
+export const ARBITRUM_SEPOLIA_PAYOUT: PayoutChain = payoutChainFor(421614, {
+  rpcUrls: DEFAULT_ARBITRUM_SEPOLIA_RPCS,
+  logChunk: () => L2_LOG_CHUNK
+});
 
 /** Every wait in the Arc and Miden oracles runs on this, so unit tests drive time instead of sleeping. */
 export interface ArcClock {
