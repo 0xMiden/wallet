@@ -123,10 +123,14 @@ test.describe('a hot-key Guardian wallet file (#1114)', () => {
           expect(box.x + box.width).toBeLessThanOrEqual(360);
         }
 
-        // Continue is pinned by SubPageLayout's FlowFooter, so it is always in viewport; the
-        // consent row is what a longer notice pushes below the fold.
+        // The countdown banner can move consent below the fold in the scrolling body;
+        // the exclusion notice and pinned Continue must stay visible as consent is reached.
+        await expect(popupNotice).toBeInViewport({ ratio: 1 });
+        await expect(submit).toBeInViewport({ ratio: 1 });
+        await consent.scrollIntoViewIfNeeded();
         await expect(popupNotice).toBeInViewport({ ratio: 1 });
         await expect(consent).toBeInViewport({ ratio: 1 });
+        await expect(submit).toBeInViewport({ ratio: 1 });
 
         await captureBothThemes(popupPage, popupNotice, 'popup');
       } finally {
