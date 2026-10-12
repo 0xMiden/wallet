@@ -99,6 +99,7 @@ jest.mock('./transactionUtils', () => ({
 
 const mockIsMobile = isMobile as jest.MockedFunction<typeof isMobile>;
 const mockIsFaucetRequest = isFaucetRequest as jest.MockedFunction<typeof isFaucetRequest>;
+const mockBridgeRowDisplay = bridgeRowDisplay as jest.MockedFunction<typeof bridgeRowDisplay>;
 
 // Minimal shape — HistoryItem only reads the fields exercised below; the real
 // IHistoryEntry type is erased at runtime, so a plain object cast is enough.
@@ -141,6 +142,46 @@ describe('HistoryItem', () => {
 
     expect(screen.getByText('4.98 Test Epoch USDC')).toBeInTheDocument();
   });
+
+  it.each([
+    ['pending', undefined, 't:usdcxBurnPending'],
+    ['consuming', undefined, 't:usdcxBurnConsuming'],
+    ['confirmed', undefined, 't:usdcxBurnConfirmed'],
+    ['confirmed', { balance: '1000000', blockNumber: '42' }, 't:confirmed'],
+    ['discarded', undefined, 't:usdcxBurnDiscarded']
+  ] as const)(
+    'renders a USDCx %s burn with its own title and badge',
+    (phase, destinationBalanceConfirmed, label) => {
+      mockBridgeRowDisplay.mockReturnValue({
+        inSymbol: 'USDCx',
+        outSymbol: 'USDC',
+        inLabel: 'Miden USDCx',
+        outLabel: 'Sepolia USDC',
+        outAmount: '10',
+        providerLabel: 'USDCx',
+        network: 'Sepolia',
+        status: 'pending'
+      });
+
+      render(
+        <HistoryItem
+          entry={makeEntry({
+            txType: 'bridged-send',
+            bridgeProvider: 'usdcx',
+            usdcxBurn: {
+              noteId: 'burn-note',
+              destinationDomain: 0,
+              phase,
+              destinationBalanceConfirmed
+            }
+          })}
+        />
+      );
+
+      expect(screen.getByText('t:usdcxBurnTitle')).toBeInTheDocument();
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+  );
 
   it('renders the explorer-link (anchor) variant with receive styling, address, amount, token and cancel button', () => {
     const cancel = jest.fn().mockResolvedValue(undefined);
