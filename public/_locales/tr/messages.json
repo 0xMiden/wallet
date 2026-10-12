@@ -4119,10 +4119,6 @@
     "message": "dApp tarayıcısı başlığı",
     "englishSource": "dApp browser header"
   },
-  "dragToMinimize": {
-    "message": "Küçültmek için aşağı sürükleyin",
-    "englishSource": "Drag down to minimize"
-  },
   "dappSwitcher": {
     "message": "dApp değiştirici",
     "englishSource": "dApp switcher"

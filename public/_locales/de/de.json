@@ -937,7 +937,6 @@
   "dappLoadFailed": "Diese dApp kann nicht geladen werden",
   "dappLoadFailedHint": "Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
   "dappBrowserCapsule": "dApp-Browser-Kopfzeile",
-  "dragToMinimize": "Nach unten ziehen, um das Fenster zu minimieren",
   "dappSwitcher": "dApp-Umschalter",
   "closeDappSwitcher": "dApp-Umschalter schließen",
   "openDappCountOne": "1 offene dApp",

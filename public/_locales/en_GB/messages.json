@@ -4119,10 +4119,6 @@
     "message": "dApp browser header",
     "englishSource": "dApp browser header"
   },
-  "dragToMinimize": {
-    "message": "Drag down to minimize",
-    "englishSource": "Drag down to minimize"
-  },
   "dappSwitcher": {
     "message": "dApp switcher",
     "englishSource": "dApp switcher"

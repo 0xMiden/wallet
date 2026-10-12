@@ -31,7 +31,6 @@ import {
 import {
   ARC_ATTESTATION_API,
   ARC_CHAIN_ID,
-  ARC_PUBLIC_URL,
   ARC_READ_STEP_BUDGET_MS,
   ARC_USDC,
   BURN_UNITS,
@@ -57,6 +56,7 @@ import {
   settleGuardian,
   submitBurn,
   waitForConsumeOf,
+  waitForWalletPayoutConfirmation,
   type BurnLeg,
   type UsdcxWalletIds
 } from '../../helpers/usdcx-legs';
@@ -64,7 +64,6 @@ import { deriveUsdcxMintNoteId, waitForUsdcxMint, type MidenNoteRead } from '../
 import {
   assertUsdcxLiveRun,
   depositClaimProblem,
-  errorText,
   jsonObject,
   jsonString,
   ledgerLine,
@@ -508,40 +507,16 @@ async function walletConfirmsPayout(
   evidence: RunEvidence
 ): Promise<number> {
   await wallet.navigateHome();
-  const row = await pollUntil(
-    'the wallet confirming the payout',
-    async () => (await readBridgedSendRows(wallet.page)).find(candidate => candidate.id === burn.row.id),
-    found => found?.extraInputs?.usdcxBurn?.destinationBalanceConfirmed !== undefined,
-    {
-      timeoutMs: WALLET_CONFIRM_TIMEOUT_MS,
-      intervalMs: 3_000,
-      describe: async last => {
-        const keyNow = await readArcUsdc(key.address, arc).then(String, errorText);
-        const arcIo = await readArcUsdc(key.address, { endpoints: [ARC_PUBLIC_URL] }).then(
-          balance => `arc.io reads ${balance}`,
-          (error: unknown) => `arc.io failed: ${errorText(error)}`
-        );
-        const before = JSON.stringify(last?.extraInputs?.usdcxBurn?.destinationBalanceBefore);
-        return (
-          `Circle paid this burn (harness proof) but the wallet never confirmed it; destinationBalanceBefore ` +
-          `${before}, key balance now ${keyNow}, ${arcIo}; ${await where()}`
-        );
-      }
-    }
-  );
-  const confirmedAt = Date.now();
-  const confirmed = row?.extraInputs?.usdcxBurn?.destinationBalanceConfirmed;
-  const confirmedBlock = BigInt(confirmed?.blockNumber ?? '0');
-  expect(
-    {
-      balance: confirmed?.balance,
-      afterSnapshot: confirmedBlock > burn.arcFromBlock,
-      atOrAfterPayout: confirmedBlock >= payout.logBlock
-    },
-    `confirmation at Arc block ${confirmedBlock}, snapshot ${burn.arcFromBlock}, payout log ${payout.logBlock}, ` +
-      `${payout.balance - payout.value} on the key before the burn`
-  ).toEqual({ balance: payout.balance.toString(), afterSnapshot: true, atOrAfterPayout: true });
-  evidence.ids.walletConfirmedBalance = String(confirmed?.balance);
+  const confirmedAt = await waitForWalletPayoutConfirmation({
+    readRows: () => readBridgedSendRows(wallet.page),
+    rowId: burn.row.id,
+    arcFromBlock: burn.arcFromBlock,
+    payout,
+    key,
+    arc,
+    where,
+    evidence
+  });
   await openHistoryDetails(wallet, burn.row.id);
   await expect(wallet.page.getByTestId('history-status-pill')).toHaveText(enText('confirmed'));
   const linkHash = await receivingTxHash(wallet.page, RECEIVING_TX_LINK_MS);

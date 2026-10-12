@@ -937,7 +937,6 @@
   "dappLoadFailed": "このdAppを読み込めません",
   "dappLoadFailedHint": "接続状態を確認してから、もう一度お試しください。",
   "dappBrowserCapsule": "dAppブラウザのヘッダー",
-  "dragToMinimize": "下にドラッグして最小化",
   "dappSwitcher": "dAppスイッチャー",
   "closeDappSwitcher": "dAppスイッチャーを閉じる",
   "openDappCountOne": "1つのdAppを開く",

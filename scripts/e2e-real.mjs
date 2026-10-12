@@ -267,10 +267,16 @@ const ARC_KEY_PATTERN = /^(0x)?[0-9a-f]{64}$/i;
 const KEY_FLAGS = { '--arc-key': 'E2E_ARC_PRIVATE_KEY', '--sepolia-key': 'E2E_SEPOLIA_PRIVATE_KEY' };
 
 /**
- * Every private key the operator's shell may carry: the runner's two and the iOS nightly's Arc key. No child sees one
- * its phase does not hand it, because the CLI install runs every crate's build script and proc macro under cargo.
+ * Every private key the operator's shell or a CI step may carry: the runner's two, the iOS job's Arc key and E2E
+ * USDCx's key secret. No child sees one its phase does not hand it, because the CLI install runs every crate's build
+ * script and proc macro under cargo.
  */
-const PRIVATE_KEY_NAMES = ['E2E_ARC_PRIVATE_KEY', 'E2E_SEPOLIA_PRIVATE_KEY', 'USDCX_LIVE_EVM_PRIVATE_KEY'];
+const PRIVATE_KEY_NAMES = [
+  'E2E_ARC_PRIVATE_KEY',
+  'E2E_SEPOLIA_PRIVATE_KEY',
+  'USDCX_LIVE_EVM_PRIVATE_KEY',
+  'USDCX_HARNESS_ARC_KEY'
+];
 
 /** This process's environment less every private key, for a child spawned outside run(). */
 function keylessEnv() {
@@ -1449,6 +1455,22 @@ function harnessEntryProblem(text, privateKeyToAccount) {
 }
 
 /**
+ * Writes `privateKey` to `file` as a harness key entry, 0600 in a 0700 directory, and returns its address. Never
+ * replaces a file (`wx` throws EEXIST): one that exists may hold USDC. harnessArcKey creates the local key through it,
+ * and scripts/write-ci-harness-arc-key.mjs writes E2E USDCx's CI key.
+ *
+ * Exported for that script and for test.
+ */
+export async function writeHarnessArcKey(file, privateKey) {
+  const { privateKeyToAccount } = await import('viem/accounts');
+  const { address } = privateKeyToAccount(privateKey);
+  mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const entry = { role: 'harness', iso: new Date().toISOString(), address, privateKey, walletAddress: '' };
+  writeFileSync(file, `${JSON.stringify(entry, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+  return address;
+}
+
+/**
  * The harness Arc key (R21): the one key every usdcx run burns to and deposits from, so each burn's payout refills what
  * the deposits spend. Returns `{ address, privateKey, created }`, writing a new key 0600 into a 0700 directory when the
  * file is missing and `create` is set, or `{ missing: true }`. A file that exists is never replaced, since it may hold
@@ -1466,12 +1488,8 @@ export async function harnessArcKey(file, { create }) {
       throw new Error(`cannot read the harness Arc key file ${file}: ${err.code ?? err.message}`);
     }
     if (!create) return { missing: true };
-    mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     const privateKey = generatePrivateKey();
-    const { address } = privateKeyToAccount(privateKey);
-    const entry = { role: 'harness', iso: new Date().toISOString(), address, privateKey, walletAddress: '' };
-    writeFileSync(file, `${JSON.stringify(entry, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
-    return { address, privateKey, created: true };
+    return { address: await writeHarnessArcKey(file, privateKey), privateKey, created: true };
   }
   const mode = statSync(file).mode & 0o777;
   if ((mode & 0o077) !== 0) {

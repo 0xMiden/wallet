@@ -4119,10 +4119,6 @@
     "message": "dApp 浏览器页眉",
     "englishSource": "dApp browser header"
   },
-  "dragToMinimize": {
-    "message": "向下拖动以最小化",
-    "englishSource": "Drag down to minimize"
-  },
   "dappSwitcher": {
     "message": "dApp 切换器",
     "englishSource": "dApp switcher"

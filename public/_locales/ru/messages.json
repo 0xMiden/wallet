@@ -4119,10 +4119,6 @@
     "message": "Заголовок браузера dApp",
     "englishSource": "dApp browser header"
   },
-  "dragToMinimize": {
-    "message": "Перетащите вниз, чтобы свернуть",
-    "englishSource": "Drag down to minimize"
-  },
   "dappSwitcher": {
     "message": "Переключатель dApp",
     "englishSource": "dApp switcher"

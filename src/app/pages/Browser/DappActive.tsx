@@ -3,7 +3,7 @@
  *
  * After PR-3's `<DappBrowserProvider>` hoist, this component is purely
  * VISUAL — it doesn't own the webview lifecycle anymore. It just:
- *  - Renders the `<CapsuleBar>` (drag handle + favicon + title + ✕)
+ *  - Renders the `<CapsuleBar>` (favicon + title + Minimize, Reload and ✕)
  *  - Renders the `<NativeWebViewSlot>` whose rect drives the provider's
  *    `setSlotRect` callback
  *  - Reads the active session and isLoading state from `useDappBrowser()`
@@ -62,9 +62,9 @@ export const DappActive: FC = () => {
   const cachedSnapshot = session ? getSnapshot(session.id) : undefined;
 
   // Hardware back from `<DappActive>`: park (not close) so the session
-  // stays alive as a bubble. The user can drag-down or tap ✕ for a hard
-  // close. The confirmation modal registers its back handler in the overlay
-  // tier, so it takes precedence whenever it is shown.
+  // stays alive as a bubble. The user can tap ✕ for a hard close. The
+  // confirmation modal registers its back handler in the overlay tier, so it
+  // takes precedence whenever it is shown.
   useMobileBackHandler(() => {
     void park();
     return true;

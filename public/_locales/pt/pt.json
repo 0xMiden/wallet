@@ -937,7 +937,6 @@
   "dappLoadFailed": "Não é possível carregar este dApp",
   "dappLoadFailedHint": "Verifique sua conexão e tente novamente.",
   "dappBrowserCapsule": "Cabeçalho do navegador de dApps",
-  "dragToMinimize": "Arraste para baixo para minimizar",
   "dappSwitcher": "Seletor de dApps",
   "closeDappSwitcher": "Fechar o seletor de dApps",
   "openDappCountOne": "1 dApp aberto",
