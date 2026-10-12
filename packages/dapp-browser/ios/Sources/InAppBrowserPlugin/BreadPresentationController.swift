@@ -241,7 +241,10 @@ final class BreadPresentationController: NSObject {
         guard state.phase != .closed, let owner else { return }
         if let window = instance?.containerWindow {
             let frame = state.display == .fullscreen ? window.windowScene?.coordinateSpace.bounds : instance?.rect
-            if let frame, !frame.isEmpty, window.frame != frame { window.frame = frame; invalidateLayout() }
+            if let frame, !frame.isEmpty, window.frame != frame, state.display != .fullscreen || !rotating {
+                window.frame = frame
+                invalidateLayout()
+            }
             window.backgroundColor = cover.backgroundColor
             window.accessibilityViewIsModal = immersive
             window.isHidden = !state.desiredVisibility

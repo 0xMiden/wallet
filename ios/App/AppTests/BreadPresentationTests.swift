@@ -47,6 +47,86 @@ final class BreadPresentationTests: XCTestCase {
                         "display": display, "fence": fence], in: nil, contentWorld: .page) as? Bool == true
     }
 
+    func testFullscreenRotationKeepsHostCoveredUntilFreshPaint() async throws {
+        guard #available(iOS 16.0, *) else { throw XCTSkip("Geometry requests require iOS16") }
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("bread-rotation-regression")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let live = try await livePresentation()
+        let scene = try XCTUnwrap(live.window.windowScene)
+        live.instance.navigationController.navigationBar.isHidden = true
+        live.instance.navigationController.view.layoutIfNeeded()
+        let host = try XCTUnwrap(live.host)
+        let hostPaint = UIView(frame: host.bounds)
+        hostPaint.backgroundColor = .magenta
+        hostPaint.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        host.addSubview(hostPaint)
+        defer { hostPaint.removeFromSuperview(); live.dispose() }
+        try await configure(live, theme: "#061426")
+        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'ready'})); true")
+        let revealed = try await eventually { live.presentation.state.phase == .visible && live.cover.alpha == 0 }
+        XCTAssertTrue(revealed)
+        let generation = live.presentation.state.generation
+        var captures = [[String: Any]]()
+        func rotating() -> Bool {
+            Mirror(reflecting: live.presentation).children.first { $0.label == "rotating" }?.value as? Bool ?? false
+        }
+        func capture(_ label: String) throws {
+            let started = CACurrentMediaTime()
+            let orientation = scene.interfaceOrientation.rawValue
+            let active = rotating()
+            let image = XCUIScreen.main.screenshot().image
+            let ended = CACurrentMediaTime()
+            let ratio = min(1, 1800 / max(image.size.width, image.size.height))
+            let format = UIGraphicsImageRendererFormat(); format.scale = 1
+            let size = CGSize(width: image.size.width * ratio, height: image.size.height * ratio)
+            let capped = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+                image.draw(in: CGRect(origin: .zero, size: size))
+            }
+            try XCTUnwrap(capped.pngData()).write(to: directory.appendingPathComponent("\(label).png"))
+            let bitmap = try XCTUnwrap(capped.cgImage)
+            var pixels = [UInt8](repeating: 0, count: bitmap.width * bitmap.height * 4)
+            let hostPixels = try pixels.withUnsafeMutableBytes { bytes -> Int in
+                let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: bitmap.width, height: bitmap.height,
+                    bitsPerComponent: 8, bytesPerRow: bitmap.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue))
+                context.draw(bitmap, in: CGRect(x: 0, y: 0, width: bitmap.width, height: bitmap.height))
+                return stride(from: 0, to: bytes.count, by: 4).reduce(0) { count, offset in
+                    count + (bytes[offset] > 220 && bytes[offset + 1] < 30 && bytes[offset + 2] > 220 ? 1 : 0)
+                }
+            }
+            captures.append(["label": label, "start": started, "end": ended, "orientationBefore": orientation,
+                "orientationAfter": scene.interfaceOrientation.rawValue, "rotatingBefore": active,
+                "rotatingAfter": rotating(), "hostPixels": hostPixels])
+            XCTAssertEqual(hostPixels, 0, "Fullscreen exposed the distinctive host backing during \(label)")
+        }
+        for (name, orientation) in [("landscape", UIInterfaceOrientationMask.landscapeRight), ("portrait", .portrait)] {
+            _ = try await live.web.evaluateJavaScript("window.heldFrames=[]; window.originalRAF=window.requestAnimationFrame; window.requestAnimationFrame=callback=>heldFrames.push(callback); true")
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientation)) { error in XCTFail(error.localizedDescription) }
+            let changed = try await eventually {
+                name == "portrait" ? scene.interfaceOrientation.isPortrait : scene.interfaceOrientation.isLandscape
+            }
+            XCTAssertTrue(changed)
+            try await Task.sleep(nanoseconds: 50_000_000)
+            XCTAssertTrue(rotating(), "Transient capture must begin inside the real UIKit rotation")
+            XCTAssertEqual(live.cover.alpha, 1)
+            try capture("\(name)-transient")
+            let completed = try await eventually { !rotating() }
+            XCTAssertTrue(completed)
+            try capture("\(name)-held")
+            XCTAssertEqual(live.cover.alpha, 1)
+            XCTAssertEqual(live.presentation.state.generation, generation)
+            XCTAssertTrue(WebViewRegistry.shared.get(id: live.instance.id) === live.instance)
+            XCTAssertEqual(live.window.frame, scene.coordinateSpace.bounds)
+            _ = try await live.web.evaluateJavaScript("window.requestAnimationFrame=window.originalRAF; while(heldFrames.length)heldFrames.shift()(performance.now()); true")
+            let painted = try await eventually { live.presentation.state.phase == .visible && live.cover.alpha == 0 }
+            XCTAssertTrue(painted)
+        }
+        let data = try JSONSerialization.data(withJSONObject: captures, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: directory.appendingPathComponent("captures.json"))
+        let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+        attachment.name = "rotation-captures"; attachment.lifetime = .keepAlways; add(attachment)
+    }
+
     func testNativeMetricsReprojectWhenViewportResizeArrivesAfterPublication() async throws {
         let (web, window) = try await metricFixture()
         defer { InAppBrowserPlugin.releaseContainerWindow(window) }
