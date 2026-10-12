@@ -38,6 +38,10 @@ jest.mock('lib/ui/drawer', () => ({
 
 jest.mock('lib/remote-config/token-labels', () => ({ testnetTokenInfo: jest.fn() }));
 
+// The info is read from the bridge config this realm holds; the button passes that snapshot through.
+const mockSnapshot = { network: 'testnet', status: 'ready', config: null, derived: null, lastFetch: null };
+jest.mock('lib/remote-config/use-feature-availability', () => ({ useBridgeConfigSnapshot: () => mockSnapshot }));
+
 beforeEach(() => jest.clearAllMocks());
 
 describe('SwapTokenInfoButton', () => {
@@ -45,7 +49,7 @@ describe('SwapTokenInfoButton', () => {
     jest.mocked(testnetTokenInfo).mockReturnValue(null);
     render(<SwapTokenInfoButton faucetId="mtst1other" label="MIDEN" />);
     expect(screen.queryByTestId('swap-token-info-button')).not.toBeInTheDocument();
-    expect(testnetTokenInfo).toHaveBeenCalledWith('mtst1other');
+    expect(testnetTokenInfo).toHaveBeenCalledWith(mockSnapshot, 'mtst1other');
   });
 
   it('opens a sheet naming the token, what it is and where the swap executes', () => {

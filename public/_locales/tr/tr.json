@@ -853,6 +853,8 @@
   "unavailable": "Kullanılamıyor",
   "bridgeFeatureUnavailableTitle": "Geçici olarak kullanılamıyor",
   "bridgeFeatureUnavailableBody": "Bu harici hizmet şu anda devre dışıdır. Lütfen daha sonra tekrar deneyin.",
+  "swapUnavailableTitle": "Bu ağda takas (swap) işlemi mevcut değildir",
+  "swapUnavailableBody": "Bu ağ için henüz hiçbir takas token'ı yapılandırılmamıştır.",
   "agglayerCheckingToken": "Bu tokenin Slow rotasını destekleyip desteklemediğini kontrol ediyorum…",
   "agglayerTokenUnsupported": "Bu token, Slow rotasını desteklemez.",
   "agglayerTokenCheckFailed": "Bu jetonu doğrulayamadım. Geri dönün ve tekrar deneyin.",

@@ -853,6 +853,8 @@
   "unavailable": "不可用",
   "bridgeFeatureUnavailableTitle": "暫時無法使用",
   "bridgeFeatureUnavailableBody": "此外部服務目前暫停運作。請稍後再試。",
+  "swapUnavailableTitle": "此網路不支援「Swap」功能",
+  "swapUnavailableBody": "目前此網路尚未配置任何交換代幣。",
   "agglayerCheckingToken": "檢查此代幣是否支援「慢速」路徑……",
   "agglayerTokenUnsupported": "此代幣不支援「慢速」路徑。",
   "agglayerTokenCheckFailed": "無法驗證此代幣。請返回並重新嘗試。",

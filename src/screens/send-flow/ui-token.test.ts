@@ -1,6 +1,7 @@
 import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import { AssetMetadata } from 'lib/miden/metadata/types';
-import { _resetNormalizedFaucetIdsForTest, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _resetNormalizedFaucetIdsForTest, _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import {
   getNativeAssetIdSync,
   getNativeAssetMetadataSync,
@@ -10,6 +11,10 @@ import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 
 import { UIToken } from './types';
 import { sameUIToken, uiTokenFromBalance } from './ui-token';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
@@ -60,7 +65,7 @@ describe('uiTokenFromBalance', () => {
     expect(uiTokenFromBalance(row('U1', { symbol: 'UNLISTED' }), { TKN: { price: 3 } } as any).fiatPrice).toBe(0);
   });
 
-  it.each([TOKEN_IETH.faucetId, `bech32:${TOKEN_IETH.faucetId}`])(
+  it.each([TEST_TOKEN_IETH.faucetId, `bech32:${TEST_TOKEN_IETH.faucetId}`])(
     'prices a swap-registry row at its priceSymbol (id %s)',
     id => {
       const prices = { ETH: { price: 3000 }, IETH: { price: 7 } } as any;

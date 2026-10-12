@@ -1,3 +1,4 @@
+import { TEST_SWAP_SECTION } from 'lib/miden/swap/testing/registry';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { BridgeConfig } from 'lib/remote-config/schema';
@@ -47,7 +48,7 @@ export function remoteConfigValuesMock() {
   };
 }
 
-/** The testnet document naming the fixtures above. */
+/** The testnet document naming the fixtures above, and the swap registry's tokens (`TEST_SWAP_SECTION`). */
 export const TEST_BRIDGE_CONFIG: BridgeConfig = {
   network: 'testnet',
   version: 1,
@@ -60,7 +61,8 @@ export const TEST_BRIDGE_CONFIG: BridgeConfig = {
     evmUsdc: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
     earnProtocol: 'dummy-lending'
   },
-  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
+  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true },
+  swap: TEST_SWAP_SECTION
 };
 
 const SKIPPED: { state: 'skipped' } = { state: 'skipped' };

@@ -853,6 +853,8 @@
   "unavailable": "利用不可",
   "bridgeFeatureUnavailableTitle": "一時的に利用不可",
   "bridgeFeatureUnavailableBody": "この外部サービスは現在利用できません。後ほど再度お試しください。",
+  "swapUnavailableTitle": "このネットワークではスワップは利用できません",
+  "swapUnavailableBody": "このネットワークでは、現時点ではスワップ用トークンは設定されていません。",
   "agglayerCheckingToken": "このトークンが「Slowルート」に対応しているかどうかを確認中…",
   "agglayerTokenUnsupported": "このトークンは「Slow」ルートをサポートしていません。",
   "agglayerTokenCheckFailed": "このトークンを確認できませんでした。戻って、もう一度試してください。",

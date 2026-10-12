@@ -1,10 +1,15 @@
 import '../../../../test/jest-mocks';
 
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { SerializedVaultAsset } from 'lib/shared/types';
 import { __resetFaucetAssetsMetadataForTest, faucetMetadataOf, useWalletStore } from 'lib/store';
 
 import { updateBalancesFromSyncData } from './updateBalancesFromSyncData';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 const MOCK_MIDEN_FAUCET_ID = 'miden-faucet-123';
 let mockNativeAssetId: string | null = null;
@@ -315,7 +320,7 @@ describe('updateBalancesFromSyncData', () => {
     });
     const vaultAssets: SerializedVaultAsset[] = [
       {
-        faucetId: TOKEN_IETH.faucetId,
+        faucetId: TEST_TOKEN_IETH.faucetId,
         amountBaseUnits: '38000000',
         metadata: { name: 'IETH', symbol: 'IETH', decimals: 8 }
       },
@@ -333,7 +338,7 @@ describe('updateBalancesFromSyncData', () => {
       const { fiatPrice, change24h } = balances.find(b => b.tokenId === tokenId)!;
       return { fiatPrice, change24h };
     };
-    expect(priceOf(TOKEN_IETH.faucetId)).toEqual({ fiatPrice: 3000, change24h: 40 });
+    expect(priceOf(TEST_TOKEN_IETH.faucetId)).toEqual({ fiatPrice: 3000, change24h: 40 });
     expect(priceOf('custom-faucet-456')).toEqual({ fiatPrice: 0, change24h: 0 });
     // The fabricated native row has no quote either: MIDEN is not on the feed.
     expect(priceOf(MOCK_MIDEN_FAUCET_ID)).toEqual({ fiatPrice: 0, change24h: 0 });

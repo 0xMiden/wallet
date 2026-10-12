@@ -3753,6 +3753,14 @@
     "message": "This external service is currently down. Please try again later.",
     "englishSource": "This external service is currently down. Please try again later."
   },
+  "swapUnavailableTitle": {
+    "message": "Swap is not available on this network",
+    "englishSource": "Swap is not available on this network"
+  },
+  "swapUnavailableBody": {
+    "message": "No swap tokens are configured for this network yet.",
+    "englishSource": "No swap tokens are configured for this network yet."
+  },
   "agglayerCheckingToken": {
     "message": "Checking whether this token supports the Slow route…",
     "englishSource": "Checking whether this token supports the Slow route…"

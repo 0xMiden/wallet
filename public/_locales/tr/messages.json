@@ -3753,6 +3753,14 @@
     "message": "Bu harici hizmet şu anda devre dışıdır. Lütfen daha sonra tekrar deneyin.",
     "englishSource": "This external service is currently down. Please try again later."
   },
+  "swapUnavailableTitle": {
+    "message": "Bu ağda takas (swap) işlemi mevcut değildir",
+    "englishSource": "Swap is not available on this network"
+  },
+  "swapUnavailableBody": {
+    "message": "Bu ağ için henüz hiçbir takas token'ı yapılandırılmamıştır.",
+    "englishSource": "No swap tokens are configured for this network yet."
+  },
   "agglayerCheckingToken": {
     "message": "Bu tokenin Slow rotasını destekleyip desteklemediğini kontrol ediyorum…",
     "englishSource": "Checking whether this token supports the Slow route…"
