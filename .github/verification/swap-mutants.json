@@ -1,5 +1,5 @@
 {
-  "productSha": "a380eb2fe68616eea8801956dbc2dc6fd4abb322",
+  "productSha": "c2702a5013d7efc9fec784df89a7f1777dab4448",
   "tests": [
     "src/screens/swap-flow/SwapManager.test.tsx",
     "src/lib/miden/swap/tokens.test.ts",
@@ -36,8 +36,8 @@
       "changes": [
         {
           "path": "src/screens/swap-flow/SwapManager.tsx",
-          "before": "key={JSON.stringify(tokens)}",
-          "after": "key={`${defaultPair.offer.faucetId}:${defaultPair.request.faucetId}`}"
+          "before": "const registryKey = JSON.stringify({ tokens, defaultPair });",
+          "after": "const registryKey = JSON.stringify(defaultPair);"
         }
       ],
       "tests": [
@@ -162,8 +162,8 @@
       "changes": [
         {
           "path": "src/screens/swap-flow/SwapManager.tsx",
-          "before": "!hasOfferAmount ||\n      !hasRequestAmount ||",
-          "after": "!(Number(offerAmount) > 0) ||\n      !(Number(requestAmount) > 0) ||"
+          "before": "!hasOfferAmount || !hasRequestAmount ||",
+          "after": "!(Number(offerAmount) > 0) || !(Number(requestAmount) > 0) ||"
         }
       ],
       "tests": [
@@ -363,7 +363,7 @@
         {
           "test": "updates\\ price\\ readiness\\ on\\ a\\ config\\-only\\ change\\ with\\ an\\ unchanged\\ empty\\ feed",
           "message": "100",
-          "description": "Expected balance-amount text100 after ETH changes to fixed-price USDCX; stale readiness preserves the placeholder."
+          "description": "Expected balance-amount text 100 after accepted ETH priceSymbol removal with nominal pricing enabled and the same empty feed; stale readiness preserves the placeholder."
         }
       ]
     },
@@ -384,7 +384,7 @@
         {
           "test": "revalues\\ a\\ stable\\ portfolio\\ when\\ the\\ configured\\ price\\ symbol\\ changes\\ or\\ is\\ removed",
           "message": "50",
-          "description": "Expected total text50 after ETH changes to BTC; stale memo preserves100. Restored test also requires no figure after priceSymbol removal."
+          "description": "Expected total text 50 after ETH changes to BTC; stale memo preserves 100. Restored test also requires no figure after priceSymbol removal."
         }
       ]
     },
@@ -426,7 +426,7 @@
         {
           "test": "revalues\\ stable\\ pending\\ notes\\ on\\ config\\-only\\ price\\ changes\\ and\\ removes\\ an\\ unavailable\\ total",
           "message": "\\$5\\.00",
-          "description": "Expected prompt-card-value text$5.00 after ETH changes to BTC; stale memo preserves$2.50. Restored test also requires absent value and preserved count after removal."
+          "description": "Expected prompt-card-value text $5.00 after ETH changes to BTC; stale memo preserves $2.50. Restored test also requires absent value and preserved count after removal."
         }
       ]
     },
@@ -447,7 +447,133 @@
         {
           "test": "revalues\\ an\\ unchanged\\ pending\\ list\\ on\\ config\\-only\\ price\\ changes\\ and\\ removes\\ an\\ unavailable\\ total",
           "message": "\\$1\\.00",
-          "description": "Expected pending-row-total text$1.00 after USDC changes to fixed-price USDCX; stale memo preserves$2.00. Restored test also requires empty total and preserved count after removal."
+          "description": "Expected pending-row-total text $1.00 after accepted USDC changes to accepted ETH in the same stable USDC2/ETH1 feed; stale memo preserves $2.00. Restored test also requires empty total and preserved count after removal."
+        }
+      ]
+    },
+    {
+      "id": "busy-sync-gate",
+      "changes": [
+        {
+          "path": "src/screens/swap-flow/SwapManager.tsx",
+          "before": "busyRef.current = busy;",
+          "after": "busyRef.current = false;"
+        }
+      ],
+      "tests": [
+        "src/screens/swap-flow/SwapManager.test.tsx"
+      ],
+      "namePattern": "holds\\ the\\ busy\\ review\\ and\\ original\\ flow\\ across",
+      "predictions": [
+        {
+          "test": "holds\\ the\\ busy\\ review\\ and\\ original\\ flow\\ across",
+          "message": "CCC|rs-offer-token",
+          "description": "Expected captured CCC review, amount10, submittingtrue and original flow uncancelled; mutant remounts freshAAA or removes the form."
+        }
+      ]
+    },
+    {
+      "id": "busy-registry-removal",
+      "changes": [
+        {
+          "path": "src/screens/swap-flow/SwapManager.tsx",
+          "before": "activeRegistry.defaultPair === null || (!busyRef.current && availability.state !== 'available')",
+          "after": "activeRegistry.defaultPair === null || availability.state !== 'available'"
+        }
+      ],
+      "tests": [
+        "src/screens/swap-flow/SwapManager.test.tsx"
+      ],
+      "namePattern": "holds\\ the\\ busy\\ review\\ and\\ original\\ flow\\ across\\ entire\\-registry\\ removal",
+      "predictions": [
+        {
+          "test": "holds\\ the\\ busy\\ review\\ and\\ original\\ flow\\ across\\ entire\\-registry\\ removal",
+          "message": "rs-offer-token",
+          "description": "Expected retained review after zero-token refresh; mutant unmounts it and cancels original flow."
+        }
+      ]
+    },
+    {
+      "id": "busy-same-turn-review",
+      "changes": [
+        {
+          "path": "src/screens/swap-flow/SwapManager.tsx",
+          "before": "submissionPhase.current !== 'idle' || submitting || spendingLimitChallenge !== undefined || !publicKey",
+          "after": "submitting || spendingLimitChallenge !== undefined || !publicKey"
+        }
+      ],
+      "tests": [
+        "src/screens/swap-flow/SwapManager.test.tsx"
+      ],
+      "namePattern": "owns\\ review\\ presses\\ synchronously\\ before\\ assessment\\ resolves",
+      "predictions": [
+        {
+          "test": "owns\\ review\\ presses\\ synchronously\\ before\\ assessment\\ resolves",
+          "message": "Expected number of calls: 1|toHaveBeenCalledTimes",
+          "description": "Expected assessment calls1 for two same-turn callbacks; mutant calls assessment2."
+        }
+      ]
+    },
+    {
+      "id": "busy-duplicate-authorization",
+      "changes": [
+        {
+          "path": "src/screens/swap-flow/SwapManager.tsx",
+          "before": "submissionPhase.current = 'executing';",
+          "after": "submissionPhase.current = 'challenge';"
+        }
+      ],
+      "tests": [
+        "src/screens/swap-flow/SwapManager.test.tsx"
+      ],
+      "namePattern": "executes\\ a\\ held\\ challenge\\ once\\ despite\\ duplicate\\ authorization\\ callbacks",
+      "predictions": [
+        {
+          "test": "executes\\ a\\ held\\ challenge\\ once\\ despite\\ duplicate\\ authorization\\ callbacks",
+          "message": "Expected number of calls: 1|toHaveBeenCalledTimes",
+          "description": "Expected initiateSwap calls1; mutant allows two same-turn authorization callbacks to start execution."
+        }
+      ]
+    },
+    {
+      "id": "busy-terminal-release",
+      "changes": [
+        {
+          "path": "src/screens/swap-flow/SwapManager.tsx",
+          "before": "submissionPhase.current = 'idle';\n    onBusyChange(false);",
+          "after": "submissionPhase.current = 'idle';\n    onBusyChange(true);"
+        }
+      ],
+      "tests": [
+        "src/screens/swap-flow/SwapManager.test.tsx"
+      ],
+      "namePattern": "holds\\ the\\ approval\\ challenge\\ through\\ selected\\-token\\ removal\\ until\\ cancellation",
+      "predictions": [
+        {
+          "test": "holds\\ the\\ approval\\ challenge\\ through\\ selected\\-token\\ removal\\ until\\ cancellation",
+          "message": "toBeEmptyDOMElement|10",
+          "description": "Expected latest draft amount empty after cancellation; mutant retains heldCCC10."
+        }
+      ]
+    },
+    {
+      "id": "challenge-eligibility",
+      "changes": [
+        {
+          "path": "src/screens/swap-flow/SwapManager.tsx",
+          "before": "spendingLimitChallenge === undefined &&",
+          "after": "true &&"
+        }
+      ],
+      "tests": [
+        "src/screens/swap-flow/SwapManager.test.tsx"
+      ],
+      "namePattern": "holds\\ the\\ approval\\ challenge\\ through\\ selected\\-token\\ removal\\ until\\ cancellation",
+      "predictions": [
+        {
+          "test": "holds\\ the\\ approval\\ challenge\\ through\\ selected\\-token\\ removal\\ until\\ cancellation",
+          "message": "false",
+          "description": "Expected canProceedfalse while awaiting approval; mutant permits true."
         }
       ]
     }
@@ -457,6 +583,9 @@
     "Registry/quote ownership JSDoc and imports are compile/documentation support, with semantic key/ownership/refresh mutants above.",
     "Sharing already validated requested-base-unit conversion with transaction arguments is a behavior-preserving extraction for the same immutable human amount/precision. Positive integer and fractional controls plus captured submission test assert exact raw transaction arguments.",
     "E2E HTTP200 route replay and immediate sharp screenshot resize are proof harness code. Execute existing Swap E2E on this exact head; inspect its fresh <=1800px attachment before a visual acceptance claim.",
-    "Test-quality mutants deliberately remove a registry token or restore fixed-symbol default selection while keeping strengthened test oracle. Do not reverse the test commit, which would remove the oracle."
+    "Test-quality mutants deliberately remove a registry token or restore fixed-symbol default selection while keeping strengthened test oracle. Do not reverse the test commit, which would remove the oracle.",
+    "Prettier-only formatting, explanatory comments, type-only callback capture declarations and test-only accepted config fixture corrections have no independent production runtime mutation obligation. Their behavior oracles use six pricing invalidation mutants.",
+    "Existing Swap E2E workflow_dispatch upload support is verified by final dispatch artifact presence; no independent semantic runtime mutation.",
+    "Positive integer/fractional controls intentionally stay green when guards are removed; non-vacuity belongs to negative behavior oracles."
   ]
 }
