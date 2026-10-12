@@ -115,6 +115,102 @@ public class BreadPresentationControllerTest {
         webView = ReflectionHelpers.getField(dialog, "_webView");
     }
 
+    @Test public void nonPresentationDefaultStillShowsAndQueuedOldLifetimeCannotReachReplacement() {
+        open(true, true, "default");
+        dialog.forceClose();
+        options.setBreadPresentation(null);
+        dialog = new WebViewDialog(activity, androidx.appcompat.R.style.Theme_AppCompat_Light_NoActionBar, options, null, new WebView(activity));
+        dialog.activity = activity;
+        dialog.presentWebView();
+        assertTrue(dialog.isShowing());
+        WebViewRegistry.getShared().register("reused", dialog);
+        dialog.configureManagedClose("reused", new JSObject().put("token", "outgoing"), ignored -> {});
+        List<Runnable> queued = new ArrayList<>();
+        InAppBrowserPlugin plugin = spy(new InAppBrowserPlugin());
+        androidx.appcompat.app.AppCompatActivity pluginActivity = mock(androidx.appcompat.app.AppCompatActivity.class);
+        doAnswer(call -> { queued.add(call.getArgument(0)); return null; }).when(pluginActivity).runOnUiThread(any());
+        doReturn(pluginActivity).when(plugin).getActivity();
+        PluginCall legacy = mock(PluginCall.class);
+        when(legacy.getString("id")).thenReturn("reused");
+        when(legacy.getBoolean("visible", true)).thenReturn(false);
+        plugin.setVisible(legacy);
+        queued.forEach(Runnable::run);
+        queued.clear();
+        verify(legacy).resolve();
+        assertFalse(dialog.isShowing());
+        PluginCall request = mock(PluginCall.class);
+        when(request.getString("id")).thenReturn("reused");
+        when(request.getString("managedHostCloseToken")).thenReturn("outgoing");
+        when(request.getBoolean("visible", true)).thenReturn(true);
+        when(request.getInt("visibilitySequence")).thenReturn(1);
+        plugin.setVisible(request);
+        WebViewRegistry.getShared().remove("reused");
+        WebViewDialog replacement = mock(WebViewDialog.class);
+        WebViewRegistry.getShared().register("reused", replacement);
+        queued.forEach(Runnable::run);
+        verify(replacement, never()).presentationVisibility(anyBoolean(), any(), any());
+        verify(request).resolve();
+    }
+
+    @Test public void showBeforeMetadataKeepsNativeSurfaceHiddenButRetainsIntent() {
+        open(true, true, "default", false);
+        dialog.show();
+        assertFalse(dialog.isShowing());
+        assertTrue(controller.state.active());
+        assertTrue(fits());
+        assertFalse(ReflectionHelpers.getField(controller, "appliedFullscreen"));
+    }
+
+    @Test public void metadataResolvesBeforeReadyButWaitsForMatchingHostPolicy() {
+        open(true, true, "default", false);
+        dialog.show();
+        controller.state.configure("early", true, true);
+        controller.render();
+        long revision = controller.state.policyRevision();
+        verify(callbacks).presentationChanged(eq(true), eq(true), eq(revision), isNull());
+        assertFalse(dialog.isShowing());
+        controller.visibility(true, (int) revision - 1, 1);
+        assertFalse(dialog.isShowing());
+        controller.visibility(true, (int) revision, 2);
+        assertTrue(dialog.isShowing());
+        assertFalse(fits());
+        assertFalse(controller.state.isReady());
+        assertEquals(View.VISIBLE, ((View) ReflectionHelpers.getField(controller, "cover")).getVisibility());
+        controller.visibility(false, null, 4);
+        controller.visibility(true, (int) revision, 3);
+        assertFalse(dialog.isShowing());
+        controller.navigate();
+        verify(callbacks).presentationChanged(eq(true), eq(false), eq(controller.state.policyRevision()), isNull());
+        controller.visibility(true, (int) revision, 5);
+        assertFalse(dialog.isShowing());
+        controller.failed();
+        assertTrue(controller.state.policyResolved());
+        controller.visibility(true, (int) controller.state.policyRevision(), 6);
+        assertTrue(dialog.isShowing());
+        assertEquals(View.VISIBLE, ((View) ReflectionHelpers.getField(controller, "retry")).getVisibility());
+    }
+
+    @Test public void firstBrowserAndKnownFallbackWaitForHostBoundsAcknowledgement() {
+        for (boolean modern : new boolean[] {true, false}) {
+            features.when(() -> WebViewFeature.isFeatureSupported(WebViewFeature.NAVIGATION_LISTENER_V1)).thenReturn(modern);
+            open(true, true, "default", false);
+            if (modern) controller.state.configure("ordinary", false, false);
+            controller.render();
+            long revision = controller.state.policyRevision();
+            verify(callbacks).presentationChanged(eq(false), eq(true), eq(revision), isNull());
+            dialog.show();
+            assertFalse(dialog.isShowing());
+            dialog.updateDimensions(320, 500, 4, 90);
+            int browserY = dialog.getWindow().getAttributes().y;
+            controller.visibility(true, (int) revision, 1);
+            assertTrue(dialog.isShowing());
+            assertEquals(320, dialog.getWindow().getAttributes().width);
+            assertEquals(browserY, dialog.getWindow().getAttributes().y);
+            assertTrue(fits());
+            dialog.forceClose();
+        }
+    }
+
     @Test public void initiallyHiddenOpeningWaitsForExplicitShowOnTheSameDialog() {
         open(true, true, "default", false);
         assertFalse(dialog.isShowing());
@@ -127,7 +223,7 @@ public class BreadPresentationControllerTest {
         assertTrue(fits());
         assertFalse(ReflectionHelpers.getField(controller, "appliedFullscreen"));
         WebView original = webView;
-        dialog.show();
+        acknowledgePolicy();
         assertTrue(dialog.isShowing());
         assertTrue(controller.fullscreen());
         assertSame(original, ReflectionHelpers.getField(dialog, "_webView"));
@@ -141,17 +237,18 @@ public class BreadPresentationControllerTest {
         assertFalse(controller.fullscreen());
         assertTrue(fits());
         verify(options.getPluginCall()).resolve();
-        dialog.show();
+        acknowledgePolicy();
         assertTrue(dialog.isShowing());
         assertFalse(controller.fullscreen());
         assertTrue(fits());
         assertEquals(View.GONE, ((View) ReflectionHelpers.getField(controller, "overlay")).getVisibility());
     }
 
-    @Test public void omittedInitialVisibilityKeepsLegacyVisibleOpening() {
+    @Test public void omittedInitialVisibilityRetainsIntentWhilePolicyIsPending() {
         open(true, true, "default");
         assertTrue(options.isInitiallyVisible());
-        assertTrue(dialog.isShowing());
+        assertFalse(dialog.isShowing());
+        assertTrue(controller.state.active());
         assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
         verify(options.getPluginCall()).resolve();
     }
@@ -165,6 +262,8 @@ public class BreadPresentationControllerTest {
 
     @Test public void managedCloseRetainsTheDialogAndRejectsStaleReceipts() {
         open(true, true, "default");
+        controller.state.configure("browser", false, false);
+        acknowledgePolicy();
         List<JSObject> requests = new ArrayList<>();
         WebViewRegistry.getShared().register("managed", dialog);
         dialog.configureManagedClose("managed", new JSObject().put("token", "lifetime")
@@ -215,6 +314,8 @@ public class BreadPresentationControllerTest {
     @Test @Config(shadows = PaintWebView.class)
     public void managedCloseWaitsForTheHostFenceAndDiscardsThePreRotationFence() {
         open(true, true, "default");
+        controller.state.configure("browser", false, false);
+        acknowledgePolicy();
         WebView host = spy((WebView) ReflectionHelpers.getField(dialog, "capacitorWebView"));
         ReflectionHelpers.setField(dialog, "capacitorWebView", host);
         activity.setContentView(host);
@@ -244,6 +345,8 @@ public class BreadPresentationControllerTest {
     @Test @Config(shadows = PaintWebView.class)
     public void managedCloseWaitsForHardwareFrameCommitAfterHostVisualReadiness() {
         open(true, true, "default");
+        controller.state.configure("browser", false, false);
+        acknowledgePolicy();
         WebView host = spy((WebView) ReflectionHelpers.getField(dialog, "capacitorWebView"));
         ReflectionHelpers.setField(dialog, "capacitorWebView", host);
         doReturn(390).when(host).getWidth(); doReturn(844).when(host).getHeight();
@@ -268,6 +371,8 @@ public class BreadPresentationControllerTest {
 
     @Test public void failedManagedCloseKeepsTheLogoAndExposesExplicitRecovery() {
         open(true, true, "default");
+        controller.state.configure("browser", false, false);
+        acknowledgePolicy();
         WebViewRegistry.getShared().register("managed", dialog);
         dialog.configureManagedClose("managed", new JSObject().put("token", "lifetime")
             .put("errorLabel", "Error").put("retryLabel", "Retry").put("exitLabel", "Exit now"), ignored -> {});
@@ -318,9 +423,27 @@ public class BreadPresentationControllerTest {
 
     private boolean fits() { return ReflectionHelpers.callInstanceMethod(dialog.getWindow(), "decorFitsSystemWindows"); }
     private WindowInsetsControllerCompat bars() { return WindowCompat.getInsetsController(dialog.getWindow(), dialog.getWindow().getDecorView()); }
+    private int acknowledgementSequence;
+    private void acknowledgePolicy() {
+        String id = "policy-fixture";
+        WebViewRegistry.getShared().register(id, dialog);
+        InAppBrowserPlugin plugin = spy(new InAppBrowserPlugin());
+        androidx.appcompat.app.AppCompatActivity pluginActivity = mock(androidx.appcompat.app.AppCompatActivity.class);
+        doAnswer(call -> { ((Runnable) call.getArgument(0)).run(); return null; }).when(pluginActivity).runOnUiThread(any());
+        doReturn(pluginActivity).when(plugin).getActivity();
+        PluginCall request = mock(PluginCall.class);
+        when(request.getString("id")).thenReturn(id);
+        when(request.getBoolean("visible", true)).thenReturn(true);
+        when(request.getInt("policyRevision")).thenReturn((int) controller.state.policyRevision());
+        when(request.getInt("visibilitySequence")).thenReturn(++acknowledgementSequence);
+        if (dialog.managedClose() != null) when(request.getString("managedHostCloseToken")).thenReturn(dialog.managedClose().token);
+        plugin.setVisible(request);
+        verify(request).resolve();
+        WebViewRegistry.getShared().remove(id);
+    }
     private void fullscreen() {
         controller.state.configure("doc", true, true);
-        controller.render();
+        acknowledgePolicy();
         assertFalse(fits());
         assertEquals(2, bars().getSystemBarsBehavior());
     }
@@ -334,7 +457,7 @@ public class BreadPresentationControllerTest {
         boolean fit = fits(); int behavior = bars().getSystemBarsBehavior();
         assertTrue(fit);
         fullscreen();
-        controller.navigate(); controller.state.configure("next", false, false); controller.render();
+        controller.navigate(); controller.state.configure("next", false, false); acknowledgePolicy();
         assertRestored(fit, behavior);
     }
 
@@ -361,7 +484,7 @@ public class BreadPresentationControllerTest {
     @Test public void blankToolbarKeepsItsPreviouslySelectedEdgeToEdgePolicy() {
         open(true, true, "blank");
         assertFalse(fits()); int behavior = bars().getSystemBarsBehavior();
-        fullscreen(); controller.state.configure("next", false, false); controller.render();
+        fullscreen(); controller.state.configure("next", false, false); acknowledgePolicy();
         assertRestored(false, behavior);
     }
 
@@ -375,7 +498,7 @@ public class BreadPresentationControllerTest {
             views.when(() -> ViewCompat.getRootWindowInsets(any())).thenReturn(
                 new WindowInsetsCompat.Builder().setVisible(WindowInsetsCompat.Type.systemBars(), false).build());
             dialog.show();
-            controller.state.configure("browser", false, false); controller.render();
+            controller.state.configure("browser", false, false); acknowledgePolicy();
             int requested = ReflectionHelpers.callInstanceMethod(dialog.getWindow().getInsetsController(), "getRequestedVisibleTypes");
             assertEquals(3, requested & 3);
         }
@@ -385,7 +508,7 @@ public class BreadPresentationControllerTest {
     public void android15RetainsItsBrowserEdgeToEdgePolicy() {
         open(true, true, "default");
         assertFalse(fits()); int behavior = bars().getSystemBarsBehavior();
-        fullscreen(); controller.state.configure("next", false, false); controller.render();
+        fullscreen(); controller.state.configure("next", false, false); acknowledgePolicy();
         assertRestored(false, behavior);
     }
 
@@ -425,6 +548,7 @@ public class BreadPresentationControllerTest {
     private void flushTokenReads(String token) {
         for (int i = 0; !tokenReads.isEmpty() && i < 100; i++) tokenReads.remove().onReceiveValue("\"" + token + "\"");
         assertTrue("Token validation must settle", tokenReads.isEmpty());
+        if (controller.state.active() && controller.state.policyResolved()) acknowledgePolicy();
     }
 
     private void readyDocument(String token) {
@@ -703,6 +827,7 @@ public class BreadPresentationControllerTest {
     @Test public void missingNavigationIdentityKeepsBrowserAndRejectsPresentationRequests() {
         features.when(() -> WebViewFeature.isFeatureSupported(WebViewFeature.NAVIGATION_LISTENER_V1)).thenReturn(false);
         open(true, true, "default");
+        acknowledgePolicy();
         assertEquals(View.GONE, ((View) ReflectionHelpers.getField(controller, "overlay")).getVisibility());
         assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, webView.getImportantForAccessibility());
         assertTrue(fits()); assertFalse(controller.fullscreen());
@@ -710,7 +835,7 @@ public class BreadPresentationControllerTest {
             .put("display", "fullscreen").put("manualReady", true).toString();
         messageListener.onPostMessage(webView, new WebMessageCompat(fullscreen), Uri.parse(options.getUrl()), true, null);
         assertTrue(shadowOf(webView).getLastEvaluatedJavascript().contains("\"display\":\"browser\""));
-        verify(callbacks, atLeastOnce()).presentationChanged(false);
+        verify(callbacks, atLeastOnce()).presentationChanged(eq(false), eq(true), anyLong(), nullable(String.class));
         message("ready", "fallback");
         assertTrue(shadowOf(webView).getLastEvaluatedJavascript().contains("\"ok\":false"));
         message("close", "fallback");
@@ -763,7 +888,7 @@ public class BreadPresentationControllerTest {
         WindowManager.LayoutParams full = dialog.getWindow().getAttributes();
         assertEquals(-1, full.width); assertEquals(-1, full.height); assertEquals(0, full.x); assertEquals(0, full.y);
         assertEquals(Integer.valueOf(300), options.getWidth()); assertEquals(Integer.valueOf(500), options.getHeight());
-        controller.navigate(); controller.state.configure("browser", false, false); controller.render();
+        controller.navigate(); controller.state.configure("browser", false, false); acknowledgePolicy();
         WindowManager.LayoutParams normal = dialog.getWindow().getAttributes();
         float density = activity.getResources().getDisplayMetrics().density;
         int status = activity.getResources().getDimensionPixelSize(activity.getResources().getIdentifier("status_bar_height", "dimen", "android"));

@@ -1213,6 +1213,10 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 return
             }
 
+            if (call.getString("managedHostCloseToken") != nil || webViewController.breadPresentation != nil),
+               call.getString("managedHostCloseToken") != webViewController.managedClose?.token {
+                call.resolve(); return
+            }
             if webViewController.managedClose?.closing == true { call.resolve(); return }
             // Miden patch (PR-6/7 polish): for Architecture A instances
             // (with a containerWindow), resize the UIWindow itself to
@@ -1302,13 +1306,19 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject("instance not found: \(instanceId)")
                 return
             }
+            if (call.getString("managedHostCloseToken") != nil || instance.controller.breadPresentation != nil),
+               call.getString("managedHostCloseToken") != instance.managedClose?.token {
+                call.resolve(); return
+            }
             if instance.managedClose?.closing == true { call.resolve(); return }
-            instance.isVisible = visible
             if let presentation = instance.controller.breadPresentation {
-                presentation.setVisible(visible)
+                if instance.managedClose != nil && call.getInt("visibilitySequence") == nil { call.resolve(); return }
+                presentation.setVisible(visible, policyRevision: call.getInt("policyRevision"), sequence: call.getInt("visibilitySequence"))
+                instance.isVisible = presentation.state.desiredVisibility
                 call.resolve()
                 return
             }
+            instance.isVisible = visible
             // Architecture A path: just toggle the UIWindow.
             if let window = instance.containerWindow {
                 window.isHidden = !visible

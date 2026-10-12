@@ -169,6 +169,9 @@ export interface DappSessionState {
   error: string | null;
   /** Native-confirmed display policy, independent of wallet permissions. */
   presentation: 'browser' | 'fullscreen';
+  policyResolved?: boolean;
+  policyRevision?: number;
+  policyLifetime?: string;
 }
 
 interface ManagedCloseRecord {
@@ -181,6 +184,9 @@ interface ManagedCloseRecord {
 }
 
 interface DappBrowserContextValue {
+  policyPending: boolean;
+  presentation: 'browser' | 'fullscreen';
+  reportPresentationLayout: (id: string, lifetime: string, revision: number, rect: WebViewRect) => void;
   reportLauncherCommit: (active: boolean) => void;
 
   /** The foregrounded session, or null if the launcher is showing. */
@@ -405,6 +411,26 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const launcherCommitted = useRef(false);
   const hostCommitGeneration = useRef(0);
   const [closeRevision, setCloseRevision] = useState(0);
+  const [presentationLayout, setPresentationLayout] = useState<{
+    id: string;
+    lifetime: string;
+    revision: number;
+    rect: WebViewRect;
+  } | null>(null);
+  const reportPresentationLayout = useCallback((id: string, lifetime: string, revision: number, rect: WebViewRect) => {
+    if (managedTokens.current.get(id) !== lifetime || rect.width <= 0 || rect.height <= 0) return;
+    setPresentationLayout(previous =>
+      previous?.id === id &&
+      previous.lifetime === lifetime &&
+      previous.revision === revision &&
+      previous.rect.x === rect.x &&
+      previous.rect.y === rect.y &&
+      previous.rect.width === rect.width &&
+      previous.rect.height === rect.height
+        ? previous
+        : { id, lifetime, revision, rect }
+    );
+  }, []);
   const reportLauncherCommit = useCallback((active: boolean) => {
     launcherCommitted.current = active;
   }, []);
@@ -525,7 +551,23 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       const managedL = await InAppBrowser.addListener('hostCloseRequested', requestManagedClose);
       listenerRemovers.push(() => managedL.remove());
       const presentationL = await InAppBrowser.addListener('presentationChanged', event => {
-        updateSession(event.id, s => ({ ...s, presentation: event.display }));
+        if (
+          event.managedHostCloseToken !== managedTokens.current.get(event.id) ||
+          !Number.isSafeInteger(event.policyRevision) ||
+          typeof event.policyResolved !== 'boolean'
+        )
+          return;
+        updateSession(event.id, s => {
+          if (s.policyLifetime === event.managedHostCloseToken && (s.policyRevision ?? -1) >= event.policyRevision!)
+            return s;
+          return {
+            ...s,
+            presentation: event.display,
+            policyResolved: event.policyResolved,
+            policyRevision: event.policyRevision,
+            policyLifetime: event.managedHostCloseToken
+          };
+        });
       });
       listenerRemovers.push(() => presentationL.remove());
 
@@ -746,7 +788,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           isCold: true,
           originConfirmed: false,
           error: null,
-          presentation: 'browser'
+          presentation: 'browser',
+          policyResolved: !isMobile()
         }));
 
       // Merge into state — this path assumes there are no live sessions
@@ -962,7 +1005,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           isCold: false,
           originConfirmed: false,
           error: null,
-          presentation: 'browser'
+          presentation: 'browser',
+          policyResolved: !isMobile()
         }
       ]);
       setForegroundId(next.id);
@@ -1206,6 +1250,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const session = foregroundState?.session ?? null;
   const mode: DappMode = foregroundState ? 'active' : 'launcher';
   const isLoading = foregroundState?.isLoading ?? false;
+  const policyPending = foregroundState?.policyResolved === false;
+  const presentation = foregroundState?.presentation ?? 'browser';
 
   const parkedSessions = useMemo(() => sessionStates.filter(s => s.status === 'parked'), [sessionStates]);
 
@@ -1249,7 +1295,10 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       setSlotRect,
       slotRect,
       holdHostOverlay,
-      reportLauncherCommit
+      reportLauncherCommit,
+      policyPending,
+      presentation,
+      reportPresentationLayout
     }),
     [
       session,
@@ -1266,7 +1315,10 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       closeSwitcher,
       slotRect,
       holdHostOverlay,
-      reportLauncherCommit
+      reportLauncherCommit,
+      policyPending,
+      presentation,
+      reportPresentationLayout
     ]
   );
 
@@ -1274,6 +1326,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     id: state.session.id,
     instance: state.instance,
     active: state.status === 'active',
+    policyRevision: state.policyRevision,
+    policyResolved: state.policyResolved,
+    policyLifetime: state.policyLifetime,
     lifetime: sessionLifetimes.current.get(state.session.id)
   }));
   const visibilityTargetsRef = useRef(visibilityTargets);
@@ -1285,6 +1340,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         target.id !== previous?.id ||
         target.instance !== previous.instance ||
         target.active !== previous.active ||
+        target.policyRevision !== previous.policyRevision ||
+        target.policyResolved !== previous.policyResolved ||
+        target.policyLifetime !== previous.policyLifetime ||
         target.lifetime !== previous.lifetime
       );
     })
@@ -1296,6 +1354,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const foregroundInstance = foregroundVisibilityTarget?.instance;
   const foregroundActive = foregroundVisibilityTarget?.active;
   const foregroundLifetime = foregroundVisibilityTarget?.lifetime;
+  const foregroundPolicyRevision = foregroundVisibilityTarget?.policyRevision;
+  const foregroundPolicyResolved = foregroundVisibilityTarget?.policyResolved;
+  const foregroundPolicyLifetime = foregroundVisibilityTarget?.policyLifetime;
 
   // Generic dialogs are outside this provider. All native windows remain hidden while the host owns visibility.
   useEffect(() => {
@@ -1333,11 +1394,22 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         foregroundIdRef.current !== id ||
         sessionLifetimes.current.get(id) !== foregroundLifetime ||
         getSessionStateById(id)?.instance !== instance ||
+        getSessionStateById(id)?.policyRevision !== foregroundPolicyRevision ||
         !slotRectRef.current
       )
         return;
       try {
-        await instance.setVisible(true);
+        const acknowledged =
+          foregroundPolicyResolved &&
+          presentationLayout?.id === id &&
+          presentationLayout.lifetime === foregroundPolicyLifetime &&
+          presentationLayout.revision === foregroundPolicyRevision &&
+          presentationLayout.rect.x === rect.x &&
+          presentationLayout.rect.y === rect.y &&
+          presentationLayout.rect.width === rect.width &&
+          presentationLayout.rect.height === rect.height;
+        if (acknowledged) await instance.setVisible(true, foregroundPolicyRevision);
+        else await instance.setVisible(true);
       } catch (e) {
         console.warn('[DappBrowserProvider] setVisible(true) failed:', e);
       }
@@ -1352,6 +1424,10 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     foregroundInstance,
     foregroundActive,
     foregroundLifetime,
+    foregroundPolicyRevision,
+    foregroundPolicyResolved,
+    foregroundPolicyLifetime,
+    presentationLayout,
     slotRect?.x,
     slotRect?.y,
     slotRect?.width,

@@ -587,6 +587,7 @@ export interface OpenWebViewOptions {
     disableOverscroll?: boolean;
 }
 export interface DimensionOptions {
+    managedHostCloseToken?: string;
     /**
      * Miden patch (PR-4 chunk 5): id of the multi-instance webview to
      * resize. Defaults to 'default' for legacy single-instance callers.
@@ -615,6 +616,9 @@ export interface InAppBrowserPlugin {
     addListener(eventName: 'presentationChanged', listenerFunc: (event: {
         id: string;
         display: 'browser' | 'fullscreen';
+        policyResolved?: boolean;
+        policyRevision?: number;
+        managedHostCloseToken?: string;
     }) => void): Promise<PluginListenerHandle>;
     /**
      * Navigates back in the WebView's history if possible
@@ -809,6 +813,9 @@ export interface InAppBrowserPlugin {
     setVisible(options: {
         id: string;
         visible: boolean;
+        managedHostCloseToken?: string;
+        visibilitySequence?: number;
+        policyRevision?: number;
     }): Promise<void>;
     /**
      * Miden patch (PR-4 chunk 4): list every currently registered instance

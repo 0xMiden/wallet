@@ -11,6 +11,13 @@ private final class CloseFenceWebView: WKWebView {
     }
 }
 
+private final class PolicyRecordingPlugin: InAppBrowserPlugin {
+    var policies = [[String: Any]]()
+    override func notifyListeners(_ eventName: String, data: [String: Any]?) {
+        if eventName == "presentationChanged", let data { policies.append(data) }
+    }
+}
+
 @MainActor
 final class BreadPresentationTests: XCTestCase {
     private func metricFixture() async throws -> (WKWebView, UIWindow) {
@@ -28,7 +35,10 @@ final class BreadPresentationTests: XCTestCase {
             <script>
             window.__breadPresentationToken='metrics';
             window.values=[];
-            addEventListener('resize',()=>window.resizedWidth=innerWidth);
+            window.resizeCount=0;
+            window.rafObserved=false;
+            requestAnimationFrame(()=>window.rafObserved=true);
+            addEventListener('resize',()=>{window.resizedWidth=innerWidth;window.resizeCount++});
             window.__breadPresentationUpdate=value=>{window.values.push(value);document.body.style.paddingTop=value.controlInsetTop+'px'};
             </script><body>Metric fixture</body>
             """, baseURL: nil)
@@ -130,12 +140,37 @@ final class BreadPresentationTests: XCTestCase {
     func testNativeMetricsReprojectWhenViewportResizeArrivesAfterPublication() async throws {
         let (web, window) = try await metricFixture()
         defer { InAppBrowserPlugin.releaseContainerWindow(window) }
+        var observations = [[String: Any]]()
+        func observe(_ label: String) async throws {
+            let page = try await web.evaluateJavaScript("""
+                (()=>{const m=window.__breadNativeMetrics;return {
+                  innerWidth,innerHeight,visualWidth:visualViewport?.width,visualHeight:visualViewport?.height,
+                  resizeCount,rafObserved,visibility:document.visibilityState,
+                  metrics:m?{revision:m.revision,width:m.width,inset:m.inset,projectedInset:m.projectedInset,
+                    display:m.display,currentDocument:m.token===window.__breadPresentationToken}:null
+                }})()
+                """)
+            observations.append(["label": label, "time": CACurrentMediaTime(),
+                "windowFrame": NSCoder.string(for: window.frame), "windowBounds": NSCoder.string(for: window.bounds),
+                "windowHidden": window.isHidden, "windowKey": window.isKeyWindow,
+                "sceneOrientation": window.windowScene?.interfaceOrientation.rawValue ?? -1,
+                "sceneBounds": NSCoder.string(for: window.windowScene?.coordinateSpace.bounds ?? .zero),
+                "webFrame": NSCoder.string(for: web.frame), "webBounds": NSCoder.string(for: web.bounds),
+                "webPresentationBounds": NSCoder.string(for: web.layer.presentation()?.bounds ?? .zero),
+                "webAttached": web.window === window, "webHidden": web.isHidden, "page": page])
+        }
         let published = try await project(web, revision: 1)
+        try await observe("published")
         XCTAssertTrue(published)
         let initial = try await web.evaluateJavaScript("values.at(-1).controlInsetTop") as? Double
         XCTAssertEqual(try XCTUnwrap(initial), 88 * 402 / 874.0, accuracy: 0.001)
         web.frame.size.width = 874
         let resized = try await eventually { (try await web.evaluateJavaScript("window.resizedWidth")) as? Int == 874 }
+        try await observe(resized ? "resize-observed" : "resize-timeout")
+        let data = try JSONSerialization.data(withJSONObject: observations, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("bread-entry-metric-trace.json"))
+        let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+        attachment.name = "entry-metric-trace"; attachment.lifetime = .keepAlways; add(attachment)
         XCTAssertTrue(resized)
         let projected = try await web.evaluateJavaScript("values.at(-1).controlInsetTop") as? Double
         XCTAssertEqual(projected, 88)
@@ -529,6 +564,173 @@ final class BreadPresentationTests: XCTestCase {
         let json = String(data: try JSONSerialization.data(withJSONObject: message), encoding: .utf8)!
         _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify(\(json))); true")
         try await Task.sleep(nanoseconds: 60_000_000)
+        try await publicVisibility(live, visible: live.presentation.state.desiredVisibility,
+            revision: live.presentation.state.policyRevision)
+    }
+
+    private func publicVisibility(_ live: LivePresentation, visible: Bool, revision: Int? = nil,
+                                  lifetime: String? = nil, sequence: Int? = nil) async throws {
+        let completed = expectation(description: "public visibility command")
+        var options: [String: Any] = ["id": live.instance.id, "visible": visible]
+        if let revision { options["policyRevision"] = revision }
+        if let lifetime { options["managedHostCloseToken"] = lifetime }
+        if let sequence { options["visibilitySequence"] = sequence }
+        let call = try XCTUnwrap(CAPPluginCall(callbackId: "policy", methodName: "setVisible", options: options,
+            success: { _, _ in completed.fulfill() }, error: { error in XCTFail(String(describing: error)) }))
+        InAppBrowserPlugin().setVisible(call)
+        await fulfillment(of: [completed], timeout: 2)
+    }
+
+    func testFirstMetadataPublishesResolvedPolicyBeforeReadyAndNavigationPublishesPending() async throws {
+        let live = try await livePresentation(initiallyVisible: false)
+        let plugin = PolicyRecordingPlugin()
+        live.owner.capBrowserPlugin = plugin
+        defer { live.dispose() }
+        try await publicVisibility(live, visible: true)
+        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'configure',display:'fullscreen',themeColor:'#123456'})); true")
+        let resolved = try await eventually { plugin.policies.last?["policyResolved"] as? Bool == true }
+        XCTAssertTrue(resolved)
+        let revision = try XCTUnwrap(plugin.policies.last?["policyRevision"] as? Int)
+        XCTAssertEqual(plugin.policies.last?["display"] as? String, "fullscreen")
+        XCTAssertFalse(live.presentation.state.documentReady)
+        XCTAssertTrue(live.window.isHidden)
+        try await publicVisibility(live, visible: true, revision: revision - 1, sequence: 1)
+        XCTAssertTrue(live.window.isHidden)
+        try await publicVisibility(live, visible: true, revision: revision, sequence: 2)
+        XCTAssertFalse(live.window.isHidden)
+        XCTAssertEqual(live.window.frame, live.window.windowScene?.coordinateSpace.bounds)
+        XCTAssertEqual(live.cover.backgroundColor, UIColor(hexString: "#123456"))
+        let count = plugin.policies.count
+        try await configure(live, theme: "#123456")
+        XCTAssertEqual(plugin.policies.count, count)
+        XCTAssertEqual(live.presentation.state.policyRevision, revision)
+        live.presentation.beginNavigation()
+        XCTAssertEqual(plugin.policies.last?["policyResolved"] as? Bool, false)
+        XCTAssertGreaterThan(live.presentation.state.policyRevision, revision)
+        XCTAssertTrue(live.window.isHidden)
+        live.presentation.failed()
+        XCTAssertEqual(plugin.policies.last?["policyResolved"] as? Bool, true)
+        try await publicVisibility(live, visible: true, revision: live.presentation.state.policyRevision, sequence: 3)
+        XCTAssertFalse(live.window.isHidden)
+        XCTAssertEqual(live.presentation.state.phase, .error)
+    }
+
+    func testFirstOrdinaryPolicyPublishesAndUsesCommittedBrowserSlot() async throws {
+        let live = try await livePresentation(initiallyVisible: false)
+        let plugin = PolicyRecordingPlugin()
+        live.owner.capBrowserPlugin = plugin
+        defer { live.dispose() }
+        try await publicVisibility(live, visible: true)
+        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'configure',display:'browser'})); true")
+        let resolved = try await eventually { plugin.policies.last?["policyResolved"] as? Bool == true }
+        XCTAssertTrue(resolved)
+        XCTAssertEqual(plugin.policies.last?["display"] as? String, "browser")
+        XCTAssertTrue(live.window.isHidden)
+        let bounds = expectation(description: "browser bounds applied")
+        let call = try XCTUnwrap(CAPPluginCall(callbackId: "bounds", methodName: "updateDimensions",
+            options: ["id": live.instance.id, "x": NSNumber(value: 4), "y": NSNumber(value: 90), "width": NSNumber(value: 320), "height": NSNumber(value: 500)],
+            success: { _, _ in bounds.fulfill() }, error: { error in XCTFail(String(describing: error)) }))
+        InAppBrowserPlugin().updateDimensions(call)
+        await fulfillment(of: [bounds], timeout: 2)
+        XCTAssertTrue(live.window.isHidden)
+        try await publicVisibility(live, visible: true, revision: live.presentation.state.policyRevision)
+        XCTAssertFalse(live.window.isHidden)
+        XCTAssertEqual(live.window.frame, CGRect(x: 4, y: 90, width: 320, height: 500))
+        XCTAssertFalse(live.owner.prefersStatusBarHidden)
+    }
+
+    func testQueuedManagedVisibilityCannotTargetAReusedUnmanagedID() async throws {
+        let outgoing = try await livePresentation(initiallyVisible: false)
+        let next = try await livePresentation(initiallyVisible: false)
+        defer { outgoing.dispose(); next.dispose() }
+        let managed = try XCTUnwrap(ManagedHostClose(options: ["token": "outgoing", "errorLabel": "Error", "retryLabel": "Retry", "exitLabel": "Exit"],
+            instance: outgoing.instance, host: { nil }, notify: { _ in }, finish: {}))
+        outgoing.instance.managedClose = managed
+        outgoing.owner.managedClose = managed
+        let completed = expectation(description: "stale command discarded")
+        let call = try XCTUnwrap(CAPPluginCall(callbackId: "old", methodName: "setVisible",
+            options: ["id": outgoing.instance.id, "visible": true, "managedHostCloseToken": "outgoing", "visibilitySequence": 1],
+            success: { _, _ in completed.fulfill() }, error: { error in XCTFail(String(describing: error)) }))
+        InAppBrowserPlugin().setVisible(call)
+        let replacement = WKWebViewInstance(id: outgoing.instance.id, controller: next.owner,
+            navigationController: next.instance.navigationController)
+        replacement.containerWindow = next.window
+        WebViewRegistry.shared.remove(id: outgoing.instance.id)
+        WebViewRegistry.shared.register(replacement)
+        await fulfillment(of: [completed], timeout: 2)
+        XCTAssertFalse(replacement.isVisible)
+        XCTAssertFalse(next.presentation.state.desiredVisibility)
+        XCTAssertTrue(next.window.isHidden)
+    }
+
+    func testPolicyAcknowledgementRejectsNavigationAndOlderVisibilityCommands() {
+        let state = BreadPresentationState(timeout: 30, initiallyVisible: false)
+        state.beginNavigation()
+        XCTAssertTrue(state.requestVisibility(true, sequence: 1))
+        XCTAssertFalse(state.effectiveVisibility)
+        XCTAssertTrue(state.configure(.browser, generation: state.generation))
+        let browser = state.policyRevision
+        XCTAssertTrue(state.policyResolved)
+        XCTAssertFalse(state.effectiveVisibility)
+        XCTAssertTrue(state.requestVisibility(true, policyRevision: browser, sequence: 2))
+        XCTAssertTrue(state.effectiveVisibility)
+        state.configure(.browser, generation: state.generation)
+        XCTAssertEqual(state.policyRevision, browser)
+        XCTAssertTrue(state.requestVisibility(false, sequence: 4))
+        XCTAssertFalse(state.requestVisibility(true, policyRevision: browser, sequence: 3))
+        XCTAssertFalse(state.effectiveVisibility)
+        state.beginNavigation()
+        XCTAssertGreaterThan(state.policyRevision, browser)
+        XCTAssertFalse(state.policyResolved)
+        XCTAssertFalse(state.requestVisibility(true, policyRevision: browser, sequence: 5))
+        state.configure(.fullscreen, generation: state.generation)
+        XCTAssertTrue(state.requestVisibility(true, policyRevision: state.policyRevision, sequence: 6))
+        XCTAssertTrue(state.effectiveVisibility)
+        state.close()
+        XCTAssertFalse(state.requestVisibility(true, policyRevision: state.policyRevision, sequence: 7))
+    }
+
+    func testUnresolvedTimeoutAndFailureResolvePolicyWithoutAttachingUntilAcknowledged() {
+        let state = BreadPresentationState(timeout: 30)
+        state.beginNavigation()
+        let pending = state.policyRevision
+        state.elapse(10)
+        state.requestVisibility(false)
+        state.elapse(100)
+        XCTAssertEqual(state.remaining, 20)
+        state.requestVisibility(true)
+        state.elapse(20)
+        XCTAssertEqual(state.phase, .error)
+        XCTAssertTrue(state.policyResolved)
+        XCTAssertGreaterThan(state.policyRevision, pending)
+        XCTAssertFalse(state.effectiveVisibility)
+        state.requestVisibility(true, policyRevision: state.policyRevision)
+        XCTAssertTrue(state.effectiveVisibility)
+        let timeout = state.policyRevision
+        state.beginNavigation()
+        XCTAssertFalse(state.policyResolved)
+        state.fail(generation: state.generation)
+        XCTAssertGreaterThan(state.policyRevision, timeout)
+        XCTAssertTrue(state.policyResolved)
+        XCTAssertFalse(state.effectiveVisibility)
+    }
+
+    func testPublicShowBeforeMetadataKeepsNativeSurfaceHidden() async throws {
+        let live = try await livePresentation(initiallyVisible: false)
+        defer { live.dispose() }
+        let requested = expectation(description: "visibility intent accepted")
+        let call = CAPPluginCall(callbackId: "early-show", methodName: "setVisible",
+            options: ["id": live.instance.id, "visible": true],
+            success: { _, _ in requested.fulfill() }, error: { error in XCTFail(String(describing: error)) })!
+        InAppBrowserPlugin().setVisible(call)
+        await fulfillment(of: [requested], timeout: 2)
+        XCTAssertTrue(live.presentation.state.desiredVisibility)
+        XCTAssertTrue(live.window.isHidden)
+        XCTAssertFalse(live.window.isKeyWindow)
+        XCTAssertFalse(live.owner.prefersStatusBarHidden)
+        let remaining = live.presentation.state.remaining
+        live.presentation.state.elapse(1)
+        XCTAssertLessThan(live.presentation.state.remaining, remaining)
     }
 
     func testInitiallyHiddenWindowCannotTakeKeyOrChromeBeforeExplicitVisibility() async throws {
@@ -544,7 +746,7 @@ final class BreadPresentationTests: XCTestCase {
         XCTAssertFalse(live.owner.prefersHomeIndicatorAutoHidden)
         let opened = expectation(description: "explicit visibility resolves")
         let call = CAPPluginCall(callbackId: "show", methodName: "setVisible",
-            options: ["id": live.instance.id, "visible": true],
+            options: ["id": live.instance.id, "visible": true, "policyRevision": live.presentation.state.policyRevision],
             success: { _, _ in opened.fulfill() }, error: { error in XCTFail(String(describing: error)) })!
         InAppBrowserPlugin().setVisible(call)
         await fulfillment(of: [opened], timeout: 2)

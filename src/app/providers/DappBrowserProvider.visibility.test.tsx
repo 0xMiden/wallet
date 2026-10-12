@@ -7,6 +7,7 @@ import { I18nextProvider, initReactI18next } from 'react-i18next';
 
 import { ExternalPageFailedNotice } from 'app/ExternalPageFailedNotice';
 import Dialogs from 'app/layouts/Dialogs';
+import { BrowserScreen } from 'app/pages/Browser/BrowserScreen';
 import { DappActive } from 'app/pages/Browser/DappActive';
 import { dappConfirmationStore, type DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
 import { externalPageFailed } from 'lib/mobile/external-page-failed';
@@ -16,7 +17,7 @@ import { DialogsProvider, dispatchAlertClose, dispatchConfirmClose, useConfirm }
 import { DappBrowserProvider, useDappBrowser, useHideForegroundDappWhileOpen } from './DappBrowserProvider';
 import en from '../../../public/_locales/en/en.json';
 
-const mockSetVisible = jest.fn(async (_id: string, _visible: boolean) => {});
+const mockSetVisible = jest.fn(async (_id: string, _visible: boolean, _revision?: number) => {});
 const mockSetRect = jest.fn(async (_id: string, _rect: unknown) => {});
 const mockOpen = jest.fn(
   async (_options: { id: string; initiallyVisible?: boolean; managedHostClose?: { token: string } }) => {}
@@ -29,7 +30,9 @@ const nativeListeners = new Map<
   string,
   (event: {
     id: string;
-    display?: 'fullscreen';
+    display?: 'fullscreen' | 'browser';
+    policyResolved?: boolean;
+    policyRevision?: number;
     detail?: unknown;
     token?: string;
     requestId?: string;
@@ -64,7 +67,8 @@ jest.mock('@miden/dapp-browser', () => ({
       return {
         id: options.id,
         setRect: (rect: unknown) => mockSetRect(options.id, rect),
-        setVisible: (visible: boolean) => mockSetVisible(options.id, visible),
+        setVisible: (visible: boolean, revision?: number) =>
+          revision === undefined ? mockSetVisible(options.id, visible) : mockSetVisible(options.id, visible, revision),
         executeScript: async () => {},
         close: () => mockClose(options.id)
       };
@@ -146,6 +150,9 @@ jest.mock('app/pages/Browser/CapsuleBar', () => ({
     </button>
   )
 }));
+jest.mock('app/pages/Browser/DappLauncher', () => ({
+  DappLauncher: () => <div data-testid="retained-launcher">Launcher</div>
+}));
 jest.mock('app/pages/Browser/ProgressBar', () => ({ ProgressBar: () => null }));
 jest.mock('app/pages/Browser/NativeWebViewSlot', () => {
   const react = jest.requireActual<typeof React>('react');
@@ -179,7 +186,15 @@ function control() {
   if (!browser) throw new Error('Provider not mounted');
   return browser;
 }
-function Tree({ held = false, actions = false }: { held?: boolean; actions?: boolean }) {
+function Tree({
+  held = false,
+  actions = false,
+  screen = false
+}: {
+  held?: boolean;
+  actions?: boolean;
+  screen?: boolean;
+}) {
   return (
     <I18nextProvider i18n={testI18n}>
       <DialogsProvider>
@@ -189,6 +204,7 @@ function Tree({ held = false, actions = false }: { held?: boolean; actions?: boo
           <Driver />
           {held && <HeldOverlay />}
           {actions && <DappActive />}
+          {screen && <BrowserScreen />}
         </DappBrowserProvider>
       </DialogsProvider>
     </I18nextProvider>
@@ -220,7 +236,15 @@ async function openForeground(options: { held?: boolean; actions?: boolean } = {
     control().setSlotRect(RECT);
   });
   await waitFor(() => expect(control().sessionStates[0]?.instance).not.toBeNull());
-  act(() => nativeListeners.get('presentationChanged')?.({ id: 'origin', display: 'fullscreen' }));
+  act(() =>
+    nativeListeners.get('presentationChanged')?.({
+      id: 'origin',
+      display: 'fullscreen',
+      policyResolved: true,
+      policyRevision: 2,
+      managedHostCloseToken: mockOpen.mock.calls[0]?.[0].managedHostClose?.token
+    })
+  );
   await settle();
   if (!options.held) expect(lastVisibility()).toBe(true);
   mockSetVisible.mockClear();
@@ -451,7 +475,15 @@ it('keeps a delayed fullscreen window hidden until both a popup and its hold rel
     control().setSlotRect(RECT);
   });
   await waitFor(() => expect(mockOpen).toHaveBeenCalled());
-  act(() => nativeListeners.get('presentationChanged')?.({ id: 'origin', display: 'fullscreen' }));
+  act(() =>
+    nativeListeners.get('presentationChanged')?.({
+      id: 'origin',
+      display: 'fullscreen',
+      policyResolved: true,
+      policyRevision: 2,
+      managedHostCloseToken: mockOpen.mock.calls[0]?.[0].managedHostClose?.token
+    })
+  );
   act(() => externalPageFailed());
   await act(async () => {
     finish();
@@ -759,4 +791,131 @@ it('keeps the managed reservation when its pending open rejects during the retai
   await act(async () => nativeListeners.get('closeEvent')?.({ id: 'origin', managedHostCloseToken: token }));
   act(() => control().open(session('origin')));
   await waitFor(() => expect(mockOpen).toHaveBeenCalledTimes(2));
+});
+
+it('commits the same measurable host surface before acknowledging browser policy and rejects old receipts', async () => {
+  currentTree = render(<Tree screen />);
+  await waitFor(() => expect(nativeListeners.has('presentationChanged')).toBe(true));
+  const launcher = screen.getByTestId('retained-launcher');
+  act(() => control().open(session('policy')));
+  await waitFor(() => expect(control().sessionStates[0]?.instance).not.toBeNull());
+  const active = screen.getByTestId('dapp-active');
+  const lifetime = mockOpen.mock.calls[0]![0].managedHostClose!.token;
+  expect(launcher).toBeVisible();
+  expect(active).not.toBeVisible();
+  expect(active.inert).toBe(true);
+  expect(control().slotRect).toMatchObject({ width: 375, height: 600 });
+  expect(mockSetVisible.mock.calls.some(call => call[2] !== undefined)).toBe(false);
+  const pendingBounds: Array<() => void> = [];
+  mockSetRect.mockImplementation(
+    () =>
+      new Promise<void>(resolve => {
+        pendingBounds.push(resolve);
+      })
+  );
+  act(() =>
+    nativeListeners.get('presentationChanged')?.({
+      id: 'policy',
+      display: 'browser',
+      policyResolved: true,
+      policyRevision: 2,
+      managedHostCloseToken: lifetime
+    })
+  );
+  await settle();
+  expect(screen.getByTestId('dapp-active')).toBe(active);
+  expect(active).toBeVisible();
+  expect(active.inert).toBe(false);
+  expect(launcher).not.toBeVisible();
+  expect(mockSetVisible.mock.calls.some(call => call[2] === 2)).toBe(false);
+  mockSetRect.mockImplementation(async () => {});
+  await act(async () => {
+    pendingBounds.forEach(resolve => resolve());
+  });
+  await waitFor(() => expect(mockSetVisible).toHaveBeenCalledWith('policy', true, 2));
+  mockSetVisible.mockClear();
+  mockSetRect.mockClear();
+  act(() =>
+    nativeListeners.get('presentationChanged')?.({
+      id: 'policy',
+      display: 'browser',
+      policyResolved: true,
+      policyRevision: 2,
+      managedHostCloseToken: lifetime
+    })
+  );
+  await settle();
+  expect(mockSetVisible).not.toHaveBeenCalled();
+  expect(mockSetRect).not.toHaveBeenCalled();
+  act(() =>
+    nativeListeners.get('presentationChanged')?.({
+      id: 'policy',
+      display: 'browser',
+      policyResolved: false,
+      policyRevision: 3,
+      managedHostCloseToken: lifetime
+    })
+  );
+  await settle();
+  expect(launcher).toBeVisible();
+  expect(active).not.toBeVisible();
+  mockSetVisible.mockClear();
+  act(() => {
+    control().reportPresentationLayout('policy', lifetime, 2, RECT);
+    nativeListeners.get('presentationChanged')?.({
+      id: 'policy',
+      display: 'fullscreen',
+      policyResolved: true,
+      policyRevision: 2,
+      managedHostCloseToken: lifetime
+    });
+    nativeListeners.get('presentationChanged')?.({
+      id: 'policy',
+      display: 'fullscreen',
+      policyResolved: true,
+      policyRevision: 99,
+      managedHostCloseToken: 'outgoing-lifetime'
+    });
+  });
+  await settle();
+  expect(control().policyPending).toBe(true);
+  expect(mockSetVisible.mock.calls.some(call => call[2] !== undefined)).toBe(false);
+  expect(screen.getByTestId('retained-launcher')).toBe(launcher);
+});
+
+it('cancels a resolved-policy acknowledgement while host bounds are pending under a popup', async () => {
+  currentTree = render(<Tree screen />);
+  await waitFor(() => expect(nativeListeners.has('presentationChanged')).toBe(true));
+  act(() => control().open(session('policy-popup')));
+  await waitFor(() => expect(control().sessionStates[0]?.instance).not.toBeNull());
+  const lifetime = mockOpen.mock.calls[0]![0].managedHostClose!.token;
+  const queuedBounds: Array<() => void> = [];
+  mockSetRect.mockImplementation(
+    () =>
+      new Promise<void>(resolve => {
+        queuedBounds.push(resolve);
+      })
+  );
+  act(() =>
+    nativeListeners.get('presentationChanged')?.({
+      id: 'policy-popup',
+      display: 'fullscreen',
+      policyResolved: true,
+      policyRevision: 2,
+      managedHostCloseToken: lifetime
+    })
+  );
+  await settle();
+  expect(screen.getByTestId('retained-launcher')).toBeVisible();
+  expect(screen.getByTestId('dapp-active')).not.toBeVisible();
+  act(() => externalPageFailed());
+  await settle();
+  mockSetVisible.mockClear();
+  await act(async () => {
+    queuedBounds.forEach(resolve => resolve());
+  });
+  expect(mockSetVisible.mock.calls.some(call => call[1] === true)).toBe(false);
+  mockSetRect.mockImplementation(async () => {});
+  await closeAlert();
+  await waitFor(() => expect(mockSetVisible).toHaveBeenCalledWith('policy-popup', true, 2));
 });

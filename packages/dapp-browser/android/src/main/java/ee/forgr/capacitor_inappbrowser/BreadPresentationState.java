@@ -10,6 +10,9 @@ final class BreadPresentationState {
     private long lastTick;
     private boolean visible = true;
     private boolean foreground = true;
+    private long policyRevision;
+    private long acknowledgedPolicy = -1;
+    private long visibilitySequence;
     private boolean configured;
     private boolean ready;
     private boolean painted;
@@ -28,6 +31,9 @@ final class BreadPresentationState {
     boolean fullscreen() { return fullscreen; }
     boolean isReady() { return ready; }
     String token() { return token; }
+    long policyRevision() { return policyRevision; }
+    boolean policyResolved() { return configured || failed; }
+    boolean effectiveVisibility() { return active() && policyResolved() && acknowledgedPolicy == policyRevision; }
     boolean active() { return visible && foreground && !closed; }
 
     Phase phase() {
@@ -41,6 +47,8 @@ final class BreadPresentationState {
         if (closed) return;
         generation++;
         navigationGeneration++;
+        policyRevision++;
+        acknowledgedPolicy = -1;
         configured = ready = painted = revealed = failed = false;
         token = null;
         remaining = timeout;
@@ -50,11 +58,31 @@ final class BreadPresentationState {
     void configure(String token, boolean fullscreen, boolean manualReady) {
         if (closed || failed) return;
         this.token = token;
+        if (!configured || this.fullscreen != fullscreen) { policyRevision++; acknowledgedPolicy = -1; }
         if (this.fullscreen != fullscreen) layoutChanged();
         this.fullscreen = fullscreen;
         configured = true;
         // Automatic readiness is still a document-ready message from the bootstrap.
         // Metadata can arrive while the parser is still loading the head.
+    }
+
+    void browserFallback() {
+        configure(null, false, false);
+        ready = painted = revealed = true;
+    }
+
+    boolean requestVisibility(boolean value, Integer revision, Integer sequence, long now) {
+        if (closed) return false;
+        if (sequence != null) {
+            if (sequence <= visibilitySequence) return false;
+            visibilitySequence = sequence;
+        }
+        if (value && revision != null) {
+            if (!policyResolved() || revision != policyRevision) return false;
+            acknowledgedPolicy = revision;
+        }
+        visibility(value, now);
+        return true;
     }
 
     void ready() { if (configured && !closed && !failed) ready = true; }
@@ -88,7 +116,13 @@ final class BreadPresentationState {
         lastTick = now;
         return failed;
     }
-    void fail() { if (!closed) { failed = true; layoutChanged(); } }
+    void fail() {
+        if (!closed && !failed) {
+            if (!policyResolved()) { policyRevision++; acknowledgedPolicy = -1; }
+            failed = true;
+            layoutChanged();
+        }
+    }
     boolean close() {
         if (closed) return false;
         closed = true;

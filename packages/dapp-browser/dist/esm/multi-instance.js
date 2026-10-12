@@ -34,12 +34,15 @@ export class DappWebViewInstance {
     this.id = id;
     this.managedHostCloseToken = managedHostCloseToken;
     this.closed = false;
+    this.visibilitySequence = 0;
   }
 
   /** Move the webview to the given rect (delegates to updateDimensions). */
   setRect(rect) {
+    if (this.closed || this.closePromise) return Promise.resolve();
     return InAppBrowser.updateDimensions({
       id: this.id,
+      ...(this.managedHostCloseToken ? { managedHostCloseToken: this.managedHostCloseToken } : {}),
       x: rect.x,
       y: rect.y,
       width: rect.width,
@@ -48,8 +51,17 @@ export class DappWebViewInstance {
   }
 
   /** Toggle this instance's visibility. The WebView's JS context survives. */
-  setVisible(visible) {
-    return InAppBrowser.setVisible({ id: this.id, visible });
+  setVisible(visible, policyRevision) {
+    if (this.closed || this.closePromise) return Promise.resolve();
+    return InAppBrowser.setVisible({
+      id: this.id,
+      visible,
+      ...(this.managedHostCloseToken ? {
+        managedHostCloseToken: this.managedHostCloseToken,
+        visibilitySequence: ++this.visibilitySequence,
+        ...(policyRevision === undefined ? {} : { policyRevision })
+      } : {})
+    });
   }
 
   /** Take a JPEG snapshot of the current page as a base64 data URL. */

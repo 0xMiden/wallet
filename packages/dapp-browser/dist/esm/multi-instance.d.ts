@@ -19,7 +19,7 @@ export declare class DappWebViewInstance {
   /** Move the webview to the given rect (delegates to updateDimensions). */
   setRect(rect: Rect): Promise<void>;
   /** Toggle this instance's visibility. The WebView's JS context survives. */
-  setVisible(visible: boolean): Promise<void>;
+  setVisible(visible: boolean, policyRevision?: number): Promise<void>;
   /** Take a JPEG snapshot of the current page as a base64 data URL. */
   snapshot(scale?: number, quality?: number): Promise<{ data: string }>;
   /** Inject JS into this instance's webview. */

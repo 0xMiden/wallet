@@ -131,21 +131,34 @@ public class WebViewDialog extends Dialog {
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(getWindow(), fits);
     }
 
+    boolean hasPresentation() { return presentation != null; }
     public boolean isPresentationFullscreen() { return presentation != null && presentation.fullscreen(); }
     public void setClosedListener(Runnable listener) { closedListener = listener; }
     public void presentationForeground(boolean foreground) {
         if (managedClose != null) managedClose.foreground(foreground);
         if (!managedClosing() && presentation != null) presentation.foreground(foreground);
     }
-    void presentationChanged(boolean fullscreen) {
-        _options.getCallbacks().presentationChanged(fullscreen);
+    void presentationChanged(boolean fullscreen, boolean resolved, long revision) {
+        _options.getCallbacks().presentationChanged(fullscreen, resolved, revision,
+            managedClose == null ? null : managedClose.token);
+    }
+    void applyPresentationVisibility(boolean visible) {
+        if (permanentlyClosed || managedClosing()) return;
+        if (visible) super.show();
+        else super.hide();
+    }
+    void presentationVisibility(boolean visible, Integer revision, Integer sequence) {
+        if (permanentlyClosed || managedClosing()) return;
+        if (presentation != null) presentation.visibility(visible, revision, sequence);
+        else if (visible) super.show();
+        else super.hide();
     }
     void applyBrowserDimensions() { applyDimensions(); }
 
     @Override public void show() {
         if (permanentlyClosed || managedClosing()) return;
-        super.show();
         if (presentation != null) presentation.visibility(true);
+        else super.show();
     }
     @Override public void hide() {
         if (managedClosing()) return;

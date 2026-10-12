@@ -1364,8 +1364,14 @@ describe('native presentation lifecycle', () => {
   it('passes the native contract and captures presentation events before opening returns', async () => {
     const hook = renderHook(() => useDappBrowser(), { wrapper });
     await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('presentationChanged', expect.any(Function)));
-    mockPluginOpen.mockImplementationOnce((options: { id: string }) => {
-      void listenerFor('presentationChanged')({ id: options.id, display: 'fullscreen' });
+    mockPluginOpen.mockImplementationOnce((options: { id: string; managedHostClose: { token: string } }) => {
+      void listenerFor('presentationChanged')({
+        id: options.id,
+        display: 'fullscreen',
+        policyResolved: true,
+        policyRevision: 2,
+        managedHostCloseToken: options.managedHostClose.token
+      });
     });
     act(() => {
       hook.result.current.open(makeSession('dapp-a'));

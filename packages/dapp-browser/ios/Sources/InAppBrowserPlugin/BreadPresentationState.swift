@@ -9,6 +9,11 @@ final class BreadPresentationState {
     private(set) var foreground = true
     private(set) var documentReady = false
     private(set) var remaining: TimeInterval
+    private(set) var policyRevision = 0
+    private var acknowledgedPolicy: Int?
+    private var visibilitySequence = 0
+    var policyResolved: Bool { configured || failed }
+    var effectiveVisibility: Bool { desiredVisibility && foreground && policyResolved && acknowledgedPolicy == policyRevision && !closed }
     private var configured = false
     private var painted = false
     private var failed = false
@@ -29,6 +34,8 @@ final class BreadPresentationState {
     @discardableResult func beginNavigation() -> Int {
         guard !closed else { return generation }
         generation += 1
+        policyRevision += 1
+        acknowledgedPolicy = nil
         configured = false
         documentReady = false
         painted = false
@@ -40,6 +47,10 @@ final class BreadPresentationState {
 
     @discardableResult func configure(_ display: Display, generation: Int) -> Bool {
         guard accepts(generation), !failed else { return false }
+        if !configured || self.display != display {
+            policyRevision += 1
+            acknowledgedPolicy = nil
+        }
         if self.display != display { painted = false }
         self.display = display
         configured = true
@@ -60,8 +71,16 @@ final class BreadPresentationState {
 
     func invalidateLayout() { if !closed { painted = false } }
 
-    @discardableResult func requestVisibility(_ visible: Bool) -> Bool {
+    @discardableResult func requestVisibility(_ visible: Bool, policyRevision: Int? = nil, sequence: Int? = nil) -> Bool {
         guard !closed else { return false }
+        if let sequence {
+            guard sequence > visibilitySequence else { return false }
+            visibilitySequence = sequence
+        }
+        if visible, let policyRevision {
+            guard policyResolved, policyRevision == self.policyRevision else { return false }
+            acknowledgedPolicy = policyRevision
+        }
         desiredVisibility = visible
         return true
     }
@@ -74,11 +93,14 @@ final class BreadPresentationState {
     func elapse(_ seconds: TimeInterval) {
         guard !revealed, phase == .preparing, seconds.isFinite, seconds > 0 else { return }
         remaining = max(0, remaining - seconds)
-        if remaining == 0 { failed = true }
+        if remaining == 0 { fail(generation: generation) }
     }
 
     func fail(generation: Int) {
-        if accepts(generation) { failed = true }
+        if accepts(generation), !failed {
+            if !policyResolved { policyRevision += 1; acknowledgedPolicy = nil }
+            failed = true
+        }
     }
 
     @discardableResult func close() -> Bool {

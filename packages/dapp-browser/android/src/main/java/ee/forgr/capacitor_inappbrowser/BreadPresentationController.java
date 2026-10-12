@@ -57,6 +57,7 @@ final class BreadPresentationController {
     private ScriptHandler script;
     private boolean supported;
     private boolean installed;
+    private long notifiedPolicyRevision = -1;
     private String documentToken;
     private NavigationListener navigationListener;
     private Navigation currentNavigation;
@@ -231,7 +232,7 @@ final class BreadPresentationController {
                 WebViewCompat.addWebMessageListener(webView, "breadPresentation", Collections.singleton("*"),
                     (view, message, origin, mainFrame, reply) -> receive(message.getData(), mainFrame));
                 script = WebViewCompat.addDocumentStartJavaScript(webView, options.script, Collections.singleton("*"));
-                if (navigationListener == null) { owner.presentationChanged(false); render(); }
+                if (navigationListener == null) { state.browserFallback(); render(); }
                 return;
             }
         }
@@ -249,7 +250,7 @@ final class BreadPresentationController {
                     JSONObject update = new JSONObject().put("token", message.optString("token"))
                         .put("display", "browser").put("controlInsetTop", 0);
                     webView.evaluateJavascript("window.__breadPresentationUpdate(" + update + ")", null);
-                    owner.presentationChanged(false);
+                    render();
                 } else if ("ready".equals(type) || "close".equals(type)) {
                     JSONObject response = new JSONObject().put("token", message.optString("token"))
                         .put("requestId", message.optString("requestId")).put("ok", false)
@@ -293,10 +294,10 @@ final class BreadPresentationController {
                     String display = message.optString("display");
                     if (!"browser".equals(display) && !"fullscreen".equals(display)) return;
                     configuration = message;
-                    boolean previous = state.fullscreen();
+                    long previousPolicy = state.policyRevision();
                     state.configure(token, "fullscreen".equals(display), message.optBoolean("manualReady"));
                     applyTheme(message.optString("themeColor"));
-                    if (previous != state.fullscreen()) owner.presentationChanged(state.fullscreen());
+                    if (previousPolicy != state.policyRevision()) cancelPaint();
                     applyReadiness();
                     render();
                 } else if ("ready".equals(type)) {
@@ -345,9 +346,12 @@ final class BreadPresentationController {
     void failed() { state.fail(); cancelPaint(); render(); }
     boolean fullscreen() { return state.fullscreen(); }
 
-    void visibility(boolean visible) {
-        state.visibility(visible, SystemClock.uptimeMillis());
-        cancelPaint();
+    void visibility(boolean visible) { visibility(visible, null, null); }
+
+    void visibility(boolean visible, Integer policyRevision, Integer sequence) {
+        boolean previous = state.effectiveVisibility();
+        if (!state.requestVisibility(visible, policyRevision, sequence, SystemClock.uptimeMillis())) return;
+        if (previous != state.effectiveVisibility()) cancelPaint();
         render();
     }
 
@@ -387,7 +391,7 @@ final class BreadPresentationController {
 
     void applyWindow() {
         if (owner.managedClosing()) return;
-        if (!state.active()) return;
+        if (!state.effectiveVisibility()) return;
         Window window = owner.getWindow();
         if (window == null) return;
         WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, window.getDecorView());
@@ -472,17 +476,24 @@ final class BreadPresentationController {
     void render() {
         if (owner.managedClosing()) return;
         if (state.phase() == BreadPresentationState.Phase.CLOSED) return;
+        if (notifiedPolicyRevision != state.policyRevision()) {
+            notifiedPolicyRevision = state.policyRevision();
+            owner.presentationChanged(state.fullscreen(), state.policyResolved(), state.policyRevision());
+        }
+        if (!state.effectiveVisibility()) {
+            owner.applyPresentationVisibility(false);
+            restoreWindow();
+            renderCover();
+            return;
+        }
+        applyWindow();
+        owner.applyPresentationVisibility(true);
         if (supported && navigationListener == null) {
             overlay.setVisibility(View.GONE);
             webView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
             return;
         }
         renderCover();
-        if (!state.active()) {
-            restoreWindow();
-            return;
-        }
-        applyWindow();
         if (state.phase() == BreadPresentationState.Phase.VISIBLE) {
             cover.setVisibility(View.GONE);
             webView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);

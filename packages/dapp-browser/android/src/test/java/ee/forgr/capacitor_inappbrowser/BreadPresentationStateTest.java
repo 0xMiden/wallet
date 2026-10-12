@@ -126,4 +126,51 @@ public class BreadPresentationStateTest {
         state.painted(state.generation());
         assertEquals(BreadPresentationState.Phase.VISIBLE, state.phase());
     }
+    @Test public void resolvedPolicyRequiresCurrentAcknowledgementAndOrderedVisibility() {
+        BreadPresentationState state = new BreadPresentationState(30000, false);
+        state.navigate(0);
+        assertTrue(state.requestVisibility(true, null, 1, 1));
+        assertFalse(state.effectiveVisibility());
+        state.configure("doc", false, false);
+        int revision = (int) state.policyRevision();
+        assertTrue(state.policyResolved());
+        assertFalse(state.effectiveVisibility());
+        assertTrue(state.requestVisibility(true, revision, 2, 2));
+        assertTrue(state.effectiveVisibility());
+        state.configure("doc", false, false);
+        assertEquals(revision, state.policyRevision());
+        assertTrue(state.requestVisibility(false, null, 4, 3));
+        assertFalse(state.requestVisibility(true, revision, 3, 4));
+        assertFalse(state.effectiveVisibility());
+        state.navigate(5);
+        assertTrue(state.policyRevision() > revision);
+        assertFalse(state.policyResolved());
+        assertFalse(state.requestVisibility(true, revision, 5, 6));
+        state.configure("next", true, true);
+        assertTrue(state.requestVisibility(true, (int) state.policyRevision(), 6, 7));
+        assertTrue(state.effectiveVisibility());
+        state.close();
+        assertFalse(state.requestVisibility(true, (int) state.policyRevision(), 7, 8));
+    }
+
+    @Test public void unresolvedErrorsResolveAndFallbackDoesNotAcquireAReadinessDeadline() {
+        BreadPresentationState state = new BreadPresentationState(30000);
+        state.navigate(0);
+        long pending = state.policyRevision();
+        state.visibility(false, 10000);
+        assertFalse(state.tick(100000));
+        state.visibility(true, 100000);
+        assertTrue(state.tick(120000));
+        assertTrue(state.policyResolved());
+        assertTrue(state.policyRevision() > pending);
+        assertFalse(state.effectiveVisibility());
+        assertTrue(state.requestVisibility(true, (int) state.policyRevision(), 1, 120001));
+        assertTrue(state.effectiveVisibility());
+        state.navigate(120002);
+        state.browserFallback();
+        assertTrue(state.policyResolved());
+        assertFalse(state.tick(999999));
+        assertFalse(state.effectiveVisibility());
+    }
+
 }

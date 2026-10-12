@@ -748,9 +748,12 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         //    options.getToolbarItemTypes().add(ToolbarItemType.RELOAD); TODO: fix this
         options.setCallbacks(
             new WebViewCallbacks() {
-                @Override public void presentationChanged(boolean fullscreen) {
-                    notifyListeners("presentationChanged", new JSObject().put("id", callbackInstanceId[0])
-                        .put("display", fullscreen ? "fullscreen" : "browser"));
+                @Override public void presentationChanged(boolean fullscreen, boolean resolved, long revision, String lifetime) {
+                    JSObject event = new JSObject().put("id", callbackInstanceId[0])
+                        .put("display", fullscreen ? "fullscreen" : "browser")
+                        .put("policyResolved", resolved).put("policyRevision", revision);
+                    if (lifetime != null) event.put("managedHostCloseToken", lifetime);
+                    notifyListeners("presentationChanged", event);
                     if (navbarManager != null) navbarManager.notifyDialogVisibilityChanged(null);
                 }
                 @Override
@@ -1285,6 +1288,10 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                     try {
                         WebViewDialog dialog = target != null ? target : webViewDialog;
                         if (dialog != null) {
+                            if (target != null && WebViewRegistry.getShared().get(instanceId) != target) { call.resolve(); return; }
+                            if ((call.getString("managedHostCloseToken") != null || dialog.hasPresentation()) && !java.util.Objects.equals(dialog.managedClose() == null ? null : dialog.managedClose().token, call.getString("managedHostCloseToken"))) {
+                                call.resolve(); return;
+                            }
                             dialog.updateDimensions(width, height, x, y);
                             call.resolve();
                         } else {
@@ -1372,8 +1379,12 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
                 @Override
                 public void run() {
                     try {
-                        if (visible) dialog.show();
-                        else dialog.hide();
+                        if (WebViewRegistry.getShared().get(instanceId) != dialog) { call.resolve(); return; }
+                        if ((call.getString("managedHostCloseToken") != null || dialog.hasPresentation()) && !java.util.Objects.equals(dialog.managedClose() == null ? null : dialog.managedClose().token, call.getString("managedHostCloseToken"))) {
+                            call.resolve(); return;
+                        }
+                        if (dialog.hasPresentation() && dialog.managedClose() != null && call.getInt("visibilitySequence") == null) { call.resolve(); return; }
+                        dialog.presentationVisibility(visible, call.getInt("policyRevision"), call.getInt("visibilitySequence"));
                         // Miden navbar — notify the overlay manager so
                         // it re-picks the topmost visible NavbarView.
                         // Without this, parking a dApp leaves the

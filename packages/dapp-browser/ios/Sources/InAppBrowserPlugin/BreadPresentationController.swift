@@ -48,6 +48,7 @@ final class BreadPresentationController: NSObject {
     private var observers: [NSObjectProtocol] = []
     private var rotating = false
     private var navigationCommitted = false
+    private var notifiedPolicyRevision: Int?
     private var hintDeadline: TimeInterval?
 
     init(options: BreadPresentationOptions, owner: WKWebViewController, webView: WKWebView) {
@@ -73,7 +74,7 @@ final class BreadPresentationController: NSObject {
 
     deinit { timer?.invalidate(); observers.forEach(NotificationCenter.default.removeObserver) }
 
-    var immersive: Bool { state.display == .fullscreen && state.desiredVisibility && state.phase != .closed }
+    var immersive: Bool { state.display == .fullscreen && state.effectiveVisibility }
 
     func attach(_ instance: WKWebViewInstance, hostWindow: UIWindow?) {
         self.instance = instance
@@ -96,10 +97,11 @@ final class BreadPresentationController: NSObject {
 
     func failed() { state.fail(generation: state.generation); render() }
 
-    func setVisible(_ visible: Bool) {
+    func setVisible(_ visible: Bool, policyRevision: Int? = nil, sequence: Int? = nil) {
         tick()
-        guard state.requestVisibility(visible) else { return }
-        if visible { invalidateLayout() }
+        let wasVisible = state.effectiveVisibility
+        guard state.requestVisibility(visible, policyRevision: policyRevision, sequence: sequence) else { return }
+        if state.effectiveVisibility != wasVisible { invalidateLayout() }
         render()
     }
 
@@ -143,13 +145,13 @@ final class BreadPresentationController: NSObject {
             self.token = messageToken
             switch type {
             case "configure":
+                let previousPolicy = self.state.policyRevision
                 guard let raw = envelope["display"] as? String,
                       let display = BreadPresentationState.Display(rawValue: raw),
                       self.state.configure(display, generation: generation) else { return }
                 self.applyTheme(envelope["themeColor"] as? String)
-                self.invalidateLayout()
+                if previousPolicy != self.state.policyRevision { self.invalidateLayout() }
                 self.publishMetrics()
-                self.owner?.capBrowserPlugin?.notifyListeners("presentationChanged", data: ["id": self.owner?.instanceId ?? "", "display": display.rawValue])
                 self.render()
             case "ready":
                 let accepted = self.state.ready(generation: generation)
@@ -236,9 +238,19 @@ final class BreadPresentationController: NSObject {
         if state.phase == .error { render() }
     }
 
+    private func publishPolicy() {
+        guard notifiedPolicyRevision != state.policyRevision, let owner else { return }
+        notifiedPolicyRevision = state.policyRevision
+        var data: [String: Any] = ["id": owner.instanceId ?? "", "display": state.display.rawValue,
+            "policyResolved": state.policyResolved, "policyRevision": state.policyRevision]
+        if let lifetime = owner.managedClose?.token { data["managedHostCloseToken"] = lifetime }
+        owner.capBrowserPlugin?.notifyListeners("presentationChanged", data: data)
+    }
+
     private func render() {
         guard owner?.managedClose?.closing != true else { return }
         guard state.phase != .closed, let owner else { return }
+        publishPolicy()
         if let window = instance?.containerWindow {
             let frame = state.display == .fullscreen ? window.windowScene?.coordinateSpace.bounds : instance?.rect
             if let frame, !frame.isEmpty, window.frame != frame, state.display != .fullscreen || !rotating {
@@ -247,7 +259,7 @@ final class BreadPresentationController: NSObject {
             }
             window.backgroundColor = cover.backgroundColor
             window.accessibilityViewIsModal = immersive
-            window.isHidden = !state.desiredVisibility
+            window.isHidden = !state.effectiveVisibility
             if immersive && state.foreground { window.makeKey() }
             else if window.isKeyWindow { hostWindow?.makeKey() }
         }

@@ -45,7 +45,7 @@ function recordOpenedDapp(url: string): Promise<void> {
 }
 
 const EmbeddedBrowserScreen: FC = () => {
-  const { mode, open, reportLauncherCommit } = useDappBrowser();
+  const { mode, open, reportLauncherCommit, policyPending, presentation } = useDappBrowser();
   // A tab pane or page layer stays mounted off screen, but the dApp surface must not: its unmount clears the slot
   // rect, which is what parks the foreground dApp and hides its native window.
   const onScreen = usePageActive();
@@ -70,7 +70,7 @@ const EmbeddedBrowserScreen: FC = () => {
     [open]
   );
 
-  const launcherVisible = mode !== 'active';
+  const launcherVisible = mode !== 'active' || policyPending || presentation === 'fullscreen';
   const launcher = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const element = launcher.current;
@@ -81,7 +81,7 @@ const EmbeddedBrowserScreen: FC = () => {
     }
   }, [launcherVisible, onScreen]);
   useLayoutEffect(() => {
-    reportLauncherCommit?.(launcherVisible && onScreen);
+    reportLauncherCommit?.(mode !== 'active' && onScreen);
     return () => reportLauncherCommit?.(false);
   });
 

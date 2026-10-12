@@ -13,7 +13,7 @@
  * the webview — the bubble takes over.
  */
 
-import React, { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { type FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -47,7 +47,8 @@ const SETTLE_RETRY_MS = 50;
 const SETTLE_TIMEOUT_MS = 3000;
 
 export const DappActive: FC = () => {
-  const { session, isLoading, close, open, park, setSlotRect, openSwitcher, sessionStates } = useDappBrowser();
+  const { session, isLoading, close, open, park, setSlotRect, openSwitcher, sessionStates, reportPresentationLayout } =
+    useDappBrowser();
   const { t } = useTranslation();
   const slotRef = useRef<HTMLDivElement>(null);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -58,6 +59,20 @@ export const DappActive: FC = () => {
     () => (session ? sessionStates.find(s => s.session.id === session.id) : undefined),
     [session, sessionStates]
   );
+  const hiddenHost = sessionState?.policyResolved === false || sessionState?.presentation === 'fullscreen';
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    surface.inert = hiddenHost;
+    if (hiddenHost && surface.contains(document.activeElement) && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }, [hiddenHost]);
+  const policyRevision = sessionState?.policyRevision;
+  const policyResolved = sessionState?.policyResolved;
+  const policyLifetime = sessionState?.policyLifetime;
+  const sessionId = session?.id;
   const error = sessionState?.error ?? null;
   const cachedSnapshot = session ? getSnapshot(session.id) : undefined;
 
@@ -204,12 +219,16 @@ export const DappActive: FC = () => {
       settleDeadline = null;
       clearSettleRetry();
       const r = el.getBoundingClientRect();
-      setSlotRect({
+      const rect = {
         x: Math.round(r.left),
         y: Math.round(r.top),
         width: Math.round(r.width),
         height: Math.round(r.height)
-      });
+      };
+      setSlotRect(rect);
+      if (sessionId && policyResolved && policyLifetime && policyRevision !== undefined) {
+        reportPresentationLayout?.(sessionId, policyLifetime, policyRevision, rect);
+      }
     };
     update();
     // Extra timers beyond the transform's expected ~150ms duration,
@@ -227,7 +246,7 @@ export const DappActive: FC = () => {
       clearSettleRetry();
       ro.disconnect();
     };
-  }, [setSlotRect]);
+  }, [setSlotRect, sessionId, policyRevision, policyResolved, policyLifetime, reportPresentationLayout]);
 
   // Clear slot rect on unmount so the provider knows the visual surface
   // is gone (e.g. user navigated to another tab while parked).
@@ -241,7 +260,13 @@ export const DappActive: FC = () => {
   if (!session) return null;
 
   return (
-    <div className="flex h-full flex-col" data-testid="dapp-active">
+    <div
+      ref={surfaceRef}
+      className="flex h-full flex-col"
+      data-testid="dapp-active"
+      aria-hidden={hiddenHost || undefined}
+      style={hiddenHost ? { position: 'absolute', inset: 0, visibility: 'hidden', pointerEvents: 'none' } : undefined}
+    >
       <CapsuleBar
         session={session}
         onClose={() => void close()}
