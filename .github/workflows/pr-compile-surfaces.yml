@@ -185,12 +185,25 @@ jobs:
       - name: Run iOS unit tests
         run: |
           UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; devices=json.load(sys.stdin)['devices']; print(next(d['udid'] for runtime, items in devices.items() if 'iOS' in runtime for d in items if d['name'].startswith('iPhone')))")
+          node scripts/ios-test-screenshots.cjs "$UDID" &
+          SCREENSHOT_PID=$!
+          trap 'kill "$SCREENSHOT_PID"' EXIT
+          mkdir -p artifacts
           xcodebuild \
             -project ios/App/App.xcodeproj \
             -scheme App \
             -destination "id=$UDID" \
+            -parallel-testing-enabled NO \
             -only-testing:AppTests \
+            -resultBundlePath artifacts/ios-unit-tests.xcresult \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             test
+      - name: Upload iOS test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unit-test-results
+          path: artifacts/ios-unit-tests.xcresult
+          if-no-files-found: ignore

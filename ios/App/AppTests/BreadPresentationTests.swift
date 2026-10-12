@@ -80,11 +80,26 @@ final class BreadPresentationTests: XCTestCase {
         func rotating() -> Bool {
             Mirror(reflecting: live.presentation).children.first { $0.label == "rotating" }?.value as? Bool ?? false
         }
-        func capture(_ label: String) throws {
+        func capture(_ label: String) async throws {
             let started = CACurrentMediaTime()
             let orientation = scene.interfaceOrientation.rawValue
             let active = rotating()
-            let image = XCUIScreen.main.screenshot().image
+            let requestID = UUID().uuidString
+            let screenshot = directory.appendingPathComponent("\(requestID).png")
+            let failure = directory.appendingPathComponent("\(requestID).error")
+            let device = try XCTUnwrap(ProcessInfo.processInfo.environment["SIMULATOR_UDID"])
+            let request = try JSONSerialization.data(withJSONObject: ["id": requestID, "device": device,
+                "requestedAt": Date().timeIntervalSince1970 * 1000])
+            try request.write(to: directory.appendingPathComponent("request.json"), options: .atomic)
+            let captured = try await eventually {
+                FileManager.default.fileExists(atPath: screenshot.path) || FileManager.default.fileExists(atPath: failure.path)
+            }
+            XCTAssertTrue(captured, "Run scripts/ios-test-screenshots.cjs for this simulator during XCTest")
+            if FileManager.default.fileExists(atPath: failure.path) {
+                throw NSError(domain: "SimulatorScreenshot", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: try String(contentsOf: failure, encoding: .utf8)])
+            }
+            let image = try XCTUnwrap(UIImage(contentsOfFile: screenshot.path))
             let ended = CACurrentMediaTime()
             let ratio = min(1, 1800 / max(image.size.width, image.size.height))
             let format = UIGraphicsImageRendererFormat(); format.scale = 1
@@ -93,6 +108,8 @@ final class BreadPresentationTests: XCTestCase {
                 image.draw(in: CGRect(origin: .zero, size: size))
             }
             try XCTUnwrap(capped.pngData()).write(to: directory.appendingPathComponent("\(label).png"))
+            let attachment = XCTAttachment(image: capped)
+            attachment.name = label; attachment.lifetime = .keepAlways; add(attachment)
             let bitmap = try XCTUnwrap(capped.cgImage)
             var pixels = [UInt8](repeating: 0, count: bitmap.width * bitmap.height * 4)
             let hostPixels = try pixels.withUnsafeMutableBytes { bytes -> Int in
@@ -119,10 +136,10 @@ final class BreadPresentationTests: XCTestCase {
             try await Task.sleep(nanoseconds: 50_000_000)
             XCTAssertTrue(rotating(), "Transient capture must begin inside the real UIKit rotation")
             XCTAssertEqual(live.cover.alpha, 1)
-            try capture("\(name)-transient")
+            try await capture("\(name)-transient")
             let completed = try await eventually { !rotating() }
             XCTAssertTrue(completed)
-            try capture("\(name)-held")
+            try await capture("\(name)-held")
             XCTAssertEqual(live.cover.alpha, 1)
             XCTAssertEqual(live.presentation.state.generation, generation)
             XCTAssertTrue(WebViewRegistry.shared.get(id: live.instance.id) === live.instance)
