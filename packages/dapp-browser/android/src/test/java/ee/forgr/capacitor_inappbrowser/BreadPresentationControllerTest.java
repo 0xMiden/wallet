@@ -968,7 +968,9 @@ public class BreadPresentationControllerTest {
         commit(current); flushTokenReads("current"); assertCovered(); readyDocument("current");
         message("close", "current"); flushTokenReads("current");
         shadowOf(webView).getLastEvaluatedJavascriptCallback().onReceiveValue("null");
-        dialog.dismiss(); verify(callbacks, times(1)).closeEvent(any());
+        assertFalse("Current document close must dismiss the dialog", dialog.isShowing());
+        assertEquals(BreadPresentationState.Phase.CLOSED, controller.state.phase());
+        verify(callbacks, times(1)).closeEvent(any());
         webkit.verify(() -> WebViewCompat.removeNavigationListener(webView, navigationListener), times(1));
     }
 
@@ -994,7 +996,9 @@ public class BreadPresentationControllerTest {
         message("close", "replacement"); flushTokenReads("replacement");
         ValueCallback<String> acknowledgement = shadowOf(webView).getLastEvaluatedJavascriptCallback();
         legacyStart(); acknowledgement.onReceiveValue("null");
-        dialog.dismiss(); verify(callbacks, times(1)).closeEvent(any());
+        assertFalse("Current document close must dismiss the dialog", dialog.isShowing());
+        assertEquals(BreadPresentationState.Phase.CLOSED, controller.state.phase());
+        verify(callbacks, times(1)).closeEvent(any());
     }
 
     @Test public void retryBlocksOldRequestsBeforeReloadStartButKeepsEarlyReplacement() {
@@ -1040,7 +1044,9 @@ public class BreadPresentationControllerTest {
         assertEquals(BreadPresentationState.Phase.VISIBLE, controller.state.phase());
         message("close", "current"); flushTokenReads("current");
         shadowOf(webView).getLastEvaluatedJavascriptCallback().onReceiveValue("null");
-        dialog.dismiss(); verify(callbacks, times(1)).closeEvent(any());
+        assertFalse("Current document close must dismiss the dialog", dialog.isShowing());
+        assertEquals(BreadPresentationState.Phase.CLOSED, controller.state.phase());
+        verify(callbacks, times(1)).closeEvent(any());
     }
 
     @Test public void retryDiscardsRetainedConfigurationAndReadiness() {
