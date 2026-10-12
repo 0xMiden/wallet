@@ -5,6 +5,8 @@ import BigNumber from 'bignumber.js';
 
 import { resetHiddenTokens, useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
   TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
@@ -372,6 +374,88 @@ describe('Explore', () => {
   });
 
   describe('base rendering', () => {
+    it('reorders stable balances when the configured price symbols change', async () => {
+      _setSwapTokensForTest(undefined);
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      mockAllBalances = [
+        makeToken(TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IETH.symbol, 'Ether', 1),
+        makeToken(TEST_TOKEN_IBTC.faucetId, TEST_TOKEN_IBTC.symbol, 'Bitcoin', 1)
+      ];
+      mockTokenPrices = {
+        ETH: { price: 100, change24h: 0, percentageChange24h: 0 },
+        BTC: { price: 50, change24h: 0, percentageChange24h: 0 }
+      };
+      const listedIds = () => screen.getAllByTestId('asset-row').map(row => row.getAttribute('data-token'));
+      try {
+        await renderExplore();
+        expect(listedIds()).toEqual([TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IBTC.faucetId]);
+
+        act(() => {
+          mockBridgeSnapshot = {
+            ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+            config: {
+              ...TEST_BRIDGE_CONFIG,
+              swap: {
+                tokens: [
+                  {
+                    symbol: TEST_TOKEN_IETH.symbol,
+                    faucetId: TEST_TOKEN_IETH.faucetId,
+                    decimals: TEST_TOKEN_IETH.decimals,
+                    priceSymbol: 'BTC'
+                  },
+                  {
+                    symbol: TEST_TOKEN_IBTC.symbol,
+                    faucetId: TEST_TOKEN_IBTC.faucetId,
+                    decimals: TEST_TOKEN_IBTC.decimals,
+                    priceSymbol: 'ETH'
+                  }
+                ]
+              }
+            }
+          };
+          publishMockBridgeSnapshot();
+        });
+        expect(listedIds()).toEqual([TEST_TOKEN_IBTC.faucetId, TEST_TOKEN_IETH.faucetId]);
+      } finally {
+        _setSwapTokensForTest(TEST_SWAP_TOKENS);
+      }
+    });
+
+    it('updates price readiness on a config-only change with an unchanged empty feed', async () => {
+      _setSwapTokensForTest(undefined);
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      mockAllBalances = [makeToken(TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IETH.symbol, 'Ether', 1)];
+      mockTokenPrices = {};
+      mockPortfolioTotal = new BigNumber(100);
+      try {
+        await renderExplore();
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^\u2014$/);
+
+        act(() => {
+          mockBridgeSnapshot = {
+            ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+            config: {
+              ...TEST_BRIDGE_CONFIG,
+              swap: {
+                tokens: [
+                  {
+                    symbol: TEST_TOKEN_IETH.symbol,
+                    faucetId: TEST_TOKEN_IETH.faucetId,
+                    decimals: TEST_TOKEN_IETH.decimals,
+                    priceSymbol: 'USDCX'
+                  }
+                ]
+              }
+            }
+          };
+          publishMockBridgeSnapshot();
+        });
+        expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);
+      } finally {
+        _setSwapTokensForTest(TEST_SWAP_TOKENS);
+      }
+    });
+
     it('renders the page shell, banner, balance card, prompts and asset rows', async () => {
       mockAllBalances = [
         makeToken('faucet-native', 'MIDEN', 'Miden'),

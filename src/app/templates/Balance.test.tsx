@@ -1,13 +1,19 @@
 import React, { ReactElement } from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import BigNumber from 'bignumber.js';
 
-import { TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID } from 'lib/epoch/testing/bridge-config';
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
+} from 'lib/epoch/testing/bridge-config';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import Balance from './Balance';
 
@@ -19,6 +25,12 @@ afterAll(() => _setSwapTokensForTest(undefined));
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
 jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 
@@ -54,7 +66,8 @@ jest.mock('lib/store', () => ({
 
 // The hidden set is `useHiddenTokens`'s, tested there; here it is whatever each case says.
 const mockHiddenIds = new Set<string>();
-const mockUseHiddenTokens = jest.fn((_address: string) => ({ isHidden: (id: string) => mockHiddenIds.has(id) }));
+const mockIsHidden = (id: string) => mockHiddenIds.has(id);
+const mockUseHiddenTokens = jest.fn((_address: string) => ({ isHidden: mockIsHidden }));
 jest.mock('app/hooks/useHiddenTokens', () => ({
   useHiddenTokens: (address: string) => mockUseHiddenTokens(address)
 }));
@@ -103,9 +116,54 @@ beforeEach(() => {
   mockStoreState = { tokenPrices: { ETH: quote(100), BTC: quote(50) } };
   capturedTransitionProps = null;
   mockHiddenIds.clear();
+  mockBridgeSnapshot = undefined;
 });
 
 describe('Balance', () => {
+  it('revalues a stable portfolio when the configured price symbol changes or is removed', () => {
+    _setSwapTokensForTest(undefined);
+    const snapshotFor = (priceSymbol?: string): BridgeConfigSnapshot => ({
+      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+      config: {
+        ...TEST_BRIDGE_CONFIG,
+        swap: {
+          tokens: [
+            {
+              symbol: TEST_TOKEN_IETH.symbol,
+              faucetId: TEST_TOKEN_IETH.faucetId,
+              decimals: TEST_TOKEN_IETH.decimals,
+              ...(priceSymbol === undefined ? {} : { priceSymbol })
+            }
+          ]
+        }
+      }
+    });
+    mockBridgeSnapshot = snapshotFor('ETH');
+    const balances: TokenBalance[] = [
+      { tokenId: TEST_TOKEN_IETH.faucetId, balance: 1, metadata: { symbol: TEST_TOKEN_IETH.symbol, decimals: 8 } }
+    ];
+    mockUseAllBalances.mockReturnValue(balancesReturn(balances));
+    const child = renderChild();
+    try {
+      render(<Balance>{child}</Balance>);
+      expect(total()).toHaveTextContent(/^100$/);
+
+      act(() => {
+        mockBridgeSnapshot = snapshotFor('BTC');
+        publishMockBridgeSnapshot();
+      });
+      expect(total()).toHaveTextContent(/^50$/);
+
+      act(() => {
+        mockBridgeSnapshot = snapshotFor();
+        publishMockBridgeSnapshot();
+      });
+      expect(total()).toHaveTextContent('no figure');
+    } finally {
+      _setSwapTokensForTest(TEST_SWAP_TOKENS);
+    }
+  });
+
   it('yields a zero fiat total when there are no balances', () => {
     mockUseAllBalances.mockReturnValue(balancesReturn([]));
 

@@ -78,6 +78,7 @@ const Explore: FC = () => {
     mutate: mutateBalances
   } = useAllBalances(account.publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
 
   const {
     data: claimableNotes,
@@ -217,7 +218,7 @@ const Explore: FC = () => {
       sortedTokens: sorted.filter(token => !isHidden(token.tokenId)),
       hiddenTokens: sorted.filter(token => isHidden(token.tokenId))
     };
-  }, [allTokenBalances, isHidden, midenFaucetId, tokenPrices]);
+  }, [allTokenBalances, isHidden, midenFaucetId, tokenPrices, bridgeConfig]);
 
   // The price symbols of the tokens the Balance total sums, so the card waits on the feed only
   // while one of them is a symbol the feed lists (`pricesLoaded`).
@@ -226,7 +227,7 @@ const Explore: FC = () => {
       allTokenBalances
         .filter(token => token.balance > 0 && !isHidden(token.tokenId) && hasKnownScale(token.metadata))
         .map(token => priceSymbolFor(token.tokenId, token.metadata.symbol)),
-    [allTokenBalances, isHidden]
+    [allTokenBalances, isHidden, bridgeConfig]
   );
 
   const refreshExplore = useCallback(async () => {

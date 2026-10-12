@@ -28,6 +28,7 @@ import {
 } from 'lib/miden-chain/faucet-api';
 import { isExtension } from 'lib/platform';
 import type { TokenPrices } from 'lib/prices';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -241,6 +242,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   tokenPrices
 }) => {
   const { t } = useTranslation();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const confirm = useConfirm();
   const seedStatus = useWalletStore(s => s.seedPhraseStatus);
   const { storage, isLoaded, setFaucetStatus, dismissPrompt, completePrompt, isPromptPending } =
@@ -360,11 +362,11 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const formattedFundedMintUsdTotal = useMemo(
     () =>
       fundedMintNotes.length > 0 ? formatUsdTotal(getPendingNotesUsdTotal(fundedMintNotes, tokenPrices)) : undefined,
-    [fundedMintNotes, tokenPrices]
+    [fundedMintNotes, tokenPrices, bridgeConfig]
   );
   const formattedPendingNotesUsdTotal = useMemo(
     () => formatUsdTotal(getPendingNotesUsdTotal(waitingNotes, tokenPrices)),
-    [waitingNotes, tokenPrices]
+    [waitingNotes, tokenPrices, bridgeConfig]
   );
 
   // One localized line per recovery step; the public-backfill step carries the

@@ -4,10 +4,13 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import {
   publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
 import type { GuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
+import { TEST_TOKEN_IUSDT } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { resetActivityReadState } from 'lib/settings/activity-read';
 import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
@@ -189,6 +192,60 @@ function expandCard(noteId: string): HTMLElement {
   fireEvent.click(within(card).getByRole('button', { expanded: false }));
   return card;
 }
+
+it('revalues an unchanged pending list on config-only price changes and removes an unavailable total', () => {
+  _setSwapTokensForTest(undefined);
+  const snapshotFor = (priceSymbol?: string): BridgeConfigSnapshot => ({
+    ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+    config: {
+      ...TEST_BRIDGE_CONFIG,
+      swap: {
+        tokens: [
+          {
+            symbol: TEST_TOKEN_IUSDT.symbol,
+            faucetId: TEST_TOKEN_IUSDT.faucetId,
+            decimals: TEST_TOKEN_IUSDT.decimals,
+            ...(priceSymbol === undefined ? {} : { priceSymbol })
+          }
+        ]
+      }
+    }
+  });
+  mockBridgeSnapshot = snapshotFor('USDC');
+  mockState.items = [
+    {
+      note: {
+        id: 'configured-pending',
+        faucetId: TEST_TOKEN_IUSDT.faucetId,
+        amount: '100000000',
+        senderAddress: 'sender',
+        isBeingClaimed: false,
+        type: 'unknown',
+        metadata: { symbol: TEST_TOKEN_IUSDT.symbol, name: 'Tether', decimals: TEST_TOKEN_IUSDT.decimals }
+      },
+      status: 'pending'
+    }
+  ];
+  try {
+    render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(screen.getByTestId('pending-row-total')).toHaveTextContent('$2.00');
+
+    act(() => {
+      mockBridgeSnapshot = snapshotFor('USDCX');
+      publishMockBridgeSnapshot();
+    });
+    expect(screen.getByTestId('pending-row-total')).toHaveTextContent('$1.00');
+
+    act(() => {
+      mockBridgeSnapshot = snapshotFor();
+      publishMockBridgeSnapshot();
+    });
+    expect(screen.getByTestId('pending-row-total')).toBeEmptyDOMElement();
+    expect(screen.getByText('activityPendingWaiting:1')).toBeInTheDocument();
+  } finally {
+    _setSwapTokensForTest(undefined);
+  }
+});
 
 it('hides the list spinner under its own progress bar', () => {
   render(<ActivityPendingHistory search="" filter="all" />);
