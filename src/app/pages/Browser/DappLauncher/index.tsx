@@ -114,6 +114,7 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
     if (!url) return;
     hapticLight();
     onOpen(url);
+    closeSearch();
   };
 
   // The reveal plays on the first mount of the session only (see `reveal-once.ts`); after that

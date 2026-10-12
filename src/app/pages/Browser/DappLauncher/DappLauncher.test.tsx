@@ -546,11 +546,31 @@ describe('DappLauncher header search', () => {
     fireEvent.change(input, { target: { value: 'app.zoroswap.com' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onOpen).toHaveBeenLastCalledWith('https://app.zoroswap.com');
+    expect(hapticLight).toHaveBeenCalledTimes(1);
 
-    fireEvent.change(input, { target: { value: 'http://localhost:4173/alpha' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
+    const pastedInput = await openSearch();
+    jest.mocked(hapticLight).mockClear();
+    fireEvent.change(pastedInput, { target: { value: 'http://localhost:4173/alpha' } });
+    fireEvent.keyDown(pastedInput, { key: 'Enter' });
     expect(onOpen).toHaveBeenLastCalledWith('http://localhost:4173/alpha');
-    expect(hapticLight).toHaveBeenCalledTimes(2);
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows Recents after opening a submitted URL without replacing the launcher', async () => {
+    await renderLauncher();
+    const launcher = screen.getByTestId('explore-launcher');
+    launcher.scrollTop = 124;
+    const input = await openSearch();
+
+    fireEvent.change(input, { target: { value: 'https://recent.example/' } });
+    await waitFor(() => expect(screen.queryByTestId('explore-recents')).not.toBeInTheDocument());
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    const recents = await screen.findByTestId('explore-recents');
+    await waitFor(() => expect(within(recents).getByRole('button', { name: 'Recent' })).toBeVisible());
+    await waitFor(() => expect(screen.queryByTestId('dapp-hero-search')).not.toBeInTheDocument());
+    expect(screen.getByTestId('explore-launcher')).toBe(launcher);
+    expect(launcher.scrollTop).toBe(124);
   });
 
   it('opens the first match for a name on Enter, and does nothing for an empty query', async () => {
