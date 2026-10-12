@@ -14,10 +14,11 @@ export const INJECTION_SCRIPT = `
   // rerun the style block on every executeScript call.
   try {
     const STYLE_ID = 'miden-wallet-bottom-pad';
-    var existing = document.getElementById(STYLE_ID);
-    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
     const installPadding = function() {
       if (!document || !document.head) return;
+      var existing = document.getElementById(STYLE_ID);
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      if (window.__breadPresentationState && window.__breadPresentationState.display === 'fullscreen') return;
       const style = document.createElement('style');
       style.id = STYLE_ID;
       style.textContent =
@@ -25,6 +26,11 @@ export const INJECTION_SCRIPT = `
         'body { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important; }';
       document.head.appendChild(style);
     };
+    if (window.__midenWalletPaddingListener) {
+      document.removeEventListener('breadpresentationchange', window.__midenWalletPaddingListener);
+    }
+    window.__midenWalletPaddingListener = installPadding;
+    document.addEventListener('breadpresentationchange', installPadding);
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', installPadding, { once: true });
     } else {

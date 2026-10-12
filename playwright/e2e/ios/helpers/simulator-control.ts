@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
 
+import { capNativeScreenshot } from '../../harness/cap-native-screenshot';
+
 const execFileAsync = promisify(execFile);
 
 const ROOT_DIR = path.resolve(__dirname, '../../../..');
@@ -172,6 +174,7 @@ export class SimulatorControl {
   async screenshot(udid: string, outPath: string): Promise<void> {
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
     await execSimctl(['io', udid, 'screenshot', outPath]);
+    await capNativeScreenshot(outPath);
   }
 
   /**

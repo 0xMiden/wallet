@@ -6199,5 +6199,25 @@
   "externalPageLoadFailed": {
     "message": "이 페이지를 열 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "breadCloseError": {
+    "message": "Bread로 돌아갈 수 없습니다.",
+    "englishSource": "Could not return to Bread."
+  },
+  "breadExitNow": {
+    "message": "지금 종료",
+    "englishSource": "Exit now"
+  },
+  "breadPresentationBack": {
+    "message": "Bread로 돌아가기",
+    "englishSource": "Back to Bread"
+  },
+  "breadPresentationHint": {
+    "message": "Bread를 탭하여 돌아가기",
+    "englishSource": "Tap Bread to return"
+  },
+  "breadPresentationError": {
+    "message": "이 앱의 로딩이 완료되지 않았습니다. 다시 시도하거나 Bread로 돌아가세요.",
+    "englishSource": "This app did not finish loading. Try again or return to Bread."
   }
 }

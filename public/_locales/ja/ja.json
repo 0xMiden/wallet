@@ -1388,5 +1388,10 @@
   "testIethExecution": "この交換は、Midenテストネット上のスマートコントラクトを通じて実行されます。",
   "swapExecutionTitle": "スワップが実行される場所",
   "tokenInfoLabel": "$token$について",
-  "externalPageLoadFailed": "このページを開くことができませんでした。接続を確認して、もう一度お試しください。"
+  "externalPageLoadFailed": "このページを開くことができませんでした。接続を確認して、もう一度お試しください。",
+  "breadCloseError": "Breadに戻れませんでした。",
+  "breadExitNow": "今すぐ終了",
+  "breadPresentationBack": "Breadに戻る",
+  "breadPresentationHint": "Breadをタップして戻る",
+  "breadPresentationError": "このアプリの読み込みが完了しませんでした。もう一度試すか、Breadに戻ってください。"
 }

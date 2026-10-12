@@ -1388,5 +1388,10 @@
   "testIethExecution": "이 스왑은 Miden 테스트넷상의 스마트 계약을 통해 실행됩니다.",
   "swapExecutionTitle": "교체가 실행되는 곳",
   "tokenInfoLabel": "$token$에 관하여",
-  "externalPageLoadFailed": "이 페이지를 열 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요."
+  "externalPageLoadFailed": "이 페이지를 열 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
+  "breadCloseError": "Bread로 돌아갈 수 없습니다.",
+  "breadExitNow": "지금 종료",
+  "breadPresentationBack": "Bread로 돌아가기",
+  "breadPresentationHint": "Bread를 탭하여 돌아가기",
+  "breadPresentationError": "이 앱의 로딩이 완료되지 않았습니다. 다시 시도하거나 Bread로 돌아가세요."
 }

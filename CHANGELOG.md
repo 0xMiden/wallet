@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.4 (TBD)
+
+### Features
+
+- [FEATURE][mobile] dApps can opt into fullscreen that follows device rotation, keeps wallet popups accessible and returns to Bread through a translucent logo control. Closing rejects the page's pending approval and removes its saved session; older Android WebViews keep the ordinary browser toolbar. See [the adoption guide](docs/dapp-fullscreen.md).
+
 ## 1.17.3 (2026-10-12)
 
 ### Features

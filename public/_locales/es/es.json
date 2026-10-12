@@ -1388,5 +1388,10 @@
   "testIethExecution": "El intercambio se lleva a cabo mediante un contrato inteligente en la red de pruebas de Miden.",
   "swapExecutionTitle": "Dónde se lleva a cabo el cambio",
   "tokenInfoLabel": "Acerca de $token$",
-  "externalPageLoadFailed": "No se ha podido abrir esta página. Comprueba tu conexión e inténtalo de nuevo."
+  "externalPageLoadFailed": "No se ha podido abrir esta página. Comprueba tu conexión e inténtalo de nuevo.",
+  "breadCloseError": "No se pudo volver a Bread.",
+  "breadExitNow": "Salir ahora",
+  "breadPresentationBack": "Volver a Bread",
+  "breadPresentationHint": "Toca Bread para volver",
+  "breadPresentationError": "Esta aplicación no terminó de cargar. Inténtalo de nuevo o vuelve a Bread."
 }

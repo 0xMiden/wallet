@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 
 import { AlertSheet } from 'components/ui/AlertSheet';
 import { ButtonVariant } from 'components/ui/Button';
-import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { dispatchAlertClose, dispatchConfirmClose, useModalsParams } from 'lib/ui/dialog';
 
 /**
@@ -22,23 +21,6 @@ const Dialogs: FC = () => {
   const handleConfirm = useCallback(() => {
     dispatchConfirmClose(true);
   }, []);
-
-  // Handle mobile back button/gesture to close dialogs
-  useMobileBackHandler(
-    () => {
-      if (confirmParams.isOpen) {
-        dispatchConfirmClose(false);
-        return true;
-      }
-      if (alertParams.isOpen) {
-        dispatchAlertClose();
-        return true;
-      }
-      return false;
-    },
-    [confirmParams.isOpen, alertParams.isOpen],
-    { overlay: true }
-  );
 
   return (
     <>
