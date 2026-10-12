@@ -50,6 +50,7 @@ import static org.robolectric.Shadows.shadowOf;
 @Config(sdk = 34)
 public class BreadPresentationControllerTest {
     private Activity activity;
+    private org.robolectric.android.controller.ActivityController<Activity> activityController;
     private WebViewDialog dialog;
     private Options options;
     private BreadPresentationController controller;
@@ -63,7 +64,8 @@ public class BreadPresentationControllerTest {
     private final List<String> installed = new ArrayList<>();
 
     @Before public void setUp() {
-        activity = Robolectric.buildActivity(Activity.class).setup().visible().get();
+        activityController = Robolectric.buildActivity(Activity.class).setup().visible();
+        activity = activityController.get();
         activity.setTheme(androidx.appcompat.R.style.Theme_AppCompat_Light_NoActionBar);
         features = mockStatic(WebViewFeature.class);
         features.when(() -> WebViewFeature.isFeatureSupported(WebViewFeature.NAVIGATION_LISTENER_V1)).thenReturn(true);
@@ -325,6 +327,7 @@ public class BreadPresentationControllerTest {
         ManagedHostClose managed = dialog.managedClose();
         assertFalse(managed.complete("stale", managed.requestId(), 1));
         assertNull(renderer.fence);
+        host.dispatchApplyWindowInsets(hiddenHostInsets());
         assertTrue(managed.complete("lifetime", managed.requestId(), 1));
         assertNotNull(renderer.fence);
         assertTrue(game.isAttachedToWindow());
@@ -335,6 +338,238 @@ public class BreadPresentationControllerTest {
         assertFalse(dialog.isShowing());
         verify(completion, times(1)).run();
         verify(callbacks, times(1)).closeEvent(anyString());
+    }
+
+    private WebView managedInsetHost() {
+        open(true, true, "default");
+        controller.state.configure("browser", false, false);
+        acknowledgePolicy();
+        WebView original = ReflectionHelpers.getField(dialog, "capacitorWebView");
+        original.setLayoutParams(new FrameLayout.LayoutParams(390, 844));
+        WebView host = spy(original);
+        ReflectionHelpers.setField(dialog, "capacitorWebView", host);
+        activity.setContentView(host, new FrameLayout.LayoutParams(390, 844));
+        doReturn(390).when(host).getWidth(); doReturn(844).when(host).getHeight();
+        doReturn(true).when(host).isAttachedToWindow();
+        doReturn(false).when(host).isHardwareAccelerated();
+        WebViewRegistry.getShared().register("managed", dialog);
+        dialog.configureManagedClose("managed", new JSObject().put("token", "lifetime"), ignored -> {});
+        return host;
+    }
+
+    private android.view.WindowInsets hiddenHostInsets() {
+        return new android.view.WindowInsets.Builder()
+            .setInsets(android.view.WindowInsets.Type.systemBars(), android.graphics.Insets.NONE)
+            .setInsetsIgnoringVisibility(android.view.WindowInsets.Type.systemBars(), android.graphics.Insets.of(0, 52, 0, 24))
+            .setVisible(android.view.WindowInsets.Type.systemBars(), false).build();
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void managedReturnDeliversOrdinaryInsetsBeforeHostHandoff() {
+        WebView host = managedInsetHost();
+        dialog.configureManagedClose("managed", new JSObject().put("token", "lifetime"), ignored -> {
+            host.dispatchApplyWindowInsets(hiddenHostInsets());
+            org.mockito.ArgumentCaptor<android.view.WindowInsets> applied = org.mockito.ArgumentCaptor.forClass(android.view.WindowInsets.class);
+            verify(host, atLeastOnce()).onApplyWindowInsets(applied.capture());
+            assertEquals(android.graphics.Insets.of(0, 52, 0, 24),
+                applied.getValue().getInsets(android.view.WindowInsets.Type.systemBars()));
+        });
+        dialog.requestClose(() -> {});
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void managedReturnDoesNotTransferFocusWhileGameRemains() {
+        WebView host = managedInsetHost();
+        dialog.requestClose(() -> {});
+        host.dispatchApplyWindowInsets(hiddenHostInsets());
+        ManagedHostClose managed = dialog.managedClose();
+        assertTrue(managed.complete("lifetime", managed.requestId(), 1));
+        assertEquals(0, dialog.getWindow().getAttributes().flags & WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+        assertTrue(dialog.isShowing());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void managedReturnFastAcknowledgementWaitsForActualInsetDelivery() {
+        WebView host = managedInsetHost();
+        dialog.requestClose(() -> {});
+        ManagedHostClose managed = dialog.managedClose();
+        assertTrue(managed.complete("lifetime", managed.requestId(), 1));
+        PaintWebView renderer = Shadow.extract(host);
+        assertNull("No fence may certify the hidden-bar host layout", renderer.fence);
+        host.dispatchApplyWindowInsets(hiddenHostInsets());
+        assertNotNull(renderer.fence);
+        renderer.fence.onComplete(renderer.request);
+        assertFalse(dialog.isShowing());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void managedReturnInsetChangeRejectsAlreadySubmittedHardwareFrame() {
+        WebView host = managedInsetHost();
+        doReturn(true).when(host).isHardwareAccelerated();
+        android.view.ViewTreeObserver observer = mock(android.view.ViewTreeObserver.class);
+        doReturn(observer).when(host).getViewTreeObserver();
+        dialog.requestClose(() -> {});
+        host.dispatchApplyWindowInsets(hiddenHostInsets());
+        ManagedHostClose managed = dialog.managedClose();
+        managed.complete("lifetime", managed.requestId(), 1);
+        PaintWebView renderer = Shadow.extract(host);
+        long staleRevision = renderer.request;
+        renderer.fence.onComplete(renderer.request);
+        org.mockito.ArgumentCaptor<Runnable> frames = org.mockito.ArgumentCaptor.forClass(Runnable.class);
+        verify(observer).registerFrameCommitCallback(frames.capture());
+        Runnable staleFrame = frames.getValue();
+        host.dispatchApplyWindowInsets(new android.view.WindowInsets.Builder(hiddenHostInsets())
+            .setInsets(android.view.WindowInsets.Type.ime(), android.graphics.Insets.of(0, 0, 0, 280)).build());
+        assertNotEquals(staleRevision, renderer.request);
+        staleFrame.run(); shadowOf(Looper.getMainLooper()).idle();
+        assertTrue(dialog.isShowing());
+        renderer.fence.onComplete(renderer.request);
+        verify(observer, times(2)).registerFrameCommitCallback(frames.capture());
+        frames.getValue().run(); shadowOf(Looper.getMainLooper()).idle();
+        assertFalse(dialog.isShowing());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void managedReturnBackgroundAndRetryRejectOutgoingPaintWithoutResumingGame() {
+        WebView host = managedInsetHost();
+        dialog.requestClose(() -> {});
+        host.dispatchApplyWindowInsets(hiddenHostInsets());
+        ManagedHostClose managed = dialog.managedClose();
+        managed.complete("lifetime", managed.requestId(), 1);
+        PaintWebView renderer = Shadow.extract(host);
+        WebView.VisualStateCallback stale = renderer.fence;
+        long staleRequest = renderer.request;
+        managed.foreground(false);
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(6));
+        stale.onComplete(staleRequest);
+        assertTrue(dialog.isShowing());
+        assertNull(ReflectionHelpers.getField(managed, "failureView"));
+        managed.foreground(true);
+        managed.retry();
+        stale.onComplete(staleRequest);
+        assertTrue(dialog.isShowing());
+        assertTrue(shadowOf(webView).wasOnPauseCalled());
+        assertFalse(shadowOf(webView).wasOnResumeCalled());
+        managed.complete("lifetime", managed.requestId(), 2);
+        renderer.fence.onComplete(renderer.request);
+        assertFalse(dialog.isShowing());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void managedReturnWithoutInsetsUsesExistingTimeoutAndRetryCanRecover() {
+        WebView host = managedInsetHost();
+        dialog.requestClose(() -> {});
+        ManagedHostClose managed = dialog.managedClose();
+        managed.complete("lifetime", managed.requestId(), 1);
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(5100));
+        assertNotNull(ReflectionHelpers.getField(managed, "failureView"));
+        assertNull(((PaintWebView) Shadow.extract(host)).fence);
+        managed.retry();
+        host.dispatchApplyWindowInsets(hiddenHostInsets());
+        managed.complete("lifetime", managed.requestId(), 2);
+        PaintWebView renderer = Shadow.extract(host);
+        renderer.fence.onComplete(renderer.request);
+        assertFalse(dialog.isShowing());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void managedReturnCompetingPolicyWaitsAndHiddenCloseDoesNotTouchIt() {
+        WebView host = managedInsetHost();
+        HostReturnInsets other = HostReturnInsets.acquire(host, () -> true, () -> {});
+        host.dispatchApplyWindowInsets(hiddenHostInsets());
+        dialog.requestClose(() -> {});
+        ManagedHostClose managed = dialog.managedClose();
+        managed.complete("lifetime", managed.requestId(), 1);
+        assertNull(((PaintWebView) Shadow.extract(host)).fence);
+        assertTrue(other.owned());
+        dialog.forceClose();
+        assertTrue(other.owned());
+        other.finish();
+        host.dispatchApplyWindowInsets(new android.view.WindowInsets.Builder(hiddenHostInsets())
+            .setInsets(android.view.WindowInsets.Type.systemBars(), android.graphics.Insets.of(0, 52, 0, 24)).build());
+        assertFalse(other.owned());
+        host = managedInsetHost();
+        HostReturnInsets foregroundPolicy = HostReturnInsets.acquire(host, () -> true, () -> {});
+        dialog.hide();
+        assertFalse(dialog.isShowing());
+        dialog.requestClose(() -> {});
+        managed = dialog.managedClose();
+        managed.complete("lifetime", managed.requestId(), 1);
+        assertTrue(foregroundPolicy.owned());
+        assertFalse(managed.closing());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void managedReturnDestroyedHostReleasesPolicyAndFinishesWithoutFence() {
+        WebView host = managedInsetHost();
+        dialog.requestClose(() -> {});
+        HostReturnInsets policy = ReflectionHelpers.getField(dialog.managedClose(), "returnInsets");
+        assertTrue(policy.owned());
+        activity.setContentView(new FrameLayout(activity));
+        assertFalse(policy.owned());
+        activity.finish();
+        activityController.pause().stop().destroy();
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100));
+        assertFalse(dialog.managedClose().closing());
+        assertFalse(policy.owned());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void managedReturnWaitsForCompetingPolicyReleaseThenItsOwnDelivery() {
+        WebView host = managedInsetHost();
+        HostReturnInsets first = HostReturnInsets.acquire(host, () -> true, () -> {});
+        host.dispatchApplyWindowInsets(hiddenHostInsets());
+        dialog.requestClose(() -> {});
+        ManagedHostClose managed = dialog.managedClose();
+        managed.complete("lifetime", managed.requestId(), 1);
+        PaintWebView renderer = Shadow.extract(host);
+        assertNull(renderer.fence);
+        first.finish();
+        host.dispatchApplyWindowInsets(new android.view.WindowInsets.Builder(hiddenHostInsets())
+            .setInsets(android.view.WindowInsets.Type.systemBars(), android.graphics.Insets.of(0, 52, 0, 24)).build());
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100));
+        assertNull(renderer.fence);
+        host.dispatchApplyWindowInsets(hiddenHostInsets());
+        renderer.fence.onComplete(renderer.request);
+        assertFalse(dialog.isShowing());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void managedReturnReattachedHostCannotReuseOutgoingPolicyFence() {
+        WebView host = managedInsetHost();
+        dialog.requestClose(() -> {});
+        host.dispatchApplyWindowInsets(hiddenHostInsets());
+        ManagedHostClose managed = dialog.managedClose();
+        managed.complete("lifetime", managed.requestId(), 1);
+        PaintWebView renderer = Shadow.extract(host);
+        WebView.VisualStateCallback stale = renderer.fence;
+        long staleRequest = renderer.request;
+        ViewGroup parent = (ViewGroup) host.getParent();
+        parent.removeView(host);
+        parent.addView(host);
+        stale.onComplete(staleRequest);
+        assertTrue(dialog.isShowing());
+        host.dispatchApplyWindowInsets(hiddenHostInsets());
+        HostReturnInsets currentPolicy = ReflectionHelpers.getField(managed, "returnInsets");
+        assertTrue("Reattached policy must receive insets", currentPolicy.ready());
+        assertNotEquals(staleRequest, renderer.request);
+        stale.onComplete(staleRequest);
+        assertTrue(dialog.isShowing());
+        renderer.fence.onComplete(renderer.request);
+        assertFalse(dialog.isShowing());
+    }
+
+    @Test @Config(sdk = 29, shadows = PaintWebView.class)
+    public void managedReturnOlderApiRetainsOrdinaryFenceWithoutInsetPolicy() {
+        WebView host = managedInsetHost();
+        dialog.requestClose(() -> {});
+        ManagedHostClose managed = dialog.managedClose();
+        assertNull(ReflectionHelpers.getField(managed, "returnInsets"));
+        managed.complete("lifetime", managed.requestId(), 1);
+        PaintWebView renderer = Shadow.extract(host);
+        assertNotNull(renderer.fence);
+        renderer.fence.onComplete(renderer.request);
+        assertFalse(dialog.isShowing());
     }
 
     @Test public void nativeOpenCannotReplaceManagedIdBeforeOrDuringClose() {
@@ -376,6 +611,7 @@ public class BreadPresentationControllerTest {
         dialog.configureManagedClose("managed", new JSObject().put("token", "lifetime"), ignored -> {});
         dialog.dismiss();
         ManagedHostClose managed = dialog.managedClose();
+        host.dispatchApplyWindowInsets(hiddenHostInsets());
         assertTrue(managed.complete("lifetime", managed.requestId(), 1));
         PaintWebView renderer = Shadow.extract(host);
         assertNotNull(renderer.fence);
@@ -406,6 +642,7 @@ public class BreadPresentationControllerTest {
         dialog.configureManagedClose("managed", new JSObject().put("token", "lifetime"), ignored -> {});
         dialog.dismiss();
         ManagedHostClose managed = dialog.managedClose();
+        host.dispatchApplyWindowInsets(hiddenHostInsets());
         assertTrue(managed.complete("lifetime", managed.requestId(), 1));
         PaintWebView renderer = Shadow.extract(host);
         renderer.fence.onComplete(renderer.request);

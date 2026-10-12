@@ -8,7 +8,6 @@ import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.WindowManager;
 import android.webkit.WebView;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -34,6 +33,7 @@ final class ManagedHostClose {
     private long generation, receipt = -1, fence = -1, remaining = 5000, lastTick;
     private View failureView;
     private String geometry;
+    private HostReturnInsets returnInsets;
     private final View.OnLayoutChangeListener layoutListener = (view, l, t, r, b, ol, ot, or, ob) -> geometryChanged();
 
     ManagedHostClose(String id, WebViewDialog owner, WebView host, JSObject options,
@@ -57,6 +57,7 @@ final class ManagedHostClose {
         visible = owner.isShowing();
         owner.disableClosingPage();
         host.addOnLayoutChangeListener(layoutListener);
+        ensureReturnInsets();
         retry();
     }
 
@@ -81,8 +82,6 @@ final class ManagedHostClose {
         generation++;
         fence = -1;
         if (!visible) { force(); return true; }
-        // Transfer focus/system-bar ownership without removing the original dialog's pixels.
-        owner.getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
         host.requestApplyInsets();
         startFence();
         return true;
@@ -96,10 +95,24 @@ final class ManagedHostClose {
         if (value) startFence();
     }
 
+    private boolean ensureReturnInsets() {
+        if (!visible || Build.VERSION.SDK_INT < 30) return true;
+        if (WebViewRegistry.getShared().get(id) != owner) return false;
+        if (returnInsets == null || !returnInsets.owned()) {
+            generation++;
+            fence = -1;
+            geometry = null;
+            returnInsets = HostReturnInsets.acquire(host,
+                () -> !finished && WebViewRegistry.getShared().get(id) == owner, this::geometryChanged);
+        }
+        return returnInsets != null && returnInsets.ready();
+    }
+
     private String geometry() {
         int[] position = new int[2];
         host.getLocationInWindow(position);
-        return host.getWidth() + ":" + host.getHeight() + ":" + position[0] + ":" + position[1] + ":" + host.getRootWindowInsets();
+        return host.getWidth() + ":" + host.getHeight() + ":" + position[0] + ":" + position[1] + ":" + host.getRootWindowInsets() + ":" +
+            (Build.VERSION.SDK_INT < 30 || returnInsets == null ? 0 : returnInsets.revision());
     }
 
     private void geometryChanged() {
@@ -113,14 +126,15 @@ final class ManagedHostClose {
     }
 
     private boolean current(long revision, String dimensions) {
-        return closing() && !failed && foreground && generation == revision && host.isAttachedToWindow() &&
+        return closing() && !failed && foreground && generation == revision &&
+            (Build.VERSION.SDK_INT < 30 || (returnInsets != null && returnInsets.ready())) && host.isAttachedToWindow() &&
             host.getVisibility() == View.VISIBLE && dimensions.equals(geometry()) &&
             WebViewRegistry.getShared().get(id) == owner;
     }
 
     private void startFence() {
         if (!closing() || failed || !foreground || receipt < 0 || fence >= 0 ||
-            !host.isAttachedToWindow() || host.getVisibility() != View.VISIBLE || host.getWidth() == 0 || host.getHeight() == 0) return;
+            !host.isAttachedToWindow() || host.getVisibility() != View.VISIBLE || host.getWidth() == 0 || host.getHeight() == 0 || !ensureReturnInsets()) return;
         final long revision = generation;
         final String dimensions = geometry();
         geometry = dimensions;
@@ -204,7 +218,9 @@ final class ManagedHostClose {
         handler.removeCallbacksAndMessages(null);
         host.removeOnLayoutChangeListener(layoutListener);
         removeFailure();
+        if (Build.VERSION.SDK_INT >= 30 && returnInsets != null) returnInsets.finish();
         finish.run();
+        if (Build.VERSION.SDK_INT >= 30 && returnInsets != null) returnInsets.requestInsets();
         List<Runnable> callbacks = new ArrayList<>(completions);
         completions.clear();
         for (Runnable callback : callbacks) callback.run();
