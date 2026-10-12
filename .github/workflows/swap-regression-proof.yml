@@ -1,0 +1,36 @@
+name: Swap regression proof
+
+on:
+  push:
+    branches: [verify/wallet-swap-regressions-20261012]
+
+permissions:
+  contents: read
+
+jobs:
+  regression-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PRODUCT_SHA: a380eb2fe68616eea8801956dbc2dc6fd4abb322
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preserve regression proof inputs
+        run: cp -R .github/verification "$RUNNER_TEMP/swap-proof"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.PRODUCT_SHA }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Verify passing controls and predicted mutation failures
+        env:
+          PROOF_OUTPUT_DIR: ${{ runner.temp }}/swap-proof-output
+        run: node "$RUNNER_TEMP/swap-proof/run-swap-proof.mjs"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: swap-regression-proof
+          path: ${{ runner.temp }}/swap-proof-output

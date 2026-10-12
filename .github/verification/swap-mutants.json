@@ -1,0 +1,462 @@
+{
+  "productSha": "a380eb2fe68616eea8801956dbc2dc6fd4abb322",
+  "tests": [
+    "src/screens/swap-flow/SwapManager.test.tsx",
+    "src/lib/miden/swap/tokens.test.ts",
+    "src/screens/swap-flow/useSwapEta.test.ts",
+    "src/app/pages/Explore.test.tsx",
+    "src/app/templates/Balance.test.tsx",
+    "src/app/templates/HomePrompts.test.tsx",
+    "src/app/templates/history/ActivityPendingHistory.test.tsx"
+  ],
+  "mutants": [
+    {
+      "id": "no-rate-manual-input",
+      "changes": [
+        {
+          "path": "src/screens/swap-flow/SwapManager.tsx",
+          "before": "const quoteUnavailable = Boolean(swapEta.error) || (hasOfferAmount && swapEta.eta !== undefined && !quote);",
+          "after": "const quoteUnavailable = Boolean(swapEta.error);"
+        }
+      ],
+      "tests": [
+        "src/screens/swap-flow/SwapManager.test.tsx"
+      ],
+      "namePattern": "allows\\ manual\\ receive\\ entry\\ after\\ a\\ completed\\ unusable\\ rate",
+      "predictions": [
+        {
+          "test": "allows\\ manual\\ receive\\ entry\\ after\\ a\\ completed\\ unusable\\ rate",
+          "message": "sa-request-input",
+          "description": "Expected real sa-request-input enabled/present after fulfilled null-rate quote; mutant leaves only Skeleton and getByTestId fails."
+        }
+      ]
+    },
+    {
+      "id": "registry-draft-key",
+      "changes": [
+        {
+          "path": "src/screens/swap-flow/SwapManager.tsx",
+          "before": "key={JSON.stringify(tokens)}",
+          "after": "key={`${defaultPair.offer.faucetId}:${defaultPair.request.faucetId}`}"
+        }
+      ],
+      "tests": [
+        "src/screens/swap-flow/SwapManager.test.tsx"
+      ],
+      "namePattern": "resets\\ a\\ selected\\ third\\-token\\ draft",
+      "predictions": [
+        {
+          "test": "resets\\ a\\ selected\\ third\\-token\\ draft",
+          "message": "AAA",
+          "description": "Expected offer AAA and empty draft after selected CCC faucet/precision/symbol/logo refresh; mutant retains CCC and10."
+        }
+      ]
+    },
+    {
+      "id": "integer-zeros",
+      "changes": [
+        {
+          "path": "src/lib/miden/swap/tokens.ts",
+          "before": "const formatted = fixed.includes('.') ? fixed.replace(/\\.?0+$/, '') : fixed;",
+          "after": "const formatted = fixed.replace(/\\.?0+$/, '');"
+        }
+      ],
+      "tests": [
+        "src/lib/miden/swap/tokens.test.ts"
+      ],
+      "namePattern": "preserves\\ significant\\ integer\\ zeros",
+      "predictions": [
+        {
+          "test": "preserves\\ significant\\ integer\\ zeros",
+          "message": "Expected: \"(?:10|190|1900)\"",
+          "description": "Expected10,190,1900 at decimals0; mutant returns1,19,19."
+        }
+      ]
+    },
+    {
+      "id": "quote-service-ownership",
+      "changes": [
+        {
+          "path": "src/screens/swap-flow/useSwapEta.ts",
+          "before": "JSON.stringify([offerFaucetId, requestFaucetId, etaUrl]);",
+          "after": "JSON.stringify([offerFaucetId, requestFaucetId, void etaUrl]);"
+        }
+      ],
+      "tests": [
+        "src/screens/swap-flow/useSwapEta.test.ts"
+      ],
+      "namePattern": "drops\\ a\\ cached\\ quote\\ and\\ refetches\\ when\\ only\\ the\\ configured\\ service\\ changes",
+      "predictions": [
+        {
+          "test": "drops\\ a\\ cached\\ quote\\ and\\ refetches\\ when\\ only\\ the\\ configured\\ service\\ changes",
+          "message": "loading",
+          "description": "Expected {loading:true} immediately after URL-only refresh; mutant preserves prior eta2. Also old in-flight response leaks before debounce."
+        }
+      ]
+    },
+    {
+      "id": "quote-service-refresh",
+      "changes": [
+        {
+          "path": "src/screens/swap-flow/useSwapEta.ts",
+          "before": "const etaUrl = useBridgeConfigSnapshot({ load: false }).config?.swap?.etaUrl;",
+          "after": "const observedEtaUrl = useBridgeConfigSnapshot({ load: false }).config?.swap?.etaUrl;\n  const etaUrl = useRef(observedEtaUrl).current;"
+        }
+      ],
+      "tests": [
+        "src/screens/swap-flow/useSwapEta.test.ts"
+      ],
+      "namePattern": "drops\\ a\\ cached\\ quote\\ and\\ refetches\\ when\\ only\\ the\\ configured\\ service\\ changes",
+      "predictions": [
+        {
+          "test": "drops\\ a\\ cached\\ quote\\ and\\ refetches\\ when\\ only\\ the\\ configured\\ service\\ changes",
+          "message": "loading",
+          "description": "Expected loading-only state and getSwapEta call count2 after changed URL. Frozen initial service leaves old quote and one call. This is a semantic freeze mutant, not a compile failure."
+        }
+      ]
+    },
+    {
+      "id": "raw-offer-eligibility",
+      "changes": [
+        {
+          "path": "src/screens/swap-flow/SwapManager.tsx",
+          "before": "const hasOfferAmount = offerAmountBaseUnits !== undefined && offerAmountBaseUnits > 0n;",
+          "after": "const hasOfferAmount = offerAmountValue > 0;"
+        }
+      ],
+      "tests": [
+        "src/screens/swap-flow/SwapManager.test.tsx"
+      ],
+      "namePattern": "refuses\\ a\\ positive\\ display\\ offer\\ amount\\ that\\ becomes\\ zero\\ raw\\ units",
+      "predictions": [
+        {
+          "test": "refuses\\ a\\ positive\\ display\\ offer\\ amount\\ that\\ becomes\\ zero\\ raw\\ units",
+          "message": "false",
+          "description": "Expected sa-can-proceed false for zero-decimal offer0.5; mutant permits true."
+        }
+      ]
+    },
+    {
+      "id": "raw-request-eligibility",
+      "changes": [
+        {
+          "path": "src/screens/swap-flow/SwapManager.tsx",
+          "before": "const hasRequestAmount = requestAmountBaseUnits !== undefined && requestAmountBaseUnits > 0n;",
+          "after": "const hasRequestAmount = Number(requestAmount) > 0;"
+        }
+      ],
+      "tests": [
+        "src/screens/swap-flow/SwapManager.test.tsx"
+      ],
+      "namePattern": "refuses\\ a\\ positive\\ display\\ request\\ amount\\ that\\ becomes\\ zero\\ raw\\ units",
+      "predictions": [
+        {
+          "test": "refuses\\ a\\ positive\\ display\\ request\\ amount\\ that\\ becomes\\ zero\\ raw\\ units",
+          "message": "false",
+          "description": "Expected sa-can-proceed false for zero-decimal request0.5; mutant permits true."
+        }
+      ]
+    },
+    {
+      "id": "raw-direct-review",
+      "changes": [
+        {
+          "path": "src/screens/swap-flow/SwapManager.tsx",
+          "before": "!hasOfferAmount ||\n      !hasRequestAmount ||",
+          "after": "!(Number(offerAmount) > 0) ||\n      !(Number(requestAmount) > 0) ||"
+        }
+      ],
+      "tests": [
+        "src/screens/swap-flow/SwapManager.test.tsx"
+      ],
+      "namePattern": "refuses\\ a\\ positive\\ display",
+      "predictions": [
+        {
+          "test": "refuses\\ a\\ positive\\ display",
+          "message": "swapInvalidAmounts|Expected number of calls",
+          "description": "Expected rs-submit-error swapInvalidAmounts and no spending assessment. Eligibility remains false but direct submit mutant assesses a raw-zero swap without the validation message."
+        }
+      ]
+    },
+    {
+      "id": "raw-deferred-offer",
+      "changes": [
+        {
+          "path": "src/screens/swap-flow/SwapManager.tsx",
+          "before": "offerAmountBaseUnits <= 0n ||",
+          "after": "offerAmountBaseUnits < 0n ||"
+        }
+      ],
+      "tests": [
+        "src/screens/swap-flow/SwapManager.test.tsx"
+      ],
+      "namePattern": "refuses\\ deferred\\ authorization\\ after\\ the\\ raw\\ offer\\ becomes\\ zero",
+      "predictions": [
+        {
+          "test": "refuses\\ deferred\\ authorization\\ after\\ the\\ raw\\ offer\\ becomes\\ zero",
+          "message": "Expected number of calls|toHaveBeenCalled",
+          "description": "Expected initiateSwap not called after authorization on raw-zero offer; mutant submits0n."
+        }
+      ]
+    },
+    {
+      "id": "raw-deferred-request",
+      "changes": [
+        {
+          "path": "src/screens/swap-flow/SwapManager.tsx",
+          "before": "requestAmountBaseUnits <= 0n",
+          "after": "requestAmountBaseUnits < 0n"
+        }
+      ],
+      "tests": [
+        "src/screens/swap-flow/SwapManager.test.tsx"
+      ],
+      "namePattern": "refuses\\ deferred\\ authorization\\ after\\ the\\ raw\\ request\\ becomes\\ zero",
+      "predictions": [
+        {
+          "test": "refuses\\ deferred\\ authorization\\ after\\ the\\ raw\\ request\\ becomes\\ zero",
+          "message": "Expected number of calls|toHaveBeenCalled",
+          "description": "Expected initiateSwap not called after authorization on raw-zero receive; mutant submits0n."
+        }
+      ]
+    },
+    {
+      "id": "raw-request-conversion-failure",
+      "changes": [
+        {
+          "path": "src/screens/swap-flow/SwapManager.tsx",
+          "before": "const requestAmountBaseUnits = useMemo(() => {\n    try {\n      return stringToBigInt(requestAmount, requestToken.decimals);\n    } catch {\n      return undefined;\n    }",
+          "after": "const requestAmountBaseUnits = useMemo(() => {\n    try {\n      return stringToBigInt(requestAmount, requestToken.decimals);\n    } catch {\n      return 1n;\n    }"
+        }
+      ],
+      "tests": [
+        "src/screens/swap-flow/SwapManager.test.tsx"
+      ],
+      "namePattern": "refuses\\ an\\ undefined\\ raw\\ request\\ conversion",
+      "predictions": [
+        {
+          "test": "refuses\\ an\\ undefined\\ raw\\ request\\ conversion",
+          "message": "false|swapInvalidAmounts|Expected number of calls",
+          "description": "Expected false eligibility and invalid message when conversion throws; mutant invents positive1n and enables submission."
+        }
+      ]
+    },
+    {
+      "id": "raw-offer-conversion-failure",
+      "changes": [
+        {
+          "path": "src/screens/swap-flow/SwapManager.tsx",
+          "before": "const offerAmountBaseUnits = useMemo(() => {\n    try {\n      return stringToBigInt(offerAmount, offerToken.decimals);\n    } catch {\n      return undefined;\n    }",
+          "after": "const offerAmountBaseUnits = useMemo(() => {\n    try {\n      return stringToBigInt(offerAmount, offerToken.decimals);\n    } catch {\n      return 1n;\n    }"
+        }
+      ],
+      "tests": [
+        "src/screens/swap-flow/SwapManager.test.tsx"
+      ],
+      "namePattern": "refuses\\ an\\ undefined\\ raw\\ offer\\ conversion",
+      "predictions": [
+        {
+          "test": "refuses\\ an\\ undefined\\ raw\\ offer\\ conversion",
+          "message": "false|swapInvalidAmounts|Expected number of calls",
+          "description": "Expected false eligibility and invalid message when conversion throws; mutant invents positive1n."
+        }
+      ]
+    },
+    {
+      "id": "unpriced-token-presence-iusdt",
+      "changes": [
+        {
+          "path": "src/lib/miden/swap/tokens.ts",
+          "before": "return tokens.map(configuredSwapToken);",
+          "after": "return tokens.filter(token => token.symbol !== 'IUSDT').map(configuredSwapToken);"
+        }
+      ],
+      "tests": [
+        "src/lib/miden/swap/tokens.test.ts"
+      ],
+      "namePattern": "leaves\\ IUSDT\\ and\\ IMIDEN\\ unpriced",
+      "predictions": [
+        {
+          "test": "leaves\\ IUSDT\\ and\\ IMIDEN\\ unpriced",
+          "message": "undefined",
+          "description": "Expected literal IUSDT faucet identity object; mutant getter returns undefined. Prior optional price-only assertion stayed green."
+        }
+      ]
+    },
+    {
+      "id": "unpriced-token-presence-imiden",
+      "changes": [
+        {
+          "path": "src/lib/miden/swap/tokens.ts",
+          "before": "return tokens.map(configuredSwapToken);",
+          "after": "return tokens.filter(token => token.symbol !== 'IMIDEN').map(configuredSwapToken);"
+        }
+      ],
+      "tests": [
+        "src/lib/miden/swap/tokens.test.ts"
+      ],
+      "namePattern": "leaves\\ IUSDT\\ and\\ IMIDEN\\ unpriced",
+      "predictions": [
+        {
+          "test": "leaves\\ IUSDT\\ and\\ IMIDEN\\ unpriced",
+          "message": "undefined",
+          "description": "Expected literal IMIDEN faucet identity object; mutant getter returns undefined."
+        }
+      ]
+    },
+    {
+      "id": "config-default-order",
+      "changes": [
+        {
+          "path": "src/lib/miden/swap/tokens.ts",
+          "before": "const [offer, request] = listedSwapTokens();",
+          "after": "const listed = listedSwapTokens();\n  const offer = listed.find(token => token.symbol === 'IMIDEN');\n  const request = listed.find(token => token.symbol === 'IETH');"
+        }
+      ],
+      "tests": [
+        "src/lib/miden/swap/tokens.test.ts"
+      ],
+      "namePattern": "opens\\ on\\ the\\ document's\\ first\\ two\\ tokens\\ whether\\ or\\ not\\ native\\ discovery\\ has\\ landed",
+      "predictions": [
+        {
+          "test": "opens\\ on\\ the\\ document's\\ first\\ two\\ tokens\\ whether\\ or\\ not\\ native\\ discovery\\ has\\ landed",
+          "message": "IBTC",
+          "description": "Expected IBTC/IUSDT symbols and canonical faucets cold and warm; mutant selects retired IMIDEN/IETH fixed symbols."
+        }
+      ]
+    },
+    {
+      "id": "pricing-explore-sort",
+      "changes": [
+        {
+          "path": "src/app/pages/Explore.tsx",
+          "before": "[allTokenBalances, isHidden, midenFaucetId, tokenPrices, bridgeConfig]",
+          "after": "[allTokenBalances, isHidden, midenFaucetId, tokenPrices, void bridgeConfig]"
+        }
+      ],
+      "tests": [
+        "src/app/pages/Explore.test.tsx"
+      ],
+      "namePattern": "reorders\\ stable\\ balances\\ when\\ the\\ configured\\ price\\ symbols\\ change",
+      "predictions": [
+        {
+          "test": "reorders\\ stable\\ balances\\ when\\ the\\ configured\\ price\\ symbols\\ change",
+          "message": "Expected|expected",
+          "description": "Expected final listed IDs [TEST_TOKEN_IBTC.faucetId, TEST_TOKEN_IETH.faucetId]; stale result remains [TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IBTC.faucetId]."
+        }
+      ]
+    },
+    {
+      "id": "pricing-explore-readiness",
+      "changes": [
+        {
+          "path": "src/app/pages/Explore.tsx",
+          "before": "[allTokenBalances, isHidden, bridgeConfig]",
+          "after": "[allTokenBalances, isHidden, void bridgeConfig]"
+        }
+      ],
+      "tests": [
+        "src/app/pages/Explore.test.tsx"
+      ],
+      "namePattern": "updates\\ price\\ readiness\\ on\\ a\\ config\\-only\\ change\\ with\\ an\\ unchanged\\ empty\\ feed",
+      "predictions": [
+        {
+          "test": "updates\\ price\\ readiness\\ on\\ a\\ config\\-only\\ change\\ with\\ an\\ unchanged\\ empty\\ feed",
+          "message": "100",
+          "description": "Expected balance-amount text100 after ETH changes to fixed-price USDCX; stale readiness preserves the placeholder."
+        }
+      ]
+    },
+    {
+      "id": "pricing-balance",
+      "changes": [
+        {
+          "path": "src/app/templates/Balance.tsx",
+          "before": "[children, allTokenBalances, isHidden, tokenPrices, bridgeConfig]",
+          "after": "[children, allTokenBalances, isHidden, tokenPrices, void bridgeConfig]"
+        }
+      ],
+      "tests": [
+        "src/app/templates/Balance.test.tsx"
+      ],
+      "namePattern": "revalues\\ a\\ stable\\ portfolio\\ when\\ the\\ configured\\ price\\ symbol\\ changes\\ or\\ is\\ removed",
+      "predictions": [
+        {
+          "test": "revalues\\ a\\ stable\\ portfolio\\ when\\ the\\ configured\\ price\\ symbol\\ changes\\ or\\ is\\ removed",
+          "message": "50",
+          "description": "Expected total text50 after ETH changes to BTC; stale memo preserves100. Restored test also requires no figure after priceSymbol removal."
+        }
+      ]
+    },
+    {
+      "id": "pricing-home-funded",
+      "changes": [
+        {
+          "path": "src/app/templates/HomePrompts.tsx",
+          "before": "[fundedMintNotes, tokenPrices, bridgeConfig]",
+          "after": "[fundedMintNotes, tokenPrices, void bridgeConfig]"
+        }
+      ],
+      "tests": [
+        "src/app/templates/HomePrompts.test.tsx"
+      ],
+      "namePattern": "revalues\\ the\\ funded\\ hero\\ on\\ config\\-only\\ price\\ changes\\ and\\ removes\\ an\\ unavailable\\ total",
+      "predictions": [
+        {
+          "test": "revalues\\ the\\ funded\\ hero\\ on\\ config\\-only\\ price\\ changes\\ and\\ removes\\ an\\ unavailable\\ total",
+          "message": "\\$5\\.00",
+          "description": "Expected data-hero-sub faucetPromptFundedSub:$5.00 after ETH changes to BTC; stale memo preserves faucetPromptFundedSub:$2.50. Restored test also requires faucetPromptFundedSubGeneric after removal."
+        }
+      ]
+    },
+    {
+      "id": "pricing-home-pending",
+      "changes": [
+        {
+          "path": "src/app/templates/HomePrompts.tsx",
+          "before": "[waitingNotes, tokenPrices, bridgeConfig]",
+          "after": "[waitingNotes, tokenPrices, void bridgeConfig]"
+        }
+      ],
+      "tests": [
+        "src/app/templates/HomePrompts.test.tsx"
+      ],
+      "namePattern": "revalues\\ stable\\ pending\\ notes\\ on\\ config\\-only\\ price\\ changes\\ and\\ removes\\ an\\ unavailable\\ total",
+      "predictions": [
+        {
+          "test": "revalues\\ stable\\ pending\\ notes\\ on\\ config\\-only\\ price\\ changes\\ and\\ removes\\ an\\ unavailable\\ total",
+          "message": "\\$5\\.00",
+          "description": "Expected prompt-card-value text$5.00 after ETH changes to BTC; stale memo preserves$2.50. Restored test also requires absent value and preserved count after removal."
+        }
+      ]
+    },
+    {
+      "id": "pricing-activity-pending",
+      "changes": [
+        {
+          "path": "src/app/templates/history/ActivityPendingHistory.tsx",
+          "before": "[listItems, tokenPrices, bridgeConfig]",
+          "after": "[listItems, tokenPrices, void bridgeConfig]"
+        }
+      ],
+      "tests": [
+        "src/app/templates/history/ActivityPendingHistory.test.tsx"
+      ],
+      "namePattern": "revalues\\ an\\ unchanged\\ pending\\ list\\ on\\ config\\-only\\ price\\ changes\\ and\\ removes\\ an\\ unavailable\\ total",
+      "predictions": [
+        {
+          "test": "revalues\\ an\\ unchanged\\ pending\\ list\\ on\\ config\\-only\\ price\\ changes\\ and\\ removes\\ an\\ unavailable\\ total",
+          "message": "\\$1\\.00",
+          "description": "Expected pending-row-total text$1.00 after USDC changes to fixed-price USDCX; stale memo preserves$2.00. Restored test also requires empty total and preserved count after removal."
+        }
+      ]
+    }
+  ],
+  "exclusions": [
+    "Nullable SwapEta/parseRate signature hunks have no independent runtime behavior; HTTP200 null body and real input regression cover their consumed contract. Type gates must accept the new nullable contract.",
+    "Registry/quote ownership JSDoc and imports are compile/documentation support, with semantic key/ownership/refresh mutants above.",
+    "Sharing already validated requested-base-unit conversion with transaction arguments is a behavior-preserving extraction for the same immutable human amount/precision. Positive integer and fractional controls plus captured submission test assert exact raw transaction arguments.",
+    "E2E HTTP200 route replay and immediate sharp screenshot resize are proof harness code. Execute existing Swap E2E on this exact head; inspect its fresh <=1800px attachment before a visual acceptance claim.",
+    "Test-quality mutants deliberately remove a registry token or restore fixed-symbol default selection while keeping strengthened test oracle. Do not reverse the test commit, which would remove the oracle."
+  ]
+}
