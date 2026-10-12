@@ -74,6 +74,8 @@ final class BreadPresentationController {
     private int theme = FALLBACK;
     private boolean hintShown;
     private boolean appliedFullscreen;
+    private final FullscreenRotation dialogRotation = new FullscreenRotation();
+    private final FullscreenRotation hostRotation = new FullscreenRotation();
     // Resume insets can still describe the hidden fullscreen frame; keep the browser snapshot.
     private boolean browserPolicyCaptured;
     private int browserBarsBehavior;
@@ -399,6 +401,10 @@ final class BreadPresentationController {
         if (window == null) return;
         WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, window.getDecorView());
         if (fullscreen()) {
+            if (supported && navigationListener != null) {
+                dialogRotation.acquire(window);
+                hostRotation.acquire(owner.activity == null ? null : owner.activity.getWindow());
+            }
             if (!browserPolicyCaptured) {
                 browserBarsBehavior = controller.getSystemBarsBehavior();
                 browserSystemUiVisibility = window.getDecorView().getSystemUiVisibility();
@@ -442,6 +448,8 @@ final class BreadPresentationController {
     }
 
     private void restoreWindow() {
+        dialogRotation.release();
+        hostRotation.release();
         if (!appliedFullscreen) return;
         appliedFullscreen = false;
         Window window = owner.getWindow();

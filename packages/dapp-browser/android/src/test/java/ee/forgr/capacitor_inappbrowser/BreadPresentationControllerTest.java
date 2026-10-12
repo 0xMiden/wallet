@@ -14,6 +14,7 @@ import androidx.webkit.Navigation;
 import androidx.webkit.NavigationListener;
 import androidx.webkit.Page;
 import android.view.View;
+import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.WebView;
 import android.widget.Button;
@@ -746,6 +747,141 @@ public class BreadPresentationControllerTest {
     private void assertRestored(boolean fit, int behavior) {
         assertEquals(fit, fits());
         assertEquals(behavior, bars().getSystemBarsBehavior());
+    }
+
+    private void rotationHint(Window window, int hint) {
+        WindowManager.LayoutParams params = window.getAttributes();
+        params.rotationAnimation = hint;
+        window.setAttributes(params);
+    }
+
+    private void assertRotationHints(int host, int page) {
+        assertEquals(host, activity.getWindow().getAttributes().rotationAnimation);
+        assertEquals(page, dialog.getWindow().getAttributes().rotationAnimation);
+    }
+
+    @Test public void fullscreenRotationUpdatesBothWindowsWithoutChangingOtherHostAttributes() {
+        open(true, true, "default");
+        controller.state.configure("browser", false, false); acknowledgePolicy();
+        Window host = activity.getWindow();
+        Window page = dialog.getWindow();
+        rotationHint(host, 0); rotationHint(page, 0);
+        WindowManager.LayoutParams hostBefore = new WindowManager.LayoutParams();
+        hostBefore.copyFrom(host.getAttributes());
+        int pageFlags = page.getAttributes().flags;
+        float pageAlpha = page.getAttributes().alpha;
+        int pageSoftInput = page.getAttributes().softInputMode;
+        int orientation = activity.getRequestedOrientation();
+        fullscreen();
+        assertEquals(2, host.getAttributes().rotationAnimation);
+        assertEquals(2, page.getAttributes().rotationAnimation);
+        WindowManager.LayoutParams hostAfter = new WindowManager.LayoutParams();
+        hostAfter.copyFrom(host.getAttributes());
+        hostAfter.rotationAnimation = 0;
+        assertEquals(0, hostAfter.copyFrom(hostBefore));
+        assertEquals(pageFlags, page.getAttributes().flags);
+        assertEquals(android.graphics.PixelFormat.OPAQUE, page.getAttributes().format);
+        assertEquals(pageAlpha, page.getAttributes().alpha, 0);
+        assertEquals(pageSoftInput, page.getAttributes().softInputMode);
+        assertEquals(orientation, activity.getRequestedOrientation());
+    }
+
+    @Test public void hiddenFullscreenAcquiresOnlyAfterAcknowledgementAndRecapturesOnResume() {
+        open(true, true, "default", false);
+        rotationHint(activity.getWindow(), 1); rotationHint(dialog.getWindow(), 3);
+        controller.state.configure("held", true, true); controller.render();
+        assertRotationHints(1, 3);
+        acknowledgePolicy();
+        assertRotationHints(2, 2);
+        dialog.hide();
+        assertRotationHints(1, 3);
+        rotationHint(activity.getWindow(), 3); rotationHint(dialog.getWindow(), 1);
+        WebView retained = webView;
+        dialog.show();
+        assertRotationHints(2, 2);
+        assertSame(retained, ReflectionHelpers.getField(dialog, "_webView"));
+        dialog.hide();
+        assertRotationHints(3, 1);
+    }
+
+    @Test public void rotationPolicyFollowsForegroundLayoutNavigationAndDisposal() {
+        open(true, true, "default");
+        rotationHint(activity.getWindow(), 1); rotationHint(dialog.getWindow(), 3);
+        fullscreen();
+        controller.state.ready(); long oldPaint = controller.state.generation();
+        controller.state.painted(oldPaint);
+        controller.state.layoutChanged(); controller.render();
+        assertRotationHints(2, 2);
+        assertFalse(controller.state.canReveal(oldPaint));
+        dialog.presentationForeground(false);
+        assertRotationHints(1, 3);
+        dialog.presentationForeground(true);
+        assertRotationHints(2, 2);
+        controller.navigate();
+        assertRotationHints(1, 3);
+        controller.state.configure("browser", false, false); acknowledgePolicy();
+        assertRotationHints(1, 3);
+        fullscreen();
+        assertRotationHints(2, 2);
+        dialog.forceClose(); dialog.forceClose();
+        assertRotationHints(1, 3);
+        verify(callbacks, times(1)).closeEvent(any());
+    }
+
+    @Test public void overlappingFullscreenDialogsKeepHostPolicyUntilEitherLastDisposal() {
+        for (boolean firstFirst : new boolean[] {true, false}) {
+            rotationHint(activity.getWindow(), 1);
+            open(true, true, "default"); fullscreen();
+            WebViewDialog first = dialog;
+            open(true, true, "default"); fullscreen();
+            WebViewDialog second = dialog;
+            try {
+                (firstFirst ? first : second).forceClose();
+                assertEquals(2, activity.getWindow().getAttributes().rotationAnimation);
+                (firstFirst ? second : first).forceClose();
+                assertEquals(1, activity.getWindow().getAttributes().rotationAnimation);
+            } finally { first.forceClose(); second.forceClose(); }
+        }
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void managedCloseKeepsRotationPolicyThroughTheActualHostPaintFence() {
+        WebView host = managedInsetHost();
+        rotationHint(activity.getWindow(), 1); rotationHint(dialog.getWindow(), 3);
+        fullscreen();
+        dialog.requestClose(() -> {});
+        assertRotationHints(2, 2);
+        dialog.hide(); controller.render();
+        dialog.presentationForeground(false); dialog.presentationForeground(true);
+        assertRotationHints(2, 2);
+        assertTrue(dialog.isShowing());
+        host.dispatchApplyWindowInsets(hiddenHostInsets());
+        ManagedHostClose managed = dialog.managedClose();
+        assertTrue(managed.complete("lifetime", managed.requestId(), 1));
+        PaintWebView renderer = Shadow.extract(host);
+        assertNotNull(renderer.fence);
+        assertRotationHints(2, 2);
+        renderer.fence.onComplete(renderer.request);
+        assertFalse(dialog.isShowing());
+        assertRotationHints(1, 3);
+        verify(callbacks, times(1)).closeEvent(any());
+    }
+
+    @Test public void ordinaryAndMissingIdentityPagesKeepTheirRotationPolicy() {
+        for (boolean identified : new boolean[] {true, false}) {
+            features.when(() -> WebViewFeature.isFeatureSupported(WebViewFeature.NAVIGATION_LISTENER_V1)).thenReturn(identified);
+            rotationHint(activity.getWindow(), 3);
+            open(true, true, "default");
+            rotationHint(dialog.getWindow(), 1);
+            if (identified) controller.state.configure("browser", false, false);
+            acknowledgePolicy();
+            assertRotationHints(3, 1);
+            dialog.hide(); dialog.show();
+            dialog.presentationForeground(false); dialog.presentationForeground(true);
+            assertRotationHints(3, 1);
+            dialog.forceClose();
+            assertRotationHints(3, 1);
+        }
     }
 
     @Test public void browserNavigationRestoresFittingAndOriginalBarBehavior() {
