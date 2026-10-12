@@ -353,6 +353,97 @@ public class BreadPresentationControllerTest {
         assertEquals("replacement", controller.state.token()); assertTrue(controller.state.isReady());
     }
 
+    private void retry() {
+        assertEquals(BreadPresentationState.Phase.ERROR, controller.state.phase());
+        ((Button) ReflectionHelpers.getField(controller, "retry")).performClick();
+        assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
+    public void retryRetiresQueuedRequestsBeforeOutgoingCompletion() {
+        openIdentified(); Navigation outgoing = startDocument();
+        message("configure", "outgoing"); message("ready", "outgoing"); message("close", "outgoing");
+        controller.state.tick(android.os.SystemClock.uptimeMillis() + 30_000); controller.render(); retry();
+        commit(outgoing);
+        int outgoingReads = tokenReads.size(); flushTokenReads("outgoing"); assertCovered();
+        assertEquals("Retired completion must not evaluate outgoing requests", 0, outgoingReads);
+        message("configure", "outgoing"); message("ready", "outgoing"); message("close", "outgoing");
+        assertTrue(tokenReads.isEmpty()); assertCovered();
+        Navigation current = startDocument(); commit(current);
+        assertTrue("Retry must not replay outgoing queued requests on the new commit", tokenReads.isEmpty());
+        readyDocument("current");
+        doReturn(390).when(webView).getWidth(); doReturn(650).when(webView).getHeight();
+        doAnswer(call -> { ((Runnable) call.getArgument(0)).run(); return true; }).when(webView).post(any());
+        controller.render();
+        PaintWebView renderer = Shadow.extract(webView);
+        assertNull(renderer.fence);
+        assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
+        assertEquals(View.VISIBLE, ((View) ReflectionHelpers.getField(controller, "cover")).getVisibility());
+        assertTrue(shadowOf(webView).getLastEvaluatedJavascript().contains("__breadPresentationUpdate"));
+        shadowOf(webView).getLastEvaluatedJavascriptCallback().onReceiveValue("true");
+        assertNotNull(renderer.fence);
+        assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
+        renderer.fence.onComplete(renderer.request);
+        assertEquals(BreadPresentationState.Phase.VISIBLE, controller.state.phase());
+        message("close", "current"); flushTokenReads("current");
+        shadowOf(webView).getLastEvaluatedJavascriptCallback().onReceiveValue("null");
+        dialog.dismiss(); verify(callbacks, times(1)).closeEvent(any());
+    }
+
+    @Test public void retryDiscardsRetainedConfigurationAndReadiness() {
+        initialDocument(); controller.failed(); retry();
+        Navigation current = startDocument(); commit(current);
+        assertTrue("A retry must require new document configuration and readiness", tokenReads.isEmpty());
+        message("configure", "current"); flushTokenReads("current"); assertCovered();
+        message("ready", "current"); flushTokenReads("current");
+        assertTrue(controller.state.isReady());
+    }
+
+    @Test public void retryDiscardsHeldTokenReadsEvenAfterReplacementCommit() {
+        initialDocument();
+        message("configure", "old"); message("ready", "old"); message("close", "old");
+        List<ValueCallback<String>> heldReads = new ArrayList<>(tokenReads); tokenReads.clear();
+        controller.failed(); retry();
+        Navigation current = startDocument();
+        message("configure", "current"); message("ready", "current"); commit(current); flushTokenReads("current");
+        for (ValueCallback<String> read : heldReads) read.onReceiveValue("\"old\"");
+        assertTrue("Pre-Retry reads must not requeue validation in the replacement", tokenReads.isEmpty());
+        assertEquals("current", controller.state.token()); assertTrue(controller.state.isReady());
+        verify(callbacks, never()).closeEvent(any());
+    }
+
+    private void retryWithHeldAcknowledgement(boolean afterReplacement) {
+        openIdentified(); Navigation outgoing = startDocument(); commit(outgoing); readyDocument("old");
+        message("close", "old"); flushTokenReads("old");
+        ValueCallback<String> acknowledgement = shadowOf(webView).getLastEvaluatedJavascriptCallback();
+        controller.failed(); retry();
+        if (afterReplacement) { commit(startDocument()); readyDocument("current"); }
+        else commit(outgoing);
+        tokenReads.clear();
+        acknowledgement.onReceiveValue("null");
+        assertTrue("Retired acknowledgement must not reacquire authority", tokenReads.isEmpty());
+        verify(callbacks, never()).closeEvent(any());
+        if (!afterReplacement) assertCovered();
+    }
+
+    @Test public void retryDiscardsHeldCloseAcknowledgementBeforeReplacementStart() { retryWithHeldAcknowledgement(false); }
+    @Test public void retryDiscardsHeldCloseAcknowledgementAfterReplacementCommit() { retryWithHeldAcknowledgement(true); }
+
+    private void retryWithFailedOutgoingCompletion(boolean errorPage) {
+        openIdentified(); Navigation outgoing = startDocument(); controller.failed(); retry();
+        when(outgoing.didCommit()).thenReturn(errorPage);
+        when(outgoing.didCommitErrorPage()).thenReturn(errorPage);
+        navigationListener.onNavigationCompleted(outgoing);
+        assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
+        assertCovered();
+        Navigation current = startDocument();
+        message("configure", "current"); message("ready", "current"); commit(current); flushTokenReads("current");
+        assertEquals("current", controller.state.token()); assertTrue(controller.state.isReady());
+    }
+
+    @Test public void retryIgnoresRetiredAbortedCompletion() { retryWithFailedOutgoingCompletion(false); }
+    @Test public void retryIgnoresRetiredErrorPageCompletion() { retryWithFailedOutgoingCompletion(true); }
+
     @Test public void navigationAuthorityInvalidatesSynchronouslyWithNativeStart() {
         initialDocument();
         assertNotNull("Avoid posting authoritative starts behind token read completions", navigationExecutor);

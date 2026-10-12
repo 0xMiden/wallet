@@ -61,6 +61,7 @@ final class BreadPresentationController {
     private NavigationListener navigationListener;
     private Navigation currentNavigation;
     private boolean committed;
+    private long retryEpoch;
     private final List<JSONObject> pendingMessages = new ArrayList<>();
     private JSONObject configuration;
     private JSONObject readiness;
@@ -124,7 +125,12 @@ final class BreadPresentationController {
         retry.setText(options.retryLabel);
         retry.setOnClickListener(v -> {
             v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+            retryEpoch++;
+            currentNavigation = null;
             committed = false;
+            pendingMessages.clear();
+            configuration = readiness = null;
+            documentToken = null;
             navigate();
             if (supported) webView.reload();
         });
@@ -257,15 +263,16 @@ final class BreadPresentationController {
     }
 
     private void validate(JSONObject message) {
-        if (state.phase() == BreadPresentationState.Phase.CLOSED) return;
+        if (currentNavigation == null || state.phase() == BreadPresentationState.Phase.CLOSED) return;
         if (!committed) {
             if (!pendingMessages.contains(message)) pendingMessages.add(message);
             return;
         }
         String token = message.optString("token", "");
         long generation = state.navigationGeneration();
+        long epoch = retryEpoch;
         webView.evaluateJavascript("window.__breadPresentationToken", result -> {
-            if (state.phase() == BreadPresentationState.Phase.CLOSED) return;
+            if (epoch != retryEpoch || state.phase() == BreadPresentationState.Phase.CLOSED) return;
             if (generation != state.navigationGeneration()) {
                 // Discard the old read; only a new read in this generation can grant authority.
                 validate(message);
@@ -311,8 +318,9 @@ final class BreadPresentationController {
             JSONObject response = new JSONObject().put("token", message.getString("token"))
                 .put("requestId", message.getString("requestId")).put("ok", true);
             long generation = state.navigationGeneration();
+            long epoch = retryEpoch;
             webView.evaluateJavascript("window.__breadPresentationRespond(" + response + ")", result -> {
-                if (completion == null) return;
+                if (completion == null || epoch != retryEpoch) return;
                 if (generation == state.navigationGeneration()) completion.run();
                 else validate(message);
             });
