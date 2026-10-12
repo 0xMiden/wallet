@@ -145,10 +145,12 @@ jest.mock('lib/mobile/webview-state', () => ({
 // ── snapshot-store: in-memory implementations we can assert against ─
 const mockCaptureSnapshot: jest.Mock = jest.fn(() => Promise.resolve('data:image/jpeg;base64,AAAA'));
 const mockClearSnapshot: jest.Mock = jest.fn();
+const mockGetSnapshot = jest.fn();
 const mockSnapshotSetRaw: jest.Mock = jest.fn();
 jest.mock('lib/dapp-browser/snapshot-store', () => ({
   captureSnapshot: (...args: unknown[]) => mockCaptureSnapshot(...args),
   clearSnapshot: (...args: unknown[]) => mockClearSnapshot(...args),
+  getSnapshot: (id: string) => mockGetSnapshot(id),
   snapshotStoreInternals: {
     setRaw: (...args: unknown[]) => mockSnapshotSetRaw(...args)
   }
@@ -222,6 +224,7 @@ jest.mock('lib/dapp-browser', () => ({
 import { dappConfirmationStore, type DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
 // ── screen-key: REAL module — the E2E signal under test below ──────
 import { getCurrentScreen, setRoutePart, __resetScreenKeyForTest } from 'lib/e2e/screen-key';
+import { onExternalPageFailed } from 'lib/mobile/external-page-failed';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { DialogsProvider } from 'lib/ui/dialog';
 
@@ -685,6 +688,33 @@ describe('E2E screen-key publishing', () => {
     await firePageLoaded(session.id);
   }
 
+  it('publishes live sanitized cleanup observations and the real failure-notice trigger', async () => {
+    renderHook(() => useDappBrowser(), { wrapper });
+    const probe: {
+      pendingConfirmationCount: number;
+      hasPendingConfirmation: (id: string) => boolean;
+      hasSnapshot: (id: string) => boolean;
+      notifyExternalPageFailed: () => void;
+    } = Object.getOwnPropertyDescriptor(globalThis, '__TEST_DAPP_BROWSER__')?.value;
+    expect(probe.pendingConfirmationCount).toBe(0);
+    const pending = dappConfirmationStore.requestConfirmation(makeConfirmationRequest('probe'));
+    expect(probe.pendingConfirmationCount).toBe(1);
+    expect(probe.hasPendingConfirmation('probe')).toBe(true);
+    expect(probe.hasPendingConfirmation('unrelated')).toBe(false);
+    mockGetSnapshot.mockReturnValueOnce('private snapshot');
+    expect(probe.hasSnapshot('probe')).toBe(true);
+    expect(probe.hasSnapshot('gone')).toBe(false);
+    const notice = jest.fn();
+    const unsubscribe = onExternalPageFailed(notice);
+    probe.notifyExternalPageFailed();
+    expect(notice).toHaveBeenCalledTimes(1);
+    unsubscribe();
+    dappConfirmationStore.resolveConfirmation('probe', { confirmed: false });
+    await pending;
+    expect(probe.pendingConfirmationCount).toBe(0);
+    expect(probe.hasPendingConfirmation('probe')).toBe(false);
+  });
+
   it('stays on the bare route while the dApp is still loading', async () => {
     const hook = renderHook(() => useDappBrowser(), { wrapper });
     act(() => hook.result.current.open(makeSession('dapp-a')));
@@ -748,6 +778,16 @@ describe('E2E screen-key publishing', () => {
     await openUntilPainted(hook, makeSession('dapp-a'));
 
     expect(getCurrentScreen()).toEqual({ key: '', seq: 0 });
+  });
+
+  it.each([undefined, 'false', 'TRUE'])('does not install browser test hooks in ordinary mode %s', flag => {
+    Reflect.deleteProperty(globalThis, '__TEST_DAPP_BROWSER__');
+    if (flag === undefined) delete process.env.MIDEN_E2E_TEST;
+    else process.env.MIDEN_E2E_TEST = flag;
+
+    renderHook(() => useDappBrowser(), { wrapper });
+
+    expect(Object.getOwnPropertyDescriptor(globalThis, '__TEST_DAPP_BROWSER__')).toBeUndefined();
   });
 });
 

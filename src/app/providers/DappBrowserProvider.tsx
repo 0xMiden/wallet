@@ -88,9 +88,10 @@ import {
 import { dappConfirmationStore } from 'lib/dapp-browser/confirmation-store';
 import { getDappDisplayName } from 'lib/dapp-browser/dapp-session';
 import { PRESENTATION_SCRIPT } from 'lib/dapp-browser/presentation-script';
-import { captureSnapshot, clearSnapshot, snapshotStoreInternals } from 'lib/dapp-browser/snapshot-store';
+import { captureSnapshot, clearSnapshot, getSnapshot, snapshotStoreInternals } from 'lib/dapp-browser/snapshot-store';
 import { type WebViewRect } from 'lib/dapp-browser/webview-rect';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
+import { externalPageFailed } from 'lib/mobile/external-page-failed';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
@@ -1453,14 +1454,18 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // which is how a "resized the frame but never re-laid-out the content"
   // regression is caught.
   //
-  // Strictly READ-ONLY: the suite drives every transition through real taps on
-  // real elements. Exposing actions here would let the tests bypass the UI and
-  // silently stop covering it. Mirrors the __TEST_STORE__ gate; zero
-  // production impact.
+  // Observations contain no approval or snapshot payloads. The failure trigger
+  // exercises the production notification tree, not native touch reachability.
   useEffect(() => {
     if (process.env.MIDEN_E2E_TEST !== 'true') return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (globalThis as any).__TEST_DAPP_BROWSER__ = {
+      get pendingConfirmationCount() {
+        return dappConfirmationStore.getAllPendingRequests().length;
+      },
+      hasPendingConfirmation: (id: string) => dappConfirmationStore.hasPendingRequest(id),
+      hasSnapshot: (id: string) => getSnapshot(id) !== undefined,
+      notifyExternalPageFailed: externalPageFailed,
       foregroundId,
       mode: foregroundId ? 'active' : 'launcher',
       switcherOpen,
