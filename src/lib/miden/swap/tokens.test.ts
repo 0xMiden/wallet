@@ -222,6 +222,12 @@ describe('swap token price symbols', () => {
   });
 
   it('leaves IUSDT and IMIDEN unpriced, whatever logo they borrow', () => {
+    expect(getSwapTokenBySymbol('IUSDT')).toEqual(
+      expect.objectContaining({ symbol: 'IUSDT', faucetId: canonical(TEST_TOKEN_IUSDT.faucetId) })
+    );
+    expect(getSwapTokenBySymbol('IMIDEN')).toEqual(
+      expect.objectContaining({ symbol: 'IMIDEN', faucetId: canonical(TEST_TOKEN_IMIDEN.faucetId) })
+    );
     expect(getSwapTokenBySymbol('IUSDT')?.priceSymbol).toBeUndefined();
     expect(getSwapTokenBySymbol('IMIDEN')?.priceSymbol).toBeUndefined();
   });
