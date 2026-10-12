@@ -153,6 +153,10 @@ jest.mock('lib/miden/front/storage', () => ({
   fetchFromStorage: async () => undefined
 }));
 
+jest.mock('lib/miden/sdk/custom-request', () => ({
+  prepareCustomRequestBytes: async (_client: unknown, _account: string, bytes: Uint8Array) => bytes
+}));
+
 jest.mock('lib/settings/constants', () => ({}));
 
 const mockIsGuardianAccount = jest.fn();

@@ -2,6 +2,7 @@ import { Address } from '@miden-sdk/miden-sdk/lazy';
 import { executeForSummaryAtTip } from '@openzeppelin/miden-multisig-client';
 
 import { importedNoteIds, quarantineNoteIds } from 'lib/miden/note-quarantine';
+import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 
 import { simulateCustomTransaction } from './simulate-custom-tx';
@@ -50,6 +51,9 @@ jest.mock('lib/miden/sdk/helpers', () => {
   const actual = jest.requireActual<typeof import('lib/miden/sdk/helpers')>('lib/miden/sdk/helpers');
   return { ...actual, accountRefToSdk: jest.fn(actual.accountRefToSdk) };
 });
+jest.mock('lib/miden/sdk/custom-request', () => ({
+  prepareCustomRequestBytes: jest.fn(async (_client: unknown, _account: string, bytes: Uint8Array) => bytes)
+}));
 jest.mock('lib/miden/note-quarantine', () => ({
   importedNoteIds: jest.fn((notes: string[] | undefined) => (notes ?? []).map(n => `id:${n}`)),
   quarantineNoteIds: jest.fn(async () => undefined)
@@ -95,6 +99,24 @@ describe('simulateCustomTransaction', () => {
     expect(syncState).toHaveBeenCalledTimes(1);
     expect(executeForSummaryAtTip).toHaveBeenCalledWith(fakeClient, 'hex:mtst1abc', { __req: expect.any(Uint8Array) });
     expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3' });
+  });
+
+  it('previews the wallet-enriched request rather than the dApp bytes', async () => {
+    const prepared = new Uint8Array([42, 43, 44]);
+    jest.mocked(prepareCustomRequestBytes).mockResolvedValueOnce(prepared);
+    const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+    expect(res).toMatchObject({ summaryBytes: 'b64:1-2-3' });
+    expect(executeForSummaryAtTip).toHaveBeenCalledWith(fakeClient, 'hex:mtst1abc', { __req: prepared });
+  });
+
+  it('reuses the enriched bytes if summary signing needs local execution', async () => {
+    const prepared = new Uint8Array([42, 43, 44]);
+    jest.mocked(prepareCustomRequestBytes).mockResolvedValueOnce(prepared);
+    jest.mocked(executeForSummaryAtTip).mockRejectedValueOnce(new Error('failed to generate signature'));
+    const res = await simulateCustomTransaction({ address: 'mtst1abc', transactionRequest: 'reqB64' });
+    expect(res).toMatchObject({ executedBytes: 'b64:9-9' });
+    expect(executeRequest).toHaveBeenCalledWith('hex:mtst1abc', { __req: prepared });
+    expect(prepareCustomRequestBytes).toHaveBeenCalledTimes(1);
   });
 
   it('reports a summary that cannot serialize as { error }', async () => {

@@ -3,6 +3,7 @@ import { executeForSummaryAtTip } from '@openzeppelin/miden-multisig-client';
 
 import { importedNoteAssets, type AssetAmount } from 'app/confirm/decode';
 import { importedNoteIds, quarantineNoteIds } from 'lib/miden/note-quarantine';
+import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import {
   assertWasmHoldCurrent,
@@ -234,7 +235,14 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // a composite `<address>_<suffix>` to its address and accepts either hex prefix case, and is
         // passed on as the canonical hex id that `preview` and `executeRequest` below both resolve.
         const accountIdHex = accountRefToSdk(input.address).toString();
-        const request = TransactionRequest.deserialize(b64ToU8(input.transactionRequest));
+        const preparedBytes = await prepareCustomRequestBytes(
+          client.client,
+          accountIdHex,
+          b64ToU8(input.transactionRequest),
+          hold
+        );
+        assertWasmHoldCurrent(hold, 'after custom request preparation');
+        const request = TransactionRequest.deserialize(preparedBytes);
         // ONLY the summary execution is caught here. A guard's own throw must never reach the
         // fallback below: `assertWasmHoldCurrent` fires when the mutex is already a successor's,
         // and retrying under it is the double borrow every guard in this callback exists to stop.
@@ -285,7 +293,7 @@ export async function simulateCustomTransaction(input: SimulateCustomTxInput): P
         // `executeForSummaryAtTip` (wasm-bindgen moves it).
         const executed = await client.client.transactions.executeRequest(
           accountIdHex,
-          TransactionRequest.deserialize(b64ToU8(input.transactionRequest))
+          TransactionRequest.deserialize(preparedBytes)
         );
         // `result.serialize()` borrows the same client — same rule as the
         // summary above. Still pre-submit: executeRequest broadcasts nothing.

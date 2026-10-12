@@ -42,6 +42,7 @@ import {
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import * as Repo from 'lib/miden/repo';
+import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
@@ -3569,12 +3570,19 @@ const generateGuardianTransaction = async (
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
-      // A dApp builds this request itself and the wallet only ever sees finished bytes, so
-      // unlike every other custom-proposal path there is no builder here to commit fee
-      // conversion info on. The SDK exposes no auth-arg setter on a finished request, so on a
-      // guarded account and a fee-charging chain this aborts in `fee::pay_fee`. Committing it
-      // has to happen where the request is built, i.e. dApp-side.
-      proposalResult = await service.createCustomProposal(requestBytes);
+      const preparedBytes = await withWasmClientLock(async hold => {
+        const client = await getMidenClient();
+        assertWasmHoldCurrent(hold, 'after the custom request client build');
+        return prepareCustomRequestBytes(client.client, transaction.accountId, requestBytes, hold);
+      });
+      if (preparedBytes !== requestBytes) {
+        // Signing and retries must reuse the salt and bound block the proposal executes with.
+        await Repo.transactions.where({ id: transaction.id }).modify(t => {
+          t.requestBytes = preparedBytes;
+        });
+        transaction.requestBytes = preparedBytes;
+      }
+      proposalResult = await service.createCustomProposal(preparedBytes);
       break;
     }
   }
