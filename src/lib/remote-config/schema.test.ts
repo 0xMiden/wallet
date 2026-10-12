@@ -74,6 +74,14 @@ describe('swap tokens', () => {
     expect(parseBridgeConfig(withTokens([]), 'testnet')?.swap).toStrictEqual({ tokens: [] });
   });
 
+  it('reads the quote service as a base URL, normalized like every other URL field', () => {
+    const swap = { etaUrl: 'https://Quotes.Example:443/dex/', tokens };
+    expect(parseBridgeConfig(doc({ swap }), 'testnet')?.swap?.etaUrl).toBe('https://quotes.example/dex');
+    expect(parseBridgeConfig(doc({ swap: { etaUrl: 'http://quotes.example', tokens } }), 'testnet')).toBeNull();
+    expect(parseBridgeConfig(doc({ swap: { etaUrl: 'https://quotes.example/?x=1', tokens } }), 'testnet')).toBeNull();
+    expect(parseBridgeConfig(doc({ swap: { etaUrl: 42, tokens } }), 'testnet')).toBeNull();
+  });
+
   it('drops a logo the wallet does not ship and a price symbol the feed does not quote, keeping the token', () => {
     const [imiden] = tokens;
     const parsed = parseBridgeConfig(withTokens([{ ...imiden, logo: 'SOL', priceSymbol: 'SOL' }]), 'testnet');

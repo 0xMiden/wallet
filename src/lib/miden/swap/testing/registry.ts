@@ -49,6 +49,7 @@ export const TEST_SWAP_TOKENS: SwapToken[] = [TEST_TOKEN_IMIDEN, TEST_TOKEN_IETH
  * `TEST_SWAP_TOKEN_CONFIG`.
  */
 export const TEST_SWAP_SECTION: SwapConfig = {
+  etaUrl: 'https://quotes.test',
   tokens: [
     { symbol: 'IMIDEN', faucetId: TEST_TOKEN_IMIDEN.faucetId, decimals: 8, logo: 'MIDEN' },
     { symbol: 'IETH', faucetId: TEST_TOKEN_IETH.faucetId, decimals: 8, logo: 'ETH', priceSymbol: 'ETH' },

@@ -29,6 +29,8 @@ export interface SwapTokenConfig {
 export interface SwapConfig {
   /** In picker order; the first two are the pair the swap form opens on. */
   tokens: SwapTokenConfig[];
+  /** The DEX quote service's base URL, which `getSwapEta` appends `/v1/swap-eta` to; absent means no quotes. */
+  etaUrl?: string;
 }
 
 /** EVM chains the wallet ships RPC and explorer definitions for: the WalletConnect chain registry (Sepolia). */
@@ -217,6 +219,7 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   const epoch = section(body.epoch);
   const features = section(body.features);
   const swap = section(body.swap);
+  const etaUrl = read(swap, 'etaUrl', url);
   const chain = read(evm, 'chainId', chainId);
   const l1Bridge = read(agglayer, 'l1Bridge', evmAddress);
   const midenBridge = read(agglayer, 'midenBridge', midenAccountId);
@@ -249,7 +252,7 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
       bridgeOut: featureSwitch(features, 'bridgeOut')
     },
     mainnetCountdown: readCountdown(body.mainnetCountdown),
-    swap: { tokens: readSwapTokens(swap.tokens) }
+    swap: { tokens: readSwapTokens(swap.tokens), ...(etaUrl === undefined ? {} : { etaUrl }) }
   };
 }
 

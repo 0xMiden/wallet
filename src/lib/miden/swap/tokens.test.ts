@@ -29,6 +29,7 @@ import {
   normalizedFaucetId,
   priceSymbolFor,
   strictPriceSymbolFor,
+  SwapEtaUnavailableError,
   tokenQuote,
   _allowlistedPriceSymbolsForTest,
   _resetNormalizedFaucetIdsForTest,
@@ -63,7 +64,7 @@ const LOADED: BridgeConfigSnapshot = {
     agglayer: {},
     epoch: {},
     features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
-    swap: { tokens: TEST_SWAP_TOKEN_CONFIG }
+    swap: { tokens: TEST_SWAP_TOKEN_CONFIG, etaUrl: 'https://quotes.example' }
   }
 };
 const mockSnapshot = jest.mocked(getBridgeConfigSnapshot);
@@ -516,6 +517,26 @@ describe('getDefaultSwapPair', () => {
 
 describe('getSwapEta', () => {
   const originalFetch = Object.getOwnPropertyDescriptor(globalThis, 'fetch');
+
+  it('asks the quote service the document names, and none while the document names no service', async () => {
+    const fetchMock = jest.fn(async (_url: string, _init: RequestInit) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ canFill: true })
+    }));
+    Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
+    await expect(getSwapEta(TEST_TOKEN_IMIDEN, 1n, TEST_TOKEN_IUSDT, 0n)).resolves.toEqual({ canFill: true });
+    expect(fetchMock.mock.calls[0]?.[0]).toMatch(/^https:\/\/quotes\.example\/v1\/swap-eta\?offered_faucet=/);
+
+    mockSnapshot.mockReturnValue({
+      ...LOADED,
+      config: { ...LOADED.config!, swap: { tokens: TEST_SWAP_TOKEN_CONFIG } }
+    });
+    await expect(getSwapEta(TEST_TOKEN_IMIDEN, 1n, TEST_TOKEN_IUSDT, 0n)).rejects.toBeInstanceOf(
+      SwapEtaUnavailableError
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 
   afterEach(() => {
     jest.useRealTimers();

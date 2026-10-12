@@ -226,18 +226,25 @@ export interface SwapEta {
 }
 
 /**
- * Fetch a `SwapEta` for an offered → requested pair. Amounts are raw base units
+ * Fetch a `SwapEta` for an offered → requested pair from the quote service the
+ * network's bridge config names (`swap.etaUrl`). Amounts are raw base units
  * (bigint); faucets are converted to their canonical hex account ids. The
  * oracle `marketPrice` is amount-independent, so passing `0n` for
  * `requestAmountRaw` still returns a usable rate to seed the receive field.
- *
- * TODO: hardcoded devnet host — move to per-network config before any
- * non-devnet use so quotes point at the correct feed for the active network.
+ * Rejects at once, with no request, while the document names no service: the
+ * form then reads the quote as unavailable and takes the amounts by hand.
  */
-const SWAP_ETA_BASE_URL = 'https://35-175-40-181.sslip.io';
 
 /** Abort a quote request whose response and body have not both arrived within this window. */
 const SWAP_ETA_FETCH_TIMEOUT_MS = 10_000;
+
+/** Thrown by `getSwapEta` while the accepted document names no quote service. */
+export class SwapEtaUnavailableError extends Error {
+  constructor() {
+    super('The bridge config names no swap quote service (swap.etaUrl).');
+    this.name = 'SwapEtaUnavailableError';
+  }
+}
 
 export async function getSwapEta(
   offerToken: SwapToken,
@@ -245,6 +252,8 @@ export async function getSwapEta(
   requestToken: SwapToken,
   requestAmountRaw: bigint
 ): Promise<SwapEta> {
+  const etaUrl = getBridgeConfigSnapshot().config?.swap?.etaUrl;
+  if (etaUrl === undefined) throw new SwapEtaUnavailableError();
   const params = new URLSearchParams({
     offered_faucet: accountIdStringToSdk(offerToken.faucetId).toString(),
     offered_amount: offerAmountRaw.toString(),
@@ -253,7 +262,7 @@ export async function getSwapEta(
   });
 
   return withRequestTimeout(SWAP_ETA_FETCH_TIMEOUT_MS, async signal => {
-    const res = await fetch(`${SWAP_ETA_BASE_URL}/v1/swap-eta?${params.toString()}`, { signal });
+    const res = await fetch(`${etaUrl}/v1/swap-eta?${params.toString()}`, { signal });
     if (!res.ok) {
       throw new Error(`Swap ETA request failed for ${offerToken.symbol}→${requestToken.symbol}: ${res.status}`);
     }
