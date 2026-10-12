@@ -28,13 +28,18 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.webkit.ScriptHandler;
+import androidx.webkit.Navigation;
+import androidx.webkit.NavigationListener;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import com.caverock.androidsvg.SVG;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 import java.util.Collections;
+import java.util.ArrayList;
+import java.util.List;
 
+@androidx.annotation.OptIn(markerClass = androidx.webkit.WebNavigationClient.ExperimentalNavigationCallback.class)
 final class BreadPresentationController {
     private static final int FALLBACK = Color.rgb(22, 22, 22);
     final BreadPresentationState state;
@@ -53,9 +58,10 @@ final class BreadPresentationController {
     private boolean supported;
     private boolean installed;
     private String documentToken;
-    private String startedDocumentToken;
-    private String blockedDocumentToken;
-    private boolean awaitingStartedDocument;
+    private NavigationListener navigationListener;
+    private Navigation currentNavigation;
+    private boolean committed;
+    private final List<JSONObject> pendingMessages = new ArrayList<>();
     private JSONObject configuration;
     private JSONObject readiness;
     private long pendingPaint = -1;
@@ -118,7 +124,7 @@ final class BreadPresentationController {
         retry.setText(options.retryLabel);
         retry.setOnClickListener(v -> {
             v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
-            blockedDocumentToken = documentToken;
+            committed = false;
             navigate();
             if (supported) webView.reload();
         });
@@ -194,9 +200,32 @@ final class BreadPresentationController {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
                 supported = true;
+                if (WebViewFeature.isFeatureSupported(WebViewFeature.NAVIGATION_LISTENER_V1)) {
+                    navigationListener = new NavigationListener() {
+                        @Override public void onNavigationStarted(Navigation navigation) {
+                            if (navigation.isSameDocument() || state.phase() == BreadPresentationState.Phase.CLOSED) return;
+                            currentNavigation = navigation;
+                            committed = false;
+                            navigate();
+                        }
+                        @Override public void onNavigationCompleted(Navigation navigation) {
+                            if (!navigation.equals(currentNavigation) || state.phase() == BreadPresentationState.Phase.CLOSED) return;
+                            if (!navigation.didCommit() || navigation.didCommitErrorPage()) { failed(); return; }
+                            committed = true;
+                            List<JSONObject> messages = new ArrayList<>(pendingMessages);
+                            pendingMessages.clear();
+                            if (configuration != null) messages.add(configuration);
+                            if (readiness != null) messages.add(readiness);
+                            for (JSONObject message : messages) validate(message);
+                        }
+                    };
+                    // Native navigation callbacks already run on the UI thread; do not queue authority changes.
+                    WebViewCompat.addNavigationListener(webView, Runnable::run, navigationListener);
+                }
                 WebViewCompat.addWebMessageListener(webView, "breadPresentation", Collections.singleton("*"),
                     (view, message, origin, mainFrame, reply) -> receive(message.getData(), mainFrame));
                 script = WebViewCompat.addDocumentStartJavaScript(webView, options.script, Collections.singleton("*"));
+                if (navigationListener == null) { owner.presentationChanged(false); render(); }
                 return;
             }
         }
@@ -206,11 +235,33 @@ final class BreadPresentationController {
 
     private void receive(String raw, boolean mainFrame) {
         if (!mainFrame || state.phase() == BreadPresentationState.Phase.CLOSED) return;
-        try { validate(new JSONObject(raw)); } catch (Exception ignored) { }
+        try {
+            JSONObject message = new JSONObject(raw);
+            if (supported && navigationListener == null) {
+                String type = message.optString("type");
+                if ("configure".equals(type)) {
+                    JSONObject update = new JSONObject().put("token", message.optString("token"))
+                        .put("display", "browser").put("controlInsetTop", 0);
+                    webView.evaluateJavascript("window.__breadPresentationUpdate(" + update + ")", null);
+                    owner.presentationChanged(false);
+                } else if ("ready".equals(type) || "close".equals(type)) {
+                    JSONObject response = new JSONObject().put("token", message.optString("token"))
+                        .put("requestId", message.optString("requestId")).put("ok", false)
+                        .put("error", "Native presentation is unsupported in this WebView");
+                    webView.evaluateJavascript("window.__breadPresentationRespond(" + response + ")", null);
+                }
+                return;
+            }
+            validate(message);
+        } catch (Exception ignored) { }
     }
 
     private void validate(JSONObject message) {
         if (state.phase() == BreadPresentationState.Phase.CLOSED) return;
+        if (!committed) {
+            if (!pendingMessages.contains(message)) pendingMessages.add(message);
+            return;
+        }
         String token = message.optString("token", "");
         long generation = state.navigationGeneration();
         webView.evaluateJavascript("window.__breadPresentationToken", result -> {
@@ -223,18 +274,12 @@ final class BreadPresentationController {
             try {
                 Object current = new JSONTokener(result).nextValue();
                 if (!(current instanceof String) || !state.authorizes(true, token, (String) current, generation)) return;
-                if (token.equals(blockedDocumentToken)) return;
                 String type = message.optString("type");
                 if (!"configure".equals(type) && !"ready".equals(type) && !"close".equals(type)) return;
                 if (!token.equals(documentToken)) {
                     documentToken = token;
                     configuration = readiness = null;
                     navigate();
-                }
-                if (awaitingStartedDocument) {
-                    startedDocumentToken = token;
-                    blockedDocumentToken = null;
-                    awaitingStartedDocument = false;
                 }
                 if ("configure".equals(type)) {
                     String display = message.optString("display");
@@ -275,12 +320,8 @@ final class BreadPresentationController {
     }
 
     void navigationStarted() {
-        // A replacement bootstrap can precede this callback; the prior start still owns its old token.
-        blockedDocumentToken = startedDocumentToken;
-        awaitingStartedDocument = true;
-        navigate();
-        if (configuration != null) validate(configuration);
-        else if (readiness != null) validate(readiness);
+        // URL-only callbacks cannot pair overlapping or same-URL documents.
+        if (!supported) navigate();
     }
 
     void navigate() {
@@ -325,6 +366,10 @@ final class BreadPresentationController {
         state.close();
         cancelPaint();
         handler.removeCallbacksAndMessages(null);
+        pendingMessages.clear();
+        if (navigationListener != null && WebViewFeature.isFeatureSupported(WebViewFeature.NAVIGATION_LISTENER_V1)) {
+            WebViewCompat.removeNavigationListener(webView, navigationListener);
+        }
         if (script != null && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) script.remove();
         if (supported && WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             WebViewCompat.removeWebMessageListener(webView, "breadPresentation");
@@ -416,6 +461,11 @@ final class BreadPresentationController {
 
     void render() {
         if (state.phase() == BreadPresentationState.Phase.CLOSED) return;
+        if (supported && navigationListener == null) {
+            overlay.setVisibility(View.GONE);
+            webView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+            return;
+        }
         renderCover();
         if (!state.active()) {
             restoreWindow();

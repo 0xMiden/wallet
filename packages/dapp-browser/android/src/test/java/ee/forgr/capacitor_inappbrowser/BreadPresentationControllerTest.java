@@ -8,6 +8,9 @@ import org.robolectric.shadows.ShadowWebView;
 import org.robolectric.shadow.api.Shadow;
 import android.webkit.ValueCallback;
 import androidx.webkit.WebMessageCompat;
+import androidx.webkit.Navigation;
+import androidx.webkit.NavigationListener;
+import androidx.webkit.Page;
 import android.view.View;
 import android.view.WindowManager;
 import android.webkit.WebView;
@@ -40,6 +43,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.robolectric.Shadows.shadowOf;
 
+@androidx.annotation.OptIn(markerClass = androidx.webkit.WebNavigationClient.ExperimentalNavigationCallback.class)
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 34)
 public class BreadPresentationControllerTest {
@@ -50,6 +54,8 @@ public class BreadPresentationControllerTest {
     private WebView webView;
     private WebViewCallbacks callbacks;
     private WebViewCompat.WebMessageListener messageListener;
+    private NavigationListener navigationListener;
+    private java.util.concurrent.Executor navigationExecutor;
     private MockedStatic<WebViewFeature> features;
     private MockedStatic<WebViewCompat> webkit;
     private final List<String> installed = new ArrayList<>();
@@ -58,6 +64,7 @@ public class BreadPresentationControllerTest {
         activity = Robolectric.buildActivity(Activity.class).setup().get();
         activity.setTheme(androidx.appcompat.R.style.Theme_AppCompat_Light_NoActionBar);
         features = mockStatic(WebViewFeature.class);
+        features.when(() -> WebViewFeature.isFeatureSupported(WebViewFeature.NAVIGATION_LISTENER_V1)).thenReturn(true);
         webkit = mockStatic(WebViewCompat.class);
         webkit.when(() -> WebViewCompat.addWebMessageListener(any(), anyString(), anySet(), any()))
             .thenAnswer(call -> {
@@ -65,6 +72,11 @@ public class BreadPresentationControllerTest {
                 installed.add("listener:" + call.getArgument(1));
                 messageListener = call.getArgument(3);
                 return null;
+            });
+        webkit.when(() -> WebViewCompat.addNavigationListener(any(), any(java.util.concurrent.Executor.class), any(NavigationListener.class)))
+            .thenAnswer(call -> {
+                assertNull(shadowOf((WebView) call.getArgument(0)).getLastLoadedUrl());
+                navigationExecutor = call.getArgument(1); navigationListener = call.getArgument(2); return null;
             });
         webkit.when(() -> WebViewCompat.addDocumentStartJavaScript(any(), anyString(), anySet()))
             .thenAnswer(call -> {
@@ -182,146 +194,187 @@ public class BreadPresentationControllerTest {
         return shadowOf(webView).getLastEvaluatedJavascriptCallback();
     }
 
-    @Test public void initialStartAfterBootstrapMessagesKeepsCurrentDocumentAuthority() {
+    private final java.util.ArrayDeque<ValueCallback<String>> tokenReads = new java.util.ArrayDeque<>();
+
+    private void openIdentified() {
         open(true, true, "default");
-        ValueCallback<String> configure = message("configure", "initial");
-        ValueCallback<String> ready = message("ready", "initial");
-        shadowOf(webView).getWebViewClient().onPageStarted(webView, options.getUrl(), null);
-        finishTokenRead(configure, "initial", "initial"); finishTokenRead(ready, "initial", "initial");
-        assertEquals("initial", controller.state.token());
-        assertTrue(controller.state.isReady());
+        assertNotNull("Install native navigation identity before first load", navigationListener);
+        webView = spy(webView);
+        doAnswer(call -> {
+            if ("window.__breadPresentationToken".equals(call.getArgument(0))) tokenReads.add(call.getArgument(1));
+            return call.callRealMethod();
+        }).when(webView).evaluateJavascript(anyString(), any());
+        ReflectionHelpers.setField(controller, "webView", webView);
     }
 
-    private void rejectsReplacedDocument(String nextUrl) {
-        open(true, true, "default");
-        shadowOf(webView).getWebViewClient().onPageStarted(webView, options.getUrl(), null);
-        message("configure", "old").onReceiveValue("\"old\"");
-        ValueCallback<String> ready = message("ready", "old");
-        ValueCallback<String> close = message("close", "old");
-        shadowOf(webView).getWebViewClient().onPageStarted(webView, nextUrl, null);
-        ready.onReceiveValue("\"old\""); close.onReceiveValue("\"old\"");
-        assertNull(controller.state.token()); assertFalse(controller.state.isReady());
-        verify(callbacks, never()).closeEvent(any());
-        message("configure", "new").onReceiveValue("\"new\"");
-        message("ready", "new").onReceiveValue("\"new\"");
-        assertTrue(controller.state.isReady());
+    private Navigation startDocument() {
+        Navigation navigation = mock(Navigation.class);
+        when(navigation.getUrl()).thenReturn(options.getUrl());
+        when(navigation.getPage()).thenReturn(mock(Page.class));
+        navigationListener.onNavigationStarted(navigation);
+        return navigation;
     }
 
-    @Test public void sameUrlReloadRejectsPendingPreviousDocumentReads() { rejectsReplacedDocument("https://fixture.example/first"); }
-    @Test public void redirectRejectsPendingPreviousDocumentReads() { rejectsReplacedDocument("https://fixture.example/redirect"); }
+    private void commit(Navigation navigation) {
+        when(navigation.didCommit()).thenReturn(true);
+        navigationListener.onNavigationCompleted(navigation);
+    }
 
-    private void finishTokenRead(ValueCallback<String> callback, String result, String current) {
-        ValueCallback<String> previousLast = shadowOf(webView).getLastEvaluatedJavascriptCallback();
-        callback.onReceiveValue("\"" + result + "\"");
-        for (int i = 0; i < 5; i++) {
-            ValueCallback<String> next = shadowOf(webView).getLastEvaluatedJavascriptCallback();
-            if (next == previousLast || !"window.__breadPresentationToken".equals(shadowOf(webView).getLastEvaluatedJavascript())) return;
-            previousLast = next; callback = next; callback.onReceiveValue("\"" + current + "\"");
-        }
-        fail("Current-document validation did not settle");
+    private void flushTokenReads(String token) {
+        for (int i = 0; !tokenReads.isEmpty() && i < 100; i++) tokenReads.remove().onReceiveValue("\"" + token + "\"");
+        assertTrue("Token validation must settle", tokenReads.isEmpty());
+    }
+
+    private void readyDocument(String token) {
+        message("configure", token); message("ready", token); flushTokenReads(token);
+        assertEquals(token, controller.state.token()); assertTrue(controller.state.isReady());
     }
 
     private void initialDocument() {
-        open(true, true, "default");
-        shadowOf(webView).getWebViewClient().onPageStarted(webView, options.getUrl(), null);
-        finishTokenRead(message("configure", "old"), "old", "old");
-        finishTokenRead(message("ready", "old"), "old", "old");
+        openIdentified(); commit(startDocument()); readyDocument("old");
     }
 
-    private void replacementBeforeStart(boolean finishBeforeStart) {
-        initialDocument();
-        ValueCallback<String> configure = message("configure", "replacement");
-        ValueCallback<String> ready = message("ready", "replacement");
-        if (finishBeforeStart) {
-            finishTokenRead(configure, "replacement", "replacement");
-            finishTokenRead(ready, "replacement", "replacement");
-        }
-        long paint = controller.state.generation();
-        controller.state.painted(paint);
+    private void legacyStart() {
         shadowOf(webView).getWebViewClient().onPageStarted(webView, options.getUrl(), null);
+    }
+
+    private void assertCovered() {
+        assertFalse(controller.state.isReady());
+        assertFalse(controller.state.canReveal(controller.state.generation()));
+        assertEquals(View.VISIBLE, ((View) ReflectionHelpers.getField(controller, "cover")).getVisibility());
+        verify(callbacks, never()).closeEvent(any());
+    }
+
+    @Test public void initialStartAfterBootstrapMessagesKeepsCurrentDocumentAuthority() {
+        openIdentified(); Navigation initial = startDocument();
+        message("configure", "initial"); message("ready", "initial");
+        assertTrue(tokenReads.isEmpty()); assertCovered();
+        legacyStart(); commit(initial); flushTokenReads("initial");
+        assertEquals("initial", controller.state.token()); assertTrue(controller.state.isReady());
+    }
+
+    private void replacementBeforeLegacyStart(boolean finishBeforeStart) {
+        initialDocument(); long paint = controller.state.generation();
+        Navigation replacement = startDocument(); commit(replacement);
+        message("configure", "replacement"); message("ready", "replacement");
+        if (finishBeforeStart) flushTokenReads("replacement");
+        legacyStart();
+        if (!finishBeforeStart) flushTokenReads("replacement");
         assertFalse(controller.state.canReveal(paint));
-        if (finishBeforeStart) {
-            assertEquals("window.__breadPresentationToken", shadowOf(webView).getLastEvaluatedJavascript());
-            finishTokenRead(shadowOf(webView).getLastEvaluatedJavascriptCallback(), "replacement", "replacement");
-        } else {
-            finishTokenRead(configure, "replacement", "replacement");
-            finishTokenRead(ready, "replacement", "replacement");
-        }
         assertEquals("replacement", controller.state.token()); assertTrue(controller.state.isReady());
         assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
-        assertTrue(controller.state.canReveal(controller.state.generation()));
-        assertEquals(View.VISIBLE, ((View) ReflectionHelpers.getField(controller, "cover")).getVisibility());
     }
 
-    @Test public void replacementBootstrapCompletedBeforeLaterStartGetsFreshPaint() { replacementBeforeStart(true); }
-    @Test public void replacementBootstrapReadsCrossingLaterStartGetFreshAuthority() { replacementBeforeStart(false); }
+    @Test public void replacementBootstrapCompletedBeforeLaterStartGetsFreshPaint() { replacementBeforeLegacyStart(true); }
+    @Test public void replacementBootstrapReadsCrossingLaterStartGetFreshAuthority() { replacementBeforeLegacyStart(false); }
 
-    @Test public void provisionalSameUrlStartRejectsEvenFreshReadsOfPreviousDocument() {
-        initialDocument();
-        ValueCallback<String> oldReady = message("ready", "old");
-        ValueCallback<String> oldClose = message("close", "old");
-        long paint = controller.state.generation();
-        shadowOf(webView).getWebViewClient().onPageStarted(webView, options.getUrl(), null);
-        finishTokenRead(oldReady, "old", "old"); finishTokenRead(oldClose, "old", "old");
-        finishTokenRead(message("ready", "old"), "old", "old");
-        finishTokenRead(message("close", "old"), "old", "old");
-        assertFalse(shadowOf(webView).getLastEvaluatedJavascript().startsWith("window.__breadPresentationRespond"));
-        assertFalse(controller.state.canReveal(paint)); assertFalse(controller.state.isReady());
-        verify(callbacks, never()).closeEvent(any());
-        finishTokenRead(message("configure", "replacement"), "replacement", "replacement");
-        finishTokenRead(message("ready", "replacement"), "replacement", "replacement");
-        assertTrue(controller.state.isReady());
+    private void rejectsReplacedDocument(boolean redirect) {
+        initialDocument(); message("ready", "old"); message("close", "old");
+        Navigation current = startDocument();
+        if (redirect) { when(current.getUrl()).thenReturn("https://fixture.example/redirect"); navigationListener.onNavigationRedirected(current); }
+        flushTokenReads("old"); message("ready", "old"); message("close", "old");
+        assertCovered(); assertTrue(tokenReads.isEmpty());
+        commit(current); flushTokenReads("new"); assertCovered();
+        readyDocument("new");
+    }
+
+    @Test public void sameUrlReloadRejectsPendingPreviousDocumentReads() { rejectsReplacedDocument(false); }
+    @Test public void redirectRejectsPendingPreviousDocumentReads() { rejectsReplacedDocument(true); }
+    @Test public void provisionalSameUrlStartRejectsEvenFreshReadsOfPreviousDocument() { rejectsReplacedDocument(false); }
+
+    @Test public void consecutiveStartsRetireIntermediateReadinessBeforePairingReadCompletes() {
+        initialDocument(); Navigation intermediate = startDocument(); commit(intermediate);
+        readyDocument("intermediate"); legacyStart();
+        message("configure", "intermediate");
+        Navigation current = startDocument(); legacyStart();
+        commit(intermediate); flushTokenReads("intermediate");
+        message("ready", "intermediate"); message("close", "intermediate");
+        assertCovered(); assertTrue(tokenReads.isEmpty());
+        message("configure", "current"); message("ready", "current");
+        commit(current); flushTokenReads("current");
+        assertEquals("current", controller.state.token()); assertTrue(controller.state.isReady());
+        assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
+    }
+
+    @Test public void consecutiveStartsRetireIntermediateConfigureWhoseFirstReadIsPending() {
+        initialDocument(); Navigation intermediate = startDocument(); commit(intermediate);
+        message("configure", "intermediate"); message("ready", "intermediate");
+        Navigation current = startDocument();
+        flushTokenReads("intermediate"); commit(intermediate); assertCovered();
+        message("configure", "current"); message("ready", "current");
+        commit(current); flushTokenReads("current");
+        assertEquals("current", controller.state.token()); assertTrue(controller.state.isReady());
+    }
+
+    @Test public void consecutiveStartsRetireIntermediateCloseAndPendingAcknowledgement() {
+        initialDocument(); commit(startDocument()); readyDocument("intermediate");
+        message("close", "intermediate"); flushTokenReads("intermediate");
+        ValueCallback<String> acknowledgement = shadowOf(webView).getLastEvaluatedJavascriptCallback();
+        Navigation current = startDocument(); acknowledgement.onReceiveValue("null");
+        message("close", "intermediate"); assertCovered(); assertTrue(tokenReads.isEmpty());
+        commit(current); flushTokenReads("current"); assertCovered(); readyDocument("current");
+        message("close", "current"); flushTokenReads("current");
+        shadowOf(webView).getLastEvaluatedJavascriptCallback().onReceiveValue("null");
+        dialog.dismiss(); verify(callbacks, times(1)).closeEvent(any());
+        webkit.verify(() -> WebViewCompat.removeNavigationListener(webView, navigationListener), times(1));
     }
 
     @Test public void oldReadsCrossingEarlyReplacementCannotRevealOrCloseIt() {
-        initialDocument();
-        ValueCallback<String> oldReady = message("ready", "old");
-        ValueCallback<String> oldClose = message("close", "old");
-        finishTokenRead(message("configure", "replacement"), "replacement", "replacement");
-        finishTokenRead(oldReady, "old", "replacement");
-        assertFalse(controller.state.isReady());
-        shadowOf(webView).getWebViewClient().onPageStarted(webView, options.getUrl(), null);
-        finishTokenRead(oldClose, "old", "replacement");
-        verify(callbacks, never()).closeEvent(any()); assertFalse(controller.state.isReady());
-        finishTokenRead(message("configure", "replacement"), "replacement", "replacement");
-        finishTokenRead(message("ready", "replacement"), "replacement", "replacement");
-        assertTrue(controller.state.isReady());
+        initialDocument(); message("ready", "old"); message("close", "old");
+        Navigation replacement = startDocument();
+        message("configure", "replacement"); message("ready", "replacement");
+        commit(replacement); flushTokenReads("replacement"); legacyStart();
+        verify(callbacks, never()).closeEvent(any());
+        assertEquals("replacement", controller.state.token()); assertTrue(controller.state.isReady());
     }
 
     @Test public void oldCloseAcknowledgementCannotCloseAnEarlyReplacement() {
-        initialDocument();
-        finishTokenRead(message("close", "old"), "old", "old");
+        initialDocument(); message("close", "old"); flushTokenReads("old");
         ValueCallback<String> acknowledgement = shadowOf(webView).getLastEvaluatedJavascriptCallback();
-        finishTokenRead(message("configure", "replacement"), "replacement", "replacement");
-        finishTokenRead(acknowledgement, "null", "replacement");
+        commit(startDocument()); readyDocument("replacement");
+        acknowledgement.onReceiveValue("null"); flushTokenReads("replacement");
         verify(callbacks, never()).closeEvent(any());
-        assertEquals("replacement", controller.state.token());
     }
 
-    @Test public void currentCloseAcknowledgementCrossingLaterStartRevalidatesAndClosesOnce() {
-        initialDocument();
-        finishTokenRead(message("configure", "replacement"), "replacement", "replacement");
-        finishTokenRead(message("close", "replacement"), "replacement", "replacement");
+    @Test public void currentCloseAcknowledgementCrossingLaterLegacyStartClosesOnce() {
+        initialDocument(); commit(startDocument()); readyDocument("replacement");
+        message("close", "replacement"); flushTokenReads("replacement");
         ValueCallback<String> acknowledgement = shadowOf(webView).getLastEvaluatedJavascriptCallback();
-        shadowOf(webView).getWebViewClient().onPageStarted(webView, options.getUrl(), null);
-        finishTokenRead(acknowledgement, "null", "replacement");
-        assertTrue(shadowOf(webView).getLastEvaluatedJavascript().startsWith("window.__breadPresentationRespond"));
-        shadowOf(webView).getLastEvaluatedJavascriptCallback().onReceiveValue("null");
+        legacyStart(); acknowledgement.onReceiveValue("null");
         dialog.dismiss(); verify(callbacks, times(1)).closeEvent(any());
     }
 
     @Test public void retryBlocksOldRequestsBeforeReloadStartButKeepsEarlyReplacement() {
         initialDocument(); controller.failed();
         ((Button) ReflectionHelpers.getField(controller, "retry")).performClick();
-        finishTokenRead(message("ready", "old"), "old", "old");
-        assertFalse(controller.state.isReady());
-        finishTokenRead(message("close", "old"), "old", "old");
-        assertFalse(shadowOf(webView).getLastEvaluatedJavascript().startsWith("window.__breadPresentationRespond"));
-        finishTokenRead(message("configure", "replacement"), "replacement", "replacement");
-        finishTokenRead(message("ready", "replacement"), "replacement", "replacement");
-        shadowOf(webView).getWebViewClient().onPageStarted(webView, options.getUrl(), null);
-        finishTokenRead(shadowOf(webView).getLastEvaluatedJavascriptCallback(), "replacement", "replacement");
+        message("ready", "old"); message("close", "old"); assertCovered();
+        Navigation replacement = startDocument(); message("configure", "replacement"); message("ready", "replacement");
+        commit(replacement); flushTokenReads("replacement"); legacyStart();
         assertEquals("replacement", controller.state.token()); assertTrue(controller.state.isReady());
+    }
+
+    @Test public void navigationAuthorityInvalidatesSynchronouslyWithNativeStart() {
+        initialDocument();
+        assertNotNull("Avoid posting authoritative starts behind token read completions", navigationExecutor);
+        Navigation replacement = mock(Navigation.class);
+        navigationExecutor.execute(() -> navigationListener.onNavigationStarted(replacement));
+        assertCovered();
+    }
+
+    @Test public void staleCompletionCannotAuthorizeCurrentProvisionalDocument() {
+        initialDocument(); Navigation aborted = startDocument(); Navigation current = startDocument();
+        message("configure", "old"); message("ready", "old"); commit(aborted); assertCovered();
+        assertTrue(tokenReads.isEmpty());
+        message("configure", "current"); message("ready", "current"); commit(current); flushTokenReads("current");
+        assertEquals("current", controller.state.token()); assertTrue(controller.state.isReady());
+    }
+
+    @Test public void cancelledNavigationRemainsCoveredAndSameDocumentNavigationRetainsReadyPage() {
+        initialDocument(); Navigation same = mock(Navigation.class); when(same.isSameDocument()).thenReturn(true);
+        long paint = controller.state.generation(); navigationListener.onNavigationStarted(same);
+        navigationListener.onNavigationCompleted(same); assertTrue(controller.state.canReveal(paint));
+        Navigation cancelled = startDocument(); navigationListener.onNavigationCompleted(cancelled);
+        assertEquals(BreadPresentationState.Phase.ERROR, controller.state.phase()); assertCovered();
     }
 
     @Implements(WebView.class)
@@ -334,30 +387,46 @@ public class BreadPresentationControllerTest {
     }
 
     @Test @Config(shadows = PaintWebView.class)
-    public void replacementRequiresItsOwnNativeVisualFence() {
+    public void consecutiveReplacementRequiresItsOwnNativeVisualFence() {
         initialDocument();
-        webView = spy(webView);
         doReturn(390).when(webView).getWidth(); doReturn(650).when(webView).getHeight();
         doAnswer(call -> { ((Runnable) call.getArgument(0)).run(); return true; }).when(webView).post(any());
-        ReflectionHelpers.setField(controller, "webView", webView);
-        controller.render();
-        assertTrue(shadowOf(webView).getLastEvaluatedJavascript().contains("__breadPresentationUpdate"));
-        shadowOf(webView).getLastEvaluatedJavascriptCallback().onReceiveValue("true");
+        controller.render(); shadowOf(webView).getLastEvaluatedJavascriptCallback().onReceiveValue("true");
         PaintWebView renderer = Shadow.extract(webView);
         WebView.VisualStateCallback oldFence = renderer.fence; long oldRequest = renderer.request;
-        assertNotNull(oldFence);
-        finishTokenRead(message("configure", "replacement"), "replacement", "replacement");
-        finishTokenRead(message("ready", "replacement"), "replacement", "replacement");
-        shadowOf(webView).getWebViewClient().onPageStarted(webView, options.getUrl(), null);
-        finishTokenRead(shadowOf(webView).getLastEvaluatedJavascriptCallback(), "replacement", "replacement");
+        Navigation intermediate = startDocument(); commit(intermediate); readyDocument("intermediate");
+        message("configure", "intermediate"); Navigation current = startDocument();
+        commit(intermediate); flushTokenReads("intermediate"); assertCovered();
+        message("configure", "current"); message("ready", "current"); commit(current); flushTokenReads("current");
         oldFence.onComplete(oldRequest);
         assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
         assertEquals(View.VISIBLE, ((View) ReflectionHelpers.getField(controller, "cover")).getVisibility());
         assertTrue(shadowOf(webView).getLastEvaluatedJavascript().contains("__breadPresentationUpdate"));
         shadowOf(webView).getLastEvaluatedJavascriptCallback().onReceiveValue("true");
-        assertNotEquals(oldRequest, renderer.request);
-        renderer.fence.onComplete(renderer.request);
+        assertNotEquals(oldRequest, renderer.request); renderer.fence.onComplete(renderer.request);
         assertEquals(BreadPresentationState.Phase.VISIBLE, controller.state.phase());
+    }
+
+    @Test public void missingNavigationIdentityKeepsBrowserAndRejectsPresentationRequests() {
+        features.when(() -> WebViewFeature.isFeatureSupported(WebViewFeature.NAVIGATION_LISTENER_V1)).thenReturn(false);
+        open(true, true, "default");
+        assertEquals(View.GONE, ((View) ReflectionHelpers.getField(controller, "overlay")).getVisibility());
+        assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO, webView.getImportantForAccessibility());
+        assertTrue(fits()); assertFalse(controller.fullscreen());
+        String fullscreen = new JSObject().put("type", "configure").put("token", "fallback")
+            .put("display", "fullscreen").put("manualReady", true).toString();
+        messageListener.onPostMessage(webView, new WebMessageCompat(fullscreen), Uri.parse(options.getUrl()), true, null);
+        assertTrue(shadowOf(webView).getLastEvaluatedJavascript().contains("\"display\":\"browser\""));
+        verify(callbacks, atLeastOnce()).presentationChanged(false);
+        message("ready", "fallback");
+        assertTrue(shadowOf(webView).getLastEvaluatedJavascript().contains("\"ok\":false"));
+        message("close", "fallback");
+        assertTrue(shadowOf(webView).getLastEvaluatedJavascript().contains("\"ok\":false"));
+        verify(callbacks, never()).closeEvent(any());
+        controller.navigationStarted(); controller.foreground(false); controller.foreground(true);
+        assertEquals(View.GONE, ((View) ReflectionHelpers.getField(controller, "overlay")).getVisibility());
+        assertFalse(controller.fullscreen());
+        dialog.dismiss(); verify(callbacks, times(1)).closeEvent(any());
     }
 
     private void unsupported(boolean documentStart, boolean listener) {
