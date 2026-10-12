@@ -538,6 +538,65 @@ public class BreadPresentationControllerTest {
     }
 
     @Test @Config(shadows = PaintWebView.class)
+    public void nextOrdinaryCloseRetiresCompletedInsetsAndWaitsForItsOwnPaintFence() {
+        WebView host = managedInsetHost();
+        dialog.setClosedListener(() -> WebViewRegistry.getShared().remove("managed"));
+        Runnable firstCompletion = mock(Runnable.class);
+        dialog.requestClose(firstCompletion);
+        host.dispatchApplyWindowInsets(hiddenHostInsets());
+        ManagedHostClose first = dialog.managedClose();
+        assertTrue(first.complete("lifetime", first.requestId(), 1));
+        PaintWebView renderer = Shadow.extract(host);
+        assertNotNull(renderer.fence);
+        renderer.fence.onComplete(renderer.request);
+        verify(firstCompletion).run();
+        assertFalse(dialog.isShowing());
+        assertNull(WebViewRegistry.getShared().get("managed"));
+        HostReturnInsets completed = ReflectionHelpers.getField(first, "returnInsets");
+        assertTrue(completed.owned());
+        assertTrue(completed.ready());
+        assertNull(ReflectionHelpers.getField(completed, "current"));
+        assertNull(ReflectionHelpers.getField(completed, "changed"));
+        verify(callbacks, times(1)).closeEvent(any());
+
+        callbacks = mock(WebViewCallbacks.class);
+        options.setCallbacks(callbacks);
+        dialog = new WebViewDialog(activity, androidx.appcompat.R.style.Theme_AppCompat_Light_NoActionBar, options, null, host);
+        dialog.activity = activity;
+        dialog.presentWebView();
+        controller = ReflectionHelpers.getField(dialog, "presentation");
+        webView = ReflectionHelpers.getField(dialog, "_webView");
+        controller.state.configure("next-browser", false, false); acknowledgePolicy();
+        assertFalse(controller.fullscreen());
+        assertSame(host, ReflectionHelpers.getField(dialog, "capacitorWebView"));
+        WebViewRegistry.getShared().register("next", dialog);
+        dialog.setClosedListener(() -> WebViewRegistry.getShared().remove("next"));
+        dialog.configureManagedClose("next", new JSObject().put("token", "next-lifetime"), ignored -> {});
+        renderer.fence = null;
+        Runnable nextCompletion = mock(Runnable.class);
+        dialog.requestClose(nextCompletion);
+        ManagedHostClose next = dialog.managedClose();
+        HostReturnInsets replacement = ReflectionHelpers.getField(next, "returnInsets");
+        assertNotNull(replacement);
+        assertNotSame(completed, replacement);
+        assertFalse(completed.owned());
+        assertFalse(replacement.ready());
+        assertTrue(next.complete("next-lifetime", next.requestId(), 2));
+        assertNull(renderer.fence);
+        verify(nextCompletion, never()).run();
+        assertTrue(dialog.isShowing());
+        host.dispatchApplyWindowInsets(hiddenHostInsets());
+        assertTrue(replacement.ready());
+        assertNotNull(renderer.fence);
+        verify(nextCompletion, never()).run();
+        renderer.fence.onComplete(renderer.request);
+        verify(nextCompletion, times(1)).run();
+        assertFalse(dialog.isShowing());
+        assertNull(WebViewRegistry.getShared().get("next"));
+        verify(callbacks, times(1)).closeEvent(any());
+    }
+
+    @Test @Config(shadows = PaintWebView.class)
     public void managedReturnReattachedHostCannotReuseOutgoingPolicyFence() {
         WebView host = managedInsetHost();
         dialog.requestClose(() -> {});

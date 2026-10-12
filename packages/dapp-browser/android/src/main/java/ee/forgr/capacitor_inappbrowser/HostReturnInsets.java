@@ -20,7 +20,11 @@ final class HostReturnInsets implements View.OnApplyWindowInsetsListener, View.O
 
     static HostReturnInsets acquire(WebView host, BooleanSupplier current, Runnable changed) {
         WeakReference<HostReturnInsets> existing = owners.get(host);
-        if (existing != null && existing.get() != null) return null;
+        HostReturnInsets incumbent = existing == null ? null : existing.get();
+        if (incumbent != null) {
+            if (!incumbent.finished) return null;
+            incumbent.release();
+        }
         HostReturnInsets policy = new HostReturnInsets(host, current, changed);
         owners.put(host, new WeakReference<>(policy));
         host.setOnApplyWindowInsetsListener(policy);

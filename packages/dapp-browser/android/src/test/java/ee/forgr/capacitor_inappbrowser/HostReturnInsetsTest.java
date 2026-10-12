@@ -117,14 +117,106 @@ public class HostReturnInsetsTest {
         host.dispatchApplyWindowInsets(insets(false, 24));
         assertTrue(first.ready());
         first.finish();
-        assertNull(HostReturnInsets.acquire(host, () -> true, () -> {}));
-        host.dispatchApplyWindowInsets(insets(true, 24));
         HostReturnInsets second = HostReturnInsets.acquire(host, () -> true, changes::incrementAndGet);
         assertNotNull(second);
+        assertFalse(first.owned());
+        assertFalse(first.ready());
+        assertFalse(second.ready());
         first.onViewDetachedFromWindow(host);
         assertTrue(second.owned());
         host.dispatchApplyWindowInsets(insets(false, 24));
         assertTrue(second.ready());
+    }
+
+    @Test public void finishedOwnerWithOrWithoutDeliveryRequiresFreshInsetsForReplacement() {
+        for (boolean previouslyDelivered : new boolean[] {true, false}) {
+            HostReturnInsets first = HostReturnInsets.acquire(host, () -> true, changes::incrementAndGet);
+            assertNotNull(first);
+            if (previouslyDelivered) host.dispatchApplyWindowInsets(insets(false, 24));
+            first.finish();
+            assertTrue(first.owned());
+            HostReturnInsets replacement = HostReturnInsets.acquire(host, () -> true, changes::incrementAndGet);
+            assertNotNull(replacement);
+            assertNotSame(first, replacement);
+            assertFalse(first.owned());
+            assertFalse(first.ready());
+            assertFalse(replacement.ready());
+            assertEquals(0, replacement.revision());
+            first.onViewDetachedFromWindow(host);
+            assertTrue(replacement.owned());
+            host.dispatchApplyWindowInsets(insets(false, 32));
+            assertTrue(replacement.ready());
+            assertEquals(1, replacement.revision());
+            replacement.finish();
+            host.dispatchApplyWindowInsets(insets(true, 32));
+            assertFalse(replacement.owned());
+        }
+    }
+
+    @Test public void replacementNotifiesOnlyItsOwnLifetimeAfterNormalWebViewDelivery() {
+        AtomicBoolean previousCurrent = new AtomicBoolean(true);
+        AtomicInteger previousChanges = new AtomicInteger();
+        HostReturnInsets first = HostReturnInsets.acquire(host, previousCurrent::get, previousChanges::incrementAndGet);
+        host.dispatchApplyWindowInsets(insets(false, 24));
+        first.finish();
+        previousCurrent.set(false);
+        java.util.List<String> deliveryOrder = new java.util.ArrayList<>();
+        doAnswer(call -> {
+            Object result = call.callRealMethod();
+            deliveryOrder.add("normal");
+            return result;
+        }).when(host).onApplyWindowInsets(any());
+        HostReturnInsets replacement = HostReturnInsets.acquire(host, () -> true, () -> deliveryOrder.add("changed"));
+        assertNotNull(replacement);
+        assertFalse(replacement.ready());
+        WindowInsets incoming = insets(false, 32);
+        assertEquals(1, previousChanges.get());
+        host.dispatchApplyWindowInsets(incoming);
+        assertEquals(java.util.List.of("normal", "changed"), deliveryOrder);
+        assertTrue(replacement.ready());
+        assertEquals(1, previousChanges.get());
+        assertNull(ReflectionHelpers.getField(first, "current"));
+        assertNull(ReflectionHelpers.getField(first, "changed"));
+    }
+
+    @Test public void replacementRetiredBeforeDeliveryReleasesAndDelegatesRawInsets() {
+        HostReturnInsets first = HostReturnInsets.acquire(host, () -> true, changes::incrementAndGet);
+        host.dispatchApplyWindowInsets(insets(false, 24));
+        first.finish();
+        AtomicBoolean current = new AtomicBoolean(true);
+        HostReturnInsets replacement = HostReturnInsets.acquire(host, current::get, changes::incrementAndGet);
+        assertNotNull(replacement);
+        current.set(false);
+        WindowInsets incoming = insets(false, 32);
+        host.dispatchApplyWindowInsets(incoming);
+        verify(host).onApplyWindowInsets(same(incoming));
+        assertFalse(replacement.owned());
+        assertFalse(replacement.ready());
+        assertEquals(1, changes.get());
+        assertNotNull(HostReturnInsets.acquire(host, () -> true, changes::incrementAndGet));
+    }
+
+    @Test public void finishedHandoffDoesNotRetireActiveOwnershipOnAnotherHost() {
+        WebView other = new WebView(host.getContext());
+        parent.addView(other);
+        HostReturnInsets first = HostReturnInsets.acquire(host, () -> true, changes::incrementAndGet);
+        AtomicInteger otherChanges = new AtomicInteger();
+        HostReturnInsets active = HostReturnInsets.acquire(other, () -> true, otherChanges::incrementAndGet);
+        first.finish();
+        HostReturnInsets replacement = HostReturnInsets.acquire(host, () -> true, changes::incrementAndGet);
+        assertNotNull(replacement);
+        assertNull(HostReturnInsets.acquire(other, () -> true, () -> fail("Active competitor callback")));
+        first.onViewDetachedFromWindow(host);
+        assertTrue(replacement.owned());
+        assertTrue(active.owned());
+        assertFalse(active.ready());
+        host.dispatchApplyWindowInsets(insets(false, 24));
+        assertTrue(replacement.ready());
+        assertFalse(active.ready());
+        assertEquals(0, otherChanges.get());
+        other.dispatchApplyWindowInsets(insets(false, 32));
+        assertTrue(active.ready());
+        assertEquals(1, otherChanges.get());
     }
 
     @Test public void detachReleasesOwnershipAndAllowsLaterAttachedReturn() {
