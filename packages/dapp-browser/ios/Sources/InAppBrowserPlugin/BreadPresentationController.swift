@@ -18,7 +18,7 @@ struct BreadPresentationOptions {
         hintLabel = hint
         retryLabel = retry
         errorLabel = error
-        timeout = 30
+        timeout = TimeInterval(max(1, (values["readinessTimeoutMs"] as? NSNumber)?.int64Value ?? 30000)) / 1000
     }
 }
 

@@ -885,3 +885,51 @@ final class BreadPresentationTests: XCTestCase {
     }
 
 }
+
+final class BreadPresentationTimeoutTests: XCTestCase {
+    private func state(timeoutMs: NSNumber?) throws -> BreadPresentationState {
+        var values: [String: Any] = ["script": "", "backLabel": "Back", "hintLabel": "Return",
+                                    "retryLabel": "Retry", "errorLabel": "Error"]
+        if let timeoutMs { values["readinessTimeoutMs"] = timeoutMs }
+        let options = try XCTUnwrap(BreadPresentationOptions(values))
+        let state = BreadPresentationState(timeout: options.timeout)
+        let generation = state.beginNavigation()
+        XCTAssertTrue(state.configure(.fullscreen, generation: generation))
+        return state
+    }
+
+    func testNondefaultHostTimeoutControlsPreparationDeadline() throws {
+        for milliseconds in [NSNumber(value: 250), NSNumber(value: 250.9)] {
+            let state = try state(timeoutMs: milliseconds)
+            state.elapse(0.125)
+            XCTAssertEqual(state.phase, .preparing)
+            state.setForeground(false)
+            state.elapse(100)
+            XCTAssertEqual(state.phase, .temporarilyHidden)
+            state.setForeground(true)
+            state.elapse(0.125)
+            XCTAssertEqual(state.phase, .error,
+                           "Host timeout must expire preparation at its configured deadline")
+        }
+    }
+
+    func testDefaultHostTimeoutRemainsThirtySeconds() throws {
+        for milliseconds in [nil, NSNumber(value: 30000)] as [NSNumber?] {
+            let state = try state(timeoutMs: milliseconds)
+            state.elapse(29)
+            XCTAssertEqual(state.phase, .preparing)
+            state.elapse(1)
+            XCTAssertEqual(state.phase, .error)
+        }
+    }
+
+    func testHostTimeoutClampsAtOneMillisecond() throws {
+        for milliseconds in [NSNumber(value: 0), NSNumber(value: -10), NSNumber(value: 0.9)] {
+            let state = try state(timeoutMs: milliseconds)
+            state.elapse(0.0005)
+            XCTAssertEqual(state.phase, .preparing, "Minimum host timeout must remain preparing before one millisecond")
+            state.elapse(0.0005)
+            XCTAssertEqual(state.phase, .error, "Nonpositive host timeout must expire after one millisecond")
+        }
+    }
+}
