@@ -53,7 +53,7 @@ final class BreadPresentationController: NSObject {
         self.options = options
         self.owner = owner
         self.webView = webView
-        state = BreadPresentationState(timeout: options.timeout)
+        state = BreadPresentationState(timeout: options.timeout, initiallyVisible: owner.initiallyVisible)
         super.init()
         installControls(in: owner.view)
         state.setForeground(UIApplication.shared.applicationState == .active)

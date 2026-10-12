@@ -39,6 +39,15 @@ import UIKit
         self.id = id
         self.controller = controller
         self.navigationController = navigationController
+        self.isVisible = controller.initiallyVisible
         super.init()
+    }
+    func installContainerWindow(_ window: UIWindow, hostWindow: UIWindow?) {
+        containerWindow = window
+        if let presentation = controller.breadPresentation {
+            presentation.attach(self, hostWindow: hostWindow)
+        } else {
+            window.isHidden = !isVisible
+        }
     }
 }

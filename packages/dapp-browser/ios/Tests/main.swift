@@ -62,5 +62,17 @@ expect(!BreadPresentationState.acceptsMessage(mainFrame: false, messageToken: "n
 expect(!BreadPresentationState.acceptsMessage(mainFrame: true, messageToken: "old", documentToken: "new", startedGeneration: 2, currentGeneration: 2), "old token rejected")
 expect(!BreadPresentationState.acceptsMessage(mainFrame: true, messageToken: "new", documentToken: "new", startedGeneration: 1, currentGeneration: 2), "navigation during token evaluation rejected")
 expect(!BreadPresentationState.acceptsMessage(mainFrame: true, messageToken: "", documentToken: "", startedGeneration: 2, currentGeneration: 2), "empty token rejected")
+
+let hiddenOpening = BreadPresentationState(timeout: 30, initiallyVisible: false)
+let hiddenGeneration = hiddenOpening.beginNavigation()
+hiddenOpening.configure(.fullscreen, generation: hiddenGeneration)
+hiddenOpening.ready(generation: hiddenGeneration)
+hiddenOpening.layoutPrepared(generation: hiddenGeneration)
+hiddenOpening.elapse(100)
+expect(hiddenOpening.phase == .temporarilyHidden, "initial hidden readiness and paint cannot reveal")
+expect(hiddenOpening.remaining == 30, "initial hidden startup does not consume readiness deadline")
+hiddenOpening.requestVisibility(true)
+expect(hiddenOpening.phase == .visible, "explicit visibility restores same prepared document")
+
 print("Bread presentation lifecycle: \(failures) failures")
 exit(failures == 0 ? 0 : 1)

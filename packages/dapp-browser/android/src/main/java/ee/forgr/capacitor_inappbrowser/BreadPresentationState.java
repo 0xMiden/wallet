@@ -19,7 +19,10 @@ final class BreadPresentationState {
     private boolean fullscreen;
     private String token;
 
-    BreadPresentationState(long timeout) { this.timeout = timeout; remaining = timeout; }
+    BreadPresentationState(long timeout) { this(timeout, true); }
+    BreadPresentationState(long timeout, boolean initiallyVisible) {
+        this.timeout = timeout; remaining = timeout; visible = initiallyVisible;
+    }
     long navigationGeneration() { return navigationGeneration; }
     long generation() { return generation; }
     boolean fullscreen() { return fullscreen; }

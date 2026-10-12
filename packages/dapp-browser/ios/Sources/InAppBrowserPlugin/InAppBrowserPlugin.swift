@@ -452,7 +452,8 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 blockedHosts: blockedHosts,
                 authorizedAppLinks: authorizedAppLinks,
                 enabledSafeTopMargin: !positioned,
-                breadPresentation: positioned ? call.getObject("breadPresentation") : nil
+                breadPresentation: positioned ? call.getObject("breadPresentation") : nil,
+                initiallyVisible: positioned ? call.getBool("initiallyVisible", true) : true
                 )
 
             guard let webViewController = self.webViewController else {
@@ -849,13 +850,11 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
                 window.windowLevel = UIWindow.Level.normal + 100
                 window.backgroundColor = .clear
                 window.rootViewController = instance.navigationController
-                window.isHidden = false
-                instance.containerWindow = window
-                instance.controller.breadPresentation?.attach(instance, hostWindow: self.bridge?.viewController?.view?.window)
+                instance.installContainerWindow(window, hostWindow: self.bridge?.viewController?.view?.window)
                 presentedInWindow = true
             }
 
-            if !self.isPresentAfterPageLoad && !presentedInWindow {
+            if !self.isPresentAfterPageLoad && !presentedInWindow && registeredInstance?.isVisible != false {
                 self.presentView(isAnimated: isAnimated)
             }
             call.resolve()

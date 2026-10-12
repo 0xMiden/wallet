@@ -93,11 +93,11 @@ final class BreadPresentationController {
         }
     };
 
-    BreadPresentationController(WebViewDialog owner, WebView webView, Options.BreadPresentation options) {
+    BreadPresentationController(WebViewDialog owner, WebView webView, Options.BreadPresentation options, boolean initiallyVisible) {
         this.owner = owner;
         this.webView = webView;
         this.options = options;
-        state = new BreadPresentationState(options.readinessTimeoutMs);
+        state = new BreadPresentationState(options.readinessTimeoutMs, initiallyVisible);
         browserAppBarVisibility = owner.findViewById(R.id.app_bar_layout).getVisibility();
         browserStatusVisibility = owner.findViewById(R.id.status_bar_color_view).getVisibility();
         browserCutoutMode = owner.getWindow().getAttributes().layoutInDisplayCutoutMode;

@@ -674,6 +674,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           // plugin (Capacitor inappbrowser openWebView option).
           ...(isMobile()
             ? {
+                initiallyVisible: false,
                 breadPresentation: {
                   script: PRESENTATION_SCRIPT,
                   logoSvg: breadLogoSvg,
@@ -1103,25 +1104,55 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     ]
   );
 
-  // The sole reveal owner observes outer generic dialogs too: those sheets are siblings of this provider.
-  // Native positioning can yield while a popup opens or a session closes, so a stale continuation never reveals it.
+  const visibilityTargets = sessionStates.map(state => ({
+    id: state.session.id,
+    instance: state.instance,
+    active: state.status === 'active',
+    lifetime: sessionLifetimes.current.get(state.session.id)
+  }));
+  const visibilityTargetsRef = useRef(visibilityTargets);
+  if (
+    visibilityTargets.length !== visibilityTargetsRef.current.length ||
+    visibilityTargets.some((target, i) => {
+      const previous = visibilityTargetsRef.current[i];
+      return (
+        target.id !== previous?.id ||
+        target.instance !== previous.instance ||
+        target.active !== previous.active ||
+        target.lifetime !== previous.lifetime
+      );
+    })
+  )
+    visibilityTargetsRef.current = visibilityTargets;
+  const stableVisibilityTargets = visibilityTargetsRef.current;
+
+  const foregroundVisibilityTarget = stableVisibilityTargets.find(target => target.id === foregroundId);
+  const foregroundInstance = foregroundVisibilityTarget?.instance;
+  const foregroundActive = foregroundVisibilityTarget?.active;
+  const foregroundLifetime = foregroundVisibilityTarget?.lifetime;
+
+  // Generic dialogs are outside this provider. All native windows remain hidden while the host owns visibility.
   useEffect(() => {
     if (!isMobile()) return;
-    let cancelled = false;
-    const foreground = sessionStates.find(s => s.session.id === foregroundId);
-    const rect = slotRectRef.current;
-    const reveal = !foregroundBlocked && !!rect && foreground?.status === 'active';
-    for (const state of sessionStates) {
-      if (state.instance && (state.session.id !== foregroundId || !reveal)) {
-        void state.instance
+    const reveal = !foregroundBlocked && !!slotRectRef.current && foregroundActive;
+    for (const target of stableVisibilityTargets) {
+      if (target.instance && (target.id !== foregroundId || !reveal)) {
+        void target.instance
           .setVisible(false)
           .catch(e => console.warn('[DappBrowserProvider] setVisible(false) failed:', e));
       }
     }
-    const instance = foreground?.instance;
-    const id = foreground?.session.id;
+  }, [foregroundId, foregroundBlocked, foregroundActive, stableVisibilityTargets, slotRect]);
+
+  // Only foreground identity, eligibility or geometry can restart positioning and the native paint fence.
+  useEffect(() => {
+    if (!isMobile()) return;
+    const rect = slotRectRef.current;
+    const instance = foregroundInstance;
+    const id = foregroundId;
     if (!instance || !id || !rect) return;
-    const lifetime = sessionLifetimes.current.get(id);
+    const reveal = !foregroundBlocked && foregroundActive;
+    let cancelled = false;
     const position = async () => {
       try {
         await instance.setRect(rect);
@@ -1134,7 +1165,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         cancelled ||
         foregroundBlockedRef.current ||
         foregroundIdRef.current !== id ||
-        sessionLifetimes.current.get(id) !== lifetime ||
+        sessionLifetimes.current.get(id) !== foregroundLifetime ||
         getSessionStateById(id)?.instance !== instance ||
         !slotRectRef.current
       )
@@ -1152,7 +1183,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   }, [
     foregroundId,
     foregroundBlocked,
-    sessionStates,
+    foregroundInstance,
+    foregroundActive,
+    foregroundLifetime,
     slotRect?.x,
     slotRect?.y,
     slotRect?.width,

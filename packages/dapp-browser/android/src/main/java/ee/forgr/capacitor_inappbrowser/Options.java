@@ -28,6 +28,10 @@ public class Options {
         }
     }
 
+    private boolean initiallyVisible = true;
+    public boolean isInitiallyVisible() { return initiallyVisible; }
+    public void setInitiallyVisible(boolean value) { initiallyVisible = value; }
+
     private BreadPresentation breadPresentation;
     public BreadPresentation getBreadPresentation() { return breadPresentation; }
     public void setBreadPresentation(JSObject value) {

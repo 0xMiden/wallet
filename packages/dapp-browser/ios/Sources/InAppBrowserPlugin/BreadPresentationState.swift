@@ -16,7 +16,9 @@ final class BreadPresentationState {
     private var closed = false
     private let timeout: TimeInterval
 
-    init(timeout: TimeInterval) { self.timeout = timeout; remaining = timeout }
+    init(timeout: TimeInterval, initiallyVisible: Bool = true) {
+        self.timeout = timeout; remaining = timeout; desiredVisibility = initiallyVisible
+    }
     var phase: Phase {
         if closed { return .closed }
         if !desiredVisibility || !foreground { return .temporarilyHidden }

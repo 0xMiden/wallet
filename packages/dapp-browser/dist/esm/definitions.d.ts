@@ -119,6 +119,8 @@ export interface BreadPresentationOptions {
     readinessTimeoutMs: number;
 }
 export interface OpenWebViewOptions {
+    /** Initial visibility of a positioned native window. Defaults to true. */
+    initiallyVisible?: boolean;
     breadPresentation?: BreadPresentationOptions;
     /**
      * Miden patch (PR-4 chunk 5): id for the multi-instance webview being

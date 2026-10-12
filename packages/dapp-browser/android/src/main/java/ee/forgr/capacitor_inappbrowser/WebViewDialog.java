@@ -891,7 +891,7 @@ public class WebViewDialog extends Dialog {
         setupToolbar();
         setWebViewClient();
         if (_options.getBreadPresentation() != null) {
-            presentation = new BreadPresentationController(this, _webView, _options.getBreadPresentation());
+            presentation = new BreadPresentationController(this, _webView, _options.getBreadPresentation(), _options.isInitiallyVisible());
             presentation.install();
         }
         _webView.loadUrl(this._options.getUrl(), requestHeaders);
@@ -914,7 +914,7 @@ public class WebViewDialog extends Dialog {
         });
 
         if (!this._options.isPresentAfterPageLoad()) {
-            show();
+            if (_options.isInitiallyVisible()) show();
             _options.getPluginCall().resolve();
         }
     }
@@ -2632,7 +2632,7 @@ public class WebViewDialog extends Dialog {
                         if (_options.isPresentAfterPageLoad()) {
                             boolean usePreShowScript = _options.getPreShowScript() != null && !_options.getPreShowScript().isEmpty();
                             if (!usePreShowScript) {
-                                show();
+                                if (_options.isInitiallyVisible()) show();
                                 _options.getPluginCall().resolve();
                             } else {
                                 executorService.execute(
@@ -2647,7 +2647,7 @@ public class WebViewDialog extends Dialog {
                                                 new Runnable() {
                                                     @Override
                                                     public void run() {
-                                                        show();
+                                                        if (_options.isInitiallyVisible()) show();
                                                         _options.getPluginCall().resolve();
                                                     }
                                                 }

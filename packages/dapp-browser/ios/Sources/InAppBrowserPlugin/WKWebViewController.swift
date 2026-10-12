@@ -110,12 +110,13 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
         self.initWebview(isInspectable: isInspectable)
     }
 
-    public init(url: URL, headers: [String: String], isInspectable: Bool, credentials: WKWebViewCredentials? = nil, preventDeeplink: Bool, blankNavigationTab: Bool, enabledSafeBottomMargin: Bool, blockedHosts: [String], authorizedAppLinks: [String], enabledSafeTopMargin: Bool = true, breadPresentation: [String: Any]? = nil) {
+    public init(url: URL, headers: [String: String], isInspectable: Bool, credentials: WKWebViewCredentials? = nil, preventDeeplink: Bool, blankNavigationTab: Bool, enabledSafeBottomMargin: Bool, blockedHosts: [String], authorizedAppLinks: [String], enabledSafeTopMargin: Bool = true, breadPresentation: [String: Any]? = nil, initiallyVisible: Bool = true) {
         super.init(nibName: nil, bundle: nil)
         self.blankNavigationTab = blankNavigationTab
         self.enabledSafeBottomMargin = enabledSafeBottomMargin
         // Miden patch: set BEFORE initWebview() runs because that
         // triggers viewDidLoad which builds the WKWebView constraints.
+        self.initiallyVisible = initiallyVisible
         self.breadOptions = BreadPresentationOptions(breadPresentation)
         self.enabledSafeTopMargin = enabledSafeTopMargin
         self.source = .remote(url)
@@ -127,6 +128,7 @@ open class WKWebViewController: UIViewController, WKScriptMessageHandler {
         self.initWebview(isInspectable: isInspectable)
     }
 
+    var initiallyVisible = true
     private var breadOptions: BreadPresentationOptions?
     var breadPresentation: BreadPresentationController?
     private var breadNavigation: WKNavigation?
@@ -1922,7 +1924,7 @@ extension WKWebViewController: WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        if !didpageInit && self.capBrowserPlugin?.isPresentAfterPageLoad == true {
+        if !didpageInit && initiallyVisible && self.capBrowserPlugin?.isPresentAfterPageLoad == true {
             // Only inject preShowScript if it wasn't already injected at document start
             let shouldInjectScript = self.preShowScript.map { !$0.isEmpty } ?? false &&
                 self.preShowScriptInjectionTime != "documentStart"

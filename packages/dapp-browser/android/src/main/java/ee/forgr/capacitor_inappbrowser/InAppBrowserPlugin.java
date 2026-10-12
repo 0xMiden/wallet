@@ -591,6 +591,7 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         }
         currentUrl = url;
         final Options options = new Options();
+        options.setInitiallyVisible(Boolean.TRUE.equals(call.getBoolean("initiallyVisible", true)));
         try { options.setBreadPresentation(call.getObject("breadPresentation")); }
         catch (IllegalArgumentException error) { call.reject(error.getMessage()); return; }
         options.setUrl(url);

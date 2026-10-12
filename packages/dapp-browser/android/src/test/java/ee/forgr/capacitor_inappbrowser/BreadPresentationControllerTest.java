@@ -87,9 +87,14 @@ public class BreadPresentationControllerTest {
     }
 
     private void open(boolean documentStart, boolean listener, String toolbar) {
+        open(documentStart, listener, toolbar, null);
+    }
+
+    private void open(boolean documentStart, boolean listener, String toolbar, Boolean initiallyVisible) {
         features.when(() -> WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)).thenReturn(documentStart);
         features.when(() -> WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)).thenReturn(listener);
         options = new Options();
+        if (initiallyVisible != null) options.setInitiallyVisible(initiallyVisible);
         options.setUrl("https://fixture.example/first");
         options.setToolbarType(toolbar);
         options.setBackgroundColor("white");
@@ -106,6 +111,47 @@ public class BreadPresentationControllerTest {
         dialog.presentWebView();
         controller = ReflectionHelpers.getField(dialog, "presentation");
         webView = ReflectionHelpers.getField(dialog, "_webView");
+    }
+
+    @Test public void initiallyHiddenOpeningWaitsForExplicitShowOnTheSameDialog() {
+        open(true, true, "default", false);
+        assertFalse(dialog.isShowing());
+        assertEquals(BreadPresentationState.Phase.TEMPORARILY_HIDDEN, controller.state.phase());
+        verify(options.getPluginCall()).resolve();
+        controller.state.configure("opening", true, true);
+        controller.render();
+        assertTrue(controller.fullscreen());
+        assertFalse(dialog.isShowing());
+        assertTrue(fits());
+        assertFalse(ReflectionHelpers.getField(controller, "appliedFullscreen"));
+        WebView original = webView;
+        dialog.show();
+        assertTrue(dialog.isShowing());
+        assertTrue(controller.fullscreen());
+        assertSame(original, ReflectionHelpers.getField(dialog, "_webView"));
+        assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
+    }
+
+    @Test public void initiallyHiddenOlderEngineWaitsForShowInBrowserMode() {
+        features.when(() -> WebViewFeature.isFeatureSupported(WebViewFeature.NAVIGATION_LISTENER_V1)).thenReturn(false);
+        open(true, true, "default", false);
+        assertFalse(dialog.isShowing());
+        assertFalse(controller.fullscreen());
+        assertTrue(fits());
+        verify(options.getPluginCall()).resolve();
+        dialog.show();
+        assertTrue(dialog.isShowing());
+        assertFalse(controller.fullscreen());
+        assertTrue(fits());
+        assertEquals(View.GONE, ((View) ReflectionHelpers.getField(controller, "overlay")).getVisibility());
+    }
+
+    @Test public void omittedInitialVisibilityKeepsLegacyVisibleOpening() {
+        open(true, true, "default");
+        assertTrue(options.isInitiallyVisible());
+        assertTrue(dialog.isShowing());
+        assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
+        verify(options.getPluginCall()).resolve();
     }
 
     @After public void tearDown() {

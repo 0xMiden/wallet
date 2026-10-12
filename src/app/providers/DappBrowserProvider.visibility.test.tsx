@@ -18,12 +18,15 @@ import en from '../../../public/_locales/en/en.json';
 
 const mockSetVisible = jest.fn(async (_id: string, _visible: boolean) => {});
 const mockSetRect = jest.fn(async (_id: string, _rect: unknown) => {});
-const mockOpen = jest.fn(async (_options: { id: string }) => {});
+const mockOpen = jest.fn(async (_options: { id: string; initiallyVisible?: boolean }) => {});
 const mockClose = jest.fn(async (_id: string) => {});
-const nativeListeners = new Map<string, (event: { id: string; display: 'fullscreen' }) => void>();
+const nativeListeners = new Map<string, (event: { id: string; display?: 'fullscreen'; detail?: unknown }) => void>();
 jest.mock('@miden/dapp-browser', () => ({
   InAppBrowser: {
-    addListener: async (event: string, listener: (event: { id: string; display: 'fullscreen' }) => void) => {
+    addListener: async (
+      event: string,
+      listener: (event: { id: string; display?: 'fullscreen'; detail?: unknown }) => void
+    ) => {
       nativeListeners.set(event, listener);
       return {
         remove: () => {
@@ -36,7 +39,7 @@ jest.mock('@miden/dapp-browser', () => ({
   },
   ToolBarType: { BLANK: 'BLANK' },
   dappWebViewManager: {
-    open: async (options: { id: string }) => {
+    open: async (options: { id: string; initiallyVisible?: boolean }) => {
       await mockOpen(options);
       return {
         id: options.id,
@@ -495,4 +498,94 @@ it('does not reveal the previous foreground when positioning completes after rep
   expect(lastVisibility('replacement')).toBe(true);
   expect(mockSetVisible).not.toHaveBeenCalledWith('origin', true);
   expect(control().session?.id).toBe('replacement');
+});
+
+it('keeps the native opening hidden before its handle returns under a hold and real alert', async () => {
+  let nativeVisible = false;
+  let finish = () => {};
+  mockSetVisible.mockImplementation(async (_id, visible) => {
+    nativeVisible = visible;
+  });
+  mockOpen.mockImplementationOnce(options => {
+    nativeVisible = options.initiallyVisible !== false;
+    return new Promise<void>(resolve => {
+      finish = resolve;
+    });
+  });
+  currentTree = render(<Tree held />);
+  await waitFor(() => expect(nativeListeners.has('presentationChanged')).toBe(true));
+  act(() => {
+    control().open(session('origin'));
+    control().setSlotRect(RECT);
+  });
+  await waitFor(() => expect(mockOpen).toHaveBeenCalled());
+  act(() => externalPageFailed());
+  expect(screen.getByRole('alertdialog', { name: en.error })).toBeInTheDocument();
+  await settle();
+  try {
+    expect(control().sessionStates[0]?.instance).toBeNull();
+    expect(nativeVisible).toBe(false);
+  } finally {
+    await act(async () => {
+      finish();
+    });
+    mockSetVisible.mockImplementation(async () => {});
+  }
+});
+
+it('does not reposition or reveal after a production title message', async () => {
+  await openForeground();
+  mockSetRect.mockClear();
+  await act(async () => {
+    await nativeListeners.get('messageFromWebview')?.({
+      id: 'origin',
+      detail: { __midenInternal: 'title', title: 'Updated title' }
+    });
+  });
+  expect(control().session?.title).toBe('Updated title');
+  expect(mockSetRect).not.toHaveBeenCalled();
+  expect(mockSetVisible).not.toHaveBeenCalledWith('origin', true);
+});
+
+it('retains in-flight positioning through a production title message', async () => {
+  await openForeground();
+  let finish = () => {};
+  mockSetRect.mockClear();
+  mockSetRect.mockImplementationOnce(
+    () =>
+      new Promise<void>(resolve => {
+        finish = resolve;
+      })
+  );
+  act(() => control().setSlotRect({ x: 0, y: 0, width: 600, height: 375 }));
+  await act(async () => {
+    await nativeListeners.get('messageFromWebview')?.({
+      id: 'origin',
+      detail: { __midenInternal: 'title', title: 'Loading title' }
+    });
+  });
+  try {
+    expect(control().session?.title).toBe('Loading title');
+    expect(mockSetRect).toHaveBeenCalledTimes(1);
+    expect(mockSetVisible).not.toHaveBeenCalledWith('origin', true);
+  } finally {
+    await act(async () => {
+      finish();
+    });
+  }
+  expect(mockSetVisible.mock.calls.filter(call => call[0] === 'origin' && call[1])).toHaveLength(1);
+});
+
+it('does not restart the foreground reveal when an unrelated native session closes', async () => {
+  await openForeground();
+  act(() => control().open(session('replacement')));
+  await waitFor(() => expect(lastVisibility('replacement')).toBe(true));
+  mockSetRect.mockClear();
+  mockSetVisible.mockClear();
+  await act(async () => {
+    await control().close('origin');
+  });
+  expect(control().session?.id).toBe('replacement');
+  expect(mockSetRect).not.toHaveBeenCalledWith('replacement', expect.anything());
+  expect(mockSetVisible).not.toHaveBeenCalledWith('replacement', true);
 });
