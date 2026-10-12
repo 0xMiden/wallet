@@ -1,3 +1,25 @@
+# Fee faucet discovery and USDCX value
+
+- [x] Read discovery, repository rules, and decision profile; inspect all sync and pricing paths.
+- [x] Verify this isolated branch matches current `origin/next` and install frozen dependencies with Node 22.
+- [x] Record a green 146-test baseline and complete the independent plan check.
+- [x] Implement scoped sync-time discovery and cross-realm publication with RED/GREEN tests.
+- [x] Preserve authoritative native metadata, fixed $1 USDCX value and the actual Send fee reserve.
+- [x] Verify the uninjected devnet path with an empty market feed and an independent header read.
+- [x] Complete discovery, risk and adversarial code panels; correct all twelve grouped findings and reverify mutations.
+- [x] Finish focused and static validation of the metadata, startup-publication and render-notification corrections.
+- [ ] Run full tests, unchanged 95% coverage gates and browser regressions on the final PR head in CI only.
+- [x] Publish PR #1351 against `next` while completing review, as explicitly requested.
+- [x] Correct the confirmed stale-metadata bootstrap P1 and the explicitly reopened valuation snapshot P2.
+- [x] Default fresh native display to USDCX and a fixed $1 unit quote; require confirmed scale for quantities and fees.
+- [x] Update native fee, funding and auto-accept copy across all 14 locales and align default token selectors.
+- [x] Finish the remaining internal review on the corrected committed checkpoint; other P2/P3 findings remain nonblocking.
+- [ ] Babysit the PR to green and admin squash merge.
+- [ ] Babysit `origin/next` to green and publish wallet `v1.17.1` with all required assets verified.
+- Store publishing is handled by the user; preserve the existing `v1.17.0` release and tag.
+
+Local results are recorded in `tasks/fee-faucet-plan.md`. Final certification, merge and wallet `v1.17.1` release follow this source checkpoint and are recorded in the PR and release.
+
 # Issue #537 - guarded .mac account export
 
 ## Plan
@@ -289,3 +311,66 @@ Gates: e2e-bridge-in.yml (IN, iOS) + e2e-bridge.yml (OUT, Chrome), both post-mer
 - Four-seat review: 22 findings fixed across 10 commits, 2 rejected with evidence, 1 deferred by
   decision (relay log lines carry no note identity), 2 P3s left. The helper reads headers only, so the
   earlier trailer-parser rules are gone; `check:deps` now verifies the relay patch on every build.
+# Faucet funding follow-up after v1.17.1
+
+- [x] Reproduce the reported testnet target and trace the server's amount-scaled difficulty.
+- [x] Confirm the user-approved grant: use each faucet's advertised `base_amount`.
+- [x] Add failing tests for metadata-selected grants, invalid metadata, cancellation and worker isolation.
+- [x] Fetch and validate the grant before requesting PoW; retain one amount through submission.
+- [x] Move nonce hashing into a bundled worker with abort, deadline and cleanup handling.
+- [x] Verify 222 focused tests across six suites and types locally; do not run coverage or browsers locally.
+- [x] Complete medium internal review; neither review found P0/P1 issues.
+- [x] Reproduce and correct the Windows patch-check failure with genuine stale-code refusal controls.
+- [ ] Open and admin squash-merge the follow-up PR without waiting for CI, as explicitly requested.
+- [ ] Re-cut the withdrawn v1.17.1 from new next without a next CI wait, then promote next to main.
+- [ ] Verify the new release packages and report any CI failures separately.
+
+## Evidence
+
+Testnet advertises `base_amount=10000`, decimals 6 and load difficulty 65536. The historical
+100000000-unit grant produces target 28144683202 exactly. A live base-grant challenge solved
+with the unmodified wallet solver in 1591 ms and passed an independent SHA-256 check; no mint
+was submitted. Devnet advertises a 100000000-unit base grant. Funding state disables only its
+card action; the nonce search currently executes in the UI realm.
+
+# Live Testnet Guardian faucet consumption
+
+- [x] Reproduce the actual Fund your wallet flow in a fresh isolated Guardian profile.
+- [x] Match the missing digest to the canonical V2 receive-policy callback.
+- [x] Test a compatible browser SDK against the same pending faucet note.
+- [x] Verify fresh-wallet automatic consumption, committed transaction and net vault credit.
+- [x] Capture screenshots and source-bound evidence; review the focused change internally.
+- [x] Build and verify a production Testnet Chrome package with the proven fix.
+
+Focused live browser verification is explicitly requested. Full coverage and broad suites remain in CI.
+
+# Public faucet regression on both public networks
+
+- [x] Prove fresh Testnet Guardian funding with exactly Web SDK 0.17.1 and Guardian 0.18.0.
+- [x] Add the real Fund UI scenario to Testnet and Devnet branch E2E gates.
+- [x] Require committed local note consumption and exact net native vault credit.
+- [x] Verify the same previously failed note consumes after the exact SDK upgrade.
+- [x] Replace the diagnostic SDK archive with official registry 0.17.1 and rerun both network flows.
+- [ ] Complete medium internal review, admin squash merge and full v1.17.1 re-cut.
+
+## Current public funding verification
+
+- Existing Guardian onboarding passed on Testnet and Devnet with fast Web SDK 0.17.1 from the signed release source and stable Guardian 0.18.0.
+- Testnet consumed 10000 base units, paid 133 and retained 9867. Devnet consumed 100000000, paid 133 and retained 99999867.
+- Medium internal review found no P0/P1 issues in the UI funding assertions, CI branch gates, profile ownership or CLI kernel preparation.
+- iOS device/simulator and Android arm64/x86_64 committed prover binaries were rebuilt against the exact SDK 0.17.1 kernel.
+- Coverage and broad browser suites remain in CI; the authorized same-version replacement does not wait for PR or next CI.
+
+Official registry SDK 0.17.1 is installed with its published integrity and exact native optional dependencies. Both existing onboarding tests passed again: Testnet 32.9 s and Devnet 24.7 s, no retries, actual Fund UI and chain-confirmed consumption. Clean frozen installation, six-bundle relay verification, 83 relay tests, 32 CLI/faucet tests, five CLI pin tests, typecheck and native kernel pin check pass. Exact Rust CLI source preparation also compiles successfully.
+
+## Public faucet queue timing in CI
+
+- [x] Compare the failing next E2E run with its last successful runs.
+- [x] Verify exact execution dependencies and compare grant inclusion time with the failure time.
+- [x] Track the accepted public faucet note through bounded chain commitment before fixture consumption.
+- [x] Add focused delayed-commit and timeout regressions; run lint and type checks.
+- [ ] Complete medium internal review and merge the CI fix through a PR.
+- [ ] Verify the affected public-network CI jobs and retain the verified v1.17.1 release assets.
+- [ ] Reconcile ancestry and atomically fast-forward main and next with the original PR-only policy restored.
+
+Review: both failed native grants committed after their fixture deadlines; CLI 0.17.1 consumed another grant successfully in the same run. The release packages remain sourced from the reviewed funding fix. All 50 focused tests pass, with types, scoped lint and formatting clean. Internal re-review confirmed the existing funding-source regression was repaired and found no remaining P0/P1 issues.

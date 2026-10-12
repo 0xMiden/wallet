@@ -83,6 +83,10 @@ const msg = (bundle: Record<string, Entry>, key: string): string => {
 };
 
 describe('runtime locale bundles (the files src/i18n.ts actually renders from)', () => {
+  it('names the Earn catalog Available Vaults (#1322)', () => {
+    expect(enSource['earnVaultsTitle']).toBe('Available Vaults');
+  });
+
   it('checks every non-English bundle src/i18n.ts imports', () => {
     // `import es from '../public/_locales/es/es.json';` — one line per locale.
     const source = fs.readFileSync(I18N_SOURCE, 'utf8');

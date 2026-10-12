@@ -1,11 +1,11 @@
-import { MIDEN_METADATA } from '../../lib/miden/front';
+import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 
 export const useGasToken = () => {
   return {
     logo: 'misc/token-logos/film.png',
     symbol: 'ф',
     assetName: 'miden',
-    metadata: MIDEN_METADATA,
+    metadata: getNativeDisplayMetadataSync(),
     isDcpNetwork: true
   };
 };

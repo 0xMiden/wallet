@@ -126,7 +126,7 @@ beforeEach(() => {
   mockIsGuardianSyncOutage.mockReturnValue(false);
   mockGetGuardianLastSyncAt.mockReturnValue(undefined);
   mockGuardianSyncStatus = 'in-sync';
-  mockUseCurrentGuardianEndpoint.mockReturnValue({ endpoint: 'https://guardian.one', refresh: jest.fn() });
+  mockUseCurrentGuardianEndpoint.mockReturnValue({ endpoint: 'https://guardian.one' });
   mockGuardianOptionForEndpoint.mockReturnValue({
     id: 'open-zeppelin',
     name: 'Guardian One',
@@ -374,7 +374,7 @@ it('labels an unmatched endpoint as a custom guardian', () => {
 });
 
 it('shows loading while the guardian endpoint is unresolved', () => {
-  mockUseCurrentGuardianEndpoint.mockReturnValue({ endpoint: '', refresh: jest.fn() });
+  mockUseCurrentGuardianEndpoint.mockReturnValue({ endpoint: '' });
   mockGuardianOptionForEndpoint.mockReturnValue(undefined);
   render(<GuardianSettings />);
 

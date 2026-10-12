@@ -72,7 +72,8 @@ export interface StatusIndicatorProps {
 }
 
 export interface TransactionStepRowProps {
-  step: TransactionStep;
+  /** The row reads only the id and the label; a step list with no stage timings passes just those. */
+  step: Pick<TransactionStep, 'id' | 'labelKey' | 'defaultLabel'>;
   state: TransactionStepState;
   isLast: boolean;
   label?: string;

@@ -1,6 +1,7 @@
 import { isGuardianUnreachableError } from 'lib/miden/guardian/direct-switch';
+import { isGuardianRequestTimeout } from 'lib/miden/guardian/serialize';
 
-import { isOperationAbortedError } from '../back/offscreen-codec';
+import { canAwaitVerdict, isUnresolvedEntry } from './verdict-rules';
 import {
   IBridgedSendExtraInputs,
   ITransaction,
@@ -8,7 +9,7 @@ import {
   ITransactionStatus,
   STRUCTURAL_GUARDIAN_TYPES
 } from '../db/types';
-import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { causeChain, isKilledPipeline, isSubmitCrossingUnrecorded } from '../sdk/sdk-error-code';
 
 /**
  * User-facing error messages persisted on `ITransaction.error` (surfaced in
@@ -28,6 +29,10 @@ export const REMOTE_PROVER_TIMEOUT_ERROR =
   'The proving service timed out. The transaction may not have completed — check your balance before trying again.';
 
 export const LOCAL_PROVER_FAILED_ERROR = 'Local proving failed — please try again.';
+
+// A write whose submit crossing could not be recorded stops before its submit (#1081), so nothing reached the network.
+export const SUBMIT_CROSSING_UNRECORDED_ERROR =
+  'The wallet could not record this transaction before sending it, so nothing was sent and no funds moved.';
 
 export const PROVER_PROCEDURE_MISMATCH_ERROR =
   'Proving failed because the prover does not recognize part of this transaction — the app and its prover are out of sync. Update to the latest version; retrying this version will not help.';
@@ -98,6 +103,10 @@ export const INVALID_NOTE_ERROR = 'Note is invalid';
 export const EARN_DEPOSIT_MISSING_REQUEST_ERROR =
   'Earn deposit has no collateral request with its mandate binding, so it was not sent.';
 
+// A dApp's consume request whose note a dApp transaction holds: answering with that row would hand it another
+// transaction's id, outcome and output notes.
+export const NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR = 'This note is being consumed by another transaction';
+
 export const TRANSACTION_FORCE_CANCELLED_ERROR = 'Transaction force-cancelled for debugging';
 
 /**
@@ -150,9 +159,12 @@ export const isUnconfirmedFailureReason = (text: string): boolean => UNCONFIRMED
  */
 export function isUnconfirmedFailure(
   row: Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'> &
-    Partial<Pick<ITransaction, 'extraInputs'>>
+    Partial<Pick<ITransaction, 'extraInputs' | 'neverCommittedAt'>>
 ): boolean {
   if (row.status !== ITransactionStatus.Failed) return false;
+  // A row the node proved never committed still carries its mayHaveSubmitted, and would otherwise read Not confirmed
+  // beside "It is safe to retry" (#1081).
+  if (row.neverCommittedAt !== undefined) return false;
   // A vault shortfall is provable straight from the error, so it stays a definite failure.
   if (isVaultShortfallRow(row)) return false;
   // Same reasoning for a bridge its own route evidence proves the allocator or fill rejected.
@@ -168,12 +180,65 @@ export function isUnconfirmedFailure(
 }
 
 /**
+ * Not confirmed, by the one rule History, the detail page and the in-progress page share (#1081): an Unconfirmed row,
+ * a #1250 row (`isUnconfirmedFailure`), or a Failed eligible row, not proven safe and not a definite failure, holding
+ * an entry neither proven dead nor retired before its submit: an earlier attempt may have crossed after a later one
+ * failed before its own. An ineligible row's entries are inert, so it keeps today's label, and the rotation gate,
+ * which stays on `isUnconfirmedFailure`, agrees with History.
+ */
+export function isOutcomeUnconfirmed(
+  row: Pick<ITransaction, 'type' | 'status' | 'error' | 'rawError' | 'mayHaveSubmitted' | 'processingStartedAt'> &
+    Partial<
+      Pick<
+        ITransaction,
+        'extraInputs' | 'neverCommittedAt' | 'submitEvidence' | 'restoredFromBackup' | 'rotationFunding'
+      >
+    >
+): boolean {
+  if (row.status === ITransactionStatus.Unconfirmed) return true;
+  if (isUnconfirmedFailure(row)) return true;
+  if (row.status !== ITransactionStatus.Failed || row.neverCommittedAt !== undefined || !canAwaitVerdict(row))
+    return false;
+  if (isVaultShortfallRow(row) || isBridgeRouteFailedRow(row) || isNodeDiscardedRow(row)) return false;
+  return (row.submitEvidence ?? []).some(isUnresolvedEntry);
+}
+
+/**
  * Refusal reason for a Retry the wallet cannot prove is safe. Surfaced verbatim
  * by the two retry footers (they render `error.message`).
  */
 export const TRANSACTION_RETRY_UNSAFE_ERROR =
   'This transaction may already have been submitted, so it cannot be retried automatically. ' +
   'Check your activity once it syncs, and start a new one only if it never arrived.';
+
+/**
+ * The reason on a row the node proved can never commit (#1081), rendered verbatim by `TransactionFailureCard`. It joins
+ * neither reason set: the row keeps its earlier reason in `rawError`.
+ */
+export const TRANSACTION_NEVER_COMMITTED_ERROR =
+  'The network confirmed this transaction never went through, so nothing moved. It is safe to retry.';
+
+/** Retry waited out its 10 s for a reconciler pass on this row, or the evidence moved twice under it (#1081). */
+export const TRANSACTION_BEING_CHECKED_RETRY_ERROR =
+  'The wallet is checking this transaction right now. Try again in a moment.';
+
+/** Retry met a candidate the Guardian still holds for this row (#1081); `{time}` is when its hold clears. */
+export const GUARDIAN_HOLD_RETRY_ERROR =
+  'The Guardian is still holding this transaction. You can retry it after {time}.';
+
+/** The hold refusal, naming the local time at which `clearsAtSec` (unix seconds) falls. */
+export const guardianHoldRetryMessage = (clearsAtSec: number): string =>
+  GUARDIAN_HOLD_RETRY_ERROR.replace(
+    '{time}',
+    new Date(clearsAtSec * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  );
+
+/**
+ * Retry found a landing the deferral holds, a landed write that gave up, or a recorded landing it could not re-read
+ * (#1081): the row may already have landed, so it must not reach the acknowledgeable refusal.
+ */
+export const TRANSACTION_LANDING_PENDING_RETRY_ERROR =
+  'This transaction may already have gone through. The wallet is still checking, so do not retry it yet.';
 
 /**
  * A lock-recovery eviction (issue #775). Deliberately hedged: recovery ABANDONS
@@ -240,16 +305,23 @@ export function formatRawTransactionError(error: unknown): string {
   // whose only identifying detail lives one or two links down; without this a
   // guardian send failure reads as "uncaught realm error" and names neither the
   // call that trapped nor the reason.
-  const seen = new Set<unknown>();
   const parts: string[] = [];
-  let current: unknown = error;
-  while (current instanceof Error && !seen.has(current) && parts.length < 5) {
-    seen.add(current);
-    parts.push(`${current.name}: ${current.message}`);
-    current = (current as { cause?: unknown }).cause;
-  }
-  if (current !== undefined && !(current instanceof Error) && parts.length < 5) {
-    parts.push(String(current));
+  for (const link of causeChain(error)) {
+    if (parts.length >= 5) break;
+    let isError = false;
+    // Guarded like the walk: `name` and `message` can be accessors, and this runs on the failure path, where a throw
+    // loses the failure being recorded.
+    try {
+      if (link instanceof Error) {
+        isError = true;
+        parts.push(`${link.name}: ${link.message}`);
+      } else if (link !== undefined) {
+        parts.push(String(link));
+      }
+    } catch {
+      // An unreadable link costs its own text, not the links below it.
+    }
+    if (!isError) break;
   }
   return parts.join(' <- caused by ');
 }
@@ -344,8 +416,8 @@ export function isVaultShortfallError(raw: string): boolean {
  * the local-vault-view case is one a fresher sync genuinely resolves.
  */
 export const TRANSACTION_VAULT_SHORTFALL_ERROR =
-  'The transaction could not be completed because an asset it moves was not available in full — either the ' +
-  'amount sent, or the MIDEN for the network fee. Check your balances once the wallet has synced, then try again.';
+  'The transaction could not be completed because an asset it moves was not available in full - either the ' +
+  'amount sent, or the USDCX for the network fee. Check your balances once the wallet has synced, then try again.';
 
 /**
  * An everyday-key rotation that failed because the account could not pay its fee. A
@@ -403,7 +475,7 @@ export const ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR =
  * that is not a standard P2ID or P2IDE payment.
  */
 export const ROTATION_FUNDING_NON_NATIVE_ERROR =
-  'The wallet stopped this claim because it could not confirm that the transfer holds only MIDEN.';
+  'The wallet stopped this claim because it could not confirm that the transfer holds only USDCX.';
 
 /**
  * A consume the wallet refused before building anything. The message IS the row's text,
@@ -426,10 +498,18 @@ export const GUARDIAN_UNREACHABLE_ERROR =
  * The guardian, or the node the proposal stages also call, gave no usable answer, and the failure is none of the
  * readings the classifier ranks above an outage. A guardian 5xx can carry a deterministic kernel failure (a prover
  * procedure mismatch, the missing fee conversion info, a vault shortfall) that fails the same way on every retry, so
- * the requeue arm and the classifier both ask this rather than the transport verdict alone.
+ * the requeue arm and the classifier both ask this rather than the transport verdict alone. A killed pipeline anywhere
+ * in the cause chain is never an outage; otherwise a Guardian request timeout anywhere in the chain always is, ahead of
+ * the kernel-failure exclusions, because a cut-off request carries no answer and so no kernel failure.
  */
 export function isGuardianOutage(error: unknown): boolean {
   if (error instanceof RotationGateConsumeRefusal) return false;
+  // A killed pipeline stays a kill at any depth: a requeue would re-broadcast it and the copy would say it was not
+  // sent (#1313).
+  if (isKilledPipeline(error)) return false;
+  // The fetch boundary's cut-off is the Guardian not answering wherever a caller wrapped it, which the message check
+  // below cannot see.
+  if (isGuardianRequestTimeout(error)) return true;
   if (!isGuardianUnreachableError(error) || isProverProcedureMismatch(error)) return false;
   const raw = formatRawTransactionError(error);
   return !isFeeConversionInfoMissingError(raw) && !isVaultShortfallError(raw);
@@ -451,13 +531,18 @@ function classifyTransactionError(
   // `mayHaveSubmitted` for both — so leaving abort out put "No funds moved — please
   // try again" on the very row whose Retry then refuses with "may already have been
   // submitted". Two contradictory statements about the same money, from one error.
-  if (isWasmClientPoisonedError(error) || isOperationAbortedError(error)) {
+  // Both read the whole cause chain, so a kill a caller wrapped is still one (#1313).
+  if (isKilledPipeline(error)) {
     return abandonedPreWrite === true
       ? TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR
       : TRANSACTION_ENGINE_RECOVERED_ERROR;
   }
   if (error instanceof RotationGateConsumeRefusal) {
     return error.message;
+  }
+  // Ahead of the prover branches, which would read the stage it left as a failed prove: it stopped before its submit.
+  if (isSubmitCrossingUnrecorded(error)) {
+    return SUBMIT_CROSSING_UNRECORDED_ERROR;
   }
   // A deterministic native-prover procedure-set mismatch (version/artifact skew)
   // keeps its real cause instead of being flattened into a transient remote

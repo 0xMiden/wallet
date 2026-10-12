@@ -13,8 +13,9 @@ describe('getMidenNameConfig', () => {
   it('returns the testnet deployment', () => {
     expect(getMidenNameConfig(MIDEN_NETWORK_NAME.TESTNET)).toEqual({
       network: MIDEN_NETWORK_NAME.TESTNET,
-      registryAccountIdHex: '0xe8249fe7070657110980da14461d78',
-      paymentFaucetIdHex: '0x18101fa522c174b165efd4f70a0385'
+      registryAccountIdHex: '0x16fb70069eed60110c6207189c8237',
+      registryCreationBlock: 164837,
+      paymentFaucetIdHex: '0x4cbdcaffe75f0a317482224dae6436'
     });
   });
 
@@ -36,6 +37,6 @@ describe('getMidenNameConfig', () => {
   });
 
   it('exposes the register script root', () => {
-    expect(MIDEN_NAME_REGISTER_SCRIPT_ROOT).toBe('0x70cea6528f7ea6883f6597744b59e62bb45e02c052c149a91bcca2a37a552286');
+    expect(MIDEN_NAME_REGISTER_SCRIPT_ROOT).toBe('0x626b1ff576354c8c971f9da5198ea280d581488946bdc42db50013da5546bced');
   });
 });

@@ -8,7 +8,7 @@ jest.mock('./useVerificationBaseFee', () => ({
   default: jest.fn()
 }));
 
-jest.mock('app/hooks/useMidenFaucetId', () => ({
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({
   __esModule: true,
   default: () => 'native-faucet'
 }));

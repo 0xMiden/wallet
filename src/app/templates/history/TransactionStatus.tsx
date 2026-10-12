@@ -37,7 +37,7 @@ export const ExternalLinkValue: FC<{
  * swap did not. The history list already draws that distinction, so without this
  * the same order reads "Pending" in the list and "Confirmed" on its own receipt.
  *
- * `isUnconfirmed` (`isUnconfirmedFailure`) wins over everything else: a row whose
+ * `isUnconfirmed` (`isOutcomeUnconfirmed`) wins over everything else: a row whose
  * outcome the wallet cannot rule out is not confirmed-failed and not confirmed-cancelled,
  * so it is checked ahead of both.
  */
@@ -53,6 +53,7 @@ export const transactionStatusOf = ({
   swapSettlement?: 'pending' | 'reclaimed';
 }): Status => {
   if (isUnconfirmed) return 'unconfirmed';
+  if (status === ITransactionStatus.Unconfirmed) return 'unconfirmed';
   // A user cancellation is recorded as a failure (`cancel.ts`), so it is checked first.
   if (isCancelled) return 'cancelled';
   // A swap that failed never placed its order, so it has no settlement to

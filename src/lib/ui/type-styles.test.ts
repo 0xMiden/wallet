@@ -35,6 +35,7 @@ const EXPECTED: Record<(typeof TYPE_STYLES)[number], [string, string, string, st
   action: [HEADING, '14px', '20px', '700'],
   pill: [HEADING, '14px', '1', '700'],
   badge: [HEADING, '12px', '1', '700'],
+  tag: [HEADING, '11px', '1', '700'],
   body: [SANS, '16px', '24px', '400'],
   'body-strong': [SANS, '16px', '24px', '600'],
   explainer: [SANS, '15px', '22px', '400'],

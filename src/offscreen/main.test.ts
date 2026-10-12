@@ -40,6 +40,24 @@ export {};
 // `hasInitThreadPool` flag (set before each `await import`), and delegates
 // every call to jest.fns on the `__off` control object so per-test behaviour
 // (resolve / reject / return values) is fully controllable.
+
+jest.mock('lib/miden-chain/native-asset', () => ({
+  cacheScope: () => 'offscreen-rpc|devnet',
+  captureNativeAssetSnapshot: (scope: string) => ({ scope, revision: 0 }),
+  setNativeAssetPublisher: (publisher: (id: string, scope: string) => Promise<void>) => {
+    G.__off.nativePublisher = publisher;
+  },
+  recordSyncedFeeFaucetId: jest.fn(async (id: string, snapshot: { scope: string }, assertLive: () => void) => {
+    assertLive();
+    try {
+      await G.__off.nativePublisher(id, snapshot.scope);
+    } catch {
+      return false;
+    }
+    assertLive();
+    return true;
+  })
+}));
 jest.mock('@miden-sdk/miden-sdk/lazy', () => {
   const g = globalThis as any;
   const mod: any = {
@@ -330,7 +348,7 @@ function resetControl() {
     // Slice 6a: TransactionRequest.deserialize(trBytes) → a request handle the
     // guardianPipeline hands to executeRequest. Echo the bytes so the test can
     // assert the co-signed request crossed intact.
-    deserializeTxRequest: jest.fn((b: Uint8Array) => ({ __trFromBytes: Array.from(b) })),
+    deserializeTxRequest: jest.fn((b: Uint8Array) => ({ __trFromBytes: Array.from(b), authArg: () => undefined })),
     // Slice 7b: Note.deserialize(noteBytes) → a live-Note handle the sendPrivateNote
     // DISPATCH hands to the client. Echo the bytes so the test can assert the note
     // crossed intact.
@@ -496,7 +514,7 @@ function resetControl() {
     listBuilds: [] as number[],
     getMidenClient: jest.fn(async () => {
       const build = ++(globalThis as any).__off.clientBuilds;
-      return {
+      const instance = {
         __build: build,
         get isDisposed() {
           const off = (globalThis as any).__off;
@@ -504,7 +522,17 @@ function resetControl() {
         },
         markPoisoned: (...a: any[]) => (globalThis as any).__off.clientMarkPoisoned(...a),
         getAccount: (...a: any[]) => (globalThis as any).__off.clientGetAccount(...a),
-        syncState: (...a: any[]) => (globalThis as any).__off.clientSyncState(...a),
+        syncState: async (...a: any[]) => {
+          const sync = (globalThis as any).__off.clientSyncState;
+          const { syncAndRecordFeeFaucet } = jest.requireActual('lib/miden/sdk/sync-and-record-fee-faucet');
+          const summary = await syncAndRecordFeeFaucet(
+            instance.client,
+            () => sync(...a),
+            typeof a[0] === 'function' ? a[0] : () => {}
+          );
+          if (typeof summary?.blockNum === 'function') return summary;
+          return { ...summary, blockNum: () => 5000 };
+        },
         waitForTransactionCommit: (...a: any[]) => (globalThis as any).__off.clientWaitForTransactionCommit(...a),
         exportNote: (...a: any[]) => (globalThis as any).__off.clientExportNote(...a),
         getInputNoteDetails: (...a: any[]) => (globalThis as any).__off.clientGetInputNoteDetails(...a),
@@ -528,6 +556,7 @@ function resetControl() {
         // The raw client the guardian leaf pipeline + slice-7a sync-height/lineage
         // reads drive directly.
         client: {
+          feeFaucetId: jest.fn(async () => ({ toString: () => '0x817edea77acc5d71616e493afecea3' })),
           transactions: {
             executeRequest: (...a: any[]) => (globalThis as any).__off.guardianExecuteRequest(...a),
             submitProven: (proof: unknown, result: unknown) => G.__off.guardianSubmitProven(proof, result),
@@ -548,6 +577,10 @@ function resetControl() {
           }
         }
       };
+      jest
+        .requireActual('lib/miden/sdk/sync-and-record-fee-faucet')
+        .bindFeeFaucetClientScope(instance.client, 'offscreen-rpc|devnet');
+      return instance;
     })
   };
 }
@@ -1407,6 +1440,26 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.resultB64).toBeNull();
   });
 
+  it.each(['RuntimeError', 'WasmClientPoisonedError'])(
+    'commit-wait stops before listing transactions after a direct syncChain %s',
+    async errorName => {
+      await loadModule();
+      const { WasmClientPoisonedError } = jest.requireActual('lib/miden/sdk/wasm-client-poison');
+      const error =
+        errorName === 'RuntimeError'
+          ? new WebAssembly.RuntimeError('sync trapped')
+          : new WasmClientPoisonedError('watchdog');
+      G.__off.clientSyncChain.mockRejectedValueOnce(error);
+      const reply = jest.fn();
+      capturedListener!(callReq({ method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }), {}, reply);
+      await flush();
+      expect(reply).toHaveBeenCalledTimes(1);
+      expect(reply.mock.calls[0]?.[0]).toMatchObject({ ok: false, errorName });
+      expect(G.__off.clientSyncChain).toHaveBeenCalledTimes(1);
+      expect(G.__off.clientTransactionsList).not.toHaveBeenCalled();
+    }
+  );
+
   it('commit-wait keeps polling while pending, then resolves once the tx commits (follow-up #1)', async () => {
     await loadModule();
     jest.useFakeTimers();
@@ -2207,7 +2260,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     await flush();
 
     // Fresh → sync().blockNum(), never the cached getSyncHeight.
-    expect(G.__off.clientSync).toHaveBeenCalledTimes(1);
+    expect(G.__off.clientSyncState).toHaveBeenCalledTimes(1);
     expect(G.__off.clientGetSyncHeight).not.toHaveBeenCalled();
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
@@ -2225,7 +2278,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     const parkedSync = new Promise<void>(resolve => {
       releaseSync = resolve;
     });
-    G.__off.clientSync = jest.fn(async () => {
+    G.__off.clientSyncState = jest.fn(async () => {
       await parkedSync;
       return { blockNum: blockNumSpy };
     });
@@ -2692,47 +2745,19 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 
-  it('dispatches sendPrivateNote → re-hydrates the note from bytes and relays it on THIS client (void result)', async () => {
+  // Both relays run on the SW client (`midenClientProxy`), so this realm no longer answers them.
+  it.each([
+    ['sendPrivateNote', [encodeArg(new Uint8Array([0xde, 0xad])), encodeArg('mtst1qrecipient')]],
+    ['relayPrivateNoteById', [encodeArg('0xnote'), encodeArg('mtst1qrecipient')]]
+  ])('answers %s as an unknown method, relaying nothing', async (method, argsB64) => {
     await loadModule();
     const sendResponse = jest.fn();
-    const noteBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
-    capturedListener!(
-      callReq({ method: 'sendPrivateNote', argsB64: [encodeArg(noteBytes), encodeArg('mtst1qrecipient')] }),
-      {},
-      sendResponse
-    );
+    capturedListener!(callReq({ method, argsB64 }), {}, sendResponse);
     await flush();
 
-    // The raw note bytes crossed intact and were re-hydrated via Note.deserialize...
-    expect(G.__off.deserializeNote).toHaveBeenCalledTimes(1);
-    expect(Array.from(G.__off.deserializeNote.mock.calls[0][0])).toEqual([0xde, 0xad, 0xbe, 0xef]);
-    // ...then relayed on THIS (offscreen) client with the re-hydrated note + recipient.
-    expect(G.__off.clientSendPrivateNote).toHaveBeenCalledTimes(1);
-    expect(G.__off.clientSendPrivateNote.mock.calls[0][0]).toEqual({ __noteFromBytes: [0xde, 0xad, 0xbe, 0xef] });
-    expect(G.__off.clientSendPrivateNote.mock.calls[0][1]).toBe('mtst1qrecipient');
-    const resp = sendResponse.mock.calls[0][0];
-    expect(resp.ok).toBe(true);
-    // A relay — nothing to serialize back.
-    expect(resp.resultB64).toBeNull();
-  });
-
-  it('dispatches relayPrivateNoteById → re-pushes on THIS client with no note bytes to re-hydrate', async () => {
-    await loadModule();
-    const sendResponse = jest.fn();
-    capturedListener!(
-      callReq({ method: 'relayPrivateNoteById', argsB64: [encodeArg('0xnote'), encodeArg('mtst1qrecipient')] }),
-      {},
-      sendResponse
-    );
-    await flush();
-
-    // The sweep runs long after the sending session, so it carries ids only — the
-    // note is resolved from THIS realm's store, which is where it was applied.
-    expect(G.__off.deserializeNote).not.toHaveBeenCalled();
-    expect(G.__off.clientRelayPrivateNoteById).toHaveBeenCalledWith('0xnote', 'mtst1qrecipient');
-    const resp = sendResponse.mock.calls[0][0];
-    expect(resp.ok).toBe(true);
-    expect(resp.resultB64).toBeNull();
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorCode: 'UNKNOWN_METHOD' });
+    expect(G.__off.clientSendPrivateNote).not.toHaveBeenCalled();
+    expect(G.__off.clientRelayPrivateNoteById).not.toHaveBeenCalled();
   });
 
   it('dispatches isOutputNoteConsumed → returns the receipt as bytes', async () => {
@@ -2801,13 +2826,18 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   it('dispatches consumeNoteId (whole-op write) and serializes the TransactionResult (slice 5a)', async () => {
     await loadModule();
     const sendResponse = jest.fn();
-    const dto = { accountId: 'mtst1qacc', noteId: '0xn1', noteIds: ['0xn1', '0xn2'], delegateTransaction: false };
+    const dto = {
+      accountId: 'mtst1qacc',
+      noteId: '0xn1',
+      noteIds: ['0xn1', '0xn2'],
+      delegateTransaction: false
+    };
     const ret = capturedListener!(callReq({ method: 'consumeNoteId', argsB64: [encodeArg(dto)] }), {}, sendResponse);
     expect(ret).toBe(true);
     await flush();
 
     // The plain consume DTO decoded across the wire and drove the offscreen client.
-    expect(G.__off.clientConsumeNoteId).toHaveBeenCalledWith(dto);
+    expect(G.__off.clientConsumeNoteId).toHaveBeenCalledWith(dto, expect.any(Function));
     const resp = sendResponse.mock.calls[0][0];
     expect(resp.ok).toBe(true);
     expect(resp.op_id).toBe('op-abc');
@@ -2834,6 +2864,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     // The DTO decoded across the wire; the string amount was re-widened to a BigInt
     // so the reconstructed row matches what the SDK reads on the SW-inline path.
     expect(G.__off.clientSendTransaction).toHaveBeenCalledTimes(1);
+    expect(G.__off.clientSendTransaction).toHaveBeenCalledWith(expect.anything(), expect.any(Function));
     const receivedTx = G.__off.clientSendTransaction.mock.calls[0][0];
     expect(typeof receivedTx.amount).toBe('bigint');
     expect(receivedTx.amount).toBe(1000n);
@@ -2944,6 +2975,69 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(Array.from(Buffer.from(sendResponse.mock.calls[0][0].resultB64, 'base64'))).toEqual([11, 22, 33]);
   });
 
+  // #1081: each write's 'submitting' stamp carries the evidence its leaf read, so the service worker can record what
+  // the attempt was.
+  it.each<[string, string[]]>([
+    ['consumeNoteId', [encodeArg({ accountId: 'mtst1qacc', noteId: '0xn1', noteIds: ['0xn1'] })]],
+    [
+      'sendTransaction',
+      [
+        encodeArg({
+          accountId: 'mtst1qacc',
+          secondaryAccountId: 'mtst1qrecipient',
+          faucetId: 'mtst1qfaucet',
+          noteType: 'public',
+          amount: '1',
+          extraInputs: {}
+        })
+      ]
+    ],
+    [
+      'swapTransaction',
+      [
+        encodeArg({
+          accountId: 'mtst1qacc',
+          faucetId: 'mtst1qoffered',
+          amount: '1',
+          extraInputs: { requestedFaucetId: 'mtst1qrequested', requestedAmount: '2' }
+        })
+      ]
+    ],
+    ['newTransaction', [encodeArg('mtst1qacc'), encodeArg(new Uint8Array([1])), encodeArg(true)]]
+  ])('%s posts its submitting stamp with the evidence the leaf read (#1081)', async (method, argsB64) => {
+    await loadModule();
+    const posted: any[] = [];
+    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+      posted.push(m);
+      return undefined;
+    });
+    const leaf = jest.fn(async (...args: unknown[]) => {
+      const onStage = args[args.length - 1];
+      if (typeof onStage === 'function') await onStage('submitting', { evidence: { refBlock: 9 } });
+      return { serialize: () => new Uint8Array([1]) };
+    });
+    const leaves: Record<string, string> = {
+      consumeNoteId: 'clientConsumeNoteId',
+      sendTransaction: 'clientSendTransaction',
+      swapTransaction: 'clientSwapTransaction',
+      newTransaction: 'clientNewTransaction'
+    };
+    G.__off[leaves[method]!] = leaf;
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ op_id: 'op-evidence', method, argsB64 }), {}, sendResponse);
+    await flush();
+
+    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+    expect(posted).toContainEqual(
+      expect.objectContaining({
+        type: 'OFFSCREEN_STAGE_EVENT',
+        op_id: 'op-evidence',
+        stage: 'submitting',
+        evidence: { refBlock: 9 }
+      })
+    );
+  });
+
   it('a stage-event post failure NEVER reaches the write (rejects and synchronous throws are both swallowed)', async () => {
     await loadModule();
     // Model both failure modes on the SAME channel the OP_STARTED signal uses: a
@@ -2993,6 +3087,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     await flush();
 
     expect(G.__off.clientSwapTransaction).toHaveBeenCalledTimes(1);
+    expect(G.__off.clientSwapTransaction).toHaveBeenCalledWith(expect.anything(), expect.any(Function));
     const receivedTx = G.__off.clientSwapTransaction.mock.calls[0][0];
     // Offered amount AND requested amount both re-widened to BigInt.
     expect(receivedTx.amount).toBe(500n);
@@ -3003,6 +3098,81 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp.ok).toBe(true);
     expect(Array.from(Buffer.from(resp.resultB64, 'base64'))).toEqual([44, 55, 66, 77]);
   });
+
+  it.each(['sendTransaction', 'swapTransaction', 'consumeNoteId', 'newTransaction'])(
+    '%s: a result that cannot serialize after the submit replies untagged (#1081)',
+    async method => {
+      await loadModule();
+      const unserializable = {
+        serialize: () => {
+          throw new Error('serialize failed');
+        }
+      };
+      G.__off.clientSendTransaction = jest.fn(async () => unserializable);
+      G.__off.clientSwapTransaction = jest.fn(async () => unserializable);
+      G.__off.clientConsumeNoteId = jest.fn(async () => unserializable);
+      G.__off.clientNewTransaction = jest.fn(async () => unserializable);
+      const sendResponse = jest.fn();
+      const args: Record<string, unknown[]> = {
+        sendTransaction: [
+          {
+            accountId: 'a',
+            secondaryAccountId: 'b',
+            faucetId: 'f',
+            noteType: 'public',
+            amount: '1',
+            extraInputs: {}
+          }
+        ],
+        swapTransaction: [
+          {
+            accountId: 'a',
+            faucetId: 'f',
+            amount: '1',
+            extraInputs: { requestedFaucetId: 'g', requestedAmount: '2' }
+          }
+        ],
+        consumeNoteId: [{ accountId: 'a', noteId: 'n', noteIds: ['n'] }],
+        newTransaction: ['a', new Uint8Array([1]), false]
+      };
+      capturedListener!(callReq({ method, argsB64: args[method]!.map(encodeArg) }), {}, sendResponse);
+      await flush();
+      expect(sendResponse.mock.calls[0][0].ok).toBe(false);
+      expect(sendResponse.mock.calls[0][0].errorBeforeSubmit).toBeUndefined();
+    }
+  );
+
+  it.each(['sendTransaction', 'swapTransaction'])(
+    '%s: an amount that cannot decode replies tagged, before the leaf runs (#1081)',
+    async method => {
+      await loadModule();
+      const sendResponse = jest.fn();
+      const dtos: Record<string, object> = {
+        sendTransaction: {
+          accountId: 'a',
+          secondaryAccountId: 'b',
+          faucetId: 'f',
+          noteType: 'public',
+          amount: 'not-a-number',
+          extraInputs: {}
+        },
+        swapTransaction: {
+          accountId: 'a',
+          faucetId: 'f',
+          amount: '1',
+          extraInputs: { requestedFaucetId: 'g', requestedAmount: 'not-a-number' }
+        }
+      };
+      capturedListener!(callReq({ method, argsB64: [encodeArg(dtos[method])] }), {}, sendResponse);
+      await flush();
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorBeforeSubmit: true });
+      const leaves: Record<string, jest.Mock> = {
+        sendTransaction: G.__off.clientSendTransaction,
+        swapTransaction: G.__off.clientSwapTransaction
+      };
+      expect(leaves[method]).not.toHaveBeenCalled();
+    }
+  );
 
   it('dispatches newTransaction (execute) with positional args — requestBytes as raw bytes — and serializes the result (slice 5b)', async () => {
     await loadModule();
@@ -3116,7 +3286,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
     const sendResponse = jest.fn();
     capturedListener!(
-      callReq({ method: 'consumeNoteId', argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'] })] }),
+      callReq({
+        method: 'consumeNoteId',
+        argsB64: [encodeArg({ accountId: 'a', noteId: 'n', noteIds: ['n'] })]
+      }),
       {},
       sendResponse
     );
@@ -3160,6 +3333,39 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(G.__off.getMidenClient).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    [
+      'the client build',
+      () => {
+        G.__off.getMidenClient = jest.fn(async () => {
+          throw new Error('genesis fetch failed');
+        });
+      },
+      [encodeArg('a'), encodeArg(new Uint8Array([1])), encodeArg(false)],
+      'genesis fetch failed'
+    ],
+    [
+      'init',
+      () => {
+        G.__off.getWasmOrThrow = jest.fn(async () => {
+          throw new Error('wasm load failed');
+        });
+      },
+      [encodeArg('a'), encodeArg(new Uint8Array([1])), encodeArg(false)],
+      'wasm load failed'
+    ],
+    ['the argument decode', () => {}, ['x:not-an-encoded-argument'], 'unrecognized argument tag']
+  ])('a failure in %s, before any leaf runs, replies tagged (#1081)', async (_step, arrange, argsB64, reason) => {
+    arrange();
+    await loadModule();
+    const sendResponse = jest.fn();
+    capturedListener!(callReq({ method: 'newTransaction', argsB64 }), {}, sendResponse);
+    await flush();
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorBeforeSubmit: true });
+    expect(sendResponse.mock.calls[0][0].error).toContain(reason);
+    expect(G.__off.clientNewTransaction).not.toHaveBeenCalled();
+  });
+
   // ─── Slice 6a: guardianPipeline (the guardian write LEAF pipeline) ──────────
   it('guardianPipeline: deserializes the co-signed request, proves in the prove worker, submits the proof and applies', async () => {
     await loadModule();
@@ -3185,7 +3391,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(G.__off.guardianExecuteRequest).toHaveBeenCalledTimes(1);
     const [acct, tr] = G.__off.guardianExecuteRequest.mock.calls[0];
     expect(acct).toBe('mtst1qguardian');
-    expect(tr).toEqual({ __trFromBytes: [1, 2, 3, 4] });
+    expect(tr).toEqual(expect.objectContaining({ __trFromBytes: [1, 2, 3, 4] }));
     // Non-delegated: prewarmed at entry, proved once in the worker from the exact
     // serialized result, and never proved on this document's thread (#945).
     expect(mockProveTransport.prewarm).toHaveBeenCalledTimes(1);
@@ -3398,150 +3604,96 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     });
   });
 
-  // #784: the co-signatures in the crossed request were bound to a summary that
-  // pins the proposal's reference block, so this realm must execute AT that
-  // block. The anchor crossed in wire form (base64 → string arg); it is decoded
-  // here — a WASM ChainAnchor cannot cross the message boundary — pinned into
-  // executeRequest's options, and freed once execution is done with it.
-  it('guardianPipeline: decodes the crossed chain anchor in-realm, pins executeRequest to it, and frees it (#784)', async () => {
-    await loadModule();
-    const anchor = { __anchor: true, free: jest.fn() };
-    G.__off.deserializeChainAnchor.mockReturnValue(anchor);
-    const sendResponse = jest.fn();
+  const boundTipRequest = (blockNumbers = [42]) => ({
+    authArg: () => ({ toHex: () => '0xauth' }),
+    adviceMap: () => ({ get: () => Array.from({ length: 12 }, (_, i) => ({ asInt: () => (i === 0 ? 42n : 0n) })) }),
+    blockNumbers: () => blockNumbers
+  });
+
+  const callTipPipeline = () => {
+    const response = jest.fn();
     capturedListener!(
       callReq({
         method: 'guardianPipeline',
-        // 'BwcH' = base64 of [7, 7, 7]: the anchor bytes the decode must consume.
         argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), encodeArg('BwcH')]
       }),
       {},
-      sendResponse
+      response
     );
-    await flush();
+    return response;
+  };
 
-    expect(G.__off.deserializeChainAnchor).toHaveBeenCalledTimes(1);
-    expect(Array.from(G.__off.deserializeChainAnchor.mock.calls[0][0])).toEqual([7, 7, 7]);
-    const [acct, , opts] = G.__off.guardianExecuteRequest.mock.calls[0];
-    expect(acct).toBe('acc');
-    expect(opts).toEqual({ anchor });
-    expect(anchor.free).toHaveBeenCalledTimes(1);
-    // ORDER, not just occurrence. `executeRequest` BORROWS the anchor — the
-    // generated glue reads `anchor.__wbg_ptr` synchronously as it is invoked —
-    // so a free that ran first would hand rust a null pointer on every anchored
-    // guardian write, and `_assertClass` would not catch it because a freed
-    // instance still passes. "free was called once" holds just as well for that
-    // use-after-free, which is why the ordering is asserted explicitly.
-    const executeOrder = G.__off.guardianExecuteRequest.mock.invocationCallOrder[0] ?? 0;
-    const freeOrder = anchor.free.mock.invocationCallOrder[0] ?? 0;
-    expect(executeOrder).toBeGreaterThan(0);
-    expect(freeOrder).toBeGreaterThan(executeOrder);
-    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
-  });
-
-  // The anchor slot is ALWAYS on the wire — `dispatchGuardianPipeline` packs a
-  // fixed 4-element array — and `encodeArg` maps an absent anchor to JSON
-  // `null`, not `undefined`. So this sends `encodeArg(undefined)` rather than a
-  // short 3-arg array: the dispatch must see `null` and still take the
-  // unanchored branch. A guard tightened to `!== undefined` would pass a
-  // 3-arg test and then feed `null` to the decoder on every unanchored write.
-  it('guardianPipeline: executes unanchored when the crossed chain anchor is the wire NULL (#784)', async () => {
+  it('guardianPipeline: syncs the tip and executes without the historical crossed anchor', async () => {
     await loadModule();
-    const sendResponse = jest.fn();
-    const anchorSlot = encodeArg(undefined);
-    expect(anchorSlot).toBe('s:null');
-    capturedListener!(
-      callReq({
-        method: 'guardianPipeline',
-        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), anchorSlot]
-      }),
-      {},
-      sendResponse
-    );
+    const request = boundTipRequest();
+    G.__off.deserializeTxRequest.mockReturnValue(request);
+    const response = callTipPipeline();
     await flush();
 
+    expect(response.mock.calls[0][0].ok).toBe(true);
+    expect(G.__off.guardianExecuteRequest).toHaveBeenCalledWith('acc', request);
     expect(G.__off.deserializeChainAnchor).not.toHaveBeenCalled();
-    expect(G.__off.guardianExecuteRequest.mock.calls[0][2]).toBeUndefined();
-    expect(sendResponse.mock.calls[0][0].ok).toBe(true);
+    const syncOrder = G.__off.clientSyncChain.mock.invocationCallOrder[0];
+    const heightOrder = G.__off.clientGetSyncHeight.mock.invocationCallOrder[0];
+    const executeOrder = G.__off.guardianExecuteRequest.mock.invocationCallOrder[0];
+    expect(syncOrder).toBeLessThan(heightOrder);
+    expect(heightOrder).toBeLessThan(executeOrder);
   });
 
-  // The `free()` lives in a `finally` precisely so a failed execute still
-  // releases the anchor's partial blockchain. Without this the free could be
-  // moved after the `await` and every test would stay green.
-  it('guardianPipeline: frees the decoded chain anchor even when executeRequest throws (#784)', async () => {
+  it('guardianPipeline: refuses an undeclared bound block before syncing or executing', async () => {
     await loadModule();
-    const anchor = { __anchor: true, free: jest.fn() };
-    G.__off.deserializeChainAnchor.mockReturnValue(anchor);
-    G.__off.guardianExecuteRequest.mockRejectedValueOnce(new Error('execution failed: unauthorized'));
-    const sendResponse = jest.fn();
-    capturedListener!(
-      callReq({
-        method: 'guardianPipeline',
-        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), encodeArg('BwcH')]
-      }),
-      {},
-      sendResponse
-    );
+    G.__off.deserializeTxRequest.mockReturnValue(boundTipRequest([]));
+    const response = callTipPipeline();
     await flush();
 
-    expect(anchor.free).toHaveBeenCalledTimes(1);
-    // ...and the executor's own reason still reaches the SW, not a free() error.
-    expect(sendResponse.mock.calls[0][0].ok).toBe(false);
-    expect(sendResponse.mock.calls[0][0].error).toContain('unauthorized');
-  });
-
-  // A throwing `free()` must never replace the in-flight execute failure: the
-  // executor's reason is the whole diagnostic value of a guardian failure, and
-  // a disposed/poisoned module is exactly when both happen at once (#775).
-  it('guardianPipeline: a failing anchor free never masks the executeRequest error (#784)', async () => {
-    await loadModule();
-    const anchor = {
-      __anchor: true,
-      free: jest.fn(() => {
-        throw new Error('null pointer passed to rust');
-      })
-    };
-    G.__off.deserializeChainAnchor.mockReturnValue(anchor);
-    G.__off.guardianExecuteRequest.mockRejectedValueOnce(new Error('execution failed: unauthorized'));
-    const sendResponse = jest.fn();
-    capturedListener!(
-      callReq({
-        method: 'guardianPipeline',
-        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), encodeArg('BwcH')]
-      }),
-      {},
-      sendResponse
-    );
-    await flush();
-
-    expect(anchor.free).toHaveBeenCalledTimes(1);
-    expect(sendResponse.mock.calls[0][0].ok).toBe(false);
-    expect(sendResponse.mock.calls[0][0].error).toContain('unauthorized');
-    expect(sendResponse.mock.calls[0][0].error).not.toContain('null pointer');
-  });
-
-  // A skewed or truncated anchor fails in `deserialize`, BEFORE execution. That
-  // must surface as an ordinary failed call — never a silent unanchored execute
-  // and never a wedged realm holding the client lock.
-  it('guardianPipeline: a malformed chain anchor fails the call without executing (#784)', async () => {
-    await loadModule();
-    G.__off.deserializeChainAnchor.mockImplementation(() => {
-      throw new Error('ChainAnchor deserialization failed');
-    });
-    const sendResponse = jest.fn();
-    capturedListener!(
-      callReq({
-        method: 'guardianPipeline',
-        argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), encodeArg('BwcH')]
-      }),
-      {},
-      sendResponse
-    );
-    await flush();
-
+    expect(response.mock.calls[0][0]).toMatchObject({ ok: false, errorName: 'BoundBlockNotDeclaredError' });
+    expect(G.__off.clientSyncChain).not.toHaveBeenCalled();
     expect(G.__off.guardianExecuteRequest).not.toHaveBeenCalled();
-    expect(sendResponse.mock.calls[0][0].ok).toBe(false);
-    expect(sendResponse.mock.calls[0][0].error).toContain('ChainAnchor deserialization failed');
   });
+
+  it('guardianPipeline: refuses execution when the synced node is below the bound block', async () => {
+    await loadModule();
+    G.__off.deserializeTxRequest.mockReturnValue(boundTipRequest());
+    G.__off.clientGetSyncHeight.mockResolvedValue(41);
+    const response = callTipPipeline();
+    await flush();
+
+    expect(response.mock.calls[0][0]).toMatchObject({ ok: false, errorName: 'ChainBehindBoundBlockError' });
+    expect(G.__off.clientSyncChain).toHaveBeenCalledTimes(1);
+    expect(G.__off.guardianExecuteRequest).not.toHaveBeenCalled();
+    expect(G.__off.guardianSubmitted).toBe(false);
+  });
+
+  it.each([
+    { parkedMethod: 'clientSyncChain', expectedHeightReads: 0 },
+    { parkedMethod: 'clientGetSyncHeight', expectedHeightReads: 1 }
+  ])(
+    'guardianPipeline: eviction during $parkedMethod blocks the next WASM call',
+    async ({ parkedMethod, expectedHeightReads }) => {
+      await loadModule();
+      G.__off.deserializeTxRequest.mockReturnValue(boundTipRequest());
+      const miden: any = await import('lib/miden/sdk/miden-client');
+      let resume!: (value: number) => void;
+      G.__off[parkedMethod].mockImplementationOnce(
+        () =>
+          new Promise<number>(resolve => {
+            resume = resolve;
+          })
+      );
+      const response = callTipPipeline();
+      await flush();
+      expect(G.__off[parkedMethod]).toHaveBeenCalledTimes(1);
+
+      miden.__evictHolder();
+      resume(100);
+      await flush();
+
+      expect(response.mock.calls[0][0].ok).toBe(false);
+      expect(G.__off.clientGetSyncHeight).toHaveBeenCalledTimes(expectedHeightReads);
+      expect(G.__off.guardianExecuteRequest).not.toHaveBeenCalled();
+      expect(G.__off.guardianSubmitted).toBe(false);
+    }
+  );
 
   it('guardianPipeline (delegated): proves with an EXPLICIT remote prover under the bounded wait, never a local prover, then submits/applies', async () => {
     await loadModule();
@@ -3830,6 +3982,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(resp).toMatchObject({ ok: false, error: 'node refused the proven transaction' });
     expect(resp.errorCode).toBeUndefined();
     expect(resp.errorName).toBeUndefined();
+    expect(resp.errorBeforeSubmit).toBeUndefined();
   });
 
   it('guardianPipeline: an apply error that cannot be stringified still replies with the apply-after-submit code (#1233)', async () => {
@@ -3878,6 +4031,37 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       {},
       sendResponse
     );
+
+  it('guardianPipeline: a failure before the submit call replies tagged (#1081)', async () => {
+    await loadModule();
+    G.__off.guardianExecuteRequest = jest.fn(async () => {
+      throw new Error('transaction execution failed: transaction is unauthorized');
+    });
+    const sendResponse = jest.fn();
+    callGuardianPipeline(sendResponse);
+    await waitForReply(sendResponse);
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorBeforeSubmit: true });
+  });
+
+  it('guardianPipeline: the submitting stamp carries the evidence read before submit (#1081)', async () => {
+    await loadModule();
+    const posted: any[] = [];
+    G.chrome.runtime.sendMessage = jest.fn(async (m: any) => {
+      posted.push(m);
+      return undefined;
+    });
+    G.__off.guardianExecuteRequest = jest.fn(async () => ({
+      result: retryableResult(),
+      id: { toHex: () => '0xlanded' },
+      prove: jest.fn()
+    }));
+    G.__off.guardianSubmitProven = jest.fn(async () => ({ apply: jest.fn(async () => {}) }));
+    const sendResponse = jest.fn();
+    callGuardianPipeline(sendResponse);
+    await waitForReply(sendResponse);
+    const submitting = posted.find(m => m?.type === 'OFFSCREEN_STAGE_EVENT' && m.stage === 'submitting');
+    expect(submitting.evidence).toMatchObject({ transactionId: '0xlanded', initialCommitment: '0xinitial' });
+  });
 
   it('guardianPipeline: an apply that fails once and then lands replies ok (#1233)', async () => {
     await loadModule();
@@ -4955,17 +5139,10 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
     });
   });
 
-  // #784: the anchor decode gets its own marker BEFORE the call, which is the only
-  // arrangement that carries information — a decode that throws must leave that
-  // marker as the realm's LAST word, naming the step the write stopped on. Emitted
-  // after the deserialize instead, it would be missing from exactly the failure it
-  // exists to describe, and every other assertion here would still pass.
-  it('names the anchor decode as the last marker when the decode is what failed (#784)', async () => {
+  it('names tip preparation as the last pipeline marker when the chain sync fails', async () => {
     await withE2EFlag('true', async () => {
       await loadModule();
-      G.__off.deserializeChainAnchor.mockImplementation(() => {
-        throw new Error('ChainAnchor deserialization failed');
-      });
+      G.__off.clientSyncChain.mockRejectedValueOnce(new Error('tip sync failed'));
       const posted = capturePosts();
       capturedListener!(
         callReq({
@@ -4977,53 +5154,15 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
       );
       await flush();
 
-      // The envelope keeps narrating its own teardown after the throw, so read the
-      // PIPELINE's markers only (`] guardianPipeline …`, as opposed to the
-      // envelope's `call 'guardianPipeline' …`): the decode has to be its last word.
       const pipelineLines = markerLines(posted).filter(l => l.includes('] guardianPipeline '));
-      expect(pipelineLines[pipelineLines.length - 1]).toContain('guardianPipeline decoding chain anchor');
-      // The execute marker is the one that must NOT appear: nothing executed.
+      expect(pipelineLines[pipelineLines.length - 1]).toContain('guardianPipeline preparing current tip');
       expect(pipelineLines.some(l => l.includes('guardianPipeline calling executeRequest'))).toBe(false);
     });
   });
 
-  // The marker is anchor-conditional, so an unanchored write must not claim to
-  // have decoded anything — a decode line on a write with no anchor would send
-  // a hang investigation to a step that never ran.
-  it('records no anchor-decode marker on an unanchored guardian write (#784)', async () => {
+  it('records tip execution without decoding a historical anchor', async () => {
     await withE2EFlag('true', async () => {
       await loadModule();
-      const posted = capturePosts();
-      capturedListener!(
-        callReq({
-          method: 'guardianPipeline',
-          argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), encodeArg(undefined)]
-        }),
-        {},
-        jest.fn()
-      );
-      await flush();
-
-      const lines = markerLines(posted);
-      expect(lines.some(l => l.includes('guardianPipeline decoding chain anchor'))).toBe(false);
-      expect(lines.some(l => l.includes('guardianPipeline calling executeRequest anchored=no'))).toBe(true);
-    });
-  });
-
-  // `freeChainAnchor`'s second argument is the whole reason it takes one: a
-  // hidden document's `console` is the one channel the harness cannot attach
-  // to, so offscreen a failed free is invisible unless it also reaches THIS
-  // trail. Asserted at the call site, not just on the helper — the argument can
-  // be dropped without breaking a single other test.
-  it('reports a failed anchor free onto the realm marker trail (#784)', async () => {
-    await withE2EFlag('true', async () => {
-      await loadModule();
-      G.__off.deserializeChainAnchor.mockReturnValue({
-        __anchor: true,
-        free: jest.fn(() => {
-          throw new Error('null pointer passed to rust');
-        })
-      });
       const posted = capturePosts();
       capturedListener!(
         callReq({
@@ -5035,11 +5174,10 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
       );
       await flush();
 
-      // Read through the SAME `] guardianPipeline ` filter the rest of this
-      // realm's assertions use: a failure marker the documented filter drops is
-      // a failure marker nobody reads.
-      const pipelineLines = markerLines(posted).filter(l => l.includes('] guardianPipeline '));
-      expect(pipelineLines.some(l => l.includes('chain anchor free failed'))).toBe(true);
+      expect(G.__off.deserializeChainAnchor).not.toHaveBeenCalled();
+      expect(markerLines(posted).some(l => l.includes('guardianPipeline calling executeRequest at current tip'))).toBe(
+        true
+      );
     });
   });
 
@@ -5123,4 +5261,83 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
       ).toBe(true);
     });
   });
+});
+
+describe('offscreen fee identity transport', () => {
+  it('bounds a parked identity IPC at 15 seconds and lets the next successful sync publish', async () => {
+    await loadModule();
+    jest.useFakeTimers();
+    try {
+      let messages = 0;
+      G.chrome.runtime.sendMessage.mockImplementation((message: { type?: string }) => {
+        if (message.type !== 'OFFSCREEN_NATIVE_ASSET_EVENT') return Promise.resolve(undefined);
+        messages++;
+        return messages === 1 ? new Promise(() => {}) : Promise.resolve({ ok: true });
+      });
+      const first = jest.fn();
+      const request = (op_id: string) => ({
+        target: 'offscreen',
+        type: 'OFFSCREEN_CALL',
+        op_id,
+        method: 'getSyncHeight',
+        argsB64: [encodeArg(true)],
+        deadlineMs: null
+      });
+      capturedListener!(request('parked-fee-ipc'), {}, first);
+      await jest.advanceTimersByTimeAsync(14_999);
+      expect(first).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1);
+      expect(first).toHaveBeenCalledTimes(1);
+      expect(first.mock.calls[0]?.[0]).toMatchObject({ ok: true });
+      expect(JSON.parse(atob(first.mock.calls[0]?.[0].resultB64))).toBe(5000);
+      expect(messages).toBe(1);
+      const second = jest.fn();
+      capturedListener!(request('recovered-fee-ipc'), {}, second);
+      await jest.advanceTimersByTimeAsync(0);
+      expect(second.mock.calls[0]?.[0]).toMatchObject({ ok: true });
+      expect(JSON.parse(atob(second.mock.calls[0]?.[0].resultB64))).toBe(5000);
+      expect(messages).toBe(2);
+      expect(G.__off.clientSyncState).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    }
+  });
+
+  it.each(['syncState', 'waitForTransactionCommit', 'getSyncHeight'])(
+    'publishes a scoped plain ID through runtime after %s without storage',
+    async method => {
+      await loadModule();
+      G.chrome.runtime.sendMessage.mockImplementation(async (message: { type?: string }) =>
+        message.type === 'OFFSCREEN_NATIVE_ASSET_EVENT' ? { ok: true } : undefined
+      );
+      const argsB64 =
+        method === 'waitForTransactionCommit'
+          ? [encodeArg('0xtxid')]
+          : method === 'getSyncHeight'
+            ? [encodeArg(true)]
+            : [];
+      const reply = jest.fn();
+      capturedListener!(
+        {
+          target: 'offscreen',
+          type: 'OFFSCREEN_CALL',
+          op_id: 'fee-identity-transport',
+          method,
+          argsB64,
+          deadlineMs: null
+        },
+        {},
+        reply
+      );
+      await flush();
+      expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith({
+        target: 'sw',
+        type: 'OFFSCREEN_NATIVE_ASSET_EVENT',
+        id: '0x817edea77acc5d71616e493afecea3',
+        scope: 'offscreen-rpc|devnet'
+      });
+      expect(reply.mock.calls[0]?.[0]).toMatchObject({ ok: true });
+    }
+  );
 });

@@ -17,7 +17,7 @@ jest.mock('lib/miden/sdk/helpers', () => ({
   getBech32AddressFromAccountId: jest.fn()
 }));
 
-const REGISTRY_HEX = '0xe8249fe7070657110980da14461d78';
+const REGISTRY_HEX = '0x16fb70069eed60110c6207189c8237';
 const REGISTRY = { prefix: 0xaan, suffix: 0xbbn };
 const ALICE = { prefix: 0x1234n, suffix: 0x5600n };
 const ZERO: Felts4 = [0n, 0n, 0n, 0n];
@@ -44,6 +44,7 @@ function accountValue(parts: { prefix: bigint; suffix: bigint }): Felts4 {
 function fakeRead(_config: MidenNameConfig, _requests: RegistryMapRequest[]): Promise<RegistryStorageRead> {
   return Promise.resolve({
     blockNum: 1,
+    slotValue: () => undefined,
     mapValue: (slot: string, key: Felts4) => state.get(slot)?.get(key.join(',')) ?? ZERO
   });
 }

@@ -2,26 +2,28 @@ import { getEffectiveFaucetApiUrl, getEffectiveNetworkName } from 'lib/miden-cha
 import { requestTimeoutError } from 'lib/remote-json';
 
 import { MIDEN_FAUCET_API_ENDPOINTS } from './constants';
+import { faucetCapFromRefusal, faucetGrantAmount, faucetRateLimitSeconds } from './faucet-protocol';
+import { spawnFaucetPowWorker } from './spawn-faucet-pow-worker';
 
 export interface PowChallenge {
   challenge: string;
   target: bigint;
 }
 
+// Faucet 0.17.0 answers a grant with its note id alone.
 export interface MintedNote {
-  txId: string;
   noteId: string;
 }
 
 // A faucet HTTP call that accepts the socket but never answers must not hang the
 // funding flow forever; bound each request.
 const FAUCET_FETCH_TIMEOUT_MS = 15_000;
-// Upper bound on how long we'll honor a `Retry-After` before giving up — a
+// Upper bound on how long we'll honor a `Retry-After` before giving up - a
 // faucet that asks us to wait minutes is treated as unavailable, not obeyed.
 const MAX_RETRY_AFTER_MS = 30_000;
 // Wall-clock ceiling on the PoW solve. A well-formed challenge solves in well
 // under this; a malformed one (e.g. `target=0`, which NO nonce can satisfy)
-// would otherwise spin the CPU forever — bound it and fail cleanly instead.
+// would otherwise spin the CPU forever - bound it and fail cleanly instead.
 const POW_SOLVE_DEADLINE_MS = 30_000;
 
 export function getFaucetApiUrl(networkId: string = getEffectiveNetworkName()): string {
@@ -66,7 +68,7 @@ export async function faucetFetch<T>(
   hooks?: FaucetFetchHooks
 ): Promise<T> {
   // The timeout needs its own controller, so a caller-provided `init.signal`
-  // can't ride through to `fetch` directly — link it to the internal one
+  // can't ride through to `fetch` directly - link it to the internal one
   // instead (abort either way, preserving the caller's abort reason).
   const external = init?.signal ?? undefined;
   const attempt = async <R>(settle: (response: Response) => Promise<R>): Promise<R> => {
@@ -118,6 +120,37 @@ export async function faucetFetch<T>(
   return attempt(read);
 }
 
+/** The faucet refused an amount over its cap and named the cap, in base units. Nothing was minted. */
+export class FaucetAmountOverCapError extends Error {
+  constructor(
+    message: string,
+    readonly cap: bigint
+  ) {
+    super(message);
+    this.name = 'FaucetAmountOverCapError';
+  }
+}
+
+/** The faucet refused because this account asked too recently; `retryAfterSeconds` is the wait its body names. */
+export class FaucetRateLimitedError extends Error {
+  constructor(
+    message: string,
+    readonly retryAfterSeconds: number | null
+  ) {
+    super(message);
+    this.name = 'FaucetRateLimitedError';
+  }
+}
+
+// Every refusal keeps the message it always had; the two the user can act on also carry what the faucet named. The
+// wait comes from the body because a cross-origin page cannot read Retry-After: the faucet exposes no headers.
+function faucetRefusal(label: string, status: number, detail: string): Error {
+  const message = `${label} failed with status ${status}: ${detail}`;
+  if (status === 429) return new FaucetRateLimitedError(message, faucetRateLimitSeconds(detail));
+  const cap = status === 400 ? faucetCapFromRefusal(detail) : null;
+  return cap === null ? new Error(message) : new FaucetAmountOverCapError(message, cap);
+}
+
 export async function getPowChallenge(
   baseUrl: string,
   accountId: string,
@@ -129,7 +162,7 @@ export async function getPowChallenge(
     if (!response.ok) {
       // The status is the error; a body that fails or stalls past the bound only loses the explanation.
       const detail = await response.text().catch(() => '');
-      throw new Error(`Faucet PoW request failed with status ${response.status}: ${detail}`);
+      throw faucetRefusal('Faucet PoW request', response.status, detail);
     }
 
     const json: { challenge: string; target: number } = await response.json();
@@ -137,38 +170,58 @@ export async function getPowChallenge(
   });
 }
 
-// A nonce solves the challenge when the first 8 bytes of
-// SHA-256(challengeBytes ‖ nonce_as_be_u64), read as a big-endian u64, are < target.
 export async function solvePowChallenge(
   challengeHex: string,
   target: bigint,
   opts: { deadlineMs?: number; signal?: AbortSignal } = {}
 ): Promise<number> {
-  const challengeBytes = hexToBytes(challengeHex);
-  const buffer = new Uint8Array(challengeBytes.length + 8);
-  buffer.set(challengeBytes);
-  const view = new DataView(buffer.buffer);
+  const deadlineMs = opts.deadlineMs ?? POW_SOLVE_DEADLINE_MS;
+  const timeoutError = () =>
+    new Error(
+      `Faucet PoW challenge unsolved within ${deadlineMs}ms ` +
+        `(target=${target}); the challenge is likely malformed or too hard.`
+    );
+  if (opts.signal?.aborted) throw opts.signal.reason;
+  if (deadlineMs <= 0) throw timeoutError();
 
-  // A `target` of 0 (or an absurdly small one) is unsatisfiable: no digest is
-  // `< 0`, so the loop would never terminate. Bound the solve by wall clock and
-  // fail cleanly — a malformed/hostile challenge can't wedge the funding flow.
-  const deadline = Date.now() + (opts.deadlineMs ?? POW_SOLVE_DEADLINE_MS);
-
-  for (;;) {
-    if (opts.signal?.aborted) throw opts.signal.reason;
-    const nonce = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
-    view.setBigUint64(challengeBytes.length, BigInt(nonce), false);
-    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', buffer));
-    if (new DataView(digest.buffer).getBigUint64(0, false) < target) {
-      return nonce;
+  // Chromium can resolve digest promises inline. Repeated awaits then starve input
+  // and rendering, so hashing must stay in a worker, including its continuation loop.
+  const worker = spawnFaucetPowWorker();
+  return new Promise<number>((resolve, reject) => {
+    let settled = false;
+    const finish = (error: unknown, nonce?: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      opts.signal?.removeEventListener('abort', onAbort);
+      worker.removeEventListener('message', onMessage);
+      worker.removeEventListener('error', onError);
+      worker.removeEventListener('messageerror', onMessageError);
+      worker.terminate();
+      if (nonce !== undefined) resolve(nonce);
+      else reject(error);
+    };
+    const onAbort = () => finish(opts.signal?.reason);
+    const onMessage = (event: MessageEvent<{ nonce?: number; error?: string }>) => {
+      const { nonce, error } = event.data;
+      if (typeof nonce === 'number' && Number.isSafeInteger(nonce) && nonce >= 0) finish(undefined, nonce);
+      else finish(new Error(error ?? 'Invalid faucet PoW worker response'));
+    };
+    const onError = (event: ErrorEvent) => finish(new Error(event.message || 'Faucet PoW worker failed'));
+    const onMessageError = () => finish(new Error('Faucet PoW worker response could not be read'));
+    // The document owns cancellation: a busy worker need not process another message.
+    const timer = setTimeout(() => finish(timeoutError()), deadlineMs);
+    opts.signal?.addEventListener('abort', onAbort, { once: true });
+    worker.addEventListener('message', onMessage);
+    worker.addEventListener('error', onError);
+    worker.addEventListener('messageerror', onMessageError);
+    try {
+      if (opts.signal?.aborted) onAbort();
+      else worker.postMessage({ challengeHex, target });
+    } catch (error) {
+      finish(error);
     }
-    if (Date.now() >= deadline) {
-      throw new Error(
-        `Faucet PoW challenge unsolved within ${opts.deadlineMs ?? POW_SOLVE_DEADLINE_MS}ms ` +
-          `(target=${target}); the challenge is likely malformed or too hard.`
-      );
-    }
-  }
+  });
 }
 
 /**
@@ -204,7 +257,6 @@ export async function requestTokens(
 ): Promise<MintedNote> {
   const params = new URLSearchParams({
     account_id: accountId,
-    is_private_note: 'false',
     asset_amount: amount.toString(),
     challenge,
     nonce: nonce.toString()
@@ -218,8 +270,8 @@ export async function requestTokens(
       return { kind: 'failed', status: response.status, detail: await response.text().catch(() => '') };
     }
     try {
-      const json: { tx_id: string; note_id: string } = await response.json();
-      return { kind: 'minted', note: { txId: json.tx_id, noteId: json.note_id } };
+      const json: { note_id: string } = await response.json();
+      return { kind: 'minted', note: { noteId: json.note_id } };
     } catch (error) {
       return { kind: 'unreadable', error };
     }
@@ -249,7 +301,7 @@ export async function requestTokens(
     // The faucet accepted the request, so it may have minted; only the ids were lost.
     throw new FaucetOutcomeUnknownError('Faucet token response could not be read', { cause: outcome.error });
   }
-  const failure = new Error(`Faucet token request failed with status ${outcome.status}: ${outcome.detail}`);
+  const failure = faucetRefusal('Faucet token request', outcome.status, outcome.detail);
   if (faucetStatusMayHaveMinted(outcome.status)) {
     throw new FaucetOutcomeUnknownError(failure.message, { cause: failure });
   }
@@ -265,7 +317,7 @@ function faucetStatusMayHaveMinted(status: number): boolean {
 
 export async function mintFromMidenFaucet(
   address: string,
-  amount: bigint,
+  amount?: bigint,
   signal?: AbortSignal,
   // Awaited after the proof of work and immediately before the token request is
   // sent: the last point at which nothing can have been minted yet.
@@ -273,17 +325,33 @@ export async function mintFromMidenFaucet(
   onMayMint?: (mayMint: boolean) => void
 ): Promise<MintedNote> {
   const baseUrl = getFaucetApiUrl();
-  const { challenge, target } = await getPowChallenge(baseUrl, address, amount, signal);
-  const nonce = await solvePowChallenge(challenge, target, { signal });
-  await onBeforeSubmit?.();
-  return requestTokens(baseUrl, address, amount, challenge, nonce, signal, onMayMint);
+  const mint = async (value: bigint): Promise<MintedNote> => {
+    const { challenge, target } = await getPowChallenge(baseUrl, address, value, signal);
+    const nonce = await solvePowChallenge(challenge, target, { signal });
+    await onBeforeSubmit?.();
+    return requestTokens(baseUrl, address, value, challenge, nonce, signal, onMayMint);
+  };
+  if (amount !== undefined) return mint(amount);
+
+  const metadata = await fetchFaucetMetadata(baseUrl, signal);
+  const chosen = faucetGrantAmount(metadata);
+  try {
+    return await mint(chosen);
+  } catch (error) {
+    // The faucet refuses an amount over its cap before anything is minted, and names the cap. Ask once more for
+    // exactly that from a fresh challenge (the first one is bound to the refused amount); a second refusal stands.
+    if (!(error instanceof FaucetAmountOverCapError) || error.cap <= 0n || error.cap >= chosen) throw error;
+    return mint(error.cap);
+  }
 }
 
-function hexToBytes(hex: string): Uint8Array {
-  const normalized = hex.startsWith('0x') ? hex.slice(2) : hex;
-  const bytes = new Uint8Array(normalized.length / 2);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(normalized.slice(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
+async function fetchFaucetMetadata(baseUrl: string, signal?: AbortSignal): Promise<unknown> {
+  return faucetFetch(`${baseUrl}/get_metadata`, { signal }, async response => {
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error(`Faucet metadata request failed with status ${response.status}: ${detail}`);
+    }
+    const metadata: unknown = await response.json();
+    return metadata;
+  });
 }

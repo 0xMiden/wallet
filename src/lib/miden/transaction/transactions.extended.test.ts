@@ -16,14 +16,19 @@
 import * as Repo from 'lib/miden/repo';
 import { reportOperation } from 'lib/telemetry/report-operation';
 
-import { ITransactionStatus, Transaction } from '../db/types';
+import { IBridgeClaimStatus, ITransactionStatus, Transaction } from '../db/types';
 import { NoteTypeEnum } from '../types';
 import {
   cancelTransaction,
+  claimBridgeSubmit,
   completeConsumeTransaction,
   forceCaneclAllInProgressTransactions,
   initiateConsumeTransaction,
+  markAgglayerExitUnfiled,
   markBridgedSendFailed,
+  pinAgglayerDeposit,
+  recordAgglayerExitTxHash,
+  recordBridgeNoteLanded,
   requestCustomTransaction,
   safeGenerateTransactionsLoop,
   startBackgroundTransactionProcessing,
@@ -180,7 +185,9 @@ jest.mock('../helpers', () => ({
 }));
 
 jest.mock('../sdk/helpers', () => ({
-  getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech32-stub')
+  getBech32AddressFromAccountId: (x: any) => (typeof x === 'string' ? x : 'bech32-stub'),
+  // Mirrors the real helper for the consume dedup's note-holding read: a `_<suffix>` names the same account.
+  sameWalletAccountId: (a: string, b: string) => a.split('_')[0] === b.split('_')[0]
 }));
 
 const mockGetIntercom = jest.fn(() => ({
@@ -1022,6 +1029,8 @@ describe('completeCustomTransaction', () => {
     errSpy.mockRestore();
     expect(mockSendPrivateNote).toHaveBeenCalledTimes(1);
     expect(txStore[0]!.relayNoteIds).toEqual(['0xsent', '0xunconvertible']);
+    // No push can carry it either, since the sweep re-pushes from the same output note record.
+    expect(txStore[0]!.relayDeadNoteIds).toEqual(['0xunconvertible']);
   });
 
   it('records the recipient the relay used, not the sender a consume reading puts in its place', async () => {
@@ -1049,6 +1058,106 @@ describe('completeCustomTransaction', () => {
 
     expect(mockSendPrivateNote).toHaveBeenCalledWith({}, 'acc-2');
     expect(txStore[0]).toMatchObject({ secondaryAccountId: 'sender', relayRecipientId: 'acc-2' });
+  });
+
+  const twoPrivateNotes = () =>
+    ({
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'h' }),
+        outputNotes: () => ({
+          notes: () =>
+            ['0xa', '0xb'].map(id => ({
+              id: () => ({ toString: () => id }),
+              metadata: () => ({ noteType: () => 'private' }),
+              intoFull: () => ({ id })
+            }))
+        })
+      })
+    }) as any;
+
+  // A pipeline that never reaches its terminal write leaves only the pending stamp, so the stamp has to name what the
+  // sweep re-pushes and to whom.
+  it('names the notes it owes and their recipient in the pending stamp, before the commit wait', async () => {
+    let enterWait: () => void = () => {};
+    const waiting = new Promise<void>(resolve => {
+      enterWait = resolve;
+    });
+    let releaseWait: () => void = () => {};
+    mockWaitForCommit.mockImplementationOnce(() => {
+      enterWait();
+      return new Promise<void>(resolve => {
+        releaseWait = resolve;
+      });
+    });
+    const { completeCustomTransaction } = require('./index');
+    const completing = completeCustomTransaction(txStore[0]!, twoPrivateNotes());
+
+    await waiting;
+    expect(txStore[0]).toMatchObject({
+      noteDelivery: 'pending',
+      relayNoteIds: ['0xa', '0xb'],
+      relayRecipientId: 'acc-2'
+    });
+
+    releaseWait();
+    await completing;
+  });
+
+  // Cancel or the stuck-row reaper can fail the row while its relays run; the terminal write then throws, and only
+  // what each relay persisted on its own is left.
+  it('keeps an acknowledgement each relay persisted when the terminal write throws', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    mockSendPrivateNote.mockRejectedValueOnce(new Error('transport down')).mockImplementationOnce(async () => {
+      txStore[0]!.status = ITransactionStatus.Failed;
+    });
+    const { completeCustomTransaction } = require('./index');
+
+    await expect(completeCustomTransaction(txStore[0]!, twoPrivateNotes())).rejects.toThrow('finalized');
+    errSpy.mockRestore();
+
+    expect(txStore[0]!.relayAckedNoteIds).toEqual(['0xb']);
+  });
+});
+
+describe('completeSendTransaction relay acknowledgement', () => {
+  it('records the note the transport acknowledged', async () => {
+    txStore.push({
+      id: 'tx-send',
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'acc-2',
+      noteType: NoteTypeEnum.Private,
+      status: ITransactionStatus.GeneratingTransaction,
+      initiatedAt: 100
+    });
+    const sdk = require('../sdk/miden-client');
+    const originalGetMidenClient = sdk.getMidenClient;
+    sdk.getMidenClient = async () => ({
+      waitForTransactionCommit: jest.fn(async () => {}),
+      sendPrivateNote: jest.fn(async () => {})
+    });
+    const fullNote = {
+      id: () => ({ toString: () => '0xsent' }),
+      metadata: () => ({ noteType: () => 'private' })
+    };
+    const txResult = {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'h' }),
+        outputNotes: () => ({
+          notes: () => [{ metadata: () => ({ noteType: () => 'private' }), intoFull: () => fullNote }]
+        })
+      }),
+      serialize: () => new Uint8Array([1])
+    } as any;
+    const { completeSendTransaction } = require('./index');
+
+    try {
+      await completeSendTransaction(txStore[0]!, txResult);
+    } finally {
+      sdk.getMidenClient = originalGetMidenClient;
+    }
+
+    expect(txStore[0]).toMatchObject({ noteDelivery: 'relayed', relayAckedNoteIds: ['0xsent'] });
   });
 });
 
@@ -1232,17 +1341,29 @@ describe('initiateConsumeTransaction reuse path', () => {
         type: 'bridged-send',
         status: ITransactionStatus.Completed,
         displayMessage: 'Bridged to EVM',
-        extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'pending' }
+        outputNoteIds: ['note-stamped'],
+        extraInputs: {
+          provider: 'epoch',
+          claimStatus: 'not-applicable',
+          epochStatus: 'pending',
+          reclaimHeight: 3016,
+          reclaimNoteId: 'note-stamped'
+        }
       });
 
-      await markBridgedSendFailed('bs-fail-1', 'P2IDE reclaim window too small', 12345);
+      await markBridgedSendFailed('bs-fail-1', 'P2IDE reclaim window too small');
 
       const row = txStore.find(t => t.id === 'bs-fail-1')!;
       expect(row.status).toBe(ITransactionStatus.Failed);
-      expect(row.displayMessage).toBe('Bridge failed — funds reclaimable');
+      expect(row.displayMessage).toBe('Bridge failed - funds reclaimable');
       expect(row.extraInputs.claimStatus).toBe('failed');
       expect(row.extraInputs.epochStatus).toBe('failed');
-      expect(row.extraInputs.reclaimHeight).toBe(12345);
+      // Stamped when the note was built; the demotion keeps both (#1250).
+      expect(row.extraInputs.reclaimHeight).toBe(3016);
+      expect(row.extraInputs.reclaimNoteId).toBe('note-stamped');
+      expect(mockedReportOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ result: 'errored', step: 'submitting' })
+      );
     });
 
     it('leaves a row the note pipeline already failed untouched, and reports nothing (#1250)', async () => {
@@ -1258,7 +1379,7 @@ describe('initiateConsumeTransaction reuse path', () => {
         extraInputs: { provider: 'epoch', claimStatus: 'failed', epochStatus: 'pending' }
       });
 
-      await markBridgedSendFailed('bs-fail-pipeline', 'allocator rejected the intent', 99999);
+      await markBridgedSendFailed('bs-fail-pipeline', 'allocator rejected the intent');
 
       const row = txStore.find(t => t.id === 'bs-fail-pipeline')!;
       expect(row.status).toBe(ITransactionStatus.Failed);
@@ -1268,22 +1389,213 @@ describe('initiateConsumeTransaction reuse path', () => {
       expect(mockedReportOperation).not.toHaveBeenCalled();
     });
 
-    it('still demotes a row that was in flight (not yet terminal)', async () => {
+    it('demotes an in-flight row whose pipeline claimed the submit as reclaimable (#1250)', async () => {
       txStore.push({
         id: 'bs-fail-in-flight',
         type: 'bridged-send',
         status: ITransactionStatus.GeneratingTransaction,
-        extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'pending' }
+        stage: 'sending',
+        extraInputs: {
+          provider: 'epoch',
+          claimStatus: 'not-applicable',
+          epochStatus: 'pending',
+          reclaimNoteId: 'note-stamped',
+          submitClaimed: true
+        }
       });
 
-      await markBridgedSendFailed('bs-fail-in-flight', 'allocator rejected the intent', 54321);
+      await markBridgedSendFailed('bs-fail-in-flight', 'allocator rejected the intent');
 
       const row = txStore.find(t => t.id === 'bs-fail-in-flight')!;
       expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.displayMessage).toContain('funds reclaimable');
       expect(row.extraInputs.claimStatus).toBe('failed');
       expect(row.extraInputs.epochStatus).toBe('failed');
-      expect(row.extraInputs.reclaimHeight).toBe(54321);
+      expect(row.extraInputs.submitClaimed).toBe(true);
+      expect(row.extraInputs.reclaimNoteId).toBe('note-stamped');
+      expect(mockedReportOperation).toHaveBeenCalledWith(
+        expect.objectContaining({ result: 'errored', step: 'sending' })
+      );
     });
+
+    it('demotes a Queued row as a plain failure, reporting where it stood (#1250)', async () => {
+      txStore.push({
+        id: 'bs-fail-queued',
+        type: 'bridged-send',
+        status: ITransactionStatus.Queued,
+        extraInputs: {
+          provider: 'epoch',
+          claimStatus: 'not-applicable',
+          epochStatus: 'pending',
+          reclaimNoteId: 'note-stamped'
+        }
+      });
+
+      await markBridgedSendFailed('bs-fail-queued', 'allocator rejected the intent');
+
+      const row = txStore.find(t => t.id === 'bs-fail-queued')!;
+      expect(row.status).toBe(ITransactionStatus.Failed);
+      expect(row.displayMessage).toBe('Bridge failed');
+      expect(row.extraInputs.epochStatus).toBe('failed');
+      expect(mockedReportOperation).toHaveBeenCalledTimes(1);
+      expect(mockedReportOperation.mock.lastCall?.[0].step).not.toBe('submitting');
+    });
+  });
+});
+
+describe('claimBridgeSubmit (#1250)', () => {
+  it('claims a row in flight, recording that its note may be submitted', async () => {
+    txStore.push({
+      id: 'bs-claim',
+      type: 'bridged-send',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'pending', reclaimNoteId: 'note-1' }
+    });
+
+    await expect(claimBridgeSubmit('bs-claim')).resolves.toBe(true);
+
+    const row = txStore.find(t => t.id === 'bs-claim')!;
+    expect(row.extraInputs.submitClaimed).toBe(true);
+    expect(row.extraInputs.reclaimNoteId).toBe('note-1');
+    // Bridge-only: the retry and unconfirmed-outcome readers of this flag see no submit.
+    expect(row.mayHaveSubmitted).toBeUndefined();
+  });
+
+  it('refuses a row markBridgedSendFailed already abandoned, writing nothing', async () => {
+    const extraInputs = { provider: 'epoch', claimStatus: 'failed', epochStatus: 'failed', reclaimNoteId: 'note-1' };
+    txStore.push({
+      id: 'bs-claim-abandoned',
+      type: 'bridged-send',
+      status: ITransactionStatus.Failed,
+      extraInputs: { ...extraInputs }
+    });
+
+    await expect(claimBridgeSubmit('bs-claim-abandoned')).resolves.toBe(false);
+
+    const row = txStore.find(t => t.id === 'bs-claim-abandoned')!;
+    expect(row.extraInputs).toEqual(extraInputs);
+    expect(row.mayHaveSubmitted).toBeUndefined();
+  });
+});
+
+describe('recordBridgeNoteLanded (#1250)', () => {
+  it('records the landed note and the failed route on an Epoch row (#1250)', async () => {
+    const extraInputs = {
+      provider: 'epoch',
+      claimStatus: 'not-applicable',
+      reclaimNoteId: 'note-stamped',
+      submitClaimed: true
+    };
+    txStore.push(
+      {
+        id: 'bs-landed-generating',
+        type: 'bridged-send',
+        status: ITransactionStatus.GeneratingTransaction,
+        displayMessage: 'Generating',
+        extraInputs: { ...extraInputs }
+      },
+      {
+        // Already failed by a demotion that landed first.
+        id: 'bs-landed-failed',
+        type: 'bridged-send',
+        status: ITransactionStatus.Failed,
+        error: 'allocator rejected the intent',
+        displayMessage: 'Bridge failed',
+        extraInputs: { ...extraInputs }
+      }
+    );
+
+    await recordBridgeNoteLanded('bs-landed-generating');
+    await recordBridgeNoteLanded('bs-landed-failed');
+
+    const generating = txStore.find(t => t.id === 'bs-landed-generating')!;
+    expect(generating.outputNoteIds).toEqual(['note-stamped']);
+    expect(generating.extraInputs).toEqual({ ...extraInputs, claimStatus: 'failed', epochStatus: 'failed' });
+    expect(generating.status).toBe(ITransactionStatus.GeneratingTransaction);
+    expect(generating.error).toBeUndefined();
+    expect(generating.displayMessage).toBe('Generating');
+    const failed = txStore.find(t => t.id === 'bs-landed-failed')!;
+    expect(failed.outputNoteIds).toEqual(['note-stamped']);
+    expect(failed.extraInputs).toEqual({ ...extraInputs, claimStatus: 'failed', epochStatus: 'failed' });
+    expect(failed.status).toBe(ITransactionStatus.Failed);
+    expect(failed.error).toBe('allocator rejected the intent');
+    expect(failed.displayMessage).toBe('Bridge failed');
+    expect(mockedReportOperation).not.toHaveBeenCalled();
+  });
+
+  it('keeps an existing epochStatus and outputNoteIds (#1250)', async () => {
+    const recorded = () => ({
+      id: 'bs-landed-recorded',
+      type: 'bridged-send',
+      status: ITransactionStatus.Completed,
+      outputNoteIds: ['note-1'],
+      extraInputs: {
+        provider: 'epoch',
+        claimStatus: 'not-applicable',
+        epochStatus: 'pending',
+        reclaimNoteId: 'note-stamped',
+        submitClaimed: true
+      }
+    });
+    txStore.push(recorded(), {
+      id: 'bs-landed-pending',
+      type: 'bridged-send',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: {
+        provider: 'epoch',
+        claimStatus: 'not-applicable',
+        epochStatus: 'pending',
+        reclaimNoteId: 'note-2',
+        submitClaimed: true
+      }
+    });
+
+    await recordBridgeNoteLanded('bs-landed-recorded');
+    await recordBridgeNoteLanded('bs-landed-pending');
+
+    expect(txStore.find(t => t.id === 'bs-landed-recorded')).toEqual(recorded());
+    const pending = txStore.find(t => t.id === 'bs-landed-pending')!;
+    expect(pending.outputNoteIds).toEqual(['note-2']);
+    expect(pending.extraInputs.epochStatus).toBe('pending');
+    expect(pending.extraInputs.claimStatus).toBe('not-applicable');
+  });
+
+  it('records nothing for an Agglayer row or a row without a stamped id (#1250)', async () => {
+    const agglayer = () => ({
+      id: 'bs-landed-agglayer',
+      type: 'bridged-send',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', reclaimNoteId: 'note-stamped', submitClaimed: true }
+    });
+    const unstamped = () => ({
+      id: 'bs-landed-unstamped',
+      type: 'bridged-send',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', submitClaimed: true }
+    });
+    txStore.push(agglayer(), unstamped());
+
+    await recordBridgeNoteLanded('bs-landed-agglayer');
+    await recordBridgeNoteLanded('bs-landed-unstamped');
+
+    expect(txStore.find(t => t.id === 'bs-landed-agglayer')).toEqual(agglayer());
+    expect(txStore.find(t => t.id === 'bs-landed-unstamped')).toEqual(unstamped());
+  });
+
+  it('records nothing for a row whose submit was never claimed (#1250)', async () => {
+    txStore.push({
+      id: 'bs-landed-unclaimed',
+      type: 'bridged-send',
+      status: ITransactionStatus.GeneratingTransaction,
+      extraInputs: { provider: 'epoch', claimStatus: 'not-applicable', reclaimNoteId: 'note-stamped' }
+    });
+
+    await recordBridgeNoteLanded('bs-landed-unclaimed');
+
+    const row = txStore.find(t => t.id === 'bs-landed-unclaimed')!;
+    expect(row.outputNoteIds).toBeUndefined();
+    expect(row.extraInputs.epochStatus).toBeUndefined();
+    expect(row.extraInputs.claimStatus).toBe('not-applicable');
   });
 });
 
@@ -1300,12 +1612,12 @@ describe('updateBridgeClaimStatus', () => {
       rawError: 'some raw error',
       displayMessage: 'Bridge failed - funds reclaimable',
       displayIcon: 'FAILED',
-      extraInputs: { provider: 'agglayer', claimStatus: 'pending' },
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', agglayerExitTxHash: '0xabc' },
       ...overrides
     });
   const row = () => txStore.find(t => t.id === 'bs-1')!;
 
-  it("promotes to Completed when 'ready' is bound to this row's own transaction hash, clearing error/rawError", async () => {
+  it("promotes to Completed when 'ready' is bound to this row's own exit hash, clearing error/rawError", async () => {
     pushFailedBridgedSend();
     await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true }, '0xABC');
     expect(row().status).toBe(ITransactionStatus.Completed);
@@ -1315,7 +1627,7 @@ describe('updateBridgeClaimStatus', () => {
     expect(row().displayIcon).toBe('SEND');
   });
 
-  it("promotes to Completed when 'claimed' is bound to this row's own transaction hash", async () => {
+  it("promotes to Completed when 'claimed' is bound to this row's own exit hash", async () => {
     pushFailedBridgedSend();
     await updateBridgeClaimStatus('bs-1', 'claimed', { claimTxHash: '0xclaim' }, '0xABC');
     expect(row().status).toBe(ITransactionStatus.Completed);
@@ -1383,6 +1695,203 @@ describe('updateBridgeClaimStatus', () => {
     pushFailedBridgedSend({ status: ITransactionStatus.Queued });
     await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true }, '0xABC');
     expect(row().status).toBe(ITransactionStatus.Queued);
+  });
+
+  it('promotes an Unconfirmed row to Completed on its own exit-hash deposit, in one write (#1081)', async () => {
+    pushFailedBridgedSend({ status: ITransactionStatus.Unconfirmed, transactionId: '0xmiden' });
+    await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true }, '0xABC');
+    expect(mockedRepoWhere).toHaveBeenCalledTimes(1);
+    expect(row().status).toBe(ITransactionStatus.Completed);
+    expect(row().error).toBeUndefined();
+    expect(row().displayIcon).toBe('SEND');
+  });
+
+  it.each(['0xmiden', undefined])(
+    'leaves the transactionId %s of an Unconfirmed row it promotes as it was (#1081)',
+    async transactionId => {
+      pushFailedBridgedSend({ status: ITransactionStatus.Unconfirmed, transactionId });
+      await updateBridgeClaimStatus('bs-1', 'claimed', { claimTxHash: '0xclaim' }, '0xABC');
+      expect(row().status).toBe(ITransactionStatus.Completed);
+      expect(row().transactionId).toBe(transactionId);
+    }
+  );
+
+  it('leaves an Unconfirmed row Unconfirmed on an unbound write (#1081)', async () => {
+    pushFailedBridgedSend({ status: ITransactionStatus.Unconfirmed });
+    await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true });
+    expect(row().status).toBe(ITransactionStatus.Unconfirmed);
+  });
+
+  it("leaves an Unconfirmed row Unconfirmed on a bound write whose route status is 'failed' (#1081)", async () => {
+    pushFailedBridgedSend({ status: ITransactionStatus.Unconfirmed });
+    await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true, epochStatus: 'failed' }, '0xABC');
+    expect(row().extraInputs.claimStatus).toBe('ready');
+    expect(row().status).toBe(ITransactionStatus.Unconfirmed);
+  });
+
+  // The indexer's tx_hash is the exit hash of the row's B2AGG note, never its Miden transaction id (#1325).
+  it('promotes a Failed row with no transaction id on a deposit carrying its exit hash', async () => {
+    pushFailedBridgedSend({ transactionId: undefined });
+    await updateBridgeClaimStatus('bs-1', 'claimed', { claimTxHash: '0xclaim' }, '0xABC');
+    expect(row().status).toBe(ITransactionStatus.Completed);
+  });
+
+  it('leaves the row Failed when the bound hash is its transaction id but not its exit hash', async () => {
+    pushFailedBridgedSend({
+      transactionId: '0xabc',
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', agglayerExitTxHash: '0xexit' }
+    });
+    await updateBridgeClaimStatus('bs-1', 'ready', { depositReady: true }, '0xabc');
+    expect(row().status).toBe(ITransactionStatus.Failed);
+  });
+});
+
+// The claim flow and the background poll each write from a snapshot, so an Agglayer row's claim status only moves
+// forward: `claimed` is final and `ready` advances only `pending` (#1325).
+describe('updateBridgeClaimStatus, Agglayer claim order', () => {
+  const pushAgglayerRow = (extraInputs: Record<string, unknown>) =>
+    txStore.push({
+      id: 'bs-2',
+      type: 'bridged-send',
+      status: ITransactionStatus.Completed,
+      extraInputs: { provider: 'agglayer', agglayerExitTxHash: '0xexit', ...extraInputs }
+    });
+  const extraInputs = () => txStore.find(t => t.id === 'bs-2')!.extraInputs;
+  const lateWrites: Array<[IBridgeClaimStatus, { depositReady: boolean } | undefined]> = [
+    ['failed', undefined],
+    ['ready', { depositReady: true }],
+    ['claiming', undefined]
+  ];
+
+  it.each(lateWrites)('keeps a claimed row claimed through a late %s write', async (status, extra) => {
+    pushAgglayerRow({ claimStatus: 'claimed', claimTxHash: '0xmine' });
+    await updateBridgeClaimStatus('bs-2', status, extra, '0xexit');
+    expect(extraInputs()).toEqual({
+      provider: 'agglayer',
+      agglayerExitTxHash: '0xexit',
+      claimStatus: 'claimed',
+      claimTxHash: '0xmine'
+    });
+  });
+
+  it('takes a second claimed write, keeping the stored claim hash when it brings none', async () => {
+    pushAgglayerRow({ claimStatus: 'claimed', claimTxHash: '0xmine' });
+    await updateBridgeClaimStatus('bs-2', 'claimed', { agglayerDepositCnt: 16 }, '0xexit');
+    expect(extraInputs()).toMatchObject({ claimStatus: 'claimed', claimTxHash: '0xmine', agglayerDepositCnt: 16 });
+  });
+
+  it.each<IBridgeClaimStatus>(['claiming', 'failed'])('never lets a stale ready write undo %s', async status => {
+    pushAgglayerRow({ claimStatus: status });
+    await updateBridgeClaimStatus('bs-2', 'ready', { depositReady: true }, '0xexit');
+    expect(extraInputs().claimStatus).toBe(status);
+    expect(extraInputs().depositReady).toBeUndefined();
+  });
+
+  it('applies a ready write to a row with no claim status yet', async () => {
+    pushAgglayerRow({});
+    await updateBridgeClaimStatus('bs-2', 'ready', { depositReady: true }, '0xexit');
+    expect(extraInputs()).toMatchObject({ claimStatus: 'ready', depositReady: true });
+  });
+
+  it('leaves an Epoch row to take any write', async () => {
+    txStore.push({
+      id: 'bs-2',
+      type: 'bridged-send',
+      status: ITransactionStatus.Completed,
+      extraInputs: { provider: 'epoch', claimStatus: 'claimed' }
+    });
+    await updateBridgeClaimStatus('bs-2', 'not-applicable', { epochStatus: 'confirmed' });
+    expect(extraInputs()).toEqual({ provider: 'epoch', claimStatus: 'not-applicable', epochStatus: 'confirmed' });
+  });
+});
+
+describe('pinAgglayerDeposit (#1325)', () => {
+  it('writes only the pin, never the claim status', async () => {
+    txStore.push({
+      id: 'bs-3',
+      type: 'bridged-send',
+      status: ITransactionStatus.Completed,
+      extraInputs: { provider: 'agglayer', claimStatus: 'pending', agglayerExitTxHash: '0xexit' }
+    });
+    await pinAgglayerDeposit('bs-3', 17);
+    expect(txStore.find(t => t.id === 'bs-3')!.extraInputs).toEqual({
+      provider: 'agglayer',
+      claimStatus: 'pending',
+      agglayerExitTxHash: '0xexit',
+      agglayerDepositCnt: 17
+    });
+  });
+});
+
+describe('recordAgglayerExitTxHash (#1325)', () => {
+  const pushRow = (extraInputs: Record<string, unknown> | undefined) =>
+    txStore.push({ id: 'bs-4', type: 'bridged-send', status: ITransactionStatus.Completed, extraInputs });
+  const extraInputs = () => txStore.find(t => t.id === 'bs-4')!.extraInputs;
+
+  it('records a back-filled exit hash', async () => {
+    pushRow({ provider: 'agglayer', claimStatus: 'pending' });
+    await recordAgglayerExitTxHash('bs-4', '0xexit');
+    expect(extraInputs()).toEqual({ provider: 'agglayer', claimStatus: 'pending', agglayerExitTxHash: '0xexit' });
+  });
+
+  it('marks a row whose bytes held no note as unavailable', async () => {
+    pushRow({ provider: 'agglayer', claimStatus: 'pending' });
+    await recordAgglayerExitTxHash('bs-4', undefined);
+    expect(extraInputs()).toEqual({
+      provider: 'agglayer',
+      claimStatus: 'pending',
+      agglayerExitTxHashUnavailable: true
+    });
+  });
+
+  it.each([
+    ['an exit hash', { agglayerExitTxHash: '0xfirst' }],
+    ['an unavailable mark', { agglayerExitTxHashUnavailable: true }]
+  ])('never overwrites %s another surface recorded first', async (_label, recorded) => {
+    pushRow({ provider: 'agglayer', claimStatus: 'pending', ...recorded });
+    await recordAgglayerExitTxHash('bs-4', '0xsecond');
+    await recordAgglayerExitTxHash('bs-4', undefined);
+    expect(extraInputs()).toEqual({ provider: 'agglayer', claimStatus: 'pending', ...recorded });
+  });
+
+  it('writes nothing to a row with no extraInputs', async () => {
+    pushRow(undefined);
+    await recordAgglayerExitTxHash('bs-4', '0xexit');
+    expect(extraInputs()).toBeUndefined();
+  });
+});
+
+describe('markAgglayerExitUnfiled (#1325)', () => {
+  const pushRow = (extraInputs: Record<string, unknown> | undefined) =>
+    txStore.push({ id: 'bs-5', type: 'bridged-send', status: ITransactionStatus.Completed, extraInputs });
+  const extraInputs = () => txStore.find(t => t.id === 'bs-5')!.extraInputs;
+
+  it('marks an unpinned Agglayer row', async () => {
+    pushRow({ provider: 'agglayer', claimStatus: 'pending', agglayerExitTxHash: '0xexit' });
+    await markAgglayerExitUnfiled('bs-5');
+    expect(extraInputs()).toEqual({
+      provider: 'agglayer',
+      claimStatus: 'pending',
+      agglayerExitTxHash: '0xexit',
+      agglayerExitUnfiled: true
+    });
+  });
+
+  it.each([
+    ['a pinned Agglayer row', { provider: 'agglayer', claimStatus: 'pending', agglayerDepositCnt: 16 }],
+    ['an Epoch row', { provider: 'epoch', epochStatus: 'pending' }],
+    ['a row with no extraInputs', undefined]
+  ])('never marks %s', async (_label, recorded) => {
+    pushRow(recorded);
+    await markAgglayerExitUnfiled('bs-5');
+    expect(extraInputs()).toEqual(recorded);
+  });
+
+  it('never overwrites a mark already stored', async () => {
+    pushRow({ provider: 'agglayer', claimStatus: 'pending', agglayerExitUnfiled: true });
+    const stored = extraInputs();
+    await markAgglayerExitUnfiled('bs-5');
+    expect(extraInputs()).toBe(stored);
   });
 });
 

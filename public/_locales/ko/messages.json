@@ -1,330 +1,129 @@
 {
-  "midenNameUnsupportedNetwork": {
-    "message": "이 네트워크에서는 중간 이름을 사용할 수 없습니다.",
-    "englishSource": "Miden Name is not available on this network."
+  "usdcxBurnTitle": {
+    "message": "USDCx 소각",
+    "englishSource": "Burn USDCx"
   },
-  "contactAddressOrMidenName": {
-    "message": "주소 또는 중간 이름",
-    "englishSource": "Address or Miden Name"
+  "usdcxBurnSubmitted": {
+    "message": "소각 요청 제출됨",
+    "englishSource": "Burn submitted"
   },
-  "contactAddressOrMidenNamePlaceholder": {
-    "message": "주소나 이름을 입력하세요.miden",
-    "englishSource": "Enter an address or name.miden"
-  },
-  "contactResolvedAddress": {
-    "message": "해결된 주소: $address$",
-    "englishSource": "Resolved address: $address$",
+  "usdcxMidenFees": {
+    "message": "$symbol$ 수수료",
+    "englishSource": "$symbol$ fees",
     "placeholders": {
-      "address": {
+      "symbol": {
         "content": "$1"
       }
     }
   },
-  "midenNameReceiptTransaction": {
-    "message": "수취 거래 명칭",
-    "englishSource": "Name receipt transaction"
+  "usdcxBurnOnly": {
+    "message": "소각 전용",
+    "englishSource": "Burn only"
   },
-  "midenNameResolving": {
-    "message": "이 이름을 검색해 보니…",
-    "englishSource": "Looking up this name…"
+  "usdcxWithdrawalNotice": {
+    "message": "'소각 확인(Burn confirmed)'은 Miden에서 USDCx가 소각되었음을 의미합니다. '확인(Confirmed)'은 수신처의 USDC 잔액이 증가했음을 의미합니다. USDCx를 소각하는 note와 수신처 주소는 공개됩니다. 공개된 note는 되찾을 수 없습니다.",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
   },
-  "midenNameNotFound": {
-    "message": "이 이름을 사용하는 계정은 없습니다",
-    "englishSource": "No account uses this name"
+  "usdcxBurnTestNotice": {
+    "message": "이 테스트 faucet는 Miden에서 수취처 없이 USDCx를 소각합니다. 소각 내역 note 및 수취 주소는 공개되어 있습니다. 게시된 소각 내역 notes은 되찾을 수 없습니다.",
+    "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."
   },
-  "midenNameResolveFailed": {
-    "message": "이 이름을 찾을 수 없습니다. 다시 시도해 주세요.",
-    "englishSource": "Couldn't look up this name. Try again."
+  "usdcxBurnPending": {
+    "message": "소각 대기 중",
+    "englishSource": "Awaiting burn"
   },
-  "midenName": {
-    "message": "중간 이름",
-    "englishSource": "Miden Name"
+  "usdcxBurnConsuming": {
+    "message": "소각 처리",
+    "englishSource": "Burn processing"
   },
-  "midenNameClaimCta": {
-    "message": "이름 신청하기",
-    "englishSource": "Claim a name"
+  "usdcxBurnConfirmed": {
+    "message": "소각 확인됨",
+    "englishSource": "Burn confirmed"
   },
-  "midenNameClaimCtaSubtitle": {
-    "message": "나만의 $suffix$ 이름을 확보하세요. 영원히 여러분의 것입니다",
-    "englishSource": "Get your own $suffix$ name, yours forever",
+  "usdcxBurnDiscarded": {
+    "message": "거부됨",
+    "englishSource": "Burn rejected"
+  },
+  "usdcxBurnNoteId": {
+    "message": "Note ID",
+    "englishSource": "Note ID"
+  },
+  "usdcxDestinationDomain": {
+    "message": "목적지 도메인",
+    "englishSource": "Destination domain"
+  },
+  "usdcxProcessingAttempts": {
+    "message": "처리 시도",
+    "englishSource": "Processing attempts"
+  },
+  "usdcxLastProcessingError": {
+    "message": "마지막 처리 오류",
+    "englishSource": "Last processing error"
+  },
+  "usdcxMinimumBurn": {
+    "message": "최소 소각량",
+    "englishSource": "Minimum burn"
+  },
+  "usdcxSponsorshipFee": {
+    "message": "$symbol$로 지급됨(faucet 실행 후원 포함)",
+    "englishSource": "Paid in $symbol$, including faucet execution sponsorship",
     "placeholders": {
-      "suffix": {
+      "symbol": {
         "content": "$1"
       }
     }
   },
-  "midenNameClaimTitle": {
-    "message": "이름 신청하기",
-    "englishSource": "Claim a name"
+  "usdcxInvalidDestination": {
+    "message": "이 출금을 위해 지원되는 네트워크상의 유효한 주소를 입력하십시오.",
+    "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
-  "midenNameSearchPlaceholder": {
-    "message": "yourname",
-    "englishSource": "yourname"
+  "usdcxUnsupportedFaucet": {
+    "message": "USDCx 인출은 Miden 테스트넷에서 설정된 faucet에서만 가능합니다.",
+    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
   },
-  "midenNameRules": {
-    "message": "1–21자 · a–z 및 0–9만 허용",
-    "englishSource": "1–21 characters · a–z and 0–9 only"
+  "usdcxInvalidAmount": {
+    "message": "소수점 이하 최대 6자리까지의 양수 USDCx 금액을 입력하십시오.",
+    "englishSource": "Enter a positive USDCx amount with at most six decimal places."
   },
-  "midenNameAvailable": {
-    "message": "$name$ 이용 가능합니다",
-    "englishSource": "$name$ is available",
+  "usdcxBelowMinimumBurn": {
+    "message": "해당 금액은 faucet에서 정한 최소 소각 금액 미달입니다.",
+    "englishSource": "The amount is below the faucet's minimum burn amount."
+  },
+  "usdcxIncompatibleBurnScript": {
+    "message": "이 지갑의 소각 스크립트는 USDCx의 faucet와 일치하지 않습니다.",
+    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+  },
+  "usdcxFaucetUnavailable": {
+    "message": "USDCx faucet의 소각 정책을 읽을 수 없습니다. 재검토를 요청하여 다시 시도해 주세요.",
+    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+  },
+  "usdcxSendMoreThanPayoutFee": {
+    "message": "$amount$ 이상의 USDCx를 $network$로 전송하세요: Circle의 수수료는 지급 금액에서 공제됩니다.",
+    "englishSource": "Send more than $amount$ USDCx to $network$: Circle's fee is taken from the payout.",
     "placeholders": {
-      "name": {
+      "amount": {
         "content": "$1"
+      },
+      "network": {
+        "content": "$2"
       }
     }
   },
-  "midenNameTaken": {
-    "message": "$name$ 이미 사용 중입니다",
-    "englishSource": "$name$ is already taken",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNameInvalidEmpty": {
-    "message": "이름 입력",
-    "englishSource": "Enter a name"
-  },
-  "midenNameInvalidTooLong": {
-    "message": "21자 이내로 작성하십시오",
-    "englishSource": "Use 21 characters or fewer"
-  },
-  "midenNameInvalidChars": {
-    "message": "a–z 및 0–9만 사용하십시오.",
-    "englishSource": "Use only a–z and 0–9"
-  },
-  "midenNameChecking": {
-    "message": "확인 중…",
-    "englishSource": "Checking…"
-  },
-  "midenNameServiceUnavailable": {
-    "message": "이 이름을 확인할 수 없습니다. 다시 시도해 주세요.",
-    "englishSource": "Couldn't check this name. Try again."
-  },
-  "midenNameRegistryUnavailable": {
-    "message": "Miden Name은 현재 새로운 이름을 접수하지 않습니다.",
-    "englishSource": "Miden Name does not accept new names right now"
-  },
-  "midenNamePriceChanged": {
-    "message": "가격이 변경되었습니다. 새로운 가격을 확인하고 다시 시도해 주십시오.",
-    "englishSource": "The price changed. Check the new price and try again."
-  },
-  "midenNamePrice": {
-    "message": "가격 · 길이$length$",
-    "englishSource": "Price · length $length$",
-    "placeholders": {
-      "length": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNameNetworkFee": {
-    "message": "네트워크 수수료",
-    "englishSource": "Network fee"
-  },
-  "midenNameTxFee": {
-    "message": "최대 거래 수수료",
-    "englishSource": "Max transaction fee"
-  },
-  "midenNameTotal": {
-    "message": "합계",
-    "englishSource": "Total"
-  },
-  "midenNameGoesTo": {
-    "message": "다음으로",
-    "englishSource": "Goes to"
-  },
-  "midenNameBalanceAfter": {
-    "message": "잔액:",
-    "englishSource": "Balance after"
-  },
-  "midenNamePermanentNote": {
-    "message": "등록은 영구적입니다. 이름은 이 계정에 할당되며, 결제 금액은 환불되지 않습니다.",
-    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
-  },
-  "midenNameInsufficientBalance": {
-    "message": "MIDEN만으로는 부족합니다. $amount$가 필요합니다.",
-    "englishSource": "Not enough MIDEN. You need $amount$.",
+  "usdcxPayoutFeeUpTo": {
+    "message": "최대 $amount$ USDC",
+    "englishSource": "Up to $amount$ USDC",
     "placeholders": {
       "amount": {
         "content": "$1"
       }
     }
   },
-  "midenNameClaimName": {
-    "message": "청구 $name$ · $price$",
-    "englishSource": "Claim $name$ · $price$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      },
-      "price": {
-        "content": "$2"
-      }
-    }
-  },
-  "midenNameStatusSubtitle": {
-    "message": "$amount$ · $account$",
-    "englishSource": "$amount$ · $account$",
+  "usdcxPayoutAtLeast": {
+    "message": "최소 $amount$ USDC",
+    "englishSource": "At least $amount$ USDC",
     "placeholders": {
       "amount": {
         "content": "$1"
-      },
-      "account": {
-        "content": "$2"
-      }
-    }
-  },
-  "midenNameStepRequestSent": {
-    "message": "요청 전송됨",
-    "englishSource": "Request sent"
-  },
-  "midenNameStepIssued": {
-    "message": "Miden Name에서 발행 및 게시한 이름",
-    "englishSource": "Name issued and published by Miden Name"
-  },
-  "midenNameStepAdding": {
-    "message": "계정에 추가하기",
-    "englishSource": "Adding it to your account"
-  },
-  "midenNameFailedTaken": {
-    "message": "이 이름은 이미 다른 사람이 먼저 사용했습니다.",
-    "englishSource": "Someone else got this name first."
-  },
-  "midenNameFailedExpired": {
-    "message": "등록 기관이 요청을 제때 처리하지 못했습니다.",
-    "englishSource": "The registry did not process the request in time."
-  },
-  "midenNameFailedDiscarded": {
-    "message": "레지스트리에서 요청을 처리할 수 없습니다.",
-    "englishSource": "The registry could not process the request."
-  },
-  "midenNameFailedTx": {
-    "message": "요청한 거래가 실패했습니다. 등록된 이름이 없습니다.",
-    "englishSource": "The request transaction failed. No name was registered."
-  },
-  "midenNameFailedClaim": {
-    "message": "이름이 발급되었으나, 계정에 추가하는 데 실패했습니다.",
-    "englishSource": "The name was issued, but adding it to your account failed."
-  },
-  "midenNameRetryClaim": {
-    "message": "청구 재시도",
-    "englishSource": "Retry claim"
-  },
-  "midenNameClaiming": {
-    "message": "$name$ 청구하기…",
-    "englishSource": "Claiming $name$…",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNameDone": {
-    "message": "완료",
-    "englishSource": "Done"
-  },
-  "midenNameStateOwned": {
-    "message": "소유",
-    "englishSource": "Owned"
-  },
-  "midenNameStateClaiming": {
-    "message": "청구",
-    "englishSource": "Claiming"
-  },
-  "midenNameStateFailed": {
-    "message": "실패",
-    "englishSource": "Failed"
-  },
-  "midenNameNotYetResolvable": {
-    "message": "아직 레지스트리에 등록되지 않음",
-    "englishSource": "Not in the registry yet"
-  },
-  "midenNameResolvesHere": {
-    "message": "이 계정으로 해결됨",
-    "englishSource": "Resolves to this account"
-  },
-  "midenNameEmpty": {
-    "message": "아직 중간 이름이 없습니다",
-    "englishSource": "You have no Miden Name yet"
-  },
-  "midenNameClaimAnother": {
-    "message": "Claim의 다른 이름",
-    "englishSource": "Claim another name"
-  },
-  "midenNamePrimaryName": {
-    "message": "주요 명칭",
-    "englishSource": "Primary name"
-  },
-  "midenNameYourNames": {
-    "message": "사용자 이름",
-    "englishSource": "Your names"
-  },
-  "midenNameCheckingRecord": {
-    "message": "레지스트리를 확인 중…",
-    "englishSource": "Checking the registry…"
-  },
-  "midenNameResolvesElsewhere": {
-    "message": "다른 계정으로 해결됨",
-    "englishSource": "Resolves to another account"
-  },
-  "transactionStageRegisteringName": {
-    "message": "이름 등록",
-    "englishSource": "Registering name"
-  },
-  "transactionTitleRegisterName": {
-    "message": "이름 등록",
-    "englishSource": "Registering Name"
-  },
-  "historyRegisteredName": {
-    "message": "등록 번호 $name$",
-    "englishSource": "Registered $name$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "historyReceivedName": {
-    "message": "수신: $name$",
-    "englishSource": "Received $name$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNameViewStatus": {
-    "message": "상태 보기",
-    "englishSource": "View status"
-  },
-  "midenNameReceiptName": {
-    "message": "이름",
-    "englishSource": "Name"
-  },
-  "midenNameReceiptRegistry": {
-    "message": "레지스트리",
-    "englishSource": "Registry"
-  },
-  "midenNameReceiptNoteId": {
-    "message": "등록 note",
-    "englishSource": "Registration note"
-  },
-  "midenNameReceiptPhase": {
-    "message": "단계",
-    "englishSource": "Phase"
-  },
-  "balanceCardAccountWithName": {
-    "message": "$name$ · $number$",
-    "englishSource": "$name$ · $number$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      },
-      "number": {
-        "content": "$2"
       }
     }
   },
@@ -398,8 +197,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "지갑이 열리면 정확한 금액을 승인하고 Sepolia에서 서명하게 됩니다.",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "지갑이 열리면 정확한 금액을 승인하고 소스 네트워크에서 서명하게 됩니다.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "다음과 같은 내용을 받게 됩니다.",
@@ -414,8 +213,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "지갑에서 $tokenSymbol$에 대한 승인을 요청하고 Sepolia에서 입금에 서명하도록 안내할 것입니다. 확인이 완료되면 자금이 Miden에 입금됩니다.",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "지갑에서 $tokenSymbol$에 대한 승인을 요청하고, 소스 네트워크에서 입금에 서명하도록 할 것입니다. 확인이 완료되면 자금이 Miden에 입금됩니다.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -814,8 +613,8 @@
     "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
-    "message": "추천 금고",
-    "englishSource": "Featured Vaults"
+    "message": "이용 가능한 금고",
+    "englishSource": "Available Vaults"
   },
   "earnApyLabel": {
     "message": "APY",
@@ -952,8 +751,16 @@
     "englishSource": "Not confirmed"
   },
   "transactionNotConfirmedHint": {
-    "message": "지갑에서 이 거래가 정상적으로 처리되었는지 확인할 수 없었습니다. 아직 도착하지 않았을 수도 있으니, 다시 보내기 전에 지갑이 동기화된 후 잔액을 확인해 주십시오.",
-    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+    "message": "지갑에서 이 작업이 정상적으로 처리되었는지 확인할 수 없었습니다. 아직 완료될 수 있으므로, 다시 시도하기 전에 지갑이 동기화된 후 상태를 확인해 주십시오.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still complete, so check the wallet after it syncs before you try again."
+  },
+  "transactionUndeterminedHint": {
+    "message": "지갑은 이 작업이 정상적으로 처리되었는지 확인할 수 없으며, 현재 이를 확인 중이 아닙니다. 다시 시도하기 전에 지갑을 확인해 주십시오.",
+    "englishSource": "The wallet could not determine whether this went through and is not checking it. Check the wallet before you try again."
+  },
+  "transactionRestoredHint": {
+    "message": "이 작업은 백업에서 복원된 것이므로, 지갑은 작업이 정상적으로 완료되었는지 확인하거나 재시도할 수 없습니다. 작업을 반복하기 전에 지갑 상태를 확인하십시오.",
+    "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
   "showFullError": {
     "message": "전체 오류 보기",
@@ -980,8 +787,12 @@
     "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "이 지갑을 열어 두고 연결 상태를 유지하세요. 전송 후 한동안 전달이 자동으로 재시도되며, 성공하면 이 경고는 사라집니다. 한 시간이 지나도 수신자가 받지 못했다면 다시 보내지 마세요. 아래 거래 ID를 저장해 고객 지원에 문의하시면 해당 ID로 이체를 복구할 수 있습니다.",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
+    "message": "이 지갑을 열어두고 연결 상태를 유지하십시오. 전송은 최대 3일 동안 자동으로 재시도되며, 전송이 완료되면 이 경고는 사라집니다. 수신자가 하루가 지나도 아무것도 받지 못했다면 다시 보내지 마십시오. 아래의 거래 ID를 저장한 후 지원팀에 문의하십시오. 해당 거래 ID를 통해 전송 내역을 복구할 수 있습니다.",
+    "englishSource": "Keep this wallet open and connected - delivery is retried automatically for up to three days, and this warning clears once it goes through. If the recipient still has nothing after a day, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
+  },
+  "noteDeliveryRetriesStoppedHint": {
+    "message": "이 송금에 대한 자동 전달이 중단되었습니다. 다시 보내지 마시고, 아래의 거래 ID를 저장한 후 지원팀에 문의하십시오. 해당 거래 ID를 통해 송금을 복구할 수 있습니다.",
+    "englishSource": "Automatic delivery has stopped for this transfer. Do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "전달 확인됨",
@@ -1126,15 +937,6 @@
     "message": "이 키는 변경하거나 취소할 수 없다는 점을 알고 있습니다.",
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
-  "encryptedFileImportedAccountsOmitted": {
-    "message": "이 이전 지갑 파일에 포함되지 않은 가져온 계정: $importedCount$개. 각 개인 키 백업에서 별도로 복원하세요.",
-    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
-    "placeholders": {
-      "importedcount": {
-        "content": "$1"
-      }
-    }
-  },
   "editAccountName": {
     "message": "계정 이름 편집",
     "englishSource": "Edit Account Name"
@@ -1222,6 +1024,14 @@
   "transactionStepSyncingGuardian": {
     "message": "Guardian와의 동기화",
     "englishSource": "Syncing with Guardian"
+  },
+  "guardianBusyStep": {
+    "message": "Guardian를 기다리는 중",
+    "englishSource": "Waiting for your Guardian"
+  },
+  "guardianBusyDescription": {
+    "message": "Guardian는 여전히 이전 거래를 처리 중입니다. 이번 거래는 자동으로 이어집니다.",
+    "englishSource": "Your Guardian is still finishing your previous transaction. This one continues automatically."
   },
   "transactionStepDurationSec": {
     "message": "$seconds$ 초",
@@ -1933,6 +1743,10 @@
     "message": "토큰 검색",
     "englishSource": "Search for tokens"
   },
+  "sendUsdcxOnlyDestination": {
+    "message": "이 네트워크로는 USDCx만 전송할 수 있습니다.",
+    "englishSource": "Only USDCx can be sent to this network."
+  },
   "available": {
     "message": "구입 가능",
     "englishSource": "Available"
@@ -2190,6 +2004,23 @@
     "message": "다시 요청하세요",
     "englishSource": "Request again"
   },
+  "faucetRateLimitedWait": {
+    "message": "방금 자금을 요청하셨습니다. $seconds$초 후에 다시 시도해 주세요.",
+    "englishSource": "You requested funds a moment ago. Try again in $seconds$ seconds.",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetRateLimited": {
+    "message": "방금 자금을 요청하셨습니다. 잠시 후 다시 시도해 주십시오.",
+    "englishSource": "You requested funds a moment ago. Try again shortly."
+  },
+  "faucetOverCap": {
+    "message": "현재 이 faucet은 자금을 보낼 수 없습니다. 나중에 다시 시도해 주세요.",
+    "englishSource": "The faucet can't send funds right now. Try again later."
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "계정 복구 감지됨",
     "englishSource": "Account recovery detected"
@@ -2222,9 +2053,9 @@
     "message": "수락할 전송이 있습니다",
     "englishSource": "You have transfers to accept"
   },
-  "pendingNotesPromptBody": {
-    "message": "$count$건 대기 중",
-    "englishSource": "$count$ waiting",
+  "pendingNotesPromptBodyReview": {
+    "message": "$count$건 대기 중 · 탭하여 확인",
+    "englishSource": "$count$ waiting · tap to review",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -2424,10 +2255,6 @@
     "message": "지갑 내보내기 시 설정한 비밀번호를 입력하세요. 이렇게 하면 파일의 암호가 해독되고 액세스가 복원됩니다.",
     "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
   },
-  "continueImport": {
-    "message": "계속 가져오기",
-    "englishSource": "Continue import"
-  },
   "chooseHowToProtect": {
     "message": "지갑을 어떻게 보호할지 선택하세요",
     "englishSource": "Choose how you want to protect your wallet"
@@ -2556,38 +2383,6 @@
     "message": "아래에서 옵션을 선택하세요",
     "englishSource": "Select an option below"
   },
-  "setUpYourAccount": {
-    "message": "계정 설정하기",
-    "englishSource": "Set up your account"
-  },
-  "setUpYourAccountDescription": {
-    "message": "Miden에서 귀하의 계정은 비공개로 관리됩니다. 각 항목을 한 번씩 확인하여 계정이 어떻게 보호되는지 파악해 보십시오.",
-    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
-  },
-  "meetGuardianLocalStateTitle": {
-    "message": "귀하의 계정은 이 기기에 저장되어 있습니다",
-    "englishSource": "Your account lives on this device"
-  },
-  "meetGuardianLocalStateBody": {
-    "message": "계정의 비공개 상태 정보는 사용자의 기기에만 저장됩니다. 네트워크는 오직 암호화된 커밋먼트만 확인합니다.",
-    "englishSource": "Private account state stays on your device. The network only ever sees a cryptographic commitment."
-  },
-  "meetGuardianSeedPhraseTitle": {
-    "message": "복구 문구만으로는 충분하지 않습니다",
-    "englishSource": "A recovery phrase isn't enough"
-  },
-  "meetGuardianSeedPhraseBody": {
-    "message": "복구 문구는 계정 상태가 아닌 키를 복원합니다. 기기를 분실하면 그 상태는 사라집니다.",
-    "englishSource": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone."
-  },
-  "meetGuardianProtectsTitle": {
-    "message": "Guardian는 여러분을 보호해 줄 수 있습니다",
-    "englishSource": "A Guardian can protect you"
-  },
-  "meetGuardianProtectsBody": {
-    "message": "Guardian는 귀하의 계정 상태를 저장하고 복구를 돕습니다. 이를 귀하의 데이터를 백업해 주는 서버라고 생각하시면 되지만, 이 지갑은 귀하의 자금을 절대 건드릴 수 없습니다.",
-    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
-  },
   "meetGuardianChecking": {
     "message": "어느 운영자가 가장 빨리 응답하는지 확인해 보겠습니다…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2603,14 +2398,6 @@
   "learnMoreAboutGuardian": {
     "message": "Guardian에 대해 자세히 알아보기",
     "englishSource": "Learn more about the Guardian"
-  },
-  "noGuardianOptionTitle": {
-    "message": "보호자 없음",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "고급 — 복구 문구만으로 복구하십시오. guardian 공동 서명자는 허용되지 않습니다.",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
   },
   "guardianOperatedBy": {
     "message": "운영사:",
@@ -2640,22 +2427,110 @@
     "message": "Guardian란 무엇인가요?",
     "englishSource": "What is a Guardian?"
   },
-  "meetGuardianYourGuardian": {
-    "message": "내 Guardian",
-    "englishSource": "Your Guardian"
+  "guardianIntroTitle": {
+    "message": "Guardian를 만나보세요",
+    "englishSource": "Meet your Guardian"
   },
-  "meetGuardianChange": {
-    "message": "변경",
-    "englishSource": "Change"
+  "guardianIntroDescription": {
+    "message": "가디언(Guardian)은 사용자의 개인 계정 데이터를 백업하고 거래에 공동 서명합니다.",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
-  "meetGuardianSummary": {
-    "message": "$name$이(가) 계정을 백업합니다. 자금을 옮길 수 없으며 언제든지 바꿀 수 있습니다.",
-    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+  "guardianIntroRecoverTitle": {
+    "message": "새 휴대폰에서 복구하기",
+    "englishSource": "Recover on a new phone"
+  },
+  "guardianIntroRecoverBody": {
+    "message": "복구 문구를 통해 키를 복원할 수 있으며, ‘Guardian’의 백업과 함께 계정도 복원할 수 있습니다. 이 문구를 안전하게 보관하십시오.",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+  },
+  "guardianIntroFundsTitle": {
+    "message": "자금은 여전히 귀하의 소유입니다",
+    "englishSource": "Your funds stay yours"
+  },
+  "guardianIntroFundsBody": {
+    "message": "Guardian은 사용자와 함께 공동 서명합니다. Guardian은 절대 단독으로 자금을 이동할 수 없습니다.",
+    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+  },
+  "guardianIntroSwitchTitle": {
+    "message": "언제든지 전환 가능",
+    "englishSource": "Switch any time"
+  },
+  "guardianIntroSwitchBody": {
+    "message": "원할 때 언제든지 다른 가디언(Guardian)으로 변경할 수 있습니다. 계정은 그대로 유지됩니다.",
+    "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
+  },
+  "guardianIntroMoreAbout": {
+    "message": "Guardians에 대한 추가 정보",
+    "englishSource": "More about Guardians"
+  },
+  "meetGuardianContinueWith": {
+    "message": "$name$로 계속 진행하세요",
+    "englishSource": "Continue with $name$",
     "placeholders": {
       "name": {
         "content": "$1"
       }
     }
+  },
+  "meetGuardianChangeProvider": {
+    "message": "제공업체 변경",
+    "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "자세히 알아보기",
+    "englishSource": "Learn more"
+  },
+  "meetGuardianRegion": {
+    "message": "지역:",
+    "englishSource": "Region:"
+  },
+  "guardianFastest": {
+    "message": "가장 빠른",
+    "englishSource": "Fastest"
+  },
+  "guardianProviderSheetTitle": {
+    "message": "제공업체 선택",
+    "englishSource": "Choose a provider"
+  },
+  "guardianProviderSheetDescription": {
+    "message": "이 모든 서비스는 동일한 방식으로 계정을 백업합니다.",
+    "englishSource": "They all back up your account the same way."
+  },
+  "guardianProviderSheetFootnote": {
+    "message": "설정에서 언제든지 전환할 수 있습니다.",
+    "englishSource": "You can switch any time in Settings."
+  },
+  "guardianAboutOpenZeppelin": {
+    "message": "OpenZeppelin은 감사 업무로 잘 알려진 스마트 계약 보안 기업입니다.",
+    "englishSource": "OpenZeppelin, a smart contract security company known for its audits."
+  },
+  "guardianAboutGateway": {
+    "message": "게이트웨이(Gateway): 노드와 네트워크를 운영하는 blockchain 인프라 제공업체입니다.",
+    "englishSource": "Gateway, a blockchain infrastructure provider that runs nodes and networks."
+  },
+  "guardianAboutLambdaClass": {
+    "message": "제로 지식(zero-knowledge) 시스템을 구축하는 엔지니어링 기업인 LambdaClass.",
+    "englishSource": "LambdaClass, an engineering firm that builds zero-knowledge systems."
+  },
+  "guardianAboutKodax": {
+    "message": "한국에 본사를 둔 디지털 자산 수탁 기업인 코리아 디지털 애셋(Korea Digital Asset).",
+    "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
+  },
+  "guardianKindOpenZeppelin": {
+    "message": "스마트 계약 보안 및 감사",
+    "englishSource": "Smart contract security and audits"
+  },
+  "guardianKindGateway": {
+    "message": "Blockchain 인프라 제공업체",
+    "englishSource": "Blockchain infrastructure provider"
+  },
+  "guardianKindLambdaClass": {
+    "message": "제로 지식 시스템 엔지니어링",
+    "englishSource": "Zero-knowledge systems engineering"
+  },
+  "guardianKindKodax": {
+    "message": "디지털 자산 수탁자",
+    "englishSource": "Digital asset custodian"
   },
   "guardianInfoDescription": {
     "message": "Guardian는 <b>사용자의 지갑에서 발생하는 모든 거래</b>에 공동 서명하여, 자가 관리 권한을 포기하지 않으면서도 안전망을 제공하는 독립적인 서비스입니다.",
@@ -3045,6 +2920,18 @@
     "message": "Guardian의 로테이션을 성공적으로 완료하셨습니다!",
     "englishSource": "You've successfully rotated your Guardian!"
   },
+  "guardianSwitchedRowTitle": {
+    "message": "Guardian 전환됨",
+    "englishSource": "Guardian switched"
+  },
+  "guardianSwitchSubmittedRowTitle": {
+    "message": "Guardian 변경을 제출했습니다",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchSubmittedChip": {
+    "message": "제출됨",
+    "englishSource": "Submitted"
+  },
   "guardianSwitchSuccessInfoTitle": {
     "message": "현재 변경 사항",
     "englishSource": "What changes now"
@@ -3194,16 +3081,16 @@
     "englishSource": "Retry"
   },
   "hotKeyRotationFundingTitle": {
-    "message": "MIDEN을 추가하여 일상용 키를 활성화하세요",
-    "englishSource": "Add MIDEN to activate your everyday key"
+    "message": "USDCX을 추가하여 일상용 키를 활성화하세요",
+    "englishSource": "Add USDCX to activate your everyday key"
   },
   "hotKeyRotationFundingBody": {
-    "message": "일상용 키를 활성화하는 것은 거래이며, 모든 거래에는 소액의 MIDEN 네트워크 수수료가 부과됩니다. 아래에 있는 이 계정의 주소로 MIDEN을 보내주십시오. 지갑이 이를 수령하면 키 활성화가 자동으로 완료됩니다.",
-    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+    "message": "일상용 키를 활성화하는 것은 거래이며, 모든 거래에는 소액의 USDCX 네트워크 수수료가 부과됩니다. 아래에 있는 이 계정의 주소로 USDCX을 보내주십시오. 지갑이 이를 수령하면 키 활성화가 자동으로 완료됩니다.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in USDCX. Send USDCX to this account's address below. The wallet claims it and finishes activating your key automatically."
   },
   "hotKeyRotationFundingMinimum": {
-    "message": "$amount$의 MIDEN을 최소한 전송하십시오.",
-    "englishSource": "Send at least $amount$ MIDEN.",
+    "message": "$amount$의 USDCX을 최소한 전송하십시오.",
+    "englishSource": "Send at least $amount$ USDCX.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -3215,28 +3102,28 @@
     "englishSource": "Your account address"
   },
   "hotKeyRotationFundingWaiting": {
-    "message": "MIDEN이 도착하기를 기다리고 있습니다…",
-    "englishSource": "Waiting for MIDEN to arrive…"
+    "message": "USDCX이 도착하기를 기다리고 있습니다…",
+    "englishSource": "Waiting for USDCX to arrive…"
   },
   "hotKeyRotationFundingTooSmall": {
-    "message": "수신하신 MIDEN은 네트워크 수수료를 지불하기에는 너무 적습니다. 조금 더 보내주세요.",
-    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+    "message": "수신하신 USDCX은 네트워크 수수료를 지불하기에는 너무 적습니다. 조금 더 보내주세요.",
+    "englishSource": "The USDCX you received is too little to pay the network fee. Send a little more."
   },
   "hotKeyRotationFundingClaiming": {
-    "message": "MIDEN 수신. 청구 중…",
-    "englishSource": "MIDEN received. Claiming it…"
+    "message": "USDCX 수신. 청구 중…",
+    "englishSource": "USDCX received. Claiming it…"
   },
   "hotKeyRotationFundingActivating": {
     "message": "일상용 키 활성화…",
     "englishSource": "Activating your everyday key…"
   },
   "hotKeyRotationFundingClaimFailed": {
-    "message": "수령하신 MIDEN은 청구할 수 없었습니다.",
-    "englishSource": "The MIDEN you received could not be claimed."
+    "message": "수령하신 USDCX은 청구할 수 없었습니다.",
+    "englishSource": "The USDCX you received could not be claimed."
   },
   "hotKeyRotationFundingClaimUnconfirmed": {
-    "message": "지갑에서 수신한 MIDEN이 이미 청구되었는지 확인할 수 없습니다. 다시 시도하기 전에 지갑이 동기화될 때까지 1분 정도 기다려 주십시오.",
-    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
+    "message": "지갑에서 수신한 USDCX이 이미 청구되었는지 확인할 수 없습니다. 다시 시도하기 전에 지갑이 동기화될 때까지 1분 정도 기다려 주십시오.",
+    "englishSource": "The wallet could not confirm whether the USDCX you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "다시 시도해 보세요",
@@ -3265,6 +3152,10 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "이 계정에는 아직 대조할 온체인 Guardian이 없습니다.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
+  },
+  "guardianUrlStaleRetry": {
+    "message": "주소를 확인하는 동안 Guardian이 변경되었습니다. 다시 시도해 주세요.",
+    "englishSource": "Your Guardian changed while the address was being checked. Please try again."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian 접근 불가",
@@ -3396,28 +3287,28 @@
     "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
   },
   "feeReserveBlocksSend": {
-    "message": "사용자의 MIDEN은 네트워크 수수료로 예약되어 있습니다. 더 많은 MIDEN을 수령하여 송금하십시오.",
-    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+    "message": "사용자의 USDCX은 네트워크 수수료로 예약되어 있습니다. 더 많은 USDCX을 수령하여 송금하십시오.",
+    "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
   },
   "insufficientFeeAsset": {
-    "message": "네트워크 수수료를 지불하려면 MIDEN이 필요합니다. 계속 진행하려면 MIDEN을 일부 받으세요.",
-    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+    "message": "네트워크 수수료를 지불하려면 USDCX이 필요합니다. 계속 진행하려면 USDCX을 일부 받으세요.",
+    "englishSource": "You need USDCX to pay the network fee. Receive some USDCX to continue."
   },
   "insufficientFeeAssetShort": {
-    "message": "You need MIDEN for the network fee.",
-    "englishSource": "You need MIDEN for the network fee."
+    "message": "You need USDCX for the network fee.",
+    "englishSource": "You need USDCX for the network fee."
   },
   "amountMustBeLessThanBalance": {
     "message": "금액은 잔액보다 적어야 합니다.",
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "MIDEN 이체 자동 수락",
-    "englishSource": "Auto-accept MIDEN transfers"
+    "message": "USDCX 이체 자동 수락",
+    "englishSource": "Auto-accept USDCX transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "수신된 MIDEN 이체를 자동으로 잔액에 반영합니다. 직접 수락을 누르는 것과 동일하며, 더 자주 수락하거나 수수료가 더 들지 않습니다.",
-    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
+    "message": "수신된 USDCX 이체를 자동으로 잔액에 반영합니다. 직접 수락을 누르는 것과 동일하며, 더 자주 수락하거나 수수료가 더 들지 않습니다.",
+    "englishSource": "Automatically accepts incoming USDCX transfers into your balance - the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "지갑 파일 생성 중…",
@@ -3854,6 +3745,14 @@
     "message": "사용 불가",
     "englishSource": "Unavailable"
   },
+  "bridgeFeatureUnavailableTitle": {
+    "message": "일시적으로 이용 불가",
+    "englishSource": "Temporarily unavailable"
+  },
+  "bridgeFeatureUnavailableBody": {
+    "message": "이 외부 서비스는 현재 이용이 불가능합니다. 잠시 후 다시 시도해 주십시오.",
+    "englishSource": "This external service is currently down. Please try again later."
+  },
   "agglayerCheckingToken": {
     "message": "이 토큰이 Slow 경로를 지원하는지 확인 중…",
     "englishSource": "Checking whether this token supports the Slow route…"
@@ -4083,17 +3982,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "도구",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "소셜",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "게임",
@@ -4110,14 +4001,6 @@
   "exploreCategoriesLabel": {
     "message": "카테고리",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "추천",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "도우미 도구",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "열기",
@@ -4146,10 +4029,6 @@
   "exploreNoResultsDescription": {
     "message": "다른 이름을 입력하거나 dApp URL을 붙여 넣으세요.",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "스왑용 테스트넷 토큰 받기",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "최소화",
@@ -4239,10 +4118,6 @@
   "dappBrowserCapsule": {
     "message": "dApp 브라우저 헤더",
     "englishSource": "dApp browser header"
-  },
-  "dragToMinimize": {
-    "message": "아래로 드래그하여 최소화하세요",
-    "englishSource": "Drag down to minimize"
   },
   "dappSwitcher": {
     "message": "dApp 전환기",
@@ -4394,8 +4269,8 @@
     "englishSource": "Transaction not confirmed"
   },
   "transactionNotConfirmedNotificationBody": {
-    "message": "지갑에서 거래가 처리되었는지 확인할 수 없었습니다. 다시 전송하기 전에 지갑을 열어보세요.",
-    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+    "message": "지갑에서 거래가 처리되었는지 확인할 수 없었습니다. 다시 시도하기 전에 지갑을 열어주세요.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you try again."
   },
   "noteReceivedTapToClaim": {
     "message": "여기를 눌러 수락하세요",
@@ -4513,6 +4388,10 @@
   "tokenInfo": {
     "message": "토큰 정보",
     "englishSource": "Token info"
+  },
+  "tokenDescription": {
+    "message": "설명",
+    "englishSource": "Description"
   },
   "fungible": {
     "message": "대체 가능",
@@ -4838,8 +4717,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "지갑에서 요청을 승인하고, Sepolia에서 확인이 완료될 때까지 이 화면을 열어 두세요.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "지갑에서 요청을 승인하고, 소스 네트워크에서 확인이 완료될 때까지 이 화면을 열어 두십시오.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
     "message": "브리지 입금 실패",
@@ -4850,8 +4729,8 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "Sepolia 거래가 확정되었습니다. 브리지 전송이 완료되면 귀하의 자금이 Miden에 표시될 것입니다.",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "원본 거래가 확인되었습니다. 브리지 전송이 완료되면 Miden에 자금이 표시될 것입니다.",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Etherscan에서 보기",
@@ -4912,6 +4791,172 @@
   "slowRouteLabel": {
     "message": "슬로우 (애글레이어)",
     "englishSource": "Slow (Agglayer)"
+  },
+  "usdcxRouteName": {
+    "message": "USDCx",
+    "englishSource": "USDCx"
+  },
+  "usdcxRouteLabel": {
+    "message": "USDCx (Circle xReserve)",
+    "englishSource": "USDCx (Circle xReserve)"
+  },
+  "usdcxArrival": {
+    "message": "~20분",
+    "englishSource": "~20 min"
+  },
+  "usdcxArrivalArc": {
+    "message": "~1분",
+    "englishSource": "~1 min"
+  },
+  "usdcxRouteNotice": {
+    "message": "Circle xReserve는 사용자가 예치한 USDC에 대해 Miden에서 1:1 비율로 USDCx를 발행합니다.",
+    "englishSource": "Circle xReserve mints USDCx on Miden 1:1 for the USDC you deposit."
+  },
+  "usdcxDomainNotRegistered": {
+    "message": "서클은 아직 Miden에 대한 USDCx 입금을 지원하지 않습니다. 나중에 다시 시도해 주세요.",
+    "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
+  },
+  "usdcxAwaitingAttestation": {
+    "message": "원본 거래가 확인되었습니다. Miden에서 USDCx가 발행되기 전에 Circle이 입금을 인증할 때까지 대기 중입니다.",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "블록 익스플로러에서 보기",
+    "englishSource": "View on block explorer"
+  },
+  "usdcxAttested": {
+    "message": "Circle이 예치금을 인증했습니다. USDCx는 곧 Miden에서 발행될 예정입니다.",
+    "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
+  },
+  "usdcxReceived": {
+    "message": "USDCx가 Miden에서 발행되었으며, 귀하의 지갑으로 입금되었습니다.",
+    "englishSource": "USDCx was minted on Miden and your wallet received it."
+  },
+  "usdcxExecutorRouteNotice": {
+    "message": "USDC는 $source$에서 소각되고, $target$에서 서클(Circle)의 집행자에게 발행되며, 서클은 이를 미덴(Miden)을 위한 xReserve에 예치합니다. 서클은 금액 외에 수수료를 부과하며, $target$에서 이체를 실행합니다. 서클이 이체 가격을 책정할 수 없는 경우, 사용자는 $target$에서 서명을 한 번 더 추가하여 이체를 실행합니다.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "target": {
+        "content": "$4"
+      }
+    }
+  },
+  "usdcxCctpAwaitingAttestation": {
+    "message": "소각이 확인되었습니다. $network$에서 이체가 실행되기 전에 Circle이 이체를 인증할 때까지 대기 중입니다.",
+    "englishSource": "The burn is confirmed. Waiting for Circle to attest the transfer before it can be executed on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuteNeeded": {
+    "message": "Circle이 이 이체를 인증했습니다. $network$에서 이 거래를 실행하여 Miden을 위한 xReserve에 USDC를 입금하십시오. 이를 위해서는 $network$에서 소량의 가스 비용이 필요합니다.",
+    "englishSource": "Circle attested the transfer. Execute it on $network$ to deposit the USDC into xReserve for Miden. This needs a small amount of gas on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxExecuteOnNetwork": {
+    "message": "$network$에서 실행",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuting": {
+    "message": "실행 중…",
+    "englishSource": "Executing…"
+  },
+  "usdcxExecuteSubmitted": {
+    "message": "이체는 $network$에서 실행되었습니다. Miden에서 USDCx가 발행되기 전에 Circle이 입금을 인증할 때까지 대기 중입니다.",
+    "englishSource": "The transfer was executed on $network$. Waiting for Circle to attest the deposit before USDCx is minted on Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardingPending": {
+    "message": "소각이 확인되었습니다. Circle은 이 이체를 인증하고 $network$에서 이를 실행하며, 이를 통해 USDC가 Miden을 위해 xReserve에 입금됩니다.",
+    "englishSource": "The burn is confirmed. Circle attests the transfer and executes it on $network$, which deposits the USDC into xReserve for Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardFee": {
+    "message": "$fee$ USDC Circle 수수료",
+    "englishSource": "$fee$ USDC Circle fee",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxCircleFee": {
+    "message": "서클 수수료",
+    "englishSource": "Circle fee"
+  },
+  "usdcxProgress": {
+    "message": "진행 상황",
+    "englishSource": "Progress"
+  },
+  "usdcxStepDeposited": {
+    "message": "$network$에 입금됨",
+    "englishSource": "Deposited on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurned": {
+    "message": "$network$에서 소각됨",
+    "englishSource": "Burned on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurnAttested": {
+    "message": "Circle은 소각을 확인했습니다",
+    "englishSource": "Circle attested the burn"
+  },
+  "usdcxStepCircleExecutes": {
+    "message": "Circle은 $network$에서 실행됩니다.",
+    "englishSource": "Circle executes on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepUserExecutes": {
+    "message": "$network$에서 실행",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepDepositAttested": {
+    "message": "서클은 입금을 확인했습니다",
+    "englishSource": "Circle attested the deposit"
+  },
+  "usdcxStepMinted": {
+    "message": "Miden에서 발행된 USDCx",
+    "englishSource": "USDCx minted on Miden"
   },
   "bridgeRowTitle": {
     "message": "브리지 $from$ → $to$",
@@ -4984,6 +5029,10 @@
   "unverifiedTokenDescription": {
     "message": "이 토큰은 Miden의 검증된 토큰 목록에 포함되어 있지 않습니다. 누구나 원하는 이름으로 토큰을 생성할 수 있으므로, 신뢰하기 전에 faucet의 ID를 확인하십시오.",
     "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
+  "unverifiedTokenTitle": {
+    "message": "확인되지 않은 토큰",
+    "englishSource": "Unverified token"
   },
   "couldNotVerifyBySimulation": {
     "message": "시뮬레이션을 통해 확인할 수 없었습니다. 아래 수치는 해당 사이트에서 공개한 내용입니다.",
@@ -5149,9 +5198,17 @@
     "message": "guardian 맞춤 URL",
     "englishSource": "Custom guardian URL"
   },
+  "devEndpointFeeFaucet": {
+    "message": "수수료 faucet 계정 ID",
+    "englishSource": "Fee faucet account ID"
+  },
   "devAllowNoGuardian": {
     "message": "온보딩 시 '보호자 없음' 옵션 허용",
     "englishSource": "Allow 'No guardian' option in onboarding"
+  },
+  "devNominalUnquotedPrice": {
+    "message": "따옴표로 묶이지 않은 토큰의 가치를 $1로 설정(테스트 네트워크에만 해당)",
+    "englishSource": "Value unquoted tokens at $1 (test networks only)"
   },
   "devEndpointChecking": {
     "message": "확인 중…",
@@ -5291,15 +5348,6 @@
     "message": "이체 승인됨",
     "englishSource": "Transfer accepted"
   },
-  "networkNoticeChip": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
   "withdrawalRecoveryUnavailable": {
     "message": "이 인출은 안전하게 다시 시도할 수 없습니다. 다른 인출을 시작하기 전에 이 인출의 상태를 확인하세요.",
     "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
@@ -5354,8 +5402,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "이 브리지는 이더리움 세폴리아(Sepolia)에서 운영됩니다. 실제 자금이 들어 있는 지갑은 연결하지 마십시오. 새로운 지갑을 생성하고 세폴리아 ETH로만 자금을 입금하십시오.",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "이 브리지는 USDC의 경우 Arc 테스트넷 또는 이더리움 세폴리아를, ETH의 경우 이더리움 세폴리아를 사용합니다. 실제 자금이 들어 있는 지갑은 연결하지 마십시오. 새로운 지갑을 생성하고 테스트 토큰만 입금하십시오.",
+    "englishSource": "This bridge uses Arc Testnet or Ethereum Sepolia for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "월렛 개선에 기여해 주세요",
@@ -5516,6 +5564,19 @@
     "message": "토큰에는 실제 가치가 없습니다",
     "englishSource": "Tokens have no real value"
   },
+  "mainnetCountdownLink": {
+    "message": "얼리 액세스 목록에 가입하세요",
+    "englishSource": "Join the early access list"
+  },
+  "mainnetCountdownLabel": {
+    "message": "Bread가 메인넷에 출시되기까지 남은 시간: $time$",
+    "englishSource": "Time left until Bread goes mainnet: $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
   "activityRestoreTransfers": {
     "message": "복원",
     "englishSource": "Restore"
@@ -5573,8 +5634,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "이 브리지는 이더리움 세폴리아 테스트 토큰을 Miden으로 이동시킵니다. 이더리움 메인넷이나 그 밖의 실제 네트워크에서는 절대 브리지를 사용하지 마십시오.",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "이 브리지는 Arc 테스트넷 또는 이더리움 세폴리아의 USDC, 혹은 이더리움 세폴리아의 ETH를 Miden으로 이동시킵니다. 메인넷이나 그 밖의 실제 네트워크에서는 절대 브리지를 수행하지 마십시오.",
+    "englishSource": "This bridge moves Arc Testnet or Ethereum Sepolia USDC, or Ethereum Sepolia ETH, to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "숨겨진 전송: $count$",
@@ -5742,8 +5803,8 @@
     "englishSource": "Daily limit (USD)"
   },
   "spendingLimitCoverage": {
-    "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
-    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
+    "message": "Only assets the wallet can price count toward this limit. Assets without a price are not limited.",
+    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price are not limited."
   },
   "spendingLimitCurrent": {
     "message": "Current limit: $amount$ a day",
@@ -6022,5 +6083,442 @@
   "hiddenTokensUnreadable": {
     "message": "숨겨진 토큰을 불러올 수 없습니다.",
     "englishSource": "Hidden tokens could not be loaded."
+  },
+  "confirmSendReason": {
+    "message": "송금 확인",
+    "englishSource": "Confirm your send"
+  },
+  "confirmSwapReason": {
+    "message": "교체 확인",
+    "englishSource": "Confirm your swap"
+  },
+  "confirmDappTransactionReason": {
+    "message": "이 거래를 확인하십시오",
+    "englishSource": "Confirm this transaction"
+  },
+  "confirmEarnDepositReason": {
+    "message": "입금 확인",
+    "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "토큰 세부 정보 편집",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "토큰 세부 정보",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "이름",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "기호",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "소수점",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "저장",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "faucet값으로 재설정",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "수정됨",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "1~$max$자 길이의 이름을 입력하십시오.",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "1~$max$자 길이의 기호를 입력하십시오.",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "0에서 $max$ 사이의 정수를 입력하십시오.",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "이 설정 값들은 해당 지갑에서 토큰을 표시하는 방식만 변경합니다. faucet는 자체적인 값을 유지합니다. 전송하는 금액에는 여기서 설정한 소수점 자릿수가 적용됩니다.",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "토큰 세부 정보를 저장할 수 없습니다. 다시 시도해 주십시오.",
+    "englishSource": "Could not save the token details. Please try again."
+  },
+  "testIethDescription": {
+    "message": "iETH는 Miden 테스트넷에서 스왑에 사용되는 테스트 토큰입니다. 이는 ETH가 아니며, 정식 출시된 지갑에서는 사용할 수 없습니다.",
+    "englishSource": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet."
+  },
+  "testIethExecution": {
+    "message": "이 스왑은 Miden 테스트넷상의 스마트 계약을 통해 실행됩니다.",
+    "englishSource": "The swap executes through a smart contract on Miden Testnet."
+  },
+  "swapExecutionTitle": {
+    "message": "교체가 실행되는 곳",
+    "englishSource": "Where the swap executes"
+  },
+  "tokenInfoLabel": {
+    "message": "$token$에 관하여",
+    "englishSource": "About $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "externalPageLoadFailed": {
+    "message": "이 페이지를 열 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
+    "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "midenNameUnsupportedNetwork": {
+    "message": "이 네트워크에서는 중간 이름을 사용할 수 없습니다.",
+    "englishSource": "Miden Name is not available on this network."
+  },
+  "contactAddressOrMidenName": {
+    "message": "주소 또는 중간 이름",
+    "englishSource": "Address or Miden Name"
+  },
+  "contactAddressOrMidenNamePlaceholder": {
+    "message": "주소나 이름을 입력하세요.miden",
+    "englishSource": "Enter an address or name.miden"
+  },
+  "contactResolvedAddress": {
+    "message": "해결된 주소: $address$",
+    "englishSource": "Resolved address: $address$",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameReceiptTransaction": {
+    "message": "수취 거래 명칭",
+    "englishSource": "Name receipt transaction"
+  },
+  "midenNameResolving": {
+    "message": "이 이름을 검색해 보니…",
+    "englishSource": "Looking up this name…"
+  },
+  "midenNameNotFound": {
+    "message": "이 이름을 사용하는 계정은 없습니다",
+    "englishSource": "No account uses this name"
+  },
+  "midenNameResolveFailed": {
+    "message": "이 이름을 찾을 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "Couldn't look up this name. Try again."
+  },
+  "midenName": {
+    "message": "중간 이름",
+    "englishSource": "Miden Name"
+  },
+  "midenNameClaimCta": {
+    "message": "이름 신청하기",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimCtaSubtitle": {
+    "message": "나만의 $suffix$ 이름을 확보하세요. 영원히 여러분의 것입니다",
+    "englishSource": "Get your own $suffix$ name, yours forever",
+    "placeholders": {
+      "suffix": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimTitle": {
+    "message": "이름 신청하기",
+    "englishSource": "Claim a name"
+  },
+  "midenNameSearchPlaceholder": {
+    "message": "yourname",
+    "englishSource": "yourname"
+  },
+  "midenNameRules": {
+    "message": "1–21자 · a–z 및 0–9만 허용",
+    "englishSource": "1–21 characters · a–z and 0–9 only"
+  },
+  "midenNameAvailable": {
+    "message": "$name$ 이용 가능합니다",
+    "englishSource": "$name$ is available",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameTaken": {
+    "message": "$name$ 이미 사용 중입니다",
+    "englishSource": "$name$ is already taken",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameInvalidEmpty": {
+    "message": "이름 입력",
+    "englishSource": "Enter a name"
+  },
+  "midenNameInvalidTooLong": {
+    "message": "21자 이내로 작성하십시오",
+    "englishSource": "Use 21 characters or fewer"
+  },
+  "midenNameInvalidChars": {
+    "message": "a–z 및 0–9만 사용하십시오.",
+    "englishSource": "Use only a–z and 0–9"
+  },
+  "midenNameChecking": {
+    "message": "확인 중…",
+    "englishSource": "Checking…"
+  },
+  "midenNameServiceUnavailable": {
+    "message": "이 이름을 확인할 수 없습니다. 다시 시도해 주세요.",
+    "englishSource": "Couldn't check this name. Try again."
+  },
+  "midenNameRegistryUnavailable": {
+    "message": "Miden Name은 현재 새로운 이름을 접수하지 않습니다.",
+    "englishSource": "Miden Name does not accept new names right now"
+  },
+  "midenNamePriceChanged": {
+    "message": "가격이 변경되었습니다. 새로운 가격을 확인하고 다시 시도해 주십시오.",
+    "englishSource": "The price changed. Check the new price and try again."
+  },
+  "midenNamePrice": {
+    "message": "가격 · 길이$length$",
+    "englishSource": "Price · length $length$",
+    "placeholders": {
+      "length": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameNetworkFee": {
+    "message": "네트워크 수수료",
+    "englishSource": "Network fee"
+  },
+  "midenNameTxFee": {
+    "message": "최대 거래 수수료",
+    "englishSource": "Max transaction fee"
+  },
+  "midenNameTotal": {
+    "message": "합계",
+    "englishSource": "Total"
+  },
+  "midenNameGoesTo": {
+    "message": "다음으로",
+    "englishSource": "Goes to"
+  },
+  "midenNameBalanceAfter": {
+    "message": "잔액:",
+    "englishSource": "Balance after"
+  },
+  "midenNamePermanentNote": {
+    "message": "등록은 영구적입니다. 이름은 이 계정에 할당되며, 결제 금액은 환불되지 않습니다.",
+    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
+  },
+  "midenNameInsufficientBalance": {
+    "message": "MIDEN만으로는 부족합니다. $amount$가 필요합니다.",
+    "englishSource": "Not enough MIDEN. You need $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimName": {
+    "message": "청구 $name$ · $price$",
+    "englishSource": "Claim $name$ · $price$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "price": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStatusSubtitle": {
+    "message": "$amount$ · $account$",
+    "englishSource": "$amount$ · $account$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStepRequestSent": {
+    "message": "요청 전송됨",
+    "englishSource": "Request sent"
+  },
+  "midenNameStepIssued": {
+    "message": "Miden Name에서 발행 및 게시한 이름",
+    "englishSource": "Name issued and published by Miden Name"
+  },
+  "midenNameStepAdding": {
+    "message": "계정에 추가하기",
+    "englishSource": "Adding it to your account"
+  },
+  "midenNameFailedTaken": {
+    "message": "이 이름은 이미 다른 사람이 먼저 사용했습니다.",
+    "englishSource": "Someone else got this name first."
+  },
+  "midenNameFailedExpired": {
+    "message": "등록 기관이 요청을 제때 처리하지 못했습니다.",
+    "englishSource": "The registry did not process the request in time."
+  },
+  "midenNameFailedDiscarded": {
+    "message": "레지스트리에서 요청을 처리할 수 없습니다.",
+    "englishSource": "The registry could not process the request."
+  },
+  "midenNameFailedTx": {
+    "message": "요청한 거래가 실패했습니다. 등록된 이름이 없습니다.",
+    "englishSource": "The request transaction failed. No name was registered."
+  },
+  "midenNameFailedClaim": {
+    "message": "이름이 발급되었으나, 계정에 추가하는 데 실패했습니다.",
+    "englishSource": "The name was issued, but adding it to your account failed."
+  },
+  "midenNameRetryClaim": {
+    "message": "청구 재시도",
+    "englishSource": "Retry claim"
+  },
+  "midenNameClaiming": {
+    "message": "$name$ 청구하기…",
+    "englishSource": "Claiming $name$…",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameDone": {
+    "message": "완료",
+    "englishSource": "Done"
+  },
+  "midenNameStateOwned": {
+    "message": "소유",
+    "englishSource": "Owned"
+  },
+  "midenNameStateClaiming": {
+    "message": "청구",
+    "englishSource": "Claiming"
+  },
+  "midenNameStateFailed": {
+    "message": "실패",
+    "englishSource": "Failed"
+  },
+  "midenNameNotYetResolvable": {
+    "message": "아직 레지스트리에 등록되지 않음",
+    "englishSource": "Not in the registry yet"
+  },
+  "midenNameResolvesHere": {
+    "message": "이 계정으로 해결됨",
+    "englishSource": "Resolves to this account"
+  },
+  "midenNameEmpty": {
+    "message": "아직 중간 이름이 없습니다",
+    "englishSource": "You have no Miden Name yet"
+  },
+  "midenNameClaimAnother": {
+    "message": "Claim의 다른 이름",
+    "englishSource": "Claim another name"
+  },
+  "midenNamePrimaryName": {
+    "message": "주요 명칭",
+    "englishSource": "Primary name"
+  },
+  "midenNameYourNames": {
+    "message": "사용자 이름",
+    "englishSource": "Your names"
+  },
+  "midenNameCheckingRecord": {
+    "message": "레지스트리를 확인 중…",
+    "englishSource": "Checking the registry…"
+  },
+  "midenNameResolvesElsewhere": {
+    "message": "다른 계정으로 해결됨",
+    "englishSource": "Resolves to another account"
+  },
+  "transactionStageRegisteringName": {
+    "message": "이름 등록",
+    "englishSource": "Registering name"
+  },
+  "transactionTitleRegisterName": {
+    "message": "이름 등록",
+    "englishSource": "Registering Name"
+  },
+  "historyRegisteredName": {
+    "message": "등록 번호 $name$",
+    "englishSource": "Registered $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyReceivedName": {
+    "message": "수신: $name$",
+    "englishSource": "Received $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameViewStatus": {
+    "message": "상태 보기",
+    "englishSource": "View status"
+  },
+  "midenNameReceiptName": {
+    "message": "이름",
+    "englishSource": "Name"
+  },
+  "midenNameReceiptRegistry": {
+    "message": "레지스트리",
+    "englishSource": "Registry"
+  },
+  "midenNameReceiptNoteId": {
+    "message": "등록 note",
+    "englishSource": "Registration note"
+  },
+  "midenNameReceiptPhase": {
+    "message": "단계",
+    "englishSource": "Phase"
+  },
+  "balanceCardAccountWithName": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
   }
 }

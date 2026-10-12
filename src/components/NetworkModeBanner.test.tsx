@@ -36,10 +36,11 @@ describe('NetworkModeBanner (the dApp confirm window)', () => {
     jest.mocked(hapticLight).mockClear();
   });
 
+  // It draws Home's pill: the network's name, then why it matters.
   it.each([
-    ['testnet', 'networkModeBanner:testnet'],
-    ['devnet', 'networkModeBanner:devnet'],
-    ['localnet', 'networkModeBanner:localnet']
+    ['testnet', 'testnet·networkModePillNoValue'],
+    ['devnet', 'devnet·networkModePillNoValue'],
+    ['localnet', 'localnet·networkModePillNoValue']
   ] as const)('names the effective network (%s)', (key, text) => {
     mockNetworkKey = key;
 
@@ -62,7 +63,7 @@ describe('NetworkModeBanner (the dApp confirm window)', () => {
 
     rerender(<NetworkModeBanner />);
 
-    expect(screen.getByTestId('network-mode-banner')).toHaveTextContent('networkModeBanner:devnet');
+    expect(screen.getByTestId('network-mode-banner')).toHaveTextContent('devnet·networkModePillNoValue');
   });
 
   it('opens the shared explanation sheet on tap, with one haptic, and reports it expanded', () => {

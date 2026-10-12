@@ -48,7 +48,11 @@ jest.mock('lib/miden-chain/constants', () => ({ getNetworkId: () => 'mlcl' }));
 // (assets, note scripts, attachments) and has its own tests — stubbing it keeps
 // these cases from drifting every time the builder gains a dependency.
 jest.mock('./collateral-note', () => ({
-  buildEpochCollateralRequestBytes: jest.fn(async () => new Uint8Array([1, 2, 3]))
+  buildEpochCollateralRequestBytes: jest.fn(async () => ({
+    requestBytes: new Uint8Array([1, 2, 3]),
+    reclaimHeight: 6000,
+    noteId: 'note-stamped'
+  }))
 }));
 
 // Minimal SDK stand-in. `AccountId.fromHex(...).toBech32(net)` is kept working so a
@@ -99,11 +103,20 @@ describe('epoch id encoding (ifHextoBech32)', () => {
       deps
     });
 
+    // The SDK gets the committed note id; the stamped one only rides on the row (#1250).
     expect(result).toEqual({ success: true, noteId: 'note-1', txId: 'tx-bridge' });
-    const [senderArg, , faucetArg, , , , , , sendParams] = mockInitiateBridgedSendTransaction.mock.calls[0]!;
+    const [senderArg, , faucetArg, , , , requestBytesArg, , sendParams] =
+      mockInitiateBridgedSendTransaction.mock.calls[0]!;
     expect(faucetArg).toBe('mlcl1faucet');
     expect(senderArg).toBe('mlcl1sender');
-    expect(sendParams).toMatchObject({ recipientId: 'mlcl1allocator' });
+    expect(requestBytesArg).toEqual(new Uint8Array([1, 2, 3]));
+    expect(sendParams).toEqual({
+      recipientId: 'mlcl1allocator',
+      noteType: 'public',
+      recallBlocks: 5_000,
+      reclaimHeight: 6000,
+      reclaimNoteId: 'note-stamped'
+    });
   });
 
   it('stores the effective-network faucet + allocator ids on the earn-deposit row', async () => {
@@ -122,10 +135,12 @@ describe('epoch id encoding (ifHextoBech32)', () => {
     });
 
     expect(result).toEqual({ success: true, noteId: 'note-1', txId: 'tx-earn' });
-    const [senderArg, , , , faucetArg, sendParams] = mockInitiateEarnDepositTransaction.mock.calls[0]!;
+    const [senderArg, , , , faucetArg, sendParams, , requestBytesArg] =
+      mockInitiateEarnDepositTransaction.mock.calls[0]!;
     expect(faucetArg).toBe('mlcl1faucet');
     expect(senderArg).toBe('mlcl1sender');
-    expect(sendParams).toMatchObject({ recipientId: 'mlcl1allocator' });
+    expect(requestBytesArg).toEqual(new Uint8Array([1, 2, 3]));
+    expect(sendParams).toEqual({ recipientId: 'mlcl1allocator', noteType: 'public', recallBlocks: 5_000 });
   });
 
   it('threads exact spending-limit authorizations to both atomic row insertions', async () => {

@@ -1,330 +1,129 @@
 {
-  "midenNameUnsupportedNetwork": {
-    "message": "Miden Name is not available on this network.",
-    "englishSource": "Miden Name is not available on this network."
+  "usdcxBurnTitle": {
+    "message": "Burn USDCx",
+    "englishSource": "Burn USDCx"
   },
-  "contactAddressOrMidenName": {
-    "message": "Address or Miden Name",
-    "englishSource": "Address or Miden Name"
+  "usdcxBurnSubmitted": {
+    "message": "Burn submitted",
+    "englishSource": "Burn submitted"
   },
-  "contactAddressOrMidenNamePlaceholder": {
-    "message": "Enter an address or name.miden",
-    "englishSource": "Enter an address or name.miden"
-  },
-  "contactResolvedAddress": {
-    "message": "Resolved address: $address$",
-    "englishSource": "Resolved address: $address$",
+  "usdcxMidenFees": {
+    "message": "$symbol$ fees",
+    "englishSource": "$symbol$ fees",
     "placeholders": {
-      "address": {
+      "symbol": {
         "content": "$1"
       }
     }
   },
-  "midenNameReceiptTransaction": {
-    "message": "Name receipt transaction",
-    "englishSource": "Name receipt transaction"
+  "usdcxBurnOnly": {
+    "message": "Burn only",
+    "englishSource": "Burn only"
   },
-  "midenNameResolving": {
-    "message": "Looking up this name…",
-    "englishSource": "Looking up this name…"
+  "usdcxWithdrawalNotice": {
+    "message": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed.",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
   },
-  "midenNameNotFound": {
-    "message": "No account uses this name",
-    "englishSource": "No account uses this name"
+  "usdcxBurnTestNotice": {
+    "message": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed.",
+    "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."
   },
-  "midenNameResolveFailed": {
-    "message": "Couldn't look up this name. Try again.",
-    "englishSource": "Couldn't look up this name. Try again."
+  "usdcxBurnPending": {
+    "message": "Awaiting burn",
+    "englishSource": "Awaiting burn"
   },
-  "midenName": {
-    "message": "Miden Name",
-    "englishSource": "Miden Name"
+  "usdcxBurnConsuming": {
+    "message": "Burn processing",
+    "englishSource": "Burn processing"
   },
-  "midenNameClaimCta": {
-    "message": "Claim a name",
-    "englishSource": "Claim a name"
+  "usdcxBurnConfirmed": {
+    "message": "Burn confirmed",
+    "englishSource": "Burn confirmed"
   },
-  "midenNameClaimCtaSubtitle": {
-    "message": "Get your own $suffix$ name, yours forever",
-    "englishSource": "Get your own $suffix$ name, yours forever",
+  "usdcxBurnDiscarded": {
+    "message": "Burn rejected",
+    "englishSource": "Burn rejected"
+  },
+  "usdcxBurnNoteId": {
+    "message": "Note ID",
+    "englishSource": "Note ID"
+  },
+  "usdcxDestinationDomain": {
+    "message": "Destination domain",
+    "englishSource": "Destination domain"
+  },
+  "usdcxProcessingAttempts": {
+    "message": "Processing attempts",
+    "englishSource": "Processing attempts"
+  },
+  "usdcxLastProcessingError": {
+    "message": "Last processing error",
+    "englishSource": "Last processing error"
+  },
+  "usdcxMinimumBurn": {
+    "message": "Minimum burn",
+    "englishSource": "Minimum burn"
+  },
+  "usdcxSponsorshipFee": {
+    "message": "Paid in $symbol$, including faucet execution sponsorship",
+    "englishSource": "Paid in $symbol$, including faucet execution sponsorship",
     "placeholders": {
-      "suffix": {
+      "symbol": {
         "content": "$1"
       }
     }
   },
-  "midenNameClaimTitle": {
-    "message": "Claim a name",
-    "englishSource": "Claim a name"
+  "usdcxInvalidDestination": {
+    "message": "Enter a valid address on a supported network for this withdrawal.",
+    "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
-  "midenNameSearchPlaceholder": {
-    "message": "yourname",
-    "englishSource": "yourname"
+  "usdcxUnsupportedFaucet": {
+    "message": "USDCx withdrawals are available only for the configured faucet on Miden testnet.",
+    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
   },
-  "midenNameRules": {
-    "message": "1–21 characters · a–z and 0–9 only",
-    "englishSource": "1–21 characters · a–z and 0–9 only"
+  "usdcxInvalidAmount": {
+    "message": "Enter a positive USDCx amount with at most six decimal places.",
+    "englishSource": "Enter a positive USDCx amount with at most six decimal places."
   },
-  "midenNameAvailable": {
-    "message": "$name$ is available",
-    "englishSource": "$name$ is available",
+  "usdcxBelowMinimumBurn": {
+    "message": "The amount is below the faucet's minimum burn amount.",
+    "englishSource": "The amount is below the faucet's minimum burn amount."
+  },
+  "usdcxIncompatibleBurnScript": {
+    "message": "The wallet's burn script does not match the USDCx faucet.",
+    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+  },
+  "usdcxFaucetUnavailable": {
+    "message": "Unable to read the USDCx faucet's burn policy. Reopen review to try again.",
+    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+  },
+  "usdcxSendMoreThanPayoutFee": {
+    "message": "Send more than $amount$ USDCx to $network$: Circle's fee is taken from the payout.",
+    "englishSource": "Send more than $amount$ USDCx to $network$: Circle's fee is taken from the payout.",
     "placeholders": {
-      "name": {
+      "amount": {
         "content": "$1"
+      },
+      "network": {
+        "content": "$2"
       }
     }
   },
-  "midenNameTaken": {
-    "message": "$name$ is already taken",
-    "englishSource": "$name$ is already taken",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNameInvalidEmpty": {
-    "message": "Enter a name",
-    "englishSource": "Enter a name"
-  },
-  "midenNameInvalidTooLong": {
-    "message": "Use 21 characters or fewer",
-    "englishSource": "Use 21 characters or fewer"
-  },
-  "midenNameInvalidChars": {
-    "message": "Use only a–z and 0–9",
-    "englishSource": "Use only a–z and 0–9"
-  },
-  "midenNameChecking": {
-    "message": "Checking…",
-    "englishSource": "Checking…"
-  },
-  "midenNameServiceUnavailable": {
-    "message": "Couldn't check this name. Try again.",
-    "englishSource": "Couldn't check this name. Try again."
-  },
-  "midenNameRegistryUnavailable": {
-    "message": "Miden Name does not accept new names right now",
-    "englishSource": "Miden Name does not accept new names right now"
-  },
-  "midenNamePriceChanged": {
-    "message": "The price changed. Check the new price and try again.",
-    "englishSource": "The price changed. Check the new price and try again."
-  },
-  "midenNamePrice": {
-    "message": "Price · length $length$",
-    "englishSource": "Price · length $length$",
-    "placeholders": {
-      "length": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNameNetworkFee": {
-    "message": "Network fee",
-    "englishSource": "Network fee"
-  },
-  "midenNameTxFee": {
-    "message": "Max transaction fee",
-    "englishSource": "Max transaction fee"
-  },
-  "midenNameTotal": {
-    "message": "Total",
-    "englishSource": "Total"
-  },
-  "midenNameGoesTo": {
-    "message": "Goes to",
-    "englishSource": "Goes to"
-  },
-  "midenNameBalanceAfter": {
-    "message": "Balance after",
-    "englishSource": "Balance after"
-  },
-  "midenNamePermanentNote": {
-    "message": "Registration is permanent. The name goes to this account and the price is not refunded.",
-    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
-  },
-  "midenNameInsufficientBalance": {
-    "message": "Not enough MIDEN. You need $amount$.",
-    "englishSource": "Not enough MIDEN. You need $amount$.",
+  "usdcxPayoutFeeUpTo": {
+    "message": "Up to $amount$ USDC",
+    "englishSource": "Up to $amount$ USDC",
     "placeholders": {
       "amount": {
         "content": "$1"
       }
     }
   },
-  "midenNameClaimName": {
-    "message": "Claim $name$ · $price$",
-    "englishSource": "Claim $name$ · $price$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      },
-      "price": {
-        "content": "$2"
-      }
-    }
-  },
-  "midenNameStatusSubtitle": {
-    "message": "$amount$ · $account$",
-    "englishSource": "$amount$ · $account$",
+  "usdcxPayoutAtLeast": {
+    "message": "At least $amount$ USDC",
+    "englishSource": "At least $amount$ USDC",
     "placeholders": {
       "amount": {
         "content": "$1"
-      },
-      "account": {
-        "content": "$2"
-      }
-    }
-  },
-  "midenNameStepRequestSent": {
-    "message": "Request sent",
-    "englishSource": "Request sent"
-  },
-  "midenNameStepIssued": {
-    "message": "Name issued and published by Miden Name",
-    "englishSource": "Name issued and published by Miden Name"
-  },
-  "midenNameStepAdding": {
-    "message": "Adding it to your account",
-    "englishSource": "Adding it to your account"
-  },
-  "midenNameFailedTaken": {
-    "message": "Someone else got this name first.",
-    "englishSource": "Someone else got this name first."
-  },
-  "midenNameFailedExpired": {
-    "message": "The registry did not process the request in time.",
-    "englishSource": "The registry did not process the request in time."
-  },
-  "midenNameFailedDiscarded": {
-    "message": "The registry could not process the request.",
-    "englishSource": "The registry could not process the request."
-  },
-  "midenNameFailedTx": {
-    "message": "The request transaction failed. No name was registered.",
-    "englishSource": "The request transaction failed. No name was registered."
-  },
-  "midenNameFailedClaim": {
-    "message": "The name was issued, but adding it to your account failed.",
-    "englishSource": "The name was issued, but adding it to your account failed."
-  },
-  "midenNameRetryClaim": {
-    "message": "Retry claim",
-    "englishSource": "Retry claim"
-  },
-  "midenNameClaiming": {
-    "message": "Claiming $name$…",
-    "englishSource": "Claiming $name$…",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNameDone": {
-    "message": "Done",
-    "englishSource": "Done"
-  },
-  "midenNameStateOwned": {
-    "message": "Owned",
-    "englishSource": "Owned"
-  },
-  "midenNameStateClaiming": {
-    "message": "Claiming",
-    "englishSource": "Claiming"
-  },
-  "midenNameStateFailed": {
-    "message": "Failed",
-    "englishSource": "Failed"
-  },
-  "midenNameNotYetResolvable": {
-    "message": "Not in the registry yet",
-    "englishSource": "Not in the registry yet"
-  },
-  "midenNameResolvesHere": {
-    "message": "Resolves to this account",
-    "englishSource": "Resolves to this account"
-  },
-  "midenNameEmpty": {
-    "message": "You have no Miden Name yet",
-    "englishSource": "You have no Miden Name yet"
-  },
-  "midenNameClaimAnother": {
-    "message": "Claim another name",
-    "englishSource": "Claim another name"
-  },
-  "midenNamePrimaryName": {
-    "message": "Primary name",
-    "englishSource": "Primary name"
-  },
-  "midenNameYourNames": {
-    "message": "Your names",
-    "englishSource": "Your names"
-  },
-  "midenNameCheckingRecord": {
-    "message": "Checking the registry…",
-    "englishSource": "Checking the registry…"
-  },
-  "midenNameResolvesElsewhere": {
-    "message": "Resolves to another account",
-    "englishSource": "Resolves to another account"
-  },
-  "transactionStageRegisteringName": {
-    "message": "Registering name",
-    "englishSource": "Registering name"
-  },
-  "transactionTitleRegisterName": {
-    "message": "Registering Name",
-    "englishSource": "Registering Name"
-  },
-  "historyRegisteredName": {
-    "message": "Registered $name$",
-    "englishSource": "Registered $name$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "historyReceivedName": {
-    "message": "Received $name$",
-    "englishSource": "Received $name$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNameViewStatus": {
-    "message": "View status",
-    "englishSource": "View status"
-  },
-  "midenNameReceiptName": {
-    "message": "Name",
-    "englishSource": "Name"
-  },
-  "midenNameReceiptRegistry": {
-    "message": "Registry",
-    "englishSource": "Registry"
-  },
-  "midenNameReceiptNoteId": {
-    "message": "Registration note",
-    "englishSource": "Registration note"
-  },
-  "midenNameReceiptPhase": {
-    "message": "Phase",
-    "englishSource": "Phase"
-  },
-  "balanceCardAccountWithName": {
-    "message": "$name$ · $number$",
-    "englishSource": "$name$ · $number$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      },
-      "number": {
-        "content": "$2"
       }
     }
   },
@@ -398,8 +197,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "Your wallet will open to approve the exact amount and sign on Sepolia.",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "Your wallet will open to approve the exact amount and sign on the source network.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "You receive",
@@ -414,8 +213,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -814,8 +613,8 @@
     "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
-    "message": "Featured Vaults",
-    "englishSource": "Featured Vaults"
+    "message": "Available Vaults",
+    "englishSource": "Available Vaults"
   },
   "earnApyLabel": {
     "message": "APY",
@@ -952,8 +751,16 @@
     "englishSource": "Not confirmed"
   },
   "transactionNotConfirmedHint": {
-    "message": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again.",
-    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+    "message": "The wallet could not confirm whether this went through. It may still complete, so check the wallet after it syncs before you try again.",
+    "englishSource": "The wallet could not confirm whether this went through. It may still complete, so check the wallet after it syncs before you try again."
+  },
+  "transactionUndeterminedHint": {
+    "message": "The wallet could not determine whether this went through and is not checking it. Check the wallet before you try again.",
+    "englishSource": "The wallet could not determine whether this went through and is not checking it. Check the wallet before you try again."
+  },
+  "transactionRestoredHint": {
+    "message": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it.",
+    "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
   "showFullError": {
     "message": "Show full error",
@@ -980,8 +787,12 @@
     "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it.",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
+    "message": "Keep this wallet open and connected - delivery is retried automatically for up to three days, and this warning clears once it goes through. If the recipient still has nothing after a day, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it.",
+    "englishSource": "Keep this wallet open and connected - delivery is retried automatically for up to three days, and this warning clears once it goes through. If the recipient still has nothing after a day, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
+  },
+  "noteDeliveryRetriesStoppedHint": {
+    "message": "Automatic delivery has stopped for this transfer. Do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it.",
+    "englishSource": "Automatic delivery has stopped for this transfer. Do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "Delivery confirmed",
@@ -1126,15 +937,6 @@
     "message": "I understand this key cannot be rotated or revoked.",
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
-  "encryptedFileImportedAccountsOmitted": {
-    "message": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
-    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
-    "placeholders": {
-      "importedcount": {
-        "content": "$1"
-      }
-    }
-  },
   "editAccountName": {
     "message": "Edit Account Name",
     "englishSource": "Edit Account Name"
@@ -1222,6 +1024,14 @@
   "transactionStepSyncingGuardian": {
     "message": "Syncing with Guardian",
     "englishSource": "Syncing with Guardian"
+  },
+  "guardianBusyStep": {
+    "message": "Waiting for your Guardian",
+    "englishSource": "Waiting for your Guardian"
+  },
+  "guardianBusyDescription": {
+    "message": "Your Guardian is still finishing your previous transaction. This one continues automatically.",
+    "englishSource": "Your Guardian is still finishing your previous transaction. This one continues automatically."
   },
   "transactionStepDurationSec": {
     "message": "$seconds$ sec",
@@ -1933,6 +1743,10 @@
     "message": "Search for tokens",
     "englishSource": "Search for tokens"
   },
+  "sendUsdcxOnlyDestination": {
+    "message": "Only USDCx can be sent to this network.",
+    "englishSource": "Only USDCx can be sent to this network."
+  },
   "available": {
     "message": "Available",
     "englishSource": "Available"
@@ -2190,6 +2004,23 @@
     "message": "Request again",
     "englishSource": "Request again"
   },
+  "faucetRateLimitedWait": {
+    "message": "You requested funds a moment ago. Try again in $seconds$ seconds.",
+    "englishSource": "You requested funds a moment ago. Try again in $seconds$ seconds.",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetRateLimited": {
+    "message": "You requested funds a moment ago. Try again shortly.",
+    "englishSource": "You requested funds a moment ago. Try again shortly."
+  },
+  "faucetOverCap": {
+    "message": "The faucet can't send funds right now. Try again later.",
+    "englishSource": "The faucet can't send funds right now. Try again later."
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Account recovery detected",
     "englishSource": "Account recovery detected"
@@ -2222,9 +2053,9 @@
     "message": "You have transfers to accept",
     "englishSource": "You have transfers to accept"
   },
-  "pendingNotesPromptBody": {
-    "message": "$count$ waiting",
-    "englishSource": "$count$ waiting",
+  "pendingNotesPromptBodyReview": {
+    "message": "$count$ waiting · tap to review",
+    "englishSource": "$count$ waiting · tap to review",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -2424,10 +2255,6 @@
     "message": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access.",
     "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
   },
-  "continueImport": {
-    "message": "Continue import",
-    "englishSource": "Continue import"
-  },
   "chooseHowToProtect": {
     "message": "Choose how you want to protect your wallet",
     "englishSource": "Choose how you want to protect your wallet"
@@ -2556,38 +2383,6 @@
     "message": "Select an option below",
     "englishSource": "Select an option below"
   },
-  "setUpYourAccount": {
-    "message": "Set up your account",
-    "englishSource": "Set up your account"
-  },
-  "setUpYourAccountDescription": {
-    "message": "Your account is private on Miden. Check each point once to understand how it is protected.",
-    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
-  },
-  "meetGuardianLocalStateTitle": {
-    "message": "Your account lives on this device",
-    "englishSource": "Your account lives on this device"
-  },
-  "meetGuardianLocalStateBody": {
-    "message": "Private account state stays on your device. The network only ever sees a cryptographic commitment.",
-    "englishSource": "Private account state stays on your device. The network only ever sees a cryptographic commitment."
-  },
-  "meetGuardianSeedPhraseTitle": {
-    "message": "A recovery phrase isn't enough",
-    "englishSource": "A recovery phrase isn't enough"
-  },
-  "meetGuardianSeedPhraseBody": {
-    "message": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone.",
-    "englishSource": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone."
-  },
-  "meetGuardianProtectsTitle": {
-    "message": "A Guardian can protect you",
-    "englishSource": "A Guardian can protect you"
-  },
-  "meetGuardianProtectsBody": {
-    "message": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds.",
-    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
-  },
   "meetGuardianChecking": {
     "message": "Checking which operator answers fastest…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2603,14 +2398,6 @@
   "learnMoreAboutGuardian": {
     "message": "Learn more about the Guardian",
     "englishSource": "Learn more about the Guardian"
-  },
-  "noGuardianOptionTitle": {
-    "message": "No guardian",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "Advanced — recover with your recovery phrase only. No guardian co-signer.",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
   },
   "guardianOperatedBy": {
     "message": "Operated by:",
@@ -2640,22 +2427,110 @@
     "message": "What is a Guardian?",
     "englishSource": "What is a Guardian?"
   },
-  "meetGuardianYourGuardian": {
-    "message": "Your Guardian",
-    "englishSource": "Your Guardian"
+  "guardianIntroTitle": {
+    "message": "Meet your Guardian",
+    "englishSource": "Meet your Guardian"
   },
-  "meetGuardianChange": {
-    "message": "Change",
-    "englishSource": "Change"
+  "guardianIntroDescription": {
+    "message": "A Guardian backs up your private account data and co-signs your transactions.",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
-  "meetGuardianSummary": {
-    "message": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
-    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+  "guardianIntroRecoverTitle": {
+    "message": "Recover on a new phone",
+    "englishSource": "Recover on a new phone"
+  },
+  "guardianIntroRecoverBody": {
+    "message": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe.",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+  },
+  "guardianIntroFundsTitle": {
+    "message": "Your funds stay yours",
+    "englishSource": "Your funds stay yours"
+  },
+  "guardianIntroFundsBody": {
+    "message": "Your Guardian co-signs with you. It can never move funds on its own.",
+    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+  },
+  "guardianIntroSwitchTitle": {
+    "message": "Switch any time",
+    "englishSource": "Switch any time"
+  },
+  "guardianIntroSwitchBody": {
+    "message": "Move to another Guardian whenever you like. Your account stays the same.",
+    "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
+  },
+  "guardianIntroMoreAbout": {
+    "message": "More about Guardians",
+    "englishSource": "More about Guardians"
+  },
+  "meetGuardianContinueWith": {
+    "message": "Continue with $name$",
+    "englishSource": "Continue with $name$",
     "placeholders": {
       "name": {
         "content": "$1"
       }
     }
+  },
+  "meetGuardianChangeProvider": {
+    "message": "Change provider",
+    "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "Learn more",
+    "englishSource": "Learn more"
+  },
+  "meetGuardianRegion": {
+    "message": "Region:",
+    "englishSource": "Region:"
+  },
+  "guardianFastest": {
+    "message": "Fastest",
+    "englishSource": "Fastest"
+  },
+  "guardianProviderSheetTitle": {
+    "message": "Choose a provider",
+    "englishSource": "Choose a provider"
+  },
+  "guardianProviderSheetDescription": {
+    "message": "They all back up your account the same way.",
+    "englishSource": "They all back up your account the same way."
+  },
+  "guardianProviderSheetFootnote": {
+    "message": "You can switch any time in Settings.",
+    "englishSource": "You can switch any time in Settings."
+  },
+  "guardianAboutOpenZeppelin": {
+    "message": "OpenZeppelin, a smart contract security company known for its audits.",
+    "englishSource": "OpenZeppelin, a smart contract security company known for its audits."
+  },
+  "guardianAboutGateway": {
+    "message": "Gateway, a blockchain infrastructure provider that runs nodes and networks.",
+    "englishSource": "Gateway, a blockchain infrastructure provider that runs nodes and networks."
+  },
+  "guardianAboutLambdaClass": {
+    "message": "LambdaClass, an engineering firm that builds zero-knowledge systems.",
+    "englishSource": "LambdaClass, an engineering firm that builds zero-knowledge systems."
+  },
+  "guardianAboutKodax": {
+    "message": "Korea Digital Asset, a digital asset custody company based in South Korea.",
+    "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
+  },
+  "guardianKindOpenZeppelin": {
+    "message": "Smart contract security and audits",
+    "englishSource": "Smart contract security and audits"
+  },
+  "guardianKindGateway": {
+    "message": "Blockchain infrastructure provider",
+    "englishSource": "Blockchain infrastructure provider"
+  },
+  "guardianKindLambdaClass": {
+    "message": "Zero-knowledge systems engineering",
+    "englishSource": "Zero-knowledge systems engineering"
+  },
+  "guardianKindKodax": {
+    "message": "Digital asset custodian",
+    "englishSource": "Digital asset custodian"
   },
   "guardianInfoDescription": {
     "message": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody.",
@@ -3045,6 +2920,18 @@
     "message": "You've successfully rotated your Guardian!",
     "englishSource": "You've successfully rotated your Guardian!"
   },
+  "guardianSwitchedRowTitle": {
+    "message": "Guardian switched",
+    "englishSource": "Guardian switched"
+  },
+  "guardianSwitchSubmittedRowTitle": {
+    "message": "Guardian switch submitted",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchSubmittedChip": {
+    "message": "Submitted",
+    "englishSource": "Submitted"
+  },
   "guardianSwitchSuccessInfoTitle": {
     "message": "What changes now",
     "englishSource": "What changes now"
@@ -3194,16 +3081,16 @@
     "englishSource": "Retry"
   },
   "hotKeyRotationFundingTitle": {
-    "message": "Add MIDEN to activate your everyday key",
-    "englishSource": "Add MIDEN to activate your everyday key"
+    "message": "Add USDCX to activate your everyday key",
+    "englishSource": "Add USDCX to activate your everyday key"
   },
   "hotKeyRotationFundingBody": {
-    "message": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically.",
-    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+    "message": "Activating your everyday key is a transaction, and every transaction pays a small network fee in USDCX. Send USDCX to this account's address below. The wallet claims it and finishes activating your key automatically.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in USDCX. Send USDCX to this account's address below. The wallet claims it and finishes activating your key automatically."
   },
   "hotKeyRotationFundingMinimum": {
-    "message": "Send at least $amount$ MIDEN.",
-    "englishSource": "Send at least $amount$ MIDEN.",
+    "message": "Send at least $amount$ USDCX.",
+    "englishSource": "Send at least $amount$ USDCX.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -3215,28 +3102,28 @@
     "englishSource": "Your account address"
   },
   "hotKeyRotationFundingWaiting": {
-    "message": "Waiting for MIDEN to arrive…",
-    "englishSource": "Waiting for MIDEN to arrive…"
+    "message": "Waiting for USDCX to arrive…",
+    "englishSource": "Waiting for USDCX to arrive…"
   },
   "hotKeyRotationFundingTooSmall": {
-    "message": "The MIDEN you received is too little to pay the network fee. Send a little more.",
-    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+    "message": "The USDCX you received is too little to pay the network fee. Send a little more.",
+    "englishSource": "The USDCX you received is too little to pay the network fee. Send a little more."
   },
   "hotKeyRotationFundingClaiming": {
-    "message": "MIDEN received. Claiming it…",
-    "englishSource": "MIDEN received. Claiming it…"
+    "message": "USDCX received. Claiming it…",
+    "englishSource": "USDCX received. Claiming it…"
   },
   "hotKeyRotationFundingActivating": {
     "message": "Activating your everyday key…",
     "englishSource": "Activating your everyday key…"
   },
   "hotKeyRotationFundingClaimFailed": {
-    "message": "The MIDEN you received could not be claimed.",
-    "englishSource": "The MIDEN you received could not be claimed."
+    "message": "The USDCX you received could not be claimed.",
+    "englishSource": "The USDCX you received could not be claimed."
   },
   "hotKeyRotationFundingClaimUnconfirmed": {
-    "message": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry.",
-    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
+    "message": "The wallet could not confirm whether the USDCX you received was claimed. Give the wallet a minute to sync before you retry.",
+    "englishSource": "The wallet could not confirm whether the USDCX you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "Try again",
@@ -3265,6 +3152,10 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "This account has no on-chain guardian to verify against yet.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
+  },
+  "guardianUrlStaleRetry": {
+    "message": "Your Guardian changed while the address was being checked. Please try again.",
+    "englishSource": "Your Guardian changed while the address was being checked. Please try again."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian unreachable",
@@ -3396,28 +3287,28 @@
     "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
   },
   "feeReserveBlocksSend": {
-    "message": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send.",
-    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+    "message": "Your USDCX is reserved for the network fee. Receive more USDCX to send.",
+    "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
   },
   "insufficientFeeAsset": {
-    "message": "You need MIDEN to pay the network fee. Receive some MIDEN to continue.",
-    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+    "message": "You need USDCX to pay the network fee. Receive some USDCX to continue.",
+    "englishSource": "You need USDCX to pay the network fee. Receive some USDCX to continue."
   },
   "insufficientFeeAssetShort": {
-    "message": "You need MIDEN for the network fee.",
-    "englishSource": "You need MIDEN for the network fee."
+    "message": "You need USDCX for the network fee.",
+    "englishSource": "You need USDCX for the network fee."
   },
   "amountMustBeLessThanBalance": {
     "message": "Amount must be less than balance",
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "Auto-accept MIDEN transfers",
-    "englishSource": "Auto-accept MIDEN transfers"
+    "message": "Auto-accept USDCX transfers",
+    "englishSource": "Auto-accept USDCX transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself.",
-    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
+    "message": "Automatically accepts incoming USDCX transfers into your balance - the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself.",
+    "englishSource": "Automatically accepts incoming USDCX transfers into your balance - the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Creating your wallet file…",
@@ -3854,6 +3745,14 @@
     "message": "Unavailable",
     "englishSource": "Unavailable"
   },
+  "bridgeFeatureUnavailableTitle": {
+    "message": "Temporarily unavailable",
+    "englishSource": "Temporarily unavailable"
+  },
+  "bridgeFeatureUnavailableBody": {
+    "message": "This external service is currently down. Please try again later.",
+    "englishSource": "This external service is currently down. Please try again later."
+  },
   "agglayerCheckingToken": {
     "message": "Checking whether this token supports the Slow route…",
     "englishSource": "Checking whether this token supports the Slow route…"
@@ -4083,17 +3982,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "Tools",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "Social",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "Games",
@@ -4110,14 +4001,6 @@
   "exploreCategoriesLabel": {
     "message": "Categories",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "Featured",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "Helper tools",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "Open",
@@ -4146,10 +4029,6 @@
   "exploreNoResultsDescription": {
     "message": "Try another name, or paste a dApp's URL.",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "Get testnet tokens for swap",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "Minimize",
@@ -4239,10 +4118,6 @@
   "dappBrowserCapsule": {
     "message": "dApp browser header",
     "englishSource": "dApp browser header"
-  },
-  "dragToMinimize": {
-    "message": "Drag down to minimize",
-    "englishSource": "Drag down to minimize"
   },
   "dappSwitcher": {
     "message": "dApp switcher",
@@ -4394,8 +4269,8 @@
     "englishSource": "Transaction not confirmed"
   },
   "transactionNotConfirmedNotificationBody": {
-    "message": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again.",
-    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+    "message": "The wallet could not confirm whether a transaction went through. Open the wallet before you try again.",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you try again."
   },
   "noteReceivedTapToClaim": {
     "message": "Tap here to accept it",
@@ -4513,6 +4388,10 @@
   "tokenInfo": {
     "message": "Token info",
     "englishSource": "Token info"
+  },
+  "tokenDescription": {
+    "message": "Description",
+    "englishSource": "Description"
   },
   "fungible": {
     "message": "Fungible",
@@ -4838,8 +4717,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Approve the request in your wallet and keep this screen open while Sepolia confirms it.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "Approve the request in your wallet and keep this screen open while the source network confirms it.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
     "message": "Bridge deposit failed",
@@ -4850,8 +4729,8 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes.",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes.",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "View on Etherscan",
@@ -4912,6 +4791,172 @@
   "slowRouteLabel": {
     "message": "Slow (Agglayer)",
     "englishSource": "Slow (Agglayer)"
+  },
+  "usdcxRouteName": {
+    "message": "USDCx",
+    "englishSource": "USDCx"
+  },
+  "usdcxRouteLabel": {
+    "message": "USDCx (Circle xReserve)",
+    "englishSource": "USDCx (Circle xReserve)"
+  },
+  "usdcxArrival": {
+    "message": "~20 min",
+    "englishSource": "~20 min"
+  },
+  "usdcxArrivalArc": {
+    "message": "~1 min",
+    "englishSource": "~1 min"
+  },
+  "usdcxRouteNotice": {
+    "message": "Circle xReserve mints USDCx on Miden 1:1 for the USDC you deposit.",
+    "englishSource": "Circle xReserve mints USDCx on Miden 1:1 for the USDC you deposit."
+  },
+  "usdcxDomainNotRegistered": {
+    "message": "Circle has not enabled USDCx deposits to Miden yet. Try again later.",
+    "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
+  },
+  "usdcxAwaitingAttestation": {
+    "message": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden.",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "View on block explorer",
+    "englishSource": "View on block explorer"
+  },
+  "usdcxAttested": {
+    "message": "Circle attested the deposit. USDCx will be minted on Miden shortly.",
+    "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
+  },
+  "usdcxReceived": {
+    "message": "USDCx was minted on Miden and your wallet received it.",
+    "englishSource": "USDCx was minted on Miden and your wallet received it."
+  },
+  "usdcxExecutorRouteNotice": {
+    "message": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "target": {
+        "content": "$4"
+      }
+    }
+  },
+  "usdcxCctpAwaitingAttestation": {
+    "message": "The burn is confirmed. Waiting for Circle to attest the transfer before it can be executed on $network$.",
+    "englishSource": "The burn is confirmed. Waiting for Circle to attest the transfer before it can be executed on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuteNeeded": {
+    "message": "Circle attested the transfer. Execute it on $network$ to deposit the USDC into xReserve for Miden. This needs a small amount of gas on $network$.",
+    "englishSource": "Circle attested the transfer. Execute it on $network$ to deposit the USDC into xReserve for Miden. This needs a small amount of gas on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxExecuteOnNetwork": {
+    "message": "Execute on $network$",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuting": {
+    "message": "Executing…",
+    "englishSource": "Executing…"
+  },
+  "usdcxExecuteSubmitted": {
+    "message": "The transfer was executed on $network$. Waiting for Circle to attest the deposit before USDCx is minted on Miden.",
+    "englishSource": "The transfer was executed on $network$. Waiting for Circle to attest the deposit before USDCx is minted on Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardingPending": {
+    "message": "The burn is confirmed. Circle attests the transfer and executes it on $network$, which deposits the USDC into xReserve for Miden.",
+    "englishSource": "The burn is confirmed. Circle attests the transfer and executes it on $network$, which deposits the USDC into xReserve for Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardFee": {
+    "message": "$fee$ USDC Circle fee",
+    "englishSource": "$fee$ USDC Circle fee",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxCircleFee": {
+    "message": "Circle fee",
+    "englishSource": "Circle fee"
+  },
+  "usdcxProgress": {
+    "message": "Progress",
+    "englishSource": "Progress"
+  },
+  "usdcxStepDeposited": {
+    "message": "Deposited on $network$",
+    "englishSource": "Deposited on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurned": {
+    "message": "Burned on $network$",
+    "englishSource": "Burned on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurnAttested": {
+    "message": "Circle attested the burn",
+    "englishSource": "Circle attested the burn"
+  },
+  "usdcxStepCircleExecutes": {
+    "message": "Circle executes on $network$",
+    "englishSource": "Circle executes on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepUserExecutes": {
+    "message": "Execute on $network$",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepDepositAttested": {
+    "message": "Circle attested the deposit",
+    "englishSource": "Circle attested the deposit"
+  },
+  "usdcxStepMinted": {
+    "message": "USDCx minted on Miden",
+    "englishSource": "USDCx minted on Miden"
   },
   "bridgeRowTitle": {
     "message": "Bridge $from$ → $to$",
@@ -4984,6 +5029,10 @@
   "unverifiedTokenDescription": {
     "message": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it.",
     "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
+  "unverifiedTokenTitle": {
+    "message": "Unverified token",
+    "englishSource": "Unverified token"
   },
   "couldNotVerifyBySimulation": {
     "message": "Could not verify by simulation. Amounts below are as declared by the site.",
@@ -5149,9 +5198,17 @@
     "message": "Custom guardian URL",
     "englishSource": "Custom guardian URL"
   },
+  "devEndpointFeeFaucet": {
+    "message": "Fee faucet account ID",
+    "englishSource": "Fee faucet account ID"
+  },
   "devAllowNoGuardian": {
     "message": "Allow 'No guardian' option in onboarding",
     "englishSource": "Allow 'No guardian' option in onboarding"
+  },
+  "devNominalUnquotedPrice": {
+    "message": "Value unquoted tokens at $1 (test networks only)",
+    "englishSource": "Value unquoted tokens at $1 (test networks only)"
   },
   "devEndpointChecking": {
     "message": "Checking…",
@@ -5291,15 +5348,6 @@
     "message": "Transfer accepted",
     "englishSource": "Transfer accepted"
   },
-  "networkNoticeChip": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
   "withdrawalRecoveryUnavailable": {
     "message": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal.",
     "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
@@ -5354,8 +5402,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only.",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "This bridge uses Arc Testnet or Ethereum Sepolia for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only.",
+    "englishSource": "This bridge uses Arc Testnet or Ethereum Sepolia for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "Help improve Wallet",
@@ -5516,6 +5564,19 @@
     "message": "Tokens have no real value",
     "englishSource": "Tokens have no real value"
   },
+  "mainnetCountdownLink": {
+    "message": "Join the early access list",
+    "englishSource": "Join the early access list"
+  },
+  "mainnetCountdownLabel": {
+    "message": "Time left until Bread goes mainnet: $time$",
+    "englishSource": "Time left until Bread goes mainnet: $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
   "activityRestoreTransfers": {
     "message": "Restore",
     "englishSource": "Restore"
@@ -5573,8 +5634,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network.",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "This bridge moves Arc Testnet or Ethereum Sepolia USDC, or Ethereum Sepolia ETH, to Miden. Never bridge from mainnet or any other real network.",
+    "englishSource": "This bridge moves Arc Testnet or Ethereum Sepolia USDC, or Ethereum Sepolia ETH, to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "Hidden transfers: $count$",
@@ -5742,8 +5803,8 @@
     "englishSource": "Daily limit (USD)"
   },
   "spendingLimitCoverage": {
-    "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
-    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
+    "message": "Only assets the wallet can price count toward this limit. Assets without a price are not limited.",
+    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price are not limited."
   },
   "spendingLimitCurrent": {
     "message": "Current limit: $amount$ a day",
@@ -6022,5 +6083,442 @@
   "hiddenTokensUnreadable": {
     "message": "Hidden tokens could not be loaded.",
     "englishSource": "Hidden tokens could not be loaded."
+  },
+  "confirmSendReason": {
+    "message": "Confirm your send",
+    "englishSource": "Confirm your send"
+  },
+  "confirmSwapReason": {
+    "message": "Confirm your swap",
+    "englishSource": "Confirm your swap"
+  },
+  "confirmDappTransactionReason": {
+    "message": "Confirm this transaction",
+    "englishSource": "Confirm this transaction"
+  },
+  "confirmEarnDepositReason": {
+    "message": "Confirm your deposit",
+    "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "Edit token details",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "Token details",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "Name",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "Symbol",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "Decimals",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "Save",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "Reset to faucet values",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "Edited",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "Enter a name of 1 to $max$ characters.",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "Enter a symbol of 1 to $max$ characters.",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "Enter a whole number from 0 to $max$.",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here.",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "Could not save the token details. Please try again.",
+    "englishSource": "Could not save the token details. Please try again."
+  },
+  "testIethDescription": {
+    "message": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet.",
+    "englishSource": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet."
+  },
+  "testIethExecution": {
+    "message": "The swap executes through a smart contract on Miden Testnet.",
+    "englishSource": "The swap executes through a smart contract on Miden Testnet."
+  },
+  "swapExecutionTitle": {
+    "message": "Where the swap executes",
+    "englishSource": "Where the swap executes"
+  },
+  "tokenInfoLabel": {
+    "message": "About $token$",
+    "englishSource": "About $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "externalPageLoadFailed": {
+    "message": "Couldn't open this page. Check your connection and try again.",
+    "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "midenNameUnsupportedNetwork": {
+    "message": "Miden Name is not available on this network.",
+    "englishSource": "Miden Name is not available on this network."
+  },
+  "contactAddressOrMidenName": {
+    "message": "Address or Miden Name",
+    "englishSource": "Address or Miden Name"
+  },
+  "contactAddressOrMidenNamePlaceholder": {
+    "message": "Enter an address or name.miden",
+    "englishSource": "Enter an address or name.miden"
+  },
+  "contactResolvedAddress": {
+    "message": "Resolved address: $address$",
+    "englishSource": "Resolved address: $address$",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameReceiptTransaction": {
+    "message": "Name receipt transaction",
+    "englishSource": "Name receipt transaction"
+  },
+  "midenNameResolving": {
+    "message": "Looking up this name…",
+    "englishSource": "Looking up this name…"
+  },
+  "midenNameNotFound": {
+    "message": "No account uses this name",
+    "englishSource": "No account uses this name"
+  },
+  "midenNameResolveFailed": {
+    "message": "Couldn't look up this name. Try again.",
+    "englishSource": "Couldn't look up this name. Try again."
+  },
+  "midenName": {
+    "message": "Miden Name",
+    "englishSource": "Miden Name"
+  },
+  "midenNameClaimCta": {
+    "message": "Claim a name",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimCtaSubtitle": {
+    "message": "Get your own $suffix$ name, yours forever",
+    "englishSource": "Get your own $suffix$ name, yours forever",
+    "placeholders": {
+      "suffix": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimTitle": {
+    "message": "Claim a name",
+    "englishSource": "Claim a name"
+  },
+  "midenNameSearchPlaceholder": {
+    "message": "yourname",
+    "englishSource": "yourname"
+  },
+  "midenNameRules": {
+    "message": "1–21 characters · a–z and 0–9 only",
+    "englishSource": "1–21 characters · a–z and 0–9 only"
+  },
+  "midenNameAvailable": {
+    "message": "$name$ is available",
+    "englishSource": "$name$ is available",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameTaken": {
+    "message": "$name$ is already taken",
+    "englishSource": "$name$ is already taken",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameInvalidEmpty": {
+    "message": "Enter a name",
+    "englishSource": "Enter a name"
+  },
+  "midenNameInvalidTooLong": {
+    "message": "Use 21 characters or fewer",
+    "englishSource": "Use 21 characters or fewer"
+  },
+  "midenNameInvalidChars": {
+    "message": "Use only a–z and 0–9",
+    "englishSource": "Use only a–z and 0–9"
+  },
+  "midenNameChecking": {
+    "message": "Checking…",
+    "englishSource": "Checking…"
+  },
+  "midenNameServiceUnavailable": {
+    "message": "Couldn't check this name. Try again.",
+    "englishSource": "Couldn't check this name. Try again."
+  },
+  "midenNameRegistryUnavailable": {
+    "message": "Miden Name does not accept new names right now",
+    "englishSource": "Miden Name does not accept new names right now"
+  },
+  "midenNamePriceChanged": {
+    "message": "The price changed. Check the new price and try again.",
+    "englishSource": "The price changed. Check the new price and try again."
+  },
+  "midenNamePrice": {
+    "message": "Price · length $length$",
+    "englishSource": "Price · length $length$",
+    "placeholders": {
+      "length": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameNetworkFee": {
+    "message": "Network fee",
+    "englishSource": "Network fee"
+  },
+  "midenNameTxFee": {
+    "message": "Max transaction fee",
+    "englishSource": "Max transaction fee"
+  },
+  "midenNameTotal": {
+    "message": "Total",
+    "englishSource": "Total"
+  },
+  "midenNameGoesTo": {
+    "message": "Goes to",
+    "englishSource": "Goes to"
+  },
+  "midenNameBalanceAfter": {
+    "message": "Balance after",
+    "englishSource": "Balance after"
+  },
+  "midenNamePermanentNote": {
+    "message": "Registration is permanent. The name goes to this account and the price is not refunded.",
+    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
+  },
+  "midenNameInsufficientBalance": {
+    "message": "Not enough MIDEN. You need $amount$.",
+    "englishSource": "Not enough MIDEN. You need $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimName": {
+    "message": "Claim $name$ · $price$",
+    "englishSource": "Claim $name$ · $price$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "price": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStatusSubtitle": {
+    "message": "$amount$ · $account$",
+    "englishSource": "$amount$ · $account$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStepRequestSent": {
+    "message": "Request sent",
+    "englishSource": "Request sent"
+  },
+  "midenNameStepIssued": {
+    "message": "Name issued and published by Miden Name",
+    "englishSource": "Name issued and published by Miden Name"
+  },
+  "midenNameStepAdding": {
+    "message": "Adding it to your account",
+    "englishSource": "Adding it to your account"
+  },
+  "midenNameFailedTaken": {
+    "message": "Someone else got this name first.",
+    "englishSource": "Someone else got this name first."
+  },
+  "midenNameFailedExpired": {
+    "message": "The registry did not process the request in time.",
+    "englishSource": "The registry did not process the request in time."
+  },
+  "midenNameFailedDiscarded": {
+    "message": "The registry could not process the request.",
+    "englishSource": "The registry could not process the request."
+  },
+  "midenNameFailedTx": {
+    "message": "The request transaction failed. No name was registered.",
+    "englishSource": "The request transaction failed. No name was registered."
+  },
+  "midenNameFailedClaim": {
+    "message": "The name was issued, but adding it to your account failed.",
+    "englishSource": "The name was issued, but adding it to your account failed."
+  },
+  "midenNameRetryClaim": {
+    "message": "Retry claim",
+    "englishSource": "Retry claim"
+  },
+  "midenNameClaiming": {
+    "message": "Claiming $name$…",
+    "englishSource": "Claiming $name$…",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameDone": {
+    "message": "Done",
+    "englishSource": "Done"
+  },
+  "midenNameStateOwned": {
+    "message": "Owned",
+    "englishSource": "Owned"
+  },
+  "midenNameStateClaiming": {
+    "message": "Claiming",
+    "englishSource": "Claiming"
+  },
+  "midenNameStateFailed": {
+    "message": "Failed",
+    "englishSource": "Failed"
+  },
+  "midenNameNotYetResolvable": {
+    "message": "Not in the registry yet",
+    "englishSource": "Not in the registry yet"
+  },
+  "midenNameResolvesHere": {
+    "message": "Resolves to this account",
+    "englishSource": "Resolves to this account"
+  },
+  "midenNameEmpty": {
+    "message": "You have no Miden Name yet",
+    "englishSource": "You have no Miden Name yet"
+  },
+  "midenNameClaimAnother": {
+    "message": "Claim another name",
+    "englishSource": "Claim another name"
+  },
+  "midenNamePrimaryName": {
+    "message": "Primary name",
+    "englishSource": "Primary name"
+  },
+  "midenNameYourNames": {
+    "message": "Your names",
+    "englishSource": "Your names"
+  },
+  "midenNameCheckingRecord": {
+    "message": "Checking the registry…",
+    "englishSource": "Checking the registry…"
+  },
+  "midenNameResolvesElsewhere": {
+    "message": "Resolves to another account",
+    "englishSource": "Resolves to another account"
+  },
+  "transactionStageRegisteringName": {
+    "message": "Registering name",
+    "englishSource": "Registering name"
+  },
+  "transactionTitleRegisterName": {
+    "message": "Registering Name",
+    "englishSource": "Registering Name"
+  },
+  "historyRegisteredName": {
+    "message": "Registered $name$",
+    "englishSource": "Registered $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyReceivedName": {
+    "message": "Received $name$",
+    "englishSource": "Received $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameViewStatus": {
+    "message": "View status",
+    "englishSource": "View status"
+  },
+  "midenNameReceiptName": {
+    "message": "Name",
+    "englishSource": "Name"
+  },
+  "midenNameReceiptRegistry": {
+    "message": "Registry",
+    "englishSource": "Registry"
+  },
+  "midenNameReceiptNoteId": {
+    "message": "Registration note",
+    "englishSource": "Registration note"
+  },
+  "midenNameReceiptPhase": {
+    "message": "Phase",
+    "englishSource": "Phase"
+  },
+  "balanceCardAccountWithName": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
   }
 }

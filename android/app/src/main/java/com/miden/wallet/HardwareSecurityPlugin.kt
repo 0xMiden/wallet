@@ -54,8 +54,7 @@ class HardwareSecurityPlugin : Plugin() {
         val canAuthenticate = biometricManager.canAuthenticate(authenticators)
 
         // Available if device has any form of secure authentication
-        val available = Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
-                canAuthenticate == BiometricManager.BIOMETRIC_SUCCESS
+        val available = canAuthenticate == BiometricManager.BIOMETRIC_SUCCESS
 
         Log.d(TAG, "Hardware security available: $available (canAuthenticate: $canAuthenticate)")
 

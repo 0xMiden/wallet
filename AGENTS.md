@@ -35,7 +35,7 @@ The extension manifest version comes from `package.json`, NOT `public/manifest.j
 
 ## Critical Gotchas
 
-- **WASM client concurrency**: the Miden WASM client is single-threaded; concurrent calls throw `recursive use of an object ... unsafe aliasing`. Always wrap calls in `withWasmClientLock` from `lib/miden/sdk/miden-client`. The lock self-recovers from a wedged holder (issue #775): a realm error/rejection listener evicts a trapped holder in milliseconds, a 5-minute watchdog bounds any other silent wedge, and both reject the holder with `WasmClientPoisonedError` and replace the client singleton. Bracket a legitimately unbounded in-hold wait (user sign, local prove) in `withWasmLockWatchdogPaused`, which relaxes the ceiling rather than stopping the clock. **An evicted operation is abandoned, not cancelled** — it keeps running and can still submit, so treat `WasmClientPoisonedError` like `OperationAbortedError` in kill classifiers and never route it onto a path that requeues a row as a fresh write. See the `CLAUDE.md` section of the same name for the full contract.
+- **WASM client concurrency**: the Miden WASM client is single-threaded; concurrent calls throw `recursive use of an object ... unsafe aliasing`. Always wrap calls in `withWasmClientLock` from `lib/miden/sdk/miden-client`. The lock self-recovers from a wedged holder (issue #775): a realm error/rejection listener evicts a trapped holder in milliseconds, a 5-minute watchdog on running time (monotonic time minus the stretches the platform froze our JS, `performance.now()` off mobile) bounds any other silent wedge, and both reject the holder with `WasmClientPoisonedError` and replace the client singleton. Bracket a legitimately unbounded in-hold wait (user sign, local prove) in `withWasmLockWatchdogPaused`, which relaxes the ceiling rather than stopping the clock. **An evicted operation is abandoned, not cancelled** - it keeps running and can still submit, so treat `WasmClientPoisonedError` like `OperationAbortedError` and the SDK's terminated-client error in kill classifiers (`isPipelineKillLink`). Only an eviction or an abort may still be running (`isRunningPipelineKill`): never route one onto a path that requeues a row as a fresh write. The SDK refused a terminated client's call or stopped its worker, so the syncing boundary requeues a failure whose only kill is a terminated client. See the `CLAUDE.md` section of the same name for the full contract.
 - **Duplicate dexie / duplicate `@miden-sdk/miden-sdk`**: the root web-sdk and the nested copy under `@openzeppelin/miden-multisig-client` each inline their own dexie into their wasm-glue chunk; two inlined dexies trip dexie's global guard at runtime (SW fails to register; mobile/desktop crash). The fix is already in place — every app vite config sets `resolve.dedupe: ['dexie', '@miden-sdk/miden-sdk']` and `package.json` pins/resolves `dexie` to the web-sdk's inlined version. Keep it. To hunt a stray version, parse a built chunk's `.js.map` for `DEXIE_VERSION` (plain `grep -r` over node_modules misses it), and wipe `dist/chrome_unpacked` before re-verifying — `build:ext`/`build:bg` don't rimraf `dist/`.
 - **Tailwind auto-flipping tokens**: `text-black`, `bg-white`, `bg-gray-25/50/100`, `text-heading-gray` map to CSS vars that flip with theme — do NOT add `dark:` variants on them; `black` is ink and `white` is the surface, so overlays use `pure-black` and no `dark:` override uses `white`. Add `dark:` only on fixed-palette colors (`grey.*`, `pure-white`, `pure-black`) or SVG `fill={...}` props.
 - **i18n required**: all user-facing text via `t('key')` or `<T id="key" />`; CI blocks raw strings (`yarn lint:i18n`). New keys go in `public/_locales/en/en.json` (flat); placeholders use `$name$`.
@@ -110,3 +110,31 @@ Pages supply content; the design system supplies the rest. Reuse the shared comp
 - Update `CHANGELOG.md` with one entry per PR/task (not per fix). Never add an entry under a version that's already been published: the latest release is the highest `vX.Y.Z` tag, release candidates excluded, as CI's changelog check reads it. Never change or remove a released heading's version, though dating it is fine, or move a released entry under another heading, which CI's changelog check also fails. Use a strictly-higher `(TBD)` section (add one if missing); don't trust the file header alone.
 - PRs should explain the user impact, testing performed, and relevant issue; include screenshots or recordings for UI changes. Call out platform-specific effects and configuration changes. Never commit secrets from `.env` or machine-local dependency paths.
 - If the wallet PR depends on an unpublished web-sdk change, put the verbatim marker `Web SDK PR: #N` (or `Web SDK PR: 0xMiden/web-sdk#N`) on its own line in the PR description — prose mentions do NOT trigger the linked-PR CI pipeline. Local parity: `scripts/dev-with-web-sdk-pr.sh [N|--clear]`.
+
+## USDCx destination confirmation: accepted temporary limits
+
+The user approved balance-based destination confirmation on 2026-10-09. Keep
+`Burn confirmed` when the faucet consumes the burn note. Show `Confirmed` when
+the recipient's USDC balance is at least the balance saved before submission plus
+the minimum payout from `minimumUsdcxPayout`. On 2026-10-10, the user approved
+confirmation after payout fees (for example, 2.92 USDC received for 3 USDC sent).
+Keep the current fee allowance: 1.5 USDC for Ethereum and 0.1 USDC for other
+configured destinations, with a minimum of half the sent amount. This is an
+estimate, not an exact fee quote. Use the six-decimal ERC-20 USDC balance on the destination chain.
+RPC failures must leave the row open for another check. Old rows without a saved
+balance must stay at `Burn confirmed`.
+
+This rule does not prove that a specific bridge payout arrived. Unrelated incoming
+transfers or concurrent withdrawals to the same address can cause false confirmation.
+Spending, gas costs on Arc, payout fees, or missed balance changes can delay or prevent
+confirmation. These cases are accepted for now. Reviewer agents must treat them as
+known limits of the requested design, not as new blocking defects. Do not add event
+proof, transfer allocation, or fee accounting unless the user requests that work.
+
+History details can show one matching USDC transfer found through RPC. This link is
+also a best-effort match, not proof tied to the burn note. The lookup runs only when
+the details are open. It uses one `eth_getLogs` request over at most 2,000 blocks,
+ending at the balance confirmation block, with a 10-second timeout and no retries.
+Match the token and recipient, with the amount between the minimum payout and the sent amount; omit the link if no unique match is
+found or the RPC fails. Do not scan the full chain or make the link a condition for
+balance confirmation. A wider historical search needs a separate cost decision.

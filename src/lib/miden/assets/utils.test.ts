@@ -1,7 +1,7 @@
 import BigNumber from 'bignumber.js';
 
-import { fetchFromStorage, putToStorage } from 'lib/miden/front';
-import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { fetchFromStorage, getTokensBaseMetadata, putToStorage } from 'lib/miden/front';
+import { getNativeAssetId, getNativeAssetMetadata } from 'lib/miden-chain/native-asset';
 
 import { FAUCET_ID_STORAGE_KEY } from './constants';
 import {
@@ -18,6 +18,7 @@ import {
 
 jest.mock('lib/miden/front', () => ({
   fetchFromStorage: jest.fn(),
+  getTokensBaseMetadata: jest.fn(),
   putToStorage: jest.fn(),
   searchAssets: jest.fn(),
   useAllTokensBaseMetadata: jest.fn()
@@ -26,7 +27,10 @@ jest.mock('lib/miden/front', () => ({
 jest.mock('lib/miden/front/storage', () => jest.requireMock('lib/miden/front'));
 
 jest.mock('lib/miden-chain/native-asset', () => ({
-  getNativeAssetId: jest.fn()
+  getNativeAssetId: jest.fn(),
+  getNativeAssetIdSync: () => 'native-fee',
+  getNativeAssetMetadataSync: () => null,
+  getNativeAssetMetadata: jest.fn()
 }));
 
 const mockFetchFromStorage = fetchFromStorage as jest.Mock;
@@ -37,6 +41,9 @@ describe('assets/utils', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     localStorage.clear();
+    mockGetNativeAssetId.mockResolvedValue('native-fee');
+    jest.mocked(getNativeAssetMetadata).mockResolvedValue(null);
+    jest.mocked(getTokensBaseMetadata).mockResolvedValue(undefined);
   });
 
   describe('toTokenSlug', () => {
@@ -179,13 +186,24 @@ describe('assets/utils', () => {
   });
 
   describe('getTokenId', () => {
-    it('returns "MIDEN" for miden faucet', async () => {
-      const midenFaucetId = 'mtst1aqmat9m63ctdsgz6xcyzpuprpulwk9vg_qruqqypuyph';
-      mockFetchFromStorage.mockResolvedValue(midenFaucetId);
+    it('returns provisional USDCX for the actual native faucet despite a different legacy selection', async () => {
+      mockFetchFromStorage.mockResolvedValue('legacy-display');
+      expect(await getTokenId('native-fee')).toBe('USDCX');
+      expect(getTokensBaseMetadata).not.toHaveBeenCalled();
+    });
 
-      const result = await getTokenId(midenFaucetId);
+    it.each(['USDCX', 'MIDEN'])('uses authoritative native %s metadata', async symbol => {
+      jest.mocked(getNativeAssetMetadata).mockResolvedValue({ symbol, decimals: 6 });
+      expect(await getTokenId('native-fee')).toBe(symbol);
+    });
 
-      expect(result).toBe('MIDEN');
+    it.each(['MIDEN', 'DISPLAY'])('preserves distinct legacy cached %s branding', async symbol => {
+      mockFetchFromStorage.mockResolvedValue('legacy-display');
+      jest.mocked(getNativeAssetMetadata).mockResolvedValue({ symbol: 'USDCX', decimals: 6 });
+      jest.mocked(getTokensBaseMetadata).mockResolvedValue({ symbol, name: symbol, decimals: 4 });
+      expect(await getTokenId('legacy-display')).toBe(symbol);
+      expect(getTokensBaseMetadata).toHaveBeenCalledWith('legacy-display');
+      expect(getNativeAssetMetadata).not.toHaveBeenCalled();
     });
 
     it('returns "Unknown" for non-miden faucet', async () => {

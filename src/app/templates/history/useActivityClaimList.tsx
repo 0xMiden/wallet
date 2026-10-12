@@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next';
 import { useActivityClaims } from 'app/hooks/useActivityClaims';
 import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { markActivityRead } from 'lib/settings/activity-read';
 import { useConfirm } from 'lib/ui/dialog';
 
@@ -27,9 +29,10 @@ function isShown(item: PendingActivityItem, hiddenIds: ReadonlySet<string>): boo
  */
 export function useActivityClaimList(search: string, filter: ActivityFilter) {
   const { t } = useTranslation();
-  const { items, accept, acceptMany, account, isLoadingNotes } = useActivityClaims();
+  const { items, accept, acceptMany, retryHeld, account, isLoadingNotes } = useActivityClaims();
   const hidden = useActivityHiddenNotes(account.publicKey);
   const confirm = useConfirm();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const currentItems = useRef(items);
   currentItems.current = items;
 
@@ -47,12 +50,15 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
     () =>
       query
         ? representedItems.filter(item =>
-            [item.note.metadata.symbol, item.note.metadata.name, item.note.senderAddress].some(value =>
-              value?.toLowerCase().includes(query)
-            )
+            [
+              item.note.metadata.symbol,
+              midenTokenLabel(bridgeConfig, item.note.faucetId, item.note.metadata.symbol),
+              item.note.metadata.name,
+              item.note.senderAddress
+            ].some(value => value?.toLowerCase().includes(query))
           )
         : representedItems,
-    [representedItems, query]
+    [representedItems, query, bridgeConfig]
   );
 
   // Declined transfers that could still be accepted, which Restore brings back.
@@ -80,6 +86,8 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
   };
   const acceptRef = useRef(accept);
   acceptRef.current = accept;
+  const retryHeldRef = useRef(retryHeld);
+  retryHeldRef.current = retryHeld;
   const rejectRef = useRef(reject);
   rejectRef.current = reject;
   const hiddenLoaded = hidden.loaded;
@@ -89,6 +97,7 @@ export function useActivityClaimList(search: string, filter: ActivityFilter) {
         item={item}
         onAccept={note => acceptRef.current(note)}
         onReject={hiddenLoaded ? note => rejectRef.current(note) : undefined}
+        onRetryHeld={heldItem => retryHeldRef.current(heldItem)}
       />
     ),
     [hiddenLoaded]

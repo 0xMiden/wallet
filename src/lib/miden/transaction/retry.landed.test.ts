@@ -118,6 +118,20 @@ describe('requeueFailedTransaction — landed reconcile against the real row sto
     expect(row?.rawError).toBeUndefined();
   });
 
+  it.each<[ITransaction['type'], ITransaction['displayIcon']]>([
+    ['send', 'SEND'],
+    ['swap', 'SWAP'],
+    ['execute', 'DEFAULT']
+  ])('a landed %s stops drawing as failed: it takes its type`s icon', async (type, icon) => {
+    await Repo.transactions.put(failedSend({ id: 'tx-landed-icon', type }));
+    mockVerifySendLanded.mockResolvedValue('landed');
+
+    await requeueFailedTransaction('tx-landed-icon');
+
+    const row = await Repo.transactions.where({ id: 'tx-landed-icon' }).first();
+    expect(row).toMatchObject({ status: ITransactionStatus.Completed, displayIcon: icon });
+  });
+
   it.each(DELIVERY_CASES)(
     'completes %s with the matching delivery state (#1233)',
     async (_label, overrides, delivery, message) => {

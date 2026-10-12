@@ -1,11 +1,11 @@
 import type { CdpSession } from './cdp-bridge';
 import type { EmulatorControl } from './emulator-control';
 import { ACTIVITY_PENDING_PATH } from '../../../../src/app/pages/activity-paths';
-import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
 import type { TimelineRecorder } from '../../harness/timeline-recorder';
-import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 import { buildBalanceTotalScript } from '../../helpers/balance-script';
 import { claimFromPendingList } from '../../helpers/claim-drain';
+import { dismissTelemetryConsent } from '../../helpers/telemetry-consent';
+import type { GuardianAuthInfo, WalletPage, SendTokensParams } from '../../helpers/wallet-page';
 
 const DEFAULT_PASSWORD = 'Password123!';
 const SYNC_WAIT_MS = 3_500;
@@ -278,7 +278,7 @@ export class AndroidWalletPage implements WalletPage {
         `  if (want) { want.click(); return true; } ` +
         `} ` +
         `var rows = Array.from(document.querySelectorAll('[data-testid^="send-token-"]')); ` +
-        `var skip = ['send-token-selector', 'send-token-search', 'send-token-MIDEN']; ` +
+        `var skip = ['send-token-selector', 'send-token-search', 'send-token-USDCX']; ` +
         `var pick = rows.find(function(r) { return skip.indexOf(r.getAttribute('data-testid') || '') === -1; }); ` +
         `if (!pick) pick = rows[0]; ` +
         `if (!pick) return false; pick.click(); return true;`

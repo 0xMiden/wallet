@@ -1,0 +1,91 @@
+{
+  "network": "testnet",
+  "version": 1,
+  "items": [
+    {
+      "id": "faucet",
+      "name": {
+        "en": "Faucet"
+      },
+      "tagline": {
+        "en": "Get testnet tokens"
+      },
+      "url": "https://faucet.testnet.miden.io/",
+      "category": "tools",
+      "icon": "icons/faucet.png",
+      "brandColor": "#778C72",
+      "isExchange": false
+    },
+    {
+      "id": "forkchoice-faucet",
+      "name": {
+        "en": "Forkchoice Faucet"
+      },
+      "tagline": {
+        "en": "Get testnet tokens for swap",
+        "de": "Testnet-Token für Swaps erhalten",
+        "en_GB": "Get testnet tokens for swap",
+        "es": "Obtén tokens de testnet para swaps",
+        "fr": "Obtenez des jetons testnet pour les swaps",
+        "ja": "スワップ用のテストネットトークンを入手",
+        "ko": "스왑용 테스트넷 토큰 받기",
+        "pl": "Zdobądź tokeny testnetowe do swapów",
+        "pt": "Obtenha tokens de testnet para swaps",
+        "ru": "Получите тестовые токены для обмена",
+        "tr": "Takas için testnet token’ı alın",
+        "uk": "Отримайте тестові токени для обміну",
+        "zh_CN": "获取用于兑换的测试网代币",
+        "zh_TW": "取得用於兌換的測試網代幣"
+      },
+      "url": "https://faucets.forkchoice.xyz/",
+      "category": "tools",
+      "icon": "icons/forkchoice-faucet.png",
+      "brandColor": "#2563EB",
+      "isExchange": false
+    }
+  ],
+  "sections": [
+    {
+      "id": "featured",
+      "kind": "featured",
+      "title": {
+        "en": "Featured",
+        "de": "Empfohlen",
+        "en_GB": "Featured",
+        "es": "Destacado",
+        "fr": "À la une",
+        "ja": "おすすめ",
+        "ko": "추천",
+        "pl": "Polecane",
+        "pt": "Destaque",
+        "ru": "Рекомендуем",
+        "tr": "Öne çıkan",
+        "uk": "Рекомендоване",
+        "zh_CN": "精选",
+        "zh_TW": "精選"
+      },
+      "itemIds": ["faucet"]
+    },
+    {
+      "id": "helper-tools",
+      "kind": "list",
+      "title": {
+        "en": "Helper tools",
+        "de": "Hilfsprogramme",
+        "en_GB": "Helper tools",
+        "es": "Herramientas",
+        "fr": "Outils",
+        "ja": "ヘルパーツール",
+        "ko": "도우미 도구",
+        "pl": "Narzędzia pomocnicze",
+        "pt": "Ferramentas",
+        "ru": "Вспомогательные инструменты",
+        "tr": "Yardımcı araçlar",
+        "uk": "Допоміжні інструменти",
+        "zh_CN": "辅助工具",
+        "zh_TW": "輔助工具"
+      },
+      "itemIds": ["faucet", "forkchoice-faucet"]
+    }
+  ]
+}

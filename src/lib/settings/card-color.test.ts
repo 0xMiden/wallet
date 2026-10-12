@@ -189,5 +189,51 @@ describe('card color setting', () => {
       localStorage.setItem(KEY, 'c');
       expect(make().get()).toBe('a');
     });
+
+    // A refused write holds the choice in memory, which another window's change must replace.
+    const failWrite = (write: () => void) => {
+      const spy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('Storage full');
+      });
+      write();
+      spy.mockRestore();
+    };
+    const storageEvent = (key: string | null, newValue: string | null) =>
+      window.dispatchEvent(new StorageEvent('storage', { key, newValue }));
+
+    it("notifies once and reads storage again when another window writes the setting's key", () => {
+      const setting = createPersistedSetting(KEY, ['a', 'b', 'c'] as const, 'a');
+      failWrite(() => setting.set('b'));
+      const listener = jest.fn();
+      setting.subscribe(listener);
+
+      localStorage.setItem(KEY, 'c');
+      storageEvent(KEY, 'c');
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(setting.get()).toBe('c');
+    });
+
+    it('notifies once and reads storage again when another window clears storage', () => {
+      const setting = make();
+      failWrite(() => setting.set('b'));
+      const listener = jest.fn();
+      setting.subscribe(listener);
+
+      localStorage.clear();
+      storageEvent(null, null);
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(setting.get()).toBe('a');
+    });
+
+    it('ignores a storage event for another key', () => {
+      const setting = make();
+      failWrite(() => setting.set('b'));
+      const listener = jest.fn();
+      setting.subscribe(listener);
+
+      storageEvent(CARD_COLOR_STORAGE_KEY, 'blue');
+      expect(listener).not.toHaveBeenCalled();
+      expect(setting.get()).toBe('b');
+    });
   });
 });

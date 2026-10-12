@@ -1,4 +1,8 @@
-import { renderHook } from '@testing-library/react';
+import React from 'react';
+
+import { render, renderHook } from '@testing-library/react';
+
+import { PageActiveContext } from 'app/layouts/page-active';
 
 import { holdNavbarHidden, useHideNavbarWhileOpen } from './useHideNavbarWhileOpen';
 
@@ -52,6 +56,25 @@ describe('useHideNavbarWhileOpen', () => {
     release();
     expect(document.body).toHaveAttribute('data-hide-navbar');
     caller.unmount();
+    expect(document.body).not.toHaveAttribute('data-hide-navbar');
+  });
+
+  it('releases a mounted page hold when the page moves out of view', () => {
+    const HiddenPage = () => {
+      useHideNavbarWhileOpen();
+      return null;
+    };
+    const page = (active: boolean) =>
+      React.createElement(PageActiveContext.Provider, { value: active }, React.createElement(HiddenPage));
+    const { rerender, unmount } = render(page(true));
+    expect(document.body).toHaveAttribute('data-hide-navbar');
+
+    rerender(page(false));
+    expect(document.body).not.toHaveAttribute('data-hide-navbar');
+
+    rerender(page(true));
+    expect(document.body).toHaveAttribute('data-hide-navbar');
+    unmount();
     expect(document.body).not.toHaveAttribute('data-hide-navbar');
   });
 });

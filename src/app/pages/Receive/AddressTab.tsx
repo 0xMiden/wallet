@@ -9,6 +9,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { HomeGroupPaneBody } from 'app/layouts/HomeGroupPane';
 import { usePageActive } from 'app/layouts/page-active';
 import EvmConnectModal from 'app/templates/EvmConnectModal';
+import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { ACCENT_CLASSES } from 'components/flow/accent';
 import { NetworkChip } from 'components/NetworkChip';
 import { QRCode, type QRCodeHandle, type QRPalette } from 'components/QRCode';
@@ -18,16 +19,16 @@ import { IconCircle } from 'components/ui/FactRow';
 import { Notice } from 'components/ui/Notice';
 import { Pill } from 'components/ui/Pill';
 import { resolveTransition, tabBarMotion } from 'lib/animation';
-import { isBridgeDepositEnabled } from 'lib/feature-flags';
 import { formatMidenName } from 'lib/miden/name/encoding';
 import { useOwnedMidenName } from 'lib/miden/name/registrations';
 import { useMidenNameResolvesHere } from 'lib/miden/name/useMidenNameResolvesHere';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
-import { isExtension, isMobile } from 'lib/platform';
+import { isMobile } from 'lib/platform';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
 import { cn } from 'lib/ui/util';
+import { useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { truncateAddress } from 'utils/string';
 
@@ -71,6 +72,8 @@ interface ReceiveActionTileProps {
   title: string;
   caption: string;
   onClick: () => void;
+  /** Greyed out, and takes no tap, while what it opens cannot start. */
+  disabled?: boolean;
   'data-testid'?: string;
 }
 
@@ -80,13 +83,20 @@ const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
   title,
   caption,
   onClick,
+  disabled,
   'data-testid': dataTestId
 }) => {
   const tone = ACCENT_CLASSES.receive;
   return (
-    <Card asChild surface="outline" pressable className="flex min-w-0 flex-1 flex-col items-center gap-2.5 text-center">
+    <Card
+      asChild
+      surface="outline"
+      pressable
+      className="flex min-w-0 flex-1 flex-col items-center gap-2.5 text-center disabled:cursor-default disabled:opacity-50"
+    >
       <button
         type="button"
+        disabled={disabled}
         onClick={() => {
           hapticLight();
           onClick();
@@ -228,7 +238,8 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
     await copyAddress();
   }, [copyAddress, shareText, t]);
 
-  const showCrossChain = !isExtension() && isBridgeDepositEnabled();
+  // Cross Chain opens every bridge-in route, so it stays enabled while one of them can start.
+  const crossChain = useBridgeInAvailability();
 
   return (
     // The shared home-group pane body (HomeGroupPane): the page margin, the top offset (`visual`:
@@ -351,23 +362,23 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
               onClick={() => void handleShare()}
               data-testid="receive-share"
             />
-            {/* WalletConnect is not supported on the extension: the Reown relay
-                rejects the extension bundle's auth JWT (WebSocket close 3000), so
-                the AppKit connect flow can never complete there. */}
-            {showCrossChain && (
-              <ReceiveActionTile
-                icon={IconName.CrossChain}
-                title={t('crossChain')}
-                // Name the actual source test network, not a bare "Testnet" (#875).
-                caption={t('crossChainFromNetwork', { network: t('ethereumSepolia') })}
-                onClick={handleOpenEvm}
-                data-testid="receive-cross-chain"
-              />
-            )}
+            {/* Drawn on every platform. The extension once hid it because the Reown relay closed its
+                socket (code 3000): the page's placeholder Buffer encoded the relay token from zero
+                bytes. public/globals.js no longer installs one. */}
+            <ReceiveActionTile
+              icon={IconName.CrossChain}
+              title={t('crossChain')}
+              // Name the actual source test network, not a bare "Testnet" (#875).
+              caption={t('crossChainFromNetwork', { network: t('ethereumSepolia') })}
+              onClick={handleOpenEvm}
+              disabled={isFeatureBlocked(crossChain)}
+              data-testid="receive-cross-chain"
+            />
           </div>
           {/* The owned name, the claim in progress or the offer to claim one. Renders nothing on a
               network with no Miden Name deployment. */}
           <MidenNameReceiveRow address={address} />
+          <FeatureUnavailableNotice availability={crossChain} variant="inline" />
           {/* The funds-safety warning (#875), last: the page reads code → address → actions, and
               this qualifies all of it. A caption with the warning glyph, not a tinted block —
               between the address and the actions it split the page in two. */}
@@ -382,7 +393,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             </Notice>
           )}
         </div>
-        {showCrossChain && <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />}
+        <EvmConnectModal open={evmOpen} onOpenChange={setEvmOpen} />
       </div>
     </HomeGroupPaneBody>
   );

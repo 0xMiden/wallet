@@ -36,7 +36,7 @@ interface FindDomainNfaModule {
 }
 const { findDomainNfa } = jest.requireActual<FindDomainNfaModule>('./nfa');
 
-const REGISTRY_HEX = '0xe8249fe7070657110980da14461d78';
+const REGISTRY_HEX = '0x16fb70069eed60110c6207189c8237';
 const OTHER_FAUCET_HEX = '0xotherfaucet';
 const SENDER_HEX = '0xsender';
 const REGISTRY = { prefix: 0xaan, suffix: 0xbbn };
@@ -80,6 +80,7 @@ function accountWith(...nfas: NonFungibleAsset[]): Account {
 function storageOf(values: Map<string, Felts4>): RegistryStorageRead {
   return {
     blockNum: 1,
+    slotValue: () => undefined,
     mapValue: (_slot: string, key: Felts4) => values.get(key.join(',')) ?? [0n, 0n, 0n, 0n]
   };
 }

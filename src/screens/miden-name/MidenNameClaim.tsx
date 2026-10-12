@@ -18,7 +18,7 @@ import type { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { FEE_RESERVE_MULTIPLE } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
-import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
+import { MIDEN_NAME_PAYMENT_METADATA } from 'lib/miden/name/config';
 import { formatMidenName, type MidenLabelError, MIDEN_NAME_SUFFIX } from 'lib/miden/name/encoding';
 import { assertRegistrationPreconditions } from 'lib/miden/name/guard';
 import { buildRegisterNameRequest, registerNameRowAccounts, type RegisterNameRequest } from 'lib/miden/name/note';
@@ -54,7 +54,7 @@ type ChallengeState = Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' 
 const PRICE_TIER_CAP = 5;
 
 function formatMiden(amount: bigint): string {
-  return `${formatAmount(amount, MIDEN_METADATA.decimals)} ${MIDEN_METADATA.symbol}`;
+  return `${formatAmount(amount, MIDEN_NAME_PAYMENT_METADATA.decimals)} ${MIDEN_NAME_PAYMENT_METADATA.symbol}`;
 }
 
 function invalidKeyOf(reason: MidenLabelError): string {
@@ -107,7 +107,7 @@ export const MidenNameClaim: FC = () => {
     const native = balances?.find(balance => balance.tokenId === nativeFaucetId);
     // The placeholder zero row before the first read is not a known balance.
     if (!native || (balancesLoading && native.balance === 0)) return undefined;
-    return BigInt(Math.round(native.balance * 10 ** MIDEN_METADATA.decimals));
+    return BigInt(Math.round(native.balance * 10 ** MIDEN_NAME_PAYMENT_METADATA.decimals));
   }, [balances, balancesLoading, nativeFaucetId]);
 
   const feeReserve = baseFee !== null && baseFee > 0 ? BigInt(Math.round(baseFee * FEE_RESERVE_MULTIPLE)) : 0n;

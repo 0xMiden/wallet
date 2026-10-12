@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Bread Wallet by Miden",
-  "version": "1.16.2",
+  "version": "1.17.1",
 
   "icons": {
     "16": "misc/logo-white-bg-16.png",
@@ -25,6 +25,7 @@
   ],
   "host_permissions": [
     "http://localhost/*",
+    "http://127.0.0.1/*",
     "https://faucet-api.forkchoice.xyz/*",
     "https://*.miden.fi/*",
     "https://*.miden.io/*"

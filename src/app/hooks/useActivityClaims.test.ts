@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 
+import { TEST_NATIVE_ETH_FAUCET } from 'lib/epoch/testing/bridge-config';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 
 import { __resetActivityClaimsForTest, useActivityClaims } from './useActivityClaims';
@@ -13,8 +14,9 @@ const note: ClaimableNoteWithMetadata = {
   type: 'unknown',
   metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
 };
-type MockRow = { id: string; status: number; completedAt?: number };
+type MockRow = { id: string; status: number; completedAt?: number; held?: boolean };
 const mockQueue = jest.fn();
+const mockRequeue = jest.fn();
 const mockStart = jest.fn();
 const mockRequest = jest.fn();
 const mockQueueMany = jest.fn();
@@ -49,12 +51,25 @@ jest.mock('lib/telemetry', () => ({
   }),
   classifyError: () => 'unknown'
 }));
-jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'faucet-native' }));
+let mockLegacyFeeIdentity: string | undefined;
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => mockLegacyFeeIdentity ?? 'faucet-native'
+}));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => 'faucet-native' }));
 jest.mock('lib/miden/activity', () => ({
   initiateConsumeTransaction: (...args: Parameters<typeof mockQueue>) => mockQueue(...args),
-  initiateConsumeNotesTransaction: (...args: Parameters<typeof mockQueueMany>) => mockQueueMany(...args),
+  // The batch entry point: a test resolves it with a committed id, or with the full result when it
+  // needs a note covered by a row other than the batch.
+  queueConsumeNotes: (...args: Parameters<typeof mockQueueMany>) =>
+    Promise.resolve(mockQueueMany(...args)).then((queued: unknown) =>
+      typeof queued === 'string' ? { committedId: queued, coveringTxIdByNoteId: new Map<string, string>() } : queued
+    ),
   startBackgroundTransactionProcessing: (...args: Parameters<typeof mockStart>) => mockStart(...args),
-  requestSWTransactionProcessing: () => mockRequest()
+  requestSWTransactionProcessing: () => mockRequest(),
+  requeueFailedTransaction: (...args: unknown[]) => mockRequeue(...args),
+  // The hook only asks it about rows the test settles, so the stub keys on a test-only flag.
+  holdsNotes: (row: { status: number; held?: boolean }) => row.held === true
 }));
 jest.mock('lib/dexie-live-query', () => ({
   subscribeToLiveQuery: (query: () => Promise<unknown>, observer: (typeof mockSubscriptions)[number]['observer']) => {
@@ -69,11 +84,19 @@ jest.mock('lib/miden/repo', () => ({
   }
 }));
 jest.mock('lib/miden/db/types', () => ({
-  ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3 }
+  ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3, Unconfirmed: 4 }
 }));
 jest.mock('lib/miden/front', () => ({ useMidenContext: () => ({ signTransaction: jest.fn() }) }));
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
 jest.mock('lib/platform', () => ({ isExtension: () => mockFlags.extension }));
+// The bridge registry names its native-ETH faucet, which sends every Agglayer delivery; the SDK reads an id as itself.
+jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: () => ({}) }));
+jest.mock('lib/remote-config/values', () => ({
+  selectNativeEthFaucet: () =>
+    jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+      .TEST_NATIVE_ETH_FAUCET
+}));
+jest.mock('lib/miden/sdk/helpers', () => ({ accountRefToSdk: (ref: string) => ({ toString: () => ref }) }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveRpcUrl: () => mockEndpoint.rpc,
   getEffectiveNetworkName: () => mockEndpoint.network
@@ -91,6 +114,7 @@ function settle(rows: MockRow[]) {
 
 beforeEach(() => {
   mockQueue.mockReset();
+  mockRequeue.mockReset();
   mockStart.mockReset();
   mockRequest.mockReset();
   mockQueueMany.mockReset();
@@ -208,6 +232,23 @@ it('keeps a queued claim active if the processing wake-up fails', async () => {
   log.mockRestore();
 });
 
+it.each([false, true])(
+  'fee identity: queues the actual native claim first under a legacy display override, reversed=%s',
+  async reversed => {
+    mockLegacyFeeIdentity = 'faucet-legacy';
+    const actual = { ...note, id: 'actual-note', faucetId: 'faucet-native' };
+    const legacy = { ...note, id: 'legacy-note', faucetId: 'faucet-legacy' };
+    const notes = reversed ? [actual, legacy] : [legacy, actual];
+    mockClaim.safeClaimableNotes = notes;
+    mockQueueMany.mockResolvedValue('queued');
+    const { result } = renderHook(() => useActivityClaims());
+    await act(async () => {
+      await result.current.acceptMany(notes);
+    });
+    expect(mockQueueMany.mock.calls.map(call => call[1])).toEqual([[actual], [legacy]]);
+  }
+);
+
 it('marks every batch note as claiming at once, queues the native faucet group first and settles each group on its own', async () => {
   const tokenNote = { ...note, id: 'note-token', faucetId: 'faucet-token' };
   const nativeNote = { ...note, id: 'note-native', faucetId: 'faucet-native' };
@@ -266,6 +307,33 @@ it('marks every batch note as claiming at once, queues the native faucet group f
     status: 'failed',
     claimedAt: 60
   });
+});
+
+it('settles a batch note deduplicated onto another row with that row, not the batch it never joined', async () => {
+  const covered = { ...note, id: 'note-covered' };
+  const joined = { ...note, id: 'note-joined' };
+  mockClaim.safeClaimableNotes = [covered, joined];
+  mockQueueMany.mockResolvedValueOnce({
+    committedId: 'tx-batch',
+    coveringTxIdByNoteId: new Map([
+      [covered.id, 'tx-live'],
+      [joined.id, 'tx-batch']
+    ])
+  });
+  const { result } = renderHook(() => useActivityClaims());
+  await act(async () => {
+    await result.current.acceptMany([covered, joined]);
+  });
+
+  settle([
+    { id: 'tx-batch', status: 2, completedAt: 70 },
+    { id: 'tx-live', status: 3, completedAt: 80 }
+  ]);
+  expect(result.current.items.find(item => item.note.id === covered.id)).toMatchObject({
+    txId: 'tx-live',
+    status: 'failed'
+  });
+  expect(result.current.items.find(item => item.note.id === joined.id)?.status).toBe('claimed');
 });
 
 it('projects every live note state and leaves an undated note undated', () => {
@@ -379,6 +447,20 @@ it('groups notes from the same faucet and keeps them queued if the worker wake-u
   expect(result.current.items.map(item => item.status)).toEqual(['claiming', 'claiming']);
   expect(log).toHaveBeenCalled();
   log.mockRestore();
+});
+
+it('queues each Agglayer bridge delivery in a consume of its own', async () => {
+  const first = { ...note, id: 'bridge-1', senderAddress: TEST_NATIVE_ETH_FAUCET };
+  const second = { ...note, id: 'bridge-2', senderAddress: TEST_NATIVE_ETH_FAUCET };
+  mockClaim.safeClaimableNotes = [first, second];
+  const { result } = renderHook(() => useActivityClaims());
+
+  await act(async () => {
+    await result.current.acceptMany([first, second]);
+  });
+  expect(mockQueueMany).toHaveBeenCalledTimes(2);
+  expect(mockQueueMany).toHaveBeenNthCalledWith(1, 'account', [first], false, true);
+  expect(mockQueueMany).toHaveBeenNthCalledWith(2, 'account', [second], false, true);
 });
 
 it('queues only failed notes when a batch also contains unknown and checking notes', async () => {
@@ -644,4 +726,110 @@ describe('note_handle reporting', () => {
     expect(mockQueueMany).toHaveBeenCalledTimes(2);
     expect(mockReported).toEqual(['ok', 'ok']);
   });
+});
+
+describe('held claims (#1081)', () => {
+  it('a claiming item whose row is held shows as held, from a session attempt and from a fresh mount alike', async () => {
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
+    const { result } = renderHook(() => useActivityClaims());
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    expect(result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-held', held: true });
+  });
+
+  it('a claim the user just accepted shows as held once its row holds, so its card offers Retry', async () => {
+    mockQueue.mockResolvedValue('tx-held');
+    const { result } = renderHook(() => useActivityClaims());
+    await act(async () => {
+      await result.current.accept(note);
+    });
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    expect(result.current.items[0]).toMatchObject({ status: 'claiming', txId: 'tx-held', held: true });
+  });
+
+  it('Retry on a held item requeues that row in place and starts processing, without a second claim', async () => {
+    mockRequeue.mockResolvedValue(undefined);
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
+    const { result } = renderHook(() => useActivityClaims());
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    await act(async () => {
+      await result.current.retryHeld(result.current.items[0]!);
+    });
+    expect(mockRequeue).toHaveBeenCalledWith('tx-held');
+    expect(mockQueue).not.toHaveBeenCalled();
+    expect(mockStart).toHaveBeenCalled();
+  });
+
+  it('a refusal stays on the item as its message', async () => {
+    mockRequeue.mockRejectedValue(
+      new Error('The Guardian is still holding this transaction. You can retry it after 10:00:00.')
+    );
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
+    const { result } = renderHook(() => useActivityClaims());
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    await act(async () => {
+      await result.current.retryHeld(result.current.items[0]!);
+    });
+    expect(result.current.items[0]?.retryError).toMatch(/still holding this transaction/);
+  });
+
+  it('a second Retry while the first runs does nothing, so no refusal is left behind', async () => {
+    let finishFirst: () => void = () => {};
+    mockRequeue
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>(resolve => {
+            finishFirst = resolve;
+          })
+      )
+      .mockRejectedValueOnce(new Error('Transaction tx-held (consume) is not retryable'));
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
+    const { result } = renderHook(() => useActivityClaims());
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    const item = result.current.items[0]!;
+    let first: Promise<void> = Promise.resolve();
+    let second: Promise<void> = Promise.resolve();
+    act(() => {
+      first = result.current.retryHeld(item);
+      second = result.current.retryHeld(item);
+    });
+    await act(async () => {
+      finishFirst();
+      await Promise.all([first, second]);
+    });
+    expect(mockRequeue).toHaveBeenCalledTimes(1);
+    // The row runs and is held again: the later hold opens with no refusal on it.
+    settle([{ id: 'tx-held', status: 1 }]);
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    expect(result.current.items[0]).toMatchObject({ held: true });
+    expect(result.current.items[0]?.retryError).toBeUndefined();
+  });
+
+  it('forgets a refusal once the claim moves on, so a later hold starts clean', async () => {
+    mockRequeue.mockRejectedValue(new Error('The Guardian is still holding this transaction.'));
+    mockClaim.safeClaimableNotes = [{ ...note, isBeingClaimed: true, claimingTxId: 'tx-held' }];
+    const { result } = renderHook(() => useActivityClaims());
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    await act(async () => {
+      await result.current.retryHeld(result.current.items[0]!);
+    });
+    expect(result.current.items[0]?.retryError).toMatch(/still holding this transaction/);
+    settle([{ id: 'tx-held', status: 0 }]);
+    settle([{ id: 'tx-held', status: 4, held: true }]);
+    expect(result.current.items[0]).toMatchObject({ held: true });
+    expect(result.current.items[0]?.retryError).toBeUndefined();
+  });
+
+  it('a row that holds nothing settles the attempt to failed', async () => {
+    mockQueue.mockResolvedValue('tx-new');
+    const { result } = renderHook(() => useActivityClaims());
+    await act(async () => {
+      await result.current.accept(note);
+    });
+    settle([{ id: 'tx-new', status: 4, held: false }]);
+    expect(result.current.items[0]?.status).toBe('failed');
+  });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
 });

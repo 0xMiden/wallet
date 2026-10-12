@@ -23,6 +23,7 @@ import React from 'react';
 
 import { render, waitFor } from '@testing-library/react';
 
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { isTelemetryEnabled } from 'lib/settings/helpers';
 import { clearLegacyAnalyticsStorage } from 'lib/telemetry';
 import { initCrashReporting } from 'lib/telemetry/crash';
@@ -70,6 +71,10 @@ jest.mock('lib/telemetry/crash', () => ({
   initCrashReporting: jest.fn()
 }));
 
+jest.mock('lib/remote-config/runtime', () => ({
+  initBridgeConfig: jest.fn(() => Promise.resolve())
+}));
+
 // `getThemeSetting` is here only because the (unmocked) AppKit provider reads it
 // at module scope; mocking this module wholesale would otherwise break it.
 jest.mock('lib/settings/helpers', () => ({
@@ -101,7 +106,9 @@ jest.mock('app/ErrorBoundary', () => ({
 }));
 
 jest.mock('lib/ui/dialog', () => ({
-  DialogsProvider: ({ children }: { children?: React.ReactNode }) => <>{children}</>
+  DialogsProvider: ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="dialogs-provider">{children}</div>
+  )
 }));
 
 jest.mock('app/env', () => ({
@@ -174,6 +181,10 @@ jest.mock('./ConfirmPage', () => ({
 
 jest.mock('app/MobileBackBridge', () => ({
   MobileBackBridge: () => <div data-testid="mobile-back-bridge" />
+}));
+
+jest.mock('app/ExternalPageFailedNotice', () => ({
+  ExternalPageFailedNotice: () => <div data-testid="external-page-failed-notice" />
 }));
 
 jest.mock('app/templates/PinExtensionPrompt', () => ({
@@ -258,6 +269,7 @@ describe('app/App', () => {
 
       // Mobile / confirm / desktop surfaces are absent.
       expect(queryByTestId('mobile-back-bridge')).not.toBeInTheDocument();
+      expect(queryByTestId('external-page-failed-notice')).not.toBeInTheDocument();
       expect(queryByTestId('dapp-browser-provider')).not.toBeInTheDocument();
       expect(queryByTestId('confirm-page')).not.toBeInTheDocument();
       expect(queryByTestId('desktop-dapp-handler')).not.toBeInTheDocument();
@@ -279,7 +291,7 @@ describe('app/App', () => {
   });
 
   describe('mobile surface (not extension, not desktop, not confirm)', () => {
-    it('wraps PageRouter in the DappBrowserProvider and mounts the mobile back bridge', () => {
+    it('wraps PageRouter in the DappBrowserProvider and mounts the mobile back bridge and page-failure notice', () => {
       mockIsExtension.mockReturnValue(false);
       mockIsMobile.mockReturnValue(true);
       mockIsDesktop.mockReturnValue(false);
@@ -294,6 +306,8 @@ describe('app/App', () => {
 
       // Mobile back bridge is mounted; extension prompt is not.
       expect(getByTestId('mobile-back-bridge')).toBeInTheDocument();
+      // The notice shows an alert, so it has to sit under the dialog store.
+      expect(getByTestId('dialogs-provider')).toContainElement(getByTestId('external-page-failed-notice'));
       expect(queryByTestId('pin-extension-prompt')).not.toBeInTheDocument();
 
       expect(queryByTestId('confirm-page')).not.toBeInTheDocument();
@@ -350,6 +364,7 @@ describe('app/App', () => {
 
       // Desktop is neither mobile nor extension in this configuration.
       expect(queryByTestId('mobile-back-bridge')).not.toBeInTheDocument();
+      expect(queryByTestId('external-page-failed-notice')).not.toBeInTheDocument();
       expect(queryByTestId('pin-extension-prompt')).not.toBeInTheDocument();
     });
   });
@@ -403,6 +418,26 @@ describe('app/App', () => {
       // not a surface to leave unreported.
       expect(mockClearLegacyAnalyticsStorage).toHaveBeenCalledTimes(1);
       expect(mockInitCrashReporting).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('remote bridge config', () => {
+    it('loads the config once per mount, whatever screen opens first', () => {
+      const { rerender } = renderApp({ windowType: 'FullPage', confirmWindow: false });
+      rerender(<App env={{ windowType: 'FullPage', confirmWindow: false }} />);
+
+      expect(jest.mocked(initBridgeConfig)).toHaveBeenCalledTimes(1);
+    });
+
+    it('loads it on the mobile and confirm-window surfaces too', () => {
+      mockIsExtension.mockReturnValue(false);
+      mockIsMobile.mockReturnValue(true);
+      const { unmount } = renderApp({ windowType: 'FullPage', confirmWindow: false });
+      unmount();
+
+      renderApp({ windowType: 'Popup', confirmWindow: true });
+
+      expect(jest.mocked(initBridgeConfig)).toHaveBeenCalledTimes(2);
     });
   });
 

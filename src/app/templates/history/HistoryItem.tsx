@@ -9,6 +9,7 @@ import { ExploreSelectors } from 'app/pages/Explore.selectors';
 import { Button, ButtonVariant } from 'components/Button';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { isMobile } from 'lib/platform';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { Link } from 'lib/woozie';
 
 import { guardianHistoryActionKey } from './guardianHistoryLabels';
@@ -17,6 +18,8 @@ import TransactionIcon from './TransactionIcon';
 import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
+  bridgeBadgeStatusOf,
+  isUsdcxBridgeEntry,
   earnDepositSettlementOf,
   isBridgeInEntry,
   isEarnWithdrawEntry,
@@ -163,8 +166,9 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
   lastEntry
 }) => {
   const { t } = useTranslation();
-  const { inSymbol, outSymbol, outAmount, providerLabel, network, status } =
-    entry.txType === 'bridged-send' ? bridgeRowDisplay(entry) : bridgeInRowDisplay(entry);
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
+  const { inLabel, outLabel, outAmount, providerLabel, network, status } =
+    entry.txType === 'bridged-send' ? bridgeRowDisplay(bridgeConfig, entry) : bridgeInRowDisplay(bridgeConfig, entry);
 
   return (
     <div
@@ -183,7 +187,9 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
 
       <div className="flex flex-col grow min-w-0">
         <span className="text-ink font-medium truncate text-sm leading-none">
-          {t('bridgeRowTitle', { from: inSymbol, to: outSymbol })}
+          {entry.bridgeProvider === 'usdcx'
+            ? t('usdcxBurnTitle')
+            : t('bridgeRowTitle', { from: inLabel, to: outLabel })}
         </span>
         <span className="text-xs text-grey-500 truncate mt-1">
           {t('bridgeRowVia', { provider: providerLabel, network })}
@@ -193,10 +199,10 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
       <div className="flex flex-col items-end shrink-0 gap-1">
         {outAmount !== undefined && (
           <span className="text-sm font-medium leading-none text-ink">
-            {outAmount} {outSymbol}
+            {outAmount} {outLabel}
           </span>
         )}
-        <StatusBadge status={status} />
+        <StatusBadge status={isUsdcxBridgeEntry(entry) ? bridgeBadgeStatusOf(entry) : status} />
       </div>
     </div>
   );

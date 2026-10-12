@@ -14,7 +14,7 @@ import {
 } from 'lib/miden/sync-backoff';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
-import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import {
   areBackgroundSettingsMirrored,
   isAutoConsumeEnabledAsync,
@@ -30,15 +30,16 @@ import { midenClientProxy, runsWasmInThisRealm } from './miden-client-proxy';
 import { mergeAndPersistSeenNoteIds } from './note-checker-storage';
 import { isRotationPendingAccount } from './rotation-pending';
 import { Vault } from './vault';
-import { getFaucetIdSetting } from '../assets';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
 import { reconcileSwapOrderNotes } from '../swap/settlement';
-import { getUncompletedTransactions } from '../transaction/get';
+import { getNoteHoldingTransactions } from '../transaction/get';
 import { initiateConsumeNotesTransaction, initiateConsumeTransaction } from '../transaction/initiate';
 import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
+import { runTrimTick } from '../transaction/trim-result-bytes';
+import { heldNoteIdsOf } from '../transaction/verdict-rules';
 import { ConsumableNote, NoteTypeEnum } from '../types';
 
 // `init_vault` is the ESM module factory for `./vault`, injected by Vite's
@@ -163,6 +164,17 @@ async function getVault() {
 }
 
 export function doSync(force = false): Promise<void> {
+  // Reclaim finished transactions' result blobs. This is the extension realm's ONLY driver for it
+  // - the `miden-sync` alarm and the popup's SyncRequest both arrive here - so removing this call
+  // stops the extension reclaiming anything at all.
+  //
+  // Ahead of every early return below, and deliberately not inside `runSync`: this is pure local
+  // Dexie maintenance with no network dependency and no WASM lock, so neither the in-flight
+  // coalescing, nor the circuit breaker, nor the #777 fuse - which can hold this realm off the
+  // node for 30 minutes at a time - has any business gating it. Self-throttled and fire-and-forget,
+  // so it can neither slow a sync nor fail one.
+  void runTrimTick();
+
   if (inFlight) {
     if (!force) return inFlight;
     if (!queuedForcedSync) {
@@ -375,7 +387,10 @@ async function runSync(force: boolean): Promise<void> {
     //
     // Never allowed to affect the sync: delivery is maintenance behind
     // transactions that have already landed, so a transport problem here must not
-    // fail a sync or trip its circuit breaker.
+    // fail a sync or trip its circuit breaker. Fired and forgotten, like the
+    // unconfirmed reconcile below: a pass can push several notes, each bounded only
+    // by a gRPC timeout, and SyncCompleted must not wait for them. It never
+    // overlaps itself, so a lap that finds one still running joins it.
     //
     // Skipped on the lap whose inline sync was evicted, for the same reason [Lock 2] is
     // below: the sweep's proxy calls take fresh holds, so after an eviction cleared the
@@ -384,11 +399,18 @@ async function runSync(force: boolean): Promise<void> {
     // already landed — a lap later costs nothing, another two-minute park of this realm's
     // only WASM mutex costs the whole wallet (#777).
     if (!(inlineWasm && syncHoldEvicted)) {
-      try {
-        await sweepNoteDeliveries();
-      } catch (err) {
-        console.warn('[SyncManager] private-note delivery sweep failed', err);
-      }
+      void sweepNoteDeliveries().catch(err => console.warn('[SyncManager] private-note delivery sweep failed', err));
+    }
+
+    // Settle transactions whose submit outcome was unknown (#1081), fired and forgotten so a slow node or Guardian
+    // never holds the lap: node reads, and for each kept Guardian candidate the pass releases, a short WASM-lock read
+    // to build the cold service, a bounded Guardian abandon and up to 60 s of polling. Only after a successful sync,
+    // and skipped after an evicted one like the sweep. transaction-processor is imported dynamically, as below, to keep
+    // the service worker's init order acyclic; it holds the vault-backed Guardian provider the release needs.
+    if (syncSucceededAt !== undefined && !(inlineWasm && syncHoldEvicted)) {
+      void import('./transaction-processor')
+        .then(({ reconcileUnconfirmedInWorker }) => reconcileUnconfirmedInWorker())
+        .catch(err => console.warn('[SyncManager] unconfirmed reconcile failed', err));
     }
 
     const intercom = getIntercom()!;
@@ -524,18 +546,18 @@ async function runSync(force: boolean): Promise<void> {
 
       const metadataCache: Record<
         string,
-        { decimals: number; symbol: string; name: string; thumbnailUri?: string; scaleIsUnknown?: boolean }
+        { decimals: number; symbol: string; name: string; description?: string; scaleIsUnknown?: boolean }
       > = {};
       await Promise.all(
         [...allFaucetIds].map(async faucetId => {
           try {
-            const { base } = await fetchTokenMetadata(faucetId);
+            const metadata = await fetchTokenMetadata(faucetId);
             metadataCache[faucetId] = {
-              decimals: base.decimals,
-              symbol: base.symbol,
-              name: base.name,
-              thumbnailUri: base.thumbnailUri,
-              scaleIsUnknown: base.scaleIsUnknown
+              decimals: metadata.decimals,
+              symbol: metadata.symbol,
+              name: metadata.name,
+              description: metadata.description,
+              scaleIsUnknown: metadata.scaleIsUnknown
             };
           } catch {}
         })
@@ -575,6 +597,9 @@ async function runSync(force: boolean): Promise<void> {
       // so we never act on read-miss defaults for a user who opted out of auto-consume or
       // remote proving (the frontend still covers the app-open case in the meantime).
       let nativeAutoConsumeNotes: ConsumableNote[] = [];
+      // Native notes a claim or a dApp transaction already holds are no transfer to accept, so they raise no "click to
+      // claim" prompt (the frontend's `excludeAutoManagedNotes` rule). Read by the pass below, so only while it runs.
+      let heldNativeNoteIds: string[] = [];
       // Hoisted alongside the notes because the enqueue below needs it too: isolation
       // gives a note its own transaction, and only the fee can say whether that note is
       // worth one on its own. See `initiateConsumeNotesTransaction`.
@@ -585,20 +610,17 @@ async function runSync(force: boolean): Promise<void> {
           (await areBackgroundSettingsMirrored()) &&
           (await isAutoConsumeEnabledAsync())
         ) {
-          const nativeFaucetId = await getFaucetIdSetting();
+          const nativeFaucetId = await getNativeAssetId();
           if (nativeFaucetId) {
-            // Notes already covered by an uncompleted consume row are excluded BEFORE
-            // the value check, because the enqueue below drops exactly those at its
+            // Notes already held by a consume or a dApp transaction (live, or awaiting its verdict) are
+            // excluded BEFORE the value check, because the enqueue below drops exactly those at its
             // dedup gate -- so counting them measured a set larger than the one that
             // gets claimed. Chain-sync lag keeps a consumed note visible for a lap or
             // two, which makes this the steady state rather than an edge case: a lone
             // newly-arrived dust note rode in on the in-flight batch's value and was
-            // then claimed by itself for a full fee.
-            const notesBeingClaimed = new Set(
-              (await getUncompletedTransactions(accountPubKey))
-                .filter(tx => tx.type === 'consume')
-                .flatMap(tx => tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []))
-            );
+            // then claimed by itself for a full fee. A dApp transaction's carried notes are listed
+            // the lap after its confirm releases their quarantine, and a claim of one raced it.
+            const notesBeingClaimed = new Set((await getNoteHoldingTransactions(accountPubKey)).flatMap(heldNoteIdsOf));
             // Faucet filter FIRST, and BEFORE the fee is read. `getVerificationBaseFee`
             // returns a cached value instantly but falls through to an RPC round trip
             // while the fee is still unknown -- which against a parked node is every
@@ -610,9 +632,9 @@ async function runSync(force: boolean): Promise<void> {
             // (front/auto-managed-notes.ts), which also decides what its claim prompts
             // leave out; change the two together. Both callers skip a rotation-pending
             // account, as this pass does above.
-            const candidates = parsedNotes.filter(
-              n => n.faucetId === nativeFaucetId && !n.swapOrder && !notesBeingClaimed.has(n.id)
-            );
+            const nativeNotes = parsedNotes.filter(n => n.faucetId === nativeFaucetId && !n.swapOrder);
+            heldNativeNoteIds = nativeNotes.filter(n => notesBeingClaimed.has(n.id)).map(n => n.id);
+            const candidates = nativeNotes.filter(n => !notesBeingClaimed.has(n.id));
             // A claim worth no more than its own fee costs the user money to collect.
             // This pass is unattended, so the wallet must not do that on their behalf;
             // `isWorthClaiming` fails open on an unknown fee. Measured on the BATCH
@@ -646,7 +668,8 @@ async function runSync(force: boolean): Promise<void> {
 
       const managedAutoConsumeIds = new Set([
         ...parsedNotes.filter(n => n.swapOrder && n.swapOrder.autoConsume !== false).map(n => n.id),
-        ...nativeAutoConsumeNotes.map(n => n.id)
+        ...nativeAutoConsumeNotes.map(n => n.id),
+        ...heldNativeNoteIds
       ]);
       const newIds = (await mergeAndPersistSeenNoteIds(parsedNotes.map(n => n.id))).filter(
         id => !managedAutoConsumeIds.has(id)

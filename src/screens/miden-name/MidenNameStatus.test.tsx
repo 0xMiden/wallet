@@ -159,7 +159,7 @@ describe('MidenNameStatus', () => {
     render(<MidenNameStatus txId="reg-1" />);
     expect(screen.getByTestId('miden-name-status-hero')).toHaveTextContent('alice.miden');
     expect(screen.getByTestId('miden-name-status-hero')).toHaveTextContent(
-      'midenNameStatusSubtitle_20 MIDEN_Account 1'
+      'midenNameStatusSubtitle_20 USDCX_Account 1'
     );
     expect(stepState('request-sent')).toBe('complete');
     expect(stepState('issued')).toBe('active');

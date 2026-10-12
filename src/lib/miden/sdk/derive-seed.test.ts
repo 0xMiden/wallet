@@ -1,15 +1,13 @@
 /**
  * Regression gate for the HD derivation lifted out of `lib/miden/back/vault.ts`
- * so the guardian auto-detect probe can reuse it (issue #418), and for the
- * `legacy` / `v1` scheme split (issue #918).
+ * so the guardian auto-detect probe can reuse it (issue #418), and for the `v1`
+ * scheme (issue #918).
  *
- * These vectors are the load-bearing part: the derivation decides which keys —
- * and therefore which accounts — a seed phrase recovers. Changing any byte here
- * silently orphans every existing wallet, so the `legacy` expectations are
- * pinned to the literal output of the pre-refactor `@demox-labs/aleo-hd-key`
- * implementation for the BIP-39 test mnemonic, and the `v1` expectations to
- * the output frozen when that scheme shipped. Neither set is recomputed from
- * the code under test. The same literals live in `packages/hd-key`.
+ * These vectors are the load-bearing part: the derivation decides which keys,
+ * and therefore which accounts, a seed phrase recovers. Changing any byte here
+ * silently orphans every existing wallet, so the expectations are pinned to the
+ * output frozen when the `v1` scheme shipped and are not recomputed from the
+ * code under test. The same literals live in `packages/hd-key`.
  *
  * `@miden/hd-key` is mocked as a pass-through so the memoization in
  * `makeSeedDeriver` can be asserted; every value it returns is the real one.
@@ -43,34 +41,6 @@ const spec = (
   hdIndex: number,
   authScheme: AuthScheme = 'ecdsa'
 ): ClientSeedSpec => ({ keyDerivation, walletType, authScheme, hdIndex });
-
-/** Legacy golden vectors: `deriveClientSeed` under `legacy` as hex, indices 0..2. */
-const LEGACY_GOLDEN: [WalletType, string[]][] = [
-  [
-    WalletType.OnChain,
-    [
-      '7303bce3fd710072aec3c0b0564f061d3771c3c10a2e023cacdedcf5d2ce6b72',
-      '7932bbdd42852773ef2642e5cc65e0e19e577e433be7e9247b8ee881dfb24190',
-      '48be5f28eb6461028a215f96bf880a82d8b3caa89a9c9c94197e392795f782e7'
-    ]
-  ],
-  [
-    WalletType.OffChain,
-    [
-      '835fe3da130bac3825f5d0c9526ac400c54f9a5df8f7e9c38219b02cefc1a162',
-      'd8f603ff4fdaedc4ab26fb9ce5b9012a232d7a546f90ab7d956ba3ba5d3c20eb',
-      '0a4bbcdce48cd0191f21426989ba2ebba133527d859f24ba24c5b5a8fb6bfb34'
-    ]
-  ],
-  [
-    WalletType.Guardian,
-    [
-      '355dc73d10996cfff18a140266c04b4768b27b14483b876b81c7087b4317df72',
-      'ed319149e2f07ad5fd1543a8620ab3e99aa2e8a2d5cfe668ed16d6d5fc232f2d',
-      '145d6c1cfc1674a9b7a841fc20eaeb621b4e6b7fbbe676c9292deccc981d166c'
-    ]
-  ]
-];
 
 /** v1 golden vectors: `deriveClientSeed` under `v1` as hex, indices 0..2, per auth scheme. */
 const V1_GOLDEN: [WalletType, AuthScheme, string[]][] = [
@@ -130,7 +100,6 @@ const V1_GOLDEN: [WalletType, AuthScheme, string[]][] = [
   ]
 ];
 
-const legacyGoldenFor = (walletType: WalletType): string[] => LEGACY_GOLDEN.find(([type]) => type === walletType)![1];
 const v1GoldenFor = (walletType: WalletType, authScheme: AuthScheme): string[] =>
   V1_GOLDEN.find(([type, scheme]) => type === walletType && scheme === authScheme)![2];
 
@@ -169,11 +138,6 @@ describe('authSchemeIndex', () => {
 });
 
 describe('getMainDerivationPath', () => {
-  it('builds the legacy hardened BIP-44 path namespaced by wallet type only', () => {
-    expect(getMainDerivationPath(spec('legacy', WalletType.Guardian, 0))).toBe("m/44'/0'/2'/0'");
-    expect(getMainDerivationPath(spec('legacy', WalletType.OnChain, 5, 'falcon'))).toBe("m/44'/0'/0'/5'");
-  });
-
   it('builds the v1 path with the Miden coin type and the auth-scheme level', () => {
     expect(getMainDerivationPath(spec('v1', WalletType.Guardian, 0))).toBe("m/44'/5063758'/2'/1'/0'");
     expect(getMainDerivationPath(spec('v1', WalletType.OnChain, 5, 'falcon'))).toBe("m/44'/5063758'/0'/0'/5'");
@@ -181,18 +145,6 @@ describe('getMainDerivationPath', () => {
 });
 
 describe('deriveClientSeed', () => {
-  it.each(LEGACY_GOLDEN)('matches the pre-refactor legacy golden vectors for %s', (walletType, expectedPerIndex) => {
-    expectedPerIndex.forEach((expected, hdIndex) => {
-      expect(toHex(deriveClientSeed(MNEMONIC, spec('legacy', walletType, hdIndex)))).toBe(expected);
-    });
-  });
-
-  it('ignores the auth scheme under legacy, because that scheme has no scheme level', () => {
-    expect(toHex(deriveClientSeed(MNEMONIC, spec('legacy', WalletType.OnChain, 0, 'falcon')))).toBe(
-      legacyGoldenFor(WalletType.OnChain)[0]
-    );
-  });
-
   it.each(V1_GOLDEN)('matches the frozen v1 golden vectors for %s %s', (walletType, authScheme, expectedPerIndex) => {
     expectedPerIndex.forEach((expected, hdIndex) => {
       expect(toHex(deriveClientSeed(MNEMONIC, spec('v1', walletType, hdIndex, authScheme)))).toBe(expected);
@@ -200,12 +152,10 @@ describe('deriveClientSeed', () => {
   });
 
   it('returns 32 bytes', () => {
-    expect(deriveClientSeed(MNEMONIC, spec('legacy', WalletType.Guardian, 0))).toHaveLength(32);
     expect(deriveClientSeed(MNEMONIC, spec('v1', WalletType.Guardian, 0))).toHaveLength(32);
   });
 
   it('refuses a negative HD index instead of deriving a key for an imported account', () => {
-    expect(() => deriveClientSeed(MNEMONIC, spec('legacy', WalletType.OnChain, -1))).toThrow('Invalid derivation path');
     expect(() => deriveClientSeed(MNEMONIC, spec('v1', WalletType.OnChain, -1))).toThrow('Invalid derivation path');
   });
 });
@@ -214,9 +164,6 @@ describe('makeSeedDeriver', () => {
   it('is byte-identical to deriveClientSeed across specs', () => {
     const derive = makeSeedDeriver(MNEMONIC);
     for (let hdIndex = 0; hdIndex < 3; hdIndex++) {
-      expect(toHex(derive(spec('legacy', WalletType.OnChain, hdIndex)))).toBe(
-        legacyGoldenFor(WalletType.OnChain)[hdIndex]
-      );
       expect(toHex(derive(spec('v1', WalletType.OnChain, hdIndex)))).toBe(
         v1GoldenFor(WalletType.OnChain, 'ecdsa')[hdIndex]
       );
@@ -228,7 +175,7 @@ describe('makeSeedDeriver', () => {
     expect(jest.mocked(mnemonicToSeed)).not.toHaveBeenCalled();
 
     derive(spec('v1', WalletType.OnChain, 0));
-    derive(spec('legacy', WalletType.OnChain, 0));
+    derive(spec('v1', WalletType.OnChain, 1));
     derive(spec('v1', WalletType.Guardian, 7, 'falcon'));
 
     expect(jest.mocked(mnemonicToSeed)).toHaveBeenCalledTimes(1);
@@ -236,26 +183,25 @@ describe('makeSeedDeriver', () => {
 });
 
 describe('makeColdSeedDeriver', () => {
-  it('is byte-identical to the ecdsa deriveClientSeed under both schemes', () => {
+  it('is byte-identical to the ecdsa deriveClientSeed on the Guardian branch', () => {
     const derive = makeColdSeedDeriver(MNEMONIC);
     for (let hdIndex = 0; hdIndex < 3; hdIndex++) {
-      expect(toHex(derive(hdIndex, 'legacy'))).toBe(legacyGoldenFor(WalletType.Guardian)[hdIndex]);
-      expect(toHex(derive(hdIndex, 'v1'))).toBe(v1GoldenFor(WalletType.Guardian, 'ecdsa')[hdIndex]);
+      expect(toHex(derive(hdIndex))).toBe(v1GoldenFor(WalletType.Guardian, 'ecdsa')[hdIndex]);
     }
   });
 
   it('defaults to the Guardian branch and honours an explicit wallet type', () => {
-    expect(toHex(makeColdSeedDeriver(MNEMONIC)(0, 'legacy'))).toBe(legacyGoldenFor(WalletType.Guardian)[0]);
-    expect(toHex(makeColdSeedDeriver(MNEMONIC, WalletType.OnChain)(0, 'legacy'))).toBe(
-      legacyGoldenFor(WalletType.OnChain)[0]
+    expect(toHex(makeColdSeedDeriver(MNEMONIC)(0))).toBe(v1GoldenFor(WalletType.Guardian, 'ecdsa')[0]);
+    expect(toHex(makeColdSeedDeriver(MNEMONIC, WalletType.OnChain)(0))).toBe(
+      v1GoldenFor(WalletType.OnChain, 'ecdsa')[0]
     );
   });
 
-  it('pays the PBKDF2 cost once, not once per index or scheme', () => {
+  it('pays the PBKDF2 cost once, not once per index', () => {
     const derive = makeColdSeedDeriver(MNEMONIC);
-    derive(0, 'v1');
-    derive(1, 'v1');
-    derive(0, 'legacy');
+    derive(0);
+    derive(1);
+    derive(2);
     expect(jest.mocked(mnemonicToSeed)).toHaveBeenCalledTimes(1);
   });
 });

@@ -2,7 +2,9 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { markActivityRead, resetActivityReadState } from 'lib/settings/activity-read';
 
 import { PendingActivityCard, type PendingActivityItem, type PendingActivityStatus } from './PendingActivityCard';
@@ -50,6 +52,17 @@ jest.mock('app/icons/v2', () => ({
 }));
 jest.mock('lib/i18n/numbers', () => ({ formatBigInt: () => '1', getAdaptiveDecimalPlaces: () => 3 }));
 
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
+
 const note: ClaimableNoteWithMetadata = {
   id: 'note-1',
   faucetId: 'faucet',
@@ -70,6 +83,19 @@ const renderCard = (
 };
 
 describe('PendingActivityCard', () => {
+  it('names a transfer of the testnet bridge faucet by its label', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    const item: PendingActivityItem = {
+      note: { ...note, faucetId: TEST_MIDEN_USDC_FAUCET, metadata: { name: 'USDC', symbol: 'USDC', decimals: 6 } },
+      status: 'pending'
+    };
+    render(<PendingActivityCard item={item} onAccept={jest.fn()} onReject={jest.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { expanded: false }));
+
+    expect(screen.getByText('1 Test Epoch USDC')).toBeInTheDocument();
+  });
+
   // Resolving a `height: auto` keyframe makes Framer measure the element, which calls
   // `window.scrollTo` — unimplemented in jsdom, and noisy rather than fatal. Stub it away.
   beforeAll(() => Object.defineProperty(window, 'scrollTo', { value: () => {}, writable: true }));
@@ -189,6 +215,42 @@ describe('PendingActivityCard', () => {
       expect(accept).not.toBeDisabled();
       expect(accept).toHaveAttribute('aria-busy', 'true');
       expect(screen.queryByRole('button', { name: 'activityRejectTransfer' })).toBeNull();
+    });
+
+    it('a held claim offers Retry, enabled and not loading, and hands the item back (#1081)', () => {
+      const onRetryHeld = jest.fn();
+      const item: PendingActivityItem = { note, status: 'claiming', txId: 'tx-held', held: true };
+      render(<PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={onRetryHeld} />);
+      const button = screen.getByRole('button', { name: 'retry' });
+      expect(button).not.toBeDisabled();
+      // A loading Button refuses taps through pointer events, which jsdom does not apply, so the class is the check.
+      expect(button).not.toHaveClass('pointer-events-none');
+      fireEvent.click(button);
+      expect(onRetryHeld).toHaveBeenCalledWith(item);
+    });
+
+    it('a held claim without a refusal says it is not confirmed yet, not that it waits to be accepted (#1081)', () => {
+      const item: PendingActivityItem = { note, status: 'claiming', txId: 'tx-held', held: true };
+      render(<PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={jest.fn()} />);
+      fireEvent.click(screen.getByRole('button', { expanded: false }));
+      const hint = screen.getByTestId('pending-activity-hint');
+      expect(hint).toHaveTextContent('transactionNotConfirmedHint');
+      expect(hint).not.toHaveTextContent('activityNotYetAccepted');
+    });
+
+    it('a refusal replaces the hint and opens the folded section (#1081)', () => {
+      const item: PendingActivityItem = {
+        note,
+        status: 'claiming',
+        txId: 'tx-held',
+        held: true,
+        retryError: 'The Guardian is still holding this transaction.'
+      };
+      render(<PendingActivityCard item={item} onAccept={jest.fn()} onRetryHeld={jest.fn()} />);
+      const hint = screen.getByTestId('pending-activity-hint');
+      expect(hint).toHaveTextContent('The Guardian is still holding this transaction.');
+      expect(hint).toHaveAttribute('data-tone', 'negative');
+      expect(hint).toHaveAttribute('role', 'alert');
     });
   });
 

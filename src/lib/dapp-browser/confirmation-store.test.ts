@@ -167,6 +167,50 @@ describe('resolveConfirmation edge cases', () => {
   });
 });
 
+// The UI names the request it decided, so a decision on a request that was
+// replaced (or already settled) never lands on whatever now sits at the slot.
+describe('resolveConfirmation with a request id', () => {
+  it('leaves a different pending request untouched and returns false', async () => {
+    const store = await freshStore();
+    let settled = false;
+    void store.requestConfirmation(makeRequest({ sessionId: 's1', id: 'current' })).then(() => {
+      settled = true;
+    });
+    const listener = jest.fn();
+    store.subscribe(listener);
+
+    const resolved = store.resolveConfirmation('s1', { confirmed: true }, 'replaced');
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    expect(store.getPendingRequest('s1')?.id).toBe('current');
+    expect(listener).not.toHaveBeenCalled();
+    expect(resolved).toBe(false);
+  });
+
+  it('returns false when nothing is pending for the session', async () => {
+    const store = await freshStore();
+    expect(store.resolveConfirmation('s1', { confirmed: true }, 'gone')).toBe(false);
+  });
+
+  it('resolves the pending request and returns true when the id matches', async () => {
+    const store = await freshStore();
+    const promise = store.requestConfirmation(makeRequest({ sessionId: 's1', id: 'current' }));
+
+    expect(store.resolveConfirmation('s1', { confirmed: true }, 'current')).toBe(true);
+    await expect(promise).resolves.toEqual({ confirmed: true });
+    expect(store.getPendingRequest('s1')).toBeNull();
+  });
+
+  it('resolves whatever is pending when no id is given', async () => {
+    const store = await freshStore();
+    const promise = store.requestConfirmation(makeRequest({ sessionId: 's1', id: 'current' }));
+
+    expect(store.resolveConfirmation('s1', { confirmed: false })).toBe(true);
+    await expect(promise).resolves.toEqual({ confirmed: false });
+  });
+});
+
 describe('hasPendingRequest', () => {
   it('returns false for an empty store', async () => {
     const store = await freshStore();

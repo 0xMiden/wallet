@@ -2,8 +2,13 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
-import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import type { GuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { resetActivityReadState } from 'lib/settings/activity-read';
 import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
 
@@ -12,6 +17,7 @@ import type { PendingActivityItem } from './PendingActivityCard';
 
 const mockAccept = jest.fn();
 const mockAcceptMany = jest.fn();
+const mockRetryHeld = jest.fn();
 const mockHide = jest.fn();
 const mockRestore = jest.fn();
 const mockConfirm = jest.fn();
@@ -32,6 +38,15 @@ const mockItems: PendingActivityItem[] = ['first', 'second', 'third'].map(id => 
 const mockState = { items: mockItems, isLoadingNotes: false, isLoadingHistory: false };
 let mockRecovery: GuardianNoteRecoveryProgress | null = null;
 let mockRecoveryPending: boolean | undefined = true;
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
 jest.mock('lib/wallet-prompts', () => ({
   ...jest.requireActual('lib/wallet-prompts'),
   useGuardianNoteRecoveryProgress: (accountId: string | null) => (accountId === 'account' ? mockRecovery : null)
@@ -52,6 +67,7 @@ jest.mock('app/hooks/useActivityClaims', () => ({
     isLoadingNotes: mockState.isLoadingNotes,
     accept: mockAccept,
     acceptMany: mockAcceptMany,
+    retryHeld: mockRetryHeld,
     account: { publicKey: 'account', guardianNoteRecoveryPending: mockRecoveryPending }
   })
 }));
@@ -163,6 +179,7 @@ beforeEach(() => {
   mockRecoveryPending = true;
   mockHidden.ids = new Set();
   mockHistoryRenders.length = 0;
+  mockBridgeSnapshot = undefined;
   mockConfirm.mockResolvedValue(true);
 });
 
@@ -467,6 +484,19 @@ it('folds the details of a transfer waiting on a decision, and drops the card on
   delete claimed.txId;
 });
 
+it("hands a held claim's Retry to the claims hook (#1081)", () => {
+  const [first, ...rest] = mockItems;
+  if (!first) throw new Error('Missing note fixture');
+  const held: PendingActivityItem = { ...first, status: 'claiming', txId: 'tx-held', held: true };
+  mockState.items = [held, ...rest];
+  render(<ActivityPendingHistory search="" filter="all" />);
+  const card = screen.getByTestId('timeline').querySelector('[data-pending-note-id="first"]');
+  if (!(card instanceof HTMLElement)) throw new Error('Missing card first');
+  fireEvent.click(within(card).getByRole('button', { name: 'retry' }));
+  expect(mockRetryHeld).toHaveBeenCalledWith(held);
+  expect(mockAccept).not.toHaveBeenCalled();
+});
+
 it('lists only unclaimed notes under the pending filter', () => {
   const [, , claimed] = mockItems;
   if (!claimed) throw new Error('Missing note fixtures');
@@ -569,4 +599,27 @@ it('draws each pending transfer as an outlined card on the page', () => {
   expect(card).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl', 'overflow-hidden');
   expect(card).not.toHaveClass('bg-fill');
   expect(card).not.toHaveClass('bg-white');
+});
+
+describe('a search for the name a transfer is shown under', () => {
+  const listedIds = () =>
+    Array.from(screen.getByTestId('timeline').querySelectorAll('[data-pending-note-id]')).map(el =>
+      el.getAttribute('data-pending-note-id')
+    );
+
+  it('keeps the card of the bridged USDC faucet when the label is searched', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    render(<ActivityPendingHistory search="test epoch" filter="all" />);
+    expect(listedIds()).toEqual(['first', 'second', 'third']);
+  });
+
+  it('keeps the card once the bridge config lands after the search is typed', () => {
+    render(<ActivityPendingHistory search="test epoch" filter="all" />);
+    expect(listedIds()).toEqual([]);
+    act(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+    });
+    expect(listedIds()).toEqual(['first', 'second', 'third']);
+  });
 });

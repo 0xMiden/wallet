@@ -1,8 +1,11 @@
 import axios from 'axios';
 
+import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
+
 import {
   fetchKlineData,
   fetchTokenPrices,
+  isNominalQuote,
   listedFiatValue,
   listedPrice,
   pricesLoaded,
@@ -11,6 +14,10 @@ import {
 } from './binance';
 
 jest.mock('axios');
+// The quote rules under test are the default ones, no figure without a quote; pinned here against
+// Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal cases flip it.
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
+const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
@@ -190,13 +197,31 @@ describe('binance', () => {
   });
 });
 
+afterEach(() => {
+  mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+});
+
 describe('pricesLoaded', () => {
   it('is false before the feed has delivered any quote', () => {
-    expect(pricesLoaded({})).toBe(false);
+    expect(pricesLoaded({}, [])).toBe(false);
+    expect(pricesLoaded({}, ['IMIDEN'])).toBe(false);
   });
 
   it('is true once any quote exists, whether or not a given symbol is among them', () => {
-    expect(pricesLoaded({ BTC: { price: 60000, change24h: 0, percentageChange24h: 0 } })).toBe(true);
+    expect(pricesLoaded({ BTC: { price: 60000, change24h: 0, percentageChange24h: 0 } }, ['ETH'])).toBe(true);
+  });
+
+  it('is true off mainnet before the feed has delivered when no symbol is one the feed lists', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    expect(pricesLoaded({}, [undefined, 'IMIDEN'])).toBe(true);
+    expect(pricesLoaded({}, [])).toBe(true);
+  });
+
+  // A listed symbol takes no nominal rate, so its figure still waits on the feed.
+  it('is false off mainnet before the feed has delivered when any symbol is one the feed lists', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    expect(pricesLoaded({}, ['ETH'])).toBe(false);
+    expect(pricesLoaded({}, ['IMIDEN', 'BTC'])).toBe(false);
   });
 });
 
@@ -214,6 +239,52 @@ describe('quotedPrice', () => {
   it('returns no quote for a zero price', () => {
     expect(quotedPrice({ ETH: { price: 0, change24h: 0, percentageChange24h: 0 } }, 'ETH')).toBeUndefined();
   });
+
+  it('quotes a symbol the feed does not list, or no symbol, at $1 with no movement off mainnet', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    const nominal = { price: 1, change24h: 0, percentageChange24h: 0 };
+    expect(quotedPrice({ ETH: eth }, 'MIDEN')).toEqual(nominal);
+    expect(quotedPrice({ ETH: eth }, undefined)).toEqual(nominal);
+    expect(quotedPrice({}, 'IMIDEN')).toEqual(nominal);
+    expect(quotedPrice({}, undefined)).toEqual(nominal);
+    expect(quotedPrice({}, 'toString')).toEqual(nominal);
+  });
+
+  // A listed symbol's missing quote is the feed loading or unreachable, not a token with no market,
+  // so $1 would misprice a real asset (a whole ETH at a dollar).
+  it.each(['ETH', 'BTC', 'USDC'])('gives the listed %s no quote off mainnet while the feed has none', symbol => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    expect(quotedPrice({}, symbol)).toBeUndefined();
+  });
+
+  it('gives a listed symbol no quote for a zero price off mainnet, never the $1 default', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    expect(quotedPrice({ ETH: { price: 0, change24h: 0, percentageChange24h: 0 } }, 'ETH')).toBeUndefined();
+  });
+
+  it('keeps the feed quote of a listed symbol off mainnet, never the $1 default', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    expect(quotedPrice({ ETH: eth }, 'ETH')).toEqual(eth);
+  });
+});
+
+describe('isNominalQuote', () => {
+  it('is true for the nominal quote of a symbol the feed does not list', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    expect(isNominalQuote(quotedPrice({}, 'IMIDEN'))).toBe(true);
+  });
+
+  // A stablecoin trading at par has the nominal quote's shape and is still a real-dollar figure.
+  it('is false for a feed quote, even one at $1 with no movement', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    const par = { price: 1, change24h: 0, percentageChange24h: 0 };
+    expect(isNominalQuote(quotedPrice({ USDC: par }, 'USDC'))).toBe(false);
+    expect(isNominalQuote(par)).toBe(false);
+  });
+
+  it('is false for no quote', () => {
+    expect(isNominalQuote(undefined)).toBe(false);
+  });
 });
 
 describe('listedPrice', () => {
@@ -229,6 +300,11 @@ describe('listedPrice', () => {
 
   it('returns 0 for a quote that is not a price, as quotedPrice does', () => {
     expect(listedPrice({ ETH: { price: -1, change24h: 0, percentageChange24h: 0 } }, 'ETH')).toBe(0);
+  });
+
+  it('returns the nominal $1 for a symbol the feed does not list with the nominal rate on, as quotedPrice does', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    expect(listedPrice(prices, 'IMIDEN')).toBe(1);
   });
 });
 
@@ -249,5 +325,30 @@ describe('listedFiatValue', () => {
 
   it('gives no figure for a zero balance, never a zero figure', () => {
     expect(listedFiatValue(prices, 'ETH', 0, true)).toBeUndefined();
+  });
+
+  it('values a symbol the feed does not list at the nominal $1 with the nominal rate on', () => {
+    mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+    expect(listedFiatValue(prices, 'IMIDEN', 3, true)).toBe(3);
+  });
+});
+
+describe('fixed native USDCX quote', () => {
+  it('values USDCX at one dollar with no feed and no nominal switch', () => {
+    expect(quotedPrice({}, 'USDCX')).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
+    expect(isNominalQuote(quotedPrice({}, 'USDCX'))).toBe(false);
+  });
+
+  it('keeps the fixed value when a cached market quote differs', () => {
+    expect(quotedPrice({ USDCX: { price: 3, change24h: 2, percentageChange24h: 200 } }, 'USDCX')).toEqual({
+      price: 1,
+      change24h: 0,
+      percentageChange24h: 0
+    });
+  });
+
+  it('loads a stable-only total immediately while a mixed ETH total waits', () => {
+    expect(pricesLoaded({}, ['USDCX'])).toBe(true);
+    expect(pricesLoaded({}, ['USDCX', 'ETH'])).toBe(false);
   });
 });

@@ -86,6 +86,14 @@ describe('TransactionFailureCard', () => {
     expect(screen.queryByText(REMOTE_PROVER_FAILED_ERROR)).not.toBeInTheDocument();
   });
 
+  it.each(['transactionNotConfirmedHint', 'transactionUndeterminedHint', 'transactionRestoredHint'] as const)(
+    'an unconfirmed row shows the %s hint it is given (#1081)',
+    hintKey => {
+      render(<TransactionFailureCard errorMessage="boom" isUnconfirmed hintKey={hintKey} />);
+      expect(screen.getByTestId('history-unconfirmed-hint')).toHaveTextContent(hintKey);
+    }
+  );
+
   it('lets isUnconfirmed outrank isCancelled: a stamped user cancel is both', () => {
     render(<TransactionFailureCard errorMessage="Transaction was cancelled by user" isUnconfirmed isCancelled />);
 

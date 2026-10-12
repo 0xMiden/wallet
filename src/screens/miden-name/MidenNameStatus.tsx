@@ -12,7 +12,7 @@ import { Notice } from 'components/ui/Notice';
 import { Spinner } from 'components/ui/Spinner';
 import { useAllAccounts } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
-import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
+import { MIDEN_NAME_PAYMENT_METADATA } from 'lib/miden/name/config';
 import { formatMidenName } from 'lib/miden/name/encoding';
 import { phaseOf, registerNameInputsOf } from 'lib/miden/name/registrations';
 import { initiateConsumeTransactionFromId, tagConsumeAsMidenNameClaim } from 'lib/miden/transaction/initiate';
@@ -110,7 +110,7 @@ export const MidenNameStatus: FC<MidenNameStatusProps> = ({ txId }) => {
   const heroState = heroStateOf(failureKey !== undefined, owned);
   const accountName =
     accounts.find(account => account.publicKey === row.accountId)?.name ?? truncateAddress(row.accountId);
-  const price = `${formatAmount(BigInt(inputs.priceBaseUnits), MIDEN_METADATA.decimals)} ${MIDEN_METADATA.symbol}`;
+  const price = `${formatAmount(BigInt(inputs.priceBaseUnits), MIDEN_NAME_PAYMENT_METADATA.decimals)} ${MIDEN_NAME_PAYMENT_METADATA.symbol}`;
 
   const handleRetryClaim = async () => {
     const deliveryNoteId = inputs.deliveryNoteId;

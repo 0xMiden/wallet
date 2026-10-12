@@ -395,7 +395,7 @@ describe('readDrainSnapshot', () => {
     try {
       await expect(readTransactionRows(pageRunningHere())).resolves.toEqual([
         { id: 'c1', status: 2, stage: 'complete', feeAmount: '7', completedAt: 9, rotationFunding: true },
-        { id: 'q1', status: 0, type: 'send', amount: '5' }
+        { id: 'q1', status: 0, type: 'send', amount: '5', stageTimestamps: { syncing: 1 } }
       ]);
     } finally {
       getAll.mockRestore();

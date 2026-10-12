@@ -2,10 +2,12 @@ import { PswapLineageState } from '@miden-sdk/miden-sdk/lazy';
 
 import * as Repo from 'lib/miden/repo';
 
+import { isNoteHoldingRow } from './verdict-rules';
 import { compareAccountIds } from '../activity/utils';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { ITransaction, ITransactionStatus, Transaction } from '../db/types';
 import { isSyncFused } from '../front/sync-fuse';
+import { sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
@@ -72,6 +74,13 @@ export const getFailedTransactions = async () => {
   return transactions;
 };
 
+/** Rows waiting for the node's verdict on an unknown submit outcome (#1081). */
+export const getUnconfirmedTransactions = async () => {
+  const transactions = await Repo.transactions.filter(tx => tx.status === ITransactionStatus.Unconfirmed).toArray();
+  transactions.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt);
+  return transactions;
+};
+
 export const getCompletedTransactions = async (
   accountId: string,
   offset?: number,
@@ -81,8 +90,7 @@ export const getCompletedTransactions = async (
 ) => {
   let transactions = await Repo.transactions.filter(tx => tx.status === ITransactionStatus.Completed).toArray();
   if (includeFailed) {
-    const failedTransactions = await getFailedTransactions();
-    transactions = transactions.concat(failedTransactions);
+    transactions = transactions.concat(await getFailedTransactions(), await getUnconfirmedTransactions());
   }
   transactions.sort((tx1, tx2) => (tx1.completedAt || tx1.initiatedAt) - (tx2.completedAt || tx2.initiatedAt));
   // Compare ignoring note tag suffix since stored vs queried account IDs may differ
@@ -96,6 +104,22 @@ export const getCompletedTransactions = async (
   // would be NaN if either were missing, so only window when a limit is given.
   if (limit === undefined) return offset === undefined ? transactions : transactions.slice(offset);
   return transactions.slice(offset ?? 0, (offset ?? 0) + limit);
+};
+
+/**
+ * The rows holding their notes for `address` (#1081, `isNoteHoldingRow`): claims and dApp transactions that are live
+ * or that the reconciler can still judge, and dApp transactions that completed within a grace window, each holding
+ * `heldNoteIdsOf` it. Auto-consume leaves these notes out and the claim dedup refuses them: a second consume would
+ * race the holder for the note, and one of the two would fail.
+ * Matched with `sameWalletAccountId` because a dApp's rows store the bare address and the wallet's own the composite
+ * form.
+ */
+export const getNoteHoldingTransactions = async (address: string): Promise<ITransaction[]> => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const rows = await Repo.transactions.filter(tx => isNoteHoldingRow(tx, nowSec)).toArray();
+  const holding = rows.filter(tx => sameWalletAccountId(tx.accountId, address));
+  holding.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt || (tx1.queuedSeq ?? 0) - (tx2.queuedSeq ?? 0));
+  return holding;
 };
 
 export const getTransactionById = async (id: string) => {

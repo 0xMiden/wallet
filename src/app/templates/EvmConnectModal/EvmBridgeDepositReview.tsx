@@ -8,22 +8,29 @@ import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
 import { Skeleton } from 'components/ui/Skeleton';
+import { IBridgeProvider } from 'lib/miden/db/types';
+import { USDCX_SYMBOL, usdcxArrivalKey } from 'lib/usdcx/constant';
 import { approxFiatAmount } from 'screens/send-flow/amount-format';
-import { BridgeRoute } from 'screens/send-flow/types';
 
 export interface EvmBridgeDepositReviewProps {
   /** Deposit input amount (human string). */
   amount: string;
-  /** Token symbol shown in the hero / rows (e.g. USDC or ETH). */
+  /** Token symbol: keys the logo, and names the token unless `label` is given (e.g. USDC or ETH). */
   symbol: string;
+  /** The token's name in the hero and rows, such as the testnet label (`evmUsdcLabel`). */
+  label?: string;
   /** Optional ≈USD value under the hero amount. Omit when there's no reliable price (e.g. testnet ETH). */
   fiat?: number;
   /** Selected bridge route — drives the route label + arrival ETA. */
-  route: BridgeRoute;
-  /** Output the recipient receives on Miden, as typed on either route. undefined while quoting. */
+  route: IBridgeProvider;
+  /** Output the recipient receives on Miden, as typed on every route. undefined while quoting. */
   outputAmount?: string;
+  /** Circle's quoted fee for an executor-route burn (human string), paid in the source token on top of the amount. */
+  fee?: string;
   /** Source network name (e.g. Sepolia). */
   networkName: string;
+  /** Source chain id; on the USDCx route it picks the arrival estimate (`usdcxArrivalKey`). */
+  sourceChainId?: number;
   /** Show a skeleton on the "You receive" row while the Fast quote is still loading. */
   youReceiveLoading?: boolean;
   /** Drives the confirm-button spinner while the bridge submit is in flight. */
@@ -39,6 +46,23 @@ export interface EvmBridgeDepositReviewProps {
 }
 
 /**
+ * What a deposit arrives on Miden as: only the Epoch route mints the bridge's Miden faucet the label names, so the Slow
+ * route delivers the plain symbol and Circle xReserve mints USDCx. The amount step and the Review both name the
+ * arriving token through it.
+ */
+export function arrivingTokenName(route: IBridgeProvider, symbol: string, label: string): string {
+  switch (route) {
+    case 'agglayer':
+      return symbol;
+    case 'usdcx':
+      return USDCX_SYMBOL;
+    case 'epoch':
+    default:
+      return label;
+  }
+}
+
+/**
  * Review step for the Receive-from-EVM bridge deposit, shown after the route is
  * chosen. Reuses the shared `ReviewLayout` shell (same shell as the Send review)
  * with a `Hero` amount and `DetailCard` rows, and defers the actual submit to
@@ -48,10 +72,13 @@ export interface EvmBridgeDepositReviewProps {
 export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   amount,
   symbol,
+  label,
   fiat,
   route,
   outputAmount,
+  fee,
   networkName,
+  sourceChainId,
   youReceiveLoading = false,
   isSubmitting = false,
   canConfirm = false,
@@ -62,9 +89,23 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  const routeLabel = route === 'agglayer' ? t('slow') : t('fast');
-  const arrivalLabel = route === 'agglayer' ? t('slowArrival') : t('fastArrival');
-  const youReceiveLabel = outputAmount != null ? `≈ ${outputAmount} ${symbol}`.trim() : symbol;
+  const { routeLabel, arrivalLabel } = (() => {
+    switch (route) {
+      case 'agglayer':
+        return { routeLabel: t('slow'), arrivalLabel: t('slowArrival') };
+      case 'usdcx':
+        return {
+          routeLabel: t('usdcxRouteName'),
+          arrivalLabel: t(sourceChainId === undefined ? 'usdcxArrival' : usdcxArrivalKey(sourceChainId))
+        };
+      case 'epoch':
+      default:
+        return { routeLabel: t('fast'), arrivalLabel: t('fastArrival') };
+    }
+  })();
+  const name = label ?? symbol;
+  const receiveName = arrivingTokenName(route, symbol, name);
+  const youReceiveLabel = outputAmount != null ? `≈ ${outputAmount} ${receiveName}`.trim() : receiveName;
 
   return (
     <ReviewLayout
@@ -76,7 +117,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
           <Hero
             className="mt-2"
             visual={<TokenLogo symbol={symbol} size="2xl" />}
-            value={`${amount} ${symbol}`}
+            value={`${amount} ${name}`}
             subtitle={fiat !== undefined ? t('approxFiatValue', { value: approxFiatAmount(fiat) }) : undefined}
           />
         </div>
@@ -95,7 +136,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
       secondary={{ label: t('back'), onPress: onBack, disabled: isSubmitting }}
     >
       <DetailCard>
-        <DetailRow label={t('amount')}>{`${amount} ${symbol}`}</DetailRow>
+        <DetailRow label={t('amount')}>{`${amount} ${name}`}</DetailRow>
 
         <DetailRow label={t('from')}>
           <span className="inline-flex items-center gap-2">
@@ -105,6 +146,8 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
         </DetailRow>
 
         <DetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</DetailRow>
+
+        {fee !== undefined && <DetailRow label={t('usdcxCircleFee')}>{`${fee} ${name}`}</DetailRow>}
 
         <DetailRow label={t('youReceive')}>
           {youReceiveLoading ? <Skeleton className="h-6 w-28" /> : youReceiveLabel}

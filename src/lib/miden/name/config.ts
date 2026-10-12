@@ -2,6 +2,7 @@
  * Miden Name deployment config and contract constants.
  */
 
+import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NAME_DEPLOYMENTS, MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
@@ -13,16 +14,17 @@ export interface MidenNameConfig {
   network: MIDEN_NETWORK_NAME;
   registryAccountIdHex: string;
   paymentFaucetIdHex: string;
+  registryCreationBlock: number;
 }
 
-/** Storage slot names of the domain network account (contract v0.16). */
+/** Storage slot names of the domain network account (contract v0.17). */
 export const MIDEN_NAME_SLOTS = {
   assetStatus: 'domain_faucet::domain_faucet::asset_status',
   tokenToDomain: 'domain_faucet::domain_faucet::token_to_domain',
   prices: 'domain_faucet::domain_faucet::prices',
   commitmentVersion: 'domain_faucet::domain_faucet::commitment_version',
   domainToAccount: 'domain_registry::domain_registry::domain_to_account',
-  allowedNoteScripts: 'miden::standards::auth::network_account::allowed_note_scripts',
+  registerDomainNoteRoot: 'domain_registry::domain_registry::register_domain_note_root',
   feeSchedule: 'miden::standards::fees::policies::basic_constant_fee::fee_schedule'
 } as const;
 
@@ -37,9 +39,6 @@ export const MIDEN_NAME_COMMITMENT_VERSION = 1n;
 
 /** Felt 0 of an `asset_status` entry for an issued name. */
 export const MIDEN_NAME_ISSUED_MARKER = 1n;
-
-/** Felt 0 of an `allowed_note_scripts` entry for an allowed script. */
-export const MIDEN_NAME_ALLOWED_SCRIPT_MARKER = 1n;
 
 /** Felt 3 of a `fee_schedule` entry. The contract writes [fee, 0, 0, 1]. */
 export const MIDEN_NAME_FEE_ENTRY_MARKER = 1n;
@@ -56,7 +55,8 @@ export function getMidenNameConfig(
   return {
     network,
     registryAccountIdHex: deployment.registryAccountIdHex,
-    paymentFaucetIdHex: deployment.paymentFaucetIdHex
+    paymentFaucetIdHex: deployment.paymentFaucetIdHex,
+    registryCreationBlock: deployment.registryCreationBlock
   };
 }
 
@@ -64,3 +64,6 @@ export function getMidenNameConfig(
 export function isMidenNameSupported(): boolean {
   return getMidenNameConfig() !== undefined;
 }
+
+/** Payment token of the v17 testnet deployment. */
+export const MIDEN_NAME_PAYMENT_METADATA: AssetMetadata = { decimals: 6, symbol: 'USDCX', name: 'USDCX' };

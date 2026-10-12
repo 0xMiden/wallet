@@ -49,17 +49,15 @@ export enum OnboardingStep {
   ImportFromFile = 'import-from-file',
   SelectTransactionType = 'select-transaction-type',
   SelectRecoveryMethod = 'select-recovery-method',
+  /** The create flow's first guardian screen: what a Guardian does for the user, before any operator is named. */
+  GuardianIntro = 'guardian-intro',
   /**
-   * The create flow's guardian step: the fastest reachable operator, picked
-   * for the user, on a card whose Change action pushes the full picker,
-   * `ChooseGuardian`. Change shows from the first probe round unless the
-   * network has no operator; Continue opens once the three facts are
-   * ticked and the chosen operator has answered online. Change opens the
-   * picker on the card's operator, and the picker goes on only under the
-   * same two conditions; until the facts are ticked it returns here.
+   * The create flow's second guardian screen: the fastest reachable operator, picked for the user and
+   * introduced on its own, with a Change provider action that opens the operator sheet. Continue opens
+   * once the chosen operator has answered online. The full-page picker, `ChooseGuardian`, is Rotate
+   * Guardian's alone.
    */
   MeetGuardian = 'meet-guardian',
-  ChooseGuardian = 'choose-guardian',
   ImportSelectRecoveryMethod = 'import-select-recovery-method',
   Confirmation = 'confirmation'
 }
@@ -89,6 +87,11 @@ export type SetupBiometricAction = {
 
 export type SetupBiometricSubmitAction = {
   id: 'setup-biometric-submit';
+};
+
+/** Leave the guardian intro for the operator screen. */
+export type GuardianIntroSubmitAction = {
+  id: 'guardian-intro-submit';
 };
 
 export type ChooseGuardianSubmitAction = {
@@ -157,26 +160,19 @@ export type SelectRecoveryMethodAction = {
 };
 
 /**
- * What the user has done on the Meet your Guardian step: the facts ticked and the operator locked in.
- * The flow owns it, not the step, so opening the picker and coming back leaves it as it was.
+ * What the user has done on the Meet your Guardian step: the operator locked in. The flow owns it, not
+ * the step, so leaving the step and coming back leaves it as it was.
  */
 export interface MeetGuardianProgress {
-  checked: Readonly<Record<string, boolean>>;
   chosenId: string | null;
   /**
-   * Picked by the user in the full picker rather than locked in by Meet your Guardian as the fastest. The picker
-   * reopens on it as the user's own pick (`initialPicked`), so its fallback to the first online operator never
-   * substitutes a user's pick: while it is offline nothing is selected (#1083).
+   * The fastest operator of the first full round that had one online, tagged Fastest in the provider sheet.
+   * Recorded once, whatever is chosen by then, and never moved by a later round.
    */
-  pickedByUser: boolean;
+  fastestId: string | null;
 }
 
-export const EMPTY_MEET_GUARDIAN_PROGRESS: MeetGuardianProgress = { checked: {}, chosenId: null, pickedByUser: false };
-
-/** Open the full operator picker from the Meet your Guardian step. */
-export type ChooseGuardianAction = {
-  id: 'choose-guardian';
-};
+export const EMPTY_MEET_GUARDIAN_PROGRESS: MeetGuardianProgress = { chosenId: null, fastestId: null };
 
 export type ImportSelectRecoveryMethodAction = {
   id: 'import-select-recovery-method';
@@ -217,7 +213,7 @@ export type OnboardingAction =
   | SetupPasscodeSubmitAction
   | SetupBiometricAction
   | SetupBiometricSubmitAction
-  | ChooseGuardianAction
+  | GuardianIntroSubmitAction
   | ChooseGuardianSubmitAction
   | BackupSeedPhraseAction
   | SelectImportTypeAction
@@ -228,7 +224,6 @@ export type OnboardingAction =
   | BiometricSetupSubmitAction
   | SelectTransactionTypeAction
   | SelectRecoveryMethodAction
-  | ChooseGuardianAction
   | ImportSelectRecoveryMethodAction
   | ConfirmationAction
   | ImportSeedPhraseSubmitAction

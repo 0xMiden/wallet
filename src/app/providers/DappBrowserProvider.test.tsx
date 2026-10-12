@@ -91,7 +91,14 @@ jest.mock('framer-motion', () => ({
 }));
 
 // ── UI subcomponents — return empty divs; we don't test their render ──
-jest.mock('app/pages/Browser/DappConfirmationModal', () => ({ DappConfirmationModal: () => null }));
+// The confirmation modal records its props, so a test can drive the onResolve the provider hands it.
+let mockModalProps: { onResolve: (result: { confirmed: boolean }, requestId: string) => void } | null = null;
+jest.mock('app/pages/Browser/DappConfirmationModal', () => ({
+  DappConfirmationModal: (props: { onResolve: (result: { confirmed: boolean }, requestId: string) => void }) => {
+    mockModalProps = props;
+    return null;
+  }
+}));
 jest.mock('app/pages/Browser/DappPeekTray', () => ({ DappPeekTray: () => null }));
 jest.mock('app/pages/Browser/DappSwitcher', () => ({ DappSwitcher: () => null }));
 
@@ -160,6 +167,7 @@ const mockHandleWebViewMessage: jest.Mock = jest.fn(() =>
 
 // A pending dApp confirmation for the foreground session; tests set it and rerender.
 let mockConfirmationRequest: unknown = null;
+const mockConfirmationResolve = jest.fn();
 
 jest.mock('lib/dapp-browser', () => ({
   INJECTION_SCRIPT: 'INJECTED;',
@@ -199,7 +207,7 @@ jest.mock('lib/dapp-browser', () => ({
     status: 'parked' as const,
     openedAt: 0
   }),
-  useDappConfirmation: () => ({ request: mockConfirmationRequest, resolve: jest.fn() })
+  useDappConfirmation: () => ({ request: mockConfirmationRequest, resolve: mockConfirmationResolve })
 }));
 
 // ── confirmation-store: REAL module so we can assert against it ────
@@ -339,6 +347,22 @@ describe('C3 regression: close() resolves pending confirmation before teardown',
       await result.current.close('dapp-a');
     });
     expect(mockRemovePersistedSession).toHaveBeenCalledWith('dapp-a');
+  });
+});
+
+describe('confirmation modal', () => {
+  afterEach(() => {
+    mockConfirmationRequest = null;
+    mockModalProps = null;
+  });
+
+  it('resolves through the hook with the id of the request the modal decided', () => {
+    mockConfirmationRequest = makeConfirmationRequest('dapp-a');
+    renderHook(() => useDappBrowser(), { wrapper });
+
+    mockModalProps!.onResolve({ confirmed: true }, 'req-dapp-a');
+
+    expect(mockConfirmationResolve).toHaveBeenCalledWith({ confirmed: true }, 'req-dapp-a');
   });
 });
 

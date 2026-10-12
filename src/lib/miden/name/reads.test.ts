@@ -35,8 +35,8 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkNam
 jest.mock('lib/epoch/chain', () => ({ getCurrentMidenBlock: jest.fn() }));
 jest.mock('lib/miden/sdk/helpers', () => ({ walletAccountIdToSdk: jest.fn() }));
 
-const REGISTRY_HEX = '0xe8249fe7070657110980da14461d78';
-const TOKEN_HEX = '0x18101fa522c174b165efd4f70a0385';
+const REGISTRY_HEX = '0x16fb70069eed60110c6207189c8237';
+const TOKEN_HEX = '0x4cbdcaffe75f0a317482224dae6436';
 const REGISTRY = { prefix: 0xaan, suffix: 0xbbn };
 const TOKEN = { prefix: 0xccn, suffix: 0xddn };
 const ROOT: Felts4 = [11n, 12n, 13n, 14n];
@@ -110,9 +110,9 @@ beforeEach(() => {
   slotValues = new Map([[MIDEN_NAME_SLOTS.commitmentVersion, [1n, 0n, 0n, 0n]]]);
   tooManyEntries = new Set();
   provenAccountHex = REGISTRY_HEX;
-  setEntry(MIDEN_NAME_SLOTS.prices, priceKeyFelts(5, TOKEN), [20_000_000n, 0n, 0n, 0n]);
+  setEntry(MIDEN_NAME_SLOTS.prices, priceKeyFelts(5, TOKEN), [1000n, 0n, 0n, 0n]);
   setEntry(MIDEN_NAME_SLOTS.prices, priceKeyFelts(3, TOKEN), [120_000_000n, 0n, 0n, 0n]);
-  setEntry(MIDEN_NAME_SLOTS.allowedNoteScripts, ROOT, [1n, 0n, 0n, 0n]);
+  slotValues.set(MIDEN_NAME_SLOTS.registerDomainNoteRoot, [...ROOT]);
   setEntry(MIDEN_NAME_SLOTS.feeSchedule, ROOT, [210n, 0n, 0n, 1n]);
 });
 
@@ -123,7 +123,7 @@ describe('fetchMidenNameQuote', () => {
     expect(quote).toEqual({
       label: 'zzqxjv9q1kk',
       available: true,
-      priceBaseUnits: 20_000_000n,
+      priceBaseUnits: 1000n,
       networkFeeBaseUnits: 210n,
       scriptAllowed: true,
       blockNum: 777
@@ -136,7 +136,6 @@ describe('fetchMidenNameQuote', () => {
     expect(requested).toEqual([
       [MIDEN_NAME_SLOTS.assetStatus, [hexOf(statusKeyFeltsForLabel('zzqxjv9q1kk', REGISTRY))]],
       [MIDEN_NAME_SLOTS.prices, [hexOf([5n, 0n, TOKEN.suffix, TOKEN.prefix])]],
-      [MIDEN_NAME_SLOTS.allowedNoteScripts, [hexOf(ROOT)]],
       [MIDEN_NAME_SLOTS.feeSchedule, [hexOf(ROOT)]]
     ]);
   });
@@ -153,11 +152,17 @@ describe('fetchMidenNameQuote', () => {
     expect(quote.priceBaseUnits).toBe(0n);
   });
 
-  it('marks the script not allowed when the allowlist entry is missing', async () => {
-    mapEntries.delete(MIDEN_NAME_SLOTS.allowedNoteScripts);
+  it('marks the script not allowed when the registration root is missing', async () => {
+    slotValues.delete(MIDEN_NAME_SLOTS.registerDomainNoteRoot);
     const quote = await fetchMidenNameQuote('alice');
     expect(quote.scriptAllowed).toBe(false);
     expect(quote.networkFeeBaseUnits).toBe(210n);
+  });
+
+  it('marks the script not allowed when the registry has another registration root', async () => {
+    slotValues.set(MIDEN_NAME_SLOTS.registerDomainNoteRoot, [99n, 0n, 0n, 0n]);
+    const quote = await fetchMidenNameQuote('alice');
+    expect(quote.scriptAllowed).toBe(false);
   });
 
   it.each([
@@ -322,7 +327,7 @@ describe('findRegistryDeliveryNoteIds', () => {
   it('loops with a cursor until blockTo reaches the end and keeps only registry notes', async () => {
     rpc.syncNotes
       .mockResolvedValueOnce(
-        syncResult(150, [
+        syncResult(164987, [
           [
             { sender: REGISTRY_HEX.toUpperCase().replace('0X', '0x'), id: '0xa' },
             { sender: '0xother', id: '0xb' }
@@ -330,15 +335,15 @@ describe('findRegistryDeliveryNoteIds', () => {
         ])
       )
       .mockResolvedValueOnce(
-        syncResult(300, [[{ sender: REGISTRY_HEX, id: '0xa' }], [{ sender: REGISTRY_HEX, id: '0xc' }]])
+        syncResult(165137, [[{ sender: REGISTRY_HEX, id: '0xa' }], [{ sender: REGISTRY_HEX, id: '0xc' }]])
       );
 
-    const scan = await findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 100, toBlock: 300 });
+    const scan = await findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 164937, toBlock: 165137 });
 
-    expect(scan).toEqual({ noteIds: ['0xa', '0xc'], scannedTo: 300 });
+    expect(scan).toEqual({ noteIds: ['0xa', '0xc'], scannedTo: 165137 });
     expect(rpc.syncNotes.mock.calls.map(call => [call[0], call[1]])).toEqual([
-      [100, 300],
-      [151, 300]
+      [164937, 165137],
+      [164988, 165137]
     ]);
     const tags = rpc.syncNotes.mock.calls[0]?.[2];
     expect(tags?.[0]).toBeInstanceOf(NoteTag);
@@ -346,23 +351,29 @@ describe('findRegistryDeliveryNoteIds', () => {
   });
 
   it('scans to the chain tip when toBlock is not given', async () => {
-    mockTip.mockResolvedValue(500);
-    rpc.syncNotes.mockResolvedValueOnce(syncResult(600, []));
-    const scan = await findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 400 });
-    expect(scan).toEqual({ noteIds: [], scannedTo: 500 });
-    expect(rpc.syncNotes).toHaveBeenCalledWith(400, 500, expect.any(Array));
+    mockTip.mockResolvedValue(165337);
+    rpc.syncNotes.mockResolvedValueOnce(syncResult(165437, []));
+    const scan = await findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 165237 });
+    expect(scan).toEqual({ noteIds: [], scannedTo: 165337 });
+    expect(rpc.syncNotes).toHaveBeenCalledWith(165237, 165337, expect.any(Array));
   });
 
   it('returns at once when the range is empty', async () => {
-    const scan = await findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 400, toBlock: 300 });
-    expect(scan).toEqual({ noteIds: [], scannedTo: 300 });
+    const scan = await findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 165237, toBlock: 165137 });
+    expect(scan).toEqual({ noteIds: [], scannedTo: 165137 });
     expect(rpc.syncNotes).not.toHaveBeenCalled();
   });
 
+  it('starts a delivery scan at the registry creation block', async () => {
+    rpc.syncNotes.mockResolvedValueOnce(syncResult(165000, []));
+    await findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 0, toBlock: 165000 });
+    expect(rpc.syncNotes).toHaveBeenCalledWith(164837, 165000, expect.any(Array));
+  });
+
   it('stops when the node does not move the cursor', async () => {
-    rpc.syncNotes.mockResolvedValueOnce(syncResult(99, []));
-    const scan = await findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 100, toBlock: 300 });
-    expect(scan).toEqual({ noteIds: [], scannedTo: 99 });
+    rpc.syncNotes.mockResolvedValueOnce(syncResult(164936, []));
+    const scan = await findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 164937, toBlock: 165137 });
+    expect(scan).toEqual({ noteIds: [], scannedTo: 164936 });
     expect(rpc.syncNotes).toHaveBeenCalledTimes(1);
   });
 
@@ -374,7 +385,7 @@ describe('findRegistryDeliveryNoteIds', () => {
     const bobNfa = new NonFungibleAsset(registry, [bobCommitment[0], bobCommitment[1], 7n, 8n]);
     const foreignNfa = new NonFungibleAsset(new AccountId('0xother', 5n, 6n), [commitment[0], commitment[1], 0n, 0n]);
     rpc.syncNotes.mockResolvedValueOnce(
-      syncResult(300, [
+      syncResult(165137, [
         [
           { sender: REGISTRY_HEX, id: '0xbob' },
           { sender: REGISTRY_HEX, id: '0xprivate' },
@@ -393,12 +404,12 @@ describe('findRegistryDeliveryNoteIds', () => {
 
     const scan = await findRegistryDeliveryNoteIds({
       accountId: ACCOUNT,
-      fromBlock: 100,
-      toBlock: 300,
+      fromBlock: 164937,
+      toBlock: 165137,
       label: 'alice'
     });
 
-    expect(scan).toEqual({ noteIds: ['0xalice'], scannedTo: 300 });
+    expect(scan).toEqual({ noteIds: ['0xalice'], scannedTo: 165137 });
     const requested = rpc.getNotesById.mock.calls[0]?.[0].map(id => id.toString());
     expect(requested).toEqual(['0xbob', '0xprivate', '0xforeign', '0xalice']);
     // Every NFA that the read touched is freed.
@@ -408,20 +419,20 @@ describe('findRegistryDeliveryNoteIds', () => {
   });
 
   it('with a label and no note found, does not fetch any note', async () => {
-    rpc.syncNotes.mockResolvedValueOnce(syncResult(300, []));
+    rpc.syncNotes.mockResolvedValueOnce(syncResult(165137, []));
     const scan = await findRegistryDeliveryNoteIds({
       accountId: ACCOUNT,
-      fromBlock: 100,
-      toBlock: 300,
+      fromBlock: 164937,
+      toBlock: 165137,
       label: 'alice'
     });
-    expect(scan).toEqual({ noteIds: [], scannedTo: 300 });
+    expect(scan).toEqual({ noteIds: [], scannedTo: 165137 });
     expect(rpc.getNotesById).not.toHaveBeenCalled();
   });
 
   it('makes a new note tag for the retry', async () => {
-    rpc.syncNotes.mockRejectedValueOnce(new Error('transport')).mockResolvedValueOnce(syncResult(300, []));
-    await findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 100, toBlock: 300 });
+    rpc.syncNotes.mockRejectedValueOnce(new Error('transport')).mockResolvedValueOnce(syncResult(165137, []));
+    await findRegistryDeliveryNoteIds({ accountId: ACCOUNT, fromBlock: 164937, toBlock: 165137 });
     expect(rpc.syncNotes.mock.calls[0]?.[2][0]).not.toBe(rpc.syncNotes.mock.calls[1]?.[2][0]);
   });
 });

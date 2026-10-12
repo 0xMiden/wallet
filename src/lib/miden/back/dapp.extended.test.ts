@@ -11,6 +11,9 @@
  * helpers, the format* preview builders, and the mobile branches.
  */
 
+import { NoteFilterTypes } from '@miden-sdk/miden-sdk/lazy';
+import { WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
+
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { DEFAULT_DELEGATE_PROOF } from 'lib/settings/constants';
@@ -202,7 +205,8 @@ jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
     Notes: 2,
     Storage: 4,
     All: 65535
-  }
+  },
+  WalletAdapterNetwork: { Testnet: 'testnet' }
 }));
 
 // ── Imports under test ─────────────────────────────────────────────
@@ -1600,6 +1604,24 @@ describe('a watchdog eviction mid-read abandons the dApp flow instead of double-
     expect((storageState[STORAGE_KEY] as any)['https://evicted.xyz']).toBeUndefined();
   });
 
+  it('requestPermission rejects with the terminated-client refusal, not a false NotGranted', async () => {
+    // A terminated client is a kill like the eviction above: retryable, never a permissions verdict.
+    const terminated = new Error('WebClient terminated');
+    mockGetAccount.mockRejectedValueOnce(terminated);
+    mockRequestConfirmation.mockResolvedValueOnce({
+      confirmed: true,
+      accountPublicKey: 'miden-account-1',
+      privateDataPermission: 'UPON_REQUEST'
+    });
+    await expect(
+      dapp.requestPermission('https://terminated.xyz', {
+        type: MidenDAppMessageType.PermissionRequest,
+        appMeta: { name: 'Terminated Dapp' },
+        network: WalletAdapterNetwork.Testnet
+      })
+    ).rejects.toBe(terminated);
+  });
+
   it('requestAssets (Auto) stops before the vault borrow chain', async () => {
     (storageState[STORAGE_KEY] as any)['https://miden.xyz'] = [
       { ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 1 }
@@ -1616,6 +1638,20 @@ describe('a watchdog eviction mid-read abandons the dApp flow instead of double-
       } as never)
     ).rejects.toThrow(WasmClientPoisonedError);
     expect(vault).not.toHaveBeenCalled();
+  });
+
+  it('requestAssets (Auto) rejects with the terminated-client refusal, not InvalidParams', async () => {
+    storageState[STORAGE_KEY] = {
+      'https://miden.xyz': [{ ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 1 }]
+    };
+    const terminated = new Error('WebClient terminated');
+    mockGetAccount.mockRejectedValueOnce(terminated);
+    await expect(
+      dapp.requestAssets('https://miden.xyz', {
+        type: MidenDAppMessageType.AssetsRequest,
+        sourcePublicKey: 'miden-account-1'
+      })
+    ).rejects.toBe(terminated);
   });
 
   it('requestConsumableNotes (Auto) stops between the sync and the note read', async () => {
@@ -1636,6 +1672,20 @@ describe('a watchdog eviction mid-read abandons the dApp flow instead of double-
     expect(_g.__dappTestMockGetConsumableNotes).not.toHaveBeenCalled();
   });
 
+  it('requestConsumableNotes (Auto) rejects with the terminated-client refusal, not InvalidParams', async () => {
+    storageState[STORAGE_KEY] = {
+      'https://miden.xyz': [{ ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 2 }]
+    };
+    const terminated = new Error('WebClient terminated');
+    mockGetConsumableNotes.mockRejectedValueOnce(terminated);
+    await expect(
+      dapp.requestConsumableNotes('https://miden.xyz', {
+        type: MidenDAppMessageType.ConsumableNotesRequest,
+        sourcePublicKey: 'miden-account-1'
+      })
+    ).rejects.toBe(terminated);
+  });
+
   it('requestPrivateNotes (Auto) stops between the note read and the consumability scope read', async () => {
     (storageState[STORAGE_KEY] as any)['https://miden.xyz'] = [
       { ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 65535 }
@@ -1652,6 +1702,21 @@ describe('a watchdog eviction mid-read abandons the dApp flow instead of double-
       } as never)
     ).rejects.toThrow(WasmClientPoisonedError);
     expect(_g.__dappTestMockGetConsumableNotes).not.toHaveBeenCalled();
+  });
+
+  it('requestPrivateNotes (Auto) rejects with the terminated-client refusal, not InvalidParams', async () => {
+    storageState[STORAGE_KEY] = {
+      'https://miden.xyz': [{ ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 65535 }]
+    };
+    const terminated = new Error('WebClient terminated');
+    mockGetInputNoteDetails.mockRejectedValueOnce(terminated);
+    await expect(
+      dapp.requestPrivateNotes('https://miden.xyz', {
+        type: MidenDAppMessageType.PrivateNotesRequest,
+        sourcePublicKey: 'miden-account-1',
+        notefilterType: NoteFilterTypes.All
+      })
+    ).rejects.toBe(terminated);
   });
 
   it('requestConsumableNotes (Auto) forwards the reader check that parked into its own read label', async () => {

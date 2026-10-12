@@ -29,7 +29,6 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 
 import {
-  MIDEN_NAME_ALLOWED_SCRIPT_MARKER,
   MIDEN_NAME_COMMITMENT_VERSION,
   MIDEN_NAME_FEE_ENTRY_MARKER,
   MIDEN_NAME_ISSUED_MARKER,
@@ -86,6 +85,7 @@ export interface RegistryStorageRead {
   blockNum: number;
   /** Value of a map entry. A missing entry is the zero word. */
   mapValue(slot: string, key: Felts4): Felts4;
+  slotValue(slot: string): string | undefined;
 }
 
 function requireConfig(): MidenNameConfig {
@@ -147,6 +147,9 @@ export async function readRegistryStorage(
 
   return {
     blockNum: proof.blockNum(),
+    slotValue(slot: string): string | undefined {
+      return proof.getStorageSlotValue(slot)?.toHex().toLowerCase();
+    },
     mapValue(slot: string, key: Felts4): Felts4 {
       return entriesBySlot.get(slot)?.get(wordFromFelts(key).toHex().toLowerCase()) ?? ZERO_FELTS;
     }
@@ -188,7 +191,6 @@ export async function fetchMidenNameQuote(label: string, { fresh = false } = {})
     [
       { slot: MIDEN_NAME_SLOTS.assetStatus, keys: [statusKey] },
       { slot: MIDEN_NAME_SLOTS.prices, keys: [priceKey] },
-      { slot: MIDEN_NAME_SLOTS.allowedNoteScripts, keys: [scriptRoot] },
       { slot: MIDEN_NAME_SLOTS.feeSchedule, keys: [scriptRoot] }
     ],
     'midenNameQuote'
@@ -196,7 +198,9 @@ export async function fetchMidenNameQuote(label: string, { fresh = false } = {})
 
   const status = storage.mapValue(MIDEN_NAME_SLOTS.assetStatus, statusKey);
   const price = storage.mapValue(MIDEN_NAME_SLOTS.prices, priceKey);
-  const allowed = storage.mapValue(MIDEN_NAME_SLOTS.allowedNoteScripts, scriptRoot);
+  const allowed =
+    storage.slotValue(MIDEN_NAME_SLOTS.registerDomainNoteRoot) ===
+    Word.fromHex(MIDEN_NAME_REGISTER_SCRIPT_ROOT).toHex().toLowerCase();
   const fee = storage.mapValue(MIDEN_NAME_SLOTS.feeSchedule, scriptRoot);
 
   // The contract writes a fee entry as [fee, 0, 0, 1]. Any other layout means
@@ -208,7 +212,7 @@ export async function fetchMidenNameQuote(label: string, { fresh = false } = {})
     available: status[0] === 0n,
     priceBaseUnits: price[0],
     networkFeeBaseUnits: feeWellFormed ? fee[0] : 0n,
-    scriptAllowed: allowed[0] === MIDEN_NAME_ALLOWED_SCRIPT_MARKER && feeWellFormed,
+    scriptAllowed: allowed && feeWellFormed,
     blockNum: storage.blockNum
   };
   quoteCache.set(cacheKey, { quote, at: Date.now() });
@@ -332,6 +336,7 @@ export async function findRegistryDeliveryNoteIds({
 }): Promise<RegistryDeliveryScan> {
   const config = requireConfig();
   const registryHex = config.registryAccountIdHex.toLowerCase();
+  fromBlock = Math.max(fromBlock, config.registryCreationBlock);
   const end = toBlock ?? (await getChainTip());
   if (fromBlock > end) return { noteIds: [], scannedTo: end };
 

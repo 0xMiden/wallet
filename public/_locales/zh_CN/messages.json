@@ -1,330 +1,129 @@
 {
-  "midenNameUnsupportedNetwork": {
-    "message": "该网络不支持“中间名”。",
-    "englishSource": "Miden Name is not available on this network."
+  "usdcxBurnTitle": {
+    "message": "销毁 USDCx",
+    "englishSource": "Burn USDCx"
   },
-  "contactAddressOrMidenName": {
-    "message": "地址或中间名",
-    "englishSource": "Address or Miden Name"
+  "usdcxBurnSubmitted": {
+    "message": "已提交销毁请求",
+    "englishSource": "Burn submitted"
   },
-  "contactAddressOrMidenNamePlaceholder": {
-    "message": "请输入地址或名称.miden",
-    "englishSource": "Enter an address or name.miden"
-  },
-  "contactResolvedAddress": {
-    "message": "已解决地址：$address$",
-    "englishSource": "Resolved address: $address$",
+  "usdcxMidenFees": {
+    "message": "$symbol$手续费",
+    "englishSource": "$symbol$ fees",
     "placeholders": {
-      "address": {
+      "symbol": {
         "content": "$1"
       }
     }
   },
-  "midenNameReceiptTransaction": {
-    "message": "命名收据交易",
-    "englishSource": "Name receipt transaction"
+  "usdcxBurnOnly": {
+    "message": "仅限销毁",
+    "englishSource": "Burn only"
   },
-  "midenNameResolving": {
-    "message": "正在查询这个名称……",
-    "englishSource": "Looking up this name…"
+  "usdcxWithdrawalNotice": {
+    "message": "“销毁已确认”表示USDCx已在Miden上被销毁。“已确认”意味着目标地址的USDC余额增加了。用于销毁USDCx的note以及目标地址均为公开信息。已发布的note无法被撤回。",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
   },
-  "midenNameNotFound": {
-    "message": "没有任何账户使用此名称",
-    "englishSource": "No account uses this name"
+  "usdcxBurnTestNotice": {
+    "message": "此测试 faucet 在 Miden 上销毁 USDCx，且无支付目的地。销毁记录 note 及目标地址均为公开信息。已发布的销毁记录 notes 无法被追回。",
+    "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."
   },
-  "midenNameResolveFailed": {
-    "message": "无法查找此名称。请重试。",
-    "englishSource": "Couldn't look up this name. Try again."
+  "usdcxBurnPending": {
+    "message": "待销毁",
+    "englishSource": "Awaiting burn"
   },
-  "midenName": {
-    "message": "姓氏",
-    "englishSource": "Miden Name"
+  "usdcxBurnConsuming": {
+    "message": "销毁处理",
+    "englishSource": "Burn processing"
   },
-  "midenNameClaimCta": {
-    "message": "申领名称",
-    "englishSource": "Claim a name"
+  "usdcxBurnConfirmed": {
+    "message": "销毁已确认",
+    "englishSource": "Burn confirmed"
   },
-  "midenNameClaimCtaSubtitle": {
-    "message": "获取您专属的$suffix$名称，永久归您所有",
-    "englishSource": "Get your own $suffix$ name, yours forever",
+  "usdcxBurnDiscarded": {
+    "message": "“销毁”被驳回",
+    "englishSource": "Burn rejected"
+  },
+  "usdcxBurnNoteId": {
+    "message": "Note ID",
+    "englishSource": "Note ID"
+  },
+  "usdcxDestinationDomain": {
+    "message": "目标域名",
+    "englishSource": "Destination domain"
+  },
+  "usdcxProcessingAttempts": {
+    "message": "处理尝试",
+    "englishSource": "Processing attempts"
+  },
+  "usdcxLastProcessingError": {
+    "message": "上次处理错误",
+    "englishSource": "Last processing error"
+  },
+  "usdcxMinimumBurn": {
+    "message": "最低销毁量",
+    "englishSource": "Minimum burn"
+  },
+  "usdcxSponsorshipFee": {
+    "message": "以$symbol$支付，包括faucet执行赞助",
+    "englishSource": "Paid in $symbol$, including faucet execution sponsorship",
     "placeholders": {
-      "suffix": {
+      "symbol": {
         "content": "$1"
       }
     }
   },
-  "midenNameClaimTitle": {
-    "message": "申领名称",
-    "englishSource": "Claim a name"
+  "usdcxInvalidDestination": {
+    "message": "请输入一个位于受支持网络上的有效地址以进行此次提现。",
+    "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
-  "midenNameSearchPlaceholder": {
-    "message": "yourname",
-    "englishSource": "yourname"
+  "usdcxUnsupportedFaucet": {
+    "message": "USDCx 提现功能仅适用于 Miden 测试网中已配置的 faucet。",
+    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
   },
-  "midenNameRules": {
-    "message": "1–21 个字符 · 仅限 a–z 和 0–9",
-    "englishSource": "1–21 characters · a–z and 0–9 only"
+  "usdcxInvalidAmount": {
+    "message": "请输入正数的USDCx金额，小数部分最多保留六位。",
+    "englishSource": "Enter a positive USDCx amount with at most six decimal places."
   },
-  "midenNameAvailable": {
-    "message": "$name$ 可用",
-    "englishSource": "$name$ is available",
+  "usdcxBelowMinimumBurn": {
+    "message": "该金额低于faucet规定的最低销毁金额。",
+    "englishSource": "The amount is below the faucet's minimum burn amount."
+  },
+  "usdcxIncompatibleBurnScript": {
+    "message": "该钱包的销毁脚本与 USDCx 的 faucet 不匹配。",
+    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+  },
+  "usdcxFaucetUnavailable": {
+    "message": "无法读取 USDCx faucet 的销毁政策。请重新开启审核以再次尝试。",
+    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+  },
+  "usdcxSendMoreThanPayoutFee": {
+    "message": "向$network$网络发送超过$amount$的USDCx：Circle的手续费将从支付金额中扣除。",
+    "englishSource": "Send more than $amount$ USDCx to $network$: Circle's fee is taken from the payout.",
     "placeholders": {
-      "name": {
+      "amount": {
         "content": "$1"
+      },
+      "network": {
+        "content": "$2"
       }
     }
   },
-  "midenNameTaken": {
-    "message": "$name$ 已被占用",
-    "englishSource": "$name$ is already taken",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNameInvalidEmpty": {
-    "message": "输入名称",
-    "englishSource": "Enter a name"
-  },
-  "midenNameInvalidTooLong": {
-    "message": "请控制在21个字符以内",
-    "englishSource": "Use 21 characters or fewer"
-  },
-  "midenNameInvalidChars": {
-    "message": "仅使用 a–z 和 0–9",
-    "englishSource": "Use only a–z and 0–9"
-  },
-  "midenNameChecking": {
-    "message": "正在核对……",
-    "englishSource": "Checking…"
-  },
-  "midenNameServiceUnavailable": {
-    "message": "无法验证此名称。请重试。",
-    "englishSource": "Couldn't check this name. Try again."
-  },
-  "midenNameRegistryUnavailable": {
-    "message": "Miden Name 目前不接受新名称",
-    "englishSource": "Miden Name does not accept new names right now"
-  },
-  "midenNamePriceChanged": {
-    "message": "价格已变动。请查看新价格并重试。",
-    "englishSource": "The price changed. Check the new price and try again."
-  },
-  "midenNamePrice": {
-    "message": "价格 · 长度 $length$",
-    "englishSource": "Price · length $length$",
-    "placeholders": {
-      "length": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNameNetworkFee": {
-    "message": "网络手续费",
-    "englishSource": "Network fee"
-  },
-  "midenNameTxFee": {
-    "message": "最高交易手续费",
-    "englishSource": "Max transaction fee"
-  },
-  "midenNameTotal": {
-    "message": "总计",
-    "englishSource": "Total"
-  },
-  "midenNameGoesTo": {
-    "message": "转至",
-    "englishSource": "Goes to"
-  },
-  "midenNameBalanceAfter": {
-    "message": "余额为",
-    "englishSource": "Balance after"
-  },
-  "midenNamePermanentNote": {
-    "message": "注册一经完成即永久生效。该名称将与该账户绑定，且费用不予退还。",
-    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
-  },
-  "midenNameInsufficientBalance": {
-    "message": "MIDEN 还不够。你需要 $amount$。",
-    "englishSource": "Not enough MIDEN. You need $amount$.",
+  "usdcxPayoutFeeUpTo": {
+    "message": "最高$amount$ USDC",
+    "englishSource": "Up to $amount$ USDC",
     "placeholders": {
       "amount": {
         "content": "$1"
       }
     }
   },
-  "midenNameClaimName": {
-    "message": "申领 $name$ · $price$",
-    "englishSource": "Claim $name$ · $price$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      },
-      "price": {
-        "content": "$2"
-      }
-    }
-  },
-  "midenNameStatusSubtitle": {
-    "message": "$amount$ · $account$",
-    "englishSource": "$amount$ · $account$",
+  "usdcxPayoutAtLeast": {
+    "message": "至少$amount$ USDC",
+    "englishSource": "At least $amount$ USDC",
     "placeholders": {
       "amount": {
         "content": "$1"
-      },
-      "account": {
-        "content": "$2"
-      }
-    }
-  },
-  "midenNameStepRequestSent": {
-    "message": "请求已发送",
-    "englishSource": "Request sent"
-  },
-  "midenNameStepIssued": {
-    "message": "名称由 Miden Name 发布并公布",
-    "englishSource": "Name issued and published by Miden Name"
-  },
-  "midenNameStepAdding": {
-    "message": "将其添加到您的账户中",
-    "englishSource": "Adding it to your account"
-  },
-  "midenNameFailedTaken": {
-    "message": "这个名字已被他人先用。",
-    "englishSource": "Someone else got this name first."
-  },
-  "midenNameFailedExpired": {
-    "message": "注册机构未能及时处理该请求。",
-    "englishSource": "The registry did not process the request in time."
-  },
-  "midenNameFailedDiscarded": {
-    "message": "注册表无法处理此请求。",
-    "englishSource": "The registry could not process the request."
-  },
-  "midenNameFailedTx": {
-    "message": "请求交易失败。未注册任何名称。",
-    "englishSource": "The request transaction failed. No name was registered."
-  },
-  "midenNameFailedClaim": {
-    "message": "该名称已生成，但添加到您的账户时失败。",
-    "englishSource": "The name was issued, but adding it to your account failed."
-  },
-  "midenNameRetryClaim": {
-    "message": "重试申领",
-    "englishSource": "Retry claim"
-  },
-  "midenNameClaiming": {
-    "message": "申领 $name$…",
-    "englishSource": "Claiming $name$…",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNameDone": {
-    "message": "完成",
-    "englishSource": "Done"
-  },
-  "midenNameStateOwned": {
-    "message": "持有",
-    "englishSource": "Owned"
-  },
-  "midenNameStateClaiming": {
-    "message": "申领",
-    "englishSource": "Claiming"
-  },
-  "midenNameStateFailed": {
-    "message": "失败",
-    "englishSource": "Failed"
-  },
-  "midenNameNotYetResolvable": {
-    "message": "尚未收录到词库中",
-    "englishSource": "Not in the registry yet"
-  },
-  "midenNameResolvesHere": {
-    "message": "该账户已解决",
-    "englishSource": "Resolves to this account"
-  },
-  "midenNameEmpty": {
-    "message": "您尚未拥有中间名",
-    "englishSource": "You have no Miden Name yet"
-  },
-  "midenNameClaimAnother": {
-    "message": "“Claim”的另一个名称",
-    "englishSource": "Claim another name"
-  },
-  "midenNamePrimaryName": {
-    "message": "主要名称",
-    "englishSource": "Primary name"
-  },
-  "midenNameYourNames": {
-    "message": "您的姓名",
-    "englishSource": "Your names"
-  },
-  "midenNameCheckingRecord": {
-    "message": "正在核查注册表……",
-    "englishSource": "Checking the registry…"
-  },
-  "midenNameResolvesElsewhere": {
-    "message": "转入另一个账户",
-    "englishSource": "Resolves to another account"
-  },
-  "transactionStageRegisteringName": {
-    "message": "注册名称",
-    "englishSource": "Registering name"
-  },
-  "transactionTitleRegisterName": {
-    "message": "名称注册",
-    "englishSource": "Registering Name"
-  },
-  "historyRegisteredName": {
-    "message": "注册网址：$name$",
-    "englishSource": "Registered $name$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "historyReceivedName": {
-    "message": "已收到 $name$",
-    "englishSource": "Received $name$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      }
-    }
-  },
-  "midenNameViewStatus": {
-    "message": "查看状态",
-    "englishSource": "View status"
-  },
-  "midenNameReceiptName": {
-    "message": "名称",
-    "englishSource": "Name"
-  },
-  "midenNameReceiptRegistry": {
-    "message": "注册表",
-    "englishSource": "Registry"
-  },
-  "midenNameReceiptNoteId": {
-    "message": "注册 note",
-    "englishSource": "Registration note"
-  },
-  "midenNameReceiptPhase": {
-    "message": "阶段",
-    "englishSource": "Phase"
-  },
-  "balanceCardAccountWithName": {
-    "message": "$name$ · $number$",
-    "englishSource": "$name$ · $number$",
-    "placeholders": {
-      "name": {
-        "content": "$1"
-      },
-      "number": {
-        "content": "$2"
       }
     }
   },
@@ -398,8 +197,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "您的钱包将自动打开，以批准确切金额并在Sepolia上签名。",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "您的钱包将自动打开以批准确切金额，并在源网络上进行签名。",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "您将收到",
@@ -414,8 +213,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "您的钱包会提示您批准 $tokenSymbol$ 并签署在 Sepolia 上的存款交易。确认后，资金将到账 Miden。",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "您的钱包会要求您批准 $tokenSymbol$ 并签署源网络上的存款交易。确认后，资金将到达 Miden。",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -814,8 +613,8 @@
     "englishSource": "Deposit into a vault below to start earning rewards."
   },
   "earnVaultsTitle": {
-    "message": "精选保险库",
-    "englishSource": "Featured Vaults"
+    "message": "可用保险库",
+    "englishSource": "Available Vaults"
   },
   "earnApyLabel": {
     "message": "APY",
@@ -952,8 +751,16 @@
     "englishSource": "Not confirmed"
   },
   "transactionNotConfirmedHint": {
-    "message": "钱包无法确认此笔交易是否已成功。该笔交易仍有可能到账，因此请在钱包同步完成后查看余额，再决定是否再次发送。",
-    "englishSource": "The wallet could not confirm whether this went through. It may still arrive, so check your balance after the wallet syncs before you send it again."
+    "message": "钱包无法确认此操作是否已成功。该操作仍可能完成，因此请在再次尝试前，待钱包同步完成后检查其状态。",
+    "englishSource": "The wallet could not confirm whether this went through. It may still complete, so check the wallet after it syncs before you try again."
+  },
+  "transactionUndeterminedHint": {
+    "message": "钱包无法确定此操作是否成功，且不会进行验证。请检查钱包后再尝试。",
+    "englishSource": "The wallet could not determine whether this went through and is not checking it. Check the wallet before you try again."
+  },
+  "transactionRestoredHint": {
+    "message": "此次是从备份中恢复的，因此钱包无法检查操作是否成功，也无法重试。请在重复操作前检查钱包。",
+    "englishSource": "This was restored from a backup, so the wallet cannot check whether it went through or retry it. Check the wallet before you repeat it."
   },
   "showFullError": {
     "message": "显示完整错误信息",
@@ -980,8 +787,12 @@
     "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "请保持此钱包处于打开并连接状态——发送后的一段时间内会自动重试投递，成功后该警告会消失。如果一小时后收款人仍未收到，请勿重复发送；保存下方的交易 ID 并联系支持，因为仍可凭它恢复该转账。",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
+    "message": "请保持该钱包处于打开并连接状态——系统会自动重试发送长达三天，一旦成功，此警告将自动消失。如果收件人一天后仍未收到，请勿再次发送；请保存下方的交易ID并联系客服，因为仍可通过该ID找回转账。",
+    "englishSource": "Keep this wallet open and connected - delivery is retried automatically for up to three days, and this warning clears once it goes through. If the recipient still has nothing after a day, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
+  },
+  "noteDeliveryRetriesStoppedHint": {
+    "message": "此笔转账的自动交付已停止。请勿再次发送；请保存下方的交易 ID 并联系客服，因为仍可通过该 ID 恢复转账。",
+    "englishSource": "Automatic delivery has stopped for this transfer. Do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "已确认交付",
@@ -1126,15 +937,6 @@
     "message": "我明白该密钥无法被旋转或撤销。",
     "englishSource": "I understand this key cannot be rotated or revoked."
   },
-  "encryptedFileImportedAccountsOmitted": {
-    "message": "此旧钱包文件中缺少的已导入账户：$importedCount$。请分别使用各自的私钥备份进行恢复。",
-    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
-    "placeholders": {
-      "importedcount": {
-        "content": "$1"
-      }
-    }
-  },
   "editAccountName": {
     "message": "编辑账户名称",
     "englishSource": "Edit Account Name"
@@ -1222,6 +1024,14 @@
   "transactionStepSyncingGuardian": {
     "message": "与 Guardian 同步",
     "englishSource": "Syncing with Guardian"
+  },
+  "guardianBusyStep": {
+    "message": "期待您的 Guardian",
+    "englishSource": "Waiting for your Guardian"
+  },
+  "guardianBusyDescription": {
+    "message": "您的Guardian仍在处理之前的交易。本次交易将自动继续进行。",
+    "englishSource": "Your Guardian is still finishing your previous transaction. This one continues automatically."
   },
   "transactionStepDurationSec": {
     "message": "$seconds$ 秒",
@@ -1933,6 +1743,10 @@
     "message": "搜索代币",
     "englishSource": "Search for tokens"
   },
+  "sendUsdcxOnlyDestination": {
+    "message": "只有 USDCx 可以发送至该网络。",
+    "englishSource": "Only USDCx can be sent to this network."
+  },
   "available": {
     "message": "有货",
     "englishSource": "Available"
@@ -2190,6 +2004,23 @@
     "message": "请重新提交请求",
     "englishSource": "Request again"
   },
+  "faucetRateLimitedWait": {
+    "message": "您刚刚申请了资金。请在 $seconds$ 秒后重试。",
+    "englishSource": "You requested funds a moment ago. Try again in $seconds$ seconds.",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetRateLimited": {
+    "message": "您刚刚申请了资金。请稍后再试。",
+    "englishSource": "You requested funds a moment ago. Try again shortly."
+  },
+  "faucetOverCap": {
+    "message": "该faucet目前无法发送资金。请稍后再试。",
+    "englishSource": "The faucet can't send funds right now. Try again later."
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "检测到账户恢复操作",
     "englishSource": "Account recovery detected"
@@ -2222,9 +2053,9 @@
     "message": "您有待接受的转账",
     "englishSource": "You have transfers to accept"
   },
-  "pendingNotesPromptBody": {
-    "message": "$count$ 笔等待中",
-    "englishSource": "$count$ waiting",
+  "pendingNotesPromptBodyReview": {
+    "message": "$count$ 笔等待中 · 点按查看",
+    "englishSource": "$count$ waiting · tap to review",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -2424,10 +2255,6 @@
     "message": "输入您导出钱包时设置的密码。这将解密文件并恢复访问权限。",
     "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
   },
-  "continueImport": {
-    "message": "继续导入",
-    "englishSource": "Continue import"
-  },
   "chooseHowToProtect": {
     "message": "选择您希望如何保护您的钱包",
     "englishSource": "Choose how you want to protect your wallet"
@@ -2556,38 +2383,6 @@
     "message": "请从以下选项中选择一项",
     "englishSource": "Select an option below"
   },
-  "setUpYourAccount": {
-    "message": "设置您的账户",
-    "englishSource": "Set up your account"
-  },
-  "setUpYourAccountDescription": {
-    "message": "您的 Miden 账户是私有的。请逐一查看这些要点，了解账户是如何受到保护的。",
-    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
-  },
-  "meetGuardianLocalStateTitle": {
-    "message": "您的账户存储于此设备中",
-    "englishSource": "Your account lives on this device"
-  },
-  "meetGuardianLocalStateBody": {
-    "message": "私有账户状态始终保存在您的设备上。网络仅能看到加密承诺。",
-    "englishSource": "Private account state stays on your device. The network only ever sees a cryptographic commitment."
-  },
-  "meetGuardianSeedPhraseTitle": {
-    "message": "仅凭恢复短语是不够的",
-    "englishSource": "A recovery phrase isn't enough"
-  },
-  "meetGuardianSeedPhraseBody": {
-    "message": "您的恢复短语可恢复您的密钥，而非账户状态。一旦丢失设备，该状态便不复存在。",
-    "englishSource": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone."
-  },
-  "meetGuardianProtectsTitle": {
-    "message": "Guardian（资产保护协议）可为您提供保护",
-    "englishSource": "A Guardian can protect you"
-  },
-  "meetGuardianProtectsBody": {
-    "message": "Guardian用于存储您的账户状态并协助您恢复账户。您可以将其视为一个为您提供备份的服务器，但它绝不会触及您的资金。",
-    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
-  },
   "meetGuardianChecking": {
     "message": "正在测试哪位客服响应最快……",
     "englishSource": "Checking which operator answers fastest…"
@@ -2603,14 +2398,6 @@
   "learnMoreAboutGuardian": {
     "message": "了解更多关于Guardian的信息",
     "englishSource": "Learn more about the Guardian"
-  },
-  "noGuardianOptionTitle": {
-    "message": "无监护人",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "高级 — 仅使用您的恢复短语进行恢复。无需 guardian 的共同签名人。",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
   },
   "guardianOperatedBy": {
     "message": "运营方：",
@@ -2640,22 +2427,110 @@
     "message": "什么是Guardian？",
     "englishSource": "What is a Guardian?"
   },
-  "meetGuardianYourGuardian": {
-    "message": "你的Guardian",
-    "englishSource": "Your Guardian"
+  "guardianIntroTitle": {
+    "message": "了解您的Guardian",
+    "englishSource": "Meet your Guardian"
   },
-  "meetGuardianChange": {
-    "message": "更换",
-    "englishSource": "Change"
+  "guardianIntroDescription": {
+    "message": "“Guardian”会备份您的私人账户数据，并对您的交易进行联署。",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
-  "meetGuardianSummary": {
-    "message": "$name$ 会备份您的账户。它永远无法转移您的资金，您也可以随时更换。",
-    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+  "guardianIntroRecoverTitle": {
+    "message": "在新手机上恢复",
+    "englishSource": "Recover on a new phone"
+  },
+  "guardianIntroRecoverBody": {
+    "message": "您的恢复短语可恢复您的密钥，并结合您的Guardian备份，恢复您的账户。请妥善保管该短语。",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+  },
+  "guardianIntroFundsTitle": {
+    "message": "您的资金始终归您所有",
+    "englishSource": "Your funds stay yours"
+  },
+  "guardianIntroFundsBody": {
+    "message": "您的“Guardian”将与您共同签署交易。它绝不能自行转移资金。",
+    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+  },
+  "guardianIntroSwitchTitle": {
+    "message": "随时切换",
+    "englishSource": "Switch any time"
+  },
+  "guardianIntroSwitchBody": {
+    "message": "您可以随时切换至另一位Guardian。您的账户保持不变。",
+    "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
+  },
+  "guardianIntroMoreAbout": {
+    "message": "关于Guardians的更多信息",
+    "englishSource": "More about Guardians"
+  },
+  "meetGuardianContinueWith": {
+    "message": "继续处理 $name$",
+    "englishSource": "Continue with $name$",
     "placeholders": {
       "name": {
         "content": "$1"
       }
     }
+  },
+  "meetGuardianChangeProvider": {
+    "message": "更换服务商",
+    "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "了解更多",
+    "englishSource": "Learn more"
+  },
+  "meetGuardianRegion": {
+    "message": "地区：",
+    "englishSource": "Region:"
+  },
+  "guardianFastest": {
+    "message": "最快",
+    "englishSource": "Fastest"
+  },
+  "guardianProviderSheetTitle": {
+    "message": "选择服务提供商",
+    "englishSource": "Choose a provider"
+  },
+  "guardianProviderSheetDescription": {
+    "message": "它们都以相同的方式备份您的账户。",
+    "englishSource": "They all back up your account the same way."
+  },
+  "guardianProviderSheetFootnote": {
+    "message": "您可以在“设置”中随时进行切换。",
+    "englishSource": "You can switch any time in Settings."
+  },
+  "guardianAboutOpenZeppelin": {
+    "message": "OpenZeppelin，一家以安全审计著称的智能合约安全公司。",
+    "englishSource": "OpenZeppelin, a smart contract security company known for its audits."
+  },
+  "guardianAboutGateway": {
+    "message": "Gateway，一家运营节点和网络的blockchain基础设施提供商。",
+    "englishSource": "Gateway, a blockchain infrastructure provider that runs nodes and networks."
+  },
+  "guardianAboutLambdaClass": {
+    "message": "LambdaClass，一家致力于构建零知识系统的工程公司。",
+    "englishSource": "LambdaClass, an engineering firm that builds zero-knowledge systems."
+  },
+  "guardianAboutKodax": {
+    "message": "Korea Digital Asset，一家总部位于韩国的数字资产托管公司。",
+    "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
+  },
+  "guardianKindOpenZeppelin": {
+    "message": "智能合约安全与审计",
+    "englishSource": "Smart contract security and audits"
+  },
+  "guardianKindGateway": {
+    "message": "Blockchain基础设施提供商",
+    "englishSource": "Blockchain infrastructure provider"
+  },
+  "guardianKindLambdaClass": {
+    "message": "零知识系统工程",
+    "englishSource": "Zero-knowledge systems engineering"
+  },
+  "guardianKindKodax": {
+    "message": "数字资产托管人",
+    "englishSource": "Digital asset custodian"
   },
   "guardianInfoDescription": {
     "message": "Guardian 是一项独立服务，<b>对您钱包中的每笔交易</b>进行联署，在无需放弃自主托管的前提下提供安全保障。",
@@ -3045,6 +2920,18 @@
     "message": "您已成功轮换您的Guardian！",
     "englishSource": "You've successfully rotated your Guardian!"
   },
+  "guardianSwitchedRowTitle": {
+    "message": "Guardian 已切换",
+    "englishSource": "Guardian switched"
+  },
+  "guardianSwitchSubmittedRowTitle": {
+    "message": "已提交 Guardian 更换",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchSubmittedChip": {
+    "message": "已提交",
+    "englishSource": "Submitted"
+  },
   "guardianSwitchSuccessInfoTitle": {
     "message": "当前有哪些变化",
     "englishSource": "What changes now"
@@ -3194,16 +3081,16 @@
     "englishSource": "Retry"
   },
   "hotKeyRotationFundingTitle": {
-    "message": "添加 MIDEN 以激活您的日常密钥",
-    "englishSource": "Add MIDEN to activate your everyday key"
+    "message": "添加 USDCX 以激活您的日常密钥",
+    "englishSource": "Add USDCX to activate your everyday key"
   },
   "hotKeyRotationFundingBody": {
-    "message": "激活您的日常密钥是一笔交易，每笔交易都需要支付少量 MIDEN 网络手续费。请将 MIDEN 发送至下方该账户的地址。钱包会自动收取这笔费用并完成密钥的激活。",
-    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+    "message": "激活您的日常密钥是一笔交易，每笔交易都需要支付少量 USDCX 网络手续费。请将 USDCX 发送至下方该账户的地址。钱包会自动收取这笔费用并完成密钥的激活。",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in USDCX. Send USDCX to this account's address below. The wallet claims it and finishes activating your key automatically."
   },
   "hotKeyRotationFundingMinimum": {
-    "message": "至少发送$amount$MIDEN。",
-    "englishSource": "Send at least $amount$ MIDEN.",
+    "message": "至少发送$amount$USDCX。",
+    "englishSource": "Send at least $amount$ USDCX.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -3215,28 +3102,28 @@
     "englishSource": "Your account address"
   },
   "hotKeyRotationFundingWaiting": {
-    "message": "等待 MIDEN 到来……",
-    "englishSource": "Waiting for MIDEN to arrive…"
+    "message": "等待 USDCX 到来……",
+    "englishSource": "Waiting for USDCX to arrive…"
   },
   "hotKeyRotationFundingTooSmall": {
-    "message": "您收到的 MIDEN 金额不足以支付网络手续费。请再多转一点。",
-    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+    "message": "您收到的 USDCX 金额不足以支付网络手续费。请再多转一点。",
+    "englishSource": "The USDCX you received is too little to pay the network fee. Send a little more."
   },
   "hotKeyRotationFundingClaiming": {
-    "message": "已收到 MIDEN。正在申领……",
-    "englishSource": "MIDEN received. Claiming it…"
+    "message": "已收到 USDCX。正在申领……",
+    "englishSource": "USDCX received. Claiming it…"
   },
   "hotKeyRotationFundingActivating": {
     "message": "激活您的日常密钥……",
     "englishSource": "Activating your everyday key…"
   },
   "hotKeyRotationFundingClaimFailed": {
-    "message": "您收到的 MIDEN 无法被领取。",
-    "englishSource": "The MIDEN you received could not be claimed."
+    "message": "您收到的 USDCX 无法被领取。",
+    "englishSource": "The USDCX you received could not be claimed."
   },
   "hotKeyRotationFundingClaimUnconfirmed": {
-    "message": "钱包无法确认您收到的 MIDEN 是否已被领取。请等待钱包同步一分钟后再重试。",
-    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
+    "message": "钱包无法确认您收到的 USDCX 是否已被领取。请等待钱包同步一分钟后再重试。",
+    "englishSource": "The wallet could not confirm whether the USDCX you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "请重试",
@@ -3265,6 +3152,10 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "此账户尚未设置可用于核对的链上 Guardian。",
     "englishSource": "This account has no on-chain guardian to verify against yet."
+  },
+  "guardianUrlStaleRetry": {
+    "message": "在核对地址时，您的 Guardian 已发生变化。请重试。",
+    "englishSource": "Your Guardian changed while the address was being checked. Please try again."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian 无法访问",
@@ -3396,28 +3287,28 @@
     "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
   },
   "feeReserveBlocksSend": {
-    "message": "您的 MIDEN 将用于支付网络手续费。获得更多 MIDEN 即可进行转账。",
-    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+    "message": "您的 USDCX 将用于支付网络手续费。获得更多 USDCX 即可进行转账。",
+    "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
   },
   "insufficientFeeAsset": {
-    "message": "您需要 MIDEN 来支付网络费用。请获取一定数量的 MIDEN 以继续操作。",
-    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+    "message": "您需要 USDCX 来支付网络费用。请获取一定数量的 USDCX 以继续操作。",
+    "englishSource": "You need USDCX to pay the network fee. Receive some USDCX to continue."
   },
   "insufficientFeeAssetShort": {
-    "message": "You need MIDEN for the network fee.",
-    "englishSource": "You need MIDEN for the network fee."
+    "message": "You need USDCX for the network fee.",
+    "englishSource": "You need USDCX for the network fee."
   },
   "amountMustBeLessThanBalance": {
     "message": "金额必须小于余额",
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "自动接受 MIDEN 转账",
-    "englishSource": "Auto-accept MIDEN transfers"
+    "message": "自动接受 USDCX 转账",
+    "englishSource": "Auto-accept USDCX transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "自动将收到的 MIDEN 转账接受到您的余额中，与点击「接受」相同。它不会更频繁地接受，也不会比您自己点击「接受」产生更多手续费。",
-    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
+    "message": "自动将收到的 USDCX 转账接受到您的余额中，与点击「接受」相同。它不会更频繁地接受，也不会比您自己点击「接受」产生更多手续费。",
+    "englishSource": "Automatically accepts incoming USDCX transfers into your balance - the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "正在创建您的钱包文件……",
@@ -3854,6 +3745,14 @@
     "message": "不可用",
     "englishSource": "Unavailable"
   },
+  "bridgeFeatureUnavailableTitle": {
+    "message": "暂时不可用",
+    "englishSource": "Temporarily unavailable"
+  },
+  "bridgeFeatureUnavailableBody": {
+    "message": "该外部服务目前无法使用。请稍后再试。",
+    "englishSource": "This external service is currently down. Please try again later."
+  },
   "agglayerCheckingToken": {
     "message": "正在检查该代币是否支持慢速路线……",
     "englishSource": "Checking whether this token supports the Slow route…"
@@ -4083,17 +3982,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "工具",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "社交",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "游戏",
@@ -4110,14 +4001,6 @@
   "exploreCategoriesLabel": {
     "message": "类别",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "精选",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "辅助工具",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "打开",
@@ -4146,10 +4029,6 @@
   "exploreNoResultsDescription": {
     "message": "试试其他名称，或粘贴 dApp 的 URL。",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "获取用于兑换的测试网代币",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "最小化",
@@ -4239,10 +4118,6 @@
   "dappBrowserCapsule": {
     "message": "dApp 浏览器页眉",
     "englishSource": "dApp browser header"
-  },
-  "dragToMinimize": {
-    "message": "向下拖动以最小化",
-    "englishSource": "Drag down to minimize"
   },
   "dappSwitcher": {
     "message": "dApp 切换器",
@@ -4394,8 +4269,8 @@
     "englishSource": "Transaction not confirmed"
   },
   "transactionNotConfirmedNotificationBody": {
-    "message": "钱包无法确认交易是否成功。请在再次发送前打开钱包。",
-    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you send it again."
+    "message": "钱包无法确认交易是否成功。请先打开钱包，然后重试。",
+    "englishSource": "The wallet could not confirm whether a transaction went through. Open the wallet before you try again."
   },
   "noteReceivedTapToClaim": {
     "message": "点击此处接受",
@@ -4513,6 +4388,10 @@
   "tokenInfo": {
     "message": "代币信息",
     "englishSource": "Token info"
+  },
+  "tokenDescription": {
+    "message": "描述",
+    "englishSource": "Description"
   },
   "fungible": {
     "message": "可互换的",
@@ -4838,8 +4717,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "请在您的钱包中批准该请求，并在 Sepolia 确认期间保持此页面打开。",
-    "englishSource": "Approve the request in your wallet and keep this screen open while Sepolia confirms it."
+    "message": "请在您的钱包中批准该请求，并在源网络确认期间保持此屏幕打开。",
+    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
     "message": "桥接存款失败",
@@ -4850,8 +4729,8 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "Sepolia 交易已确认。待跨链转账完成后，您的资金将显示在 Miden 上。",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "源交易已确认。当跨链转账完成后，您的资金将显示在 Miden 上。",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "在 Etherscan 上查看",
@@ -4912,6 +4791,172 @@
   "slowRouteLabel": {
     "message": "慢速（Agglayer）",
     "englishSource": "Slow (Agglayer)"
+  },
+  "usdcxRouteName": {
+    "message": "USDCx",
+    "englishSource": "USDCx"
+  },
+  "usdcxRouteLabel": {
+    "message": "USDCx（Circle xReserve）",
+    "englishSource": "USDCx (Circle xReserve)"
+  },
+  "usdcxArrival": {
+    "message": "约20分钟",
+    "englishSource": "~20 min"
+  },
+  "usdcxArrivalArc": {
+    "message": "~1 分钟",
+    "englishSource": "~1 min"
+  },
+  "usdcxRouteNotice": {
+    "message": "Circle xReserve 会根据您存入的 USDC，在 Miden 上按 1:1 的比例铸造 USDCx。",
+    "englishSource": "Circle xReserve mints USDCx on Miden 1:1 for the USDC you deposit."
+  },
+  "usdcxDomainNotRegistered": {
+    "message": "Circle 尚未启用向 Miden 存入 USDCx 的功能。请稍后再试。",
+    "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
+  },
+  "usdcxAwaitingAttestation": {
+    "message": "源交易已确认。正在等待 Circle 确认存款，之后 Miden 上才会铸造 USDCx。",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "在区块浏览器中查看",
+    "englishSource": "View on block explorer"
+  },
+  "usdcxAttested": {
+    "message": "Circle 已对该笔存款进行认证。USDCx 即将于 Miden 平台铸造。",
+    "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
+  },
+  "usdcxReceived": {
+    "message": "USDCx已在Miden上铸造，并已发送至您的钱包。",
+    "englishSource": "USDCx was minted on Miden and your wallet received it."
+  },
+  "usdcxExecutorRouteNotice": {
+    "message": "USDC在$source$上被销毁，并在$target$上铸造给Circle的执行人，后者将其存入Miden的xReserve中。Circle除收取金额外还会收取手续费，并由Circle在$target$上执行转账。如果Circle无法为转账定价，则需您在$target$上通过额外一个签名来执行转账。",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "target": {
+        "content": "$4"
+      }
+    }
+  },
+  "usdcxCctpAwaitingAttestation": {
+    "message": "销毁已确认。正在等待 Circle 对转账进行认证，之后才能在 $network$ 上执行。",
+    "englishSource": "The burn is confirmed. Waiting for Circle to attest the transfer before it can be executed on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuteNeeded": {
+    "message": "Circle 已确认此次转账。请在 $network$ 上执行该操作，将 USDC 存入 Miden 的 xReserve 账户。此操作在 $network$ 上需要少量 gas 费用。",
+    "englishSource": "Circle attested the transfer. Execute it on $network$ to deposit the USDC into xReserve for Miden. This needs a small amount of gas on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxExecuteOnNetwork": {
+    "message": "在$network$上执行",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuting": {
+    "message": "正在执行……",
+    "englishSource": "Executing…"
+  },
+  "usdcxExecuteSubmitted": {
+    "message": "该转账已在$network$上执行。正在等待Circle确认存款，之后USDCx将在Miden上铸造。",
+    "englishSource": "The transfer was executed on $network$. Waiting for Circle to attest the deposit before USDCx is minted on Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardingPending": {
+    "message": "销毁操作已确认。Circle 验证该转账并在 $network$ 上执行，将 USDC 存入 Miden 的 xReserve 账户。",
+    "englishSource": "The burn is confirmed. Circle attests the transfer and executes it on $network$, which deposits the USDC into xReserve for Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardFee": {
+    "message": "$fee$ USDC Circle 手续费",
+    "englishSource": "$fee$ USDC Circle fee",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxCircleFee": {
+    "message": "Circle手续费",
+    "englishSource": "Circle fee"
+  },
+  "usdcxProgress": {
+    "message": "进度",
+    "englishSource": "Progress"
+  },
+  "usdcxStepDeposited": {
+    "message": "存入$network$",
+    "englishSource": "Deposited on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurned": {
+    "message": "已烧毁在$network$上",
+    "englishSource": "Burned on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurnAttested": {
+    "message": "Circle 已确认此次销毁",
+    "englishSource": "Circle attested the burn"
+  },
+  "usdcxStepCircleExecutes": {
+    "message": "Circle 在 $network$ 上运行",
+    "englishSource": "Circle executes on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepUserExecutes": {
+    "message": "在$network$上执行",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepDepositAttested": {
+    "message": "Circle 已确认该笔存款",
+    "englishSource": "Circle attested the deposit"
+  },
+  "usdcxStepMinted": {
+    "message": "在 Miden 上铸造的 USDCx",
+    "englishSource": "USDCx minted on Miden"
   },
   "bridgeRowTitle": {
     "message": "桥接 $from$ → $to$",
@@ -4984,6 +5029,10 @@
   "unverifiedTokenDescription": {
     "message": "该代币未列入 Miden 的已验证代币列表。任何人都可以创建任意名称的代币，因此在信任它之前，请先核对其 faucet 标识符。",
     "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
+  "unverifiedTokenTitle": {
+    "message": "未验证的代币",
+    "englishSource": "Unverified token"
   },
   "couldNotVerifyBySimulation": {
     "message": "无法通过模拟进行验证。以下数值均按该网站声明的数值列出。",
@@ -5149,9 +5198,17 @@
     "message": "自定义 guardian 网址",
     "englishSource": "Custom guardian URL"
   },
+  "devEndpointFeeFaucet": {
+    "message": "手续费 faucet 账户ID",
+    "englishSource": "Fee faucet account ID"
+  },
   "devAllowNoGuardian": {
     "message": "在入职时允许“无监护人”选项",
     "englishSource": "Allow 'No guardian' option in onboarding"
+  },
+  "devNominalUnquotedPrice": {
+    "message": "未加引号的代币价值设为 1 美元（仅限测试网）",
+    "englishSource": "Value unquoted tokens at $1 (test networks only)"
   },
   "devEndpointChecking": {
     "message": "正在检查……",
@@ -5291,15 +5348,6 @@
     "message": "转账已接受",
     "englishSource": "Transfer accepted"
   },
-  "networkNoticeChip": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
   "withdrawalRecoveryUnavailable": {
     "message": "无法安全地重试此次提现。开始另一次提现前，请先查看此次提现的状态。",
     "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
@@ -5354,8 +5402,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "该桥运行在以太坊 Sepolia 网络上。请勿连接存有真实资金的钱包。请创建一个新的钱包，并仅向其中存入 Sepolia ETH。",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "该桥接服务使用 Arc 测试网或以太坊 Sepolia 处理 USDC，使用以太坊 Sepolia 处理 ETH。请勿连接存有真实资金的钱包。请创建一个全新的钱包，并仅向其中充值测试代币。",
+    "englishSource": "This bridge uses Arc Testnet or Ethereum Sepolia for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "帮助改进钱包",
@@ -5516,6 +5564,19 @@
     "message": "代币没有实际价值",
     "englishSource": "Tokens have no real value"
   },
+  "mainnetCountdownLink": {
+    "message": "加入早期体验名单",
+    "englishSource": "Join the early access list"
+  },
+  "mainnetCountdownLabel": {
+    "message": "距离Bread主网上线还剩：$time$",
+    "englishSource": "Time left until Bread goes mainnet: $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
   "activityRestoreTransfers": {
     "message": "恢复",
     "englishSource": "Restore"
@@ -5573,8 +5634,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "此桥接将以太坊 Sepolia 测试代币转移至 Miden。切勿从以太坊主网或任何其他真实网络进行桥接。",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "该桥接功能将 Arc 测试网或以太坊 Sepolia 上的 USDC，以及以太坊 Sepolia 上的 ETH，转移至 Miden。切勿从主网或任何其他真实网络进行桥接。",
+    "englishSource": "This bridge moves Arc Testnet or Ethereum Sepolia USDC, or Ethereum Sepolia ETH, to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "隐蔽转账：$count$",
@@ -5742,8 +5803,8 @@
     "englishSource": "Daily limit (USD)"
   },
   "spendingLimitCoverage": {
-    "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
-    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
+    "message": "Only assets the wallet can price count toward this limit. Assets without a price are not limited.",
+    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price are not limited."
   },
   "spendingLimitCurrent": {
     "message": "Current limit: $amount$ a day",
@@ -6022,5 +6083,442 @@
   "hiddenTokensUnreadable": {
     "message": "无法加载隐藏代币。",
     "englishSource": "Hidden tokens could not be loaded."
+  },
+  "confirmSendReason": {
+    "message": "确认您的转账",
+    "englishSource": "Confirm your send"
+  },
+  "confirmSwapReason": {
+    "message": "确认您的更换操作",
+    "englishSource": "Confirm your swap"
+  },
+  "confirmDappTransactionReason": {
+    "message": "确认此交易",
+    "englishSource": "Confirm this transaction"
+  },
+  "confirmEarnDepositReason": {
+    "message": "确认您的存款",
+    "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "编辑代币详情",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "代币详情",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "名称",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "符号",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "小数",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "保存",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "重置为faucet的默认值",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "已编辑",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "请输入1至$max$个字符的名称。",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "请输入1至$max$个字符的符号。",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "请输入0到$max$之间的整数。",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "这些设置仅影响该钱包显示代币的方式。faucet将保留其自身的数值。您发送的金额将采用您在此处设置的小数位数。",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "无法保存代币详细信息。请重试。",
+    "englishSource": "Could not save the token details. Please try again."
+  },
+  "testIethDescription": {
+    "message": "iETH 是用于 Miden 测试网上的代币交换的测试代币。它并非 ETH，且不会在正式版钱包中提供。",
+    "englishSource": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet."
+  },
+  "testIethExecution": {
+    "message": "该更换操作通过 Miden 测试网上的智能合约执行。",
+    "englishSource": "The swap executes through a smart contract on Miden Testnet."
+  },
+  "swapExecutionTitle": {
+    "message": "交换操作的执行位置",
+    "englishSource": "Where the swap executes"
+  },
+  "tokenInfoLabel": {
+    "message": "关于 $token$",
+    "englishSource": "About $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "externalPageLoadFailed": {
+    "message": "无法打开此页面。请检查网络连接并重试。",
+    "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "midenNameUnsupportedNetwork": {
+    "message": "该网络不支持“中间名”。",
+    "englishSource": "Miden Name is not available on this network."
+  },
+  "contactAddressOrMidenName": {
+    "message": "地址或中间名",
+    "englishSource": "Address or Miden Name"
+  },
+  "contactAddressOrMidenNamePlaceholder": {
+    "message": "请输入地址或名称.miden",
+    "englishSource": "Enter an address or name.miden"
+  },
+  "contactResolvedAddress": {
+    "message": "已解决地址：$address$",
+    "englishSource": "Resolved address: $address$",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameReceiptTransaction": {
+    "message": "命名收据交易",
+    "englishSource": "Name receipt transaction"
+  },
+  "midenNameResolving": {
+    "message": "正在查询这个名称……",
+    "englishSource": "Looking up this name…"
+  },
+  "midenNameNotFound": {
+    "message": "没有任何账户使用此名称",
+    "englishSource": "No account uses this name"
+  },
+  "midenNameResolveFailed": {
+    "message": "无法查找此名称。请重试。",
+    "englishSource": "Couldn't look up this name. Try again."
+  },
+  "midenName": {
+    "message": "姓氏",
+    "englishSource": "Miden Name"
+  },
+  "midenNameClaimCta": {
+    "message": "申领名称",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimCtaSubtitle": {
+    "message": "获取您专属的$suffix$名称，永久归您所有",
+    "englishSource": "Get your own $suffix$ name, yours forever",
+    "placeholders": {
+      "suffix": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimTitle": {
+    "message": "申领名称",
+    "englishSource": "Claim a name"
+  },
+  "midenNameSearchPlaceholder": {
+    "message": "yourname",
+    "englishSource": "yourname"
+  },
+  "midenNameRules": {
+    "message": "1–21 个字符 · 仅限 a–z 和 0–9",
+    "englishSource": "1–21 characters · a–z and 0–9 only"
+  },
+  "midenNameAvailable": {
+    "message": "$name$ 可用",
+    "englishSource": "$name$ is available",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameTaken": {
+    "message": "$name$ 已被占用",
+    "englishSource": "$name$ is already taken",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameInvalidEmpty": {
+    "message": "输入名称",
+    "englishSource": "Enter a name"
+  },
+  "midenNameInvalidTooLong": {
+    "message": "请控制在21个字符以内",
+    "englishSource": "Use 21 characters or fewer"
+  },
+  "midenNameInvalidChars": {
+    "message": "仅使用 a–z 和 0–9",
+    "englishSource": "Use only a–z and 0–9"
+  },
+  "midenNameChecking": {
+    "message": "正在核对……",
+    "englishSource": "Checking…"
+  },
+  "midenNameServiceUnavailable": {
+    "message": "无法验证此名称。请重试。",
+    "englishSource": "Couldn't check this name. Try again."
+  },
+  "midenNameRegistryUnavailable": {
+    "message": "Miden Name 目前不接受新名称",
+    "englishSource": "Miden Name does not accept new names right now"
+  },
+  "midenNamePriceChanged": {
+    "message": "价格已变动。请查看新价格并重试。",
+    "englishSource": "The price changed. Check the new price and try again."
+  },
+  "midenNamePrice": {
+    "message": "价格 · 长度 $length$",
+    "englishSource": "Price · length $length$",
+    "placeholders": {
+      "length": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameNetworkFee": {
+    "message": "网络手续费",
+    "englishSource": "Network fee"
+  },
+  "midenNameTxFee": {
+    "message": "最高交易手续费",
+    "englishSource": "Max transaction fee"
+  },
+  "midenNameTotal": {
+    "message": "总计",
+    "englishSource": "Total"
+  },
+  "midenNameGoesTo": {
+    "message": "转至",
+    "englishSource": "Goes to"
+  },
+  "midenNameBalanceAfter": {
+    "message": "余额为",
+    "englishSource": "Balance after"
+  },
+  "midenNamePermanentNote": {
+    "message": "注册一经完成即永久生效。该名称将与该账户绑定，且费用不予退还。",
+    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
+  },
+  "midenNameInsufficientBalance": {
+    "message": "MIDEN 还不够。你需要 $amount$。",
+    "englishSource": "Not enough MIDEN. You need $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimName": {
+    "message": "申领 $name$ · $price$",
+    "englishSource": "Claim $name$ · $price$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "price": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStatusSubtitle": {
+    "message": "$amount$ · $account$",
+    "englishSource": "$amount$ · $account$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStepRequestSent": {
+    "message": "请求已发送",
+    "englishSource": "Request sent"
+  },
+  "midenNameStepIssued": {
+    "message": "名称由 Miden Name 发布并公布",
+    "englishSource": "Name issued and published by Miden Name"
+  },
+  "midenNameStepAdding": {
+    "message": "将其添加到您的账户中",
+    "englishSource": "Adding it to your account"
+  },
+  "midenNameFailedTaken": {
+    "message": "这个名字已被他人先用。",
+    "englishSource": "Someone else got this name first."
+  },
+  "midenNameFailedExpired": {
+    "message": "注册机构未能及时处理该请求。",
+    "englishSource": "The registry did not process the request in time."
+  },
+  "midenNameFailedDiscarded": {
+    "message": "注册表无法处理此请求。",
+    "englishSource": "The registry could not process the request."
+  },
+  "midenNameFailedTx": {
+    "message": "请求交易失败。未注册任何名称。",
+    "englishSource": "The request transaction failed. No name was registered."
+  },
+  "midenNameFailedClaim": {
+    "message": "该名称已生成，但添加到您的账户时失败。",
+    "englishSource": "The name was issued, but adding it to your account failed."
+  },
+  "midenNameRetryClaim": {
+    "message": "重试申领",
+    "englishSource": "Retry claim"
+  },
+  "midenNameClaiming": {
+    "message": "申领 $name$…",
+    "englishSource": "Claiming $name$…",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameDone": {
+    "message": "完成",
+    "englishSource": "Done"
+  },
+  "midenNameStateOwned": {
+    "message": "持有",
+    "englishSource": "Owned"
+  },
+  "midenNameStateClaiming": {
+    "message": "申领",
+    "englishSource": "Claiming"
+  },
+  "midenNameStateFailed": {
+    "message": "失败",
+    "englishSource": "Failed"
+  },
+  "midenNameNotYetResolvable": {
+    "message": "尚未收录到词库中",
+    "englishSource": "Not in the registry yet"
+  },
+  "midenNameResolvesHere": {
+    "message": "该账户已解决",
+    "englishSource": "Resolves to this account"
+  },
+  "midenNameEmpty": {
+    "message": "您尚未拥有中间名",
+    "englishSource": "You have no Miden Name yet"
+  },
+  "midenNameClaimAnother": {
+    "message": "“Claim”的另一个名称",
+    "englishSource": "Claim another name"
+  },
+  "midenNamePrimaryName": {
+    "message": "主要名称",
+    "englishSource": "Primary name"
+  },
+  "midenNameYourNames": {
+    "message": "您的姓名",
+    "englishSource": "Your names"
+  },
+  "midenNameCheckingRecord": {
+    "message": "正在核查注册表……",
+    "englishSource": "Checking the registry…"
+  },
+  "midenNameResolvesElsewhere": {
+    "message": "转入另一个账户",
+    "englishSource": "Resolves to another account"
+  },
+  "transactionStageRegisteringName": {
+    "message": "注册名称",
+    "englishSource": "Registering name"
+  },
+  "transactionTitleRegisterName": {
+    "message": "名称注册",
+    "englishSource": "Registering Name"
+  },
+  "historyRegisteredName": {
+    "message": "注册网址：$name$",
+    "englishSource": "Registered $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyReceivedName": {
+    "message": "已收到 $name$",
+    "englishSource": "Received $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameViewStatus": {
+    "message": "查看状态",
+    "englishSource": "View status"
+  },
+  "midenNameReceiptName": {
+    "message": "名称",
+    "englishSource": "Name"
+  },
+  "midenNameReceiptRegistry": {
+    "message": "注册表",
+    "englishSource": "Registry"
+  },
+  "midenNameReceiptNoteId": {
+    "message": "注册 note",
+    "englishSource": "Registration note"
+  },
+  "midenNameReceiptPhase": {
+    "message": "阶段",
+    "englishSource": "Phase"
+  },
+  "balanceCardAccountWithName": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
   }
 }

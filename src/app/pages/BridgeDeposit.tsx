@@ -6,12 +6,14 @@ import { useTranslation } from 'react-i18next';
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
 import { Icon, IconName } from 'app/icons/v2';
 import { EvmBridgeDepositScreen } from 'app/templates/EvmConnectModal/EvmBridgeDepositScreen';
+import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { PageHeader } from 'components/PageHeader';
 import { Button } from 'components/ui/Button';
 import { Notice } from 'components/ui/Notice';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { useWalletStore } from 'lib/store';
+import { useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { navigate } from 'lib/woozie';
 
@@ -29,6 +31,9 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   // deposit form: the connect step is part of funding, and dropping out of it is
   // exactly the abandonment worth seeing.
   const reportDeposit = useFundTelemetry();
+  const walletReady = connected && address && currentMidenAccount;
+  // A ready wallet hands the page to the deposit screen, which holds for the route cards it greys out.
+  const bridgeIn = useBridgeInAvailability({ hold: !walletReady });
 
   const handleClose = useCallback(() => {
     if (onClose) {
@@ -68,7 +73,7 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
     }
   }, [connect, disconnect, nativeReown, useNativeReownWallet]);
 
-  if (connected && address && currentMidenAccount) {
+  if (walletReady) {
     return (
       <EvmBridgeDepositScreen
         evmAddress={address}
@@ -110,7 +115,9 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
           </div>
         )}
 
-        <Button onClick={handleConnect} className="max-w-80">
+        <FeatureUnavailableNotice availability={bridgeIn} className="max-w-80" />
+
+        <Button onClick={handleConnect} disabled={isFeatureBlocked(bridgeIn)} className="max-w-80">
           {t('openWallet')}
         </Button>
       </div>

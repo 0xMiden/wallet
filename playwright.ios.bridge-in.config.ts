@@ -10,5 +10,11 @@ import base from './playwright.ios.config';
 export default defineConfig({
   ...base,
   testIgnore: undefined,
-  testMatch: '**/bridge-in-*.ios.spec.ts'
+  testMatch: '**/bridge-in-*.ios.spec.ts',
+  // The app reads the served config document (MIDEN_REMOTE_CONFIG_URL) as it launches, so the
+  // suite's own setup serves it for the whole run, next to the base setup's simulator pair.
+  globalSetup: [
+    './playwright/e2e/ios/fixtures/global-setup.ts',
+    './playwright/e2e/ios/fixtures/bridge-in-global-setup.ts'
+  ]
 });

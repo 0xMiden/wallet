@@ -15,7 +15,7 @@
 // into either bundle and the zero-runtime-dependency rule still holds.
 
 import type { ConnectivityCategory } from '../activity/connectivity-state';
-import type { ITransactionStage } from '../db/types';
+import type { ITransactionStage, SubmitEvidenceFields } from '../db/types';
 import type { LandedTransaction } from '../sdk/sdk-error-code';
 
 /** Discriminator kept on every offscreen-bound message; the offscreen listener
@@ -166,7 +166,8 @@ export interface OffscreenCallRequest {
  * rebuilt error names the mechanism that actually fired rather than guessing.
  * `errorLanded` carries what an `ApplyAfterSubmitError` could read about the executed
  * transaction, its id and private output note count, so a landed row the service
- * worker completes still records both (#1233).
+ * worker completes still records both (#1233). `errorBeforeSubmit` carries the leaf's tag that the error was raised
+ * before its submit call (#1081).
  */
 export type OffscreenCallResponse =
   | { ok: true; op_id: string; resultB64: string | null; durationMs: number }
@@ -178,6 +179,7 @@ export type OffscreenCallResponse =
       errorLanded?: LandedTransaction;
       errorName?: string;
       errorReason?: string;
+      errorBeforeSubmit?: true;
     };
 
 /**
@@ -268,6 +270,8 @@ export interface OffscreenStageEvent {
   type: typeof OFFSCREEN_STAGE_EVENT;
   op_id: string;
   stage: ITransactionStage;
+  /** The 'submitting' stamp's evidence (#1081). Untrusted on arrival: the service worker parses it again. */
+  evidence?: SubmitEvidenceFields;
 }
 
 /**
@@ -458,3 +462,11 @@ export function isOperationAbortedError(error: unknown): error is OperationAbort
     (typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'OperationAbortedError')
   );
 }
+
+export const OFFSCREEN_NATIVE_ASSET_EVENT = 'OFFSCREEN_NATIVE_ASSET_EVENT';
+export type OffscreenNativeAssetEvent = {
+  target: typeof SW_TARGET;
+  type: typeof OFFSCREEN_NATIVE_ASSET_EVENT;
+  id: string;
+  scope: string;
+};

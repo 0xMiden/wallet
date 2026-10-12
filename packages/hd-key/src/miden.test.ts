@@ -2,18 +2,15 @@
  * Golden vectors for the Miden account seed derivation.
  *
  * These literals are the load-bearing part: the derivation decides which keys,
- * and so which accounts, a seed phrase recovers. The `legacy` vectors are the
- * output of the `@demox-labs/aleo-hd-key` implementation the wallet shipped
- * with, copied from `src/lib/miden/sdk/derive-seed.test.ts`. The `v1` vectors
- * were generated once when the scheme was introduced. Do not recompute either
- * set from the code under test.
+ * and so which accounts, a seed phrase recovers. The `v1` vectors were
+ * generated once when the scheme was introduced. Do not recompute them from
+ * the code under test.
  *
  * This package does not import the SDK. Thus these vectors pin the seed only.
  * The keys the SDK makes from each seed are pinned in the wallet test
  * `src/lib/miden/sdk/derive-seed.keys.test.ts`.
  */
 import {
-  LEGACY_SEED_LABEL,
   MIDEN_COIN_TYPE,
   MIDEN_SEED_LABEL,
   MidenDerivationSpec,
@@ -27,25 +24,6 @@ const MNEMONIC = 'abandon abandon abandon abandon abandon abandon abandon abando
 
 const bytesToHex = (bytes: Uint8Array): string =>
   Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-
-/** `legacy` vectors keyed by walletTypeIndex, indices 0..2. */
-const LEGACY_GOLDEN: Record<number, string[]> = {
-  0: [
-    '7303bce3fd710072aec3c0b0564f061d3771c3c10a2e023cacdedcf5d2ce6b72',
-    '7932bbdd42852773ef2642e5cc65e0e19e577e433be7e9247b8ee881dfb24190',
-    '48be5f28eb6461028a215f96bf880a82d8b3caa89a9c9c94197e392795f782e7'
-  ],
-  1: [
-    '835fe3da130bac3825f5d0c9526ac400c54f9a5df8f7e9c38219b02cefc1a162',
-    'd8f603ff4fdaedc4ab26fb9ce5b9012a232d7a546f90ab7d956ba3ba5d3c20eb',
-    '0a4bbcdce48cd0191f21426989ba2ebba133527d859f24ba24c5b5a8fb6bfb34'
-  ],
-  2: [
-    '355dc73d10996cfff18a140266c04b4768b27b14483b876b81c7087b4317df72',
-    'ed319149e2f07ad5fd1543a8620ab3e99aa2e8a2d5cfe668ed16d6d5fc232f2d',
-    '145d6c1cfc1674a9b7a841fc20eaeb621b4e6b7fbbe676c9292deccc981d166c'
-  ]
-};
 
 /** `v1` vectors keyed by `${walletTypeIndex}/${authSchemeIndex}`, indices 0..2. */
 const V1_GOLDEN: Record<string, string[]> = {
@@ -82,25 +60,14 @@ const V1_GOLDEN: Record<string, string[]> = {
 };
 
 describe('labels and constants', () => {
-  it('freezes the literal labels and the coin type', () => {
-    expect(LEGACY_SEED_LABEL).toBe('bls12_377 seed');
+  it('freezes the literal label and the coin type', () => {
     expect(MIDEN_SEED_LABEL).toBe('miden seed');
     expect(MIDEN_COIN_TYPE).toBe(5063758);
-    expect(seedLabel('legacy')).toBe('bls12_377 seed');
     expect(seedLabel('v1')).toBe('miden seed');
   });
 });
 
 describe('midenDerivationPath', () => {
-  it('builds the legacy path without a scheme level', () => {
-    expect(
-      midenDerivationPath({ keyDerivation: 'legacy', walletTypeIndex: 2, authSchemeIndex: 1, accountIndex: 0 })
-    ).toBe("m/44'/0'/2'/0'");
-    expect(
-      midenDerivationPath({ keyDerivation: 'legacy', walletTypeIndex: 0, authSchemeIndex: 0, accountIndex: 5 })
-    ).toBe("m/44'/0'/0'/5'");
-  });
-
   it('builds the v1 path with the Miden coin type and the scheme level', () => {
     expect(midenDerivationPath({ keyDerivation: 'v1', walletTypeIndex: 2, authSchemeIndex: 1, accountIndex: 0 })).toBe(
       "m/44'/5063758'/2'/1'/0'"
@@ -116,30 +83,6 @@ describe('deriveMidenAccountSeed', () => {
 
   it('produces a 64-byte master seed from the mnemonic', () => {
     expect(masterSeed).toHaveLength(64);
-  });
-
-  describe.each([0, 1, 2])('legacy, walletTypeIndex %i', walletTypeIndex => {
-    it.each([0, 1, 2])('matches the pre-package output at index %i', accountIndex => {
-      const seed = deriveMidenAccountSeed(masterSeed, {
-        keyDerivation: 'legacy',
-        walletTypeIndex,
-        authSchemeIndex: 1,
-        accountIndex
-      });
-      expect(seed).toHaveLength(32);
-      expect(bytesToHex(seed)).toBe(LEGACY_GOLDEN[walletTypeIndex]![accountIndex]);
-    });
-  });
-
-  it('ignores the auth scheme under legacy', () => {
-    const spec: Omit<MidenDerivationSpec, 'authSchemeIndex'> = {
-      keyDerivation: 'legacy',
-      walletTypeIndex: 0,
-      accountIndex: 0
-    };
-    expect(deriveMidenAccountSeed(masterSeed, { ...spec, authSchemeIndex: 0 })).toEqual(
-      deriveMidenAccountSeed(masterSeed, { ...spec, authSchemeIndex: 1 })
-    );
   });
 
   describe.each([0, 1, 2])('v1, walletTypeIndex %i', walletTypeIndex => {
@@ -172,14 +115,6 @@ describe('deriveMidenAccountSeed', () => {
     expect(() =>
       deriveMidenAccountSeed(masterSeed, {
         keyDerivation: 'v1',
-        walletTypeIndex: 0,
-        authSchemeIndex: 1,
-        accountIndex: -1
-      })
-    ).toThrow('Invalid derivation path');
-    expect(() =>
-      deriveMidenAccountSeed(masterSeed, {
-        keyDerivation: 'legacy',
         walletTypeIndex: 0,
         authSchemeIndex: 1,
         accountIndex: -1

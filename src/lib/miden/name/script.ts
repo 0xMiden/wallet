@@ -11,8 +11,6 @@
 
 import { NoteScript } from '@miden-sdk/miden-sdk/lazy';
 
-import { getAssetUrl } from 'lib/miden/metadata/defaults';
-
 import { MidenNameScriptAssetError, MidenNameScriptMismatchError } from './errors';
 import {
   MIDEN_NAME_NOTE_SCRIPTS_ASSET_PATH,
@@ -97,7 +95,7 @@ function parseNoteScriptsAsset(value: unknown): NoteScriptsAsset {
 }
 
 async function fetchNoteScriptsAsset(): Promise<NoteScriptsAsset> {
-  const url = getAssetUrl(MIDEN_NAME_NOTE_SCRIPTS_ASSET_PATH);
+  const url = `/${MIDEN_NAME_NOTE_SCRIPTS_ASSET_PATH}`;
   const response = await fetch(url);
   if (!response.ok) {
     throw new MidenNameScriptAssetError(`HTTP ${response.status} for ${url}`);

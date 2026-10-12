@@ -32,18 +32,7 @@ export const parseImportedAccountBackupFailure = (message: string): string | nul
     ? message.slice(IMPORTED_ACCOUNT_BACKUP_FAILED_CODE.length + 1)
     : null;
 
-// Absence of a version is the legacy discriminator. Do not rewrite it to
-// version 1: older files were never stamped and must keep parsing unchanged.
-export type LegacyDecryptedWalletFile = {
-  formatVersion?: undefined;
-  seedPhrase: string;
-  midenClientDbContent: string;
-  walletDbContent: string;
-  accounts: WalletAccount[];
-  omittedImportedAccountCount?: number;
-};
-
-export type VersionTwoDecryptedWalletFile = {
+export type DecryptedWalletFile = {
   formatVersion: typeof CURRENT_BACKUP_FORMAT_VERSION;
   seedPhrase: string;
   midenClientDbContent: string;
@@ -51,8 +40,6 @@ export type VersionTwoDecryptedWalletFile = {
   accounts: WalletAccount[];
   importedAccounts: ImportedAccountBackup[];
 };
-
-export type DecryptedWalletFile = LegacyDecryptedWalletFile | VersionTwoDecryptedWalletFile;
 
 export class MalformedBackupFileError extends Error {
   constructor() {
@@ -75,7 +62,7 @@ export const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isAuthScheme = (value: unknown): value is ImportedAccountBackup['authScheme'] =>
   value === 'falcon' || value === 'ecdsa';
 
-const isKeyDerivation = (value: unknown): value is KeyDerivation => value === 'legacy' || value === 'v1';
+const isKeyDerivation = (value: unknown): value is KeyDerivation => value === 'v1';
 
 const isWalletType = (value: unknown): value is WalletType =>
   value === WalletType.OffChain || value === WalletType.OnChain || value === WalletType.Guardian;
@@ -103,7 +90,7 @@ export const isWalletAccount = (value: unknown): value is WalletAccount => {
     typeof value.isPublic === 'boolean' &&
     isWalletType(value.type) &&
     Number.isSafeInteger(value.hdIndex) &&
-    (value.authScheme === undefined || isAuthScheme(value.authScheme)) &&
+    isAuthScheme(value.authScheme) &&
     (value.keyDerivation === undefined || isKeyDerivation(value.keyDerivation))
   );
 };
@@ -163,26 +150,18 @@ export const normalizeBackupHex = (value: string): string =>
 
 export function parseDecryptedWalletFile(value: unknown): DecryptedWalletFile {
   if (!isRecord(value)) throw new MalformedBackupFileError();
-  requireCommonPayload(value);
 
-  if (value.formatVersion === undefined) {
-    // Imported secrets without the v2 discriminator are ambiguous to older
-    // readers, so an unversioned payload can only use the legacy omission form.
-    if (
-      value.importedAccounts !== undefined ||
-      (value.omittedImportedAccountCount !== undefined &&
-        (!Number.isSafeInteger(value.omittedImportedAccountCount) || Number(value.omittedImportedAccountCount) < 0))
-    ) {
-      throw new MalformedBackupFileError();
-    }
-    return value as LegacyDecryptedWalletFile;
-  }
+  // An unversioned file predates version 2; `UnsupportedBackupVersionError` would call it newer.
+  if (value.formatVersion === undefined) throw new MalformedBackupFileError();
 
   if (value.formatVersion !== CURRENT_BACKUP_FORMAT_VERSION) {
-    // Unknown versions fail before any database import. Forward compatibility
-    // must be explicit because new versions may strengthen secret bindings.
+    // Unknown versions fail before any database import, and before the shape
+    // checks: a newer format may change the records those checks judge.
+    // Forward compatibility must be explicit because new versions may
+    // strengthen secret bindings.
     throw new UnsupportedBackupVersionError();
   }
+  requireCommonPayload(value);
   if (!Array.isArray(value.importedAccounts)) throw new MalformedBackupFileError();
 
   const importedAccounts = value.importedAccounts.map(parseImportedAccount);
@@ -202,5 +181,5 @@ export function parseDecryptedWalletFile(value: unknown): DecryptedWalletFile {
     secrets.add(secret);
   }
 
-  return value as VersionTwoDecryptedWalletFile;
+  return value as DecryptedWalletFile;
 }

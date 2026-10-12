@@ -1,9 +1,11 @@
 import { useLayoutEffect } from 'react';
 
+import { usePageActive } from 'app/layouts/page-active';
+
 /**
  * While `open` is true, hide the bottom tab navbar — the React `BottomNav`
- * rendered by `TabLayout` and tagged `data-tabbar-footer`. Reverses on
- * close / unmount.
+ * rendered by `TabLayout` and tagged `data-tabbar-footer`. Release the hold
+ * when the surface closes, unmounts, or its page moves out of view.
  *
  * A single reference counter keeps concurrent callers honest: if a second
  * surface opens before the first closes, the navbar stays hidden until both
@@ -54,8 +56,9 @@ export function holdNavbarHidden(): () => void {
 }
 
 export function useHideNavbarWhileOpen(open = true): void {
+  const pageActive = usePageActive();
   useLayoutEffect(() => {
-    if (!open) return;
+    if (!open || !pageActive) return;
     return holdNavbarHidden();
-  }, [open]);
+  }, [open, pageActive]);
 }

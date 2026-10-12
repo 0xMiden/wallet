@@ -87,7 +87,7 @@ jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'mtst1account', name: 'Account 1' }),
   useAllTokensBaseMetadata: () => ({}),
   useAllBalances: () => ({
-    data: [{ tokenId: 'mtst1miden', balance: mockNativeBalance, metadata: { decimals: 6, symbol: 'MIDEN' } }],
+    data: [{ tokenId: 'mtst1miden', balance: mockNativeBalance, metadata: { decimals: 6, symbol: 'USDCX' } }],
     isLoading: false
   })
 }));
@@ -96,7 +96,7 @@ jest.mock('lib/miden/front/client', () => ({
 }));
 jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'mtst1miden' }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => 100 }));
-jest.mock('app/hooks/useNetworkFeeEstimate', () => ({ useNetworkFeeEstimate: () => '0.003 MIDEN' }));
+jest.mock('app/hooks/useNetworkFeeEstimate', () => ({ useNetworkFeeEstimate: () => '0.003 USDCX' }));
 
 const mockStore = { assessSpendingLimit: jest.fn(), readSpendingLimit: jest.fn() };
 jest.mock('lib/store', () => ({
@@ -217,15 +217,15 @@ describe('MidenNameClaim', () => {
     render(<MidenNameClaim />);
     await typeLabel('Alice');
     expect(screen.getByTestId('miden-name-price')).toHaveTextContent('midenNamePrice_5+');
-    expect(screen.getByTestId('miden-name-price')).toHaveTextContent('20 MIDEN');
-    expect(screen.getByTestId('miden-name-network-fee')).toHaveTextContent('0.00021 MIDEN');
-    expect(screen.getByTestId('miden-name-tx-fee')).toHaveTextContent('0.003 MIDEN');
+    expect(screen.getByTestId('miden-name-price')).toHaveTextContent('20 USDCX');
+    expect(screen.getByTestId('miden-name-network-fee')).toHaveTextContent('0.00021 USDCX');
+    expect(screen.getByTestId('miden-name-tx-fee')).toHaveTextContent('0.003 USDCX');
     // 20 + 0.00021 + 30 x 100 base units.
-    expect(screen.getByTestId('miden-name-total')).toHaveTextContent('20.00321 MIDEN');
+    expect(screen.getByTestId('miden-name-total')).toHaveTextContent('20.00321 USDCX');
     expect(screen.getByTestId('miden-name-goes-to')).toHaveTextContent('Account 1');
     const cta = screen.getByTestId('miden-name-claim-cta');
     expect(cta).toBeEnabled();
-    expect(cta).toHaveTextContent('midenNameClaimName_alice.miden_20 MIDEN');
+    expect(cta).toHaveTextContent('midenNameClaimName_alice.miden_20 USDCX');
   });
 
   it('disables the CTA when the balance does not cover price + network fee + fee reserve', async () => {

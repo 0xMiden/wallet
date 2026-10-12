@@ -9,8 +9,10 @@ import type { NetworkCategory } from './types';
  * How a URL is classified into a network category.
  *
  * The transport arm matches the gRPC SERVICE PATH from its proto
- * (`package miden_note_transport; service MidenNoteTransport`) rather than a host,
- * so capture follows the service wherever it is pointed.
+ * (`package miden.note_transport.v1; service NoteTransportService`, the only one
+ * SDK 0.17 calls) rather than a host, so capture follows the service wherever it is
+ * pointed. It is tested BEFORE rpc because the path is the stronger signal: a node
+ * that serves transport beside rpc on one host would otherwise lose every push to `rpc`.
  * A host list cannot: `MIDEN_NOTE_TRANSPORT_URL` is a build-time override, so the
  * endpoint is whatever the build baked, and traffic to an unlisted host is
  * classified `other` and dropped with no signal that anything went unrecorded.
@@ -23,8 +25,8 @@ import type { NetworkCategory } from './types';
  * path is what makes the classification robust.
  */
 const ENDPOINT_PATTERNS: Record<NetworkCategory, RegExp> = {
+  transport: /\/miden\.note_transport\.v1\.NoteTransportService\/|transport\.miden\.io|(localhost|127\.0\.0\.1):57292/,
   rpc: /rpc\.(testnet|devnet)\.miden\.io|(localhost|127\.0\.0\.1):57291/,
-  transport: /miden_note_transport\.MidenNoteTransport\/|transport\.miden\.io|(localhost|127\.0\.0\.1):57292/,
   prover: /tx-prover\.(testnet|devnet)\.miden\.io|(localhost|127\.0\.0\.1):5005[12]/,
   other: /.*/
 };
@@ -102,7 +104,7 @@ export function attachNetworkCapture(
       const status = response?.status() ?? 0;
       const responseBody = response ? truncate((await safeResponseText(response)) ?? '', 4096) : undefined;
       // Identity of the notes this push carried. Without it the timeline can say a
-      // SendNote happened but not WHICH note, which is precisely what a
+      // push happened but not WHICH note, which is precisely what a
       // silently-undelivered note needs in order to be correlated after the fact.
       const sentNotes =
         category === 'transport' && isSendNoteUrl(url) ? decodeSendNoteBody(request.postDataBuffer()) : [];
@@ -168,17 +170,22 @@ export const installFetchInstrumentation = (prefix: string): void => {
   // Mirrors ENDPOINT_PATTERNS / classifyUrl in this module, which is the
   // canonical copy — this runs as source text inside evaluate() and cannot
   // import it. Keep the two in step; `network-capture.test.ts` pins the
-  // behaviour they must agree on. The transport arm matches the gRPC SERVICE
+  // behaviour they must agree on, and `fetch-instrumentation.test.ts` runs this
+  // copy (and the push pattern below). The transport arm matches the gRPC SERVICE
   // PATH rather than a host, so capture follows a build-time
   // MIDEN_NOTE_TRANSPORT_URL override to any host or port.
   const HOST_PATTERN =
-    /miden_note_transport\.MidenNoteTransport\/|rpc\.(testnet|devnet)\.miden\.io|tx-prover\.(testnet|devnet)\.miden\.io|transport\.miden\.io|(localhost|127\.0\.0\.1):(57291|57292|5005[12])/;
+    /\/miden\.note_transport\.v1\.NoteTransportService\/|rpc\.(testnet|devnet)\.miden\.io|tx-prover\.(testnet|devnet)\.miden\.io|transport\.miden\.io|(localhost|127\.0\.0\.1):(57291|57292|5005[12])/;
 
   function classify(url: string): string {
+    if (
+      /\/miden\.note_transport\.v1\.NoteTransportService\/|transport\.miden\.io|(localhost|127\.0\.0\.1):57292/.test(
+        url
+      )
+    )
+      return 'transport';
     if (/rpc\.(testnet|devnet)\.miden\.io|(localhost|127\.0\.0\.1):57291/.test(url)) return 'rpc';
     if (/tx-prover\.(testnet|devnet)\.miden\.io|(localhost|127\.0\.0\.1):5005[12]/.test(url)) return 'prover';
-    if (/miden_note_transport\.MidenNoteTransport\/|transport\.miden\.io|(localhost|127\.0\.0\.1):57292/.test(url))
-      return 'transport';
     return 'other';
   }
 
@@ -230,7 +237,7 @@ export const installFetchInstrumentation = (prefix: string): void => {
     const realm = (g.location && g.location.href) || 'unknown';
 
     // Carry the request body for transport pushes ONLY. It is the sole way to
-    // learn which note a SendNote carried, and at ~300 bytes it is cheap; every
+    // learn which note a push carried, and at ~400 bytes it is cheap; every
     // other category would add real log volume for no diagnostic gain.
     //
     // The body has to be SECURED before the fetch but READ after it. The SDK's
@@ -248,7 +255,10 @@ export const installFetchInstrumentation = (prefix: string): void => {
     // then rejects the other one's `clone()`.
     let bodySource: unknown;
     try {
-      if (category === 'transport' && /MidenNoteTransport\/SendNote$/.test(url)) {
+      if (
+        category === 'transport' &&
+        /\/miden\.note_transport\.v1\.NoteTransportService\/SendNoteWithProof$/.test(url)
+      ) {
         const isRequest = typeof input !== 'string' && !(input instanceof URL);
         bodySource = init?.body ?? (isRequest ? input.clone() : undefined);
       }
@@ -288,10 +298,32 @@ export const installFetchInstrumentation = (prefix: string): void => {
 
     const start = performance.now();
     try {
+      if (category === 'transport' && String(method).toUpperCase() === 'OPTIONS') {
+        return new Response(null, {
+          status: 204,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': '*',
+            'Access-Control-Allow-Methods': '*',
+            'Access-Control-Expose-Headers': '*, grpc-status, grpc-message, grpc-status-details-bin'
+          }
+        });
+      }
       const res = await origFetch(input, init);
       const durationMs = Math.round(performance.now() - start);
       const reqBody = await encodeBody();
       console.log(prefix + JSON.stringify({ url, method, status: res.status, durationMs, category, realm, reqBody }));
+      if (category === 'transport') {
+        // NTS CorsLayer allows origin/headers/methods but does not expose
+        // grpc-status. WASM then treats a 200 as a CORS failure
+        // (`access-control-request-headers`). Re-wrap so the SW client can
+        // read the trailers.
+        const headers = new Headers(res.headers);
+        headers.set('Access-Control-Allow-Origin', '*');
+        headers.set('Access-Control-Allow-Headers', '*');
+        headers.set('Access-Control-Expose-Headers', '*, grpc-status, grpc-message, grpc-status-details-bin');
+        return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+      }
       return res;
     } catch (err) {
       const durationMs = Math.round(performance.now() - start);
@@ -354,7 +386,7 @@ export async function attachServiceWorkerFetchCapture(
         const status: number = parsed.status ?? 0;
         const err: string | undefined = parsed.err;
         // Gated the same way as the page-side decode above. The producer only ever
-        // sets `reqBody` for a transport SendNote today, but `decodeSendNoteBody`
+        // sets `reqBody` for a transport SendNoteWithProof, but `decodeSendNoteBody`
         // accepts any message shaped like one, so without this gate widening the
         // producer would start fabricating `sentNotes` on unrelated traffic.
         const sentNotes =

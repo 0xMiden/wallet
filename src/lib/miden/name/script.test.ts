@@ -15,7 +15,6 @@ import {
 import { NoteScript } from './test-support/fake-sdk';
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => jest.requireActual('lib/miden/name/test-support/fake-sdk'));
-jest.mock('lib/miden/metadata/defaults', () => ({ getAssetUrl: jest.fn((path: string) => `/${path}`) }));
 
 interface AssetEntry {
   root: string;
@@ -51,7 +50,7 @@ function fakeAsset(): Asset {
   const bytes = new Uint8Array(REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH);
   bytes.set(MAST_MAGIC);
   return {
-    contractVersion: '0.16',
+    contractVersion: '0.17',
     registerDomain: {
       root: REGISTER_DOMAIN_SCRIPT_ROOT_HEX,
       byteLength: REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH,
@@ -81,7 +80,7 @@ beforeEach(() => {
 describe('the note-scripts asset', () => {
   it('the vendored asset carries the register-domain script at the pinned root and size', async () => {
     const asset = readRealAsset();
-    expect(asset.contractVersion).toBe('0.16');
+    expect(asset.contractVersion).toBe('0.17');
     expect(asset.registerDomain.root).toBe(REGISTER_DOMAIN_SCRIPT_ROOT_HEX);
     expect(asset.registerDomain.byteLength).toBe(REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH);
     expect(atob(asset.registerDomain.serializedBase64).length).toBe(REGISTER_DOMAIN_SCRIPT_BYTE_LENGTH);

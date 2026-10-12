@@ -1,10 +1,25 @@
-import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { ISubmitEvidence, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { transactions } from 'lib/miden/repo';
 
 import { supersededFailedConsumeIds } from './superseded-consumes';
 
 const A = 'account-a';
 const B = 'account-b';
+const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
+/** Every field a verdict reads, unjudged: the reconciler still judges a row carrying it. */
+const CHECKABLE: ISubmitEvidence = {
+  attemptId: 'a1',
+  capturedAt: Math.floor(Date.now() / 1000),
+  source: 'stage',
+  transactionId: hex(1),
+  initialCommitment: hex(2),
+  finalCommitment: hex(3),
+  initialNonce: '1',
+  outputNoteIds: [],
+  nullifiers: [hex(4)],
+  refBlock: 10,
+  refBlockCommitment: hex(5)
+};
 
 function row(id: string, overrides: Partial<ITransaction> = {}): ITransaction {
   return {
@@ -91,6 +106,26 @@ describe('supersededFailedConsumeIds (#771)', () => {
       row('queued', { status: ITransactionStatus.Queued, noteId: 'n1' })
     ];
     expect(await supersededFailedConsumeIds(input)).toEqual(new Set());
+  });
+
+  it('hides an Unconfirmed claim that holds nothing once a later claim covers its note (#1081)', async () => {
+    await transactions.add(completedClaim('done', ['n1']));
+    const unheld = row('unheld', {
+      status: ITransactionStatus.Unconfirmed,
+      noteId: 'n1',
+      submitEvidence: [{ attemptId: 'x', capturedAt: 1, source: 'end' }]
+    });
+    expect(await supersededFailedConsumeIds([unheld])).toEqual(new Set(['unheld']));
+  });
+
+  it('never hides an Unconfirmed claim that still holds its notes (#1081)', async () => {
+    await transactions.add(completedClaim('done', ['n1']));
+    const held = row('held', {
+      status: ITransactionStatus.Unconfirmed,
+      noteId: 'n1',
+      submitEvidence: [CHECKABLE]
+    });
+    expect(await supersededFailedConsumeIds([held])).toEqual(new Set());
   });
 
   it('reads nothing when the batch has no failed consume row', async () => {

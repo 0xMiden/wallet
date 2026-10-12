@@ -3,22 +3,11 @@ import { logger } from 'shared/logger';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { fetchFromStorage, putToStorage } from '../front';
 import { isLikelyNetworkError, isPermanentHttpRejection } from './connectivity-classify';
-import { isOperationAbortedError } from '../back/offscreen-codec';
-import {
-  grantManualSyncProbe,
-  isSyncFused,
-  noteNonEvictionSyncFailure,
-  noteSyncSuccess,
-  noteSyncWatchdogEviction
-} from '../front/sync-fuse';
+import { grantManualSyncProbe, isSyncFused, noteProbeFailure, noteSyncSuccess } from '../front/sync-fuse';
 import { addToNoteDeadletter, listDeadletteredNotes, removeManyFromNoteDeadletter } from '../note-deadletter';
 import { getCurrentWasmLockHold, withWasmClientLock } from '../sdk/miden-client';
-import {
-  isSyncWatchdogEviction,
-  isWasmClientPoisonedError,
-  WasmClientPoisonedError,
-  WASM_LOCK_SYNC_WATCHDOG_MS
-} from '../sdk/wasm-client-poison';
+import { isPipelineKillLink } from '../sdk/sdk-error-code';
+import { WasmClientPoisonedError, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 import { monotonicNowMs } from '../sync-backoff';
 import { syncUnderBoundedLock } from '../sync-lock';
 
@@ -559,8 +548,9 @@ export const importAllNotes = async () => {
             // `WasmClientPoisonedError` is an abandonment rather than a verdict.
             // Left on the poison cap it dead-lettered a perfectly good note as
             // `malformed` after three wedged laps.
-            // `isOperationAbortedError` is named EXPLICITLY even though today's abort message
-            // ("Offscreen operation X aborted (deadline)") happens to satisfy
+            // The abort is named EXPLICITLY, with the other kill shapes (`isPipelineKillLink`; a
+            // terminated client's text matches no network token at all), even though today's
+            // abort message ("Offscreen operation X aborted (deadline)") happens to satisfy
             // `isLikelyNetworkError`'s 'abort' token. That coincidence is not a contract: the
             // token list is transport-text heuristics that get re-tuned, and if 'abort' ever
             // leaves it an abandonment would start charging the POISON budget, which
@@ -574,9 +564,7 @@ export const importAllNotes = async () => {
             // retries. It cannot shadow a poison/abort eviction: those errors carry
             // closed wallet-authored messages with no HTTP status in them.
             const permanentRejection = isPermanentHttpRejection(e);
-            const transient =
-              !permanentRejection &&
-              (isLikelyNetworkError(e) || isWasmClientPoisonedError(e) || isOperationAbortedError(e));
+            const transient = !permanentRejection && (isLikelyNetworkError(e) || isPipelineKillLink(e));
             const poisonAttempts = (note.poisonAttempts ?? 0) + (transient ? 0 : 1);
             // The transient give-up needs BOTH the wall-clock budget and a plausible number
             // of attempts to have been spent. The budget alone is a single wall-clock
@@ -726,10 +714,9 @@ export const importAllNotes = async () => {
       banked.push({ ...note, attempts, firstFailureAt, nextEligibleAt: now + backoffMs });
     }
     await commitQueue(loopRetry ?? banked);
-    // Evidence for this probe's own fuse, in the same shape as the sync probes': an
-    // eviction says the client is parked, any other failure does not.
-    if (isSyncWatchdogEviction(e)) noteSyncWatchdogEviction('note-import');
-    else noteNonEvictionSyncFailure('note-import');
+    // Evidence for this probe's own fuse, booked through the shared three-way split: an
+    // eviction says the client is parked, a trap says nothing, any other failure does not.
+    noteProbeFailure('note-import', e);
     throw e;
   }
 

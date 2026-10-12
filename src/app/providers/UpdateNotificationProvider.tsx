@@ -2,7 +2,7 @@ import React, { FC, PropsWithChildren, useCallback, useEffect, useRef, useState 
 
 import { useForegroundDappActive } from 'app/providers/DappBrowserProvider';
 import { UpdateNotificationCard } from 'components/UpdateNotificationCard';
-import { ONBOARDING_HANDOFF_ROUTES } from 'lib/extension/side-panel-handoff';
+import { OUTSIDE_WALLET_SHELL_ROUTES } from 'lib/extension/side-panel-handoff';
 import { isUpdateNotificationsEnabled } from 'lib/feature-flags';
 import { useMidenContext } from 'lib/miden/front';
 import { useWalletStore } from 'lib/store';
@@ -14,13 +14,7 @@ import { useLocation } from 'lib/woozie';
 // belong to onboarding or destructive recovery rather than the normal shell.
 // The onboarding handoff screens end onboarding: the wallet is already Ready
 // there, and the update card would cover their buttons.
-const EXCLUDED_PATHS = new Set([
-  ...ONBOARDING_HANDOFF_ROUTES,
-  '/forgot-password',
-  '/forgot-password-info',
-  '/reset-required',
-  '/reset-wallet'
-]);
+const EXCLUDED_PATHS = OUTSIDE_WALLET_SHELL_ROUTES;
 
 export interface UpdateNotificationProviderProps extends PropsWithChildren {
   runtime?: UpdateNotificationRuntime;

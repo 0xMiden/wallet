@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { pageSlideDim, pageSlideParallax, presets, reducedMotionTransition } from 'lib/animation';
+import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { setReturningFromWebview } from 'lib/mobile/webview-state';
 import { HistoryAction } from 'lib/woozie/history';
 import { LocationState, useLocation } from 'lib/woozie/location';
@@ -192,6 +193,25 @@ it('keeps the active page in layout flow so fixed-height extension pages size th
   expect(stack).toHaveClass('grid', 'h-full');
   expect(layer).toHaveClass('relative', 'col-start-1', 'row-start-1');
   expect(layer).not.toHaveClass('absolute');
+});
+
+function HoldingPage() {
+  useHideNavbarWhileOpen();
+  return <Page />;
+}
+
+it('keeps the navbar a covered page hid hidden while the slide page above it enters (#1270)', async () => {
+  const { rerender } = render(
+    <MobilePageLayers location={location('/send')} pageKey="/send" slide={false}>
+      <HoldingPage />
+    </MobilePageLayers>
+  );
+  expect(document.body).toHaveAttribute('data-hide-navbar');
+
+  rerender(view('/send/review', true));
+  expect(document.body).toHaveAttribute('data-hide-navbar');
+  await settle();
+  expect(document.body).toHaveAttribute('data-hide-navbar');
 });
 
 it('removes all retained pages immediately when the layer owner unmounts', () => {

@@ -2,7 +2,7 @@
  * Pure bigint encoding of Miden Name labels and storage keys.
  *
  * This file does not import the SDK. All felt orders here agree with the
- * domain-faucet contract v0.16 and were verified on testnet:
+ * domain-faucet contract v0.17 and were verified on testnet:
  *
  * - Character codes: a-z -> 1..26, 0-9 -> 27..36.
  * - 7 codes per felt, 8 bits each, little-endian (char 0 in the low byte).

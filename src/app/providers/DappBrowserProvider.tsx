@@ -1209,9 +1209,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       {/* Confirmation modal — visible whenever the store has a pending request,
           regardless of which tab the user is on. */}
       <AnimatePresence>
-        {request && (
-          <DappConfirmationModal request={request} accountId={accountId} onResolve={result => resolve(result)} />
-        )}
+        {request && <DappConfirmationModal request={request} accountId={accountId} onResolve={resolve} />}
       </AnimatePresence>
     </DappBrowserContext.Provider>
   );

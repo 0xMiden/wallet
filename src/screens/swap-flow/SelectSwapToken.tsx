@@ -10,6 +10,8 @@ import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getSwapTokens, normalizedFaucetId, SwapToken } from 'lib/miden/swap/tokens';
 import { listedFiatValue } from 'lib/prices';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 
@@ -34,8 +36,8 @@ export interface SelectSwapTokenDrawerProps {
  * Balances come from the same path home and the send picker use, `useAllBalances`, keyed by the
  * SDK's bech32 form of the faucet id, so a registry id is normalized before the match (with the raw
  * id as a fallback), as SwapManager does. A token is priced as the asset it stands for (its
- * priceSymbol: IETH at ETH), and only where the feed lists it (`listedFiatValue`, shared with the send
- * picker): IMIDEN and IUSDT show no fiat.
+ * priceSymbol: IETH at ETH) through `listedFiatValue`, shared with the send picker: IMIDEN and
+ * IUSDT, which stand for nothing the feed quotes, show no fiat unless the nominal rate is on.
  *
  * The chosen side carries the design system's round check in the swap flow's purple, and
  * `AssetListItem` fires the tap haptic itself.
@@ -50,6 +52,7 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
   const { publicKey } = useAccount();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData = [] } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const tokenPrices = useWalletStore(s => s.tokenPrices);
 
   const onSelectToken = (token: SwapToken) => {
@@ -74,23 +77,25 @@ export const SelectSwapTokenDrawer: React.FC<SelectSwapTokenDrawerProps> = ({
                 // is only a quantity if its own metadata carries real decimals.
                 const scaleIsKnown = held ? hasKnownScale(held.metadata) : true;
                 const balance = held?.balance ?? 0;
-                // Never by logoSymbol: IUSDT borrows the USDC logo, not its price.
-                const fiatValue = token.priceSymbol
-                  ? listedFiatValue(tokenPrices, token.priceSymbol, balance, scaleIsKnown)
-                  : undefined;
+                // By priceSymbol, never by logoSymbol: IUSDT borrows the USDC logo, not its price. A
+                // token without one is unquoted, so it is valued only at the nominal rate.
+                const label = midenTokenLabel(bridgeConfig, token.faucetId, token.symbol);
+                const fiatValue = listedFiatValue(tokenPrices, token.priceSymbol, balance, scaleIsKnown);
                 const formatQuantity = adaptiveFormatterFor(balance);
                 const formatFiat = adaptiveFormatterFor(fiatValue ?? 0);
 
                 return (
                   <AssetListItem
                     key={token.faucetId}
-                    icon={<TokenLogo symbol={token.logoSymbol} />}
-                    name={token.symbol}
+                    icon={
+                      <TokenLogo symbol={token.symbol} faucetId={token.faucetId} fallbackSymbol={token.logoSymbol} />
+                    }
+                    name={label}
                     amount={
                       scaleIsKnown ? (
-                        <AnimatedNumber value={balance} format={value => `${formatQuantity(value)} ${token.symbol}`} />
+                        <AnimatedNumber value={balance} format={value => `${formatQuantity(value)} ${label}`} />
                       ) : (
-                        token.symbol
+                        label
                       )
                     }
                     price={

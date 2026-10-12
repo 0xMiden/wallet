@@ -20,17 +20,16 @@
  *                                  startCreateFlow() → protectionStepRoute()
  *   Create password              `create-password-input`
  *     └ Continue                 → generates the mnemonic + navigates to
- *                                  '/#meet-guardian' (onAction 'create-password-submit')
- *   Meet your Guardian           `onboarding-meet-guardian`: the fastest operator's card
- *                                  and its Change action, from the first probe round
- *     └ tick the three facts     → Continue opens
- *     └ the card's "Change"      → '/#choose-guardian' (onAction 'choose-guardian')
- *   Choose guardian              `onboarding-choose-guardian`, on the card's operator
- *     └ Continue, facts ticked   → WalletType.Guardian + '/#confirmation'
+ *                                  '/#guardian-intro' (onAction 'create-password-submit')
+ *   Meet your Guardian           `onboarding-guardian-intro`: what a Guardian is
+ *     └ Continue                 → '/#meet-guardian' (onAction 'guardian-intro-submit')
+ *   Choose your Guardian         `onboarding-meet-guardian`: the fastest operator,
+ *                                  from the first probe round
+ *     └ "Change provider"        → the provider sheet (`meet-guardian-provider-sheet`);
+ *                                  a card picks its operator and closes the sheet
+ *     └ Continue                 → WalletType.Guardian + '/#confirmation'
  *                                  (onAction 'choose-guardian-submit'), once the
  *                                  picked operator has answered online
- *     └ Continue, facts unticked → back to Meet your Guardian (onAction 'back'),
- *                                  its card showing the pick
  *   Confirmation                 `onboarding-confirmation`
  *     └ "Open wallet"            → register() → the telemetry consent prompt
  *                                  `onboarding-help-improve-wallet`
@@ -40,10 +39,10 @@
  * from what the flow LOOKS like it should be:
  *
  *  1. There is no "choose protection" screen here. `biometricProtectionSupported()`
- *     is `isMobile()`, so on the extension `protectionStepRoute()`
- *     resolves straight to '/#create-password' and `onboarding-choose-protection`
- *     never renders. The spec asserts that skip rather than waiting for a screen
- *     that will never come.
+ *     is true only on mobile with the vault's hardware probe passing, so on the
+ *     extension `protectionStepRoute()` resolves straight to '/#create-password'
+ *     and `onboarding-choose-protection` never renders. The spec asserts that skip
+ *     rather than waiting for a screen that will never come.
  *
  *  2. There is no seed-backup and no seed-verify screen. `OnboardingStep.BackupSeedPhrase`
  *     / `VerifySeedPhrase` exist in `screens/onboarding/navigator.tsx`, but
@@ -62,20 +61,18 @@
  *     bypass every other spec uses defaults to OffChain instead, another reason
  *     this path was uncovered.)
  *
- * WHAT "IT WORKS" MEANS HERE. Screens advancing proves nothing about the wallet
- * that came out the other end, so the tail of the spec funds it for real: the
- * CLI deploys a faucet and mints to the address the wallet reports, and we assert
- * the EXACT minted amount arrives as an unconsumed-note total. A mint creates a
- * NOTE — it is not spendable until claimed — so the truthful reading is
- * `pendingNoteTotal`, not the vault. That single assertion covers the whole
- * chain: a real on-chain account exists, the address the UI hands out is the
- * address the chain credits, and the wallet's own sync discovers it.
+ * Public networks fund through the real Fund card and prove consumption into the
+ * native vault. Localhost retains the CLI faucet and pending-note check.
  */
+import { getEnvironmentConfig } from '../config/environments';
 import { expect, test } from '../fixtures/two-wallets';
 import { waitForPendingNoteTotal } from '../helpers/balance-truth';
 import { openGuardianPickerFromMeetGuardian } from '../helpers/meet-guardian';
 import { acknowledgeNetworkNotice } from '../helpers/network-notice';
+import { fundFreshGuardianThroughUi } from '../helpers/public-faucet';
 import { dismissTelemetryConsent } from '../helpers/telemetry-consent';
+
+test.use({ injectFeeFaucet: getEnvironmentConfig().name === 'localhost' });
 
 /** The faucet the harness deploys (helpers/miden-cli.ts `createFaucet` defaults). */
 const TOKEN = 'TST';
@@ -158,21 +155,21 @@ test.describe('Onboarding — create', () => {
     });
 
     await steps.step('guardian_choice_is_offered_and_accepted', async () => {
-      // Meet your Guardian picks the fastest operator on its own; the spec wants THE operator
-      // this run is configured for, so it ticks the three facts and opens the full picker.
+      // Choose your Guardian picks the fastest operator on its own; the spec wants THE operator
+      // this run is configured for, so it goes past the intro and opens the provider sheet.
       await openGuardianPickerFromMeetGuardian(page);
-      await expect(page.getByTestId('onboarding-choose-guardian')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('meet-guardian-provider-sheet')).toBeVisible({ timeout: 30_000 });
 
-      // The picker renders one card per operator that runs a guardian on this
+      // The sheet renders one card per operator that runs a guardian on this
       // network, each tagged with the endpoint it would bind to
-      // (`data-guardian-endpoint`, ChooseGuardian.tsx:142). Selecting by endpoint
+      // (`data-guardian-endpoint`, GuardianProviderSheet.tsx). Selecting by endpoint
       // rather than by position means the spec is asserting "the guardian this
       // run is configured for is offered", not "some card exists".
       const pickedGuardian = page.locator(`[data-guardian-endpoint="${envConfig.guardianUrl}"]`);
       await expect(pickedGuardian).toHaveCount(1);
       await pickedGuardian.click();
 
-      await page.getByTestId('choose-guardian-continue').click();
+      await page.getByTestId('meet-guardian-continue').click();
     });
 
     await steps.step('confirmation_creates_the_wallet_and_lands_on_home', async () => {
@@ -229,6 +226,20 @@ test.describe('Onboarding — create', () => {
         data: { address, guardianEndpoint: envConfig.guardianUrl }
       });
     });
+
+    if (envConfig.name !== 'localhost') {
+      await steps.step('fund_through_real_public_faucet_and_consume', async () => {
+        const evidence = await fundFreshGuardianThroughUi(page, envConfig.name, steps.outputDir);
+        timeline.emit({
+          category: 'blockchain_state',
+          severity: 'info',
+          wallet: 'A',
+          message: 'Public faucet grant consumed into the native vault',
+          data: evidence
+        });
+      });
+      return;
+    }
 
     await steps.step('init_miden_client', async () => {
       await midenCli.init();

@@ -242,6 +242,18 @@ describe('adoptPostSwitchState (#1233)', () => {
     expect(sleep).not.toHaveBeenCalled();
   });
 
+  it('stops after an adopt that failed with the eviction as its cause (#1313)', async () => {
+    localNamesNewKeyWhen(() => false);
+    const adoptOnce = jest.fn(async () => {
+      throw new Error('adopt failed', { cause: new WasmClientPoisonedError('watchdog') });
+    });
+    const { now, sleep } = fakeClock();
+
+    await expect(adoptPostSwitchState(adopterOf(adoptOnce), 'acc', NEW, { now, sleep })).resolves.toBe('pre-switch');
+    expect(adoptOnce).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
   it('never sleeps past the deadline', async () => {
     localNamesNewKeyWhen(() => false);
     const { now, sleep } = fakeClock();

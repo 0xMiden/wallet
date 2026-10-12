@@ -2,6 +2,8 @@ import React from 'react';
 
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 
+import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
+import { applyOverrideFor } from 'lib/miden/metadata/overrides';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 // Import after the mocks are registered.
@@ -66,10 +68,15 @@ const mockNavigate = jest.fn();
 // ---------------------------------------------------------------------------
 
 // `react-i18next` — echo the key back so we can assert against raw keys.
-let mockBaseFee = 0;
+let mockBaseFee: number | null = 0;
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
 let mockNativeFaucetId: string | null = 'MIDEN-ID';
-jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => mockNativeFaucetId }));
+let mockLegacyFeeIdentity: string | undefined;
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => mockLegacyFeeIdentity ?? mockNativeFaucetId
+}));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => mockNativeFaucetId }));
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
@@ -217,7 +224,12 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 }));
 
 jest.mock('lib/biometric', () => ({
-  confirmSensitiveAction: (reason: string) => mockConfirmSensitive(reason)
+  confirmSensitiveAction: (reason: string, hasHardwareProtector: () => Promise<boolean>) =>
+    mockConfirmSensitive(reason, hasHardwareProtector)
+}));
+
+jest.mock('lib/miden/back/protector-probe', () => ({
+  probeHardwareProtector: jest.fn()
 }));
 
 jest.mock('lib/i18n/numbers', () => ({
@@ -446,6 +458,54 @@ describe('SwapFlow / SwapManager', () => {
     // user signed. Send already reserves for this; swap quoted and enforced the raw
     // balance, so the same signed-then-failed outcome was still reachable here.
     // Reserve = baseFee * FEE_RESERVE_MULTIPLE / 10^decimals = 10000*30/1e8 = 0.003.
+    it('fee identity: reserves the actual native offer despite a different legacy display override', () => {
+      mockLegacyFeeIdentity = 'legacy-B';
+      mockNativeFaucetId = 'bech32-faucet-A';
+      mockBaseFee = 7;
+      mockTokenA.decimals = 6;
+      mockAllBalancesReturn = {
+        data: [
+          { tokenId: 'bech32-faucet-A', balance: 1 },
+          { tokenId: 'legacy-B', balance: 1 }
+        ]
+      };
+      renderFlow();
+      expect(screen.getByTestId('sa-offer-balance')).toHaveTextContent('0.99979');
+      setOffer('1');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      mockTokenA.decimals = 8;
+    });
+
+    it.each([
+      [0, 1, false],
+      [1, 0, true]
+    ])('fee identity: funds foreign offers from actual A=%s rather than legacy B=%s', (actual, legacy, allowed) => {
+      mockLegacyFeeIdentity = 'legacy-B';
+      mockNativeFaucetId = 'actual-native';
+      mockBaseFee = 7;
+      mockAllBalancesReturn = {
+        data: [
+          { tokenId: 'bech32-faucet-A', balance: 2 },
+          { tokenId: 'actual-native', balance: actual },
+          { tokenId: 'legacy-B', balance: legacy }
+        ]
+      };
+      renderFlow();
+      setOffer('1');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent(String(allowed));
+    });
+
+    it.each([0, null])('fee identity: leaves the offer unreserved with current fee %s and a legacy override', fee => {
+      mockLegacyFeeIdentity = 'legacy-B';
+      mockNativeFaucetId = 'bech32-faucet-A';
+      mockBaseFee = fee;
+      mockAllBalancesReturn = { data: [{ tokenId: 'bech32-faucet-A', balance: 1 }] };
+      renderFlow();
+      expect(screen.getByTestId('sa-offer-balance')).toHaveTextContent('1');
+      setOffer('1');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+    });
+
     it('holds back the fee reserve from the offerable balance', () => {
       mockNativeFaucetId = 'bech32-faucet-A';
       mockBaseFee = 10000;
@@ -521,6 +581,22 @@ describe('SwapFlow / SwapManager', () => {
       setOffer('10');
 
       expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+    });
+
+    it('flags an offer above the holding of a registry token whose stored override carries decimals', () => {
+      // 100 AAA in base units at the registry's 8 decimals. The row's scale comes from the faucet
+      // record with the stored override applied, as the store builds every balance row.
+      const faucetRecord = { name: 'Token A', symbol: 'AAA', decimals: mockTokenA.decimals };
+      const rowMetadata = applyOverrideFor('bech32-faucet-A', faucetRecord, {
+        'bech32-faucet-A': { name: 'Mine', symbol: 'MN', decimals: 2 }
+      });
+      mockBalanceData = [{ tokenId: 'bech32-faucet-A', balance: 10_000_000_000 / 10 ** rowMetadata.decimals }];
+      mockAllBalancesReturn = { data: mockBalanceData };
+      renderFlow();
+      setOffer('150');
+
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      expect(screen.getByTestId('sa-offer-balance')).toHaveTextContent('100');
     });
   });
 
@@ -1114,7 +1190,7 @@ describe('SwapFlow / SwapManager', () => {
       });
     });
 
-    it('does not submit when biometric confirmation is declined', async () => {
+    it('does not submit when biometric confirmation is declined, and leaves the button usable', async () => {
       mockConfirmSensitive.mockResolvedValue(false);
       renderFlow();
       setOffer('10');
@@ -1122,9 +1198,32 @@ describe('SwapFlow / SwapManager', () => {
         fireEvent.click(screen.getByTestId('rs-submit'));
       });
 
-      expect(mockConfirmSensitive).toHaveBeenCalledWith('Confirm your swap');
+      expect(mockConfirmSensitive).toHaveBeenCalledWith('confirmSwapReason', expect.any(Function));
       expect(mockInitiateSwap).not.toHaveBeenCalled();
       expect(mockWalletState.setLastCompletedTxHash).not.toHaveBeenCalled();
+      expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'false');
+    });
+
+    it('confirms with the shared hardware-only protector probe', async () => {
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockConfirmSensitive).toHaveBeenCalledWith('confirmSwapReason', probeHardwareProtector);
+    });
+
+    it("shows the review screen's own error, and swaps nothing, when the protector probe rejects", async () => {
+      mockConfirmSensitive.mockRejectedValue(new Error('protector check failed'));
+      renderFlow();
+      setOffer('10');
+      await act(async () => {
+        fireEvent.click(screen.getByTestId('rs-submit'));
+      });
+
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('protector check failed');
     });
 
     it('submits, nudges the service worker on extension, and hands off to the progress page', async () => {
@@ -1546,4 +1645,12 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
   });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
+});
+
+afterEach(() => {
+  mockTokenA.decimals = 8;
 });

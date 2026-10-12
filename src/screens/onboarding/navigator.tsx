@@ -1,7 +1,6 @@
 import React, { FC, useCallback, useEffect, useState } from 'react';
 
 import { AnimatePresence, useReducedMotion } from 'framer-motion';
-import { useTranslation } from 'react-i18next';
 
 import { PageHeader } from 'components/PageHeader';
 import { ProgressIndicator } from 'components/ProgressIndicator';
@@ -11,11 +10,11 @@ import { getEffectiveAllowNoGuardian } from 'lib/miden-chain/effective-endpoints
 import { isMobile } from 'lib/platform';
 import { cn } from 'lib/ui/util';
 
-import { ChooseGuardianScreen } from './common/ChooseGuardian';
 import { ChooseProtectionScreen } from './common/ChooseProtection';
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
-import { MEET_GUARDIAN_POINTS, MeetGuardianScreen } from './common/MeetGuardian';
+import { GuardianIntroScreen } from './common/GuardianIntro';
+import { MeetGuardianScreen } from './common/MeetGuardian';
 import { NetworkNoticeScreen } from './common/NetworkNotice';
 import { OnboardingStepLayer } from './common/OnboardingStepLayer';
 import { SetupBiometricScreen } from './common/SetupBiometric';
@@ -34,7 +33,6 @@ import {
   EMPTY_MEET_GUARDIAN_PROGRESS,
   GuardianProbeState,
   ImportType,
-  NO_GUARDIAN_ID,
   OnboardingAction,
   OnboardingStep,
   OnboardingType,
@@ -50,6 +48,11 @@ export interface OnboardingFlowProps {
   isLoading?: boolean;
   useBiometric?: boolean;
   isHardwareSecurityAvailable?: boolean;
+  /**
+   * The host skips the create flow's protection chooser on mobile too (Welcome does where the vault's
+   * hardware probe answered false), so that flow is one step shorter, as it is off mobile.
+   */
+  skipProtectionChoice?: boolean;
   biometricAttempts?: number;
   biometricError?: string | null;
   /** The last Guardian lookup failure's display text, or `null`. */
@@ -83,9 +86,9 @@ const STEP_TO_PROGRESS: Partial<Record<OnboardingStep, number>> = {
   [OnboardingStep.ChooseProtection]: 1,
   [OnboardingStep.SetupPasscode]: 2,
   [OnboardingStep.SetupBiometric]: 2,
-  // One decision, two screens: the picker is a detail of the guardian step, not a step after it.
-  [OnboardingStep.MeetGuardian]: 3,
-  [OnboardingStep.ChooseGuardian]: 3,
+  // The guardian decision takes two segments: what a Guardian is, then who it is.
+  [OnboardingStep.GuardianIntro]: 3,
+  [OnboardingStep.MeetGuardian]: 4,
   [OnboardingStep.SelectImportType]: 1,
   // This change inserts the import-type choice at tier 1, so seed entry moves to
   // tier 2 and the key-paste step, its sibling, moves with it.
@@ -134,6 +137,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   isLoading,
   useBiometric = true,
   isHardwareSecurityAvailable = false,
+  skipProtectionChoice = false,
   biometricAttempts = 0,
   biometricError = null,
   guardianLookupFailure = null,
@@ -145,7 +149,6 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   onBiometricChange,
   onAction
 }) => {
-  const { t } = useTranslation();
   const reduceMotion = useReducedMotion();
   const [navigationDirection, setNavigationDirection] = useState<'forward' | 'backward'>('forward');
 
@@ -157,8 +160,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     setProgressOverride(null);
   }, [step]);
 
-  // Meet your Guardian is left for the picker and come back to, so its ticks and locked operator live
-  // here for the whole create attempt. An attempt ends on Welcome, and a new seed is a new attempt.
+  // Meet your Guardian is left for the intro or the next step and come back to, so its locked operator
+  // lives here for the whole create attempt. An attempt ends on Welcome, and a new seed is a new attempt.
   const [meetGuardianProgress, setMeetGuardianProgress] = useState(EMPTY_MEET_GUARDIAN_PROGRESS);
   useEffect(() => {
     if (step === OnboardingStep.Welcome) setMeetGuardianProgress(EMPTY_MEET_GUARDIAN_PROGRESS);
@@ -166,18 +169,26 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   useEffect(() => {
     setMeetGuardianProgress(EMPTY_MEET_GUARDIAN_PROGRESS);
   }, [seedPhrase]);
-  // The choose-protection step only exists where biometric can work (mobile).
-  // On the extension/desktop it's skipped, so the create flow is one step
-  // shorter — render 3 segments and shift every position down by one.
-  const protectionChoiceSkipped = onboardingType === OnboardingType.Create && !isMobile();
+  // The choose-protection step only exists where biometric can work: on mobile,
+  // unless the host skips it. Where it's skipped the create flow is one step
+  // shorter, so render 3 segments and shift every position down by one.
+  const protectionChoiceSkipped = onboardingType === OnboardingType.Create && (!isMobile() || skipProtectionChoice);
   // In that shortened create flow the password screen replaces passcode setup,
   // so it sits at the protection-step position rather than its import-flow one.
+  // The create flow's two guardian screens make it one segment longer than the import flow, whose
+  // confirmation stays its fourth; the create flow's confirmation is its fifth.
+  const isCreate = onboardingType === OnboardingType.Create;
   const baseStep =
     step === OnboardingStep.CreatePassword && protectionChoiceSkipped
       ? (STEP_TO_PROGRESS[OnboardingStep.SetupPasscode] ?? null)
-      : (STEP_TO_PROGRESS[step] ?? null);
+      : step === OnboardingStep.Confirmation && isCreate
+        ? 5
+        : // On mobile the create flow reaches the password only after the guardian (biometric without hardware).
+          step === OnboardingStep.CreatePassword && isCreate
+          ? 4
+          : (STEP_TO_PROGRESS[step] ?? null);
   const rawProgress = progressOverride ?? baseStep;
-  const totalSteps = protectionChoiceSkipped ? 3 : 4;
+  const totalSteps = (protectionChoiceSkipped ? 3 : 4) + (isCreate ? 1 : 0);
   const currentProgress = protectionChoiceSkipped && rawProgress !== null ? rawProgress - 1 : rawProgress;
 
   const onForwardAction = useCallback(
@@ -258,31 +269,6 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     const onBiometricSwitchToPasscode = () => onForwardAction?.({ id: 'setup-passcode' });
     const onChooseGuardianSubmit = (payload: { guardianId: string; guardianEndpoint: string }) =>
       onForwardAction?.({ id: 'choose-guardian-submit', payload });
-    // Back from the next step lands on Meet your Guardian, so its card must show what the picker submitted.
-    // The picker, which Change opens on the card's operator, goes on only as Meet's Continue could: once
-    // Meet's three facts are ticked, since otherwise it would skip them, and with an operator that has
-    // answered online (`requireOnline`). Before the facts are ticked it returns to Meet, whose card shows the
-    // pick and whose Continue waits for the facts, so its own Continue reads Select. A no-guardian pick is
-    // not recorded and would be dropped there, so the picker withholds it until then; Meet's own link offers
-    // it once the facts are ticked. A pick is the user's own when it changed the card's operator or the picker
-    // reports it explicit (a card activated there, the card's own included); only an untouched Continue on Meet's
-    // auto-pick stays Meet's. The picker reopens on the user's own pick as theirs (`initialPicked`), so its
-    // fallback to the first online operator, which covers Meet's auto-pick only, never substitutes it.
-    const meetFactsTicked = MEET_GUARDIAN_POINTS.every(point => meetGuardianProgress.checked[point.id]);
-    const onPickerSubmit = (
-      payload: { guardianId: string; guardianEndpoint: string },
-      pick?: { explicit: boolean }
-    ) => {
-      if (payload.guardianId !== NO_GUARDIAN_ID) {
-        setMeetGuardianProgress(prev =>
-          prev.chosenId === payload.guardianId && !pick?.explicit
-            ? prev
-            : { ...prev, chosenId: payload.guardianId, pickedByUser: true }
-        );
-      }
-      if (meetFactsTicked) onChooseGuardianSubmit(payload);
-      else onBack();
-    };
 
     switch (step) {
       case OnboardingStep.Welcome:
@@ -302,25 +288,15 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return (
           <SetupBiometricScreen onContinue={onSetupBiometricSubmit} onSwitchToPasscode={onBiometricSwitchToPasscode} />
         );
+      case OnboardingStep.GuardianIntro:
+        return <GuardianIntroScreen onContinue={() => onForwardAction?.({ id: 'guardian-intro-submit' })} />;
       case OnboardingStep.MeetGuardian:
         return (
           <MeetGuardianScreen
             progress={meetGuardianProgress}
             onProgressChange={setMeetGuardianProgress}
             onSubmit={onChooseGuardianSubmit}
-            onChooseDifferent={() => onForwardAction?.({ id: 'choose-guardian' })}
             showNoGuardianOption={getEffectiveAllowNoGuardian()}
-          />
-        );
-      case OnboardingStep.ChooseGuardian:
-        return (
-          <ChooseGuardianScreen
-            onSubmit={onPickerSubmit}
-            requireOnline
-            initialId={meetGuardianProgress.chosenId}
-            initialPicked={meetGuardianProgress.pickedByUser}
-            submitLabel={meetFactsTicked ? undefined : t('select')}
-            showNoGuardianOption={meetFactsTicked && getEffectiveAllowNoGuardian()}
           />
         );
       case OnboardingStep.BackupSeedPhrase:
@@ -387,12 +363,10 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return <></>;
     }
   }, [
-    t,
     step,
     meetGuardianProgress,
     isLoading,
     onForwardAction,
-    onBack,
     seedPhrase,
     wordslist,
     useBiometric,

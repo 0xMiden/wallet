@@ -3,11 +3,9 @@ import React, { FC, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { usePageActive } from 'app/layouts/page-active';
-import { useHideForegroundDappWhileOpen } from 'app/providers/DappBrowserProvider';
-import { Button } from 'components/Button';
+import { AcknowledgeSheet } from 'components/AcknowledgeSheet';
 import { NetworkNoticeRows } from 'components/NetworkNoticeRows';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
-import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from 'lib/ui/drawer';
 import { useLocation } from 'lib/woozie';
 
 export interface NetworkModeSheetProps {
@@ -43,41 +41,22 @@ export const NetworkModeSheet: FC<NetworkModeSheetProps> = ({ open, onOpenChange
     }
   }, [pathname, hash, pageActive]);
 
-  // A foregrounded dApp's native window sits above the host WebView and would cover the sheet; the
-  // provider hides it while this holds.
-  useHideForegroundDappWhileOpen(open);
-
   const networkKey = getTestNetworkNameKey();
   if (!networkKey) return null;
   const network = t(networkKey);
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} screenKey="network-mode">
-      {/* The rows scroll and the CTA stays pinned: the sheet can outgrow DrawerContent's 80vh cap in
-          the 360x600 popup and in long locales. */}
-      <DrawerContent className="pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
-        <div className="flex min-h-0 flex-1 flex-col" data-testid="network-mode-sheet">
-          <div className="min-h-0 flex-1 overflow-y-auto" data-testid="network-mode-sheet-body">
-            {/* The description sits under the header's rule, in the rows' own muted style. */}
-            <DrawerHeader>
-              <DrawerTitle>{t('networkModeSheetTitle', { network })}</DrawerTitle>
-            </DrawerHeader>
-            <DrawerDescription>{t('networkNoticeBody')}</DrawerDescription>
-            <div className="px-4">
-              <NetworkNoticeRows />
-            </div>
-          </div>
-          {/* The shared Button fires its own tap haptic. */}
-          <DrawerFooter className="shrink-0">
-            <Button
-              title={t('iUnderstand')}
-              onClick={() => onOpenChange(false)}
-              className="w-full"
-              data-testid="network-mode-sheet-cta"
-            />
-          </DrawerFooter>
-        </div>
-      </DrawerContent>
-    </Drawer>
+    <AcknowledgeSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      screenKey="network-mode"
+      testId="network-mode-sheet"
+      title={t('networkModeSheetTitle', { network })}
+      description={t('networkNoticeBody')}
+    >
+      <div className="px-4">
+        <NetworkNoticeRows />
+      </div>
+    </AcknowledgeSheet>
   );
 };

@@ -68,6 +68,25 @@ export const toPersistedNoteType = (noteType: NoteType | NoteTypeString | string
 export const ESTIMATED_MS_PER_BLOCK = 3_000;
 
 /**
+ * Blocks a request the wallet submits on its own may wait for inclusion: about 30 minutes at the estimated cadence
+ * (#1081). A submitted transaction without one never expires, so "it never committed" could be proven only by the
+ * account moving on without it.
+ */
+export const EXPIRATION_DELTA_BLOCKS = 600;
+
+/**
+ * Blocks for a request proposed through a Guardian: 540 s at 3 s blocks, inside the Guardian's ~600 s pending hold,
+ * which starts after the proposal's bound block. Its transaction can then only land before the Guardian could discard
+ * the candidate, while blocks come at least every 3.3 s. A proposal executes at the tip, so a wallet-built one carries
+ * this as its approval expiration, counted from the bound block (`createRebasedCustomProposal`).
+ */
+export const GUARDIAN_EXPIRATION_DELTA_BLOCKS = 180;
+
+/** The delta for a request the wallet builds; the caller is the one that knows whether a Guardian proposes it. */
+export const expirationDeltaBlocks = (proposedThroughGuardian: boolean): number =>
+  proposedThroughGuardian ? GUARDIAN_EXPIRATION_DELTA_BLOCKS : EXPIRATION_DELTA_BLOCKS;
+
+/**
  * Largest relative recall offset the wallet will accept from a caller.
  *
  * Block heights are u32 on chain, and the offset is only ever used as

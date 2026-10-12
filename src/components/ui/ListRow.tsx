@@ -35,6 +35,11 @@ interface ListRowBaseProps {
    * on a row that is not a choice.
    */
   checked?: boolean;
+  /**
+   * A tapped toggle row whose `trailing` element, such as a `CheckboxIndicator`, shows the state:
+   * the row reports it as `aria-pressed` and draws nothing itself. Never pass it with `checked`.
+   */
+  pressed?: boolean;
   /** Shows the chevron of a row that navigates. On by default for `to` and `href`. */
   chevron?: boolean;
   /** Tapping the row: renders a `button`, with the tap haptic. */
@@ -141,6 +146,7 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
     value,
     trailing,
     checked,
+    pressed,
     chevron,
     onClick,
     to,
@@ -262,7 +268,7 @@ export const ListRow = React.forwardRef<HTMLButtonElement, ListRowProps>(functio
         disabled={disabled}
         role={radio ? 'radio' : undefined}
         aria-checked={radio ? Boolean(checked) : undefined}
-        aria-pressed={radio ? undefined : checked}
+        aria-pressed={radio ? undefined : (checked ?? pressed)}
         aria-label={ariaLabel}
         data-testid={dataTestId}
         className={classes}

@@ -10,6 +10,7 @@ import {
   type IEarnWithdrawExtraInputs
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { findEvmUsdc, getEpochAllocatorUrl, getEvmUsdc } from 'lib/remote-config/values';
 
 import { clearEarnSubmissionLocksForTests, createEarnSubmissionLocks } from './earn-submission-lock';
 import {
@@ -17,7 +18,8 @@ import {
   pollEarnWithdrawDelivery,
   reconcileEarnWithdrawals,
   resubmitEarnWithdrawal,
-  resumeEarnWithdrawal
+  resumeEarnWithdrawal,
+  retryEarnWithdrawal
 } from './earn-withdraw';
 import {
   earnWithdrawalRetryKind,
@@ -25,7 +27,9 @@ import {
   selectEarnWithdrawPreparedExecution
 } from './earn-withdraw-policy';
 import { matchesEarnWithdrawIntent } from './intent-key';
+import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from './intent-status';
 import { clearPollRegistryForTests, createIntentPollCoordinator } from './poll-registry';
+import { TEST_EVM_USDC } from './testing/bridge-config';
 import { deferred, SharedEarnLocks } from './testing/earn-locks';
 import { preparedExecution, PREPARED_FAUCET, PREPARED_RECIPIENT } from './testing/earn-prepared';
 
@@ -46,8 +50,15 @@ jest.mock('@miden-sdk/miden-sdk', () => ({
   }
 }));
 jest.mock('./bridge', () => ({ normalizeMidenIdToHex: (v: string) => v }));
-jest.mock('./bridgeable-token', () => ({ BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS: 6 }));
-jest.mock('./config', () => ({ EPOCH_ALLOCATOR_URL: 'http://alloc', MIDEN_DESTINATION_CHAIN_ID: 999999999 }));
+jest.mock('./config', () => ({ MIDEN_DESTINATION_CHAIN_ID: 999999999 }));
+jest.mock('lib/remote-config/values', () => {
+  const fixtures = jest.requireActual<typeof import('./testing/bridge-config')>('./testing/bridge-config');
+  const values = fixtures.remoteConfigValuesMock();
+  // This suite's positions report a 6-decimal token.
+  values.getEvmUsdc.mockReturnValue({ ...fixtures.TEST_EVM_USDC, decimals: 6 });
+  values.findEvmUsdc.mockReturnValue({ ...fixtures.TEST_EVM_USDC, decimals: 6 });
+  return values;
+});
 interface MockLeg {
   chainId?: number;
   status?: string;
@@ -57,8 +68,6 @@ jest.mock('./earn', () => {
   const DONE = new Set(['completed']);
   const FAILED = new Set(['failed']);
   return {
-    EARN_PROTOCOL_HASH: '0xhash',
-    EARN_UNDERLYING: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
     EARN_DONE_STATUSES: DONE,
     EARN_FAILED_STATUSES: FAILED,
     // Mirrors the real destination-gated helper, which is unit-tested in earn.test.ts.
@@ -183,7 +192,8 @@ describe('gaslessEarnWithdrawalToMiden', () => {
       '10',
       'USDC',
       expect.any(String),
-      expect.any(Number)
+      expect.any(Number),
+      6
     );
     const row = await Repo.transactions.where({ id: 'TX1' }).first();
     expect(row?.extraInputs).toMatchObject({
@@ -204,12 +214,82 @@ describe('gaslessEarnWithdrawalToMiden', () => {
     );
   });
 
+  it('records the source decimals on the new row', async () => {
+    const deps = baseDeps({ sdk: fakeSdk(jest.fn().mockResolvedValue({ nonce: 'NONCE1' })) });
+
+    await gaslessEarnWithdrawalToMiden(validArgs(), deps);
+
+    const row = await Repo.transactions.where({ id: 'TX1' }).first();
+    expect(row?.extraInputs.sourceDecimals).toBe(6);
+  });
+
   it('rejects validation failures before creating any row', async () => {
     const deps = baseDeps({ sdk: fakeSdk(jest.fn()) });
 
     await expect(
       gaslessEarnWithdrawalToMiden({ ...validArgs(), evmAddress: 'not-an-address' }, deps)
     ).rejects.toThrow();
+    expect(deps.initiateRow).not.toHaveBeenCalled();
+  });
+
+  it('withdraws only the token the config names, at its decimals', async () => {
+    jest.mocked(findEvmUsdc).mockReturnValueOnce({ ...TEST_EVM_USDC, decimals: 18 });
+    const deps = baseDeps({ sdk: fakeSdk(jest.fn()) });
+
+    await expect(gaslessEarnWithdrawalToMiden(validArgs(), deps)).rejects.toThrow(
+      'Gasless withdrawal only supports the configured USDC Earn market.'
+    );
+    await expect(
+      gaslessEarnWithdrawalToMiden(
+        { ...validArgs(), underlyingAddress: '0x3333333333333333333333333333333333333333' },
+        deps
+      )
+    ).rejects.toThrow('Gasless withdrawal only supports the configured USDC Earn market.');
+    expect(deps.initiateRow).not.toHaveBeenCalled();
+  });
+
+  it('withdraws at the position decimals while the token read has not succeeded, still only the configured token', async () => {
+    const unread = () => {
+      throw new Error('The bridge config has no usable EVM USDC.');
+    };
+    jest.mocked(getEvmUsdc).mockImplementation(unread);
+    jest.mocked(findEvmUsdc).mockReturnValue(null);
+    const deps = baseDeps({ sdk: fakeSdk(jest.fn().mockResolvedValue({ nonce: 'NONCE1' })) });
+    try {
+      await expect(gaslessEarnWithdrawalToMiden(validArgs(), deps)).resolves.toMatchObject({ txId: 'TX1' });
+      expect(deps.initiateRow).toHaveBeenCalledWith(
+        PREPARED_RECIPIENT,
+        10_000_000n,
+        EVM_OWNER,
+        MARKET_UID,
+        PREPARED_FAUCET,
+        '10',
+        'USDC',
+        expect.any(String),
+        expect.any(Number),
+        6
+      );
+      deps.initiateRow.mockClear();
+      await expect(
+        gaslessEarnWithdrawalToMiden(
+          { ...validArgs(), underlyingAddress: '0x3333333333333333333333333333333333333333' },
+          deps
+        )
+      ).rejects.toThrow('Gasless withdrawal only supports the configured USDC Earn market.');
+      expect(deps.initiateRow).not.toHaveBeenCalled();
+    } finally {
+      jest.mocked(getEvmUsdc).mockReturnValue({ ...TEST_EVM_USDC, decimals: 6 });
+      jest.mocked(findEvmUsdc).mockReturnValue({ ...TEST_EVM_USDC, decimals: 6 });
+    }
+  });
+
+  it('refuses before creating any row while the config names no allocator', async () => {
+    jest.mocked(getEpochAllocatorUrl).mockImplementationOnce(() => {
+      throw new Error('no allocator');
+    });
+    const deps = baseDeps({ sdk: fakeSdk(jest.fn()) });
+
+    await expect(gaslessEarnWithdrawalToMiden(validArgs(), deps)).rejects.toThrow('no allocator');
     expect(deps.initiateRow).not.toHaveBeenCalled();
   });
 
@@ -462,6 +542,33 @@ describe('pollEarnWithdrawDelivery', () => {
       { chainId: MIDEN_CHAIN_ID, status: 'pending', transactionHash: '' }
     ]);
     expect(deps.updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('retries a delivery status request that never answers once it times out', async () => {
+    const warning = jest.spyOn(console, 'warn').mockImplementation();
+    const getIntentStatus = jest
+      .fn()
+      .mockReturnValueOnce(new Promise(() => {}))
+      .mockResolvedValue([{ chainId: MIDEN_CHAIN_ID, status: 'failed' }]);
+    const deps = {
+      getSdk: jest.fn().mockResolvedValue({ getIntentStatus }),
+      updatePhase: jest.fn().mockResolvedValue(undefined),
+      resolveNoteId: jest.fn().mockResolvedValue(undefined)
+    };
+    pollEarnWithdrawDelivery({ sponsorAddress: EVM_OWNER, nonce: 'NONCE1', txId: 'TX1', intervalMs: 10, deps });
+    await jest.advanceTimersByTimeAsync(10);
+    expect(getIntentStatus).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(EPOCH_INTENT_STATUS_TIMEOUT_MS + 10);
+    expect(getIntentStatus.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(getIntentStatus).toHaveBeenLastCalledWith(EVM_OWNER, 'NONCE1', expect.any(AbortSignal));
+    expect(deps.updatePhase).toHaveBeenCalledWith(
+      'TX1',
+      'failed',
+      expect.objectContaining({ error: expect.any(String) }),
+      undefined,
+      expect.objectContaining({ owner: EVM_OWNER })
+    );
+    warning.mockRestore();
   });
 
   it('advances to delivering once the Miden destination leg completes', async () => {
@@ -727,6 +834,46 @@ describe('resubmitEarnWithdrawal', () => {
     expect(row.extraInputs.withdrawIntentNonce).toBeUndefined();
     expect(earnWithdrawalRetryKind(row)).toBe('source');
     expect(executeActions).not.toHaveBeenCalled();
+  });
+
+  describe('while the token read has not succeeded', () => {
+    beforeEach(() => {
+      jest.mocked(getEvmUsdc).mockImplementation(() => {
+        throw new Error('The bridge config has no usable EVM USDC.');
+      });
+      jest.mocked(findEvmUsdc).mockReturnValue(null);
+    });
+    afterEach(() => {
+      jest.mocked(getEvmUsdc).mockReturnValue({ ...TEST_EVM_USDC, decimals: 6 });
+      jest.mocked(findEvmUsdc).mockReturnValue({ ...TEST_EVM_USDC, decimals: 6 });
+    });
+
+    it('retries at the decimals the row recorded', async () => {
+      const row = failedRow({ sourceDecimals: 8 });
+      mockRow(row);
+      const executeActions = jest.fn().mockResolvedValue({ nonce: 'FRESH_NONCE' });
+      const deps = baseDeps({ sdk: fakeSdk(executeActions) });
+
+      await expect(retryEarnWithdrawal('TX1', deps)).resolves.toBeUndefined();
+
+      expect(row.extraInputs).toMatchObject({ phase: 'redeeming', submissionState: 'accepted', sourceDecimals: 8 });
+      expect(executeActions).toHaveBeenCalledTimes(1);
+      expect(executeActions).toHaveBeenCalledWith(
+        expect.objectContaining({ underlying: TEST_EVM_USDC.address, amount: '1000000000' })
+      );
+    });
+
+    it('refuses a row that recorded no decimals', async () => {
+      const row = failedRow();
+      mockRow(row);
+      const executeActions = jest.fn();
+
+      await expect(retryEarnWithdrawal('TX1', baseDeps({ sdk: fakeSdk(executeActions) }))).rejects.toThrow(
+        'The bridge config has no usable EVM USDC.'
+      );
+      expect(executeActions).not.toHaveBeenCalled();
+      expect(row.extraInputs.phase).toBe('failed');
+    });
   });
 });
 
@@ -1015,8 +1162,8 @@ describe('withdrawal ownership across independent document factories', () => {
       submissionState: 'accepted',
       withdrawIntentNonce: '22'
     });
-    expect(getIntentStatus).toHaveBeenCalledWith(EVM_OWNER, '11');
-    expect(getIntentStatus).toHaveBeenCalledWith(EVM_OWNER, '22');
+    expect(getIntentStatus).toHaveBeenCalledWith(EVM_OWNER, '11', expect.any(AbortSignal));
+    expect(getIntentStatus).toHaveBeenCalledWith(EVM_OWNER, '22', expect.any(AbortSignal));
     expect(h.registerBridgeIn).toHaveBeenCalledTimes(1);
     writingAcceptance.resolve(true);
     await jest.advanceTimersByTimeAsync(0);
@@ -1089,7 +1236,7 @@ describe('withdrawal ownership across independent document factories', () => {
       tryWithSubmissionLock: d.submissionB.tryWithEarnSubmissionLock
     });
     await jest.advanceTimersByTimeAsync(0);
-    expect(getIntentStatus).toHaveBeenCalledWith(EVM_OWNER, '22');
+    expect(getIntentStatus).toHaveBeenCalledWith(EVM_OWNER, '22', expect.any(AbortSignal));
     expect(h.rows.get('TX1')?.extraInputs.phase).toBe('redeeming');
     expect(h.registry).toHaveLength(failure === 'registry' ? 0 : 1);
     if (failure === 'registry') {
@@ -1210,8 +1357,8 @@ describe('withdrawal ownership across independent document factories', () => {
     });
     await jest.advanceTimersByTimeAsync(0);
     expect(getIntentStatus).toHaveBeenCalledTimes(2);
-    expect(getIntentStatus).toHaveBeenCalledWith(ownerA, 'SAME');
-    expect(getIntentStatus).toHaveBeenCalledWith(ownerB, 'SAME');
+    expect(getIntentStatus).toHaveBeenCalledWith(ownerA, 'SAME', expect.any(AbortSignal));
+    expect(getIntentStatus).toHaveBeenCalledWith(ownerB, 'SAME', expect.any(AbortSignal));
   });
 
   it.each(['received', 'restored', 'deleted', 'owner', 'nonce', 'attempt'])(
@@ -1269,7 +1416,8 @@ describe('withdrawal ownership across independent document factories', () => {
       immediate: true
     };
     pollEarnWithdrawDelivery({ ...args, deps: { ...deps, startPoll: d.pollA.startIntentPoll } });
-    await jest.advanceTimersByTimeAsync(30_000);
+    // Short of the status timeout, which ends a read that never answers.
+    await jest.advanceTimersByTimeAsync(EPOCH_INTENT_STATUS_TIMEOUT_MS - 1);
     expect(getIntentStatus).toHaveBeenCalledTimes(1);
     status.resolve([{ chainId: MIDEN_CHAIN_ID, status: 'completed', midenNoteId: '0xnote' }]);
     await jest.advanceTimersByTimeAsync(0);

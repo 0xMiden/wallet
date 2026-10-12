@@ -2,20 +2,22 @@ import * as Repo from 'lib/miden/repo';
 
 import { compareAccountIds } from './utils';
 import { ITransaction, ITransactionStatus } from '../db/types';
+import { isFailedClaim } from '../transaction/verdict-rules';
 
 const noteIdsOf = (tx: ITransaction): string[] => tx.noteIds ?? (tx.noteId ? [tx.noteId] : []);
 
 /**
- * The Failed claim rows in `transactions` whose every note this account has claimed (#771). Failed rows are
- * never deleted, because the auto-consume backoff counts them, so without this a note the wallet now holds shows
- * one "Transaction failed" per earlier attempt. The evidence is read from the database rather than the batch, since
- * the successful claim can sit on another page, and it follows the claim dedup's rule: a Completed consume row of
- * the same account that was not restored from a backup.
+ * The failed claims (`isFailedClaim`) in `transactions` whose every note this account has claimed (#771). Failed
+ * rows are never deleted, because the auto-consume backoff counts them, so without this a note the wallet now holds
+ * shows one "Transaction failed" per earlier attempt. The evidence is read from the database rather than the batch,
+ * since the successful claim can sit on another page, and it follows the claim dedup's rule: a Completed consume row
+ * of the same account that was not restored from a backup.
  */
 export async function supersededFailedConsumeIds(transactions: ITransaction[]): Promise<Set<string>> {
-  const failed = transactions.filter(
-    tx => tx.type === 'consume' && tx.status === ITransactionStatus.Failed && noteIdsOf(tx).length > 0
-  );
+  const nowSec = Math.floor(Date.now() / 1000);
+  // A failed claim is one whose notes a fresh claim may take, Unconfirmed or Failed (#1081); a claim that holds its
+  // notes is never superseded.
+  const failed = transactions.filter(tx => isFailedClaim(tx, nowSec) && noteIdsOf(tx).length > 0);
   if (failed.length === 0) return new Set();
   const noteIds = [...new Set(failed.flatMap(noteIdsOf))];
   const [byScalar, byBatch] = await Promise.all([

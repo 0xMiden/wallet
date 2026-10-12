@@ -17,18 +17,12 @@ import {
 } from './guardian-manager';
 import { bumpWasmClientGeneration, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 
-const mockFetchFromStorage = jest.fn();
-jest.mock('./storage', () => ({
-  fetchFromStorage: (...args: unknown[]) => mockFetchFromStorage(...args)
-}));
-
 const mockGetSignerDetailsFromAccount = jest.fn();
 jest.mock('../guardian/account', () => ({
   getSignerDetailsFromAccount: (...args: unknown[]) => mockGetSignerDetailsFromAccount(...args),
-  // Mirror the real resolver: prefer the per-account endpoint, else the stored
-  // global key (driven by mockFetchFromStorage), else the default.
-  resolveGuardianEndpoint: async (acc: { guardianEndpoint?: string }) =>
-    acc.guardianEndpoint ?? (await mockFetchFromStorage('guardian_url_setting')) ?? 'https://default.guardian.test'
+  // Mirror the real resolver: the per-account endpoint, else the default.
+  resolveGuardianEndpoint: (acc: { guardianEndpoint?: string }) =>
+    acc.guardianEndpoint || 'https://default.guardian.test'
 }));
 
 const mockGetAccount = jest.fn();
@@ -37,9 +31,25 @@ const mockGetMidenClient = jest.fn(async (..._args: unknown[]) => ({ getAccount:
 // of miden-client, which jest mocks separately from the relative specifier below;
 // delegate the alias to the same mock so the proxy's flag-off passthrough hits it.
 jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-client'));
+// A sentinel hold, so `assertWasmHoldCurrent` can be asserted on rather than merely
+// tolerated: the guard's whole job is to run between the account read and every read
+// derived from it, and a mock that dropped the argument could not tell whether it did.
+const TEST_HOLD = { label: 'test-hold' };
+// Set by the one test that needs the watchdog to land during the account read, so
+// the guard has something real to refuse. A jest.fn() that never throws can only
+// answer "was it called", which a guard moved to a useless place would also
+// satisfy; this makes the refusal itself observable.
+let currentWasmHold: object | null = TEST_HOLD;
+const mockAssertWasmHoldCurrent = jest.fn((...args: unknown[]) => {
+  const [hold, where] = args;
+  if (currentWasmHold === hold) return;
+  const { WasmClientPoisonedError } = jest.requireActual('../sdk/wasm-client-poison');
+  throw new WasmClientPoisonedError('watchdog', new Error(`operation abandoned ${String(where)}`));
+});
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: (...args: unknown[]) => mockGetMidenClient(...args),
-  withWasmClientLock: async <T>(fn: () => Promise<T>) => fn()
+  withWasmClientLock: async <T>(fn: (hold: unknown) => Promise<T>) => fn(TEST_HOLD),
+  assertWasmHoldCurrent: (...args: unknown[]) => mockAssertWasmHoldCurrent(...args)
 }));
 
 const mockMultisigServiceInit = jest.fn();
@@ -53,9 +63,7 @@ jest.mock('lib/miden-chain/constants', () => ({
   DEFAULT_GUARDIAN_ENDPOINT: 'https://default.guardian.test'
 }));
 
-jest.mock('lib/settings/constants', () => ({
-  GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting'
-}));
+jest.mock('lib/settings/constants', () => ({}));
 
 const GUARDIAN_PK = 'guardian-pk';
 const OTHER_PK = 'other-pk';
@@ -85,7 +93,7 @@ describe('guardian-manager', () => {
     // hand its unconsumed services to the next one.
     mockMultisigServiceInit.mockReset();
     clearGuardianCache();
-    mockFetchFromStorage.mockResolvedValue('https://default.guardian.test');
+    currentWasmHold = TEST_HOLD;
     mockGetSignerDetailsFromAccount.mockResolvedValue({ commitment: 'abc' });
     mockGetAccount.mockResolvedValue({ id: () => ({ toString: () => 'acc-id' }) });
   });
@@ -108,6 +116,7 @@ describe('guardian-manager', () => {
         provider.signWord,
         // The resolved per-account endpoint is now passed through to init.
         'https://default.guardian.test',
+        // As are the init's lock options - `init`'s hold is the one that parks.
         { label: 'guardian-service-init' }
       );
       // Second call for the same account returns the cached instance without
@@ -118,17 +127,16 @@ describe('guardian-manager', () => {
       expect(mockMultisigServiceInit).not.toHaveBeenCalled();
     });
 
-    it('falls back to DEFAULT_GUARDIAN_ENDPOINT when storage is empty on the cache-drift re-check', async () => {
+    it('keeps the cached service when the account names no endpoint on the cache-drift re-check', async () => {
       // First call seeds the cache with a service pinned to the default endpoint.
       const service = { guardianEndpoint: 'https://default.guardian.test', tag: 'cached' };
       mockMultisigServiceInit.mockResolvedValueOnce(service);
       const provider = makeProvider([guardianAccount]);
       await getOrCreateMultisigService(GUARDIAN_PK, provider);
 
-      // Second call: storage returns `undefined`, so the re-check computes the
-      // default endpoint via the `|| DEFAULT_GUARDIAN_ENDPOINT` fallback and
-      // the cached instance stays valid.
-      mockFetchFromStorage.mockResolvedValueOnce(undefined);
+      // Second call: the account still names no guardianEndpoint, so the
+      // re-check resolves the same default via the `|| DEFAULT_GUARDIAN_ENDPOINT`
+      // fallback and the cached instance stays valid.
       mockMultisigServiceInit.mockClear();
 
       const second = await getOrCreateMultisigService(GUARDIAN_PK, provider);
@@ -137,15 +145,17 @@ describe('guardian-manager', () => {
       expect(mockMultisigServiceInit).not.toHaveBeenCalled();
     });
 
-    it('evicts the cached service and reinitializes when the stored guardian URL drifts', async () => {
+    it("evicts the cached service and reinitializes when the account's guardianEndpoint drifts", async () => {
       const firstService = { guardianEndpoint: 'https://default.guardian.test', tag: 'first' };
       const secondService = { guardianEndpoint: 'https://new.guardian.test', tag: 'second' };
       mockMultisigServiceInit.mockResolvedValueOnce(firstService).mockResolvedValueOnce(secondService);
       const provider = makeProvider([guardianAccount]);
 
       await getOrCreateMultisigService(GUARDIAN_PK, provider);
-      // User switched guardian — storage now returns a new URL.
-      mockFetchFromStorage.mockResolvedValueOnce('https://new.guardian.test');
+      // User switched guardian - the account's own field now names a new operator.
+      (provider.getAccounts as jest.Mock).mockResolvedValueOnce([
+        { ...guardianAccount, guardianEndpoint: 'https://new.guardian.test' }
+      ]);
 
       const result = await getOrCreateMultisigService(GUARDIAN_PK, provider);
 
@@ -153,9 +163,9 @@ describe('guardian-manager', () => {
       expect(mockMultisigServiceInit).toHaveBeenCalledTimes(2);
     });
 
-    it('uses the per-account guardianEndpoint over the global key (multi-account isolation)', async () => {
-      // Two Guardian accounts on different operators must not collide: the one
-      // carrying its own endpoint binds to it regardless of the global key.
+    it('uses the per-account guardianEndpoint (multi-account isolation)', async () => {
+      // Two Guardian accounts on different operators must not collide: each
+      // binds to its own field regardless of any other account's endpoint.
       const service = { guardianEndpoint: 'https://per-account.guardian', tag: 'isolated' };
       mockMultisigServiceInit.mockResolvedValueOnce(service);
       const provider = makeProvider([{ ...guardianAccount, guardianEndpoint: 'https://per-account.guardian' }]);
@@ -169,10 +179,12 @@ describe('guardian-manager', () => {
         '0xabc',
         provider.signWord,
         'https://per-account.guardian',
+        // The init's own labelled lock options reach it too: its hold - the client build
+        // plus the guardian `load()` - is the longer of the two the build takes, so leaving
+        // it unlabelled and on the default backstop was what made `boundAtSyncCeiling`
+        // not do what its docstring said.
         { label: 'guardian-service-init' }
       );
-      // The per-account field short-circuits the global-key lookup.
-      expect(mockFetchFromStorage).not.toHaveBeenCalled();
     });
 
     it('coalesces concurrent service initialization for the same account', async () => {
@@ -197,16 +209,18 @@ describe('guardian-manager', () => {
       await expect(Promise.all([first, second])).resolves.toEqual([service, service]);
     });
 
-    // The init is pre-write, so a pipeline caller that inherits the idle loop's ceiling pays at
-    // most a retry; splitting the coalescing per flag would reopen the duplicate-init race.
-    it("a pipeline caller joining the idle loop's in-flight build inherits its sync-ceiling init", async () => {
+    // Coalescing is per ceiling: the hold is inside the init, so whichever caller started the
+    // build would pick the ceiling for every caller that joined it.
+    it("a pipeline caller arriving during the idle loop's build runs its own init at the default ceiling", async () => {
       const service = { guardianEndpoint: 'https://default.guardian.test', tag: 'shared' };
       let resolveInit!: (value: unknown) => void;
-      mockMultisigServiceInit.mockReturnValueOnce(
-        new Promise(resolve => {
-          resolveInit = resolve;
-        })
-      );
+      mockMultisigServiceInit
+        .mockReturnValueOnce(
+          new Promise(resolve => {
+            resolveInit = resolve;
+          })
+        )
+        .mockResolvedValueOnce(service);
       const provider = makeProvider([guardianAccount]);
 
       const idleLoop = getOrCreateMultisigService(GUARDIAN_PK, provider, true);
@@ -214,11 +228,12 @@ describe('guardian-manager', () => {
 
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      expect(mockMultisigServiceInit).toHaveBeenCalledTimes(1);
+      expect(mockMultisigServiceInit).toHaveBeenCalledTimes(2);
       expect(mockMultisigServiceInit.mock.calls[0][5]).toEqual({
         watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
         label: 'guardian-service-init'
       });
+      expect(mockMultisigServiceInit.mock.calls[1][5]).toEqual({ label: 'guardian-service-init' });
 
       resolveInit(service);
       await expect(Promise.all([idleLoop, pipeline])).resolves.toEqual([service, service]);
@@ -355,6 +370,56 @@ describe('guardian-manager', () => {
       await expect(getOrCreateMultisigService(GUARDIAN_PK, provider)).rejects.toThrow(
         'Account not found in local storage'
       );
+    });
+
+    /**
+     * The account read and the signer-details read are ONE hold, with a liveness
+     * re-check between them.
+     *
+     * They used to be two: the account came back from one hold, the hold released,
+     * and `getSignerDetailsFromAccount` then read through a handle borrowed from a
+     * client the mutex had already handed on. The re-check is what makes the single
+     * hold worth having - without it the merge only narrows the window instead of
+     * closing it.
+     *
+     * Asserted by REFUSAL, not by "the guard was called": the signer read must not
+     * happen, and the failure must arrive as poison so the caller treats it as an
+     * abandoned operation rather than a missing account.
+     */
+    it('refuses the signer-details read when the account read was evicted', async () => {
+      mockGetAccount.mockImplementationOnce(async () => {
+        currentWasmHold = null;
+        return { id: () => ({ toString: () => 'acc-id' }) };
+      });
+      const provider = makeProvider([guardianAccount]);
+
+      await expect(getOrCreateMultisigService(GUARDIAN_PK, provider)).rejects.toMatchObject({
+        name: 'WasmClientPoisonedError'
+      });
+      expect(mockGetSignerDetailsFromAccount).not.toHaveBeenCalled();
+      expect(mockMultisigServiceInit).not.toHaveBeenCalled();
+    });
+
+    /**
+     * And the await AFTER it, which one re-check does not cover. The signer read is itself a
+     * WASM call, so an eviction landing while it runs leaves the `id()` read below borrowing a
+     * handle the mutex has already handed on. Dormant only while that callee's body stays
+     * synchronous, which is exactly why it needs a case: a guard whose safety rests on a callee
+     * not growing an await is one edit from being wrong, and nothing would have caught it.
+     */
+    it('refuses the build when the eviction lands during the signer read', async () => {
+      mockGetSignerDetailsFromAccount.mockImplementationOnce(async () => {
+        currentWasmHold = null;
+        return { commitment: 'abc' };
+      });
+      const provider = makeProvider([guardianAccount]);
+
+      await expect(getOrCreateMultisigService(GUARDIAN_PK, provider)).rejects.toMatchObject({
+        name: 'WasmClientPoisonedError'
+      });
+      // Unlike the case above, the signer read DID happen. What must not happen is the build.
+      expect(mockGetSignerDetailsFromAccount).toHaveBeenCalled();
+      expect(mockMultisigServiceInit).not.toHaveBeenCalled();
     });
   });
 

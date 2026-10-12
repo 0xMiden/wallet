@@ -151,6 +151,8 @@ export const ImportSeedPhraseScreen: React.FC<ImportSeedPhraseScreenProps> = ({
               spellCheck={false}
               enterKeyHint={index === PHRASE_LENGTH - 1 ? 'done' : 'next'}
               leading={`${index + 1}.`}
+              // Key material, like the private-key fields beside it, and too narrow in two columns.
+              clearable={false}
               onPaste={onInputPaste}
               onChange={event => {
                 const newSeedPhrase = [...seedPhrase];

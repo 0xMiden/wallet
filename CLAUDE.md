@@ -38,7 +38,7 @@ yarn test:e2e:mobile:{devnet,testnet}
 
 Node >=22 for Capacitor/Tauri: `source ~/.nvm/nvm.sh && nvm use 22`.
 
-Every production build script (`build:bg/cs/ext/mobile/desktop`, so every `build:*`, `mobile:*` and release path) first runs `yarn check --integrity` and refuses a `node_modules` that does not match `yarn.lock`; it takes 30 ms and exists so a stale checkout can never bundle the wrong SDK. Run `yarn install` and retry. The same gate (`check:deps`) then runs `node scripts/generate-note-relay-patch.mjs --check`, which refuses an SDK the committed relay patch was not applied to: run `rm -rf node_modules/@miden-sdk/miden-sdk && yarn install --check-files`, since `npx patch-package` cannot repair a bundle that carries an older relay patch.
+Every production build script (`build:bg/cs/ext/mobile/desktop`, so every `build:*`, `mobile:*` and release path) first runs `yarn check --integrity` and refuses a `node_modules` that does not match `yarn.lock`; it takes 30 ms and exists so a stale checkout can never bundle the wrong SDK. Run `yarn install` and retry.
 
 Lint/format only before commit or when asked — not every build.
 
@@ -54,17 +54,19 @@ CI's changelog check (`scripts/check-changelog.sh`, tests in `scripts/check-chan
 ## Critical gotchas
 
 ### WASM client concurrency
+
 Miden WASM client is single-threaded. Concurrent calls throw `recursive use of an object ... unsafe aliasing`. **Always** wrap in `withWasmClientLock`:
+
 ```typescript
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 await withWasmClientLock(async () => (await getMidenClient()).someOp());
 ```
 
-The lock self-recovers from a wedged holder (issue #775 — a WASM trap abandons its promise without settling, so `finally` never releases): a realm `error`/`unhandledrejection` listener evicts the holder on a trap in milliseconds, and a 5-minute watchdog (`WASM_LOCK_WATCHDOG_MS`, `sdk/wasm-client-poison.ts`) bounds any other silent wedge. Both reject the holder with `WasmClientPoisonedError` and replace the client singletons so the next `getMidenClient()` builds a fresh client. An EVICTION never frees the old instance on the spot — the evicted flow is past the mutex, still holds that reference and is by construction inside a WASM call, so freeing would fail a write that may already have submitted; it is marked poisoned instead (its `isDisposed` guards fire) and freed later, once EVERY flow retaining that instance has settled — the abandoned holder, any sibling suspended mid-yield, and the mutex owner that resolved the same instance — since any of them may still be writing. The same rule governs the one path that discards a client for a reason other than a trap, an endpoint-change `resetMidenClient()`, because it takes nothing a yielded holder holds: it marks and defers while any flow is suspended mid-yield rather than freeing under it. Nothing else replaces the client: since #878 each realm keeps ONE `MidenClientInterface` for every read and write, and its SDK keystore routes to callbacks the realm installs once (`installRealmKeystore`): `Actions.init` installs the vault signer in every realm that writes (the SW, mobile, desktop; the extension popup never runs it and never signs), a vault installs its insert-key sink when it takes its key, the realm's sink is re-derived from the store when the flow that constructed the vault ends (`syncRealmInsertKeySink` in actions.ts, adopted or failed), and lock retires only the vault it locks, so a spawn's sink survives a lock landing mid-flow; a hold in which an already-adopted vault inserts key material (`createHDAccount`, `importAccountFromPrivateKey`) asserts first that the sink is its own and refuses as locked otherwise, so a lock that landed while the create or import waited on the accounts queue fails it before any irreversible step; a spawn's hold does not assert, since its sink is the one its own constructor just installed and a lock retires only the store's vault. So `getMidenClient()` takes no options and is never rebuilt for a call; a sign reaching a replaced client is refused with `WasmClientPoisonedError`, an insert reaching one lands only while the installed insert-key sink is the one that client's build was retired against, judged by a per-sink id the build's trampolines carry so no closure is retained (the SDK has persisted the account by the time it asks; a secret under another vault's key is worse than none), and a call made before the realm installed the callback fails with a named error. A locked vault reported by a sign is recorded under the lock HOLD the sign ran for, and `withWasmClientLock` carries it out on that hold's own rejection (`tagLockedSignReason`, the same tag the offscreen path sets per op); the transaction loop reads only the error, never an ambient slot (a realm-wide one let a dry run's locked sign requeue an unrelated write). What that CANNOT reclaim is an operation that never settles at all: a gRPC-web fetch the node accepted and will never answer holds its client for the realm's lifetime, so the fuse (not the deferred free) is what bounds how many of those a parked node can accumulate. Only a trap with no holder at all disposes immediately. A trap that rejects its call instead of abandoning it (a synchronous WASM export such as a deserialize) never reaches those listeners either, so it is retired with `retireWasmClientForCaughtTrap`, once per trap: `withWasmClientLock` and `tryWithWasmClientLock` retire through their own holder when the callback rejects with a `WebAssembly.RuntimeError`, a catch handed the hold of its lock retires first (`decodeGuardianSummary`, `guardianResultCommitment`, `importNoteBytes`, `importRecoveryNoteBytes`), and none of those swallows a trap, rewraps it before retiring or falls back to another call on the same client. The client is poisoned in place and reclaimed as an eviction's is, but the hold is not evicted and releases the mutex itself. Catches older than this rule still swallow a trap and go on calling the client, such as the record reductions in `sdk/consumable-notes.ts`, `collectInputNoteDetails` and `resolvePublicKeyCommitments`; a new catch around a call on the client follows the rule, not them. A lock retires any trap that reaches it, whatever WASM object trapped; a catch that turns a trap in an `RpcClient` built for one read into a failed read before any lock sees it (the native-asset fee catches, `lookUpBlock` in `block-timestamps.ts`) swallows no client trap, since the client in the slot was never inside that call.
+The lock self-recovers from a wedged holder (issue #775 — a WASM trap abandons its promise without settling, so `finally` never releases): a realm `error`/`unhandledrejection` listener evicts the holder on a trap in milliseconds, and a 5-minute watchdog (`WASM_LOCK_WATCHDOG_MS`, `sdk/wasm-client-poison.ts`) bounds any other silent wedge. The watchdog's budgets, its paused ledger and the recovery cooldown are charged in running time (`runningNow` in `lib/mobile/background-time.ts`), which is monotonic time minus the stretches the platform froze our JS and so equals `performance.now()` off mobile, so on mobile a hold parked across a freeze is evicted only after resume. Both reject the holder with `WasmClientPoisonedError` and replace the client singletons so the next `getMidenClient()` builds a fresh client. An EVICTION never frees the old instance on the spot — the evicted flow is past the mutex, still holds that reference and is by construction inside a WASM call, so freeing would fail a write that may already have submitted; it is marked poisoned instead (its `isDisposed` guards fire) and freed later, once EVERY flow retaining that instance has settled — the abandoned holder, any sibling suspended mid-yield, and the mutex owner that resolved the same instance — since any of them may still be writing. The same rule governs the one path that discards a client for a reason other than a trap, an endpoint-change `resetMidenClient()`, because it takes nothing a yielded holder holds: it marks and defers while any flow is suspended mid-yield rather than freeing under it. Nothing else replaces the client: since #878 each realm keeps ONE `MidenClientInterface` for every read and write, and its SDK keystore routes to callbacks the realm installs once (`installRealmKeystore`): `Actions.init` installs the vault signer in every realm that writes (the SW, mobile, desktop; the extension popup never runs it and never signs), a vault installs its insert-key sink when it takes its key, the realm's sink is re-derived from the store when the flow that constructed the vault ends (`syncRealmInsertKeySink` in actions.ts, adopted or failed), and lock retires only the vault it locks, so a spawn's sink survives a lock landing mid-flow; a hold in which an already-adopted vault inserts key material (`createHDAccount`, `importAccountFromPrivateKey`) asserts first that the sink is its own and refuses as locked otherwise, so a lock that landed while the create or import waited on the accounts queue fails it before any irreversible step; a spawn's hold does not assert, since its sink is the one its own constructor just installed and a lock retires only the store's vault. So `getMidenClient()` takes no options and is never rebuilt for a call; a sign reaching a replaced client is refused with `WasmClientPoisonedError`, an insert reaching one lands only while the installed insert-key sink is the one that client's build was retired against, judged by a per-sink id the build's trampolines carry so no closure is retained (the SDK has persisted the account by the time it asks; a secret under another vault's key is worse than none), and a call made before the realm installed the callback fails with a named error. A locked vault reported by a sign is recorded under the lock HOLD the sign ran for, and `withWasmClientLock` carries it out on that hold's own rejection (`tagLockedSignReason`, the same tag the offscreen path sets per op); the transaction loop reads only the error, never an ambient slot (a realm-wide one let a dry run's locked sign requeue an unrelated write). What that CANNOT reclaim is an operation that never settles at all: a gRPC-web fetch the node accepted and will never answer holds its client for the realm's lifetime, so the fuse (not the deferred free) is what bounds how many of those a parked node can accumulate. Only a trap with no holder at all disposes immediately. A trap that rejects its call instead of abandoning it (a synchronous WASM export such as a deserialize) never reaches those listeners either, so it is retired with `retireWasmClientForCaughtTrap`, once per trap: `withWasmClientLock` and `tryWithWasmClientLock` retire through their own holder when the callback rejects with a `WebAssembly.RuntimeError`, a catch handed the hold of its lock retires first (`decodeGuardianSummary`, `guardianResultCommitment`, `importNoteBytes`, `importRecoveryNoteBytes`), and none of those swallows a trap, rewraps it before retiring or falls back to another call on the same client. The client is poisoned in place and reclaimed as an eviction's is, but the hold is not evicted and releases the mutex itself. Catches older than this rule still swallow a trap and go on calling the client, such as the record reductions in `sdk/consumable-notes.ts`, `collectInputNoteDetails` and `resolvePublicKeyCommitments`; a new catch around a call on the client follows the rule, not them. A lock retires any trap that reaches it, whatever WASM object trapped; a catch that turns a trap in an `RpcClient` built for one read into a failed read before any lock sees it (the native-asset fee catches, `lookUpBlock` in `block-timestamps.ts`) swallows no client trap, since the client in the slot was never inside that call.
 
 A JS timeout is NOT a substitute for the ceiling: rejecting out of a lock callback releases the mutex while the abandoned call keeps running, which is safe only when (a) the WASM is in another realm behind its own mutex, or (b) the abandoned tail makes no WASM call after its first suspension except on objects the flow built itself from plain inputs (such as a signer key from a seed), never the client or any object a client call returned. `runsWasmInThisRealm()` (`back/miden-client-proxy.ts`) is how a caller tells (a) apart: `sync-manager` keeps its 30s timeout on the offscreen path and takes `watchdogMs` on the inline one. Guardian creation needs neither: its key fetch and registration, and their timeouts, run outside the hold (`fetchGuardianCreateKey` and `registerGuardianAccount` in `lib/miden/guardian/account.ts`, #1207).
 
-If a lock-held flow legitimately waits unboundedly (user-facing sign, local prove), bracket that wait in `withWasmLockWatchdogPaused`, passing the hold. The pause RELAXES the ceiling to `WASM_LOCK_PAUSED_WATCHDOG_MS` (30 min) rather than stopping the clock — a stopped clock made the backstop optional, which is the pre-#775 wedge reached through the fix's own escape hatch. Both ledgers are per-HOLD, not per-bracket: paused time is banked in `pausedElapsedMs` (sequential brackets share the 30 min), running time in `unpausedElapsedMs`, and the close re-arms only the unspent normal budget plus one 30 s finishing slice if it already ran out. So it is NOT the same shape as the proxy's `pauseDeadline`/`resumeDeadline`, which does restart from scratch: no loop of brackets can buy unlimited unwatched time. A yielded wait (`yieldWasmClientLock`) draws on the same relaxed ledger — it banks its wall-clock into `pausedElapsedMs` on the way out, so alternating a sign pause and a prove yield cannot buy 30 minutes twice — and a yield that never settles is evicted, not wedged. Both ledgers grant ONE `WASM_LOCK_MIN_WATCHDOG_MS` finishing slice when a legitimately-unbounded wait exhausts the budget (`graceUsed`, `pausedGraceUsed`); without the paused one, a 30-minute sign prompt left the prove that follows it arming at a ceiling of zero.
+If a lock-held flow legitimately waits unboundedly (user-facing sign, local prove), bracket that wait in `withWasmLockWatchdogPaused`, passing the hold. The pause RELAXES the ceiling to `WASM_LOCK_PAUSED_WATCHDOG_MS` (30 min) rather than stopping the clock — a stopped clock made the backstop optional, which is the pre-#775 wedge reached through the fix's own escape hatch. Both ledgers are per-HOLD, not per-bracket: paused time is banked in `pausedElapsedMs` (sequential brackets share the 30 min), running time in `unpausedElapsedMs`, and the close re-arms only the unspent normal budget plus one 30 s finishing slice if it already ran out. So it is NOT the same shape as the proxy's `pauseDeadline`/`resumeDeadline`, which does restart from scratch: no loop of brackets can buy unlimited unwatched time. A yielded wait (`yieldWasmClientLock`) draws on the same relaxed ledger — it banks its running time into `pausedElapsedMs` on the way out, so alternating a sign pause and a prove yield cannot buy 30 minutes twice — and a yield that never settles is evicted, not wedged. Both ledgers grant ONE `WASM_LOCK_MIN_WATCHDOG_MS` finishing slice when a legitimately-unbounded wait exhausts the budget (`graceUsed`, `pausedGraceUsed`); without the paused one, a 30-minute sign prompt left the prove that follows it arming at a ceiling of zero.
 
 In the offscreen document every LOCAL prove runs in its prove worker (`src/offscreen/prove-worker.ts`, #945): a second WASM instance with its own rayon pool, reached through the realm's `LocalProveTransport` (`sdk/local-prove-transport.ts`). Execute, sign, submit and apply stay on the document's client, and the flow HOLDS the mutex across the worker prove. Two rules come with it. Every worker `error` event is `preventDefault()`-ed before anything else: an unprevented worker `RuntimeError` reaches this realm's trap listener and evicts a healthy holder. And eviction CANCELS the worker prove (the hold's `aborted` rejection terminates the worker), so an evicted flow can never reach `submitProven`; a worker failure fails the write pre-submit, with no in-realm fallback.
 
@@ -82,9 +84,10 @@ Every fuse conclusion is about ONE node, so an endpoint change discards all of t
 
 The service worker keeps its own copy of the same rule in `sync-manager.ts`, counted per failed probe rather than per breaker trip — that path zeroes `consecutiveSyncFailures` whenever a window opens, so a counter inside the breaker block would need three times the evidence at two parked minutes each.
 
-An evicted operation is abandoned, not cancelled - treat `WasmClientPoisonedError` like `OperationAbortedError` in any kill classifier (`isWasmClientPoisonedError`), and never assume the pipeline stopped. Concretely, inside a hold: **re-check ownership after every parking await, before the next client call or side effect** (`getCurrentWasmLockHold() !== hold` → throw `WasmClientPoisonedError`), not just after the client build. An eviction hands the mutex on and replaces the client singletons, so the abandoned callback's next `midenClientProxy` or `getMidenClient()` call resolves the successor's client. A client captured earlier is the poisoned instance, which only a sibling suspended mid-yield may still be using. Anything the tail does after its caller saw the poison (removing a key, authorizing a recovery) is a side effect nobody is waiting for. A returned `Account` or note record is a standalone wasm-bindgen object on its own pointer, not a borrow of the client, so reading it after an eviction is a stale read (`fetchBalances` reads its assets outside the lock, #360). Guarded this way already: the SW sync's downstream read (four transitions), `fetchBalances`, `settleSwapOrders`, the manual note import, the note-import queue, the guardian leaf pipelines, the offscreen poll, the direct-switch holds, the post-rotation re-register read (`completeReplaceHotKeyTransaction`), seed removal and the recovery-seed check. Concretely: never route a poison error onto a path that requeues a row as a fresh write, because the abandoned pipeline can still submit and the requeue becomes a second payment.
+An evicted operation is abandoned, not cancelled - treat `WasmClientPoisonedError` like `OperationAbortedError` and the SDK's terminated-client error in any kill classifier (`isPipelineKillLink`, or `isKilledPipeline` down a cause chain). Only an eviction or an abort may still be running (`isRunningPipelineKill` down a cause chain): never assume that pipeline stopped. The SDK refused a terminated client's call or stopped its worker, so the syncing boundary requeues a failure whose only kill is a terminated client. Concretely, inside a hold: **re-check ownership after every parking await, before the next client call or side effect** (`getCurrentWasmLockHold() !== hold` → throw `WasmClientPoisonedError`), not just after the client build. An eviction hands the mutex on and replaces the client singletons, so the abandoned callback's next `midenClientProxy` or `getMidenClient()` call resolves the successor's client. A client captured earlier is the poisoned instance, which only a sibling suspended mid-yield may still be using. Anything the tail does after its caller saw the poison (removing a key, authorizing a recovery) is a side effect nobody is waiting for. A returned `Account` or note record is a standalone wasm-bindgen object on its own pointer, not a borrow of the client, so reading it after an eviction is a stale read (`fetchBalances` reads its assets outside the lock, #360). Guarded this way already: the SW sync's downstream read (four transitions), `fetchBalances`, `settleSwapOrders`, the manual note import, the note-import queue, the guardian leaf pipelines, the offscreen poll, the direct-switch holds, the post-rotation re-register read (`completeReplaceHotKeyTransaction`), seed removal and the recovery-seed check. Concretely: never route a poison or an abort onto a path that requeues a row as a fresh write, because the abandoned pipeline can still submit and the requeue becomes a second payment.
 
 ### Post-await liveness inside a LOOP, not just at its boundary
+
 A guard at a callee's entry only proves ownership for its first WASM call. Where a helper
 loops over user-sized input — `classifySwapOrderNotes` does one lineage round trip per open
 order — the hold has to be threaded in and re-checked per iteration; the caller's guards
@@ -92,12 +95,15 @@ cannot see inside. Same rule as the per-call re-checks: an eviction mid-loop rel
 mutex and every later call in that loop runs on somebody else's client.
 
 ### Duplicate dexie / duplicate `@miden-sdk/miden-sdk` ("Two different versions of Dexie loaded")
-The wallet pulls `@miden-sdk/miden-sdk` two ways: the file-linked web-sdk (root, e.g. 0.14.10) AND a nested copy under `@openzeppelin/miden-multisig-client/node_modules/@miden-sdk/miden-sdk` (its own pin, e.g. 0.14.5). **Each SDK build INLINES its own dexie** into its wasm-glue chunk (`dist/**/Cargo-*.js`), at different versions (e.g. 4.4.2 vs 4.0.8). Two inlined dexies → dexie's `globalThis[Symbol.for("Dexie")]` guard throws at runtime (service worker fails to register; mobile/desktop crash). Because dexie is *inlined*, `resolve.alias`/`resolutions` on `dexie` alone can't fix it.
+
+The wallet pulls `@miden-sdk/miden-sdk` two ways: the file-linked web-sdk (root, e.g. 0.14.10) AND a nested copy under `@openzeppelin/miden-multisig-client/node_modules/@miden-sdk/miden-sdk` (its own pin, e.g. 0.14.5). **Each SDK build INLINES its own dexie** into its wasm-glue chunk (`dist/**/Cargo-*.js`), at different versions (e.g. 4.4.2 vs 4.0.8). Two inlined dexies → dexie's `globalThis[Symbol.for("Dexie")]` guard throws at runtime (service worker fails to register; mobile/desktop crash). Because dexie is _inlined_, `resolve.alias`/`resolutions` on `dexie` alone can't fix it.
 
 Fix (already in place — keep it): every app vite config (`vite.{mobile,extension,background,desktop}.config.ts`) sets `resolve.dedupe: ['dexie', '@miden-sdk/miden-sdk']` so only the single root SDK resolves (this also collapses the duplicate WASM `WebClient`), and `package.json` pins `dexie` + a `resolutions` entry to the web-sdk's inlined version. Debug tip: `var DEXIE_VERSION` is in the UMD `dist/dexie.js` (no guard); the guard lives in `import-wrapper.mjs`. To find a stray version, parse a built chunk's `.js.map` for `sourcesContent` containing `DEXIE_VERSION` — the `sources[]` path names the offending package. `grep -r` over node_modules misses it (binary-detected wasm-glue + symlinked file: deps); use `--binary-files=text` and the sourcemap. `build:ext`/`build:bg` don't `rimraf dist/` — wipe `dist/chrome_unpacked` before re-verifying or you'll read stale chunks.
 
 ### Tailwind auto-flipping tokens
+
 Many tokens in `tailwind.config.ts` map to CSS vars in `src/main.css` and auto-flip with theme. Do NOT add `dark:` variants on these — it overrides the auto-flip with a worse value:
+
 - the design-system tokens `bg-page`, `bg-fill`, `bg-fill-pressed`, `border-hairline`, `text-ink`, `text-muted`, `accent-tint(-ink)`, `*-ink` status text
 - legacy `bg-white`, `bg-gray-100`, `black` (`black` is `ink`, white in dark theme: an overlay that must stay dark uses `pure-black/NN` or `scrim`; text is `text-ink`)
 
@@ -106,19 +112,32 @@ Many tokens in `tailwind.config.ts` map to CSS vars in `src/main.css` and auto-f
 Add `dark:` only on fixed-palette colors (`grey.*` custom palette, `pure-white`, `pure-black`) or SVG `fill={...}` props (check `document.documentElement.classList.contains('dark')` at render).
 
 ### i18n required
+
 All user-facing text must use `t('key')` or `<T id="key" />`. CI blocks non-i18n strings (`yarn lint:i18n`). Add new keys to `public/_locales/en/en.json` (flat format). Placeholders: `$name$`.
 
 ### Platform isolation
+
 Wrap platform-specific fixes with `isIOS()`/`isAndroid()`/`isMobile()` from `lib/platform`. Don't apply iOS fixes globally.
 
 ### Haptics on tappable components
+
 Add `hapticLight()` (taps), `hapticMedium()` (toggles), `hapticSelection()` (tabs) from `lib/mobile/haptics`. Auto-checks `isMobile()` and user setting.
 
 ### Storage hooks' cache
+
 Write a key a storage hook reads (`useStorage`, `usePassiveStorage` in `lib/miden/front/storage.ts`) only through `putToStorage` or the hook's setter, which settle the value into the hooks' SWR cache. A direct `getStorageProvider()` write or removal of such a key leaves the cache stale on mobile and desktop, where no change event exists. A new wipe or bulk removal of such keys awaits `rereadStorageCache()` in a `finally`, as `lib/miden/reset.ts` does. A module store that keeps storage values outside the hooks' cache registers its re-read with `registerStorageReread`, as `lib/miden/front/stored-id-set.ts` does.
 
 ### Recovered Guardian history
+
 Recovered history rows are trusted as the operator serves them (no signer signature or old account commitment can be checked), so `recoverGuardianHistory` asks only the account's own operators (its current `guardianEndpoint`, which a restored wallet file sets, and the switch endpoints of rows this wallet made) and the network's built-in ones. An endpoint that a Guardian reports, or that a recovered or file-restored transaction row names, must never join that list.
+
+### Remote bridge config
+
+Epoch and Agglayer values come from `0xMiden/wallet-config` (`<network>.json`) through `lib/remote-config`: read them with the `select*`/`get*` getters in `lib/remote-config/values.ts`, never a compiled constant. The getters read this realm's in-memory snapshot synchronously, and a handler can run before startup hydrated it, so a path that runs without a user action (a service-worker request, spend valuation, bridge-in matching, an Epoch SDK build behind a watcher or poll) first awaits `initBridgeConfig()`, which is idempotent and never waits for the network. Entry points read `useFeatureAvailability(feature)` and grey out under `FeatureUnavailableNotice`; a flow past its entry point fails through its own error path. E2E builds read the document from `MIDEN_REMOTE_CONFIG_URL` (honoured only under `MIDEN_E2E_TEST`); the hermetic suites serve it with `playwright/e2e/helpers/fake-bridge-config.ts`.
+
+### Explore catalog
+
+Explore's items and sections come from `0xMiden/wallet-explore` (`<network>.json`, icons under `icons/`) through `lib/explore-config`, never from compiled-in entries. `useExploreCatalog()` returns the newest accepted stored copy when it is newer than the bundled snapshot in `lib/explore-config/snapshot/` (byte copies of the published files: a release that ships a changed document copies the published file over the bundled one), else that snapshot when it is at or above the network's floor, else nothing (null), so no fetch can empty Explore and no reset can bring back a delisted app. A floor that storage cannot give reads as 0, so a storage failure shows the bundled snapshot rather than nothing. The bundled snapshot is shown only once the network's floor has been read: for that one storage read the hook returns undefined (pending) and the launcher draws neither sections nor its empty state. The bundled snapshot draws the icons the build ships (`BUNDLED_EXPLORE_ICONS`, the PNGs in `app/misc/dapp-icons/`); a fetched copy's icons come from the repo. A document's text is literal per locale and read through `localizedText`, never an i18n key; the category chips, the section kinds, Recents (always last) and search stay in `lib/dapp-browser/explore-catalog.ts`, where `getExploreCatalog` keeps the exchange gate. E2E builds read the document from `MIDEN_EXPLORE_CONFIG_URL` (honoured only under `MIDEN_E2E_TEST`). `yarn check:published-snapshots`, and a job on every release, compare each bundled snapshot (token list and Explore) with its published file. The extension shows the same launcher and opens every pick in a new browser tab (`openUrlInNewTab`, so the page gets no `opener`); `DappBrowserProvider` is mounted only on mobile, so nothing on the extension path may call `useDappBrowser` (`BrowserScreen` branches before it).
 
 ## Frontend UI, CSS, and Motion
 
@@ -129,10 +148,16 @@ Read `skills/miden-wallet-frontend/SKILL.md` before implementing or reviewing wa
 A page supplies content; the design system supplies everything else. Before styling anything, look for the component that already does it — a page-local copy of a frame, row, field, error line, empty state or icon circle is a defect, not a shortcut, and the fix is to extend the shared component (a prop, a variant) rather than fork it. The same goes for the frame itself: pushed pages take `SubPageLayout`, flow steps take `FlowLayout` + `FlowFooter`, and the home-group panes share one shell, so titles, gutters, section gaps and pinned actions land in the same place on every screen. Spacing, type and colour come from the named styles and tokens; a literal padding or hex in a page means the token is missing, so add it. When two pages disagree, one of them is wrong — decide which and move both, instead of leaving a third variant behind.
 
 ### Mobile file downloads
+
 `<a download>` does nothing in WebView. Use `Filesystem.writeFile` + `Share.share` from `@capacitor/{filesystem,share}` when `isMobile()`.
 
 ### Balance loading
+
 `fetchBalances` reads the account from IndexedDB via `getAccount()` under the WASM lock and never syncs; don't call `syncState()` from the UI path. Sync is separate: on mobile and desktop `useSyncTrigger` runs it every 3 s (in-process, under the lock, with backoff and the sync fuse); on the extension the service worker's lap writes `miden_sync_data`, which the popup turns into balances (`updateBalancesFromSyncData`). A refresh takes the lock with a non-blocking try and skips when it is busy, so it never stalls behind a write. Every reader (the Ready-time read in `syncFromBackend`, the `useAllBalances` poll) goes through the store's `fetchBalances` action, the one implementation of a balance read. It passes `waitForLock: balances[address] === undefined`, so a read with nothing on screen queues FIFO: after an import the sync and note reads keep the queue full and a skipping read starves (#1123). It holds `fetchingAddresses`, one read in flight per address, publishes fetched metadata through `setAssetsMetadata`, and stores whatever lands whether or not the component that asked is still mounted. Every await it makes while holding the address is bounded (the metadata lookup is raced against one RPC timeout). Only a landed read ends `balancesLoading`; a failed or fused first read leaves Home on its skeleton. `clearStorage` resets the native-asset cache on every create or import and primes its rediscovery at once, because `fetchBalances` awaits the native faucet id before it returns.
+
+### Token metadata: faucet record vs. user override
+
+`AssetMetadata` mirrors the faucet's on-chain `TokenMetadata` slots (`symbol`, `name`, `decimals`, `description`). `fetchChainTokenMetadata` reads them from `BasicFungibleFaucetComponent` and caches the record under `tokens_base_metadata`; a schema marker (`tokens_base_metadata_schema`, `metadata/storage.ts`) wipes that cache once when the record shape changes. A PRIVATE faucet has no readable storage, so its token lands as the Unknown placeholder (`scaleIsUnknown: true`, quantity withheld). That is what the user-editable override is for: "Edit token details" on the token page stores the user's `name`, `symbol` and `decimals` under `tokens_metadata_overrides` (`metadata/overrides.ts`), and a set `decimals` marks the scale as known. Overrides are applied ON READ (`setAssetsMetadata`, `getTokensBaseMetadata`, `fetchBalances`, `updateBalancesFromSyncData`) and never merged into the cached chain record, so a re-fetch or the schema wipe cannot clobber them. A faucet is never overridable when it is the native asset or a token the wallet names itself on the effective network (`midenTokenLabelFor`: Test iETH, and Test Epoch USDC once the bridge config names it), as `canOverrideMetadata` decides: its edit action is hidden, a write is refused, a stored override is ignored on read, and the assets provider re-applies the overrides when the bridge config changes which overridden faucets those are. Send converts typed amounts with the effective `decimals`, so a wrong override changes what is sent, not only what is shown.
 
 ## Adding a wallet action
 
@@ -145,24 +170,26 @@ A page supplies content; the design system supplies everything else. Before styl
 
 The in-progress transaction view (`src/screens/generating-transaction/GeneratingTransaction.tsx`) renders a dynamic one-line summary pill under the title — `src/screens/generating-transaction/TransactionSummaryBadge.tsx`.
 
-**The page is addressed by transaction id and observes a single row.** The route is `/generating-transaction/:txId` (and `/generating-transaction-full/:txId` for the desktop `keepOpen` variant) — see `PageRouter.tsx`. Send (`ReviewTransaction.tsx`) and swap (`SwapManager.tsx`) capture the id returned synchronously by their `initiate*` call and `navigate` straight to it. `GeneratingTransactionPage` subscribes to **that one row** by id via `useTransactionRow(txId)` (a Dexie `liveQuery`, `useTransactionRow.ts`) and derives everything from its status: `transactionComplete = status is Completed|Failed`, `hasErrors = status === Failed`, hash = `row.transactionId`. An unknown id `<Redirect>`s home.
+**The page is addressed by transaction id and observes a single row.** The route is `/generating-transaction/:txId` (and `/generating-transaction-full/:txId` for the desktop `keepOpen` variant) - see `PageRouter.tsx`. Send (`ReviewTransaction.tsx`) and swap (`SwapManager.tsx`) capture the id returned synchronously by their `initiate*` call and `navigate` straight to it. `GeneratingTransactionPage` subscribes to **that one row** by id via `useTransactionRow(txId)` (a Dexie `liveQuery`, `useTransactionRow.ts`) and derives everything from its status: `transactionComplete = status is Completed|Failed|Unconfirmed`, `hasErrors = status is Failed|Unconfirmed`, hash = `row.transactionId`. An unknown id `<Redirect>`s home.
 
-**Why this shape (history).** The page began as a modal that watched the *whole queue* (`getAllUncompletedTransactions()`) and had to *guess* which tx it was showing (`pickActiveTx`), infer completion from the queue going empty, and infer failure by counting failed rows. Those heuristics existed only because the row **drops out of the uncompleted list the instant it completes** — so the page needed shadow state (`receiptTransaction`) to re-find it. Watching by id fixes the root cause: the row never disappears (`Queued → GeneratingTransaction → Completed | Failed`), so status alone is authoritative and all that scaffolding is gone. The FIFO processing loop (`safeGenerateTransactionsLoop` in `src/lib/miden/transaction/index.ts`) and the page's own `setInterval` driver are **unchanged** — the page still kicks the loop on mobile/desktop and is a pure observer on extension (SW owns the loop). Observing one row and draining the FIFO queue are orthogonal: the driver is not scoped to `txId`. Hiding the page mid-tx is safe because the in-flight `generateTransaction` promise isn't cancelled by unmount.
+**Why this shape (history).** The page began as a modal that watched the _whole queue_ (`getAllUncompletedTransactions()`) and had to _guess_ which tx it was showing (`pickActiveTx`), infer completion from the queue going empty, and infer failure by counting failed rows. Those heuristics existed only because the row **drops out of the uncompleted list the instant it completes** - so the page needed shadow state (`receiptTransaction`) to re-find it. Watching by id fixes the root cause: the row never disappears (`Queued → GeneratingTransaction → Completed | Failed | Unconfirmed`, and an Unconfirmed row later becomes Completed or Failed), so status alone is authoritative and all that scaffolding is gone. The FIFO processing loop (`safeGenerateTransactionsLoop` in `src/lib/miden/transaction/index.ts`) and the page's own `setInterval` driver are **unchanged** - the page still kicks the loop on mobile/desktop and is a pure observer on extension (SW owns the loop). Observing one row and draining the FIFO queue are orthogonal: the driver is not scoped to `txId`. Hiding the page mid-tx is safe because the in-flight `generateTransaction` promise isn't cancelled by unmount.
 
-**`send`, `swap`, `consume`, `earn-deposit` and `register-name` variants exist**: register-name renders `{label}.miden · {price} MIDEN` (dot separator; price = row `amount`, scaled by the faucet metadata or `MIDEN_METADATA`), and its completed row routes to `success/MidenNameSuccess.tsx` ("View status" → `/miden-name/status/:txId`). There is no publish variant: the Miden Name registry writes the name's record when it mints the name (auto-publication), so the wallet has no `publish-name-record` type. send renders `{amount} {symbol} → {recipient}`; swap renders `(logo) {amount} {symbol} → (logo) {amount} {symbol}`; consume renders `{amount} {symbol} → Accepted` (nothing when the consume has no amount); earn-deposit renders `{amount} {symbol} ↑ {market}` (up-arrow separator; market name = the `marketUid` lender key, hyphenated - e.g. "DUMMY-LENDING" - via the exported `earnMarketLabel`). The badge returns `null` for every other transaction type. Future agents should extend it per type. On the success receipt (`success/receipt.ts`), consume rows relabel: address row = "From" (note sender), amount row = "Total Accepted", plus a "Transfer IDs" row listing `noteIds`; the hash row is labeled "Transaction ID" for all types. Completed `earn-deposit` rows route to `EarnSuccess` ("You're Earning!": pill + Market / Total Deposited / Transaction ID rows, "View Details" → `/earn/positions`) via the type check in `TransactionSuccess.tsx`.
+**`send`, `swap`, `consume`, `earn-deposit` and `register-name` variants exist**: register-name renders `{label}.miden · {price} MIDEN` (dot separator; price = row `amount`, scaled by the faucet metadata or `MIDEN_METADATA`), and its completed row routes to `success/MidenNameSuccess.tsx` ("View status" → `/miden-name/status/:txId`). There is no publish variant: the Miden Name registry writes the name's record when it mints the name (auto-publication), so the wallet has no `publish-name-record` type. send renders `{amount} {symbol} → {recipient}`; swap renders `(logo) {amount} {name} → (logo) {amount} {name}`; consume renders `{amount} {symbol} → Accepted` (nothing when the consume has no amount); earn-deposit renders `{amount} {symbol} ↑ {market}` (up-arrow separator; market name = the `marketUid` lender key, hyphenated - e.g. "DUMMY-LENDING" - via the exported `earnMarketLabel`). The badge returns `null` for every other transaction type. Future agents should extend it per type. On the success receipt (`success/receipt.ts`), consume rows relabel: address row = "From" (note sender), amount row = "Total Accepted", plus a "Transfer IDs" row listing `noteIds`; the hash row is labeled "Transaction ID" for all types. Completed `earn-deposit` rows route to `EarnSuccess` ("You're Earning!": pill + Market / Total Deposited / Transaction ID rows, "View Details" → `/earn/positions`) via the type check in `TransactionSuccess.tsx`.
 
 **Data source**: the tracked `ITransaction`, passed in as the `activeTransaction` prop (= the row from `useTransactionRow`). Fields populated per `ITransactionType` (see the `Transaction` subclasses in `src/lib/miden/db/types.ts`):
+
 - `send` → `amount`, `faucetId` (token), `secondaryAccountId` = **recipient address**.
 - `swap` → `amount`/`faucetId` = **offered** side; `extraInputs.requestedAmount`/`extraInputs.requestedFaucetId` = **requested** side. Symbol/decimals/logo for the fixed devnet DEX tokens resolve via `getSwapTokenByFaucetId` in `src/lib/miden/swap/tokens.ts` (the swap-token registry — source of truth, since these faucets may be absent from `assetsMetadata`).
 - `consume` (claim) → `faucetId`, `secondaryAccountId` = **note sender**, `noteId`; `amount` optional.
 - `execute` → usually nothing useful.
 - `switch-guardian` → `extraInputs.newGuardianEndpoint`. `replace-hot-key` → `extraInputs.newHotPublicKey`. Neither has amount/token.
 
-**Token symbol/logo**: `useWalletStore(s => s.assetsMetadata)[faucetId]` → `AssetMetadata` (`symbol`, `decimals`, `thumbnailUri`); native fallback `MIDEN_METADATA` (`lib/miden/metadata`). Miden network logo: `IconName.MidenLogo`. To add a variant, add a branch in `TransactionSummaryBadge`; keep returning `null` when there's no meaningful summary so no empty pill renders.
+**Token symbol/logo**: `useWalletStore(s => s.assetsMetadata)[faucetId]` → `AssetMetadata` (`symbol`, `name`, `decimals`, an optional `description`, and two scale flags: `decimals` is a guess while `scaleIsUnknown` is set, so convert an amount only when `hasKnownScale` holds and otherwise name the token and withhold the quantity, and `scaleFromOverride` marks decimals the user stated); resolve a faucet with `resolveDisplayMetadata(faucetId, assetsMetadata, nativeFaucetId)` (`lib/miden/metadata/resolve`), which gives the native display metadata only for the native faucet and the unknown-scale placeholder for any other missing faucet, then check `hasKnownScale`. A token's mark comes from `TokenLogo` (`components/TokenLogo`, keyed by symbol), not from the metadata. Miden network logo: `IconName.MidenLogo`. To add a variant, add a branch in `TransactionSummaryBadge`; keep returning `null` when there's no meaningful summary so no empty pill renders.
 
 **Per-step timing ("2 sec" on each step row) is built, frontend-only.** `GeneratingTransaction` stamps `startTimeForStep`/`endTimeForStep` (arrays indexed by UI step) in a `useEffect` on `activeStage`: step 0 runs `creating-proposal`→`sending`, step 1 `sending`→`submitting`, step 2 `submitting`→first post-submit stage (`confirming`/`registering-guardian`/`delivering`, stamped once via `step3StartedRef`), and the last started step ends when `transactionComplete` flips (step timings key off `transactionComplete`, not the stage; completion additionally stamps `stage = 'complete'` in `updateTransactionStatus` — #618 — so `activeStage` CAN be `'complete'` on a finished row). Durations render via the `meta` prop on `TransactionStepRow` (right-aligned muted text, `transactionStepDurationSec` key). Deliberately NOT persisted on `ITransaction` — timings are component-local and reset on remount / next tx (the `creating-proposal` case resets both arrays).
 
 **Deferred — NOT built yet (the mock shows these, intentionally skipped):**
+
 - **Bridge step labels** ("Submitting to Base", "via Epoch"). The in-protocol token→token swap badge is **now built** (see the `swap` bullet above), but the bridge-specific step labels are still deferred — there's no backend producer for bridged `extraInputs` and no chain-id→name map. `IBridgedSendExtraInputs`/`IBridgeProvider` are defined in `src/lib/miden/db/types.ts` but nothing populates them yet.
 
 The redesigned in-progress view dropped the `ScreenHeader` and the linear progress bar; dismissal is via the bottom Hide/Done button.
@@ -170,12 +197,13 @@ The redesigned in-progress view dropped the `ScreenHeader` and the linear progre
 ## Navigation
 
 Two systems:
+
 - **Woozie** (`src/lib/woozie/`) — hash-based global router. `navigate`, `goBack`, `useLocation`, `<Link>`.
 - **Navigator** (`src/components/Navigator.tsx`) — internal step flows (`SendManager`, `SwapManager`, `EncryptedFileManager`). `useNavigator()` → `{navigateTo, goBack, cardStack}`. The swap flow (`src/screens/swap-flow/`) mirrors send: amounts (two `SelectAmount` in `embedded` mode) → review, rendered at `/swap` in both `PageRouter` and `HomeSwipeContainer`; the token picker is a bottom-sheet drawer (`SelectSwapTokenDrawer`, like send's `SelectTokenDrawer`) closed first by SwapManager's mobile back handler.
 
 Onboarding (`Welcome.tsx`) and `ForgotPassword.tsx` use hash-based state (`/#step-name`), NOT Navigator.
 
-**Tab panes stay mounted.** `TabLayout` keeps every visited tab (home carousel, Explore, Activity) mounted in a `TabPane` and swaps them with `visibility` + `inert`, no animation, like a native tab controller. Consequences: a hidden tab page keeps running its effects and polls, and any hook that hides the navbar or reads the route from inside a tab page must gate on `pathname` (see `SendManager`'s `pastRecipientStep`), because the page is still mounted while another tab is active.
+**Tab panes stay mounted.** `TabLayout` keeps every visited tab (home carousel, Explore, Activity) mounted in a `TabPane` and swaps them with `visibility` + `inert`, no animation, like a native tab controller. Consequences: a hidden tab page keeps running its effects and polls, and any hook that reads the route from inside a tab page must gate on `pathname` (see `SendManager`'s `onSendRoute`), because the page is still mounted while another tab is active. Hiding the navbar needs no such gate: `useHideNavbarWhileOpen` releases its hold while `usePageActive()` is false, so a caller passes only its own open state.
 
 Work a page does only for display (a poll, a reconciliation) pauses through `usePageActive()` (`app/layouts/page-active.ts`), which is false in a hidden `TabPane`, in a `PageLayer` that is not the current page, and in a Home page `HomeSwipeContainer` has not centred; `History` uses it: an SWR read gated this way holds a null key, never `isPaused`, because SWR sends a shared key's mutate and error retry to its first subscriber, and a paused one swallows them. The dApp browser mounts `DappActive` only while its page is on screen, because that unmount is what parks the foreground dApp and hides its native window.
 
@@ -196,43 +224,57 @@ When adding screens/routes, keep this section accurate so mobile back stays corr
 ## Mobile testing
 
 ### Skip onboarding
+
 ```bash
 node /tmp/cdp-eval 'window.__TEST_SKIP_ONBOARDING = true; window.location.reload()'
 ```
+
 Bypass lives in `Welcome.tsx`, only active when flag/query param set.
 
 ### iOS debugging
+
 `console.log` goes to Safari Web Inspector — Claude cannot read it. Use:
+
 ```bash
 xcrun simctl spawn booted log stream --predicate 'process == "App"'
 ```
+
 For live DOM/JS eval: use the CDP bridge via `inspect` + persistent-connection daemon (`/tmp/cdp-daemon.mjs` + `/tmp/cdp-eval`). Bringup recipe in `~/.claude/projects/-Users-celrisen-miden-miden-wallet/memory/cdp-bridge-single-use-bug.md`. Key steps: kill bridges, reset `com.apple.webinspectord`, relaunch app, start `inspect`, start daemon, smoke-test with `node /tmp/cdp-eval '1+1'`.
 
 ### Verifying UI fixes
+
 Always screenshot to verify:
+
 ```bash
 xcrun simctl io booted screenshot /tmp/shot.png
 xcrun simctl spawn booted notifyutil -p com.apple.BiometricKit_Sim.fingerTouch.match  # FaceID
 ```
 
 ### Common iOS layout issues
+
 - Grey bar at bottom → `100dvh` doesn't account for safe areas. Use `100%` + `env(safe-area-inset-*)` padding on `mobile.html` body.
 - Debug UI text should be `select-text` so errors are copyable.
 
 ### Adding Swift files to the App target
+
 The App target in `ios/App/App.xcodeproj/project.pbxproj` does NOT auto-discover Swift files in the `App/` source directory. New files must be registered in four sections: `PBXBuildFile`, `PBXFileReference`, the App `PBXGroup` children, and the `PBXSourcesBuildPhase` files list. Pattern: see `LocalBiometricPlugin.swift` or `HotKeyPlugin.swift` entries.
 
 ### Adding a custom Capacitor plugin (iOS)
+
 Capacitor on this app uses **manual** registration — not the `CAPBridgedPlugin` auto-discovery you'd get on a stock Capacitor app. After creating `MyPlugin.swift` and wiring it into the four pbxproj sections above, you also have to call `bridge?.registerPluginInstance(MyPlugin())` inside `capacitorDidLoad()` in `ios/App/App/AppViewController.swift`. Skip this step and JS calls land as `{"code":"UNIMPLEMENTED"}` even though the class compiled fine.
 
 ### Persistent wallet navigation
+
 Extension, Capacitor, and Tauri render the same React `BottomNav` from `TabLayout`. `TabLayout` owns destinations, active route state, route changes, haptics, and the `[data-tabbar-footer]` shell; `BottomNav` owns button semantics and presentation. Drawers hide it through `useHideNavbarWhileOpen`, which drives the body data attribute consumed by `src/main.css`. On Capacitor, `public/mobile.html` owns body safe-area padding and `src/main.css` paints the footer strip. The bar is a floating glass capsule on every platform: its footer stays on the layout's bottom edge, which on Capacitor is the top of the body's safe-area padding, so the capsule sits directly on the safe-area edge on iOS and 8px above the system navigation bar on Android. `src/main.css` declares the flow CTAs' cushion (`--navbar-cushion`) only on `TabLayout`'s root (`data-tab-layout`), so only a page inside the layout that draws the bar reserves room for it; a slide page beside the covered tab layer keeps the flat 1rem (#1109). `DappBrowserProvider` owns embedded dApp WebViews, not wallet navigation; the native navbar API under `packages/dapp-browser` has no wallet frontend caller.
 
 ### Adding Capacitor plugins
+
 `yarn add @capacitor/<name> && yarn mobile:sync`. Add ProGuard rules to `android/app/proguard-rules.pro`:
+
 ```
 -keep class com.capacitorjs.plugins.<name>.** { *; }
 ```
+
 Remove rules when uninstalling.
 
 ## Desktop (Tauri)
@@ -245,23 +287,28 @@ Remove rules when uninstalling.
 ## E2E
 
 ### Chrome blockchain harness
+
 Two Chrome instances + `miden-client` CLI against live network. `E2E_NETWORK` controls both harness endpoints AND `MIDEN_NETWORK` baked into the bundle — use the `:<network>` scripts to keep them matched. Auto-installs `miden-client-cli` from crates.io, version-matched to `@miden-sdk/miden-sdk`. Requires `cargo`. Specs: `wallet-lifecycle`, `mint-and-balance`, `send-{public,private}`, `multi-{claim,account}` in `playwright/e2e/tests/`.
 
 **Agentic mode** (`E2E_AGENTIC=true` or `yarn test:e2e:blockchain:agentic`): on failure, browsers stay open 10 min; `test-results/debug-session.json` has connection info; `report.json` has `failureCategory`, `diagnosticHints`, `stateAtFailure`, `browserErrors`. Hot-reload via `chrome.runtime.reload()` preserves IndexedDB/vault.
 
 ### iOS simulator harness
+
 Mirror suite in `playwright/e2e/ios/` against iPhone 17 + iPhone 17 Pro. CDP via `appium-remote-debugger` (simulator-compatible, unlike `remotedebug-ios-webkit-adapter`) over `RWI_LISTEN_SOCKET`. Per-test: terminate/uninstall/install/launch (~5s vs 30s for `simctl erase`). 7/7 specs pass on devnet in ~9 min.
 
 iOS-specific product notes:
+
 - Wallet tabs and page CTAs such as "Claim All" and "Continue" render in the React WebView. Drive them through normal CDP/DOM interactions and verify the rendered state; there is no native-navbar action hook.
 - No `SYNC_REQUEST` on mobile (SW-only); `useSyncTrigger` auto-syncs every 3s, so sleep suffices.
 - No mobile reload trick — mobile `claimAllNotes` skips the `location.reload()` Chrome does (mobile has no SW holding the unlock, so reload drops decryption key).
 - Don't read WASM client from CDP — deadlocks against `useSyncTrigger`'s 30–60s lock hold.
 
 ### E2E test hooks
+
 `MIDEN_E2E_TEST=true` exposes `window.__TEST_STORE__` (Zustand) and `window.__TEST_INTERCOM__`. Zero production impact.
 
 **Keep it a hook flag, not a behaviour switch.** Suppressing real product behaviour under `MIDEN_E2E_TEST` makes that behaviour permanently untestable — it can't be reached from any E2E run. The two existing opt-outs have their own flags, set by the `test:e2e:*:build` scripts (and defined in each `vite.*.config.ts` — an env read with no matching `define` is rewritten to `{}.X`, i.e. silently `undefined`, so a flag missing from one config is off in that bundle with no error at all):
+
 - `MIDEN_E2E_DISABLE_SIDEPANEL` — keeps onboarding in-tab (`lib/extension/side-panel-handoff.ts`); a suite that wants to drive the real side panel builds without it.
 - `MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES` — makes `loadEndpointOverrides()` a no-op so the build-baked network wins (`lib/miden-chain/effective-endpoints.ts`).
 
@@ -270,6 +317,7 @@ iOS-specific product notes:
 Jest + RTL. Mock `lib/intercom` for frontend tests; wrap with `WalletStoreProvider` + `MidenContextProvider`.
 
 Gotchas:
+
 - `jest.mock()` path must match the import path used in source (e.g., `'lib/miden/back/vault'`, not `'./vault'`).
 - `window.location.reload` can't be mocked in jsdom — wrap calls in try/catch.
 - `afterEach(() => testRoot.unmount())` to prevent React cross-test pollution.
@@ -311,6 +359,13 @@ step. The action clones the linked web-sdk PR, builds
 this repo's `package.json` to consume them via `file:` deps (runner-local
 mutation, never committed).
 
+A `workflow_dispatch` on a pull request's branch injects too: this action and
+`inject-linked-guardian-pr` read the markers of the one open pull request whose
+head is that branch (`scripts/resolve-linked-pr-number.sh`), and every E2E and
+build workflow a dispatch can start runs both before its install, so a by-hand
+run builds what that pull request's own CI builds. A push, and a dispatch on
+main or next, never injects.
+
 A separate workflow (`check-linked-web-sdk-pr.yml`) posts a custom
 status named `linked-web-sdk-pr-ready` that's `pending` until the linked
 web-sdk PR is merged AND a release tag covering its merge commit is
@@ -342,7 +397,7 @@ Actions was healthy throughout (another branch got a full set of runs in the sam
 window), and none of these workflows use path filters — they are all a bare
 `on: push: branches: [main]`.
 
-This is worse than a red main: the branch *looks* fine because the newest runs
+This is worse than a red main: the branch _looks_ fine because the newest runs
 listed against it are the PREVIOUS commit's.
 
 - **Check by SHA, not by branch.** `gh run list --branch main` answers "the most
@@ -365,5 +420,34 @@ listed against it are the PREVIOUS commit's.
 - When adding a new intercom message type, also update `src/lib/intercom/in-process-request-handler.ts` (the one switch both the mobile and desktop adapters dispatch through).
 - Optimistic updates: snapshot prev, apply, rollback on catch.
 - Background auto-ops: use `startBackgroundTransactionProcessing` (polls 5s × 5min, no modal) instead of `openLoadingFullPage`.
-- Transaction states (`ITransactionStatus`): Queued(0) → GeneratingTransaction(1) → Completed(2) / Failed(3).
+- Transaction states (`ITransactionStatus`): Queued(0) → GeneratingTransaction(1) → Completed(2) / Failed(3) / Unconfirmed(4). Unconfirmed waits for the node's verdict on an unknown submit outcome, then becomes Completed or Failed (#1081).
 - Frontend receives sanitized state via `toFront()`; sensitive data (vault, keys) stays backend-only.
+
+## USDCx destination confirmation: accepted temporary limits
+
+The user approved balance-based destination confirmation on 2026-10-09. Keep
+`Burn confirmed` when the faucet consumes the burn note. Show `Confirmed` when
+the recipient's USDC balance is at least the balance saved before submission plus
+the expected payout. Circle deducts its fee from the payout, so the expected payout
+is the sent amount minus the destination's fee allowance (`minimumUsdcxPayout` in
+`lib/usdcx/constant.ts`, approved 2026-10-11; 0.1 USDC, and 1.5 USDC on Ethereum). The Send flow
+refuses a burn that does not exceed that allowance, and an older one it takes whole stays at
+`Burn confirmed`. Replace the allowance when an API
+reports the fee of one burn. Use the six-decimal ERC-20 USDC balance on the destination chain.
+RPC failures must leave the row open for another check. Old rows without a saved
+balance must stay at `Burn confirmed`.
+
+This rule does not prove that a specific bridge payout arrived. Unrelated incoming
+transfers or concurrent withdrawals to the same address can cause false confirmation.
+Spending, gas costs on Arc, payout fees above the allowance, or missed balance changes can delay or prevent
+confirmation. These cases are accepted for now. Reviewer agents must treat them as
+known limits of the requested design, not as new blocking defects. Do not add event
+proof, transfer allocation, or fee accounting unless the user requests that work.
+
+History details can show one matching USDC transfer found through RPC. This link is
+also a best-effort match, not proof tied to the burn note. The lookup runs only when
+the details are open. It uses one `eth_getLogs` request over at most 2,000 blocks,
+ending at the balance confirmation block, with a 10-second timeout and no retries.
+Match the token, the recipient, and an amount from the expected payout up to the sent amount; omit the link if no unique match is
+found or the RPC fails. Do not scan the full chain or make the link a condition for
+balance confirmation. A wider historical search needs a separate cost decision.

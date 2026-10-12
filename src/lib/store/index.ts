@@ -1,14 +1,27 @@
+import BigNumber from 'bignumber.js';
 import { Buffer } from 'buffer';
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
 import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
-import { setEarnCollateralFaucetForTest } from 'lib/epoch/collateral';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
 import { fetchTokenMetadata } from 'lib/miden/metadata';
+import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
+import {
+  applyMetadataOverride,
+  applyOverrideFor,
+  canOverrideMetadata,
+  isNativeFaucetId,
+  overrideFor,
+  TokenMetadataOverride,
+  TokenMetadataOverrides,
+  writeTokenMetadataOverride
+} from 'lib/miden/metadata/overrides';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
+import type { AssetMetadata } from 'lib/miden/metadata/types';
 import {
   parsePersistedSpendingLimit,
   parseSerializedSpendingLimitAssessment,
@@ -17,9 +30,12 @@ import {
 import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
 import { isExtension } from 'lib/platform';
+import { setEarnCollateralFaucetOverride } from 'lib/remote-config/e2e-overrides';
+import { subscribeNominalUnquotedPrice } from 'lib/settings/nominal-price';
 import { WalletMessageType, WalletRequest, WalletResponse, WalletStatus } from 'lib/shared/types';
 
 import { WalletStore } from './types';
+import { balancePrice } from './utils/balancePrice';
 import { fetchBalances, fetchingAddresses } from './utils/fetchBalances';
 
 // Singleton intercom client
@@ -56,6 +72,174 @@ function assertResponse(condition: boolean): asserts condition {
   }
 }
 
+/**
+ * The faucet's own metadata of each token, as last given to the store.
+ * `assetsMetadata` holds it with the user's override applied, so a cleared override needs this copy.
+ */
+const faucetAssetsMetadata = new Map<string, AssetMetadata>();
+
+/** Exported for tests: the map is module-wide and would otherwise leak between cases. */
+export function __resetFaucetAssetsMetadataForTest(): void {
+  faucetAssetsMetadata.clear();
+}
+
+function faucetMetadataFor(state: WalletStore, faucetId: string): AssetMetadata | undefined {
+  const recorded = faucetAssetsMetadata.get(faucetId);
+  if (recorded) return recorded;
+  // An entry that no override changed is the faucet's own record.
+  return state.tokenMetadataOverrides[faucetId] === undefined ? state.assetsMetadata[faucetId] : undefined;
+}
+
+/**
+ * The faucet's own metadata of a token, never an entry an override made.
+ * Whether a faucet's metadata is fetched or adopted depends on this, not on `assetsMetadata`:
+ * an override on a faucet with no record makes an entry there, and the faucet's record must still come.
+ */
+export function faucetMetadataOf(faucetId: string): AssetMetadata | undefined {
+  return faucetMetadataFor(useWalletStore.getState(), faucetId);
+}
+
+/** The metadata to show. Without the faucet's metadata, an override applies to the unknown-token placeholder. */
+function shownMetadata(
+  base: AssetMetadata | undefined,
+  override: TokenMetadataOverride | undefined
+): AssetMetadata | undefined {
+  if (base) return applyMetadataOverride(base, override);
+  if (override) return applyMetadataOverride(DEFAULT_TOKEN_METADATA, override);
+  return undefined;
+}
+
+/**
+ * Applies `overrides` to the store entries and the balance rows of `faucetIds`.
+ * A row's balance was divided by `10 ** row.metadata.decimals`, so a change of decimals shifts it
+ * by the difference. Home then shows the new scale at once, with no new read.
+ * The native token's rows and each account's display row (`balancesDisplayFaucetId`) keep the reader's build.
+ * Any other faucet that cannot be overridden shows its own record, so an override stored before the wallet named it goes.
+ */
+function withOverrides(
+  state: WalletStore,
+  overrides: TokenMetadataOverrides,
+  faucetIds: string[]
+): Pick<WalletStore, 'tokenMetadataOverrides' | 'assetsMetadata' | 'balances'> {
+  const assetsMetadata = { ...state.assetsMetadata };
+  let balances = state.balances;
+  for (const faucetId of faucetIds) {
+    if (isNativeFaucetId(faucetId)) continue;
+    const shown = shownMetadata(faucetMetadataFor(state, faucetId), overrideFor(overrides, faucetId));
+    if (shown) assetsMetadata[faucetId] = shown;
+    else delete assetsMetadata[faucetId];
+    // Without any metadata, the rows show the placeholder until the next balance read.
+    const rowMetadata = shown ?? DEFAULT_TOKEN_METADATA;
+    balances = Object.fromEntries(
+      Object.entries(balances).map(([account, rows]) => [
+        account,
+        rows.map(row =>
+          row.tokenId === faucetId && faucetId !== state.balancesDisplayFaucetId[account]
+            ? {
+                ...row,
+                metadata: rowMetadata,
+                tokenSlug: rowMetadata.symbol,
+                balance: new BigNumber(row.balance).shiftedBy(row.metadata.decimals - rowMetadata.decimals).toNumber(),
+                ...balancePrice(state.tokenPrices, faucetId, rowMetadata.symbol)
+              }
+            : row
+        )
+      ])
+    );
+  }
+  return { tokenMetadataOverrides: overrides, assetsMetadata, balances };
+}
+
+/**
+ * Lands an account's balance rows with the overrides current now: a read that began before a save or
+ * a reset built its rows from the overrides it read then. It records the account's `midenFaucetId`
+ * first, so `withOverrides` leaves that display row as the reader built it, as it does the native
+ * row. It re-applies every faucet the read built a row with an override for (`overriddenFaucetIds`),
+ * so a reset in flight still lands, and every faucet the store holds a record or an override for.
+ * Any other row stays as built: the store could only replace it with the placeholder.
+ */
+export function withLandedBalances(
+  state: WalletStore,
+  accountAddress: string,
+  rows: WalletStore['balances'][string],
+  midenFaucetId: string | null,
+  overriddenFaucetIds: ReadonlySet<string>
+): Pick<
+  WalletStore,
+  | 'tokenMetadataOverrides'
+  | 'assetsMetadata'
+  | 'balances'
+  | 'balancesDisplayFaucetId'
+  | 'balancesLoading'
+  | 'balancesLastFetched'
+> {
+  const balancesDisplayFaucetId = { ...state.balancesDisplayFaucetId };
+  if (midenFaucetId === null) delete balancesDisplayFaucetId[accountAddress];
+  else balancesDisplayFaucetId[accountAddress] = midenFaucetId;
+  const landed = { ...state, balances: { ...state.balances, [accountAddress]: rows }, balancesDisplayFaucetId };
+  const faucetIds = rows
+    .map(row => row.tokenId)
+    .filter(
+      id =>
+        overriddenFaucetIds.has(id) ||
+        state.tokenMetadataOverrides[id] !== undefined ||
+        faucetMetadataFor(state, id) !== undefined
+    );
+  return {
+    ...withOverrides(landed, state.tokenMetadataOverrides, faucetIds),
+    balancesDisplayFaucetId,
+    balancesLoading: { ...state.balancesLoading, [accountAddress]: false },
+    balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() }
+  };
+}
+
+function withTokenMetadataOverride(
+  state: WalletStore,
+  faucetId: string,
+  override: TokenMetadataOverride | undefined
+): Pick<WalletStore, 'tokenMetadataOverrides' | 'assetsMetadata' | 'balances'> {
+  const overrides = { ...state.tokenMetadataOverrides };
+  if (override === undefined) delete overrides[faucetId];
+  else overrides[faucetId] = override;
+  return withOverrides(state, overrides, [faucetId]);
+}
+
+/**
+ * Shows the change at once, then stores it.
+ * When the write fails, the previous override of this faucet comes back, and the call rejects.
+ */
+async function changeTokenMetadataOverride(
+  faucetId: string,
+  override: TokenMetadataOverride | undefined
+): Promise<void> {
+  const previous = useWalletStore.getState().tokenMetadataOverrides[faucetId];
+  useWalletStore.setState(state => withTokenMetadataOverride(state, faucetId, override));
+  try {
+    await writeTokenMetadataOverride(faucetId, override);
+  } catch (error) {
+    useWalletStore.setState(state => withTokenMetadataOverride(state, faucetId, previous));
+    throw error;
+  }
+}
+
+/**
+ * Drops the decimals from the override of each faucet whose own record has a known scale.
+ * The user stated them while the scale was unknown. Kept, they would come back as a known scale
+ * whenever the record is missing again: a failed fetch, a schema clear, a start before the cache loads.
+ * Runs wherever a record or an override arrives, after the state that records it.
+ */
+function retireStatedDecimals(faucetIds: string[]): void {
+  const state = useWalletStore.getState();
+  for (const faucetId of faucetIds) {
+    const override = state.tokenMetadataOverrides[faucetId];
+    if (override?.decimals === undefined || !canOverrideMetadata(faucetId)) continue;
+    if (!hasKnownScale(faucetMetadataFor(state, faucetId))) continue;
+    changeTokenMetadataOverride(faucetId, { name: override.name, symbol: override.symbol }).catch(error =>
+      console.warn('Token metadata override update failed', error)
+    );
+  }
+}
+
 export const useWalletStore = create<WalletStore>()(
   subscribeWithSelector((set, get) => ({
     // Initial wallet state
@@ -70,9 +254,11 @@ export const useWalletStore = create<WalletStore>()(
     balances: {},
     balancesLoading: {},
     balancesLastFetched: {},
+    balancesDisplayFaucetId: {},
 
     // Initial assets state
     assetsMetadata: {},
+    tokenMetadataOverrides: {},
 
     // Initial UI state
     selectedNetworkId: null,
@@ -165,13 +351,12 @@ export const useWalletStore = create<WalletStore>()(
       // State will be synced via StateUpdated notification
     },
 
-    importWalletFromClient: async (password, mnemonic, walletAccounts, formatVersion, importedAccounts) => {
+    importWalletFromClient: async (password, mnemonic, walletAccounts, importedAccounts) => {
       const res = await request({
         type: WalletMessageType.ImportFromClientRequest,
         password,
         mnemonic,
         walletAccounts,
-        formatVersion,
         importedAccounts
       });
       assertResponse(res.type === WalletMessageType.ImportFromClientResponse);
@@ -312,10 +497,9 @@ export const useWalletStore = create<WalletStore>()(
         password
       });
       assertResponse(res.type === WalletMessageType.ExportAccountFileResponse);
-      // Buffer is IMPORTED, never the bare global: on every extension page `public/globals.js`
-      // installs a stub whose `from()` ignores the encoding argument, and the entry points keep it
-      // (`globalThis.Buffer = globalThis.Buffer || Buffer`), so a bare global decode returns an
-      // EMPTY array and the user is handed a 0-byte account file with a success message.
+      // Buffer is IMPORTED, never the bare global, so the decode does not depend on whatever global
+      // Buffer a realm has: a stub whose `from()` ignores the encoding (as public/globals.js once
+      // installed) returns an EMPTY array, and the user is handed a 0-byte account file with a success message.
       // A VIEW over the decoded buffer, not a copy of it, so the array the export screen zeroes is
       // the only mutable plaintext of the account's auth key this realm holds. The three-argument
       // form is bounded to this buffer's own region, so Node's shared pool is never exposed.
@@ -479,6 +663,17 @@ export const useWalletStore = create<WalletStore>()(
         guardianEndpoint
       });
       assertResponse(res.type === WalletMessageType.SetGuardianEndpointResponse);
+    },
+
+    revertGuardianEndpointAfterDiscard: async (accountPublicKey, discardedEndpoint, revertTo) => {
+      const res = await request({
+        type: WalletMessageType.RevertGuardianEndpointRequest,
+        accountPublicKey,
+        discardedEndpoint,
+        revertTo
+      });
+      assertResponse(res.type === WalletMessageType.RevertGuardianEndpointResponse);
+      return res.outcome;
     },
 
     setGuardianOperatorCommitment: async (accountPublicKey, guardianOperatorCommitment) => {
@@ -670,19 +865,23 @@ export const useWalletStore = create<WalletStore>()(
       fetchingAddresses.add(accountAddress);
 
       try {
+        const overridden = new Set<string>();
+        // The display faucet setting the read built its MIDEN row for. A reader that reports none leaves no row exempt.
+        let midenFaucetId: string | null = null;
         const balances = await fetchBalances(accountAddress, tokenMetadatas, {
           setAssetsMetadata: get().setAssetsMetadata,
+          faucetMetadataOf,
+          onOverrideApplied: faucetId => overridden.add(faucetId),
+          onDisplayFaucetId: faucetId => {
+            midenFaucetId = faucetId;
+          },
           tokenPrices: get().tokenPrices,
           waitForLock: get().balances[accountAddress] === undefined
         });
         // `null` = a refresh found the lock busy or the balance probe is fused; keep any
         // prior balances. Only a landed read ends loading.
         if (balances === null) return;
-        set(state => ({
-          balances: { ...state.balances, [accountAddress]: balances },
-          balancesLoading: { ...state.balancesLoading, [accountAddress]: false },
-          balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() }
-        }));
+        set(state => withLandedBalances(state, accountAddress, balances, midenFaucetId, overridden));
       } finally {
         fetchingAddresses.delete(accountAddress);
       }
@@ -696,21 +895,59 @@ export const useWalletStore = create<WalletStore>()(
 
     // Asset actions
     setAssetsMetadata: metadata => {
+      // A storage change event gives `undefined` for a removed key.
+      const entries = Object.entries(metadata ?? {});
+      for (const [faucetId, value] of entries) faucetAssetsMetadata.set(faucetId, value);
       set(state => ({
-        assetsMetadata: { ...state.assetsMetadata, ...metadata }
+        assetsMetadata: {
+          ...state.assetsMetadata,
+          ...Object.fromEntries(
+            entries.map(([faucetId, value]) => [
+              faucetId,
+              applyOverrideFor(faucetId, value, state.tokenMetadataOverrides)
+            ])
+          )
+        }
       }));
+      retireStatedDecimals(entries.map(([faucetId]) => faucetId));
     },
 
     fetchAssetMetadata: async assetId => {
       try {
-        const { base } = await fetchTokenMetadata(assetId);
+        const metadata = await fetchTokenMetadata(assetId);
+        faucetAssetsMetadata.set(assetId, metadata);
         set(state => ({
-          assetsMetadata: { ...state.assetsMetadata, [assetId]: base }
+          assetsMetadata: {
+            ...state.assetsMetadata,
+            [assetId]: applyOverrideFor(assetId, metadata, state.tokenMetadataOverrides)
+          }
         }));
-        return base;
+        retireStatedDecimals([assetId]);
+        return metadata;
       } catch {
         return null;
       }
+    },
+
+    setTokenMetadataOverride: async (faucetId, override) => {
+      if (!canOverrideMetadata(faucetId)) {
+        throw new Error('The metadata of this token cannot be overridden');
+      }
+      await changeTokenMetadataOverride(faucetId, override);
+    },
+
+    clearTokenMetadataOverride: async faucetId => {
+      if (get().tokenMetadataOverrides[faucetId] === undefined) return;
+      await changeTokenMetadataOverride(faucetId, undefined);
+    },
+
+    hydrateTokenMetadataOverrides: overrides => {
+      set(state => {
+        // A faucet that loses its override needs its entry back, so both maps' faucets are applied again.
+        const faucetIds = new Set([...Object.keys(state.tokenMetadataOverrides), ...Object.keys(overrides)]);
+        return withOverrides(state, overrides, [...faucetIds]);
+      });
+      retireStatedDecimals(Object.keys(overrides));
     },
 
     // Fiat currency actions
@@ -849,6 +1086,13 @@ export const useWalletStore = create<WalletStore>()(
   }))
 );
 
+// The switch changes what the price helpers return for the same tokenPrices, so a memo or selector
+// keyed on tokenPrices would keep its old figure. The same prices as a new object make each recompute;
+// nothing is refetched.
+subscribeNominalUnquotedPrice(() => {
+  useWalletStore.setState(state => ({ tokenPrices: { ...state.tokenPrices } }));
+});
+
 // Export the intercom getter for use in sync hook
 export { getIntercom };
 
@@ -970,14 +1214,16 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     async (input: { recipientAddress: string; faucetId: string; amountBaseUnits: string }) => {
       const [
         { NoteType },
-        { accountRefToSdk, buildSendTransactionRequest, randomFeeSalt, walletAccountIdToSdk },
+        { accountRefToSdk, buildSendTransactionRequest, feeAwareRequestBuilder, randomFeeSalt, walletAccountIdToSdk },
         { assertWasmHoldCurrent, getMidenClient, withWasmClientLock },
-        { u8ToB64 }
+        { u8ToB64 },
+        { EXPIRATION_DELTA_BLOCKS }
       ] = await Promise.all([
         import('@miden-sdk/miden-sdk/lazy'),
         import('lib/miden/sdk/helpers'),
         import('lib/miden/sdk/miden-client'),
-        import('lib/shared/helpers')
+        import('lib/shared/helpers'),
+        import('lib/miden/helpers')
       ]);
       const accountId = useWalletStore.getState().currentAccount?.publicKey;
       if (accountId === undefined) throw new Error('Custom-request hook found no current account');
@@ -989,6 +1235,12 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
           const account = await client.getAccount(walletAccountIdToSdk(accountId).toString());
           // The Account is borrowed from the client's RefCell and the build reads its vault.
           assertWasmHoldCurrent(hold, 'e2e-custom-request after the account read');
+          const baseBuilder = await feeAwareRequestBuilder(
+            client.client,
+            walletAccountIdToSdk(accountId).toString(),
+            randomFeeSalt()
+          );
+          assertWasmHoldCurrent(hold, 'e2e-custom-request after the fee-aware builder');
           return buildSendTransactionRequest(
             account ?? undefined,
             walletAccountIdToSdk(accountId),
@@ -996,10 +1248,9 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
             input.faucetId,
             BigInt(input.amountBaseUnits),
             NoteType.Public,
+            EXPIRATION_DELTA_BLOCKS,
             undefined,
-            // Declared, like every wallet-built request: since protocol 0.16 `fee::pay_fee` reads
-            // the conversion salt from the auth args and aborts without one.
-            randomFeeSalt()
+            baseBuilder
           ).serialize();
         },
         { label: 'e2e-custom-request' }
@@ -1035,11 +1286,15 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
     }
   });
   // Point the earn (Epoch lending) collateral faucet at a runtime-created test faucet.
-  // `openEarnPosition` runs page-side (EarnDepositReview), so the override must be set in
-  // THIS (page) realm. The fixed `MIDEN_USDC_FAUCET` testnet id can't exist on the localnet
-  // node. Zero prod impact.
+  // The Earn screens, `openEarnPosition` and the price allowlist read it page-side, so the
+  // override must be set in THIS (page) realm; a served document cannot name a faucet the
+  // suite creates at runtime. Zero prod impact.
   (globalThis as any).__TEST_SET_EARN_FAUCET__ = async (faucetHex: string): Promise<void> => {
-    setEarnCollateralFaucetForTest(faucetHex);
+    setEarnCollateralFaucetOverride({ faucetId: faucetHex });
+  };
+  (globalThis as any).__TEST_SET_FEE_FAUCET__ = async (faucetId: string): Promise<void> => {
+    const { setFeeFaucetIdForTest } = await import('lib/miden-chain/effective-endpoints');
+    await setFeeFaucetIdForTest(faucetId);
   };
   // Earn WITHDRAW read hooks live in the PAGE realm (here), NOT the SW-side
   // earn-test-hooks: the `earn-withdraw` tracking row is created AND advanced

@@ -13,12 +13,76 @@ export enum ITransactionStatus {
   Queued,
   GeneratingTransaction,
   Completed,
-  Failed
+  Failed,
+  /**
+   * Its submit came back without a definite outcome, so it waits for the node's verdict (#1081). Appended, so the
+   * persisted 0 to 3 keep their meaning; an older build shows such a row in no list.
+   */
+  Unconfirmed
 }
 
 /** The row can still produce a transaction: it is queued or generating. */
 export const isLiveTransaction = (row: Pick<ITransaction, 'status'>): boolean =>
   row.status === ITransactionStatus.Queued || row.status === ITransactionStatus.GeneratingTransaction;
+
+/** The pipeline is done with the row: it completed, failed, or waits for the node's verdict (#1081). */
+export const hasLeftQueue = (row: Pick<ITransaction, 'status'>): boolean =>
+  row.status === ITransactionStatus.Completed ||
+  row.status === ITransactionStatus.Failed ||
+  row.status === ITransactionStatus.Unconfirmed;
+
+export type SubmitEvidenceSource = 'stage' | 'pin' | 'kill' | 'out-of-band' | 'end' | 'error-text';
+
+/** One attempt that may have crossed its submit (#1081). Keyed by attemptId. */
+export interface ISubmitEvidence {
+  attemptId: string;
+  capturedAt: number; // unix seconds
+  source: SubmitEvidenceSource;
+  transactionId?: string;
+  initialCommitment?: string;
+  finalCommitment?: string;
+  initialNonce?: string; // decimal
+  outputNoteIds?: string[]; // user output notes; [] when known empty
+  nullifiers?: string[]; // [] when known empty
+  refBlock?: number;
+  refBlockCommitment?: string; // the network identity
+  expirationBlock?: number;
+  guardianProposalNonce?: number;
+  candidateKept?: true; // the guardian still holds this attempt's candidate
+  initialSeenAtBlock?: number;
+  otherNetworkSince?: number; // unix seconds
+  landingSeenAtBlock?: number; // the block a landing judgement rested on; set once by row 1 or 3, a row 2 record may be replaced
+  landingSeenBy?: 1 | 2 | 3; // the verdict row whose judgement wrote landingSeenAtBlock
+  verdict?: 'never-committed' | 'unresolvable'; // sticky
+  endedBy?: 'kill' | 'out-of-band'; // how the attempt ended outside its pipeline; set once
+  endedAt?: number; // unix seconds, with endedBy
+  preSubmitEnd?: true; // the leaf's tag proved the attempt ended before its submit call
+  raisedFlag?: true; // the pin, not an earlier crossing, set mayHaveSubmitted
+  fromExecute?: true; // the row was an execute when this entry was made
+}
+
+/** What a leaf reads off the executed and proven transaction just before it submits (#1081). */
+export type SubmitEvidenceFields = Pick<
+  ISubmitEvidence,
+  | 'transactionId'
+  | 'initialCommitment'
+  | 'finalCommitment'
+  | 'initialNonce'
+  | 'outputNoteIds'
+  | 'nullifiers'
+  | 'refBlock'
+  | 'refBlockCommitment'
+  | 'expirationBlock'
+>;
+
+/**
+ * What a stage stamp carries besides its stage (#1081): `reliable: false` for a stamp replayed from the offscreen
+ * realm (see `setTransactionStage`), and the submit evidence the 'submitting' stamp brings.
+ */
+export interface StageDetail {
+  readonly reliable?: boolean;
+  readonly evidence?: SubmitEvidenceFields;
+}
 
 export type ITransactionIcon = 'SEND' | 'RECEIVE' | 'SWAP' | 'FAILED' | 'MINT' | 'DEFAULT';
 export type ITransactionType =
@@ -35,6 +99,22 @@ export type ITransactionType =
   | 'update-procedure-threshold'
   | 'register-name';
 
+/** Each type's own display icon, as its class constructor below sets it: what a row shows when it is not failed. */
+export const ICON_BY_TYPE: Readonly<Record<ITransactionType, ITransactionIcon>> = {
+  send: 'SEND',
+  consume: 'RECEIVE',
+  execute: 'DEFAULT',
+  'bridged-send': 'SEND',
+  'bridged-receive': 'RECEIVE',
+  'earn-deposit': 'DEFAULT',
+  'earn-withdraw': 'DEFAULT',
+  'switch-guardian': 'DEFAULT',
+  'replace-hot-key': 'DEFAULT',
+  swap: 'SWAP',
+  'update-procedure-threshold': 'DEFAULT',
+  'register-name': 'SEND'
+};
+
 /**
  * Structural Guardian operations: they rewrite the account's own authorization rather
  * than move value. Activity draws them alike, and none of them is requeueable.
@@ -45,8 +125,11 @@ export const STRUCTURAL_GUARDIAN_TYPES: readonly ITransactionType[] = [
   'update-procedure-threshold'
 ];
 
-/** Which cross-chain bridge route a `bridged-send` used. */
-export type IBridgeProvider = 'epoch' | 'agglayer';
+/**
+ * Which cross-chain bridge route a bridge row used. `usdcx` is Circle xReserve
+ * (Sepolia USDC ↔ USDCx on Miden).
+ */
+export type IBridgeProvider = 'epoch' | 'agglayer' | 'usdcx';
 
 /** Lifecycle of a tracking-only EVM → Miden bridge row. */
 export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
@@ -57,9 +140,49 @@ export interface IConsumedAssetTotal {
   amount: bigint;
 }
 
+/** One note a consume claimed, as it was queued. */
+export interface IConsumedNote {
+  id: string;
+  senderAddress: string;
+  faucetId: string;
+  /** Base units of the note's first fungible asset; absent when the claimable note carried no amount. */
+  amount?: bigint;
+}
+
+/**
+ * The CCTP leg of a USDCx deposit from a chain with no xReserve (Base, Arbitrum): the burn on the source
+ * chain mints to Circle's executor on Arc, which deposits into Arc's xReserve. Circle's forwarder does not
+ * execute such messages yet, so the wallet keeps the attested message until the user executes it on Arc.
+ */
+export interface IUsdcxCctpLeg {
+  /** Circle's domain of the source chain, the key of its Iris messages. */
+  sourceDomain: number;
+  /** The attested CCTP message and Circle's signature, kept once Iris reports them. */
+  message?: string;
+  attestation?: string;
+  /** The Arc transaction that executed the message, which is the xReserve deposit Circle attests. */
+  executeTxHash?: string;
+  /** Unix seconds the current `executeTxHash` was saved, from either side. */
+  executeSavedAt?: number;
+  /** An Arc execute that stayed unmined past the stall window: never adopted again, still asked about. */
+  stalledExecuteTxHash?: string;
+  /** An Arc execute, the wallet's or Circle's forward, that reverted; never adopted again as the execute. */
+  revertedExecuteTxHash?: string;
+  /** Unix seconds the last revert reopened the leg, stamped by its writer: the leg's week runs from here. */
+  revertedAt?: number;
+  /** Whether the burn paid Circle's forward fee, so Circle executes on Arc; absent on rows before the fee flow. */
+  forwarded?: boolean;
+  /** The quoted fee the burn paid on top of the amount, in source USDC base units. */
+  forwardFee?: string;
+  /** The forwarding service's last reported state for the message. */
+  forwardState?: string;
+}
+
 /** Metadata persisted on a tracking-only EVM → Miden bridge row. */
 export interface IBridgedReceiveExtraInputs {
   provider: IBridgeProvider;
+  /** EVM source chain; absent on legacy Sepolia rows. */
+  sourceChainId?: number;
   /** Connected EVM account that funded the bridge. */
   sourceAddress: string;
   /** Human-readable source-chain input, retained even if the Miden output differs. */
@@ -75,7 +198,16 @@ export interface IBridgedReceiveExtraInputs {
   evmTxHash?: string;
   intentNonce?: string;
   midenNoteId?: string;
+  /** usdcx: the CCTP leg of an executor-route deposit; absent on a direct xReserve deposit. */
+  cctp?: IUsdcxCctpLeg;
   error?: string;
+  /**
+   * usdcx: the xReserve `remoteRecipient` bytes32 the wallet signed (0x + 64 lowercase hex), written at the deposit's
+   * first phase write. Absent on rows written before this field and on E2E hook rows.
+   */
+  usdcxRemoteRecipient?: string;
+  /** Unix seconds at which the row first reached `ready`. Written once, never cleared, and kept through `failed`. */
+  readyAt?: number;
 }
 
 /** Audit metadata for a Guardian operator switch. `previousGuardianEndpoint`
@@ -169,20 +301,50 @@ export interface ISwitchGuardianExtraInputs {
  */
 export type IBridgeClaimStatus = 'not-applicable' | 'pending' | 'ready' | 'claiming' | 'claimed' | 'failed';
 
+/** Faucet-side lifecycle, independent of the sender's transaction status. */
+export interface IUsdcxBurn {
+  noteId: string;
+  destinationDomain: number;
+  phase: 'pending' | 'consuming' | 'confirmed' | 'discarded';
+  /** USDC balance saved before the burn is queued, in six-decimal base units. */
+  destinationBalanceBefore?: { balance: string; blockNumber: string };
+  /** Destination balance that met the expected increase after burn confirmation. */
+  destinationBalanceConfirmed?: { balance: string; blockNumber: string };
+  attemptCount?: number;
+  lastAttemptBlockNum?: number;
+  lastError?: string;
+}
+
 /** `extraInputs` shape for a `BridgedSendTransaction`. */
 export interface IBridgedSendExtraInputs {
   provider: IBridgeProvider;
+  usdcxBurn?: IUsdcxBurn;
   /** 0x EVM recipient. */
   destinationAddress: string;
-  /** EVM destination network: `EVM_AGGLAYER_NETWORK_ID` (agglayer) or chain id (epoch). */
+  /** EVM destination network: the L1 bridge's `networkID()` at creation (agglayer) or chain id (epoch). */
   destinationNetwork: number;
   /** Miden faucet the bridged asset was sourced from. */
   sourceFaucetId: string;
   claimStatus: IBridgeClaimStatus;
-  /** agglayer: a deposit to `destinationAddress` is claimable on L1. */
+  /** agglayer: this row's bound exit deposit is claimable on L1. */
   depositReady?: boolean;
-  /** agglayer: L1 claim tx hash once claimed. */
+  /** agglayer: L1 claim tx hash once claimed: the wallet's own, or the indexer's `claim_tx_hash` for anyone's. */
   claimTxHash?: string;
+  /**
+   * agglayer: the bridge indexer's `tx_hash` for this row's exit, keccak of its B2AGG note's details commitment
+   * (`lib/agglayer/b2agg/exit-hash.ts`). It is the only value that binds an indexer deposit to this row. Set when
+   * the note is built; a row built before that is back-filled from the bytes it kept.
+   */
+  agglayerExitTxHash?: string;
+  /** agglayer: none of this row's bytes held its note, so it has no exit hash and is never looked up. */
+  agglayerExitTxHashUnavailable?: true;
+  /**
+   * agglayer: a search of the address's whole history missed this row's exit, and the row was initiated before the
+   * indexer's renumbering (`MIDEN_CHAIN_ID_RENUMBERED_AT`), so it is never looked up again.
+   */
+  agglayerExitUnfiled?: true;
+  /** agglayer: `deposit_cnt` of the bound exit deposit, pinned once the indexer first reports it. */
+  agglayerDepositCnt?: number;
   /** epoch: solver/intent hash (informational). */
   evmTxHash?: string;
   /**
@@ -192,10 +354,23 @@ export interface IBridgedSendExtraInputs {
   recallBlocks?: number;
   /**
    * epoch: absolute Miden block after which the P2IDE bridge note becomes
-   * reclaimable by the sender. Recorded when the row is demoted to Failed so the
-   * activity detail can gate the "Reclaim funds" affordance.
+   * reclaimable by the sender, which gates the activity detail's "Reclaim funds"
+   * affordance. Stamped from the note when the row is created; older rows hold the
+   * intent's estimate, written when they were demoted to Failed.
    */
   reclaimHeight?: number;
+  /**
+   * epoch: id of the P2IDE bridge note, stamped when it is built. Unlike
+   * `outputNoteIds` it does not say the note was produced, so the reclaim UI reads
+   * it only for a row whose note may exist.
+   */
+  reclaimNoteId?: string;
+  /**
+   * epoch: written by `claimBridgeSubmit` when the pipeline commits to submitting
+   * the collateral note, so a row `markBridgedSendFailed` demotes afterwards may
+   * hold that note under `reclaimNoteId`.
+   */
+  submitClaimed?: boolean;
   /**
    * epoch: intent nonce (SIO `userAddress:intentNonce`) used to poll
    * `getIntentStatus` for the receiving-chain fill, captured at send time.
@@ -348,6 +523,8 @@ export interface IEarnWithdrawExtraInputs {
   sourceAmount: string;
   /** Source token symbol (e.g. `USDC`). */
   sourceSymbol: string;
+  /** The source token's decimals when the withdrawal was created, so a retry never waits on the token's read. */
+  sourceDecimals?: number;
   phase: IEarnWithdrawPhase;
   /** intent nonce (SIO `userAddress:intentNonce`) used to poll `getIntentStatus`. */
   withdrawIntentNonce?: string;
@@ -489,9 +666,8 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  *                     indistinguishable from a successful one.
  *   - `relayed`     - the transport is believed to HOLD the note: it acknowledged
  *                     the push, which it also does for a note it already stores
- *                     (the SDK fetch boundary turns that duplicate into an ACK,
- *                     `sdk/note-relay-fetch.mjs`). Deliberately not
- *                     terminal, for two separate reasons. An empty
+ *                     (the 0.17 transport answers a duplicate as it does a new
+ *                     note). Deliberately not terminal, for two separate reasons. An empty
  *                     `SendNoteResponse` means acceptance is not proof of storage, so
  *                     the row stays eligible for the re-push sweep, which tests
  *                     exactly that. And even a genuinely stored note can be
@@ -505,11 +681,10 @@ export type ITransactionStage = (typeof TRANSACTION_STAGES)[number];
  *                     proof of delivery available: the recipient cannot consume a
  *                     private note without having received its body, so the
  *                     nullifier is the receipt. Terminal.
- *   - `undelivered` — the relay was attempted and did not succeed. Not necessarily
- *                     permanent (the SDK's own outbox may still retry it, and that
- *                     retry replays the ORIGINAL block hint, so it stays correct
- *                     however late it runs) — but it may equally mean nothing was
- *                     ever queued, so it is surfaced rather than assumed benign.
+ *   - `undelivered` - the relay was attempted and did not succeed. Not necessarily
+ *                     permanent: the SDK does not re-send it, but the delivery
+ *                     sweep does (`note-delivery-sweep.ts`), and a push the
+ *                     transport acknowledges moves the row to `relayed`.
  */
 export type INoteDeliveryState = 'pending' | 'relayed' | 'confirmed' | 'undelivered';
 
@@ -531,8 +706,8 @@ export interface ITransaction {
    * it matched, carries. History and HistoryDetails key the recovered title and
    * icon and the suppressed bridge, swap and earn-settlement UI on it, and the
    * history merge replaces or merges only rows carrying it. `restoredFromBackup`,
-   * set with it, is what keeps the processing loop, retry and the delivery
-   * sweep away from such a row.
+   * set with it, is what keeps the processing loop and retry away from such a
+   * row, and the delivery sweep to receipt checks.
    */
   recovered?: boolean;
   recovery?: GuardianHistoryRecovery;
@@ -549,6 +724,8 @@ export interface ITransaction {
   noteType?: NoteType;
   /** Consume only: per-faucet totals of a batch claim (see `ConsumeTransaction`). */
   assetTotals?: IConsumedAssetTotal[];
+  /** Consume only: each claimed note's facts, as queued (see `ConsumeTransaction`). Not indexed. */
+  consumedNotes?: IConsumedNote[];
   /**
    * Consume only: queued by the everyday-key rotation gate to fund the rotation's fee
    * (#805). Generation signs such a row with the recovery key after proving every note
@@ -612,11 +789,32 @@ export interface ITransaction {
   displayMessage?: string;
   displayIcon: ITransactionIcon;
   inputNoteIds?: string[];
+  /**
+   * Written on a dApp custom (`execute`) row only, which completion may re-type: every note the transaction will
+   * consume, recorded when it is queued, the notes it carries (`importNotes`) included. While the row is live or
+   * awaiting its verdict, and for a grace window after it completes, these are held out of auto-consume and refused by
+   * the claim dedup (`isNoteHoldingRow`). Kept apart from `inputNoteIds`, the dApp's own list, which completion
+   * overwrites with the executed inputs and history recovery matches rows on. Absent on rows queued before it existed,
+   * which hold nothing.
+   */
+  heldNoteIds?: string[];
   outputNoteIds?: string[];
   /** The private output notes a custom row owes the relay, all of which its `noteDelivery` covers; see `relayNoteIdsOf`. */
   relayNoteIds?: string[];
   /** The account a custom row's private notes were relayed to, kept apart from `secondaryAccountId`; see `relayRecipientOf`. */
   relayRecipientId?: string;
+  /**
+   * The owed private notes the transport has acknowledged, each added as its relay or re-push is acknowledged. The
+   * undelivered label counts the owed notes missing from it. Absent on a row written before acknowledgements were
+   * recorded, or with none yet; there `noteDelivery` decides, and `relayed` counts as every owed note acknowledged.
+   */
+  relayAckedNoteIds?: string[];
+  /**
+   * Owed private notes that can never be pushed: no relayable note could be built from them when the row completed, or
+   * a push found no relayable copy in this client's store. The sweep never pushes them again, and a row whose every
+   * owed note is here has nothing to push at all.
+   */
+  relayDeadNoteIds?: string[];
   extraInputs?: any;
   /** User-facing failure reason (possibly a friendly rewrite — see `rawError`). */
   error?: string;
@@ -632,6 +830,11 @@ export interface ITransaction {
    */
   restoredFromBackup?: boolean;
   resultBytes?: Uint8Array;
+  /**
+   * Whole seconds at which the reaper (`transaction/trim-result-bytes.ts`) released `resultBytes`. A Completed row
+   * without `resultBytes` carries it only if the result was released; otherwise it never stored one.
+   */
+  resultReleasedAt?: number;
   /**
    * Current sub-phase during active processing. Readers should treat this
    * as informational only — it is overwritten without coordination with
@@ -694,35 +897,57 @@ export interface ITransaction {
    */
   requeueStreak?: IRequeueStreak;
   /**
+   * Set while this Queued row waits for its Guardian to settle the account's previous delta (#312): a pending-delta
+   * 409 or the settlement gate requeued it. A Guardian request timeout requeues without it. The pickup that runs the
+   * row again clears it, as do any other requeue and a user's retry, but it can stay set on a row that ends Failed
+   * (MAX_QUEUED_AGE expiry, the wake ceiling, a user cancel), so readers gate on Queued. GeneratingTransaction reads it
+   * to say the Guardian is busy instead of showing the row as in flight.
+   */
+  guardianBusy?: true;
+  /**
    * Delivery state of this row's private output note — see
    * {@link INoteDeliveryState}. Absent for public sends and non-relaying types.
    *
-   * This is the wallet's OWN record that a relay is owed. It previously had none:
-   * durability was delegated entirely to the SDK's retry outbox, which Rust writes
-   * from inside the relay call and only after it has resolved the transport API.
-   * Every failure upstream of that write therefore queued nothing while throwing
-   * exactly like a mid-transport timeout that DID queue — and under 0.16 there is a
-   * new member of that class, since `notes.sendPrivateOutput` first resolves the
-   * note by id from the calling client's store and rejects with `No output note
-   * found for the given id` if it is not there as an applied output note.
+   * This is the wallet's OWN record that a relay is owed, and the only one: the
+   * SDK does not re-send a private note whose relay failed, so the delivery sweep
+   * (`note-delivery-sweep.ts`) retries from this row.
    */
   noteDelivery?: INoteDeliveryState;
   /**
-   * How many times this row's private note has been handed to the transport,
-   * counting the first attempt. Bounds the re-push sweep so a note nobody ever
-   * consumes cannot be re-pushed forever.
+   * How many times the sweep has pushed this row's private notes, counting the
+   * original relay. Indexes the retry schedule and caps it (`MAX_RELAY_ATTEMPTS`);
+   * the schedule itself ends 72 hours after the send.
    */
   relayAttempts?: number;
   /**
-   * Earliest time (unix seconds) the sweep may re-push this row's private note.
+   * Earliest time (unix seconds) the sweep next looks at this row: its next push,
+   * or its next receipt check once pushes are over.
    *
-   * Spread wide on purpose. Stamped from the clock at write time rather than from
-   * when the sweep began, except for the first arming, which is measured from the
-   * original relay (`completedAt`) so a row first seen long afterwards does not have
-   * to serve the wait twice. See `note-delivery-sweep.ts` for what each re-push
-   * outcome does and does not prove.
+   * Stamped from the clock at write time rather than from when the sweep began,
+   * except for the first arming, which is measured from the original relay
+   * (`completedAt`) so a row first seen long afterwards does not have to serve the
+   * wait twice. See `note-delivery-sweep.ts` for what each push outcome does and
+   * does not prove.
    */
   nextRelayAt?: number;
+  /**
+   * Verification steps completed since every live owed note was acknowledged, two at most. A step counts once every
+   * note it set out to push was acknowledged or found dead, one left short is repeated on the retry backoff, and no
+   * step is pushed past the retry bounds (72 hours after the send, or `MAX_RELAY_ATTEMPTS`).
+   */
+  relayVerifyPushes?: number;
+  /**
+   * Set when an outage stopped the sweep's pushes with this row due: its push failed as an outage, or the pass
+   * stopped before it. The first push that succeeds in a later pass makes the row due at once, and the push that
+   * follows clears it.
+   */
+  relayOutageDeferred?: true;
+  /**
+   * Set once the sweep will not push this row again while some owed note never reached the transport: its retries
+   * ran out, every unacknowledged note is dead, it was restored from a backup, or it has nothing to push. Receipt
+   * checks go on. The history card reads it to stop promising automatic retries.
+   */
+  relayRetriesStopped?: true;
   /**
    * Sticky: set once some attempt on this row reached a point from which a
    * chain submit cannot be ruled out, and never unset. Guards the cached
@@ -753,18 +978,14 @@ export interface ITransaction {
    *
    * `mayHaveSubmitted` records a crossing that HAPPENED. This records that we
    * do not yet know whether one will: the cancel marks the row but does not
-   * abort the work, so the pipeline runs on and may still submit. The GUARDIAN
-   * leaves stamp `mayHaveSubmitted` before submitting and their writes go through
-   * a terminal row, so a crossing that occurs there IS recorded — but only from
-   * the moment the leaf reaches it. Between the cancel and that stamp the row
-   * looks pre-submit, and a retry in that window would rebuild the request and pay
-   * twice. This field covers exactly that gap.
-   *
-   * For a send from a non-guardian account there is no such stamp to supplement:
-   * that leaf calls through to the proxy without recording anything, and the row
-   * stays at the 'sending' its pipeline set once at pickup. This field is then the
-   * only evidence that exists, which is why the retry guard refuses on it outright
-   * rather than merely declining to rebuild.
+   * abort the work, so the pipeline runs on and may still submit. Every leaf of a
+   * row that can await a verdict records its crossing at its 'submitting' stamp,
+   * with the attempt's evidence (`recordSubmitCrossing`, #1081), but only from the
+   * moment the stamp lands, and an offscreen stamp is replayed late or lost with
+   * its realm. Between the cancel and that stamp the row looks pre-submit, and a
+   * retry in that window would rebuild the request and pay twice. This field
+   * covers that gap for a send; for a swap or an execute, the out-of-band end the
+   * cancel records on the attempt's entry (`endedBy`) covers it.
    *
    * It has to expire, which is why it is a timestamp rather than a boolean. The
    * first version of this guard was a sticky flag, and a sticky "maybe" is
@@ -789,6 +1010,12 @@ export interface ITransaction {
    * of the window this field exists to cover.
    */
   cancelledInFlightAt?: number;
+  /** One entry per attempt that may have crossed its submit, kept across Retry (#1081). See `ISubmitEvidence`. */
+  submitEvidence?: ISubmitEvidence[];
+  /** Unix seconds at which the node proved no recorded attempt can ever commit: the safe-to-retry marker (#1081). */
+  neverCommittedAt?: number;
+  /** The attempt in flight: written with `processingStartedAt` at pickup and cleared wherever it is (#1081). */
+  attemptId?: string;
 }
 
 /**
@@ -832,6 +1059,8 @@ export class Transaction implements ITransaction {
   transactionId?: string;
   requestBytes?: Uint8Array;
   inputNoteIds?: string[];
+  /** See `ITransaction.heldNoteIds`. */
+  heldNoteIds?: string[];
   outputNoteIds?: string[];
   /** Per-faucet value leaving the account. See `ITransaction.spentAssetTotals`. */
   spentAssetTotals?: IConsumedAssetTotal[];
@@ -841,6 +1070,7 @@ export class Transaction implements ITransaction {
   /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
   queuedSeq?: number;
   processingStartedAt?: number;
+  attemptId?: string;
   completedAt?: number;
   displayMessage?: string;
   displayIcon: ITransactionIcon;
@@ -944,6 +1174,12 @@ export class ConsumeTransaction implements ITransaction {
    * to recompute from.
    */
   assetTotals?: IConsumedAssetTotal[];
+  /**
+   * Each claimed note's sender, faucet and amount, as queued. A consume that completes without a transaction result,
+   * through a landing the node proved, has nothing else to adopt its bridge deliveries by. Absent on rows queued
+   * before it.
+   */
+  consumedNotes?: IConsumedNote[];
   /** See `ITransaction.rotationFunding`. */
   rotationFunding?: true;
   transactionId?: string;
@@ -996,6 +1232,12 @@ export class ConsumeTransaction implements ITransaction {
       total => total.faucetId !== ''
     );
     this.assetTotals = identifiedTotals.length > 0 ? identifiedTotals : undefined;
+    this.consumedNotes = list.map(note => ({
+      id: note.id,
+      senderAddress: note.senderAddress,
+      faucetId: note.faucetId,
+      ...(note.amount === '' ? {} : { amount: BigInt(note.amount) })
+    }));
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.queuedSeq = nextQueuedSeq();
@@ -1110,6 +1352,9 @@ export interface IBridgedSendNoteParams {
   recipientId: string;
   noteType: NoteType;
   recallBlocks: number;
+  /** Epoch bridged-send only: the note's absolute reclaim height and id from `buildEpochCollateralRequestBytes`. */
+  reclaimHeight?: number;
+  reclaimNoteId?: string;
 }
 
 export class BridgedSendTransaction implements ITransaction {
@@ -1144,7 +1389,8 @@ export class BridgedSendTransaction implements ITransaction {
     faucetId: string,
     requestBytes?: Uint8Array,
     delegateTransaction?: boolean,
-    sendParams?: IBridgedSendNoteParams
+    sendParams?: IBridgedSendNoteParams,
+    agglayerExitTxHash?: string
   ) {
     this.id = uuid();
     this.type = 'bridged-send';
@@ -1167,7 +1413,10 @@ export class BridgedSendTransaction implements ITransaction {
       sourceFaucetId: faucetId,
       // Agglayer needs a manual L1 claim; Epoch auto-settles.
       claimStatus: provider === 'agglayer' ? 'pending' : 'not-applicable',
-      recallBlocks: sendParams?.recallBlocks
+      agglayerExitTxHash,
+      recallBlocks: sendParams?.recallBlocks,
+      reclaimHeight: sendParams?.reclaimHeight,
+      reclaimNoteId: sendParams?.reclaimNoteId
     };
   }
 }
@@ -1351,7 +1600,8 @@ export class EarnWithdrawTransaction implements ITransaction {
     sourceAmount: string,
     sourceSymbol = 'USDC',
     submissionAttemptId?: string,
-    attemptStartedAt?: number
+    attemptStartedAt?: number,
+    sourceDecimals?: number
   ) {
     const now = Math.floor(Date.now() / 1000); // seconds
     this.id = uuid();
@@ -1370,6 +1620,7 @@ export class EarnWithdrawTransaction implements ITransaction {
       destinationFaucetId: faucetId,
       sourceAmount,
       sourceSymbol,
+      sourceDecimals,
       phase: 'redeeming',
       submissionState: 'preparing',
       submissionAttemptId,

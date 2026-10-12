@@ -3,17 +3,26 @@ import React from 'react';
 import clsx from 'clsx';
 import { useTranslation } from 'react-i18next';
 
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { Button, ButtonVariant } from 'components/Button';
+import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { FlowFooter } from 'components/flow/FlowFooter';
+import { ChoiceCardGroup } from 'components/ui/ChoiceCard';
+import { DetailCard } from 'components/ui/DetailCard';
 import { Skeleton } from 'components/ui/Skeleton';
 import { toAdaptiveFixed } from 'lib/i18n/numbers';
+import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hapticLight } from 'lib/mobile/haptics';
+import type { FeatureAvailability } from 'lib/remote-config/availability';
+import { useWalletStore } from 'lib/store';
 
 import { BridgeRoute } from './types';
+import { UsdcxPayoutRows, UsdcxPayoutTarget } from './UsdcxPayoutRows';
 import { AgglayerEligibility } from './useAgglayerEligibility';
 
 export interface RouteStepProps {
+  usdcxAvailable?: boolean;
   route: BridgeRoute;
   onRouteChange: (route: BridgeRoute) => void;
   /** Fast-route fee in USD (input value − quoted USDC out). undefined while quoting / unavailable. */
@@ -24,9 +33,12 @@ export interface RouteStepProps {
   /** Disable the confirm button — e.g. the quote isn't ready, or an unsupported route+token combo. */
   confirmDisabled?: boolean;
   onConfirm: () => void;
+  /** Each route's feature: an unavailable or still-loading route is greyed out and takes no tap. */
+  fastAvailability: FeatureAvailability;
+  slowAvailability: FeatureAvailability;
 }
 
-interface RouteCardProps {
+export interface RouteCardProps {
   emoji: string;
   label: string;
   selected: boolean;
@@ -39,7 +51,8 @@ interface RouteCardProps {
   loading?: boolean;
 }
 
-const RouteCard: React.FC<RouteCardProps> = ({
+/** One selectable route row. Shared with the USDCx deposit route step. */
+export const RouteCard: React.FC<RouteCardProps> = ({
   label,
   selected,
   onSelect,
@@ -58,7 +71,7 @@ const RouteCard: React.FC<RouteCardProps> = ({
     disabled={disabled}
     aria-busy={loading}
     className={clsx(
-      'flex w-full items-center rounded-2xl border bg-fill px-4 py-6 transition-colors text-base focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink',
+      'flex w-full items-center rounded-2xl border bg-fill px-4 py-6 transition-colors text-base focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:opacity-50',
       selected ? ACCENT_CLASSES[accent].border : 'border-hairline'
     )}
   >
@@ -72,8 +85,58 @@ const RouteCard: React.FC<RouteCardProps> = ({
 
 export type RouteOptionsProps = Pick<
   RouteStepProps,
-  'route' | 'onRouteChange' | 'fastFeeUsd' | 'fastQuoteLoading' | 'notice'
-> & { accent?: FlowAccent; slowStatus: AgglayerEligibility };
+  | 'route'
+  | 'onRouteChange'
+  | 'fastFeeUsd'
+  | 'fastQuoteLoading'
+  | 'notice'
+  | 'usdcxAvailable'
+  | 'fastAvailability'
+  | 'slowAvailability'
+> & {
+  accent?: FlowAccent;
+  slowStatus: AgglayerEligibility;
+  /** A USDCx burn's destination and amount, once the send has both: the card shows Circle's fee and the payout. */
+  usdcxPayout?: UsdcxPayoutTarget;
+};
+
+/** The USDCx burn's one route card. Its fees are paid in the native asset, so the subtitle names that asset. */
+const UsdcxRouteOption: React.FC<Pick<RouteOptionsProps, 'route' | 'onRouteChange' | 'usdcxPayout'>> = ({
+  route,
+  onRouteChange,
+  usdcxPayout
+}) => {
+  const { t } = useTranslation();
+  const nativeFaucetId = useNativeFeeFaucetId();
+  const assetsMetadata = useWalletStore(state => state.assetsMetadata);
+  const nativeSymbol = resolveDisplayMetadata(nativeFaucetId ?? undefined, assetsMetadata, nativeFaucetId).symbol;
+
+  return (
+    <div className="mt-6 flex flex-col gap-4">
+      <ChoiceCardGroup
+        items={[
+          {
+            id: 'usdcx',
+            title: t('usdcxRouteLabel'),
+            subtitle: t('usdcxMidenFees', { symbol: nativeSymbol }),
+            'data-testid': 'bridge-route-usdcx'
+          }
+        ]}
+        value={route === 'usdcx' ? 'usdcx' : null}
+        onChange={() => onRouteChange('usdcx')}
+        aria-label={t('route')}
+      />
+      {usdcxPayout && (
+        <DetailCard>
+          <UsdcxPayoutRows chainId={usdcxPayout.chainId} amount={usdcxPayout.amount} />
+        </DetailCard>
+      )}
+      <p className="text-caption text-muted" data-testid="usdcx-burn-notice">
+        {t('usdcxWithdrawalNotice')}
+      </p>
+    </div>
+  );
+};
 
 /** The Fast / Slow route cards and their notice, shared by every route step's layout. */
 export const RouteOptions: React.FC<RouteOptionsProps> = ({
@@ -82,8 +145,12 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   fastFeeUsd,
   fastQuoteLoading,
   notice,
+  usdcxAvailable,
   slowStatus,
-  accent = 'brand'
+  fastAvailability,
+  slowAvailability,
+  accent = 'brand',
+  usdcxPayout
 }) => {
   const { t } = useTranslation();
   const slowAllowed = slowStatus === 'allowed';
@@ -110,6 +177,10 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
     onRouteChange(next);
   };
 
+  if (usdcxAvailable) {
+    return <UsdcxRouteOption route={route} onRouteChange={onRouteChange} usdcxPayout={usdcxPayout} />;
+  }
+
   // Built in plain JS (not JSX) so the em-dash fallback doesn't trip the
   // no-literal-string i18n lint; "$1.84" is excluded as a $-prefixed value.
   const feeText = fastFeeUsd != null ? `$${toAdaptiveFixed(fastFeeUsd)}` : '—';
@@ -128,6 +199,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
         onSelect={() => select('epoch')}
         fee={fastFee}
         eta={t('fastArrival')}
+        disabled={isFeatureBlocked(fastAvailability)}
         testId="bridge-route-fast"
         accent={accent}
       />
@@ -135,7 +207,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
         emoji="🕐"
         label={t('slow')}
         selected={route === 'agglayer' && slowAllowed}
-        disabled={!slowAllowed}
+        disabled={!slowAllowed || isFeatureBlocked(slowAvailability)}
         loading={slowStatus === 'loading'}
         onSelect={() => select('agglayer')}
         fee={slowFee}
@@ -149,6 +221,10 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
         </p>
       )}
       {notice && <p className="text-xs text-muted">{notice}</p>}
+      <FeatureUnavailableNotice
+        availability={fastAvailability.state === 'unavailable' ? fastAvailability : slowAvailability}
+        variant="inline"
+      />
     </div>
   );
 };
@@ -160,13 +236,16 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
  * gates Slow on the bridge registry; an EVM deposit has no Miden faucet to check.
  */
 export const Route: React.FC<RouteStepProps> = ({
+  usdcxAvailable,
   route,
   onRouteChange,
   fastFeeUsd,
   fastQuoteLoading,
   notice,
   confirmDisabled,
-  onConfirm
+  onConfirm,
+  fastAvailability,
+  slowAvailability
 }) => {
   const { t } = useTranslation();
 
@@ -176,12 +255,15 @@ export const Route: React.FC<RouteStepProps> = ({
         <span className="font-heading text-2xl leading-none font-bold text-muted">{t('route')}</span>
 
         <RouteOptions
+          usdcxAvailable={usdcxAvailable}
           route={route}
           onRouteChange={onRouteChange}
           fastFeeUsd={fastFeeUsd}
           fastQuoteLoading={fastQuoteLoading}
           notice={notice}
           slowStatus="allowed"
+          fastAvailability={fastAvailability}
+          slowAvailability={slowAvailability}
         />
       </div>
 

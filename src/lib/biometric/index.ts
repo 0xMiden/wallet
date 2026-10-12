@@ -2,21 +2,14 @@
  * Biometric authentication service for mobile app.
  *
  * This module provides a cross-platform abstraction for biometric authentication
- * (Face ID, Touch ID, fingerprint) and secure credential storage using the
- * device's hardware-backed keystore (iOS Secure Enclave / Android Keystore).
- *
- * The credentials are encrypted with a key that requires biometric authentication
- * to access, providing hardware-level security for the vault decryption key.
+ * (Face ID, Touch ID, fingerprint), plus hardware-backed encryption of the vault
+ * decryption key using the device's secure keystore (iOS Secure Enclave / Android
+ * Keystore).
  */
 
 import { isMobile, isIOS, isAndroid } from 'lib/platform';
 
 import { LocalBiometric, LocalBiometricPlugin, HardwareSecurity, HardwareSecurityPlugin } from './localBiometricPlugin';
-
-// Storage key for biometric-protected vault credential
-const BIOMETRIC_CREDENTIAL_KEY = 'vault_biometric_key';
-// Storage key for biometric enabled preference
-const BIOMETRIC_ENABLED_KEY = 'biometric_enabled';
 
 // Lazy-load the plugin to avoid issues in non-mobile contexts
 let _nativeBiometricModule: typeof import('capacitor-native-biometric') | null = null;
@@ -268,253 +261,30 @@ export async function authenticate(reason: string): Promise<boolean> {
 }
 
 /**
- * Gate a sensitive, user-initiated action (a send / swap) behind a biometric
- * check — WHEN the device has biometrics and the user enabled biometric unlock.
+ * Ask the device owner to confirm a send, swap, earn deposit or dApp transaction
+ * when this wallet unlocks with biometrics (the vault holds its hardware
+ * protector). A password or passcode wallet, and any non-mobile platform, is not
+ * prompted.
  *
- * This is the app-layer replacement for the per-signature Secure-Enclave
- * `.userPresence` gate that was removed to stop the guardian AutoSync Face-ID
- * loop (that gate fired on every ~3s hot-key signature). Doing the check here,
- * on the user-initiated submit path only, re-confirms value transfers without
- * touching background sync or auto-consume (which never call this) — so silent
- * hot signing is preserved where it must be.
- *
- * Returns `true` (allow) when biometrics aren't available or aren't enabled, and
- * on any probe error: the app-level lock is the backstop there, and hard-blocking
- * a send on those devices would be a regression. Callers that need a stricter
- * gate should layer their own policy on top.
+ * The prompt allows the device passcode as a fallback, so a biometry lockout
+ * still prompts rather than skipping the check. A probe that rejects propagates:
+ * the caller shows its error and the action does not proceed.
  *
  * @param reason - Prompt text shown to the user (e.g. "Confirm your send").
+ * @param probe - Whether the vault holds its hardware protector. Callers pass
+ *   `probeHardwareProtector` (`lib/miden/back/protector-probe`) by reference, which answers from the
+ *   hardware key read and rejects only when both protector reads fail. It is a parameter rather than
+ *   an import because the vault imports this module.
  */
-export async function confirmSensitiveAction(reason: string): Promise<boolean> {
-  try {
-    const { isAvailable } = await checkBiometricAvailability();
-    if (!isAvailable) return true;
-    if (!(await isBiometricEnabled())) return true;
-    return await authenticate(reason);
-  } catch {
-    return true;
-  }
-}
-
-/**
- * Store a credential (e.g., vault decryption key) in the secure keystore.
- * The credential is protected by biometric authentication - it can only be
- * retrieved after successful biometric verification.
- *
- * @param value - The credential value to store (typically the password or derived key)
- */
-export async function storeCredential(value: string): Promise<void> {
-  const plugin = getBiometricPlugin();
-
-  if (!plugin) {
-    throw new Error('Biometric plugin not available');
-  }
-
-  await plugin.setCredentials({
-    username: BIOMETRIC_CREDENTIAL_KEY,
-    password: value,
-    server: 'miden.wallet.biometric'
-  });
-}
-
-/**
- * Retrieve a stored credential from the secure keystore.
- * This will trigger biometric authentication before returning the credential.
- *
- * @returns The stored credential value, or null if not found or authentication failed
- */
-export async function getCredential(): Promise<string | null> {
-  const plugin = getBiometricPlugin();
-
-  if (!plugin) {
-    return null;
-  }
-
-  try {
-    const credentials = await plugin.getCredentials({
-      server: 'miden.wallet.biometric'
-    });
-    return credentials.password;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Delete the stored credential from the secure keystore.
- * Call this when the user disables biometric unlock or resets the wallet.
- */
-export async function deleteCredential(): Promise<void> {
-  const plugin = getBiometricPlugin();
-
-  if (!plugin) {
-    return;
-  }
-
-  try {
-    await plugin.deleteCredentials({
-      server: 'miden.wallet.biometric'
-    });
-  } catch {
-    // Ignore errors when deleting (credential may not exist)
-  }
-}
-
-/**
- * Check if biometric unlock is enabled for this wallet.
- */
-export async function isBiometricEnabled(): Promise<boolean> {
-  if (!isMobile()) {
-    return false;
-  }
-
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { Preferences } = require('@capacitor/preferences');
-    const result = await Preferences.get({ key: BIOMETRIC_ENABLED_KEY });
-    console.log('[Biometric] isBiometricEnabled result:', JSON.stringify(result), 'value:', result.value);
-    return result.value === 'true';
-  } catch (error) {
-    console.error('[Biometric] isBiometricEnabled error:', error);
-    return false;
-  }
-}
-
-/**
- * Enable or disable biometric unlock.
- * When enabling, make sure to call storeCredential first with the vault password.
- *
- * @param enabled - Whether biometric unlock should be enabled
- */
-export async function setBiometricEnabled(enabled: boolean): Promise<void> {
-  console.log('[Biometric] setBiometricEnabled called with:', enabled);
-  if (!isMobile()) {
-    console.log('[Biometric] setBiometricEnabled: not mobile, returning');
-    return;
-  }
-
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { Preferences } = require('@capacitor/preferences');
-    const valueToSet = enabled ? 'true' : 'false';
-    console.log('[Biometric] setBiometricEnabled: about to set key:', BIOMETRIC_ENABLED_KEY, 'value:', valueToSet);
-    await Preferences.set({
-      key: BIOMETRIC_ENABLED_KEY,
-      value: valueToSet
-    });
-    console.log('[Biometric] setBiometricEnabled: set completed');
-
-    // Verify the preference was actually written
-    const verification = await Preferences.get({ key: BIOMETRIC_ENABLED_KEY });
-    console.log('[Biometric] setBiometricEnabled: verification read:', JSON.stringify(verification));
-
-    if (verification.value !== valueToSet) {
-      console.error(
-        '[Biometric] setBiometricEnabled: VERIFICATION FAILED! Expected:',
-        valueToSet,
-        'Got:',
-        verification.value
-      );
-    } else {
-      console.log('[Biometric] setBiometricEnabled: preference verified successfully');
-    }
-
-    // If disabling, also delete the stored credential
-    if (!enabled) {
-      await deleteCredential();
-    }
-  } catch (error) {
-    console.error('[Biometric] setBiometricEnabled error:', error);
-  }
-}
-
-/**
- * Attempt to unlock the wallet using biometric authentication.
- * This combines authentication and credential retrieval in a single flow.
- *
- * @param reason - The reason to display to the user
- * @returns The stored password if successful, null otherwise
- */
-export async function unlockWithBiometric(reason: string): Promise<string | null> {
-  const plugin = getBiometricPlugin();
-
-  if (!plugin) {
-    return null;
-  }
-
-  try {
-    // First verify identity
-    if (isIOS()) {
-      await plugin.verifyIdentity({
-        reason,
-        useFallback: false
-      });
-    } else {
-      await (plugin as typeof import('capacitor-native-biometric').NativeBiometric).verifyIdentity({
-        reason,
-        title: 'Bread',
-        subtitle: reason,
-        description: '',
-        useFallback: false
-      });
-    }
-
-    // Then get the stored credential
-    const credentials = await plugin.getCredentials({
-      server: 'miden.wallet.biometric'
-    });
-
-    return credentials.password;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Set up biometric authentication for a wallet.
- * This should be called after the user creates or imports a wallet,
- * storing the password for future biometric unlocks.
- *
- * @param password - The wallet password to store for biometric unlock
- * @returns true if setup was successful, false otherwise
- */
-export async function setupBiometric(password: string): Promise<boolean> {
-  try {
-    // Check availability first
-    const availability = await checkBiometricAvailability();
-    if (!availability.isAvailable) {
-      return false;
-    }
-
-    // Authenticate to confirm user identity
-    const authenticated = await authenticate('Set up biometric unlock');
-    if (!authenticated) {
-      return false;
-    }
-
-    // Store the credential
-    await storeCredential(password);
-
-    // Enable biometric unlock
-    await setBiometricEnabled(true);
-
-    return true;
-  } catch (error) {
-    console.error('Failed to setup biometric:', error);
-    return false;
-  }
+export async function confirmSensitiveAction(reason: string, probe: () => Promise<boolean>): Promise<boolean> {
+  if (!isMobile()) return true;
+  if (!(await probe())) return true;
+  return authenticate(reason);
 }
 
 export const biometricService = {
   checkBiometricAvailability,
-  authenticate,
-  storeCredential,
-  getCredential,
-  deleteCredential,
-  isBiometricEnabled,
-  setBiometricEnabled,
-  unlockWithBiometric,
-  setupBiometric
+  authenticate
 };
 
 export default biometricService;

@@ -11,7 +11,8 @@ import { OUTGOING_GUARDIAN_DEADLINE_MS, withTimeout } from './discover';
 import { checkEndpointCommitment } from './operator-map';
 import { midenClientProxy } from '../back/miden-client-proxy';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
-import { isWasmClientPoisonedError, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+import { isPoisonedPipeline } from '../sdk/sdk-error-code';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 import { monotonicNowMs } from '../sync-backoff';
 
 /**
@@ -87,8 +88,8 @@ export async function adoptPostSwitchState(
       POST_SWITCH_RECONCILE_CHECK_TIMEOUT_MS
     );
     if (state !== 'pre-switch' || !adopter || now() >= deadline) return state;
-    // The adopt holds the WASM lock on the sync ceiling, so a silent guardian there ends in a watchdog
-    // eviction that poisons the realm's client. Ask it first, outside any lock; the flagged row's
+    // The adopt holds the WASM lock, so a silent guardian there holds the realm's client until the fetch
+    // boundary cuts each request off a minute in. Ask it first, outside any lock; the flagged row's
     // self-heal is the retry.
     const probeMs = Math.min(deadline - now(), OUTGOING_GUARDIAN_DEADLINE_MS);
     try {
@@ -100,8 +101,8 @@ export async function adoptPostSwitchState(
     try {
       await adopter.adoptOnce();
     } catch (error) {
-      // The service is bound to the client the eviction poisoned, so every later adopt fails too.
-      if (isWasmClientPoisonedError(error)) return state;
+      // The service is bound to the client the eviction poisoned, so every later adopt fails too, wrapped or not (#1313).
+      if (isPoisonedPipeline(error)) return state;
       // Until it canonicalizes, the outgoing guardian holds the pre-switch state, which imports nothing;
       // a refusal or a failed read is the same "not yet".
       console.warn('[Guardian] the outgoing guardian does not hold the post-switch state yet:', error);

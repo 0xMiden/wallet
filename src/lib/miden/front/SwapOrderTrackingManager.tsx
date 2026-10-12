@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from './sync-fuse';
-import { isSyncWatchdogEviction } from '../sdk/wasm-client-poison';
+import { isSyncFused, noteProbeFailure, noteSyncSuccess } from './sync-fuse';
 import {
   getSwapOrderSchedule,
   useSwapOrderTrackingStore,
@@ -40,8 +39,7 @@ export function SwapOrderTrackingManager(): null {
         try {
           tracking = await trackSwapOrders();
         } catch (err) {
-          if (isSyncWatchdogEviction(err)) noteSyncWatchdogEviction('swap-order-tracking');
-          else noteNonEvictionSyncFailure('swap-order-tracking');
+          noteProbeFailure('swap-order-tracking', err);
           console.error('[swap-order-tracking] failed to track orders', err);
           if (!disposed) publishSnapshot(due, new Map());
           return;

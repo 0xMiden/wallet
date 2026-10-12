@@ -1,8 +1,12 @@
 // Light mocks so importing cancel.ts doesn't pull in Dexie / the WASM client proxy.
+import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
 import { GuardianSwitchDiscardedError, GuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
+import { ApplyAfterSubmitError } from 'lib/miden/sdk/sdk-error-code';
+import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
-import { cancelTransaction, isTransactionStuck } from './cancel';
+import { cancelTransaction, cancelTransactionAfterPipelineStopped, isTransactionStuck } from './cancel';
 import { TRANSACTION_STUCK_ERROR, USER_CANCELLED_TRANSACTION_REASON } from './constants';
+import { clearCancelledInFlight, markCancelledInFlight, markMayHaveSubmitted, recordKillEnd } from './helper';
 import {
   notifyBackgroundTransactionFailed,
   notifyBackgroundTransactionNotConfirmed
@@ -45,9 +49,19 @@ jest.mock('../back/background-notification', () => ({
 }));
 jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
 jest.mock('lib/platform', () => ({ isMobile: jest.fn(() => true) }));
-jest.mock('lib/mobile/background-time', () => ({ hiddenSecondsSince: jest.fn(() => 0) }));
+jest.mock('lib/mobile/background-time', () => ({
+  ...jest.requireActual('lib/mobile/background-time'),
+  hiddenSecondsSince: jest.fn(() => 0)
+}));
 jest.mock('./get', () => ({ getTransactionsInProgress: jest.fn() }));
-jest.mock('./helper', () => ({ updateTransactionStatus: jest.fn() }));
+jest.mock('./helper', () => ({
+  updateTransactionStatus: jest.fn(),
+  markMayHaveSubmitted: jest.fn(),
+  markCancelledInFlight: jest.fn(),
+  clearCancelledInFlight: jest.fn(),
+  recordKillEnd: jest.fn(async () => {}),
+  recordOutOfBandEnd: jest.fn(async () => {})
+}));
 jest.mock('../sdk/miden-client', () => ({ withWasmClientLock: jest.fn() }));
 
 describe('isTransactionStuck', () => {
@@ -119,6 +133,18 @@ describe('cancelTransaction background notification', () => {
     expect(notifyBackgroundTransactionFailed).not.toHaveBeenCalled();
   });
 
+  it('leaves a row that turned Unconfirmed between the read and the write, announcing nothing (#1081)', async () => {
+    // The read saw it in flight; a cancel, reaper or verifier holding no loop lock must not settle the unknown outcome.
+    const tx = inFlight('tx-1');
+    mockRaceRow = { id: 'tx-1', row: { ...mockRows.get('tx-1'), status: ITransactionStatus.Unconfirmed } };
+
+    await expect(cancelTransaction(tx, new Error('x'))).resolves.toBe(false);
+
+    expect(mockRows.get('tx-1')?.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(notifyBackgroundTransactionFailed).not.toHaveBeenCalled();
+    expect(notifyBackgroundTransactionNotConfirmed).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['a row that may have been submitted', { mayHaveSubmitted: true }, new Error('prover returned 503')],
     ['a row the reaper failed', {}, TRANSACTION_STUCK_ERROR]
@@ -179,5 +205,70 @@ describe('cancelTransaction background notification', () => {
 
     expect(notifyBackgroundTransactionFailed).not.toHaveBeenCalled();
     expect(notifyBackgroundTransactionNotConfirmed).not.toHaveBeenCalled();
+  });
+});
+
+// A kill wrapped in another error is still a kill: the pipeline may still submit (#1313).
+describe('cancelTransactionAfterPipelineStopped with a kill wrapped in another error', () => {
+  const sendRow = (fields: Record<string, unknown> = {}): Transaction => {
+    const row = {
+      id: 'tx-1',
+      type: 'send',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      stage: 'sending',
+      processingStartedAt: 1,
+      initiatedAt: 0,
+      ...fields
+    };
+    mockRows.set('tx-1', row);
+    return row as unknown as Transaction;
+  };
+  const wrap = (cause: Error) => new Error('send failed', { cause });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRows.clear();
+    mockRaceRow = undefined;
+  });
+
+  it('records that a send may have submitted when a deadline kill is the cause', async () => {
+    await cancelTransactionAfterPipelineStopped(sendRow(), wrap(new OperationAbortedError('op-1', 'deadline')));
+
+    expect(markMayHaveSubmitted).toHaveBeenCalledWith('tx-1');
+    expect(markCancelledInFlight).not.toHaveBeenCalled();
+    expect(mockRows.get('tx-1')?.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('also records the pipeline as still in flight when an eviction is the cause', async () => {
+    await cancelTransactionAfterPipelineStopped(sendRow(), wrap(new WasmClientPoisonedError('watchdog')));
+
+    expect(markMayHaveSubmitted).toHaveBeenCalledWith('tx-1');
+    expect(markCancelledInFlight).toHaveBeenCalledWith('tx-1');
+  });
+
+  it('records that a send may have submitted when a terminated client is the cause, as for an abort', async () => {
+    await cancelTransactionAfterPipelineStopped(sendRow(), wrap(new Error('WebClient terminated')));
+
+    expect(recordKillEnd).toHaveBeenCalledWith('tx-1', undefined);
+    expect(markMayHaveSubmitted).toHaveBeenCalledWith('tx-1');
+    expect(markCancelledInFlight).not.toHaveBeenCalled();
+  });
+
+  it('keeps a landed write out of the kill route when a terminated client failed its local apply', async () => {
+    await cancelTransactionAfterPipelineStopped(sendRow(), new ApplyAfterSubmitError(new Error('Client terminated')));
+
+    expect(recordKillEnd).not.toHaveBeenCalled();
+    expect(markMayHaveSubmitted).not.toHaveBeenCalled();
+  });
+
+  it('records no crossing for a wrapped kill of a row that never built a write', async () => {
+    const preWrite = sendRow({ status: ITransactionStatus.Queued, stage: 'syncing', processingStartedAt: undefined });
+
+    await cancelTransactionAfterPipelineStopped(preWrite, wrap(new WasmClientPoisonedError('watchdog')));
+
+    expect(markMayHaveSubmitted).not.toHaveBeenCalled();
+    expect(markCancelledInFlight).not.toHaveBeenCalled();
+    expect(clearCancelledInFlight).toHaveBeenCalledWith('tx-1');
   });
 });

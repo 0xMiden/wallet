@@ -74,7 +74,7 @@ export function toAccountId(id: string): AccountId {
 
 export interface RegisterNameRowAccounts {
   network: string;
-  /** Payment faucet (native MIDEN), bech32. */
+  /** Payment faucet (USDCX), bech32. */
   paymentFaucetId: string;
   /** Registry network account, bech32. */
   registryAccountId: string;

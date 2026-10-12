@@ -4,7 +4,7 @@ import { render, act, waitFor } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { DecryptedWalletFile, VersionTwoDecryptedWalletFile } from 'lib/miden/backup-file';
+import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { GUARDIAN_ACCOUNT_NOT_FOUND } from 'lib/miden/sdk/guardian-recovery-errors';
 import {
   type GuardianProbeState,
@@ -189,10 +189,7 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
   }
 }));
 
-// GUARDIAN_URL_STORAGE_KEY is a plain string constant — keep the real value.
-jest.mock('lib/settings/constants', () => ({
-  GUARDIAN_URL_STORAGE_KEY: 'guardian_url_setting'
-}));
+jest.mock('lib/settings/constants', () => ({}));
 
 // Whether the user has already answered the telemetry consent prompt, which
 // decides whether a finished onboarding detours through it. Defaults to `true`
@@ -256,7 +253,7 @@ const IMPORTED_ACCOUNT_BACKUP = {
   authScheme: 'falcon' as const,
   secretKeyHex: '0102'
 };
-const VERSION_TWO_PAYLOAD: VersionTwoDecryptedWalletFile = {
+const VERSION_TWO_PAYLOAD: DecryptedWalletFile = {
   formatVersion: 2,
   seedPhrase: 'alpha beta gamma delta',
   midenClientDbContent: 'miden-db',
@@ -483,6 +480,7 @@ describe('Welcome — hash → step routing', () => {
 
   it('renders the ChooseProtection screen on mobile', async () => {
     mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
     await renderWelcome();
     await setHash('#choose-protection');
     expect(currentStep()).toBe(OnboardingStep.ChooseProtection);
@@ -511,10 +509,12 @@ describe('Welcome — hash → step routing', () => {
     expect(currentStep()).not.toBe(OnboardingStep.SetupPasscode);
   });
 
-  it('routes #setup-biometric to SetupBiometric', async () => {
+  it('redirects #setup-biometric to the password step off mobile', async () => {
+    mockIsMobileFn.mockReturnValue(false);
     await renderWelcome();
     await setHash('#setup-biometric');
-    expect(currentStep()).toBe(OnboardingStep.SetupBiometric);
+    expect(mockNavigate).toHaveBeenCalledWith('/#create-password');
+    expect(currentStep()).not.toBe(OnboardingStep.SetupBiometric);
   });
 
   // The create seed exists only once a protection step is submitted; desktop's password submit generates it.
@@ -525,6 +525,13 @@ describe('Welcome — hash → step routing', () => {
     expect(mockFlowProps.current.seedPhrase).not.toBeNull();
   };
 
+  it('routes #guardian-intro to GuardianIntro inside a create flow', async () => {
+    await renderWelcome();
+    await enterCreateWithSeed();
+    await setHash('#guardian-intro');
+    expect(currentStep()).toBe(OnboardingStep.GuardianIntro);
+  });
+
   it('routes #meet-guardian to MeetGuardian inside a create flow', async () => {
     await renderWelcome();
     await enterCreateWithSeed();
@@ -532,14 +539,15 @@ describe('Welcome — hash → step routing', () => {
     expect(currentStep()).toBe(OnboardingStep.MeetGuardian);
   });
 
-  it('routes #choose-guardian to ChooseGuardian inside a create flow', async () => {
+  // The full-page picker is retired; an old link to it lands where the sheet that replaced it opens.
+  it('lands an old #choose-guardian link on the Meet your Guardian step', async () => {
     await renderWelcome();
     await enterCreateWithSeed();
     await setHash('#choose-guardian');
-    expect(currentStep()).toBe(OnboardingStep.ChooseGuardian);
+    expect(currentStep()).toBe(OnboardingStep.MeetGuardian);
   });
 
-  it.each(['#meet-guardian', '#choose-guardian'])(
+  it.each(['#guardian-intro', '#meet-guardian'])(
     'redirects %s back to Welcome while the create flow has no seed yet',
     async hash => {
       await renderWelcome();
@@ -566,16 +574,18 @@ describe('Welcome — hash → step routing', () => {
     }
   );
 
-  // Every point that starts a create resets the whole flow state an earlier attempt left behind.
-  const CREATE_ENTRIES: Array<[string, () => Promise<void>]> = [
-    ['the choose-protection action', () => dispatch({ id: 'choose-protection' })],
-    ['#select-wallet-type', () => setHash('#select-wallet-type')],
-    ['#choose-protection', () => setHash('#choose-protection')],
-    ['#setup-biometric', () => setHash('#setup-biometric')]
+  // Every point that starts a create resets the whole flow state an earlier attempt left behind. The flag runs an entry
+  // on a mobile whose probe passes, the only place biometric setup renders.
+  const CREATE_ENTRIES: Array<[string, () => Promise<void>, boolean]> = [
+    ['the choose-protection action', () => dispatch({ id: 'choose-protection' }), false],
+    ['#select-wallet-type', () => setHash('#select-wallet-type'), false],
+    ['#choose-protection', () => setHash('#choose-protection'), false],
+    ['#setup-biometric', () => setHash('#setup-biometric'), true]
   ];
 
-  it.each(CREATE_ENTRIES)('%s drops a seed import and its password', async (_name, enter) => {
-    mockIsMobileFn.mockReturnValue(false);
+  it.each(CREATE_ENTRIES)('%s drops a seed import and its password', async (_name, enter, biometricDevice) => {
+    mockIsMobileFn.mockReturnValue(biometricDevice);
+    mockBiometricHW.mockResolvedValue(biometricDevice);
     await renderWelcome();
     await dispatch({ id: 'select-import-type' });
     await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
@@ -585,8 +595,9 @@ describe('Welcome — hash → step routing', () => {
     expect(mockFlowProps.current.password).toBeNull();
   });
 
-  it.each(CREATE_ENTRIES)('%s drops a pasted-key import', async (_name, enter) => {
-    mockIsMobileFn.mockReturnValue(false);
+  it.each(CREATE_ENTRIES)('%s drops a pasted-key import', async (_name, enter, biometricDevice) => {
+    mockIsMobileFn.mockReturnValue(biometricDevice);
+    mockBiometricHW.mockResolvedValue(biometricDevice);
     await renderWelcome();
     await dispatch({ id: 'select-import-type' });
     await dispatch({ id: 'import-hot-key-submit', payload: 'deadbeef' });
@@ -612,7 +623,7 @@ describe('Welcome — hash → step routing', () => {
     expect(mockRegisterWallet).toHaveBeenCalled();
   });
 
-  it.each(['#meet-guardian', '#choose-guardian'])(
+  it.each(['#meet-guardian'])(
     'redirects %s back to Welcome when the seed belongs to an import still in progress',
     async hash => {
       await renderWelcome();
@@ -623,13 +634,14 @@ describe('Welcome — hash → step routing', () => {
       await setHash(hash);
       expect(mockNavigate).toHaveBeenCalledWith('/');
       expect(currentStep()).not.toBe(OnboardingStep.MeetGuardian);
-      expect(currentStep()).not.toBe(OnboardingStep.ChooseGuardian);
     }
   );
 
-  it.each(['#meet-guardian', '#choose-guardian'])(
+  it.each(['#meet-guardian'])(
     'redirects %s back to Welcome after a seed import is turned into a create by #setup-biometric',
     async hash => {
+      mockIsMobileFn.mockReturnValue(true);
+      mockBiometricHW.mockResolvedValue(true);
       await renderWelcome();
       await dispatch({ id: 'select-import-type' });
       await dispatch({ id: 'import-seed-phrase-submit', payload: 'aa bb cc dd' });
@@ -640,7 +652,7 @@ describe('Welcome — hash → step routing', () => {
     }
   );
 
-  it.each(['#meet-guardian', '#choose-guardian'])(
+  it.each(['#meet-guardian'])(
     'redirects %s back to Welcome after the create it belonged to was cancelled',
     async hash => {
       mockIsMobileFn.mockReturnValue(false);
@@ -658,7 +670,7 @@ describe('Welcome — hash → step routing', () => {
     }
   );
 
-  it.each(['#meet-guardian', '#choose-guardian'])(
+  it.each(['#meet-guardian'])(
     'redirects %s back to Welcome after the user went back to Welcome by history',
     async hash => {
       mockIsMobileFn.mockReturnValue(false);
@@ -678,6 +690,7 @@ describe('Welcome — hash → step routing', () => {
 
   it('keeps a biometric create when Meet your Guardian goes back to its biometric step', async () => {
     mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
     await renderWelcome();
     await dispatch({ id: 'setup-biometric-submit' });
     const seed = mockFlowProps.current.seedPhrase;
@@ -685,6 +698,7 @@ describe('Welcome — hash → step routing', () => {
     await setHash('#meet-guardian');
     expect(currentStep()).toBe(OnboardingStep.MeetGuardian);
     await setHash('#setup-biometric');
+    expect(currentStep()).toBe(OnboardingStep.SetupBiometric);
     expect(mockFlowProps.current.seedPhrase).toBe(seed);
     await setHash('#meet-guardian');
     expect(currentStep()).toBe(OnboardingStep.MeetGuardian);
@@ -744,7 +758,8 @@ describe('Welcome — hash → step routing', () => {
 
   it('leaves a running import attempt its credentials when the hash changes to #setup-biometric', async () => {
     expect.hasAssertions();
-    mockIsMobileFn.mockReturnValue(false);
+    mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
     await holdAttempt(
       async () => {
         await dispatch({ id: 'select-import-type' });
@@ -897,7 +912,7 @@ describe('Welcome — hash → step routing', () => {
     expect(mockFlowProps.current.biometricError).toBeNull();
   });
 
-  it.each(['#meet-guardian', '#choose-guardian'])(
+  it.each(['#meet-guardian'])(
     'redirects %s back to Welcome when the only seed is left over from an import',
     async hash => {
       mockIsMobileFn.mockReturnValue(false);
@@ -915,29 +930,23 @@ describe('Welcome — hash → step routing', () => {
     }
   );
 
-  it.each(['#meet-guardian', '#choose-guardian'])(
-    'redirects %s back to Welcome when onboarding state was lost',
-    async hash => {
-      await renderWelcome();
-      await setHash(hash);
-      // A reload keeps the hash and loses the generated seed; Confirmation would never register.
-      expect(mockNavigate).toHaveBeenCalledWith('/');
-      expect(currentStep()).toBe(OnboardingStep.Welcome);
-      expect(mockFlowProps.current.onboardingType).toBeNull();
-    }
-  );
+  it.each(['#meet-guardian'])('redirects %s back to Welcome when onboarding state was lost', async hash => {
+    await renderWelcome();
+    await setHash(hash);
+    // A reload keeps the hash and loses the generated seed; Confirmation would never register.
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(currentStep()).toBe(OnboardingStep.Welcome);
+    expect(mockFlowProps.current.onboardingType).toBeNull();
+  });
 
-  it.each(['#meet-guardian', '#choose-guardian'])(
-    'redirects %s back to Welcome instead of turning an import into a create',
-    async hash => {
-      await renderWelcome();
-      await setHash('#select-import-type');
-      await setHash(hash);
-      expect(mockNavigate).toHaveBeenCalledWith('/');
-      expect(currentStep()).toBe(OnboardingStep.SelectImportType);
-      expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
-    }
-  );
+  it.each(['#meet-guardian'])('redirects %s back to Welcome instead of turning an import into a create', async hash => {
+    await renderWelcome();
+    await setHash('#select-import-type');
+    await setHash(hash);
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(currentStep()).toBe(OnboardingStep.SelectImportType);
+    expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Import);
+  });
 
   it('routes #import-from-seed to ImportFromSeed (import)', async () => {
     await renderWelcome();
@@ -1127,9 +1136,133 @@ describe('Welcome - the finishing mark around a tapped confirmation', () => {
   });
 });
 
+// Android 9 and 10 fail the hardware probe the vault's biometric protection reads, so a create there sets a passcode.
+describe("Welcome - the protection chooser follows the vault's hardware probe (#1311)", () => {
+  beforeEach(() => {
+    mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(false);
+    mockTestNetworkKey = null;
+  });
+
+  // Lands where the last navigation went, and on through any redirect a route's guard makes there, as the router would.
+  async function followNavigation() {
+    for (let hop = 0; hop < 5; hop += 1) {
+      const target = mockNavigate.mock.calls.at(-1)?.[0];
+      if (typeof target !== 'string' || target.replace(/^\//, '') === mockHash) return;
+      await setHash(target.replace(/^\//, ''));
+    }
+  }
+
+  const pendingProbe = () => {
+    let answer: (available: boolean) => void = () => undefined;
+    mockBiometricHW.mockReturnValueOnce(
+      new Promise<boolean>(resolve => {
+        answer = resolve;
+      })
+    );
+    return (available: boolean) =>
+      act(async () => {
+        answer(available);
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+  };
+
+  it('starts a create on SetupPasscode, never ChooseProtection, where the probe answered false', async () => {
+    const steps: OnboardingStep[] = [];
+    mockOnFlowRender.current = props => steps.push(props.step);
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+    await followNavigation();
+    expect(currentStep()).toBe(OnboardingStep.SetupPasscode);
+    expect(steps).not.toContain(OnboardingStep.ChooseProtection);
+    expect(mockFlowProps.current.skipProtectionChoice).toBe(true);
+  });
+
+  it('redirects a direct #choose-protection to SetupPasscode where the probe answered false', async () => {
+    await renderWelcome();
+    mockNavigate.mockClear();
+    await setHash('#choose-protection');
+    await followNavigation();
+    expect(currentStep()).toBe(OnboardingStep.SetupPasscode);
+    expect(mockNavigate).toHaveBeenCalledWith('/#setup-passcode');
+  });
+
+  it('holds #choose-protection while the probe is pending and shows the chooser once it passes', async () => {
+    const answerProbe = pendingProbe();
+    await renderWelcome();
+    mockNavigate.mockClear();
+    await setHash('#choose-protection');
+    expect(currentStep()).toBe(OnboardingStep.Welcome);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockFlowProps.current.skipProtectionChoice).toBe(false);
+
+    await answerProbe(true);
+    expect(currentStep()).toBe(OnboardingStep.ChooseProtection);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockFlowProps.current.skipProtectionChoice).toBe(false);
+  });
+
+  it('holds #choose-protection while the probe is pending and sends it to SetupPasscode once it fails', async () => {
+    const answerProbe = pendingProbe();
+    await renderWelcome();
+    mockNavigate.mockClear();
+    await setHash('#choose-protection');
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    await answerProbe(false);
+    expect(mockNavigate).toHaveBeenCalledWith('/#setup-passcode');
+    expect(currentStep()).not.toBe(OnboardingStep.ChooseProtection);
+  });
+
+  it('redirects #setup-biometric to SetupPasscode, never SetupBiometric, where the probe answered false', async () => {
+    const steps: OnboardingStep[] = [];
+    mockOnFlowRender.current = props => steps.push(props.step);
+    await renderWelcome();
+    mockNavigate.mockClear();
+    await setHash('#setup-biometric');
+    expect(mockNavigate).toHaveBeenCalledWith('/#setup-passcode');
+    expect(steps).not.toContain(OnboardingStep.SetupBiometric);
+  });
+
+  it('holds #setup-biometric while the probe is pending and shows biometric setup once it passes', async () => {
+    const answerProbe = pendingProbe();
+    await renderWelcome();
+    mockNavigate.mockClear();
+    await setHash('#setup-biometric');
+    expect(currentStep()).not.toBe(OnboardingStep.SetupBiometric);
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    await answerProbe(true);
+    expect(currentStep()).toBe(OnboardingStep.SetupBiometric);
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('takes Back from SetupPasscode to Welcome where the probe answered false', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' }); // onboardingType = Create
+    await setHash('#setup-passcode');
+    mockNavigate.mockClear();
+    await dispatch({ id: 'back' });
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/#choose-protection');
+  });
+
+  it('still offers the chooser where the probe passed', async () => {
+    mockBiometricHW.mockResolvedValue(true);
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+    await followNavigation();
+    expect(currentStep()).toBe(OnboardingStep.ChooseProtection);
+    expect(mockFlowProps.current.skipProtectionChoice).toBe(false);
+  });
+});
+
 describe('Welcome — onAction forward navigation', () => {
   it('choose-protection routes through the notice to the protection step', async () => {
     mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
     await renderWelcome();
     await dispatch({ id: 'choose-protection' });
     expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);
@@ -1160,7 +1293,7 @@ describe('Welcome — onAction forward navigation', () => {
     await dispatch({ id: 'setup-biometric-submit' });
     expect(mockFlowProps.current.seedPhrase).toEqual('aa bb cc dd ee ff gg hh ii jj kk ll'.split(' '));
     expect(mockFlowProps.current.onboardingType).toBe(OnboardingType.Create);
-    expect(mockNavigate).toHaveBeenCalledWith('/#meet-guardian');
+    expect(mockNavigate).toHaveBeenCalledWith('/#guardian-intro');
   });
 
   it('setup-passcode-submit commits the passcode as the password', async () => {
@@ -1168,16 +1301,17 @@ describe('Welcome — onAction forward navigation', () => {
     await dispatch({ id: 'setup-passcode-submit', payload: '654321' });
     expect(mockFlowProps.current.password).toBe('654321');
     expect(mockFlowProps.current.seedPhrase).not.toBeNull();
-    expect(mockNavigate).toHaveBeenCalledWith('/#meet-guardian');
+    expect(mockNavigate).toHaveBeenCalledWith('/#guardian-intro');
   });
 
-  it('choose-guardian opens the full operator picker from the Meet your Guardian step', async () => {
+  it('guardian-intro-submit goes on from the intro to the operator screen', async () => {
     await renderWelcome();
     await dispatch({ id: 'setup-passcode-submit', payload: '654321' });
-    await setHash('#meet-guardian');
+    await setHash('#guardian-intro');
+    expect(currentStep()).toBe(OnboardingStep.GuardianIntro);
     mockNavigate.mockClear();
-    await dispatch({ id: 'choose-guardian' });
-    expect(mockNavigate).toHaveBeenCalledWith('/#choose-guardian');
+    await dispatch({ id: 'guardian-intro-submit' });
+    expect(mockNavigate).toHaveBeenCalledWith('/#meet-guardian');
   });
 
   it('select-import-type goes through the notice to the import choice screen', async () => {
@@ -1206,8 +1340,8 @@ describe('Welcome — choose-guardian-submit', () => {
     await dispatch({ id: 'setup-passcode-submit', payload: '111111' });
     mockNavigate.mockClear();
     await dispatch({ id: 'choose-guardian-submit', payload: { guardianEndpoint: 'https://g' } });
-    // Stage 1 of #408: the picked endpoint is captured in state (not written to
-    // the global GUARDIAN_URL_STORAGE_KEY) and threaded into registerWallet.
+    // The picked endpoint is held in state, never written to storage, and
+    // threaded into registerWallet.
     expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
     await dispatch({ id: 'confirmation' });
@@ -1247,11 +1381,9 @@ describe('Welcome — choose-guardian-submit', () => {
     await dispatch({ id: 'setup-passcode-submit', payload: '111111' });
     mockPutToStorage.mockClear();
     await dispatch({ id: 'choose-guardian-submit', payload: { guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' } });
-    // The global GUARDIAN_URL_STORAGE_KEY is frozen (#568 — per-account endpoints
-    // are authoritative), so onboarding must not write it for ANY value: the
-    // no-guardian branch leaves the endpoint unbound and threads `undefined`
-    // through registerWallet instead.
-    expect(mockPutToStorage).not.toHaveBeenCalledWith('guardian_url_setting', expect.anything());
+    // The no-guardian branch leaves the endpoint unbound: nothing is written to
+    // storage, and `undefined` is threaded through registerWallet instead.
+    expect(mockPutToStorage).not.toHaveBeenCalled();
     // driving to confirmation registers a private, no-guardian (OffChain) wallet
     await dispatch({ id: 'confirmation' });
     // ...threading an UNDEFINED guardian endpoint, the no-guardian marker the
@@ -1345,7 +1477,7 @@ describe('Welcome — create-password-submit', () => {
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     expect(mockFlowProps.current.password).toBe('pw');
     expect(mockFlowProps.current.seedPhrase).not.toBeNull();
-    expect(mockNavigate).toHaveBeenCalledWith('/#meet-guardian');
+    expect(mockNavigate).toHaveBeenCalledWith('/#guardian-intro');
   });
 
   it('seed-phrase import routes to recovery-method selection', async () => {
@@ -1367,7 +1499,6 @@ describe('Welcome — create-password-submit', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
     expect(mockNavigate).not.toHaveBeenCalledWith('/#import-select-recovery-method');
     expect(mockNavigate).not.toHaveBeenCalledWith('/#meet-guardian');
-    expect(mockNavigate).not.toHaveBeenCalledWith('/#choose-guardian');
   });
 
   it('otherwise proceeds directly to confirmation (mobile create path)', async () => {
@@ -1395,7 +1526,7 @@ describe('Welcome — import-select-recovery-method', () => {
       id: 'import-select-recovery-method',
       payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://g' }
     });
-    // Stage 1 of #408: no longer written to the global GUARDIAN_URL_STORAGE_KEY.
+    // The endpoint is threaded into registerWallet, never written to storage.
     expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
     await dispatch({ id: 'confirmation' });
@@ -1475,35 +1606,11 @@ describe('Welcome — confirmation / register', () => {
       'new-password',
       'alpha beta gamma delta',
       VERSION_TWO_PAYLOAD.accounts,
-      2,
       VERSION_TWO_PAYLOAD.importedAccounts
     );
     expect(mockRegisterWallet).not.toHaveBeenCalled();
     expect(mockProbeStart).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/');
-  });
-
-  it('preserves legacy file restore arguments without inventing a format or imported secrets', async () => {
-    const legacyPayload: DecryptedWalletFile = {
-      seedPhrase: 'legacy seed words',
-      midenClientDbContent: 'legacy-miden-db',
-      walletDbContent: 'legacy-wallet-db',
-      accounts: [{ ...VERSION_TWO_PAYLOAD.accounts[0]!, hdIndex: 0 }]
-    };
-    await renderWelcome();
-    await stageFileRestore(legacyPayload);
-    await dispatch({ id: 'create-password-submit', payload: { password: 'new-password' } });
-    await setHash('#confirmation');
-
-    await dispatch({ id: 'confirmation' });
-
-    expect(mockImportWalletFromClient).toHaveBeenCalledWith(
-      'new-password',
-      'legacy seed words',
-      legacyPayload.accounts,
-      undefined,
-      undefined
-    );
   });
 
   it('retries a failed file restore on Confirmation without routing to Guardian recovery', async () => {
@@ -1565,7 +1672,7 @@ describe('Welcome — confirmation / register', () => {
     await setHash('#confirmation');
     await dispatch({ id: 'confirmation' });
 
-    const reboundPayload: VersionTwoDecryptedWalletFile = {
+    const reboundPayload: DecryptedWalletFile = {
       ...VERSION_TWO_PAYLOAD,
       importedAccounts: [
         {
@@ -1581,7 +1688,7 @@ describe('Welcome — confirmation / register', () => {
     await dispatch({ id: 'confirmation' });
     expect(mockImportWalletFromClient).toHaveBeenCalledTimes(2);
 
-    const secretOnlyChange: VersionTwoDecryptedWalletFile = {
+    const secretOnlyChange: DecryptedWalletFile = {
       ...reboundPayload,
       importedAccounts: [{ ...IMPORTED_ACCOUNT_BACKUP, publicKeyCommitment: 'c3d4', secretKeyHex: '0506' }]
     };
@@ -1839,6 +1946,7 @@ describe('Welcome — confirmation / register', () => {
 
   it('drops a guardian choice whose hardware check answers after the user confirmed a passcode instead', async () => {
     mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
     await renderWelcome();
     expect(mockBiometricHW).toHaveBeenCalledTimes(1); // the mount-time check
     let answerHardwareCheck: (available: boolean) => void = () => undefined;
@@ -1857,7 +1965,7 @@ describe('Welcome — confirmation / register', () => {
 
     // Biometric path: the guardian choice waits on the hardware-security check.
     await dispatch({ id: 'setup-biometric-submit' });
-    await setHash('#choose-guardian');
+    await setHash('#meet-guardian');
     let staleChoice: Promise<void> | undefined;
     await act(async () => {
       staleChoice = mockFlowProps.current.onAction({ id: 'choose-guardian-submit', payload: guardian });
@@ -1869,7 +1977,7 @@ describe('Welcome — confirmation / register', () => {
     await dispatch({ id: 'setup-passcode' });
     await setHash('#setup-passcode');
     await dispatch({ id: 'setup-passcode-submit', payload: '123456' });
-    await setHash('#choose-guardian');
+    await setHash('#meet-guardian');
     await dispatch({ id: 'choose-guardian-submit', payload: guardian });
     await setHash('#confirmation');
     let attempt: Promise<void> | undefined;
@@ -1960,7 +2068,7 @@ describe('Welcome — confirmation / register', () => {
     await dispatch({ id: 'choose-protection' });
     await setHash('#create-password');
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
-    await setHash('#choose-guardian');
+    await setHash('#meet-guardian');
     await dispatch({ id: 'choose-guardian-submit', payload: { guardianId: 'g1', guardianEndpoint: 'https://g1' } });
     await setHash('#confirmation');
     await dispatch({ id: 'confirmation' });
@@ -2136,7 +2244,7 @@ describe('Welcome — confirmation / register', () => {
       mockNavigate.mockClear();
 
       // Browser back while readiness is still being checked.
-      await setHash('#choose-guardian');
+      await setHash('#meet-guardian');
       expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
       expect(currentStep()).toBe(OnboardingStep.Confirmation);
       await setHash('#confirmation');
@@ -2810,10 +2918,12 @@ describe('Welcome — back navigation', () => {
   // DIFFERENT file gets its own way back, because nothing has registered for that file yet.
   it('offers back on Confirmation for a different file staged through a history round trip after an earlier restore landed', async () => {
     const differentPayload: DecryptedWalletFile = {
+      formatVersion: 2,
       seedPhrase: 'zulu yankee xray whiskey',
       midenClientDbContent: 'other-miden-db',
       walletDbContent: 'other-wallet-db',
-      accounts: [{ ...VERSION_TWO_PAYLOAD.accounts[0]!, publicKey: 'different-account-id' }]
+      accounts: [{ ...VERSION_TWO_PAYLOAD.accounts[0]!, publicKey: 'different-account-id' }],
+      importedAccounts: []
     };
     jest.useFakeTimers();
     try {
@@ -2880,6 +2990,7 @@ describe('Welcome — back navigation', () => {
 
   it('returns to Welcome from ChooseProtection', async () => {
     mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
     await renderWelcome();
     await setHash('#choose-protection');
     expect(currentStep()).toBe(OnboardingStep.ChooseProtection);
@@ -2890,6 +3001,7 @@ describe('Welcome — back navigation', () => {
 
   it('SetupBiometric back returns to ChooseProtection on mobile', async () => {
     mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
     await renderWelcome();
     await setHash('#setup-biometric');
     mockNavigate.mockClear();
@@ -2897,51 +3009,55 @@ describe('Welcome — back navigation', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/#choose-protection');
   });
 
-  it('SetupBiometric back returns to Welcome where biometric is unsupported', async () => {
+  it('sends #setup-biometric to the password step where biometric is unsupported, whose back returns to Welcome', async () => {
     mockIsMobileFn.mockReturnValue(false);
     await renderWelcome();
     await setHash('#setup-biometric');
+    expect(mockNavigate).toHaveBeenCalledWith('/#create-password');
+    expect(currentStep()).not.toBe(OnboardingStep.SetupBiometric);
+    await setHash('#create-password');
+    expect(currentStep()).toBe(OnboardingStep.CreatePassword);
     mockNavigate.mockClear();
     await dispatch({ id: 'back' });
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
-  it('MeetGuardian back follows the biometric protection method', async () => {
+  it('GuardianIntro back follows the biometric protection method', async () => {
     await renderWelcome();
     await dispatch({ id: 'setup-biometric-submit' }); // protectionMethod = biometric
-    await setHash('#meet-guardian');
+    await setHash('#guardian-intro');
     mockNavigate.mockClear();
     await dispatch({ id: 'back' });
     expect(mockNavigate).toHaveBeenCalledWith('/#setup-biometric');
   });
 
-  it('MeetGuardian back follows the password protection method', async () => {
+  it('GuardianIntro back follows the password protection method', async () => {
     mockIsMobileFn.mockReturnValue(false);
     await renderWelcome();
     await dispatch({ id: 'choose-protection' }); // Create
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } }); // protectionMethod = password
-    await setHash('#meet-guardian');
+    await setHash('#guardian-intro');
     mockNavigate.mockClear();
     await dispatch({ id: 'back' });
     expect(mockNavigate).toHaveBeenCalledWith('/#create-password');
   });
 
-  it('MeetGuardian back defaults to the passcode screen', async () => {
+  it('GuardianIntro back defaults to the passcode screen', async () => {
     await renderWelcome();
     await dispatch({ id: 'setup-passcode-submit', payload: '111111' }); // protectionMethod = passcode
-    await setHash('#meet-guardian');
+    await setHash('#guardian-intro');
     mockNavigate.mockClear();
     await dispatch({ id: 'back' });
     expect(mockNavigate).toHaveBeenCalledWith('/#setup-passcode');
   });
 
-  it('ChooseGuardian back returns to the Meet your Guardian step it was pushed from', async () => {
+  it('MeetGuardian back returns to the guardian intro', async () => {
     await renderWelcome();
     await dispatch({ id: 'setup-passcode-submit', payload: '111111' });
-    await setHash('#choose-guardian');
+    await setHash('#meet-guardian');
     mockNavigate.mockClear();
     await dispatch({ id: 'back' });
-    expect(mockNavigate).toHaveBeenCalledWith('/#meet-guardian');
+    expect(mockNavigate).toHaveBeenCalledWith('/#guardian-intro');
   });
 
   it('CreatePassword back returns to guardian selection during a mobile create', async () => {
@@ -3231,7 +3347,7 @@ describe('Welcome — side-panel handoff', () => {
     mockNavigate.mockClear();
 
     // Browser back while it runs is sent back to Confirmation, which keeps showing the spinner.
-    await setHash('#choose-guardian');
+    await setHash('#meet-guardian');
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
     expect(currentStep()).toBe(OnboardingStep.Confirmation);
     await setHash('#confirmation');
@@ -3715,7 +3831,7 @@ describe('Welcome — E2E onboarding bypass', () => {
   });
 
   it('threads the guardianUrl param into registerWallet as the endpoint override (create)', async () => {
-    // #408 stage 3 regression guard: the bypass skips the ChooseGuardian screen,
+    // #408 stage 3 regression guard: the bypass skips the MeetGuardian screen,
     // so without this the guardianEndpoint override is undefined and a stage-3
     // create binds to the network default (ignoring the E2E's faulted endpoint).
     // The `guardianUrl` param must reach registerWallet's 5th arg (the override).
@@ -3738,14 +3854,14 @@ describe('Welcome — E2E onboarding bypass', () => {
       false, // not an import
       'http://localhost:3001' // the threaded override
     );
-    // The bypass no longer writes the global GUARDIAN_URL_STORAGE_KEY.
+    // The bypass threads the endpoint and writes nothing to storage.
     expect(mockPutToStorage).not.toHaveBeenCalled();
   });
 
   it('threads the guardianUrl param into registerWallet as the endpoint override (import/recovery)', async () => {
     // Recovery path: with a `seed` param the bypass runs an Import, and the same
     // override must reach registerWallet so Vault.spawn's recovery scan probes
-    // the right operator instead of the retained global-key/default fallback.
+    // the right operator instead of falling back to the network default.
     process.env.MIDEN_E2E_TEST = 'true';
     window.history.replaceState(
       null,
@@ -4179,7 +4295,6 @@ describe('Welcome - a file restore resumed by browser history', () => {
         password,
         'alpha beta gamma delta',
         VERSION_TWO_PAYLOAD.accounts,
-        2,
         VERSION_TWO_PAYLOAD.importedAccounts
       );
       expect(mockRegisterWallet).not.toHaveBeenCalled();
@@ -4205,7 +4320,6 @@ describe('Welcome - a file restore resumed by browser history', () => {
       undefined,
       'alpha beta gamma delta',
       VERSION_TWO_PAYLOAD.accounts,
-      2,
       VERSION_TWO_PAYLOAD.importedAccounts
     );
     expect(mockRegisterWallet).not.toHaveBeenCalled();
@@ -4226,7 +4340,6 @@ describe('Welcome - a file restore resumed by browser history', () => {
       'pw',
       'alpha beta gamma delta',
       VERSION_TWO_PAYLOAD.accounts,
-      2,
       VERSION_TWO_PAYLOAD.importedAccounts
     );
     expect(mockRegisterWallet).not.toHaveBeenCalled();
@@ -4259,7 +4372,6 @@ describe('Welcome - a file restore resumed by browser history', () => {
       'pw',
       'alpha beta gamma delta',
       VERSION_TWO_PAYLOAD.accounts,
-      2,
       VERSION_TWO_PAYLOAD.importedAccounts
     );
     expect(mockRegisterWallet).not.toHaveBeenCalled();

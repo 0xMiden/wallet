@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { SendStepLayout } from 'screens/send-flow/SendStepLayout';
 
@@ -97,11 +98,13 @@ jest.mock('../send-flow/SelectAmount', () => ({
         data-testid={`select-amount-${key}`}
         data-embedded={String(props.embedded)}
         data-show-balance-helper={String(props.showBalanceHelper)}
+        data-show-amount-divider={String(props.showAmountDivider)}
         data-amount={props.amount}
         data-valid={String(props.isValidAmount)}
         data-error={props.error}
         data-hide-error-text={String(Boolean(props.hideErrorText))}
         data-logo={props.logoSymbol}
+        data-token-label={props.tokenLabel}
         data-token={JSON.stringify(props.token)}
       >
         <button data-testid={`sa-change-${key}`} onClick={() => props.onAmountChange('changed')} />
@@ -109,6 +112,11 @@ jest.mock('../send-flow/SelectAmount', () => ({
       </div>
     );
   }
+}));
+
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
 }));
 
 type SwapToken = SwapAmountsProps['offerToken'];
@@ -167,6 +175,23 @@ describe('SwapAmounts', () => {
       expect(receive).toHaveAttribute('data-embedded', 'true');
     });
 
+    it('draws no rule under a typed amount on either field', () => {
+      renderComponent();
+
+      expect(screen.getByTestId('select-amount-youPay')).toHaveAttribute('data-show-amount-divider', 'false');
+      expect(screen.getByTestId('select-amount-youReceive')).toHaveAttribute('data-show-amount-divider', 'false');
+    });
+
+    it('names the registry iETH "Test iETH" on its side and leaves another token on its symbol (#477)', () => {
+      renderComponent({ requestToken: { ...requestToken, faucetId: TOKEN_IETH.faucetId } });
+
+      expect(screen.getByTestId('select-amount-youReceive')).toHaveAttribute('data-token-label', 'Test iETH');
+      expect(screen.getByTestId('select-amount-youPay')).toHaveAttribute('data-token-label', 'IMIDEN');
+
+      renderComponent({ offerToken: { ...offerToken, symbol: 'IETH', faucetId: TOKEN_IETH.faucetId } });
+      expect(screen.getAllByTestId('select-amount-youPay')[1]).toHaveAttribute('data-token-label', 'Test iETH');
+    });
+
     it('shows the available balance on You Pay but not on You Receive (#461)', () => {
       renderComponent({ offerBalance: 42 });
 
@@ -200,6 +225,20 @@ describe('SwapAmounts', () => {
         balance: 42,
         fiatPrice: 0
       });
+    });
+
+    it("hands each field the token's own symbol and faucet id, and the registry logo symbol for its fallback", () => {
+      renderComponent({
+        offerToken: { symbol: 'IETH', faucetId: 'faucet-ieth', decimals: 8, logoSymbol: 'ETH' },
+        requestToken: { symbol: 'IBTC', faucetId: 'faucet-ibtc', decimals: 8, logoSymbol: 'BTC' }
+      });
+      const pay = screen.getByTestId('select-amount-youPay');
+      const receive = screen.getByTestId('select-amount-youReceive');
+
+      expect(parseToken(pay)).toMatchObject({ name: 'IETH', id: 'faucet-ieth' });
+      expect(parseToken(receive)).toMatchObject({ name: 'IBTC', id: 'faucet-ibtc' });
+      expect(pay).toHaveAttribute('data-logo', 'ETH');
+      expect(receive).toHaveAttribute('data-logo', 'BTC');
     });
 
     it('maps the request SwapToken to a UIToken with the default zero balance', () => {

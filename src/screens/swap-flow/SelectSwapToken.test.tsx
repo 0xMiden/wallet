@@ -2,6 +2,9 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { TOKEN_IETH as REGISTRY_IETH } from 'lib/miden/swap/tokens';
+import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
+
 import { SelectSwapTokenDrawer } from './SelectSwapToken';
 
 // `react-i18next` pulls in the full i18n runtime; stub `useTranslation` so
@@ -9,6 +12,10 @@ import { SelectSwapTokenDrawer } from './SelectSwapToken';
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
+// The fiat values under test follow the default rule, no figure without a quote; pinned here against
+// Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
+jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
+const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 
 // `lib/mobile/haptics` reaches for the Capacitor Haptics plugin; stub the one
 // helper the row fires so we can assert selection triggers feedback.
@@ -29,7 +36,13 @@ type SwapToken = {
 const mockGetSwapTokens = jest.fn<SwapToken[], []>(() => []);
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokens: () => mockGetSwapTokens(),
-  normalizedFaucetId: jest.requireActual('lib/miden/swap/tokens').normalizedFaucetId
+  normalizedFaucetId: jest.requireActual('lib/miden/swap/tokens').normalizedFaucetId,
+  TOKEN_IETH: jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH
+}));
+
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
 }));
 
 // `lib/miden/front` is the WASM-backed data barrel. Stub the three hooks the
@@ -63,8 +76,24 @@ jest.mock('lib/store', () => ({
 // `components/TokenLogo` renders inline SVG logos; stub it to a probe that
 // surfaces the `symbol`/`size` props the row passes through.
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, size }: { symbol: string; size?: string }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-size={size} />
+  TokenLogo: ({
+    symbol,
+    faucetId,
+    fallbackSymbol,
+    size
+  }: {
+    symbol: string;
+    faucetId?: string;
+    fallbackSymbol?: string;
+    size?: string;
+  }) => (
+    <span
+      data-testid="token-logo"
+      data-symbol={symbol}
+      data-faucet-id={faucetId}
+      data-fallback-symbol={fallbackSymbol}
+      data-size={size}
+    />
   )
 }));
 
@@ -135,6 +164,10 @@ beforeEach(() => {
   mockStoreState = { tokenPrices: {} };
 });
 
+afterEach(() => {
+  mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+});
+
 describe('SelectSwapTokenDrawer', () => {
   it("leaves mobile back to SwapManager's handler, which closes the sheet", () => {
     renderDrawer();
@@ -164,8 +197,10 @@ describe('SelectSwapTokenDrawer', () => {
     const row = tokenButton('IETH');
     expect(within(row).getByText('IETH')).toBeInTheDocument();
     const logo = within(row).getByTestId('token-logo');
-    // `logoSymbol` (not `symbol`) drives the logo, at the home asset row's 36px default size.
-    expect(logo).toHaveAttribute('data-symbol', 'ETH');
+    // The token's own symbol keys the logo, as on Home, at the home asset row's 36px default size.
+    expect(logo).toHaveAttribute('data-symbol', 'IETH');
+    expect(logo).toHaveAttribute('data-faucet-id', 'fid-eth');
+    expect(logo).toHaveAttribute('data-fallback-symbol', 'ETH');
     expect(logo).not.toHaveAttribute('data-size');
   });
 
@@ -262,12 +297,38 @@ describe('SelectSwapTokenDrawer', () => {
       expect(within(tokenButton('IMIDEN')).queryByText(/^\$/)).not.toBeInTheDocument();
     });
 
+    it('values a token with no price symbol at the nominal $1 with the nominal rate on, never by its logo', () => {
+      mockedHasUnquotedDefaultPrice.mockReturnValue(true);
+      mockStoreState = { tokenPrices: { USDC: { price: 2 } } };
+      setTokens([IMIDEN, IETH, IUSDT, IBTC]);
+      setBalances([
+        { tokenId: 'fid-miden', metadata: { symbol: 'IMIDEN', decimals: 8 }, balance: 3 },
+        { tokenId: 'fid-usdt', metadata: { symbol: 'IUSDT', decimals: 8 }, balance: 5 }
+      ]);
+      renderDrawer();
+
+      expect(within(tokenButton('IMIDEN')).getByText('$3.00')).toBeInTheDocument();
+      expect(within(tokenButton('IUSDT')).getByText('$5.00')).toBeInTheDocument();
+    });
+
     it('never renders $0.00 for a priced token the account holds none of', () => {
       mockStoreState = { tokenPrices: { BTC: { price: 2 } } };
       renderDrawer();
 
       expect(within(tokenButton('IBTC')).queryByText('$0.00')).not.toBeInTheDocument();
     });
+  });
+
+  it('names the registry iETH "Test iETH" in its row and balance line, keeping the symbol for the logo (#477)', () => {
+    const iEth: SwapToken = { ...IETH, faucetId: REGISTRY_IETH.faucetId };
+    setTokens([IMIDEN, iEth]);
+    setBalances([{ tokenId: REGISTRY_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 2 }]);
+    renderDrawer();
+
+    const row = tokenButton('IETH');
+    expect(within(row).getByText('Test iETH')).toBeInTheDocument();
+    expect(within(row).getByText('2.00 Test iETH')).toBeInTheDocument();
+    expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-symbol', 'IETH');
   });
 
   it('marks only the row matching currentFaucetId as selected', () => {
