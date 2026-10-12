@@ -149,39 +149,36 @@ describe('HistoryItem', () => {
     ['confirmed', undefined, 't:usdcxBurnConfirmed'],
     ['confirmed', { balance: '1000000', blockNumber: '42' }, 't:confirmed'],
     ['discarded', undefined, 't:usdcxBurnDiscarded']
-  ] as const)(
-    'renders a USDCx %s burn with its own title and badge',
-    (phase, destinationBalanceConfirmed, label) => {
-      mockBridgeRowDisplay.mockReturnValue({
-        inSymbol: 'USDCx',
-        outSymbol: 'USDC',
-        inLabel: 'Miden USDCx',
-        outLabel: 'Sepolia USDC',
-        outAmount: '10',
-        providerLabel: 'USDCx',
-        network: 'Sepolia',
-        status: 'pending'
-      });
+  ] as const)('renders a USDCx %s burn with its own title and badge', (phase, destinationBalanceConfirmed, label) => {
+    mockBridgeRowDisplay.mockReturnValue({
+      inSymbol: 'USDCx',
+      outSymbol: 'USDC',
+      inLabel: 'Miden USDCx',
+      outLabel: 'Sepolia USDC',
+      outAmount: '10',
+      providerLabel: 'USDCx',
+      network: 'Sepolia',
+      status: 'pending'
+    });
 
-      render(
-        <HistoryItem
-          entry={makeEntry({
-            txType: 'bridged-send',
-            bridgeProvider: 'usdcx',
-            usdcxBurn: {
-              noteId: 'burn-note',
-              destinationDomain: 0,
-              phase,
-              destinationBalanceConfirmed
-            }
-          })}
-        />
-      );
+    render(
+      <HistoryItem
+        entry={makeEntry({
+          txType: 'bridged-send',
+          bridgeProvider: 'usdcx',
+          usdcxBurn: {
+            noteId: 'burn-note',
+            destinationDomain: 0,
+            phase,
+            destinationBalanceConfirmed
+          }
+        })}
+      />
+    );
 
-      expect(screen.getByText('t:usdcxBurnTitle')).toBeInTheDocument();
-      expect(screen.getByText(label)).toBeInTheDocument();
-    }
-  );
+    expect(screen.getByText('t:usdcxBurnTitle')).toBeInTheDocument();
+    expect(screen.getByText(label)).toBeInTheDocument();
+  });
 
   it('renders the explorer-link (anchor) variant with receive styling, address, amount, token and cancel button', () => {
     const cancel = jest.fn().mockResolvedValue(undefined);
