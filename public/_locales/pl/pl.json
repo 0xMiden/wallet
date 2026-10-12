@@ -1072,6 +1072,7 @@
   "youAreDepositing": "Dokonujesz wpłaty",
   "confirmDeposit": "Potwierdź wpłatę",
   "bridgeDepositProcessing": "Potwierdzanie wpłaty na most",
+  "bridgeDepositProcessingDescription": "Zatwierdź żądania w swoim portfelu — może pojawić się prośba więcej niż raz — i pozostaw ten ekran otwarty, dopóki sieć źródłowa ich nie potwierdzi.",
   "bridgeDepositFailed": "Niepowodzenie wpłaty na most",
   "bridgeDepositSubmitted": "Most uruchomiony!",
   "bridgeDepositDeliveryDescription": "Transakcja źródłowa została potwierdzona. Twoje środki pojawią się w Miden po zakończeniu transferu mostkowego.",
@@ -1385,5 +1386,7 @@
   "testIethExecution": "Wymiana odbywa się za pośrednictwem inteligentnego kontraktu w sieci testowej Miden Testnet.",
   "swapExecutionTitle": "Gdzie odbywa się wymiana",
   "tokenInfoLabel": "O $token$",
-  "externalPageLoadFailed": "Nie udało się otworzyć tej strony. Sprawdź połączenie i spróbuj ponownie."
+  "externalPageLoadFailed": "Nie udało się otworzyć tej strony. Sprawdź połączenie i spróbuj ponownie.",
+  "bridgeDepositAwaitingNextConfirmation": "Oczekiwanie na kolejne potwierdzenie portfela",
+  "bridgeDepositAwaitingNextConfirmationDescription": "Pierwsze potwierdzenie zostało wykonane. Portfel poprosi Cię o ponowne potwierdzenie — pozostaw ten ekran otwarty."
 }

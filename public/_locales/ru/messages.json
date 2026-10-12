@@ -4717,8 +4717,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "message": "Утвердите запросы в вашем кошельке — он может запрашивать это несколько раз — и держите этот экран открытым, пока исходная сеть их подтверждает.",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "Ошибка при внесении депозита через мост",
@@ -6193,11 +6193,11 @@
     "englishSource": "Couldn't open this page. Check your connection and try again."
   },
   "bridgeDepositAwaitingNextConfirmation": {
-    "message": "Waiting for the next wallet confirmation",
-    "englishSource": "[awaiting translation]"
+    "message": "Ожидание следующего подтверждения кошелька",
+    "englishSource": "Waiting for the next wallet confirmation"
   },
   "bridgeDepositAwaitingNextConfirmationDescription": {
-    "message": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open.",
-    "englishSource": "[awaiting translation]"
+    "message": "Первое подтверждение выполнено. Ваш кошелек попросит вас подтвердить ещё раз — оставьте этот экран открытым.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
   }
 }

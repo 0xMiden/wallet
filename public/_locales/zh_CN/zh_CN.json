@@ -1072,6 +1072,7 @@
   "youAreDepositing": "您正在存入",
   "confirmDeposit": "确认存款",
   "bridgeDepositProcessing": "确认桥接存款",
+  "bridgeDepositProcessingDescription": "请在您的钱包中批准这些请求——系统可能会多次提示——并在源网络确认这些请求期间保持此屏幕打开。",
   "bridgeDepositFailed": "桥接存款失败",
   "bridgeDepositSubmitted": "桥接已启动！",
   "bridgeDepositDeliveryDescription": "源交易已确认。当跨链转账完成后，您的资金将显示在 Miden 上。",
@@ -1385,5 +1386,7 @@
   "testIethExecution": "该更换操作通过 Miden 测试网上的智能合约执行。",
   "swapExecutionTitle": "交换操作的执行位置",
   "tokenInfoLabel": "关于 $token$",
-  "externalPageLoadFailed": "无法打开此页面。请检查网络连接并重试。"
+  "externalPageLoadFailed": "无法打开此页面。请检查网络连接并重试。",
+  "bridgeDepositAwaitingNextConfirmation": "等待下一个钱包确认",
+  "bridgeDepositAwaitingNextConfirmationDescription": "首次确认已完成。您的钱包会要求您再次确认——请保持此屏幕打开。"
 }

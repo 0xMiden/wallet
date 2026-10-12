@@ -1072,6 +1072,7 @@
   "youAreDepositing": "You are depositing",
   "confirmDeposit": "Confirm Deposit",
   "bridgeDepositProcessing": "Confirming bridge deposit",
+  "bridgeDepositProcessingDescription": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them.",
   "bridgeDepositFailed": "Bridge deposit failed",
   "bridgeDepositSubmitted": "Bridge initiated!",
   "bridgeDepositDeliveryDescription": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes.",
@@ -1385,5 +1386,7 @@
   "testIethExecution": "The swap executes through a smart contract on Miden Testnet.",
   "swapExecutionTitle": "Where the swap executes",
   "tokenInfoLabel": "About $token$",
-  "externalPageLoadFailed": "Couldn't open this page. Check your connection and try again."
+  "externalPageLoadFailed": "Couldn't open this page. Check your connection and try again.",
+  "bridgeDepositAwaitingNextConfirmation": "Waiting for the next wallet confirmation",
+  "bridgeDepositAwaitingNextConfirmationDescription": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
 }

@@ -1072,6 +1072,7 @@
   "youAreDepositing": "Para yatırıyorsunuz",
   "confirmDeposit": "Para Yatırma İşlemini Onayla",
   "bridgeDepositProcessing": "Köprü yatırımı onayı",
+  "bridgeDepositProcessingDescription": "Cüzdanınızdaki istekleri onaylayın — birden fazla kez sorulabilir — ve kaynak ağ bunları onaylarken bu ekranı açık tutun.",
   "bridgeDepositFailed": "Köprü yatırımı başarısız oldu",
   "bridgeDepositSubmitted": "Köprü başlatıldı!",
   "bridgeDepositDeliveryDescription": "Kaynak işlem onaylandı. Köprü aktarımı tamamlandığında paranız Miden'de görünecektir.",
@@ -1385,5 +1386,7 @@
   "testIethExecution": "Takas, Miden Testnet üzerindeki bir akıllı sözleşme aracılığıyla gerçekleştirilir.",
   "swapExecutionTitle": "Değişimin gerçekleştiği yer",
   "tokenInfoLabel": "$token$ hakkında",
-  "externalPageLoadFailed": "Bu sayfa açılamadı. Bağlantınızı kontrol edin ve tekrar deneyin."
+  "externalPageLoadFailed": "Bu sayfa açılamadı. Bağlantınızı kontrol edin ve tekrar deneyin.",
+  "bridgeDepositAwaitingNextConfirmation": "Bir sonraki cüzdan onayı bekleniyor",
+  "bridgeDepositAwaitingNextConfirmationDescription": "İlk onay işlemi tamamlandı. Cüzdanınız sizden bir kez daha onaylamanızı isteyecektir — bu ekranı açık tutun."
 }
