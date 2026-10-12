@@ -4,7 +4,8 @@
 
 ### Features
 
-- [FEATURE][ui] Home names the test network in a banner above the action bar, in place of the pill above the balance card, with a "Switch to mainnet" action that opens a sheet for the mainnet access code. An accepted code plays a short oven animation (the test network's dough bakes into the Mainnet loaf), then shows a "Welcome to mainnet" screen. Every sheet opens and closes about 25% slower.
+- [FEATURE][ui] Home names the test network in a banner above the action bar, in place of the pill above the balance card. Every sheet opens and closes about 25% slower.
+- [FEATURE][all] When the remote wallet config sets `onboarding.inviteOnly`, a wallet set up on a test network before that is covered by a "Miden Testnet has ended" screen whose one action resets the app (every storage, balances and history) and reloads into onboarding. A wallet the invite-only Welcome sets up is not covered. The banner's "Switch to mainnet" sheet and the oven welcome are removed.
 - [FEATURE][all] Seven logo taps on Welcome open the invite-only Welcome: "I have a code" asks the node to check the mainnet access code before the create flow, and "I don't have a code" explains the invite and offers account recovery; seven more taps open Developer Settings. Welcome keeps the create and recover flows behind the test-network notice by default. Web SDK 0.17.3 for the code check, with the note-relay patch regenerated.
 - [FEATURE][all] The remote wallet config chooses the Welcome variant with `onboarding.inviteOnly`: true shows the invite-only Welcome, false the general one, and seven logo taps then open Developer Settings. A document without the key keeps the seven-tap unlock of the invite-only Welcome. While the config loads, Welcome hides its actions for at most 3 seconds.
 

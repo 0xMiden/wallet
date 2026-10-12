@@ -20,6 +20,7 @@ import { UpdateNotificationProvider } from 'app/providers/UpdateNotificationProv
 import { HotKeyRotationGate } from 'app/templates/HotKeyRotationGate';
 import { PinExtensionPrompt } from 'app/templates/PinExtensionPrompt';
 import { ScreenKeyPublisher } from 'app/templates/ScreenKeyPublisher';
+import { TestnetEndedGate } from 'app/templates/TestnetEndedGate';
 import { ExtensionMessageListener } from 'components/ConnectivityIssueBanner';
 import { MidenProvider, request } from 'lib/miden/front';
 import { isDesktop as checkIsDesktop, isExtension, isMobile as checkIsMobile } from 'lib/platform';
@@ -98,6 +99,7 @@ const App: FC<AppProps> = ({ env }) => {
                       // when the user moves to a different tab.
                       <DappBrowserProvider>
                         <UpdateNotificationProvider>
+                          <TestnetEndedGate />
                           <HotKeyRotationGate />
                           <GuardianRecoveryProvider />
                           <PageRouter />
@@ -105,6 +107,7 @@ const App: FC<AppProps> = ({ env }) => {
                       </DappBrowserProvider>
                     ) : (
                       <UpdateNotificationProvider>
+                        <TestnetEndedGate />
                         <HotKeyRotationGate />
                         <GuardianRecoveryProvider />
                         <PageRouter />

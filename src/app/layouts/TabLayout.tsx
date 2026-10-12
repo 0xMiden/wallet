@@ -336,7 +336,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   panesRef.current[activeTab] = showActionBar ? (
     <>
       <div className="shrink-0 relative z-10">
-        {/* The test network's name and the way to mainnet, above every Home-group pane. */}
+        {/* The test network's name, above every Home-group pane. */}
         <NetworkModeBanner variant="home" />
         <SegmentedActionBar
           items={actionItems}
