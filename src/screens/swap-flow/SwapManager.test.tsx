@@ -6,6 +6,7 @@ import { SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { applyOverrideFor } from 'lib/miden/metadata/overrides';
 import { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
+import { SwapPair } from 'lib/miden/swap/tokens';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 // Import after the mocks are registered.
@@ -209,10 +210,12 @@ jest.mock('components/SpendingLimitChallenge', () => ({
   }
 }));
 
+let mockDefaultPairOverride: SwapPair | undefined;
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokens: () => mockGetSwapTokens(),
   // The form opens on the document's first two tokens; mirror that over the mocked registry.
   getDefaultSwapPair: () => {
+    if (mockDefaultPairOverride !== undefined) return mockDefaultPairOverride;
     const [offer, request] = mockGetSwapTokens();
     return offer && request ? { offer, request } : null;
   },
@@ -327,6 +330,7 @@ beforeEach(() => {
   mockNav = { navigateTo: jest.fn(), goBack: jest.fn(), cardStack: [{ name: 'SwapAmounts' }] };
   mockBackHandler = null;
   mockAuthorizationAccountOverride = undefined;
+  mockDefaultPairOverride = undefined;
   mockWalletState = {
     isTransactionModalOpen: false,
     lastCompletedTxHash: null,
@@ -798,6 +802,24 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('10');
     });
 
+    it('resets an idle draft when the default pair changes within stable effective tokens', () => {
+      const nativeToken = { ...mockTokenC, symbol: 'MIDEN', logoSymbol: 'MIDEN' };
+      mockGetSwapTokens.mockReturnValue([nativeToken, mockTokenA, mockTokenB]);
+      mockDefaultPairOverride = { offer: mockTokenA, request: mockTokenB };
+      const { rerender } = renderFlow();
+      setOffer('10');
+      expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('AAA');
+      expect(screen.getByTestId('sa-request-token')).toHaveTextContent('BBB');
+      expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('10');
+
+      mockDefaultPairOverride = { offer: nativeToken, request: mockTokenA };
+      rerender(<SwapFlow />);
+      expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('MIDEN');
+      expect(screen.getByTestId('sa-request-token')).toHaveTextContent('AAA');
+      expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+      expect(screen.getByTestId('sa-request-amount')).toBeEmptyDOMElement();
+    });
+
     it.each([
       { change: 'selected-token removal', tokens: [mockTokenA, mockTokenB] },
       { change: 'metadata refresh', tokens: [mockTokenA, mockTokenB, { ...mockTokenC, decimals: 0 }] },
@@ -822,11 +844,9 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-C', 10n, 'faucet-B', 5n, false, 120, true);
       expect(swapFlow().complete).toHaveBeenCalledTimes(1);
       expect(swapFlow().cancel).not.toHaveBeenCalled();
-      if (tokens.length === 0) expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
-      else {
-        expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('AAA');
-        expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
-      }
+      expect(screen.queryByTestId('swap-amounts') !== null).toBe(tokens.length !== 0);
+      expect(screen.queryByTestId('sa-offer-token')?.textContent ?? null).toBe(tokens.length === 0 ? null : 'AAA');
+      expect(screen.queryByTestId('sa-offer-amount')?.textContent ?? null).toBe(tokens.length === 0 ? null : '');
     });
 
     it('owns review presses synchronously before assessment resolves', async () => {
@@ -863,8 +883,8 @@ describe('SwapFlow / SwapManager', () => {
       await act(async () => fireEvent.click(screen.getByRole('button', { name: 'cancel-limit' })));
       expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
       expect(mockInitiateSwap).not.toHaveBeenCalled();
-      if (tokens.length === 0) expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
-      else expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+      expect(screen.queryByTestId('swap-amounts') !== null).toBe(tokens.length !== 0);
+      expect(screen.queryByTestId('sa-offer-amount')?.textContent ?? null).toBe(tokens.length === 0 ? null : '');
     });
 
     it('executes a held challenge once despite duplicate authorization callbacks', async () => {
