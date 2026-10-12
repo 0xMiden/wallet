@@ -850,6 +850,39 @@ public class BreadPresentationControllerTest {
         assertEquals(token, controller.state.token()); assertTrue(controller.state.isReady());
     }
 
+    @Test public void expiredCurrentDocumentReadyIsRejected() {
+        openIdentified(); commit(startDocument());
+        message("configure", "current"); flushTokenReads("current");
+        controller.state.tick(android.os.SystemClock.uptimeMillis() + 30_000); controller.render();
+        assertEquals(BreadPresentationState.Phase.ERROR, controller.state.phase());
+        message("ready", "current"); flushTokenReads("current");
+        assertTrue("Expired readiness must reject the page promise",
+            shadowOf(webView).getLastEvaluatedJavascript().contains("\"ok\":false"));
+        assertFalse(controller.state.isReady());
+        assertEquals(BreadPresentationState.Phase.ERROR, controller.state.phase());
+        assertEquals(View.VISIBLE, ((View) ReflectionHelpers.getField(controller, "cover")).getVisibility());
+    }
+
+    @Test public void currentDocumentReadyAcknowledgesAcceptance() {
+        openIdentified(); commit(startDocument());
+        readyDocument("current");
+        assertTrue("Accepted readiness must resolve the page promise",
+            shadowOf(webView).getLastEvaluatedJavascript().contains("\"ok\":true"));
+    }
+
+    @Test public void hiddenCurrentDocumentReadyAcknowledgesAcceptanceWithoutReveal() {
+        openIdentified(); commit(startDocument());
+        message("configure", "current"); flushTokenReads("current");
+        controller.visibility(false);
+        controller.state.tick(android.os.SystemClock.uptimeMillis() + 60_000);
+        message("ready", "current"); flushTokenReads("current");
+        assertTrue("Hidden accepted readiness must resolve the page promise",
+            shadowOf(webView).getLastEvaluatedJavascript().contains("\"ok\":true"));
+        assertTrue(controller.state.isReady());
+        assertEquals(BreadPresentationState.Phase.TEMPORARILY_HIDDEN, controller.state.phase());
+        assertEquals(View.VISIBLE, ((View) ReflectionHelpers.getField(controller, "cover")).getVisibility());
+    }
+
     private void initialDocument() {
         openIdentified(); commit(startDocument()); readyDocument("old");
     }

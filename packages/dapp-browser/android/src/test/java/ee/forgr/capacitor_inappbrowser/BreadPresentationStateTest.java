@@ -12,6 +12,23 @@ public class BreadPresentationStateTest {
         return state;
     }
 
+    @Test public void readinessAcceptanceRequiresLiveConfiguredPreparation() {
+        BreadPresentationState state = new BreadPresentationState(30000);
+        state.navigate(0);
+        assertFalse("Unconfigured readiness must be rejected", state.ready());
+        state.configure("doc", true, true);
+        assertTrue("Configured readiness must be accepted", state.ready());
+        state.visibility(false, 0);
+        assertTrue("Hidden current-document readiness must be accepted", state.ready());
+        state.visibility(true, 0);
+        state.tick(30000);
+        assertFalse("Expired readiness must be rejected", state.ready());
+        state.navigate(30000);
+        state.configure("next", true, true);
+        state.close();
+        assertFalse("Closed readiness must be rejected", state.ready());
+    }
+
     @Test public void navigationInvalidatesOldPaintAndDocumentAuthority() {
         BreadPresentationState state = ready();
         long old = state.generation();

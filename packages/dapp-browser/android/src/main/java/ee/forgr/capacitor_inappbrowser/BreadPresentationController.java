@@ -311,14 +311,17 @@ final class BreadPresentationController {
 
     private void applyReadiness() {
         if (configuration == null || readiness == null) return;
-        state.ready();
-        respond(readiness, null);
+        respond(readiness, state.ready(), null);
     }
 
     private void respond(JSONObject message, Runnable completion) {
+        respond(message, true, completion);
+    }
+
+    private void respond(JSONObject message, boolean accepted, Runnable completion) {
         try {
             JSONObject response = new JSONObject().put("token", message.getString("token"))
-                .put("requestId", message.getString("requestId")).put("ok", true);
+                .put("requestId", message.getString("requestId")).put("ok", accepted);
             long generation = state.navigationGeneration();
             long epoch = retryEpoch;
             webView.evaluateJavascript("window.__breadPresentationRespond(" + response + ")", result -> {

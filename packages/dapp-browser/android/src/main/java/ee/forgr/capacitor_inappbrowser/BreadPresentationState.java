@@ -85,7 +85,11 @@ final class BreadPresentationState {
         return true;
     }
 
-    void ready() { if (configured && !closed && !failed) ready = true; }
+    boolean ready() {
+        if (!configured || closed || failed) return false;
+        ready = true;
+        return true;
+    }
 
     // Paint callbacks are also invalidated by geometry and visibility changes.
     void layoutChanged() { if (!closed) { generation++; painted = false; } }
