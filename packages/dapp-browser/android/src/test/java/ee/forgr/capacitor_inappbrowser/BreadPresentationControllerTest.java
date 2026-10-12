@@ -288,6 +288,55 @@ public class BreadPresentationControllerTest {
         verify(callbacks, times(1)).closeEvent(anyString());
     }
 
+    @Test @Config(shadows = PaintWebView.class)
+    public void managedClosePausesOnlyTheGameBeforeRequestingHostPaint() {
+        open(true, true, "default");
+        controller.state.configure("browser", false, false);
+        acknowledgePolicy();
+        WebView attachedHost = ReflectionHelpers.getField(dialog, "capacitorWebView");
+        activity.setContentView(attachedHost, new ViewGroup.LayoutParams(390, 844));
+        shadowOf(Looper.getMainLooper()).idle();
+        assertTrue(attachedHost.isAttachedToWindow());
+        WebView host = spy(attachedHost);
+        doReturn(390).when(host).getWidth(); doReturn(844).when(host).getHeight();
+        doReturn(false).when(host).isHardwareAccelerated();
+        ReflectionHelpers.setField(dialog, "capacitorWebView", host);
+        WebView game = webView;
+        assertTrue(game.isAttachedToWindow());
+        assertFalse(shadowOf(game).wasOnPauseCalled());
+        assertFalse(shadowOf(host).wasOnPauseCalled());
+        List<Boolean> pausedAtRequest = new ArrayList<>();
+        WebViewRegistry.getShared().register("managed", dialog);
+        dialog.configureManagedClose("managed", new JSObject().put("token", "lifetime"), request -> {
+            pausedAtRequest.add(shadowOf(game).wasOnPauseCalled());
+            assertFalse(shadowOf(host).wasOnPauseCalled());
+            assertTrue(game.isAttachedToWindow());
+            assertEquals(View.VISIBLE, game.getVisibility());
+            assertFalse(game.isEnabled());
+            assertFalse(shadowOf(game).wasDestroyCalled());
+        });
+        Runnable completion = mock(Runnable.class);
+        dialog.requestClose(completion);
+        assertEquals(java.util.Collections.singletonList(true), pausedAtRequest);
+        assertTrue(dialog.isShowing());
+        verify(completion, never()).run();
+        PaintWebView renderer = Shadow.extract(host);
+        assertNull(renderer.fence);
+        ManagedHostClose managed = dialog.managedClose();
+        assertFalse(managed.complete("stale", managed.requestId(), 1));
+        assertNull(renderer.fence);
+        assertTrue(managed.complete("lifetime", managed.requestId(), 1));
+        assertNotNull(renderer.fence);
+        assertTrue(game.isAttachedToWindow());
+        assertFalse(shadowOf(game).wasDestroyCalled());
+        assertFalse(shadowOf(host).wasOnPauseCalled());
+        verify(completion, never()).run();
+        renderer.fence.onComplete(renderer.request);
+        assertFalse(dialog.isShowing());
+        verify(completion, times(1)).run();
+        verify(callbacks, times(1)).closeEvent(anyString());
+    }
+
     @Test public void nativeOpenCannotReplaceManagedIdBeforeOrDuringClose() {
         open(true, true, "default");
         WebViewRegistry.getShared().register("managed", dialog);
@@ -376,7 +425,10 @@ public class BreadPresentationControllerTest {
         WebViewRegistry.getShared().register("managed", dialog);
         dialog.configureManagedClose("managed", new JSObject().put("token", "lifetime")
             .put("errorLabel", "Error").put("retryLabel", "Retry").put("exitLabel", "Exit now"), ignored -> {});
+        WebView game = webView;
+        WebView host = ReflectionHelpers.getField(dialog, "capacitorWebView");
         dialog.dismiss();
+        assertTrue(shadowOf(game).wasOnPauseCalled());
         dialog.presentationForeground(false);
         shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(6));
         assertNull(ReflectionHelpers.getField(dialog.managedClose(), "failureView"));
@@ -391,6 +443,11 @@ public class BreadPresentationControllerTest {
         retry.performClick();
         assertEquals(android.view.HapticFeedbackConstants.VIRTUAL_KEY, shadowOf(retry).lastHapticFeedbackPerformed());
         assertNotEquals(request, dialog.managedClose().requestId());
+        assertTrue(shadowOf(game).wasOnPauseCalled());
+        assertFalse(shadowOf(game).wasOnResumeCalled());
+        assertFalse(shadowOf(host).wasOnPauseCalled());
+        assertTrue(game.isAttachedToWindow());
+        assertFalse(shadowOf(game).wasDestroyCalled());
         shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(6));
         ViewGroup retriedFailure = ReflectionHelpers.getField(dialog.managedClose(), "failureView");
         View exit = retriedFailure.getChildAt(2);

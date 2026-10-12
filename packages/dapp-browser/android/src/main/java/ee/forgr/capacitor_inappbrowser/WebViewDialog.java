@@ -111,7 +111,12 @@ public class WebViewDialog extends Dialog {
     private ManagedHostClose managedClose;
     boolean managedClosing() { return managedClose != null && managedClose.closing(); }
     ManagedHostClose managedClose() { return managedClose; }
-    void disableClosingPage() { if (_webView != null) _webView.setEnabled(false); }
+    void disableClosingPage() {
+        if (_webView != null) {
+            _webView.setEnabled(false);
+            _webView.onPause();
+        }
+    }
     void configureManagedClose(String id, JSObject options, java.util.function.Consumer<JSObject> notify) {
         if (options != null && !options.getString("token", "").isEmpty())
             managedClose = new ManagedHostClose(id, this, capacitorWebView, options, notify, this::finishDismiss);
