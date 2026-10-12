@@ -98,27 +98,35 @@ jest.mock('components/Navigator', () => ({
 
 // The three swap-flow children are exercised by their own suites; stub them to
 // thin harnesses that surface every prop and forward every callback.
-jest.mock('./SwapAmounts', () => ({
-  SwapAmounts: (props: Record<string, any>) => (
-    <div data-testid="swap-amounts">
-      <span data-testid="sa-offer-token">{props.offerToken.symbol}</span>
-      <span data-testid="sa-request-token">{props.requestToken.symbol}</span>
-      <span data-testid="sa-offer-balance">{String(props.offerBalance)}</span>
-      <span data-testid="sa-offer-amount">{props.offerAmount}</span>
-      <span data-testid="sa-request-amount">{props.requestAmount}</span>
-      <span data-testid="sa-can-proceed">{String(props.canProceed)}</span>
-      <span data-testid="sa-status">{props.statusMessage ?? ''}</span>
-      <span data-testid="sa-status-error">{String(props.statusIsError)}</span>
-      <span data-testid="sa-request-loading">{String(props.requestLoading)}</span>
-      <input data-testid="sa-offer-input" onChange={e => props.onOfferAmountChange(e.target.value)} />
-      <input data-testid="sa-request-input" onChange={e => props.onRequestAmountChange(e.target.value)} />
-      <button data-testid="sa-select-offer" onClick={props.onSelectOfferToken} />
-      <button data-testid="sa-select-request" onClick={props.onSelectRequestToken} />
-      <button data-testid="sa-swap-direction" onClick={props.onSwapDirection} />
-      <button data-testid="sa-confirm" onClick={props.onConfirm} />
-    </div>
-  )
-}));
+jest.mock('./SwapAmounts', () => {
+  const { AmountInput } = jest.requireActual<typeof import('components/AmountInput')>('components/AmountInput');
+  return {
+    SwapAmounts: (props: import('./SwapAmounts').SwapAmountsProps) => (
+      <div data-testid="swap-amounts">
+        <span data-testid="sa-offer-token">{props.offerToken.symbol}</span>
+        <span data-testid="sa-request-token">{props.requestToken.symbol}</span>
+        <span data-testid="sa-offer-balance">{String(props.offerBalance)}</span>
+        <span data-testid="sa-offer-amount">{props.offerAmount}</span>
+        <span data-testid="sa-request-amount">{props.requestAmount}</span>
+        <span data-testid="sa-can-proceed">{String(props.canProceed)}</span>
+        <span data-testid="sa-status">{props.statusMessage ?? ''}</span>
+        <span data-testid="sa-status-error">{String(props.statusIsError)}</span>
+        <span data-testid="sa-request-loading">{String(props.requestLoading)}</span>
+        <input data-testid="sa-offer-input" onChange={e => props.onOfferAmountChange(e.target.value)} />
+        <AmountInput
+          data-testid="sa-request-input"
+          value={props.requestAmount}
+          loading={props.requestLoading}
+          onValueChange={amount => props.onRequestAmountChange(amount ?? '')}
+        />
+        <button data-testid="sa-select-offer" onClick={props.onSelectOfferToken} />
+        <button data-testid="sa-select-request" onClick={props.onSelectRequestToken} />
+        <button data-testid="sa-swap-direction" onClick={props.onSwapDirection} />
+        <button data-testid="sa-confirm" onClick={props.onConfirm} />
+      </div>
+    )
+  };
+});
 
 jest.mock('./ReviewSwap', () => ({
   ReviewSwap: (props: Record<string, any>) => (
@@ -748,6 +756,34 @@ describe('SwapFlow / SwapManager', () => {
   });
 
   describe('receive-field skeleton', () => {
+    it.each([null, undefined, '0', 'not-a-rate', '0.0000000001'])(
+      'allows manual receive entry after a completed unusable rate %s',
+      marketPrice => {
+        mockDeriveRequestAmount.mockReturnValue('');
+        mockSwapEtaResult = {
+          loading: false,
+          eta: { canFill: false, offMarket: null, marketPrice, estimatedSeconds: null, median24hSeconds: null }
+        };
+        renderFlow();
+        setOffer('10');
+
+        expect(screen.getByTestId('sa-request-input')).toBeEnabled();
+        expect(screen.getByTestId('sa-request-loading')).toHaveTextContent('false');
+        setRequest('9');
+        expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('9');
+        expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+      }
+    );
+
+    it('keeps a valid-rate unfillable order editable and eligible', () => {
+      renderFlow();
+      setOffer('10');
+      expect(screen.getByTestId('sa-request-input')).toBeEnabled();
+      setRequest('9');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+      expect(screen.getByTestId('sa-status')).toHaveTextContent('');
+    });
+
     it('flags the receive field as calculating while the first quote is pending', () => {
       mockDeriveRequestAmount.mockImplementation(() => '');
       mockSwapEtaResult = { loading: true };

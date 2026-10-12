@@ -218,9 +218,9 @@ export interface SwapEta {
   /** Next-batch ETA in seconds, set when `canFill` is true. */
   estimatedSeconds: number | null;
   /** Is the asked price worse than the live oracle? */
-  offMarket: boolean;
+  offMarket: boolean | null;
   /** Oracle fair rate: requested whole tokens per 1 offered whole token. */
-  marketPrice: string;
+  marketPrice: string | null;
   /** Median settle time (s) for this pair over the last 24h, null if no data. */
   median24hSeconds: number | null;
 }
@@ -286,7 +286,7 @@ export const SOLVER_MARGIN = 0.05;
  * precision; returns '' when the inputs aren't usable yet (no amount, no rate,
  * or a non-positive result).
  */
-export function deriveRequestAmount(offerAmount: string, marketPrice: string | undefined, decimals: number): string {
+export function deriveRequestAmount(offerAmount: string, marketPrice: string | null | undefined, decimals: number): string {
   const offered = Number(offerAmount);
   const rate = Number(marketPrice);
   if (!offered || !rate || !Number.isFinite(rate)) {

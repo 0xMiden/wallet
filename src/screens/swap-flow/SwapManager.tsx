@@ -263,7 +263,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
   }, [offerAmount, offerToken.decimals]);
   const hasOfferAmount = offerAmountValue > 0;
   const offerAmountExceedsBalance = offerAmountValue > offerSpendable;
-  const quoteUnavailable = Boolean(swapEta.error);
+  const quoteUnavailable = Boolean(swapEta.error) || (hasOfferAmount && swapEta.eta !== undefined && !quote);
   const expirySecondsValue = Number(expirySeconds);
   // Whole seconds inside the wallet's own reclaim window, not merely "a positive integer":
   // an expiry under the floor is reclaimed before a solver can fill it, and the review screen

@@ -48,7 +48,7 @@ export interface ReviewSwapProps {
 }
 
 /** The oracle rate as a number, or `undefined` when there isn't one to show. */
-function parseRate(marketPrice?: string): number | undefined {
+function parseRate(marketPrice?: string | null): number | undefined {
   const rate = Number(marketPrice);
   if (!rate || !Number.isFinite(rate)) return undefined;
   return rate;
