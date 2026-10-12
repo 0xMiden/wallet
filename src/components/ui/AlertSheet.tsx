@@ -1,8 +1,10 @@
 import React, { ReactNode, useId, useRef } from 'react';
 
 import { Button, ButtonVariant } from 'components/ui/Button';
+import { useCloseOnBack } from 'lib/mobile/useCloseOnBack';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { Drawer, DrawerContent, DrawerTitle } from 'lib/ui/drawer';
+import { useImperativeModalFocus } from 'lib/ui/host-modal';
 
 export interface AlertSheetProps {
   open: boolean;
@@ -22,6 +24,11 @@ export interface AlertSheetProps {
   screenKey?: string;
 }
 
+function AlertBack({ dismiss }: { dismiss: () => void }) {
+  useCloseOnBack(true, dismiss);
+  return null;
+}
+
 /**
  * A confirmation or an alert as a bottom sheet, with Radix AlertDialog semantics
  * (skills/miden-wallet-frontend/references/design-system.md, "Confirm / alert"): the sheet is an
@@ -31,8 +38,7 @@ export interface AlertSheetProps {
  * Escape cancels (or acknowledges an alert); a drag or a press outside does nothing, because the
  * question needs an answer. The caller owns `open`.
  *
- * It opens above every other layer (drawers 50 < native navbar 60 < dApp confirm 70 < this), since
- * a confirmation is usually asked from inside a drawer, and it leaves the Safari body pin to the
+ * It joins the shared modal stack in opening order and leaves the Safari body pin to the
  * sheet beneath it (`noBodyStyles`; see `Drawer` for what that does not cover).
  */
 export function AlertSheet({
@@ -51,13 +57,7 @@ export function AlertSheet({
   const descriptionId = useId();
   const actionRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
-  // Radix Dialog returns focus on close to its `Dialog.Trigger`, and these sheets are opened
-  // imperatively (`useConfirm`) with no trigger, so focus would drop to <body>. Remember what had
-  // focus when the sheet opened and give it back instead.
-  const returnFocusRef = useRef<HTMLElement | null>(null);
-  // Taken at open time, while that element is still in the tree: where focus goes if the answer
-  // removes it (a prompt card whose button a hero replaced).
-  const fallbackFocusRef = useRef<HTMLElement | null>(null);
+  const focus = useImperativeModalFocus();
   const hasDescription = children !== undefined && children !== null && children !== '';
 
   useHideDappBubblesWhileOpen(open);
@@ -76,30 +76,16 @@ export function AlertSheet({
       noBodyStyles
       screenKey={screenKey}
     >
+      {open && <AlertBack dismiss={dismiss} />}
       <DrawerContent
         role="alertdialog"
         aria-describedby={hasDescription ? descriptionId : undefined}
-        className="z-80"
-        overlayClassName="z-80"
         onOpenAutoFocus={event => {
           event.preventDefault();
-          returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-          fallbackFocusRef.current = returnFocusRef.current?.closest<HTMLElement>('[data-focus-fallback]') ?? null;
+          focus.remember();
           (cancelRef.current ?? actionRef.current)?.focus();
         }}
-        onCloseAutoFocus={event => {
-          event.preventDefault();
-          // This runs after the slide-out. Give focus back only if nothing has taken it since (a new
-          // layer, an autofocusing input on a page navigated to), and without scrolling the page.
-          // A trigger gone by now gives way to its fallback; a detached fallback ignores focus().
-          const active = document.activeElement;
-          if (active === null || active === document.body) {
-            const target = returnFocusRef.current?.isConnected ? returnFocusRef.current : fallbackFocusRef.current;
-            target?.focus({ preventScroll: true });
-          }
-          returnFocusRef.current = null;
-          fallbackFocusRef.current = null;
-        }}
+        onCloseAutoFocus={focus.restore}
         onEscapeKeyDown={event => {
           event.preventDefault();
           dismiss();

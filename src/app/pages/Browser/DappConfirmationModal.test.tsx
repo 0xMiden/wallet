@@ -64,19 +64,25 @@ jest.mock('app/icons/v2', () => ({
   IconName: {}
 }));
 
-jest.mock('components/SpendingLimitChallenge', () => ({
-  SpendingLimitChallenge: (props: any) => (
-    <div data-testid="spending-limit-challenge">
-      <span>{props.assessment.revision}</span>
-      <button type="button" onClick={() => props.onResult({ id: 'ui-only-authorization' })}>
-        authenticate-limit
-      </button>
-      <button type="button" onClick={() => props.onResult(undefined)}>
-        cancel-limit
-      </button>
-    </div>
-  )
-}));
+jest.mock('components/SpendingLimitChallenge', () => {
+  const { Drawer, DrawerContent, DrawerTitle } = jest.requireActual('lib/ui/drawer');
+  return {
+    SpendingLimitChallenge: (props: any) => (
+      <Drawer open onOpenChange={(open: boolean) => !open && props.onResult(undefined)}>
+        <DrawerContent data-testid="spending-limit-challenge">
+          <DrawerTitle>Challenge</DrawerTitle>
+          <span>{props.assessment.revision}</span>
+          <button type="button" onClick={() => props.onResult({ id: 'ui-only-authorization' })}>
+            authenticate-limit
+          </button>
+          <button type="button" onClick={() => props.onResult(undefined)}>
+            cancel-limit
+          </button>
+        </DrawerContent>
+      </Drawer>
+    )
+  };
+});
 
 const FULL_ACCOUNT_ID = 'mtst1apsnkg6x57mhxyrq09aavyq08yu5dy4p_qr7qqq9wr6w';
 
