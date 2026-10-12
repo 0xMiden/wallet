@@ -6191,5 +6191,25 @@
   "externalPageLoadFailed": {
     "message": "Bu sayfa açılamadı. Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "breadCloseError": {
+    "message": "Bread’e dönülemedi.",
+    "englishSource": "Could not return to Bread."
+  },
+  "breadExitNow": {
+    "message": "Şimdi çık",
+    "englishSource": "Exit now"
+  },
+  "breadPresentationBack": {
+    "message": "Bread’e dön",
+    "englishSource": "Back to Bread"
+  },
+  "breadPresentationHint": {
+    "message": "Dönmek için Bread’e dokunun",
+    "englishSource": "Tap Bread to return"
+  },
+  "breadPresentationError": {
+    "message": "Bu uygulamanın yüklenmesi tamamlanmadı. Tekrar deneyin veya Bread’e dönün.",
+    "englishSource": "This app did not finish loading. Try again or return to Bread."
   }
 }

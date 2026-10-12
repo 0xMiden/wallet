@@ -6191,5 +6191,25 @@
   "externalPageLoadFailed": {
     "message": "Nie udało się otworzyć tej strony. Sprawdź połączenie i spróbuj ponownie.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "breadCloseError": {
+    "message": "Nie udało się wrócić do Bread.",
+    "englishSource": "Could not return to Bread."
+  },
+  "breadExitNow": {
+    "message": "Wyjdź teraz",
+    "englishSource": "Exit now"
+  },
+  "breadPresentationBack": {
+    "message": "Wróć do Bread",
+    "englishSource": "Back to Bread"
+  },
+  "breadPresentationHint": {
+    "message": "Dotknij Bread, aby wrócić",
+    "englishSource": "Tap Bread to return"
+  },
+  "breadPresentationError": {
+    "message": "Ta aplikacja nie została w pełni załadowana. Spróbuj ponownie lub wróć do Bread.",
+    "englishSource": "This app did not finish loading. Try again or return to Bread."
   }
 }

@@ -6191,5 +6191,25 @@
   "externalPageLoadFailed": {
     "message": "Не вдалося відкрити цю сторінку. Перевірте з’єднання та спробуйте ще раз.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "breadCloseError": {
+    "message": "Не вдалося повернутися до Bread.",
+    "englishSource": "Could not return to Bread."
+  },
+  "breadExitNow": {
+    "message": "Вийти зараз",
+    "englishSource": "Exit now"
+  },
+  "breadPresentationBack": {
+    "message": "Повернутися до Bread",
+    "englishSource": "Back to Bread"
+  },
+  "breadPresentationHint": {
+    "message": "Натисніть Bread, щоб повернутися",
+    "englishSource": "Tap Bread to return"
+  },
+  "breadPresentationError": {
+    "message": "Цей застосунок не завантажився повністю. Спробуйте ще раз або поверніться до Bread.",
+    "englishSource": "This app did not finish loading. Try again or return to Bread."
   }
 }

@@ -6191,5 +6191,25 @@
   "externalPageLoadFailed": {
     "message": "このページを開くことができませんでした。接続を確認して、もう一度お試しください。",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "breadCloseError": {
+    "message": "Breadに戻れませんでした。",
+    "englishSource": "Could not return to Bread."
+  },
+  "breadExitNow": {
+    "message": "今すぐ終了",
+    "englishSource": "Exit now"
+  },
+  "breadPresentationBack": {
+    "message": "Breadに戻る",
+    "englishSource": "Back to Bread"
+  },
+  "breadPresentationHint": {
+    "message": "Breadをタップして戻る",
+    "englishSource": "Tap Bread to return"
+  },
+  "breadPresentationError": {
+    "message": "このアプリの読み込みが完了しませんでした。もう一度試すか、Breadに戻ってください。",
+    "englishSource": "This app did not finish loading. Try again or return to Bread."
   }
 }

@@ -6191,5 +6191,25 @@
   "externalPageLoadFailed": {
     "message": "Не удалось открыть эту страницу. Проверьте подключение и попробуйте ещё раз.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "breadCloseError": {
+    "message": "Не удалось вернуться в Bread.",
+    "englishSource": "Could not return to Bread."
+  },
+  "breadExitNow": {
+    "message": "Выйти сейчас",
+    "englishSource": "Exit now"
+  },
+  "breadPresentationBack": {
+    "message": "Вернуться в Bread",
+    "englishSource": "Back to Bread"
+  },
+  "breadPresentationHint": {
+    "message": "Нажмите Bread, чтобы вернуться",
+    "englishSource": "Tap Bread to return"
+  },
+  "breadPresentationError": {
+    "message": "Это приложение не загрузилось полностью. Попробуйте ещё раз или вернитесь в Bread.",
+    "englishSource": "This app did not finish loading. Try again or return to Bread."
   }
 }
