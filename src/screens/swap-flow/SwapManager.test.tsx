@@ -728,6 +728,77 @@ describe('SwapFlow / SwapManager', () => {
     });
   });
 
+  describe('live registry changes', () => {
+    const selectThirdOffer = () => {
+      fireEvent.click(screen.getByTestId('sa-select-offer'));
+      act(() => mockDrawerProps.onSelect(mockTokenC));
+      setOffer('10');
+    };
+
+    beforeEach(() => {
+      mockAllBalancesReturn = { data: [{ tokenId: 'bech32-faucet-C', balance: 100 }] };
+    });
+
+    it.each([
+      { change: 'faucet', token: { ...mockTokenC, faucetId: 'replacement-C' } },
+      { change: 'precision', token: { ...mockTokenC, decimals: 0 } },
+      { change: 'symbol', token: { ...mockTokenC, symbol: 'CC2' } },
+      { change: 'logo', token: { ...mockTokenC, logoSymbol: 'ETH' } }
+    ])('resets a selected third-token draft after its $change changes', ({ token }) => {
+      const { rerender } = renderFlow();
+      selectThirdOffer();
+      expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('CCC');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+
+      mockGetSwapTokens.mockReturnValue([mockTokenA, mockTokenB, token]);
+      rerender(<SwapFlow />);
+      expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('AAA');
+      expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+    });
+
+    it('resets the draft when a selected third token is removed', () => {
+      const { rerender } = renderFlow();
+      selectThirdOffer();
+      mockGetSwapTokens.mockReturnValue([mockTokenA, mockTokenB]);
+      rerender(<SwapFlow />);
+      expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('AAA');
+      expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+    });
+
+    it('resets a default-pair draft when its precision changes', () => {
+      const { rerender } = renderFlow();
+      setOffer('10');
+      mockGetSwapTokens.mockReturnValue([{ ...mockTokenA, decimals: 0 }, mockTokenB, mockTokenC]);
+      rerender(<SwapFlow />);
+      expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+      expect(mockUseSwapEta).toHaveBeenLastCalledWith(
+        expect.objectContaining({ offerToken: expect.objectContaining({ decimals: 0 }) })
+      );
+    });
+
+    it('preserves the draft when a refresh republishes the same registry content', () => {
+      const { rerender } = renderFlow();
+      selectThirdOffer();
+      mockGetSwapTokens.mockReturnValue([{ ...mockTokenA }, { ...mockTokenB }, { ...mockTokenC }]);
+      rerender(<SwapFlow />);
+      expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('CCC');
+      expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('10');
+    });
+
+    it('preserves an already captured submission across registry removal', async () => {
+      let confirm: (value: boolean) => void = () => undefined;
+      mockConfirmSensitive.mockReturnValueOnce(new Promise<boolean>(resolve => (confirm = resolve)));
+      const { rerender } = renderFlow();
+      selectThirdOffer();
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      mockGetSwapTokens.mockReturnValue([mockTokenA, mockTokenB]);
+      rerender(<SwapFlow />);
+      await act(async () => confirm(true));
+      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-C', 10n, 'faucet-B', 5n, false, 120, true);
+    });
+  });
+
   describe('status message', () => {
     it('shows a same-token error when both sides are the same faucet', () => {
       mockGetSwapTokens.mockImplementation(() => [mockTokenA, mockTokenA, mockTokenC]);

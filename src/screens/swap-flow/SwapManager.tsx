@@ -650,13 +650,11 @@ const SwapUnavailable: React.FC<{ loading: boolean }> = ({ loading }) => {
 };
 
 /**
- * Opens the swap on the registry's default pair, once the bridge config lists one. Keyed on that
- * pair's faucet ids, so a document that renames the pair, and the SDK's WASM turning a listed hex
- * id into its bech32 form, each remount the form on fresh tokens rather than leaving it on stale
- * ones; a swap in flight continues in the queue either way.
+ * Opens on the configured default pair. Material registry changes remount the draft with fresh
+ * tokens and precision; an already captured submission continues with its original amounts.
  */
 const SwapFlowGate: React.FC = () => {
-  useSwapTokens();
+  const tokens = useSwapTokens();
   const snapshot = useBridgeConfigSnapshot();
   const availability = swapAvailability(snapshot);
   const defaultPair = getDefaultSwapPair();
@@ -665,7 +663,7 @@ const SwapFlowGate: React.FC = () => {
   }
   return (
     <NavigatorProvider
-      key={`${defaultPair.offer.faucetId}:${defaultPair.request.faucetId}`}
+      key={JSON.stringify(tokens)}
       routes={ROUTES}
       initialRouteName={SwapFlowStep.SwapAmounts}
     >
