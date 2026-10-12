@@ -72,12 +72,11 @@ export { isGuardianCanonicalizationError } from '../sdk/sdk-error-code';
  * round-trip: measured over a 300-send devnet run at ~4.5% with a sub-second
  * proposal→execute window, rising to ~35% past 1.7s under sustained load.
  *
- * That mechanism is closable, and closing it is in review as #786: the execute is
- * pinned to the proposal's own `ChainAnchor`, so a client whose sync height has
- * advanced still reproduces the summary. Once it lands, a match here stops
- * meaning "a block landed mid-flow" and starts meaning some other divergence
- * between the two computations of the summary — a proposal carrying no anchor
- * included. Widen the wording here, not the predicate, when that happens.
+ * That mechanism is closed: the summary binds the block its auth args name (the
+ * proposal's `boundBlockNum`), the request declares it, and both leaves execute
+ * at the tip after `prepareGuardianTipExecution`, so a client whose sync height
+ * has advanced still reproduces the summary. A match here means some other
+ * divergence between the two computations of the summary.
  *
  * BOTH halves are required, and the execution half is the load-bearing one: it
  * is what lets callers conclude the transaction never reached the chain, since

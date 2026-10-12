@@ -567,8 +567,8 @@ export async function expectFailedAfterEnqueue(
 }
 
 /**
- * Spec section 5, "Previews". Soft: a declared view is recorded (K4 on Guardian) and the cell goes on to approve, so
- * one run reports both K4 and K3.
+ * Spec section 5, "Previews". Soft: a declared view is recorded and the cell goes on to approve, so one run can report
+ * a preview bug and the failure that follows it.
  */
 export async function expectVerifiedPreview(
   popup: Page,

@@ -1,6 +1,6 @@
 {
   "network": "testnet",
-  "version": 1,
+  "version": 2,
   "items": [
     {
       "id": "faucet",
@@ -41,6 +41,33 @@
       "category": "tools",
       "icon": "icons/forkchoice-faucet.png",
       "brandColor": "#2563EB",
+      "isExchange": false
+    },
+    {
+      "id": "where-legends-grow",
+      "name": {
+        "en": "Where Legends Grow"
+      },
+      "tagline": {
+        "en": "Build a football club, train your squad and play matches",
+        "de": "Fußballverein aufbauen, Kader trainieren und Spiele bestreiten",
+        "en_GB": "Build a football club, train your squad and play matches",
+        "es": "Crea un club de fútbol, entrena a tu plantilla y juega partidos",
+        "fr": "Créez un club de football, entraînez votre effectif et jouez des matchs",
+        "ja": "サッカークラブを作り、選手を育てて試合に挑む",
+        "ko": "축구 클럽을 만들고 선수단을 훈련시켜 경기하기",
+        "pl": "Zbuduj klub piłkarski, trenuj kadrę i rozgrywaj mecze",
+        "pt": "Crie um clube de futebol, treine seu elenco e dispute partidas",
+        "ru": "Создайте футбольный клуб, тренируйте команду и проводите матчи",
+        "tr": "Bir futbol kulübü kurun, kadronuzu çalıştırın ve maçlara çıkın",
+        "uk": "Створіть футбольний клуб, тренуйте команду та проводьте матчі",
+        "zh_CN": "组建足球俱乐部，训练球队并参加比赛",
+        "zh_TW": "組建足球俱樂部，訓練球隊並參加比賽"
+      },
+      "url": "https://wherelegendsgrow.com/",
+      "category": "games",
+      "icon": "icons/where-legends-grow.png",
+      "brandColor": "#07101F",
       "isExchange": false
     }
   ],
@@ -86,6 +113,27 @@
         "zh_TW": "輔助工具"
       },
       "itemIds": ["faucet", "forkchoice-faucet"]
+    },
+    {
+      "id": "games",
+      "kind": "list",
+      "title": {
+        "en": "Games",
+        "de": "Spiele",
+        "en_GB": "Games",
+        "es": "Juegos",
+        "fr": "Jeux",
+        "ja": "ゲーム",
+        "ko": "게임",
+        "pl": "Gry",
+        "pt": "Jogos",
+        "ru": "Игры",
+        "tr": "Oyunlar",
+        "uk": "Ігри",
+        "zh_CN": "游戏",
+        "zh_TW": "遊戲"
+      },
+      "itemIds": ["where-legends-grow"]
     }
   ]
 }
