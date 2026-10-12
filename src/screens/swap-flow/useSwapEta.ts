@@ -4,6 +4,7 @@ import { useDebounce } from 'use-debounce';
 
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { getSwapEta, SwapEta, SwapToken } from 'lib/miden/swap/tokens';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 
 export interface SwapEtaState {
   loading: boolean;
@@ -25,10 +26,11 @@ export interface UseSwapEtaOpts {
 const IDLE: SwapEtaState = { loading: false };
 const PENDING: SwapEtaState = { loading: true };
 
-/** Every non-idle state records the pair it was fetched for, as `offer|request` faucet ids. */
+/** Quotes belong to both the faucet pair and the configured service. */
 type PairedState = SwapEtaState & { pair?: string };
 
-const pairOf = (offerFaucetId: string, requestFaucetId: string) => `${offerFaucetId}|${requestFaucetId}`;
+const pairOf = (offerFaucetId: string, requestFaucetId: string, etaUrl: string | undefined) =>
+  JSON.stringify([offerFaucetId, requestFaucetId, etaUrl]);
 
 /**
  * Debounced quote for the current swap pair via the DEX `swap-eta` endpoint.
@@ -54,6 +56,7 @@ export function useSwapEta({
   requestAmount,
   enabled
 }: UseSwapEtaOpts): SwapEtaState {
+  const etaUrl = useBridgeConfigSnapshot({ load: false }).config?.swap?.etaUrl;
   const offerRaw = stringToBigInt(offerAmount || '0', offerToken.decimals);
   const requestRaw = stringToBigInt(requestAmount || '0', requestToken.decimals);
   // The endpoint requires requested_amount > 0; before the field is seeded fall
@@ -68,13 +71,14 @@ export function useSwapEta({
         of: offerToken.faucetId,
         oa: offerRaw.toString(),
         rf: requestToken.faucetId,
-        ra: requestRawForApi.toString()
+        ra: requestRawForApi.toString(),
+        etaUrl
       })
     : '';
   const [debouncedKey] = useDebounce(key, 500);
   const [state, setState] = useState<PairedState>(IDLE);
   const reqId = useRef(0);
-  const livePair = pairOf(offerToken.faucetId, requestToken.faucetId);
+  const livePair = pairOf(offerToken.faucetId, requestToken.faucetId, etaUrl);
 
   useEffect(() => {
     if (!debouncedKey) {
@@ -82,8 +86,9 @@ export function useSwapEta({
       setState(IDLE);
       return;
     }
-    const { of, oa, rf, ra }: { of: string; oa: string; rf: string; ra: string } = JSON.parse(debouncedKey);
-    const pair = pairOf(of, rf);
+    const { of, oa, rf, ra, etaUrl: quoteUrl }: { of: string; oa: string; rf: string; ra: string; etaUrl?: string } =
+      JSON.parse(debouncedKey);
+    const pair = pairOf(of, rf, quoteUrl);
     const id = ++reqId.current;
     // Only a same-pair amount change keeps the previous quote on screen while it reloads.
     setState(prev => ({ loading: true, pair, eta: prev.pair === pair ? prev.eta : undefined }));
