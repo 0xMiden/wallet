@@ -1013,18 +1013,12 @@ async function probeSwapQuoteService() {
   }
 
   try {
-    const query = new URLSearchParams({
-      offered_faucet: offered,
-      offered_amount: '100000000',
-      requested_faucet: requested,
-      requested_amount: '200000000'
-    });
-    const { status, body } = await getJson(`${BASE}/v1/swap-eta?${query}`);
+    const query = new URLSearchParams({ offered_faucet: offered, requested_faucet: requested });
+    const { status, body } = await getJson(`${BASE}/v2/pair-price?${query}`);
     if (status !== 200) {
-      return note('DEX quote service', `degraded: HTTP ${status} (the suite does not use it)`);
+      return note('DEX quote service', `degraded: HTTP ${status} ${body?.error ?? ''} (the suite does not use it)`);
     }
-    const fill = body?.canFill ? `fillable, eta ${body.estimatedSeconds}s` : 'priced, no filler offering';
-    return note('DEX quote service', `${fill}, price ${body?.marketPrice}`);
+    return note('DEX quote service', `priced, fill price ${body?.fillPrice} (mid ${body?.marketPrice})`);
   } catch (err) {
     return note('DEX quote service', `unreachable: ${err.message} (the suite does not use it)`);
   }

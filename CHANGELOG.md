@@ -2,6 +2,10 @@
 
 ## 1.17.5 (TBD)
 
+### Features
+
+- [FEATURE][all] Swap quotes come from the solver's Swap Quote API v2: the receive amount is built in integer arithmetic from the pair's fill price less an editable slippage (0.05% by default, up to 1%, on the review screen), the review shows the solver's verdict on the exact order (fills now, part fills, waits for the price, no orders yet, pair not traded) and the amount a full fill is expected to pay, the quote refreshes every 30 seconds while the swap screen is on screen, and a press on Swap re-checks the order with the solver first and refuses one the price has moved past instead of leaving it unfilled in the book.
+
 ### Fixes
 
 - [FIX][ci] A fourth live USDCx suite, `usdcx-burn-l2`, burns 1 USDCx through Send from a fresh Guardian wallet to the harness key on Base Sepolia and on Arbitrum Sepolia, and passes only once Circle has paid each burn there and the wallet itself reads Confirmed; its preflight checks both chains and the wallet's RPC for them, and E2E USDCx runs it after the Arc suites, even when one of them failed.
