@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 
 import { pageSlideDim, pageSlideEntrance, pageSlideParallax, presets, reducedMotionTransition } from 'lib/animation';
 
@@ -204,15 +204,6 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
     expect(back).toHaveAccessibleName('back');
   });
 
-  it('names the mainnet access step in its header, and no other step', () => {
-    renderFlow({ step: OnboardingStep.MainnetAccess, onboardingType: OnboardingType.Import });
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('mainnetAccessHeader');
-
-    cleanup();
-    renderFlow({ step: OnboardingStep.NetworkNotice, onboardingType: OnboardingType.Import });
-    expect(screen.queryByText('mainnetAccessHeader')).not.toBeInTheDocument();
-  });
-
   it('hides the back button where the host says the step cannot be left (a wallet being created)', () => {
     const onAction = jest.fn();
     renderFlow({ step: OnboardingStep.Confirmation, canGoBack: false, onAction });
@@ -231,9 +222,12 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
 });
 
 describe('OnboardingFlow — action wiring per screen', () => {
-  it('Welcome: routes select-wallet-type / select-import-type and ignores unknown', () => {
+  it('Welcome: routes mainnet-access / select-wallet-type / select-import-type and ignores unknown', () => {
     const onAction = jest.fn();
     renderFlow({ step: OnboardingStep.Welcome, onAction });
+
+    act(() => mockCaptured.welcome.onSubmit('mainnet-access'));
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'mainnet-access' });
 
     act(() => mockCaptured.welcome.onSubmit('select-wallet-type'));
     expect(onAction).toHaveBeenLastCalledWith({ id: 'choose-protection' });
@@ -246,13 +240,12 @@ describe('OnboardingFlow — action wiring per screen', () => {
     expect(onAction).not.toHaveBeenCalled();
   });
 
-  it('MainnetAccess: an accepted code dispatches mainnet-access-granted, and no code dispatches the skip', () => {
+  it('MainnetAccess: an accepted code dispatches mainnet-access-granted', () => {
     const onAction = jest.fn();
     renderFlow({ step: OnboardingStep.MainnetAccess, onAction });
     act(() => mockCaptured['mainnet-access'].onSubmit('8gKIgL0O6HcU'));
     expect(onAction).toHaveBeenLastCalledWith({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
-    act(() => mockCaptured['mainnet-access'].onSkip());
-    expect(onAction).toHaveBeenLastCalledWith({ id: 'mainnet-access-skip' });
+    expect(mockCaptured['mainnet-access'].onSkip).toBeUndefined();
   });
 
   it('NetworkNotice: acknowledging dispatches network-notice-acknowledge', () => {

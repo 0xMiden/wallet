@@ -29,6 +29,11 @@ export interface BridgeConfig {
     earnProtocol?: EarnProtocol;
   };
   features: Record<BridgeSwitch, boolean>;
+  /**
+   * Only there when the document sets `onboarding.inviteOnly`. True: Welcome shows the invite-only
+   * way in. False: Welcome shows the create and recover flows. Absent: the logo taps choose.
+   */
+  onboarding?: { inviteOnly: boolean };
 }
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -98,6 +103,10 @@ function featureSwitch(features: Record<string, unknown>, name: BridgeSwitch): b
   return typeof value === 'boolean' ? value : invalid();
 }
 
+function flag(value: unknown): boolean {
+  return typeof value === 'boolean' ? value : invalid();
+}
+
 function readConfig(body: unknown, network: string, allowLocalHttp: boolean): BridgeConfig {
   if (!isRecord(body)) return invalid();
   const { version } = body;
@@ -107,6 +116,7 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   const agglayer = section(body.agglayer);
   const epoch = section(body.epoch);
   const features = section(body.features);
+  const inviteOnly = read(section(body.onboarding), 'inviteOnly', flag);
   const chain = read(evm, 'chainId', chainId);
   const l1Bridge = read(agglayer, 'l1Bridge', evmAddress);
   const midenBridge = read(agglayer, 'midenBridge', midenAccountId);
@@ -137,7 +147,8 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
       fastBridge: featureSwitch(features, 'fastBridge'),
       bridgeIn: featureSwitch(features, 'bridgeIn'),
       bridgeOut: featureSwitch(features, 'bridgeOut')
-    }
+    },
+    ...(inviteOnly === undefined ? {} : { onboarding: { inviteOnly } })
   };
 }
 

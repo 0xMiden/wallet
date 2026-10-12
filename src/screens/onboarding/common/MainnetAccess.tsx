@@ -4,79 +4,109 @@ import { useTranslation } from 'react-i18next';
 
 import { Button } from 'components/Button';
 import { CodeInput } from 'components/ui/CodeInput';
-import { TextAction } from 'components/ui/TextAction';
-import { isMainnetAccessCodeComplete, MAINNET_ACCESS_CODE_LENGTH } from 'lib/mainnet-access';
-import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
+import { ErrorLine } from 'components/ui/ErrorLine';
+import { checkMainnetAccessCode, isMainnetAccessCodeComplete, MAINNET_ACCESS_CODE_LENGTH } from 'lib/mainnet-access';
 
 import { OnboardingStepLayout } from './OnboardingStepLayout';
 
 export interface MainnetAccessScreenProps {
-  /** Keep the code until account setup is complete. */
+  /** The node accepted the code. Keep it until account setup is complete. */
   onSubmit?: (code: string) => void;
-  /** The user has no code and goes on with the test network. */
-  onSkip?: () => void;
 }
 
 /** The body form's id: the submit button sits in the pinned footer, outside the form. */
 const FORM_ID = 'onboarding-mainnet-access-form';
 
+/** Why the last try did not unlock mainnet: the code was refused, or the check did not complete. */
+type Failure = 'rejected' | 'unchecked';
+
 /**
- * Onboarding step shown after the first tap on Welcome, before the test-network notice. Mainnet is
- * invite-only: the user types the access code here, or goes on with the test network. On
- * mainnet there is nothing to unlock, so it renders nothing.
+ * Onboarding step after Welcome's "I have a code". Bread is invite-only: the node checks the
+ * access code here, and an accepted code is held until the final account exists, which the code
+ * then registers. The check does not use the code.
  */
-export const MainnetAccessScreen: React.FC<MainnetAccessScreenProps> = ({ onSubmit, onSkip }) => {
+export const MainnetAccessScreen: React.FC<MainnetAccessScreenProps> = ({ onSubmit }) => {
   const { t } = useTranslation();
   const [code, setCode] = useState('');
-
-  const networkKey = getTestNetworkNameKey();
-  if (!networkKey) return null;
-  const network = t(networkKey);
+  const [failure, setFailure] = useState<Failure | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const complete = isMainnetAccessCodeComplete(code);
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  // Literal keys, so the key-coverage test can find them.
+  const failureMessage = (): string | null => {
+    switch (failure) {
+      case 'rejected':
+        return t('mainnetAccessCodeRejected');
+      case 'unchecked':
+        return t('mainnetAccessCheckFailed');
+      case null:
+        return null;
+    }
+  };
+
+  const changeCode = (next: string) => {
+    setCode(next);
+    setFailure(null);
+  };
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!complete) return;
-    onSubmit?.(code);
+    if (!complete || submitting) return;
+    setSubmitting(true);
+    setFailure(null);
+    try {
+      const outcome = await checkMainnetAccessCode(code);
+      switch (outcome) {
+        case 'granted':
+          onSubmit?.(code);
+          break;
+        case 'rejected':
+          setFailure('rejected');
+          break;
+      }
+    } catch {
+      setFailure('unchecked');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <OnboardingStepLayout
       data-testid="onboarding-mainnet-access"
-      // The navigator's header names the step ("Mainnet access"), so the body has no title of its own.
+      title={t('mainnetAccessTitle')}
       description={t('mainnetAccessOnboardingBody')}
       onSubmit={submit}
       formId={FORM_ID}
       footer={
-        <>
-          {/* The shared Button fires its own tap haptic. */}
-          <Button
-            type="submit"
-            form={FORM_ID}
-            className="max-w-none"
-            title={t('unlockMainnet')}
-            disabled={!complete}
-            data-testid="onboarding-mainnet-access-submit"
-          />
-          <TextAction className="self-center" onClick={onSkip} data-testid="onboarding-mainnet-access-skip">
-            {t('mainnetAccessContinueOnNetwork', { network })}
-          </TextAction>
-        </>
+        // The shared Button fires its own tap haptic.
+        <Button
+          type="submit"
+          form={FORM_ID}
+          className="max-w-none"
+          title={t('unlockMainnet')}
+          disabled={!complete}
+          isLoading={submitting}
+          data-testid="onboarding-mainnet-access-submit"
+        />
       }
     >
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 pt-5">
         <span className="px-1 text-label text-muted">{t('mainnetAccessCodeLabel')}</span>
         <CodeInput
           value={code}
-          onChange={setCode}
+          onChange={changeCode}
           length={MAINNET_ACCESS_CODE_LENGTH}
           groupSize={6}
           format="alphanumeric"
           label={t('mainnetAccessCodeLabel')}
+          invalid={failure !== null}
+          disabled={submitting}
           data-testid="onboarding-mainnet-access-code"
         />
         <span className="px-1 text-caption text-muted">{t('mainnetAccessHint')}</span>
+        <ErrorLine data-testid="onboarding-mainnet-access-error">{failureMessage()}</ErrorLine>
       </div>
     </OnboardingStepLayout>
   );

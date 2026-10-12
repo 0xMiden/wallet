@@ -32,6 +32,11 @@ export interface BridgeConfigDocument {
     earnProtocol?: string;
   };
   features: { earn: boolean; fastBridge: boolean; bridgeIn: boolean; bridgeOut: boolean };
+  /**
+   * The Welcome variant. Absent: the general Welcome, which the suites drive with Get started, and
+   * seven logo taps unlock the invite-only Welcome. True or false: only that variant shows.
+   */
+  onboarding?: { inviteOnly?: boolean };
 }
 
 /**

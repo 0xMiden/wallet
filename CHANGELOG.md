@@ -2,6 +2,12 @@
 
 ## 1.17.2 (TBD)
 
+### Features
+
+- [FEATURE][ui] Home names the test network in a banner above the action bar, in place of the pill above the balance card, with a "Switch to mainnet" action that opens a sheet for the mainnet access code. An accepted code plays a short oven animation (the test network's dough bakes into the Mainnet loaf), then shows a "Welcome to mainnet" screen. Every sheet opens and closes about 25% slower.
+- [FEATURE][all] Seven logo taps on Welcome open the invite-only Welcome: "I have a code" asks the node to check the mainnet access code before the create flow, and "I don't have a code" explains the invite and offers account recovery; seven more taps open Developer Settings. Welcome keeps the create and recover flows behind the test-network notice by default. Web SDK 0.17.3 for the code check, with the note-relay patch regenerated.
+- [FEATURE][all] The remote wallet config chooses the Welcome variant with `onboarding.inviteOnly`: true shows the invite-only Welcome, false the general one, and seven logo taps then open Developer Settings. A document without the key keeps the seven-tap unlock of the invite-only Welcome. While the config loads, Welcome hides its actions for at most 3 seconds.
+
 ### Fixes
 
 - [FIX][all] Replace the preview mainnet code check with node account registration. Accept 12-character alphanumeric codes and existing 8-digit codes. Keep the onboarding code until the final account exists, then register it before completing setup. Use MIDEN_ACCESS_RPC_URL for local registration tests. Registration requires the final account ID and RPC URL, keeps unused codes for accounts already allowed, and reports node failures for retry.
@@ -28,9 +34,6 @@
 - [FEATURE][all] Seed-restored Guardian accounts recover transaction history from known operators into Activity, with local checkpoints and a history-and-notes progress bar in the Activity list view. Recovered records stay out of transaction automation, separate transfer amounts from fees, retain Guardian switch details, and group swap settlement receipts; a chain that reports no fee or a Guardian operator the account used that serves no history stops recovery without automatic retry, a built-in operator the account is not known to have used that serves no history or cannot be read in three sessions, or whose history cannot be decoded in six, is treated as empty, and a failed fee lookup is retried with the other unreadable sources. Guardian switches retain their committed delta on the old operator.
 - [FEATURE][all] A token that is not on Miden's verified token list (0xMiden/token-list) shows an Unverified mark on its Home row and token page; the list is refreshed once a day, checked when the app opens or returns to the foreground, with a bundled copy as fallback (#1243).
 - [FEATURE][all] A token can be hidden from its token page: it leaves Home's asset list, the Home total and the send token picker, and is listed under Hidden assets on Home, where it can be unhidden; its transfers can still be claimed, and the native token cannot be hidden (#813).
-- [FEATURE][ui] Home names the test network in a banner above the action bar, in place of the pill above the balance card, with a "Switch to mainnet" action that opens a sheet for the 8-digit mainnet access code. Every sheet opens and closes about 25% slower.
-- [FEATURE][ui] Home names the test network in a banner above the action bar, in place of the pill above the balance card, with a "Switch to mainnet" action that opens a sheet for the 8-digit mainnet access code. An accepted code plays a short oven animation (the test network's dough bakes into the Mainnet loaf), then shows a "Welcome to mainnet" screen. Every sheet opens and closes about 25% slower.
-- [FEATURE][ui] Home names the test network in a banner above the action bar, in place of the pill above the balance card, with a "Switch to mainnet" action that opens a sheet for the 8-digit mainnet access code. An accepted code plays a short oven animation (the test network's dough bakes into the Mainnet loaf), then shows a "Welcome to mainnet" screen. Onboarding on a test network asks for the mainnet access code on a new step between Welcome and the test-network notice; an accepted code skips the notice. Every sheet opens and closes about 25% slower.
 
 ### Changes
 
@@ -196,6 +199,7 @@
 
 - [FIX][all] Bridge polling reads only bridge rows through a new `type` index instead of walking the whole transaction history every 8 s, runs from one visible wallet window instead of every open one, and an Epoch quote for an earlier amount that answers late no longer replaces the current quote and blocks Fast confirmation.
 - [CHORE][all] `next` is now the 1.17.0 line; the 0.16 line continues on `main` as 1.16.x.
+
 ## 1.16.2 (2026-09-24)
 
 ### Features

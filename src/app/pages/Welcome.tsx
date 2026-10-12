@@ -639,36 +639,36 @@ const Welcome: FC = () => {
       navigate('/#select-import-type');
     };
 
-    // The chosen flow, once the test-network screens are through.
-    const startChosenFlow = () => {
-      if (onboardingType === OnboardingType.Import) {
-        startImportFlow();
-      } else {
-        startCreateFlow();
-      }
-    };
-
     switch (action.id) {
       case 'network-notice-acknowledge':
-        startChosenFlow();
+        // The chosen flow, once the test-network notice is through.
+        if (onboardingType === OnboardingType.Import) {
+          startImportFlow();
+        } else {
+          startCreateFlow();
+        }
+        break;
+      case 'mainnet-access':
+        // The invite-only Welcome (seven logo taps): the create flow waits behind the access-code
+        // step, and an accepted code starts it.
+        beginOnboardingFlow('create');
+        resetFlowState();
+        setOnboardingType(OnboardingType.Create);
+        navigate('/#mainnet-access');
         break;
       case 'mainnet-access-granted':
-        setAccessCode(action.payload);
         // Keep the code for registration after account setup.
-        startChosenFlow();
-        break;
-      case 'mainnet-access-skip':
-        setAccessCode(undefined);
-        navigate('/#network-notice');
+        setAccessCode(action.payload);
+        startCreateFlow();
         break;
       case 'choose-protection':
         beginOnboardingFlow('create');
         resetFlowState();
-        // On a test network the chosen flow waits behind the mainnet access step and the network
-        // notice (#875); an accepted code or an acknowledged notice starts it.
+        // On a test network the chosen flow waits behind the network notice (#875); acknowledging
+        // the notice starts it.
         if (getTestNetworkNameKey()) {
           setOnboardingType(OnboardingType.Create);
-          navigate('/#mainnet-access');
+          navigate('/#network-notice');
         } else {
           startCreateFlow();
         }
@@ -751,9 +751,11 @@ const Welcome: FC = () => {
       case 'select-import-type':
         beginOnboardingFlow('import');
         resetFlowState();
+        // Welcome's recover, and the no-code sheet's. On a test network the import flow waits
+        // behind the network notice (#875).
         if (getTestNetworkNameKey()) {
           setOnboardingType(OnboardingType.Import);
-          navigate('/#mainnet-access');
+          navigate('/#network-notice');
         } else {
           startImportFlow();
         }
@@ -926,11 +928,9 @@ const Welcome: FC = () => {
         navigate('/#create-password');
         break;
       case 'back':
-        if (step === OnboardingStep.NetworkNotice) {
-          // The notice follows the mainnet access step, which stays in the flow.
-          navigate('/#mainnet-access');
-        } else if (
+        if (
           step === OnboardingStep.MainnetAccess ||
+          step === OnboardingStep.NetworkNotice ||
           step === OnboardingStep.SelectImportType ||
           step === OnboardingStep.SelectWalletType ||
           step === OnboardingStep.ChooseProtection
@@ -1027,14 +1027,22 @@ const Welcome: FC = () => {
         setStep(OnboardingStep.Welcome);
         break;
       case '#mainnet-access':
+        // The chosen flow is in-memory only, so a reload here has nothing to continue with:
+        // restart from Welcome.
+        if (onboardingType === null) {
+          navigate('/');
+          break;
+        }
+        setStep(OnboardingStep.MainnetAccess);
+        break;
       case '#network-notice':
         // The chosen flow is in-memory only, so a reload here has nothing to
-        // continue with; mainnet has neither screen. Either way, restart from Welcome.
+        // continue with; mainnet has no notice. Either way, restart from Welcome.
         if (onboardingType === null || !getTestNetworkNameKey()) {
           navigate('/');
           break;
         }
-        setStep(hash === '#mainnet-access' ? OnboardingStep.MainnetAccess : OnboardingStep.NetworkNotice);
+        setStep(OnboardingStep.NetworkNotice);
         break;
       case '#select-wallet-type':
         setOnboardingType(OnboardingType.Create);

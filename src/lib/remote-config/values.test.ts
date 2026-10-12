@@ -21,6 +21,7 @@ import {
   getMidenUsdc,
   selectEarnMarket,
   selectEvmUsdc,
+  selectInviteOnlyOnboarding,
   selectMidenUsdc,
   selectMidenUsdcFaucetId,
   selectNativeEthFaucet,
@@ -178,6 +179,13 @@ describe('selectors', () => {
     expect(selectMidenUsdcFaucetId(EMPTY)).toBe(injected.faucetId);
     delete process.env.MIDEN_E2E_TEST;
     expect(selectMidenUsdc(snapshot())?.faucetId).toBe('0x537c15a622074e91188aa894456c52');
+  });
+
+  it('select the Welcome variant the document sets, and null when it sets none', () => {
+    expect(selectInviteOnlyOnboarding(snapshot({ ...CONFIG, onboarding: { inviteOnly: true } }))).toBe(true);
+    expect(selectInviteOnlyOnboarding(snapshot({ ...CONFIG, onboarding: { inviteOnly: false } }))).toBe(false);
+    expect(selectInviteOnlyOnboarding(snapshot())).toBeNull();
+    expect(selectInviteOnlyOnboarding(EMPTY)).toBeNull();
   });
 });
 

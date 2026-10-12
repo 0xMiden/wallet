@@ -52,6 +52,7 @@ import {
   toSerializedSpendingLimitAssessment
 } from 'lib/miden/spending-limits/types';
 import { buildSdkSignCallback } from 'lib/miden/transaction/sign-callback';
+import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
   GuardianRecoveryAction,
@@ -219,8 +220,8 @@ async function getAccessSetupVault(inputs: string, accessCode: string | undefine
 
 async function registerSetupAccessCode(accountId: string, code?: string) {
   if (!code) return;
-  const rpcUrl = process.env.MIDEN_ACCESS_RPC_URL;
-  if (!rpcUrl) throw new PublicError(getMessage('mainnetAccessCheckFailed'));
+  // The wallet's node, which MIDEN_ACCESS_RPC_URL overrides for local registration tests.
+  const rpcUrl = getEffectiveRpcUrl();
   const outcome = await redeemMainnetAccessCode(code, { accountId, rpcUrl });
   if (outcome === 'rejected') throw new PublicError(getMessage('mainnetAccessCodeRejected'));
 }

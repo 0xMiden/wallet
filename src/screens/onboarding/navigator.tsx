@@ -115,14 +115,11 @@ const Header: React.FC<{
   onBack?: () => void;
   currentStep: number | null;
   totalSteps: number;
-  /** A step outside the flow's progress (mainnet access) names itself in the header instead. */
-  title?: string;
-}> = ({ onBack, currentStep, totalSteps, title }) => (
+}> = ({ onBack, currentStep, totalSteps }) => (
   <PageHeader
     className="relative px-4"
     onBack={onBack}
     backTestId="onboarding-back"
-    title={title}
     actions={
       <ProgressIndicator
         currentStep={currentStep ?? 1}
@@ -204,8 +201,13 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   }, [onAction]);
 
   const renderStep = useCallback(() => {
-    const onWelcomeAction = (action: 'select-wallet-type' | 'select-import-type') => {
+    const onWelcomeAction = (action: 'mainnet-access' | 'select-wallet-type' | 'select-import-type') => {
       switch (action) {
+        case 'mainnet-access':
+          onForwardAction?.({
+            id: 'mainnet-access'
+          });
+          break;
         case 'select-wallet-type':
           onForwardAction?.({
             id: 'choose-protection'
@@ -223,7 +225,6 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
 
     const onNetworkNoticeSubmit = () => onForwardAction?.({ id: 'network-notice-acknowledge' });
     const onMainnetAccessGranted = (code: string) => onForwardAction?.({ id: 'mainnet-access-granted', payload: code });
-    const onMainnetAccessSkip = () => onForwardAction?.({ id: 'mainnet-access-skip' });
 
     const onSelectImportTypeSubmit = (payload: ImportType) => {
       if (payload === ImportType.SeedPhrase) {
@@ -300,7 +301,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
       case OnboardingStep.Welcome:
         return <WelcomeScreen onSubmit={onWelcomeAction} />;
       case OnboardingStep.MainnetAccess:
-        return <MainnetAccessScreen onSubmit={onMainnetAccessGranted} onSkip={onMainnetAccessSkip} />;
+        return <MainnetAccessScreen onSubmit={onMainnetAccessGranted} />;
       case OnboardingStep.NetworkNotice:
         return <NetworkNoticeScreen onSubmit={onNetworkNoticeSubmit} />;
       case OnboardingStep.ChooseProtection:
@@ -444,7 +445,6 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
               onBack={canGoBack ? onBack : undefined}
               currentStep={currentProgress}
               totalSteps={totalSteps}
-              title={step === OnboardingStep.MainnetAccess ? t('mainnetAccessHeader') : undefined}
               key={'header'}
             />
           )}

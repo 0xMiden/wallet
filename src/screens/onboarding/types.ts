@@ -105,15 +105,15 @@ export type NetworkNoticeAcknowledgeAction = {
   id: 'network-notice-acknowledge';
 };
 
-/** The code is held until account setup. Skip the test-network notice. */
+/** Welcome's "I have a code": the mainnet access step, which starts the create flow. */
+export type MainnetAccessAction = {
+  id: 'mainnet-access';
+};
+
+/** The node accepted the code. It is held until account setup, and the create flow starts. */
 export type MainnetAccessGrantedAction = {
   id: 'mainnet-access-granted';
   payload: string;
-};
-
-/** The user has no mainnet access code: the test-network notice follows. */
-export type MainnetAccessSkipAction = {
-  id: 'mainnet-access-skip';
 };
 
 export type ImportFromSeedAction = {
@@ -234,8 +234,8 @@ export type OnboardingAction =
   | BackupSeedPhraseAction
   | SelectImportTypeAction
   | NetworkNoticeAcknowledgeAction
+  | MainnetAccessAction
   | MainnetAccessGrantedAction
-  | MainnetAccessSkipAction
   | VerifySeedPhraseAction
   | CreatePasswordAction
   | CreatePasswordSubmitAction

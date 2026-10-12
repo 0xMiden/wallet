@@ -1,8 +1,10 @@
-import { AccountId, Address, MidenClient } from '@miden-sdk/miden-sdk/lazy';
+import { AccountId, Address, MidenClient, RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
+import { getRpcEndpoint } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 
 /** The number of characters in a node-generated access code. */
 export const MAINNET_ACCESS_CODE_LENGTH = 12;
@@ -16,6 +18,20 @@ export interface MainnetAccessTarget {
   accountId: string;
   /** The mainnet node that will receive the account's first transaction. */
   rpcUrl: string;
+}
+
+/**
+ * Ask the node whether the code can register an account, before any account exists. A one-shot
+ * `RpcClient` read, bounded by the RPC timeout, with no wallet client and no lock. The check does
+ * not use the code: `redeemMainnetAccessCode` registers the final account with it after setup.
+ * Node and transport failures are thrown so the caller can show a retry action.
+ */
+export async function checkMainnetAccessCode(code: string): Promise<MainnetAccessOutcome> {
+  if (!code) return 'rejected';
+  await MidenClient.ready();
+  const rpc = new RpcClient(getRpcEndpoint());
+  const valid = await withRpcTimeout(() => rpc.isInvitationCodeValid(code), 'mainnet-access-check');
+  return valid ? 'granted' : 'rejected';
 }
 
 /**
