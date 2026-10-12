@@ -184,6 +184,11 @@ interface ManagedCloseRecord {
   settle: () => void;
 }
 
+interface SessionFinalization {
+  finalized: Promise<void>;
+  viewportReady: Promise<void>;
+}
+
 interface DappBrowserContextValue {
   policyPending: boolean;
   presentation: 'browser' | 'fullscreen';
@@ -404,12 +409,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const sessionLifetimes = useRef(new Map<string, symbol>());
   const openingSessions = useRef(new Map<string, symbol>());
   const listenerSetup = useRef<Promise<void>>(Promise.resolve());
-  const finalizations = useRef(new Map<string, Promise<void>>());
+  const finalizations = useRef(new Map<string, SessionFinalization>());
   const managedTokens = useRef(new Map<string, string>());
   const managedClosings = useRef(new Map<string, ManagedCloseRecord>());
   const providerAlive = useRef(true);
   const providerEpoch = useRef(Symbol());
-  const launcherCommitted = useRef(false);
+  const [launcherCommitted, setLauncherCommitted] = useState(false);
   const hostCommitGeneration = useRef(0);
   const [closeRevision, setCloseRevision] = useState(0);
   const [presentationLayout, setPresentationLayout] = useState<{
@@ -433,12 +438,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     );
   }, []);
   const reportLauncherCommit = useCallback((active: boolean) => {
-    launcherCommitted.current = active;
+    setLauncherCommitted(active);
   }, []);
   const finalizeSession = useCallback(
     (id: string, resetViewport = true): Promise<void> => {
       const existing = finalizations.current.get(id);
-      if (existing) return existing;
+      if (existing) return existing.finalized;
       if (!getSessionStateById(id)) return Promise.resolve();
       // Remove the session before notifying confirmation subscribers so it cannot auto-restore.
       sessionLifetimes.current.delete(id);
@@ -453,12 +458,13 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       dappConfirmationStore.resolveConfirmation(id, { confirmed: false });
       clearSnapshot(id);
       if (resetViewport) markReturningFromWebview();
+      const viewportReady = resetViewport ? resetViewportAfterWebview() : Promise.resolve();
       const finalized = Promise.all([
         removePersistedSession(id).catch(error => console.warn('[DappBrowserProvider] remove session failed:', error)),
         removeSnapshotFromDisk(id).catch(error => console.warn('[DappBrowserProvider] remove snapshot failed:', error)),
-        resetViewport ? resetViewportAfterWebview() : Promise.resolve()
+        viewportReady
       ]).then(() => undefined);
-      finalizations.current.set(id, finalized);
+      finalizations.current.set(id, { finalized, viewportReady });
       return finalized;
     },
     [getSessionStateById, removeSession, setActiveDappSession]
@@ -491,7 +497,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       };
       managedClosings.current.set(event.token, record);
       record.finalized = finalizeSession(event.id, resetViewport);
-      void record.finalized.finally(() => {
+      void (finalizations.current.get(event.id)?.viewportReady ?? Promise.resolve()).finally(() => {
         if (!providerAlive.current || managedClosings.current.get(event.token) !== record) return;
         record.ready = true;
         setCloseRevision(n => n + 1);
@@ -508,12 +514,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       if (!record.ready) continue;
       const needsLauncher =
         record.needsDestination && location.pathname === '/browser' && !foregroundBlocked && !foregroundId;
-      if (needsLauncher && (!launcherCommitted.current || slotRect)) continue;
+      if (needsLauncher && (!launcherCommitted || slotRect)) continue;
       void InAppBrowser.completeManagedClose({ ...record.request, hostCommitGeneration: generation }).catch(() => {
         // Native retains the surface and offers Retry/Exit now after a failed fence.
       });
     }
-  }, [closeRevision, location.pathname, foregroundBlocked, foregroundId, slotRect]);
+  }, [closeRevision, location.pathname, foregroundBlocked, foregroundId, slotRect, launcherCommitted]);
 
   useEffect(() => {
     providerAlive.current = true;
@@ -871,7 +877,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         ) {
           if (!managedClosings.current.has(token)) {
             await InAppBrowser.close({ id: session.id, managedHostCloseToken: token, force: true });
-            if (managedTokens.current.get(session.id) === token) await finalizations.current.get(session.id);
+            if (managedTokens.current.get(session.id) === token) await finalizations.current.get(session.id)?.finalized;
             if (managedTokens.current.get(session.id) === token) managedTokens.current.delete(session.id);
             dappWebViewManager.forget(session.id, token);
           }
@@ -896,7 +902,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           providerEpoch.current !== epoch ||
           sessionLifetimes.current.get(session.id) !== lifetime
         ) {
-          if (managedTokens.current.get(session.id) === token) await finalizations.current.get(session.id);
+          if (managedTokens.current.get(session.id) === token) await finalizations.current.get(session.id)?.finalized;
           if (managedTokens.current.get(session.id) === token) managedTokens.current.delete(session.id);
           dappWebViewManager.forget(session.id, token);
           return;
@@ -1030,7 +1036,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       if (!state) return;
       if (state.instance?.managedHostCloseToken) {
         await state.instance.close();
-        await finalizations.current.get(id);
+        await finalizations.current.get(id)?.finalized;
         return;
       }
       const finalized = finalizeSession(id);

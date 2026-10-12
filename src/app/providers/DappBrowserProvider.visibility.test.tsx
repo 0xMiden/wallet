@@ -7,6 +7,7 @@ import { I18nextProvider, initReactI18next } from 'react-i18next';
 
 import { ExternalPageFailedNotice } from 'app/ExternalPageFailedNotice';
 import Dialogs from 'app/layouts/Dialogs';
+import { PageActiveContext } from 'app/layouts/page-active';
 import { BrowserScreen } from 'app/pages/Browser/BrowserScreen';
 import { DappActive } from 'app/pages/Browser/DappActive';
 import { dappConfirmationStore, type DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
@@ -24,6 +25,7 @@ const mockOpen = jest.fn(
 );
 const mockCompleteClose = jest.fn(async (_options: unknown) => {});
 const mockRemoveSession = jest.fn(async () => {});
+const mockRemoveSnapshot = jest.fn(async () => {});
 const mockResetViewport = jest.fn(async () => {});
 const mockClose = jest.fn(async (_id: string) => {});
 const nativeListeners = new Map<
@@ -139,7 +141,7 @@ jest.mock('lib/dapp-browser', () => ({
   loadPersistedSessions: async () => [],
   readSnapshotFromDisk: async () => null,
   removePersistedSession: () => mockRemoveSession(),
-  removeSnapshotFromDisk: async () => {},
+  removeSnapshotFromDisk: () => mockRemoveSnapshot(),
   upsertPersistedSession: async () => {},
   writeSnapshotToDisk: async () => {},
   toPersisted: (session: unknown) => session,
@@ -217,11 +219,13 @@ function control() {
 function Tree({
   held = false,
   actions = false,
-  screen = false
+  screen = false,
+  onScreen = true
 }: {
   held?: boolean;
   actions?: boolean;
   screen?: boolean;
+  onScreen?: boolean;
 }) {
   return (
     <I18nextProvider i18n={testI18n}>
@@ -232,7 +236,11 @@ function Tree({
           <Driver />
           {held && <HeldOverlay />}
           {actions && <DappActive />}
-          {screen && <BrowserScreen />}
+          {screen && (
+            <PageActiveContext.Provider value={onScreen}>
+              <BrowserScreen />
+            </PageActiveContext.Provider>
+          )}
         </DappBrowserProvider>
       </DialogsProvider>
     </I18nextProvider>
@@ -313,6 +321,8 @@ beforeEach(async () => {
   mockOpen.mockClear();
   mockClose.mockClear();
   mockCompleteClose.mockClear();
+  mockRemoveSession.mockReset().mockResolvedValue(undefined);
+  mockRemoveSnapshot.mockReset().mockResolvedValue(undefined);
   mockResetViewport.mockReset().mockResolvedValue(undefined);
   mockStatus = WalletStatus.Ready;
   mockHydrated = true;
@@ -791,6 +801,167 @@ it('holds the id through persistence after native terminal without parking anoth
   expect(joined).toBe(true);
   act(() => control().open(session('origin')));
   await waitFor(() => expect(mockOpen).toHaveBeenCalledTimes(3));
+});
+
+it.each(['native-first', 'cleanup-first', 'cleanup-rejected'] as const)(
+  'dispatches current host paint before storage cleanup and joins close completion in %s order',
+  async order => {
+    let finishOpen = () => {};
+    let finishSession = () => {};
+    let finishSnapshot = () => {};
+    let finishReset = () => {};
+    const cleanupFailed = order === 'cleanup-rejected';
+    const warnings = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockOpen.mockImplementationOnce(() => new Promise<void>(resolve => (finishOpen = resolve)));
+    mockRemoveSession.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          finishSession = () => (cleanupFailed ? reject(new Error('session cleanup rejected')) : resolve());
+        })
+    );
+    mockRemoveSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          finishSnapshot = () => (cleanupFailed ? reject(new Error('snapshot cleanup rejected')) : resolve());
+        })
+    );
+    mockResetViewport.mockImplementationOnce(() => new Promise<void>(resolve => (finishReset = resolve)));
+    currentTree = render(<Tree screen />);
+    await waitFor(() => expect(nativeListeners.has('hostCloseRequested')).toBe(true));
+    const launcher = screen.getByTestId('retained-launcher');
+    act(() => control().open(session('cleanup')));
+    await waitFor(() => expect(mockOpen).toHaveBeenCalledTimes(1));
+    const token = mockOpen.mock.calls[0]?.[0].managedHostClose?.token;
+    act(() =>
+      nativeListeners.get('presentationChanged')?.({
+        id: 'cleanup',
+        display: 'browser',
+        policyResolved: true,
+        policyRevision: 2,
+        managedHostCloseToken: token
+      })
+    );
+    await settle();
+    expect(launcher).not.toBeVisible();
+    act(() =>
+      nativeListeners.get('hostCloseRequested')?.({ id: 'cleanup', token, requestId: 'old-request', visible: true })
+    );
+    expect(control().sessionStates).toHaveLength(0);
+    expect(control().mode).toBe('launcher');
+    await settle();
+    expect(screen.getByTestId('retained-launcher')).toBe(launcher);
+    expect(launcher).toBeVisible();
+    expect(launcher.parentElement?.inert).toBe(false);
+    expect(control().slotRect).toBeNull();
+    expect(mockCompleteClose).not.toHaveBeenCalled();
+    act(() => {
+      nativeListeners.get('hostCloseRequested')?.({
+        id: 'cleanup',
+        token: 'stale-lifetime',
+        requestId: 'stale',
+        visible: true
+      });
+      nativeListeners.get('hostCloseRequested')?.({
+        id: 'cleanup',
+        token,
+        requestId: 'current-request',
+        visible: true
+      });
+    });
+    let completed = 0;
+    const close = control()
+      .close('cleanup')
+      .then(() => completed++);
+    await act(async () => finishReset());
+    expect(mockCompleteClose).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'cleanup',
+        token,
+        requestId: 'current-request',
+        hostCommitGeneration: expect.any(Number)
+      })
+    );
+    expect(mockCompleteClose).not.toHaveBeenCalledWith(expect.objectContaining({ requestId: 'old-request' }));
+    expect(completed).toBe(0);
+    act(() => control().open(session('cleanup')));
+    await settle();
+    expect(mockOpen).toHaveBeenCalledTimes(1);
+    await act(async () => finishOpen());
+    expect(control().sessionStates).toHaveLength(0);
+    let terminal: void | Promise<void> = undefined;
+    if (order === 'native-first') {
+      terminal = nativeListeners.get('closeEvent')?.({ id: 'cleanup', managedHostCloseToken: token });
+    }
+    await settle();
+    expect(completed).toBe(0);
+    act(() => control().open(session('cleanup')));
+    await settle();
+    expect(mockOpen).toHaveBeenCalledTimes(1);
+    await act(async () => finishSession());
+    expect(completed).toBe(0);
+    await act(async () => finishSnapshot());
+    await settle();
+    expect(completed).toBe(order === 'native-first' ? 1 : 0);
+    if (order !== 'native-first') {
+      terminal = nativeListeners.get('closeEvent')?.({ id: 'cleanup', managedHostCloseToken: token });
+    }
+    await act(async () => {
+      await terminal;
+      await close;
+    });
+    expect(completed).toBe(1);
+    expect(warnings).toHaveBeenCalledTimes(cleanupFailed ? 2 : 0);
+    act(() => control().open(session('cleanup')));
+    await waitFor(() => expect(mockOpen).toHaveBeenCalledTimes(2));
+  }
+);
+
+it('waits for the actual Launcher activation and outstanding slot before host paint', async () => {
+  currentTree = render(<Tree screen />);
+  await waitFor(() => expect(nativeListeners.has('hostCloseRequested')).toBe(true));
+  act(() => control().open(session('delayed-launcher')));
+  await waitFor(() => expect(mockOpen).toHaveBeenCalledTimes(1));
+  const token = mockOpen.mock.calls[0]?.[0].managedHostClose?.token;
+  currentTree.rerender(<Tree screen onScreen={false} />);
+  act(() =>
+    nativeListeners.get('hostCloseRequested')?.({
+      id: 'delayed-launcher',
+      token,
+      requestId: 'delayed',
+      visible: true
+    })
+  );
+  await settle();
+  const launcher = screen.getByTestId('retained-launcher');
+  expect(launcher.parentElement?.inert).toBe(true);
+  expect(launcher.parentElement).toHaveAttribute('aria-hidden', 'true');
+  expect(mockCompleteClose).not.toHaveBeenCalled();
+  act(() => control().setSlotRect(RECT));
+  currentTree.rerender(<Tree screen />);
+  await settle();
+  expect(launcher.parentElement?.inert).toBe(false);
+  expect(mockCompleteClose).not.toHaveBeenCalled();
+  currentTree.rerender(<Tree screen onScreen={false} />);
+  act(() => control().setSlotRect(null));
+  await settle();
+  expect(mockCompleteClose).not.toHaveBeenCalled();
+  currentTree.rerender(<Tree screen />);
+  await settle();
+  expect(launcher.parentElement?.inert).toBe(false);
+  expect(mockCompleteClose).toHaveBeenCalledWith(
+    expect.objectContaining({
+      id: 'delayed-launcher',
+      token,
+      requestId: 'delayed',
+      hostCommitGeneration: expect.any(Number)
+    })
+  );
+  const receipts = mockCompleteClose.mock.calls.length;
+  currentTree.rerender(<Tree screen />);
+  await settle();
+  currentTree.rerender(<Tree screen />);
+  await settle();
+  expect(mockCompleteClose).toHaveBeenCalledTimes(receipts);
 });
 
 it('keeps the managed reservation when its pending open rejects during the retained hold', async () => {
