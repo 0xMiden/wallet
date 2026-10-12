@@ -775,9 +775,7 @@ describe('DappConfirmationModal origin', () => {
     const domain = within(shown).getByTestId('dapp-origin-domain');
     expect(domain).toHaveTextContent(/^example\.co\.uk$/);
     expect(within(shown).getByTestId('dapp-origin-lead')).toHaveClass('truncate');
-    // The row directly wrapping DappOrigin, not the modal card: the card's own
-    // overflow-hidden is an unrelated rounded-corner clip (no fixed height, so it
-    // never clips text) and would otherwise make this guard fail on every render.
+    // Check the title row: the card's rounded-corner clip also contains the scrollable request body.
     expectDomainNeverClipped(domain, shown.parentElement!);
   });
 

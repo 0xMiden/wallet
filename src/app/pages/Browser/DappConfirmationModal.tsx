@@ -203,7 +203,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
         >
           <motion.div
             key="dapp-confirmation-overlay"
-            className={`fixed inset-0 ${HOST_MODAL_LAYER} flex items-center justify-center p-4`}
+            className={`fixed inset-0 ${HOST_MODAL_LAYER} flex items-center justify-center pt-[max(1rem,env(safe-area-inset-top))] pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1rem,var(--app-safe-bottom,0px),env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))]`}
             style={{
               background: 'rgba(0,0,0,0.5)',
               backdropFilter: 'blur(8px)',
@@ -218,14 +218,14 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
           >
             <motion.div
               ref={containerRef}
-              className="w-full max-w-[360px] overflow-hidden rounded-2xl bg-surface-solid shadow-2xl"
+              className="flex max-h-full min-h-0 w-full max-w-[360px] flex-col overflow-hidden rounded-2xl bg-surface-solid shadow-2xl"
               initial={{ scale: 0.96, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.96, opacity: 0, y: 20 }}
               transition={springs.sheetPresent}
             >
               {/* Header */}
-              <div className="flex items-center gap-3 border-b border-border-light px-6 py-5">
+              <div className="flex shrink-0 items-center gap-3 border-b border-border-light px-6 py-5">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary-100">
                   <Icon name={IconName.Globe} className="text-primary-600" />
                 </div>
@@ -240,7 +240,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
               </div>
 
               {/* Body */}
-              <div className="px-6 py-5">
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
                 <p className="mb-4 text-sm text-text-muted">{t(confirmationPromptKey(request.type))}</p>
 
                 {isTransaction && transactionMessages.length > 0 && (
@@ -307,7 +307,7 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
               </div>
 
               {/* Actions */}
-              <div className="flex gap-3 border-t border-border-light px-6 py-5">
+              <div className="flex shrink-0 gap-3 border-t border-border-light px-6 py-5">
                 <button
                   type="button"
                   onClick={handleDeny}
