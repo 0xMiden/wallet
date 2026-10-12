@@ -261,7 +261,15 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
       return undefined;
     }
   }, [offerAmount, offerToken.decimals]);
-  const hasOfferAmount = offerAmountValue > 0;
+  const requestAmountBaseUnits = useMemo(() => {
+    try {
+      return stringToBigInt(requestAmount, requestToken.decimals);
+    } catch {
+      return undefined;
+    }
+  }, [requestAmount, requestToken.decimals]);
+  const hasOfferAmount = offerAmountBaseUnits !== undefined && offerAmountBaseUnits > 0n;
+  const hasRequestAmount = requestAmountBaseUnits !== undefined && requestAmountBaseUnits > 0n;
   const offerAmountExceedsBalance = offerAmountValue > offerSpendable;
   const quoteUnavailable = Boolean(swapEta.error) || (hasOfferAmount && swapEta.eta !== undefined && !quote);
   const expirySecondsValue = Number(expirySeconds);
@@ -285,7 +293,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
     // on-chain failure -- the "reads as a lost transaction" outcome the check exists
     // to prevent. `hasNoFeeAsset` fails open, so a zero-fee chain is unaffected.
     !feeAssetMissing &&
-    Number(requestAmount) > 0 &&
+    hasRequestAmount &&
     validExpiry;
 
   const onOfferAmountChange = useCallback((amount: string) => {
@@ -336,7 +344,15 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
 
   const runSwap = useCallback(
     async (authorization?: SpendingLimitAuthorization) => {
-      if (!publicKey || offerAmountBaseUnits === undefined) return;
+      if (
+        !publicKey ||
+        offerAmountBaseUnits === undefined ||
+        offerAmountBaseUnits <= 0n ||
+        requestAmountBaseUnits === undefined ||
+        requestAmountBaseUnits <= 0n
+      ) {
+        return;
+      }
       if (authorization !== undefined && authorization.accountId !== publicKey) {
         setSpendingLimitChallenge(undefined);
         return;
@@ -354,7 +370,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
           offerToken.faucetId,
           offerAmountBaseUnits,
           requestToken.faucetId,
-          stringToBigInt(requestAmount, requestToken.decimals),
+          requestAmountBaseUnits,
           isDelegateProofEnabled(),
           expirySecondsValue,
           autoConsume
@@ -401,8 +417,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
       offerToken.faucetId,
       openUnpricedChallenge,
       publicKey,
-      requestAmount,
-      requestToken.decimals,
+      requestAmountBaseUnits,
       requestToken.faucetId,
       settleSwap
     ]
@@ -421,8 +436,8 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
     // throw from `stringToBigInt('')`.
     if (
       sameToken ||
-      !(Number(offerAmount) > 0) ||
-      !(Number(requestAmount) > 0) ||
+      !hasOfferAmount ||
+      !hasRequestAmount ||
       offerAmountExceedsBalance ||
       !validExpiry
     ) {
@@ -483,8 +498,8 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair }) => {
     sameToken,
     offerAmountExceedsBalance,
     offerToken,
-    offerAmount,
-    requestAmount,
+    hasOfferAmount,
+    hasRequestAmount,
     validExpiry,
     // Read by the fee-asset refusal above. Omitted, the re-check would run against
     // the first-render value -- before the balance and base fee resolve -- and admit

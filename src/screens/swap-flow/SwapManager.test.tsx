@@ -346,6 +346,7 @@ beforeEach(() => {
   mockGetBech32.mockImplementation(mockFakeBech32);
   mockAccountIdStringToSdk.mockImplementation((s: string) => s);
   mockConfirmSensitive.mockResolvedValue(true);
+  mockStringToBigInt.mockImplementation((str: string, _decimals: number) => BigInt(Math.trunc(Number(str) || 0)));
   mockInitiateSwap.mockResolvedValue('tx-1');
   mockIsExtension.mockReturnValue(true);
   mockIsDelegateProof.mockReturnValue(false);
@@ -796,6 +797,71 @@ describe('SwapFlow / SwapManager', () => {
       rerender(<SwapFlow />);
       await act(async () => confirm(true));
       expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-C', 10n, 'faucet-B', 5n, false, 120, true);
+    });
+  });
+
+  describe('positive protocol amounts', () => {
+    beforeEach(() => {
+      mockGetSwapTokens.mockReturnValue([{ ...mockTokenA, decimals: 0 }, { ...mockTokenB, decimals: 0 }, mockTokenC]);
+      mockStringToBigInt.mockImplementation((str, decimals) => BigInt(Math.trunc(Number(str) * 10 ** decimals)));
+    });
+
+    it.each(['offer', 'request'])('refuses a positive display %s amount that becomes zero raw units', async side => {
+      renderFlow();
+      setOffer(side === 'offer' ? '0.5' : '1');
+      setRequest(side === 'request' ? '0.5' : '2');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
+      expect(mockWalletState.assessSpendingLimit).not.toHaveBeenCalled();
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+    });
+
+    it.each(['offer', 'request'])('refuses an undefined raw %s conversion', async side => {
+      mockStringToBigInt.mockImplementation((str, decimals) => {
+        if (str === '0.5') throw new Error('invalid raw amount');
+        return BigInt(Math.trunc(Number(str) * 10 ** decimals));
+      });
+      renderFlow();
+      setOffer(side === 'offer' ? '0.5' : '1');
+      setRequest(side === 'request' ? '0.5' : '2');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapInvalidAmounts');
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+    });
+
+    it.each(['offer', 'request'])('refuses deferred authorization after the raw %s becomes zero', async side => {
+      mockWalletState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+      renderFlow();
+      setOffer('1');
+      setRequest('2');
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+      if (side === 'offer') setOffer('0.5');
+      else setRequest('0.5');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+    });
+
+    it('submits positive integer amounts with their exact zero-decimal raw values', async () => {
+      renderFlow();
+      setOffer('1');
+      setRequest('2');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 1n, 'faucet-B', 2n, false, 120, true);
+    });
+
+    it('accepts a fractional display amount when the token precision gives it positive raw units', async () => {
+      mockGetSwapTokens.mockReturnValue([{ ...mockTokenA, decimals: 1 }, { ...mockTokenB, decimals: 1 }, mockTokenC]);
+      renderFlow();
+      setOffer('0.5');
+      setRequest('2');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 5n, 'faucet-B', 20n, false, 120, true);
     });
   });
 
