@@ -104,3 +104,23 @@ export const draftToExpirySeconds = (draft: string, unit: ExpiryUnit): number | 
   if (!Number.isInteger(value) || value < min || value > max) return undefined;
   return unitValueToSeconds(value, unit);
 };
+
+export type ExpiryPresetId = '2m' | '1h' | '1d' | '7d';
+
+/**
+ * The review's four choices, from the default up to the cap: how long the wallet waits for a fill
+ * before it cancels the order and takes the offer back. Fixed choices replace a typed number and a
+ * unit, which said how long but not what happens after.
+ */
+export const EXPIRY_PRESETS: readonly { id: ExpiryPresetId; seconds: number; labelKey: string }[] = [
+  { id: '2m', seconds: 2 * 60, labelKey: 'swapExpiryPreset2Min' },
+  { id: '1h', seconds: 60 * 60, labelKey: 'swapExpiryPreset1Hour' },
+  { id: '1d', seconds: 24 * 60 * 60, labelKey: 'swapExpiryPreset1Day' },
+  { id: '7d', seconds: MAX_EXPIRY_SECONDS, labelKey: 'swapExpiryPreset7Days' }
+];
+
+/** The preset these seconds are, or the closest one for a value from elsewhere. */
+export const presetForSeconds = (seconds: number) =>
+  EXPIRY_PRESETS.reduce((best, preset) =>
+    Math.abs(preset.seconds - seconds) < Math.abs(best.seconds - seconds) ? preset : best
+  );
