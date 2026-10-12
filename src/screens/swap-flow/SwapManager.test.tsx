@@ -822,11 +822,9 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-C', 10n, 'faucet-B', 5n, false, 120, true);
       expect(swapFlow().complete).toHaveBeenCalledTimes(1);
       expect(swapFlow().cancel).not.toHaveBeenCalled();
-      if (tokens.length === 0) expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
-      else {
-        expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('AAA');
-        expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
-      }
+      expect(screen.queryByTestId('swap-amounts') !== null).toBe(tokens.length !== 0);
+      expect(screen.queryByTestId('sa-offer-token')?.textContent ?? null).toBe(tokens.length === 0 ? null : 'AAA');
+      expect(screen.queryByTestId('sa-offer-amount')?.textContent ?? null).toBe(tokens.length === 0 ? null : '');
     });
 
     it('owns review presses synchronously before assessment resolves', async () => {
@@ -863,8 +861,8 @@ describe('SwapFlow / SwapManager', () => {
       await act(async () => fireEvent.click(screen.getByRole('button', { name: 'cancel-limit' })));
       expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
       expect(mockInitiateSwap).not.toHaveBeenCalled();
-      if (tokens.length === 0) expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
-      else expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+      expect(screen.queryByTestId('swap-amounts') !== null).toBe(tokens.length !== 0);
+      expect(screen.queryByTestId('sa-offer-amount')?.textContent ?? null).toBe(tokens.length === 0 ? null : '');
     });
 
     it('executes a held challenge once despite duplicate authorization callbacks', async () => {
