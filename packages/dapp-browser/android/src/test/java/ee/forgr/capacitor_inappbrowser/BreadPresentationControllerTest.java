@@ -367,14 +367,16 @@ public class BreadPresentationControllerTest {
     @Test @Config(shadows = PaintWebView.class)
     public void managedReturnDeliversOrdinaryInsetsBeforeHostHandoff() {
         WebView host = managedInsetHost();
+        List<android.graphics.Insets> handoffInsets = new ArrayList<>();
         dialog.configureManagedClose("managed", new JSObject().put("token", "lifetime"), ignored -> {
             host.dispatchApplyWindowInsets(hiddenHostInsets());
             org.mockito.ArgumentCaptor<android.view.WindowInsets> applied = org.mockito.ArgumentCaptor.forClass(android.view.WindowInsets.class);
             verify(host, atLeastOnce()).onApplyWindowInsets(applied.capture());
-            assertEquals(android.graphics.Insets.of(0, 52, 0, 24),
-                applied.getValue().getInsets(android.view.WindowInsets.Type.systemBars()));
+            handoffInsets.add(applied.getValue().getInsets(android.view.WindowInsets.Type.systemBars()));
         });
         dialog.requestClose(() -> {});
+        assertEquals("Managed return must notify the host once", 1, handoffInsets.size());
+        assertEquals(android.graphics.Insets.of(0, 52, 0, 24), handoffInsets.get(0));
     }
 
     @Test @Config(shadows = PaintWebView.class)
