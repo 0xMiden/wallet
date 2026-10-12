@@ -496,6 +496,15 @@ describe('getDefaultSwapPair', () => {
   afterEach(() => _setSwapTokensForTest(undefined));
 
   it("opens on the document's first two tokens whether or not native discovery has landed", () => {
+    mockSnapshot.mockReturnValue({
+      ...LOADED,
+      config: {
+        ...LOADED.config!,
+        swap: {
+          tokens: [TEST_SWAP_TOKEN_CONFIG[2]!, TEST_SWAP_TOKEN_CONFIG[3]!, ...TEST_SWAP_TOKEN_CONFIG.slice(0, 2)]
+        }
+      }
+    });
     // Cold start: discovery has not populated the synchronous cache yet.
     mockGetNativeAssetIdSync.mockReturnValue(null);
     const cold = getDefaultSwapPair();
@@ -503,13 +512,13 @@ describe('getDefaultSwapPair', () => {
     // Warm start: the discovered native asset is now FIRST in the list, which
     // is what made an index-based default flip between the two.
     mockGetNativeAssetIdSync.mockReturnValue('0xnative');
-    mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'MIDEN', decimals: 6 } as never);
+    mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'MIDEN', decimals: 6 });
     const warm = getDefaultSwapPair();
 
     expect(getSwapTokens()[0]!.faucetId).toBe('0xnative');
     expect(cold).toEqual({
-      offer: expect.objectContaining({ symbol: 'IMIDEN' }),
-      request: expect.objectContaining({ symbol: 'IETH' })
+      offer: expect.objectContaining({ symbol: 'IBTC', faucetId: canonical(TEST_TOKEN_IBTC.faucetId) }),
+      request: expect.objectContaining({ symbol: 'IUSDT', faucetId: canonical(TEST_TOKEN_IUSDT.faucetId) })
     });
     expect(warm).toEqual(cold);
   });
