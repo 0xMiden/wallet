@@ -143,8 +143,9 @@ relaxed to complete such a note with no amount (`'Name received'`).
 `register-name` is a pre-built-bytes type like `earn-deposit`: the request bytes live on the
 row and are reused for every attempt. Non-guardian accounts write through
 `midenClientProxy.newTransaction`; guardian accounts go through
-`createCustomProposal(bytes, 'register_name')` and `signAndCreateTransactionRequest` with
-the same bytes. The guard runs before the write in both branches. The type is in
+`createRebasedCustomProposal(bytes, 'register_name')`. This keeps the registration note,
+adds the v17 auth advice at the proposal sync height, and stores the returned bytes.
+`signAndCreateTransactionRequest` uses those stored bytes. The guard runs before the write in both branches. The type is in
 `REQUEUEABLE_ON_PENDING_CONFLICT` and `OUTGOING_TYPES` (spending limits) and is left out of
 `REQUEUEABLE_TYPES`, `NODE_VERIFIED_RETRY_TYPES`, `REBUILT_REQUEST_TYPES` and the offscreen
 guardian route.

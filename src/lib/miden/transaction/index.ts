@@ -3494,20 +3494,18 @@ const generateGuardianTransaction = async (
       break;
     }
     case 'register-name': {
-      // The register note is pre-built with its fee salt (`buildRegisterNameRequest`),
-      // so the custom proposal and `signAndCreateTransactionRequest` below use the
-      // same bytes. The guard runs before the proposal: a throw goes to the
-      // guardian catch, which marks the row Failed (the guard errors match no
-      // requeue classifier there).
+      // Keep the registration note and add the v17 Guardian auth advice.
+      // Build the auth args at the proposal's sync height, then store those
+      // request bytes so signing and execution use the same request.
       await assertMidenNameRegistrationLive(transaction);
       const registerBytes = transaction.requestBytes;
       if (!registerBytes) {
         throw new Error('Register-name row has no request bytes');
       }
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
-      proposalResult = await withGuardianConflictRetry(() =>
-        service.createCustomProposal(registerBytes, 'register_name')
-      );
+      await releaseUnabandonedCandidate(transaction, service);
+      await assertPriorCandidateSettled(transaction, service);
+      proposalResult = await proposeRebased(service, transaction, registerBytes, 'register_name');
       break;
     }
     case 'swap': {

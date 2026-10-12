@@ -2672,14 +2672,19 @@ describe('generateTransaction — Guardian routing', () => {
       delegateTransaction: true
     });
 
-  it('Guardian register-name proposes the pre-built bytes as a register_name custom proposal', async () => {
+  it('Guardian register-name adds v17 auth advice and signs the stored rebased request', async () => {
     const txId = 'register-name-guardian';
     const requestBytes = new Uint8Array([21, 22, 23]);
+    const rebasedBytes = new Uint8Array([31, 32, 33]);
     const transaction = registerNameRow(txId, requestBytes);
     txStore.push({ ...transaction, status: ITransactionStatus.Queued });
 
     const multisigService = {
-      createCustomProposal: jest.fn(async () => ({ id: 'register-proposal' })),
+      createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(async () => ({
+        proposal: { id: 'register-proposal' },
+        requestBytes: rebasedBytes
+      })),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(async () => ({
         serialize: () => new Uint8Array([1]),
@@ -2702,14 +2707,16 @@ describe('generateTransaction — Guardian routing', () => {
     );
 
     expect(mockAssertMidenNameRegistrationLive).toHaveBeenCalledWith(transaction);
-    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes, 'register_name');
-    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('register-proposal', requestBytes);
+    expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(multisigService.createRebasedCustomProposal).toHaveBeenCalledWith(requestBytes, 'register_name', undefined);
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('register-proposal', rebasedBytes);
     const completed = txStore.find(row => row.id === txId);
     expect(completed?.error).toBeUndefined();
     expect(completed?.status).toBe(ITransactionStatus.Completed);
     // Only `completeRegisterNameTransaction` writes this label and phase.
     expect(completed?.displayMessage).toBe('Name requested');
-    expect(completed?.requestBytes).toBe(requestBytes);
+    expect(completed?.requestBytes).toBe(rebasedBytes);
+    expect(completed?.extraInputs).toEqual(expect.objectContaining({ registrationNoteId: '0xnote' }));
     expect(completed?.extraInputs).toEqual(expect.objectContaining({ phase: 'submitted' }));
   });
 
@@ -2721,6 +2728,7 @@ describe('generateTransaction — Guardian routing', () => {
 
     const multisigService = {
       createCustomProposal: jest.fn(),
+      createRebasedCustomProposal: jest.fn(),
       createSendProposal: jest.fn(),
       signAndCreateTransactionRequest: jest.fn(),
       sync: jest.fn(async () => {})
@@ -2740,6 +2748,7 @@ describe('generateTransaction — Guardian routing', () => {
     );
 
     expect(multisigService.createCustomProposal).not.toHaveBeenCalled();
+    expect(multisigService.createRebasedCustomProposal).not.toHaveBeenCalled();
     const failed = txStore.find(row => row.id === txId);
     expect(failed?.status).toBe(ITransactionStatus.Failed);
     expect(failed?.nextEligibleAt).toBeUndefined();
