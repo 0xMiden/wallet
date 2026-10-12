@@ -1,5 +1,6 @@
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 
 import { DEFAULT_TOKEN_METADATA } from './defaults';
 import {
@@ -14,6 +15,18 @@ import {
 } from './overrides';
 import { hasKnownScale } from './scale';
 import type { AssetMetadata } from './types';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
+
+// This realm holds the testnet document, whose swap tokens name the iETH faucet the override policy reads.
+jest.mock('lib/remote-config/runtime', () => {
+  const testing = jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>(
+    'lib/epoch/testing/bridge-config'
+  );
+  return testing.remoteConfigRuntimeMock(() => testing.TEST_BRIDGE_CONFIG_SNAPSHOT);
+});
 
 const NATIVE_ID = 'mtst1native';
 jest.mock('lib/miden-chain/native-asset', () => ({
@@ -127,7 +140,7 @@ describe('the native token', () => {
 });
 
 describe('a token the wallet names itself (#477)', () => {
-  const IETH = TOKEN_IETH.faucetId;
+  const IETH = TEST_TOKEN_IETH.faucetId;
   const overrides = { [IETH]: { name: 'Mine', symbol: 'MINE', decimals: 2 } };
 
   it('cannot be overridden on testnet, where the wallet calls it Test iETH, and can be elsewhere', () => {

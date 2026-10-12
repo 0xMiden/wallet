@@ -3753,6 +3753,14 @@
     "message": "该外部服务目前无法使用。请稍后再试。",
     "englishSource": "This external service is currently down. Please try again later."
   },
+  "swapUnavailableTitle": {
+    "message": "该网络不支持“Swap”功能",
+    "englishSource": "Swap is not available on this network"
+  },
+  "swapUnavailableBody": {
+    "message": "目前该网络尚未配置任何可交换代币。",
+    "englishSource": "No swap tokens are configured for this network yet."
+  },
   "agglayerCheckingToken": {
     "message": "正在检查该代币是否支持慢速路线……",
     "englishSource": "Checking whether this token supports the Slow route…"

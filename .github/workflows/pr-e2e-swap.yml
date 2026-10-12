@@ -171,9 +171,9 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env --profile guardian -f docker-compose.local.yml logs --no-color | tail -400
       - uses: actions/upload-artifact@v4
-        # Keep the screenshot filmstrip only on main-push runs (the record);
-        # on PRs, upload only when the run failed (debug artifact, as before).
-        if: ${{ github.event_name == 'push' || failure() }}
+        # Keep the screenshot filmstrip on main pushes and manual verification runs;
+        # on PRs, upload only when the run failed.
+        if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || failure() }}
         with:
           name: swap-e2e-report
           path: test-results/

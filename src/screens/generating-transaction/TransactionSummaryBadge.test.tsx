@@ -11,7 +11,7 @@ import {
   TEST_MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
 import { ITransaction } from 'lib/miden/db/types';
-import { TOKEN_IETH, TOKEN_IMIDEN } from 'lib/miden/swap/tokens';
+import { TEST_TOKEN_IETH, TEST_TOKEN_IMIDEN } from 'lib/miden/swap/testing/registry';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import {
@@ -507,12 +507,14 @@ describe('useTransactionSummaryBadgeContent', () => {
   });
 
   it('names the registry iETH side of a swap "Test iETH" on either side (#477)', async () => {
+    // The document lists IETH at the faucet the rows name.
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
     const requested = await renderProbe(
       baseTransaction({
         type: 'swap',
         amount: 5n,
-        faucetId: TOKEN_IMIDEN.faucetId,
-        extraInputs: { requestedFaucetId: TOKEN_IETH.faucetId, requestedAmount: 3n }
+        faucetId: TEST_TOKEN_IMIDEN.faucetId,
+        extraInputs: { requestedFaucetId: TEST_TOKEN_IETH.faucetId, requestedAmount: 3n }
       })
     );
     expect(requested.container.textContent).toContain('Test iETH');
@@ -523,8 +525,8 @@ describe('useTransactionSummaryBadgeContent', () => {
       baseTransaction({
         type: 'swap',
         amount: 5n,
-        faucetId: TOKEN_IETH.faucetId,
-        extraInputs: { requestedFaucetId: TOKEN_IMIDEN.faucetId, requestedAmount: 3n }
+        faucetId: TEST_TOKEN_IETH.faucetId,
+        extraInputs: { requestedFaucetId: TEST_TOKEN_IMIDEN.faucetId, requestedAmount: 3n }
       })
     );
     expect(offered.container.querySelector('[data-testid="lhs"]')?.textContent).toContain('Test iETH');
