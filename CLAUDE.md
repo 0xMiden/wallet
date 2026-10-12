@@ -54,7 +54,9 @@ CI's changelog check (`scripts/check-changelog.sh`, tests in `scripts/check-chan
 ## Critical gotchas
 
 ### WASM client concurrency
+
 Miden WASM client is single-threaded. Concurrent calls throw `recursive use of an object ... unsafe aliasing`. **Always** wrap in `withWasmClientLock`:
+
 ```typescript
 import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 await withWasmClientLock(async () => (await getMidenClient()).someOp());
@@ -85,6 +87,7 @@ The service worker keeps its own copy of the same rule in `sync-manager.ts`, cou
 An evicted operation is abandoned, not cancelled - treat `WasmClientPoisonedError` like `OperationAbortedError` and the SDK's terminated-client error in any kill classifier (`isPipelineKillLink`, or `isKilledPipeline` down a cause chain). Only an eviction or an abort may still be running (`isRunningPipelineKill` down a cause chain): never assume that pipeline stopped. The SDK refused a terminated client's call or stopped its worker, so the syncing boundary requeues a failure whose only kill is a terminated client. Concretely, inside a hold: **re-check ownership after every parking await, before the next client call or side effect** (`getCurrentWasmLockHold() !== hold` → throw `WasmClientPoisonedError`), not just after the client build. An eviction hands the mutex on and replaces the client singletons, so the abandoned callback's next `midenClientProxy` or `getMidenClient()` call resolves the successor's client. A client captured earlier is the poisoned instance, which only a sibling suspended mid-yield may still be using. Anything the tail does after its caller saw the poison (removing a key, authorizing a recovery) is a side effect nobody is waiting for. A returned `Account` or note record is a standalone wasm-bindgen object on its own pointer, not a borrow of the client, so reading it after an eviction is a stale read (`fetchBalances` reads its assets outside the lock, #360). Guarded this way already: the SW sync's downstream read (four transitions), `fetchBalances`, `settleSwapOrders`, the manual note import, the note-import queue, the guardian leaf pipelines, the offscreen poll, the direct-switch holds, the post-rotation re-register read (`completeReplaceHotKeyTransaction`), seed removal and the recovery-seed check. Concretely: never route a poison or an abort onto a path that requeues a row as a fresh write, because the abandoned pipeline can still submit and the requeue becomes a second payment.
 
 ### Post-await liveness inside a LOOP, not just at its boundary
+
 A guard at a callee's entry only proves ownership for its first WASM call. Where a helper
 loops over user-sized input — `classifySwapOrderNotes` does one lineage round trip per open
 order — the hold has to be threaded in and re-checked per iteration; the caller's guards
@@ -92,12 +95,15 @@ cannot see inside. Same rule as the per-call re-checks: an eviction mid-loop rel
 mutex and every later call in that loop runs on somebody else's client.
 
 ### Duplicate dexie / duplicate `@miden-sdk/miden-sdk` ("Two different versions of Dexie loaded")
-The wallet pulls `@miden-sdk/miden-sdk` two ways: the file-linked web-sdk (root, e.g. 0.14.10) AND a nested copy under `@openzeppelin/miden-multisig-client/node_modules/@miden-sdk/miden-sdk` (its own pin, e.g. 0.14.5). **Each SDK build INLINES its own dexie** into its wasm-glue chunk (`dist/**/Cargo-*.js`), at different versions (e.g. 4.4.2 vs 4.0.8). Two inlined dexies → dexie's `globalThis[Symbol.for("Dexie")]` guard throws at runtime (service worker fails to register; mobile/desktop crash). Because dexie is *inlined*, `resolve.alias`/`resolutions` on `dexie` alone can't fix it.
+
+The wallet pulls `@miden-sdk/miden-sdk` two ways: the file-linked web-sdk (root, e.g. 0.14.10) AND a nested copy under `@openzeppelin/miden-multisig-client/node_modules/@miden-sdk/miden-sdk` (its own pin, e.g. 0.14.5). **Each SDK build INLINES its own dexie** into its wasm-glue chunk (`dist/**/Cargo-*.js`), at different versions (e.g. 4.4.2 vs 4.0.8). Two inlined dexies → dexie's `globalThis[Symbol.for("Dexie")]` guard throws at runtime (service worker fails to register; mobile/desktop crash). Because dexie is _inlined_, `resolve.alias`/`resolutions` on `dexie` alone can't fix it.
 
 Fix (already in place — keep it): every app vite config (`vite.{mobile,extension,background,desktop}.config.ts`) sets `resolve.dedupe: ['dexie', '@miden-sdk/miden-sdk']` so only the single root SDK resolves (this also collapses the duplicate WASM `WebClient`), and `package.json` pins `dexie` + a `resolutions` entry to the web-sdk's inlined version. Debug tip: `var DEXIE_VERSION` is in the UMD `dist/dexie.js` (no guard); the guard lives in `import-wrapper.mjs`. To find a stray version, parse a built chunk's `.js.map` for `sourcesContent` containing `DEXIE_VERSION` — the `sources[]` path names the offending package. `grep -r` over node_modules misses it (binary-detected wasm-glue + symlinked file: deps); use `--binary-files=text` and the sourcemap. `build:ext`/`build:bg` don't `rimraf dist/` — wipe `dist/chrome_unpacked` before re-verifying or you'll read stale chunks.
 
 ### Tailwind auto-flipping tokens
+
 Many tokens in `tailwind.config.ts` map to CSS vars in `src/main.css` and auto-flip with theme. Do NOT add `dark:` variants on these — it overrides the auto-flip with a worse value:
+
 - the design-system tokens `bg-page`, `bg-fill`, `bg-fill-pressed`, `border-hairline`, `text-ink`, `text-muted`, `accent-tint(-ink)`, `*-ink` status text
 - legacy `bg-white`, `bg-gray-100`, `black` (`black` is `ink`, white in dark theme: an overlay that must stay dark uses `pure-black/NN` or `scrim`; text is `text-ink`)
 
@@ -106,24 +112,31 @@ Many tokens in `tailwind.config.ts` map to CSS vars in `src/main.css` and auto-f
 Add `dark:` only on fixed-palette colors (`grey.*` custom palette, `pure-white`, `pure-black`) or SVG `fill={...}` props (check `document.documentElement.classList.contains('dark')` at render).
 
 ### i18n required
+
 All user-facing text must use `t('key')` or `<T id="key" />`. CI blocks non-i18n strings (`yarn lint:i18n`). Add new keys to `public/_locales/en/en.json` (flat format). Placeholders: `$name$`.
 
 ### Platform isolation
+
 Wrap platform-specific fixes with `isIOS()`/`isAndroid()`/`isMobile()` from `lib/platform`. Don't apply iOS fixes globally.
 
 ### Haptics on tappable components
+
 Add `hapticLight()` (taps), `hapticMedium()` (toggles), `hapticSelection()` (tabs) from `lib/mobile/haptics`. Auto-checks `isMobile()` and user setting.
 
 ### Storage hooks' cache
+
 Write a key a storage hook reads (`useStorage`, `usePassiveStorage` in `lib/miden/front/storage.ts`) only through `putToStorage` or the hook's setter, which settle the value into the hooks' SWR cache. A direct `getStorageProvider()` write or removal of such a key leaves the cache stale on mobile and desktop, where no change event exists. A new wipe or bulk removal of such keys awaits `rereadStorageCache()` in a `finally`, as `lib/miden/reset.ts` does. A module store that keeps storage values outside the hooks' cache registers its re-read with `registerStorageReread`, as `lib/miden/front/stored-id-set.ts` does.
 
 ### Recovered Guardian history
+
 Recovered history rows are trusted as the operator serves them (no signer signature or old account commitment can be checked), so `recoverGuardianHistory` asks only the account's own operators (its current `guardianEndpoint`, which a restored wallet file sets, and the switch endpoints of rows this wallet made) and the network's built-in ones. An endpoint that a Guardian reports, or that a recovered or file-restored transaction row names, must never join that list.
 
 ### Remote bridge config
+
 Epoch and Agglayer values come from `0xMiden/wallet-config` (`<network>.json`) through `lib/remote-config`: read them with the `select*`/`get*` getters in `lib/remote-config/values.ts`, never a compiled constant. The getters read this realm's in-memory snapshot synchronously, and a handler can run before startup hydrated it, so a path that runs without a user action (a service-worker request, spend valuation, bridge-in matching, an Epoch SDK build behind a watcher or poll) first awaits `initBridgeConfig()`, which is idempotent and never waits for the network. Entry points read `useFeatureAvailability(feature)` and grey out under `FeatureUnavailableNotice`; a flow past its entry point fails through its own error path. E2E builds read the document from `MIDEN_REMOTE_CONFIG_URL` (honoured only under `MIDEN_E2E_TEST`); the hermetic suites serve it with `playwright/e2e/helpers/fake-bridge-config.ts`.
 
 ### Explore catalog
+
 Explore's items and sections come from `0xMiden/wallet-explore` (`<network>.json`, icons under `icons/`) through `lib/explore-config`, never from compiled-in entries. `useExploreCatalog()` returns the newest accepted stored copy when it is newer than the bundled snapshot in `lib/explore-config/snapshot/` (byte copies of the published files: a release that ships a changed document copies the published file over the bundled one), else that snapshot when it is at or above the network's floor, else nothing (null), so no fetch can empty Explore and no reset can bring back a delisted app. A floor that storage cannot give reads as 0, so a storage failure shows the bundled snapshot rather than nothing. The bundled snapshot is shown only once the network's floor has been read: for that one storage read the hook returns undefined (pending) and the launcher draws neither sections nor its empty state. The bundled snapshot draws the icons the build ships (`BUNDLED_EXPLORE_ICONS`, the PNGs in `app/misc/dapp-icons/`); a fetched copy's icons come from the repo. A document's text is literal per locale and read through `localizedText`, never an i18n key; the category chips, the section kinds, Recents (always last) and search stay in `lib/dapp-browser/explore-catalog.ts`, where `getExploreCatalog` keeps the exchange gate. E2E builds read the document from `MIDEN_EXPLORE_CONFIG_URL` (honoured only under `MIDEN_E2E_TEST`). `yarn check:published-snapshots`, and a job on every release, compare each bundled snapshot (token list and Explore) with its published file. The extension shows the same launcher and opens every pick in a new browser tab (`openUrlInNewTab`, so the page gets no `opener`); `DappBrowserProvider` is mounted only on mobile, so nothing on the extension path may call `useDappBrowser` (`BrowserScreen` branches before it).
 
 ## Frontend UI, CSS, and Motion
@@ -135,12 +148,15 @@ Read `skills/miden-wallet-frontend/SKILL.md` before implementing or reviewing wa
 A page supplies content; the design system supplies everything else. Before styling anything, look for the component that already does it — a page-local copy of a frame, row, field, error line, empty state or icon circle is a defect, not a shortcut, and the fix is to extend the shared component (a prop, a variant) rather than fork it. The same goes for the frame itself: pushed pages take `SubPageLayout`, flow steps take `FlowLayout` + `FlowFooter`, and the home-group panes share one shell, so titles, gutters, section gaps and pinned actions land in the same place on every screen. Spacing, type and colour come from the named styles and tokens; a literal padding or hex in a page means the token is missing, so add it. When two pages disagree, one of them is wrong — decide which and move both, instead of leaving a third variant behind.
 
 ### Mobile file downloads
+
 `<a download>` does nothing in WebView. Use `Filesystem.writeFile` + `Share.share` from `@capacitor/{filesystem,share}` when `isMobile()`.
 
 ### Balance loading
+
 `fetchBalances` reads the account from IndexedDB via `getAccount()` under the WASM lock and never syncs; don't call `syncState()` from the UI path. Sync is separate: on mobile and desktop `useSyncTrigger` runs it every 3 s (in-process, under the lock, with backoff and the sync fuse); on the extension the service worker's lap writes `miden_sync_data`, which the popup turns into balances (`updateBalancesFromSyncData`). A refresh takes the lock with a non-blocking try and skips when it is busy, so it never stalls behind a write. Every reader (the Ready-time read in `syncFromBackend`, the `useAllBalances` poll) goes through the store's `fetchBalances` action, the one implementation of a balance read. It passes `waitForLock: balances[address] === undefined`, so a read with nothing on screen queues FIFO: after an import the sync and note reads keep the queue full and a skipping read starves (#1123). It holds `fetchingAddresses`, one read in flight per address, publishes fetched metadata through `setAssetsMetadata`, and stores whatever lands whether or not the component that asked is still mounted. Every await it makes while holding the address is bounded (the metadata lookup is raced against one RPC timeout). Only a landed read ends `balancesLoading`; a failed or fused first read leaves Home on its skeleton. `clearStorage` resets the native-asset cache on every create or import and primes its rediscovery at once, because `fetchBalances` awaits the native faucet id before it returns.
 
 ### Token metadata: faucet record vs. user override
+
 `AssetMetadata` mirrors the faucet's on-chain `TokenMetadata` slots (`symbol`, `name`, `decimals`, `description`). `fetchChainTokenMetadata` reads them from `BasicFungibleFaucetComponent` and caches the record under `tokens_base_metadata`; a schema marker (`tokens_base_metadata_schema`, `metadata/storage.ts`) wipes that cache once when the record shape changes. A PRIVATE faucet has no readable storage, so its token lands as the Unknown placeholder (`scaleIsUnknown: true`, quantity withheld). That is what the user-editable override is for: "Edit token details" on the token page stores the user's `name`, `symbol` and `decimals` under `tokens_metadata_overrides` (`metadata/overrides.ts`), and a set `decimals` marks the scale as known. Overrides are applied ON READ (`setAssetsMetadata`, `getTokensBaseMetadata`, `fetchBalances`, `updateBalancesFromSyncData`) and never merged into the cached chain record, so a re-fetch or the schema wipe cannot clobber them. A faucet is never overridable when it is the native asset or a token the wallet names itself on the effective network (`midenTokenLabelFor`: Test iETH, and Test Epoch USDC once the bridge config names it), as `canOverrideMetadata` decides: its edit action is hidden, a write is refused, a stored override is ignored on read, and the assets provider re-applies the overrides when the bridge config changes which overridden faucets those are. Send converts typed amounts with the effective `decimals`, so a wrong override changes what is sent, not only what is shown.
 
 ## Adding a wallet action
@@ -156,11 +172,12 @@ The in-progress transaction view (`src/screens/generating-transaction/Generating
 
 **The page is addressed by transaction id and observes a single row.** The route is `/generating-transaction/:txId` (and `/generating-transaction-full/:txId` for the desktop `keepOpen` variant) - see `PageRouter.tsx`. Send (`ReviewTransaction.tsx`) and swap (`SwapManager.tsx`) capture the id returned synchronously by their `initiate*` call and `navigate` straight to it. `GeneratingTransactionPage` subscribes to **that one row** by id via `useTransactionRow(txId)` (a Dexie `liveQuery`, `useTransactionRow.ts`) and derives everything from its status: `transactionComplete = status is Completed|Failed|Unconfirmed`, `hasErrors = status is Failed|Unconfirmed`, hash = `row.transactionId`. An unknown id `<Redirect>`s home.
 
-**Why this shape (history).** The page began as a modal that watched the *whole queue* (`getAllUncompletedTransactions()`) and had to *guess* which tx it was showing (`pickActiveTx`), infer completion from the queue going empty, and infer failure by counting failed rows. Those heuristics existed only because the row **drops out of the uncompleted list the instant it completes** - so the page needed shadow state (`receiptTransaction`) to re-find it. Watching by id fixes the root cause: the row never disappears (`Queued → GeneratingTransaction → Completed | Failed | Unconfirmed`, and an Unconfirmed row later becomes Completed or Failed), so status alone is authoritative and all that scaffolding is gone. The FIFO processing loop (`safeGenerateTransactionsLoop` in `src/lib/miden/transaction/index.ts`) and the page's own `setInterval` driver are **unchanged** - the page still kicks the loop on mobile/desktop and is a pure observer on extension (SW owns the loop). Observing one row and draining the FIFO queue are orthogonal: the driver is not scoped to `txId`. Hiding the page mid-tx is safe because the in-flight `generateTransaction` promise isn't cancelled by unmount.
+**Why this shape (history).** The page began as a modal that watched the _whole queue_ (`getAllUncompletedTransactions()`) and had to _guess_ which tx it was showing (`pickActiveTx`), infer completion from the queue going empty, and infer failure by counting failed rows. Those heuristics existed only because the row **drops out of the uncompleted list the instant it completes** - so the page needed shadow state (`receiptTransaction`) to re-find it. Watching by id fixes the root cause: the row never disappears (`Queued → GeneratingTransaction → Completed | Failed | Unconfirmed`, and an Unconfirmed row later becomes Completed or Failed), so status alone is authoritative and all that scaffolding is gone. The FIFO processing loop (`safeGenerateTransactionsLoop` in `src/lib/miden/transaction/index.ts`) and the page's own `setInterval` driver are **unchanged** - the page still kicks the loop on mobile/desktop and is a pure observer on extension (SW owns the loop). Observing one row and draining the FIFO queue are orthogonal: the driver is not scoped to `txId`. Hiding the page mid-tx is safe because the in-flight `generateTransaction` promise isn't cancelled by unmount.
 
-**`send`, `swap`, `consume` and `earn-deposit` variants exist**: send renders `{amount} {symbol} → {recipient}`; swap renders `(logo) {amount} {name} → (logo) {amount} {name}`, each side named by its display name (`midenTokenLabel`, so testnet IETH reads "Test iETH") while the logo keeps the registry symbol; consume renders `{amount} {symbol} → Accepted` (nothing when the consume has no amount); earn-deposit renders `{amount} {symbol} ↑ {market}` (up-arrow separator; market name = the `marketUid` lender key, hyphenated - e.g. "DUMMY-LENDING" - via the exported `earnMarketLabel`). The badge returns `null` for every other transaction type. Future agents should extend it per type. On the success receipt (`success/receipt.ts`), consume rows relabel: address row = "From" (note sender), amount row = "Total Accepted", plus a "Transfer IDs" row listing `noteIds`; the hash row is labeled "Transaction ID" for all types. Completed `earn-deposit` rows route to `EarnSuccess` ("You're Earning!": pill + Market / Total Deposited / Transaction ID rows, "View Details" → `/earn/positions`) via the type check in `TransactionSuccess.tsx`.
+**`send`, `swap`, `consume`, `earn-deposit` and `register-name` variants exist**: register-name renders `{label}.miden · {price} MIDEN` (dot separator; price = row `amount`, scaled by the faucet metadata or `MIDEN_METADATA`), and its completed row routes to `success/MidenNameSuccess.tsx` ("View status" → `/miden-name/status/:txId`). There is no publish variant: the Miden Name registry writes the name's record when it mints the name (auto-publication), so the wallet has no `publish-name-record` type. send renders `{amount} {symbol} → {recipient}`; swap renders `(logo) {amount} {name} → (logo) {amount} {name}`; consume renders `{amount} {symbol} → Accepted` (nothing when the consume has no amount); earn-deposit renders `{amount} {symbol} ↑ {market}` (up-arrow separator; market name = the `marketUid` lender key, hyphenated - e.g. "DUMMY-LENDING" - via the exported `earnMarketLabel`). The badge returns `null` for every other transaction type. Future agents should extend it per type. On the success receipt (`success/receipt.ts`), consume rows relabel: address row = "From" (note sender), amount row = "Total Accepted", plus a "Transfer IDs" row listing `noteIds`; the hash row is labeled "Transaction ID" for all types. Completed `earn-deposit` rows route to `EarnSuccess` ("You're Earning!": pill + Market / Total Deposited / Transaction ID rows, "View Details" → `/earn/positions`) via the type check in `TransactionSuccess.tsx`.
 
 **Data source**: the tracked `ITransaction`, passed in as the `activeTransaction` prop (= the row from `useTransactionRow`). Fields populated per `ITransactionType` (see the `Transaction` subclasses in `src/lib/miden/db/types.ts`):
+
 - `send` → `amount`, `faucetId` (token), `secondaryAccountId` = **recipient address**.
 - `swap` → `amount`/`faucetId` = **offered** side; `extraInputs.requestedAmount`/`extraInputs.requestedFaucetId` = **requested** side. Symbol/decimals/logo for the fixed devnet DEX tokens resolve via `getSwapTokenByFaucetId` in `src/lib/miden/swap/tokens.ts` (the swap-token registry — source of truth, since these faucets may be absent from `assetsMetadata`).
 - `consume` (claim) → `faucetId`, `secondaryAccountId` = **note sender**, `noteId`; `amount` optional.
@@ -172,6 +189,7 @@ The in-progress transaction view (`src/screens/generating-transaction/Generating
 **Per-step timing ("2 sec" on each step row) is built, frontend-only.** `GeneratingTransaction` stamps `startTimeForStep`/`endTimeForStep` (arrays indexed by UI step) in a `useEffect` on `activeStage`: step 0 runs `creating-proposal`→`sending`, step 1 `sending`→`submitting`, step 2 `submitting`→first post-submit stage (`confirming`/`registering-guardian`/`delivering`, stamped once via `step3StartedRef`), and the last started step ends when `transactionComplete` flips (step timings key off `transactionComplete`, not the stage; completion additionally stamps `stage = 'complete'` in `updateTransactionStatus` — #618 — so `activeStage` CAN be `'complete'` on a finished row). Durations render via the `meta` prop on `TransactionStepRow` (right-aligned muted text, `transactionStepDurationSec` key). Deliberately NOT persisted on `ITransaction` — timings are component-local and reset on remount / next tx (the `creating-proposal` case resets both arrays).
 
 **Deferred — NOT built yet (the mock shows these, intentionally skipped):**
+
 - **Bridge step labels** ("Submitting to Base", "via Epoch"). The in-protocol token→token swap badge is **now built** (see the `swap` bullet above), but the bridge-specific step labels are still deferred — there's no backend producer for bridged `extraInputs` and no chain-id→name map. `IBridgedSendExtraInputs`/`IBridgeProvider` are defined in `src/lib/miden/db/types.ts` but nothing populates them yet.
 
 The redesigned in-progress view dropped the `ScreenHeader` and the linear progress bar; dismissal is via the bottom Hide/Done button.
@@ -179,6 +197,7 @@ The redesigned in-progress view dropped the `ScreenHeader` and the linear progre
 ## Navigation
 
 Two systems:
+
 - **Woozie** (`src/lib/woozie/`) — hash-based global router. `navigate`, `goBack`, `useLocation`, `<Link>`.
 - **Navigator** (`src/components/Navigator.tsx`) — internal step flows (`SendManager`, `SwapManager`, `EncryptedFileManager`). `useNavigator()` → `{navigateTo, goBack, cardStack}`. The swap flow (`src/screens/swap-flow/`) mirrors send: amounts (two `SelectAmount` in `embedded` mode) → review, rendered at `/swap` in both `PageRouter` and `HomeSwipeContainer`; the token picker is a bottom-sheet drawer (`SelectSwapTokenDrawer`, like send's `SelectTokenDrawer`) closed first by SwapManager's mobile back handler.
 
@@ -194,6 +213,8 @@ Whether a navigation goes back is read from the router: a pop, or a navigation t
 
 The in-progress transaction view is a routed full-screen page at `/generating-transaction/:txId` (desktop `keepOpen` variant: `/generating-transaction-full/:txId`). Send and swap `navigate` here with the id path param after initiating; it observes that one row to completion (see the Transaction summary badge section). `onClose` guards on `hash.includes('generating-transaction')`, so the substring must stay in any future route rename.
 
+Miden Name: the claim form is `/miden-name` (slide page, opened from the Receive actions) and the progress page is `/miden-name/status/:txId`; the form navigates to the status page with `HistoryAction.Replace`, so Back from the status page skips the submitted form, and both redirect home when `!isMidenNameSupported()` (the status page also for an unknown id).
+
 Send flow: only recipient → amount remain Navigator steps inside `/send`; the token and contact pickers are fixed-height bottom-sheet drawers (`SelectTokenDrawer`, `AccountsListDrawer`) closed first by SendManager's mobile back handler; the review step is a routed full-screen page (`/send/review?amount=…&to=…&tokenId=…`, `ReviewTransaction.tsx`) that owns the transaction pipeline. Backing out restores the form via `send-flow/send-draft.ts` (SendManager reopens on the Amount step). Hardware back on review is covered by `MobileBackBridge` (history pop).
 
 Back handlers (`src/app/env.ts`): `registerBackHandler` is stack-based. `PageLayout` registers a default that calls `goBack()` if `historyPosition > 0` else navigates home. Mobile hardware/swipe back requires `@capacitor/app` + explicit handlers — must be registered for global nav (`MobileBackBridge`), Navigator flows, state-based flows, and modals. A handler for UI rendered outside the routed page's React tree (app-level dialogs and gates, provider modals) passes `{ overlay: true }` to `useMobileBackHandler`: overlays run before every page handler, whenever the page last registered. Every sheet on the shared `Drawer` (`lib/ui/drawer`) closes itself on mobile back in that overlay tier while open, and `Popover` does the same through `useCloseOnBack`; a sheet its host's page handler closes (SendManager's and SwapManager's pickers, the swap flow's spending-limit challenge) passes `closeOnBack={false}` to the Drawer and stays in the page tier, closed by that page's own handler.
@@ -203,43 +224,57 @@ When adding screens/routes, keep this section accurate so mobile back stays corr
 ## Mobile testing
 
 ### Skip onboarding
+
 ```bash
 node /tmp/cdp-eval 'window.__TEST_SKIP_ONBOARDING = true; window.location.reload()'
 ```
+
 Bypass lives in `Welcome.tsx`, only active when flag/query param set.
 
 ### iOS debugging
+
 `console.log` goes to Safari Web Inspector — Claude cannot read it. Use:
+
 ```bash
 xcrun simctl spawn booted log stream --predicate 'process == "App"'
 ```
+
 For live DOM/JS eval: use the CDP bridge via `inspect` + persistent-connection daemon (`/tmp/cdp-daemon.mjs` + `/tmp/cdp-eval`). Bringup recipe in `~/.claude/projects/-Users-celrisen-miden-miden-wallet/memory/cdp-bridge-single-use-bug.md`. Key steps: kill bridges, reset `com.apple.webinspectord`, relaunch app, start `inspect`, start daemon, smoke-test with `node /tmp/cdp-eval '1+1'`.
 
 ### Verifying UI fixes
+
 Always screenshot to verify:
+
 ```bash
 xcrun simctl io booted screenshot /tmp/shot.png
 xcrun simctl spawn booted notifyutil -p com.apple.BiometricKit_Sim.fingerTouch.match  # FaceID
 ```
 
 ### Common iOS layout issues
+
 - Grey bar at bottom → `100dvh` doesn't account for safe areas. Use `100%` + `env(safe-area-inset-*)` padding on `mobile.html` body.
 - Debug UI text should be `select-text` so errors are copyable.
 
 ### Adding Swift files to the App target
+
 The App target in `ios/App/App.xcodeproj/project.pbxproj` does NOT auto-discover Swift files in the `App/` source directory. New files must be registered in four sections: `PBXBuildFile`, `PBXFileReference`, the App `PBXGroup` children, and the `PBXSourcesBuildPhase` files list. Pattern: see `LocalBiometricPlugin.swift` or `HotKeyPlugin.swift` entries.
 
 ### Adding a custom Capacitor plugin (iOS)
+
 Capacitor on this app uses **manual** registration — not the `CAPBridgedPlugin` auto-discovery you'd get on a stock Capacitor app. After creating `MyPlugin.swift` and wiring it into the four pbxproj sections above, you also have to call `bridge?.registerPluginInstance(MyPlugin())` inside `capacitorDidLoad()` in `ios/App/App/AppViewController.swift`. Skip this step and JS calls land as `{"code":"UNIMPLEMENTED"}` even though the class compiled fine.
 
 ### Persistent wallet navigation
+
 Extension, Capacitor, and Tauri render the same React `BottomNav` from `TabLayout`. `TabLayout` owns destinations, active route state, route changes, haptics, and the `[data-tabbar-footer]` shell; `BottomNav` owns button semantics and presentation. Drawers hide it through `useHideNavbarWhileOpen`, which drives the body data attribute consumed by `src/main.css`. On Capacitor, `public/mobile.html` owns body safe-area padding and `src/main.css` paints the footer strip. The bar is a floating glass capsule on every platform: its footer stays on the layout's bottom edge, which on Capacitor is the top of the body's safe-area padding, so the capsule sits directly on the safe-area edge on iOS and 8px above the system navigation bar on Android. `src/main.css` declares the flow CTAs' cushion (`--navbar-cushion`) only on `TabLayout`'s root (`data-tab-layout`), so only a page inside the layout that draws the bar reserves room for it; a slide page beside the covered tab layer keeps the flat 1rem (#1109). `DappBrowserProvider` owns embedded dApp WebViews, not wallet navigation; the native navbar API under `packages/dapp-browser` has no wallet frontend caller.
 
 ### Adding Capacitor plugins
+
 `yarn add @capacitor/<name> && yarn mobile:sync`. Add ProGuard rules to `android/app/proguard-rules.pro`:
+
 ```
 -keep class com.capacitorjs.plugins.<name>.** { *; }
 ```
+
 Remove rules when uninstalling.
 
 ## Desktop (Tauri)
@@ -252,23 +287,28 @@ Remove rules when uninstalling.
 ## E2E
 
 ### Chrome blockchain harness
+
 Two Chrome instances + `miden-client` CLI against live network. `E2E_NETWORK` controls both harness endpoints AND `MIDEN_NETWORK` baked into the bundle — use the `:<network>` scripts to keep them matched. Auto-installs `miden-client-cli` from crates.io, version-matched to `@miden-sdk/miden-sdk`. Requires `cargo`. Specs: `wallet-lifecycle`, `mint-and-balance`, `send-{public,private}`, `multi-{claim,account}` in `playwright/e2e/tests/`.
 
 **Agentic mode** (`E2E_AGENTIC=true` or `yarn test:e2e:blockchain:agentic`): on failure, browsers stay open 10 min; `test-results/debug-session.json` has connection info; `report.json` has `failureCategory`, `diagnosticHints`, `stateAtFailure`, `browserErrors`. Hot-reload via `chrome.runtime.reload()` preserves IndexedDB/vault.
 
 ### iOS simulator harness
+
 Mirror suite in `playwright/e2e/ios/` against iPhone 17 + iPhone 17 Pro. CDP via `appium-remote-debugger` (simulator-compatible, unlike `remotedebug-ios-webkit-adapter`) over `RWI_LISTEN_SOCKET`. Per-test: terminate/uninstall/install/launch (~5s vs 30s for `simctl erase`). 7/7 specs pass on devnet in ~9 min.
 
 iOS-specific product notes:
+
 - Wallet tabs and page CTAs such as "Claim All" and "Continue" render in the React WebView. Drive them through normal CDP/DOM interactions and verify the rendered state; there is no native-navbar action hook.
 - No `SYNC_REQUEST` on mobile (SW-only); `useSyncTrigger` auto-syncs every 3s, so sleep suffices.
 - No mobile reload trick — mobile `claimAllNotes` skips the `location.reload()` Chrome does (mobile has no SW holding the unlock, so reload drops decryption key).
 - Don't read WASM client from CDP — deadlocks against `useSyncTrigger`'s 30–60s lock hold.
 
 ### E2E test hooks
+
 `MIDEN_E2E_TEST=true` exposes `window.__TEST_STORE__` (Zustand) and `window.__TEST_INTERCOM__`. Zero production impact.
 
 **Keep it a hook flag, not a behaviour switch.** Suppressing real product behaviour under `MIDEN_E2E_TEST` makes that behaviour permanently untestable — it can't be reached from any E2E run. The two existing opt-outs have their own flags, set by the `test:e2e:*:build` scripts (and defined in each `vite.*.config.ts` — an env read with no matching `define` is rewritten to `{}.X`, i.e. silently `undefined`, so a flag missing from one config is off in that bundle with no error at all):
+
 - `MIDEN_E2E_DISABLE_SIDEPANEL` — keeps onboarding in-tab (`lib/extension/side-panel-handoff.ts`); a suite that wants to drive the real side panel builds without it.
 - `MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES` — makes `loadEndpointOverrides()` a no-op so the build-baked network wins (`lib/miden-chain/effective-endpoints.ts`).
 
@@ -277,6 +317,7 @@ iOS-specific product notes:
 Jest + RTL. Mock `lib/intercom` for frontend tests; wrap with `WalletStoreProvider` + `MidenContextProvider`.
 
 Gotchas:
+
 - `jest.mock()` path must match the import path used in source (e.g., `'lib/miden/back/vault'`, not `'./vault'`).
 - `window.location.reload` can't be mocked in jsdom — wrap calls in try/catch.
 - `afterEach(() => testRoot.unmount())` to prevent React cross-test pollution.
@@ -356,7 +397,7 @@ Actions was healthy throughout (another branch got a full set of runs in the sam
 window), and none of these workflows use path filters — they are all a bare
 `on: push: branches: [main]`.
 
-This is worse than a red main: the branch *looks* fine because the newest runs
+This is worse than a red main: the branch _looks_ fine because the newest runs
 listed against it are the PREVIOUS commit's.
 
 - **Check by SHA, not by branch.** `gh run list --branch main` answers "the most

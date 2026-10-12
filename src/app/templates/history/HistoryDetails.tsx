@@ -40,6 +40,8 @@ import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { formatMidenName } from 'lib/miden/name/encoding';
+import { type MidenNameUiState, phaseOf, registerNameInputsOf, uiStateOf } from 'lib/miden/name/registrations';
 import { requestSwapOrderRefresh, useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
 import { getSwapTokenByFaucetId, tokenQuote } from 'lib/miden/swap/tokens';
 import { RETRY_WINDOW_SECONDS } from 'lib/miden/transaction/note-delivery-window';
@@ -56,7 +58,7 @@ import { useWalletStore } from 'lib/store';
 import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
 import { useUsdcxDestinationTransaction } from 'lib/usdcx/use-destination-transaction';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
-import { navigate } from 'lib/woozie';
+import { Link, navigate } from 'lib/woozie';
 import {
   consumeAssetBreakdown,
   TransactionSummaryBadge,
@@ -69,7 +71,7 @@ import HashChip from '../HashChip';
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailSection } from './DetailSection';
 import { guardianHistoryActionKey, guardianHistoryIcon } from './guardianHistoryLabels';
-import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import { HistoryEntryType, IHistoryEntry, midenNameActivityOf, midenNameLabelOf } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
 import { deriveSwapReceipt } from './swapReceipt';
 import { TransactionFailureCard } from './TransactionFailureCard';
@@ -125,8 +127,22 @@ interface RequestedTokenInfo {
  *  - `bridged-send` - normally short-circuited by `isBridgeOut` (which hides the
  *    Miden "to" row in favour of the BridgeClaimSection), but an UNSTAMPED
  *    user-cancelled bridge falls through to this rule and is still outbound.
+ *  - `register-name` - `secondaryAccountId` is the Miden Name registry that
+ *    receives the register note with the price.
  */
-const OUTBOUND_TRANSFER_TYPES: ITransactionType[] = ['send', 'earn-deposit', 'bridged-send'];
+const OUTBOUND_TRANSFER_TYPES: ITransactionType[] = ['send', 'earn-deposit', 'bridged-send', 'register-name'];
+
+/** Translation key of the UI state of a Miden Name registration, for the Phase row. */
+const midenNameStateKey = (state: MidenNameUiState): string => {
+  switch (state) {
+    case 'owned':
+      return 'midenNameStateOwned';
+    case 'failed':
+      return 'midenNameStateFailed';
+    default:
+      return 'midenNameStateClaiming';
+  }
+};
 
 const DISPLAY_DECIMAL_PLACES = 3;
 
@@ -461,7 +477,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeInMidenNoteId:
             bridgeReceive?.midenNoteId ??
             (consumedBridge ? (consumedBridge.midenNoteId ?? tx.noteId ?? tx.noteIds?.[0]) : undefined),
-          bridgeInFromEarnWithdraw: consumedBridge?.earnWithdrawTxId !== undefined
+          bridgeInFromEarnWithdraw: consumedBridge?.earnWithdrawTxId !== undefined,
+          midenNameLabel: midenNameLabelOf(tx)
         };
 
         if (tx.type === 'swap') {
@@ -553,6 +570,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
   const isEarnDeposit = entry?.txType === 'earn-deposit' && earnDeposit !== null;
   const isGuardianSwitch = entry?.txType === 'switch-guardian';
+  // Miden Name registration record: the row is the state of record, so the
+  // Phase row reads the effective phase of the live row (`phaseOf`).
+  const registerName = transaction ? registerNameInputsOf(transaction) : undefined;
+  const nameReceiptTxId = transaction ? midenNameActivityOf(transaction).midenNameReceiptTxId : undefined;
+  const registerNamePhaseKey =
+    transaction && registerName ? midenNameStateKey(uiStateOf(phaseOf(transaction))) : undefined;
+
   const isUnconfirmedSwitch =
     isGuardianSwitch &&
     !entry?.isCancelled &&
@@ -753,6 +777,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
                       {historyAmount !== undefined && <span className="text-ink">{historyAmount}</span>}
                       {entry.token && <span className="text-text-muted">{entry.token}</span>}
+                      {/* A name claim moves no fungible asset: show the name, not an empty amount. */}
+                      {entry.amount === undefined && !entry.token && entry.midenNameLabel && (
+                        <span className="min-w-0 truncate text-ink">{formatMidenName(entry.midenNameLabel)}</span>
+                      )}
                     </div>
                   )}
                   {approximateUsdAmount && <p className="text-sm font-medium text-gray">{approximateUsdAmount}</p>}
@@ -1003,6 +1031,50 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                           displayValue={<HashChip hash={earnDeposit.evmTxHash} trimHash className="ml-2" />}
                           href={SEPOLIA_TX_URL(earnDeposit.evmTxHash)}
                         />
+                      </DetailRow>
+                    )}
+                  </DetailSection>
+                </div>
+              </div>
+            )}
+
+            {nameReceiptTxId && (
+              <div className="mt-6">
+                <DetailSection title={t('midenName')}>
+                  <DetailRow label={t('midenNameReceiptTransaction')}>
+                    <Link to={`/history-details/${nameReceiptTxId}`} className="text-accent-tint-ink">
+                      {t('view')}
+                    </Link>
+                  </DetailRow>
+                </DetailSection>
+              </div>
+            )}
+
+            {/* Miden Name registration details (name, registry, register note, phase) */}
+            {registerName && (
+              <div className="mt-6">
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailSection title={t('midenName')}>
+                    <DetailRow label={t('midenNameReceiptName')}>
+                      <span className="select-text" data-testid="history-miden-name">
+                        {formatMidenName(registerName.label)}
+                      </span>
+                    </DetailRow>
+                    {entry.secondaryAddress && (
+                      <DetailRow label={t('midenNameReceiptRegistry')}>
+                        <ExternalLinkValue
+                          displayValue={<HashChip hash={entry.secondaryAddress} trimHash className="ml-2" />}
+                          href={getExplorerAccountUrl(entry.secondaryAddress)}
+                        />
+                      </DetailRow>
+                    )}
+                    <DetailRow label={t('midenNameReceiptNoteId')}>
+                      <HashChip hash={registerName.registrationNoteId} trimHash className="ml-2" />
+                    </DetailRow>
+                    {registerNamePhaseKey && (
+                      <DetailRow label={t('midenNameReceiptPhase')}>
+                        <span data-testid="history-miden-name-phase">{t(registerNamePhaseKey)}</span>
                       </DetailRow>
                     )}
                   </DetailSection>

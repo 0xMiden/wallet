@@ -41,6 +41,7 @@ import {
 } from 'lib/miden/guardian/serialize';
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
+import { assertMidenNameRegistrationLive } from 'lib/miden/name/guard';
 import * as Repo from 'lib/miden/repo';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
@@ -67,6 +68,7 @@ import {
   completeConsumeTransaction,
   completeCustomTransaction,
   completeEarnDepositTransaction,
+  completeRegisterNameTransaction,
   completeReplaceHotKeyTransaction,
   completeSendTransaction,
   completeSwapTransaction,
@@ -199,7 +201,11 @@ const REQUEUEABLE_ON_PENDING_CONFLICT: ReadonlySet<ITransactionType> = new Set<I
   'consume',
   'swap',
   'earn-deposit',
-  'execute'
+  'execute',
+  // Pre-built bytes, like `swap`: a requeue proposes the SAME register note (same
+  // serial, same note id), so the chain cannot accept it two times. The guard runs
+  // again on each attempt, before the proposal.
+  'register-name'
 ]);
 
 // Minus `execute`, only ever a dApp request: the dApp reads its five-minute wait running out as a failure, while a
@@ -249,7 +255,9 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
   'replace-hot-key',
   'update-procedure-threshold',
   'bridged-send',
-  'earn-deposit'
+  'earn-deposit',
+  // Keep registration writes on the same client as account sync and name claims.
+  'register-name'
 ]);
 
 /**
@@ -1366,7 +1374,8 @@ const generateTransactionWithProvider = async (
   });
 
   // Route Guardian accounts through Guardian service
-  if (await isGuardianAccount(transaction.accountId, guardianProvider)) {
+  const guardianAccount = await isGuardianAccount(transaction.accountId, guardianProvider);
+  if (guardianAccount) {
     try {
       // Serialize guardian transactions per account: the guardian co-signs one
       // delta per account at a time, and concurrent same-account txs make its
@@ -1456,7 +1465,10 @@ const generateTransactionWithProvider = async (
           transaction.type === 'send' ||
           transaction.type === 'swap' ||
           transaction.type === 'execute' ||
-          transaction.type === 'bridged-send')
+          transaction.type === 'bridged-send' ||
+          // The register note is on chain. A Failed row would tell the tracker
+          // `tx-failed` for a name that the registry can still issue.
+          transaction.type === 'register-name')
       ) {
         console.warn(
           '[Guardian] submit landed but local apply failed — marking Completed; sync will reconcile:',
@@ -1881,6 +1893,24 @@ const generateTransactionWithProvider = async (
         result = await midenClientProxy.sendTransaction(transaction as SendTransaction, signCallback);
       }
       break;
+    case 'register-name': {
+      // RPC-only guard, immediately before the write: the name must still be
+      // free, the price and script allowlist unchanged, and the reclaim height
+      // not near. A throw goes to the loop catch, which marks the row Failed
+      // (no classifier there requeues these errors).
+      await assertMidenNameRegistrationLive(transaction);
+      const registerBytes = transaction.requestBytes;
+      if (!registerBytes) {
+        throw new Error('Register-name row has no request bytes');
+      }
+      result = await midenClientProxy.newTransaction(
+        transaction.accountId,
+        registerBytes,
+        transaction.delegateTransaction,
+        signCallback
+      );
+      break;
+    }
     case 'execute':
     default: {
       // Same backstop as the branch above, on the same non-guardian leaf: a dApp `execute`
@@ -1923,6 +1953,9 @@ const generateTransactionWithProvider = async (
       break;
     case 'earn-deposit':
       await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
+      break;
+    case 'register-name':
+      await completeRegisterNameTransaction(transaction, result);
       break;
     case 'execute':
     default:
@@ -3460,6 +3493,21 @@ const generateGuardianTransaction = async (
       proposalResult = await proposeRebased(service, transaction, requestBytes, 'earn_deposit');
       break;
     }
+    case 'register-name': {
+      // Keep the registration note and add the v17 Guardian auth advice.
+      // Build the auth args at the proposal's sync height, then store those
+      // request bytes so signing and execution use the same request.
+      await assertMidenNameRegistrationLive(transaction);
+      const registerBytes = transaction.requestBytes;
+      if (!registerBytes) {
+        throw new Error('Register-name row has no request bytes');
+      }
+      service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+      await releaseUnabandonedCandidate(transaction, service);
+      await assertPriorCandidateSettled(transaction, service);
+      proposalResult = await proposeRebased(service, transaction, registerBytes, 'register_name');
+      break;
+    }
     case 'swap': {
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
@@ -3760,6 +3808,8 @@ const generateGuardianTransaction = async (
     // worse-attributed route, and it costs a leftover pending delta on a healthy
     // operator (best-effort abandoned below). A silent operator is the case that
     // matters, and the hold's deadline ceiling evicts it at about 30s.
+    const signAndCreateRequest = () =>
+      service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
     const tr =
       transaction.type === 'switch-guardian'
         ? await withOutgoingGuardianDeadline(
@@ -3771,7 +3821,7 @@ const generateGuardianTransaction = async (
               ),
             'co-signing the switch-guardian request with the outgoing guardian'
           )
-        : await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
+        : await signAndCreateRequest();
     // Past the guardian round trip. Everything below can reach the chain, so the
     // direct-switch escape in the catch is closed from here on.
     guardianCoSignReturned = true;
@@ -4125,6 +4175,9 @@ const generateGuardianTransaction = async (
       // `outputNoteIds[0]` off this row to hand the note back to the Epoch SDK, so
       // routing this to the generic custom-tx completion would strand the deposit.
       await completeEarnDepositTransaction(transaction as EarnDepositTransaction, result);
+      break;
+    case 'register-name':
+      await completeRegisterNameTransaction(transaction, result);
       break;
     case 'execute':
     default:

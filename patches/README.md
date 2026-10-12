@@ -9,17 +9,20 @@ Fixes the "single-use" CDP bug in `@inspectdotdev/cli@2.1.1` where WebSocket
 connections after the first one never get responses from webinspectord.
 
 **Root causes fixed:**
+
 1. URL-encoded pipe characters (`%7C`) in target IDs weren't decoded
 2. Race condition: `unselectTarget()` tore down the session but didn't clear
    `activeTargetId`, so re-selection early-returned on a dead channel
 
 **To apply** (after `npm install -g @inspectdotdev/cli`):
+
 ```bash
 INSPECT_DIR=$(dirname $(which inspect))/../lib/node_modules/@inspectdotdev/cli
 cd "$INSPECT_DIR" && patch -p0 < /path/to/patches/inspect-cli-cdp-fix.patch
 ```
 
 **To verify:**
+
 ```bash
 # Start inspect bridge and make multiple CDP calls
 inspect --no-telemetry &

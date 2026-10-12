@@ -74,6 +74,32 @@ export const MIDEN_EXPLORER_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.DEVNET, 'https://devnet.midenscan.com']
 ]);
 
+/** One Miden Name deployment: the domain network account and the payment token. */
+export interface MidenNameDeployment {
+  /** The domain faucet and registry network account (public). */
+  registryAccountIdHex: string;
+  /** The token that pays the name price (USDCX on testnet). */
+  paymentFaucetIdHex: string;
+  /** First block of the registry account. */
+  registryCreationBlock: number;
+}
+
+/**
+ * Miden Name (Digine Labs, contract v0.17) deployments per network. Only
+ * testnet has a deployment. A network that is not in this map does not show
+ * the Miden Name feature.
+ */
+export const MIDEN_NAME_DEPLOYMENTS = new Map<MIDEN_NETWORK_NAME, MidenNameDeployment>([
+  [
+    MIDEN_NETWORK_NAME.TESTNET,
+    {
+      registryAccountIdHex: '0x16fb70069eed60110c6207189c8237',
+      registryCreationBlock: 164837,
+      paymentFaucetIdHex: '0x4cbdcaffe75f0a317482224dae6436'
+    }
+  ]
+]);
+
 export const MIDEN_NETWORKS: MidenNetwork[] = [
   {
     rpcBaseURL: 'https://rpc.testnet.miden.io',

@@ -447,7 +447,7 @@ export class MultisigService {
    * with a built-in type — so the default must be snake_case, not `'custom transaction'`.
    */
   async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom_transaction'): Promise<Proposal> {
-    return await withWasmClientLock(() => this.multisig.createCustomProposal(requestBytes, proposalType));
+    return withWasmClientLock(() => this.multisig.createCustomProposal(requestBytes, proposalType));
   }
 
   /**

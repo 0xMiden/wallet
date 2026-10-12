@@ -22,7 +22,9 @@ const OUTGOING_TYPES: ReadonlySet<ITransactionType> = new Set([
   // A dApp custom request moves value too. It carries opaque request bytes and so has no
   // top-level faucet or amount; `spentUsd` is what makes it countable, stamped from the
   // approval-time valuation same as every other outgoing type.
-  'execute'
+  'execute',
+  // A Miden Name registration pays the price of the name to the registry.
+  'register-name'
 ]);
 // Failed rows stay reserved because a local failure can happen after submission;
 // reconciliation, not optimistic exclusion, is the safe authority on whether value moved.

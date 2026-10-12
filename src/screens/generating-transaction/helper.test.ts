@@ -214,6 +214,7 @@ describe('getStageTitleKey', () => {
     ['execute', 'transactionStageExecuting'],
     ['switch-guardian', 'transactionStageSwitching'],
     ['swap', 'transactionStageSwapping'],
+    ['register-name', 'transactionStageRegisteringName'],
     ['send', 'transactionStageSending'],
     [undefined, 'transactionStageSending']
   ])('falls through to the %s type title', (type, expected) => {
@@ -249,6 +250,7 @@ describe('getProcessingTitleKey', () => {
   it.each<[ITransactionType | undefined, string]>([
     ['send', 'transactionTitleSend'],
     ['swap', 'transactionTitleSwap'],
+    ['register-name', 'transactionTitleRegisterName'],
     ['consume', 'generatingTransaction'],
     [undefined, 'generatingTransaction']
   ])('titles the in-progress view for %s', (type, expected) => {

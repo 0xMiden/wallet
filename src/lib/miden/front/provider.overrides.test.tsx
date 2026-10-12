@@ -21,10 +21,10 @@ jest.mock('lib/miden/front/client', () => ({
   MidenContextProvider: ({ children }: any) => <>{children}</>,
   useMidenContext: () => ({ ready: true })
 }));
-const sdkConfigs: Record<string, unknown>[] = [];
+const mockSdkProvider = jest.fn();
 jest.mock('@miden-sdk/react/lazy', () => ({
   MidenProvider: ({ children, config }: any) => {
-    sdkConfigs.push(config);
+    mockSdkProvider(config);
     return <>{children}</>;
   }
 }));
@@ -47,6 +47,7 @@ jest.mock('lib/prices', () => ({ PriceProvider: () => null }));
 jest.mock('components/NoteToastProvider', () => ({ NoteToastProvider: () => null }));
 jest.mock('./NativeNoteAutoConsumeManager', () => ({ NativeNoteAutoConsumeManager: () => null }));
 jest.mock('./SwapSettlementManager', () => ({ SwapSettlementManager: () => null }));
+jest.mock('lib/miden/name/MidenNameWatcher', () => ({ MidenNameWatcher: () => null }));
 
 import { primeNativeAssetId } from 'lib/miden-chain/native-asset';
 import { followEffectiveNetwork } from 'lib/remote-config/runtime';
@@ -57,7 +58,7 @@ let warn: jest.SpyInstance;
 
 beforeEach(() => {
   jest.clearAllMocks();
-  sdkConfigs.length = 0;
+  mockSdkProvider.mockClear();
   warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
   loadEndpointOverrides.mockResolvedValue(undefined);
   ensureSdkWasmReady.mockResolvedValue(undefined);
@@ -127,14 +128,12 @@ it('makes the bridge config follow the effective network only AFTER endpoint ove
   expect(warn).not.toHaveBeenCalled();
 });
 
-it("hands the SDK provider the wallet's transport with no in-call retries, as the wallet's own client has", async () => {
+it('keeps the wallet as the only client owner', async () => {
   render(
     <MidenProvider>
       <div data-testid="child" />
     </MidenProvider>
   );
   await waitFor(() => expect(screen.getByTestId('child')).toBeInTheDocument());
-  expect(sdkConfigs.at(-1)).toEqual(
-    expect.objectContaining({ noteTransportUrl: 'https://ntl.test', noteTransportMaxRetries: 0 })
-  );
+  expect(mockSdkProvider).not.toHaveBeenCalled();
 });

@@ -5,10 +5,12 @@ import { useTranslation } from 'react-i18next';
 
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { claimAccentColor } from 'app/templates/history/transactionUtils';
-import { ITransaction } from 'lib/miden/db/types';
+import { IRegisterNameExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { AssetMetadata } from 'lib/miden/metadata/types';
+import { MIDEN_NAME_PAYMENT_METADATA } from 'lib/miden/name/config';
+import { formatMidenName } from 'lib/miden/name/encoding';
 import { getSwapTokenByFaucetId, normalizedFaucetId } from 'lib/miden/swap/tokens';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -316,6 +318,7 @@ export const useEarnCollateralFallback = (faucetId: string | undefined): MidenUs
  *   swap          →  (logo) {amount} {name}   ->  (logo) {amount} {name}
  *   earn-deposit  →  {amount} {symbol}        ↑   {market name}     (up-arrow separator)
  *   consume       →  {amount} {symbol}        ->  Accepted
+ *   register-name →  {label}.miden            ·   {price} USDCX     (dot separator)
  *
  * A swap side's {name} is its display name (`midenTokenLabel`); its logo keeps the registry symbol.
  * Other transaction types (switch-guardian, bridged sends) render nothing for
@@ -346,6 +349,22 @@ export const useTransactionSummaryBadgeContent = (
         // The claim's own accent, not the Receive action's green: a faucet mint's icon is the
         // dusty rose on this very page (a bridge-in's the slate), and the arrow sat green under it.
         fillForArrow: claimAccentColor(transaction, nativeFaucetId)
+      };
+    }
+
+    if (transaction?.type === 'register-name') {
+      const inputs: IRegisterNameExtraInputs | undefined = transaction.extraInputs;
+      const label = inputs?.label;
+      if (!label || transaction.amount === undefined) return undefined;
+
+      // Use the payment token metadata when the store has no faucet metadata.
+      const tokenMetadata =
+        (transaction.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined) ?? MIDEN_NAME_PAYMENT_METADATA;
+
+      return {
+        lhs: formatMidenName(label),
+        rhs: `${formatAmount(BigInt(transaction.amount), tokenMetadata.decimals)} ${tokenMetadata.symbol}`,
+        separator: <span className="text-xl font-extrabold text-muted">·</span>
       };
     }
 
