@@ -111,7 +111,8 @@ jest.mock('lib/store', () => {
     selector({
       setActiveDappSession: mockSetActiveDappSession,
       activeDappSessionId: null,
-      isReady: true
+      isReady: true,
+      isInitialized: true
     });
   return {
     useWalletStore: useWalletStoreImpl,
@@ -217,13 +218,14 @@ import { dappConfirmationStore, type DAppConfirmationRequest } from 'lib/dapp-br
 // ── screen-key: REAL module — the E2E signal under test below ──────
 import { getCurrentScreen, setRoutePart, __resetScreenKeyForTest } from 'lib/e2e/screen-key';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
+import { DialogsProvider } from 'lib/ui/dialog';
 
 // Imports under test come LAST, after all mocks.
 import { DappBrowserProvider, useDappBrowser, useHideForegroundDappWhileOpen } from './DappBrowserProvider';
 
 // Harness for exercising the provider via its context.
 function wrapper({ children }: { children: React.ReactNode }) {
-  return React.createElement(DappBrowserProvider, null, children);
+  return React.createElement(DialogsProvider, null, React.createElement(DappBrowserProvider, null, children));
 }
 
 function makeSession(id: string, url = `https://${id}.test/`) {
@@ -802,7 +804,7 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
     hook.rerender({ overlay: true });
     expect(lastVisibility('dapp-a')).toBe(false);
 
-    hook.rerender({ overlay: false });
+    await act(async () => hook.rerender({ overlay: false }));
     expect(lastVisibility('dapp-a')).toBe(true);
   });
 
@@ -844,7 +846,7 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
     expect(mockSetVisible).not.toHaveBeenCalledWith('dapp-a', true);
 
     mockConfirmationRequest = null;
-    hook.rerender({ overlay: false });
+    await act(async () => hook.rerender({ overlay: false }));
     expect(lastVisibility('dapp-a')).toBe(true);
   });
 
@@ -879,7 +881,7 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
 
     expect(lastVisibility('dapp-a')).toBe(false);
 
-    act(() => hook.result.current.closeSwitcher());
+    await act(async () => hook.result.current.closeSwitcher());
     expect(lastVisibility('dapp-a')).toBe(true);
   });
 
@@ -915,11 +917,13 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
       const hook = renderHarness();
       await openForeground(hook);
       failNative();
+      mockSetVisible.mockClear();
 
       act(() => hook.result.current.setSlotRect(LANDSCAPE));
       await settle();
 
-      expect([warned('setRect'), warned('setVisible(true)'), warned('executeScript')]).toEqual([1, 1, 1]);
+      expect([warned('setRect'), warned('setVisible(true)'), warned('executeScript')]).toEqual([1, 0, 1]);
+      expect(mockSetVisible).not.toHaveBeenCalledWith('dapp-a', true);
     });
 
     it('when the switcher opens', async () => {
@@ -930,8 +934,7 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
       act(() => hook.result.current.openSwitcher());
       await settle();
 
-      // The switcher effect hides every active window; the visibility effect the foreground one.
-      expect(warned('setVisible(false)')).toBe(2);
+      expect(warned('setVisible(false)')).toBe(1);
     });
 
     it('when the switcher closes', async () => {
@@ -944,7 +947,7 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
       act(() => hook.result.current.closeSwitcher());
       await settle();
 
-      expect([warned('setVisible(true)'), warned('setRect')]).toEqual([2, 1]);
+      expect([warned('setVisible(true)'), warned('setRect')]).toEqual([0, 1]);
     });
 
     it('when an overlay is held', async () => {
@@ -962,6 +965,7 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
       const hook = renderHarness(true);
       await openForeground(hook);
       failNative();
+      mockSetRect.mockImplementation(() => Promise.resolve());
 
       hook.rerender({ overlay: false });
       await settle();

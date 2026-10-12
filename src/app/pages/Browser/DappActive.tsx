@@ -18,11 +18,10 @@ import React, { type FC, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useTranslation } from 'react-i18next';
 
 import { InAppBrowser } from '@miden/dapp-browser';
-import { useDappBrowser } from 'app/providers/DappBrowserProvider';
+import { useDappBrowser, useHideForegroundDappWhileOpen } from 'app/providers/DappBrowserProvider';
 import { createDappSession } from 'lib/dapp-browser';
 import { getSnapshot } from 'lib/dapp-browser/snapshot-store';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
-import { isMobile } from 'lib/platform';
 
 import { CapsuleBar } from './CapsuleBar';
 import { DappActionsSheet } from './DappActionsSheet';
@@ -92,29 +91,7 @@ export const DappActive: FC = () => {
     });
   }, [session, close, open]);
 
-  // When the actions sheet opens, hide the dApp WKWebView so the
-  // React-rendered drawer can sit above it, and mark the drawer as open
-  // so parked dApp trays move out of the way. The webview's JS context,
-  // scroll position, and in-flight requests survive the hide/show cycle.
-  //
-  // IMPORTANT: this effect is a NO-OP while the sheet is closed — it only
-  // runs side effects on "open" and reverses them via the cleanup. An
-  // earlier revision also ran the reverse branch on close, which meant
-  // DappActive's first mount (actionsOpen=false) would call
-  // `setVisible(true)` even when it was not needed.
-  // That race with the provider's own restore flow (which also calls
-  // `setVisible(true)` + `setRect()` on bubble-tap) caused restored dApps
-  // to briefly appear and then get re-parked on the first click.
-  useEffect(() => {
-    if (!isMobile() || !session || !actionsOpen) return;
-    const sessionId = session.id;
-    document.body.setAttribute('data-drawer-open', '');
-    InAppBrowser.setVisible({ id: sessionId, visible: false }).catch(() => {});
-    return () => {
-      document.body.removeAttribute('data-drawer-open');
-      InAppBrowser.setVisible({ id: sessionId, visible: true }).catch(() => {});
-    };
-  }, [actionsOpen, session]);
+  useHideForegroundDappWhileOpen(actionsOpen);
 
   // Drive the provider's slotRect via a ResizeObserver on the slot div.
   //

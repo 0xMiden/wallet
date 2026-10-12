@@ -90,6 +90,7 @@ import { markReturningFromWebview } from 'lib/mobile/webview-state';
 import { isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { selectIsReady, useWalletStore } from 'lib/store';
+import { useModalsParams } from 'lib/ui/dialog';
 import { navigate, useLocation } from 'lib/woozie';
 
 /**
@@ -299,21 +300,29 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     };
   }, []);
 
-  // One decision for every path that can show the foreground window (the slot
-  // effect, the switcher close, the visibility effect): a pending confirmation,
-  // the open switcher or a held host overlay keeps it hidden. Mirrored into a
-  // ref during render so effects in this commit read the current value.
-  const foregroundBlocked = !!request || switcherOpen || hostOverlays > 0;
+  // Readiness and hydration gate native visibility even before routing removes the reported slot.
+  const location = useLocation();
+  const isWalletReady = useWalletStore(selectIsReady);
+  const isHydrated = useWalletStore(s => s.isInitialized);
+
+  const walletShellActive = useMemo(() => {
+    if (!isWalletReady || !isHydrated) return false;
+    const path = location.pathname;
+    if (path === '/welcome') return false;
+    if (path.startsWith('/onboarding')) return false;
+    if (path === '/forgot-password') return false;
+    if (path === '/forgot-password-info') return false;
+    if (path === '/reset-required') return false;
+    if (path === '/reset-wallet') return false;
+    return true;
+  }, [location.pathname, isWalletReady, isHydrated]);
+
+  const { alertParams, confirmParams } = useModalsParams();
+  const foregroundBlocked =
+    !walletShellActive || !!request || switcherOpen || hostOverlays > 0 || alertParams.isOpen || confirmParams.isOpen;
   const foregroundBlockedRef = useRef(foregroundBlocked);
   foregroundBlockedRef.current = foregroundBlocked;
-  // Snapshot taken at the moment the switcher opens — restored when it
-  // closes (unless the user picked a card, in which case the picked
-  // session takes the foreground via restore()).
-  const switcherForegroundBeforeRef = useRef<string | null>(null);
-  const openSwitcher = useCallback(() => {
-    switcherForegroundBeforeRef.current = foregroundIdRef.current;
-    setSwitcherOpen(true);
-  }, []);
+  const openSwitcher = useCallback(() => setSwitcherOpen(true), []);
   const closeSwitcher = useCallback(() => setSwitcherOpen(false), []);
 
   const sessionStatesRef = useRef<DappSessionState[]>(sessionStates);
@@ -904,9 +913,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
   // ─── Effects that drive the native side ─────────────────────────────────
 
-  // When a session becomes foreground AND a slot rect is reported, either
-  // open it for the first time (status === 'loading') or setVisible(true)
-  // + setRect on a previously parked instance (status === 'active').
+  // Opening needs a reported slot; warm foreground changes refresh the injection without reloading.
   useEffect(() => {
     if (!foregroundId || !slotRect) return;
     const state = getSessionStateById(foregroundId);
@@ -917,20 +924,6 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       return;
     }
     if (state.instance) {
-      // Order matters: position the webview BEFORE making it visible.
-      // The instance remembers its last native rect from the previous
-      // foregrounding, and if that rect differs from the new slot
-      // (even by a few pt), calling `setVisible(true)` first shows
-      // the webview at the OLD position for one frame, then
-      // `setRect(new)` moves it — producing a visible jump at the
-      // end of the expand animation. Calling setRect first ensures
-      // the webview is already at the target before it appears.
-      void state.instance.setRect(slotRect).catch(e => console.warn('[DappBrowserProvider] setRect failed:', e));
-      // Blocked: stay hidden; the visibility effect shows it once nothing blocks.
-      if (!foregroundBlockedRef.current)
-        void state.instance
-          .setVisible(true)
-          .catch(e => console.warn('[DappBrowserProvider] setVisible(true) failed:', e));
       // Re-run the injection script on restore so any CSS the wallet
       // wants to layer onto the dApp (currently the navbar bottom
       // padding) reaches sessions that were parked before the most
@@ -1035,43 +1028,6 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     return dappConfirmationStore.subscribe(tryAutoRestore);
   }, [restore]);
 
-  // PR-5: when the switcher opens, hide every active native dApp window
-  // so the React-rendered switcher can be the topmost visible layer.
-  // Otherwise the native UIWindows (which sit above the Capacitor host
-  // window in iOS architecture A) bleed through. When the switcher
-  // closes WITHOUT a restore(), put the previously-foreground session
-  // back into view.
-  useEffect(() => {
-    if (switcherOpen) {
-      // Hide all active instances. Parked ones are already hidden.
-      sessionStatesRef.current.forEach(s => {
-        if (s.status === 'active' && s.instance) {
-          void s.instance
-            .setVisible(false)
-            .catch(e => console.warn('[DappBrowserProvider] setVisible(false) failed:', e));
-        }
-      });
-    } else {
-      // Switcher closed. If a foreground session is set, ensure it's
-      // visible at the slot rect (in case the user closed without
-      // picking a different card). The slot-rect-driven effect will
-      // call setVisible(true) + setRect once it runs, but we don't
-      // need to do anything explicit here — the dependency on
-      // switcherOpen is enough to trigger a re-run.
-      if (foregroundIdRef.current && slotRectRef.current && !foregroundBlockedRef.current) {
-        const state = sessionStatesRef.current.find(s => s.session.id === foregroundIdRef.current);
-        if (state?.instance) {
-          void state.instance
-            .setVisible(true)
-            .catch(e => console.warn('[DappBrowserProvider] setVisible(true) failed:', e));
-          void state.instance
-            .setRect(slotRectRef.current)
-            .catch(e => console.warn('[DappBrowserProvider] setRect failed:', e));
-        }
-      }
-    }
-  }, [switcherOpen]);
-
   // ─── Derived backwards-compat fields ────────────────────────────────────
   //
   // IMPORTANT: read from `sessionStates` (state) here, NOT from
@@ -1111,24 +1067,6 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       : '';
   useOverlayScreenKey(Boolean(dappScreenKeyPart), dappScreenKeyPart);
 
-  // The React-only wallet shell is active once the user is past
-  // onboarding / unlock. Parked dApp trays use this gate so persistent
-  // dApp chrome never appears over welcome, lock, reset, or import flows.
-  const location = useLocation();
-  const isWalletReady = useWalletStore(selectIsReady);
-
-  const walletShellActive = useMemo(() => {
-    if (!isWalletReady) return false;
-    const path = location.pathname;
-    if (path === '/welcome') return false;
-    if (path.startsWith('/onboarding')) return false;
-    if (path === '/forgot-password') return false;
-    if (path === '/forgot-password-info') return false;
-    if (path === '/reset-required') return false;
-    if (path === '/reset-wallet') return false;
-    return true;
-  }, [location.pathname, isWalletReady]);
-
   const contextValue = useMemo<DappBrowserContextValue>(
     () => ({
       session,
@@ -1165,47 +1103,62 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     ]
   );
 
-  // CRITICAL: when a confirmation is pending, hide the foreground dApp's
-  // native UIWindow. The confirmation modal is rendered inside the
-  // Capacitor host WebView (a UIWindow at .normal level), but every
-  // active dApp WKWebView lives in its OWN UIWindow (also at .normal,
-  // but inserted ABOVE the host window so the slot rect reads taps).
-  // When a dApp is foregrounded, its window covers the host window —
-  // including the modal. The modal therefore becomes invisible AND
-  // untappable: the user taps "Approve", the tap goes into the dApp's
-  // web content (not the React button), and the confirmation sits
-  // stuck forever.
-  //
-  // Fix: toggle the dApp's visibility in lockstep with the request
-  // state. Hiding the dApp UIWindow exposes the host window (where
-  // the modal renders). Showing it again after resolve restores the
-  // dApp at its last-known slot rect — the native plugin remembers
-  // the rect per instance, so no resize is needed here.
-  //
-  // This matches the existing switcher-open effect's pattern, just
-  // scoped to the single foreground session instead of every active
-  // instance.
-  //
-  // foregroundBlocked (above) decides: a held host overlay or the open switcher
-  // hides it the same way, and it is shown again only when nothing blocks.
-  // Keyed on the foreground instance too, so a window created while blocked
-  // (openInternal opens it visible) is hidden as soon as it arrives.
-  const foregroundInstance = sessionStates.find(s => s.session.id === foregroundId)?.instance ?? null;
+  // The sole reveal owner observes outer generic dialogs too: those sheets are siblings of this provider.
+  // Native positioning can yield while a popup opens or a session closes, so a stale continuation never reveals it.
   useEffect(() => {
     if (!isMobile()) return;
-    if (!foregroundId) return;
-    const state = sessionStatesRef.current.find(s => s.session.id === foregroundId);
-    if (!state?.instance) return;
-    if (foregroundBlocked) {
-      void state.instance
-        .setVisible(false)
-        .catch(e => console.warn('[DappBrowserProvider] setVisible(false) failed:', e));
-    } else {
-      void state.instance
-        .setVisible(true)
-        .catch(e => console.warn('[DappBrowserProvider] setVisible(true) failed:', e));
+    let cancelled = false;
+    const foreground = sessionStates.find(s => s.session.id === foregroundId);
+    const rect = slotRectRef.current;
+    const reveal = !foregroundBlocked && !!rect && foreground?.status === 'active';
+    for (const state of sessionStates) {
+      if (state.instance && (state.session.id !== foregroundId || !reveal)) {
+        void state.instance
+          .setVisible(false)
+          .catch(e => console.warn('[DappBrowserProvider] setVisible(false) failed:', e));
+      }
     }
-  }, [foregroundBlocked, foregroundId, foregroundInstance]);
+    const instance = foreground?.instance;
+    const id = foreground?.session.id;
+    if (!instance || !id || !rect) return;
+    const lifetime = sessionLifetimes.current.get(id);
+    const position = async () => {
+      try {
+        await instance.setRect(rect);
+      } catch (e) {
+        console.warn('[DappBrowserProvider] setRect failed:', e);
+        return;
+      }
+      if (
+        !reveal ||
+        cancelled ||
+        foregroundBlockedRef.current ||
+        foregroundIdRef.current !== id ||
+        sessionLifetimes.current.get(id) !== lifetime ||
+        getSessionStateById(id)?.instance !== instance ||
+        !slotRectRef.current
+      )
+        return;
+      try {
+        await instance.setVisible(true);
+      } catch (e) {
+        console.warn('[DappBrowserProvider] setVisible(true) failed:', e);
+      }
+    };
+    void position();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    foregroundId,
+    foregroundBlocked,
+    sessionStates,
+    slotRect?.x,
+    slotRect?.y,
+    slotRect?.width,
+    slotRect?.height,
+    getSessionStateById
+  ]);
 
   // Read account info for the modal — kept here to avoid prop-drilling
   const currentAccount = useWalletStore(s => s.currentAccount);
