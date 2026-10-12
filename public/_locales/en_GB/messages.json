@@ -4718,7 +4718,7 @@
   },
   "bridgeDepositProcessingDescription": {
     "message": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "Bridge deposit failed",
@@ -6194,10 +6194,10 @@
   },
   "bridgeDepositAwaitingNextConfirmation": {
     "message": "Waiting for the next wallet confirmation",
-    "englishSource": "[awaiting translation]"
+    "englishSource": "Waiting for the next wallet confirmation"
   },
   "bridgeDepositAwaitingNextConfirmationDescription": {
     "message": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open.",
-    "englishSource": "[awaiting translation]"
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
   }
 }

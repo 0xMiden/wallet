@@ -1072,6 +1072,7 @@
   "youAreDepositing": "Вы вносите депозит",
   "confirmDeposit": "Подтвердить депозит",
   "bridgeDepositProcessing": "Подтверждение депозита через мост",
+  "bridgeDepositProcessingDescription": "Утвердите запросы в вашем кошельке — он может запрашивать это несколько раз — и держите этот экран открытым, пока исходная сеть их подтверждает.",
   "bridgeDepositFailed": "Ошибка при внесении депозита через мост",
   "bridgeDepositSubmitted": "Мост запущен!",
   "bridgeDepositDeliveryDescription": "Исходная транзакция подтверждена. Ваши средства появятся в Miden после завершения доставки через мост.",
@@ -1385,5 +1386,7 @@
   "testIethExecution": "Обмен осуществляется через смарт-контракт в тестовой сети Miden.",
   "swapExecutionTitle": "Где происходит замена",
   "tokenInfoLabel": "О $token$",
-  "externalPageLoadFailed": "Не удалось открыть эту страницу. Проверьте подключение и попробуйте ещё раз."
+  "externalPageLoadFailed": "Не удалось открыть эту страницу. Проверьте подключение и попробуйте ещё раз.",
+  "bridgeDepositAwaitingNextConfirmation": "Ожидание следующего подтверждения кошелька",
+  "bridgeDepositAwaitingNextConfirmationDescription": "Первое подтверждение выполнено. Ваш кошелек попросит вас подтвердить ещё раз — оставьте этот экран открытым."
 }

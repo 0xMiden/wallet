@@ -1072,6 +1072,7 @@
   "youAreDepositing": "Você está fazendo um depósito",
   "confirmDeposit": "Confirmar depósito",
   "bridgeDepositProcessing": "Confirmando o depósito na ponte",
+  "bridgeDepositProcessingDescription": "Aprove as solicitações na sua carteira — pode ser que seja solicitado mais de uma vez — e mantenha esta tela aberta enquanto a rede de origem as confirma.",
   "bridgeDepositFailed": "Falha no depósito da ponte",
   "bridgeDepositSubmitted": "Bridge iniciada!",
   "bridgeDepositDeliveryDescription": "A transação de origem foi confirmada. Seus fundos aparecerão no Miden assim que a entrega pela ponte for concluída.",
@@ -1385,5 +1386,7 @@
   "testIethExecution": "A troca é executada por meio de um contrato inteligente na Miden Testnet.",
   "swapExecutionTitle": "Onde a troca é executada",
   "tokenInfoLabel": "Sobre o $token$",
-  "externalPageLoadFailed": "Não foi possível abrir esta página. Verifique sua conexão e tente novamente."
+  "externalPageLoadFailed": "Não foi possível abrir esta página. Verifique sua conexão e tente novamente.",
+  "bridgeDepositAwaitingNextConfirmation": "Aguardando a próxima confirmação da carteira",
+  "bridgeDepositAwaitingNextConfirmationDescription": "A primeira confirmação foi concluída. Sua carteira solicitará que você confirme mais uma vez — mantenha esta tela aberta."
 }

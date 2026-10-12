@@ -4717,8 +4717,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "message": "请在您的钱包中批准这些请求——系统可能会多次提示——并在源网络确认这些请求期间保持此屏幕打开。",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "桥接存款失败",
@@ -6193,11 +6193,11 @@
     "englishSource": "Couldn't open this page. Check your connection and try again."
   },
   "bridgeDepositAwaitingNextConfirmation": {
-    "message": "Waiting for the next wallet confirmation",
-    "englishSource": "[awaiting translation]"
+    "message": "等待下一个钱包确认",
+    "englishSource": "Waiting for the next wallet confirmation"
   },
   "bridgeDepositAwaitingNextConfirmationDescription": {
-    "message": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open.",
-    "englishSource": "[awaiting translation]"
+    "message": "首次确认已完成。您的钱包会要求您再次确认——请保持此屏幕打开。",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
   }
 }
