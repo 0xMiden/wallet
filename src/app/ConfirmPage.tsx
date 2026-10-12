@@ -297,7 +297,9 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
             return (
               <div className="flex justify-between my-2 text-sm" key={i + 2}>
                 <span className="text-text-muted">{label}</span>
-                <span className="text-ink">{value}</span>
+                <span className="text-ink" data-testid={txRowValueTestId(label)}>
+                  {value}
+                </span>
               </div>
             );
           })}
@@ -434,7 +436,11 @@ const CustomTransactionContent: React.FC<{
     return (
       <>
         <TransactionAssetView view={declaredView} mode="declared" />
-        {simError && <div className="text-xs text-text-muted my-2">{t('couldNotVerifyBySimulation')}</div>}
+        {simError && (
+          <div className="text-xs text-text-muted my-2" data-testid="tx-simulation-failed">
+            {t('couldNotVerifyBySimulation')}
+          </div>
+        )}
         {advanced}
       </>
     );

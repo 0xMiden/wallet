@@ -40,6 +40,7 @@ import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import type { TokenPrices } from 'lib/prices';
+import { isUsdcxDestinationPending, pollUsdcxDestination } from 'lib/usdcx/destination-status';
 
 export enum WalletPromptType {
   Bridge = 'bridge',
@@ -130,6 +131,11 @@ function isBridgePromptActive(tx: ITransaction): boolean {
   if (tx.status !== ITransactionStatus.Completed) return true;
 
   const inputs: IBridgedSendExtraInputs = tx.extraInputs;
+  if (inputs.provider === 'usdcx') {
+    const burn = inputs.usdcxBurn;
+    if (!burn || burn.phase === 'discarded') return false;
+    return burn.phase !== 'confirmed' || isUsdcxDestinationPending(burn);
+  }
   if (inputs.provider === 'epoch') return inputs.epochStatus !== 'confirmed' && inputs.epochStatus !== 'failed';
   // A row whose exit no lookup can find is never polled, so nothing would ever clear its prompt (#1325).
   if (isAgglayerExitUnfindable(inputs)) return false;
@@ -138,7 +144,9 @@ function isBridgePromptActive(tx: ITransaction): boolean {
 
 export async function fetchActiveBridgePrompts(accountId: string): Promise<ITransaction[]> {
   const rows = await Repo.transactions
-    .filter(tx => tx.type === 'bridged-send' && compareAccountIds(tx.accountId, accountId))
+    .where('type')
+    .equals('bridged-send')
+    .filter(tx => compareAccountIds(tx.accountId, accountId))
     .toArray();
   return rows.filter(isBridgePromptActive).sort((left, right) => right.initiatedAt - left.initiatedAt);
 }
@@ -152,6 +160,23 @@ export async function fetchActiveBridgePrompts(accountId: string): Promise<ITran
 // tick; past it, the detail page's own on-demand tracker and fill poll still settle
 // the row (#1250).
 const FAILED_UNCONFIRMED_BRIDGE_POLL_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+// A USDCx burn's destination check may never confirm (an accepted limit in CLAUDE.md), so a Completed USDCx row is
+// checked less often as it ages instead of costing RPC calls on every tick forever. No row is closed by age.
+const USDCX_CHECK_INTERVALS: readonly { olderThanMs: number; everyMs: number }[] = [
+  { olderThanMs: 24 * 60 * 60 * 1000, everyMs: 60 * 60 * 1000 },
+  { olderThanMs: 60 * 60 * 1000, everyMs: 5 * 60 * 1000 }
+];
+const usdcxCheckedAt = new Map<string, number>();
+
+function isUsdcxCheckDue(tx: ITransaction, now: number): boolean {
+  const ageMs = now - (tx.completedAt ?? tx.initiatedAt) * 1000;
+  const everyMs = USDCX_CHECK_INTERVALS.find(step => ageMs >= step.olderThanMs)?.everyMs ?? 0;
+  const checkedAt = usdcxCheckedAt.get(tx.id);
+  if (checkedAt !== undefined && now - checkedAt < everyMs) return false;
+  usdcxCheckedAt.set(tx.id, now);
+  return true;
+}
 
 /**
  * Poll one bridge row against its provider - a Completed row with something left to
@@ -182,6 +207,14 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
   // already does: a Failed row with no `extraInputs` at all must not crash the pass.
   const inputs = tx.extraInputs as IBridgedSendExtraInputs | undefined;
   if (!inputs) return;
+
+  if (inputs.provider === 'usdcx') {
+    if (!isUsdcxCheckDue(tx, Date.now())) return;
+    const { pollUsdcxBurn } = await import('lib/usdcx/burn-status');
+    await pollUsdcxBurn(tx);
+    await pollUsdcxDestination(tx);
+    return;
+  }
 
   if (inputs.provider === 'agglayer') {
     // Bound to this row's own exit hash, the indexer's tx_hash for the B2AGG note it built: several rows can share
@@ -319,7 +352,7 @@ async function backfillAgglayerExitTxHashes(rows: ITransaction[]): Promise<void>
  * early for a row with nothing left to settle.
  */
 export async function reconcileBridgedSends(): Promise<void> {
-  const rows = await Repo.transactions.filter(tx => tx.type === 'bridged-send').toArray();
+  const rows = await Repo.transactions.where('type').equals('bridged-send').toArray();
   // A restored row keeps what the backup recorded, but must not drive work:
   // `pollBridgedSend` queries the bridge services with those values and writes
   // the answer back onto the row.
@@ -593,10 +626,8 @@ export async function clearFaucetFundingMarker(address: string): Promise<void> {
   await getStorageProvider().remove([faucetFundingMarkerKey(address)]);
 }
 
-// 100 MIDEN in base units (6 decimals).
-const MIDEN_FAUCET_AMOUNT = 100_000_000n;
 // Bail out of a hung faucet request. The timeout also aborts the underlying
-// work: the signal is linked into each fetch, checked per PoW iteration, and
+// work: the signal is linked into each fetch, terminates the PoW worker, and
 // cuts a 429 back-off short.
 const FAUCET_REQUEST_TIMEOUT_MS = 60_000;
 /**
@@ -724,7 +755,7 @@ async function runFaucetRequest(address: string, marker?: FaucetFundingMarker, r
     }
     return mintFromMidenFaucet(
       address,
-      MIDEN_FAUCET_AMOUNT,
+      undefined,
       controller.signal,
       async () => {
         if (marker) {

@@ -1,8 +1,10 @@
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
 
+import { MOCK_USDC_ADDRESS } from '../ios/helpers/evm-doubles';
+
 /**
- * Headless stand-in for the Epoch READ-ONLY positions service
- * (`EPOCH_POSITIONS_URL`, positions-testnet-dev.epochprotocol.xyz) for the EARN
+ * Headless stand-in for the Epoch READ-ONLY positions service (the served config
+ * document's `epoch.positionsUrl`, positions-testnet-dev.epochprotocol.xyz in production) for the EARN
  * e2e harness. The real service reads live on-chain lending state, which a local
  * harness can't populate — this fake serves a canned/programmable positions
  * payload in the EXACT shape `src/lib/epoch/positions.ts` parses.
@@ -15,17 +17,12 @@ import { type IncomingMessage, type Server, type ServerResponse, createServer } 
  *      Sepolia item must always be present.
  *   2. Open positions — `flattenChainItem` keeps a position only when it queried a
  *      REAL owner (not the neutral catalog account), the position's `marketUid`
- *      matches `EARN_MARKET_UID` (case-insensitive), and it has a non-zero deposit.
- *
- * ── Constants inlined on purpose (see fake-epoch-allocator.ts for rationale) ──
- *   - EARN_MARKET_UID = src/lib/epoch/earn.ts (`DUMMY_LENDING:11155111:0x2bb4…`)
- *   - EARN_UNDERLYING = src/lib/epoch/earn.ts (Sepolia USDC)
+ *      matches the market uid the wallet derives from the served document (case-insensitive),
+ *      and it has a non-zero deposit.
  */
 
-/** `EARN_MARKET_UID` in src/lib/epoch/earn.ts (lowercase; matched case-insensitively). */
-const EARN_MARKET_UID = 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
-/** Sepolia USDC — `EARN_UNDERLYING` in src/lib/epoch/earn.ts. */
-const EARN_UNDERLYING = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
+/** The market uid the wallet derives from the served document's `evm.chainId` and `epoch.evmUsdc`. */
+const DUMMY_LENDING_MARKET_UID = `DUMMY_LENDING:11155111:${MOCK_USDC_ADDRESS.toLowerCase()}`;
 /** Ethereum Sepolia chain id (string, as the positions API returns it). */
 const SEPOLIA_CHAIN_ID = '11155111';
 /** Default lender for the only live earn market (Epoch's DUMMY_LENDING stand-in). */
@@ -84,11 +81,10 @@ export interface SeedDummyLendingOpts {
   /** USDC price (default 1). */
   priceUsd?: number;
   /**
-   * Underlying-asset decimals reported to the wallet (default 6, standard USDC).
-   * The gasless WITHDRAW path validates `underlyingDecimals ===
-   * BRIDGEABLE_EVM_OUTPUT_TOKEN_DECIMALS` (18, Epoch's amount convention), so a
-   * withdraw seed must pass `decimals: 18` or `gaslessEarnWithdrawalToMiden`
-   * throws "only supports the configured USDC Earn market" before creating a row.
+   * Underlying-asset decimals reported to the wallet (default 18, what the Sepolia
+   * USDC and the Anvil MockUsdc answer). The gasless WITHDRAW path refuses a
+   * position whose decimals differ from the EVM USDC's, so only a test of that
+   * refusal passes anything else.
    */
   decimals?: number;
 }
@@ -101,17 +97,17 @@ export function buildDummyLendingItem(opts: SeedDummyLendingOpts = {}): Position
   const asset: PositionsChainItemAsset = {
     name: 'USD Coin',
     symbol: 'USDC',
-    address: EARN_UNDERLYING,
+    address: MOCK_USDC_ADDRESS,
     chainId: SEPOLIA_CHAIN_ID,
     logoURI: null,
-    decimals: opts.decimals ?? 6,
+    decimals: opts.decimals ?? 18,
     assetGroup: 'stablecoin'
   };
   const positions: PositionsApiPosition[] = [];
   if (opts.depositAmount) {
     const depositsUSD = opts.depositsUSD ?? Number(opts.depositAmount);
     positions.push({
-      marketUid: EARN_MARKET_UID,
+      marketUid: DUMMY_LENDING_MARKET_UID,
       deposits: opts.depositAmount,
       debt: '0',
       depositsUSD,

@@ -11,8 +11,8 @@ import { sepolia } from 'viem/chains';
  * and NO gas — just a read-only public client to a fresh destination address to
  * prove the USDC actually arrived (i.e. that real bridging happened, end to end).
  *
- * The output token is the Epoch route's fixed Sepolia USDC (mock ERC20, 18 dp) —
- * kept in sync with `src/lib/epoch/bridgeable-token.ts`.
+ * The output token is the Epoch route's Sepolia USDC (mock ERC20, 18 dp), the
+ * published testnet document's `epoch.evmUsdc`.
  */
 export const SEPOLIA_USDC_ADDRESS = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69' as const;
 

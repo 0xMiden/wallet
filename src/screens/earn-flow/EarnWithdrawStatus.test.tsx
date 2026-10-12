@@ -5,6 +5,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import type { IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
+import type { NativeAssetChainMetadata } from 'lib/miden-chain/native-asset';
 import { navigate } from 'lib/woozie';
 import type { TransactionSuccessLayoutProps } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 
@@ -13,8 +14,9 @@ import { EarnWithdrawStatus } from './EarnWithdrawStatus';
 let mockRowState: { row?: ITransaction; loaded: boolean } = { row: undefined, loaded: false };
 let mockSuccessProps: TransactionSuccessLayoutProps | undefined;
 let mockAssetsMetadata: Record<string, AssetMetadata> = {};
+let mockNativeMetadata: NativeAssetChainMetadata | null = null;
 
-// The delivered faucet resolves synchronously from the store; the native one needs no record.
+// Foreign delivery uses the store; native delivery uses resolved chain metadata.
 jest.mock('lib/store', () => ({
   useWalletStore: <T,>(selector: (state: { assetsMetadata: Record<string, AssetMetadata> }) => T) =>
     selector({ assetsMetadata: mockAssetsMetadata })
@@ -23,6 +25,11 @@ jest.mock('lib/store', () => ({
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
   default: () => 'native-faucet'
+}));
+
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetIdSync: () => 'native-faucet',
+  getNativeAssetMetadataSync: () => mockNativeMetadata
 }));
 
 // Real base-unit scaling: the shared `lib/i18n/numbers` manual mock has no `formatBigInt`.
@@ -159,6 +166,7 @@ describe('EarnWithdrawStatus', () => {
     mockRowState = { row: undefined, loaded: false };
     mockSuccessProps = undefined;
     mockAssetsMetadata = {};
+    mockNativeMetadata = null;
   });
 
   it('shows a spinner until a transaction row is available', () => {
@@ -279,6 +287,7 @@ describe('EarnWithdrawStatus', () => {
   // Activity shows it, rounded down at the asset's precision. Both remainders sit above half, so
   // half-up, round-up and the typed value would each read differently.
   it('shows the credited amount beside the withdrawn source once received', () => {
+    mockNativeMetadata = { symbol: 'MIDEN', decimals: 6 };
     mockRowState = {
       row: makeRow(makeInputs({ phase: 'received', sourceAmount: '42.2599' }), {
         amount: 250_127_456n,
@@ -289,6 +298,25 @@ describe('EarnWithdrawStatus', () => {
     render(<EarnWithdrawStatus txId="withdraw-1" />);
 
     expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → 250.12 MIDEN');
+  });
+
+  it('keeps native delivery on the network until its scale is known', () => {
+    mockRowState = {
+      row: makeRow(makeInputs({ phase: 'received' }), { amount: 250_127_456n, faucetId: 'native-faucet' }),
+      loaded: true
+    };
+    render(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → Miden');
+  });
+
+  it('scales a credited native USDCX delivery with authoritative eight decimals', () => {
+    mockNativeMetadata = { symbol: 'USDCX', decimals: 8 };
+    mockRowState = {
+      row: makeRow(makeInputs({ phase: 'received' }), { amount: 250_127_456n, faucetId: 'native-faucet' }),
+      loaded: true
+    };
+    render(<EarnWithdrawStatus txId="withdraw-1" />);
+    expect(screen.getByTestId('summary-badge').textContent).toBe('42.25 USDC → 2.5 USDCX');
   });
 
   // A delivered faucet other than the native one resolves only from the store; without it the arrow stays on Miden.

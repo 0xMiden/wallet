@@ -16,6 +16,9 @@ import { ActivityRow, ActivityRowProps, Card, Spinner, Status } from 'components
 import { EmptyState } from 'components/ui/EmptyState';
 import { TextAction } from 'components/ui/TextAction';
 import { UnreadDot } from 'components/ui/UnreadDot';
+import { isUnconfirmedRotation, rotationRowTitleKey } from 'lib/miden/guardian/rotation-verdict';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { markActivityRead, useActivityReadState } from 'lib/settings/activity-read';
 import { navigate } from 'lib/woozie';
 
@@ -28,6 +31,8 @@ import { isGuardianOp } from './TransactionIcon';
 import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
+  bridgeBadgeStatusOf,
+  isUsdcxBridgeEntry,
   earnDepositSettlementOf,
   formatMoneyAmount,
   isBridgeInEntry,
@@ -47,6 +52,11 @@ type HistoryViewProps = {
   tokenId?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
+  /**
+   * `caption`: each day is a small grey caption ("Monday, October 5") rather than the bold date and
+   * coloured weekday, for a list that already sits under its own section heading (Token Detail).
+   */
+  dateStyle?: 'header' | 'caption';
   pendingItems?: PendingActivityItem[];
   renderPendingItem?: (item: PendingActivityItem) => React.ReactNode;
   /** A read the list needs failed: with no rows to show, say so instead of "no activity". */
@@ -81,6 +91,13 @@ function groupEntriesByDate(entries: TimelineEntry[]): Map<number, TimelineEntry
   return groups;
 }
 
+/** A day as a small grey caption: weekday and date, the year only when it is not this year. */
+const DateCaption: React.FC<{ dateMs: number }> = ({ dateMs }) => {
+  const d = new Date(dateMs);
+  const pattern = d.getFullYear() === new Date().getFullYear() ? 'EEEE, MMMM d' : 'EEEE, MMMM d, yyyy';
+  return <span className="text-caption-heading text-muted">{format(d, pattern)}</span>;
+};
+
 const DateSeparator: React.FC<{ dateMs: number }> = ({ dateMs }) => {
   const d = new Date(dateMs);
   const longDate = format(d, 'MMMM d, yyyy');
@@ -97,6 +114,7 @@ const DateSeparator: React.FC<{ dateMs: number }> = ({ dateMs }) => {
 // colored square background, amount string with sign, and status pill (dot +
 // label). Faucet requests get their own dark-blue glyph regardless of icon.
 function buildRowProps(
+  bridgeConfig: BridgeConfigSnapshot,
   entry: IHistoryEntry,
   t: (k: string, opts?: Record<string, unknown>) => string,
   tokenId?: string
@@ -114,22 +132,25 @@ function buildRowProps(
     (entry.txType === 'bridged-send' || isBridgeInEntry(entry))
   ) {
     const bridgeIn = entry.txType !== 'bridged-send';
-    const d = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
+    const d = bridgeIn ? bridgeInRowDisplay(bridgeConfig, entry) : bridgeRowDisplay(bridgeConfig, entry);
     const failed = d.status === 'failed';
     return {
       icon: failed ? <Icon name={IconName.Close} size="sm" fill="currentColor" /> : <SwapIcon className="w-5 h-5" />,
       iconBg: failed ? 'bg-status-negative' : 'bg-[#777487]',
-      title: t('bridgeRowTitle', { from: d.inSymbol, to: d.outSymbol }),
+      title:
+        entry.bridgeProvider === 'usdcx'
+          ? t('usdcxBurnTitle')
+          : t('bridgeRowTitle', { from: d.inLabel, to: d.outLabel }),
       subtitle: t('bridgeRowVia', { provider: d.providerLabel, network: d.network }),
       amount: d.outAmount
         ? {
-            value: `${bridgeIn ? '+' : ''}${d.outAmount} ${d.outSymbol}`,
+            value: `${bridgeIn ? '+' : ''}${d.outAmount} ${d.outLabel}`,
             direction: bridgeIn ? ('positive' as const) : ('neutral' as const),
             // `bridgeRowDisplay` and `bridgeInRowDisplay` already formatted it; the row must not round it again.
             preformatted: true
           }
         : undefined,
-      status: d.status
+      status: isUsdcxBridgeEntry(entry) ? bridgeBadgeStatusOf(entry) : d.status
     };
   }
 
@@ -216,7 +237,7 @@ function buildRowProps(
   } else if (entry.txType === 'earn-deposit') {
     // Position deposits carry a DEFAULT icon — tag them with the Earn glyph, or a red
     // cross when the lending leg settled `failed` so the row icon agrees with the red
-    // "Failed" status chip rendered below (statusTone) for that same state.
+    // "Failed" status chip (`status`, from earnDepositSettlementOf below) for that same state.
     const earnFailed = earnDepositSettlementOf(entry) === 'failed';
     iconNode = earnFailed ? (
       <FailedCrossIcon className="w-3.5 h-3.5" />
@@ -233,6 +254,14 @@ function buildRowProps(
   // subtitle, and show the requested side (what the user receives) on the right.
   const isSwap = !faucet && !isFailed && !isCancelled && !isUnconfirmed && entry.txType === 'swap';
 
+  // A completed rotation's title derives from its verdict at render, not from
+  // the frozen `displayMessage` snapshot - the claim stays attached to the
+  // evidence rather than to whatever the row said the day it completed.
+  // An unknown outcome still reads as not confirmed, ahead of that title.
+  const guardianTitleKey =
+    entry.txType === 'switch-guardian' && !isFailed && !isCancelled && entry.guardianSwitchVerdict
+      ? rotationRowTitleKey(entry.guardianSwitchVerdict)
+      : undefined;
   const title = isUnconfirmed
     ? t('notConfirmed')
     : isCancelled
@@ -243,7 +272,9 @@ function buildRowProps(
           ? `${t('swap')} ${entry.token} → ${entry.requestedToken}`
           : entry.guardianRecovered
             ? t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed))
-            : entry.message || '';
+            : guardianTitleKey
+              ? t(guardianTitleKey)
+              : entry.message || '';
   const subtitle =
     entry.txType === 'switch-guardian'
       ? `${guardianEndpointDisplayName(
@@ -359,6 +390,15 @@ function buildRowProps(
   ) {
     status = 'pending';
   } else if (
+    entry.txType === 'switch-guardian' &&
+    entry.guardianSwitchVerdict &&
+    isUnconfirmedRotation(entry.guardianSwitchVerdict)
+  ) {
+    // A submitted-unconfirmed rotation is Completed in the DB, which the
+    // default `status` above renders as a green "Confirmed" - the one claim
+    // that row cannot make.
+    status = 'guardianSwitchSubmitted';
+  } else if (
     !entry.guardianRecovered &&
     entry.txType === 'earn-deposit' &&
     earnDepositSettlementOf(entry) !== 'confirmed'
@@ -446,6 +486,7 @@ const HistoryView = memo<HistoryViewProps>(
     tokenId,
     fullHistory,
     centerEmptyState,
+    dateStyle = 'header',
     pendingItems,
     renderPendingItem,
     loadError,
@@ -458,6 +499,7 @@ const HistoryView = memo<HistoryViewProps>(
     const layoutTransition = useSettleLayoutTransition();
     const shownAgain = useTabShownAgain();
     const readState = useActivityReadState();
+    const bridgeConfig = useBridgeConfigSnapshot({ load: false });
     const timeline = useMemo(() => {
       if (!pendingItems?.length) return entries;
       const pending: TimelineEntry[] = pendingItems.map(item => ({
@@ -565,10 +607,27 @@ const HistoryView = memo<HistoryViewProps>(
             layout="position"
             transition={layoutTransition}
             key={dateMs}
-            className={classNames('flex flex-col gap-3 py-3', index === 0 && 'pt-4')}
+            // A caption sits 8px over its rows and days sit 20px apart; a header takes 12px and 24px.
+            // A caption list sits under a section heading that already leaves 12px, so its first day
+            // starts flush; a header list has only the Activity tab's filters above it.
+            className={classNames(
+              'flex flex-col',
+              dateStyle === 'caption' ? 'gap-2 py-2.5' : 'gap-3 py-3',
+              index === 0 && (dateStyle === 'caption' ? 'pt-0' : 'pt-4')
+            )}
           >
             {dateMs === -1 ? (
-              <span className="font-heading font-extrabold text-ink text-base">{t('activityDateUnavailable')}</span>
+              <span
+                className={
+                  dateStyle === 'caption'
+                    ? 'text-caption-heading text-muted'
+                    : 'font-heading font-extrabold text-ink text-base'
+                }
+              >
+                {t('activityDateUnavailable')}
+              </span>
+            ) : dateStyle === 'caption' ? (
+              <DateCaption dateMs={dateMs} />
             ) : (
               <DateSeparator dateMs={dateMs} />
             )}
@@ -598,7 +657,7 @@ const HistoryView = memo<HistoryViewProps>(
                     </motion.div>
                   );
                 }
-                const props = buildRowProps(entry, t, tokenId);
+                const props = buildRowProps(bridgeConfig, entry, t, tokenId);
                 const unread = isHistoryEntryUnread(readState, entry);
                 return (
                   <Card

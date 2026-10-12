@@ -1,4 +1,132 @@
 {
+  "usdcxBurnTitle": {
+    "message": "Queimar USDCx",
+    "englishSource": "Burn USDCx"
+  },
+  "usdcxBurnSubmitted": {
+    "message": "Queima enviada",
+    "englishSource": "Burn submitted"
+  },
+  "usdcxMidenFees": {
+    "message": "Taxas de $symbol$",
+    "englishSource": "$symbol$ fees",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxBurnOnly": {
+    "message": "Apenas queimar",
+    "englishSource": "Burn only"
+  },
+  "usdcxWithdrawalNotice": {
+    "message": "“Burn confirmed” significa que o USDCx foi queimado no Miden. “Confirmed” significa que o saldo de USDC no destino aumentou. A note que queima o USDCx e o endereço de destino são públicos. Uma note publicada não pode ser recuperada.",
+    "englishSource": "Burn confirmed means USDCx was burned on Miden. Confirmed means the destination USDC balance increased. The note that burns the USDCx and the destination address are public. A published note cannot be reclaimed."
+  },
+  "usdcxBurnTestNotice": {
+    "message": "Este teste faucet queima USDCx na Miden sem um pagamento de destino. A queima note e o endereço de destino são públicos. A queima publicada notes não pode ser recuperada.",
+    "englishSource": "This test faucet burns USDCx on Miden without a destination payout. The burn note and destination address are public. Published burn notes cannot be reclaimed."
+  },
+  "usdcxBurnPending": {
+    "message": "Aguardando queima",
+    "englishSource": "Awaiting burn"
+  },
+  "usdcxBurnConsuming": {
+    "message": "Processamento de queima",
+    "englishSource": "Burn processing"
+  },
+  "usdcxBurnConfirmed": {
+    "message": "Queima confirmada",
+    "englishSource": "Burn confirmed"
+  },
+  "usdcxBurnDiscarded": {
+    "message": "Queima rejeitada",
+    "englishSource": "Burn rejected"
+  },
+  "usdcxBurnNoteId": {
+    "message": "ID da Note",
+    "englishSource": "Note ID"
+  },
+  "usdcxDestinationDomain": {
+    "message": "Domínio de destino",
+    "englishSource": "Destination domain"
+  },
+  "usdcxProcessingAttempts": {
+    "message": "Tentativas de processamento",
+    "englishSource": "Processing attempts"
+  },
+  "usdcxLastProcessingError": {
+    "message": "Último erro de processamento",
+    "englishSource": "Last processing error"
+  },
+  "usdcxMinimumBurn": {
+    "message": "Queima mínima",
+    "englishSource": "Minimum burn"
+  },
+  "usdcxSponsorshipFee": {
+    "message": "Pago em $symbol$, incluindo patrocínio para execução de faucet",
+    "englishSource": "Paid in $symbol$, including faucet execution sponsorship",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxInvalidDestination": {
+    "message": "Insira um endereço válido em uma rede compatível para este saque.",
+    "englishSource": "Enter a valid address on a supported network for this withdrawal."
+  },
+  "usdcxUnsupportedFaucet": {
+    "message": "Os saques de USDCx estão disponíveis apenas para a cadeia de blocos configurada faucet na rede de testes Miden.",
+    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+  },
+  "usdcxInvalidAmount": {
+    "message": "Insira um valor positivo em USDCx com, no máximo, seis casas decimais.",
+    "englishSource": "Enter a positive USDCx amount with at most six decimal places."
+  },
+  "usdcxBelowMinimumBurn": {
+    "message": "O valor está abaixo do valor mínimo de queima do faucet.",
+    "englishSource": "The amount is below the faucet's minimum burn amount."
+  },
+  "usdcxIncompatibleBurnScript": {
+    "message": "O script de queima da carteira não corresponde ao faucet do USDCx.",
+    "englishSource": "The wallet's burn script does not match the USDCx faucet."
+  },
+  "usdcxFaucetUnavailable": {
+    "message": "Não foi possível ler a política de queima do USDCx faucet. Reabrir a revisão para tentar novamente.",
+    "englishSource": "Unable to read the USDCx faucet's burn policy. Reopen review to try again."
+  },
+  "usdcxSendMoreThanPayoutFee": {
+    "message": "Envie mais de $amount$ USDCx para $network$: a taxa da Circle é deduzida do pagamento.",
+    "englishSource": "Send more than $amount$ USDCx to $network$: Circle's fee is taken from the payout.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxPayoutFeeUpTo": {
+    "message": "Até $amount$ em USDC",
+    "englishSource": "Up to $amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxPayoutAtLeast": {
+    "message": "Pelo menos $amount$ em USDC",
+    "englishSource": "At least $amount$ USDC",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "activityFetchingHistoryAndNotes": {
     "message": "Como consultar seu histórico de transações e notes",
     "englishSource": "Fetching your transaction history and notes"
@@ -69,8 +197,8 @@
     "englishSource": "Confirm your deposit"
   },
   "bridgeDepositSubheading": {
-    "message": "Sua carteira será aberta para aprovar o valor exato e assinar no Sepolia.",
-    "englishSource": "Your wallet will open to approve the exact amount and sign on Sepolia."
+    "message": "Sua carteira será aberta para aprovar o valor exato e assinar na rede de origem.",
+    "englishSource": "Your wallet will open to approve the exact amount and sign on the source network."
   },
   "bridgeDepositYouReceive": {
     "message": "Você recebe",
@@ -85,8 +213,8 @@
     "englishSource": "What you're approving"
   },
   "bridgeDepositApprovingBody": {
-    "message": "Sua carteira solicitará que você aprove o endereço $tokenSymbol$ e confirme o depósito na Sepolia. Os fundos serão creditados na Miden após a confirmação.",
-    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on Sepolia. Funds arrive on Miden after confirmation.",
+    "message": "Sua carteira solicitará que você aprove um “$tokenSymbol$” e assine o depósito na rede de origem. Os fundos chegam ao Miden após a confirmação.",
+    "englishSource": "Your wallet will ask to approve $tokenSymbol$ and sign the deposit on the source network. Funds arrive on Miden after confirmation.",
     "placeholders": {
       "tokensymbol": {
         "content": "$1"
@@ -659,8 +787,12 @@
     "englishSource": "This transaction is on chain, but the wallet could not confirm that the private transfer reached the delivery service."
   },
   "noteDeliveryRecoveryHint": {
-    "message": "Mantenha esta carteira aberta e ligada — a entrega é repetida automaticamente durante algum tempo após o envio e este aviso desaparece se for concluída. Se o destinatário continuar sem nada passada uma hora, não envie novamente; guarde o ID da transação abaixo e contacte o suporte, pois a transferência ainda pode ser recuperada a partir dele.",
-    "englishSource": "Keep this wallet open and connected — the delivery is retried automatically for a while after sending, and this warning clears if it goes through. If the recipient still has nothing after an hour, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
+    "message": "Mantenha esta carteira aberta e conectada — a entrega é tentada novamente automaticamente por até três dias, e este aviso desaparece assim que a transação for concluída. Se o destinatário ainda não tiver recebido nada após um dia, não envie novamente; salve o ID da transação abaixo e entre em contato com o suporte, pois a transferência ainda pode ser recuperada a partir dele.",
+    "englishSource": "Keep this wallet open and connected - delivery is retried automatically for up to three days, and this warning clears once it goes through. If the recipient still has nothing after a day, do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
+  },
+  "noteDeliveryRetriesStoppedHint": {
+    "message": "A entrega automática foi interrompida para esta transferência. Não envie novamente; salve o ID da transação abaixo e entre em contato com o suporte, pois a transferência ainda pode ser recuperada a partir dele.",
+    "englishSource": "Automatic delivery has stopped for this transfer. Do not send again; save the transaction ID below and contact support, since the transfer can still be recovered from it."
   },
   "noteDeliveryConfirmedTitle": {
     "message": "Entrega confirmada",
@@ -804,15 +936,6 @@
   "privateKeyRevealAcknowledge": {
     "message": "Entendo que essa chave não pode ser alterada nem revogada.",
     "englishSource": "I understand this key cannot be rotated or revoked."
-  },
-  "encryptedFileImportedAccountsOmitted": {
-    "message": "Contas importadas ausentes deste arquivo de carteira antigo: $importedCount$. Restaure-as separadamente usando os backups das chaves privadas.",
-    "englishSource": "Imported accounts missing from this older wallet file: $importedCount$. Restore them separately from their private key backups.",
-    "placeholders": {
-      "importedcount": {
-        "content": "$1"
-      }
-    }
   },
   "editAccountName": {
     "message": "Editar nome da conta",
@@ -1620,6 +1743,10 @@
     "message": "Pesquisar tokens",
     "englishSource": "Search for tokens"
   },
+  "sendUsdcxOnlyDestination": {
+    "message": "Apenas USDCx pode ser enviado para esta rede.",
+    "englishSource": "Only USDCx can be sent to this network."
+  },
   "available": {
     "message": "Disponível",
     "englishSource": "Available"
@@ -1877,6 +2004,23 @@
     "message": "Solicite novamente",
     "englishSource": "Request again"
   },
+  "faucetRateLimitedWait": {
+    "message": "Você solicitou fundos há pouco. Tente novamente em $seconds$ segundos.",
+    "englishSource": "You requested funds a moment ago. Try again in $seconds$ seconds.",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "faucetRateLimited": {
+    "message": "Você solicitou fundos há pouco. Tente novamente em breve.",
+    "englishSource": "You requested funds a moment ago. Try again shortly."
+  },
+  "faucetOverCap": {
+    "message": "O “faucet” não pode enviar fundos no momento. Tente novamente mais tarde.",
+    "englishSource": "The faucet can't send funds right now. Try again later."
+  },
   "guardianNoteRecoveryPromptTitle": {
     "message": "Detectada recuperação de conta",
     "englishSource": "Account recovery detected"
@@ -1909,9 +2053,9 @@
     "message": "Você tem transferências para aceitar",
     "englishSource": "You have transfers to accept"
   },
-  "pendingNotesPromptBody": {
-    "message": "$count$ aguardando",
-    "englishSource": "$count$ waiting",
+  "pendingNotesPromptBodyReview": {
+    "message": "$count$ aguardando · toque para revisar",
+    "englishSource": "$count$ waiting · tap to review",
     "placeholders": {
       "count": {
         "content": "$1"
@@ -2111,10 +2255,6 @@
     "message": "Digite a senha que você definiu ao exportar sua carteira. Isso descriptografará o arquivo e restaurará o acesso.",
     "englishSource": "Enter the password you set when exporting your wallet. This will decrypt the file and restore access."
   },
-  "continueImport": {
-    "message": "Continuar importação",
-    "englishSource": "Continue import"
-  },
   "chooseHowToProtect": {
     "message": "Escolha como você quer proteger sua carteira",
     "englishSource": "Choose how you want to protect your wallet"
@@ -2243,38 +2383,6 @@
     "message": "Selecione uma das opções abaixo",
     "englishSource": "Select an option below"
   },
-  "setUpYourAccount": {
-    "message": "Configure sua conta",
-    "englishSource": "Set up your account"
-  },
-  "setUpYourAccountDescription": {
-    "message": "Sua conta é privada no Miden. Verifique cada ponto uma vez para entender como ela é protegida.",
-    "englishSource": "Your account is private on Miden. Check each point once to understand how it is protected."
-  },
-  "meetGuardianLocalStateTitle": {
-    "message": "Sua conta está neste dispositivo",
-    "englishSource": "Your account lives on this device"
-  },
-  "meetGuardianLocalStateBody": {
-    "message": "O estado privado da conta permanece no seu dispositivo. A rede só vê, em todos os casos, um compromisso criptográfico.",
-    "englishSource": "Private account state stays on your device. The network only ever sees a cryptographic commitment."
-  },
-  "meetGuardianSeedPhraseTitle": {
-    "message": "Uma frase de recuperação não é suficiente",
-    "englishSource": "A recovery phrase isn't enough"
-  },
-  "meetGuardianSeedPhraseBody": {
-    "message": "Sua frase de recuperação restaura suas chaves, não o estado da sua conta. Se você perder o dispositivo, esse estado se perde.",
-    "englishSource": "Your recovery phrase restores your keys, not your account state. Lose the device and that state is gone."
-  },
-  "meetGuardianProtectsTitle": {
-    "message": "Um “Guardian” pode proteger você",
-    "englishSource": "A Guardian can protect you"
-  },
-  "meetGuardianProtectsBody": {
-    "message": "Um “Guardian” armazena o estado da sua conta e ajuda você a recuperá-la. Pense nisso como um servidor que faz backup dos seus dados, mas que nunca tem acesso aos seus fundos.",
-    "englishSource": "A Guardian stores your account state and helps you recover it. Think of it as a server that backs you up, but it can never touch your funds."
-  },
   "meetGuardianChecking": {
     "message": "Verificando qual operador responde mais rápido…",
     "englishSource": "Checking which operator answers fastest…"
@@ -2290,14 +2398,6 @@
   "learnMoreAboutGuardian": {
     "message": "Saiba mais sobre a Guardian",
     "englishSource": "Learn more about the Guardian"
-  },
-  "noGuardianOptionTitle": {
-    "message": "Sem guardião",
-    "englishSource": "No guardian"
-  },
-  "noGuardianOptionSubtitle": {
-    "message": "Avançado — recupere usando apenas sua frase de recuperação. Sem co-signatário guardian.",
-    "englishSource": "Advanced — recover with your recovery phrase only. No guardian co-signer."
   },
   "guardianOperatedBy": {
     "message": "Operado por:",
@@ -2327,22 +2427,110 @@
     "message": "O que é um “Guardian”?",
     "englishSource": "What is a Guardian?"
   },
-  "meetGuardianYourGuardian": {
-    "message": "Seu Guardian",
-    "englishSource": "Your Guardian"
+  "guardianIntroTitle": {
+    "message": "Conheça seu “Guardian”",
+    "englishSource": "Meet your Guardian"
   },
-  "meetGuardianChange": {
-    "message": "Alterar",
-    "englishSource": "Change"
+  "guardianIntroDescription": {
+    "message": "Um “Guardian” faz backup dos dados privados da sua conta e co-assina suas transações.",
+    "englishSource": "A Guardian backs up your private account data and co-signs your transactions."
   },
-  "meetGuardianSummary": {
-    "message": "$name$ faz backup da sua conta. Nunca pode movimentar seus fundos, e você pode trocar quando quiser.",
-    "englishSource": "$name$ backs up your account. It can never move your funds, and you can switch any time.",
+  "guardianIntroRecoverTitle": {
+    "message": "Recuperar em um novo celular",
+    "englishSource": "Recover on a new phone"
+  },
+  "guardianIntroRecoverBody": {
+    "message": "Sua frase de recuperação restaura suas chaves e, com o backup do seu “Guardian”, sua conta. Mantenha a frase em segurança.",
+    "englishSource": "Your recovery phrase restores your keys and, with your Guardian's backup, your account. Keep the phrase safe."
+  },
+  "guardianIntroFundsTitle": {
+    "message": "Seus fundos continuam sendo seus",
+    "englishSource": "Your funds stay yours"
+  },
+  "guardianIntroFundsBody": {
+    "message": "Seu “Guardian” assina junto com você. Ele nunca pode movimentar fundos por conta própria.",
+    "englishSource": "Your Guardian co-signs with you. It can never move funds on its own."
+  },
+  "guardianIntroSwitchTitle": {
+    "message": "Troque a qualquer momento",
+    "englishSource": "Switch any time"
+  },
+  "guardianIntroSwitchBody": {
+    "message": "Mude para outro “Guardian” sempre que quiser. Sua conta permanece a mesma.",
+    "englishSource": "Move to another Guardian whenever you like. Your account stays the same."
+  },
+  "guardianIntroMoreAbout": {
+    "message": "Mais sobre os Guardians",
+    "englishSource": "More about Guardians"
+  },
+  "meetGuardianContinueWith": {
+    "message": "Continue com $name$",
+    "englishSource": "Continue with $name$",
     "placeholders": {
       "name": {
         "content": "$1"
       }
     }
+  },
+  "meetGuardianChangeProvider": {
+    "message": "Trocar de provedor",
+    "englishSource": "Change provider"
+  },
+  "meetGuardianLearnMore": {
+    "message": "Saiba mais",
+    "englishSource": "Learn more"
+  },
+  "meetGuardianRegion": {
+    "message": "Região:",
+    "englishSource": "Region:"
+  },
+  "guardianFastest": {
+    "message": "Mais rápido",
+    "englishSource": "Fastest"
+  },
+  "guardianProviderSheetTitle": {
+    "message": "Escolha um provedor",
+    "englishSource": "Choose a provider"
+  },
+  "guardianProviderSheetDescription": {
+    "message": "Todos eles fazem o backup da sua conta da mesma maneira.",
+    "englishSource": "They all back up your account the same way."
+  },
+  "guardianProviderSheetFootnote": {
+    "message": "Você pode fazer a troca a qualquer momento em “Configurações”.",
+    "englishSource": "You can switch any time in Settings."
+  },
+  "guardianAboutOpenZeppelin": {
+    "message": "OpenZeppelin, uma empresa de segurança de contratos inteligentes conhecida por suas auditorias.",
+    "englishSource": "OpenZeppelin, a smart contract security company known for its audits."
+  },
+  "guardianAboutGateway": {
+    "message": "Gateway, um provedor de infraestrutura de blockchain que opera nós e redes.",
+    "englishSource": "Gateway, a blockchain infrastructure provider that runs nodes and networks."
+  },
+  "guardianAboutLambdaClass": {
+    "message": "LambdaClass, uma empresa de engenharia que desenvolve sistemas de conhecimento zero.",
+    "englishSource": "LambdaClass, an engineering firm that builds zero-knowledge systems."
+  },
+  "guardianAboutKodax": {
+    "message": "Korea Digital Asset, uma empresa de custódia de ativos digitais com sede na Coreia do Sul.",
+    "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
+  },
+  "guardianKindOpenZeppelin": {
+    "message": "Segurança e auditorias de contratos inteligentes",
+    "englishSource": "Smart contract security and audits"
+  },
+  "guardianKindGateway": {
+    "message": "Provedor de infraestrutura de Blockchain",
+    "englishSource": "Blockchain infrastructure provider"
+  },
+  "guardianKindLambdaClass": {
+    "message": "Engenharia de sistemas de conhecimento zero",
+    "englishSource": "Zero-knowledge systems engineering"
+  },
+  "guardianKindKodax": {
+    "message": "Custódio de ativos digitais",
+    "englishSource": "Digital asset custodian"
   },
   "guardianInfoDescription": {
     "message": "Um “Guardian” é um serviço independente que <b>co-assina todas as transações</b> da sua carteira, adicionando uma rede de segurança sem abrir mão da autocustódia.",
@@ -2732,6 +2920,18 @@
     "message": "Você realizou com sucesso a rotação do seu Guardian!",
     "englishSource": "You've successfully rotated your Guardian!"
   },
+  "guardianSwitchedRowTitle": {
+    "message": "Guardian trocado",
+    "englishSource": "Guardian switched"
+  },
+  "guardianSwitchSubmittedRowTitle": {
+    "message": "Mudança de Guardian enviada",
+    "englishSource": "Guardian switch submitted"
+  },
+  "guardianSwitchSubmittedChip": {
+    "message": "Enviado",
+    "englishSource": "Submitted"
+  },
   "guardianSwitchSuccessInfoTitle": {
     "message": "O que muda agora",
     "englishSource": "What changes now"
@@ -2881,16 +3081,16 @@
     "englishSource": "Retry"
   },
   "hotKeyRotationFundingTitle": {
-    "message": "Adicione MIDEN para ativar sua chave de uso diário",
-    "englishSource": "Add MIDEN to activate your everyday key"
+    "message": "Adicione USDCX para ativar sua chave de uso diário",
+    "englishSource": "Add USDCX to activate your everyday key"
   },
   "hotKeyRotationFundingBody": {
-    "message": "Ativar sua chave de uso diário é uma transação, e toda transação paga uma pequena taxa de rede em MIDEN. Envie MIDEN para o endereço desta conta abaixo. A carteira recebe o pagamento e conclui a ativação da sua chave automaticamente.",
-    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in MIDEN. Send MIDEN to this account's address below. The wallet claims it and finishes activating your key automatically."
+    "message": "Ativar sua chave de uso diário é uma transação, e toda transação paga uma pequena taxa de rede em USDCX. Envie USDCX para o endereço desta conta abaixo. A carteira recebe o pagamento e conclui a ativação da sua chave automaticamente.",
+    "englishSource": "Activating your everyday key is a transaction, and every transaction pays a small network fee in USDCX. Send USDCX to this account's address below. The wallet claims it and finishes activating your key automatically."
   },
   "hotKeyRotationFundingMinimum": {
-    "message": "Envie pelo menos um MIDEN d$amount$.",
-    "englishSource": "Send at least $amount$ MIDEN.",
+    "message": "Envie pelo menos um USDCX d$amount$.",
+    "englishSource": "Send at least $amount$ USDCX.",
     "placeholders": {
       "amount": {
         "content": "$1"
@@ -2902,28 +3102,28 @@
     "englishSource": "Your account address"
   },
   "hotKeyRotationFundingWaiting": {
-    "message": "Aguardando a chegada do MIDEN…",
-    "englishSource": "Waiting for MIDEN to arrive…"
+    "message": "Aguardando a chegada do USDCX…",
+    "englishSource": "Waiting for USDCX to arrive…"
   },
   "hotKeyRotationFundingTooSmall": {
-    "message": "O MIDEN que você recebeu é insuficiente para pagar a taxa de rede. Envie um pouco mais.",
-    "englishSource": "The MIDEN you received is too little to pay the network fee. Send a little more."
+    "message": "O USDCX que você recebeu é insuficiente para pagar a taxa de rede. Envie um pouco mais.",
+    "englishSource": "The USDCX you received is too little to pay the network fee. Send a little more."
   },
   "hotKeyRotationFundingClaiming": {
-    "message": "MIDEN recebido. Estou reivindicando-o…",
-    "englishSource": "MIDEN received. Claiming it…"
+    "message": "USDCX recebido. Estou reivindicando-o…",
+    "englishSource": "USDCX received. Claiming it…"
   },
   "hotKeyRotationFundingActivating": {
     "message": "Ativando sua chave de uso diário…",
     "englishSource": "Activating your everyday key…"
   },
   "hotKeyRotationFundingClaimFailed": {
-    "message": "O MIDEN que você recebeu não pôde ser resgatado.",
-    "englishSource": "The MIDEN you received could not be claimed."
+    "message": "O USDCX que você recebeu não pôde ser resgatado.",
+    "englishSource": "The USDCX you received could not be claimed."
   },
   "hotKeyRotationFundingClaimUnconfirmed": {
-    "message": "A carteira não conseguiu confirmar se o MIDEN que você recebeu foi reivindicado. Aguarde um minuto para que a carteira sincronize antes de tentar novamente.",
-    "englishSource": "The wallet could not confirm whether the MIDEN you received was claimed. Give the wallet a minute to sync before you retry."
+    "message": "A carteira não conseguiu confirmar se o USDCX que você recebeu foi reivindicado. Aguarde um minuto para que a carteira sincronize antes de tentar novamente.",
+    "englishSource": "The wallet could not confirm whether the USDCX you received was claimed. Give the wallet a minute to sync before you retry."
   },
   "hotKeyRotationFundingClaimRetry": {
     "message": "Tente novamente",
@@ -2952,6 +3152,10 @@
   "guardianUrlNoOnChainGuardian": {
     "message": "Esta conta ainda não tem um Guardian on-chain com que verificar.",
     "englishSource": "This account has no on-chain guardian to verify against yet."
+  },
+  "guardianUrlStaleRetry": {
+    "message": "O seu Guardian mudou enquanto o endereço era verificado. Tente novamente.",
+    "englishSource": "Your Guardian changed while the address was being checked. Please try again."
   },
   "connectivityGuardianTitle": {
     "message": "Guardian inacessível",
@@ -3083,28 +3287,28 @@
     "englishSource": "The exact fee depends on the transaction and is usually lower. You will see what you paid on the receipt."
   },
   "feeReserveBlocksSend": {
-    "message": "Seu MIDEN é reservado para a taxa de rede. Receba mais MIDEN para enviar.",
-    "englishSource": "Your MIDEN is reserved for the network fee. Receive more MIDEN to send."
+    "message": "Seu USDCX é reservado para a taxa de rede. Receba mais USDCX para enviar.",
+    "englishSource": "Your USDCX is reserved for the network fee. Receive more USDCX to send."
   },
   "insufficientFeeAsset": {
-    "message": "Você precisa de MIDEN para pagar a taxa de rede. Receba alguns MIDEN para continuar.",
-    "englishSource": "You need MIDEN to pay the network fee. Receive some MIDEN to continue."
+    "message": "Você precisa de USDCX para pagar a taxa de rede. Receba alguns USDCX para continuar.",
+    "englishSource": "You need USDCX to pay the network fee. Receive some USDCX to continue."
   },
   "insufficientFeeAssetShort": {
-    "message": "You need MIDEN for the network fee.",
-    "englishSource": "You need MIDEN for the network fee."
+    "message": "You need USDCX for the network fee.",
+    "englishSource": "You need USDCX for the network fee."
   },
   "amountMustBeLessThanBalance": {
     "message": "O valor deve ser inferior ao saldo",
     "englishSource": "Amount must be less than balance"
   },
   "autoConsumeSettings": {
-    "message": "Aceitar automaticamente transferências MIDEN",
-    "englishSource": "Auto-accept MIDEN transfers"
+    "message": "Aceitar automaticamente transferências USDCX",
+    "englishSource": "Auto-accept USDCX transfers"
   },
   "autoConsumeSettingsDescription": {
-    "message": "Aceita automaticamente as transferências MIDEN recebidas no seu saldo — tal como tocar em Aceitar. Não aceita com mais frequência, nem custa mais em taxas, do que tocar em Aceitar manualmente.",
-    "englishSource": "Automatically accepts incoming MIDEN transfers into your balance — the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
+    "message": "Aceita automaticamente as transferências USDCX recebidas no seu saldo - tal como tocar em Aceitar. Não aceita com mais frequência, nem custa mais em taxas, do que tocar em Aceitar manualmente.",
+    "englishSource": "Automatically accepts incoming USDCX transfers into your balance - the same as tapping Accept. It doesn't accept any more often, or cost any more in fees, than tapping Accept yourself."
   },
   "encryptedWalletFileExporting": {
     "message": "Criando seu arquivo de carteira…",
@@ -3541,6 +3745,14 @@
     "message": "Indisponível",
     "englishSource": "Unavailable"
   },
+  "bridgeFeatureUnavailableTitle": {
+    "message": "Temporariamente indisponível",
+    "englishSource": "Temporarily unavailable"
+  },
+  "bridgeFeatureUnavailableBody": {
+    "message": "Este serviço externo está indisponível no momento. Tente novamente mais tarde.",
+    "englishSource": "This external service is currently down. Please try again later."
+  },
   "agglayerCheckingToken": {
     "message": "Verificando se este token suporta a rota Slow…",
     "englishSource": "Checking whether this token supports the Slow route…"
@@ -3770,17 +3982,9 @@
     "message": "DeFi",
     "englishSource": "DeFi"
   },
-  "categoryNft": {
-    "message": "NFT",
-    "englishSource": "NFT"
-  },
   "categoryTools": {
     "message": "Ferramentas",
     "englishSource": "Tools"
-  },
-  "categorySocial": {
-    "message": "Social",
-    "englishSource": "Social"
   },
   "categoryGames": {
     "message": "Jogos",
@@ -3797,14 +4001,6 @@
   "exploreCategoriesLabel": {
     "message": "Categorias",
     "englishSource": "Categories"
-  },
-  "exploreFeatured": {
-    "message": "Destaque",
-    "englishSource": "Featured"
-  },
-  "exploreHelperTools": {
-    "message": "Ferramentas",
-    "englishSource": "Helper tools"
   },
   "exploreOpen": {
     "message": "Abrir",
@@ -3833,10 +4029,6 @@
   "exploreNoResultsDescription": {
     "message": "Tente outro nome ou cole o URL de um dApp.",
     "englishSource": "Try another name, or paste a dApp's URL."
-  },
-  "exploreForkchoiceFaucetTagline": {
-    "message": "Obtenha tokens de testnet para swaps",
-    "englishSource": "Get testnet tokens for swap"
   },
   "minimize": {
     "message": "Minimizar",
@@ -3926,10 +4118,6 @@
   "dappBrowserCapsule": {
     "message": "Cabeçalho do navegador de dApps",
     "englishSource": "dApp browser header"
-  },
-  "dragToMinimize": {
-    "message": "Arraste para baixo para minimizar",
-    "englishSource": "Drag down to minimize"
   },
   "dappSwitcher": {
     "message": "Seletor de dApps",
@@ -4200,6 +4388,10 @@
   "tokenInfo": {
     "message": "Informações sobre o token",
     "englishSource": "Token info"
+  },
+  "tokenDescription": {
+    "message": "Descrição",
+    "englishSource": "Description"
   },
   "fungible": {
     "message": "Fungível",
@@ -4525,16 +4717,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Aprove as solicitações na sua carteira — pode ser que seja solicitado mais de uma vez — e mantenha essa tela aberta enquanto a Sepolia as confirma.",
-    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while Sepolia confirms them."
-  },
-  "bridgeDepositAwaitingNextConfirmation": {
-    "message": "Waiting for the next wallet confirmation",
-    "englishSource": "Waiting for the next wallet confirmation"
-  },
-  "bridgeDepositAwaitingNextConfirmationDescription": {
-    "message": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open.",
-    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
+    "message": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them.",
+    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
   },
   "bridgeDepositFailed": {
     "message": "Falha no depósito da ponte",
@@ -4545,8 +4729,8 @@
     "englishSource": "Bridge initiated!"
   },
   "bridgeDepositDeliveryDescription": {
-    "message": "A transação na Sepolia está confirmada. Seus fundos aparecerão no Miden assim que a transferência pela ponte for concluída.",
-    "englishSource": "The Sepolia transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
+    "message": "A transação de origem foi confirmada. Seus fundos aparecerão no Miden assim que a entrega pela ponte for concluída.",
+    "englishSource": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes."
   },
   "viewOnEtherscan": {
     "message": "Ver no Etherscan",
@@ -4607,6 +4791,172 @@
   "slowRouteLabel": {
     "message": "Lento (Agglayer)",
     "englishSource": "Slow (Agglayer)"
+  },
+  "usdcxRouteName": {
+    "message": "USDCx",
+    "englishSource": "USDCx"
+  },
+  "usdcxRouteLabel": {
+    "message": "USDCx (Circle xReserve)",
+    "englishSource": "USDCx (Circle xReserve)"
+  },
+  "usdcxArrival": {
+    "message": "~20 min",
+    "englishSource": "~20 min"
+  },
+  "usdcxArrivalArc": {
+    "message": "~1 min",
+    "englishSource": "~1 min"
+  },
+  "usdcxRouteNotice": {
+    "message": "A Circle xReserve emite USDCx na Miden na proporção de 1:1 para o USDC que você depositar.",
+    "englishSource": "Circle xReserve mints USDCx on Miden 1:1 for the USDC you deposit."
+  },
+  "usdcxDomainNotRegistered": {
+    "message": "A Circle ainda não habilitou depósitos de USDCx na Miden. Tente novamente mais tarde.",
+    "englishSource": "Circle has not enabled USDCx deposits to Miden yet. Try again later."
+  },
+  "usdcxAwaitingAttestation": {
+    "message": "A transação de origem foi confirmada. Aguardando que a Circle ateste o depósito antes que o USDCx seja cunhado no Miden.",
+    "englishSource": "The source transaction is confirmed. Waiting for Circle to attest the deposit before USDCx is minted on Miden."
+  },
+  "viewOnBlockExplorer": {
+    "message": "Visualizar no explorador de blocos",
+    "englishSource": "View on block explorer"
+  },
+  "usdcxAttested": {
+    "message": "A Circle atestou o depósito. O USDCx será cunhado na Miden em breve.",
+    "englishSource": "Circle attested the deposit. USDCx will be minted on Miden shortly."
+  },
+  "usdcxReceived": {
+    "message": "O USDCx foi cunhado no Miden e sua carteira o recebeu.",
+    "englishSource": "USDCx was minted on Miden and your wallet received it."
+  },
+  "usdcxExecutorRouteNotice": {
+    "message": "O USDC é queimado em $source$ e cunhado para o executor da Circle em $target$, que o deposita na xReserve para a Miden. A Circle cobra sua taxa além do valor, e a Circle executa a transferência em $target$. Se a Circle não puder definir o preço da transferência, você a executa em $target$ com mais uma assinatura.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "placeholders": {
+      "source": {
+        "content": "$1"
+      },
+      "target": {
+        "content": "$4"
+      }
+    }
+  },
+  "usdcxCctpAwaitingAttestation": {
+    "message": "A queima foi confirmada. Aguardando que a Circle ateste a transferência antes que ela possa ser executada na $network$.",
+    "englishSource": "The burn is confirmed. Waiting for Circle to attest the transfer before it can be executed on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuteNeeded": {
+    "message": "A Circle atestou a transferência. Execute-a na $network$ para depositar o USDC na xReserve para Miden. Isso requer uma pequena quantidade de gas na $network$.",
+    "englishSource": "Circle attested the transfer. Execute it on $network$ to deposit the USDC into xReserve for Miden. This needs a small amount of gas on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "usdcxExecuteOnNetwork": {
+    "message": "Executar em $network$",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxExecuting": {
+    "message": "Executando…",
+    "englishSource": "Executing…"
+  },
+  "usdcxExecuteSubmitted": {
+    "message": "A transferência foi executada na $network$. Aguardando que a Circle confirme o depósito antes que o USDCx seja cunhado na Miden.",
+    "englishSource": "The transfer was executed on $network$. Waiting for Circle to attest the deposit before USDCx is minted on Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardingPending": {
+    "message": "A queima está confirmada. A Circle atesta a transferência e a executa na $network$, que deposita o USDC na xReserve para a Miden.",
+    "englishSource": "The burn is confirmed. Circle attests the transfer and executes it on $network$, which deposits the USDC into xReserve for Miden.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxForwardFee": {
+    "message": "$fee$ Taxa do USDC da Circle",
+    "englishSource": "$fee$ USDC Circle fee",
+    "placeholders": {
+      "fee": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxCircleFee": {
+    "message": "Taxa do Circle",
+    "englishSource": "Circle fee"
+  },
+  "usdcxProgress": {
+    "message": "Progresso",
+    "englishSource": "Progress"
+  },
+  "usdcxStepDeposited": {
+    "message": "Depositado em $network$",
+    "englishSource": "Deposited on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurned": {
+    "message": "Queimado na $network$",
+    "englishSource": "Burned on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepBurnAttested": {
+    "message": "A Circle confirmou a queima",
+    "englishSource": "Circle attested the burn"
+  },
+  "usdcxStepCircleExecutes": {
+    "message": "O Circle opera na rede $network$",
+    "englishSource": "Circle executes on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepUserExecutes": {
+    "message": "Executar em $network$",
+    "englishSource": "Execute on $network$",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "usdcxStepDepositAttested": {
+    "message": "A Circle confirmou o depósito",
+    "englishSource": "Circle attested the deposit"
+  },
+  "usdcxStepMinted": {
+    "message": "USDCx cunhado no Miden",
+    "englishSource": "USDCx minted on Miden"
   },
   "bridgeRowTitle": {
     "message": "Bridge $from$ → $to$",
@@ -4679,6 +5029,10 @@
   "unverifiedTokenDescription": {
     "message": "Este token não consta na lista de tokens verificados da Miden. Qualquer pessoa pode criar um token com qualquer nome; portanto, verifique o ID no faucet antes de confiar nele.",
     "englishSource": "This token is not on Miden's verified token list. Anyone can create a token with any name, so check the faucet ID before you trust it."
+  },
+  "unverifiedTokenTitle": {
+    "message": "Token não verificado",
+    "englishSource": "Unverified token"
   },
   "couldNotVerifyBySimulation": {
     "message": "Não foi possível verificar por meio de simulação. Os valores abaixo são os declarados pelo site.",
@@ -4844,6 +5198,10 @@
     "message": "URL personalizada guardian",
     "englishSource": "Custom guardian URL"
   },
+  "devEndpointFeeFaucet": {
+    "message": "Taxa faucet ID da conta",
+    "englishSource": "Fee faucet account ID"
+  },
   "devAllowNoGuardian": {
     "message": "Permitir a opção 'Sem responsável' na integração",
     "englishSource": "Allow 'No guardian' option in onboarding"
@@ -4990,15 +5348,6 @@
     "message": "Transferência aceita",
     "englishSource": "Transfer accepted"
   },
-  "networkNoticeChip": {
-    "message": "Miden $network$",
-    "englishSource": "Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
   "withdrawalRecoveryUnavailable": {
     "message": "Não é possível tentar este saque novamente com segurança. Verifique o status antes de iniciar outro saque.",
     "englishSource": "This withdrawal cannot be retried safely. Check its status before starting another withdrawal."
@@ -5053,8 +5402,8 @@
     "englishSource": "Chart timeframe"
   },
   "evmConnectTestWalletBody": {
-    "message": "Esta ponte opera na Ethereum Sepolia. Não conecte uma carteira que contenha fundos reais. Crie uma carteira nova e deposite nela apenas ETH da Sepolia.",
-    "englishSource": "This bridge runs on Ethereum Sepolia. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with Sepolia ETH only."
+    "message": "Esta ponte utiliza a Arc Testnet ou a Ethereum Sepolia para USDC e a Ethereum Sepolia para ETH. Não conecte uma carteira que contenha fundos reais. Crie uma carteira nova e deposite nela apenas tokens de teste.",
+    "englishSource": "This bridge uses Arc Testnet or Ethereum Sepolia for USDC and Ethereum Sepolia for ETH. Do not connect a wallet that holds real funds. Create a fresh wallet and fund it with test tokens only."
   },
   "helpImproveWallet": {
     "message": "Ajude a melhorar a Wallet",
@@ -5215,6 +5564,19 @@
     "message": "Os tokens não têm valor real",
     "englishSource": "Tokens have no real value"
   },
+  "mainnetCountdownLink": {
+    "message": "Inscreva-se na lista de acesso antecipado",
+    "englishSource": "Join the early access list"
+  },
+  "mainnetCountdownLabel": {
+    "message": "Tempo restante até o Bread entrar na mainnet: $time$",
+    "englishSource": "Time left until Bread goes mainnet: $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
   "activityRestoreTransfers": {
     "message": "Restaurar",
     "englishSource": "Restore"
@@ -5272,8 +5634,8 @@
     "englishSource": "Decline"
   },
   "bridgeTestFundsBody": {
-    "message": "Esta ponte transfere tokens de teste da Ethereum Sepolia para a Miden. Nunca faça uma ponte a partir da rede principal da Ethereum ou de qualquer outra rede real.",
-    "englishSource": "This bridge moves Ethereum Sepolia test tokens to Miden. Never bridge from Ethereum mainnet or any other real network."
+    "message": "Essa ponte transfere USDC da Arc Testnet ou da Ethereum Sepolia, ou ETH da Ethereum Sepolia, para a Miden. Nunca faça a ponte a partir da mainnet ou de qualquer outra rede real.",
+    "englishSource": "This bridge moves Arc Testnet or Ethereum Sepolia USDC, or Ethereum Sepolia ETH, to Miden. Never bridge from mainnet or any other real network."
   },
   "activityHiddenTransfers": {
     "message": "Transferências ocultas: $count$",
@@ -5441,8 +5803,8 @@
     "englishSource": "Daily limit (USD)"
   },
   "spendingLimitCoverage": {
-    "message": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited.",
-    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price, including MIDEN, are not limited."
+    "message": "Only assets the wallet can price count toward this limit. Assets without a price are not limited.",
+    "englishSource": "Only assets the wallet can price count toward this limit. Assets without a price are not limited."
   },
   "spendingLimitCurrent": {
     "message": "Current limit: $amount$ a day",
@@ -5737,5 +6099,105 @@
   "confirmEarnDepositReason": {
     "message": "Confirme seu depósito",
     "englishSource": "Confirm your deposit"
+  },
+  "editTokenDetails": {
+    "message": "Editar detalhes do token",
+    "englishSource": "Edit token details"
+  },
+  "editTokenDetailsTitle": {
+    "message": "Detalhes do token",
+    "englishSource": "Token details"
+  },
+  "tokenNameLabel": {
+    "message": "Nome",
+    "englishSource": "Name"
+  },
+  "tokenSymbolLabel": {
+    "message": "Símbolo",
+    "englishSource": "Symbol"
+  },
+  "tokenDecimalsLabel": {
+    "message": "Decimais",
+    "englishSource": "Decimals"
+  },
+  "saveTokenDetails": {
+    "message": "Salvar",
+    "englishSource": "Save"
+  },
+  "resetToFaucetValues": {
+    "message": "Redefinir para os valores de “faucet”",
+    "englishSource": "Reset to faucet values"
+  },
+  "tokenMetadataEdited": {
+    "message": "Editado",
+    "englishSource": "Edited"
+  },
+  "tokenNameInvalid": {
+    "message": "Digite um nome com 1 a$max$es.",
+    "englishSource": "Enter a name of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenSymbolInvalid": {
+    "message": "Digite um símbolo de 1 a$max$es.",
+    "englishSource": "Enter a symbol of 1 to $max$ characters.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDecimalsInvalid": {
+    "message": "Digite um número inteiro de 0 a $max$.",
+    "englishSource": "Enter a whole number from 0 to $max$.",
+    "placeholders": {
+      "max": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenMetadataOverrideNotice": {
+    "message": "Esses valores alteram apenas a forma como esta carteira exibe o token. O faucet mantém seus próprios valores. Os valores que você envia utilizam as casas decimais definidas aqui.",
+    "englishSource": "These values change only how this wallet shows the token. The faucet keeps its own values. Amounts you send use the decimals you set here."
+  },
+  "tokenMetadataSaveError": {
+    "message": "Não foi possível salvar os detalhes do token. Tente novamente.",
+    "englishSource": "Could not save the token details. Please try again."
+  },
+  "testIethDescription": {
+    "message": "iETH é um token de teste usado para trocas na Miden Testnet. Não é ETH e não estará disponível na carteira de produção.",
+    "englishSource": "iETH is a test token used for swaps on Miden Testnet. It is not ETH and will not be available in the production wallet."
+  },
+  "testIethExecution": {
+    "message": "A troca é executada por meio de um contrato inteligente na Miden Testnet.",
+    "englishSource": "The swap executes through a smart contract on Miden Testnet."
+  },
+  "swapExecutionTitle": {
+    "message": "Onde a troca é executada",
+    "englishSource": "Where the swap executes"
+  },
+  "tokenInfoLabel": {
+    "message": "Sobre o $token$",
+    "englishSource": "About $token$",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      }
+    }
+  },
+  "externalPageLoadFailed": {
+    "message": "Não foi possível abrir esta página. Verifique sua conexão e tente novamente.",
+    "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "Waiting for the next wallet confirmation",
+    "englishSource": "[awaiting translation]"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open.",
+    "englishSource": "[awaiting translation]"
   }
 }

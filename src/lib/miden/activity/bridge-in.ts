@@ -1,11 +1,13 @@
-import {
-  AGGLAYER_BRIDGE_NOTE_SCALE,
-  AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID,
-  AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL
-} from 'lib/agglayer/constant';
+import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer/constant';
 import { effectiveWithdrawAttemptId, intentKey, matchesEarnWithdrawIntent } from 'lib/epoch/intent-key';
+import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
+import { accountRefToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import { getBridgeConfigSnapshot, initBridgeConfig } from 'lib/remote-config/runtime';
+import { selectNativeEthFaucet, selectNativeEthToken } from 'lib/remote-config/values';
 
+import { withinDeliveryWindow } from './bridge-receive-window';
 import { compareAccountIds } from './utils';
 import {
   IBridgeInInfo,
@@ -70,7 +72,7 @@ function isEvmAddress(value: string): value is `0x${string}` {
  * Miden SDK both emit hex note ids, but may differ in `0x` prefix and casing —
  * matching on the raw strings silently misses. Strip prefix + lowercase.
  */
-function noteIdKey(id: string): string {
+export function noteIdKey(id: string): string {
   return id.trim().toLowerCase().replace(/^0x/, '');
 }
 
@@ -94,10 +96,11 @@ async function pollIntentNoteId(intent: PendingBridgeInIntent): Promise<string |
   try {
     const { getEpochReadOnlySdk } = await import('lib/epoch/sdk');
     const sdk = await getEpochReadOnlySdk(intent.userAddress);
-    const results = await sdk.getIntentStatus(intent.userAddress, intent.intentNonce);
+    // Bounded: consume completion awaits this under the transaction loop's lock.
+    const results = await readEpochIntentStatus(sdk, intent.userAddress, intent.intentNonce);
     return extractMidenNoteId(results ?? []);
   } catch (err) {
-    console.warn('[bridge-in] one-shot intent poll failed', err);
+    console.warn('[bridge-in] one-shot intent poll failed', intent.userAddress, intent.intentNonce, err);
     return undefined;
   }
 }
@@ -160,8 +163,9 @@ async function tagConsumeRow(noteId: string, info: IBridgeInInfo): Promise<boole
 /**
  * E2E-only override for the AggLayer delivery sender. Production leaves this
  * null (the hook that sets it is installed only under MIDEN_E2E_TEST), so the
- * hardcoded testnet sender is used. The bridge-in localnet harness sets it to a
- * runtime-created "solver" account whose id isn't known until test time.
+ * bridge registry's native-ETH faucet is the sender. The bridge-in localnet
+ * harness sets it to a runtime-created "solver" account whose id isn't known
+ * until test time.
  */
 let e2eAgglayerSenderOverride: string | null = null;
 export function setAgglayerSenderForE2E(senderAccountId: string): void {
@@ -174,38 +178,67 @@ export function setAgglayerSenderForE2E(senderAccountId: string): void {
  */
 export const BRIDGE_RECEIVE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** What the bridge delivers for a deposit tracked in wei: the faucet's registry scale, floored (#1326). */
-export function agglayerDeliveredAmount(trackedWei: bigint): bigint {
-  return trackedWei / 10n ** BigInt(AGGLAYER_BRIDGE_NOTE_SCALE);
+/** The error the reconciler fails a tracker with once it outlived `BRIDGE_RECEIVE_MAX_AGE_MS`. */
+export const BRIDGE_DELIVERY_TIMED_OUT = 'Bridge delivery timed out.';
+
+/** What the bridge delivers for a deposit tracked in wei: floored at the native-ETH faucet's registry scale (#1326). */
+export function agglayerDeliveredAmount(trackedWei: bigint, scale: number): bigint {
+  return trackedWei / 10n ** BigInt(scale);
 }
 
-/** Whether a note comes from the AggLayer bridge sender. Never true while no sender is configured. */
-export function isAgglayerBridgeDelivery(senderAccountId: string): boolean {
-  const configuredSender = (e2eAgglayerSenderOverride ?? AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID).trim();
-  return !!configuredSender && compareAccountIds(configuredSender, senderAccountId);
+/**
+ * Whether `sender` sent an AggLayer delivery, by the config this realm holds: the registered faucet whose origin is
+ * native ETH on network 0 mints bridged ETH and sends its delivery notes. Matching stays off while the config cannot
+ * name that faucet, so an ordinary incoming note is never mistaken for a bridge delivery. A path that runs without a
+ * user action reads it through `isAgglayerDeliverySender`, which waits for this realm's config first.
+ */
+export function isAgglayerBridgeDelivery(sender: string): boolean {
+  if (e2eAgglayerSenderOverride) return compareAccountIds(e2eAgglayerSenderOverride.trim(), sender);
+  const faucet = selectNativeEthFaucet(getBridgeConfigSnapshot());
+  if (!faucet) return false;
+  try {
+    // The consume reads its sender in bech32 and the registry names the faucet in hex: both go through the SDK, as
+    // sameWalletAccountId compares, so the match never rests on the registry's text matching the SDK's.
+    return accountRefToSdk(sender).toString().toLowerCase() === accountRefToSdk(faucet).toString().toLowerCase();
+  } catch (error) {
+    console.warn('[bridge-in] could not compare the delivery sender', sender, error);
+    return false;
+  }
+}
+
+async function isAgglayerDeliverySender(sender: string): Promise<boolean> {
+  // A consume can land before this realm hydrated the config; from storage, never the network.
+  await initBridgeConfig();
+  return isAgglayerBridgeDelivery(sender);
 }
 
 /**
  * Match an AggLayer-delivered note to the oldest compatible tracking row.
- * The fixed sender is authoritative; amount + recipient prevent two deposits
+ * The delivery sender is authoritative; amount + recipient prevent two deposits
  * to the same wallet from being paired in the wrong order. A tracker holds the
- * deposit in wei and the bridge delivers it scaled, so the two are compared
- * through `agglayerDeliveredAmount`. The sender delivers bridged ETH, so only
- * native ETH trackers are compatible: an ERC-20 deposit with the same amount
- * must not adopt its note.
+ * deposit in wei and the bridge delivers it at the native-ETH faucet's registry
+ * scale, so the two are compared through `agglayerDeliveredAmount`. The sender
+ * delivers bridged ETH, so only native ETH trackers are compatible: an ERC-20
+ * deposit with the same amount must not adopt its note.
  */
 export async function takeAgglayerBridgeInInfo(args: {
   accountId: string;
   senderAccountId: string;
   amount: bigint;
 }): Promise<IBridgeInInfo | undefined> {
-  if (!isAgglayerBridgeDelivery(args.senderAccountId)) return undefined;
+  if (!(await isAgglayerDeliverySender(args.senderAccountId))) return undefined;
+  // Matching stays off while the registry names no native-ETH faucet: without its scale no tracker's amount can be
+  // compared with the delivery's.
+  const scale = selectNativeEthToken(getBridgeConfigSnapshot())?.scale;
+  if (scale === undefined) return undefined;
 
   // A `ready` tracker is never polled again, so the reconciler's timeout never fails it; a tracker whose delivery came
   // long ago would otherwise take the next deposit of the same amount.
   const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
 
   const matches = await Repo.transactions
+    .where('type')
+    .equals('bridged-receive')
     .filter(tx => {
       if (tx.type !== 'bridged-receive' || !compareAccountIds(tx.accountId, args.accountId)) return false;
       // A restored tracker must not adopt a genuine incoming note: the match
@@ -221,7 +254,7 @@ export async function takeAgglayerBridgeInInfo(args: {
         inputs.phase !== 'failed' &&
         tx.initiatedAt >= cutoffSec &&
         tx.amount !== undefined &&
-        agglayerDeliveredAmount(tx.amount) === args.amount
+        agglayerDeliveredAmount(tx.amount, scale) === args.amount
       );
     })
     .toArray();
@@ -236,6 +269,189 @@ export async function takeAgglayerBridgeInInfo(args: {
     evmTxHash: inputs.evmTxHash,
     bridgeReceiveTxId: match.id
   };
+}
+
+/** A tracker the reconciler timed out after Circle attested its deposit, so its mint can still come. */
+function isAttestedTimeout(inputs: IBridgedReceiveExtraInputs): boolean {
+  return inputs.phase === 'failed' && inputs.readyAt !== undefined && inputs.error === BRIDGE_DELIVERY_TIMED_OUT;
+}
+
+/**
+ * Match a note the USDCx faucet minted to the oldest compatible xReserve tracking row.
+ * The faucet is the chain's native asset and also sends ordinary faucet requests, so the
+ * sender alone proves nothing. The row must be a broadcast deposit (it has its EVM hash)
+ * of the same account and the same amount, which xReserve mints 1:1. The rows are read
+ * first, so a consume with no open USDCx deposit never waits for the native asset id.
+ * An open row is one the reconciler still tracks, which a deposit attested or executed
+ * after its first week still is. A row that timed out after Circle attested it still takes
+ * a late mint, at any age, but only after every open row: its deposit was proven, so its
+ * mint can still come.
+ */
+export async function takeUsdcxBridgeInInfo(args: {
+  accountId: string;
+  senderAccountId: string;
+  faucetId: string;
+  amount: bigint;
+}): Promise<IBridgeInInfo | undefined> {
+  const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
+  const matches = await Repo.transactions
+    .where('type')
+    .equals('bridged-receive')
+    .filter(tx => {
+      if (tx.type !== 'bridged-receive' || !compareAccountIds(tx.accountId, args.accountId)) return false;
+      // A restored tracker must not adopt a genuine incoming note, as for an AggLayer delivery.
+      if (tx.restoredFromBackup) return false;
+      const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
+      if (inputs?.provider !== 'usdcx' || inputs.evmTxHash === undefined || tx.amount !== args.amount) return false;
+      if (isAttestedTimeout(inputs)) return true;
+      return inputs.phase !== 'received' && inputs.phase !== 'failed' && withinDeliveryWindow(tx, inputs, cutoffSec);
+    })
+    .toArray();
+  // The mint follows Circle's attestation of the deposit, so a row whose deposit is attested (`ready`) is the
+  // one this note belongs to; a row still `delivering` is a fallback for a mint the watcher has not caught up
+  // with. Among equals the oldest wins. Age alone paired a note with an older deposit that was never executed
+  // and left the attested one at "Pending".
+  const rank = (tx: ITransaction): number => {
+    if (tx.extraInputs?.phase === 'ready') return 0;
+    return tx.extraInputs?.phase === 'failed' ? 2 : 1;
+  };
+  matches.sort((a, b) => rank(a) - rank(b) || a.initiatedAt - b.initiatedAt);
+  const match = matches[0];
+  if (!match) return undefined;
+
+  const usdcxFaucetId = await getNativeAssetId();
+  if (!sameWalletAccountId(args.senderAccountId, usdcxFaucetId) || !sameWalletAccountId(args.faucetId, usdcxFaucetId)) {
+    return undefined;
+  }
+  const inputs: IBridgedReceiveExtraInputs = match.extraInputs;
+  return {
+    provider: 'usdcx',
+    sourceAmount: inputs.sourceAmount,
+    sourceSymbol: inputs.sourceSymbol,
+    evmTxHash: inputs.evmTxHash,
+    bridgeReceiveTxId: match.id
+  };
+}
+
+/** A claimed note's facts, as adoption pairs it with a tracking row. */
+export interface AdoptableNote {
+  id: string;
+  senderAddress: string;
+  faucetId: string;
+  /** Absent for a note with no readable amount: the intent registry, which pairs by id alone, is its only match. */
+  amount?: bigint;
+}
+
+/**
+ * The notes a completed consume adopts by: the per-note facts it kept at queue time, else the one note a single-note
+ * row from before them names. Undefined for an older batch, which kept nothing per note.
+ */
+export function adoptableNotesOf(
+  tx: Pick<ITransaction, 'consumedNotes' | 'noteId' | 'noteIds' | 'secondaryAccountId' | 'faucetId' | 'amount'>
+): AdoptableNote[] | undefined {
+  if (tx.consumedNotes !== undefined) return [...tx.consumedNotes];
+  if ((tx.noteIds?.length ?? 1) > 1) return undefined;
+  const { noteId, secondaryAccountId, faucetId, amount } = tx;
+  if (!noteId) return [];
+  return [{ id: noteId, senderAddress: secondaryAccountId ?? '', faucetId: faucetId ?? '', amount }];
+}
+
+async function takeDeliveryInfo(accountId: string, note: AdoptableNote): Promise<IBridgeInInfo | undefined> {
+  const { senderAddress, faucetId, amount } = note;
+  // A note missing a pairing fact can only be a registry delivery, which the registry pass pairs by id.
+  if (!senderAddress || !faucetId || amount === undefined) return undefined;
+  return (
+    (await takeAgglayerBridgeInInfo({ accountId, senderAccountId: senderAddress, amount })) ??
+    (await takeUsdcxBridgeInInfo({ accountId, senderAccountId: senderAddress, faucetId, amount }))
+  );
+}
+
+/** The notes some tracking row already names as its delivery. */
+async function adoptedNoteKeys(notes: readonly AdoptableNote[]): Promise<Set<string>> {
+  const keys = new Set(notes.map(note => noteIdKey(note.id)));
+  const named = (tx: ITransaction): string | undefined => {
+    const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
+    return inputs?.midenNoteId === undefined ? undefined : noteIdKey(inputs.midenNoteId);
+  };
+  const rows = await Repo.transactions
+    .where('type')
+    .equals('bridged-receive')
+    .filter(tx => {
+      const key = named(tx);
+      return key !== undefined && keys.has(key);
+    })
+    .toArray();
+  return new Set(rows.flatMap(tx => named(tx) ?? []));
+}
+
+/**
+ * Settle the bridge deliveries a completed consume claimed: the intent registry first, then a single note by its own
+ * sender and amount, which makes the consume the deposit's receipt, then each note of a batch by its own sender,
+ * faucet and amount, one at a time so two same-amount mints take two rows (only the tracking rows move). Six landing
+ * paths call this, so a note a tracking row already names is skipped: a second call must not take another deposit of
+ * the same amount. Never throws: tagging must never fail the consume.
+ */
+export async function adoptBridgeDeliveries(consumeId: string, notes: readonly AdoptableNote[]): Promise<void> {
+  try {
+    const consume = await Repo.transactions.where({ id: consumeId }).first();
+    if (!consume || consume.extraInputs?.bridgeIn) return;
+    const adopted = await adoptedNoteKeys(notes);
+    const open = notes.filter(note => !adopted.has(noteIdKey(note.id)));
+    if (open.length === 0) return;
+    // The registry takes at most one note; the batch below pairs every other one, by the registry's canonical id.
+    let registryNoteKey: string | undefined;
+    const applied = await applyBridgeInInfoForNotes(
+      open.map(note => note.id),
+      info => {
+        if (info.midenNoteId) registryNoteKey = noteIdKey(info.midenNoteId);
+        return applyBridgeInToConsumeRow(consumeId, info);
+      }
+    );
+    const batch = notes.length > 1 || (consume.noteIds?.length ?? notes.length) > 1;
+    const [single] = open;
+    if (!batch) {
+      if (applied || !single) return;
+      // A note the USDCx faucet minted for an xReserve deposit is otherwise an ordinary faucet receive.
+      const info = await takeDeliveryInfo(consume.accountId, single);
+      if (info) await applyBridgeInToConsumeRow(consumeId, { ...info, midenNoteId: single.id });
+      return;
+    }
+    // A batch's per-faucet total is no single delivery's amount, and native USDCx mints are auto-claimed together.
+    for (const note of open) {
+      if (registryNoteKey !== undefined && noteIdKey(note.id) === registryNoteKey) continue;
+      const info = await takeDeliveryInfo(consume.accountId, note);
+      if (!info?.bridgeReceiveTxId || note.amount === undefined) continue;
+      const { updateBridgedReceivePhase } = await import('../transaction/complete');
+      await updateBridgedReceivePhase(
+        info.bridgeReceiveTxId,
+        'received',
+        { midenNoteId: note.id },
+        { amount: note.amount, faucetId: note.faucetId, transactionId: consume.transactionId }
+      );
+    }
+  } catch (err) {
+    console.warn('[bridge-in] consume tagging failed (non-fatal)', consumeId, err);
+  }
+}
+
+/**
+ * Adoption for a consume completed with no transaction result, by a landing the node proved: the per-note facts the
+ * row kept are all there is to pair by. Never throws.
+ */
+export async function adoptLandedConsume(consumeId: string): Promise<void> {
+  try {
+    const consume = await Repo.transactions.where({ id: consumeId }).first();
+    if (consume?.type !== 'consume' || consume.status !== ITransactionStatus.Completed || consume.restoredFromBackup)
+      return;
+    const notes = adoptableNotesOf(consume);
+    if (notes === undefined) {
+      console.warn('[bridge-in] a landed batch consume kept no per-note facts, so none is adopted', consumeId);
+      return;
+    }
+    await adoptBridgeDeliveries(consumeId, notes);
+  } catch (err) {
+    console.warn('[bridge-in] landed consume adoption failed (non-fatal)', consumeId, err);
+  }
 }
 
 /** Persist each submitted owner/nonce once, before its delivery is known. */
@@ -283,14 +499,20 @@ export async function applyBridgeInInfoForNotes(
   const consumedKeys = new Set(noteIds.map(noteIdKey));
   const discovered = new Map<string, string>();
   if (!snapshot.some(intent => intent.midenNoteId && consumedKeys.has(noteIdKey(intent.midenNoteId)))) {
-    for (const intent of snapshot) {
-      if (intent.midenNoteId) continue;
-      const noteId = await pollIntentNoteId(intent);
-      if (noteId) {
-        discovered.set(registryIdentity(intent), noteId);
-        if (consumedKeys.has(noteIdKey(noteId))) break;
-      }
-    }
+    // All at once, and only until a read finds a consumed note: consume completion waits here under the transaction
+    // loop's lock, so neither the number of unresolved intents nor an unrelated read that hangs extends the wait.
+    const unresolved = snapshot.filter(intent => !intent.midenNoteId);
+    await new Promise<void>(resolve => {
+      let pending = unresolved.length;
+      if (pending === 0) resolve();
+      unresolved.forEach(intent => {
+        void pollIntentNoteId(intent).then(noteId => {
+          pending -= 1;
+          if (noteId) discovered.set(registryIdentity(intent), noteId);
+          if (pending === 0 || (noteId && consumedKeys.has(noteIdKey(noteId)))) resolve();
+        });
+      });
+    });
   }
   return withBridgeInRegistryLock(async () => {
     const registry = await readRegistry();

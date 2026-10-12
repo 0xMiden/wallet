@@ -11,7 +11,7 @@ Need help with Bread Wallet? We're here to help. Below are the ways to reach us 
 
 - **Email:** [privacy@miden.team](mailto:privacy@miden.team) — for any question, problem, or help request. We aim to respond within a few business days.
 - **Report a bug or request a feature:** open an issue at [github.com/0xMiden/wallet/issues](https://github.com/0xMiden/wallet/issues).
-- **Send feedback:** use our [feedback form](https://youthful-erica-94d.notion.site/36b99411cf90800c813bf404f67a1728).
+- **Send feedback:** use our [feedback form](https://cmuv78o9w003x5ebpyha3cf6p.zapier.app/page).
 
 When you contact us, please include your device model, OS version, and app version (Settings → About), plus a description of the problem — it helps us help you faster. Never share your recovery phrase or private keys with anyone, including us.
 

@@ -133,22 +133,20 @@ const ONBOARDING_TELEMETRY_STEPS: Partial<Record<OnboardingStep, TelemetryStep>>
   [OnboardingStep.SetupBiometric]: 'setup_biometric',
   [OnboardingStep.CreatePassword]: 'set_password',
   [OnboardingStep.ImportSelectRecoveryMethod]: 'recovery_method',
-  // One decision on two screens: the picker is a detail of the guardian step, so both report it.
+  // One decision on two screens: the intro is a detail of the guardian step, so both report it.
+  [OnboardingStep.GuardianIntro]: 'choose_guardian',
   [OnboardingStep.MeetGuardian]: 'choose_guardian',
-  [OnboardingStep.ChooseGuardian]: 'choose_guardian',
   [OnboardingStep.ImportFromSeed]: 'enter_phrase',
   // Account creation is running; a failure here is ours, not a change of mind.
   [OnboardingStep.Confirmation]: 'submitting'
 };
 
 // The registration key must tell two backups apart without ever carrying a
-// secret, so it keeps the payload as it is and drops only secretKeyHex; a field
-// added to either record later stays in the key by construction.
+// secret, so it keeps both records as they are and drops only secretKeyHex; a
+// field added to either record later stays in the key by construction.
 const fileRegistrationBinding = (payload: DecryptedWalletFile) => ({
-  formatVersion: payload.formatVersion ?? null,
   accounts: payload.accounts,
-  importedAccounts:
-    payload.formatVersion === 2 ? payload.importedAccounts.map(({ secretKeyHex: _secretKeyHex, ...rest }) => rest) : []
+  importedAccounts: payload.importedAccounts.map(({ secretKeyHex: _secretKeyHex, ...rest }) => rest)
 });
 
 const Welcome: FC = () => {
@@ -166,11 +164,10 @@ const Welcome: FC = () => {
   const [walletFilePayload, setWalletFilePayload] = useState<DecryptedWalletFile | null>(null);
   const [password, setPassword] = useState<string | null>(null);
   const [walletType, setWalletType] = useState<WalletType>(WalletType.Guardian);
-  // The guardian operator endpoint the user picked (choose-guardian) or that the
+  // The guardian operator endpoint the user picked (choose-guardian-submit) or that the
   // import recovery-method screen resolved. Threaded explicitly into
-  // registerWallet (stage 1 of #408) so a new Guardian account binds to it,
-  // replacing the former write to the global GUARDIAN_URL_STORAGE_KEY. Undefined
-  // for non-guardian (public) wallets.
+  // registerWallet so a new Guardian account binds to it. Undefined for
+  // non-guardian (public) wallets.
   const [guardianEndpoint, setGuardianEndpoint] = useState<string | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(false);
   const [useBiometric, setUseBiometric] = useState(true);
@@ -369,12 +366,11 @@ const Welcome: FC = () => {
     // independent of a guardian backend.
     const bypassWalletType = params.get('walletType') === 'guardian' ? WalletType.Guardian : WalletType.OffChain;
     // Guardian endpoint override for the bypass. Production sets this via the
-    // ChooseGuardian / ImportRecoveryMethod screens, which the bypass skips — so
+    // MeetGuardian / ImportRecoveryMethod screens, which the bypass skips, so
     // thread it from the `guardianUrl` param the E2E helper passes. register()
     // forwards it as the guardianEndpoint override, exactly like the real picker,
     // so fetchGuardianCreateKey (create) and Vault.spawn's recovery scan (import)
-    // bind to it rather than the retired global GUARDIAN_URL_STORAGE_KEY read
-    // (#408 stage 3). Only meaningful for a Guardian wallet.
+    // bind to it. Only meaningful for a Guardian wallet.
     const bypassGuardianUrl = params.get('guardianUrl') || undefined;
     // Optional `seed` param: a space- or comma-separated mnemonic. When present,
     // import that exact seed (onboardingType=Import drives registerWallet's
@@ -469,8 +465,7 @@ const Welcome: FC = () => {
                 actualPassword,
                 seedPhraseFormatted,
                 walletFilePayload.accounts,
-                walletFilePayload.formatVersion,
-                walletFilePayload.formatVersion === 2 ? walletFilePayload.importedAccounts : undefined
+                walletFilePayload.importedAccounts
               );
             } else {
               await registerWallet(walletType, actualPassword, seedPhraseFormatted, isImport, guardianEndpoint);
@@ -651,7 +646,7 @@ const Welcome: FC = () => {
         setSeedPhrase(generateMnemonic().split(' '));
         setOnboardingType(OnboardingType.Create);
         setProtectionMethod('biometric');
-        navigate('/#meet-guardian');
+        navigate('/#guardian-intro');
         break;
       case 'setup-passcode-submit':
         // Passcode IS the vault password. The 6 digits get stretched through
@@ -669,11 +664,10 @@ const Welcome: FC = () => {
         setOnboardingType(OnboardingType.Create);
         setPassword(action.payload);
         setProtectionMethod('passcode');
-        navigate('/#meet-guardian');
+        navigate('/#guardian-intro');
         break;
-      case 'choose-guardian':
-        // The guardian card's Change action on the Meet your Guardian step: the full picker.
-        navigate('/#choose-guardian');
+      case 'guardian-intro-submit':
+        navigate('/#meet-guardian');
         break;
       case 'choose-guardian-submit':
         if (action.payload.guardianId === NO_GUARDIAN_ID) {
@@ -792,7 +786,7 @@ const Welcome: FC = () => {
           // mnemonic here, exactly like setup-passcode-submit does.
           setSeedPhrase(generateMnemonic().split(' '));
           setProtectionMethod('password');
-          navigate('/#meet-guardian');
+          navigate('/#guardian-intro');
         } else if (onboardingType === OnboardingType.Import) {
           navigate(walletFilePayload ? '/#confirmation' : '/#import-select-recovery-method');
         } else {
@@ -899,10 +893,9 @@ const Welcome: FC = () => {
             cancelOnLeavingOnboarding(target);
             navigate(target);
           }
-        } else if (step === OnboardingStep.ChooseGuardian) {
-          // The picker was pushed from the Meet your Guardian step; back returns there.
-          navigate('/#meet-guardian');
         } else if (step === OnboardingStep.MeetGuardian) {
+          navigate('/#guardian-intro');
+        } else if (step === OnboardingStep.GuardianIntro) {
           if (protectionMethod === 'biometric') {
             navigate('/#setup-biometric');
           } else if (protectionMethod === 'password') {
@@ -1015,16 +1008,18 @@ const Welcome: FC = () => {
         }
         setStep(OnboardingStep.SetupPasscode);
         break;
+      case '#guardian-intro':
       case '#meet-guardian':
       case '#choose-guardian':
-        // Both need this create flow's in-memory seed. A reload loses it, an import must not turn into
-        // a create, and a history jump can land here before any protection step generated it (a create
-        // starts with no credentials, see resetFlowState). The seed is read through a ref because only
-        // this case needs it, while password and onboardingType feed several, so a seed change does not
-        // re-run every case.
+        // '#choose-guardian' is the retired full-page picker's: an old link to it lands where the sheet that
+        // replaced it opens. All three need this create flow's in-memory seed. A reload loses it, an import must
+        // not turn into a create, and a history jump can land here before any protection step generated it (a
+        // create starts with no credentials, see resetFlowState). The seed is read through a ref because only
+        // this case needs it, while password and onboardingType feed several, so a seed change does not re-run
+        // every case.
         if (onboardingType !== OnboardingType.Create || seedPhraseRef.current === null) navigate('/');
-        else if (hash === '#meet-guardian') setStep(OnboardingStep.MeetGuardian);
-        else setStep(OnboardingStep.ChooseGuardian);
+        else if (hash === '#guardian-intro') setStep(OnboardingStep.GuardianIntro);
+        else setStep(OnboardingStep.MeetGuardian);
         break;
       case '#select-import-type':
         // Arriving keeps what the import holds, so Back and Forward resume it; the flow-state effect below says

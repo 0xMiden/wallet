@@ -19,14 +19,16 @@ function useVerificationBaseFee(): number | null {
 
   useEffect(() => {
     let cancelled = false;
+    let generation = 0;
 
     // Never rejects: a discovery failure has to leave the fee `null` (guards fail
     // open) rather than surface as an unhandled rejection, and the subscription
     // below is what repairs it once discovery succeeds.
     const read = async () => {
+      const request = ++generation;
       try {
         const fee = await getVerificationBaseFee();
-        if (!cancelled) setBaseFee(fee);
+        if (!cancelled && request === generation) setBaseFee(fee);
       } catch (err) {
         console.warn('useVerificationBaseFee: base fee read failed', err);
       }

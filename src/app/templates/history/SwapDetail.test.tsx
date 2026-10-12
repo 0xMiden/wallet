@@ -1,9 +1,10 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import type { SwapSettlementTransaction } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
+import { TOKEN_IETH } from 'lib/miden/swap/tokens';
 
 import type { IHistoryEntry } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
@@ -109,6 +110,13 @@ jest.mock('./transactionUtils', () => ({
   formatDate: (timestamp: number | string) => `formatted:${timestamp}`
 }));
 
+// iETH's (i) is a testnet thing; pin the network rather than lean on the build default.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
+}));
+jest.mock('app/providers/DappBrowserProvider', () => ({ useHideForegroundDappWhileOpen: jest.fn() }));
+
 const REQUESTED_FAUCET = '0xfaucetrequested';
 const OFFERED_FAUCET = '0xfaucetoffered';
 
@@ -198,6 +206,40 @@ describe('SwapDetail faucet ids', () => {
 
     expect(rowByLabel('faucetIdOffered')).toBeDefined();
     expect(rowByLabel('faucetIdRequested')).toBeUndefined();
+  });
+});
+
+describe('SwapDetail token info', () => {
+  it.each([
+    ['requested', { requestedFaucetId: TOKEN_IETH.faucetId, requestedSymbol: 'Test iETH' }],
+    ['offered', { entry: { ...entry, faucetId: TOKEN_IETH.faucetId, token: 'Test iETH' } }]
+  ])('puts one (i) in the hero beside testnet iETH as the %s token (#477)', (_side, over) => {
+    renderDetail(over);
+
+    const buttons = within(screen.getByTestId('swap-order-hero')).getAllByTestId('swap-token-info-button');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).toHaveAttribute('aria-label', 'tokenInfoLabel_Test iETH');
+  });
+
+  it('puts no (i) on a swap without iETH', () => {
+    renderDetail();
+
+    expect(screen.queryByTestId('swap-token-info-button')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['requested', { requestedFaucetId: TOKEN_IETH.faucetId, requestedSymbol: 'Test iETH' }, '1000@8Test iETH'],
+    ['offered', { entry: { ...entry, faucetId: TOKEN_IETH.faucetId, token: 'Test iETH' } }, '500Test iETH']
+  ])("keeps the %s side's amount, name and (i) in one unit the hero wraps between (#477)", (_side, over, unitText) => {
+    renderDetail(over);
+
+    const hero = screen.getByTestId('swap-order-hero');
+    expect(hero).toHaveClass('flex-wrap');
+    // Two units, one per side: a hero too wide for one line breaks between the sides.
+    expect(hero.children).toHaveLength(2);
+    const unit = within(hero).getByTestId('swap-token-info-button').parentElement;
+    expect(unit?.parentElement).toBe(hero);
+    expect(unit?.textContent).toBe(unitText);
   });
 });
 

@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { Icon, IconName } from 'app/icons/v2';
 import Balance from 'app/templates/Balance';
@@ -12,7 +13,6 @@ import HomePrompts from 'app/templates/HomePrompts';
 import { AssetRow } from 'components/AssetRow';
 import { ConnectivityIssueBanner } from 'components/ConnectivityIssueBanner';
 import { Loader } from 'components/Loader';
-import { NetworkModePill } from 'components/NetworkModePill';
 import {
   AccountsDrawer,
   AnimatedNumber,
@@ -41,6 +41,8 @@ import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
 import { pricesLoaded } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -66,6 +68,7 @@ const Explore: FC = () => {
   const isMobileApp = isMobile();
   const account = useAccount();
   const midenFaucetId = useMidenFaucetId();
+  const feeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   const { signTransaction } = useMidenContext();
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
@@ -101,8 +104,8 @@ const Explore: FC = () => {
     if (!shouldAutoConsume || !claimableNotes || rotationPending) {
       return [];
     }
-    return selectAutoConsumeBatch(claimableNotes, midenFaucetId, verificationBaseFee);
-  }, [claimableNotes, midenFaucetId, rotationPending, shouldAutoConsume, verificationBaseFee]);
+    return selectAutoConsumeBatch(claimableNotes, feeFaucetId, verificationBaseFee);
+  }, [claimableNotes, feeFaucetId, rotationPending, shouldAutoConsume, verificationBaseFee]);
 
   const hasAutoConsumableNotes = useMemo(() => {
     return midenNotes.length > 0;
@@ -113,8 +116,8 @@ const Explore: FC = () => {
   // the raw list surfaced a card, with a USD total, for native notes that were already
   // being auto-consumed (#811).
   const manuallyClaimableNotes = useMemo(
-    () => excludeAutoManagedNotes(claimableNotes, midenFaucetId, shouldAutoConsume, verificationBaseFee),
-    [claimableNotes, midenFaucetId, shouldAutoConsume, verificationBaseFee]
+    () => excludeAutoManagedNotes(claimableNotes, feeFaucetId, shouldAutoConsume, verificationBaseFee),
+    [claimableNotes, feeFaucetId, shouldAutoConsume, verificationBaseFee]
   );
 
   const autoConsumeMidenNotes = useCallback(async () => {
@@ -329,8 +332,6 @@ const Explore: FC = () => {
           className={`relative flex flex-col gap-3 bg-app-bg px-4 pt-3 pb-24 ${isPulling ? '' : 'transition-transform duration-200 ease-out'}`}
           style={{ transform: `translateY(${pullDistance}px)` }}
         >
-          <NetworkModePill />
-
           <HomeOverview
             address={address}
             tokenPrices={tokenPrices}
@@ -492,6 +493,7 @@ interface HiddenAssetsProps {
 /** The held tokens the user hid (#813), folded under the asset list: each opens its page or comes back. */
 const HiddenAssets: FC<HiddenAssetsProps> = ({ tokens, tokenPrices, onUnhide, assetListRef }) => {
   const { t } = useTranslation();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const [open, setOpen] = useState(false);
   // The last Unhide's own result (#813): the hook reports none, only what each call resolves with.
   const [unhideFailed, setUnhideFailed] = useState(false);
@@ -570,7 +572,9 @@ const HiddenAssets: FC<HiddenAssetsProps> = ({ tokens, tokenPrices, onUnhide, as
                       else unhideButtons.current.delete(asset.tokenId);
                     }}
                     className="shrink-0"
-                    aria-label={t('unhideTokenLabel', { name: asset.metadata.name || asset.metadata.symbol })}
+                    aria-label={t('unhideTokenLabel', {
+                      name: midenTokenLabel(bridgeConfig, asset.tokenId, asset.metadata.name || asset.metadata.symbol)
+                    })}
                     onClick={() => {
                       const inFlight = inFlightUnhides.current;
                       if (inFlight.has(asset.tokenId)) return;

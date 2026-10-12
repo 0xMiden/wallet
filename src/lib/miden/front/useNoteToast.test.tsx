@@ -47,6 +47,10 @@ jest.mock('./claimable-notes', () => ({
 // and to an unknown fee, which lets every native batch through.
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
+  default: () => 'legacy-display'
+}));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({
+  __esModule: true,
   default: () => 'faucet-native'
 }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
@@ -142,6 +146,20 @@ describe('useNoteToastMonitor', () => {
     await waitFor(() => {
       expect(mockCheckForNewNotes).toHaveBeenCalledWith(['seeded', 'auto', 'manual'], ['seeded', 'manual']);
     });
+  });
+
+  it('notifies for legacy display notes while actual native notes are auto-managed', () => {
+    _g.__noteToastTest.baseFee = 7;
+    const { rerender } = renderHook(() => useNoteToastMonitor('pk-1'));
+    _g.__noteToastTest.claimableNotes = [{ id: 'seeded', faucetId: 'faucet-other' }];
+    rerender();
+    _g.__noteToastTest.claimableNotes = [
+      { id: 'seeded', faucetId: 'faucet-other' },
+      { id: 'actual', faucetId: 'faucet-native', amount: '1000000' },
+      { id: 'legacy', faucetId: 'legacy-display', amount: '1000000' }
+    ];
+    rerender();
+    expect(mockCheckForNewNotes).toHaveBeenLastCalledWith(['seeded', 'actual', 'legacy'], ['seeded', 'legacy']);
   });
 
   it('still raises a toast for a native note worth too little to auto-consume', async () => {

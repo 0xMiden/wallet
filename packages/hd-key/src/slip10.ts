@@ -29,10 +29,8 @@
  * does not reduce the seed bytes into a scalar, and the scalar is not equal
  * to the seed. For Falcon, a lattice sampler reads the RNG. Thus a `mod n`
  * addition or a retry loop on the seed bytes has no use. Such a step also
- * ties one seed to one curve. The derivation the wallet used before issue
- * #918 (`@demox-labs/aleo-hd-key`) used the same rule. The `legacy` scheme
- * must keep it, or its golden vectors do not match. With no retry, the
- * derivation is a fixed number of HMAC calls. The wallet test
+ * ties one seed to one curve. With no retry, the derivation is a fixed number
+ * of HMAC calls. The wallet test
  * `src/lib/miden/sdk/derive-seed.keys.test.ts` pins the keys the SDK makes
  * from the golden seeds.
  *

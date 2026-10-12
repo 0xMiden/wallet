@@ -2,13 +2,16 @@ import React, { FC, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
-import { MIDEN_USDC_DECIMALS, MIDEN_USDC_FAUCET, normalizeMidenIdToHex } from 'lib/epoch';
+import { FeatureUnavailableNotice } from 'components/FeatureUnavailable';
+import { normalizeMidenIdToHex } from 'lib/epoch';
 import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { tokenQuote } from 'lib/miden/swap/tokens';
+import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
+import { selectMidenUsdc } from 'lib/remote-config/values';
 import { useWalletStore } from 'lib/store';
 import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
 import { navigate } from 'lib/woozie';
@@ -52,39 +55,48 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
-  const nativeFaucetId = useMidenFaucetId();
+  const nativeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
-  // Epoch Earn is USDC-only. Balance rows use bech32 faucet ids while the
-  // allocator configuration uses hex, so compare their normalized account ids.
+  const collateral = selectMidenUsdc(useBridgeConfigSnapshot());
+  // Neither the pending nor the vault-less failed branch draws the amount step or its notice.
+  const earnDeposit = useFeatureAvailability('earnDeposit', { hold: !((loadFailed && !found) || pending) });
+  // Epoch Earn is USDC-only, in the collateral the config names (an E2E run's injected faucet first). Balance rows
+  // use bech32 faucet ids while the config uses hex, so compare their normalized account ids.
   const depositBalance = useMemo(
-    () => balanceData?.find(item => normalizeMidenIdToHex(item.tokenId) === normalizeMidenIdToHex(MIDEN_USDC_FAUCET)),
-    [balanceData]
+    () =>
+      collateral
+        ? balanceData?.find(item => normalizeMidenIdToHex(item.tokenId) === normalizeMidenIdToHex(collateral.faucetId))
+        : undefined,
+    [balanceData, collateral]
   );
-  const token = useMemo<UIToken>(
-    () => ({
-      id: depositBalance?.tokenId ?? MIDEN_USDC_FAUCET,
-      name: depositBalance?.metadata.symbol ?? 'USDC',
-      decimals: depositBalance?.metadata.decimals ?? MIDEN_USDC_DECIMALS,
+  const token = useMemo<UIToken>(() => {
+    const id = depositBalance?.tokenId ?? collateral?.faucetId ?? '';
+    const symbol = depositBalance?.metadata.symbol ?? collateral?.symbol ?? '';
+    return {
+      id,
+      name: symbol,
+      decimals: depositBalance?.metadata.decimals ?? collateral?.decimals ?? 0,
       balance: depositBalance?.balance ?? 0,
       // The live quote, held row or not: the row's stored price is a capture from when balances
       // were read. No quote is no price (0), never a stated $1.
-      fiatPrice:
-        tokenQuote(tokenPrices, depositBalance?.tokenId ?? MIDEN_USDC_FAUCET, depositBalance?.metadata.symbol ?? 'USDC')
-          ?.price ?? 0,
-      // Either the faucet answered, or we fall back to the USDC constant — which
-      // is a stated decimals for a known token, not a guess about an unknown one.
-      scaleIsKnown: depositBalance ? hasKnownScale(depositBalance.metadata) : true
-    }),
-    [depositBalance, tokenPrices]
-  );
+      fiatPrice: tokenQuote(tokenPrices, id || undefined, symbol)?.price ?? 0,
+      // Either the faucet answered, or the config states the collateral's decimals; with neither the scale is unknown.
+      scaleIsKnown: depositBalance ? hasKnownScale(depositBalance.metadata) : collateral !== null
+    };
+  }, [collateral, depositBalance, tokenPrices]);
 
   const amountValue = parseAmount(amount);
   const hasAmount = amountValue > 0;
   // A deposit is a transaction, and the fee comes out of this account's own vault
   // in the native asset -- holding USDC alone is not enough to move it.
   const feeAssetMissing = hasNoFeeAsset(balanceData ?? [], nativeFaucetId, verificationBaseFee);
-  // Continue also needs the vault itself: the placeholder has no id to deposit into.
-  const isValidAmount = hasAmount && amountValue <= token.balance && !feeAssetMissing && Boolean(vault.id);
+  // Continue also needs the vault itself (the placeholder has no id to deposit into) and Earn deposits to be up.
+  const isValidAmount =
+    earnDeposit.state === 'available' &&
+    hasAmount &&
+    amountValue <= token.balance &&
+    !feeAssetMissing &&
+    Boolean(vault.id);
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-app-bg" data-testid="earn-deposit-amount-page">
@@ -97,16 +109,18 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
           {loadFailed && (
             <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} className="shrink-0 px-4 pt-4" />
           )}
+          <FeatureUnavailableNotice availability={earnDeposit} className="mx-4 mt-4 shrink-0" />
           <div className="min-h-0 flex-1">
             <SelectAmount
               accent="earn"
+              pageInset
+              showAmountDivider={false}
               token={token}
               amount={amount}
               isValidAmount={isValidAmount}
               label={t('earnDepositAmountLabel')}
               confirmTitle={t('confirm')}
               showNetworkPill={false}
-              showBalanceHelper={!hasAmount}
               // Say WHY Continue is dead. Without this the user sees a positive,
               // in-balance amount and a disabled button with no explanation — the
               // send and swap flows both name the same condition. `SelectAmount`

@@ -584,7 +584,7 @@ describe('Settings page — root menu (non-guardian)', () => {
 
     expect(mockOpenExternalUrl).toHaveBeenCalledTimes(1);
     expect(mockOpenExternalUrl).toHaveBeenCalledWith({
-      url: 'https://miden-feedback-v2.miden-feedback-relay.workers.dev/',
+      url: 'https://cmuv78o9w003x5ebpyha3cf6p.zapier.app/page',
       title: 'Send feedback'
     });
   });

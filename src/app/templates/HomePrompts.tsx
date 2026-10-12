@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
 import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { IconName } from 'app/icons/v2';
 import { ACTIVITY_PENDING_PATH } from 'app/pages/activity-paths';
@@ -19,7 +20,12 @@ import { initiateReplaceHotKeyTransaction, requestSWTransactionProcessing } from
 import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { FaucetOutcomeUnknownError } from 'lib/miden-chain/faucet-api';
+import { isGuardianDrifted } from 'lib/miden/guardian/sync-guard';
+import {
+  FaucetAmountOverCapError,
+  FaucetOutcomeUnknownError,
+  FaucetRateLimitedError
+} from 'lib/miden-chain/faucet-api';
 import { isExtension } from 'lib/platform';
 import type { TokenPrices } from 'lib/prices';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -97,7 +103,10 @@ const WALLET_PROMPT_DEFINITIONS: Record<WalletPromptType, WalletPromptDefinition
   },
   [WalletPromptType.PendingNotes]: {
     titleKey: 'pendingNotesPromptTitle',
-    bodyKey: 'pendingNotesPromptBody',
+    bodyKey: 'pendingNotesPromptBodyReview',
+    // Money waiting to be accepted: the Receive tint and glyph, so it stands apart from notices.
+    variant: 'receive',
+    icon: IconName.Receive,
     // Not dismissible: money waiting to be accepted is not a notice to be swept away, and a
     // wallet that dismissed it once must not go quiet about every later transfer.
     dismissible: false
@@ -107,6 +116,7 @@ const WALLET_PROMPT_DEFINITIONS: Record<WalletPromptType, WalletPromptDefinition
     bodyKey: 'verifySeedPhrasePromptBody',
     route: '/settings/verify-seed-phrase',
     variant: 'warning',
+    icon: IconName.ShieldCheck,
     dismissible: true
   },
   [WalletPromptType.HotKeyHardwareUnavailable]: {
@@ -167,6 +177,21 @@ const markOwnFundingUnresolved = (address: string, requestedAt: number) =>
   }).catch(error => console.warn('[wallet-prompts] failed to flag faucet funding marker unresolved:', error));
 
 const formatUsdTotal = (total: number | null): string | undefined => (total === null ? undefined : formatUsd(total));
+
+type Translate = (key: string, options?: Record<string, unknown>) => string;
+
+// A refusal the user can act on reads in plain words; any other failure keeps its own message (#425).
+const faucetFailureBody = (error: Error, t: Translate): string => {
+  if (error instanceof FaucetRateLimitedError) {
+    const seconds = error.retryAfterSeconds;
+    // A wait of a second or less needs no number, and "1 seconds" reads wrong.
+    return seconds !== null && seconds > 1
+      ? t('faucetRateLimitedWait', { seconds: String(seconds) })
+      : t('faucetRateLimited');
+  }
+  if (error instanceof FaucetAmountOverCapError) return t('faucetOverCap');
+  return error.message;
+};
 
 // How long the "Funds deposited" success beat holds before the prompt
 // completes — long enough to read the two-line lockup.
@@ -252,7 +277,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const faucetFundsArrived = fundsArrivedFor !== null && fundsArrivedFor === account.publicKey;
   // The faucet's actual failure reason, rendered in the card body — a bare red
   // X can't distinguish a rate limit from an outage (#425).
-  const [faucetError, setFaucetError] = useState<string | null>(null);
+  const [faucetError, setFaucetError] = useState<Error | null>(null);
   // Whether this account's persisted funding marker has been read on THIS visit.
   // Until then a wait may still be about to resume - a mint that acked before a
   // remount has no in-flight join left - so offering Fund could start a second
@@ -270,10 +295,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
     setFaucetStatusIndicator('idle');
     setFaucetError(null);
   }
-  // One subscription for one value: each call owns state, runs an async settings
-  // lookup and subscribes to native-asset changes, and both consumers here -
-  // arrival filtering and the fee-asset gate - want the same current id.
   const midenFaucetId = useMidenFaucetId();
+  const feeFaucetId = useNativeFeeFaucetId();
   const accountKeyRef = useRef(account.publicKey);
   accountKeyRef.current = account.publicKey;
 
@@ -381,8 +404,8 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   // move them, so it still needs the faucet. `hasNoFeeAsset` fails open, so a
   // zero-fee chain keeps the original any-token behaviour.
   const hasBalance = useMemo(
-    () => balances.some(token => token.balance > 0) && !hasNoFeeAsset(balances, midenFaucetId, verificationBaseFee),
-    [balances, midenFaucetId, verificationBaseFee]
+    () => balances.some(token => token.balance > 0) && !hasNoFeeAsset(balances, feeFaucetId, verificationBaseFee),
+    [balances, feeFaucetId, verificationBaseFee]
   );
   // Per account: one account's completion or dismiss must not hide Fund on another.
   const faucetStatus = storage.faucetByAccount[account.publicKey];
@@ -390,7 +413,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   // balance to zero on a fee-charging chain cannot transact at all, and this prompt
   // is the way out -- so a previous dismissal stops suppressing it. Without the
   // re-arm the user is left stuck with no affordance anywhere on Home.
-  const cannotPayFee = hasNoFeeAsset(balances, midenFaucetId, verificationBaseFee);
+  const cannotPayFee = hasNoFeeAsset(balances, feeFaucetId, verificationBaseFee);
   const faucetIsTerminal =
     !cannotPayFee && (faucetStatus === WalletPromptStatus.Dismissed || faucetStatus === WalletPromptStatus.Completed);
   const showFaucetPrompt =
@@ -556,7 +579,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       setFundingWait(current => (current !== null && current.address === address ? null : current));
       if (accountKeyRef.current !== address) return;
       setFaucetStatusIndicator('failure');
-      setFaucetError(error instanceof Error ? error.message : String(error));
+      setFaucetError(error instanceof Error ? error : new Error(String(error)));
     });
     return () => {
       cancelled = true;
@@ -649,7 +672,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
         // …but only paint the failure if that account is still on screen.
         if (accountKeyRef.current === address) {
           setFaucetStatusIndicator('failure');
-          setFaucetError(error instanceof Error ? error.message : String(error));
+          setFaucetError(error instanceof Error ? error : new Error(String(error)));
         }
         console.error('[wallet-prompts] faucet request failed:', error);
       }
@@ -984,13 +1007,13 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             onClick:
               funding || faucetFundsArrived || !fundingReady || rearmedWhileMintClaimable ? undefined : fundWallet,
             status: funding ? 'loading' : faucetFundsArrived ? 'success' : faucetStatusIndicator,
-            // On failure the body carries the faucet's actual message, so a rate
-            // limit, a rejected amount, and an outage read differently. Otherwise a
-            // user holding tokens but no MIDEN reads "Add tokens" and reasonably
-            // concludes the prompt is not about them -- name the missing asset.
+            // On failure the body says what went wrong: a rate limit or a refused amount
+            // in plain words, anything else in the faucet's own message, so each reads
+            // differently. Otherwise a user holding tokens but no MIDEN reads "Add tokens"
+            // and reasonably concludes the prompt is not about them -- name the missing asset.
             body:
               faucetStatusIndicator === 'failure' && faucetError
-                ? faucetError
+                ? faucetFailureBody(faucetError, t)
                 : unresolvedHere !== null
                   ? t('faucetPromptUnresolvedBody')
                   : cannotPayFee
@@ -1108,7 +1131,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
           />
         );
       })}
-      {account.guardianSyncStatus === 'needs-user-input' && <GuardianNeedsUrlBanner />}
+      {isGuardianDrifted(account) && <GuardianNeedsUrlBanner />}
     </PromptCarousel>
   );
 };

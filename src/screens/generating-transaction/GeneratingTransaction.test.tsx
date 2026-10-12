@@ -857,7 +857,11 @@ describe('GeneratingTransaction stage + state rendering', () => {
         onDoneClick={() => {}}
         transactionComplete={true}
         activeType="switch-guardian"
-        activeTransaction={{ type: 'switch-guardian', extraInputs: { commitUnconfirmed: true } } as never}
+        activeTransaction={
+          // Completed status: the flag is only ever written by the completion
+          // handler, and the verdict this screen consults keys on it.
+          { type: 'switch-guardian', status: 2, extraInputs: { commitUnconfirmed: true } } as never
+        }
       />
     );
     expect(container.textContent).toContain('transactionSubmittedUnconfirmedDescription');
@@ -980,6 +984,39 @@ describe('GeneratingTransaction stage + state rendering', () => {
     const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
     expect(rows.map(r => r.getAttribute('data-transaction-step'))).toEqual(['generating-proof', 'submitting']);
     expect(rows.map(r => r.getAttribute('data-state'))).toEqual(['complete', 'active']);
+    act(() => root.unmount());
+  });
+
+  const stepsCardFor = async (activeType: 'earn-deposit' | 'send') => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        onDoneClick={() => {}}
+        transactionComplete={false}
+        isGuardian={false}
+        activeStage="submitting"
+        activeType={activeType}
+      />
+    );
+    const card = container.querySelector('[data-transaction-step]')?.parentElement;
+    expect(card).toBeTruthy();
+    return { card: card!, root };
+  };
+
+  it("draws an earn-deposit row's steps on the outline surface, in the heading face", async () => {
+    const { card, root } = await stepsCardFor('earn-deposit');
+
+    expect(card).toHaveClass('bg-page', 'border', 'border-hairline', 'face-heading');
+    expect(card).not.toHaveClass('bg-fill');
+    act(() => root.unmount());
+  });
+
+  it("keeps a send row's steps on the fill card, in the default face", async () => {
+    const { card, root } = await stepsCardFor('send');
+
+    expect(card).toHaveClass('bg-fill');
+    expect(card).not.toHaveClass('bg-page');
+    expect(card).not.toHaveClass('border-hairline');
+    expect(card).not.toHaveClass('face-heading');
     act(() => root.unmount());
   });
 

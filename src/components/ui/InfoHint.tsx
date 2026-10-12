@@ -31,6 +31,42 @@ export interface InfoHintProps {
   'data-testid'?: string;
 }
 
+export interface InfoHintTriggerProps extends Omit<
+  React.ButtonHTMLAttributes<HTMLButtonElement>,
+  'type' | 'children' | 'aria-label'
+> {
+  /** Accessible name. Required: the glyph alone has no text for assistive tech to read. */
+  label: string;
+  'data-testid'?: string;
+}
+
+/**
+ * The (i) itself: a 24px `muted` circle with the info glyph. InfoHint opens its bubble from it; a
+ * caller whose explanation needs a sheet renders it too and opens the sheet, so the two (i)s match.
+ */
+export const InfoHintTrigger = React.forwardRef<HTMLButtonElement, InfoHintTriggerProps>(function InfoHintTrigger(
+  { label, className, ...props },
+  ref
+) {
+  return (
+    <button
+      type="button"
+      ref={ref}
+      aria-label={label}
+      className={cn(
+        'relative inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted',
+        // A 44px hit area centred on the 24px circle: the row keeps its height, the ring stays on the circle.
+        'before:absolute before:left-1/2 before:top-1/2 before:size-11 before:-translate-x-1/2 before:-translate-y-1/2',
+        'outline-none focus-visible:ring-2 focus-visible:ring-accent-primary',
+        className
+      )}
+      {...props}
+    >
+      <Icon name={IconName.Information} size="xs" fill="currentColor" aria-hidden="true" />
+    </button>
+  );
+});
+
 /** The arrow's size. */
 const ARROW_WIDTH = 12;
 const ARROW_HEIGHT = 6;
@@ -76,22 +112,13 @@ export const InfoHint: React.FC<InfoHintProps> = ({ children, label, className, 
 
   return (
     <>
-      <button
-        type="button"
+      <InfoHintTrigger
         ref={refs.setReference}
-        aria-label={label}
+        label={label}
         data-testid={dataTestId}
-        className={cn(
-          'relative inline-flex size-6 shrink-0 items-center justify-center rounded-full text-muted',
-          // A 44px hit area centred on the 24px circle: the row keeps its height, the ring stays on the circle.
-          'before:absolute before:left-1/2 before:top-1/2 before:size-11 before:-translate-x-1/2 before:-translate-y-1/2',
-          'outline-none focus-visible:ring-2 focus-visible:ring-accent-primary',
-          className
-        )}
+        className={className}
         {...getReferenceProps({ onClick: () => hapticLight() })}
-      >
-        <Icon name={IconName.Information} size="xs" fill="currentColor" aria-hidden="true" />
-      </button>
+      />
 
       <Portal>
         <AnimatePresence>

@@ -1709,9 +1709,10 @@ class MidenClientSingleton {
    * leaving every flow that already holds it looking like a healthy owner, so
    * its next yield would release a SUCCESSOR's mutex.
    *
-   * The instance itself is not terminated, so a `useWorker` client's method
-   * worker lives until the realm goes away — the accepted cost of not failing a
-   * flow that may already have submitted.
+   * The instance itself is not terminated here, which would fail a flow that
+   * may already have submitted: `replaceClientSingletons` frees it once every
+   * flow holding it has settled, and leaves it marked, never freed, when that
+   * moment cannot be observed (`reclaimWhenIdle`).
    */
   poisonAllInstances(): MidenClientInterface[] {
     bumpWasmClientGeneration();

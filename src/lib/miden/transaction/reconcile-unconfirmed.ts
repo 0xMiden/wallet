@@ -15,6 +15,7 @@ import { applyVerifiedLanding, reportVerifiedLanding, verifiedLandingRowFields }
 import { accountOthers, deferralHolds, judgeSubmitEvidence, RowJudgement } from './reconcile-judge';
 import { createNodeReads, NodeReads, observedCadenceMs } from './reconcile-reads';
 import { awaitingVerdict, evidenceKey, isCheckable, nowSeconds } from './verdict-rules';
+import { adoptLandedConsume } from '../activity/bridge-in';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 import { sameWalletAccountId } from '../sdk/helpers';
 
@@ -126,6 +127,7 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
     const freshRows = await accountRowsOf(fresh);
     if (accountEvidenceKey(freshRows) !== accountKey) return;
     if (deferralHolds(landedEntry, landing.proof, accountOthers(fresh, freshRows))) return;
+    // A row re-derived as undelivered with no output note to push is inert to the delivery sweep.
     applyVerifiedLanding(fresh, {
       ...verifiedLandingRowFields(fresh),
       ...(landing.boundTransactionId === undefined ? {} : { transactionId: landing.boundTransactionId }),
@@ -136,6 +138,7 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
   });
   if (landed === undefined) return false;
   reportVerifiedLanding(landed);
+  if (landed.type === 'consume') await adoptLandedConsume(landed.id);
   return true;
 }
 

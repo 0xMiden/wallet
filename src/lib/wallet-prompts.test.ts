@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 
 import { MIDEN_CHAIN_ID_RENUMBERED_AT } from 'lib/agglayer/constant';
-import { MIDEN_USDC_FAUCET } from 'lib/epoch/collateral';
+import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import {
   GUARDIAN_NOTE_RECOVERY_PROGRESS_STALE_MS,
@@ -51,6 +51,15 @@ import {
   withFaucetFundingMarkerLock
 } from './wallet-prompts';
 
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
+const mockPollUsdcxBurn = jest.fn();
+const mockPollUsdcxDestination = jest.fn();
+jest.mock('lib/usdcx/burn-status', () => ({ pollUsdcxBurn: (...args: unknown[]) => mockPollUsdcxBurn(...args) }));
+jest.mock('lib/usdcx/destination-status', () => ({
+  ...jest.requireActual<typeof import('lib/usdcx/destination-status')>('lib/usdcx/destination-status'),
+  pollUsdcxDestination: (...args: unknown[]) => mockPollUsdcxDestination(...args)
+}));
 jest.mock('lib/platform', () => ({
   isMobile: () => false,
   isDesktop: () => true,
@@ -76,10 +85,19 @@ const wasmLockOutcomes: Promise<unknown>[] = [];
 const pollEpochIntentFill = jest.fn();
 const completeVerifiedLanded = jest.fn();
 
+// Only indexed reads exist: a read that falls back to walking the table has no `filter` to call here.
 jest.mock('lib/miden/repo', () => ({
   transactions: {
-    filter: (predicate: (row: ITransaction) => boolean) => ({
-      toArray: async () => bridgeRows.filter(predicate)
+    where: (index: string) => ({
+      equals: (value: string) => {
+        const matching = () => bridgeRows.filter(row => Reflect.get(row, index) === value);
+        return {
+          filter: (predicate: (row: ITransaction) => boolean) => ({
+            toArray: async () => matching().filter(predicate)
+          }),
+          toArray: async () => matching()
+        };
+      }
     })
   }
 }));
@@ -103,6 +121,13 @@ jest.mock('lib/miden/transaction/complete', () => ({
   // stubbed rather than the real function so this suite stays about
   // `reconcileBridgedSends`'s own decisions, not `complete.ts`'s literals.
   bridgedSendLandedValues: () => ({ displayMessage: 'Bridged to EVM', displayIcon: 'SEND', completedAt: 1_700_000_000 })
+}));
+// The testnet indexer and its derived networks, which the real lookup reads from the bridge config.
+jest.mock('lib/remote-config/values', () => ({
+  ...jest.requireActual('lib/remote-config/values'),
+  getAgglayerIndexerUrl: () => 'https://indexer.test/api',
+  getAgglayerRollupId: () => 86,
+  getAgglayerEvmNetworkId: () => 0
 }));
 jest.mock('lib/agglayer/b2agg/exit-hash', () => ({
   agglayerExitTxHashFromRowBytes: (...args: unknown[]) => exitHashFromRowBytes(...args)
@@ -317,13 +342,13 @@ describe('wallet prompts', () => {
   });
 
   it('requests native tokens from the official Miden faucet', async () => {
-    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+    mintFromMidenFaucetMock.mockResolvedValue({ noteId: '0xnote' });
 
     await faucet('mtst1testaddress');
 
     expect(mintFromMidenFaucetMock).toHaveBeenCalledWith(
       'mtst1testaddress',
-      100_000_000n,
+      undefined,
       expect.any(AbortSignal),
       expect.any(Function),
       expect.any(Function)
@@ -335,7 +360,7 @@ describe('wallet prompts', () => {
     mintFromMidenFaucetMock.mockImplementation(
       () =>
         new Promise(resolve => {
-          resolvers.push(() => resolve({ txId: '0xtx', noteId: '0xnote' }));
+          resolvers.push(() => resolve({ noteId: '0xnote' }));
         })
     );
 
@@ -355,7 +380,7 @@ describe('wallet prompts', () => {
     await Promise.all([first, second, other]);
     // Settling clears the join, so a genuine later re-fund mints again.
     expect(getInFlightFaucetRequest('mtst1testaddress')).toBeNull();
-    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+    mintFromMidenFaucetMock.mockResolvedValue({ noteId: '0xnote' });
     await faucet('mtst1testaddress');
     expect(mintFromMidenFaucetMock).toHaveBeenCalledTimes(3);
   });
@@ -365,7 +390,7 @@ describe('wallet prompts', () => {
     mintFromMidenFaucetMock.mockImplementation(
       () =>
         new Promise(resolve => {
-          finish = () => resolve({ txId: '0xtx', noteId: '0xnote' });
+          finish = () => resolve({ noteId: '0xnote' });
         })
     );
     const marker = { requestedAt: 1_000, baselineNoteIds: ['note-1'] };
@@ -383,7 +408,7 @@ describe('wallet prompts', () => {
   });
 
   it('remembers when a request settled, for the request it was started with', async () => {
-    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+    mintFromMidenFaucetMock.mockResolvedValue({ noteId: '0xnote' });
     const before = Date.now();
 
     await faucet('accountSettled', { requestedAt: 1_000, baselineNoteIds: [] });
@@ -557,13 +582,13 @@ describe('wallet prompts', () => {
     let sent = 0;
     const send = async (
       _address: string,
-      _amount: bigint,
+      _amount: bigint | undefined,
       _signal?: AbortSignal,
       beforeSubmit?: () => Promise<void>
     ) => {
       await beforeSubmit?.();
       sent += 1;
-      return { txId: '0xtx', noteId: '0xnote' };
+      return { noteId: '0xnote' };
     };
     popup.mint.mockImplementation(send);
     sidePanel.mint.mockImplementation(send);
@@ -607,7 +632,12 @@ describe('wallet prompts', () => {
     let releaseCheck = () => {};
     try {
       mintFromMidenFaucetMock.mockImplementation(
-        async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+        async (
+          _address: string,
+          _amount: bigint | undefined,
+          _signal?: AbortSignal,
+          beforeSubmit?: () => Promise<void>
+        ) => {
           // The pre-send check's read is slow: the request times out while it is out.
           const get = jest.spyOn(provider, 'get').mockImplementationOnce(keys => {
             const record = readRecord(keys);
@@ -620,7 +650,7 @@ describe('wallet prompts', () => {
           } finally {
             get.mockRestore();
           }
-          return { txId: '0xtx', noteId: '0xnote' };
+          return { noteId: '0xnote' };
         }
       );
 
@@ -648,7 +678,12 @@ describe('wallet prompts', () => {
     let releaseFlag = () => {};
     try {
       mintFromMidenFaucetMock.mockImplementation(
-        async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+        async (
+          _address: string,
+          _amount: bigint | undefined,
+          _signal?: AbortSignal,
+          beforeSubmit?: () => Promise<void>
+        ) => {
           const set = jest.spyOn(provider, 'set').mockImplementationOnce(
             items =>
               new Promise(resolve => {
@@ -683,7 +718,7 @@ describe('wallet prompts', () => {
       mintFromMidenFaucetMock.mockImplementation(
         async (
           _address: string,
-          _amount: bigint,
+          _amount: bigint | undefined,
           _signal?: AbortSignal,
           beforeSubmit?: () => Promise<void>,
           onMayMint?: (mayMint: boolean) => void
@@ -712,7 +747,12 @@ describe('wallet prompts', () => {
     try {
       // The proof of work finishes and the token request is sent, then hangs.
       mintFromMidenFaucetMock.mockImplementation(
-        async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+        async (
+          _address: string,
+          _amount: bigint | undefined,
+          _signal?: AbortSignal,
+          beforeSubmit?: () => Promise<void>
+        ) => {
           await beforeSubmit?.();
           return new Promise(() => {});
         }
@@ -734,12 +774,17 @@ describe('wallet prompts', () => {
     const marker = { requestedAt: 1_000, baselineNoteIds: ['note-1'] };
     const seen: Array<Awaited<ReturnType<typeof fetchFaucetFundingMarker>>> = [];
     mintFromMidenFaucetMock.mockImplementation(
-      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+      async (
+        _address: string,
+        _amount: bigint | undefined,
+        _signal?: AbortSignal,
+        beforeSubmit?: () => Promise<void>
+      ) => {
         seen.push(await fetchFaucetFundingMarker('accountMarker'));
         await beforeSubmit?.();
         // What a resume reads once the token request is out.
         seen.push(await fetchFaucetFundingMarker('accountMarker'));
-        return { txId: '0xtx', noteId: '0xnote' };
+        return { noteId: '0xnote' };
       }
     );
 
@@ -747,6 +792,44 @@ describe('wallet prompts', () => {
 
     // The flag carries when the token request went out: its mint's arrival window starts there.
     expect(seen).toEqual([marker, { ...marker, submitted: true, submittedAt: expect.any(Number) }]);
+  });
+
+  it('lets a request refused over the cap go out again at the cap, flagged anew', async () => {
+    const marker = { requestedAt: 1_000, baselineNoteIds: [] };
+    const flags: Array<number | undefined> = [];
+    let clock = 5_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => clock);
+    mintFromMidenFaucetMock.mockImplementation(
+      async (
+        _address: string,
+        _amount: bigint | undefined,
+        _signal?: AbortSignal,
+        beforeSubmit?: () => Promise<void>,
+        onMayMint?: (mayMint: boolean) => void
+      ) => {
+        // Devnet refuses over the cap only at the token request: nothing was minted.
+        await beforeSubmit?.();
+        onMayMint?.(true);
+        onMayMint?.(false);
+        flags.push((await fetchFaucetFundingMarker('accountCapped'))?.submittedAt);
+        // The retry at the cap passes the same pre-send check and is flagged again.
+        clock = 9_000;
+        await beforeSubmit?.();
+        onMayMint?.(true);
+        flags.push((await fetchFaucetFundingMarker('accountCapped'))?.submittedAt);
+        return { noteId: '0xnote' };
+      }
+    );
+
+    try {
+      await expect(faucet('accountCapped', marker)).resolves.toBeUndefined();
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    // A skipped second flag write would leave the first attempt's 5000.
+    expect(flags).toEqual([5_000, 9_000]);
+    expect(getFaucetRequestSettledAt('accountCapped', 1_000)).not.toBeNull();
   });
 
   it.each([
@@ -762,7 +845,7 @@ describe('wallet prompts', () => {
         ...(submitted && { submitted })
       };
       await setFaucetFundingMarker('accountBusy', running);
-      mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+      mintFromMidenFaucetMock.mockResolvedValue({ noteId: '0xnote' });
 
       const error = await faucet('accountBusy', { requestedAt: Date.now(), baselineNoteIds: [] }).catch(
         (e: unknown) => e
@@ -785,9 +868,14 @@ describe('wallet prompts', () => {
     await setFaucetFundingMarker('accountStale', stale);
     const marker = { requestedAt: Date.now(), baselineNoteIds: [] };
     mintFromMidenFaucetMock.mockImplementation(
-      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+      async (
+        _address: string,
+        _amount: bigint | undefined,
+        _signal?: AbortSignal,
+        beforeSubmit?: () => Promise<void>
+      ) => {
         await beforeSubmit?.();
-        return { txId: '0xtx', noteId: '0xnote' };
+        return { noteId: '0xnote' };
       }
     );
 
@@ -808,7 +896,7 @@ describe('wallet prompts', () => {
       submitted: true
     };
     await setFaucetFundingMarker('accountStale', stale);
-    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+    mintFromMidenFaucetMock.mockResolvedValue({ noteId: '0xnote' });
 
     const error = await faucet('accountStale', { requestedAt: Date.now(), baselineNoteIds: [] }).catch(
       (e: unknown) => e
@@ -837,7 +925,7 @@ describe('wallet prompts', () => {
       // A surface that read storage before another surface flagged the record never asked the user.
       const record = unresolvedRecord();
       await setFaucetFundingMarker('accountUnresolved', record);
-      mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+      mintFromMidenFaucetMock.mockResolvedValue({ noteId: '0xnote' });
 
       const error = await faucet(
         'accountUnresolved',
@@ -859,10 +947,15 @@ describe('wallet prompts', () => {
       const marker = { requestedAt: Date.now(), baselineNoteIds: [] };
       const seen: Array<Awaited<ReturnType<typeof fetchFaucetFundingMarker>>> = [];
       mintFromMidenFaucetMock.mockImplementation(
-        async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+        async (
+          _address: string,
+          _amount: bigint | undefined,
+          _signal?: AbortSignal,
+          beforeSubmit?: () => Promise<void>
+        ) => {
           seen.push(await fetchFaucetFundingMarker('accountUnresolved'));
           await beforeSubmit?.();
-          return { txId: '0xtx', noteId: '0xnote' };
+          return { noteId: '0xnote' };
         }
       );
 
@@ -881,13 +974,18 @@ describe('wallet prompts', () => {
   it('does not send a request another surface already ended as abandoned', async () => {
     let sent = false;
     mintFromMidenFaucetMock.mockImplementation(
-      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+      async (
+        _address: string,
+        _amount: bigint | undefined,
+        _signal?: AbortSignal,
+        beforeSubmit?: () => Promise<void>
+      ) => {
         // This realm's timers were held back; meanwhile another surface found the marker
         // unflagged past the request timeout, cleared it and offered Fund again.
         await clearFaucetFundingMarker('accountFenced');
         await beforeSubmit?.();
         sent = true;
-        return { txId: '0xtx', noteId: '0xnote' };
+        return { noteId: '0xnote' };
       }
     );
 
@@ -902,7 +1000,12 @@ describe('wallet prompts', () => {
   it('does not send while another surface is ending the request as abandoned', async () => {
     let sent = false;
     mintFromMidenFaucetMock.mockImplementation(
-      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+      async (
+        _address: string,
+        _amount: bigint | undefined,
+        _signal?: AbortSignal,
+        beforeSubmit?: () => Promise<void>
+      ) => {
         // Another surface's backstop has read the marker unflagged and is about to clear it.
         let readDone = () => {};
         const read = new Promise<void>(resolve => {
@@ -925,7 +1028,7 @@ describe('wallet prompts', () => {
         await clearing;
         await flagging;
         sent = true;
-        return { txId: '0xtx', noteId: '0xnote' };
+        return { noteId: '0xnote' };
       }
     );
 
@@ -950,10 +1053,15 @@ describe('wallet prompts', () => {
     });
     let sent = false;
     mintFromMidenFaucetMock.mockImplementation(
-      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+      async (
+        _address: string,
+        _amount: bigint | undefined,
+        _signal?: AbortSignal,
+        beforeSubmit?: () => Promise<void>
+      ) => {
         await beforeSubmit?.();
         sent = true;
-        return { txId: '0xtx', noteId: '0xnote' };
+        return { noteId: '0xnote' };
       }
     );
 
@@ -1029,7 +1137,7 @@ describe('wallet prompts', () => {
       baselineNoteIds: [],
       submitted: true
     });
-    mintFromMidenFaucetMock.mockResolvedValue({ txId: '0xtx', noteId: '0xnote' });
+    mintFromMidenFaucetMock.mockResolvedValue({ noteId: '0xnote' });
 
     const error = await faucet('accountClockSent', { requestedAt: Date.now(), baselineNoteIds: [] }).catch(
       (e: unknown) => e
@@ -1868,6 +1976,68 @@ describe('bridge prompts', () => {
     wasmLockOutcomes.splice(0);
     pollEpochIntentFill.mockResolvedValue(undefined);
     completeVerifiedLanded.mockResolvedValue(undefined);
+  });
+
+  // A destination that never confirms is an accepted outcome, so an old row is checked less often, never closed.
+  describe('USDCx background checks', () => {
+    const nowSec = () => Math.floor(Date.now() / 1000);
+    const awaitingPayout = (id: string, completedAt: number) =>
+      baseBridge({
+        id,
+        completedAt,
+        extraInputs: {
+          provider: 'usdcx',
+          usdcxBurn: {
+            noteId: 'note',
+            destinationDomain: 26,
+            phase: 'confirmed',
+            destinationBalanceBefore: { balance: '0', blockNumber: '100' }
+          }
+        }
+      });
+
+    it('checks a row two days old once across two consecutive passes', async () => {
+      bridgeRows.push(awaitingPayout('usdcx-two-days', nowSec() - 2 * 24 * 60 * 60));
+
+      await reconcileBridgedSends();
+      await reconcileBridgedSends();
+
+      expect(mockPollUsdcxDestination).toHaveBeenCalledTimes(1);
+      expect(mockPollUsdcxBurn).toHaveBeenCalledTimes(1);
+    });
+
+    it('checks a row completed a minute ago on every pass', async () => {
+      bridgeRows.push(awaitingPayout('usdcx-fresh', nowSec() - 60));
+
+      await reconcileBridgedSends();
+      await reconcileBridgedSends();
+
+      expect(mockPollUsdcxDestination).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('keeps a burned USDCx withdrawal active until its destination balance is confirmed', async () => {
+    const burn = {
+      noteId: 'note',
+      destinationDomain: 26,
+      phase: 'confirmed',
+      destinationBalanceBefore: { balance: '0', blockNumber: '100' }
+    };
+    bridgeRows.push(
+      baseBridge({ id: 'awaiting-payout', extraInputs: { provider: 'usdcx', usdcxBurn: burn } }),
+      baseBridge({
+        id: 'paid',
+        extraInputs: {
+          provider: 'usdcx',
+          usdcxBurn: { ...burn, destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' } }
+        }
+      }),
+      baseBridge({
+        id: 'legacy-burn',
+        extraInputs: { provider: 'usdcx', usdcxBurn: { ...burn, destinationBalanceBefore: undefined } }
+      })
+    );
+    expect((await fetchActiveBridgePrompts('acct-1')).map(tx => tx.id)).toEqual(['awaiting-payout']);
   });
 
   it('returns unsettled bridged-sends for the account, newest first', async () => {
@@ -3344,9 +3514,14 @@ describe('without Web Locks (iOS 15.0-15.3)', () => {
   it('funds an account, flagging its marker submitted before the token request goes out', async () => {
     const marker = { requestedAt: Date.now(), baselineNoteIds: [] };
     mintFromMidenFaucetMock.mockImplementation(
-      async (_address: string, _amount: bigint, _signal?: AbortSignal, beforeSubmit?: () => Promise<void>) => {
+      async (
+        _address: string,
+        _amount: bigint | undefined,
+        _signal?: AbortSignal,
+        beforeSubmit?: () => Promise<void>
+      ) => {
         await beforeSubmit?.();
-        return { txId: '0xtx', noteId: '0xnote' };
+        return { noteId: '0xnote' };
       }
     );
 

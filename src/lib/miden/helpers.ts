@@ -76,8 +76,9 @@ export const EXPIRATION_DELTA_BLOCKS = 600;
 
 /**
  * Blocks for a request proposed through a Guardian: 540 s at 3 s blocks, inside the Guardian's ~600 s pending hold,
- * which starts after the proposal's anchor block. Its transaction can then only land before the Guardian could discard
- * the candidate, while blocks come at least every 3.3 s.
+ * which starts after the proposal's bound block. Its transaction can then only land before the Guardian could discard
+ * the candidate, while blocks come at least every 3.3 s. A proposal executes at the tip, so a wallet-built one carries
+ * this as its approval expiration, counted from the bound block (`createRebasedCustomProposal`).
  */
 export const GUARDIAN_EXPIRATION_DELTA_BLOCKS = 180;
 

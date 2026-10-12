@@ -2,14 +2,17 @@ import {
   IBridgeClaimStatus,
   IBridgeProvider,
   IBridgedReceivePhase,
+  IUsdcxCctpLeg,
   IEarnDepositExtraInputs,
   IEarnWithdrawPhase,
   INoteDeliveryState,
   ITransactionIcon,
   ITransactionStatus,
   ITransactionType,
+  IUsdcxBurn,
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
+import type { RotationVerdictKind } from 'lib/miden/guardian/rotation-verdict';
 import type { NotConfirmedHintKey } from 'lib/miden/transaction/verdict-rules';
 
 /** A formatted secondary asset on a batch-consume row. */
@@ -28,6 +31,7 @@ export interface IHistoryExtraAmount {
    * metadata resolves; a missing number is recoverable, a wrong one is not.
    */
   amount?: string;
+  /** The asset's symbol as fetched, or its testnet label once a list names it at render (`labelHistoryEntry`). */
   token: string;
 }
 
@@ -55,7 +59,7 @@ export interface IHistoryEntry {
   /** Which not-confirmed hint the detail page shows (`notConfirmedHintKey`, #1081); set by the detail page only. */
   notConfirmedHint?: NotConfirmedHintKey;
   /**
-   * `tx.noteDelivery` — whether this send's private note reached the transport
+   * `tx.noteDelivery` - whether this send's private note reached the transport
    * layer. Read by the detail page to warn that a transaction which SUCCEEDED on
    * chain may still not be spendable by its recipient, since a private note is
    * unreachable without its relayed body. Absent for public sends and for rows
@@ -63,12 +67,20 @@ export interface IHistoryEntry {
    */
   noteDelivery?: INoteDeliveryState;
   /**
+   * The delivery sweep will not push this row's notes again: `tx.relayRetriesStopped`,
+   * a row restored from a backup (never pushed), or a send past the retry window
+   * (which the sweep may never revisit to set the flag). The detail page then stops
+   * promising automatic retries and points to the transaction ID instead.
+   */
+  relayRetriesStopped?: boolean;
+  /**
    * `tx.processingStartedAt` — stamped atomically with the Queued →
    * GeneratingTransaction transition. The detail page's Retry gate reads it as
    * the double-send guard's "did this row ever execute?" signal: absent means the
    * failure is unambiguously pre-submit. Set by the detail page only.
    */
   processingStartedAt?: number;
+  /** The asset's symbol as fetched, or its testnet label once a list names it at render (`labelHistoryEntry`). */
   token?: string;
   /**
    * Formatted for display, like `requestedAmount` below — every producer assigns
@@ -118,6 +130,12 @@ export interface IHistoryEntry {
   // Guardian switch audit trail. The previous endpoint is absent on legacy rows.
   previousGuardianEndpoint?: ISwitchGuardianExtraInputs['previousGuardianEndpoint'];
   newGuardianEndpoint?: ISwitchGuardianExtraInputs['newGuardianEndpoint'];
+  /**
+   * The row's rotation verdict kind (`rotationVerdict`), projected at the
+   * mapping boundary so the views can qualify their claims - the outcome flags
+   * themselves deliberately do not cross this boundary.
+   */
+  guardianSwitchVerdict?: RotationVerdictKind;
   /** `replace-hot-key`: the device (hot) key the rotation installed, once it is known. */
   newHotPublicKey?: string;
   /** `replace-hot-key`: the guardian the rotation ran under, when the record carries it. */
@@ -125,6 +143,7 @@ export interface IHistoryEntry {
 
   // `bridged-send` metadata (from `extraInputs`) for the activity detail view.
   bridgeProvider?: IBridgeProvider;
+  usdcxBurn?: IUsdcxBurn;
   bridgeDestinationAddress?: string;
   bridgeDestinationNetwork?: number;
   bridgeClaimStatus?: IBridgeClaimStatus;
@@ -164,10 +183,13 @@ export interface IHistoryEntry {
   // bridge rows instead of plain receives (see `bridgeInRowDisplay`).
   bridgeInProvider?: IBridgeProvider;
   bridgeInSourceAddress?: string;
+  bridgeInSourceChainId?: number;
   bridgeInSourceAmount?: string;
   bridgeInSourceSymbol?: string;
   bridgeInEvmTxHash?: string;
   bridgeInPhase?: IBridgedReceivePhase;
+  /** usdcx: the CCTP leg of an executor-route deposit, which Activity lets the user execute on Arc. */
+  bridgeInCctp?: IUsdcxCctpLeg;
   bridgeInOutputAmount?: string;
   bridgeInOutputSymbol?: string;
   bridgeInMidenNoteId?: string;

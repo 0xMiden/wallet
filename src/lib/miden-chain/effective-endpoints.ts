@@ -27,6 +27,10 @@ export interface EndpointOverride {
   allowNoGuardian: boolean; // dev-only: expose a "No guardian" card in onboarding
   networkName: MIDEN_NETWORK_NAME; // the "network id": drives NetworkId + endpoint-default seeding
   presetName: string; // 'testnet'|'devnet'|'localnet'|'custom' — UI dropdown seed only
+  // 0.17 moved the fee asset out of the block header. A client cannot be created
+  // without naming the chain's fee faucet. Optional so a stored 1.16 override still
+  // loads; production and E2E must fill it.
+  feeFaucetId?: string;
 }
 
 // Build-time NTL env override (mirrors the precedence in constants.getNoteTransportUrl).
@@ -93,12 +97,11 @@ export function getEffectiveNoteTransportUrl(): string | undefined {
  * `MIDEN_NETWORK_NAME.MAINNET`) this resolves to `undefined` and the SDK client is
  * built with no transport at all.
  *
- * The consequence is total and silent. `Client::relay_private_note` resolves the
- * transport API on its FIRST line — before it writes its durable retry outbox — so
- * with transport unconfigured it returns `NoteTransportError::Disabled` having
- * queued nothing. Every private send would land on chain, hand its note to nobody,
- * and leave no retry record anywhere. Callers use this to refuse the send up front
- * rather than discover that after the assets have moved.
+ * The consequence is total and silent. With transport unconfigured every relay
+ * fails with `NoteTransportError::Disabled`, and no retry can do better: every
+ * private send would land on chain and hand its note to nobody. Callers use this to
+ * refuse the send up front rather than discover that after the assets have moved,
+ * and the delivery sweep to skip pushes it cannot make.
  */
 export function isNoteTransportConfigured(): boolean {
   return !!getEffectiveNoteTransportUrl();
@@ -131,6 +134,42 @@ export function getEffectiveGuardianUrl(): string {
 /** Dev-only: whether onboarding should offer a "No guardian" account option. */
 export function getEffectiveAllowNoGuardian(): boolean {
   return overrideCache?.allowNoGuardian ?? false;
+}
+
+const FEE_FAUCET_ENV = process.env.MIDEN_FEE_FAUCET_ID || '';
+export const FEE_FAUCET_STORAGE_KEY = 'fee_faucet_id';
+let e2eFeeFaucetId: string | undefined;
+let feeFaucetCache: string | undefined;
+
+/** E2E-only: genesis faucet id is random, so the harness injects it before client create. */
+export async function setFeeFaucetIdForTest(id: string | undefined): Promise<void> {
+  e2eFeeFaucetId = id;
+  feeFaucetCache = id;
+  const storage = getStorageProvider();
+  if (id) {
+    await storage.set({ [FEE_FAUCET_STORAGE_KEY]: id });
+  } else {
+    await storage.remove([FEE_FAUCET_STORAGE_KEY]);
+  }
+}
+
+/** Optional fee identity override; a successful SDK sync supplies the chain's protocol identity. */
+export function getEffectiveFeeFaucetId(): string | undefined {
+  if (e2eFeeFaucetId) return e2eFeeFaucetId;
+  if (feeFaucetCache) return feeFaucetCache;
+  if (overrideCache?.feeFaucetId) return overrideCache.feeFaucetId;
+  if (FEE_FAUCET_ENV) return FEE_FAUCET_ENV;
+  return undefined;
+}
+
+async function loadFeeFaucetId(): Promise<void> {
+  try {
+    const items = await getStorageProvider().get([FEE_FAUCET_STORAGE_KEY]);
+    const raw = items[FEE_FAUCET_STORAGE_KEY];
+    feeFaucetCache = typeof raw === 'string' && raw ? raw : feeFaucetCache;
+  } catch {
+    // Keep whatever the in-memory cache already holds.
+  }
 }
 
 /**
@@ -195,6 +234,7 @@ function isEndpointOverride(value: unknown): value is EndpointOverride {
  * (every production build) it has no effect.
  */
 export async function loadEndpointOverrides(): Promise<void> {
+  await loadFeeFaucetId();
   if (process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES === 'true') {
     overrideCache = null;
     return;

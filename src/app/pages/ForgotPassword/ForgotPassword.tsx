@@ -24,14 +24,13 @@ const ForgotPassword: FC = () => {
   const [seedPhrase, setSeedPhrase] = useState<string[]>([]);
   const [onboardingType, setOnboardingType] = useState<OnboardingType | null>(null);
   // Which BIP-44 namespace to recover into. `Vault.spawn` derives the account at
-  // `m/44'/0'/<walletTypeIndex>'/0'` from this, and only runs the Guardian
-  // lookup for `WalletType.Guardian`. It used to be hardcoded to Guardian, so a
-  // user who onboarded with "no guardian" had their wallet wiped by
-  // `clearClientStorage()` and then hit "No Guardian accounts found at this
-  // guardian endpoint for this seed" — the OffChain account at
-  // `m/44'/0'/1'/0'` was never derived or looked up. The recovery-method step
-  // below now sets this the same way onboarding's
-  // `import-select-recovery-method` does.
+  // index 0 of this wallet type's `getMainDerivationPath` namespace, and only
+  // runs the Guardian lookup for `WalletType.Guardian`. It used to be hardcoded
+  // to Guardian, so a user who onboarded with "no guardian" had their wallet
+  // wiped by `clearClientStorage()` and then hit "No Guardian accounts found at
+  // this guardian endpoint for this seed" — the OffChain account was never
+  // derived or looked up. The recovery-method step below now sets this the same
+  // way onboarding's `import-select-recovery-method` does.
   const [walletType, setWalletType] = useState<WalletType>(WalletType.Guardian);
   /** Endpoint the user picked on the recovery-method step; overrides the probe. */
   const [selectedGuardianEndpoint, setSelectedGuardianEndpoint] = useState<string | undefined>(undefined);
@@ -42,9 +41,8 @@ const ForgotPassword: FC = () => {
   const { registerWallet } = useMidenContext();
   // Guardian auto-detection (issue #418). The probe runs unseen from seed submit;
   // its winner is passed to registerWallet unless the user picked an endpoint on
-  // the recovery-method step. The stored legacy guardian URL is only read as a
-  // fallback, by the backend, when the probe finds nothing (or is still running
-  // at the deadline).
+  // the recovery-method step. When the probe finds nothing (or is still running
+  // at the deadline) the backend falls back to the network default.
   const guardianProbe = useGuardianProbe();
   const startGuardianProbe = guardianProbe.start;
   const resetGuardianProbe = guardianProbe.reset;
@@ -90,8 +88,8 @@ const ForgotPassword: FC = () => {
    * Resolve the auto-detected guardian endpoint, waiting at most
    * {@link GUARDIAN_PROBE_WAIT_DEADLINE_MS} for a probe that is still running.
    * Returns undefined when nothing was detected (or the probe timed out); the
-   * caller then threads no endpoint and the backend falls back to the legacy
-   * stored endpoint / network default, exactly as before.
+   * caller then threads no endpoint and the backend falls back to the network
+   * default, exactly as before.
    */
   const detectGuardianEndpoint = useCallback(async (): Promise<string | undefined> => {
     const pending = probeResult.current;
@@ -113,15 +111,13 @@ const ForgotPassword: FC = () => {
   const register = useCallback(async (): Promise<'ok' | 'failed' | 'skipped'> => {
     if (password && seedPhrase) {
       // The page's wipe keeps the wallet-setup keys itself (lib/miden/reset), so nothing here
-      // reads or rewrites the endpoint override or the legacy guardian URL.
+      // reads or rewrites the endpoint override.
       try {
         await clearClientStorage();
         // Resolve the probed guardian endpoint (import path only) and thread it
-        // explicitly into registerWallet (stage 1 of #408) rather than writing the
-        // global GUARDIAN_URL_STORAGE_KEY. The probe result is held in memory, so
+        // explicitly into registerWallet. The probe result is held in memory, so
         // clearClientStorage above cannot clobber it. When nothing was detected the
-        // endpoint stays undefined and the backend falls back to the stored /
-        // default endpoint.
+        // endpoint stays undefined and the backend falls back to the network default.
         // Endpoint only matters for a Guardian recovery; a non-guardian recovery
         // binds no endpoint (mirrors Welcome.tsx's `import-select-recovery-method`).
         const guardianEndpoint =

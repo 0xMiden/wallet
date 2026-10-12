@@ -1,11 +1,11 @@
-import { expect, test } from '../../fixtures/two-wallets';
+import { expect, test } from '../../fixtures/hermetic-bridge';
 import { bridgeOutFast, fundBridgeToken, inspectSentNote, readBridgedSendRows } from '../../helpers/bridge';
 import { FakeEpochAllocator } from '../../helpers/fake-epoch-allocator';
 import { readTransactionRows } from '../../helpers/history';
 import { newEvmDestination } from '../../helpers/sepolia';
 import { swOf } from '../../helpers/swap';
 import { AnvilInstance } from '../../ios/helpers/anvil';
-import { installMockCompact } from '../../ios/helpers/evm-doubles';
+import { installMockCompact, installMockUsdc } from '../../ios/helpers/evm-doubles';
 
 /**
  * Bridge-OUT Fast (Epoch) from a GUARDIAN (multisig) account — hermetic, local.
@@ -24,18 +24,20 @@ import { installMockCompact } from '../../ios/helpers/evm-doubles';
  *
  * Hermetic doubles (same wiring as earn-deposit.spec.ts — the earn deposit path
  * mints the same kind of Miden→allocator P2IDE note):
- *   - FakeEpochAllocator (:8548) — EPOCH_ALLOCATOR_URL (quote via
- *     `/checkIfDepositNeeded`, collateral config via `/miden-recipient`,
- *     allocation ack via `/compact`).
- *   - Anvil (:8545) + MockCompact — the single EVM read `solveIntent` does
- *     (`getForcedWithdrawalStatus` on The Compact).
+ *   - FakeEpochAllocator (:8548), the served document's `epoch.allocatorUrl`
+ *     (quote via `/checkIfDepositNeeded`, collateral config via
+ *     `/miden-recipient`, allocation ack via `/compact`, `/health`).
+ *   - Anvil (:8545) + MockCompact + MockUsdc: the single EVM read `solveIntent`
+ *     does (`getForcedWithdrawalStatus` on The Compact), and the wallet's config
+ *     checks on the document's `epoch.evmUsdc`.
  * The guardian co-signer is the local stack's `--profile guardian` container.
  *
- * These URLs are baked in at BUILD time (vite defines), so the ports here MUST
- * match the build-time env the CI job sets (EPOCH_ALLOCATOR_URL=…:8548,
- * E2E_EVM_RPC_URL=…:8545). EVM settlement is deliberately NOT asserted — there is
- * no real solver — because the bug is detectable at the note's mint-time
- * type/structure, which is the layer this test checks.
+ * The hermetic-bridge fixture serves the document on :8550 (MIDEN_REMOTE_CONFIG_URL
+ * at build time) and E2E_EVM_RPC_URL points EVM reads at :8545, so the ports here
+ * MUST match the document and the CI job's build env. EVM settlement is
+ * deliberately NOT asserted (there is no real solver), because the bug is
+ * detectable at the note's mint-time type/structure, which is the layer this
+ * test checks.
  */
 
 const GUARDIAN_URL = process.env.GUARDIAN_URL ?? 'http://localhost:3000';
@@ -58,9 +60,10 @@ test.describe('bridge-out Fast (Epoch) from a Guardian account', () => {
   test.beforeAll(async () => {
     anvil = await AnvilInstance.start({ port: ANVIL_PORT });
     // The Compact stub: getForcedWithdrawalStatus → (Disabled, 0). The bridge-out
-    // path does not broadcast an EVM tx (Miden collateral), so the USDC/AggLayer
-    // doubles the bridge-in harness installs are not needed here.
+    // path does not broadcast an EVM tx (Miden collateral); MockUsdc is there for
+    // the wallet's config checks on the document's `epoch.evmUsdc`.
     await installMockCompact(anvil.rpcUrl);
+    await installMockUsdc(anvil.rpcUrl);
     await allocator.start();
   });
 

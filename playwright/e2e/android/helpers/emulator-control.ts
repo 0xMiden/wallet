@@ -6,6 +6,44 @@ import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Every adb call is bounded. An unbounded `am start -W` once waited on a launch the system had already killed,
+ * which surfaced only as the 15-minute test timeout with no step named; a bounded call fails with its command.
+ */
+const ADB_TIMEOUT_MS = 30_000;
+const ADB_INSTALL_TIMEOUT_MS = 180_000;
+const ADB_LAUNCH_TIMEOUT_MS = 90_000;
+// The task leaves the hierarchy about 2 s after a force-stop on a CI emulator, 3 s with animations slowed tenfold.
+const TASK_REMOVAL_TIMEOUT_MS = 15_000;
+const TASK_REMOVAL_POLL_MS = 250;
+
+function adb(args: string[], timeout: number = ADB_TIMEOUT_MS): Promise<{ stdout: string; stderr: string }> {
+  return execFileAsync('adb', args, { timeout, maxBuffer: 16 * 1024 * 1024 });
+}
+
+function describeAdbError(err: unknown): string {
+  const text = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').trim();
+  return err instanceof Error && 'killed' in err && err.killed === true ? `${text} (killed at its timeout)` : text;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Whether `dumpsys activity activities` still lists a task or activity of `packageName` in the window hierarchy.
+ * Only the hierarchy's own entries count (`* Task{...}`, `* Hist #0: ActivityRecord{...}`, `* ActivityRecord{...}`):
+ * a pointer such as `mLastFocusedRootTask=Task{... A=10199:<package>}` keeps naming the package long after the
+ * task is gone.
+ */
+export function listsPackageTask(dump: string, packageName: string): boolean {
+  const entry = new RegExp(
+    `^\\s*\\*\\s+(?:Hist\\s+#\\d+:\\s+)?(?:Task|ActivityRecord)\\{[^}]*[\\s:]${escapeRegExp(packageName)}(?=[/}\\s])`,
+    'm'
+  );
+  return entry.test(dump);
+}
+
 const ROOT_DIR = path.resolve(__dirname, '../../../..');
 const PAIR_FILE = path.join(ROOT_DIR, 'test-results-android', '.device-pair.json');
 
@@ -108,7 +146,7 @@ export class EmulatorControl {
     // Phase 1: sys.boot_completed flips to 1 — userland is up enough for adb shell.
     while (Date.now() - start < BOOT_TIMEOUT_MS) {
       try {
-        const { stdout } = await execFileAsync('adb', ['-s', serial, 'shell', 'getprop', 'sys.boot_completed']);
+        const { stdout } = await adb(['-s', serial, 'shell', 'getprop', 'sys.boot_completed']);
         if (stdout.trim() === '1') break;
       } catch {
         // device not reachable yet — keep polling
@@ -121,7 +159,7 @@ export class EmulatorControl {
     // Phase 2: boot animation stops. Fires after sys.boot_completed.
     while (Date.now() - start < BOOT_TIMEOUT_MS) {
       try {
-        const { stdout } = await execFileAsync('adb', ['-s', serial, 'shell', 'getprop', 'init.svc.bootanim']);
+        const { stdout } = await adb(['-s', serial, 'shell', 'getprop', 'init.svc.bootanim']);
         if (stdout.trim() === 'stopped') break;
       } catch {
         // ignore
@@ -148,14 +186,7 @@ export class EmulatorControl {
     let gmsRunningSince: number | null = null;
     while (Date.now() - start < BOOT_TIMEOUT_MS) {
       try {
-        const { stdout } = await execFileAsync('adb', [
-          '-s',
-          serial,
-          'shell',
-          'pgrep',
-          '-f',
-          'com.google.android.gms.persistent'
-        ]);
+        const { stdout } = await adb(['-s', serial, 'shell', 'pgrep', '-f', 'com.google.android.gms.persistent']);
         if (stdout.trim().length > 0) {
           if (gmsRunningSince === null) gmsRunningSince = Date.now();
           if (Date.now() - gmsRunningSince >= GMS_STABLE_MS) return;
@@ -175,7 +206,7 @@ export class EmulatorControl {
       throw new Error(`APK not found at ${apkPath}`);
     }
     // `install -r -t` allows replacing + accepting test packages.
-    await execFileAsync('adb', ['-s', serial, 'install', '-r', '-t', apkPath]);
+    await adb(['-s', serial, 'install', '-r', '-t', apkPath], ADB_INSTALL_TIMEOUT_MS);
 
     // Pre-grant the runtime permissions whose system dialogs would otherwise
     // appear over the app on first launch (Android 13+ gates POST_NOTIFICATIONS
@@ -189,15 +220,9 @@ export class EmulatorControl {
     // dialog to race. Failures are swallowed because the permission does not
     // exist below API 33, where `pm grant` errors instead of no-op'ing.
     if (packageName) {
-      await execFileAsync('adb', [
-        '-s',
-        serial,
-        'shell',
-        'pm',
-        'grant',
-        packageName,
-        'android.permission.POST_NOTIFICATIONS'
-      ]).catch(() => {});
+      await adb(['-s', serial, 'shell', 'pm', 'grant', packageName, 'android.permission.POST_NOTIFICATIONS']).catch(
+        () => {}
+      );
     }
   }
 
@@ -205,7 +230,7 @@ export class EmulatorControl {
     // adb's uninstall returns non-zero when the package isn't installed.
     // Swallow that case — we want this idempotent like iOS's simctl uninstall.
     try {
-      await execFileAsync('adb', ['-s', serial, 'uninstall', packageName]);
+      await adb(['-s', serial, 'uninstall', packageName]);
     } catch {
       // not installed — fine
     }
@@ -221,7 +246,7 @@ export class EmulatorControl {
     // `pm clear` resets the app to first-launch state. Exits 0 even if the
     // package doesn't exist on some Android versions; safe to call blindly.
     try {
-      await execFileAsync('adb', ['-s', serial, 'shell', 'pm', 'clear', packageName]);
+      await adb(['-s', serial, 'shell', 'pm', 'clear', packageName]);
     } catch {
       // not installed → nothing to wipe
     }
@@ -242,12 +267,45 @@ export class EmulatorControl {
     activityName: string = '.MainActivity'
   ): Promise<void> {
     const component = `${packageName}/${activityName}`;
-    await execFileAsync('adb', ['-s', serial, 'shell', 'am', 'start', '-W', '-n', component]);
+    // `-W` waits for the activity's first draw. A process the system kills before it attaches never draws, so
+    // the timeout is what ends that wait, and the liveness check below catches a process lost just after it.
+    try {
+      await adb(['-s', serial, 'shell', 'am', 'start', '-W', '-n', component], ADB_LAUNCH_TIMEOUT_MS);
+    } catch (err) {
+      throw new Error(`am start -W ${component} on ${serial} did not complete: ${describeAdbError(err)}`);
+    }
+    if ((await this.pidOf(serial, packageName)) === null) {
+      throw new Error(`${packageName} is not running on ${serial} after am start -W returned`);
+    }
   }
 
+  /**
+   * Stop the app and wait until the system has removed its task.
+   *
+   * A force-stop can leave the task exiting while its window animates out; the system then finishes removing it
+   * on a destroy timeout that kills whatever process runs the package at that moment. A launch inside that window
+   * loses its new process (`Destroy timeout of remove-task` → `Killing <pid>:<package> ... remove task` →
+   * `failed to attach`), and `am start -W` waits on it for good. That killed the next test's launch between
+   * tests of E2E Android, so the stop is complete only once the task is gone.
+   */
   async terminate(serial: string, packageName: string): Promise<void> {
     // `am force-stop` always exits 0 even if the package is already stopped.
-    await execFileAsync('adb', ['-s', serial, 'shell', 'am', 'force-stop', packageName]);
+    await adb(['-s', serial, 'shell', 'am', 'force-stop', packageName]);
+    await this.waitForTaskRemoval(serial, packageName);
+  }
+
+  async waitForTaskRemoval(serial: string, packageName: string): Promise<void> {
+    const deadline = Date.now() + TASK_REMOVAL_TIMEOUT_MS;
+    for (;;) {
+      const { stdout } = await adb(['-s', serial, 'shell', 'dumpsys', 'activity', 'activities']);
+      if (!listsPackageTask(stdout, packageName)) return;
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `${serial} still lists a task of ${packageName} ${TASK_REMOVAL_TIMEOUT_MS}ms after am force-stop`
+        );
+      }
+      await sleep(TASK_REMOVAL_POLL_MS);
+    }
   }
 
   /**
@@ -267,15 +325,7 @@ export class EmulatorControl {
    */
   async grantNotifications(serial: string, packageName: string): Promise<void> {
     try {
-      await execFileAsync('adb', [
-        '-s',
-        serial,
-        'shell',
-        'pm',
-        'grant',
-        packageName,
-        'android.permission.POST_NOTIFICATIONS'
-      ]);
+      await adb(['-s', serial, 'shell', 'pm', 'grant', packageName, 'android.permission.POST_NOTIFICATIONS']);
     } catch {
       // permission not declared / pre-33 image — no prompt to dodge
     }
@@ -287,7 +337,8 @@ export class EmulatorControl {
     // binary without adb's CRLF mangling.
     const { stdout } = await execFileAsync('adb', ['-s', serial, 'exec-out', 'screencap', '-p'], {
       encoding: 'buffer',
-      maxBuffer: 50 * 1024 * 1024
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: ADB_TIMEOUT_MS
     });
     fs.writeFileSync(outPath, stdout);
   }
@@ -298,7 +349,7 @@ export class EmulatorControl {
    */
   async pidOf(serial: string, packageName: string): Promise<number | null> {
     try {
-      const { stdout } = await execFileAsync('adb', ['-s', serial, 'shell', 'pidof', packageName]);
+      const { stdout } = await adb(['-s', serial, 'shell', 'pidof', packageName]);
       const n = parseInt(stdout.trim(), 10);
       return Number.isFinite(n) ? n : null;
     } catch {
@@ -311,25 +362,19 @@ export class EmulatorControl {
    * Returns the forwarded port so a separate cleanup can later remove it.
    */
   async forwardWebviewDevtools(serial: string, pid: number, hostPort: number): Promise<void> {
-    await execFileAsync('adb', [
-      '-s',
-      serial,
-      'forward',
-      `tcp:${hostPort}`,
-      `localabstract:webview_devtools_remote_${pid}`
-    ]);
+    await adb(['-s', serial, 'forward', `tcp:${hostPort}`, `localabstract:webview_devtools_remote_${pid}`]);
   }
 
   async removeForward(serial: string, hostPort: number): Promise<void> {
     try {
-      await execFileAsync('adb', ['-s', serial, 'forward', '--remove', `tcp:${hostPort}`]);
+      await adb(['-s', serial, 'forward', '--remove', `tcp:${hostPort}`]);
     } catch {
       // already removed → fine
     }
   }
 
   static async listBootedSerials(): Promise<Set<string>> {
-    const { stdout } = await execFileAsync('adb', ['devices']);
+    const { stdout } = await adb(['devices']);
     const serials = new Set<string>();
     for (const line of stdout.split('\n').slice(1)) {
       const m = line.match(/^(\S+)\s+device$/);
@@ -365,7 +410,7 @@ function avdIsUsable(avdHome: string, avd: string): boolean {
 /** Is `pkg` installed on this device? Used to skip GMS-only wait steps on AOSP images. */
 async function deviceHasPackage(serial: string, pkg: string): Promise<boolean> {
   try {
-    const { stdout } = await execFileAsync('adb', ['-s', serial, 'shell', 'pm', 'list', 'packages', pkg]);
+    const { stdout } = await adb(['-s', serial, 'shell', 'pm', 'list', 'packages', pkg]);
     return stdout.includes(pkg);
   } catch {
     return false;
@@ -506,7 +551,7 @@ async function bootAvd(avdName: string, port: number): Promise<string> {
     const present = await EmulatorControl.listBootedSerials();
     if (present.has(expectedSerial)) {
       try {
-        const { stdout } = await execFileAsync('adb', ['-s', expectedSerial, 'shell', 'getprop', 'sys.boot_completed']);
+        const { stdout } = await adb(['-s', expectedSerial, 'shell', 'getprop', 'sys.boot_completed']);
         if (stdout.trim() === '1') return expectedSerial;
       } catch {
         // not responsive yet — keep polling

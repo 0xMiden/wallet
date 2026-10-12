@@ -1391,8 +1391,10 @@ fileprivate extension WKWebViewController {
             return true // external app opened -> cancel WebView load
         }
 
-        // Cannot open scheme: notify and still block WebView (avoid rendering garbage / errors)
-        self.capBrowserPlugin?.notifyListeners("pageLoadError", data: ["id": self.instanceId])
+        // Miden patch: no app handles this link. Keep blocking it (the WebView would render garbage
+        // or an error) but do not emit pageLoadError: the page on screen did not fail, and callers
+        // close the page on that event.
+        iabDebug("[InAppBrowser] no app handles \(url.scheme ?? ""), blocking navigation")
         return true
     }
 
@@ -1958,6 +1960,7 @@ extension WKWebViewController: WKNavigationDelegate {
             self.url = url
             delegate?.webViewController?(self, didFail: url, withError: error)
         }
+        guard !isNavigationCancellation(error) else { return }
         self.capBrowserPlugin?.notifyListeners("pageLoadError", data: ["id": self.instanceId])
     }
 
@@ -1968,7 +1971,19 @@ extension WKWebViewController: WKNavigationDelegate {
             self.url = url
             delegate?.webViewController?(self, didFail: url, withError: error)
         }
+        guard !isNavigationCancellation(error) else { return }
         self.capBrowserPlugin?.notifyListeners("pageLoadError", data: ["id": self.instanceId])
+    }
+
+    /// Miden patch: a navigation cancelled by a newer one (NSURLErrorCancelled) or by a policy
+    /// decision (WebKitErrorFrameLoadInterruptedByPolicyChange, 102) is not a failed page, and
+    /// callers close the page on pageLoadError.
+    private func isNavigationCancellation(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+            return true
+        }
+        return nsError.domain == "WebKitErrorDomain" && nsError.code == 102
     }
 
     public func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
@@ -2151,6 +2166,18 @@ extension WKWebViewController: WKNavigationDelegate {
 class BlockBarButtonItem: UIBarButtonItem {
 
     var block: ((WKWebViewController) -> Void)?
+}
+
+/// With its bar showing, a UINavigationController picks the status bar style from the
+/// bar's appearance, which follows the phone, and never asks its child. A header painted
+/// in an explicit colour sets `forwardsStatusBarStyle` so the child's style, derived from
+/// that colour, decides instead and the clock stays legible on it.
+class StatusBarForwardingNavigationController: UINavigationController {
+    var forwardsStatusBarStyle = false
+
+    override var childForStatusBarStyle: UIViewController? {
+        return forwardsStatusBarStyle ? topViewController : super.childForStatusBarStyle
+    }
 }
 
 // MARK: - Native navbar overlay (Architecture A — quality path)

@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 
 import { useClaimNotes } from 'app/hooks/useClaimNotes';
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import type { PendingActivityItem, PendingActivityStatus } from 'app/templates/history/PendingActivityCard';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import {
   holdsNotes,
-  initiateConsumeNotesTransaction,
   initiateConsumeTransaction,
+  queueConsumeNotes,
   requestSWTransactionProcessing,
   requeueFailedTransaction,
   startBackgroundTransactionProcessing
@@ -68,7 +68,7 @@ export function __resetActivityClaimsForTest(): void {
 export function useActivityClaims() {
   const claim = useClaimNotes();
   const { signTransaction } = useMidenContext();
-  const nativeFaucetId = useMidenFaucetId();
+  const nativeFaucetId = useNativeFeeFaucetId();
   const key = `${claim.account.publicKey}|${getEffectiveRpcUrl()}|${getEffectiveNetworkName()}`;
   const attempts = useSyncExternalStore(subscribe, () => slots.get(key)?.attempts ?? noAttempts);
   const setAttempts = (update: (previous: Attempts) => Attempts) => updateAttempts(key, update);
@@ -235,13 +235,17 @@ export function useActivityClaims() {
     const groups = groupNotesForClaim(accepted, nativeFaucetId, note => isAgglayerBridgeDelivery(note.senderAddress));
     for (const groupNotes of groups) {
       try {
-        const txId = await reportNoteClaim(() =>
-          initiateConsumeNotesTransaction(claim.account.publicKey, groupNotes, claim.isDelegatedProvingEnabled, true)
+        const { committedId, coveringTxIdByNoteId } = await reportNoteClaim(() =>
+          queueConsumeNotes(claim.account.publicKey, groupNotes, claim.isDelegatedProvingEnabled, true)
         );
         queued = true;
+        // Per note: a note already covered by a live, completed or note-holding row never joins the
+        // batch, so it settles with that row.
         setAttempts(previous => {
           const next = new Map(previous);
-          for (const note of groupNotes) next.set(note.id, { note, status: 'claiming', txId });
+          for (const note of groupNotes) {
+            next.set(note.id, { note, status: 'claiming', txId: coveringTxIdByNoteId.get(note.id) ?? committedId });
+          }
           return next;
         });
       } catch (error) {

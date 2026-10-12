@@ -5,12 +5,13 @@ import classNames from 'clsx';
 import { type FlowAccent } from 'components/flow/accent';
 import { hapticLight } from 'lib/mobile/haptics';
 
+import { Pill, type PillTone } from './Pill';
 import { SelectionCheck } from './SelectionCheck';
 import { Skeleton } from './Skeleton';
 
 export type AssetDeltaDirection = 'positive' | 'negative' | 'neutral';
 
-export interface AssetListItemProps {
+interface AssetListItemBaseProps {
   icon: ReactNode;
   name: string;
   /** The token quantity line. A live figure comes in as an `AnimatedNumber`. */
@@ -41,6 +42,13 @@ export interface AssetListItemProps {
   badge?: ReactNode;
 }
 
+/**
+ * `disabled` greys out a tapped row and blocks its tap through the native attribute. A row without `onClick` is a
+ * plain `div` that nothing can disable, so the type admits `disabled` only together with `onClick`.
+ */
+export type AssetListItemProps = AssetListItemBaseProps &
+  ({ disabled?: undefined } | { disabled: boolean; onClick: () => void });
+
 export const AssetListItem: FC<AssetListItemProps> = ({
   icon,
   name,
@@ -49,6 +57,7 @@ export const AssetListItem: FC<AssetListItemProps> = ({
   price,
   delta,
   selected,
+  disabled = false,
   accent,
   onClick,
   className,
@@ -62,20 +71,14 @@ export const AssetListItem: FC<AssetListItemProps> = ({
     onClick();
   };
 
-  // The status badge's sage and clay inks, the same pair ActivityRow uses: the raw status fills are
-  // 2.2-3.5:1 and never carry text (design-system Rule 3). Neutral keeps its muted token, which is
-  // not a fill.
-  const deltaColor =
-    delta?.direction === 'negative'
-      ? 'text-negative-tint-ink'
-      : delta?.direction === 'neutral'
-        ? 'text-text-tertiary-token'
-        : 'text-positive-tint-ink';
+  // A flat move is grey rather than green or red; an unsigned one reads as a gain.
+  const deltaTone: PillTone =
+    delta?.direction === 'negative' ? 'negative' : delta?.direction === 'neutral' ? 'muted' : 'positive';
 
   const classes = classNames(
     'w-full h-18 flex items-center justify-between text-left',
     onClick && [
-      'cursor-pointer active:opacity-90 transition-opacity',
+      'cursor-pointer active:opacity-90 transition-opacity disabled:cursor-default disabled:opacity-50',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-inset'
     ],
     className
@@ -102,7 +105,11 @@ export const AssetListItem: FC<AssetListItemProps> = ({
       <div data-slot="trailing" className="flex shrink-0 items-center gap-3">
         <div className="flex flex-col items-end">
           {price && <div className="text-row-title text-ink">{price}</div>}
-          {delta && <div className={classNames('text-caption', deltaColor)}>{delta.value}</div>}
+          {delta && (
+            <Pill size="xs" tone={deltaTone} className="mt-0.5">
+              {delta.value}
+            </Pill>
+          )}
         </div>
 
         {selected && <SelectionCheck accent={accent} />}
@@ -114,6 +121,7 @@ export const AssetListItem: FC<AssetListItemProps> = ({
     return (
       <button
         type="button"
+        disabled={disabled}
         data-testid={dataTestId}
         data-token-id={dataTokenId}
         onClick={handleClick}

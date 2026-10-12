@@ -2,10 +2,26 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
+
 import { SendRoute, SendRouteProps } from './SendRoute';
 import { AgglayerEligibility, useAgglayerEligibility } from './useAgglayerEligibility';
 
 jest.mock('./useAgglayerEligibility', () => ({ useAgglayerEligibility: jest.fn(() => 'allowed') }));
+
+const DOWN: FeatureAvailability = {
+  state: 'unavailable',
+  reason: 'service-down',
+  detail: 'allocator /health: timeout'
+};
+let mockAvailability: Partial<Record<BridgeFeature, FeatureAvailability>> = {};
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useFeatureAvailability: (feature: BridgeFeature) => mockAvailability[feature] ?? { state: 'available' }
+}));
+
+beforeEach(() => {
+  mockAvailability = {};
+});
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -38,6 +54,8 @@ jest.mock('./Route', () => ({
       data-fast-fee={String(props.fastFeeUsd)}
       data-fast-loading={String(props.fastQuoteLoading)}
       data-slow-status={props.slowStatus}
+      data-fast-state={props.fastAvailability.state}
+      data-slow-state={props.slowAvailability.state}
     />
   )
 }));
@@ -85,6 +103,43 @@ describe('SendRoute', () => {
     const props = renderRoute({ route: 'agglayer' });
     fireEvent.click(screen.getByTestId('bridge-route-confirm'));
     expect(props.onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads Fast from fastBridgeOut and Slow from bridgeOut', () => {
+    mockAvailability = { fastBridgeOut: DOWN };
+    renderRoute({ route: 'agglayer' });
+    const options = screen.getByTestId('route-options');
+    expect(options).toHaveAttribute('data-fast-state', 'unavailable');
+    expect(options).toHaveAttribute('data-slow-state', 'available');
+    expect(screen.getByTestId('bridge-route-confirm')).toBeEnabled();
+  });
+
+  it.each<['epoch' | 'agglayer', BridgeFeature]>([
+    ['epoch', 'fastBridgeOut'],
+    ['agglayer', 'bridgeOut']
+  ])('blocks Confirm on %s while %s is unavailable', (route, feature) => {
+    mockAvailability = { [feature]: DOWN };
+    const props = renderRoute({ route });
+    fireEvent.click(screen.getByTestId('bridge-route-confirm'));
+    expect(screen.getByTestId('bridge-route-confirm')).toBeDisabled();
+    expect(props.onConfirm).not.toHaveBeenCalled();
+  });
+
+  // The USDCx burn needs neither bridge: on testnet the two features can be unavailable together.
+  it('confirms the USDCx route while the Fast and Slow features are unavailable', () => {
+    mockAvailability = { fastBridgeOut: DOWN, bridgeOut: DOWN };
+    jest.mocked(useAgglayerEligibility).mockReturnValueOnce('unsupported');
+    const props = renderRoute({ route: 'usdcx', usdcxAvailable: true });
+
+    expect(screen.getByTestId('bridge-route-confirm')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('bridge-route-confirm'));
+    expect(props.onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks Confirm on the USDCx route for a token that cannot use it', () => {
+    renderRoute({ route: 'usdcx', usdcxAvailable: false });
+
+    expect(screen.getByTestId('bridge-route-confirm')).toBeDisabled();
   });
 
   it('shows the route title and forwards the back action', () => {

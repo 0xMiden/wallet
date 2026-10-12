@@ -35,6 +35,7 @@ import {
   RETRY_COOLDOWN_SEC,
   MAX_RETRY_BACKOFF_SEC,
   TRANSACTION_STUCK_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_ERROR,
   TRANSACTION_EXPIRED_ERROR,
   TRANSACTION_INTERRUPTED_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
@@ -499,10 +500,9 @@ describe('transactions utilities', () => {
 
     it('refuses a PRIVATE send when no note transport is configured, before anything is queued', async () => {
       // Mainnet has no entry in MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS, so the client
-      // is built with no transport — and `relay_private_note` resolves the transport
-      // API before it writes its retry outbox, so such a send would land on chain,
-      // reach nobody, and leave no retry record. Refusing here is what keeps the
-      // assets in the account: nothing has been queued, proved or submitted yet.
+      // is built with no transport, every relay fails and no retry can do better:
+      // such a send would land on chain and reach nobody. Refusing here is what keeps
+      // the assets in the account: nothing has been queued, proved or submitted yet.
       (globalThis as { __ntlConfigured?: boolean }).__ntlConfigured = false;
       mockTransactionsAdd.mockResolvedValueOnce(undefined);
 
@@ -631,6 +631,53 @@ describe('transactions utilities', () => {
       );
     });
 
+    it('atomically persists the USDCx burn identity alongside its replayable request', async () => {
+      const requestBytes = new Uint8Array([1, 2, 3]);
+      const burn: { noteId: string; destinationDomain: number; phase: 'pending' } = {
+        noteId: 'burn-note',
+        destinationDomain: 0,
+        phase: 'pending'
+      };
+      await initiateBridgedSendTransaction(
+        'account-a',
+        1_000_000n,
+        'faucet-a',
+        '0xrecipient',
+        11155111,
+        'usdcx',
+        requestBytes,
+        true,
+        undefined,
+        authorization,
+        undefined,
+        burn
+      );
+      expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'bridged-send',
+          requestBytes,
+          extraInputs: expect.objectContaining({ provider: 'usdcx', usdcxBurn: burn })
+        }),
+        [{ faucetId: expect.any(String), amount: expect.any(BigInt) }],
+        authorization
+      );
+    });
+
+    it('never queues an untrackable USDCx burn', async () => {
+      await expect(
+        initiateBridgedSendTransaction(
+          'account-a',
+          1n,
+          'faucet-a',
+          '0xrecipient',
+          11155111,
+          'usdcx',
+          new Uint8Array([1])
+        )
+      ).rejects.toThrow('persisted request and note id');
+      expect(mockQueueOutgoingTransaction).not.toHaveBeenCalled();
+    });
+
     it('stores the Agglayer exit hash on the bridged-send row it queues (#1325)', async () => {
       await initiateBridgedSendTransaction(
         'account-a',
@@ -703,7 +750,19 @@ describe('transactions utilities', () => {
     );
   });
 
+  // The consume dedup reads the account's note-holding rows (`getNoteHoldingTransactions`) before its per-note
+  // lookups; these suites hold none. A test's own `mockReturnValueOnce` still comes first.
+  const noNoteHoldingRows = () => {
+    beforeEach(() => {
+      mockTransactionsFilter.mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
+    });
+    afterEach(() => {
+      mockTransactionsFilter.mockReturnValue(undefined);
+    });
+  };
+
   describe('initiateConsumeTransaction', () => {
+    noNoteHoldingRows();
     const note = {
       id: 'note-123',
       faucetId: 'faucet',
@@ -1135,6 +1194,7 @@ describe('transactions utilities', () => {
   });
 
   describe('initiateConsumeTransactionFromId', () => {
+    noNoteHoldingRows();
     it('creates consume transaction from note id', async () => {
       mockGetInputNote.mockReturnValueOnce({
         metadata: () => ({ noteType: () => 'public' })
@@ -2181,6 +2241,86 @@ describe('Transaction resilience: network outage recovery (isolated)', () => {
     expect(tx9.status).toBe(ITransactionStatus.Queued);
     expect(tx9.stage).toBe('syncing');
     expect(tx9.requestBytes).toBe(earnBytes);
+
+    // ---- Phase 10: a pre-flight sync on a terminated client is deferred like any other ----
+    // The SDK refused the call or stopped the worker running it, so unlike an eviction or an abort
+    // nothing of it runs on, and at 'syncing' nothing was built.
+    networkUp = true;
+    mockSyncState.mockRejectedValueOnce(new Error('WebClient terminated'));
+    const terminatedRequeueStartedAt = Math.floor(Date.now() / 1000);
+    txStore.push({
+      id: 'tx-10',
+      type: 'send',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Date.now(),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Sending',
+      requestBytes: undefined
+    });
+
+    const result10 = await generateTransactionsLoop(signCallback, false, guardianProvider);
+
+    expect(result10).toBe(false);
+    const tx10 = txStore.find(t => t.id === 'tx-10');
+    const terminatedRequeueFinishedAt = Math.floor(Date.now() / 1000);
+    expect(tx10.status).toBe(ITransactionStatus.Queued);
+    expect(tx10.stage).toBe('syncing');
+    expect(tx10.nextEligibleAt).toBeGreaterThanOrEqual(terminatedRequeueStartedAt + 30);
+    expect(tx10.nextEligibleAt).toBeLessThanOrEqual(terminatedRequeueFinishedAt + 30);
+    expect(tx10.mayHaveSubmitted).toBeFalsy();
+
+    // ---- Phase 11: past the flip, a terminated client is a kill ----
+    mockNewTransaction.mockRejectedValueOnce(new Error('send failed', { cause: new Error('Client terminated') }));
+    txStore.push({
+      id: 'tx-11',
+      type: 'execute',
+      accountId: 'acc-1',
+      status: ITransactionStatus.Queued,
+      initiatedAt: Date.now(),
+      displayIcon: 'DEFAULT',
+      displayMessage: 'Executing',
+      requestBytes: new Uint8Array([11])
+    });
+
+    const result11 = await generateTransactionsLoop(signCallback, false, guardianProvider);
+
+    expect(result11).toBe(false);
+    const tx11 = txStore.find(t => t.id === 'tx-11');
+    expect(tx11.status).toBe(ITransactionStatus.Failed);
+    expect(tx11.nextEligibleAt).toBeUndefined();
+    expect(tx11.error).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+
+    // ---- Phases 12-15: a kill that may still be running is never deferred, wrapped or mixed ----
+    // A terminated client next to an eviction is still an eviction, and next to an indefinite outcome
+    // the submit was reached, so only a chain whose one kill is a terminated client is deferred.
+    const indefiniteOutcome =
+      `submission of transaction 0x${'ab'.repeat(32)} came back without a definite outcome, ` +
+      'so the node may or may not have accepted it; nothing was recorded locally';
+    const neverDeferred: Array<[string, Error]> = [
+      ['tx-12', new Error('sync failed', { cause: new WasmClientPoisonedError('watchdog') })],
+      ['tx-13', new Error('WebClient terminated', { cause: new WasmClientPoisonedError('watchdog') })],
+      ['tx-14', new WasmClientPoisonedError('realm-error', new Error('WebClient terminated'))],
+      ['tx-15', new Error(indefiniteOutcome, { cause: new Error('Client terminated') })]
+    ];
+    for (const [id, syncError] of neverDeferred) {
+      mockSyncState.mockRejectedValueOnce(syncError);
+      txStore.push({
+        id,
+        type: 'send',
+        accountId: 'acc-1',
+        status: ITransactionStatus.Queued,
+        initiatedAt: Date.now(),
+        displayIcon: 'DEFAULT',
+        displayMessage: 'Sending',
+        requestBytes: undefined
+      });
+
+      expect(await generateTransactionsLoop(signCallback, false, guardianProvider)).toBe(false);
+      const row = txStore.find(t => t.id === id);
+      expect({ id, status: row.status }).toEqual({ id, status: ITransactionStatus.Failed });
+      expect(row.nextEligibleAt).toBeUndefined();
+    }
   });
 });
 

@@ -4,12 +4,17 @@ import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@te
 import BigNumber from 'bignumber.js';
 
 import { resetHiddenTokens, useHiddenTokens } from 'app/hooks/useHiddenTokens';
-import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import {
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
+  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
+} from 'lib/epoch/testing/bridge-config';
 import { deferred } from 'lib/epoch/testing/earn-locks';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 // utils/miden.isHexAddress is a pure `startsWith('0x')` helper with no imports —
 // used for real so the redirect branch reflects production behaviour.
@@ -18,6 +23,18 @@ import Explore from './Explore';
 
 // The figures under test follow the default rule, no figure without a quote; pinned here against
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 
@@ -66,10 +83,12 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
+let mockLegacyFeeIdentity: string | undefined;
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
-  default: () => mockFaucetId
+  default: () => mockLegacyFeeIdentity ?? mockFaucetId
 }));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => mockFaucetId }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
   __esModule: true,
   default: () => mockBaseFee
@@ -125,11 +144,6 @@ jest.mock('components/AssetRow', () => ({
 
 jest.mock('components/ConnectivityIssueBanner', () => ({
   ConnectivityIssueBanner: () => <div data-testid="connectivity-banner" />
-}));
-
-// The pill has its own suite; here it only has to sit above the balance card.
-jest.mock('components/NetworkModePill', () => ({
-  NetworkModePill: () => <div data-testid="network-mode-pill" />
 }));
 
 jest.mock('components/Loader', () => ({
@@ -367,11 +381,6 @@ describe('Explore', () => {
       expect(screen.getByTestId('explore-page')).toBeInTheDocument();
       expect(screen.getByTestId('connectivity-banner')).toBeInTheDocument();
       expect(screen.getByTestId('balance-card')).toBeInTheDocument();
-      // The test network is named above the card, the first thing on Home.
-      expect(
-        screen.getByTestId('network-mode-pill').compareDocumentPosition(screen.getByTestId('balance-card')) &
-          Node.DOCUMENT_POSITION_FOLLOWING
-      ).toBeTruthy();
       // amount is `toLocalFormat(balance)` with no symbol (the card's unit says USD), and account
       // fields flow through.
       expect(screen.getByTestId('balance-amount')).toHaveTextContent('0');
@@ -747,6 +756,16 @@ describe('Explore', () => {
       expect(toggle).toHaveTextContent('hiddenAssetsCount:1');
       expect(toggle).toHaveAttribute('aria-expanded', 'false');
       expect(screen.queryByTestId('hidden-asset-list')).toBeNull();
+    });
+
+    it('names a hidden bridge faucet by the testnet label on its Unhide button', async () => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      mockAllBalances = [makeToken('faucet-native', 'MIDEN', 'Miden'), makeToken(MIDEN_USDC_FAUCET, 'USDC', 'USDC')];
+      mockStoredHiddenTokens = [MIDEN_USDC_FAUCET];
+      await renderExplore();
+      await openSection();
+
+      expect(screen.getByRole('button', { name: 'unhideTokenLabel:Test Epoch USDC' })).toBeInTheDocument();
     });
 
     it('opens the section to list each hidden token without a sparkline, and opens its page from the row', async () => {
@@ -1280,6 +1299,27 @@ describe('Explore', () => {
       expect(mockStartBackgroundTransactionProcessing).not.toHaveBeenCalled();
     });
 
+    it('fee identity: auto-consumes A while legacy B remains manual and sorts first', async () => {
+      mockLegacyFeeIdentity = 'legacy-B';
+      mockAutoConsume = true;
+      mockBaseFee = 7;
+      mockPlatform.isExtension = true;
+      mockClaimableNotes = [
+        { ...makeNote('actual-note', 'faucet-native'), amount: '1000000' },
+        { ...makeNote('legacy-note', 'legacy-B'), amount: '1000000' }
+      ];
+      mockAllBalances = [makeToken('faucet-native', 'USDCX'), makeToken('legacy-B', 'LEGACY')];
+      await renderExplore();
+      expect(mockInitiateConsumeTransaction).toHaveBeenCalledWith(
+        'mtst1account',
+        expect.objectContaining({ id: 'actual-note' }),
+        expect.any(Boolean)
+      );
+      expect(mockInitiateConsumeTransaction).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId('home-prompts')).toHaveAttribute('data-note-count', '1');
+      expect(screen.getAllByTestId('asset-row')[0]).toHaveAttribute('data-token', 'legacy-B');
+    });
+
     it('consumes matching, not-yet-claiming notes and dispatches via the SW on extension', async () => {
       mockAutoConsume = true;
       mockDelegateProof = true;
@@ -1457,4 +1497,8 @@ describe('Explore', () => {
       expect(screen.getByTestId('accounts-drawer')).toBeInTheDocument();
     });
   });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
 });

@@ -1,6 +1,6 @@
 import { parseUnits } from 'viem';
 
-import { AGGLAYER_BRIDGE_NOTE_SCALE } from '../../../../src/lib/agglayer/constant';
+import { TEST_NATIVE_ETH_SCALE } from '../../../../src/lib/epoch/testing/bridge-config';
 import { expect, test } from '../fixtures/two-simulators';
 
 /**
@@ -19,11 +19,11 @@ test.describe('Bridge-IN receive (AggLayer, real Miden receipt)', () => {
   test.describe.configure({ mode: 'serial' });
 
   // The tracking row records the deposit in wei, as the deposit screen does; the
-  // bridge delivers it scaled by its ETH faucet's registry scale
-  // (AGGLAYER_BRIDGE_NOTE_SCALE).
+  // bridge delivers it scaled by its ETH faucet's registry scale, which the wallet
+  // reads from the testnet registry (TEST_NATIVE_ETH_SCALE).
   const SOURCE_AMOUNT = '0.1';
   const TRACKED_WEI = parseUnits(SOURCE_AMOUNT, 18);
-  const DELIVERED = TRACKED_WEI / 10n ** BigInt(AGGLAYER_BRIDGE_NOTE_SCALE);
+  const DELIVERED = TRACKED_WEI / 10n ** BigInt(TEST_NATIVE_ETH_SCALE);
 
   test('a delivered note is reconciled and the bridged-receive row reaches received', async ({
     walletA,

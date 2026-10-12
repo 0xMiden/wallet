@@ -50,14 +50,14 @@ import { TOKEN, TOKEN_DECIMALS } from '../../helpers/money-path';
  *  transition rather than the initial value — without it, a fault that never
  *  reached the sync RPCs would pass silently.
  *
- * `path: 'rpc.Api/Sync'` is a case-sensitive URL SUBSTRING, so it arms every
- * `rpc.Api/Sync*` method the SDK calls — SyncChainMmr, SyncNotes,
+ * `path: 'NodeService/Sync'` is a case-sensitive URL SUBSTRING, so it arms every
+ * `miden.node.v1.NodeService/Sync*` method the SDK calls — SyncChainMmr, SyncNotes,
  * SyncTransactions, SyncNullifiers, SyncAccountVault and
  * SyncAccountStorageMaps. Reads like GetAccount stay healthy, which is what
  * keeps the claim step working; a rate limiter throttling the chatty sync
  * traffic is the realistic shape.
  */
-const SYNC_RPC_PATH = 'rpc.Api/Sync';
+const SYNC_RPC_PATH = 'NodeService/Sync';
 const MINT_1_BASE_UNITS = 100_000_000_000n; // 1000 TST — funded and claimed before the fault
 const MINT_2_BASE_UNITS = 50_000_000_000n; //   500 TST — minted on-chain WHILE rate-limited
 

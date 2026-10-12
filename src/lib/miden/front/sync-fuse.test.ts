@@ -1,4 +1,8 @@
-import { FUSED_SYNC_PROBE_INTERVAL_MS, MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
+import {
+  FUSED_SYNC_PROBE_INTERVAL_MS,
+  MAX_CONSECUTIVE_ABANDONED_PROBES,
+  MAX_CONSECUTIVE_WATCHDOG_EVICTIONS
+} from 'lib/miden/sync-backoff';
 
 import {
   guardianAdoptFuseKey,
@@ -7,12 +11,18 @@ import {
   __resetSyncFuseStateForTests,
   clearSyncFuseForEndpointChange,
   isSyncFused,
+  noteAbandonedSyncProbe,
+  noteLocalProbeFailure,
   noteNonEvictionSyncFailure,
+  noteProbeFailure,
   noteSyncParked,
   noteSyncSuccess,
   noteSyncWatchdogEviction,
+  retireSyncFuse,
   syncFuseUntilMs
 } from './sync-fuse';
+import { OperationAbortedError } from '../back/offscreen-codec';
+import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 // `monotonicNowMs` prefers `performance.now`, so that is the clock to drive.
 let fakeNow = 0;
@@ -260,6 +270,261 @@ describe('sync fuse (#777)', () => {
   it('says nothing when an endpoint change finds no conclusions to discard', () => {
     clearSyncFuseForEndpointChange();
     expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  // The THIRD outcome, and the ledger had only two. A probe that was ABANDONED rather
+  // than answered learned nothing about the node, so it may neither withdraw evidence
+  // like a returned failure nor clear it like a success.
+  describe('noteAbandonedSyncProbe', () => {
+    it('re-arms a LIT fuse, so one probe per interval holds until one SUCCEEDS', () => {
+      evictUntilLit('idle-sync');
+      fakeNow += FUSED_SYNC_PROBE_INTERVAL_MS - 5_000;
+
+      noteAbandonedSyncProbe('idle-sync');
+
+      expect(isSyncFused('idle-sync')).toBe(true);
+      expect(syncFuseUntilMs('idle-sync')).toBe(fakeNow + FUSED_SYNC_PROBE_INTERVAL_MS);
+    });
+
+    it('leaves the EVICTION count exactly as it stands, neither adding to it nor zeroing it', () => {
+      // Part-way through the budget. Zeroing here is what made the loop-terminating
+      // breaks unbounded over half their trigger set: with a recurring realm trap the
+      // count could never reach the threshold, so the pass aborted at the same account
+      // every lap and the accounts after it were never synced again.
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('idle-sync');
+
+      noteAbandonedSyncProbe('idle-sync');
+      expect(syncFuseUntilMs('idle-sync')).toBeNull();
+
+      // The run it did not interrupt still lights on the very next eviction.
+      noteSyncWatchdogEviction('idle-sync');
+      expect(isSyncFused('idle-sync')).toBe(true);
+    });
+
+    it('counts the FIRST probe on a cold key, so a trap from lap one still reaches the bound', () => {
+      // This returned early on an absent entry, so the first trap on a cold key was discarded.
+      // Asserting only that one probe leaves the fuse unlit proved nothing, because a no-op and
+      // the discarding version satisfy that too. The count is observable only at the bound, so
+      // drive it there leaving exactly one probe's worth of room: if the first was dropped, this
+      // lands one short and the fuse stays dark.
+      noteAbandonedSyncProbe('idle-sync');
+      expect(isSyncFused('idle-sync')).toBe(false);
+
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES - 1; i++) noteAbandonedSyncProbe('idle-sync');
+
+      expect(isSyncFused('idle-sync')).toBe(true);
+      expect(syncFuseUntilMs('idle-sync')).toBe(fakeNow + FUSED_SYNC_PROBE_INTERVAL_MS);
+    });
+
+    // THE STARVATION, at the ledger. Declining to erase the eviction count fixed half the
+    // defect; the other half is that a trap added nothing either, so a key could sit at
+    // zero forever while the loop-terminating break aborted the pass at that account on
+    // every lap. The count below is what lights the one fuse that skips it.
+    it('lights the fuse once the abandoned probes reach their OWN threshold', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES - 1; i++) noteAbandonedSyncProbe('idle-sync');
+      expect(isSyncFused('idle-sync')).toBe(false);
+
+      noteAbandonedSyncProbe('idle-sync');
+
+      expect(isSyncFused('idle-sync')).toBe(true);
+      expect(syncFuseUntilMs('idle-sync')).toBe(fakeNow + FUSED_SYNC_PROBE_INTERVAL_MS);
+    });
+
+    it('needs strictly more traps than evictions, so a short burst cannot mute a healthy operator', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) noteAbandonedSyncProbe('idle-sync');
+
+      expect(isSyncFused('idle-sync')).toBe(false);
+    });
+
+    it('is reset by a success, which proves the probe can complete after all', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES - 1; i++) noteAbandonedSyncProbe('idle-sync');
+      noteSyncSuccess('idle-sync');
+
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES - 1; i++) noteAbandonedSyncProbe('idle-sync');
+
+      expect(isSyncFused('idle-sync')).toBe(false);
+    });
+
+    it('is reset by a failure that CAME BACK, which proves the probe reached the node', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES - 1; i++) noteAbandonedSyncProbe('idle-sync');
+      noteNonEvictionSyncFailure('idle-sync');
+
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES - 1; i++) noteAbandonedSyncProbe('idle-sync');
+
+      expect(isSyncFused('idle-sync')).toBe(false);
+    });
+
+    // The oscillation this ledger was split up to end, one level over: if an eviction
+    // zeroed the trap count, a mixed poison streak would hold BOTH counts under their
+    // thresholds forever. The evictions here stay one short of their own bound, so only
+    // the trap count can light this fuse.
+    it('is not zeroed by a watchdog eviction, so a mixed poison streak still reaches its bound', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES; i++) {
+        noteAbandonedSyncProbe('idle-sync');
+        if (i % 3 === 2) noteSyncWatchdogEviction('idle-sync');
+      }
+
+      expect(isSyncFused('idle-sync')).toBe(true);
+    });
+  });
+
+  // The one split every probe books a failed hold through, so two probes cannot read the
+  // same failure differently.
+  describe('noteProbeFailure', () => {
+    it('counts a watchdog eviction toward the fuse', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS; i++) {
+        noteProbeFailure('note-delivery', new WasmClientPoisonedError('watchdog'));
+      }
+
+      expect(isSyncFused('note-delivery')).toBe(true);
+    });
+
+    it.each([
+      ['a realm-error poison', () => new WasmClientPoisonedError('realm-error')],
+      ['an offscreen kill', () => new OperationAbortedError('op-1', 'deadline')],
+      ['a terminated client', () => new Error('Client terminated')]
+    ])('books %s as an abandoned probe, leaving the eviction count standing', (_kind, makeError) => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('note-delivery');
+
+      noteProbeFailure('note-delivery', makeError());
+      expect(syncFuseUntilMs('note-delivery')).toBeNull();
+
+      noteSyncWatchdogEviction('note-delivery');
+      expect(isSyncFused('note-delivery')).toBe(true);
+    });
+
+    it('lights the fuse once enough probes were abandoned', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES; i++) {
+        noteProbeFailure('note-delivery', new WasmClientPoisonedError('realm-error'));
+      }
+
+      expect(isSyncFused('note-delivery')).toBe(true);
+    });
+
+    // Abandoned, not local: a local failure never lights an unlit key, however many arrive.
+    it('lights the fuse once enough probes met a terminated client', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_ABANDONED_PROBES; i++) {
+        noteProbeFailure('note-delivery', new Error('WebClient terminated'));
+      }
+
+      expect(isSyncFused('note-delivery')).toBe(true);
+    });
+
+    it('books any other failure as one that reached the node, withdrawing the evidence', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('note-delivery');
+
+      noteProbeFailure('note-delivery', new Error('rpc blip'));
+      noteSyncWatchdogEviction('note-delivery');
+
+      expect(isSyncFused('note-delivery')).toBe(false);
+    });
+
+    // An offscreen read failed on its own deadline while a critical op held the document: the
+    // node was never asked and the realm runs on, so it is evidence for neither count.
+    describe('an abort that tore nothing down', () => {
+      const intactAbort = () => new OperationAbortedError('op', 'deadline-no-kill');
+
+      it('never lights the fuse, however many arrive', () => {
+        for (let i = 0; i < 2 * MAX_CONSECUTIVE_ABANDONED_PROBES; i++) noteProbeFailure('note-delivery', intactAbort());
+
+        expect(isSyncFused('note-delivery')).toBe(false);
+      });
+
+      it('neither withdraws the eviction count nor adds to it', () => {
+        for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('note-delivery');
+
+        noteProbeFailure('note-delivery', intactAbort());
+        expect(syncFuseUntilMs('note-delivery')).toBeNull();
+
+        noteSyncWatchdogEviction('note-delivery');
+        expect(isSyncFused('note-delivery')).toBe(true);
+      });
+
+      it('re-arms a lapsed window, so the probe it granted does not reopen the cadence', () => {
+        evictUntilLit('note-delivery');
+        fakeNow += FUSED_SYNC_PROBE_INTERVAL_MS + 5_000;
+        expect(isSyncFused('note-delivery')).toBe(false);
+
+        noteProbeFailure('note-delivery', intactAbort());
+
+        expect(syncFuseUntilMs('note-delivery')).toBe(fakeNow + FUSED_SYNC_PROBE_INTERVAL_MS);
+      });
+    });
+  });
+
+  // A failure that never left this realm says nothing about the node either way.
+  describe('noteLocalProbeFailure', () => {
+    it('re-arms a lit window', () => {
+      evictUntilLit('note-delivery');
+      fakeNow += FUSED_SYNC_PROBE_INTERVAL_MS - 5_000;
+
+      noteLocalProbeFailure('note-delivery');
+
+      expect(syncFuseUntilMs('note-delivery')).toBe(fakeNow + FUSED_SYNC_PROBE_INTERVAL_MS);
+    });
+
+    it('re-arms a lapsed window, so the probe it granted does not reopen the cadence', () => {
+      evictUntilLit('note-delivery');
+      fakeNow += FUSED_SYNC_PROBE_INTERVAL_MS + 5_000;
+      expect(isSyncFused('note-delivery')).toBe(false);
+
+      noteLocalProbeFailure('note-delivery');
+
+      expect(isSyncFused('note-delivery')).toBe(true);
+    });
+
+    it('leaves an unlit entry exactly as it stands', () => {
+      for (let i = 0; i < MAX_CONSECUTIVE_WATCHDOG_EVICTIONS - 1; i++) noteSyncWatchdogEviction('note-delivery');
+
+      noteLocalProbeFailure('note-delivery');
+      expect(syncFuseUntilMs('note-delivery')).toBeNull();
+
+      noteSyncWatchdogEviction('note-delivery');
+      expect(isSyncFused('note-delivery')).toBe(true);
+    });
+  });
+
+  // Retirement is about the SUBJECT disappearing, which is why it is not spelled as a
+  // success: a success claims a round trip reached the node, and booking one because a
+  // probe found nothing to do would withdraw parked-node evidence on the strength of a
+  // local read.
+  describe('retireSyncFuse', () => {
+    it('drops the entry, so a later ordinary failure cannot arm on a stale deadline', () => {
+      evictUntilLit(GUARDIAN_A);
+
+      retireSyncFuse(GUARDIAN_A);
+      expect(syncFuseUntilMs(GUARDIAN_A)).toBeNull();
+
+      // An EXPIRED non-null deadline reads as unlit to `isSyncFused` but as lit to the
+      // writers, so a probe whose subject vanished while its fuse was lit left that
+      // field non-null forever and one ordinary failure much later armed a full
+      // interval on a question that had since been answered.
+      noteNonEvictionSyncFailure(GUARDIAN_A);
+      expect(isSyncFused(GUARDIAN_A)).toBe(false);
+    });
+
+    it('takes the EVIDENCE with it, so a retired key starts a fresh run', () => {
+      evictUntilLit(GUARDIAN_A);
+
+      retireSyncFuse(GUARDIAN_A);
+
+      // The discriminator between dropping the entry and merely nulling its deadline:
+      // nulling keeps the eviction count, so the very next eviction re-lights on
+      // evidence about a subject that no longer exists. Same shape as the cleared-
+      // evidence assertion a success gets.
+      noteSyncWatchdogEviction(GUARDIAN_A);
+      expect(isSyncFused(GUARDIAN_A)).toBe(MAX_CONSECUTIVE_WATCHDOG_EVICTIONS === 1);
+    });
+
+    it('retires only its own key', () => {
+      evictUntilLit(GUARDIAN_A);
+      evictUntilLit(GUARDIAN_B);
+
+      retireSyncFuse(GUARDIAN_A);
+
+      expect(isSyncFused(GUARDIAN_A)).toBe(false);
+      expect(isSyncFused(GUARDIAN_B)).toBe(true);
+    });
   });
 
   it("noteSyncParked lights a key on its first park, only that key's success puts it out, and an endpoint change discards it", () => {

@@ -155,7 +155,7 @@ async function launchSimWalletInstance(
     udid,
     bundleId: BUNDLE_ID,
     beforeCapture: () => alertGate.beforeCapture(),
-    settleNotificationPrompt: () => alertGate.settlePrompt(30_000)
+    settleNotificationPrompt: () => alertGate.settlePrompt(60_000)
   });
 
   // Connect idb's companion now, before the screen poll starts, so the first

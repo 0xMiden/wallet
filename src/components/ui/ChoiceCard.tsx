@@ -39,6 +39,12 @@ export interface ChoiceCardGroupProps<T extends string = string> {
   onChange: (id: T) => void;
   /** Called instead of `onChange` when a tap or key activates the option that is already chosen. */
   onReselect?: (id: T) => void;
+  /**
+   * What the arrow keys and Home/End do. `select` (the default) moves focus and the choice together;
+   * `focus` moves focus alone and leaves the choice to a tap, Enter or Space, for a group whose choice
+   * acts at once (a sheet that closes on it), so arrowing past an option does not choose it.
+   */
+  arrowKeys?: 'select' | 'focus';
   'aria-label'?: string;
   'aria-labelledby'?: string;
   /** Layout only (margins). */
@@ -151,9 +157,10 @@ function ChoiceCardOption<T extends string>({ item, selected, focusable, onSelec
  * `radioGroupKeyTarget`, answer the same way:
  * a `radiogroup` of `radio`s, a `value` naming a disabled option reported as no selection, only the
  * chosen (or first choosable) option in the tab order, arrow keys and Home/End moving focus and the
- * choice together (the first arrow landing on the first option with nothing chosen and nothing focused), one
- * selection haptic per real change and none for a tap on the chosen card, a press that dips on the
- * tab-bar spring and a check that pops as it lands. Under reduced motion nothing scales or pops.
+ * choice together (the first arrow landing on the first option with nothing chosen and nothing focused;
+ * focus alone under `arrowKeys="focus"`), one selection haptic per real change and none for a tap on the
+ * chosen card, a press that dips on the tab-bar spring and a check that pops as it lands. Under reduced
+ * motion nothing scales or pops.
  * One split, by design: with every option disabled the twin, disabled as a whole, still shows its
  * value, while a card group with nothing to choose shows nothing chosen.
  */
@@ -162,6 +169,7 @@ export function ChoiceCardGroup<T extends string>({
   value,
   onChange,
   onReselect,
+  arrowKeys = 'select',
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
   className,
@@ -210,7 +218,7 @@ export function ChoiceCardGroup<T extends string>({
     const target = enabled[to];
     if (!target) return;
     buttonAt(target.index)?.focus();
-    select(target.item.id);
+    if (arrowKeys === 'select') select(target.item.id);
   };
 
   return (

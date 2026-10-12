@@ -232,29 +232,6 @@ describe('ExportFileComplete', () => {
     await waitFor(() => expect(mockEncryptJson).toHaveBeenCalled());
   });
 
-  it('does not render the legacy omission warning for a successful version 2 export', async () => {
-    mockAccounts = [
-      { name: 'HD 0', hdIndex: 0 },
-      { name: 'Imported A', hdIndex: -1 },
-      { name: 'Imported B', hdIndex: -1 }
-    ];
-    mockExportWalletBackupMaterial.mockResolvedValueOnce({
-      seedPhrase: 'seed words twelve',
-      midenClientDbContent: 'MIDEN_DB_DUMP',
-      walletDbContent: 'WALLET_DB_DUMP',
-      accounts: mockAccounts,
-      importedAccounts: [
-        { accountId: 'imported-a', publicKeyCommitment: 'a1b2', authScheme: 'falcon', secretKeyHex: '0102' },
-        { accountId: 'imported-b', publicKeyCommitment: 'c3d4', authScheme: 'ecdsa', secretKeyHex: '0304' }
-      ]
-    });
-
-    renderComponent();
-    await screen.findByText('encryptedWalletFileExportedTitle1');
-
-    expect(screen.queryByText('encryptedFileImportedAccountsOmitted')).not.toBeInTheDocument();
-  });
-
   it('invokes onDone when the Done button is clicked', async () => {
     const onDone = jest.fn();
     renderComponent({ onDone });

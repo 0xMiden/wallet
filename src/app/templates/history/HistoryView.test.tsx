@@ -15,8 +15,10 @@ import { bridgeInRowDisplay, bridgeRowDisplay, isBridgeInEntry, isFaucetRequest 
 
 // i18n: identity translator so `t(key)` returns the key verbatim, letting us
 // assert on the raw translation keys the component passes in.
+// A spy, so a case can read the arguments a title was built from.
+const mockT = jest.fn((key: string, _options?: Record<string, unknown>) => key);
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({ t: mockT })
 }));
 
 // The pending card wrapper's props, recorded by the framer-motion mock below. A layout animation
@@ -194,6 +196,8 @@ jest.mock('./transactionUtils', () => ({
   isBridgeInEntry: jest.fn(() => false),
   bridgeInRowDisplay: jest.fn(),
   bridgeRowDisplay: jest.fn(),
+  bridgeBadgeStatusOf: jest.requireActual('./transactionUtils').bridgeBadgeStatusOf,
+  isUsdcxBridgeEntry: jest.requireActual('./transactionUtils').isUsdcxBridgeEntry,
   // Smart Withdraw rows: mirror the real predicate so the earn branch of
   // `buildRowProps` is exercised with realistic values.
   isEarnWithdrawEntry: jest.fn((entry: { txType?: string }) => entry.txType === 'earn-withdraw'),
@@ -421,6 +425,8 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     mockBridgeRowDisplay.mockReturnValue({
       inSymbol: 'MIDEN',
       outSymbol: 'USDC',
+      inLabel: 'MIDEN',
+      outLabel: 'USDC',
       outAmount: '10',
       providerLabel: 'AggLayer',
       network: 'Sepolia',
@@ -447,6 +453,8 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     mockBridgeRowDisplay.mockReturnValue({
       inSymbol: 'MIDEN',
       outSymbol: 'USDC',
+      inLabel: 'MIDEN',
+      outLabel: 'USDC',
       outAmount: '10.65',
       providerLabel: 'Epoch',
       network: 'Sepolia',
@@ -455,6 +463,8 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     jest.mocked(bridgeInRowDisplay).mockReturnValue({
       inSymbol: 'USDC',
       outSymbol: 'ETH',
+      inLabel: 'USDC',
+      outLabel: 'ETH',
       outAmount: '0.015123',
       providerLabel: 'Epoch',
       network: 'Miden',
@@ -475,6 +485,44 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
       screen.getAllByTestId('activity-row').find(row => row.getAttribute('data-amount-value') === value);
     expect(rowWithAmount('10.65 USDC')).toHaveAttribute('data-amount-preformatted', 'yes');
     expect(rowWithAmount('+0.015123 ETH')).toHaveAttribute('data-amount-preformatted', 'yes');
+  });
+
+  it('shows a bridge row under the labels its display gives, not its symbols', () => {
+    jest.mocked(isBridgeInEntry).mockImplementation(entry => entry.txType === 'bridged-receive');
+    mockBridgeRowDisplay.mockReturnValue({
+      inSymbol: 'USDC',
+      outSymbol: 'USDC',
+      inLabel: 'Test Epoch USDC',
+      outLabel: 'Test Epoch USDC',
+      outAmount: '4.98',
+      providerLabel: 'Epoch',
+      network: 'Sepolia',
+      status: 'confirmed'
+    });
+    jest.mocked(bridgeInRowDisplay).mockReturnValue({
+      inSymbol: 'USDC',
+      outSymbol: 'USDC',
+      inLabel: 'Test Epoch USDC',
+      outLabel: 'Test Epoch USDC',
+      outAmount: '3',
+      providerLabel: 'Epoch',
+      network: 'Miden',
+      status: 'confirmed'
+    });
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({ key: 'bridge-out', txType: 'bridged-send', txId: 'bridge-out-tx' }),
+          makeEntry({ key: 'bridge-in', txType: 'bridged-receive', txId: 'bridge-in-tx' })
+        ]}
+        fullHistory
+      />
+    );
+
+    const values = screen.getAllByTestId('activity-row').map(row => row.getAttribute('data-amount-value'));
+    expect(values).toEqual(expect.arrayContaining(['4.98 Test Epoch USDC', '+3 Test Epoch USDC']));
+    expect(mockT).toHaveBeenCalledWith('bridgeRowTitle', { from: 'Test Epoch USDC', to: 'Test Epoch USDC' });
   });
 
   // One render exercising every icon/title/subtitle/amount/status branch.
@@ -673,6 +721,50 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(screen.getByText('January 16, 2024')).toBeInTheDocument();
     expect(screen.getByText('Monday')).toBeInTheDocument();
     expect(screen.getByText('Tuesday')).toBeInTheDocument();
+  });
+
+  it('draws each day as a quiet caption, with the year only when it is not this year', () => {
+    render(<HistoryView {...baseProps} entries={entries} fullHistory dateStyle="caption" />);
+
+    // The 2024 fixtures are not this year, so their captions carry it; no separate weekday header.
+    const caption = screen.getByText('Monday, January 15, 2024');
+    expect(caption).toHaveClass('text-caption-heading', 'text-muted');
+    expect(screen.getByText('Tuesday, January 16, 2024')).toBeInTheDocument();
+    expect(screen.queryByText('Monday')).not.toBeInTheDocument();
+    expect(screen.queryByText('January 15, 2024')).not.toBeInTheDocument();
+  });
+
+  // A caption list sits under a section heading that already leaves 12px; the header list has only
+  // the Activity tab's filters above it, so it opens 16px down.
+  it('starts the first caption day flush under its heading', () => {
+    render(<HistoryView {...baseProps} entries={entries} fullHistory dateStyle="caption" />);
+
+    const firstDay = screen.getByText('Monday, January 15, 2024').closest('[data-layout]');
+    expect(firstDay).not.toHaveClass('pt-4');
+    expect(firstDay).toHaveClass('pt-0', 'py-2.5');
+    expect(screen.getByText('Tuesday, January 16, 2024').closest('[data-layout]')).not.toHaveClass('pt-0');
+  });
+
+  it('keeps the first header day 16px under the filters', () => {
+    renderFull();
+
+    const firstDay = screen.getByText('January 15, 2024').closest('[data-layout]');
+    expect(firstDay).toHaveClass('pt-4', 'py-3');
+    expect(firstDay).not.toHaveClass('pt-0');
+    expect(screen.getByText('January 16, 2024').closest('[data-layout]')).not.toHaveClass('pt-4');
+  });
+
+  it('leaves the year off the caption of a day in this year', () => {
+    jest.useFakeTimers({ now: new Date(2024, 5, 1, 12) });
+    try {
+      render(<HistoryView {...baseProps} entries={entries} fullHistory dateStyle="caption" />);
+
+      expect(screen.getByText('Monday, January 15')).toHaveClass('text-caption-heading', 'text-muted');
+      expect(screen.getByText('Tuesday, January 16')).toBeInTheDocument();
+      expect(screen.queryByText(/2024/)).not.toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('renders the faucet row (RECEIVE icon)', () => {
@@ -1396,6 +1488,53 @@ describe('HistoryView Guardian switch audit trail', () => {
     render(<HistoryView {...baseProps} entries={[entry]} fullHistory />);
 
     expect(screen.getByTestId('activity-row')).toHaveAttribute('data-subtitle', 'unknown → destination.example');
+  });
+
+  it('titles and chips a rotation row by its verdict', () => {
+    const rotation = { txType: 'switch-guardian' as const, newGuardianEndpoint: 'https://new.example/guardian' };
+    const entries = [
+      makeEntry({
+        ...rotation,
+        key: 'unconfirmed',
+        message: 'Guardian switch submitted',
+        guardianSwitchVerdict: 'submitted-unconfirmed'
+      }),
+      makeEntry({ ...rotation, key: 'confirmed', message: 'Guardian switched', guardianSwitchVerdict: 'confirmed' }),
+      makeEntry({
+        ...rotation,
+        key: 'degraded',
+        message: 'Guardian switched',
+        guardianSwitchVerdict: 'completed-degraded'
+      }),
+      makeEntry({
+        ...rotation,
+        key: 'queued',
+        message: 'Switching guardian',
+        type: HistoryEntryType.PendingTransaction,
+        guardianSwitchVerdict: 'in-flight'
+      }),
+      makeEntry({
+        ...rotation,
+        key: 'failed',
+        message: 'Transaction failed',
+        transactionIcon: 'FAILED',
+        guardianSwitchVerdict: 'failed'
+      })
+    ];
+
+    render(<HistoryView {...baseProps} entries={entries} fullHistory />);
+
+    const [unconfirmed, confirmed, degraded, queued, failed] = screen.getAllByTestId('activity-row');
+    expect(unconfirmed).toHaveAttribute('data-title', 'guardianSwitchSubmittedRowTitle');
+    expect(unconfirmed).toHaveAttribute('data-status', 'guardianSwitchSubmitted');
+    expect(confirmed).toHaveAttribute('data-title', 'guardianSwitchedRowTitle');
+    expect(confirmed).toHaveAttribute('data-status', 'confirmed');
+    expect(degraded).toHaveAttribute('data-title', 'guardianSwitchedRowTitle');
+    expect(degraded).toHaveAttribute('data-status', 'confirmed');
+    expect(queued).toHaveAttribute('data-title', 'Switching guardian');
+    expect(queued).toHaveAttribute('data-status', 'pending');
+    expect(failed).toHaveAttribute('data-title', 'Transaction failed');
+    expect(failed).toHaveAttribute('data-status', 'failed');
   });
 });
 

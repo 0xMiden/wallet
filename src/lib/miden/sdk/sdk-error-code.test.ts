@@ -1,15 +1,20 @@
 import {
   ApplyAfterSubmitError,
+  carriesIndefiniteSubmitOutcome,
   extractLanded,
   extractSdkErrorCode,
   hasErrorBeforeSubmit,
   indefiniteSubmitTransactionId,
   isAccountNotFoundOnChainError,
   isApplyAfterSubmitError,
+  isClientTerminatedError,
   isGuardianCanonicalizationError,
   isIndefiniteSubmitOutcomeError,
   isKilledPipeline,
+  isPipelineKillLink,
   isPoisonedPipeline,
+  isRealmIntactAbort,
+  isRunningPipelineKill,
   isStaleInitialCommitmentError,
   isTransactionDiscardedError,
   markErrorBeforeSubmit,
@@ -555,6 +560,93 @@ describe('isKilledPipeline and isPoisonedPipeline (#1313)', () => {
     expect(isPoisonedPipeline(abortedInside())).toBe(false);
     expect(isPoisonedPipeline(poisonedInside())).toBe(true);
   });
+
+  // MidenClient's text and the inner WebClient's: which one a call meets depends only on when it met the terminate.
+  const TERMINATED = ['Client terminated', 'WebClient terminated'];
+
+  it.each(TERMINATED)('reads a terminated client (%p) as a killed pipeline, bare or wrapped', message => {
+    expect(isKilledPipeline(new Error(message))).toBe(true);
+    expect(isKilledPipeline(new Error('x', { cause: new Error(message) }))).toBe(true);
+  });
+
+  it.each(TERMINATED)('reads a terminated client (%p) as neither a poison nor a realm-intact abort', message => {
+    expect(isPoisonedPipeline(new Error(message))).toBe(false);
+    expect(isRealmIntactAbort(new Error(message))).toBe(false);
+    expect(isRealmIntactAbort(new Error('x', { cause: new Error(message) }))).toBe(false);
+  });
+
+  it('keeps a terminated cause under the landed shape landed, and matches only the exact text', () => {
+    expect(isKilledPipeline(new ApplyAfterSubmitError(new Error('Client terminated')))).toBe(false);
+    expect(isKilledPipeline(new Error("Offscreen call 'x' failed: WebClient terminated"))).toBe(false);
+    expect(isKilledPipeline(new Error('WebClient terminated unexpectedly'))).toBe(false);
+  });
+});
+
+describe('isClientTerminatedError and isPipelineKillLink', () => {
+  const { OperationAbortedError } = require('../back/offscreen-codec');
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+
+  it('reads the value itself, never its cause or anything that is not an object', () => {
+    expect(isClientTerminatedError(new Error('Client terminated'))).toBe(true);
+    expect(isClientTerminatedError({ message: 'WebClient terminated' })).toBe(true);
+    expect(isClientTerminatedError(new Error('x', { cause: new Error('Client terminated') }))).toBe(false);
+    expect(isClientTerminatedError('WebClient terminated')).toBe(false);
+    expect(isClientTerminatedError(null)).toBe(false);
+    expect(isClientTerminatedError(undefined)).toBe(false);
+  });
+
+  it('answers no for a message accessor that throws', () => {
+    const hostile = Object.defineProperty({}, 'message', {
+      get: () => {
+        throw new Error('trap');
+      }
+    });
+    expect(() => isClientTerminatedError(hostile)).not.toThrow();
+    expect(isClientTerminatedError(hostile)).toBe(false);
+  });
+
+  it('names each kill shape on the value itself, and nothing else', () => {
+    expect(isPipelineKillLink(new WasmClientPoisonedError('watchdog'))).toBe(true);
+    expect(isPipelineKillLink(new OperationAbortedError('op-1', 'deadline'))).toBe(true);
+    expect(isPipelineKillLink(new Error('WebClient terminated'))).toBe(true);
+    expect(isPipelineKillLink(new Error('x', { cause: new Error('WebClient terminated') }))).toBe(false);
+    expect(isPipelineKillLink(new Error('x'))).toBe(false);
+    expect(isPipelineKillLink(null)).toBe(false);
+  });
+});
+
+describe('isRunningPipelineKill', () => {
+  const { OperationAbortedError } = require('../back/offscreen-codec');
+  const { WasmClientPoisonedError } = require('./wasm-client-poison');
+  const poisoned = () => new WasmClientPoisonedError('watchdog');
+  const aborted = () => new OperationAbortedError('op-1', 'deadline');
+
+  it('reads an eviction or an abort as still running, bare or wrapped', () => {
+    expect(isRunningPipelineKill(poisoned())).toBe(true);
+    expect(isRunningPipelineKill(aborted())).toBe(true);
+    expect(isRunningPipelineKill(new Error('x', { cause: poisoned() }))).toBe(true);
+    expect(isRunningPipelineKill(new Error('x', { cause: aborted() }))).toBe(true);
+    expect(isRunningPipelineKill(new Error('x'))).toBe(false);
+  });
+
+  it.each(['Client terminated', 'WebClient terminated'])(
+    'reads a terminated client (%p) as a kill that is not running, bare or wrapped',
+    message => {
+      expect(isRunningPipelineKill(new Error(message))).toBe(false);
+      expect(isRunningPipelineKill(new Error('x', { cause: new Error(message) }))).toBe(false);
+      expect(isKilledPipeline(new Error('x', { cause: new Error(message) }))).toBe(true);
+    }
+  );
+
+  it('reads a terminated client mixed with an eviction or an abort as running, whichever wraps the other', () => {
+    expect(isRunningPipelineKill(new Error('WebClient terminated', { cause: poisoned() }))).toBe(true);
+    expect(isRunningPipelineKill(new WasmClientPoisonedError('realm-error', new Error('Client terminated')))).toBe(
+      true
+    );
+    const abortOverTerminated = aborted();
+    abortOverTerminated.cause = new Error('WebClient terminated');
+    expect(isRunningPipelineKill(new Error('x', { cause: abortOverTerminated }))).toBe(true);
+  });
 });
 
 const ID = `0x${'ab'.repeat(32)}`;
@@ -583,6 +675,14 @@ describe('isIndefiniteSubmitOutcomeError (#1081)', () => {
     aborted.cause = new Error(indefinite());
     expect(isIndefiniteSubmitOutcomeError(aborted)).toBe(false);
     expect(isIndefiniteSubmitOutcomeError(new Error('outer', { cause: aborted }))).toBe(false);
+  });
+
+  it('still finds the text under a terminated client, where isIndefiniteSubmitOutcomeError names no outcome', () => {
+    const terminated = new Error(indefinite(), { cause: new Error('WebClient terminated') });
+    expect(isIndefiniteSubmitOutcomeError(terminated)).toBe(false);
+    expect(carriesIndefiniteSubmitOutcome(terminated)).toBe(true);
+    expect(carriesIndefiniteSubmitOutcome(new Error('wrapper', { cause: new Error(indefinite()) }))).toBe(true);
+    expect(carriesIndefiniteSubmitOutcome(new Error('node refused the proven transaction'))).toBe(false);
   });
 
   it('reads the id from the part that carries the phrase, lower-cased', () => {
@@ -622,6 +722,9 @@ describe('the errorBeforeSubmit tag (#1081)', () => {
     const unknown = new Error(indefinite());
     markErrorBeforeSubmit(unknown);
     expect(hasErrorBeforeSubmit(unknown)).toBe(false);
+    const terminated = new Error('WebClient terminated');
+    markErrorBeforeSubmit(terminated);
+    expect(hasErrorBeforeSubmit(terminated)).toBe(false);
   });
 
   it('reads the thrown value only: a wrapper around a tagged error is not proof', () => {

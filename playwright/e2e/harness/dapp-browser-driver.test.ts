@@ -1,7 +1,13 @@
 /**
  * @jest-environment node
  */
-import { DappBrowserDriver, type DappBrowserState, type DappDriverTarget } from './dapp-browser-driver';
+import {
+  bundledGridCardCount,
+  DappBrowserDriver,
+  type DappBrowserState,
+  type DappDriverTarget
+} from './dapp-browser-driver';
+import { runDappBrowserJourney } from './dapp-browser-scenario';
 import { GENERATION_COLORS, type DappFixtureServer, type DappViewportReport } from './dapp-fixture-server';
 import type { RegionStats } from './dapp-visual';
 
@@ -17,6 +23,10 @@ jest.mock('@playwright/test', () => ({
       toBeTruthy: () => check(Boolean(actual), 'to be truthy'),
       toBeLessThan: (bound: number) => check(Number(actual) < bound, `to be less than ${bound}`),
       toBeGreaterThan: (bound: number) => check(Number(actual) > bound, `to be greater than ${bound}`),
+      toMatch: (pattern: RegExp) => check(pattern.test(String(actual)), `to match ${pattern}`),
+      toHaveLength: (length: number) =>
+        check(Array.isArray(actual) && actual.length === length, `to have length ${length}`),
+      toBeNull: () => check(actual === null, 'to be null'),
       not: { toBeNull: () => check(actual !== null, 'not to be null') }
     };
   }
@@ -137,5 +147,98 @@ describe('DappBrowserDriver screenshot checks', () => {
 
     await expect(driver.expectFreshFrame('beta', 'beta-restored')).rejects.toThrow('STALE frame');
     expect(elapsed()).toBe(5_000);
+  });
+});
+
+describe('DappBrowserDriver curated grid', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  // A driver over a page whose grid holds each entry of `grids` in turn, one per read, on a clock only its delays move.
+  function gridDriver(grids: string[][]): {
+    driver: DappBrowserDriver;
+    server: DappFixtureServer;
+    reads: () => number;
+  } {
+    let now = 0;
+    let reads = 0;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const target: DappDriverTarget = {
+      evalJs: async () => JSON.parse(JSON.stringify(grids[Math.min(reads++, grids.length - 1)])),
+      click: async () => undefined,
+      waitFor: async () => undefined,
+      screenshot: async () => undefined,
+      navigateTo: async () => undefined,
+      delay: async ms => {
+        now += ms;
+      }
+    };
+    const server: DappFixtureServer = {
+      port: 0,
+      urlFor: () => '',
+      lastReport: () => report(1),
+      reports: () => [],
+      reset: () => undefined,
+      loadCount: () => 0,
+      stop: async () => undefined
+    };
+    const driver = new DappBrowserDriver({ target, server, artifactDir: '/tmp/dapp-driver-test', label: 'test' });
+    return { driver, server, reads: () => reads };
+  }
+
+  it('waits for the catalog to land instead of reading the grid once', async () => {
+    const both = ['https://faucet.example/', 'https://forkchoice.example/'];
+    const { driver, reads } = gridDriver([[], ['https://faucet.example/'], both]);
+
+    await expect(driver.waitForGridCards(2)).resolves.toEqual(both);
+    expect(reads()).toBe(3);
+  });
+
+  it('names what it last saw when the grid never fills', async () => {
+    const { driver } = gridDriver([['https://faucet.example/']]);
+
+    await expect(driver.waitForGridCards(2)).rejects.toThrow(
+      /at least 2 curated grid cards\. last value: \["https:\/\/faucet\.example\/"\]/
+    );
+  });
+
+  it("passes the journey's grid step on the one row devnet's bundled catalog draws", async () => {
+    const saved = process.env.E2E_NETWORK;
+    process.env.E2E_NETWORK = 'devnet';
+    const { driver, server } = gridDriver([['https://faucet.example/']]);
+    jest.spyOn(driver, 'gotoBrowserTab').mockResolvedValue();
+    jest.spyOn(driver, 'state').mockResolvedValue({ ...STATE, foregroundId: null, sessions: [] });
+    const ran: string[] = [];
+    const steps = {
+      outputDir: '/tmp/dapp-driver-test',
+      step: async (name: string, fn: () => Promise<void>) => {
+        if (ran.length > 0) throw new Error('only the grid step runs here');
+        ran.push(name);
+        await fn();
+      }
+    };
+    try {
+      await expect(runDappBrowserJourney({ driver, server, steps })).rejects.toThrow('only the grid step runs here');
+      expect(ran).toEqual(['launcher_renders_curated_grid']);
+    } finally {
+      if (saved === undefined) delete process.env.E2E_NETWORK;
+      else process.env.E2E_NETWORK = saved;
+    }
+  });
+});
+
+describe('bundledGridCardCount', () => {
+  const saved = process.env.E2E_NETWORK;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.E2E_NETWORK;
+    else process.env.E2E_NETWORK = saved;
+  });
+
+  it("counts the rows the E2E network's bundled catalog draws in its lists, testnet when none is named", () => {
+    process.env.E2E_NETWORK = 'devnet';
+    expect(bundledGridCardCount()).toBe(1);
+    delete process.env.E2E_NETWORK;
+    expect(bundledGridCardCount()).toBe(2);
   });
 });

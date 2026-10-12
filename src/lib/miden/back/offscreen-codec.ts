@@ -462,3 +462,11 @@ export function isOperationAbortedError(error: unknown): error is OperationAbort
     (typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'OperationAbortedError')
   );
 }
+
+export const OFFSCREEN_NATIVE_ASSET_EVENT = 'OFFSCREEN_NATIVE_ASSET_EVENT';
+export type OffscreenNativeAssetEvent = {
+  target: typeof SW_TARGET;
+  type: typeof OFFSCREEN_NATIVE_ASSET_EVENT;
+  id: string;
+  scope: string;
+};

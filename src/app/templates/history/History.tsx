@@ -24,8 +24,10 @@ import {
   ITransactionStatus,
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
+import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { formatAmount } from 'lib/shared/format';
 import { useRetryableSWR } from 'lib/swr';
 import { useLastData } from 'lib/swr/last-data';
@@ -39,6 +41,7 @@ import type { PendingActivityItem } from './PendingActivityCard';
 import {
   earnWithdrawAmountFields,
   isFaucetRequest as isFaucetEntry,
+  labelHistoryEntry,
   resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
   swapSettlementOf
@@ -52,6 +55,11 @@ type HistoryProps = {
   className?: string;
   fullHistory?: boolean;
   centerEmptyState?: boolean;
+  /**
+   * `caption`: each day is a small grey caption ("Monday, October 5") rather than the bold date and
+   * coloured weekday, for a list that already sits under its own section heading (Token Detail).
+   */
+  dateStyle?: 'header' | 'caption';
   /** The claims a card stands for; the consume row each would repeat is hidden. */
   pendingItems?: PendingActivityItem[];
   /** The cards drawn in the timeline, when fewer than `pendingItems` (a search); defaults to `pendingItems`. */
@@ -133,6 +141,7 @@ const History = memo<HistoryProps>(
     scrollParentRef,
     fullHistory,
     centerEmptyState,
+    dateStyle,
     tokenId,
     searchQuery,
     filter,
@@ -267,10 +276,15 @@ const History = memo<HistoryProps>(
       [latestPendingTransactions, mutateTx]
     );
 
+    // Labelled here, over the paged rows too, so every row and the search below follow a config publish.
+    const bridgeConfig = useBridgeConfigSnapshot({ load: false });
     // Don't sort the pending transactions, earliest should come first as they are processed first
     const allEntries = useMemo(
-      () => pendingTransactions.concat(mergeAndSort(latestTransactions ?? [], restEntries)),
-      [latestTransactions, restEntries, pendingTransactions]
+      () =>
+        pendingTransactions
+          .concat(mergeAndSort(latestTransactions ?? [], restEntries))
+          .map(entry => labelHistoryEntry(bridgeConfig, entry)),
+      [bridgeConfig, latestTransactions, restEntries, pendingTransactions]
     );
 
     const loadMore = async (page: number) => {
@@ -446,6 +460,7 @@ const History = memo<HistoryProps>(
         tokenId={tokenId}
         fullHistory={fullHistory}
         centerEmptyState={centerEmptyState}
+        dateStyle={dateStyle}
         pendingItems={drawnPendingItems ?? pendingItems}
         renderPendingItem={renderPendingItem}
         className={className}
@@ -551,6 +566,7 @@ async function fetchTransactionsAsHistoryEntries(
       txType: tx.type,
       previousGuardianEndpoint: guardianSwitch?.previousGuardianEndpoint,
       newGuardianEndpoint: guardianSwitch?.newGuardianEndpoint,
+      guardianSwitchVerdict: rotationVerdict(tx)?.kind,
       errorMessage: tx.error,
       isCancelled,
       isUnconfirmed,
@@ -564,14 +580,17 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeFillTxHash: bridge?.fillTxHash,
       bridgeFillChainId: bridge?.fillChainId,
       bridgeEpochStatus: bridge?.epochStatus,
+      usdcxBurn: bridge?.usdcxBurn,
       bridgeReclaimHeight: bridge?.reclaimHeight,
       restoredFromBackup: tx.restoredFromBackup,
       bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
       bridgeInSourceAddress: bridgedReceive?.sourceAddress ?? bridgeIn?.intentOwner,
+      bridgeInSourceChainId: bridgedReceive?.sourceChainId,
       bridgeInSourceAmount: bridgedReceive?.sourceAmount ?? bridgeIn?.sourceAmount,
       bridgeInSourceSymbol: bridgedReceive?.sourceSymbol ?? bridgeIn?.sourceSymbol,
       bridgeInEvmTxHash: bridgedReceive?.evmTxHash ?? bridgeIn?.evmTxHash,
       bridgeInPhase: bridgedReceive?.phase,
+      bridgeInCctp: bridgedReceive?.cctp,
       bridgeInOutputAmount: bridgedReceive?.outputAmount,
       bridgeInOutputSymbol: bridgedReceive?.outputSymbol,
       bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId
@@ -628,6 +647,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       txType: tx.type,
       previousGuardianEndpoint: guardianSwitch?.previousGuardianEndpoint,
       newGuardianEndpoint: guardianSwitch?.newGuardianEndpoint,
+      guardianSwitchVerdict: rotationVerdict(tx)?.kind,
       bridgeProvider: bridge?.provider,
       bridgeDestinationAddress: bridge?.destinationAddress,
       bridgeDestinationNetwork: bridge?.destinationNetwork,
@@ -638,6 +658,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeFillTxHash: bridge?.fillTxHash,
       bridgeFillChainId: bridge?.fillChainId,
       bridgeEpochStatus: bridge?.epochStatus,
+      usdcxBurn: bridge?.usdcxBurn,
       bridgeReclaimHeight: bridge?.reclaimHeight,
       restoredFromBackup: tx.restoredFromBackup,
       earnDepositStatus: earnDeposit?.epochStatus

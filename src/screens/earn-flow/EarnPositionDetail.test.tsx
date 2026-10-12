@@ -373,6 +373,15 @@ describe('EarnPositionDetail', () => {
     expect(screen.getByTestId('earn-asset-mark')).toHaveAttribute('data-decorative', 'true');
   });
 
+  it('draws the position details as one outline card in the heading face', () => {
+    renderDetail('pos-flat');
+
+    const details = screen.getByText('route').closest('.divide-y');
+    expect(details).toHaveClass('bg-page', 'border', 'border-hairline', 'face-heading');
+    expect(details).not.toHaveClass('bg-fill');
+    expect(details).toContainElement(screen.getByText('Miden -> Flat (Flatnet)'));
+  });
+
   it('gives the Withdraw CTA the earn flow colour', () => {
     renderDetail('pos-flat');
 

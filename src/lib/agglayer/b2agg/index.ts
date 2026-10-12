@@ -5,8 +5,7 @@ import {
   Note,
   NoteArray,
   NoteAssets,
-  TransactionRequest,
-  TransactionRequestBuilder
+  TransactionRequest
 } from '@miden-sdk/miden-sdk/lazy';
 
 import {
@@ -17,12 +16,17 @@ import {
 } from 'lib/miden/activity';
 import { isGuardianAccount, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { expirationDeltaBlocks } from 'lib/miden/helpers';
-import { accountRefToSdk, getBech32AddressFromAccountId, randomFeeSalt } from 'lib/miden/sdk/helpers';
-import { assertWasmHoldCurrent, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import {
+  accountRefToSdk,
+  feeAwareRequestBuilder,
+  getBech32AddressFromAccountId,
+  randomFeeSalt
+} from 'lib/miden/sdk/helpers';
+import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { isExtension } from 'lib/platform';
+import { getAgglayerBridgeOut } from 'lib/remote-config/values';
 
-import { MIDEN_BRIDGE_ID } from './constant';
 import { agglayerExitTxHash } from './exit-hash';
 
 export async function createB2AggNote(
@@ -30,6 +34,7 @@ export async function createB2AggNote(
   faucetId: string,
   destinationAddress: `0x${string}`,
   senderAddress: string,
+  midenBridge: string,
   destinationNetwork: number
 ) {
   // Any asset bridges over AggLayer: the note carries the faucet of the token
@@ -41,7 +46,7 @@ export async function createB2AggNote(
   const asset = new FungibleAsset(accountRefToSdk(faucetId), amount);
   return Note.createB2AggNote(
     accountRefToSdk(senderAddress),
-    AccountId.fromHex(MIDEN_BRIDGE_ID),
+    AccountId.fromHex(midenBridge),
     new NoteAssets([asset]),
     destinationNetwork,
     EthAddress.fromHex(destinationAddress)
@@ -81,19 +86,13 @@ export async function initiateB2AggBridge(args: {
   faucetId: string;
   destinationAddress: `0x${string}`;
   senderPublicKey: string;
-  destinationNetwork: number;
   guardianProvider: GuardianAccountProvider;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
 }): Promise<string> {
-  const {
-    amount,
-    faucetId,
-    destinationAddress,
-    senderPublicKey,
-    destinationNetwork,
-    guardianProvider,
-    spendingLimitAuthorization
-  } = args;
+  const { amount, faucetId, destinationAddress, senderPublicKey, guardianProvider, spendingLimitAuthorization } = args;
+  // Read before the lock: the note addresses the configured bridge, with the L1 bridge's networkID() as its
+  // destination, which the row records too.
+  const { midenBridge, evmNetworkId } = getAgglayerBridgeOut();
 
   // Build the note + TransactionRequest under the WASM lock; the queue stores
   // the serialized request and the processor submits it.
@@ -115,7 +114,14 @@ export async function initiateB2AggBridge(args: {
   // node (#1081).
   const expirationDelta = expirationDeltaBlocks(await isGuardianAccount(senderPublicKey, guardianProvider));
   const { requestBytes, faucetBech32, exitTxHash } = await withWasmClientLock(async hold => {
-    const note = await createB2AggNote(amount, faucetId, destinationAddress, senderPublicKey, destinationNetwork);
+    const note = await createB2AggNote(
+      amount,
+      faucetId,
+      destinationAddress,
+      senderPublicKey,
+      midenBridge,
+      evmNetworkId
+    );
     // The awaited note build parks (the lazy SDK load can be the long one), and
     // an eviction during it hands the mutex to a successor without stopping this
     // callback — everything below is WASM work that would then run alongside the
@@ -129,11 +135,17 @@ export async function initiateB2AggBridge(args: {
     // A throw aborts here, before a row is queued: a row without it could never settle.
     const exitTxHash = agglayerExitTxHash(note);
     // Declared at BUILD time: the SDK exposes no setter on a finished `TransactionRequest`,
-    // only on the builder.
-    let builder = new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray([note]));
-    builder = builder.withFeeConversionSalt(feeSalt);
-    builder = builder.withExpirationDelta(expirationDelta);
-    const request = builder.build();
+    // only on the builder. See `feeAwareRequestBuilder` for why it starts there.
+    const builder = await feeAwareRequestBuilder(
+      (await getMidenClient()).client,
+      accountRefToSdk(senderPublicKey).toString(),
+      feeSalt
+    );
+    assertWasmHoldCurrent(hold, 'after the fee-aware bridge builder');
+    const request = builder
+      .withOwnOutputNotes(new NoteArray([note]))
+      .withExpirationDelta(expirationDelta)
+      .build();
     const serialisedReq = request.serialize();
     console.log('Got the serialised transaction request', serialisedReq);
     try {
@@ -157,7 +169,7 @@ export async function initiateB2AggBridge(args: {
     amount,
     faucetBech32,
     destinationAddress,
-    destinationNetwork,
+    evmNetworkId,
     'agglayer',
     requestBytes,
     true,
@@ -172,7 +184,6 @@ export async function bridgeB2Agg(args: {
   faucetId: string;
   destinationAddress: `0x${string}`;
   senderPublicKey: string;
-  destinationNetwork: number;
   deps: B2AggBridgeDeps;
 }): Promise<{ txHash: string }> {
   const { deps, ...noteArgs } = args;

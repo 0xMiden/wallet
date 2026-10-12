@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 
 import { getEnvironmentConfig } from '../../config/environments';
-import { expect, test } from '../../fixtures/two-wallets';
+import { expect, test } from '../../fixtures/hermetic-bridge';
 import { suspendScreenCapture } from '../../harness/screen-capture';
 import { FakeEpochAllocator } from '../../helpers/fake-epoch-allocator';
 import { FakeEpochPositions } from '../../helpers/fake-epoch-positions';

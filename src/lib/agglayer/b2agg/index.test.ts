@@ -39,6 +39,18 @@ jest.mock('lib/miden/activity', () => ({
 // pass-through would make `assertWasmHoldCurrent` throw on the happy path, and a
 // mock with no way to revoke ownership could not exercise the eviction guard.
 let currentWasmHold: object | null = null;
+// The builder `feeAwareTransactionRequestBuilder` hands back. Since protocol 0.17 it carries the
+// three words of fee auth args a guarded (multisig) sender resolves, so the bridge note has to
+// land on THIS object; a fresh `TransactionRequestBuilder` would drop them.
+const mockFeeAwareBuilder = {
+  withOwnOutputNotes: jest.fn(),
+  withExpirationDelta: jest.fn(),
+  withFeeConversionSalt: jest.fn(),
+  build: jest.fn(() => ({ serialize: () => new Uint8Array([1, 2, 3]) }))
+};
+const mockFeeAwareTransactionRequestBuilder = jest.fn(
+  async (_account: string, _options: { feeConversionSalt: unknown }) => mockFeeAwareBuilder
+);
 const revokeWasmHold = () => {
   currentWasmHold = null;
 };
@@ -51,6 +63,9 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
     if (hold !== null && hold === currentWasmHold) return;
     throw new Error(`operation abandoned ${where}`);
   },
+  getMidenClient: async () => ({
+    client: { feeAwareTransactionRequestBuilder: mockFeeAwareTransactionRequestBuilder }
+  }),
   withWasmClientLock: async (fn: (hold: object) => unknown) => {
     const hold = { mock: 'wasm-lock-hold' };
     currentWasmHold = hold;
@@ -62,6 +77,9 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   }
 }));
 jest.mock('lib/platform', () => ({ isExtension: () => true }));
+// The bridge account and its L1 network id come from the remote config.
+const mockGetBridgeOut = jest.fn();
+jest.mock('lib/remote-config/values', () => ({ getAgglayerBridgeOut: () => mockGetBridgeOut() }));
 
 // The real exit hash needs the real SDK (exit-hash.real-sdk.test.ts); here it only has to reach the row.
 const mockAgglayerExitTxHash = jest.fn((...args: unknown[]): string => {
@@ -73,6 +91,16 @@ jest.mock('./exit-hash', () => ({ agglayerExitTxHash: (...args: unknown[]) => mo
 // Effective network is localnet, so a correctly-encoded row id starts `mlcl1`.
 jest.mock('lib/miden-chain/constants', () => ({ getNetworkId: () => 'mlcl' }));
 
+class MockAccountId {
+  hex: string;
+  constructor(hex: string) {
+    this.hex = hex;
+  }
+  toString() {
+    return this.hex;
+  }
+}
+
 const mockCreateB2AggNote = jest.fn((...args: unknown[]): unknown => {
   void args;
   return { note: true };
@@ -83,40 +111,33 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   // inside the (mocked-away) fee-auth helper, so the SDK mock never needed them.
   Felt: jest.fn((v: any) => ({ v })),
   Word: { newFromFelts: jest.fn((felts: any) => ({ kind: 'word', felts })) },
-  AccountId: { fromHex: (hex: string) => ({ hex }) },
+  // `toString` lives on the prototype so `toEqual({ hex })` still matches, while the id the
+  // fee-aware builder is asked for reads as the hex it wraps.
+  AccountId: { fromHex: (hex: string) => new MockAccountId(hex) },
   Address: {
     fromAccountId: (accountId: { hex: string }) => ({ toBech32: (net: string) => `${net}1${accountId.hex.slice(2)}` }),
-    fromBech32: (address: string) => ({ accountId: () => ({ hex: `0x${address.slice(5)}` }) })
+    fromBech32: (address: string) => ({ accountId: () => new MockAccountId(`0x${address.slice(5)}`) })
   },
   EthAddress: { fromHex: (hex: string) => ({ hex }) },
   FungibleAsset: jest.fn((faucet: unknown, amount: unknown) => ({ faucet, amount })),
   Note: { createB2AggNote: (...args: unknown[]) => mockCreateB2AggNote(...args) },
-  NoteArray: class {},
+  NoteArray: class {
+    notes: unknown[];
+    constructor(notes: unknown[]) {
+      this.notes = notes;
+    }
+  },
   NoteAssets: jest.fn((assets: unknown) => ({ assets })),
   TransactionRequest: { deserialize: jest.fn() },
-  TransactionRequestBuilder: class {
-    withOwnOutputNotes() {
-      return this;
-    }
-    withFeeConversionSalt() {
-      return this;
-    }
-    withExpirationDelta(delta: number) {
-      mockDeltas.push(delta);
-      return this;
-    }
-    build() {
-      return { serialize: () => new Uint8Array([1, 2, 3]) };
-    }
-  }
+  // The request starts from the fee-aware builder; constructing this would drop the fee auth args.
+  TransactionRequestBuilder: jest.fn()
 }));
 
-import { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+import { TransactionRequest, TransactionRequestBuilder, Word } from '@miden-sdk/miden-sdk/lazy';
 
-import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID } from 'lib/agglayer/constant';
+import { TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID } from 'lib/epoch/testing/bridge-config';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 
-import { MIDEN_AGGLAYER_FAUCET_ID } from './constant';
 import { initiateB2AggBridge } from './index';
 
 // Never reached: `isGuardianAccount` is mocked, so only its identity crosses.
@@ -131,6 +152,12 @@ describe('initiateB2AggBridge', () => {
     jest.clearAllMocks();
     mockDeltas.length = 0;
     mockIsGuardian.mockResolvedValue(false);
+    mockFeeAwareBuilder.withOwnOutputNotes.mockReturnValue(mockFeeAwareBuilder);
+    mockFeeAwareBuilder.withExpirationDelta.mockImplementation((delta: number) => {
+      mockDeltas.push(delta);
+      return mockFeeAwareBuilder;
+    });
+    mockGetBridgeOut.mockReturnValue({ midenBridge: '0x3b66e20b5088f25133b69216484652', evmNetworkId: 0 });
   });
 
   it('records the faucet id on the row in BECH32 form, never the raw hex constant', async () => {
@@ -139,7 +166,6 @@ describe('initiateB2AggBridge', () => {
       faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender',
-      destinationNetwork: 0,
       guardianProvider
     });
 
@@ -156,7 +182,6 @@ describe('initiateB2AggBridge', () => {
       faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender_qr7qqq9wr6w',
-      destinationNetwork: 0,
       guardianProvider
     });
 
@@ -183,7 +208,6 @@ describe('initiateB2AggBridge', () => {
       faucetId,
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender',
-      destinationNetwork: 0,
       guardianProvider
     });
 
@@ -198,7 +222,6 @@ describe('initiateB2AggBridge', () => {
       faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender',
-      destinationNetwork: 0,
       guardianProvider
     });
 
@@ -228,12 +251,57 @@ describe('initiateB2AggBridge', () => {
       faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender',
-      destinationNetwork: 0,
       guardianProvider,
       spendingLimitAuthorization
     });
 
     expect(mockInitiateBridgedSendTransaction.mock.calls[0]![9]).toBe(spendingLimitAuthorization);
+  });
+
+  // Since protocol 0.17 a guarded (multisig) sender needs three words of fee auth args, and
+  // `withFeeConversionSalt` committed two (`advice stack read failed` at the proposal). The
+  // request therefore starts from the fee-aware builder for the account that executes it.
+  it('builds the request from the fee-aware builder of the sending account, with the declared salt', async () => {
+    await initiateB2AggBridge({
+      amount: 250n,
+      faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+      destinationAddress: '0x1111111111111111111111111111111111111111',
+      senderPublicKey: 'mlcl1sender_qr7qqq9wr6w',
+      guardianProvider
+    });
+
+    // The sender's account id, wallet suffix stripped; the salt is the one drawn for this build.
+    expect(mockFeeAwareTransactionRequestBuilder).toHaveBeenCalledTimes(1);
+    expect(mockFeeAwareTransactionRequestBuilder).toHaveBeenCalledWith('0xsender', {
+      feeConversionSalt: (Word.newFromFelts as jest.Mock).mock.results[0]!.value
+    });
+    expect(Word.newFromFelts).toHaveBeenCalledTimes(1);
+    const [notes] = mockFeeAwareBuilder.withOwnOutputNotes.mock.calls[0];
+    expect(notes).toEqual({ notes: [mockCreateB2AggNote.mock.results[0]!.value] });
+    expect(mockFeeAwareBuilder.build).toHaveBeenCalledTimes(1);
+    expect(mockFeeAwareBuilder.withFeeConversionSalt).not.toHaveBeenCalled();
+    expect(TransactionRequestBuilder).not.toHaveBeenCalled();
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![6]).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it('abandons the initiation when the WASM lock hold is evicted while the fee-aware builder resolves', async () => {
+    mockFeeAwareTransactionRequestBuilder.mockImplementationOnce(async () => {
+      revokeWasmHold();
+      return mockFeeAwareBuilder;
+    });
+
+    await expect(
+      initiateB2AggBridge({
+        amount: 250n,
+        faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+        destinationAddress: '0x1111111111111111111111111111111111111111',
+        senderPublicKey: 'mlcl1sender',
+        guardianProvider
+      })
+    ).rejects.toThrow('operation abandoned after the fee-aware bridge builder');
+
+    expect(mockFeeAwareBuilder.withOwnOutputNotes).not.toHaveBeenCalled();
+    expect(mockInitiateBridgedSendTransaction).not.toHaveBeenCalled();
   });
 
   // #788 follow-up: the awaited note build parks (the lazy SDK load), and an
@@ -254,7 +322,6 @@ describe('initiateB2AggBridge', () => {
         faucetId: MIDEN_AGGLAYER_FAUCET_ID,
         destinationAddress: '0x1111111111111111111111111111111111111111',
         senderPublicKey: 'mlcl1sender',
-        destinationNetwork: 0,
         guardianProvider
       })
     ).rejects.toThrow('operation abandoned before the bridge request build');
@@ -277,7 +344,6 @@ describe('initiateB2AggBridge', () => {
         faucetId: MIDEN_AGGLAYER_FAUCET_ID,
         destinationAddress: '0x1111111111111111111111111111111111111111',
         senderPublicKey: 'mlcl1sender',
-        destinationNetwork: 0,
         guardianProvider
       });
       expect(mockIsGuardian).toHaveBeenCalledWith('mlcl1sender', guardianProvider);
@@ -292,7 +358,6 @@ describe('initiateB2AggBridge', () => {
       faucetId: MIDEN_AGGLAYER_FAUCET_ID,
       destinationAddress: '0x1111111111111111111111111111111111111111',
       senderPublicKey: 'mlcl1sender',
-      destinationNetwork: 0,
       guardianProvider
     });
 
@@ -311,60 +376,45 @@ describe('initiateB2AggBridge', () => {
         faucetId: MIDEN_AGGLAYER_FAUCET_ID,
         destinationAddress: '0x1111111111111111111111111111111111111111',
         senderPublicKey: 'mlcl1sender',
-        destinationNetwork: 0,
         guardianProvider
       })
     ).rejects.toThrow('A B2AGG note carries at least one fungible asset');
     expect(mockInitiateBridgedSendTransaction).not.toHaveBeenCalled();
   });
-});
 
-// Bridge-in matching compares the sender string verbatim, so the bech32 literal must stay the same account as the
-// hex faucet id, checksum included.
-describe('the bridged-ETH faucet', () => {
-  const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
-  const BECH32M = 0x2bc830a3;
-  const GENERATORS = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+  it('addresses the note to the configured bridge and network, and records that network on the row', async () => {
+    mockGetBridgeOut.mockReturnValue({ midenBridge: '0x0123456789abcdef0123456789abcd', evmNetworkId: 7 });
 
-  const polymod = (values: number[]) =>
-    values.reduce((chk, value) => {
-      const top = chk >>> 25;
-      let next = (((chk & 0x1ffffff) << 5) ^ value) >>> 0;
-      GENERATORS.forEach((generator, i) => {
-        if ((top >>> i) & 1) next = (next ^ generator) >>> 0;
-      });
-      return next;
-    }, 1);
+    await initiateB2AggBridge({
+      amount: 250n,
+      faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+      destinationAddress: '0x1111111111111111111111111111111111111111',
+      senderPublicKey: 'mlcl1sender',
+      guardianProvider
+    });
 
-  const decodeAddress = (address: string) => {
-    const bech32 = address.split('_')[0] ?? address;
-    const separator = bech32.lastIndexOf('1');
-    const hrp = bech32.slice(0, separator);
-    const data = [...bech32.slice(separator + 1)].map(char => CHARSET.indexOf(char));
-    const expanded = [...[...hrp].map(c => c.charCodeAt(0) >> 5), 0, ...[...hrp].map(c => c.charCodeAt(0) & 31)];
-    const bytes: number[] = [];
-    let accumulator = 0;
-    let bits = 0;
-    for (const value of data.slice(0, -6)) {
-      accumulator = (accumulator << 5) | value;
-      bits += 5;
-      if (bits >= 8) {
-        bits -= 8;
-        bytes.push((accumulator >> bits) & 0xff);
-      }
-    }
-    return { hrp, checksumValid: polymod([...expanded, ...data]) === BECH32M, bytes };
-  };
+    const [, bridge, , destinationNetwork] = mockCreateB2AggNote.mock.calls[0]!;
+    expect(bridge).toEqual({ hex: '0x0123456789abcdef0123456789abcd' });
+    expect(destinationNetwork).toBe(7);
+    expect(mockInitiateBridgedSendTransaction.mock.calls[0]![4]).toBe(7);
+  });
 
-  it('names the bridged-ETH faucet as the bridge-in note sender (#1276)', () => {
-    const { hrp, checksumValid, bytes } = decodeAddress(AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID);
-    const accountIdHex = bytes
-      .slice(1)
-      .map(byte => byte.toString(16).padStart(2, '0'))
-      .join('');
+  it('builds and queues nothing while the bridge config cannot name the bridge-out values', async () => {
+    mockGetBridgeOut.mockImplementation(() => {
+      throw new Error('bridge out unavailable');
+    });
 
-    expect(hrp).toBe('mtst');
-    expect(checksumValid).toBe(true);
-    expect(`0x${accountIdHex}`).toBe(MIDEN_AGGLAYER_FAUCET_ID);
+    await expect(
+      initiateB2AggBridge({
+        amount: 250n,
+        faucetId: MIDEN_AGGLAYER_FAUCET_ID,
+        destinationAddress: '0x1111111111111111111111111111111111111111',
+        senderPublicKey: 'mlcl1sender',
+        guardianProvider
+      })
+    ).rejects.toThrow('bridge out unavailable');
+
+    expect(mockCreateB2AggNote).not.toHaveBeenCalled();
+    expect(mockInitiateBridgedSendTransaction).not.toHaveBeenCalled();
   });
 });

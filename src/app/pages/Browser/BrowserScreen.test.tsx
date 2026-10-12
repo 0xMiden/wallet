@@ -1,23 +1,31 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { openUrlInNewTab } from 'app/env';
 import { PageActiveContext } from 'app/layouts/page-active';
 import { createDappSession, getDappDisplayName, recordRecentDapp } from 'lib/dapp-browser';
 
 import { BrowserScreen } from './BrowserScreen';
 
 let mockMode: 'active' | 'launcher' = 'active';
+let mockExtension = false;
 
+jest.mock('app/env', () => ({ openUrlInNewTab: jest.fn() }));
 jest.mock('app/providers/DappBrowserProvider', () => ({
-  useDappBrowser: () => ({ mode: mockMode, open: jest.fn() })
+  useDappBrowser: () => {
+    // As the real hook does outside its provider, which only mobile mounts.
+    if (mockExtension) throw new Error('useDappBrowser must be used inside <DappBrowserProvider>');
+    return { mode: mockMode, open: jest.fn() };
+  }
 }));
 jest.mock('lib/dapp-browser', () => ({
   createDappSession: jest.fn(),
   getDappDisplayName: jest.fn(),
+  parseOrigin: (url: string) => new URL(url).origin,
   recordRecentDapp: jest.fn()
 }));
-jest.mock('lib/platform', () => ({ isDesktop: () => false }));
+jest.mock('lib/platform', () => ({ isDesktop: () => false, isExtension: () => mockExtension }));
 jest.mock('./DappActive', () => {
   const ReactActual = jest.requireActual<typeof React>('react');
   return { DappActive: () => ReactActual.createElement('div', { 'data-testid': 'dapp-active' }) };
@@ -53,6 +61,9 @@ const view = (onScreen: boolean) => (
 
 beforeEach(() => {
   mockMode = 'active';
+  mockExtension = false;
+  (recordRecentDapp as jest.Mock).mockReset();
+  (openUrlInNewTab as jest.Mock).mockReset();
 });
 
 // Recents is a list of dApps the user chose. A web search the launcher produced opens like any page
@@ -96,4 +107,55 @@ it('keeps the launcher mounted off screen when no dApp is in the foreground', ()
 
   rerender(view(false));
   expect(screen.queryByTestId('dapp-launcher')).not.toBeNull();
+});
+
+describe('on the extension', () => {
+  beforeEach(() => {
+    mockExtension = true;
+    (getDappDisplayName as jest.Mock).mockReturnValue('example.dapp');
+    (openUrlInNewTab as jest.Mock).mockResolvedValue(undefined);
+  });
+
+  it('shows the launcher without the embedded browser, even off screen', () => {
+    const { rerender } = render(view(true));
+    expect(screen.queryByTestId('dapp-launcher')).not.toBeNull();
+
+    rerender(view(false));
+    expect(screen.queryByTestId('dapp-launcher')).not.toBeNull();
+  });
+
+  // The new tab takes focus and closes the popup, which ends this script: a record still pending then is lost.
+  it('records a picked dApp as a recent before it opens the dApp in a new tab', async () => {
+    let finishRecord = () => {};
+    (recordRecentDapp as jest.Mock).mockReturnValue(new Promise<void>(resolve => (finishRecord = resolve)));
+    render(view(true));
+
+    fireEvent.click(screen.getByTestId('open-dapp'));
+    expect(recordRecentDapp).toHaveBeenCalledWith({
+      url: 'https://example.dapp/app',
+      name: 'example.dapp',
+      origin: 'https://example.dapp'
+    });
+    await act(async () => {});
+    expect(openUrlInNewTab).not.toHaveBeenCalled();
+
+    await act(async () => finishRecord());
+    expect(openUrlInNewTab).toHaveBeenCalledWith('https://example.dapp/app');
+  });
+
+  it('still opens the tab when the record fails', async () => {
+    (recordRecentDapp as jest.Mock).mockRejectedValue(new Error('storage down'));
+    render(view(true));
+
+    await act(async () => fireEvent.click(screen.getByTestId('open-dapp')));
+    expect(openUrlInNewTab).toHaveBeenCalledWith('https://example.dapp/app');
+  });
+
+  it('opens a web search in a new tab without recording it', async () => {
+    render(view(true));
+
+    await act(async () => fireEvent.click(screen.getByTestId('open-search')));
+    expect(openUrlInNewTab).toHaveBeenCalledWith('https://duckduckgo.com/?q=nft%20games');
+    expect(recordRecentDapp).not.toHaveBeenCalled();
+  });
 });

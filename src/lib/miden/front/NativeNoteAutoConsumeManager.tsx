@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-import { getFaucetIdSetting } from 'lib/miden/assets';
-import { getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension } from 'lib/platform';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -53,7 +52,7 @@ export function NativeNoteAutoConsumeManager(): null {
       if (!notes || notes.length === 0) return;
       running.current = true;
       try {
-        const nativeFaucetId = await getFaucetIdSetting();
+        const nativeFaucetId = await getNativeAssetId();
         if (disposed || !nativeFaucetId) return;
         // A claim worth no more than its own fee makes the balance go DOWN. This runs
         // unattended, so the wallet must not collect on the user's behalf at a loss, nor

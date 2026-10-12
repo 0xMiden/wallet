@@ -38,11 +38,13 @@ import { PublicError } from 'lib/miden/back/defaults';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
 import { computeSyncBackoffMs, monotonicNowMs } from 'lib/miden/sync-backoff';
 import {
+  getEffectiveFeeFaucetId,
   getEffectiveNetworkName,
   getEffectiveNoteTransportUrl,
   getEffectiveProverUrl,
   getEffectiveRpcUrl
 } from 'lib/miden-chain/effective-endpoints';
+import { cacheScope } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { frozenMs, setRunningTimeout } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
@@ -78,9 +80,15 @@ import {
 } from './miden-client';
 import { buildNativeProverCallback } from './native-prover-mobile';
 import { beginProveAttempt } from './prove-telemetry';
-import { isApplyAfterSubmitError, isSubmitCrossingUnrecorded, markErrorBeforeSubmit } from './sdk-error-code';
+import {
+  isApplyAfterSubmitError,
+  isPipelineKillLink,
+  isSubmitCrossingUnrecorded,
+  markErrorBeforeSubmit
+} from './sdk-error-code';
 import { readSubmitEvidence } from './submit-evidence';
-import { isWasmClientPoisonedError, WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
+import { bindFeeFaucetClientScope, syncAndRecordFeeFaucet } from './sync-and-record-fee-faucet';
+import { WasmClientPoisonedError, wasmClientGeneration } from './wasm-client-poison';
 import { ConsumeTransaction, ITransactionStage, SendTransaction, StageDetail, SwapTransaction } from '../db/types';
 // guardian/index is dynamic-imported inside the methods that use it and is never imported
 // statically: miden-client-interface → guardian/index → sdk/miden-client → miden-client-interface
@@ -149,6 +157,16 @@ const RECOVERY_GAP_LIMIT = 3;
  * the offscreen path) with `MIDEN_USE_OFFSCREEN_PROVING=false`.
  */
 const USE_OFFSCREEN_PROVING = process.env.MIDEN_USE_OFFSCREEN_PROVING === 'true';
+
+/**
+ * In-call retries of a private note send, for every client the wallet builds: none. The SDK
+ * retries inside the client's serialized call, and a `retry-after` from the transport replaces
+ * its backoff with no upper bound, so any retry leaves the WASM lock hold around a send
+ * unbounded. At 0 a send is one attempt, bounded by the 10 s gRPC timeout, and the delivery
+ * sweep (`transaction/note-delivery-sweep.ts`) owns every retry. A client without a transport
+ * never sends, so it takes the same value.
+ */
+export const NOTE_TRANSPORT_MAX_RETRIES = 0;
 
 export type MidenClientCreateOptions = {
   seed?: Uint8Array;
@@ -331,7 +349,8 @@ function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
   try {
     return NoteFile.deserialize(noteBytes);
   } catch (noteFileError) {
-    // A trap or an eviction is the client's, not the bytes': no fallback call on it, and importNoteBytes retires a trap.
+    // A trap or a kill (an eviction, a terminated client) is the client's, not the bytes': no fallback call on it, and
+    // importNoteBytes retires a trap.
     if (isClientFault(noteFileError)) throw noteFileError;
     let note: Note;
     try {
@@ -351,19 +370,20 @@ function deserializeNoteFileOrNote(noteBytes: Uint8Array): NoteFile {
 }
 
 function isClientFault(error: unknown): boolean {
-  return error instanceof WebAssembly.RuntimeError || isWasmClientPoisonedError(error);
+  return error instanceof WebAssembly.RuntimeError || isPipelineKillLink(error);
 }
 
 /**
  * For a catch that counts a failure and moves on: a trap retires the client through the hold and ends the batch, and
- * an eviction ends it too, so nothing runs on either client afterwards. Anything else is left to the catch.
+ * a kill (an eviction, a terminated client) ends it too, so nothing runs on that client afterwards and every remaining
+ * item is not failed against it. Anything else is left to the catch.
  */
 function rethrowClientFault(error: unknown, hold: WasmLockHold): void {
   if (error instanceof WebAssembly.RuntimeError) {
     retireWasmClientForCaughtTrap(hold, error);
     throw error;
   }
-  if (isWasmClientPoisonedError(error)) throw error;
+  if (isPipelineKillLink(error)) throw error;
 }
 
 /** The host of an endpoint, for a log line: an RPC URL may carry a key in its path or query. */
@@ -394,13 +414,14 @@ let realmReader: RealmReader | undefined;
  * read and the guardian PSWAP request build both go through it.
  *
  * It used to be a throwaway per call: `WasmWebClient.createClient` per read and
- * `terminate()` in a `finally`. The SDK's `terminate()` releases nothing for a
- * client built without a worker, and 0.16 has no call that closes one (its glue
- * closes the IndexedDB connection only on a version mismatch), so every read
- * stranded a wasm-bindgen client and an IndexedDB connection - on each sync alarm
- * on the extension, on each 5 s claimable-notes poll on mobile and desktop - and
- * the extension renderer died of OOM after 55 hours. Nothing can release a
- * reader, so the bound is to stop rebuilding it.
+ * `terminate()` in a `finally`. Before web-sdk 0.17.3 `terminate()` released
+ * nothing for a client built without a worker, so every read stranded a
+ * wasm-bindgen client and an IndexedDB connection - on each sync alarm on the
+ * extension, on each 5 s claimable-notes poll on mobile and desktop - and the
+ * extension renderer died of OOM after 55 hours. Since 0.17.3 `terminate()`
+ * releases such a client and its hold on the IndexedDB store once the calls
+ * queued on it settle; a read that never settles still holds its client, so
+ * the bound stays one reader per realm rather than one per read.
  *
  * It is keyed on what makes it stale, not on the MidenClientInterface:
  * - the client generation, bumped by every lock-recovery replacement in this
@@ -410,16 +431,16 @@ let realmReader: RealmReader | undefined;
  *   generation (the SW sees a new URL only at start-up or through a reset
  *   that bumps it). It is not redundant.
  * Each successful rebuild strands the previous reader: one per client
- * replacement or endpoint change, not one per read. A build that fails after
- * opening its store strands that connection too (the SDK opens the store
- * before the genesis fetch; an endpoint that does not parse fails before it),
- * so a failed entry stays in the slot and answers with its error until its
- * window ends: the sync breaker's backoff for an ordinary failure (30 s
- * doubling to a 5 min cap) for that generation and URL, never the 30 min
- * fuse, which is for a call that never answered. Such failures are rare: a
- * store that already holds genesis builds with no network call, so only a
- * fresh store with the node unreachable, or an IndexedDB error, gets that far
- * and fails. A replacement or a repoint builds at once.
+ * replacement or endpoint change, not one per read. A build that fails is
+ * terminated by the SDK's `createClient` (since 0.17.3), so it strands
+ * nothing, but a failed entry still stays in the slot and answers with its
+ * error until its window ends, so the node is not asked again on every read:
+ * the sync breaker's backoff for an ordinary failure (30 s doubling to a 5 min
+ * cap) for that generation and URL, never the 30 min fuse, which is for a call
+ * that never answered. Such failures are rare: a store that already holds
+ * genesis builds with no network call, so only a fresh store with the node
+ * unreachable, or an IndexedDB error, fails a build. A replacement or a
+ * repoint builds at once.
  *
  * It stays a separate client on purpose. Reading through the main client's
  * `_withInnerWebClient` would leave an evicted read's window open on the client
@@ -466,7 +487,16 @@ export function getRealmReaderClient(): Promise<WasmWebClient> {
   const entry: RealmReader = {
     generation,
     rpcUrl,
-    client: WasmWebClient.createClient(rpcUrl, undefined, undefined, undefined, undefined, false),
+    client: WasmWebClient.createClient(
+      rpcUrl,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      undefined,
+      getEffectiveFeeFaucetId()
+    ),
     failures: cached && sameKey ? cached.failures : 0
   };
   realmReader = entry;
@@ -501,19 +531,26 @@ export class MidenClientInterface {
   client: MidenClient;
   network: string;
 
-  private constructor(client: MidenClient, network: string, liveness: ClientLiveness = { disposed: false }) {
+  private constructor(
+    client: MidenClient,
+    network: string,
+    liveness: ClientLiveness = { disposed: false },
+    scope = cacheScope()
+  ) {
     this.client = client;
     this.network = network;
     this.liveness = liveness;
+    bindFeeFaucetClientScope(client, scope);
   }
 
   static async create(options: MidenClientCreateOptions = {}) {
     const network = getEffectiveNetworkName();
+    const scope = cacheScope();
 
     if (process.env.MIDEN_USE_MOCK_CLIENT === 'true') {
       const sdk = await import('@miden-sdk/miden-sdk/lazy');
       const mockClient = await sdk.MidenClient.createMock({ seed: options.seed });
-      return new MidenClientInterface(mockClient, 'mock');
+      return new MidenClientInterface(mockClient, 'mock', { disposed: false }, scope);
     }
 
     const hasKeystore = !!(options.getKeyCallback || options.insertKeyCallback || options.signCallback);
@@ -524,6 +561,7 @@ export class MidenClientInterface {
     const midenClient = await MidenClient.create({
       rpcUrl: getEffectiveRpcUrl(),
       noteTransportUrl: getEffectiveNoteTransportUrl(),
+      noteTransportMaxRetries: NOTE_TRANSPORT_MAX_RETRIES,
       seed: options.seed,
       keystore: hasKeystore
         ? {
@@ -539,6 +577,7 @@ export class MidenClientInterface {
               : refuseKeystoreMember('sign')
           }
         : undefined,
+      feeFaucetId: getEffectiveFeeFaucetId(),
       proverUrl: getEffectiveProverUrl(),
       // On mobile (Capacitor / WKWebView / Android WebView) we MUST opt out
       // of the SDK's Web-Worker shim. Two independent reasons:
@@ -572,7 +611,7 @@ export class MidenClientInterface {
       observer: createWalletSdkObserver()
     });
 
-    return new MidenClientInterface(midenClient, network, liveness);
+    return new MidenClientInterface(midenClient, network, liveness, scope);
   }
 
   static fromClient(client: MidenClient, network: string) {
@@ -727,8 +766,8 @@ export class MidenClientInterface {
   async importPublicMidenWalletFromSeed(seed: Uint8Array, auth?: AuthScheme) {
     // The SDK reconstructs the account from `seed` + `auth` (default Falcon
     // when omitted). For the wallet's mnemonic-restore path the caller
-    // PROBES with each known auth scheme to find which account id actually
-    // exists on chain — see `Vault.spawn`. Forwarding `auth` only when
+    // imports under the one current auth scheme to find whether the account
+    // exists on chain - see `Vault.spawn`. Forwarding `auth` only when
     // explicitly provided keeps any other call site behaving exactly as
     // before.
     const account = await this.client.accounts.import({
@@ -974,8 +1013,8 @@ export class MidenClientInterface {
     // full-fetch this originally used, so a note the recipient's stored cursor has
     // already advanced past is not recoverable through this path — and nothing else
     // recovers it either. The sender-side re-push (`note-delivery-sweep.ts`) covers
-    // only a note the transport never STORED; one it holds is rejected on the unique
-    // note id, so it keeps its original position below the cursor.
+    // only a note the transport never STORED; one it holds is acknowledged as a
+    // duplicate and keeps its original position below the cursor.
     await this.client.notes.fetchPrivate();
   }
 
@@ -1304,7 +1343,7 @@ export class MidenClientInterface {
           await this.client.notes.import(NoteFile.fromInputNote(inputNote));
           imported++;
         } catch (error) {
-          // A trap or an eviction ends the range; the lock this runs under retires a trap.
+          // A trap or a kill (an eviction, a terminated client) ends the range; the lock this runs under retires a trap.
           if (isClientFault(error)) throw error;
           failures++;
           console.warn('[GuardianRecovery] Failed to import one public note:', error);
@@ -1374,8 +1413,15 @@ export class MidenClientInterface {
     });
   }
 
-  async syncState() {
-    return await this.client.sync();
+  async syncState(assertLive: AssertLive = noAssertLive) {
+    return syncAndRecordFeeFaucet(
+      this.client,
+      () => this.client.sync(),
+      () => {
+        if (this.isDisposed) throw new WasmClientPoisonedError('watchdog', new Error('sync client was replaced'));
+        assertLive();
+      }
+    );
   }
 
   async exportNote(
@@ -1394,10 +1440,15 @@ export class MidenClientInterface {
   }
 
   async sendPrivateNote(note: Note, to: string): Promise<void> {
-    // 0.16: sendPrivate requires an explicit scan-after block hint. For one of this client's
-    // own output notes, sendPrivateOutput derives that hint from the note's stored expected
-    // height, so the recipient scans from at/below the note's commitment block.
-    await this.client.notes.sendPrivateOutput({ noteId: note.id().toString(), to });
+    // rc.5 verifies an inclusion proof and drops the scan-after hint.
+    // `sendPrivateOutput` reads the proof sync stored on this client's output
+    // note, which exists once `transactions.waitFor` has synced past the
+    // commitment. Callers wait for that commit before relaying. The call runs
+    // on the client that created the note, the same store the id lookup uses.
+    await this.client.notes.sendPrivateOutput({
+      noteId: note.id().toString(),
+      to: accountRefToSdk(to)
+    });
   }
 
   /**
@@ -1408,12 +1459,12 @@ export class MidenClientInterface {
    * transaction row, so requiring a `Note` would mean re-hydrating one purely to
    * read back the id that `sendPrivateOutput` wants anyway.
    *
-   * Safe to call repeatedly: the hint is re-derived from the note's stored
-   * `expected_height` on every call, so a re-push is as correct as the first push
-   * however late it runs.
+   * Safe to call repeatedly. `sendPrivateOutput` reads the inclusion proof sync
+   * stored on the output note, so a later call is as correct as the first once
+   * that proof is in this client's store.
    */
   async relayPrivateNoteById(noteId: string, to: string): Promise<void> {
-    await this.client.notes.sendPrivateOutput({ noteId, to });
+    await this.client.notes.sendPrivateOutput({ noteId, to: accountRefToSdk(to) });
   }
 
   /**
@@ -1514,7 +1565,7 @@ export class MidenClientInterface {
     let reclaimAfter: number | undefined;
     if (extraInputs?.recallBlocks) {
       try {
-        const syncResult = await this.client.sync();
+        const syncResult = await this.syncState();
         reclaimAfter = syncResult.blockNum() + extraInputs.recallBlocks;
       } catch (error) {
         // Before any request exists, so the attempt provably never crossed (#1081).

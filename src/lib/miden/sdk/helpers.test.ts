@@ -1,4 +1,4 @@
-import { AccountId, Address, FungibleAsset, Note } from '@miden-sdk/miden-sdk/lazy';
+import { AccountId, Address, FungibleAsset, Note, TransactionRequestBuilder } from '@miden-sdk/miden-sdk/lazy';
 
 import { EXPIRATION_DELTA_BLOCKS } from 'lib/miden/helpers';
 
@@ -8,6 +8,7 @@ import {
   buildConsumeTransactionRequest,
   buildPswapCreateRequest,
   buildSendTransactionRequest,
+  feeAwareRequestBuilder,
   getBech32AddressFromAccountId,
   sameWalletAccountId,
   walletAccountIdToSdk
@@ -63,6 +64,8 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
       this.ownOutputNotes = notes;
       return this;
     };
+    // Present so a regression back to the two-word salt commit is observable, not a TypeError.
+    this.withFeeConversionSalt = jest.fn(() => this);
     this.withExpirationDelta = (delta: number) => {
       this.expirationDelta = delta;
       return this;
@@ -79,6 +82,26 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     });
   })
 }));
+
+/**
+ * A builder as `feeAwareTransactionRequestBuilder` resolves it. Since protocol 0.17 it carries the
+ * three words of fee auth args a multisig resolves, which `withFeeConversionSalt` (two words) could
+ * not, so a request handed one must be built from it and never from a fresh builder.
+ */
+const feeAwareBaseBuilder = () => {
+  const builder = {
+    withOwnOutputNotes: jest.fn(),
+    withExpirationDelta: jest.fn(),
+    withFeeConversionSalt: jest.fn(),
+    build: jest.fn(() => ({ kind: 'fee-aware-request' }))
+  };
+  builder.withOwnOutputNotes.mockReturnValue(builder);
+  builder.withExpirationDelta.mockReturnValue(builder);
+  return builder;
+};
+
+/** The builder instances `new TransactionRequestBuilder()` produced in this test. */
+const freshBuilders = () => jest.mocked(TransactionRequestBuilder).mock.instances;
 
 /** A vault entry: one fungible asset slot as `account.vault().fungibleAssets()` returns it. */
 const vaultAsset = (faucetHex: string, amount: bigint, flag: string) => ({
@@ -192,6 +215,35 @@ describe('miden sdk helpers', () => {
     });
   });
 
+  describe('feeAwareRequestBuilder', () => {
+    // An approval expiration is bound only when one is given (#1081).
+    it.each([undefined, 180])(
+      'asks the SDK for the executing account with the salt as its fee conversion salt (approval expiration %s)',
+      async approvalExpirationDelta => {
+        const builder = feeAwareBaseBuilder();
+        const salt = { kind: 'salt' };
+        const feeAwareTransactionRequestBuilder = jest.fn(async () => builder);
+
+        const result = await feeAwareRequestBuilder(
+          { feeAwareTransactionRequestBuilder } as any,
+          'accountId-guarded',
+          salt as any,
+          approvalExpirationDelta
+        );
+
+        expect(feeAwareTransactionRequestBuilder).toHaveBeenCalledTimes(1);
+        expect(feeAwareTransactionRequestBuilder).toHaveBeenCalledWith(
+          'accountId-guarded',
+          approvalExpirationDelta === undefined
+            ? { feeConversionSalt: salt }
+            : { feeConversionSalt: salt, approvalExpirationDelta }
+        );
+        expect(result).toBe(builder);
+        expect(builder.withFeeConversionSalt).not.toHaveBeenCalled();
+      }
+    );
+  });
+
   describe('buildSendTransactionRequest', () => {
     const sender = { id: 'sender' } as any;
     const recipient = { id: 'recipient' } as any;
@@ -220,6 +272,54 @@ describe('miden sdk helpers', () => {
         ownOutputNotes: expect.anything(),
         expirationDelta: EXPIRATION_DELTA_BLOCKS
       });
+    });
+
+    it('starts from a fresh builder when no base builder is given, declaring no fee salt', () => {
+      const request = buildSendTransactionRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        sender,
+        recipient,
+        FAUCET_REF,
+        100n,
+        'Private' as any,
+        EXPIRATION_DELTA_BLOCKS
+      );
+
+      expect(freshBuilders()).toHaveLength(1);
+      expect(freshBuilders()[0]!.withFeeConversionSalt).not.toHaveBeenCalled();
+      expect(request).toEqual({
+        kind: 'request',
+        ownOutputNotes: { notes: [(Note.createP2IDNote as jest.Mock).mock.results[0]!.value] },
+        expirationDelta: EXPIRATION_DELTA_BLOCKS
+      });
+    });
+
+    // A guarded (multisig) sender's fee auth args live on the builder `feeAwareRequestBuilder`
+    // returned; building from a fresh one would drop them and fail the proposal.
+    it('adds the note to the base builder it is given and builds from THAT builder', () => {
+      const base = feeAwareBaseBuilder();
+
+      const request = buildSendTransactionRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        sender,
+        recipient,
+        FAUCET_REF,
+        100n,
+        'Public' as any,
+        180,
+        125,
+        base as any
+      );
+
+      expect(request).toEqual({ kind: 'fee-aware-request' });
+      expect(base.withOwnOutputNotes).toHaveBeenCalledWith({
+        notes: [(Note.createP2IDENote as jest.Mock).mock.results[0]!.value]
+      });
+      // The delta rides on the same builder, after the fee auth args it carries (#1081).
+      expect(base.withExpirationDelta).toHaveBeenCalledWith(180);
+      expect(base.build).toHaveBeenCalledTimes(1);
+      expect(base.withFeeConversionSalt).not.toHaveBeenCalled();
+      expect(freshBuilders()).toHaveLength(0);
     });
 
     // The flag is part of the vault key, so one faucet can occupy two slots.
@@ -551,6 +651,46 @@ describe('miden sdk helpers', () => {
       } finally {
         warn.mockRestore();
       }
+    });
+
+    it('starts from a fresh builder when no base builder is given, declaring no fee salt', () => {
+      const request = buildPswapCreateRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        referenceRequest(referenceNote()),
+        FAUCET_REF,
+        100n,
+        EXPIRATION_DELTA_BLOCKS
+      );
+
+      expect(freshBuilders()).toHaveLength(1);
+      expect(freshBuilders()[0]!.withFeeConversionSalt).not.toHaveBeenCalled();
+      expect(request).toEqual({
+        kind: 'request',
+        ownOutputNotes: { notes: [(Note.withAttachments as jest.Mock).mock.results[0]!.value] },
+        expirationDelta: EXPIRATION_DELTA_BLOCKS
+      });
+    });
+
+    it('adds the rebuilt note to the base builder it is given and builds from THAT builder', () => {
+      const base = feeAwareBaseBuilder();
+
+      const request = buildPswapCreateRequest(
+        accountHolding(vaultAsset(FAUCET_HEX, 500n, 'enabled')) as any,
+        referenceRequest(referenceNote()),
+        FAUCET_REF,
+        100n,
+        180,
+        base as any
+      );
+
+      expect(request).toEqual({ kind: 'fee-aware-request' });
+      expect(base.withOwnOutputNotes).toHaveBeenCalledWith({
+        notes: [(Note.withAttachments as jest.Mock).mock.results[0]!.value]
+      });
+      expect(base.withExpirationDelta).toHaveBeenCalledWith(180);
+      expect(base.build).toHaveBeenCalledTimes(1);
+      expect(base.withFeeConversionSalt).not.toHaveBeenCalled();
+      expect(freshBuilders()).toHaveLength(0);
     });
 
     it('rejects an amount outside the representable range', () => {

@@ -1,9 +1,13 @@
 import type { Mandate } from '@epoch-protocol/epoch-commons-sdk';
+import type { HealthCheckResponse } from '@epoch-protocol/epoch-intents-sdk';
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
 
+import { MOCK_USDC_ADDRESS } from '../ios/helpers/evm-doubles';
+
 /**
- * Headless stand-in for the Epoch allocator (`EPOCH_ALLOCATOR_URL`,
- * testnet-dev.epochprotocol.xyz) for the EARN (Epoch lending) e2e harness.
+ * Headless stand-in for the Epoch allocator (the served config document's
+ * `epoch.allocatorUrl`, testnet-dev.epochprotocol.xyz in production) for the EARN
+ * (Epoch lending) e2e harness.
  *
  * This is the earn-capable sibling of `playwright/e2e/ios/helpers/fake-epoch-allocator.ts`
  * (the bridge-IN fake). The real allocator + solver are hosted-only and watch REAL
@@ -19,28 +23,53 @@ import { type IncomingMessage, type Server, type ServerResponse, createServer } 
  *
  *   Withdraw (gasless redeem + bridge back — Sepolia→Miden, phase 2):
  *     GET  /gasless-status                       → relayer address (see caveat below)
- *     GET  /health                               → relayer fallback + { ok }
+ *     GET  /health                               → HealthCheckResponse (availability + relayer fallback)
  *     POST /relay-enable-delegation              → { ok }
  *     POST /relay-execute                        → { nonce } (programmable)
  *
  * The app fetches these cross-origin, so every response carries permissive CORS
  * headers and OPTIONS preflights are answered.
  *
- * ── Constants are inlined on purpose ──────────────────────────────────────────
- * Importing `src/lib/epoch/earn.ts` would drag the whole Epoch SDK + browser-only
- * `lib/miden/*` import graph into this node:http server. The values below mirror
- * the source-of-truth constants (kept in sync manually):
- *   - EARN_UNDERLYING            = src/lib/epoch/earn.ts        (Sepolia USDC)
- *   - EARN_DESTINATION_CHAIN_ID  = src/lib/epoch/earn.ts        (11155111)
- *   - MIDEN_DESTINATION_CHAIN_ID = src/lib/epoch/config.ts      (999999999)
+ * The EVM side matches the served config document (helpers/fake-bridge-config.ts):
+ * the deposit's lending leg is on `evm.chainId` (Sepolia) in `epoch.evmUsdc`, which
+ * the Anvil MockUsdc stands in for at the same address.
  */
 
-/** Sepolia USDC — `EARN_UNDERLYING` in src/lib/epoch/earn.ts. */
-const EARN_UNDERLYING = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
-/** Ethereum Sepolia — `EARN_DESTINATION_CHAIN_ID` (the deposit/lending leg). */
-const EARN_DESTINATION_CHAIN_ID = 11155111;
-/** Virtual Miden chain id — `MIDEN_DESTINATION_CHAIN_ID` (the withdraw/bridge leg). */
+/** Ethereum Sepolia, the served document's `evm.chainId` (the deposit/lending leg). */
+const SEPOLIA_CHAIN_ID = 11155111;
+/** Epoch's virtual Miden chain id (the withdraw/bridge leg). */
 const MIDEN_DESTINATION_CHAIN_ID = 999999999;
+/** An allocator address `/health` advertises per chain, as testnet-dev does. */
+const FAKE_ALLOCATOR_ADDRESS = '0x00000000000000000000000000000000000a110c';
+/** The relay signer the gasless withdraw resolves from `/gasless-status` or `/health`. */
+const RELAYER_ADDRESS = '0x0000000000000000000000000000000000000001';
+
+/**
+ * `/health` in the SDK's `HealthCheckResponse` shape, plus the `supportedChains` list
+ * testnet-dev also sends. The wallet's availability check reads it, and the SDK reads
+ * `signingAddress` as the gasless relayer when `/gasless-status` is unavailable.
+ */
+export function allocatorHealthResponse(
+  signingAddress: string = RELAYER_ADDRESS
+): HealthCheckResponse & { supportedChains: string[] } {
+  return {
+    status: 'healthy',
+    allocatorAddresses: {
+      [SEPOLIA_CHAIN_ID]: FAKE_ALLOCATOR_ADDRESS,
+      [MIDEN_DESTINATION_CHAIN_ID]: FAKE_ALLOCATOR_ADDRESS
+    },
+    signingAddress,
+    timestamp: new Date().toISOString(),
+    chainConfig: {
+      defaultFinalizationThresholdSeconds: 0,
+      supportedChains: [
+        { chainId: String(SEPOLIA_CHAIN_ID), finalizationThresholdSeconds: 0 },
+        { chainId: String(MIDEN_DESTINATION_CHAIN_ID), finalizationThresholdSeconds: 0 }
+      ]
+    },
+    supportedChains: []
+  };
+}
 
 /**
  * Default allocator Miden collateral recipient — the account the P2IDE collateral
@@ -329,9 +358,9 @@ export class FakeEpochAllocator {
           resourceLockRequired: true,
           transactions: [],
           path: [],
-          tokenIn: EARN_UNDERLYING,
+          tokenIn: MOCK_USDC_ADDRESS,
           tokenOut: '1000000',
-          tokenInDecimals: 6,
+          tokenInDecimals: 18,
           tokenInSymbol: 'USDC'
         });
         return;
@@ -401,10 +430,10 @@ export class FakeEpochAllocator {
         }
         const accepted = this.acceptedAllocations.get(key);
         const legs: AllocatorIntentLeg[] = [];
-        if (this.earnDepositStatus && (!accepted || accepted.destinationChainId === EARN_DESTINATION_CHAIN_ID)) {
+        if (this.earnDepositStatus && (!accepted || accepted.destinationChainId === SEPOLIA_CHAIN_ID)) {
           legs.push({
             status: this.earnDepositStatus,
-            chainId: EARN_DESTINATION_CHAIN_ID,
+            chainId: SEPOLIA_CHAIN_ID,
             transactionHash: '0x00'
           });
         }
@@ -434,7 +463,7 @@ export class FakeEpochAllocator {
       if (method === 'GET' && path === '/gasless-status') {
         this.send(res, 200, {
           ok: true,
-          relayerAddress: '0x0000000000000000000000000000000000000001',
+          relayerAddress: RELAYER_ADDRESS,
           is7702Capable: true,
           needsSetup: false,
           gaslessEnabled: true,
@@ -443,10 +472,8 @@ export class FakeEpochAllocator {
         return;
       }
 
-      // GET /health — relayer-address fallback when /gasless-status is unavailable;
-      // `signingAddress` is read as the relayer. `{ ok: true }` per the task.
       if (method === 'GET' && path === '/health') {
-        this.send(res, 200, { ok: true, signingAddress: '0x0000000000000000000000000000000000000001' });
+        this.send(res, 200, allocatorHealthResponse());
         return;
       }
 

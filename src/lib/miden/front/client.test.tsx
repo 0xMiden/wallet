@@ -132,9 +132,12 @@ const ImportProbe: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
   const { importWalletFromClient, ready } = useMidenContext();
   React.useEffect(() => {
     if (ready) {
-      void importWalletFromClient('password', 'mnemonic', [], 2, [
-        { accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon', secretKeyHex: '0102' }
-      ]).then(onComplete);
+      void importWalletFromClient(
+        'password',
+        'mnemonic',
+        [],
+        [{ accountId: 'account-id', publicKeyCommitment: 'a1b2', authScheme: 'falcon', secretKeyHex: '0102' }]
+      ).then(onComplete);
     }
   }, [importWalletFromClient, onComplete, ready]);
   return null;
@@ -160,7 +163,7 @@ it('passes versioned imported secrets through the React restore action', async (
       );
     });
 
-    expect(importWalletFromClient).toHaveBeenCalledWith('password', 'mnemonic', [], 2, importedAccounts);
+    expect(importWalletFromClient).toHaveBeenCalledWith('password', 'mnemonic', [], importedAccounts);
     expect(onComplete).toHaveBeenCalledTimes(1);
   } finally {
     await act(async () => root.unmount());

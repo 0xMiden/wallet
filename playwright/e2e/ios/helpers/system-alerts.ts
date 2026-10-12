@@ -1,4 +1,6 @@
 import { execFile } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
@@ -26,9 +28,11 @@ const execFileAsync = promisify(execFile);
  * short-circuits any later re-request. This is a screenshot-hygiene shim in the
  * harness only — no wallet source is changed and no behaviour is suppressed.
  *
- * Everything here is best-effort: if `idb` is not installed (local dev without
- * it) or the companion is unavailable, the gate gives up quietly and the run
- * proceeds — the alert simply reappears in screenshots, exactly as before.
+ * Captures are best-effort: if `idb` is not installed (local dev without it) or
+ * its companion stays unavailable after one reconnect, the gate gives up, logs
+ * idb's last error and the run proceeds; the alert simply reappears in
+ * screenshots. A spec that needs the prompt answered asks `settlePrompt`, which
+ * says why it was not.
  */
 
 // idb binary — overridable for environments where it isn't on PATH.
@@ -43,6 +47,14 @@ const ALLOW_LABEL = 'Allow';
 
 const DESCRIBE_TIMEOUT_MS = 15_000;
 const TAP_TIMEOUT_MS = 10_000;
+const DISCONNECT_TIMEOUT_MS = 10_000;
+const CONNECT_TIMEOUT_MS = 20_000;
+const COMPANION_EXIT_WAIT_MS = 3_000;
+const COMPANION_EXIT_POLL_MS = 250;
+// fb-idb's BASE_IDB_FILE_PATH, where it binds each simulator's companion socket.
+const IDB_SOCKET_DIR = '/tmp/idb';
+const IDB_ERROR_MAX_CHARS = 2_000;
+const IDB_ERROR_HEAD_CHARS = 300;
 
 // The wallet's Capacitor bridge logs each native call as it starts and as it returns:
 // `native LocalNotifications.requestPermissions (#12)`, then `result LocalNotifications.requestPermissions (#12)`,
@@ -105,9 +117,70 @@ export async function dismissNotificationPermissionAlert(udid: string): Promise<
   return true;
 }
 
+/**
+ * A failed idb call in one line: execFile's message carries idb's stderr after its first line, and that is the
+ * only record of why idb failed. A long one keeps its start (the command) and its end, where idb prints the
+ * exception; only the middle is cut.
+ */
+export function describeIdbError(err: unknown): string {
+  const text = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').trim();
+  const clipped =
+    text.length > IDB_ERROR_MAX_CHARS
+      ? `${text.slice(0, IDB_ERROR_HEAD_CHARS)} ... ${text.slice(-(IDB_ERROR_MAX_CHARS - IDB_ERROR_HEAD_CHARS))}`
+      : text;
+  return killedAtTimeout(err) ? `${clipped} (killed at its timeout)` : clipped;
+}
+
+function killedAtTimeout(err: unknown): boolean {
+  return err instanceof Error && 'killed' in err && err.killed === true;
+}
+
+/**
+ * Give this simulator a new idb companion. `idb disconnect` only forgets idb's record of it, and `idb connect`
+ * adopts any companion whose socket still answers (fb-idb 1.6.6, grpc/management.py), so a companion that is up
+ * but failing would come straight back. This simulator's companion is stopped first, killed if it ignores the
+ * request to exit; `idb kill` is not used, as it stops the other simulator's companion too. With its socket gone,
+ * `idb connect` spawns a new one.
+ */
+export async function reconnectIdb(udid: string): Promise<void> {
+  const companion = `idb_companion --udid ${udid}`;
+  // pkill and pgrep exit 1 when nothing matches.
+  const running = (): Promise<boolean> =>
+    execFileAsync('pgrep', ['-f', companion]).then(
+      () => true,
+      () => false
+    );
+  let stopped = false;
+  for (const signal of ['-TERM', '-KILL']) {
+    await execFileAsync('pkill', [signal, '-f', companion]).catch(() => undefined);
+    const giveUpAt = Date.now() + COMPANION_EXIT_WAIT_MS;
+    stopped = !(await running());
+    while (!stopped && Date.now() < giveUpAt) {
+      await sleep(COMPANION_EXIT_POLL_MS);
+      stopped = !(await running());
+    }
+    if (stopped) break;
+  }
+  if (stopped) fs.rmSync(path.join(IDB_SOCKET_DIR, `${udid}_companion.sock`), { force: true });
+  await execFileAsync(IDB_BIN, ['disconnect', udid], { timeout: DISCONNECT_TIMEOUT_MS }).catch(() => undefined);
+  await execFileAsync(IDB_BIN, ['connect', udid], { timeout: CONNECT_TIMEOUT_MS });
+}
+
+/**
+ * How `settlePrompt` ended. The reason separates the app (it never asked) from the harness (idb failed, or the
+ * alert was never answered), which one boolean could not: a failing idb read as "the wallet did not ask".
+ */
+export type PromptSettlement =
+  | { answered: true }
+  | { answered: false; reason: 'not-asked' | 'idb-unavailable' | 'not-answered' | 'no-gate'; detail: string };
+
 interface GateOptions {
-  /** Consecutive idb failures after which we stop trying (idb missing/broken). */
+  /** Consecutive idb failures after which idb counts as broken: it is reconnected, then given up on. */
   maxConsecutiveErrors?: number;
+  /** How many times a broken idb is reconnected before the gate gives up on it. */
+  maxReconnects?: number;
+  /** Reconnects idb to the simulator; injectable for tests. Defaults to reconnectIdb. */
+  reconnect?: (udid: string) => Promise<void>;
   /** Pause after a successful tap so the alert animates out before the screenshot. */
   settleMs?: number;
   /** The describe-and-tap step; injectable for tests. Defaults to dismissNotificationPermissionAlert. */
@@ -152,10 +225,12 @@ export function createNotificationAlertGate(
 ): {
   beforeCapture(): Promise<void>;
   observeConsole(text: string): void;
-  settlePrompt(timeoutMs: number): Promise<boolean>;
+  settlePrompt(timeoutMs: number): Promise<PromptSettlement>;
 } {
   const {
     maxConsecutiveErrors = 5,
+    maxReconnects = 1,
+    reconnect = reconnectIdb,
     settleMs = 250,
     promptWaitMs = 20_000,
     promptPollMs = 300,
@@ -168,10 +243,13 @@ export function createNotificationAlertGate(
 
   // With no request known to be open, one tap ends the gate's work: the app asks once per install.
   let dismissed = false;
+  let asked = false;
   let answered = false;
+  let taps = 0;
   let lastTapAt = 0;
   let consecutiveErrors = 0;
-  let warnedUnavailable = false;
+  let reconnectsLeft = maxReconnects;
+  let lastIdbError: string | null = null;
   let inflight: Promise<void> | null = null;
   const openPrompts = new Set<string>();
 
@@ -183,16 +261,37 @@ export function createNotificationAlertGate(
       const tapped = await dismiss(udid);
       consecutiveErrors = 0;
       if (tapped) {
+        taps += 1;
         lastTapAt = Date.now();
         onLog(`[system-alerts] tapped Allow on the notification permission alert on ${udid}`);
       }
       return tapped;
     } catch (err) {
       consecutiveErrors += 1;
-      if (!warnedUnavailable) {
-        warnedUnavailable = true;
-        const first = (err as Error).message.split('\n')[0];
-        onLog(`[system-alerts] idb unavailable on ${udid} (${first}); notification alert won't be auto-dismissed`);
+      lastIdbError = describeIdbError(err);
+      // A call killed at its timeout means the companion has stopped answering. Waiting for a streak of those would
+      // spend a settlePrompt's whole budget on timeouts before the reconnect, so one is the streak.
+      if (killedAtTimeout(err)) consecutiveErrors = Math.max(consecutiveErrors, maxConsecutiveErrors);
+      if (consecutiveErrors === 1) onLog(`[system-alerts] idb failed on ${udid}: ${lastIdbError}`);
+      if (idbUsable()) return false;
+      // One simulator's idb link can break while the other's keeps working (dApp Browser iOS, 2026-10-07): a fresh
+      // connection is worth one try before the alert is left unanswered.
+      if (reconnectsLeft > 0) {
+        reconnectsLeft -= 1;
+        onLog(`[system-alerts] idb failed ${consecutiveErrors} times in a row on ${udid}; reconnecting it`);
+        // Usable again before the reconnect runs, not after: a settlePrompt that looks in the meantime has to wait
+        // for the new connection, not report idb as gone while it is being restored.
+        consecutiveErrors = 0;
+        try {
+          await reconnect(udid);
+        } catch (reconnectErr) {
+          onLog(`[system-alerts] idb reconnect failed on ${udid}: ${describeIdbError(reconnectErr)}`);
+        }
+      } else {
+        onLog(
+          `[system-alerts] giving up on idb on ${udid} after ${consecutiveErrors} failures in a row; ` +
+            `notification alert won't be auto-dismissed. Last error: ${lastIdbError}`
+        );
       }
       return false;
     }
@@ -243,18 +342,40 @@ export function createNotificationAlertGate(
       const id = call?.[2];
       if (!call || !id) return;
       if (call[1] === 'native') {
+        asked = true;
         openPrompts.add(id);
       } else if (openPrompts.delete(id)) {
         answered = true;
       }
     },
-    async settlePrompt(timeoutMs: number): Promise<boolean> {
+    async settlePrompt(timeoutMs: number): Promise<PromptSettlement> {
       const giveUpAt = Date.now() + timeoutMs;
       while (!answered && idbUsable() && Date.now() < giveUpAt) {
         if (openPrompts.size > 0) await beforeCapture();
         else await pause(promptPollMs);
       }
-      return answered;
+      if (answered) return { answered: true };
+      if (!idbUsable()) {
+        return {
+          answered: false,
+          reason: 'idb-unavailable',
+          detail: `idb kept failing on ${udid}, reconnected ${maxReconnects - reconnectsLeft} time(s); last error: ${lastIdbError}`
+        };
+      }
+      if (!asked) {
+        return {
+          answered: false,
+          reason: 'not-asked',
+          detail: `the app did not call LocalNotifications.requestPermissions within ${timeoutMs}ms`
+        };
+      }
+      return {
+        answered: false,
+        reason: 'not-answered',
+        detail:
+          `the app asked, but no answer came within ${timeoutMs}ms after ${taps} tap(s) on Allow` +
+          (lastIdbError ? `; last idb error: ${lastIdbError}` : '')
+      };
     }
   };
 }
@@ -275,17 +396,21 @@ export async function warmUpIdb(
   options: { attempts?: number; gapMs?: number; onLog?: (message: string) => void } = {}
 ): Promise<void> {
   const { attempts = 12, gapMs = 1500, onLog } = options;
+  let lastError = '';
   for (let i = 0; i < attempts; i++) {
     try {
       // describe-all (via dismiss, which no-ops when no alert is up) — success
       // means the companion answered and is now connected for the gate.
       await dismissNotificationPermissionAlert(udid);
       return;
-    } catch {
+    } catch (err) {
+      lastError = describeIdbError(err);
       if (i < attempts - 1) await sleep(gapMs);
     }
   }
-  onLog?.(`[system-alerts] idb warmup could not connect on ${udid}; alert dismissal may be delayed`);
+  onLog?.(
+    `[system-alerts] idb warmup could not connect on ${udid}; alert dismissal may be delayed. Last error: ${lastError}`
+  );
 }
 
 function sleep(ms: number): Promise<void> {

@@ -2,7 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import { SwapEta } from 'lib/miden/swap/tokens';
+import { SwapEta, TOKEN_IETH } from 'lib/miden/swap/tokens';
 
 import { ReviewSwap, ReviewSwapProps } from './ReviewSwap';
 
@@ -38,7 +38,9 @@ jest.mock('app/hooks/useNetworkFeeEstimate', () => ({
 // The `SwapToken` type import in the source is erased at compile time, so the
 // mock only needs to supply the runtime `SOLVER_MARGIN` value.
 jest.mock('lib/miden/swap/tokens', () => ({
-  SOLVER_MARGIN: 0.05
+  SOLVER_MARGIN: 0.05,
+  TOKEN_IETH: jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH,
+  normalizedFaucetId: jest.requireActual('lib/miden/swap/tokens').normalizedFaucetId
 }));
 
 // The real ReviewLayout transitively pulls in `components/Button` (framer-motion +
@@ -77,8 +79,14 @@ jest.mock('components/Button', () => {
 jest.mock('components/TokenLogo', () => {
   const R = require('react');
   return {
-    TokenLogo: ({ symbol, size }: any) =>
-      R.createElement('div', { 'data-testid': 'token-logo', 'data-symbol': symbol, 'data-size': size })
+    TokenLogo: ({ symbol, faucetId, fallbackSymbol, size }: any) =>
+      R.createElement('div', {
+        'data-testid': 'token-logo',
+        'data-symbol': symbol,
+        'data-faucet-id': faucetId,
+        'data-fallback-symbol': fallbackSymbol,
+        'data-size': size
+      })
   };
 });
 
@@ -130,8 +138,12 @@ describe('ReviewSwap', () => {
 
       const logos = screen.getAllByTestId('token-logo');
       expect(logos).toHaveLength(2);
-      expect(logos[0]).toHaveAttribute('data-symbol', 'MIDEN');
-      expect(logos[1]).toHaveAttribute('data-symbol', 'ETH');
+      expect(logos[0]).toHaveAttribute('data-symbol', 'IMIDEN');
+      expect(logos[0]).toHaveAttribute('data-faucet-id', 'f-offer');
+      expect(logos[0]).toHaveAttribute('data-fallback-symbol', 'MIDEN');
+      expect(logos[1]).toHaveAttribute('data-symbol', 'IETH');
+      expect(logos[1]).toHaveAttribute('data-faucet-id', 'f-request');
+      expect(logos[1]).toHaveAttribute('data-fallback-symbol', 'ETH');
 
       // Captions come from the translated keys, as neutral Pills beside each Hero.
       expect(screen.getByText('youSend')).toBeInTheDocument();
@@ -140,6 +152,34 @@ describe('ReviewSwap', () => {
       // Amount strings composed from amount + symbol, rendered as the Hero value.
       expect(screen.getByText('1.5 IMIDEN')).toBeInTheDocument();
       expect(screen.getByText('3 IETH')).toBeInTheDocument();
+    });
+
+    it('names the registry iETH "Test iETH" in the receive hero and the rate row, keeping the symbol for the logo (#477)', () => {
+      renderComponent({
+        requestToken: { ...REQUEST_TOKEN, faucetId: TOKEN_IETH.faucetId },
+        swapEta: etaWithRate('2')
+      });
+
+      expect(screen.getByText('3 Test iETH')).toBeInTheDocument();
+      expect(screen.getByTestId('swap-rate-row')).toHaveTextContent('1 IMIDEN ≈ 2 Test iETH');
+      expect(screen.getAllByTestId('token-logo')[1]).toHaveAttribute('data-symbol', 'IETH');
+    });
+
+    it.each([
+      ['receive', { requestToken: { ...REQUEST_TOKEN, faucetId: TOKEN_IETH.faucetId } }],
+      ['send', { offerToken: { ...OFFER_TOKEN, faucetId: TOKEN_IETH.faucetId, symbol: 'IETH' } }]
+    ])('puts one (i) on testnet iETH when it is the %s side (#477)', (_side, overrides) => {
+      renderComponent(overrides);
+
+      const buttons = screen.getAllByTestId('swap-token-info-button');
+      expect(buttons).toHaveLength(1);
+      expect(buttons[0]).toHaveAttribute('aria-label', 'tokenInfoLabel_Test iETH');
+    });
+
+    it('puts no (i) on a pair without iETH', () => {
+      renderComponent();
+
+      expect(screen.queryByTestId('swap-token-info-button')).not.toBeInTheDocument();
     });
 
     it('renders the swap-arrows glyph (an svg) between the two amounts', () => {

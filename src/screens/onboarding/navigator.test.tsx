@@ -79,7 +79,7 @@ jest.mock('lib/platform', () => ({
 }));
 
 // Dev-gated "No guardian" onboarding flag — reads the shared toggle so a test
-// can drive whether ChooseGuardianScreen is told to show the option.
+// can drive whether MeetGuardianScreen is told to show the option.
 let mockAllowNoGuardian = false;
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveAllowNoGuardian: () => mockAllowNoGuardian
@@ -109,12 +109,8 @@ jest.mock('./common/NetworkNotice', () => ({ NetworkNoticeScreen: (p: any) => mo
 jest.mock('./common/CreatePassword', () => ({ CreatePasswordScreen: (p: any) => mockScreen('create-password')(p) }));
 jest.mock('./common/SetupBiometric', () => ({ SetupBiometricScreen: (p: any) => mockScreen('setup-biometric')(p) }));
 jest.mock('./common/SetupPasscode', () => ({ SetupPasscodeScreen: (p: any) => mockScreen('setup-passcode')(p) }));
-jest.mock('./common/ChooseGuardian', () => ({ ChooseGuardianScreen: (p: any) => mockScreen('choose-guardian')(p) }));
-// The facts stay real: the flow reads them to decide whether the picker may go on.
-jest.mock('./common/MeetGuardian', () => ({
-  MEET_GUARDIAN_POINTS: jest.requireActual('./common/MeetGuardian').MEET_GUARDIAN_POINTS,
-  MeetGuardianScreen: (p: any) => mockScreen('meet-guardian')(p)
-}));
+jest.mock('./common/GuardianIntro', () => ({ GuardianIntroScreen: (p: any) => mockScreen('guardian-intro')(p) }));
+jest.mock('./common/MeetGuardian', () => ({ MeetGuardianScreen: (p: any) => mockScreen('meet-guardian')(p) }));
 jest.mock('./create-wallet-flow/BackUpSeedPhrase', () => ({
   BackUpSeedPhraseScreen: (p: any) => mockScreen('backup-seed')(p)
 }));
@@ -180,8 +176,8 @@ describe('OnboardingFlow — per-step rendering, header & back-button visibility
     [OnboardingStep.ChooseProtection, 'screen-choose-protection'],
     [OnboardingStep.SetupPasscode, 'screen-setup-passcode'],
     [OnboardingStep.SetupBiometric, 'screen-setup-biometric'],
+    [OnboardingStep.GuardianIntro, 'screen-guardian-intro'],
     [OnboardingStep.MeetGuardian, 'screen-meet-guardian'],
-    [OnboardingStep.ChooseGuardian, 'screen-choose-guardian'],
     [OnboardingStep.BackupSeedPhrase, 'screen-backup-seed'],
     [OnboardingStep.VerifySeedPhrase, 'screen-verify-seed'],
     [OnboardingStep.SelectImportType, 'screen-select-import-type'],
@@ -286,83 +282,13 @@ describe('OnboardingFlow — action wiring per screen', () => {
     expect(onAction).toHaveBeenLastCalledWith({ id: 'setup-passcode' });
   });
 
-  // Ticks the Meet your Guardian facts (all, or the given ones) with the card on `chosenId`, then opens the
-  // picker from that step.
-  const openPickerFromMeet = (checked: Record<string, boolean>, onAction: jest.Mock, chosenId = 'g1') => {
-    const utils = renderFlow({ step: OnboardingStep.MeetGuardian, onAction });
-    act(() => mockCaptured['meet-guardian'].onProgressChange({ checked, chosenId, pickedByUser: false }));
-    utils.rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.ChooseGuardian} />);
-    onAction.mockClear();
-    return utils;
-  };
-  const ALL_TICKED = { 'local-state': true, 'seed-phrase': true, guardian: true };
-
-  it('ChooseGuardian: with all three facts ticked, forwards the guardian payload', () => {
+  it('GuardianIntro: Continue goes on to the operator screen', () => {
     const onAction = jest.fn();
-    openPickerFromMeet(ALL_TICKED, onAction);
-
-    const payload = { guardianId: 'g2', guardianEndpoint: 'https://guardian.example' };
-    act(() => mockCaptured['choose-guardian'].onSubmit(payload));
-    expect(onAction).toHaveBeenLastCalledWith({ id: 'choose-guardian-submit', payload });
+    renderFlow({ step: OnboardingStep.GuardianIntro, onAction });
+    act(() => mockCaptured['guardian-intro'].onContinue());
+    expect(onAction).toHaveBeenLastCalledWith({ id: 'guardian-intro-submit' });
+    expect(mockMotion.step.custom).toBe('forward');
   });
-
-  it.each([
-    ['none', {}],
-    ['two of the three', { 'local-state': true, 'seed-phrase': true }]
-  ])('ChooseGuardian: with %s of the facts ticked, a pick goes back to Meet your Guardian, not on', (_, checked) => {
-    const onAction = jest.fn();
-    openPickerFromMeet(checked, onAction);
-
-    act(() => mockCaptured['choose-guardian'].onSubmit({ guardianId: 'g2', guardianEndpoint: 'https://g2.example' }));
-    expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ id: 'choose-guardian-submit' }));
-    expect(onAction).toHaveBeenLastCalledWith({ id: 'back' });
-    // A return to the step beneath, so it moves as the header's back does.
-    expect(mockMotion.step.custom).toBe('backward');
-  });
-
-  it('ChooseGuardian: the no-guardian item takes the same way back, and is not kept as a pick', () => {
-    mockAllowNoGuardian = true;
-    const onAction = jest.fn();
-    const { rerender } = openPickerFromMeet({}, onAction);
-
-    act(() => mockCaptured['choose-guardian'].onSubmit({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' }));
-    expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ id: 'choose-guardian-submit' }));
-    expect(onAction).toHaveBeenLastCalledWith({ id: 'back' });
-
-    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.MeetGuardian} />);
-    expect(mockCaptured['meet-guardian'].progress).toEqual({ checked: {}, chosenId: 'g1', pickedByUser: false });
-  });
-
-  // Back on the step, its own link is how to take the fully private account: MeetGuardian.test pins that the
-  // link shows for these props, and this that the flow hands them over and forwards the link's submit.
-  it('MeetGuardian: with the dev flag on and the facts ticked after a bounce, offers and forwards no guardian', () => {
-    mockAllowNoGuardian = true;
-    const onAction = jest.fn();
-    const { rerender } = openPickerFromMeet({}, onAction);
-    act(() => mockCaptured['choose-guardian'].onSubmit({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' }));
-    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.MeetGuardian} />);
-
-    act(() =>
-      mockCaptured['meet-guardian'].onProgressChange({ checked: ALL_TICKED, chosenId: 'g1', pickedByUser: false })
-    );
-    expect(mockCaptured['meet-guardian'].showNoGuardianOption).toBe(true);
-    expect(mockCaptured['meet-guardian'].progress.checked).toEqual(ALL_TICKED);
-
-    const noGuardian = { guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' };
-    act(() => mockCaptured['meet-guardian'].onSubmit(noGuardian));
-    expect(onAction).toHaveBeenLastCalledWith({ id: 'choose-guardian-submit', payload: noGuardian });
-  });
-
-  // The fully private account is dev-only: every screen that offers it follows the flag both ways (the
-  // picker once the facts are ticked, since before that it returns to Meet).
-  it.each([true, false])(
-    'ChooseGuardian: with the facts ticked, showNoGuardianOption follows the dev flag (%s)',
-    flag => {
-      mockAllowNoGuardian = flag;
-      openPickerFromMeet(ALL_TICKED, jest.fn());
-      expect(mockCaptured['choose-guardian'].showNoGuardianOption).toBe(flag);
-    }
-  );
 
   it.each([true, false])('MeetGuardian: showNoGuardianOption follows the dev flag (%s)', flag => {
     mockAllowNoGuardian = flag;
@@ -370,153 +296,95 @@ describe('OnboardingFlow — action wiring per screen', () => {
     expect(mockCaptured['meet-guardian'].showNoGuardianOption).toBe(flag);
   });
 
-  // Meet's Continue waits for an operator that answered online, so the picker that stands in for it does too.
-  it('ChooseGuardian: the picker goes on only with an operator that has answered online', () => {
-    renderFlow({ step: OnboardingStep.ChooseGuardian });
-    expect(mockCaptured['choose-guardian'].requireOnline).toBe(true);
-  });
-
-  it("ChooseGuardian: opens on the operator Meet your Guardian's card shows", () => {
-    openPickerFromMeet({}, jest.fn(), 'g2');
-    expect(mockCaptured['choose-guardian'].initialId).toBe('g2');
-  });
-
-  it("ChooseGuardian: an unchanged pick goes back as Meet's own, not the user's", () => {
-    const onAction = jest.fn();
-    const { rerender } = openPickerFromMeet({}, onAction, 'g2');
-    act(() => mockCaptured['choose-guardian'].onSubmit({ guardianId: 'g2', guardianEndpoint: 'https://g2.example' }));
-    expect(onAction).toHaveBeenLastCalledWith({ id: 'back' });
-
-    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.MeetGuardian} />);
-    expect(mockCaptured['meet-guardian'].progress).toEqual({ checked: {}, chosenId: 'g2', pickedByUser: false });
-  });
-
-  // The picker's fallback to the first online operator covers Meet's auto-pick only, so a pick of the user's
-  // reopens the picker as theirs.
-  it("ChooseGuardian: reopens on a changed pick as the user's own, and on Meet's auto-pick as not", () => {
-    const onAction = jest.fn();
-    const { rerender } = openPickerFromMeet({}, onAction);
-    expect(mockCaptured['choose-guardian'].initialPicked).toBe(false);
-
-    const pick = { guardianId: 'g2', guardianEndpoint: 'https://g2.example' };
-    act(() => mockCaptured['choose-guardian'].onSubmit(pick, { explicit: false }));
-    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.MeetGuardian} />);
-    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.ChooseGuardian} />);
-    expect(mockCaptured['choose-guardian'].initialPicked).toBe(true);
-  });
-
-  it("ChooseGuardian: an explicit pick of the card's own operator is the user's", () => {
-    const onAction = jest.fn();
-    const { rerender } = openPickerFromMeet({}, onAction, 'g2');
-    const pick = { guardianId: 'g2', guardianEndpoint: 'https://g2.example' };
-    act(() => mockCaptured['choose-guardian'].onSubmit(pick, { explicit: true }));
-    expect(onAction).toHaveBeenLastCalledWith({ id: 'back' });
-
-    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.MeetGuardian} />);
-    expect(mockCaptured['meet-guardian'].progress).toEqual({ checked: {}, chosenId: 'g2', pickedByUser: true });
-    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.ChooseGuardian} />);
-    expect(mockCaptured['choose-guardian'].initialPicked).toBe(true);
-  });
-
-  // Until the facts are ticked the picker's Continue returns to Meet, so it says Select, and the fully private
-  // account it would drop there is not offered.
-  it('ChooseGuardian: reads Select and withholds No guardian until the facts are ticked', () => {
-    mockAllowNoGuardian = true;
-    const unticked = openPickerFromMeet({ 'local-state': true, 'seed-phrase': true }, jest.fn());
-    expect(mockCaptured['choose-guardian'].submitLabel).toBe('select');
-    expect(mockCaptured['choose-guardian'].showNoGuardianOption).toBe(false);
-    unticked.unmount();
-
-    openPickerFromMeet(ALL_TICKED, jest.fn());
-    expect(mockCaptured['choose-guardian'].submitLabel).toBeUndefined();
-    expect(mockCaptured['choose-guardian'].showNoGuardianOption).toBe(true);
-  });
-
-  it('MeetGuardian: submits the picked guardian and opens the picker', () => {
+  it('MeetGuardian: submits the picked guardian', () => {
     const onAction = jest.fn();
     renderFlow({ step: OnboardingStep.MeetGuardian, onAction });
 
     const payload = { guardianId: 'g1', guardianEndpoint: 'https://guardian.example' };
     act(() => mockCaptured['meet-guardian'].onSubmit(payload));
     expect(onAction).toHaveBeenLastCalledWith({ id: 'choose-guardian-submit', payload });
-
-    act(() => mockCaptured['meet-guardian'].onChooseDifferent());
-    expect(onAction).toHaveBeenLastCalledWith({ id: 'choose-guardian' });
   });
 
-  it('keeps the Meet your Guardian ticks and choice across the picker round trip, and clears them on Welcome', () => {
+  it('keeps the Meet your Guardian choice across the next step and back, and clears it on Welcome', () => {
     const { rerender } = renderFlow({ step: OnboardingStep.MeetGuardian });
-    const done = {
-      checked: { 'local-state': true, 'seed-phrase': true, guardian: true },
-      chosenId: 'g1',
-      pickedByUser: false
-    };
+    const done = { chosenId: 'g1', fastestId: 'g2' };
     act(() => mockCaptured['meet-guardian'].onProgressChange(done));
     expect(mockCaptured['meet-guardian'].progress).toEqual(done);
 
-    rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.ChooseGuardian} />);
+    rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.CreatePassword} />);
     rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} />);
     expect(mockCaptured['meet-guardian'].progress).toEqual(done);
 
+    // Welcome ends the attempt: the recorded fastest goes with the choice.
     rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.Welcome} />);
     rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} />);
-    expect(mockCaptured['meet-guardian'].progress).toEqual({ checked: {}, chosenId: null, pickedByUser: false });
+    expect(mockCaptured['meet-guardian'].progress).toEqual({ chosenId: null, fastestId: null });
   });
 
-  it('records a pick from the full picker on the Meet your Guardian card it goes back to', () => {
-    const onAction = jest.fn();
-    const { rerender } = openPickerFromMeet({}, onAction);
-    const pick = { guardianId: 'g2', guardianEndpoint: 'https://g2.example' };
-    act(() => mockCaptured['choose-guardian'].onSubmit(pick));
-    expect(onAction).toHaveBeenLastCalledWith({ id: 'back' });
+  it('keeps a sheet pick when back goes to the intro and the user returns', () => {
+    const { rerender } = renderFlow({ step: OnboardingStep.MeetGuardian });
+    act(() => mockCaptured['meet-guardian'].onProgressChange({ chosenId: 'g2', fastestId: 'g1' }));
 
-    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.MeetGuardian} />);
-    expect(mockCaptured['meet-guardian'].progress).toEqual({ checked: {}, chosenId: 'g2', pickedByUser: true });
+    rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.GuardianIntro} />);
+    rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} />);
+    expect(mockCaptured['meet-guardian'].progress).toEqual({ chosenId: 'g2', fastestId: 'g1' });
   });
 
   it("leaves the card alone for the fully private account and for the card's own Continue", () => {
     const onAction = jest.fn();
-    const { rerender } = renderFlow({ step: OnboardingStep.MeetGuardian, onAction });
-    const locked = { checked: {}, chosenId: 'g1', pickedByUser: false };
+    renderFlow({ step: OnboardingStep.MeetGuardian, onAction });
+    const locked = { chosenId: 'g1', fastestId: 'g1' };
     act(() => mockCaptured['meet-guardian'].onProgressChange(locked));
     act(() => mockCaptured['meet-guardian'].onSubmit({ guardianId: 'g1', guardianEndpoint: 'https://g1.example' }));
     expect(mockCaptured['meet-guardian'].progress).toEqual(locked);
 
-    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.ChooseGuardian} />);
-    act(() => mockCaptured['choose-guardian'].onSubmit({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' }));
-    rerender(<OnboardingFlow {...baseProps} onAction={onAction} step={OnboardingStep.MeetGuardian} />);
+    act(() => mockCaptured['meet-guardian'].onSubmit({ guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' }));
+    expect(onAction).toHaveBeenLastCalledWith({
+      id: 'choose-guardian-submit',
+      payload: { guardianId: NO_GUARDIAN_ID, guardianEndpoint: '' }
+    });
     expect(mockCaptured['meet-guardian'].progress).toEqual(locked);
   });
 
   it('starts the Meet your Guardian step afresh for a new seed, which is a new create attempt', () => {
     const first = ['alpha'];
     const { rerender } = renderFlow({ step: OnboardingStep.MeetGuardian, seedPhrase: first });
-    const done = {
-      checked: { 'local-state': true, 'seed-phrase': true, guardian: true },
-      chosenId: 'g1',
-      pickedByUser: false
-    };
+    const done = { chosenId: 'g1', fastestId: 'g1' };
     act(() => mockCaptured['meet-guardian'].onProgressChange(done));
 
     rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} seedPhrase={first} />);
     expect(mockCaptured['meet-guardian'].progress).toEqual(done);
 
     rerender(<OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} seedPhrase={['beta']} />);
-    expect(mockCaptured['meet-guardian'].progress).toEqual({ checked: {}, chosenId: null, pickedByUser: false });
+    expect(mockCaptured['meet-guardian'].progress).toEqual({ chosenId: null, fastestId: null });
   });
 
   // Written out, not compared with each other: two missing table entries would agree on the fallback.
   it.each([
-    [true, '3', '4'],
-    [false, '2', '3']
-  ])('MeetGuardian and ChooseGuardian both sit at the guardian position (mobile %s)', (mobile, current, steps) => {
+    [true, '3', '4', '5'],
+    [false, '2', '3', '4']
+  ])('the intro and MeetGuardian take one segment each (mobile %s)', (mobile, intro, guardian, steps) => {
     mockPlatform.isMobile = mobile;
-    for (const step of [OnboardingStep.MeetGuardian, OnboardingStep.ChooseGuardian]) {
+    const cases: Array<[OnboardingStep, string]> = [
+      [OnboardingStep.GuardianIntro, intro],
+      [OnboardingStep.MeetGuardian, guardian]
+    ];
+    for (const [step, current] of cases) {
       const { unmount } = renderFlow({ step, onboardingType: OnboardingType.Create });
       expect(progress()).toHaveAttribute('data-current', current);
       expect(progress()).toHaveAttribute('data-steps', steps);
       unmount();
     }
+  });
+
+  it.each([
+    [OnboardingType.Create, '5', '5'],
+    [OnboardingType.Import, '4', '4']
+  ])('the %s flow ends on its last segment', (onboardingType, current, steps) => {
+    mockPlatform.isMobile = true;
+    renderFlow({ step: OnboardingStep.Confirmation, onboardingType });
+    expect(progress()).toHaveAttribute('data-current', current);
+    expect(progress()).toHaveAttribute('data-steps', steps);
   });
 
   it('BackupSeedPhrase: passes the seed phrase through and submits verify', () => {
@@ -680,28 +548,28 @@ describe('OnboardingFlow — back navigation', () => {
 });
 
 describe('OnboardingFlow — progress computation', () => {
-  it('create flow on non-mobile shortens to 3 steps and shifts positions down by one', () => {
-    // CreatePassword takes the SetupPasscode slot (2) then shifts to 1 of 3.
+  it('create flow on non-mobile shortens to 4 steps and shifts positions down by one', () => {
+    // CreatePassword takes the SetupPasscode slot (2) then shifts to 1 of 4.
     renderFlow({ step: OnboardingStep.CreatePassword, onboardingType: OnboardingType.Create });
-    expect(progress()).toHaveAttribute('data-steps', '3');
+    expect(progress()).toHaveAttribute('data-steps', '4');
     expect(progress()).toHaveAttribute('data-current', '1');
   });
 
-  it('create flow on mobile keeps 4 steps and the un-shifted position', () => {
+  it('create flow on mobile keeps 5 steps, the password after the guardian at 4', () => {
     mockPlatform.isMobile = true;
     renderFlow({ step: OnboardingStep.CreatePassword, onboardingType: OnboardingType.Create });
-    expect(progress()).toHaveAttribute('data-steps', '4');
-    expect(progress()).toHaveAttribute('data-current', '3');
+    expect(progress()).toHaveAttribute('data-steps', '5');
+    expect(progress()).toHaveAttribute('data-current', '4');
   });
 
-  it('create flow on mobile shortens to 3 steps where the host skips the protection chooser', () => {
+  it('create flow on mobile shortens to 4 steps where the host skips the protection chooser', () => {
     mockPlatform.isMobile = true;
     renderFlow({
       step: OnboardingStep.SetupPasscode,
       onboardingType: OnboardingType.Create,
       skipProtectionChoice: true
     });
-    expect(progress()).toHaveAttribute('data-steps', '3');
+    expect(progress()).toHaveAttribute('data-steps', '4');
     expect(progress()).toHaveAttribute('data-current', '1');
   });
 
@@ -735,9 +603,9 @@ describe('OnboardingFlow — progress computation', () => {
   });
 
   it('shifted position of 0 keeps currentStep 0 and hides the indicator (opacity-0)', () => {
-    // Create + non-mobile + ChooseProtection: base 1, shifted to 0 of 3.
+    // Create + non-mobile + ChooseProtection: base 1, shifted to 0 of 4.
     renderFlow({ step: OnboardingStep.ChooseProtection, onboardingType: OnboardingType.Create });
-    expect(progress()).toHaveAttribute('data-steps', '3');
+    expect(progress()).toHaveAttribute('data-steps', '4');
     expect(progress()).toHaveAttribute('data-current', '0');
     expect(progress()!.getAttribute('data-classname')).toContain('opacity-0');
   });
@@ -753,7 +621,7 @@ describe('OnboardingFlow — progress computation', () => {
   it('unmapped step in the shortened create flow keeps a null (hidden) position', () => {
     // Create + non-mobile + unmapped step: protectionChoiceSkipped true, rawProgress null.
     renderFlow({ step: OnboardingStep.SelectTransactionType, onboardingType: OnboardingType.Create });
-    expect(progress()).toHaveAttribute('data-steps', '3');
+    expect(progress()).toHaveAttribute('data-steps', '4');
     expect(progress()).toHaveAttribute('data-current', '1');
     expect(progress()!.getAttribute('data-classname')).toContain('opacity-0');
   });
@@ -773,12 +641,12 @@ describe('OnboardingFlow — progress computation', () => {
 
     // Navigating to a new step must clear the override (effect on [step]).
     rerender(
-      <OnboardingFlow {...baseProps} step={OnboardingStep.ChooseGuardian} onboardingType={OnboardingType.Create} />
+      <OnboardingFlow {...baseProps} step={OnboardingStep.MeetGuardian} onboardingType={OnboardingType.Create} />
     );
-    // ChooseGuardian base is 3; on mobile create flow (4 steps) it stays 3, but
-    // the value now comes from baseStep, not the stale override.
-    expect(progress()).toHaveAttribute('data-current', '3');
-    expect(screen.getByTestId('screen-choose-guardian')).toBeInTheDocument();
+    // MeetGuardian base is 4; on mobile create flow (5 steps) it stays 4, and
+    // the value comes from baseStep, not the stale override.
+    expect(progress()).toHaveAttribute('data-current', '4');
+    expect(screen.getByTestId('screen-meet-guardian')).toBeInTheDocument();
   });
 });
 

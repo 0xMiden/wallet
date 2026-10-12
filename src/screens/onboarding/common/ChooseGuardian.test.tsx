@@ -15,7 +15,7 @@ jest.mock('react-i18next', () => ({
 }));
 
 // Guardian provider list — controlled per-test so we can exercise the
-// create/switch/empty branches deterministically. Ids normally match the
+// switch and empty branches deterministically. Ids normally match the
 // module-private `GUARDIAN_LOGOS` keys; an id with no matching entry falls
 // back to the generic avatar instead of throwing (see the "unknown operator"
 // regression test below).
@@ -192,6 +192,8 @@ const deferredPing = () => {
     });
 };
 
+const noop = () => {};
+
 const enterCustomUrl = (url: string) => {
   fireEvent.click(screen.getByText('useCustomGuardianUrl'));
   fireEvent.change(screen.getByTestId('custom-input'), { target: { value: url } });
@@ -206,8 +208,8 @@ describe('ChooseGuardianScreen', () => {
     expect(DefaultChooseGuardianScreen).toBe(ChooseGuardianScreen);
   });
 
-  it('renders the default header, all provider cards and the continue button (create flow)', () => {
-    const { container } = render(<ChooseGuardianScreen />);
+  it('renders the default header, all provider cards and the continue button', () => {
+    const { container } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
 
     // Default header copy from i18n keys.
     expect(screen.getByRole('heading', { name: 'chooseYourGuardian' })).toBeInTheDocument();
@@ -224,7 +226,7 @@ describe('ChooseGuardianScreen', () => {
     const [ozCard] = optionButtons(container);
     expect(ozCard).toContainElement(screen.getByText('guardianCardMeta: OpenZeppelin · US-EAST'));
 
-    // The picker is the design system's radio cards on the onboarding step layout.
+    // The picker is the design system's radio cards on the pushed page layout.
     expect(screen.getByRole('radiogroup', { name: 'chooseYourGuardian' })).toBeInTheDocument();
     const footer = screen.getByTestId('continue-button').closest<HTMLElement>('[data-slot="footer"]');
     expect(footer).not.toBeNull();
@@ -240,7 +242,7 @@ describe('ChooseGuardianScreen', () => {
   // Every card leads with the provider's logo on the same 48px brand tile (white in light mode, a
   // dark neutral in dark mode): OpenZeppelin's colour mark untouched, a grey mark recoloured to ink.
   it('leads each card with the provider mark on the brand tile', () => {
-    const { container } = render(<ChooseGuardianScreen />);
+    const { container } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
     const [ozBtn, gatewayBtn, lambdaBtn] = optionButtons(container);
 
     [ozBtn, gatewayBtn, lambdaBtn].forEach(btn => {
@@ -252,7 +254,7 @@ describe('ChooseGuardianScreen', () => {
   });
 
   it('draws each card flat, with no border, and the selection as the accent ring', () => {
-    const { container } = render(<ChooseGuardianScreen />);
+    const { container } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
     const [ozBtn, gatewayBtn] = optionButtons(container);
     expect(ozBtn).toHaveClass('bg-fill', 'rounded-2xl', 'ring-accent-primary');
     expect(ozBtn!.className).not.toMatch(/border-primary-500|border-4/);
@@ -260,7 +262,7 @@ describe('ChooseGuardianScreen', () => {
   });
 
   it('draws Learn more and Use a custom URL as text actions, never underlined', () => {
-    render(<ChooseGuardianScreen allowCustomEndpoint />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint />);
     [screen.getByText('learnMoreAboutGuardian'), screen.getByText('useCustomGuardianUrl')].forEach(action => {
       expect(action).toHaveClass('text-accent-tint-ink');
       expect(action.className).not.toMatch(/underline|text-primary-500/);
@@ -269,7 +271,7 @@ describe('ChooseGuardianScreen', () => {
 
   it('renders as a pushed page with the shared header when given onBack (Rotate Guardian)', () => {
     const onBack = jest.fn();
-    render(<ChooseGuardianScreen onBack={onBack} />);
+    render(<ChooseGuardianScreen onBack={onBack} currentEndpoint={OZ.endpoint} />);
     // The title moves into the header; the explainer and Learn more open the body.
     expect(screen.getByRole('heading', { name: 'chooseYourGuardian' })).toBeInTheDocument();
     expect(screen.getByText('chooseGuardianDescription')).toBeInTheDocument();
@@ -279,19 +281,12 @@ describe('ChooseGuardianScreen', () => {
     expect(screen.getByTestId('onboarding-choose-guardian').querySelector('[data-slot="step-heading"]')).toBeNull();
   });
 
-  it('honours custom title / description / submitLabel props', () => {
-    render(<ChooseGuardianScreen title="Pick one" description="Choose wisely" submitLabel="Go" />);
-    expect(screen.getByRole('heading', { name: 'Pick one' })).toBeInTheDocument();
-    expect(screen.getByText('Choose wisely')).toBeInTheDocument();
-    expect(screen.getByTestId('continue-button')).toHaveTextContent('Go');
-  });
-
   // A rotation failure used to be printed by the caller BELOW this screen, i.e.
   // outside its scroll container — on a short viewport the user tapped Continue,
   // nothing visibly happened, and the reason sat off-screen. It now renders
   // inside, directly above the button, announced.
   it('renders a caller submission error above the continue button', () => {
-    render(<ChooseGuardianScreen error="Guardian rejected the request" />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} error="Guardian rejected the request" />);
 
     const alert = screen.getByRole('alert');
     expect(alert).toHaveTextContent('Guardian rejected the request');
@@ -303,32 +298,12 @@ describe('ChooseGuardianScreen', () => {
   });
 
   it('renders no error region when the caller has no error', () => {
-    render(<ChooseGuardianScreen />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('hides the header when hideHeader is true', () => {
-    render(<ChooseGuardianScreen hideHeader />);
-    expect(screen.queryByRole('heading', { name: 'chooseYourGuardian' })).not.toBeInTheDocument();
-    expect(screen.queryByText('learnMoreAboutGuardian')).not.toBeInTheDocument();
-    // Cards still render.
-    expect(screen.getByText('OpenZeppelin')).toBeInTheDocument();
-  });
-
-  it('defaults the selection to the first provider and marks it with the "default" badge (create flow)', () => {
-    const { container } = render(<ChooseGuardianScreen />);
-    const [ozBtn, gwBtn] = optionButtons(container);
-
-    expect(isHighlighted(ozBtn!)).toBe(true);
-    expect(isHighlighted(gwBtn!)).toBe(false);
-
-    // Only the default card carries a badge, and it reads "default".
-    expect(screen.getByText('default')).toBeInTheDocument();
-    expect(screen.queryByText('currentLabel')).not.toBeInTheDocument();
-  });
-
   it('opens and closes the info drawer via learn-more / drawer close', () => {
-    render(<ChooseGuardianScreen />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
     const drawer = screen.getByTestId('info-drawer');
     expect(drawer).toHaveAttribute('data-open', 'false');
 
@@ -340,8 +315,8 @@ describe('ChooseGuardianScreen', () => {
     expect(screen.getByTestId('info-drawer')).toHaveAttribute('data-open', 'false');
   });
 
-  it('selects a non-default provider on tap (haptic + highlight moves)', () => {
-    const { container } = render(<ChooseGuardianScreen />);
+  it('selects a non-current provider on tap (haptic + highlight moves)', () => {
+    const { container } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
     const [ozBtn, gwBtn] = optionButtons(container);
 
     fireEvent.click(gwBtn!);
@@ -352,44 +327,42 @@ describe('ChooseGuardianScreen', () => {
 
   it('submits the selected provider id + endpoint on continue', () => {
     const onSubmit = jest.fn();
-    const { container } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    const { container } = render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} onSubmit={onSubmit} />
+    );
     const [, gwBtn] = optionButtons(container);
 
     fireEvent.click(gwBtn!);
     fireEvent.click(screen.getByTestId('continue-button'));
 
-    expect(onSubmit).toHaveBeenCalledWith(
-      {
-        guardianId: 'gateway',
-        guardianEndpoint: 'https://gw.example.com'
-      },
-      { explicit: true }
-    );
+    expect(onSubmit).toHaveBeenCalledWith({
+      guardianId: 'gateway',
+      guardianEndpoint: 'https://gw.example.com'
+    });
   });
 
-  it('submits the default provider when the user never changes the selection', () => {
+  it('submits the current provider when the user never changes the selection', () => {
     const onSubmit = jest.fn();
-    render(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} onSubmit={onSubmit} />);
 
     fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith(
-      {
-        guardianId: 'open-zeppelin',
-        guardianEndpoint: 'https://oz.example.com'
-      },
-      { explicit: false }
-    );
+    expect(onSubmit).toHaveBeenCalledWith({
+      guardianId: 'open-zeppelin',
+      guardianEndpoint: 'https://oz.example.com'
+    });
   });
 
   it('does not throw on continue when no onSubmit is provided', () => {
-    render(<ChooseGuardianScreen />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
     expect(() => fireEvent.click(screen.getByTestId('continue-button'))).not.toThrow();
   });
 
   it('does nothing on continue when there are no providers', () => {
     mockGetGuardianOptions.mockReturnValue([]);
     const onSubmit = jest.fn();
-    const { container } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    const { container } = render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} onSubmit={onSubmit} />
+    );
 
     expect(optionButtons(container)).toHaveLength(0);
     fireEvent.click(screen.getByTestId('continue-button'));
@@ -414,7 +387,7 @@ describe('ChooseGuardianScreen', () => {
 
     let container!: HTMLElement;
     expect(() => {
-      ({ container } = render(<ChooseGuardianScreen />));
+      ({ container } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />));
     }).not.toThrow();
 
     expect(optionButtons(container)).toHaveLength(2);
@@ -426,21 +399,20 @@ describe('ChooseGuardianScreen', () => {
   // --- switch flow (currentEndpoint) ---------------------------------------
 
   it('pre-selects and badges the current provider in the switch flow', () => {
-    const { container } = render(<ChooseGuardianScreen currentEndpoint={GATEWAY.endpoint} />);
+    const { container } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint={GATEWAY.endpoint} />);
     const [ozBtn, gwBtn] = optionButtons(container);
 
     // Current provider is pre-selected...
     expect(isHighlighted(gwBtn!)).toBe(true);
     expect(isHighlighted(ozBtn!)).toBe(false);
-    // ...and badged as "currentLabel" (not "default").
+    // ...and badged as "currentLabel".
     expect(screen.getByText('currentLabel')).toBeInTheDocument();
-    expect(screen.queryByText('default')).not.toBeInTheDocument();
   });
 
   // A stored endpoint can differ from the option's literal by a trailing slash;
   // RotateGuardian compares the two sanitized for the same reason.
   it('recognizes the current provider when the stored endpoint has a trailing slash', () => {
-    const { container } = render(<ChooseGuardianScreen currentEndpoint={`${GATEWAY.endpoint}/`} />);
+    const { container } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint={`${GATEWAY.endpoint}/`} />);
     const [ozBtn, gwBtn] = optionButtons(container);
 
     expect(isHighlighted(gwBtn!)).toBe(true);
@@ -449,7 +421,9 @@ describe('ChooseGuardianScreen', () => {
   });
 
   it('recognizes the current provider when the stored endpoint differs in host case', () => {
-    const { container } = render(<ChooseGuardianScreen currentEndpoint={GATEWAY.endpoint.toUpperCase()} />);
+    const { container } = render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={GATEWAY.endpoint.toUpperCase()} />
+    );
     const [ozBtn, gwBtn] = optionButtons(container);
 
     expect(isHighlighted(gwBtn!)).toBe(true);
@@ -457,30 +431,29 @@ describe('ChooseGuardianScreen', () => {
     expect(screen.getByText('currentLabel')).toBeInTheDocument();
   });
 
-  // An account on a custom Guardian has no listed operator to pre-select, and a built-in is not its default (#1083).
-  it('pre-selects nothing and badges no default when the current Guardian is not a listed provider', () => {
-    const { container } = render(<ChooseGuardianScreen currentEndpoint="https://unknown.example.com" />);
+  // An account on a custom Guardian has no listed operator to pre-select, (#1083).
+  it('pre-selects nothing when the current Guardian is not a listed provider', () => {
+    const { container } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint="https://unknown.example.com" />);
 
     optionButtons(container).forEach(btn => expect(isHighlighted(btn)).toBe(false));
     expect(screen.queryByText('currentLabel')).not.toBeInTheDocument();
-    expect(screen.queryByText('default')).not.toBeInTheDocument();
     expect(screen.getByTestId('continue-button')).toBeDisabled();
   });
 
-  // RotateGuardian's current endpoint hydrates from storage after the first render;
-  // until the user picks, the highlight follows it.
-  it('follows a currentEndpoint that resolves after mount until the user picks', () => {
-    const { container, rerender } = render(<ChooseGuardianScreen />);
+  // The current endpoint starts as the network default and becomes the account's endpoint once the
+  // store resolves; until the user picks, the highlight follows it.
+  it('follows a currentEndpoint that changes from the network default to the account endpoint until the user picks', () => {
+    const { container, rerender } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
     const [ozBtn, gwBtn] = optionButtons(container);
     expect(isHighlighted(ozBtn!)).toBe(true);
 
-    rerender(<ChooseGuardianScreen currentEndpoint={GATEWAY.endpoint} />);
+    rerender(<ChooseGuardianScreen onBack={noop} currentEndpoint={GATEWAY.endpoint} />);
     expect(isHighlighted(gwBtn!)).toBe(true);
     expect(isHighlighted(ozBtn!)).toBe(false);
   });
 
   it('keeps the user selection when currentEndpoint changes after an explicit pick', () => {
-    const { container, rerender } = render(<ChooseGuardianScreen currentEndpoint={GATEWAY.endpoint} />);
+    const { container, rerender } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint={GATEWAY.endpoint} />);
     const [ozBtn] = optionButtons(container);
 
     // User explicitly picks OpenZeppelin.
@@ -488,7 +461,7 @@ describe('ChooseGuardianScreen', () => {
     expect(isHighlighted(ozBtn!)).toBe(true);
 
     // A late-hydrating currentEndpoint change must NOT override the user's pick.
-    rerender(<ChooseGuardianScreen currentEndpoint={LAMBDA.endpoint} />);
+    rerender(<ChooseGuardianScreen onBack={noop} currentEndpoint={LAMBDA.endpoint} />);
     const [ozAfter, , lambdaAfter] = optionButtons(container);
     expect(isHighlighted(ozAfter!)).toBe(true);
     expect(isHighlighted(lambdaAfter!)).toBe(false);
@@ -497,12 +470,12 @@ describe('ChooseGuardianScreen', () => {
   // --- custom endpoint -----------------------------------------------------
 
   it('does not render the custom-URL affordance unless allowCustomEndpoint is set', () => {
-    render(<ChooseGuardianScreen />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
     expect(screen.queryByText('useCustomGuardianUrl')).not.toBeInTheDocument();
   });
 
   it('toggles the custom-URL input open and closed', () => {
-    render(<ChooseGuardianScreen allowCustomEndpoint />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint />);
     expect(screen.queryByTestId('custom-input')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText('useCustomGuardianUrl'));
@@ -516,7 +489,9 @@ describe('ChooseGuardianScreen', () => {
 
   it('submits a sanitized custom endpoint once a Guardian answers at it', async () => {
     const onSubmit = jest.fn();
-    render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+    render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint onSubmit={onSubmit} />
+    );
 
     fireEvent.click(screen.getByText('useCustomGuardianUrl'));
     fireEvent.change(screen.getByTestId('custom-input'), {
@@ -528,20 +503,19 @@ describe('ChooseGuardianScreen', () => {
     expect(mockIsValidGuardianUrl).toHaveBeenCalledWith('https://custom.example.com');
     expect(mockPing).toHaveBeenCalledWith('https://custom.example.com', USER_ENDPOINT_CHECK_TIMEOUT_MS);
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith(
-        {
-          guardianId: 'custom',
-          guardianEndpoint: 'https://custom.example.com'
-        },
-        { explicit: true }
-      )
+      expect(onSubmit).toHaveBeenCalledWith({
+        guardianId: 'custom',
+        guardianEndpoint: 'https://custom.example.com'
+      })
     );
   });
 
   it('refuses a custom URL no Guardian answers at, and says so', async () => {
     const answer = deferredPing();
     const onSubmit = jest.fn();
-    render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+    render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint onSubmit={onSubmit} />
+    );
 
     enterCustomUrl('https://example.com');
     fireEvent.click(screen.getByTestId('continue-button'));
@@ -555,7 +529,9 @@ describe('ChooseGuardianScreen', () => {
   it('checks a custom URL once while its check is out, and shows Continue busy', async () => {
     const answer = deferredPing();
     const onSubmit = jest.fn();
-    render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+    render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint onSubmit={onSubmit} />
+    );
 
     enterCustomUrl('https://custom.example.com');
     fireEvent.click(screen.getByTestId('continue-button'));
@@ -570,7 +546,9 @@ describe('ChooseGuardianScreen', () => {
   it('drops the verdict for a custom URL the user edited while it was being checked', async () => {
     const answer = deferredPing();
     const onSubmit = jest.fn();
-    render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+    render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint onSubmit={onSubmit} />
+    );
 
     enterCustomUrl('https://first.example.com');
     fireEvent.click(screen.getByTestId('continue-button'));
@@ -584,7 +562,9 @@ describe('ChooseGuardianScreen', () => {
   it('drops the verdict for a custom URL when the user leaves custom mode during the check', async () => {
     const answer = deferredPing();
     const onSubmit = jest.fn();
-    render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+    render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint onSubmit={onSubmit} />
+    );
 
     enterCustomUrl('https://first.example.com');
     fireEvent.click(screen.getByTestId('continue-button'));
@@ -597,7 +577,9 @@ describe('ChooseGuardianScreen', () => {
   it('drops the verdict for a custom URL when the user picks a provider card during the check', async () => {
     const answer = deferredPing();
     const onSubmit = jest.fn();
-    render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+    render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint onSubmit={onSubmit} />
+    );
 
     enterCustomUrl('https://first.example.com');
     fireEvent.click(screen.getByTestId('continue-button'));
@@ -610,7 +592,9 @@ describe('ChooseGuardianScreen', () => {
   it('drops the verdict for a custom URL when the picker unmounts during the check', async () => {
     const answer = deferredPing();
     const onSubmit = jest.fn();
-    const { unmount } = render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+    const { unmount } = render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint onSubmit={onSubmit} />
+    );
 
     enterCustomUrl('https://first.example.com');
     fireEvent.click(screen.getByTestId('continue-button'));
@@ -623,7 +607,9 @@ describe('ChooseGuardianScreen', () => {
   it('treats a ping that rejects as no Guardian answering, and lets Continue check again', async () => {
     mockPing.mockRejectedValueOnce(new Error('network'));
     const onSubmit = jest.fn();
-    render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+    render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint onSubmit={onSubmit} />
+    );
 
     enterCustomUrl('https://custom.example.com');
     await act(async () => {
@@ -644,7 +630,7 @@ describe('ChooseGuardianScreen', () => {
     const onSubmit = jest.fn();
     const picker = (active: boolean) => (
       <PageActiveContext.Provider value={active}>
-        <ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />
+        <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint onSubmit={onSubmit} />
       </PageActiveContext.Provider>
     );
     const { rerender } = render(picker(true));
@@ -663,7 +649,9 @@ describe('ChooseGuardianScreen', () => {
   it('shows an error and blocks submit when the custom URL is invalid, then clears it on edit', () => {
     mockIsValidGuardianUrl.mockReturnValue(false);
     const onSubmit = jest.fn();
-    render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+    render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint onSubmit={onSubmit} />
+    );
 
     fireEvent.click(screen.getByText('useCustomGuardianUrl'));
     fireEvent.change(screen.getByTestId('custom-input'), { target: { value: 'not-a-url' } });
@@ -680,7 +668,7 @@ describe('ChooseGuardianScreen', () => {
 
   it('clears any prior error when re-opening the custom toggle', () => {
     mockIsValidGuardianUrl.mockReturnValue(false);
-    render(<ChooseGuardianScreen allowCustomEndpoint />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint />);
 
     fireEvent.click(screen.getByText('useCustomGuardianUrl'));
     fireEvent.change(screen.getByTestId('custom-input'), { target: { value: 'bad' } });
@@ -695,7 +683,9 @@ describe('ChooseGuardianScreen', () => {
 
   it('switching back to a provider after enabling custom submits the provider (not custom)', () => {
     const onSubmit = jest.fn();
-    const { container } = render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+    const { container } = render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint onSubmit={onSubmit} />
+    );
 
     // Enable custom mode...
     fireEvent.click(screen.getByText('useCustomGuardianUrl'));
@@ -707,21 +697,20 @@ describe('ChooseGuardianScreen', () => {
     expect(screen.queryByTestId('custom-input')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith(
-      {
-        guardianId: 'gateway',
-        guardianEndpoint: 'https://gw.example.com'
-      },
-      { explicit: true }
-    );
+    expect(onSubmit).toHaveBeenCalledWith({
+      guardianId: 'gateway',
+      guardianEndpoint: 'https://gw.example.com'
+    });
   });
 
-  // `selectedId` seeds from `defaultId` and is never empty, so opening the custom
+  // `pickedId` seeds from `currentId` and is never empty, so opening the custom
   // field left a provider card still claiming to be the pressed one — a
   // machine-readable assertion that the wrong operator was selected, on the
   // screen whose entire job is choosing between them.
   it('stops reporting a provider card as pressed once custom mode is the live choice', () => {
-    const { container } = render(<ChooseGuardianScreen allowCustomEndpoint />);
+    const { container } = render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint />
+    );
 
     const [ozBtn] = optionButtons(container);
     expect(ozBtn).toHaveAttribute('aria-checked', 'true');
@@ -736,7 +725,7 @@ describe('ChooseGuardianScreen', () => {
   });
 
   it('exposes the custom-URL toggle as the disclosure control it is', () => {
-    render(<ChooseGuardianScreen allowCustomEndpoint />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint />);
 
     const toggle = screen.getByText('useCustomGuardianUrl');
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
@@ -745,31 +734,8 @@ describe('ChooseGuardianScreen', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
   });
 
-  // Latent today (no caller passes both affordances) and one prop combination
-  // from being live: `handleSelect` clears `isCustom` but nothing clears
-  // `selectedId`, so the no-guardian sentinel outlived the mode that superseded
-  // it and Continue built a guardian-LESS account while a typed custom URL sat
-  // on screen.
-  it('submits the custom URL, not a stale no-guardian selection, when both are offered', async () => {
-    const onSubmit = jest.fn();
-    render(<ChooseGuardianScreen allowCustomEndpoint showNoGuardianOption onSubmit={onSubmit} />);
-
-    fireEvent.click(screen.getByTestId('choose-no-guardian'));
-    fireEvent.click(screen.getByText('useCustomGuardianUrl'));
-    fireEvent.change(screen.getByTestId('custom-input'), { target: { value: 'https://custom.example.com' } });
-    fireEvent.click(screen.getByTestId('continue-button'));
-
-    await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith(
-        { guardianId: 'custom', guardianEndpoint: 'https://custom.example.com' },
-        { explicit: true }
-      )
-    );
-    expect(screen.getByTestId('choose-no-guardian')).toHaveAttribute('aria-checked', 'false');
-  });
-
   it('edits the custom URL without a pre-existing error (customError falsy branch)', () => {
-    render(<ChooseGuardianScreen allowCustomEndpoint />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint />);
     fireEvent.click(screen.getByText('useCustomGuardianUrl'));
 
     const input = screen.getByTestId('custom-input') as HTMLInputElement;
@@ -782,7 +748,7 @@ describe('ChooseGuardianScreen', () => {
 
 describe('ChooseGuardianScreen — custom endpoint keyboard (regression)', () => {
   it('gives the URL field a url keyboard with autocorrect off and a Done key', () => {
-    render(<ChooseGuardianScreen allowCustomEndpoint />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint />);
     fireEvent.click(screen.getByText('useCustomGuardianUrl'));
 
     const input = screen.getByTestId('custom-input');
@@ -794,7 +760,7 @@ describe('ChooseGuardianScreen — custom endpoint keyboard (regression)', () =>
   });
 
   it('Enter blurs the URL field so the keyboard dismisses', () => {
-    render(<ChooseGuardianScreen allowCustomEndpoint />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint />);
     fireEvent.click(screen.getByText('useCustomGuardianUrl'));
 
     const input = screen.getByTestId('custom-input') as HTMLInputElement;
@@ -809,7 +775,7 @@ describe('ChooseGuardianScreen — custom endpoint keyboard (regression)', () =>
 
 describe('ChooseGuardianScreen — offline banner', () => {
   it('pings the resolved provider endpoints', () => {
-    render(<ChooseGuardianScreen />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
     expect(mockUseGuardianAvailability).toHaveBeenCalledWith([OZ.endpoint, GATEWAY.endpoint, LAMBDA.endpoint]);
   });
 
@@ -819,7 +785,7 @@ describe('ChooseGuardianScreen — offline banner', () => {
       [GATEWAY.endpoint]: 'offline'
       // LAMBDA absent => still checking
     });
-    render(<ChooseGuardianScreen />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
 
     const banners = screen.getAllByTestId('guardian-offline-banner');
     expect(banners).toHaveLength(1);
@@ -831,7 +797,7 @@ describe('ChooseGuardianScreen — offline banner', () => {
   });
 
   it('renders no offline banner while pings are still checking or all online', () => {
-    render(<ChooseGuardianScreen />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
     expect(screen.queryByTestId('guardian-offline-banner')).not.toBeInTheDocument();
 
     mockUseGuardianAvailability.mockReturnValue({
@@ -839,18 +805,8 @@ describe('ChooseGuardianScreen — offline banner', () => {
       [GATEWAY.endpoint]: 'online',
       [LAMBDA.endpoint]: 'online'
     });
-    render(<ChooseGuardianScreen />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
     expect(screen.queryByTestId('guardian-offline-banner')).not.toBeInTheDocument();
-  });
-
-  it('keeps the default badge alongside the offline verdict', () => {
-    // OZ is the default selection AND offline: both badges show, side by side.
-    mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline' });
-    render(<ChooseGuardianScreen />);
-
-    const card = screen.getByTestId('guardian-offline-banner').closest('button');
-    expect(card).toHaveAccessibleDescription(/^default guardianOfflineLabel/);
-    expect(screen.getByTestId('guardian-offline-banner')).toHaveClass('bg-negative-tint');
   });
 
   // The card most likely to be offline is the one the user is already on — that
@@ -859,7 +815,7 @@ describe('ChooseGuardianScreen — offline banner', () => {
   // there hid it at exactly the moment it mattered.
   it('still shows Current on the operator the account is on while it is down', () => {
     mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
-    render(<ChooseGuardianScreen currentEndpoint={GATEWAY.endpoint} />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={GATEWAY.endpoint} />);
 
     const card = screen.getByTestId('guardian-offline-banner').closest('button');
     expect(card).toHaveAccessibleDescription(/^currentLabel guardianOfflineLabel/);
@@ -875,18 +831,18 @@ describe('ChooseGuardianScreen — offline banner', () => {
       [OZ.endpoint]: 'offline',
       [GATEWAY.endpoint]: 'offline'
     });
-    render(<ChooseGuardianScreen />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
 
-    const ozCard = screen.getByRole('radio', { name: OZ.name, description: /^default guardianOfflineLabel/ });
+    const ozCard = screen.getByRole('radio', { name: OZ.name, description: /^currentLabel guardianOfflineLabel/ });
     expect(ozCard).toHaveAttribute('data-guardian-endpoint', OZ.endpoint);
     const gwCard = screen.getByRole('radio', { name: GATEWAY.name, description: /^guardianOfflineLabel/ });
     expect(gwCard).toHaveAttribute('data-guardian-endpoint', GATEWAY.endpoint);
   });
 
   it('exposes the selected card as checked, since selection is otherwise the ring alone', () => {
-    render(<ChooseGuardianScreen />);
+    render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
 
-    // OZ is the default selection.
+    // OZ is the current operator, so it is the selection.
     expect(screen.getByRole('radio', { name: OZ.name })).toHaveAttribute('aria-checked', 'true');
     const gwCard = screen.getByRole('radio', { name: GATEWAY.name });
     expect(gwCard).toHaveAttribute('aria-checked', 'false');
@@ -895,13 +851,14 @@ describe('ChooseGuardianScreen — offline banner', () => {
     expect(gwCard).toHaveAttribute('aria-checked', 'true');
   });
 
-  // An account created against a down operator fails deep in the pipeline,
-  // after the seed backup and the password. The card already SAID offline; it
-  // still took the tap and Continue still submitted it.
+  // A switch to a down operator fails after review and fresh authentication. The card already
+  // SAID offline; it still took the tap and Continue still submitted it.
   it('disables an offline provider card so it cannot be selected or submitted', () => {
     mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
     const onSubmit = jest.fn();
-    const { container } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    const { container } = render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} onSubmit={onSubmit} />
+    );
     const [ozBtn, gwBtn] = optionButtons(container);
 
     expect(gwBtn).toBeDisabled();
@@ -913,31 +870,7 @@ describe('ChooseGuardianScreen — offline banner', () => {
     expect(isHighlighted(gwBtn!)).toBe(false);
 
     fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith(
-      { guardianId: 'open-zeppelin', guardianEndpoint: OZ.endpoint },
-      { explicit: false }
-    );
-  });
-
-  // Verdicts land AFTER the default is picked (the map starts empty), so the
-  // default card can turn out to be offline. The selection has to follow the
-  // verdict rather than sit on a card the user cannot tap.
-  it('moves the default selection to the first online provider when the default is offline (create flow)', () => {
-    mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline' });
-    const onSubmit = jest.fn();
-    const { container } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
-    const [ozBtn, gwBtn] = optionButtons(container);
-
-    expect(ozBtn).toHaveAttribute('aria-checked', 'false');
-    expect(gwBtn).toHaveAttribute('aria-checked', 'true');
-    // The "default" badge still names the first card; only the selection moved.
-    expect(ozBtn).toHaveAccessibleDescription(/^default guardianOfflineLabel/);
-
-    fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith(
-      { guardianId: 'gateway', guardianEndpoint: GATEWAY.endpoint },
-      { explicit: false }
-    );
+    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'open-zeppelin', guardianEndpoint: OZ.endpoint });
   });
 
   // The 30 s re-probe can flip an explicitly picked card offline while the user
@@ -945,14 +878,16 @@ describe('ChooseGuardianScreen — offline banner', () => {
   // operator (#1083): the selection clears and the card's offline badge says why.
   it('clears an explicit pick that goes offline instead of substituting another operator', () => {
     const onSubmit = jest.fn();
-    const { container, rerender } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    const { container, rerender } = render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} onSubmit={onSubmit} />
+    );
     const [ozBtn, gwBtn] = optionButtons(container);
 
     fireEvent.click(gwBtn!);
     expect(gwBtn).toHaveAttribute('aria-checked', 'true');
 
     mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
-    rerender(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    rerender(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} onSubmit={onSubmit} />);
 
     expect(gwBtn).toBeDisabled();
     expect(gwBtn).toHaveAttribute('aria-checked', 'false');
@@ -962,78 +897,38 @@ describe('ChooseGuardianScreen — offline banner', () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  // #1083: re-tapping the already-checked default card must record it as an explicit pick, the
-  // same as tapping any other card, so it is honoured (or cleared, never swapped) by that rule too.
-  it('clears a re-tap of the already-checked default card when it goes offline (create flow)', () => {
-    const onSubmit = jest.fn();
-    const { container, rerender } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
-    const [ozBtn] = optionButtons(container);
-    expect(ozBtn).toHaveAttribute('aria-checked', 'true');
-
-    fireEvent.click(ozBtn!);
-    expect(ozBtn).toHaveAttribute('aria-checked', 'true');
-
-    mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline' });
-    rerender(<ChooseGuardianScreen onSubmit={onSubmit} />);
-
-    optionButtons(container).forEach(btn => expect(btn).toHaveAttribute('aria-checked', 'false'));
-    expect(screen.getByTestId('continue-button')).toBeDisabled();
-    fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).not.toHaveBeenCalled();
-  });
-
-  // Same rule for the card the FALLBACK highlighted rather than the default: re-tapping it is
-  // still the user's explicit pick, so it is not skipped past to the next online provider either.
-  it('clears a re-tap of the fallback-highlighted card when it goes offline too (create flow)', () => {
-    mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline' });
-    const onSubmit = jest.fn();
-    const { container, rerender } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
-    const [, gwBtn] = optionButtons(container);
-    expect(gwBtn).toHaveAttribute('aria-checked', 'true');
-
-    fireEvent.click(gwBtn!);
-    expect(gwBtn).toHaveAttribute('aria-checked', 'true');
-
-    mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline', [GATEWAY.endpoint]: 'offline' });
-    rerender(<ChooseGuardianScreen onSubmit={onSubmit} />);
-
-    optionButtons(container).forEach(btn => expect(btn).toHaveAttribute('aria-checked', 'false'));
-    expect(screen.getByTestId('continue-button')).toBeDisabled();
-    fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).not.toHaveBeenCalled();
-  });
-
   it('selects an explicit pick again when its operator comes back online', () => {
     const onSubmit = jest.fn();
-    const { container, rerender } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    const { container, rerender } = render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} onSubmit={onSubmit} />
+    );
     const [, gwBtn] = optionButtons(container);
     fireEvent.click(gwBtn!);
 
     mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
-    rerender(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    rerender(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} onSubmit={onSubmit} />);
     mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'online' });
-    rerender(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    rerender(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} onSubmit={onSubmit} />);
 
     expect(gwBtn).toHaveAttribute('aria-checked', 'true');
     fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith(
-      { guardianId: 'gateway', guardianEndpoint: GATEWAY.endpoint },
-      { explicit: true }
-    );
+    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'gateway', guardianEndpoint: GATEWAY.endpoint });
   });
 
   // A card that recovers is selected again without a tap: the intent never
   // changed, only the verdict did.
-  it('re-selects the default when it comes back online', () => {
+  it('re-selects the current operator when it comes back online', () => {
     mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'offline' });
-    const { container, rerender } = render(<ChooseGuardianScreen />);
-    const [ozBtn, gwBtn] = optionButtons(container);
-    expect(gwBtn).toHaveAttribute('aria-checked', 'true');
+    const { container, rerender } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
+    const [ozBtn] = optionButtons(container);
+    optionButtons(container).forEach(btn => expect(btn).toHaveAttribute('aria-checked', 'false'));
+    expect(screen.getByTestId('continue-button')).toBeDisabled();
 
     mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'online' });
-    rerender(<ChooseGuardianScreen />);
+    rerender(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} />);
     expect(ozBtn).toHaveAttribute('aria-checked', 'true');
-    expect(gwBtn).toHaveAttribute('aria-checked', 'false');
+    expect(ozBtn).toHaveAccessibleDescription(/^currentLabel/);
+    expect(screen.getByTestId('continue-button')).not.toBeDisabled();
   });
 
   it('disables Continue when every provider is offline, instead of submitting the first one', () => {
@@ -1043,7 +938,9 @@ describe('ChooseGuardianScreen — offline banner', () => {
       [LAMBDA.endpoint]: 'offline'
     });
     const onSubmit = jest.fn();
-    const { container } = render(<ChooseGuardianScreen onSubmit={onSubmit} />);
+    const { container } = render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} onSubmit={onSubmit} />
+    );
 
     optionButtons(container).forEach(btn => {
       expect(btn).toBeDisabled();
@@ -1060,7 +957,7 @@ describe('ChooseGuardianScreen — offline banner', () => {
   // user must pick the replacement deliberately.
   it('pre-selects nothing when the offline current operator is stored with a trailing slash', () => {
     mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
-    const { container } = render(<ChooseGuardianScreen currentEndpoint={`${GATEWAY.endpoint}/`} />);
+    const { container } = render(<ChooseGuardianScreen onBack={noop} currentEndpoint={`${GATEWAY.endpoint}/`} />);
 
     optionButtons(container).forEach(btn => expect(btn).toHaveAttribute('aria-checked', 'false'));
     expect(screen.getByTestId('guardian-offline-banner').closest('button')).toHaveAccessibleDescription(
@@ -1073,14 +970,16 @@ describe('ChooseGuardianScreen — offline banner', () => {
   // operator the account is on: an offline pick selects nothing there.
   it('drops an explicit pick in the switch flow that goes offline, selecting nothing', () => {
     const onSubmit = jest.fn();
-    const { container, rerender } = render(<ChooseGuardianScreen currentEndpoint={OZ.endpoint} onSubmit={onSubmit} />);
+    const { container, rerender } = render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} onSubmit={onSubmit} />
+    );
     const [ozBtn, gwBtn, lcBtn] = optionButtons(container);
 
     fireEvent.click(gwBtn!);
     expect(gwBtn).toHaveAttribute('aria-checked', 'true');
 
     mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
-    rerender(<ChooseGuardianScreen currentEndpoint={OZ.endpoint} onSubmit={onSubmit} />);
+    rerender(<ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} onSubmit={onSubmit} />);
 
     expect(gwBtn).toBeDisabled();
     [ozBtn, gwBtn, lcBtn].forEach(btn => expect(btn).toHaveAttribute('aria-checked', 'false'));
@@ -1090,7 +989,9 @@ describe('ChooseGuardianScreen — offline banner', () => {
   it('pre-selects nothing in the switch flow when the current operator is offline', () => {
     mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline' });
     const onSubmit = jest.fn();
-    const { container } = render(<ChooseGuardianScreen currentEndpoint={GATEWAY.endpoint} onSubmit={onSubmit} />);
+    const { container } = render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={GATEWAY.endpoint} onSubmit={onSubmit} />
+    );
     const [ozBtn, gwBtn, lcBtn] = optionButtons(container);
 
     expect(gwBtn).toBeDisabled();
@@ -1108,10 +1009,7 @@ describe('ChooseGuardianScreen — offline banner', () => {
     expect(lcBtn).toHaveAttribute('aria-checked', 'true');
     expect(screen.getByTestId('continue-button')).not.toBeDisabled();
     fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith(
-      { guardianId: 'lambda-class', guardianEndpoint: LAMBDA.endpoint },
-      { explicit: true }
-    );
+    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'lambda-class', guardianEndpoint: LAMBDA.endpoint });
   });
 
   // The custom field is its own escape hatch: a user pointing at their own
@@ -1123,7 +1021,9 @@ describe('ChooseGuardianScreen — offline banner', () => {
       [LAMBDA.endpoint]: 'offline'
     });
     const onSubmit = jest.fn();
-    render(<ChooseGuardianScreen allowCustomEndpoint onSubmit={onSubmit} />);
+    render(
+      <ChooseGuardianScreen onBack={noop} currentEndpoint={OZ.endpoint} allowCustomEndpoint onSubmit={onSubmit} />
+    );
     expect(screen.getByTestId('continue-button')).toBeDisabled();
 
     fireEvent.click(screen.getByText('useCustomGuardianUrl'));
@@ -1131,179 +1031,7 @@ describe('ChooseGuardianScreen — offline banner', () => {
     fireEvent.change(screen.getByTestId('custom-input'), { target: { value: 'https://custom.example.com' } });
     fireEvent.click(screen.getByTestId('continue-button'));
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith(
-        { guardianId: 'custom', guardianEndpoint: 'https://custom.example.com' },
-        { explicit: true }
-      )
+      expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'custom', guardianEndpoint: 'https://custom.example.com' })
     );
-  });
-});
-
-// The create flow's picker goes on only as Meet your Guardian's Continue could: with an operator that has
-// answered online. A card with no verdict yet stays selectable; only Continue waits for it.
-describe('ChooseGuardianScreen - requireOnline (the create flow)', () => {
-  it('holds Continue while the picked operator has no verdict yet, keeping its card selectable', () => {
-    const onSubmit = jest.fn();
-    const { container } = render(<ChooseGuardianScreen onSubmit={onSubmit} requireOnline />);
-    const [ozBtn, gwBtn] = optionButtons(container);
-
-    fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByTestId('continue-button')).toBeDisabled();
-    expect(isHighlighted(ozBtn!)).toBe(true);
-
-    fireEvent.click(gwBtn!);
-    expect(isHighlighted(gwBtn!)).toBe(true);
-    expect(screen.getByTestId('continue-button')).toBeDisabled();
-  });
-
-  it('goes on with the picked operator once it has answered online', () => {
-    mockUseGuardianAvailability.mockReturnValue({ [OZ.endpoint]: 'online' });
-    const onSubmit = jest.fn();
-    render(<ChooseGuardianScreen onSubmit={onSubmit} requireOnline />);
-
-    fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith(
-      { guardianId: 'open-zeppelin', guardianEndpoint: OZ.endpoint },
-      { explicit: false }
-    );
-  });
-
-  it('still goes on with a pending verdict without it (Rotate Guardian)', () => {
-    const onSubmit = jest.fn();
-    const { container } = render(<ChooseGuardianScreen onSubmit={onSubmit} currentEndpoint={OZ.endpoint} />);
-
-    fireEvent.click(optionButtons(container)[1]!);
-    fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith(
-      { guardianId: 'gateway', guardianEndpoint: GATEWAY.endpoint },
-      { explicit: true }
-    );
-  });
-
-  it('leaves the no-guardian item and a custom URL to go on without a verdict', async () => {
-    const onSubmit = jest.fn();
-    const { unmount } = render(<ChooseGuardianScreen onSubmit={onSubmit} requireOnline showNoGuardianOption />);
-    fireEvent.click(screen.getByTestId('choose-no-guardian'));
-    fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenLastCalledWith({ guardianId: 'no-guardian', guardianEndpoint: '' }, { explicit: true });
-    unmount();
-
-    render(<ChooseGuardianScreen onSubmit={onSubmit} requireOnline allowCustomEndpoint />);
-    enterCustomUrl('https://custom.example.com');
-    fireEvent.click(screen.getByTestId('continue-button'));
-    await waitFor(() =>
-      expect(onSubmit).toHaveBeenLastCalledWith(
-        {
-          guardianId: 'custom',
-          guardianEndpoint: 'https://custom.example.com'
-        },
-        { explicit: true }
-      )
-    );
-  });
-});
-
-// The create flow's picker opens on the operator Meet your Guardian's card shows, not the first listed one.
-describe('ChooseGuardianScreen - initialId (the create flow)', () => {
-  it("pre-selects Meet your Guardian's operator and badges it Default", () => {
-    const { container } = render(<ChooseGuardianScreen initialId={GATEWAY.id} />);
-    const [ozBtn, gwBtn] = optionButtons(container);
-
-    expect(container.querySelector('[aria-checked="true"]')).toHaveAttribute(
-      'data-guardian-endpoint',
-      GATEWAY.endpoint
-    );
-    expect(gwBtn).toHaveAccessibleDescription(/^default /);
-    expect(ozBtn).toHaveAccessibleDescription(/^guardianCardMeta/);
-    expect(screen.queryByText('currentLabel')).not.toBeInTheDocument();
-  });
-
-  it.each([
-    ['a null one (the first probe round still out)', null],
-    ['one no listed operator matches', 'not-listed']
-  ])('keeps the first provider as the default for %s', (_, initialId) => {
-    const { container } = render(<ChooseGuardianScreen initialId={initialId} />);
-    const [ozBtn] = optionButtons(container);
-
-    expect(container.querySelector('[aria-checked="true"]')).toHaveAttribute('data-guardian-endpoint', OZ.endpoint);
-    expect(ozBtn).toHaveAccessibleDescription(/^default /);
-  });
-});
-
-// The fallback to the first online operator covers Meet your Guardian's auto-pick only: the user's own pick
-// reopens as theirs (`initialPicked`) and, while it is offline, nothing is selected (#1083).
-describe('ChooseGuardianScreen - initialPicked (the create flow)', () => {
-  const gatewayDown = () =>
-    mockUseGuardianAvailability.mockReturnValue({ [GATEWAY.endpoint]: 'offline', [OZ.endpoint]: 'online' });
-
-  it("never substitutes another operator for the user's offline pick", () => {
-    gatewayDown();
-    const { container } = render(<ChooseGuardianScreen requireOnline initialId={GATEWAY.id} initialPicked />);
-
-    expect(container.querySelector('[aria-checked="true"]')).toBeNull();
-    expect(screen.getByTestId('continue-button')).toBeDisabled();
-  });
-
-  it("still falls to the first online operator for Meet's auto-pick", () => {
-    gatewayDown();
-    const { container } = render(<ChooseGuardianScreen requireOnline initialId={GATEWAY.id} />);
-
-    expect(container.querySelector('[aria-checked="true"]')).toHaveAttribute('data-guardian-endpoint', OZ.endpoint);
-    expect(screen.getByTestId('continue-button')).not.toBeDisabled();
-  });
-});
-
-// The flow records a submit as the user's own pick when they made one here, a re-activated default included.
-describe('ChooseGuardianScreen - explicit (the create flow)', () => {
-  it('reports a re-activated default as explicit and an untouched Continue as not', () => {
-    const onSubmit = jest.fn();
-    const gateway = { guardianId: 'gateway', guardianEndpoint: GATEWAY.endpoint };
-    const { container, unmount } = render(<ChooseGuardianScreen onSubmit={onSubmit} initialId={GATEWAY.id} />);
-    const [, gwBtn, lcBtn] = optionButtons(container);
-
-    fireEvent.click(lcBtn!);
-    fireEvent.click(gwBtn!);
-    fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenLastCalledWith(gateway, { explicit: true });
-    unmount();
-
-    render(<ChooseGuardianScreen onSubmit={onSubmit} initialId={GATEWAY.id} />);
-    fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenLastCalledWith(gateway, { explicit: false });
-  });
-});
-
-describe('ChooseGuardian — no-guardian option', () => {
-  const oneOption = [{ id: 'open-zeppelin', name: 'OZ', operatedBy: 'OZ', location: 'US', endpoint: 'https://g' }];
-
-  it('hides the No guardian card by default', () => {
-    mockGetGuardianOptions.mockReturnValue(oneOption);
-    render(<ChooseGuardianScreen onSubmit={jest.fn()} />);
-    expect(screen.queryByTestId('choose-no-guardian')).toBeNull();
-  });
-
-  it('shows the card and submits the sentinel when enabled', () => {
-    mockGetGuardianOptions.mockReturnValue(oneOption);
-    const onSubmit = jest.fn();
-    render(<ChooseGuardianScreen onSubmit={onSubmit} showNoGuardianOption />);
-    fireEvent.click(screen.getByTestId('choose-no-guardian'));
-    fireEvent.click(screen.getByTestId('continue-button'));
-    expect(onSubmit).toHaveBeenCalledWith({ guardianId: 'no-guardian', guardianEndpoint: '' }, { explicit: true });
-  });
-
-  it('exposes the no-guardian card as pressed when selected, since selection is otherwise colour-only', () => {
-    mockGetGuardianOptions.mockReturnValue(oneOption);
-    render(<ChooseGuardianScreen showNoGuardianOption />);
-
-    const noGuardian = screen.getByTestId('choose-no-guardian');
-    // Title + subtitle are children of this button, so they already name it.
-    // An aria-label would override that composed name for no gain.
-    expect(noGuardian).not.toHaveAttribute('aria-label');
-    expect(noGuardian).toHaveAccessibleName(/noGuardianOptionTitle/);
-    expect(noGuardian).toHaveAttribute('aria-checked', 'false');
-
-    fireEvent.click(noGuardian);
-    expect(noGuardian).toHaveAttribute('aria-checked', 'true');
   });
 });

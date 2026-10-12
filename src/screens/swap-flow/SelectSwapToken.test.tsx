@@ -2,6 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
+import { TOKEN_IETH as REGISTRY_IETH } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 
 import { SelectSwapTokenDrawer } from './SelectSwapToken';
@@ -35,7 +36,13 @@ type SwapToken = {
 const mockGetSwapTokens = jest.fn<SwapToken[], []>(() => []);
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokens: () => mockGetSwapTokens(),
-  normalizedFaucetId: jest.requireActual('lib/miden/swap/tokens').normalizedFaucetId
+  normalizedFaucetId: jest.requireActual('lib/miden/swap/tokens').normalizedFaucetId,
+  TOKEN_IETH: jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH
+}));
+
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getTestNetworkNameKey: () => 'testnet'
 }));
 
 // `lib/miden/front` is the WASM-backed data barrel. Stub the three hooks the
@@ -69,8 +76,24 @@ jest.mock('lib/store', () => ({
 // `components/TokenLogo` renders inline SVG logos; stub it to a probe that
 // surfaces the `symbol`/`size` props the row passes through.
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol, size }: { symbol: string; size?: string }) => (
-    <span data-testid="token-logo" data-symbol={symbol} data-size={size} />
+  TokenLogo: ({
+    symbol,
+    faucetId,
+    fallbackSymbol,
+    size
+  }: {
+    symbol: string;
+    faucetId?: string;
+    fallbackSymbol?: string;
+    size?: string;
+  }) => (
+    <span
+      data-testid="token-logo"
+      data-symbol={symbol}
+      data-faucet-id={faucetId}
+      data-fallback-symbol={fallbackSymbol}
+      data-size={size}
+    />
   )
 }));
 
@@ -174,8 +197,10 @@ describe('SelectSwapTokenDrawer', () => {
     const row = tokenButton('IETH');
     expect(within(row).getByText('IETH')).toBeInTheDocument();
     const logo = within(row).getByTestId('token-logo');
-    // `logoSymbol` (not `symbol`) drives the logo, at the home asset row's 36px default size.
-    expect(logo).toHaveAttribute('data-symbol', 'ETH');
+    // The token's own symbol keys the logo, as on Home, at the home asset row's 36px default size.
+    expect(logo).toHaveAttribute('data-symbol', 'IETH');
+    expect(logo).toHaveAttribute('data-faucet-id', 'fid-eth');
+    expect(logo).toHaveAttribute('data-fallback-symbol', 'ETH');
     expect(logo).not.toHaveAttribute('data-size');
   });
 
@@ -292,6 +317,18 @@ describe('SelectSwapTokenDrawer', () => {
 
       expect(within(tokenButton('IBTC')).queryByText('$0.00')).not.toBeInTheDocument();
     });
+  });
+
+  it('names the registry iETH "Test iETH" in its row and balance line, keeping the symbol for the logo (#477)', () => {
+    const iEth: SwapToken = { ...IETH, faucetId: REGISTRY_IETH.faucetId };
+    setTokens([IMIDEN, iEth]);
+    setBalances([{ tokenId: REGISTRY_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 2 }]);
+    renderDrawer();
+
+    const row = tokenButton('IETH');
+    expect(within(row).getByText('Test iETH')).toBeInTheDocument();
+    expect(within(row).getByText('2.00 Test iETH')).toBeInTheDocument();
+    expect(within(row).getByTestId('token-logo')).toHaveAttribute('data-symbol', 'IETH');
   });
 
   it('marks only the row matching currentFaucetId as selected', () => {

@@ -1,14 +1,20 @@
-import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
-import { getEarnCollateralFaucet } from 'lib/epoch/collateral';
 import { toFixedRoundedDown } from 'lib/i18n/numbers';
-import { MIDEN_METADATA } from 'lib/miden/metadata/defaults';
-import { accountIdStringToSdk, accountRefToSdk, getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
-import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
+import {
+  getNativeAssetIdSync,
+  getNativeAssetMetadataSync,
+  getSdkSyncedNativeAssetIdSync
+} from 'lib/miden-chain/native-asset';
 // The pure module, not the lib/prices index: the index reaches the store, which reaches this file.
 import { quotedPrice, type TokenPriceInfo, type TokenPrices } from 'lib/prices/binance';
 import { isE2eFixtureSymbol } from 'lib/prices/constant';
 import { withRequestTimeout } from 'lib/remote-json';
+
+import { bridgePriceAllowlist } from './bridge-price-allowlist';
+import { canonicalFaucetId, IETH_FAUCET_ID, normalizedFaucetId } from './faucet-ids';
+
+export { _resetNormalizedFaucetIdsForTest, canonicalFaucetId, normalizedFaucetId } from './faucet-ids';
 
 /**
  * Swap starts with this fixed set of Miden testnet 0.16 DEX tokens and prepends the
@@ -49,7 +55,7 @@ export const TOKEN_IMIDEN: SwapToken = {
 };
 export const TOKEN_IETH: SwapToken = {
   symbol: 'IETH',
-  faucetId: 'mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h',
+  faucetId: IETH_FAUCET_ID,
   decimals: SWAP_TOKEN_DECIMALS,
   logoSymbol: 'ETH',
   priceSymbol: 'ETH'
@@ -87,12 +93,13 @@ export const getSwapTokens = (): SwapToken[] => {
   if (!nativeAssetId || SWAP_TOKENS.some(token => token.faucetId === nativeAssetId)) return SWAP_TOKENS;
 
   const nativeMetadata = getNativeAssetMetadataSync();
+  if (!nativeMetadata || !hasKnownScale({ ...nativeMetadata, name: nativeMetadata.symbol })) return SWAP_TOKENS;
   return [
     {
-      symbol: nativeMetadata?.symbol ?? MIDEN_METADATA.symbol,
+      symbol: nativeMetadata.symbol,
       faucetId: nativeAssetId,
-      decimals: nativeMetadata?.decimals ?? MIDEN_METADATA.decimals,
-      logoSymbol: 'MIDEN'
+      decimals: nativeMetadata.decimals,
+      logoSymbol: nativeMetadata.symbol === 'USDCX' ? 'USDC' : 'MIDEN'
     },
     ...SWAP_TOKENS
   ];
@@ -124,49 +131,26 @@ export const getSwapTokenByFaucetId = (faucetId?: string): SwapToken | undefined
 export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
   getSwapTokens().find(token => token.symbol === symbol);
 
-// Keyed by the network name getNetworkId derives from: the NetworkId object itself does not
-// stringify. Only a parsed id is stored, so a failed parse is retried once the SDK can parse the id.
-const normalizedFaucetIds = new Map<string, string>();
-
-/** Test-only: forget every cached conversion. */
-export const _resetNormalizedFaucetIdsForTest = (): void => normalizedFaucetIds.clear();
-
-/**
- * The SDK's bech32 form of a faucet id in any encoding (hex, bech32 or the composite
- * `<address>_<suffix>`), so every spelling of one faucet reduces to one id. Throws when the SDK
- * cannot parse the id, as it does for every id until its WASM has loaded.
- */
-export function canonicalFaucetId(faucetId: string): string {
-  const key = `${getEffectiveNetworkName()}:${faucetId}`;
-  const cached = normalizedFaucetIds.get(key);
-  if (cached !== undefined) return cached;
-  const canonical = getBech32AddressFromAccountId(accountRefToSdk(faucetId));
-  normalizedFaucetIds.set(key, canonical);
-  return canonical;
-}
-
-/** The balance store's key for a faucet id: its canonical id, or the raw id if the SDK cannot parse it yet. */
-export function normalizedFaucetId(faucetId: string): string {
-  try {
-    return canonicalFaucetId(faucetId);
-  } catch {
-    return faucetId;
-  }
-}
-
 /**
  * The faucets the wallet knows stand for a quoted asset, each with the symbol the feed prices it
- * under: the swap registry's priced tokens (IETH at ETH, IBTC at BTC), the Earn collateral USDC and
- * the Agglayer-bridged ETH. Identity comes from the faucet id, never from the symbol a faucet gives
- * itself, which anyone minting a token can set (#1131).
+ * under: the swap registry's priced tokens (IETH at ETH, IBTC at BTC), and the Earn collateral USDC and
+ * the Agglayer-bridged ETH the bridge config names. Identity comes from the faucet id, never from the
+ * symbol a faucet gives itself, which anyone minting a token can set (#1131).
  */
 function pricedFaucets(): { faucetId: string; priceSymbol: string }[] {
+  const nativeId = getNativeAssetIdSync();
+  const metadata = getNativeAssetMetadataSync();
+  const syncedId = !metadata || metadata.symbol === 'USDCX' ? getSdkSyncedNativeAssetIdSync() : null;
+  const fixedNative =
+    nativeId && syncedId && normalizedFaucetId(nativeId) === normalizedFaucetId(syncedId)
+      ? [{ faucetId: nativeId, priceSymbol: 'USDCX' }]
+      : [];
   return [
+    ...fixedNative,
     ...getSwapTokens().flatMap(token =>
       token.priceSymbol ? [{ faucetId: token.faucetId, priceSymbol: token.priceSymbol }] : []
     ),
-    { faucetId: getEarnCollateralFaucet(), priceSymbol: 'USDC' },
-    { faucetId: MIDEN_AGGLAYER_FAUCET_ID, priceSymbol: 'ETH' }
+    ...bridgePriceAllowlist()
   ];
 }
 

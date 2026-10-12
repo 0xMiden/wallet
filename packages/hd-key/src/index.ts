@@ -10,7 +10,6 @@ export {
 export type { ExtendedKey } from './slip10';
 export {
   BIP44_PURPOSE,
-  LEGACY_SEED_LABEL,
   MIDEN_COIN_TYPE,
   MIDEN_SEED_LABEL,
   deriveMidenAccountSeed,

@@ -117,6 +117,11 @@ export interface EarnHeroProps {
    * passes its APY pill), the way the tab root's total reads with no page title above it.
    */
   layout?: 'figure-first' | 'label-first';
+  /** `label-first` only: replaces the caption's type style, for a hero that must match another
+   *  screen's (the deposit review against the amount step's entry). */
+  labelClassName?: string;
+  /** `label-first` only: replaces the figure's type style and colour outright. */
+  figureClassName?: string;
   className?: string;
 }
 
@@ -134,15 +139,17 @@ export const EarnHero: FC<EarnHeroProps> = ({
   meta,
   children,
   layout = 'figure-first',
+  labelClassName,
+  figureClassName,
   className
 }) =>
   layout === 'label-first' ? (
     <section aria-labelledby={labelId} className={className}>
       {/* The 16px label (`text-row-title`), the size the Settings section titles take. */}
-      <p id={labelId} className="mb-1.5 text-row-title text-muted">
+      <p id={labelId} className={labelClassName ?? 'mb-1.5 text-row-title text-muted'}>
         {label}
       </p>
-      <div className={cn('text-display', valueClassName ?? 'text-ink')}>{value}</div>
+      <div className={figureClassName ?? cn('text-display', valueClassName ?? 'text-ink')}>{value}</div>
       {unit}
       {meta && <div className="mt-2 flex">{meta}</div>}
       {children}
@@ -228,10 +235,11 @@ export const EarnSummaryPanel: FC<{
 };
 
 /** The token a review's figure is denominated in: its mark and its symbol, on the unit type style
- *  that sits beside an entry. One shape for the deposit and the withdraw review alike. */
-export const EarnAmountUnit: FC<{ symbol: string }> = ({ symbol }) => (
-  <div className="flex items-center gap-1">
-    <TokenLogo symbol={symbol} size="md" />
-    <span className="text-entry-unit text-ink">{symbol}</span>
+ *  that sits beside an entry. `compact` is the smaller line a label-first hero puts under its
+ *  figure: the 24px mark and the page-title size. */
+export const EarnAmountUnit: FC<{ symbol: string; compact?: boolean }> = ({ symbol, compact = false }) => (
+  <div className={classNames('flex items-center', compact ? 'mt-1 gap-1.5' : 'gap-1')}>
+    <TokenLogo symbol={symbol} size={compact ? 'sm' : 'md'} />
+    <span className={classNames(compact ? 'text-title-page' : 'text-entry-unit', 'text-ink')}>{symbol}</span>
   </div>
 );

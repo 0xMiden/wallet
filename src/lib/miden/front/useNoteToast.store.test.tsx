@@ -7,8 +7,8 @@ import { useWalletStore } from 'lib/store';
 import { useNoteToastMonitor } from './useNoteToast';
 
 // The monitor against the real store, so "never toasts" is read from the store's own toast flag rather than from
-// the arguments of a mocked action. The native faucet id is the shared manual mock's (test/jest-mocks).
-const NATIVE = 'faucet-id';
+// the arguments of a mocked action. The actual native fee ID differs from the shared legacy display mock.
+const NATIVE = 'actual-native';
 
 type NoteFixture = { id: string; faucetId: string; amount: string; isBeingClaimed: boolean };
 
@@ -28,6 +28,11 @@ jest.mock('lib/miden/metadata', () => ({
 
 jest.mock('./claimable-notes', () => ({
   useClaimableNotes: () => ({ data: mockNotes, isFallback: false })
+}));
+
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({
+  __esModule: true,
+  default: () => 'actual-native'
 }));
 
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
@@ -87,6 +92,19 @@ describe('useNoteToastMonitor with the real store', () => {
     mockNotes = [...(mockNotes ?? []), note('new-manual', 'faucet-other', '1000000')];
     rerender();
     expect(useWalletStore.getState().isNoteToastVisible).toBe(true);
+  });
+
+  it('toasts a new legacy display note while suppressing the actual native fee note', () => {
+    mockBaseFee = 7;
+    const { rerender } = mountSeeded([note('seeded', 'faucet-other', '1000000')]);
+    mockNotes = [...(mockNotes ?? []), note('actual', NATIVE, '1000000')];
+    rerender();
+    expect(useWalletStore.getState().isNoteToastVisible).toBe(false);
+    expect(useWalletStore.getState().seenNoteIds.has('actual')).toBe(true);
+    mockNotes = [...(mockNotes ?? []), note('legacy', 'faucet-id', '1000000')];
+    rerender();
+    expect(useWalletStore.getState().isNoteToastVisible).toBe(true);
+    expect(useWalletStore.getState().seenNoteIds.has('legacy')).toBe(true);
   });
 
   it('never toasts a note auto-consume was claiming, when it arrives or once the setting is turned off (#811)', () => {

@@ -24,23 +24,21 @@ This package uses the **second rule for each wallet key, on each curve**. The na
 The reason is the use of the output. The derived 32 bytes are **not a signing key**, and they are not a scalar. They are the seed of a random number generator (RNG). The wallet gives the seed to an SDK key constructor (`AuthSecretKey.ecdsaWithRNG` or `AuthSecretKey.rpoFalconWithRNG`). The constructor starts a `StdRng` from the seed. It then makes the key from that RNG, not from the seed bytes. For ECDSA, the secp256k1 library reads random bytes from the RNG until they are a valid non-zero scalar. The SDK does not reduce the seed bytes into a scalar, and the scalar is not equal to the seed. For Falcon, a lattice sampler reads the RNG. Thus:
 
 - A `mod n` addition or a retry loop on the seed bytes has no use. Such a step also ties one seed to one curve.
-- The derivation the wallet used before issue #918 (`@demox-labs/aleo-hd-key`) used the same rule. The `legacy` scheme must keep it, or its golden vectors do not match.
 - With no retry, the derivation is a fixed number of HMAC calls.
 
 The cost is interoperability. A Miden ECDSA key is never equal to a BIP-32 wallet key for the same phrase. The package cannot reproduce the secp256k1 test vectors of the specification as-is. This is a decision (issue #918). `slip10.test.ts` checks the hardened secp256k1 vector with the scalar addition applied in the test. This shows that the HMAC chain, the label and the data layout are correct for that curve.
 
-## Schemes
+## Scheme
 
-| Scheme   | HMAC label       | Path                                                         |
-|----------|------------------|--------------------------------------------------------------|
-| `legacy` | `bls12_377 seed` | `m/44'/0'/<walletType>'/<accountIndex>'`                     |
-| `v1`     | `miden seed`     | `m/44'/5063758'/<walletType>'/<authScheme>'/<accountIndex>'` |
+| Scheme | HMAC label   | Path                                                         |
+|--------|--------------|--------------------------------------------------------------|
+| `v1`   | `miden seed` | `m/44'/5063758'/<walletType>'/<authScheme>'/<accountIndex>'` |
 
 - `walletType`: 0 on-chain, 1 off-chain, 2 guardian.
-- `authScheme`: 0 falcon, 1 ecdsa. The `legacy` scheme has no scheme level, so a Falcon key and an ECDSA key at the same index had the same seed. `v1` gives them different seeds.
+- `authScheme`: 0 falcon, 1 ecdsa. A Falcon key and an ECDSA key at the same index get different seeds.
 - `5063758` is the SLIP-44 coin type registered for Miden.
 
-Both schemes must stay byte-for-byte stable forever. The derivation decides which accounts a seed phrase recovers, so a change to a label or a path orphans every existing wallet. `miden.test.ts` freezes golden vectors for both schemes; do not recompute them from the code under test. This package does not import the SDK, so those vectors pin the seed only. The wallet test `src/lib/miden/sdk/derive-seed.keys.test.ts` pins the keys the SDK makes from each seed.
+The scheme must stay byte-for-byte stable forever. The derivation decides which accounts a seed phrase recovers, so a change to the label or the path orphans every existing wallet. `miden.test.ts` freezes its golden vectors; do not recompute them from the code under test. This package does not import the SDK, so those vectors pin the seed only. The wallet test `src/lib/miden/sdk/derive-seed.keys.test.ts` pins the keys the SDK makes from each seed.
 
 ## Rules
 

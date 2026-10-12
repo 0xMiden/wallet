@@ -1,6 +1,6 @@
 import browser, { Runtime } from 'webextension-polyfill';
 
-import { serializeError } from './helpers';
+import { serializeInternalError } from './helpers';
 import { MessageType, RequestMessage, ResponseMessage, ErrorMessage, SubscriptionMessage } from './types';
 
 type ReqHandler = (payload: any, port: Runtime.Port) => Promise<any>;
@@ -134,7 +134,7 @@ export class IntercomServer {
         this.send(port, {
           type: MessageType.Err,
           reqId: msgInner.reqId,
-          data: serializeError(err)
+          data: serializeInternalError(err)
         });
       }
     })(msg);

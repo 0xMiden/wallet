@@ -5,7 +5,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { isMobile } from 'lib/platform';
 
 import HistoryItem from './HistoryItem';
-import { isFaucetRequest } from './transactionUtils';
+import { bridgeRowDisplay, isFaucetRequest } from './transactionUtils';
 
 // `react-i18next` pulls in the full i18n runtime; stub `useTranslation` so
 // `t(key)` echoes `t:<key>` back and we can assert which label branch rendered.
@@ -88,6 +88,9 @@ jest.mock('./TransactionIcon', () => ({
 }));
 jest.mock('./transactionUtils', () => ({
   isFaucetRequest: jest.fn(() => false),
+  bridgeRowDisplay: jest.fn(),
+  bridgeBadgeStatusOf: jest.requireActual('./transactionUtils').bridgeBadgeStatusOf,
+  isUsdcxBridgeEntry: jest.requireActual('./transactionUtils').isUsdcxBridgeEntry,
   isReceiveEntry: jest.requireActual('./transactionUtils').isReceiveEntry,
   isBridgeInEntry: jest.fn(() => false),
   isEarnWithdrawEntry: (entry: { txType?: string }) => entry.txType === 'earn-withdraw',
@@ -122,6 +125,23 @@ beforeEach(() => {
 });
 
 describe('HistoryItem', () => {
+  it('shows a bridge row output under its label', () => {
+    jest.mocked(bridgeRowDisplay).mockReturnValue({
+      inSymbol: 'USDC',
+      outSymbol: 'USDC',
+      inLabel: 'Test Epoch USDC',
+      outLabel: 'Test Epoch USDC',
+      outAmount: '4.98',
+      providerLabel: 'Epoch',
+      network: 'Sepolia',
+      status: 'confirmed'
+    });
+
+    render(<HistoryItem entry={makeEntry({ txType: 'bridged-send' })} fullHistory lastEntry={false} />);
+
+    expect(screen.getByText('4.98 Test Epoch USDC')).toBeInTheDocument();
+  });
+
   it('renders the explorer-link (anchor) variant with receive styling, address, amount, token and cancel button', () => {
     const cancel = jest.fn().mockResolvedValue(undefined);
     const entry = makeEntry({

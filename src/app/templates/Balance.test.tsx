@@ -3,7 +3,7 @@ import React, { ReactElement } from 'react';
 import { render, screen } from '@testing-library/react';
 import BigNumber from 'bignumber.js';
 
-import { MIDEN_AGGLAYER_FAUCET_ID } from 'lib/agglayer/b2agg/constant';
+import { TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID } from 'lib/epoch/testing/bridge-config';
 import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
@@ -12,6 +12,8 @@ import Balance from './Balance';
 
 // The totals under test follow the default rule, no figure without a quote; pinned here against
 // Developer Settings' nominal $1 switch (lib/prices/unquoted-default). The nominal case flips it.
+// The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('lib/prices/unquoted-default', () => ({ hasUnquotedDefaultPrice: jest.fn(() => false) }));
 const mockedHasUnquotedDefaultPrice = jest.mocked(hasUnquotedDefaultPrice);
 

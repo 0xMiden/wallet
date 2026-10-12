@@ -97,7 +97,8 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
       guardianUrl: `https://guardian.${n}`,
       allowNoGuardian: false,
       networkName: n,
-      presetName: n
+      presetName: n,
+      feeFaucetId: ''
     })
   };
 });
@@ -117,6 +118,23 @@ jest.mock('lib/miden-chain/endpoint-health', () => ({
 const resetStorageDestructive = jest.fn();
 jest.mock('lib/miden/reset', () => ({
   resetStorageDestructive: (...args: unknown[]) => resetStorageDestructive(...args)
+}));
+
+// The other half of the endpoint-change contract. Clearing the fuse discards what the old
+// node taught us; this retires the passes still in flight AGAINST it, whose pending-rotation
+// recheck would otherwise demote rows and roll the guardian binding back from chain reads
+// taken before the save. Spied rather than driven behaviourally: the generation counter is
+// module-private to guardian-sync and is observed there, so what this screen owes is the call.
+const mockRetireGuardianSyncPasses = jest.fn();
+jest.mock('lib/miden/front/guardian-sync', () => ({
+  retireGuardianSyncPasses: () => mockRetireGuardianSyncPasses()
+}));
+
+// The save has the bridge config follow the new network in this realm; spied, since the load itself is the runtime's.
+const mockFollowEffectiveNetwork = jest.fn();
+jest.mock('lib/remote-config/runtime', () => ({
+  ...jest.requireActual<typeof import('lib/remote-config/runtime')>('lib/remote-config/runtime'),
+  followEffectiveNetwork: () => mockFollowEffectiveNetwork()
 }));
 
 // `reloadEndpointOverridesInSW` nudges the service worker on the extension
@@ -250,6 +268,31 @@ describe('DeveloperSettings', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
+  it('has the bridge config follow the new network once the override is applied', async () => {
+    const order: string[] = [];
+    applyEndpointOverride.mockImplementationOnce(async () => {
+      order.push('apply');
+    });
+    mockFollowEffectiveNetwork.mockImplementationOnce(() => {
+      order.push('follow');
+    });
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(mockFollowEffectiveNetwork).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['apply', 'follow']);
+  });
+
+  it('does not follow the network when the endpoint write fails', async () => {
+    applyEndpointOverride.mockRejectedValueOnce(new Error('quota exceeded'));
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await screen.findByRole('alert');
+    expect(mockFollowEffectiveNetwork).not.toHaveBeenCalled();
+  });
+
   it('stops the spinner and shows an error when the endpoint write fails, and stays on the screen', async () => {
     armIdleSyncFuse();
 
@@ -305,6 +348,14 @@ describe('DeveloperSettings', () => {
 
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
     expect(isSyncFused('idle-sync')).toBe(false);
+  });
+
+  it('retires the guardian passes still in flight against the OLD node on save', async () => {
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(mockRetireGuardianSyncPasses).toHaveBeenCalledTimes(1);
   });
 
   it('nudges the service worker to reload endpoint overrides on save when running as an extension with no wallet yet (onboarding)', async () => {

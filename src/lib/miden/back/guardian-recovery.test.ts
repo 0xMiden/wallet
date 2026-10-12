@@ -53,7 +53,7 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
 }));
 jest.mock('lib/miden/guardian/account', () => ({
   getSignerDetailsFromAccount: jest.fn().mockResolvedValue({ commitment: 'commitment' }),
-  resolveGuardianEndpoint: jest.fn().mockResolvedValue('https://guardian.test')
+  resolveGuardianEndpoint: jest.fn().mockReturnValue('https://guardian.test')
 }));
 jest.mock('lib/miden/guardian/native-http', () => ({ registerGuardianOrigin: jest.fn() }));
 jest.mock('lib/miden/guardian/signer', () => ({ WalletSigner: jest.fn() }));
@@ -412,6 +412,35 @@ describe('detached recovery run', () => {
     expect(setPendingFlag).not.toHaveBeenCalled();
     // Re-offerable straight away rather than waiting for the next backend start.
     await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+  });
+
+  it('treats a terminated client during the Guardian client setup as a deferral', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.getAccount.mockRejectedValue(new Error('WebClient terminated'));
+
+    await maybeStartGuardianRecovery(account);
+    await drainDetachedRun();
+
+    expect(setPendingFlag).not.toHaveBeenCalled();
+    await expect(maybeStartGuardianRecovery(account)).resolves.toBe(true);
+  });
+
+  it('defers the pass on a terminated client from the proposal import, counting no source failure', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    guardianOffersProposalNotes(1);
+    mockProxy.importRecoveryNoteBytes.mockRejectedValue(new Error('WebClient terminated'));
+
+    await expect(recoverPendingNotes(account, 'gen-1')).resolves.toMatchObject({ deferred: true, sourceFailures: 0 });
+    expect(mockProxy.importRecoveryNoteBytes).toHaveBeenCalledTimes(1);
+  });
+
+  it('defers the pass on a terminated client from the public backfill, counting no source failure', async () => {
+    const account = pendingAccount({ coldPublicKey: '0xcold' });
+    mockProxy.resolveRecoveryScanRange.mockResolvedValue({ startBlock: 0, latestBlock: 10 });
+    mockProxy.recoverPublicNotesRange.mockRejectedValue(new Error('WebClient terminated'));
+
+    await expect(recoverPendingNotes(account, 'gen-1')).resolves.toMatchObject({ deferred: true, sourceFailures: 0 });
+    expect(mockProxy.recoverPublicNotesRange).toHaveBeenCalledTimes(1);
   });
 
   it('treats an evicted Guardian client setup as a deferral, not a source failure (F-054)', async () => {

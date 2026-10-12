@@ -13,18 +13,22 @@
  * cannot fail for a wrong-amount or never-actually-claimed bug.
  *
  * These helpers keep the two quantities strictly separate and work in **base units
- * as bigint** — no float division, so a 6-decimal and an 8-decimal token can't
+ * as bigint** - no float division, so a 6-decimal and an 8-decimal token can't
  * silently compare equal after rounding.
  *
- *   vaultBalance()     — spendable, in the vault, for ONE symbol. What "I have it" means.
- *   pendingNoteTotal() — discovered but NOT yet consumed, for ONE symbol.
+ *   vaultBalance()     - spendable, in the vault, for ONE symbol. What "I have it" means.
+ *   pendingNoteTotal() - discovered but NOT yet consumed, for ONE symbol.
  *
  * Never add them together. If a test wants "the money arrived", it wants
  * `vaultBalance`; if it wants "the note showed up", it wants `pendingNoteTotal`.
  */
 import type { Page } from '@playwright/test';
 
+import type { TokenBalanceData } from 'lib/miden/front/balance';
+import type { AssetMetadata } from 'lib/miden/metadata';
+
 import { readTransactionRows } from './history';
+import { NATIVE_ASSET_FEE_CACHE, NATIVE_ASSET_ID_CACHE } from '../../../src/lib/miden-chain/native-asset-cache-keys';
 
 /** A token's on-screen identity plus the raw amount, as the store reports it. */
 export interface SymbolBalance {
@@ -44,7 +48,7 @@ export function toBaseUnits(amount: string | number, decimals: number): bigint {
     throw new Error(`toBaseUnits: not a positive decimal amount: ${JSON.stringify(amount)}`);
   const [whole = '0', frac = ''] = s.split('.');
   if (frac.length > decimals) {
-    throw new Error(`toBaseUnits: ${s} has more precision than ${decimals} decimals — refusing to round silently`);
+    throw new Error(`toBaseUnits: ${s} has more precision than ${decimals} decimals - refusing to round silently`);
   }
   return BigInt(whole + frac.padEnd(decimals, '0'));
 }
@@ -72,7 +76,7 @@ export function fromBaseUnits(baseUnits: bigint, decimals: number): string {
  * read as lost value in the very check written to detect lost value.
  *
  * Returns 0n when the symbol is absent, which is a legitimate answer ("you hold
- * none of this"), not an error — assertions should compare against an expected
+ * none of this"), not an error - assertions should compare against an expected
  * amount rather than against presence.
  */
 export async function vaultBalance(page: Page, symbol: string): Promise<bigint> {
@@ -100,20 +104,64 @@ export async function vaultBalance(page: Page, symbol: string): Promise<bigint> 
     { wanted: symbol.toLowerCase() }
   );
 
-  // `balance` is a display float; recover base units via the token's own decimals.
-  // Rounding here is safe because we round a value the product itself derived from
-  // base units, and we assert the round-trip is exact.
   let total = 0n;
-  for (const t of raw) {
-    const scaled = t.balance * Math.pow(10, t.decimals);
-    const rounded = Math.round(scaled);
-    if (Math.abs(scaled - rounded) > 1e-6) {
-      throw new Error(
-        `vaultBalance(${symbol}): store balance ${t.balance} does not round-trip at ${t.decimals} decimals ` +
-          `(scaled=${scaled}). Refusing to assert on a lossy value.`
-      );
+  for (const t of raw) total += rowBaseUnits(`vaultBalance(${symbol})`, t.balance, t.decimals);
+  return total;
+}
+
+/**
+ * Base units of one store row. `balance` is a display float; recover base units via the
+ * token's own decimals. Rounding here is safe because we round a value the product itself
+ * derived from base units, and we assert the round-trip is exact.
+ */
+function rowBaseUnits(label: string, balance: number, decimals: number): bigint {
+  const scaled = balance * Math.pow(10, decimals);
+  const rounded = Math.round(scaled);
+  if (!Number.isSafeInteger(rounded)) {
+    throw new Error(`${label}: base-unit balance is not a safe integer`);
+  }
+  if (Math.abs(scaled - rounded) > 1e-6) {
+    throw new Error(
+      `${label}: store balance ${balance} does not round-trip at ${decimals} decimals ` +
+        `(scaled=${scaled}). Refusing to assert on a lossy value.`
+    );
+  }
+  return BigInt(rounded);
+}
+
+/** Spendable base units for one full, canonical bech32 faucet id, independent of its symbol. */
+export async function vaultBalanceByFaucetId(page: Page, faucetId: string): Promise<bigint> {
+  const raw = await page.evaluate(wanted => {
+    const store:
+      | {
+          getState?: () => {
+            balances?: Record<string, TokenBalanceData[]>;
+            assetsMetadata?: Record<string, AssetMetadata>;
+          };
+        }
+      | undefined = Reflect.get(window, '__TEST_STORE__');
+    const state = store?.getState?.();
+    const out: Array<{ decimals: number; balance: number }> = [];
+    for (const tokenList of Object.values(state?.balances ?? {})) {
+      if (!Array.isArray(tokenList)) continue;
+      for (const token of tokenList) {
+        if (token?.tokenId !== wanted) continue;
+        const cached = state?.assetsMetadata?.[wanted];
+        out.push({
+          decimals: Number(token?.metadata?.decimals ?? cached?.decimals),
+          balance: Number(token?.balance ?? 0)
+        });
+      }
     }
-    total += BigInt(rounded);
+    return out;
+  }, faucetId);
+
+  let total = 0n;
+  for (const token of raw) {
+    if (!Number.isInteger(token.decimals) || token.decimals < 0) {
+      throw new Error(`vaultBalanceByFaucetId(${faucetId}): missing or invalid token decimals`);
+    }
+    total += rowBaseUnits(`vaultBalanceByFaucetId(${faucetId})`, token.balance, token.decimals);
   }
   return total;
 }
@@ -160,7 +208,7 @@ export async function pendingNoteTotal(page: Page, symbol: string): Promise<bigi
  * MAXIMUM turns that into "no cycle in this window listed it", which is the
  * statement an absence assertion actually wants to make.
  *
- * Returns the max rather than throwing so the caller owns the comparison — an
+ * Returns the max rather than throwing so the caller owns the comparison - an
  * `expect` in the spec names the product breakage; a throw in here would not.
  */
 export async function maxPendingNoteTotal(
@@ -182,10 +230,10 @@ export async function maxPendingNoteTotal(
 /**
  * Poll until the UNCONSUMED-note total for `symbol` equals `expected` exactly.
  *
- * This is the right assertion for "the mint arrived" — a minted note is discovered
+ * This is the right assertion for "the mint arrived" - a minted note is discovered
  * before it is consumed, so its value is pending, not spendable. Asserting the
  * VAULT here would be wrong (it stays 0 until a claim) and asserting vault+pending
- * summed together — what the old `getBalance` did — cannot tell the two apart at
+ * summed together - what the old `getBalance` did - cannot tell the two apart at
  * all, which is how a broken claim used to read as a successful one.
  */
 export async function waitForPendingNoteTotal(
@@ -229,7 +277,7 @@ export async function waitForPendingNoteTotal(
  * transfer. The wait is the load-bearing part: the recipient seeing the note only
  * proves it is on-chain, and the SENDER's balances projection updates on its own
  * schedule. A bare read right after the recipient's wait therefore samples a
- * balance that has not moved yet and reports `debited 0` — a green send scored as
+ * balance that has not moved yet and reports `debited 0` - a green send scored as
  * a failure, which is exactly how this helper came to exist.
  */
 export async function waitForVaultDebit(
@@ -258,7 +306,7 @@ export async function waitForVaultDebit(
       `  vault now:    ${fmt(last)}\n` +
       `  observed debit: ${fmt(before - last)}\n` +
       `  unconsumed notes for ${symbol}: ${pending === -1n ? 'unreadable' : pending.toString()} base units\n` +
-      `  (an unchanged vault here means the send never debited the sender, not that it is slow —\n` +
+      `  (an unchanged vault here means the send never debited the sender, not that it is slow -\n` +
       `   this waited the full timeout for the projection to move)`
   );
 }
@@ -270,23 +318,207 @@ export async function waitForVaultBalance(
   expected: bigint,
   opts: { timeoutMs?: number; decimals?: number } = {}
 ): Promise<void> {
+  return pollVaultBalance(
+    page,
+    `waitForVaultBalance(${symbol})`,
+    () => vaultBalance(page, symbol),
+    expected,
+    opts,
+    async () => {
+      const pending = await pendingNoteTotal(page, symbol).catch(() => -1n);
+      return (
+        `  unconsumed notes for ${symbol}: ${pending === -1n ? 'unreadable' : pending.toString()} base units\n` +
+        `  (a non-zero pending total with a short vault means the note was discovered but never consumed)`
+      );
+    }
+  );
+}
+
+/** Wait for an exact spendable balance of one canonical faucet, or report expected and actual units. */
+export async function waitForVaultBalanceByFaucetId(
+  page: Page,
+  faucetId: string,
+  expected: bigint,
+  opts: { timeoutMs?: number } = {}
+): Promise<void> {
+  return pollVaultBalance(
+    page,
+    `waitForVaultBalanceByFaucetId(${faucetId})`,
+    () => vaultBalanceByFaucetId(page, faucetId),
+    expected,
+    opts
+  );
+}
+
+interface CurrentAccountRows {
+  account: string | null;
+  rows: Array<{ tokenId: string; decimals: number; balance: number }>;
+}
+
+// The store keys `balances` by the account's public key, the same key `currentAccount` carries (withLandedBalances in
+// src/lib/store/index.ts), so the current account's rows are one lookup and no other account's rows can leak in.
+async function currentAccountRows(page: Page): Promise<CurrentAccountRows> {
+  return page.evaluate(() => {
+    const store:
+      | {
+          getState?: () => {
+            currentAccount?: { publicKey?: string } | null;
+            balances?: Record<string, TokenBalanceData[]>;
+            assetsMetadata?: Record<string, AssetMetadata>;
+          };
+        }
+      | undefined = Reflect.get(window, '__TEST_STORE__');
+    const state = store?.getState?.();
+    const account = state?.currentAccount?.publicKey;
+    const rows = account === undefined ? [] : (state?.balances?.[account] ?? []);
+    return {
+      account: account ?? null,
+      rows: rows.map(token => ({
+        tokenId: String(token?.tokenId ?? ''),
+        decimals: Number(token?.metadata?.decimals ?? state?.assetsMetadata?.[String(token?.tokenId ?? '')]?.decimals),
+        balance: Number(token?.balance ?? 0)
+      }))
+    };
+  });
+}
+
+function rowsToBaseUnits(label: string, rows: CurrentAccountRows['rows']): bigint {
+  let total = 0n;
+  for (const row of rows) {
+    if (!Number.isInteger(row.decimals) || row.decimals < 0)
+      throw new Error(`${label}: missing or invalid token decimals`);
+    total += rowBaseUnits(label, row.balance, row.decimals);
+  }
+  return total;
+}
+
+/**
+ * Spendable base units of one faucet in the CURRENT account only. `vaultBalance` and `vaultBalanceByFaucetId` sum
+ * every account's rows, so with a second account in the wallet a debit on one hides behind the other's balance.
+ */
+export async function vaultBalanceOfCurrentAccount(page: Page, faucetId: string): Promise<bigint> {
+  const { account, rows } = await currentAccountRows(page);
+  if (account === null) throw new Error('vaultBalanceOfCurrentAccount: the store has no current account');
+  return rowsToBaseUnits(
+    `vaultBalanceOfCurrentAccount(${faucetId})`,
+    rows.filter(row => row.tokenId === faucetId)
+  );
+}
+
+/** Wait for an exact spendable balance of one faucet in the current account, or report expected and actual units. */
+export async function waitForVaultBalanceOfCurrentAccount(
+  page: Page,
+  faucetId: string,
+  expected: bigint,
+  opts: { timeoutMs?: number } = {}
+): Promise<void> {
+  return pollVaultBalance(
+    page,
+    `waitForVaultBalanceOfCurrentAccount(${faucetId})`,
+    () => vaultBalanceOfCurrentAccount(page, faucetId),
+    expected,
+    opts
+  );
+}
+
+/** Faucet id to base units summed over `entries`, zeros left out: the shape `assetMap` gives a dApp's view. */
+function nonzeroAssets(entries: ReadonlyArray<readonly [string, bigint]>): Record<string, string> {
+  const sums = new Map<string, bigint>();
+  for (const [id, amount] of entries) sums.set(id, (sums.get(id) ?? 0n) + amount);
+  return Object.fromEntries(
+    [...sums].filter(([, amount]) => amount !== 0n).map(([id, amount]) => [id, amount.toString()])
+  );
+}
+
+const storeAssets = (label: string, rows: CurrentAccountRows['rows']) =>
+  nonzeroAssets(rows.map(row => [row.tokenId, rowsToBaseUnits(`${label}(${row.tokenId})`, [row])] as const));
+
+/** Nonzero assets of the current account as faucet id to base units, the shape `assetMap` gives a dApp's view. */
+export async function vaultAssetsOfCurrentAccount(page: Page): Promise<Record<string, string>> {
+  const { account, rows } = await currentAccountRows(page);
+  if (account === null) throw new Error('vaultAssetsOfCurrentAccount: the store has no current account');
+  return storeAssets('vaultAssetsOfCurrentAccount', rows);
+}
+
+/** What a baseline's vault read sees (`storeHoldsSyncSince` in dapp-gates.ts), as nonzero base units per faucet. */
+export interface VaultReading {
+  storeAccount: string | null;
+  /** The store's vault for its current account. */
+  store: Record<string, string>;
+  /** The last sync the service worker published (`miden_sync_data`, sync-manager.ts:676-693), whichever account's. */
+  sync: { account: string; syncedAtMs: number; vault: Record<string, string> } | null;
+}
+
+/**
+ * The store's vault beside the sync it is refreshed from. On the extension the store takes `miden_sync_data` only on a
+ * 3 s poll (useIntercomSync.ts:165-186), so the two can differ for a few seconds after a sync. With `faucetIds`, both
+ * hold only those faucets, and no other token's display balance is converted (`rowBaseUnits` throws on a lossy one).
+ */
+export async function vaultReadingOfCurrentAccount(page: Page, faucetIds?: readonly string[]): Promise<VaultReading> {
+  const { account, rows } = await currentAccountRows(page);
+  const kept = (faucetId: string) => faucetIds === undefined || faucetIds.includes(faucetId);
+  const published = await page.evaluate(async () => {
+    const got = await chrome.storage.local.get('miden_sync_data');
+    const data: unknown = Reflect.get(got, 'miden_sync_data');
+    if (typeof data !== 'object' || data === null) return null;
+    const assets: unknown = Reflect.get(data, 'vaultAssets');
+    const stamp: unknown = Reflect.get(data, 'syncedAt');
+    return {
+      account: String(Reflect.get(data, 'accountPublicKey') ?? ''),
+      syncedAt: typeof stamp === 'number' ? stamp : null,
+      assets: (Array.isArray(assets) ? assets : []).map(asset => ({
+        faucetId: String(Reflect.get(Object(asset), 'faucetId') ?? ''),
+        amount: String(Reflect.get(Object(asset), 'amountBaseUnits') ?? '0')
+      }))
+    };
+  });
+  const stamp = published?.syncedAt ?? null;
+  return {
+    storeAccount: account,
+    store: storeAssets(
+      'vaultReadingOfCurrentAccount',
+      rows.filter(row => kept(row.tokenId))
+    ),
+    sync:
+      published === null || stamp === null
+        ? null
+        : {
+            account: published.account,
+            // Scaled as walletSyncedAtMs (test-dapp.ts) scales it, so a stamp in seconds never reads as long past.
+            syncedAtMs: stamp < 1e12 ? stamp * 1000 : stamp,
+            vault: nonzeroAssets(
+              published.assets
+                .filter(asset => kept(asset.faucetId))
+                .map(asset => [asset.faucetId, BigInt(asset.amount)] as const)
+            )
+          }
+  };
+}
+
+/** Re-read `read` every 2s until it equals `expected`, or throw with both amounts and `diagnose`'s lines. */
+async function pollVaultBalance(
+  page: Page,
+  label: string,
+  read: () => Promise<bigint>,
+  expected: bigint,
+  opts: { timeoutMs?: number; decimals?: number },
+  diagnose: () => Promise<string> = async () => ''
+): Promise<void> {
   const timeoutMs = opts.timeoutMs ?? 120_000;
   const deadline = Date.now() + timeoutMs;
   let last = -1n;
   while (Date.now() < deadline) {
-    last = await vaultBalance(page, symbol);
+    last = await read();
     if (last === expected) return;
     await page.waitForTimeout(2_000);
   }
   const d = opts.decimals;
   const fmt = (v: bigint) => (d == null ? v.toString() : `${fromBaseUnits(v, d)} (${v} base units)`);
-  const pending = await pendingNoteTotal(page, symbol).catch(() => -1n);
   throw new Error(
-    `waitForVaultBalance(${symbol}) timed out after ${timeoutMs}ms.\n` +
+    `${label} timed out after ${timeoutMs}ms.\n` +
       `  expected vault: ${fmt(expected)}\n` +
       `  actual vault:   ${fmt(last)}\n` +
-      `  unconsumed notes for ${symbol}: ${pending === -1n ? 'unreadable' : pending.toString()} base units\n` +
-      `  (a non-zero pending total with a short vault means the note was discovered but never consumed)`
+      (await diagnose())
   );
 }
 
@@ -313,10 +545,29 @@ async function failedRowSummary(sender: Page): Promise<string> {
 }
 
 /**
+ * The value the wallet cached under `prefix` (a cache name and its current version), or `null`.
+ *
+ * The wallet writes one entry per (RPC URL, network) scope and keeps the others, so two current-version
+ * entries mean the profile has seen two chains: refuse rather than let key order pick one. Entries under an
+ * older version are ignored.
+ */
+async function walletCacheEntry(page: Page, prefix: string): Promise<unknown> {
+  return page.evaluate(async wanted => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const c = (globalThis as any).chrome;
+    if (!c?.storage?.local) return null;
+    const all = await c.storage.local.get(null);
+    const keys = Object.keys(all).filter(k => k.startsWith(wanted));
+    if (keys.length > 1) throw new Error(`ambiguous wallet cache, one entry per profile expected: ${keys.join(', ')}`);
+    return keys.length === 0 ? null : all[keys[0]!];
+  }, prefix);
+}
+
+/**
  * The chain's `verification_base_fee` as the WALLET discovered it, or `null` if the
  * wallet has not discovered it.
  *
- * Read from the extension's own cache (`native_asset_fee:v1:<scope>`, written by
+ * Read from the extension's own cache (the NATIVE_ASSET_FEE_CACHE entry written by
  * `lib/miden-chain/native-asset`) rather than from the harness's knowledge of how
  * the node was genesised. That makes a spec self-describing -- it can require a fee
  * on a fee-charging chain and say so on a fee-free one -- and it doubles as an
@@ -326,35 +577,25 @@ async function failedRowSummary(sender: Page): Promise<string> {
  * `null` is a wallet that does not know. Callers must not collapse them.
  */
 export async function walletDiscoveredBaseFee(page: Page): Promise<number | null> {
-  return page.evaluate(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const c = (globalThis as any).chrome;
-    if (!c?.storage?.local) return null;
-    const all = await c.storage.local.get(null);
-    const key = Object.keys(all).find(k => k.startsWith('native_asset_fee:'));
-    const v = key === undefined ? null : all[key];
-    return typeof v === 'number' ? v : null;
-  });
+  const v = await walletCacheEntry(page, `${NATIVE_ASSET_FEE_CACHE}:`);
+  if (!v || typeof v !== 'object' || !('faucetId' in v) || !('baseFee' in v)) return null;
+  const { faucetId, baseFee } = v;
+  if (typeof baseFee !== 'number' || !Number.isFinite(baseFee) || !Number.isInteger(baseFee) || baseFee < 0)
+    return null;
+  return faucetId === (await walletDiscoveredNativeFaucetId(page)) ? baseFee : null;
 }
 
 /**
  * The chain's native (fee) faucet id as the WALLET discovered it, or `null`.
  *
- * Read from the extension's own cache (`native_asset_id:v4:<scope>`). Preferred
+ * Read from the extension's own cache (the NATIVE_ASSET_ID_CACHE entry). Preferred
  * over looking the row up by symbol: the native asset's symbol comes from chain
  * metadata that a local chain need not supply, so a symbol lookup can miss on a
  * wallet that knows the faucet perfectly well.
  */
 export async function walletDiscoveredNativeFaucetId(page: Page): Promise<string | null> {
-  return page.evaluate(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const c = (globalThis as any).chrome;
-    if (!c?.storage?.local) return null;
-    const all = await c.storage.local.get(null);
-    const key = Object.keys(all).find(k => k.startsWith('native_asset_id:'));
-    const v = key === undefined ? null : all[key];
-    return typeof v === 'string' ? v : null;
-  });
+  const v = await walletCacheEntry(page, `${NATIVE_ASSET_ID_CACHE}:`);
+  return typeof v === 'string' ? v : null;
 }
 
 /**
@@ -363,7 +604,7 @@ export async function walletDiscoveredNativeFaucetId(page: Page): Promise<string
  * Field names match `TokenBalanceData` (`src/lib/miden/front/balance.ts`) deliberately.
  * This previously read `token.faucetId` and `token.amountBaseUnits`, neither of which
  * exists on that type, so every row printed `faucetId: '(none)'` and fell through to
- * `balance` — a DECIMAL display number — under a key named `amount`. This output is
+ * `balance` - a DECIMAL display number - under a key named `amount`. This output is
  * what a failing fee assertion prints, so it was actively misdescribing the store at
  * the one moment someone reads it.
  */

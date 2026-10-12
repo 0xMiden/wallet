@@ -9,6 +9,7 @@ import { Alert, AlertVariant } from 'components/Alert';
 import { ButtonVariant } from 'components/Button';
 import { accentForTransactionType } from 'components/flow/accent';
 import { ISwitchGuardianExtraInputs } from 'lib/miden/db/types';
+import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { navigate } from 'lib/woozie';
 
 import { TransactionSuccessLayout, TransactionSuccessProps } from './TransactionSuccessLayout';
@@ -37,25 +38,18 @@ export const GuardianSwitchSuccess: FC<TransactionSuccessProps> = ({ transaction
     : undefined;
   const newName = extra ? guardianEndpointDisplayName(extra.newGuardianEndpoint, unknown) : undefined;
 
-  // A rotation can COMMIT on chain and still leave a post-commit step undone:
-  // the completion handler records that in `endpointPersistFailed` (this device
-  // never saved the new address, so it is still pointed at the old operator) and
-  // `registerFailed` (the new operator holds no state for the account yet). Both
-  // are deliberately Completed rather than Failed — the switch really did
-  // happen — but rendering the same unconditional "you're protected" receipt
-  // over either one tells the user the opposite of what the row says, on the
-  // last screen they will ever look at for this operation. The unsaved-address
-  // case needs them; the pending-registration case self-heals from the sync
-  // loop, so it explains rather than instructs.
-  const endpointNotSaved = extra?.endpointPersistFailed === true;
-  const registrationPending = extra?.registerFailed === true;
-  // A third, sharper case: the direct path SUBMITTED the rotation and never
-  // established that it committed. It outranks the other two, because both of
-  // their bodies open by asserting the switch is confirmed on chain — the one
-  // thing this state means the wallet does not know. If it did not land, the OLD
-  // operator is still the guardian and nothing downstream detects that, so this
-  // receipt is the user's only notice.
-  const commitUnconfirmed = extra?.commitUnconfirmed === true;
+  // Every claim below derives from the row's verdict - the single reader of
+  // the outcome flags (`rotation-verdict.ts`). The distinctions it carries:
+  // `submitted-unconfirmed` outranks the degraded flags because their bodies
+  // open by asserting the commit - the one fact that state lacks; a degraded
+  // commit still shows which post-commit step is undone, since the
+  // unsaved-address case needs the user and the pending-registration case
+  // self-heals from the sync loop.
+  const verdict = rotationVerdict(transaction);
+  const commitUnconfirmed = verdict?.kind === 'submitted-unconfirmed';
+  const degraded = verdict?.kind === 'submitted-unconfirmed' || verdict?.kind === 'completed-degraded';
+  const endpointNotSaved = degraded && !verdict.endpointPersisted;
+  const registrationPending = degraded && !verdict.registered;
   // Sharper still (#1233): the switch reached the network, but its local apply failed and this device
   // could not save the account's new state yet. It outranks the other three, whose bodies assert a
   // confirmation or advise running the switch again, which cannot help a device holding the

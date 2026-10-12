@@ -2,11 +2,20 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+
 import { SendAmount, SendAmountProps } from './SendAmount';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, params?: Record<string, string>) => (params?.value ? `${key}:${params.value}` : key)
+    // A fiat line names its value and a USDCx amount refusal its amount and network; other keys read as themselves.
+    t: (key: string, params?: Record<string, string>) =>
+      params?.value ? `${key}:${params.value}` : params?.network ? `${key}:${params.amount}:${params.network}` : key
   })
 }));
 jest.mock('lib/platform', () => ({
@@ -16,8 +25,21 @@ jest.mock('lib/platform', () => ({
   isIOS: () => true
 }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
 jest.mock('components/TokenLogo', () => ({
-  TokenLogo: ({ symbol }: { symbol: string }) => <span>{symbol}-logo</span>
+  TokenLogo: ({ symbol, faucetId }: { symbol: string; faucetId?: string }) => (
+    <span data-faucet-id={faucetId}>{symbol}-logo</span>
+  )
 }));
 jest.mock('app/icons/logos/eth.svg', () => ({ ReactComponent: () => <svg /> }));
 jest.mock('app/icons/v2', () => ({
@@ -71,6 +93,28 @@ function renderAmount(overrides: Partial<SendAmountProps> = {}) {
 }
 
 describe('SendAmount', () => {
+  it('names the testnet bridge faucet by its label on the token row, keeping its logo', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    renderAmount({ token: { ...TOKEN, id: TEST_MIDEN_USDC_FAUCET, name: 'USDC' } });
+
+    const selector = screen.getByTestId('send-token-selector');
+    expect(selector).toHaveTextContent('Test Epoch USDC');
+    expect(selector).toHaveTextContent('USDC-logo');
+    expect(screen.getByText('USDC-logo')).toHaveAttribute('data-faucet-id', TEST_MIDEN_USDC_FAUCET);
+  });
+
+  it('names the bridge faucet by its label once the bridge config publishes, with no new props', () => {
+    renderAmount({ token: { ...TOKEN, id: TEST_MIDEN_USDC_FAUCET, name: 'USDC' } });
+    expect(screen.getByTestId('send-token-selector')).not.toHaveTextContent('Test Epoch USDC');
+
+    act(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+    });
+
+    expect(screen.getByTestId('send-token-selector')).toHaveTextContent('Test Epoch USDC');
+  });
+
   it('shows the title, back button, and a disabled Confirm until the amount is valid', () => {
     const props = renderAmount();
 
@@ -147,6 +191,18 @@ describe('SendAmount', () => {
     renderAmount({ amount: '99', error: 'amountMustBeLessThanBalance' });
 
     expect(screen.getByTestId('amount-error')).toHaveTextContent('amountMustBeLessThanBalance');
+    expect(screen.getByTestId('send-amount-input')).toHaveAttribute('data-invalid', 'true');
+  });
+
+  it('fills the error copy with the values the send form hands it', () => {
+    renderAmount({
+      amount: '1.5',
+      network: 'sepolia',
+      error: 'usdcxSendMoreThanPayoutFee',
+      errorValues: { amount: '1.5', network: 'Sepolia' }
+    });
+
+    expect(screen.getByTestId('amount-error')).toHaveTextContent('usdcxSendMoreThanPayoutFee:1.5:Sepolia');
     expect(screen.getByTestId('send-amount-input')).toHaveAttribute('data-invalid', 'true');
   });
 

@@ -1,5 +1,4 @@
 import {
-  ChainAnchor,
   NoteType,
   type TransactionRequest,
   TransactionProver,
@@ -8,7 +7,6 @@ import {
 import { type Proposal } from '@openzeppelin/miden-multisig-client';
 import { v4 as uuid } from 'uuid';
 
-import { getFaucetIdSetting } from 'lib/miden/assets/faucet-id-setting';
 import {
   clearGuardianServiceFor,
   getOrCreateMultisigService,
@@ -34,6 +32,7 @@ import {
   GuardianBackpressureError,
   type GuardianCandidate,
   guardianRetryAfterSec,
+  isGuardianCommitmentMismatch,
   isGuardianPendingConflict,
   isGuardianRateLimited,
   recordGuardianCandidate,
@@ -41,15 +40,15 @@ import {
   withGuardianConflictRetry
 } from 'lib/miden/guardian/serialize';
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
+import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import * as Repo from 'lib/miden/repo';
-import { freeChainAnchor } from 'lib/miden/sdk/chain-anchor';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
+import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { isExtension, isMobile } from 'lib/platform';
 import { generateHotKey, type GeneratedHotKey } from 'lib/secure-hot-key';
 import { commitmentFromPublicKeyHex } from 'lib/secure-hot-key/commitment';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
-import { b64ToU8 } from 'lib/shared/helpers';
 import { reportProve } from 'lib/telemetry/report-operation';
 import { logger } from 'shared/logger';
 
@@ -105,6 +104,7 @@ import {
 import type { CandidateRelease } from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
 import { canAwaitVerdict } from './verdict-rules';
+import { adoptLandedConsume } from '../activity/bridge-in';
 import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
@@ -140,6 +140,7 @@ import {
   buildPswapCreateRequest,
   buildSendTransactionRequest,
   canonicalWalletAccountId,
+  feeAwareRequestBuilder,
   randomFeeSalt,
   sameWalletAccountId,
   walletAccountIdToSdk
@@ -148,6 +149,7 @@ import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   getMidenClient,
+  type WasmClientLockOptions,
   type WasmLockHold,
   withWasmClientLock,
   withWasmLockWatchdogPaused
@@ -155,6 +157,7 @@ import {
 import { getRealmReaderClient, proveDelegated } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import {
+  carriesIndefiniteSubmitOutcome,
   errorMessageParts,
   extractLanded,
   extractSdkErrorCode,
@@ -163,6 +166,7 @@ import {
   isIndefiniteSubmitOutcomeError,
   isKilledPipeline,
   isPoisonedPipeline,
+  isRunningPipelineKill,
   isStaleInitialCommitmentError,
   isSubmitCrossingUnrecorded,
   isTransactionDiscardedError,
@@ -981,7 +985,10 @@ async function requeueWithWake(
   );
 }
 
-/** The Completed fields of a landed value-moving row: its label and delivery, and the id its failure carried. */
+/**
+ * The Completed fields of a landed value-moving row: its label and delivery, and the id its failure carried. The row
+ * owes notes no client store holds, so the delivery sweep leaves it inert (see `landedValueRowFields`).
+ */
 const landedRowFields = (tx: ITransaction, error: unknown) => {
   const landed = extractLanded(error);
   return { ...landedValueRowFields(tx, landed.privateOutputNotes), ...landedTransactionIdFields(landed) };
@@ -1223,6 +1230,7 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
     displayMessage: reclaimed ? 'Reclaimed' : 'Received',
     completedAt: Math.floor(Date.now() / 1000) // seconds
   });
+  await adoptLandedConsume(transaction.id);
   return true;
 }
 
@@ -1463,6 +1471,7 @@ const generateTransactionWithProvider = async (
           // updateTransactionStatus throws if the tx is already finalized — fine.
           console.warn('[Guardian] could not re-mark Completed (likely already finalized):', markErr);
         }
+        if (transaction.type === 'consume') await adoptLandedConsume(transaction.id);
         return;
       }
       // An offscreen wedge-kill (deadline / `closeDocument`) surfaces as a
@@ -1954,7 +1963,13 @@ const buildColdServiceForAccount = async (
  * consuming it does. Throws before any service is built or anything reaches the guardian.
  */
 const assertRotationFundingNotesNative = async (accountId: string, noteIds: string[]): Promise<void> => {
-  const nativeFaucetId = await getFaucetIdSetting();
+  let nativeFaucetId: string | null;
+  try {
+    nativeFaucetId = await getNativeAssetId();
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
+    nativeFaucetId = null;
+  }
   if (!nativeFaucetId) throw new RotationGateConsumeRefusal(ROTATION_FUNDING_NON_NATIVE_ERROR);
   const listed = await withWasmClientLock(async hold =>
     midenClientProxy.getConsumableNotes(accountId, step =>
@@ -2112,6 +2127,12 @@ const ensureGuardianRecallableSendRequestBytes = async (
     // build reads its vault, so touching it past an eviction IS the double
     // borrow, not merely a stale read.
     assertWasmHoldCurrent(hold, 'guardian P2IDE build: after the account read');
+    const baseBuilder = await feeAwareRequestBuilder(
+      (await getMidenClient()).client,
+      walletAccountIdToSdk(transaction.accountId).toString(),
+      feeSalt
+    );
+    assertWasmHoldCurrent(hold, 'guardian P2IDE build: after the fee-aware builder');
     const request = buildSendTransactionRequest(
       account ?? undefined,
       walletAccountIdToSdk(transaction.accountId),
@@ -2124,7 +2145,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
       noteType,
       expirationDelta,
       syncHeight + recallBlocks,
-      feeSalt
+      baseBuilder
     );
     // Serialization is its own step: a wasm-bindgen panic arrives as a bare
     // `RuntimeError: unreachable`, and the labelled steps INSIDE the builder already
@@ -2141,6 +2162,33 @@ const ensureGuardianRecallableSendRequestBytes = async (
     t.requestBytes = requestBytes;
   });
   return requestBytes;
+};
+
+/**
+ * Proposes a wallet-built guarded request, re-bound to the current sync height (see
+ * `MultisigService.createRebasedCustomProposal`), and persists the bytes it was proposed from:
+ * signing and execution rebuild from `transaction.requestBytes`, so it must be these.
+ *
+ * Proposes once. A value-moving type meets Guardian backpressure by requeueing (#312), so only
+ * a caller that must wait out a 409 in process (a bridged-send) wraps this in
+ * `withGuardianConflictRetry`.
+ *
+ * `approvalExpirationDelta` is the Guardian expiration of #1081 for the types that carry one: the rebuild drops the
+ * request's own delta, so it travels here instead.
+ */
+const proposeRebased = async (
+  service: MultisigService,
+  transaction: ITransaction,
+  requestBytes: Uint8Array,
+  proposalType: string,
+  approvalExpirationDelta?: number
+): Promise<Proposal> => {
+  const rebased = await service.createRebasedCustomProposal(requestBytes, proposalType, approvalExpirationDelta);
+  transaction.requestBytes = rebased.requestBytes;
+  await Repo.transactions.where({ id: transaction.id }).modify(t => {
+    t.requestBytes = rebased.requestBytes;
+  });
+  return rebased.proposal;
 };
 
 /**
@@ -2189,7 +2237,7 @@ const runGuardianPipeline = async (
   tr: TransactionRequest,
   delegateTransaction: boolean | undefined,
   setStage: (stage: ITransactionStage, detail?: StageDetail) => Promise<void>,
-  chainAnchorB64?: string
+  _chainAnchorB64?: string
 ): Promise<TransactionResult> => {
   // MidenClient handles the full pipeline (execute → prove → submit → apply). The
   // sign inside `executeRequest` reaches the realm's installed signer (#878).
@@ -2210,22 +2258,11 @@ const runGuardianPipeline = async (
     // deserialize on whatever the eviction had since handed to a successor.
     await setStage('executing');
     assertStillHoldingLock(hold, 'after the client build and the executing stage write');
-    // #784: execute AT the proposal's anchored reference block, not the current
-    // sync height. The co-signatures were collected over a summary that binds
-    // that block's commitment (protocol 0.16), so an unanchored execute after
-    // the chain advanced derives a different summary and the kernel rejects the
-    // transaction as unauthorized. Decoded in-realm from the wire-form base64
-    // (`ChainAnchor.deserialize` re-validates header/chain consistency); freed
-    // as soon as executeRequest is done with it — the rest of the pipeline
-    // never touches it.
-    let anchor: ChainAnchor | undefined;
-    let executedTx;
-    try {
-      anchor = chainAnchorB64 ? ChainAnchor.deserialize(b64ToU8(chainAnchorB64)) : undefined;
-      executedTx = await midenClient.client.transactions.executeRequest(accountId, tr, anchor ? { anchor } : undefined);
-    } finally {
-      freeChainAnchor(anchor);
-    }
+    await prepareGuardianTipExecution(midenClient.client, tr, () =>
+      assertStillHoldingLock(hold, 'while preparing tip execution')
+    );
+    assertStillHoldingLock(hold, 'before executing at the tip');
+    const executedTx = await midenClient.client.transactions.executeRequest(accountId, tr);
     // Same pre-submit checks as the offscreen copy of this pipeline: an eviction
     // during `executeRequest` (a network round trip on the normal ceiling) abandons
     // this callback instead of stopping it, and mobile/desktop run THIS copy — the
@@ -2361,6 +2398,12 @@ const shouldRouteGuardianLeafOffscreen = (type: ITransactionType): boolean =>
   isOffscreenAvailable() &&
   OFFSCREEN_ROUTABLE_GUARDIAN_TYPES.has(type);
 
+/** Lock options for a hold made under {@link withOutgoingGuardianDeadline}: its watchdog fires at the deadline. */
+const outgoingGuardianHold = (label: string): WasmClientLockOptions => ({
+  watchdogMs: OUTGOING_GUARDIAN_DEADLINE_MS,
+  label
+});
+
 // Where the proxy runs a non-Guardian write: read per call, like the Guardian route above, so tests can toggle it.
 const writeLeafRunsOffscreen = (): boolean =>
   process.env.MIDEN_USE_OFFSCREEN_CLIENT === 'true' && isOffscreenAvailable();
@@ -2427,6 +2470,13 @@ const runWriteLeaf = async <T>(
  * unreachable verdict at 30s and commits to the direct path; that path's own
  * `withWasmClientLock` then queues behind the abandoned holder and is admitted
  * once that hold ends. Slow, but it completes.
+ *
+ * The cold service load and both co-signs also hold the lock across their
+ * operator round trip, and take {@link outgoingGuardianHold} as their watchdog
+ * ceiling: a silent operator there is evicted at about the deadline, so the
+ * direct path is admitted then rather than at the fetch boundary's cut-off. The
+ * hot service load and the proposal push keep their own ceilings and the slow
+ * path above.
  */
 const withOutgoingGuardianDeadline = <T>(run: () => Promise<T>, what: string): Promise<T> =>
   new Promise<T>((resolve, reject) => {
@@ -2710,10 +2760,7 @@ const generateDirectSwitchGuardianTransaction = async (
     guardianProvider.signWord
   );
 
-  // Same leaf routing as the proposal path — offscreen flag-on, inline
-  // flag-off — with the summary's ChainAnchor riding along so the execution is
-  // pinned to the reference block the hot/cold signatures authorized
-  // (protocol 0.16).
+  // Keep the anchor transport slot for compatibility; final multisig execution uses the tip.
   await setTransactionStage(transaction.id, 'sending');
   const attempt = attemptContextOf(transaction);
   let result: TransactionResult;
@@ -2790,7 +2837,9 @@ const generateDirectSwitchGuardianTransaction = async (
   // stops asserting a confirmation nothing established.
   let commitUnconfirmed = false;
   if (!commitConfirmed) {
-    // Asked after an evicted wait too: the finalize holds this node anyway, and this is the only discard check.
+    // Asked after an evicted wait too (#1233): the wait's hold was its own, the submit already
+    // resolved, the finalize holds this node anyway, and this is the only discard check. The
+    // verdict's own sync reads nothing after a watchdog eviction of its sync (`syncBeforeVerdict`).
     const landed = await didDirectSwitchLand(id);
     if (landed === false) throw new GuardianWriteDiscardedError(discardedMessage);
     commitUnconfirmed = landed === undefined;
@@ -2816,7 +2865,9 @@ const generateDirectSwitchGuardianTransaction = async (
  * the refused candidate (its 409 is then waited out by the rebuild's own proposal
  * retry), and the rebuild proposes the key the first run persisted
  * (`resolveRotationHotKey`), so even a misread refusal of a rotation that did land
- * rebuilds to the same signer set.
+ * rebuilds to the same signer set. The Guardian's `commitment_mismatch` on the push is
+ * the same verdict one step earlier and shares the one rebuild: it refuses before writing
+ * a candidate, and the push runs only after the key is persisted and stamped on the row.
  */
 const generateGuardianTransactionOnFreshState = async (
   transaction: ITransaction,
@@ -2826,12 +2877,13 @@ const generateGuardianTransactionOnFreshState = async (
   try {
     await generateGuardianTransaction(transaction, signCallback, guardianProvider);
   } catch (error) {
-    if (transaction.type !== 'replace-hot-key' || !isStaleInitialCommitmentError(error)) {
+    const guardianRefused = isGuardianCommitmentMismatch(error);
+    if (transaction.type !== 'replace-hot-key' || !(isStaleInitialCommitmentError(error) || guardianRefused)) {
       throw error;
     }
     console.warn(
-      '[Guardian] replace-hot-key refused as built on superseded account state; rebuilding on fresh ' +
-        `state with the same key: ${describeError(error)}`
+      `[Guardian] replace-hot-key refused by the ${guardianRefused ? 'Guardian' : 'node'} as built on superseded ` +
+        `account state; rebuilding on fresh state with the same key: ${describeError(error)}`
     );
     await generateGuardianTransaction(transaction, signCallback, guardianProvider);
   }
@@ -3156,7 +3208,13 @@ const generateGuardianTransaction = async (
           recallBlocks,
           GUARDIAN_EXPIRATION_DELTA_BLOCKS
         );
-        proposalResult = await service.createCustomProposal(requestBytes, 'recallable_send');
+        proposalResult = await proposeRebased(
+          service,
+          transaction,
+          requestBytes,
+          'recallable_send',
+          GUARDIAN_EXPIRATION_DELTA_BLOCKS
+        );
       } else {
         // Same coercion as the recallable branch above. This used to be
         // hardcoded Private, which broke a Public guardian send two ways at
@@ -3356,7 +3414,7 @@ const generateGuardianTransaction = async (
           { freshSync: true }
         );
         proposalResult = await withGuardianConflictRetry(() =>
-          service.createCustomProposal(requestBytes, 'bridged_send')
+          proposeRebased(service, transaction, requestBytes, 'bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
         );
       } else {
         // Agglayer: preview the pre-built request into a custom multisig proposal.
@@ -3369,7 +3427,7 @@ const generateGuardianTransaction = async (
           });
         }
         proposalResult = await withGuardianConflictRetry(() =>
-          service.createCustomProposal(aggBytes, 'agglayer_bridged_send')
+          proposeRebased(service, transaction, aggBytes, 'agglayer_bridged_send', GUARDIAN_EXPIRATION_DELTA_BLOCKS)
         );
       }
       break;
@@ -3399,7 +3457,7 @@ const generateGuardianTransaction = async (
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
-      proposalResult = await service.createCustomProposal(requestBytes, 'earn_deposit');
+      proposalResult = await proposeRebased(service, transaction, requestBytes, 'earn_deposit');
       break;
     }
     case 'swap': {
@@ -3452,6 +3510,12 @@ const generateGuardianTransaction = async (
           // client's borrow, not the reader's - so the request build needs its
           // own re-check after the await above.
           assertWasmHoldCurrent(hold, 'PSWAP request build: after the request build');
+          const baseBuilder = await feeAwareRequestBuilder(
+            (await getMidenClient()).client,
+            accountIdStringToSdk(swapTx.accountId).toString(),
+            swapFeeSalt
+          );
+          assertWasmHoldCurrent(hold, 'PSWAP request build: after the fee-aware builder');
           // Built once and rewritten once, in the same scope: each builder call
           // draws a fresh serial number, which IS the order id. See
           // `buildPswapCreateRequest`.
@@ -3461,7 +3525,7 @@ const generateGuardianTransaction = async (
             swapTx.faucetId,
             BigInt(swapTx.amount),
             GUARDIAN_EXPIRATION_DELTA_BLOCKS,
-            swapFeeSalt
+            baseBuilder
           ).serialize();
         });
         transaction.requestBytes = requestBytes;
@@ -3486,7 +3550,7 @@ const generateGuardianTransaction = async (
           t.requestBytes = swapBytes;
         });
       }
-      proposalResult = await service.createCustomProposal(swapBytes, 'swap');
+      proposalResult = await proposeRebased(service, transaction, swapBytes, 'swap', GUARDIAN_EXPIRATION_DELTA_BLOCKS);
       break;
     }
     case 'update-procedure-threshold': {
@@ -3549,7 +3613,13 @@ const generateGuardianTransaction = async (
       // the OUTGOING guardian, and a silent operator here would otherwise hold the
       // lock until the fetch boundary's cut-off before reaching the fallback below.
       const coldService = await withOutgoingGuardianDeadline(
-        () => MultisigService.buildColdMultisigService(sdkAccount, walletAccount, guardianProvider.signWord),
+        () =>
+          MultisigService.buildColdMultisigService(
+            sdkAccount,
+            walletAccount,
+            guardianProvider.signWord,
+            outgoingGuardianHold('switch-guardian cold service load')
+          ),
         'loading the cold co-signing service from the outgoing guardian'
       );
       // Wait out a transient 409 ConflictPendingDelta on the cold co-sign too —
@@ -3557,7 +3627,7 @@ const generateGuardianTransaction = async (
       // though the hot proposal already landed.
       await withGuardianConflictRetry(() =>
         withOutgoingGuardianDeadline(
-          () => coldService.signProposal(proposalResult.id),
+          () => coldService.signProposal(proposalResult.id, outgoingGuardianHold('switch-guardian cold co-sign')),
           'cold co-signing the switch-guardian proposal'
         )
       );
@@ -3679,21 +3749,26 @@ const generateGuardianTransaction = async (
     // new way to fail.
     //
     // KNOWN IMPRECISION: this call is not purely a guardian round trip.
-    // `signAndCreateTransactionRequest` POSTs to the operator and THEN builds the
-    // request under `withWasmClientLock`, so a contended local lock — an AutoSync
-    // tick, someone else's local prove — can burn the 30s even though the
-    // operator answered promptly, and the escape then attributes local
-    // contention to the guardian. Accepted rather than papered over: the
-    // consequence is that a rotation the user explicitly asked for completes
+    // `signAndCreateTransactionRequest` holds `withWasmClientLock` across the
+    // operator POST and the request build, because signing syncs and previews on
+    // the shared client. A contended local lock - an AutoSync tick, someone else's
+    // local prove - can therefore burn the 30s before the operator is asked, and
+    // the escape then attributes local contention to the guardian. The cold
+    // co-sign above is exposed the same way. Accepted rather than papered over:
+    // the consequence is that a rotation the user explicitly asked for completes
     // unilaterally instead of coordinated, which is the same end state by a
     // worse-attributed route, and it costs a leftover pending delta on a healthy
-    // operator (best-effort abandoned below). Splitting the two halves would mean
-    // widening the MultisigService API at the very end of a long review, and the
-    // failure it would prevent is cosmetic next to the wedge the deadline closes.
+    // operator (best-effort abandoned below). A silent operator is the case that
+    // matters, and the hold's deadline ceiling evicts it at about 30s.
     const tr =
       transaction.type === 'switch-guardian'
         ? await withOutgoingGuardianDeadline(
-            () => service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes),
+            () =>
+              service.signAndCreateTransactionRequest(
+                proposalResult.id,
+                transaction.requestBytes,
+                outgoingGuardianHold('switch-guardian hot co-sign')
+              ),
             'co-signing the switch-guardian request with the outgoing guardian'
           )
         : await service.signAndCreateTransactionRequest(proposalResult.id, transaction.requestBytes);
@@ -3701,24 +3776,7 @@ const generateGuardianTransaction = async (
     // direct-switch escape in the catch is closed from here on.
     guardianCoSignReturned = true;
 
-    // #784: the proposal carries the ChainAnchor of the reference block its
-    // signed summary was built at (`metadata.chainAnchor`, base64). The leaf
-    // pins executeRequest to it so the co-signed summary reproduces even when
-    // the chain advanced during the guardian round-trip — without it, guardian
-    // writes fail as "transaction is unauthorized" at a rate that scales with
-    // that window (measured 4.5%→35% as the round-trip grew under load). The
-    // anchor↔summary binding was already validated by `signProposal` (inside
-    // `signAndCreateTransactionRequest`), which also THROWS on a proposal with
-    // no anchor — so the fallback below cannot be reached by a proposal that
-    // just passed signing; it only keeps a mocked/legacy service on the old
-    // (racy, but mostly-working) unanchored behavior instead of bricking it.
     const chainAnchorB64 = proposalResult.metadata?.chainAnchor;
-    if (!chainAnchorB64) {
-      console.warn('[Guardian] proposal has no chain anchor — executing at the current sync height (#784)', {
-        transactionId: transaction.id,
-        proposalId: proposalResult.id
-      });
-    }
 
     await requireBridgeSubmitClaim(transaction);
     await setTransactionStage(transaction.id, 'sending');
@@ -3768,12 +3826,6 @@ const generateGuardianTransaction = async (
         await pinGuardianCrossing(transaction.id, attempt);
       }
       offscreenDispatched = true;
-      // The proposal's ChainAnchor rides along (protocol 0.16): the signed
-      // summary binds the reference block it was built at, so the leaf's
-      // executeRequest must be pinned there — the executing realm's sync height
-      // has usually advanced past it during the guardian HTTP roundtrips, and an
-      // unanchored execute derives a different summary the collected signatures
-      // no longer authorize ("transaction is unauthorized").
       result = await runWriteLeaf(transaction.id, attempt, true, () =>
         dispatchGuardianPipeline(
           transaction.accountId,
@@ -3876,7 +3928,8 @@ const generateGuardianTransaction = async (
     ) {
       transaction.extraInputs = { ...transaction.extraInputs, proposalNonce: proposalResult.nonce };
     }
-    if (!submitResolved && !keptForVerdict) {
+    // A Guardian `commitment_mismatch` refused the push before it wrote a candidate, so there is nothing to abandon.
+    if (!submitResolved && !keptForVerdict && !isGuardianCommitmentMismatch(error)) {
       try {
         // DEADLINE-BOUNDED, like the identical cleanup on the cold co-sign path.
         // This call reaches the same operator, over the same transport, that the
@@ -4179,17 +4232,17 @@ export const generateTransactionsLoop = async (
     // realm-wide slot let a dry run's or an earlier write's locked sign requeue an
     // unrelated failure, including one already on chain (#878 review).
     //
-    // The abandonment exclusion still sits on the WHOLE condition, not just inside
+    // The abandonment exclusion sits on the WHOLE locked condition, not just inside
     // `isLockedError` (issue #775): an evicted write's error can carry a locked tag
-    // recorded before the eviction, and the defer branch requeues the row as a
+    // recorded before the eviction, and the locked branch requeues the row as a
     // fresh write while the abandoned pipeline can still submit, turning one send
     // into two payments. The requeue's "strictly pre-submit" justification below
-    // is exactly what an abandonment breaks. BOTH kill shapes, not just poison: an
-    // offscreen deadline arrives as `OperationAbortedError` from the identical
-    // point and is equally still running (`cancel.ts` treats the two as one class).
-    // Either one counts at any depth of the cause chain (#1313).
-    // The indefinite outcome proves the submit call was reached, which breaks both
-    // arms' strictly-pre-submit premise (#1081).
+    // is exactly what an abandonment breaks. `abandoned` covers three kill shapes at any
+    // depth of the cause chain (#1313): an eviction, an offscreen deadline kill
+    // (`OperationAbortedError`, from the identical point) and a terminated client. Only
+    // the eviction and the abort may still be running (`isRunningPipelineKill`; `cancel.ts`
+    // treats the two as one class). The indefinite outcome proves the submit call was
+    // reached, which breaks both arms' strictly-pre-submit premise (#1081).
     const abandoned = isKilledPipeline(e) || isIndefiniteSubmitOutcomeError(e);
 
     // The initial sync is the only pipeline step that runs while the committed
@@ -4197,15 +4250,19 @@ export const generateTransactionsLoop = async (
     // strictly pre-build for every transaction type, so defer it instead of
     // turning a transient RPC error into a terminal failure. Re-read the row:
     // `nextTransaction` predates the stage stamp, and a concurrent user cancel
-    // must win over this retry. Abandoned operations remain on the existing kill
-    // path even here, since they may still be running after their caller rejects.
+    // must win over this retry. The boundary skips the requeue only for a running kill,
+    // which may still be running after its caller rejects, an indefinite submit outcome,
+    // a lock or a permanent rejection. So a failure whose only kill is a terminated client
+    // is deferred: the SDK refused the call or stopped the worker running it. The outcome
+    // is read off the text even under a terminated client, since it proves the submit was reached.
     // A permanent rejection cannot succeed on retry, so deferring it only spends the 30-minute
     // MAX_QUEUED_AGE budget on ~60 lock-held syncs and then reports the generic expiry instead of
     // the node's own answer. `notes.ts` already carves the same predicate out of its transient set
     // for the same reason, after a permanent 400 burned ~288 retries there.
     const currentRow = await Repo.transactions.where({ id: nextTransaction.id }).first();
     if (
-      !abandoned &&
+      !isRunningPipelineKill(e) &&
+      !carriesIndefiniteSubmitOutcome(e) &&
       !isLockedError(e) &&
       !isPermanentHttpRejection(e) &&
       currentRow?.status === ITransactionStatus.Queued &&
@@ -4300,6 +4357,7 @@ export const generateTransactionsLoop = async (
           ...landedRowFields(tx, e),
           completedAt: Math.floor(Date.now() / 1000)
         });
+        if (tx.type === 'consume') await adoptLandedConsume(tx.id);
       }
       return false;
     }

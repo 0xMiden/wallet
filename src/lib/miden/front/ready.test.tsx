@@ -142,8 +142,22 @@ describe('ready hooks', () => {
 
     it('returns accounts from store', () => {
       const accounts = [
-        { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 },
-        { publicKey: 'pk2', name: 'Account 2', isPublic: false, type: WalletType.OffChain, hdIndex: 1 }
+        {
+          publicKey: 'pk1',
+          name: 'Account 1',
+          isPublic: true,
+          type: WalletType.OnChain,
+          hdIndex: 0,
+          authScheme: 'ecdsa' as const
+        },
+        {
+          publicKey: 'pk2',
+          name: 'Account 2',
+          isPublic: false,
+          type: WalletType.OffChain,
+          hdIndex: 1,
+          authScheme: 'ecdsa' as const
+        }
       ];
       useWalletStore.setState({ accounts });
 
@@ -164,7 +178,14 @@ describe('ready hooks', () => {
     });
 
     it('returns current account when set', () => {
-      const account = { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 };
+      const account = {
+        publicKey: 'pk1',
+        name: 'Account 1',
+        isPublic: true,
+        type: WalletType.OnChain,
+        hdIndex: 0,
+        authScheme: 'ecdsa' as const
+      };
       useWalletStore.setState({ currentAccount: account });
 
       const { result } = renderHook(() => useAccount());
@@ -173,7 +194,14 @@ describe('ready hooks', () => {
 
     it('dispatches reseterrorboundary event on account change', () => {
       const dispatchEventSpy = jest.spyOn(window, 'dispatchEvent');
-      const account = { publicKey: 'pk1', name: 'Account 1', isPublic: true, type: WalletType.OnChain, hdIndex: 0 };
+      const account = {
+        publicKey: 'pk1',
+        name: 'Account 1',
+        isPublic: true,
+        type: WalletType.OnChain,
+        hdIndex: 0,
+        authScheme: 'ecdsa' as const
+      };
       useWalletStore.setState({ currentAccount: account });
 
       renderHook(() => useAccount());

@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { accentForTransactionType } from 'components/flow/accent';
-import { ITransaction } from 'lib/miden/db/types';
+import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 
 import { GuardianSwitchSuccess } from './GuardianSwitchSuccess';
 import type { TransactionSuccessLayoutProps } from './TransactionSuccessLayout';
@@ -100,7 +100,9 @@ const switchGuardianTx = (overrides: TxOverrides = {}): ITransaction =>
     id: 'tx-guardian-1',
     type: 'switch-guardian',
     accountId: 'acct',
-    status: 0,
+    // The receipt only ever renders for a completed row, and the verdict the
+    // component consults keys on that status.
+    status: ITransactionStatus.Completed,
     initiatedAt: 0,
     displayIcon: 'GUARDIAN',
     extraInputs: { previousGuardianEndpoint: OPENZEPPELIN_ENDPOINT, newGuardianEndpoint: KODA_ENDPOINT },

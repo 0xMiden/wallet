@@ -177,17 +177,10 @@ describe('DesktopIntercomAdapter', () => {
         password: 'test123',
         mnemonic: 'word1 word2 word3',
         walletAccounts: [],
-        formatVersion: 2,
         importedAccounts
       });
 
-      expect(Actions.registerImportedWallet).toHaveBeenCalledWith(
-        'test123',
-        'word1 word2 word3',
-        [],
-        2,
-        importedAccounts
-      );
+      expect(Actions.registerImportedWallet).toHaveBeenCalledWith('test123', 'word1 word2 word3', [], importedAccounts);
       expect(response).toEqual({ type: WalletMessageType.ImportFromClientResponse });
     });
 

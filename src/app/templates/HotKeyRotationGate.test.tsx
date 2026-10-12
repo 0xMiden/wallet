@@ -90,7 +90,12 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
-jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => mockFaucetId }));
+let mockLegacyFeeIdentity: string | undefined;
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => mockLegacyFeeIdentity ?? mockFaucetId
+}));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => mockFaucetId }));
 jest.mock('app/hooks/useVerificationBaseFee', () => ({ __esModule: true, default: () => mockBaseFee }));
 
 jest.mock('app/env', () => ({
@@ -643,6 +648,20 @@ describe('HotKeyRotationGate', () => {
   });
 
   describe('the funding state (#805)', () => {
+    it('fee identity: rotation funding selects actual native notes despite a legacy display override', async () => {
+      mockLegacyFeeIdentity = 'legacy-B';
+      trackShortfall();
+      mockBalances = [nativeBalance(0)];
+      mockClaimable = {
+        data: [nativeNote('actual-note'), nativeNote('legacy-note', { faucetId: 'legacy-B' })],
+        isFallback: false
+      };
+      render(<HotKeyRotationGate />);
+      await waitFor(() => expect(mockEnqueue).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(mockEnqueue).toHaveBeenCalled());
+      expect(mockEnqueue.mock.calls[0]?.[1]).toEqual([expect.objectContaining({ id: 'actual-note' })]);
+    });
+
     it('shows the address and its copy action for a rotation that fell short of its fee', async () => {
       trackShortfall();
       mockBalances = [nativeBalance(0)];
@@ -1308,4 +1327,8 @@ describe('HotKeyRotationGate', () => {
       }
     });
   });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
 });

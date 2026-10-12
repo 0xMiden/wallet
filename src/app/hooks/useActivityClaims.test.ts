@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 
-import { AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID } from 'lib/agglayer/constant';
+import { TEST_NATIVE_ETH_FAUCET } from 'lib/epoch/testing/bridge-config';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
 
 import { __resetActivityClaimsForTest, useActivityClaims } from './useActivityClaims';
@@ -51,10 +51,20 @@ jest.mock('lib/telemetry', () => ({
   }),
   classifyError: () => 'unknown'
 }));
-jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'faucet-native' }));
+let mockLegacyFeeIdentity: string | undefined;
+jest.mock('app/hooks/useMidenFaucetId', () => ({
+  __esModule: true,
+  default: () => mockLegacyFeeIdentity ?? 'faucet-native'
+}));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => 'faucet-native' }));
 jest.mock('lib/miden/activity', () => ({
   initiateConsumeTransaction: (...args: Parameters<typeof mockQueue>) => mockQueue(...args),
-  initiateConsumeNotesTransaction: (...args: Parameters<typeof mockQueueMany>) => mockQueueMany(...args),
+  // The batch entry point: a test resolves it with a committed id, or with the full result when it
+  // needs a note covered by a row other than the batch.
+  queueConsumeNotes: (...args: Parameters<typeof mockQueueMany>) =>
+    Promise.resolve(mockQueueMany(...args)).then((queued: unknown) =>
+      typeof queued === 'string' ? { committedId: queued, coveringTxIdByNoteId: new Map<string, string>() } : queued
+    ),
   startBackgroundTransactionProcessing: (...args: Parameters<typeof mockStart>) => mockStart(...args),
   requestSWTransactionProcessing: () => mockRequest(),
   requeueFailedTransaction: (...args: unknown[]) => mockRequeue(...args),
@@ -79,6 +89,14 @@ jest.mock('lib/miden/db/types', () => ({
 jest.mock('lib/miden/front', () => ({ useMidenContext: () => ({ signTransaction: jest.fn() }) }));
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
 jest.mock('lib/platform', () => ({ isExtension: () => mockFlags.extension }));
+// The bridge registry names its native-ETH faucet, which sends every Agglayer delivery; the SDK reads an id as itself.
+jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: () => ({}) }));
+jest.mock('lib/remote-config/values', () => ({
+  selectNativeEthFaucet: () =>
+    jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+      .TEST_NATIVE_ETH_FAUCET
+}));
+jest.mock('lib/miden/sdk/helpers', () => ({ accountRefToSdk: (ref: string) => ({ toString: () => ref }) }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveRpcUrl: () => mockEndpoint.rpc,
   getEffectiveNetworkName: () => mockEndpoint.network
@@ -214,6 +232,23 @@ it('keeps a queued claim active if the processing wake-up fails', async () => {
   log.mockRestore();
 });
 
+it.each([false, true])(
+  'fee identity: queues the actual native claim first under a legacy display override, reversed=%s',
+  async reversed => {
+    mockLegacyFeeIdentity = 'faucet-legacy';
+    const actual = { ...note, id: 'actual-note', faucetId: 'faucet-native' };
+    const legacy = { ...note, id: 'legacy-note', faucetId: 'faucet-legacy' };
+    const notes = reversed ? [actual, legacy] : [legacy, actual];
+    mockClaim.safeClaimableNotes = notes;
+    mockQueueMany.mockResolvedValue('queued');
+    const { result } = renderHook(() => useActivityClaims());
+    await act(async () => {
+      await result.current.acceptMany(notes);
+    });
+    expect(mockQueueMany.mock.calls.map(call => call[1])).toEqual([[actual], [legacy]]);
+  }
+);
+
 it('marks every batch note as claiming at once, queues the native faucet group first and settles each group on its own', async () => {
   const tokenNote = { ...note, id: 'note-token', faucetId: 'faucet-token' };
   const nativeNote = { ...note, id: 'note-native', faucetId: 'faucet-native' };
@@ -272,6 +307,33 @@ it('marks every batch note as claiming at once, queues the native faucet group f
     status: 'failed',
     claimedAt: 60
   });
+});
+
+it('settles a batch note deduplicated onto another row with that row, not the batch it never joined', async () => {
+  const covered = { ...note, id: 'note-covered' };
+  const joined = { ...note, id: 'note-joined' };
+  mockClaim.safeClaimableNotes = [covered, joined];
+  mockQueueMany.mockResolvedValueOnce({
+    committedId: 'tx-batch',
+    coveringTxIdByNoteId: new Map([
+      [covered.id, 'tx-live'],
+      [joined.id, 'tx-batch']
+    ])
+  });
+  const { result } = renderHook(() => useActivityClaims());
+  await act(async () => {
+    await result.current.acceptMany([covered, joined]);
+  });
+
+  settle([
+    { id: 'tx-batch', status: 2, completedAt: 70 },
+    { id: 'tx-live', status: 3, completedAt: 80 }
+  ]);
+  expect(result.current.items.find(item => item.note.id === covered.id)).toMatchObject({
+    txId: 'tx-live',
+    status: 'failed'
+  });
+  expect(result.current.items.find(item => item.note.id === joined.id)?.status).toBe('claimed');
 });
 
 it('projects every live note state and leaves an undated note undated', () => {
@@ -388,8 +450,8 @@ it('groups notes from the same faucet and keeps them queued if the worker wake-u
 });
 
 it('queues each Agglayer bridge delivery in a consume of its own', async () => {
-  const first = { ...note, id: 'bridge-1', senderAddress: AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID };
-  const second = { ...note, id: 'bridge-2', senderAddress: AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID };
+  const first = { ...note, id: 'bridge-1', senderAddress: TEST_NATIVE_ETH_FAUCET };
+  const second = { ...note, id: 'bridge-2', senderAddress: TEST_NATIVE_ETH_FAUCET };
   mockClaim.safeClaimableNotes = [first, second];
   const { result } = renderHook(() => useActivityClaims());
 
@@ -766,4 +828,8 @@ describe('held claims (#1081)', () => {
     settle([{ id: 'tx-new', status: 4, held: false }]);
     expect(result.current.items[0]?.status).toBe('failed');
   });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
 });

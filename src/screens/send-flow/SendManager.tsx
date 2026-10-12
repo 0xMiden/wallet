@@ -5,7 +5,7 @@ import { yupResolver } from '@hookform/resolvers/yup';
 import { useForm } from 'react-hook-form';
 import * as yup from 'yup';
 
-import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
@@ -13,6 +13,7 @@ import { stringToBigInt } from 'lib/i18n/numbers';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
+import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -20,6 +21,8 @@ import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { useWalletStore } from 'lib/store';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
+import { usdcxPayoutFeeShortfall } from 'lib/usdcx/constant';
+import { isUsdcxWithdrawalAvailable, isUsdcxWithdrawalNetwork } from 'lib/usdcx/withdrawal';
 import { navigate, useLocation } from 'lib/woozie';
 import {
   detectAddressChain,
@@ -31,7 +34,16 @@ import {
 
 import { AccountsListDrawer } from './AccountsList';
 import { AddContactDrawer } from './AddContactDrawer';
-import { BRIDGE_NETWORKS, BridgeNetworkId, SendNetworkId } from './bridge-networks';
+import {
+  BRIDGE_NETWORKS,
+  BridgeNetworkId,
+  DEFAULT_BRIDGE_NETWORK,
+  DEFAULT_USDCX_BRIDGE_NETWORK,
+  isEpochBridgeNetwork,
+  SendNetworkId,
+  sendBridgeNetworks,
+  USDCX_BRIDGE_NETWORKS
+} from './bridge-networks';
 import { ScanQrDrawer } from './ScanQrDrawer';
 import { SelectRecipient } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
@@ -321,6 +333,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
       ? bridgeNetwork
       : 'miden'
     : recipientNetwork;
+  const offeredNetworks = sendBridgeNetworks(isUsdcxWithdrawalNetwork());
+  const usdcxOnly = !isEpochBridgeNetwork(displayedNetwork) && offeredNetworks.some(n => n.id === displayedNetwork);
   const selectedContact = useMemo(() => {
     const normalizedAddress = recipientAddress?.trim().toLowerCase();
     if (!normalizedAddress) return undefined;
@@ -366,12 +380,31 @@ export const SendManager: React.FC<SendManagerProps> = ({
     }
   }, [token, amount]);
 
+  const usdcxAvailable = isUsdcxWithdrawalAvailable(token?.id);
+  useEffect(() => {
+    if (usdcxAvailable && bridgeRoute !== 'usdcx') setValue('bridgeRoute', 'usdcx');
+    if (!usdcxAvailable && bridgeRoute === 'usdcx') setValue('bridgeRoute', 'epoch');
+  }, [usdcxAvailable, bridgeRoute, setValue]);
+
+  // A USDCx burn's destination and amount. Circle takes its fee from the payout there, so the amount must exceed it.
+  const usdcxPayout = useMemo(() => {
+    const chainId =
+      usdcxAvailable && isBridge
+        ? USDCX_BRIDGE_NETWORKS.find(network => network.id === bridgeNetwork)?.chainId
+        : undefined;
+    return chainId === undefined || amountBaseUnits === undefined ? undefined : { chainId, amount: amountBaseUnits };
+  }, [usdcxAvailable, isBridge, bridgeNetwork, amountBaseUnits]);
+  const payoutFeeShortfall = useMemo(
+    () => usdcxPayout && usdcxPayoutFeeShortfall(usdcxPayout.chainId, usdcxPayout.amount),
+    [usdcxPayout]
+  );
+
   const epochQuote = useEpochQuote({
     amount: amountBaseUnits,
     faucetId: token?.id,
     destinationAddress: recipientAddress,
     senderPublicKey: publicKey ?? undefined,
-    enabled: isBridge
+    enabled: isBridge && !usdcxAvailable
   });
 
   // E2E-only hook: mirror the forward-quote's state so the harness can assert on
@@ -421,7 +454,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData, isLoading: balancesLoading } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
-  const nativeFaucetId = useMidenFaucetId();
+  const nativeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   // Balances and prices refresh on timers, so the preselection is applied once per id and a
   // refresh only rebuilds whichever token is in the form; re-applying it undid the user's pick.
@@ -443,10 +476,36 @@ export const SendManager: React.FC<SendManagerProps> = ({
     const held = balanceData.find(t => t.tokenId === current.id);
     // A token that left a loaded snapshot has nothing to send; its old balance would still confirm.
     if (!held && balancesLoading) return;
-    const refreshed = held ? uiTokenFromBalance(held, tokenPrices) : { ...current, balance: 0 };
+    const metadata = resolveDisplayMetadata(
+      current.id,
+      {
+        [current.id]: allTokensBaseMetadata[current.id] ?? {
+          symbol: current.name,
+          name: current.name,
+          decimals: current.decimals,
+          scaleIsUnknown: !current.scaleIsKnown
+        }
+      },
+      nativeFaucetId
+    );
+    const refreshed = uiTokenFromBalance(held ?? { tokenId: current.id, metadata, balance: 0 }, tokenPrices);
     if (sameUIToken(refreshed, current)) return;
     setValue('token', refreshed);
-  }, [preselectedTokenId, balanceData, balancesLoading, tokenPrices, setValue, getValues]);
+  }, [
+    preselectedTokenId,
+    balanceData,
+    balancesLoading,
+    tokenPrices,
+    allTokensBaseMetadata,
+    nativeFaucetId,
+    setValue,
+    getValues
+  ]);
+
+  // Clear a token that the selected destination cannot receive.
+  useEffect(() => {
+    if (usdcxOnly && token && !usdcxAvailable) setValue('token', undefined);
+  }, [usdcxOnly, token, usdcxAvailable, setValue]);
 
   // What the user may actually send. The fee is withdrawn from this account's own
   // vault, so the full NATIVE balance is not spendable -- a send of everything is
@@ -735,12 +794,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
     [onAction]
   );
 
-  // While there is a single bridge network there is nothing to choose, so a valid 0x recipient
-  // gets it selected; the recipient step shows it as a fact and Confirm is ready.
+  // Keep an offered destination the user chose. Select the default when there is none, or when a contact,
+  // link or draft carries one this network does not offer.
   useEffect(() => {
-    const only = BRIDGE_NETWORKS.length === 1 ? BRIDGE_NETWORKS[0] : undefined;
-    if (only && isBridge && isValidRecipient && bridgeNetwork !== only.id) onSelectNetwork(only.id);
-  }, [isBridge, isValidRecipient, bridgeNetwork, onSelectNetwork]);
+    if (!isBridge || !isValidRecipient || offeredNetworks.some(n => n.id === bridgeNetwork)) return;
+    onSelectNetwork(usdcxAvailable ? DEFAULT_USDCX_BRIDGE_NETWORK.id : DEFAULT_BRIDGE_NETWORK.id);
+  }, [isBridge, isValidRecipient, bridgeNetwork, offeredNetworks, onSelectNetwork, usdcxAvailable]);
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
   const onSelectRecent = useCallback(
@@ -814,6 +873,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         case SendFlowStep.SelectRecipient:
           return (
             <SelectRecipient
+              networks={offeredNetworks}
               address={recipientAddress || ''}
               isValidAddress={isValidRecipient}
               error={errors.recipientAddress?.message?.toString()}
@@ -837,8 +897,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
             <SendAmount
               token={spendableToken}
               amount={amount || ''}
-              isValidAmount={!errors.amount && validations.amount.isValidSync(amount)}
-              error={errors.amount?.message?.toString()}
+              isValidAmount={!errors.amount && !payoutFeeShortfall && validations.amount.isValidSync(amount)}
+              error={errors.amount?.message?.toString() ?? (payoutFeeShortfall && 'usdcxSendMoreThanPayoutFee')}
+              errorValues={errors.amount ? undefined : payoutFeeShortfall}
               recipientAddress={recipientAddress || ''}
               recipientName={selectedContact?.name}
               network={displayedNetwork}
@@ -852,6 +913,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
         case SendFlowStep.Route:
           return (
             <SendRoute
+              usdcxAvailable={usdcxAvailable}
+              usdcxPayout={usdcxPayout}
               faucetId={spendableToken?.id ?? ''}
               route={bridgeRoute ?? 'epoch'}
               onRouteChange={onRouteChange}
@@ -878,6 +941,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       onPaste,
       errors.recipientAddress,
       errors.amount,
+      payoutFeeShortfall,
       onAddressChange,
       onScan,
       amount,
@@ -889,8 +953,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
       onReceive,
       chain,
       displayedNetwork,
+      offeredNetworks,
       selectedContact?.name,
       bridgeRoute,
+      usdcxAvailable,
+      usdcxPayout,
       onRouteChange,
       fastFeeUsd,
       epochQuote.loading,
@@ -906,7 +973,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
     <HomeGroupPaneRoot testId="send-flow">
       <Navigator renderRoute={renderStep} />
 
-      <SelectTokenDrawer open={showTokenDrawer} onOpenChange={setShowTokenDrawer} onSelect={onSelectToken} />
+      <SelectTokenDrawer
+        open={showTokenDrawer}
+        onOpenChange={setShowTokenDrawer}
+        onSelect={onSelectToken}
+        usdcxOnly={usdcxOnly}
+      />
 
       <AccountsListDrawer
         open={showContactsDrawer}

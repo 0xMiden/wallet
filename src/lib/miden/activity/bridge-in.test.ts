@@ -1,3 +1,7 @@
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
+import { selectNativeEthFaucet, selectNativeEthToken } from 'lib/remote-config/values';
+
 import {
   agglayerDeliveredAmount,
   findPendingBridgeInByEarnWithdrawTxId,
@@ -5,7 +9,9 @@ import {
   resolveBridgeInNoteId,
   suppressedLinkedConsumeIds,
   takeAgglayerBridgeInInfo,
-  applyBridgeInInfoForNotes
+  takeUsdcxBridgeInInfo,
+  applyBridgeInInfoForNotes,
+  setAgglayerSenderForE2E
 } from './bridge-in';
 import { IBridgeInInfo, ITransaction } from '../db/types';
 
@@ -32,10 +38,41 @@ const mockModify = jest.fn(async (mutate: (row: ITransaction) => void, index: un
   if (row) mutate(row);
   return row ? 1 : 0;
 });
-jest.mock('lib/agglayer/constant', () => ({
-  AGGLAYER_BRIDGE_NOTE_SENDER_ACCOUNT_ID: 'agg-sender',
-  AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL: 'ETH',
-  AGGLAYER_BRIDGE_NOTE_SCALE: 10
+jest.mock('lib/agglayer/constant', () => ({ AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL: 'ETH' }));
+// The delivery sender is the registry's native-ETH faucet (hex); the consume reads its sender in bech32. The bridge
+// registers that faucet with scale 10: a deposit of w wei arrives as floor(w / 10^10) (#1326).
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: jest.fn(() => ({})),
+  initBridgeConfig: jest.fn(async () => ({}))
+}));
+jest.mock('lib/remote-config/values', () => ({
+  selectNativeEthFaucet: jest.fn(() => '0xagg'),
+  selectNativeEthToken: jest.fn(() => ({
+    midenFaucetId: '0xagg',
+    originToken: '0x0000000000000000000000000000000000000000',
+    originNetwork: 0,
+    scale: 10
+  }))
+}));
+// As the SDK parses ids: one text per account whichever form names it, and not the text the registry names the faucet
+// in, so only a match that converts both sides finds the sender.
+const mockAccountText: Record<string, string> = {
+  'agg-sender': 'agg-account',
+  '0xagg': 'agg-account',
+  'usdcx-faucet-bech32': 'usdcx-faucet-account',
+  '0xusdcx': 'usdcx-faucet-account'
+};
+jest.mock('lib/miden/sdk/helpers', () => ({
+  accountRefToSdk: (ref: string) => {
+    if (ref === 'unreadable-sender') throw new Error('not an account id');
+    return { toString: () => mockAccountText[ref] ?? `${ref}-account` };
+  },
+  sameWalletAccountId: (a: string, b: string) => (mockAccountText[a] ?? a) === (mockAccountText[b] ?? b)
+}));
+// USDCx is the chain's native asset: the wallet discovers the faucet id, here in hex.
+const mockGetNativeAssetId = jest.fn(async () => '0xusdcx');
+jest.mock('lib/miden-chain/native-asset', () => ({
+  getNativeAssetId: () => mockGetNativeAssetId()
 }));
 jest.mock('lib/miden/repo', () => ({
   transactions: {
@@ -52,10 +89,14 @@ jest.mock('lib/miden/repo', () => ({
       })),
       // `where({ id })` for the modify path; `where('noteIds').equals(id)` for the lookup.
       modify: (mutate: (row: ITransaction) => void) => mockModify(mutate, index),
-      equals: jest.fn((noteId: string) => ({
+      // `where('noteIds').equals(id)` for the note lookup; `where('type').equals(type)` for the bridge-in matchers.
+      equals: jest.fn((value: string) => ({
         filter: jest.fn((predicate: (tx: any) => boolean) => ({
           first: jest.fn(async () =>
-            mockNoteIdRows.filter(row => row.noteIds?.includes(noteId)).find(row => predicate(row))
+            mockNoteIdRows.filter(row => row.noteIds?.includes(value)).find(row => predicate(row))
+          ),
+          toArray: jest.fn(async () =>
+            index === 'type' ? mockTransactions.filter(tx => tx.type === value && predicate(tx)) : []
           )
         }))
       })),
@@ -65,10 +106,8 @@ jest.mock('lib/miden/repo', () => ({
           : undefined
       ),
       index
-    })),
-    filter: jest.fn((predicate: (tx: any) => boolean) => ({
-      toArray: jest.fn(async () => mockTransactions.filter(predicate))
     }))
+    // No table-level `filter`: the matchers read bridged-receive rows through the `type` index, never the whole table.
   }
 }));
 
@@ -125,7 +164,7 @@ describe('resolveBridgeInNoteId', () => {
   });
 });
 
-// The bridge registers its ETH faucet with scale 10: a deposit of w wei arrives as floor(w / 10^10) (#1326).
+// The registry scale the mock above names for the native-ETH faucet.
 const SCALE = 10n ** 10n;
 
 describe('takeAgglayerBridgeInInfo', () => {
@@ -136,6 +175,24 @@ describe('takeAgglayerBridgeInInfo', () => {
     nowSpy = jest.spyOn(Date, 'now').mockReturnValue(10_000);
   });
   afterEach(() => nowSpy.mockRestore());
+
+  it('reads the delivery sender only once this realm has hydrated the bridge config', async () => {
+    let hydrated: () => void = () => undefined;
+    jest.mocked(initBridgeConfig).mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          hydrated = () =>
+            resolve({ network: 'testnet', status: 'ready', config: null, derived: null, lastFetch: null });
+        })
+    );
+    jest.mocked(selectNativeEthFaucet).mockClear();
+    const taken = takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(selectNativeEthFaucet).not.toHaveBeenCalled();
+    hydrated();
+    await expect(taken).resolves.toBeUndefined();
+    expect(selectNativeEthFaucet).toHaveBeenCalled();
+  });
 
   it('matches sender, recipient and amount and selects the oldest pending row', async () => {
     mockTransactions.push(
@@ -242,10 +299,132 @@ describe('takeAgglayerBridgeInInfo', () => {
     ).resolves.toMatchObject({ bridgeReceiveTxId: 'row' });
   });
 
-  it('uses the registry scale of 10 for the bridged-ETH faucet', () => {
-    const actual = jest.requireActual<{ AGGLAYER_BRIDGE_NOTE_SCALE: number }>('lib/agglayer/constant');
-    expect(actual.AGGLAYER_BRIDGE_NOTE_SCALE).toBe(10);
-    expect(agglayerDeliveredAmount(123_456_789_012_345_678n)).toBe(12_345_678n);
+  it('matches the sender as an account, not as the text the registry names the faucet in', async () => {
+    expect(accountRefToSdk('0xagg').toString()).not.toBe('0xagg');
+    mockTransactions.push({
+      id: 'row',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount: 5n * SCALE,
+      initiatedAt: 1,
+      extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+    });
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'row' });
+  });
+
+  it('logs a sender it cannot compare and takes no row', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      mockTransactions.push({
+        id: 'row',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        amount: 5n * SCALE,
+        initiatedAt: 1,
+        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+      });
+
+      await expect(
+        takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'unreadable-sender', amount: 5n })
+      ).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(
+        '[bridge-in] could not compare the delivery sender',
+        'unreadable-sender',
+        expect.any(Error)
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('matches nothing while the bridge config names no native-ETH faucet', async () => {
+    jest.mocked(selectNativeEthFaucet).mockReturnValueOnce(null);
+    mockTransactions.push({
+      id: 'row',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount: 5n * SCALE,
+      initiatedAt: 1,
+      extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+    });
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toBeUndefined();
+  });
+
+  it('takes an E2E sender instead of the registry faucet', async () => {
+    setAgglayerSenderForE2E('cli-faucet');
+    try {
+      mockTransactions.push({
+        id: 'row',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        amount: 5n * SCALE,
+        initiatedAt: 1,
+        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+      });
+      await expect(
+        takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+      ).resolves.toBeUndefined();
+      await expect(
+        takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'cli-faucet', amount: 5n })
+      ).resolves.toMatchObject({ bridgeReceiveTxId: 'row' });
+    } finally {
+      // An empty override clears it, so no later case inherits it.
+      setAgglayerSenderForE2E('');
+    }
+  });
+
+  it('floors a tracked wei amount at the scale it is given', () => {
+    expect(agglayerDeliveredAmount(123_456_789_012_345_678n, 10)).toBe(12_345_678n);
+    expect(agglayerDeliveredAmount(123_456_789_012_345_678n, 8)).toBe(1_234_567_890n);
+  });
+
+  it('compares at the scale the registry names for the native-ETH faucet', async () => {
+    jest.mocked(selectNativeEthToken).mockReturnValueOnce({
+      midenFaucetId: '0xagg',
+      originToken: '0x0000000000000000000000000000000000000000',
+      originNetwork: 0,
+      scale: 8
+    });
+    mockTransactions.push({
+      id: 'row',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      amount: 5n * 10n ** 8n,
+      initiatedAt: 1,
+      extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+    });
+
+    await expect(
+      takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
+    ).resolves.toMatchObject({ bridgeReceiveTxId: 'row' });
+  });
+
+  // An E2E sender stands in for the faucet only: the delivery's scale is still the registry's.
+  it('matches nothing while the registry names no native-ETH scale, even from an E2E sender', async () => {
+    setAgglayerSenderForE2E('cli-faucet');
+    try {
+      jest.mocked(selectNativeEthToken).mockReturnValueOnce(null);
+      mockTransactions.push({
+        id: 'row',
+        type: 'bridged-receive',
+        accountId: 'miden-account',
+        amount: 5n * SCALE,
+        initiatedAt: 1,
+        extraInputs: { provider: 'agglayer', phase: 'delivering', sourceAmount: '5', sourceSymbol: 'ETH' }
+      });
+
+      await expect(
+        takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'cli-faucet', amount: 5n })
+      ).resolves.toBeUndefined();
+    } finally {
+      setAgglayerSenderForE2E('');
+    }
   });
 
   it('matches a scale-10 delivery to its wei tracker and never the unscaled wei amount', async () => {
@@ -366,6 +545,175 @@ describe('takeAgglayerBridgeInInfo', () => {
     await expect(
       takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'agg-sender', amount: 5n })
     ).resolves.toMatchObject({ bridgeReceiveTxId: 'fresh' });
+  });
+});
+
+describe('takeUsdcxBridgeInInfo', () => {
+  let nowSpy: jest.SpyInstance<number, []>;
+  beforeEach(() => {
+    nowSpy = jest.spyOn(Date, 'now').mockReturnValue(10_000);
+  });
+  afterEach(() => nowSpy.mockRestore());
+
+  const DEPOSIT_HASH = `0x${'5'.repeat(64)}`;
+  const tracker = (overrides: Record<string, unknown> = {}, extraInputs: Record<string, unknown> = {}) => ({
+    id: 'row',
+    type: 'bridged-receive',
+    accountId: 'miden-account',
+    amount: 5_000_000n,
+    initiatedAt: 1,
+    ...overrides,
+    extraInputs: {
+      provider: 'usdcx',
+      phase: 'ready',
+      sourceAmount: '5',
+      sourceSymbol: 'USDC',
+      evmTxHash: DEPOSIT_HASH,
+      ...extraInputs
+    }
+  });
+  // The mint: the USDCx faucet sends a note of its own asset. The consume reads both ids in bech32.
+  const mint = { accountId: 'miden-account', senderAccountId: 'usdcx-faucet-bech32', faucetId: 'usdcx-faucet-bech32' };
+
+  it('matches the faucet, the account and the amount and selects the oldest attested deposit', async () => {
+    mockTransactions.push(
+      tracker({ id: 'newer', accountId: 'miden-account_tag', initiatedAt: 2 }),
+      tracker({ id: 'older' }, { phase: 'ready' })
+    );
+
+    await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toEqual({
+      provider: 'usdcx',
+      sourceAmount: '5',
+      sourceSymbol: 'USDC',
+      evmTxHash: DEPOSIT_HASH,
+      bridgeReceiveTxId: 'older'
+    });
+  });
+
+  // The mint follows the deposit's attestation: an older deposit still waiting on its own leg (a burn the
+  // user never executed on Arc) must not take the note of the deposit Circle attested after it.
+  it('prefers a deposit Circle attested over an older one still delivering', async () => {
+    mockTransactions.push(
+      tracker({ id: 'older-unexecuted' }, { phase: 'delivering' }),
+      tracker({ id: 'attested', initiatedAt: 2 }, { phase: 'ready' })
+    );
+
+    await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toMatchObject({
+      bridgeReceiveTxId: 'attested'
+    });
+  });
+
+  it('falls back to a delivering deposit when none is attested yet', async () => {
+    mockTransactions.push(tracker({ id: 'delivering' }, { phase: 'delivering' }));
+
+    await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toMatchObject({
+      bridgeReceiveTxId: 'delivering'
+    });
+  });
+
+  it('leaves an ordinary faucet request alone when no deposit of that amount is open', async () => {
+    mockTransactions.push(tracker());
+
+    await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 100_000_000n })).resolves.toBeUndefined();
+  });
+
+  it('never waits for the native asset id when no USDCx deposit is open', async () => {
+    await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toBeUndefined();
+
+    expect(mockGetNativeAssetId).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['another sender', { senderAccountId: 'some-wallet' }],
+    ['another asset', { faucetId: 'other-faucet' }],
+    ['another account', { accountId: 'other-account' }]
+  ])('does not match a note from %s', async (_label, overrides) => {
+    mockTransactions.push(tracker());
+
+    await expect(takeUsdcxBridgeInInfo({ ...mint, ...overrides, amount: 5_000_000n })).resolves.toBeUndefined();
+  });
+
+  // A row is live for as long as the reconciler tracks it, which can be well past its deposit's first week.
+  const EXECUTE_HASH = `0x${'7'.repeat(64)}`;
+  it.each<[string, Record<string, unknown>]>([
+    ['became ready this week', { phase: 'ready', readyAt: 9 }],
+    [
+      'saved its Arc execute this week',
+      {
+        phase: 'delivering',
+        sourceChainId: 84532,
+        cctp: { sourceDomain: 6, executeTxHash: EXECUTE_HASH, executeSavedAt: 9 }
+      }
+    ],
+    [
+      'holds a message to execute',
+      { phase: 'delivering', sourceChainId: 84532, cctp: { sourceDomain: 6, message: '0x1234', attestation: '0xabcd' } }
+    ],
+    [
+      'had its Arc execute revert this week',
+      {
+        phase: 'delivering',
+        sourceChainId: 84532,
+        cctp: { sourceDomain: 6, forwarded: false, revertedExecuteTxHash: EXECUTE_HASH, revertedAt: 9 }
+      }
+    ]
+  ])('takes the mint of an old deposit that %s', async (_label, extraInputs) => {
+    mockTransactions.push(tracker({ id: 'old', initiatedAt: -10 * 24 * 60 * 60 }, extraInputs));
+
+    await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toMatchObject({
+      bridgeReceiveTxId: 'old'
+    });
+  });
+
+  // A mint that arrives after its ready row timed out still lands it, after any live deposit of the same amount.
+  describe('a deposit that timed out after Circle attested it', () => {
+    const timedOut = (overrides: Record<string, unknown> = {}, extraInputs: Record<string, unknown> = {}) =>
+      tracker(
+        { initiatedAt: -9 * 24 * 60 * 60, ...overrides },
+        { phase: 'failed', readyAt: -8 * 24 * 60 * 60, error: 'Bridge delivery timed out.', ...extraInputs }
+      );
+
+    it('takes the late mint, past the delivery window', async () => {
+      mockTransactions.push(timedOut({ id: 'timed-out' }));
+
+      await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toMatchObject({
+        bridgeReceiveTxId: 'timed-out'
+      });
+    });
+
+    it('yields to a live deposit of the same amount, even one still delivering', async () => {
+      mockTransactions.push(
+        timedOut({ id: 'timed-out' }),
+        tracker({ id: 'live', initiatedAt: 5 }, { phase: 'delivering' })
+      );
+
+      await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toMatchObject({
+        bridgeReceiveTxId: 'live'
+      });
+    });
+
+    it.each([
+      ['timed out before Circle attested it', timedOut({}, { readyAt: undefined })],
+      ['failed for another reason', timedOut({}, { error: 'Circle attested this deposit to a different amount.' })],
+      ['was restored from a backup', timedOut({ restoredFromBackup: true })]
+    ])('leaves a failed deposit that %s', async (_label, row) => {
+      mockTransactions.push(row);
+
+      await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toBeUndefined();
+    });
+  });
+
+  it.each([
+    ['was never broadcast', tracker({}, { evmTxHash: undefined, phase: 'submitting' })],
+    ['already received its note', tracker({}, { phase: 'received' })],
+    ['failed', tracker({}, { phase: 'failed' })],
+    ['was restored from a backup', tracker({ restoredFromBackup: true })],
+    ['is past the delivery window', tracker({ initiatedAt: -8 * 24 * 60 * 60 })],
+    ['is for another route', tracker({}, { provider: 'agglayer' })]
+  ])('does not match a deposit that %s', async (_label, row) => {
+    mockTransactions.push(row);
+
+    await expect(takeUsdcxBridgeInInfo({ ...mint, amount: 5_000_000n })).resolves.toBeUndefined();
   });
 });
 

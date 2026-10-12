@@ -89,6 +89,7 @@ import { ReactComponent as Settings2 } from './settings-2.svg';
 import { ReactComponent as SettingsNew } from './settings-new.svg';
 import { ReactComponent as Settings } from './settings.svg';
 import { ReactComponent as Share } from './share.svg';
+import { ReactComponent as ShieldCheck } from './shield-check.svg';
 import { ReactComponent as SuccessDevnet } from './success-devnet.svg';
 import { ReactComponent as Success } from './success.svg';
 import { ReactComponent as Switch } from './switch.svg';
@@ -175,6 +176,7 @@ export enum IconName {
   List = 'list',
   Loader = 'loader',
   Lock = 'lock',
+  ShieldCheck = 'shield-check',
   More = 'more',
   PendingNotes = 'pending-notes',
   QrScan = 'qr-scan',
@@ -354,6 +356,8 @@ const IconSwitch = (props: IconProps) => {
       return <Loader {...props} />;
     case IconName.Lock:
       return <Lock {...props} />;
+    case IconName.ShieldCheck:
+      return <ShieldCheck {...props} />;
     case IconName.More:
       return <More {...props} />;
     case IconName.QrScan:

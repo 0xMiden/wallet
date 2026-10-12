@@ -123,6 +123,11 @@ jest.mock('./guardian-sync', () => ({
   reconcileUnconfirmedInApp: () => mockReconcile()
 }));
 
+const mockSweep = jest.fn(async () => {});
+jest.mock('lib/miden/transaction/note-delivery-sweep', () => ({
+  sweepNoteDeliveries: () => mockSweep()
+}));
+
 const mockMarkConnectivityIssue = jest.fn();
 const mockClearReachabilityIssues = jest.fn();
 jest.mock('lib/miden/activity/connectivity-state', () => ({
@@ -138,6 +143,11 @@ jest.mock('lib/miden/activity/connectivity-classify', () => ({
 }));
 
 const mockRequestNotesRefresh = jest.fn();
+const mockTrimResultBytes = jest.fn(async () => 0);
+jest.mock('lib/miden/transaction/trim-result-bytes', () => ({
+  runTrimTick: () => mockTrimResultBytes()
+}));
+
 jest.mock('./note-refresh', () => ({
   requestNotesRefresh: () => mockRequestNotesRefresh()
 }));
@@ -333,6 +343,35 @@ describe('useSyncTrigger', () => {
     unmount();
   });
 
+  // The SDK does not re-send a private note whose relay failed, and off the extension nothing
+  // but this loop would ever run the sweep that does.
+  it('mobile/desktop: runs the private-note delivery sweep after a successful sync', async () => {
+    const { unmount } = render(<HookHost />);
+    await waitFor(() => expect(mockSweep).toHaveBeenCalled());
+    unmount();
+  });
+
+  it('mobile/desktop: does not run the private-note delivery sweep after a failed sync', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockSyncState.mockRejectedValueOnce(new Error('offline'));
+    const { unmount } = render(<HookHost />);
+    await waitFor(() => expect(storeState.setSyncStatus).toHaveBeenCalledWith(false));
+    await flush();
+    expect(mockSyncState).toHaveBeenCalledTimes(1);
+    expect(mockSweep).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('mobile/desktop: does not run the private-note delivery sweep when no client was there to sync', async () => {
+    mockGetMidenClient.mockResolvedValueOnce(null as never);
+    const { unmount } = render(<HookHost />);
+    await waitFor(() => expect(storeState.setSyncStatus).toHaveBeenCalledWith(false));
+    await flush();
+    expect(mockSyncState).not.toHaveBeenCalled();
+    expect(mockSweep).not.toHaveBeenCalled();
+    unmount();
+  });
+
   it('mobile/desktop: does not fire the unconfirmed reconciler when no client was there to sync (#1081)', async () => {
     mockGetMidenClient.mockResolvedValueOnce(null as never);
     const { unmount } = render(<HookHost />);
@@ -370,6 +409,57 @@ describe('useSyncTrigger', () => {
 
     await flush();
     expect(mockSyncState).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('mobile/desktop: does not wait for the reaper', async () => {
+    // The fire-and-forget property, which no other test can see: a reaper that RESOLVES leaves
+    // `void` and `await` indistinguishable, and the failing case is equally blind because
+    // runTrimTick swallows. A pass that never settles is the only shape that separates them -
+    // under `await runTrimTick()` the tick would block here and syncState would never run.
+    // (The extension side needs no equivalent: doSync is not async, so `await` cannot compile.)
+    let release: (() => void) | undefined;
+    mockTrimResultBytes.mockImplementationOnce(
+      () =>
+        new Promise<number>(resolve => {
+          release = () => resolve(0);
+        })
+    );
+
+    const { unmount } = render(<HookHost />);
+    await flush();
+
+    // The pass must actually be pending, or the sync assertion below says nothing about waiting.
+    expect(mockTrimResultBytes).toHaveBeenCalled();
+    expect(release).toBeDefined();
+    expect(mockSyncState).toHaveBeenCalled();
+    release?.();
+    unmount();
+  });
+
+  it('mobile/desktop: runs the resultBytes reaper on an ordinary tick', async () => {
+    // The companion to the guard-skip case below. Without this, inverting the call site to
+    // `if (onGeneratingTxPage) trim()` would still pass - the reaper would run only on the one lap
+    // it is least needed and never on the idle path this driver exists for.
+    const { unmount } = render(<HookHost />);
+
+    await flush();
+    expect(mockSyncState).toHaveBeenCalled();
+    expect(mockTrimResultBytes).toHaveBeenCalled();
+    unmount();
+  });
+
+  it('mobile/desktop: runs the resultBytes reaper even on a lap the sync guards skip', async () => {
+    // Mobile and desktop have no other periodic driver for the reaper, and it is pure local Dexie
+    // maintenance - the generating-transaction guard exists to keep a SYNC off the WASM lock, and
+    // has no bearing on reclaiming storage.
+    window.location.hash = '#/generating-transaction-full';
+
+    const { unmount } = render(<HookHost />);
+
+    await flush();
+    expect(mockSyncState).not.toHaveBeenCalled();
+    expect(mockTrimResultBytes).toHaveBeenCalled();
     unmount();
   });
 

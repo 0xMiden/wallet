@@ -4,7 +4,7 @@ import { targetOf, type GuardianOrigins } from './guardian-fault';
  * Guardian settlement tracking, read off a wallet's own guardian traffic.
  *
  * A delta the wallet pushes (`POST /delta`) stays a candidate until the guardian's canonicalization worker
- * matches it against the chain, and `GET /state` keeps answering the previous commitment until then. While a
+ * matches it against the chain, and canonical state reads keep answering the previous commitment until then. While a
  * candidate is pending the guardian refuses every new proposal for the account with 409, and a device-key
  * rotation fails terminally on that by design (`REQUEUEABLE_ON_PENDING_CONFLICT`,
  * `src/lib/miden/transaction/index.ts`). A spec that hands an account to another wallet the moment its last
@@ -74,7 +74,7 @@ export function createGuardianCommitmentLedger(): GuardianCommitmentLedger {
 
 /**
  * Which settlement read a guardian request is: the push itself (`POST /delta`), or a canonical state read
- * (`GET /state`). Proposal traffic under `/delta/...`, delta reads and `/state/lookup` are neither.
+ * (`GET /state` or `GET /state/nonce`). Proposal traffic under `/delta/...`, delta reads and `/state/lookup` are neither.
  */
 export function guardianCommitmentReadOf(
   method: string,
@@ -87,7 +87,7 @@ export function guardianCommitmentReadOf(
   if (origin === undefined) return null;
   const path = url.slice(origin.replace(/\/+$/, '').length).split(/[?#]/)[0];
   if (method === 'POST' && path === '/delta') return 'push';
-  if (method === 'GET' && path === '/state') return 'state';
+  if (method === 'GET' && (path === '/state' || path === '/state/nonce')) return 'state';
   return null;
 }
 

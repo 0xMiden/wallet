@@ -2,11 +2,13 @@ import React from 'react';
 
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
+import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { goBack, navigate } from 'lib/woozie';
 
 // Imported after the mocks above are registered (jest hoists jest.mock).
 import { EARN_PLACEHOLDER } from './earn-mapping';
 import EarnVaultDetail from './EarnVaultDetail';
+import type { EarnChartPoint, EarnVault } from './types';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -23,8 +25,40 @@ import EarnVaultDetail from './EarnVaultDetail';
 let mockLoadState: { isLoading: boolean; error?: string; loadError?: string } = { isLoading: false };
 const mockRefetch = jest.fn();
 
+// What the live mapping hands over today: a rate it has read, but no 24h move and no point dates.
+const mockFreshVault: EarnVault = {
+  id: 'v-fresh',
+  protocol: 'Morpho',
+  asset: 'USDT',
+  network: 'Base',
+  apy: '4.00%',
+  aprPercent: 4,
+  apyChange24h: EARN_PLACEHOLDER,
+  tvl: '$90M',
+  risk: 'Low',
+  audited: true,
+  about: 'About the fresh vault.',
+  chartData: [
+    { label: EARN_PLACEHOLDER, value: 4 },
+    { label: EARN_PLACEHOLDER, value: 4 }
+  ]
+};
+
+// The point the stand-in tooltip shows as scrubbed; a test swaps in an undated one.
+const DATED_POINT: EarnChartPoint = { value: 5.24, label: 'TipLabel' };
+let mockTooltipPoint = DATED_POINT;
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
+}));
+
+let mockEarnDeposit: FeatureAvailability = { state: 'available' };
+const mockFeatureAvailability = jest.fn(
+  (feature: string, _options?: { hold?: boolean }): FeatureAvailability =>
+    feature === 'earnDeposit' ? mockEarnDeposit : { state: 'loading' }
+);
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useFeatureAvailability: (feature: string, options?: { hold?: boolean }) => mockFeatureAvailability(feature, options)
 }));
 
 // Stubs the accent through to a `data-accent` attribute (the SendAmount.test.tsx pattern) so the
@@ -131,7 +165,7 @@ jest.mock('recharts', () => {
       const rendered = [
         content({ active: false, payload: undefined }),
         content({ active: true, payload: [] }),
-        content({ active: true, payload: [{ payload: { value: 5.24, label: 'TipLabel' } }] })
+        content({ active: true, payload: [{ payload: mockTooltipPoint }] })
       ];
       return ReactLib.createElement(
         'div',
@@ -160,6 +194,7 @@ jest.mock('recharts', () => {
 //     truthy branch.
 //   - the unaudited vault — audited=false, all-equal chart values →
 //     `(max-min)*0.18` is 0, so the `|| 1` fallback branch runs.
+// `mockFreshVault` adds the undated, move-less vault the live mapping produces.
 jest.mock('./useEarnPositions', () => ({
   ...jest.requireActual<typeof import('./useEarnPositions')>('./useEarnPositions'),
   useEarnPositions: () => ({
@@ -200,7 +235,8 @@ jest.mock('./useEarnPositions', () => ({
           { label: 'F2', value: 3.0 },
           { label: 'F3', value: 3.0 }
         ]
-      }
+      },
+      mockFreshVault
     ],
     ...mockLoadState,
     refetch: mockRefetch
@@ -217,6 +253,7 @@ const metricValue = (label: string) => {
 describe('EarnVaultDetail', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockEarnDeposit = { state: 'available' };
   });
 
   // Guardian accounts are supported: earn deposits are built as a recallable
@@ -336,6 +373,58 @@ describe('EarnVaultDetail', () => {
     expect(navigate).toHaveBeenCalledWith('/earn/vaults/v-audited/deposit');
   });
 
+  it('greys out Deposit under the notice while Earn deposits are unavailable', () => {
+    mockEarnDeposit = { state: 'unavailable', reason: 'service-down', detail: 'allocator /health: timeout' };
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'earnDeposit' }));
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('bridgeFeatureUnavailableTitle');
+  });
+
+  it('holds Deposit, with no notice, while availability is loading', () => {
+    mockEarnDeposit = { state: 'loading' };
+    render(<EarnVaultDetail vaultId="v-audited" />);
+
+    expect(screen.getByRole('button', { name: 'earnDeposit' })).toBeDisabled();
+    expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
+  });
+
+  it('draws a rise in the positive ink and a fall muted', () => {
+    const { unmount } = render(<EarnVaultDetail vaultId="v-audited" />);
+    const rise = screen.getByText('+0.12% (24h)');
+    expect(rise).toHaveClass('text-positive-tint-ink');
+    expect(rise).not.toHaveClass('text-muted');
+    unmount();
+
+    render(<EarnVaultDetail vaultId="v-unaudited" />);
+    const fall = screen.getByText('-0.05% (24h)');
+    expect(fall).toHaveClass('text-muted');
+    expect(fall).not.toHaveClass('text-positive-tint-ink');
+  });
+
+  describe('with no 24h move or point dates yet', () => {
+    afterEach(() => {
+      mockTooltipPoint = DATED_POINT;
+    });
+
+    it('draws no move under the APY, not a lone placeholder dash', () => {
+      render(<EarnVaultDetail vaultId="v-fresh" />);
+
+      const hero = screen.getByTestId('earn-hero');
+      expect(hero).toHaveTextContent('earnCurrentApy');
+      expect(hero).not.toHaveTextContent(EARN_PLACEHOLDER);
+    });
+
+    it('says only the rate of a scrubbed point, with no dash for its date', () => {
+      mockTooltipPoint = mockFreshVault.chartData[0]!;
+      render(<EarnVaultDetail vaultId="v-fresh" />);
+
+      expect(screen.getByTestId('tooltip')).toHaveTextContent(/^4\.00%$/);
+    });
+  });
+
   // No timeframe row: no chart on this screen reads a timeframe, so the control changed nothing.
   it('draws the chart with no timeframe row', () => {
     render(<EarnVaultDetail vaultId="v-audited" />);
@@ -401,6 +490,28 @@ describe('EarnVaultDetail after a failed load', () => {
     expect(screen.queryByRole('button', { name: 'earnDeposit' })).toBeNull();
     expect(screen.queryByText('earnCurrentApy')).toBeNull();
     expect(screen.queryByText(EARN_PLACEHOLDER)).toBeNull();
+  });
+});
+
+// The fast poll is held only for a greyed-out Deposit, which the pending and vault-less failed branches never draw.
+describe('EarnVaultDetail fast-poll hold', () => {
+  afterEach(() => {
+    mockLoadState = { isLoading: false };
+    mockEarnDeposit = { state: 'available' };
+  });
+
+  it.each<[string, string, { isLoading: boolean; error?: string; loadError?: string }, boolean]>([
+    ['a loaded vault', 'v-audited', { isLoading: false }, true],
+    ['a vault kept over a failed load', 'v-audited', { isLoading: false, error: 'boom', loadError: 'boom' }, true],
+    ['a first load in flight', 'does-not-exist', { isLoading: true }, false],
+    ['a failed load with no vault', 'does-not-exist', { isLoading: false, error: 'boom', loadError: 'boom' }, false]
+  ])('asks for it only where it draws the notice: %s', (_state, vaultId, loadState, hold) => {
+    mockLoadState = loadState;
+    mockEarnDeposit = { state: 'unavailable', reason: 'service-down', detail: 'allocator /health: timeout' };
+    render(<EarnVaultDetail vaultId={vaultId} />);
+
+    expect(screen.queryByTestId('feature-unavailable-notice') !== null).toBe(hold);
+    expect(mockFeatureAvailability).toHaveBeenLastCalledWith('earnDeposit', { hold });
   });
 });
 

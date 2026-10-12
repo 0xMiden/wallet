@@ -8,16 +8,25 @@ import { Button, ButtonVariant } from 'components/Button';
 import { PageHeader } from 'components/PageHeader';
 import { Hero } from 'components/ui/Hero';
 import { Spinner } from 'components/ui/Spinner';
-import { IBridgedReceiveExtraInputs, ITransaction } from 'lib/miden/db/types';
+import { AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL } from 'lib/agglayer';
+import { IBridgedReceiveExtraInputs, IBridgeProvider, ITransaction } from 'lib/miden/db/types';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { AssetMetadata } from 'lib/miden/metadata/types';
 import { openExternalUrl } from 'lib/mobile/external-browser';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
+import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
+import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 import { TransactionSummaryBadge } from 'screens/generating-transaction/TransactionSummaryBadge';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
+
+import { UsdcxDepositSteps } from './UsdcxDepositSteps';
+import { UsdcxExecuteAction } from './UsdcxExecuteAction';
 
 interface EvmBridgeDepositStatusProps {
   txId: string;
@@ -25,7 +34,7 @@ interface EvmBridgeDepositStatusProps {
   /**
    * The deposit has taken one wallet confirmation and is about to ask for the next. Only the Slow
    * (AggLayer) route can say this: it raises the approve and the bridge prompts itself, so it knows
-   * the approve landed. The Fast (Epoch) route hands the whole sequence to the Epoch SDK, which
+   * the approval was signed. The Fast (Epoch) route hands the whole sequence to the Epoch SDK, which
    * reports nothing back on the deposit path, so there it stays false and the processing copy — which
    * warns that the wallet may ask more than once — is what covers the gap.
    */
@@ -38,6 +47,7 @@ interface EvmBridgeDepositStatusProps {
  * number; its record is the placeholder's, so the row's own output symbol names the asset.
  */
 const outputLabel = (
+  bridgeConfig: BridgeConfigSnapshot,
   row: ITransaction,
   inputs: IBridgedReceiveExtraInputs,
   assetsMetadata: Record<string, AssetMetadata>,
@@ -45,13 +55,63 @@ const outputLabel = (
 ): string => {
   if (inputs.phase === 'received') {
     const metadata = resolveDisplayMetadata(row.faucetId, assetsMetadata, nativeFaucetId);
-    const symbol = hasKnownScale(metadata) ? metadata.symbol : (inputs.outputSymbol ?? metadata.symbol);
+    const symbol = midenTokenLabel(
+      bridgeConfig,
+      row.faucetId,
+      hasKnownScale(metadata) ? metadata.symbol : (inputs.outputSymbol ?? metadata.symbol)
+    );
     const amount = creditedAmount(row.amount, metadata);
     return amount === undefined ? symbol : `${amount} ${symbol}`;
   }
   if (!inputs.outputAmount) return 'Miden';
-  return `${formatMoneyAmount(inputs.outputAmount, 'typed')} ${inputs.outputSymbol ?? ''}`.trim();
+  return `${formatMoneyAmount(inputs.outputAmount, 'typed')} ${midenTokenLabel(bridgeConfig, row.faucetId, inputs.outputSymbol ?? '')}`.trim();
 };
+
+/**
+ * The status word and the footer of a submitted deposit. A USDCx row follows Circle: the
+ * app-root watcher moves it to `ready` on the attestation (Confirmed), and the consume of
+ * the minted note moves it to `received` (Completed).
+ */
+function submittedCopyOf(
+  inputs: IBridgedReceiveExtraInputs,
+  t: (key: string) => string
+): { statusValue: string; footerDescription?: string } {
+  const usdcx = inputs.provider === 'usdcx';
+  // An executor-route deposit in flight explains itself through `UsdcxExecuteAction`, step by step.
+  const executorInFlight = usdcx && inputs.phase === 'delivering' && isUsdcxExecutorSource(inputs.sourceChainId);
+  switch (inputs.phase) {
+    case 'received':
+      return usdcx
+        ? { statusValue: t('completed'), footerDescription: t('usdcxReceived') }
+        : { statusValue: t('received'), footerDescription: t('bridgeDepositDeliveryDescription') };
+    case 'ready':
+      return {
+        statusValue: t('confirmed'),
+        footerDescription: usdcx ? t('usdcxAttested') : t('bridgeDepositDeliveryDescription')
+      };
+    default:
+      return {
+        statusValue: t('delivering'),
+        footerDescription: executorInFlight
+          ? undefined
+          : usdcx
+            ? t('usdcxAwaitingAttestation')
+            : t('bridgeDepositDeliveryDescription')
+      };
+  }
+}
+
+function routeLabelOf(provider: IBridgeProvider, t: (key: string) => string): string {
+  switch (provider) {
+    case 'epoch':
+      return t('fast');
+    case 'usdcx':
+      return t('usdcxRouteName');
+    case 'agglayer':
+    default:
+      return t('slow');
+  }
+}
 
 /** Bridge-specific post-review progress/failure/success screen. */
 export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
@@ -63,46 +123,54 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
   const { row, loaded } = useTransactionRow(txId);
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
   const nativeFaucetId = useMidenFaucetId();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
 
-  if (!loaded || !row)
+  const inputs: IBridgedReceiveExtraInputs | undefined = row?.extraInputs;
+
+  if (!loaded || !row || inputs === undefined)
     return (
       <div className="flex h-8 justify-center pt-5">
         <Spinner />
       </div>
     );
 
-  const inputs = row.extraInputs as IBridgedReceiveExtraInputs;
   // A Fast deposit is what the wallet signed for, so it rounds up; a Slow amount is what was typed.
   const sourceAmount = formatMoneyAmount(
     inputs.sourceAmount,
     inputs.provider === 'epoch' ? 'pays' : 'typed',
     inputs.sourceSymbol
   );
-  const sourceLabel = `${sourceAmount} ${inputs.sourceSymbol}`;
+  // ETH and Circle's USDC (the xReserve route) keep their symbol; any other source is the configured Epoch USDC.
+  const keepsSourceSymbol = inputs.provider === 'usdcx' || inputs.sourceSymbol === AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL;
+  const sourceSymbol = keepsSourceSymbol ? inputs.sourceSymbol : evmUsdcLabel(bridgeConfig, inputs.sourceSymbol);
+  const sourceLabel = `${sourceAmount} ${sourceSymbol}`;
   const failed = inputs.phase === 'failed';
   const submitted = inputs.phase === 'delivering' || inputs.phase === 'ready' || inputs.phase === 'received';
   // A failure has its own message, and a submitted deposit has left this screen, so the wait only
   // speaks while the deposit is still in flight.
   const waiting = awaitingNextConfirmation && !failed && !submitted;
-  const routeLabel = inputs.provider === 'epoch' ? t('fast') : t('slow');
+  const routeLabel = routeLabelOf(inputs.provider, t);
+  const sourceChain = getChain(inputs.sourceChainId ?? DEFAULT_CHAIN_ID);
 
   if (submitted) {
-    const viewExplorer = inputs.evmTxHash
-      ? () =>
-          openExternalUrl({
-            url: `https://sepolia.etherscan.io/tx/${inputs.evmTxHash}`,
-            title: 'Etherscan'
-          })
-      : undefined;
+    const viewExplorer =
+      inputs.evmTxHash && sourceChain
+        ? () =>
+            openExternalUrl({
+              url: `${sourceChain.explorer}/tx/${inputs.evmTxHash}`,
+              title: sourceChain.name
+            })
+        : undefined;
+    const { statusValue, footerDescription } = submittedCopyOf(inputs, t);
     return (
       <TransactionSuccessLayout
         headerTitle={t('success')}
         title={t('bridgeDepositSubmitted')}
-        footerDescription={t('bridgeDepositDeliveryDescription')}
+        footerDescription={footerDescription}
         primaryAction={{ label: t('done'), onClick: onDone }}
         secondaryAction={
           viewExplorer
-            ? { label: t('viewOnEtherscan'), onClick: viewExplorer, variant: ButtonVariant.Secondary }
+            ? { label: t('viewOnBlockExplorer'), onClick: viewExplorer, variant: ButtonVariant.Secondary }
             : undefined
         }
         onClose={onDone}
@@ -112,25 +180,34 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
             on a screen about money arriving. */}
         <TransactionSummaryBadge
           lhs={sourceLabel}
-          rhs={outputLabel(row, inputs, assetsMetadata, nativeFaucetId)}
+          rhs={outputLabel(bridgeConfig, row, inputs, assetsMetadata, nativeFaucetId)}
           fillForArrow={TRANSACTION_COLORS.bridge}
           className="mt-4"
         />
         <ReceiptRows
           className="mt-4"
           rows={[
-            { label: t('route'), value: `${routeLabel} · Sepolia → Miden` },
-            {
-              label: t('status'),
-              value:
-                inputs.phase === 'received'
-                  ? t('received')
-                  : inputs.phase === 'ready'
-                    ? t('confirmed')
-                    : t('delivering')
-            }
+            { label: t('route'), value: `${routeLabel} · ${sourceChain?.name ?? ''} → Miden` },
+            { label: t('status'), value: statusValue }
           ]}
         />
+        {inputs.provider === 'usdcx' && (
+          <UsdcxDepositSteps
+            sourceChainId={inputs.sourceChainId}
+            phase={inputs.phase}
+            cctp={inputs.cctp}
+            className="mt-4"
+          />
+        )}
+        {inputs.provider === 'usdcx' && isUsdcxExecutorSource(inputs.sourceChainId) && (
+          <UsdcxExecuteAction
+            txId={row.id}
+            sourceChainId={inputs.sourceChainId}
+            phase={inputs.phase}
+            cctp={inputs.cctp}
+            className="mt-4"
+          />
+        )}
       </TransactionSuccessLayout>
     );
   }

@@ -11,10 +11,12 @@ let mockBaseFee: number | null = null;
 let mockClaimableNotes: NoteFixture[] | undefined;
 let mockIsFallback = false;
 
+let mockLegacyFeeIdentity: string | undefined;
 jest.mock('app/hooks/useMidenFaucetId', () => ({
   __esModule: true,
-  default: () => mockFaucetId
+  default: () => mockLegacyFeeIdentity ?? mockFaucetId
 }));
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => mockFaucetId }));
 
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
   __esModule: true,
@@ -178,4 +180,15 @@ describe('useManuallyClaimableNotes', () => {
     const { result } = renderHook(() => useManuallyClaimableNotes('pk-1'));
     expect(result.current.data).toBeUndefined();
   });
+});
+
+beforeEach(() => {
+  mockLegacyFeeIdentity = undefined;
+});
+
+it('fee identity: leaves legacy display notes manual while hiding actual native auto-managed notes', () => {
+  mockLegacyFeeIdentity = 'faucet-other';
+  mockBaseFee = 7;
+  const { result } = renderHook(() => useManuallyClaimableNotes('account'));
+  expect(result.current.data).toEqual([other, nativeManualSwap]);
 });

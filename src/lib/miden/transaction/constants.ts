@@ -103,6 +103,10 @@ export const INVALID_NOTE_ERROR = 'Note is invalid';
 export const EARN_DEPOSIT_MISSING_REQUEST_ERROR =
   'Earn deposit has no collateral request with its mandate binding, so it was not sent.';
 
+// A dApp's consume request whose note a dApp transaction holds: answering with that row would hand it another
+// transaction's id, outcome and output notes.
+export const NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR = 'This note is being consumed by another transaction';
+
 export const TRANSACTION_FORCE_CANCELLED_ERROR = 'Transaction force-cancelled for debugging';
 
 /**
@@ -412,8 +416,8 @@ export function isVaultShortfallError(raw: string): boolean {
  * the local-vault-view case is one a fresher sync genuinely resolves.
  */
 export const TRANSACTION_VAULT_SHORTFALL_ERROR =
-  'The transaction could not be completed because an asset it moves was not available in full — either the ' +
-  'amount sent, or the MIDEN for the network fee. Check your balances once the wallet has synced, then try again.';
+  'The transaction could not be completed because an asset it moves was not available in full - either the ' +
+  'amount sent, or the USDCX for the network fee. Check your balances once the wallet has synced, then try again.';
 
 /**
  * An everyday-key rotation that failed because the account could not pay its fee. A
@@ -471,7 +475,7 @@ export const ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR =
  * that is not a standard P2ID or P2IDE payment.
  */
 export const ROTATION_FUNDING_NON_NATIVE_ERROR =
-  'The wallet stopped this claim because it could not confirm that the transfer holds only MIDEN.';
+  'The wallet stopped this claim because it could not confirm that the transfer holds only USDCX.';
 
 /**
  * A consume the wallet refused before building anything. The message IS the row's text,

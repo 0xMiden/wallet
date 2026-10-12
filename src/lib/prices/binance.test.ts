@@ -332,3 +332,23 @@ describe('listedFiatValue', () => {
     expect(listedFiatValue(prices, 'IMIDEN', 3, true)).toBe(3);
   });
 });
+
+describe('fixed native USDCX quote', () => {
+  it('values USDCX at one dollar with no feed and no nominal switch', () => {
+    expect(quotedPrice({}, 'USDCX')).toEqual({ price: 1, change24h: 0, percentageChange24h: 0 });
+    expect(isNominalQuote(quotedPrice({}, 'USDCX'))).toBe(false);
+  });
+
+  it('keeps the fixed value when a cached market quote differs', () => {
+    expect(quotedPrice({ USDCX: { price: 3, change24h: 2, percentageChange24h: 200 } }, 'USDCX')).toEqual({
+      price: 1,
+      change24h: 0,
+      percentageChange24h: 0
+    });
+  });
+
+  it('loads a stable-only total immediately while a mixed ETH total waits', () => {
+    expect(pricesLoaded({}, ['USDCX'])).toBe(true);
+    expect(pricesLoaded({}, ['USDCX', 'ETH'])).toBe(false);
+  });
+});
