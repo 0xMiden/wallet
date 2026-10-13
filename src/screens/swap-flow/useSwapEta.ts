@@ -32,6 +32,14 @@ type PairedState = SwapEtaState & { pair?: string };
 const pairOf = (offerFaucetId: string, requestFaucetId: string, etaUrl: string | undefined) =>
   JSON.stringify([offerFaucetId, requestFaucetId, etaUrl]);
 
+function quoteAmount(amount: string, decimals: number): bigint | undefined {
+  try {
+    return stringToBigInt(amount || '0', decimals);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Debounced quote for the current swap pair via the DEX `swap-eta` endpoint.
  * Modeled on {@link useEpochQuote}: once the user stops typing, it fetches the
@@ -57,12 +65,19 @@ export function useSwapEta({
   enabled
 }: UseSwapEtaOpts): SwapEtaState {
   const etaUrl = useBridgeConfigSnapshot({ load: false }).config?.swap?.etaUrl;
-  const offerRaw = stringToBigInt(offerAmount || '0', offerToken.decimals);
-  const requestRaw = stringToBigInt(requestAmount || '0', requestToken.decimals);
+  const parsedOffer = quoteAmount(offerAmount, offerToken.decimals);
+  const parsedRequest = quoteAmount(requestAmount, requestToken.decimals);
+  const offerRaw = parsedOffer ?? 0n;
+  const requestRaw = parsedRequest ?? 0n;
   // The endpoint requires requested_amount > 0; before the field is seeded fall
   // back to the offered amount (marketPrice is amount-independent).
   const requestRawForApi = requestRaw > 0n ? requestRaw : offerRaw;
-  const ready = enabled && offerRaw > 0n && offerToken.faucetId !== requestToken.faucetId;
+  const ready =
+    enabled &&
+    parsedOffer !== undefined &&
+    parsedRequest !== undefined &&
+    offerRaw > 0n &&
+    offerToken.faucetId !== requestToken.faucetId;
 
   // Debounce the whole input set so keystrokes on either amount don't spam the
   // quote endpoint.
@@ -81,7 +96,7 @@ export function useSwapEta({
   const livePair = pairOf(offerToken.faucetId, requestToken.faucetId, etaUrl);
 
   useEffect(() => {
-    if (!debouncedKey) {
+    if (!ready || !debouncedKey) {
       reqId.current++; // supersede any in-flight request
       setState(IDLE);
       return;
@@ -98,8 +113,8 @@ export function useSwapEta({
     // Only a same-pair amount change keeps the previous quote on screen while it reloads.
     setState(prev => ({ loading: true, pair, eta: prev.pair === pair ? prev.eta : undefined }));
     // The debounce delivers the live key 500 ms late, so a flip in this render would build the request from the
-    // other pair's tokens; wait for it instead. livePair re-runs this when the flip is undone inside the window.
-    if (pair !== livePair) return;
+    // other pair's tokens; wait for it instead. A readiness change must also wait for the current amount key.
+    if (pair !== livePair || debouncedKey !== key) return;
     getSwapEta(offerToken, BigInt(oa), requestToken, BigInt(ra))
       .then(eta => {
         if (id !== reqId.current) return;
@@ -109,9 +124,12 @@ export function useSwapEta({
         if (id !== reqId.current) return;
         setState({ loading: false, pair, error: err instanceof Error ? err.message : 'Quote failed' });
       });
-    // `debouncedKey` captures the faucet ids and amounts, not the token objects, which only match it when livePair does.
+    // Debounce owns amount changes; livePair and ready invalidate stale tokens or input before it expires.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedKey, livePair]);
+  }, [debouncedKey, livePair, ready]);
+
+  // Invalid entry hides the last valid quote before the debounce catches up.
+  if (!ready) return IDLE;
 
   // The debounce lags the pair by 500 ms plus the fetch, so compare against the live tokens.
   if (state.pair === undefined) return state;

@@ -13,9 +13,7 @@ jest.mock('lib/miden/swap/tokens', () => ({
   getSwapEta: (...args: unknown[]) => mockGetSwapEta(...args)
 }));
 
-jest.mock('lib/i18n/numbers', () => ({
-  stringToBigInt: (value: string, decimals: number) => BigInt(Math.round(Number(value) * 10 ** decimals))
-}));
+jest.unmock('lib/i18n/numbers');
 
 const USDC = { symbol: 'USDC', faucetId: 'faucet-usdc', decimals: 6, logoSymbol: 'USDC' };
 const ETH = { symbol: 'ETH', faucetId: 'faucet-eth', decimals: 6, logoSymbol: 'ETH' };
@@ -68,6 +66,77 @@ afterEach(() => {
 });
 
 describe('useSwapEta', () => {
+  it.each(['.', '۱', '١', '1,5', '1.2.3', 'abc'])(
+    'leaves invalid offer amount %s idle and recovers on a canonical amount',
+    offerAmount => {
+      const { result, rerender } = renderHook((props: UseSwapEtaOpts) => useSwapEta(props), {
+        initialProps: opts({ offerAmount })
+      });
+      expect(result.current).toEqual({ loading: false });
+      pastDebounce();
+      expect(mockGetSwapEta).not.toHaveBeenCalled();
+
+      rerender(opts({ offerAmount: '100.5' }));
+      pastDebounce();
+      expect(mockGetSwapEta).toHaveBeenCalledTimes(1);
+      expect(mockGetSwapEta).toHaveBeenLastCalledWith(USDC, 100500000n, ETH, 30000n);
+      expect(result.current.loading).toBe(true);
+    }
+  );
+
+  it.each(['.', '۱', '١', '1,5', '1.2.3', 'abc'])(
+    'leaves invalid request amount %s idle instead of bootstrapping a quote',
+    requestAmount => {
+      const { result, rerender } = renderHook((props: UseSwapEtaOpts) => useSwapEta(props), {
+        initialProps: opts({ requestAmount })
+      });
+      expect(result.current).toEqual({ loading: false });
+      pastDebounce();
+      expect(mockGetSwapEta).not.toHaveBeenCalled();
+
+      rerender(opts({ requestAmount: '0.000001' }));
+      pastDebounce();
+      expect(mockGetSwapEta).toHaveBeenLastCalledWith(USDC, 100000000n, ETH, 1n);
+    }
+  );
+
+  it('hides a cached quote immediately when the offered amount is cleared', async () => {
+    const { result, rerender } = renderHook((props: UseSwapEtaOpts) => useSwapEta(props), { initialProps: opts() });
+    await settle(0, 'resolve', etaWith('2'));
+    rerender(opts({ offerAmount: '' }));
+    expect(result.current).toEqual({ loading: false });
+    pastDebounce();
+    expect(mockGetSwapEta).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides a cached quote immediately when either amount becomes incomplete', async () => {
+    const { result, rerender } = renderHook((props: UseSwapEtaOpts) => useSwapEta(props), { initialProps: opts() });
+    await settle(0, 'resolve', etaWith('2'));
+    rerender(opts({ requestAmount: '.' }));
+    expect(result.current).toEqual({ loading: false });
+    pastDebounce();
+    expect(mockGetSwapEta).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not restore an in-flight quote while the amount is invalid', async () => {
+    const { result, rerender } = renderHook((props: UseSwapEtaOpts) => useSwapEta(props), { initialProps: opts() });
+    rerender(opts({ offerAmount: '.' }));
+    await settle(0, 'resolve', etaWith('2'));
+    expect(result.current).toEqual({ loading: false });
+    pastDebounce();
+    expect(mockGetSwapEta).toHaveBeenCalledTimes(1);
+    rerender(opts());
+    pastDebounce();
+    expect(mockGetSwapEta).toHaveBeenCalledTimes(2);
+    await settle(1, 'resolve', etaWith('3'));
+    expect(result.current).toEqual({ loading: false, eta: etaWith('3') });
+  });
+
+  it('still bootstraps an empty receive field with the positive offered amount', () => {
+    renderHook(() => useSwapEta(opts({ requestAmount: '' })));
+    expect(mockGetSwapEta).toHaveBeenCalledWith(USDC, 100000000n, ETH, 100000000n);
+  });
+
   it('drops a cached quote and refetches when only the configured service changes', async () => {
     const { result, rerender } = renderHook((props: UseSwapEtaOpts) => useSwapEta(props), { initialProps: opts() });
     await settle(0, 'resolve', etaWith('2'));
