@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
 import { Button, ButtonVariant } from 'components/Button';
+import { Spinner } from 'components/ui/Spinner';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { TextAction } from 'components/ui/TextAction';
 import { isInviteOnboardingUnlocked, setInviteOnboardingUnlocked, welcomeOnboarding } from 'lib/invite-onboarding';
@@ -79,7 +80,7 @@ export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
     setUnlocked(true);
   };
 
-  const footer = inviteOnly ? (
+  const actions = inviteOnly ? (
     <>
       <Button
         tabIndex={0}
@@ -116,6 +117,23 @@ export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
         onClick={() => onSubmit?.('select-import-type')}
       />
     </>
+  );
+
+  // While the remote config loads, the hidden actions keep their room and a spinner shows in it.
+  const footer = (
+    <div className="relative flex flex-col gap-2.5">
+      {!settled && (
+        <div
+          role="status"
+          aria-label={t('loading')}
+          data-testid="onboarding-config-loading"
+          className="absolute inset-0 flex items-center justify-center"
+        >
+          <Spinner size="lg" />
+        </div>
+      )}
+      {actions}
+    </div>
   );
 
   return (

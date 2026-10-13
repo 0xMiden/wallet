@@ -163,8 +163,9 @@ describe('WelcomeScreen', () => {
     // 56px on a normal screen, smaller on the narrowest, and a long translated word wraps rather than clips.
     expect(screen.getByRole('heading', { level: 1 })).toHaveClass('text-[min(56px,15vw)]', '[overflow-wrap:anywhere]');
     expect(screen.getByText('breadWalletDescription')).toHaveClass('text-muted');
-    const footer = screen.getByTestId('btn-getStarted').parentElement;
-    expect(footer).toHaveAttribute('data-slot', 'footer');
+    // The actions share one column in the footer, which the loading spinner overlays.
+    const footer = screen.getByTestId('btn-getStarted').closest('[data-slot="footer"]');
+    expect(footer).toBeInTheDocument();
     expect(footer).toContainElement(document.getElementById('import-link'));
   });
 
@@ -379,9 +380,11 @@ describe('WelcomeScreen while the remote config loads', () => {
     const view = renderComponent();
     expect(screen.getByTestId('btn-getStarted')).toHaveClass('invisible');
     expect(document.getElementById('import-link')).toHaveClass('invisible');
+    expect(screen.getByRole('status')).toHaveAccessibleName('loading');
 
     mockSnapshot = snapshotWith({ inviteOnly: true });
     view.rerender(<WelcomeScreen />);
+    expect(screen.queryByTestId('onboarding-config-loading')).not.toBeInTheDocument();
     expect(screen.getByTestId('btn-iHaveACode')).not.toHaveClass('invisible');
     expect(screen.getByTestId('onboarding-no-code')).not.toHaveClass('invisible');
   });
@@ -393,9 +396,11 @@ describe('WelcomeScreen while the remote config loads', () => {
       jest.advanceTimersByTime(2_999);
     });
     expect(screen.getByTestId('btn-getStarted')).toHaveClass('invisible');
+    expect(screen.getByTestId('onboarding-config-loading')).toBeInTheDocument();
     act(() => {
       jest.advanceTimersByTime(1);
     });
+    expect(screen.queryByTestId('onboarding-config-loading')).not.toBeInTheDocument();
     expect(screen.getByTestId('btn-getStarted')).not.toHaveClass('invisible');
     expect(document.getElementById('import-link')).not.toHaveClass('invisible');
   });
