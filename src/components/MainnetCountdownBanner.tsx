@@ -97,10 +97,10 @@ export const MainnetCountdownBanner: FC = () => {
 
 const BannerFrame: FC<{ testId: string; children: React.ReactNode }> = ({ testId, children }) => (
   <div
-    className="flex w-full shrink-0 items-center justify-center gap-2 border-b border-dashed border-accent-tint-ink/30 bg-accent-tint px-4 py-1"
+    className="flex w-full shrink-0 items-center justify-center gap-2 border-b border-dashed border-accent-tint-ink/30 bg-accent-tint px-4"
     data-testid={testId}
   >
-    <BreadLogo aria-hidden="true" className="h-[18px] w-[18px] shrink-0" />
+    <BreadLogo aria-hidden="true" className="h-6 w-6 shrink-0" />
     {children}
   </div>
 );
@@ -117,6 +117,7 @@ const MainnetSwitchBanner: FC = () => {
     try {
       const accepted = await confirm({
         title: t('switchToMainnet'),
+        variant: 'explanation',
         children: t('switchToMainnetConfirm'),
         confirmLabel: t('resetAndSwitchToMainnet'),
         destructive: true
@@ -134,7 +135,12 @@ const MainnetSwitchBanner: FC = () => {
 
   return (
     <BannerFrame testId="mainnet-switch-banner">
-      <TextAction onClick={switchNetwork} disabled={pending} data-testid="mainnet-switch-link">
+      <TextAction
+        onClick={switchNetwork}
+        disabled={pending}
+        className="text-title-section underline decoration-1 underline-offset-[3px]"
+        data-testid="mainnet-switch-link"
+      >
         {t('switchToMainnet')}
       </TextAction>
     </BannerFrame>
