@@ -25,7 +25,6 @@ import {
   usePageRevealedByLayer
 } from 'app/layouts/page-active';
 import { announceFooterMounted } from 'app/pages/Browser/peek-footer';
-import { NetworkModeBanner, NetworkNamedByShell } from 'components/NetworkModeBanner';
 import { BottomNav, BottomNavItem, SegmentedActionBar } from 'components/ui';
 import { usePreset } from 'lib/animation';
 import { isSwapEnabled } from 'lib/feature-flags';
@@ -330,8 +329,6 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
   panesRef.current[activeTab] = showActionBar ? (
     <>
       <div className="shrink-0 relative z-10">
-        {/* The test network's name, above every Home-group pane. */}
-        <NetworkModeBanner variant="home" />
         <SegmentedActionBar
           items={actionItems}
           activeId={activeAction}
@@ -341,10 +338,7 @@ const TabLayout: FC<PropsWithChildren> = ({ children }) => {
         />
       </div>
       <div className="flex-1 min-h-0 flex flex-col">
-        {/* The banner above names the network, so a review step in a pane draws no second banner. */}
-        <NetworkNamedByShell>
-          <HomeSwipeContainer />
-        </NetworkNamedByShell>
+        <HomeSwipeContainer />
       </div>
     </>
   ) : (

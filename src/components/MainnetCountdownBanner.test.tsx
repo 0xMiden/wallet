@@ -35,6 +35,12 @@ jest.mock('lib/remote-config/use-feature-availability', () => ({
   })
 }));
 
+// The effective network's name key; null stands for mainnet.
+let mockNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getTestNetworkNameKey: () => mockNetworkKey
+}));
+
 const LAUNCH_AT = Date.parse('2026-10-26T00:00:00Z');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -65,6 +71,7 @@ describe('MainnetCountdownBanner', () => {
     jest.setSystemTime(Date.parse('2026-10-08T19:47:24Z'));
     jest.clearAllMocks();
     mockCountdown = { enabled: true, launchAt: LAUNCH_AT };
+    mockNetworkKey = 'testnet';
   });
 
   afterEach(() => {
@@ -91,8 +98,7 @@ describe('MainnetCountdownBanner', () => {
     fireEvent.click(link);
 
     expect(hapticLight).toHaveBeenCalledTimes(1);
-    expect(link).toHaveClass('min-h-11', 'focus-visible:ring-2');
-    expect(link).not.toHaveClass('underline');
+    expect(link).toHaveClass('min-h-11', 'focus-visible:ring-2', 'underline');
     expect(mockOpenExternalUrl).toHaveBeenCalledWith({ url: 'https://miden.xyz/bread', title: 'mainnetCountdownLink' });
   });
 
@@ -102,6 +108,13 @@ describe('MainnetCountdownBanner', () => {
     ['no document has been accepted', null]
   ])('renders nothing while %s', (_label, countdown) => {
     mockCountdown = countdown;
+    render(<MainnetCountdownBanner />);
+
+    expect(screen.queryByTestId('mainnet-countdown-banner')).not.toBeInTheDocument();
+  });
+
+  it('renders nothing on mainnet, even with a countdown set', () => {
+    mockNetworkKey = null;
     render(<MainnetCountdownBanner />);
 
     expect(screen.queryByTestId('mainnet-countdown-banner')).not.toBeInTheDocument();

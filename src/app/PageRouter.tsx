@@ -507,8 +507,8 @@ const PageRouter: FC = () => {
 
   // The mainnet countdown sits above every page of the open wallet, over the layer stack and so
   // over Home's action bar, and never over Unlock or onboarding. The layer stack fills the height
-  // left under it. The test network itself is named above Home's action bar (TabLayout) and on the
-  // screens that commit value (NetworkModeBanner), not here.
+  // left under it. The test network itself is named on the screens that commit value
+  // (NetworkModeBanner), not here.
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col">
       {showCountdown && <MainnetCountdownBanner />}

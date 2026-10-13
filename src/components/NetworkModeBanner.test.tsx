@@ -30,52 +30,6 @@ jest.mock('components/NetworkModeSheet', () => ({
 
 const openSheet = () => fireEvent.click(screen.getByTestId('network-mode-banner'));
 
-describe('NetworkModeBanner (the home variant)', () => {
-  beforeEach(() => {
-    mockNetworkKey = 'testnet';
-    jest.mocked(hapticLight).mockClear();
-  });
-
-  it('names the effective network with the shorter sentence, and offers no way to mainnet', () => {
-    mockNetworkKey = 'devnet';
-
-    render(<NetworkModeBanner variant="home" />);
-
-    expect(screen.getByTestId('network-mode-banner')).toHaveTextContent('networkModeHomeBanner:devnet');
-    expect(screen.queryByText('switchToMainnet')).not.toBeInTheDocument();
-  });
-
-  it('renders nothing on mainnet', () => {
-    mockNetworkKey = null;
-
-    const { container } = render(<NetworkModeBanner variant="home" />);
-
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it('opens the explanation sheet on tap, with one haptic', () => {
-    render(<NetworkModeBanner variant="home" />);
-    const banner = screen.getByTestId('network-mode-banner');
-    expect(banner).toHaveAttribute('aria-expanded', 'false');
-
-    openSheet();
-
-    expect(screen.getByTestId('network-mode-sheet')).toBeInTheDocument();
-    expect(banner).toHaveAttribute('aria-expanded', 'true');
-    expect(hapticLight).toHaveBeenCalledTimes(1);
-  });
-
-  it('stands down under a shell that already names the network', () => {
-    render(
-      <NetworkNamedByShell>
-        <NetworkModeBanner variant="home" />
-      </NetworkNamedByShell>
-    );
-
-    expect(screen.queryByTestId('network-mode-banner')).not.toBeInTheDocument();
-  });
-});
-
 describe('NetworkModeBanner (the dApp confirm window)', () => {
   beforeEach(() => {
     mockNetworkKey = 'testnet';

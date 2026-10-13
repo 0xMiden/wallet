@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { MAINNET_EARLY_ACCESS_URL } from 'app/constants';
 import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
 import { TextAction } from 'components/ui/TextAction';
+import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 
@@ -32,8 +33,9 @@ export function formatCountdown(now: number, launchAt: number): string | null {
 /**
  * The strip above every page of the open wallet: the Bread mark, a live `DD:HH:MM:SS` countdown
  * to the mainnet launch, and a link to the early-access list. The network's remote config drives
- * it (`mainnetCountdown`, 0xMiden/wallet-config): the banner shows while the switch is on and the
- * launch moment is set and still ahead, and renders nothing otherwise, so flipping the switch or
+ * it (`mainnetCountdown`, 0xMiden/wallet-config): the banner shows on a test network while the
+ * switch is on and the launch moment is set and still ahead, and renders nothing otherwise (so
+ * never on mainnet), so flipping the switch or
  * the moment there reaches every wallet within about an hour. The clock ticks once a second while a
  * countdown is set; the banner mounts outside every page-active provider, so it has no on-screen
  * signal to gate on.
@@ -43,7 +45,10 @@ export const MainnetCountdownBanner: FC = () => {
   const [now, setNow] = useState(() => Date.now());
 
   const config = useBridgeConfigSnapshot().config?.mainnetCountdown;
-  const launchAt = config?.enabled ? config.launchAt : undefined;
+  // A wallet on mainnet has nothing to count down to. The effective network decides, so a
+  // Developer Settings override to mainnet hides the banner too.
+  const onTestNetwork = getTestNetworkNameKey() !== null;
+  const launchAt = onTestNetwork && config?.enabled ? config.launchAt : undefined;
   const countdown = launchAt === undefined ? null : formatCountdown(now, launchAt);
   const ticking = countdown !== null;
 
@@ -75,7 +80,11 @@ export const MainnetCountdownBanner: FC = () => {
           {countdown}
         </time>
         <span aria-hidden="true" className="size-[3px] shrink-0 rounded-full bg-accent-tint-ink opacity-50" />
-        <TextAction onClick={openEarlyAccess} data-testid="mainnet-countdown-link">
+        <TextAction
+          onClick={openEarlyAccess}
+          className="underline decoration-1 underline-offset-[3px]"
+          data-testid="mainnet-countdown-link"
+        >
           {t('mainnetCountdownLink')}
         </TextAction>
       </div>

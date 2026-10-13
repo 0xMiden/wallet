@@ -1257,7 +1257,6 @@
   "shareAddressText": "My Miden $network$ address (test tokens only): $address$",
   "networkModeBanner": "You are using Bread on Miden $network$",
   "networkModeSheetTitle": "Miden $network$",
-  "networkModeHomeBanner": "You are on Miden $network$",
   "testnetEndedTitle": "Miden $network$ has ended",
   "testnetEndedBody": "Bread has moved on from Miden $network$. Test tokens never had real value and do not carry over. Reset the app to clear this wallet, its balances and its history, then set up Bread again.",
   "testnetEndedReset": "Reset and start over",
