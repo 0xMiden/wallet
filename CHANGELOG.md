@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.4 (TBD)
+
+### Fixes
+
+- [FIX][all] Amount entry keeps canonical Latin digits on Persian and Arabic devices, preventing lost digits and invalid base-unit conversion in Send and Swap. Incomplete or malformed swap amounts clear the previous quote and wait for valid input.
+
 ## 1.17.3 (2026-10-12)
 
 ### Features

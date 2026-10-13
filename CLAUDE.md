@@ -2,6 +2,10 @@
 
 Guidance for Claude Code. **Self-maintaining:** update proactively when you learn a gotcha, pattern, or debugging trick worth keeping.
 
+## Coverage runs only in CI
+
+Never run coverage locally for this wallet, in any checkout or worktree. This includes `yarn test:coverage`, Jest `--coverage`, and local coverage shards. Use local noncoverage regression tests, type/lint checks and builds as appropriate. Coverage is measured by CI only; fix gaps from CI results without lowering thresholds. Merge only when the current-head CI coverage gate passes. Stop an active local coverage run when this rule is applied, and never count an interrupted run as passing.
+
 ## Project
 
 Miden Wallet: Chrome/Firefox extension + iOS/Android (Capacitor) + macOS (Tauri). React + Zustand frontend; service-worker backend (Effector store + vault). Backend is source of truth; frontend syncs via intercom port messaging.
