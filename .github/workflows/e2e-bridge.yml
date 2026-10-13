@@ -41,13 +41,13 @@ concurrency:
 jobs:
   chrome-bridge-testnet:
     name: Bridge E2E (Chrome, testnet)
-    runs-on: ubuntu-24.04
+    runs-on: warp-ubuntu-latest-x64-8x
     # Headroom for a cold cache (yarn + `cargo install --git --locked` + playwright
     # + the extension build ~20 min) PLUS two 15-min test attempts under
     # `--retries=1`, so the retry that absorbs a transient blip can't itself
     # wall-clock-timeout and red main.
     # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 115 || 70 }}
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 100 || 70 }}
     env:
       E2E_NETWORK: testnet
       # Optional: pin a keyed / higher-rate-limit Sepolia RPC so the EVM-side read

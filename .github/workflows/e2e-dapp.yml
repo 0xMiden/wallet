@@ -31,11 +31,11 @@ jobs:
   # the others.
   dapp-e2e:
     name: dapp-e2e (${{ matrix.network }}, ${{ matrix.axis }}, ${{ matrix.part }})
-    runs-on: ubuntu-24.04
+    runs-on: warp-ubuntu-latest-x64-8x
     # At most about 33 min of setup (a cold CLI compile, the E2E build, apt, Chromium and the stagger), then the
     # 140-minute run step and the steps after it.
     # A dispatch may first build a linked web-sdk PR from source (about 26 min on ubuntu-latest, pr-compile-surfaces.yml).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 235 || 190 }}
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 220 || 190 }}
     strategy:
       fail-fast: false
       matrix:

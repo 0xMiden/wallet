@@ -349,15 +349,15 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
       'e2e-blockchain.yml mobile-guardian-devnet: push 130, dispatch 215',
       'e2e-blockchain.yml mobile-guardian-testnet: push 130, dispatch 215',
       'e2e-bridge-in.yml mobile-bridge-in-testnet: push 110, dispatch 195',
-      'e2e-bridge.yml chrome-bridge-testnet: push 70, dispatch 115',
+      'e2e-bridge.yml chrome-bridge-testnet: push 70, dispatch 100',
       'e2e-dapp-browser.yml ios-dapp-browser: push 60, dispatch 135',
       'e2e-dapp-browser.yml android-dapp-browser: push 60, dispatch 90',
-      'e2e-dapp.yml dapp-e2e: push 190, dispatch 235',
+      'e2e-dapp.yml dapp-e2e: push 190, dispatch 220',
       'e2e-resilience.yml resilience-chrome: push 60, dispatch 120',
       'e2e-stress.yml stress-conservation: push 90, dispatch 150',
       'e2e-telemetry.yml telemetry-egress: push 30, dispatch 60',
       'e2e-usdcx-live.yml mobile-usdcx-live: push 150, dispatch 235',
-      'e2e-usdcx.yml chrome-usdcx-testnet: push 210, dispatch 255',
+      'e2e-usdcx.yml chrome-usdcx-testnet: push 210, dispatch 240',
       'pr-e2e-earn.yml earn-e2e: push 120, dispatch 270',
       'pr-e2e-swap.yml swap-e2e: push 120, dispatch 270'
     ]);
