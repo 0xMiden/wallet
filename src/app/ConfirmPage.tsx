@@ -25,6 +25,7 @@ import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useRetryableSWR } from 'lib/swr';
+import { annotateCrash } from 'lib/telemetry/crash-diagnostics';
 import useSafeState from 'lib/ui/useSafeState';
 import { navigate, useLocation } from 'lib/woozie';
 import { truncateAddress, truncateHash } from 'utils/string';
@@ -476,7 +477,9 @@ const ConfirmDAppForm: FC = () => {
     const usp = new URLSearchParams(loc.search);
     const pageId = usp.get('id');
     if (!pageId) {
-      throw new Error(t('notIdentified'));
+      const error = new Error(t('notIdentified'));
+      annotateCrash(error, { operation: 'confirm_payload', confirmationId: pageId === null ? 'missing' : 'empty' });
+      throw error;
     }
     return pageId;
   }, [loc.search, t]);

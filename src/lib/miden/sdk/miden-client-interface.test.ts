@@ -249,6 +249,18 @@ describe('MidenClientInterface', () => {
     }));
 
     const { MidenClientInterface } = await import('./miden-client-interface');
+    const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+    const initializationFailure = new Error('SDK startup failed');
+    for (const useWorker of [true, false]) {
+      createMock.mockRejectedValueOnce(initializationFailure);
+      await expect(MidenClientInterface.create({ useWorker })).rejects.toBe(initializationFailure);
+      expect(snapshotCrashDiagnostics(initializationFailure)).toEqual({
+        operation: 'sdk_initialize',
+        stage: 'client_create',
+        workerMode: useWorker ? 'enabled' : 'disabled'
+      });
+    }
+    createMock.mockClear();
     const insertKeyCallback = jest.fn();
     const client = await MidenClientInterface.create({
       seed: new Uint8Array([1, 2, 3]),
@@ -1881,6 +1893,15 @@ describe('MidenClientInterface', () => {
         const client = await MidenClientInterface.create({ seed: new Uint8Array([1, 2, 3]) });
         expect(client.network).toBe('mock');
         expect(createMock).toHaveBeenCalledWith({ seed: expect.any(Uint8Array) });
+        const { snapshotCrashDiagnostics } = await import('lib/telemetry/crash-diagnostics');
+        const failure = new Error('mock startup failed');
+        createMock.mockRejectedValueOnce(failure);
+        await expect(MidenClientInterface.create()).rejects.toBe(failure);
+        expect(snapshotCrashDiagnostics(failure)).toEqual({
+          operation: 'sdk_initialize',
+          stage: 'mock_create',
+          workerMode: 'disabled'
+        });
       } finally {
         process.env.MIDEN_USE_MOCK_CLIENT = prev;
       }

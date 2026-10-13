@@ -17,6 +17,7 @@ import {
 } from 'lib/miden-chain/networks-config';
 import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
+import { annotateCrash } from 'lib/telemetry/crash-diagnostics';
 
 export * from './networks-config';
 
@@ -200,6 +201,11 @@ export function getRpcEndpoint(): Endpoint {
  * Delegates to `MidenClient.ready()` (0.14.4+), which is idempotent and
  * shared across callers.
  */
-export function ensureSdkWasmReady(): Promise<void> {
-  return MidenClient.ready();
+export async function ensureSdkWasmReady(): Promise<void> {
+  try {
+    await MidenClient.ready();
+  } catch (error) {
+    annotateCrash(error, { operation: 'sdk_initialize', stage: 'wasm_ready' });
+    throw error;
+  }
 }
