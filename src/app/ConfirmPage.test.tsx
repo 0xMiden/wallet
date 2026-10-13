@@ -9,6 +9,7 @@ import { useMidenContext, useAccount } from 'lib/miden/front';
 import { getNetworkId } from 'lib/miden-chain/constants';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useRetryableSWR } from 'lib/swr';
+import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 import { useLocation } from 'lib/woozie';
 
 import { declaredRequestToView, summaryBytesToView } from './confirm/decode';
@@ -368,6 +369,23 @@ describe('ConfirmPage gate', () => {
 // ---------------------------------------------------------------------------
 
 describe('ConfirmDAppForm id derivation', () => {
+  it.each([
+    ['?foo=bar', 'missing'],
+    ['?id=', 'empty']
+  ])('annotates %s without retaining the route or id', (search, confirmationId) => {
+    mockUseLocation.mockReturnValue({ search });
+    setPayload({ type: 'assets', ...baseFields() });
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    let failure: unknown;
+    try {
+      render(<ConfirmPage />);
+    } catch (error) {
+      failure = error;
+    }
+    expect(snapshotCrashDiagnostics(failure)).toEqual({ operation: 'confirm_payload', confirmationId });
+    spy.mockRestore();
+  });
+
   it('throws when the location has no id query param', () => {
     mockUseLocation.mockReturnValue({ search: '?foo=bar' });
     setPayload({ type: 'assets', ...baseFields() });

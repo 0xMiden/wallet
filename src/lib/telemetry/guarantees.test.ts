@@ -1110,6 +1110,7 @@ describe('the background service worker never imports the telemetry barrel', () 
       'src/lib/telemetry/aptabase.ts',
       'src/lib/telemetry/classify.ts',
       'src/lib/telemetry/context.ts',
+      'src/lib/telemetry/crash-diagnostics.ts',
       'src/lib/telemetry/report-operation.ts',
       'src/lib/telemetry/run.ts',
       'src/lib/telemetry/sdk-observer.ts',

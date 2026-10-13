@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.4 (TBD)
+
+### Fixes
+
+- [FIX][all] Opt-in crash reports retain scrubbed causes, capture source, app/build identity and validated compiled positions, with source-bound request types, approval-id categories and SDK startup stages. Unvalidated frame paths are omitted; diagnostics exclude request payloads, addresses, amounts and device identifiers.
+
 ## 1.17.3 (2026-10-12)
 
 ### Features
