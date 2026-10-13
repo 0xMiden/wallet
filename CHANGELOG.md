@@ -16,6 +16,7 @@
 ### Fixes
 
 - [FIX][android] Release builds optimize dependency interfaces and public methods without the blanket keep rules that put DEX optimization below Google Play's 25% threshold.
+- [FIX][extension] dApp approval popups retain their clamped position when the browser adjusts a newly created window, so a missing or zero-sized focused window cannot move the approval offscreen.
 - [FIX][mobile] Browser Recents returns after opening a pasted dApp URL, while the launcher's scroll position and filters stay available.
 - [FIX][all] Guardian accounts can execute dApp custom requests containing only own output notes, including custom note scripts and attachments, with or without a declared fee salt. The wallet resolves the missing auth data and refuses richer unauthenticated requests without discarding their fields (#1422).
 - [FIX][ci] The docs site builds again: the implementation plans under `docs/superpowers`, which quote GitHub Actions `${{ }}` expressions Jekyll's Liquid cannot parse, are no longer published as pages.
