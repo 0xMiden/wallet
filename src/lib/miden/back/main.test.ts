@@ -589,7 +589,15 @@ describe('processRequest', () => {
       ownMnemonic: false,
       guardianEndpoint: 'https://guardian.example'
     });
-    expect(Actions.registerNewWallet).toHaveBeenCalledWith('on-chain', 'pw', 'm', false, 'https://guardian.example');
+    expect(Actions.registerNewWallet).toHaveBeenCalledWith(
+      'on-chain',
+      'pw',
+      'm',
+      false,
+      'https://guardian.example',
+      // No mainnet access code in this request.
+      undefined
+    );
     expect(res.type).toBe(WalletMessageType.NewWalletResponse);
   });
 
@@ -604,7 +612,7 @@ describe('processRequest', () => {
       walletAccounts: [],
       importedAccounts
     });
-    expect(Actions.registerImportedWallet).toHaveBeenCalledWith('pw', 'm', [], importedAccounts);
+    expect(Actions.registerImportedWallet).toHaveBeenCalledWith('pw', 'm', [], importedAccounts, undefined);
     expect(res.type).toBe(WalletMessageType.ImportFromClientResponse);
   });
 

@@ -131,7 +131,9 @@ describe('MobileIntercomAdapter', () => {
         'test123',
         'word1 word2 word3',
         false,
-        'https://guardian.example'
+        'https://guardian.example',
+        // No mainnet access code in this request.
+        undefined
       );
       expect(response).toEqual({ type: WalletMessageType.NewWalletResponse });
     });
@@ -148,7 +150,13 @@ describe('MobileIntercomAdapter', () => {
         importedAccounts
       });
 
-      expect(Actions.registerImportedWallet).toHaveBeenCalledWith('test123', 'word1 word2 word3', [], importedAccounts);
+      expect(Actions.registerImportedWallet).toHaveBeenCalledWith(
+        'test123',
+        'word1 word2 word3',
+        [],
+        importedAccounts,
+        undefined
+      );
       expect(response).toEqual({ type: WalletMessageType.ImportFromClientResponse });
     });
 
@@ -384,7 +392,8 @@ describe('MobileIntercomAdapter', () => {
       expect(Actions.registerWalletFromHotKey).toHaveBeenCalledWith(
         'pw',
         keyPairPayload,
-        'https://guardian.example.com'
+        'https://guardian.example.com',
+        undefined
       );
       expect(response).toEqual({ type: WalletMessageType.NewWalletFromHotKeyResponse });
     });
