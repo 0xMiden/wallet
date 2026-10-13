@@ -35,13 +35,14 @@ export enum MIDEN_TRANSPORT_LAYER_NAME {
 }
 
 export const MIDEN_NETWORK_ENDPOINTS = new Map<string, string>([
-  [MIDEN_NETWORK_NAME.MAINNET, 'https://rpc.cedar.miden.io'],
+  [MIDEN_NETWORK_NAME.MAINNET, 'https://rpc.mainnet.miden.io'],
   [MIDEN_NETWORK_NAME.TESTNET, 'https://rpc.testnet.miden.io'],
   [MIDEN_NETWORK_NAME.DEVNET, 'https://rpc.devnet.miden.io'],
   [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:57291']
 ]);
 
 export const MIDEN_PROVING_ENDPOINTS = new Map<string, string>([
+  [MIDEN_NETWORK_NAME.MAINNET, 'https://tx-prover.mainnet.miden.io'],
   [MIDEN_NETWORK_NAME.TESTNET, 'https://tx-prover.testnet.miden.io'],
   [MIDEN_NETWORK_NAME.DEVNET, 'https://tx-prover.devnet.miden.io'],
   // :50052, not :50051 — a locally-run guardian binds host :50051 for its gRPC,
@@ -49,6 +50,7 @@ export const MIDEN_PROVING_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:50052']
 ]);
 
+// No mainnet entry here or in the faucet API map: mainnet has no faucet.
 export const MIDEN_FAUCET_ENDPOINTS = new Map<string, string>([
   [MIDEN_NETWORK_NAME.TESTNET, 'https://faucet.testnet.miden.io'],
   [MIDEN_NETWORK_NAME.DEVNET, 'https://faucet.devnet.miden.io'],
@@ -64,6 +66,7 @@ export const MIDEN_FAUCET_API_ENDPOINTS = new Map<string, string>([
 ]);
 
 export const MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS = new Map<string, string>([
+  [MIDEN_NETWORK_NAME.MAINNET, 'https://transport.mainnet.miden.io'],
   [MIDEN_NETWORK_NAME.TESTNET, 'https://transport.miden.io'],
   [MIDEN_NETWORK_NAME.DEVNET, 'https://transport.devnet.miden.io'],
   [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:57292']

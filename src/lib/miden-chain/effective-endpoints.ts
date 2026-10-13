@@ -26,7 +26,7 @@ export interface EndpointOverride {
   guardianUrl: string; // '' = no custom guardian
   allowNoGuardian: boolean; // dev-only: expose a "No guardian" card in onboarding
   networkName: MIDEN_NETWORK_NAME; // the "network id": drives NetworkId + endpoint-default seeding
-  presetName: string; // 'testnet'|'devnet'|'localnet'|'custom' — UI dropdown seed only
+  presetName: string; // 'mainnet'|'testnet'|'devnet'|'localnet'|'custom' — UI dropdown seed only
   // 0.17 moved the fee asset out of the block header. A client cannot be created
   // without naming the chain's fee faucet. Optional so a stored 1.16 override still
   // loads; production and E2E must fill it.
@@ -94,10 +94,9 @@ export function getEffectiveNoteTransportUrl(): string | undefined {
  * There is no fallback here, deliberately, and that is what makes this worth
  * asking. Every other endpoint getter can degrade to a default: an absent faucet
  * URL falls back to the build network's, an absent explorer just hides a link.
- * Transport has no equivalent — `MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS` has entries
- * for testnet, devnet and localnet only, so on MAINNET (a selectable network,
- * `MIDEN_NETWORK_NAME.MAINNET`) this resolves to `undefined` and the SDK client is
- * built with no transport at all.
+ * Transport has no equivalent — a network with no entry in
+ * `MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS` and no override resolves to `undefined`, and
+ * the SDK client is built with no transport at all.
  *
  * The consequence is total and silent. With transport unconfigured every relay
  * fails with `NoteTransportError::Disabled`, and no retry can do better: every
