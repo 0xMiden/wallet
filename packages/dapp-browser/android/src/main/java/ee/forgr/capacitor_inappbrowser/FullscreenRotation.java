@@ -22,7 +22,8 @@ final class FullscreenRotation {
         release();
         if (target == null) return;
         Policy policy = policies.get(target);
-        if (policy == null || policy.owners.isEmpty()) {
+        // Iterators skip cleared weak keys before the reference queue receives them.
+        if (policy == null || !policy.owners.keySet().iterator().hasNext()) {
             int original = target.getAttributes().rotationAnimation;
             if (policy != null && original == JUMPCUT) original = policy.original;
             policy = new Policy(original);
@@ -40,7 +41,7 @@ final class FullscreenRotation {
         Policy policy = policies.get(target);
         if (policy == null) return;
         policy.owners.remove(this);
-        if (!policy.owners.isEmpty()) return;
+        if (policy.owners.keySet().iterator().hasNext()) return;
         policies.remove(target);
         // A newer external rotation policy must survive our final release.
         if (target.getAttributes().rotationAnimation == JUMPCUT) hint(target, policy.original);

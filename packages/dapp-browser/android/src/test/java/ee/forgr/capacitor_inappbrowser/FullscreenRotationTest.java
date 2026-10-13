@@ -4,9 +4,12 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.view.Window;
 import android.view.WindowManager;
+import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -190,6 +193,42 @@ public class FullscreenRotationTest {
         collected(temporary);
         FullscreenRotation replacement = owner();
         replacement.acquire(window); replacement.release();
+        assertEquals(3, window.getAttributes().rotationAnimation);
+    }
+
+    private void clearOwnerBeforeQueueCleanup(FullscreenRotation owner) throws Exception {
+        Field policiesField = FullscreenRotation.class.getDeclaredField("policies");
+        policiesField.setAccessible(true);
+        Object policy = ((Map<?, ?>) policiesField.get(null)).get(window);
+        Field ownersField = policy.getClass().getDeclaredField("owners");
+        ownersField.setAccessible(true);
+        Map<?, ?> retainedOwners = (Map<?, ?>) ownersField.get(policy);
+        for (Map.Entry<?, ?> entry : retainedOwners.entrySet()) {
+            if (entry.getKey() == owner) {
+                // Clear the weak key without adding it to the reference queue.
+                ((Reference<?>) entry).clear();
+                return;
+            }
+        }
+        fail("Rotation owner not found");
+    }
+
+    @Test public void clearedOwnerDoesNotLoseTheOriginalPolicyBeforeQueueCleanup() throws Exception {
+        hint(window, 3);
+        FullscreenRotation temporary = owner();
+        temporary.acquire(window);
+        clearOwnerBeforeQueueCleanup(temporary);
+        FullscreenRotation replacement = owner();
+        replacement.acquire(window); replacement.release();
+        assertEquals(3, window.getAttributes().rotationAnimation);
+    }
+
+    @Test public void clearedOwnerDoesNotPreventFinalReleaseBeforeQueueCleanup() throws Exception {
+        hint(window, 3);
+        FullscreenRotation temporary = owner(), retained = owner();
+        temporary.acquire(window); retained.acquire(window);
+        clearOwnerBeforeQueueCleanup(temporary);
+        retained.release();
         assertEquals(3, window.getAttributes().rotationAnimation);
     }
 }
