@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { hapticLight } from 'lib/mobile/haptics';
 
 import { MainnetCountdownBanner, formatCountdown } from './MainnetCountdownBanner';
@@ -41,6 +42,16 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getTestNetworkNameKey: () => mockNetworkKey
 }));
 
+let mockInviteOnly = false;
+const mockConfirm = jest.fn<Promise<boolean>, [object]>();
+const mockAlert = jest.fn<Promise<void>, [object]>();
+const mockReset = jest.fn<Promise<void>, [MIDEN_NETWORK_NAME]>();
+jest.mock('lib/remote-config/values', () => ({ selectInviteOnlyOnboarding: () => mockInviteOnly }));
+jest.mock('lib/ui/dialog', () => ({ useConfirm: () => mockConfirm, useAlert: () => mockAlert }));
+jest.mock('lib/miden/reset-and-reload', () => ({
+  resetWalletAndReload: (_onError: () => Promise<void>, network: MIDEN_NETWORK_NAME) => mockReset(network)
+}));
+
 const LAUNCH_AT = Date.parse('2026-10-26T00:00:00Z');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -72,10 +83,63 @@ describe('MainnetCountdownBanner', () => {
     jest.clearAllMocks();
     mockCountdown = { enabled: true, launchAt: LAUNCH_AT };
     mockNetworkKey = 'testnet';
+    mockInviteOnly = false;
+    mockConfirm.mockResolvedValue(false);
+    mockAlert.mockResolvedValue(undefined);
+    mockReset.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  it('shows an optional mainnet switch when invite-only mode starts, even without a countdown', () => {
+    mockInviteOnly = true;
+    mockCountdown = null;
+    render(<MainnetCountdownBanner />);
+    expect(screen.getByRole('button', { name: 'switchToMainnet' })).toBeInTheDocument();
+    expect(screen.queryByTestId('mainnet-countdown')).not.toBeInTheDocument();
+    expect(mockReset).not.toHaveBeenCalled();
+  });
+
+  it('keeps the wallet when the switch confirmation is cancelled', async () => {
+    mockInviteOnly = true;
+    render(<MainnetCountdownBanner />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mainnet-switch-link'));
+    });
+    expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ destructive: true }));
+    expect(mockReset).not.toHaveBeenCalled();
+    expect(screen.getByTestId('mainnet-switch-link')).toBeEnabled();
+  });
+
+  it('resets for mainnet only after confirmation', async () => {
+    mockInviteOnly = true;
+    mockConfirm.mockResolvedValue(true);
+    render(<MainnetCountdownBanner />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mainnet-switch-link'));
+    });
+    expect(mockReset).toHaveBeenCalledWith(MIDEN_NETWORK_NAME.MAINNET);
+  });
+
+  it('reports a failed reset and permits a retry', async () => {
+    mockInviteOnly = true;
+    mockConfirm.mockResolvedValue(true);
+    mockReset.mockRejectedValueOnce(new Error('Reset failed'));
+    render(<MainnetCountdownBanner />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mainnet-switch-link'));
+    });
+    expect(mockAlert).toHaveBeenCalledWith({ title: 'error', children: 'resetDidNotFinish' });
+    expect(screen.getByTestId('mainnet-switch-link')).toBeEnabled();
+  });
+
+  it('does not offer the switch on mainnet', () => {
+    mockInviteOnly = true;
+    mockNetworkKey = null;
+    render(<MainnetCountdownBanner />);
+    expect(screen.queryByTestId('mainnet-switch-banner')).not.toBeInTheDocument();
   });
 
   it('counts down to the launch once a second', () => {

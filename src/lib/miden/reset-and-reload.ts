@@ -1,4 +1,6 @@
 import { resetStorageDestructive } from 'lib/miden/reset';
+import { applyEndpointOverride, buildDefaultOverrideFor } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isExtension } from 'lib/platform';
 
 /**
@@ -32,7 +34,10 @@ export class ResetAndReloadError extends Error {
  * `onWipeError` runs when the wipe rejects, before the reload. Throws `ResetAndReloadError` for the
  * `prepare` and `reload` steps.
  */
-export async function resetWalletAndReload(onWipeError: (error: unknown) => Promise<void>): Promise<void> {
+export async function resetWalletAndReload(
+  onWipeError: (error: unknown) => Promise<void>,
+  targetNetwork?: MIDEN_NETWORK_NAME
+): Promise<void> {
   // Set by whichever extension reload runs first, the pagehide listener's or the one below, so it runs once.
   let reloaded = false;
   let reloadOnce: (() => void) | undefined;
@@ -53,6 +58,7 @@ export async function resetWalletAndReload(onWipeError: (error: unknown) => Prom
   try {
     try {
       await resetStorageDestructive();
+      if (targetNetwork) await applyEndpointOverride(buildDefaultOverrideFor(targetNetwork));
     } catch (error) {
       await onWipeError(error);
     }
