@@ -37,7 +37,7 @@ concurrency:
 jobs:
   chrome-usdcx-testnet:
     name: USDCx E2E (Chrome, live testnet)
-    runs-on: warp-ubuntu-latest-x64-8x
+    runs-on: ubuntu-24.04
     # The suites' own budgets come to 160 min: usdcx 60 (playwright.usdcx.config.ts), usdcx-in 30 and usdcx-burn two
     # tests of 35 (their describes). Each suite's preflight and build add about 5, and a cold setup about 30 (the CLI
     # compile, the Playwright browsers' 12 and apt's 6), so 205, rounded up to 210.
