@@ -1707,6 +1707,10 @@
     "message": "Yapıştır",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "Pano okunamadı. Kodunuzu girin veya tekrar deneyin.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "Yapıştırılacak bir şey yok. Önce bir adres kopyalayın.",
     "englishSource": "Nothing to paste. Copy an address first."

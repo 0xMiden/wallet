@@ -368,6 +368,7 @@
   "more": "続きを読む",
   "addressBook": "アドレス帳",
   "paste": "貼り付け",
+  "mainnetAccessPasteFailed": "クリップボードを読み取れませんでした。コードを入力するか、もう一度お試しください。",
   "nothingToPaste": "貼り付けるものがありません。先にアドレスをコピーしてください。",
   "chooseRecipient": "受信者を選択してください",
   "sendTo": "送金先",

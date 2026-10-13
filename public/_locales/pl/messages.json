@@ -1707,6 +1707,10 @@
     "message": "Wklej",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "Nie udało się odczytać zawartości schowka. Wprowadź kod lub spróbuj ponownie.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "Nie ma nic do wklejenia. Najpierw skopiuj adres.",
     "englishSource": "Nothing to paste. Copy an address first."

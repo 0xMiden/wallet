@@ -1707,6 +1707,10 @@
     "message": "붙여넣기",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "클립보드 내용을 읽을 수 없습니다. 코드를 입력하거나 다시 시도해 주세요.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "붙여넣을 내용이 없습니다. 먼저 주소를 복사하세요.",
     "englishSource": "Nothing to paste. Copy an address first."

@@ -368,6 +368,7 @@
   "more": "más",
   "addressBook": "Libreta de direcciones",
   "paste": "Pegar",
+  "mainnetAccessPasteFailed": "No se ha podido leer el portapapeles. Introduce tu código o vuelve a intentarlo.",
   "nothingToPaste": "Nada que pegar. Copia una dirección primero.",
   "chooseRecipient": "Elige el destinatario",
   "sendTo": "Enviar a",

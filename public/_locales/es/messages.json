@@ -1707,6 +1707,10 @@
     "message": "Pegar",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "No se ha podido leer el portapapeles. Introduce tu código o vuelve a intentarlo.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "Nada que pegar. Copia una dirección primero.",
     "englishSource": "Nothing to paste. Copy an address first."

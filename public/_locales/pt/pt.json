@@ -368,6 +368,7 @@
   "more": "mais",
   "addressBook": "Agenda de Contatos",
   "paste": "Colar",
+  "mainnetAccessPasteFailed": "Não foi possível ler a área de transferência. Digite seu código ou tente novamente.",
   "nothingToPaste": "Nada para colar. Copie um endereço primeiro.",
   "chooseRecipient": "Escolha o destinatário",
   "sendTo": "Enviar para",

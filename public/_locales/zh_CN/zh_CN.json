@@ -368,6 +368,7 @@
   "more": "更多",
   "addressBook": "通讯录",
   "paste": "粘贴",
+  "mainnetAccessPasteFailed": "无法读取剪贴板内容。请输入您的代码或重试。",
   "nothingToPaste": "没有可粘贴的内容。请先复制地址。",
   "chooseRecipient": "选择收件人",
   "sendTo": "发送至",

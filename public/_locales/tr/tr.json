@@ -368,6 +368,7 @@
   "more": "daha fazla",
   "addressBook": "Adres Defteri",
   "paste": "Yapıştır",
+  "mainnetAccessPasteFailed": "Pano okunamadı. Kodunuzu girin veya tekrar deneyin.",
   "nothingToPaste": "Yapıştırılacak bir şey yok. Önce bir adres kopyalayın.",
   "chooseRecipient": "Alıcıyı seçin",
   "sendTo": "Alıcı",

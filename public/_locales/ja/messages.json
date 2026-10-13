@@ -1707,6 +1707,10 @@
     "message": "貼り付け",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "クリップボードを読み取れませんでした。コードを入力するか、もう一度お試しください。",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "貼り付けるものがありません。先にアドレスをコピーしてください。",
     "englishSource": "Nothing to paste. Copy an address first."

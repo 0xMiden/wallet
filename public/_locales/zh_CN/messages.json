@@ -1707,6 +1707,10 @@
     "message": "粘贴",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "无法读取剪贴板内容。请输入您的代码或重试。",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "没有可粘贴的内容。请先复制地址。",
     "englishSource": "Nothing to paste. Copy an address first."

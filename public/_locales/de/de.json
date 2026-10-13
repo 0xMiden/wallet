@@ -368,6 +368,7 @@
   "more": "mehr",
   "addressBook": "Adressbuch",
   "paste": "Einfügen",
+  "mainnetAccessPasteFailed": "Die Zwischenablage konnte nicht gelesen werden. Geben Sie Ihren Code ein oder versuchen Sie es erneut.",
   "nothingToPaste": "Nichts zum Einfügen. Kopieren Sie zuerst eine Adresse.",
   "chooseRecipient": "Empfänger auswählen",
   "sendTo": "Senden an",

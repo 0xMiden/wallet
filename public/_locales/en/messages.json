@@ -1707,6 +1707,10 @@
     "message": "Paste",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "Could not read the clipboard. Enter your code or try again.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "Nothing to paste. Copy an address first.",
     "englishSource": "Nothing to paste. Copy an address first."

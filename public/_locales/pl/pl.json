@@ -368,6 +368,7 @@
   "more": "więcej",
   "addressBook": "Książka adresowa",
   "paste": "Wklej",
+  "mainnetAccessPasteFailed": "Nie udało się odczytać zawartości schowka. Wprowadź kod lub spróbuj ponownie.",
   "nothingToPaste": "Nie ma nic do wklejenia. Najpierw skopiuj adres.",
   "chooseRecipient": "Wybierz odbiorcę",
   "sendTo": "Wyślij do",

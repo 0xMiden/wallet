@@ -1707,6 +1707,10 @@
     "message": "Coller",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "Impossible de lire le presse-papiers. Saisissez votre code ou réessayez.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "Rien à coller. Copiez d'abord une adresse.",
     "englishSource": "Nothing to paste. Copy an address first."

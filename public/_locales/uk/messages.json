@@ -1707,6 +1707,10 @@
     "message": "Вставити",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "Не вдалося прочитати вміст буфера обміну. Введіть свій код або спробуйте ще раз.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "Нема чого вставити. Спершу скопіюйте адресу.",
     "englishSource": "Nothing to paste. Copy an address first."

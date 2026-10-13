@@ -1707,6 +1707,10 @@
     "message": "Einfügen",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "Die Zwischenablage konnte nicht gelesen werden. Geben Sie Ihren Code ein oder versuchen Sie es erneut.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "Nichts zum Einfügen. Kopieren Sie zuerst eine Adresse.",
     "englishSource": "Nothing to paste. Copy an address first."

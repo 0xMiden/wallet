@@ -368,6 +368,7 @@
   "more": "更多",
   "addressBook": "通訊錄",
   "paste": "貼上",
+  "mainnetAccessPasteFailed": "無法讀取剪貼簿。請輸入您的代碼或重試。",
   "nothingToPaste": "沒有可貼上的內容。請先複製地址。",
   "chooseRecipient": "選擇收件人",
   "sendTo": "傳送至",

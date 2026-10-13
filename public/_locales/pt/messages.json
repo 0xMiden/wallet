@@ -1707,6 +1707,10 @@
     "message": "Colar",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "Não foi possível ler a área de transferência. Digite seu código ou tente novamente.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "Nada para colar. Copie um endereço primeiro.",
     "englishSource": "Nothing to paste. Copy an address first."
