@@ -13,6 +13,12 @@ jest.mock('react-i18next', () => ({
 }));
 jest.mock('./useCctpExecute', () => ({ useCctpExecute: () => execute }));
 jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
+// The component reads the executor route of the source chain from the bridge config snapshot.
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .testnetRuntimeMock()
+);
 jest.mock('components/Button', () => ({
   Button: ({ title, onClick, disabled }: { title: string; onClick: () => void; disabled?: boolean }) => (
     <button data-testid="usdcx-execute-button" onClick={onClick} disabled={disabled}>

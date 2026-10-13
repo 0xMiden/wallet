@@ -1,5 +1,12 @@
 import { findUsdcxDestinationTransaction } from './destination-transaction';
 
+// The destination's USDC and its fee allowance come from the network's bridge config.
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .testnetRuntimeMock()
+);
+
 const mockGetLogs = jest.fn();
 jest.mock('viem', () => ({
   ...jest.requireActual<typeof import('viem')>('viem'),

@@ -5,6 +5,7 @@ import { fetchDeposits, isAgglayerDepositReady } from 'lib/agglayer/status';
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import {
   fetchXReserveAttestations,
   matchUsdcxDepositAttestation,
@@ -19,8 +20,9 @@ import {
   stalledExecuteLeg,
   USDCX_EXECUTE_STALL_SEC
 } from 'lib/usdcx/cctp';
-import { USDCX_SOURCE_CHAINS, UsdcxExecutorSource } from 'lib/usdcx/constant';
+import { getUsdcxRoutes } from 'lib/usdcx/chains';
 import { usdcxExpectedRemoteTokenFor, usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
+import type { UsdcxExecutorSource } from 'lib/usdcx/routes';
 import { readEvmReceiptOutcome, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 
 import {
@@ -156,7 +158,8 @@ function warnUsdcxRowOnce(rowId: string, reason: string, detail?: unknown): void
  */
 function usdcxExpectationOf(
   row: ITransaction,
-  inputs: IBridgedReceiveExtraInputs
+  inputs: IBridgedReceiveExtraInputs,
+  midenDomain: number
 ): UsdcxDepositExpectation | undefined {
   if (row.faucetId === undefined || row.amount === undefined) return undefined;
   try {
@@ -164,7 +167,8 @@ function usdcxExpectationOf(
     return {
       remoteRecipient: signed !== undefined && isHash(signed) ? signed : usdcxRemoteRecipientFor(row.accountId),
       remoteToken: usdcxExpectedRemoteTokenFor(row.faucetId),
-      amount: row.amount
+      amount: row.amount,
+      remoteDomain: midenDomain
     };
   } catch (error) {
     warnUsdcxRowOnce(row.id, 'deposit has no readable recipient or token', error);
@@ -172,15 +176,21 @@ function usdcxExpectationOf(
   }
 }
 
+/** The xReserve a deposit landed in, as the network's USDCx routes name it: its attestation service and Miden's domain. */
+interface UsdcxAttester {
+  attestationApi: string;
+  midenDomain: number;
+}
+
 /** Circle's verdict on the xReserve deposit `txHash` against what the row signed; undefined with nothing to ask. */
 async function matchUsdcxDeposit(
   row: ITransaction,
   inputs: IBridgedReceiveExtraInputs,
   txHash: string | undefined,
-  attestationApi: string | undefined
+  { attestationApi, midenDomain }: UsdcxAttester
 ): Promise<UsdcxAttestationMatch | undefined> {
   if (txHash === undefined || !isHash(txHash)) return undefined;
-  const expected = usdcxExpectationOf(row, inputs);
+  const expected = usdcxExpectationOf(row, inputs, midenDomain);
   if (expected === undefined) return undefined;
   return matchUsdcxDepositAttestation(await fetchXReserveAttestations(txHash, { baseUrl: attestationApi }), expected);
 }
@@ -197,14 +207,23 @@ async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtra
     await updateBridgedReceivePhase(row.id, 'failed', { error: INTERRUPTED_BEFORE_HASH });
     return;
   }
-  const source = inputs.sourceChainId === undefined ? undefined : USDCX_SOURCE_CHAINS.get(inputs.sourceChainId);
+  // The routes come from the network's bridge config. While this realm holds no document that lists them, or the
+  // document no longer lists the row's source chain, the row waits: its route cannot be told from the row alone.
+  await initBridgeConfig();
+  const routes = getUsdcxRoutes();
+  if (!routes) return;
+  const source = inputs.sourceChainId === undefined ? undefined : routes.sources.get(inputs.sourceChainId);
+  if (inputs.sourceChainId !== undefined && !source) {
+    warnUsdcxRowOnce(row.id, 'source chain is not in the bridge config', inputs.sourceChainId);
+    return;
+  }
   try {
     if (source?.route === 'cctp-executor') {
       await reconcileUsdcxExecutorRow(row, inputs, source);
       return;
     }
-    // A legacy Sepolia row has no source chain and reads the testnet service, the attestation default.
-    const verdict = await matchUsdcxDeposit(row, inputs, inputs.evmTxHash, source?.attestationApi);
+    // A legacy Sepolia row has no source chain and reads the network's attestation service.
+    const verdict = await matchUsdcxDeposit(row, inputs, inputs.evmTxHash, source ?? routes);
     switch (verdict?.kind) {
       case 'attested':
         await updateBridgedReceivePhase(row.id, 'ready');
@@ -249,7 +268,7 @@ async function reconcileUsdcxExecutorRow(
   if (!leg) return;
   const { target } = source;
   if (leg.executeTxHash) {
-    const verdict = await matchUsdcxDeposit(row, inputs, leg.executeTxHash, target.attestationApi);
+    const verdict = await matchUsdcxDeposit(row, inputs, leg.executeTxHash, target);
     if (verdict?.kind === 'attested') {
       await updateBridgedReceivePhase(row.id, 'ready');
       return;
@@ -275,7 +294,7 @@ async function reconcileUsdcxExecutorRow(
   }
   // A stalled execute can still mine, and its deposit then lands the row.
   if (leg.stalledExecuteTxHash) {
-    const verdict = await matchUsdcxDeposit(row, inputs, leg.stalledExecuteTxHash, target.attestationApi);
+    const verdict = await matchUsdcxDeposit(row, inputs, leg.stalledExecuteTxHash, target);
     if (verdict?.kind === 'attested') {
       await updateBridgedReceivePhase(row.id, 'ready');
       return;

@@ -58,7 +58,7 @@ const READY_CONFIG: BridgeConfig = {
     evmUsdc: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
     earnProtocol: 'dummy-lending'
   },
-  features: { earn: true, fastBridge: true, bridgeIn: false, bridgeOut: false }
+  features: { earn: true, fastBridge: true, bridgeIn: false, bridgeOut: false, usdcxIn: false, usdcxOut: false }
 };
 const READY: BridgeConfigSnapshot = {
   network: 'testnet',

@@ -26,7 +26,7 @@ const parsed = (version: number) => ({
   evm: {},
   agglayer: {},
   epoch: { allocatorUrl: 'https://allocator.example' },
-  features: { earn: true, fastBridge: false, bridgeIn: false, bridgeOut: false },
+  features: { earn: true, fastBridge: false, bridgeIn: false, bridgeOut: false, usdcxIn: false, usdcxOut: false },
   mainnetCountdown: { enabled: false },
   swap: { tokens: [] }
 });

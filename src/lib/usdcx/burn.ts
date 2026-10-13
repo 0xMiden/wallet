@@ -23,9 +23,10 @@ import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types
 import { initiateBridgedSendTransaction } from 'lib/miden/transaction/initiate';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 
+import { getUsdcxDestination } from './chains';
 import {
-  getUsdcxDestination,
   USDCX_ALLOWED_NOTE_SCRIPTS_SLOT,
   USDCX_BURN_TAG,
   USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME,
@@ -89,8 +90,10 @@ export async function initiateUsdcxBurn(args: {
 }): Promise<string> {
   const { senderPublicKey, faucetId, amount, destinationAddress, destinationChainId, spendingLimitAuthorization } =
     args;
-  // Resolve the native asset so the checks below read a known faucet id.
+  // Resolve the native asset so the checks below read a known faucet id, and hydrate the bridge config, which lists
+  // the destinations.
   await getNativeAssetId();
+  await initBridgeConfig();
   validateUsdcxWithdrawal(faucetId, destinationChainId, amount);
   const { domain } = getUsdcxDestination(destinationChainId);
   const minimum = await readUsdcxMinimumBurn();

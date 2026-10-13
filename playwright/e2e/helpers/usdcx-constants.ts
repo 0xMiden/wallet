@@ -1,21 +1,22 @@
 /**
- * The fixed numbers of the USDCx live suites (spec section 5) and the Arc Testnet addresses, read from the product's
- * own tables so the harness and the wallet cannot drift apart. Nothing here reads the environment.
+ * The fixed numbers of the USDCx live suites (spec section 5) and the Arc Testnet addresses. The wallet reads its
+ * USDCx routes from the remote config document, so the addresses, the domains and the attestation URL here come from
+ * the fixture copy of the published testnet `usdcx` section (`src/lib/usdcx/testing/config.ts`), built into routes by
+ * the wallet's own `buildUsdcxRoutes`. A change to the published section is copied to that fixture. Nothing here
+ * reads the environment.
  */
 import os from 'os';
 import path from 'path';
 import type { Address, Hex } from 'viem';
 
-import { getUsdcxXReserveSource } from '../../../src/lib/usdcx/constant';
+import { minimumPayout, type UsdcxDestination, type UsdcxXReserveSource } from '../../../src/lib/usdcx/routes';
+import { TEST_USDCX_ROUTES } from '../../../src/lib/usdcx/testing/config';
 import { ARC_TESTNET } from '../../../src/lib/walletconnect/config';
 
 export {
-  minimumUsdcxPayout,
   USDCX_BURN_TAG,
   USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME,
-  USDCX_DECIMALS,
-  USDCX_DESTINATIONS,
-  USDCX_REMOTE_DOMAIN
+  USDCX_DECIMALS
 } from '../../../src/lib/usdcx/constant';
 export { CLAIM_COST_FEE_MULTIPLE, FEE_RESERVE_MULTIPLE, isWorthClaiming } from '../../../src/lib/miden/fees/spendable';
 
@@ -65,11 +66,31 @@ export const ARC_KEY_LEDGER_DIR = path.join(os.homedir(), '.miden-e2e', 'arc-key
 export const HARNESS_ARC_KEY_FILE = path.join(ARC_KEY_LEDGER_DIR, 'harness.json');
 
 export const ARC_CHAIN_ID: number = ARC_TESTNET.id;
-const ARC_SOURCE = getUsdcxXReserveSource(ARC_TESTNET.id);
+
+/** The fixture's Arc Testnet source. It must be an `xreserve` source: the live suites deposit into it directly. */
+function arcXReserveSource(): UsdcxXReserveSource {
+  const source = TEST_USDCX_ROUTES.sources.get(ARC_TESTNET.id);
+  if (source?.route !== 'xreserve') {
+    throw new Error(`usdcx-constants: the USDCx fixture lists no xReserve source for chain ${ARC_TESTNET.id}`);
+  }
+  return source;
+}
+
+const ARC_SOURCE = arcXReserveSource();
 export const ARC_XRESERVE: Address = ARC_SOURCE.xReserve;
 export const ARC_USDC: Address = ARC_SOURCE.usdc;
 export const ARC_ATTESTATION_API: string = ARC_SOURCE.attestationApi;
 export const ARC_CIRCLE_DOMAIN: number = ARC_SOURCE.domain;
+/** Circle's remote-domain id for Miden, the fixture's `midenDomain`. */
+export const USDCX_REMOTE_DOMAIN: number = TEST_USDCX_ROUTES.midenDomain;
+/** Every chain a USDCx burn can pay out to, keyed by EVM chain id, in the fixture's order. */
+export const USDCX_DESTINATIONS: ReadonlyMap<number, UsdcxDestination> = TEST_USDCX_ROUTES.destinations;
+
+/** The least USDC a burn of `amount` is expected to pay out on `chainId`, under the fixture's fee allowances. */
+export function minimumUsdcxPayout(chainId: number, amount: bigint): bigint {
+  return minimumPayout(USDCX_DESTINATIONS, chainId, amount);
+}
+
 export const GUARDIAN_ECDSA_SCHEME = 'ecdsa';
 
 /** Every wait in the Arc and Miden oracles runs on this, so unit tests drive time instead of sleeping. */

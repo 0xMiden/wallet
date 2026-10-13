@@ -74,6 +74,8 @@ import {
   isWorthClaiming,
   minimumUsdcxPayout,
   PAYOUT_TIMEOUT_MS,
+  USDCX_DESTINATIONS,
+  USDCX_REMOTE_DOMAIN,
   WALLET_CONFIRM_TIMEOUT_MS
 } from './usdcx-constants';
 import { harnessPayoutLeg, payoutLeg, waitForWalletPayoutConfirmation } from './usdcx-legs';
@@ -94,12 +96,22 @@ function hexOf(value: string): Hex {
 }
 
 describe('usdcx-constants', () => {
-  it("reads the Arc Testnet xReserve source from the wallet's own table", () => {
+  it('reads the Arc Testnet xReserve source from the fixture copy of the published usdcx section', () => {
     expect(ARC_CHAIN_ID).toBe(5042002);
     expect(ARC_XRESERVE).toBe('0x008888878f94C0d87defdf0B07f46B93C1934442');
     expect(ARC_USDC).toBe('0x3600000000000000000000000000000000000000');
     expect(ARC_ATTESTATION_API).toBe('https://xreserve-api-testnet.circle.com');
     expect(ARC_CIRCLE_DOMAIN).toBe(26);
+  });
+
+  it('reads the Miden domain, the destinations and their fee allowances from the same fixture', () => {
+    expect(USDCX_REMOTE_DOMAIN).toBe(10007);
+    expect([...USDCX_DESTINATIONS.keys()]).toEqual([5042002, 11155111, 84532, 421614]);
+    // 0.1 USDC on a direct payout, 1.5 USDC on Ethereum (Circle domain 0).
+    expect(minimumUsdcxPayout(ARC_CHAIN_ID, 1_000_000n)).toBe(900_000n);
+    expect(minimumUsdcxPayout(11155111, 2_000_000n)).toBe(500_000n);
+    // A chain the fixture does not list has no allowance.
+    expect(minimumUsdcxPayout(1, 1_000_000n)).toBe(1_000_000n);
   });
 
   it('names the GatewayMinter mint event by its signature hash', () => {

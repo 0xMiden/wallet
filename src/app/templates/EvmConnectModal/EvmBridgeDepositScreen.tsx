@@ -42,13 +42,9 @@ import {
   ERC20_ALLOWANCE_ABI,
   ERC20_APPROVE_ABI,
   ERC20_BALANCE_OF_ABI,
-  DEFAULT_USDCX_SOURCE_CHAIN_ID,
-  getUsdcxSourceChain,
-  listUsdcxSourceChains,
   TOKEN_MESSENGER_V2_ABI,
   TOKEN_MESSENGER_WITH_FEES_ABI,
   USDCX_DECIMALS,
-  type UsdcxSourceChain,
   USDCX_SYMBOL,
   XRESERVE_ABI
 } from 'lib/usdcx/constant';
@@ -60,7 +56,8 @@ import {
   runUsdcxExecutorDeposit,
   UsdcxExecutorSigner
 } from 'lib/usdcx/executor';
-import { isUsdcxDepositAvailable } from 'lib/usdcx/use-bridge-in-availability';
+import { defaultUsdcxSource, type UsdcxSourceChain } from 'lib/usdcx/routes';
+import { useUsdcxRoutes } from 'lib/usdcx/use-usdcx-routes';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { readNativeFeeFields } from 'lib/walletconnect/fees';
 import { isNativeReownAvailable, NativeReown, unwrapNativeResult } from 'lib/walletconnect/native';
@@ -87,12 +84,6 @@ import { useDepositToken } from './useDepositToken';
 // Also the symbol the AggLayer bridge-in matcher requires on a native deposit's tracker.
 const ETH_SYMBOL = AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL;
 const ETH_DECIMALS = 18;
-// The source chains a USDCx deposit can start from on this network family, as the network drawer lists them.
-// Every read, signer call and receipt wait below takes its chain from the chosen `UsdcxSourceChain` entry.
-const USDCX_SOURCE_NETWORKS: readonly BridgeNetwork[] = listUsdcxSourceChains(true).flatMap(entry => {
-  const network = getBridgeNetworkByChainId(entry.chain.id);
-  return network ? [network] : [];
-});
 
 const MOCK_USDC_GET_BALANCE_ABI = [
   {
@@ -337,10 +328,25 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const [networkDrawerOpen, setNetworkDrawerOpen] = useState(false);
   const [switchDrawerOpen, setSwitchDrawerOpen] = useState(false);
   const [route, setRoute] = useState<BridgeRoute>('epoch');
-  // The chain a USDCx deposit starts from, picked in the network drawer; the default until then.
-  const [usdcxSourceChainId, setUsdcxSourceChainId] = useState(DEFAULT_USDCX_SOURCE_CHAIN_ID);
-  const usdcxSource = useMemo(() => getUsdcxSourceChain(usdcxSourceChainId), [usdcxSourceChainId]);
-  const usdcxBridgeNetwork = getBridgeNetworkByChainId(usdcxSource.chain.id) ?? DEFAULT_BRIDGE_NETWORK;
+  // The source chains a USDCx deposit can start from, as the network's bridge config lists them and the network
+  // drawer shows them. Every read, signer call and receipt wait below takes its chain from the chosen entry.
+  const usdcxRoutes = useUsdcxRoutes();
+  const usdcxSourceNetworks = useMemo<readonly BridgeNetwork[]>(
+    () =>
+      [...(usdcxRoutes?.sources.values() ?? [])].flatMap(entry => {
+        const network = getBridgeNetworkByChainId(entry.chain.id);
+        return network ? [network] : [];
+      }),
+    [usdcxRoutes]
+  );
+  // The chain a USDCx deposit starts from, picked in the network drawer; the document's first source until then.
+  // Undefined while the document lists no source.
+  const [pickedUsdcxChainId, setPickedUsdcxChainId] = useState<number | undefined>(undefined);
+  const usdcxSource = useMemo<UsdcxSourceChain | undefined>(() => {
+    const picked = pickedUsdcxChainId === undefined ? undefined : usdcxRoutes?.sources.get(pickedUsdcxChainId);
+    return picked ?? defaultUsdcxSource(usdcxRoutes);
+  }, [usdcxRoutes, pickedUsdcxChainId]);
+  const usdcxBridgeNetwork = (usdcxSource && getBridgeNetworkByChainId(usdcxSource.chain.id)) ?? DEFAULT_BRIDGE_NETWORK;
   // Circle's fee for a forwarded executor-route burn, shown on the route card. A display quote only: the
   // burn fetches its own right before signing, since a quote lives about two minutes. Kept with the amount it
   // was quoted for, so a fee for an earlier amount is never shown.
@@ -348,8 +354,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const [amount, setAmount] = useState('');
   const [usdcBalance, setUsdcBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
   const [circleUsdcBalance, setCircleUsdcBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
-  // Circle's Arc USDC is a source token only where its one route, xReserve, can start.
-  const usdcxAvailable = isUsdcxDepositAvailable();
+  // Circle's USDC is a source token only where the bridge config offers a USDCx deposit. The route card is not
+  // greyed out: the token is not offered at all, so this reader holds no fast poll.
+  const usdcxAvailability = useFeatureAvailability('usdcxIn', { hold: false });
+  const usdcxAvailable = usdcxAvailability.state === 'available' && usdcxSource !== undefined;
   const [ethBalance, setEthBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
   const [bridgeTxId, setBridgeTxId] = useState<string | null>(null);
   const [creatingBridgeRow, setCreatingBridgeRow] = useState(false);
@@ -472,7 +480,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // Circle's USDC on the source chain, the token xReserve takes; the config's Fast USDC pair is not it.
   useEffect(() => {
     setCircleUsdcBalance(EMPTY_BALANCE);
-    if (!usdcxAvailable) return;
+    if (!usdcxAvailable || !usdcxSource) return;
     let cancelled = false;
 
     readCircleUsdcBalance(evmAddress, usdcxSource)
@@ -586,7 +594,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   useEffect(() => {
     setUsdcxQuote(undefined);
-    if (route !== 'usdcx' || usdcxSource.route !== 'cctp-executor' || !debouncedUsdcxAmount || !isAddress(evmAddress)) {
+    if (
+      route !== 'usdcx' ||
+      usdcxSource?.route !== 'cctp-executor' ||
+      !debouncedUsdcxAmount ||
+      !isAddress(evmAddress)
+    ) {
       return;
     }
     const source = usdcxSource;
@@ -622,7 +635,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     if (confirming.current) return;
     hapticLight();
     setNetworkDrawerOpen(false);
-    setUsdcxSourceChainId(next.chainId);
+    setPickedUsdcxChainId(next.chainId);
   }, []);
 
   // The drawer may have been open since before the tap.
@@ -780,6 +793,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     async (trackingTxId: string) => {
       if (!isValidAmount(amount) || (!nativeReownAvailable && !walletProvider)) {
         const message = 'The connected EVM wallet provider is unavailable.';
+        setSlowError(message);
+        setSlowStatus('failed');
+        await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message });
+        return;
+      }
+      // The bridge config stopped listing a source after the row was made. Nothing was signed.
+      if (!usdcxSource) {
+        const message = 'The USDCx deposit route is not available.';
         setSlowError(message);
         setSlowStatus('failed');
         await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message });
@@ -964,7 +985,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         };
       case 'CIRCLE_USDC':
         return {
-          id: usdcxSource.usdc,
+          id: usdcxSource?.usdc ?? '',
           name: CIRCLE_USDC_SYMBOL,
           decimals: CIRCLE_USDC_DECIMALS,
           balance:
@@ -991,7 +1012,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     evmUsdc,
     usdcSymbol,
     usdcDecimals,
-    usdcxSource.usdc
+    usdcxSource?.usdc
   ]);
 
   // Fast (Epoch) only bridges USDC today: ETH-fast needs WETH wrapping, which is not built.
@@ -1072,7 +1093,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     }
   }, [route, amount, epochQuote?.params.minTokenOut, midenUsdc]);
 
-  const sourceChainId = route === 'usdcx' ? usdcxSource.chain.id : DEFAULT_CHAIN_ID;
+  const sourceChainId = route === 'usdcx' && usdcxSource ? usdcxSource.chain.id : DEFAULT_CHAIN_ID;
   const networkName = getChain(sourceChainId)?.name ?? '';
 
   // Route-screen hint below the cards: ETH on Fast wraps to WETH, which isn't available yet.
@@ -1260,7 +1281,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
                 sourceChainId={sourceChainId}
                 fee={usdcxQuotedFee === undefined ? undefined : t('usdcxForwardFee', { fee: usdcxQuotedFee })}
                 notice={
-                  usdcxSource.route === 'cctp-executor'
+                  usdcxSource?.route === 'cctp-executor'
                     ? t('usdcxExecutorRouteNotice', {
                         source: usdcxSource.chain.name,
                         target: usdcxSource.target.chain.name
@@ -1382,7 +1403,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       <EvmBridgeNetworkDrawer
         open={networkDrawerOpen}
         onOpenChange={setNetworkDrawerOpen}
-        networks={USDCX_SOURCE_NETWORKS}
+        networks={usdcxSourceNetworks}
         selected={usdcxBridgeNetwork}
         onSelect={handleNetworkSelect}
       />

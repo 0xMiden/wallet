@@ -7,6 +7,7 @@ import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
 import { confirmSensitiveAction } from 'lib/biometric';
 import { bridgeEpochSend } from 'lib/epoch';
 import {
+  TEST_BRIDGE_CONFIG,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
@@ -459,6 +460,8 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 describe('USDCx burn review', () => {
   beforeEach(() => {
+    // The document lists the USDCx destinations and has `features.usdcxOut` on.
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
     mockDetectedChain = 'ethereum';
     mockBalanceData = [{ ...VALID_TOKEN, tokenId: USDCX_FAUCET_ID_BECH32, metadata: { symbol: 'USDCX', decimals: 6 } }];
     mockSearch = `amount=1.000001&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
@@ -507,6 +510,28 @@ describe('USDCx burn review', () => {
     mockSearch = mockSearch.replace('network=arc-testnet', 'network=mainnet');
     render(<ReviewTransaction />);
     await flush();
+    expect(screen.queryByTestId('send-review-submit')).not.toBeInTheDocument();
+    expect(initiateUsdcxBurn).not.toHaveBeenCalled();
+  });
+
+  // The document decides whether a burn can start: a missing `usdcx` section or the switch off refuses the deep link.
+  it.each<[string, BridgeConfigSnapshot]>([
+    [
+      'the document has no usdcx section',
+      { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: { ...TEST_BRIDGE_CONFIG, usdcx: undefined } }
+    ],
+    [
+      'features.usdcxOut is off',
+      {
+        ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+        config: { ...TEST_BRIDGE_CONFIG, features: { ...TEST_BRIDGE_CONFIG.features, usdcxOut: false } }
+      }
+    ]
+  ])('rejects a USDCx deep link while %s', async (_when, snapshot) => {
+    mockBridgeSnapshot = snapshot;
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('redirect')).toBeInTheDocument();
     expect(screen.queryByTestId('send-review-submit')).not.toBeInTheDocument();
     expect(initiateUsdcxBurn).not.toHaveBeenCalled();
   });

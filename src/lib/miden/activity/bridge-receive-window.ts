@@ -1,13 +1,13 @@
-import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
-
 import { IBridgedReceiveExtraInputs, ITransaction } from '../db/types';
 
-/** An executor deposit whose attested message is on the row and not yet executed: it can be executed at any age. */
+/**
+ * An executor deposit whose attested message is on the row and not yet executed: it can be executed at any age. Only an
+ * executor deposit has a CCTP leg, so the row alone tells; the bridge config, which a realm can be without, is not read.
+ */
 function holdsExecutableMessage(inputs: IBridgedReceiveExtraInputs): boolean {
   return (
     inputs.provider === 'usdcx' &&
     inputs.phase === 'delivering' &&
-    isUsdcxExecutorSource(inputs.sourceChainId) &&
     inputs.cctp?.message !== undefined &&
     inputs.cctp.attestation !== undefined &&
     inputs.cctp.executeTxHash === undefined

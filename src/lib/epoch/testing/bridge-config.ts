@@ -3,6 +3,7 @@ import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { BridgeConfig } from 'lib/remote-config/schema';
 import type { EarnMarket, EvmUsdc } from 'lib/remote-config/values';
+import { TEST_USDCX_CONFIG } from 'lib/usdcx/testing/config';
 
 /** Today's testnet Epoch deployment on fixed test hosts: the bridge-config values the Epoch suites run against. */
 export const TEST_ALLOCATOR_URL = 'https://allocator.test';
@@ -48,7 +49,10 @@ export function remoteConfigValuesMock() {
   };
 }
 
-/** The testnet document naming the fixtures above, and the swap registry's tokens (`TEST_SWAP_SECTION`). */
+/**
+ * The testnet document naming the fixtures above, the swap registry's tokens (`TEST_SWAP_SECTION`) and the USDCx
+ * routes (`TEST_USDCX_CONFIG`).
+ */
 export const TEST_BRIDGE_CONFIG: BridgeConfig = {
   network: 'testnet',
   version: 1,
@@ -61,8 +65,9 @@ export const TEST_BRIDGE_CONFIG: BridgeConfig = {
     evmUsdc: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
     earnProtocol: 'dummy-lending'
   },
-  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true },
-  swap: TEST_SWAP_SECTION
+  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true, usdcxIn: true, usdcxOut: true },
+  swap: TEST_SWAP_SECTION,
+  usdcx: TEST_USDCX_CONFIG
 };
 
 const SKIPPED: { state: 'skipped' } = { state: 'skipped' };
@@ -112,6 +117,15 @@ export function remoteConfigRuntimeMock(
     initBridgeConfig: async () => getBridgeConfigSnapshot(),
     holdFastPoll: () => () => undefined
   };
+}
+
+/**
+ * A `lib/remote-config/runtime` stand-in that always holds `TEST_BRIDGE_CONFIG_SNAPSHOT`, for a suite that needs the
+ * document's values (the USDCx routes, for one) and never changes them. Install it with
+ * `jest.mock('lib/remote-config/runtime', () => jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config').testnetRuntimeMock())`.
+ */
+export function testnetRuntimeMock(): typeof import('lib/remote-config/runtime') {
+  return remoteConfigRuntimeMock(() => TEST_BRIDGE_CONFIG_SNAPSHOT);
 }
 
 /** Notifies every subscriber of `remoteConfigRuntimeMock`, as the runtime does once it replaces its snapshot. */

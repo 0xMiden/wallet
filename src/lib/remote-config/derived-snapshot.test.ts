@@ -115,7 +115,7 @@ it('reads a derivation that threw as every check failed', () => {
     evm: {},
     agglayer: {},
     epoch: {},
-    features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false }
+    features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false, usdcxIn: false, usdcxOut: false }
   };
   const error = { state: 'error', message: 'wasm init failed' };
   expect(failedDerivation(config, 'wasm init failed', 7)).toStrictEqual({

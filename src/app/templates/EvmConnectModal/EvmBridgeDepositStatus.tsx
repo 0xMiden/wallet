@@ -18,7 +18,7 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
-import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
+import { isUsdcxExecutorSource } from 'lib/usdcx/chains';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';

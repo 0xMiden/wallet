@@ -3,7 +3,7 @@ import { isRecord } from 'lib/update/guards';
 import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 
 /** The per-feature switches a document carries; each stops new starts only. */
-export const BRIDGE_SWITCHES = ['earn', 'fastBridge', 'bridgeIn', 'bridgeOut'] as const;
+export const BRIDGE_SWITCHES = ['earn', 'fastBridge', 'bridgeIn', 'bridgeOut', 'usdcxIn', 'usdcxOut'] as const;
 export type BridgeSwitch = (typeof BRIDGE_SWITCHES)[number];
 
 /** The marks `components/TokenLogo` ships, which a swap token's `logo` names. */
@@ -49,6 +49,63 @@ export interface MainnetCountdownConfig {
   launchAt?: number;
 }
 
+/** Circle's Generic Executor and its DepositFor handler, on the one chain that has them (Arc). */
+export interface UsdcxExecutorConfig {
+  address: EvmAddress;
+  handler: EvmAddress;
+}
+
+/** How a USDCx deposit starts on a chain: into its own xReserve, or as a CCTP burn to the executor chain. */
+export type UsdcxDepositConfig =
+  | { route: 'xreserve'; xReserve: EvmAddress }
+  | { route: 'executor'; tokenMessenger: EvmAddress; tokenMessengerWithFees: EvmAddress };
+
+/** One EVM chain of the USDCx routes. Every listed chain is a withdrawal destination. */
+export interface UsdcxChainConfig {
+  /** The document's key of the chain: lowercase letters, digits and hyphens. */
+  name: string;
+  chainId: number;
+  /** Circle's domain of the chain. */
+  domain: number;
+  /** Circle's USDC on the chain, through its six-decimal ERC-20 interface. */
+  usdc: EvmAddress;
+  /** Absent means the chain is a withdrawal destination only. */
+  deposit?: UsdcxDepositConfig;
+  /** At most one chain carries it; every `executor` deposit goes to that chain. */
+  executor?: UsdcxExecutorConfig;
+}
+
+export interface UsdcxConfig {
+  /** Circle's remote-domain id for Miden. */
+  midenDomain: number;
+  /** Circle's xReserve attestation service. */
+  attestationUrl: string;
+  /** Circle's Iris API, which attests the CCTP leg of an `executor` deposit; absent means no such deposits. */
+  irisUrl?: string;
+  /** In the document's order, which is the picker order; the first entry is the default. */
+  chains: UsdcxChainConfig[];
+}
+
+/** The chain every `executor` deposit goes to: the one that carries the executor, with its own xReserve. */
+export function usdcxExecutorChain(usdcx: UsdcxConfig): UsdcxChainConfig | undefined {
+  return usdcx.chains.find(chain => chain.executor && chain.deposit?.route === 'xreserve');
+}
+
+/**
+ * Whether a deposit can start on `chain`. An `executor` deposit needs the executor chain and Circle's Iris API;
+ * without them the chain is a withdrawal destination only.
+ */
+export function isUsdcxDepositSource(usdcx: UsdcxConfig, chain: UsdcxChainConfig): boolean {
+  switch (chain.deposit?.route) {
+    case 'xreserve':
+      return true;
+    case 'executor':
+      return usdcx.irisUrl !== undefined && usdcxExecutorChain(usdcx) !== undefined;
+    default:
+      return false;
+  }
+}
+
 export interface BridgeConfig {
   network: string;
   version: number;
@@ -67,6 +124,8 @@ export interface BridgeConfig {
   mainnetCountdown?: MainnetCountdownConfig;
   /** Always set by the parser; optional in the type for the same reason. Absent reads as no swap tokens. */
   swap?: SwapConfig;
+  /** Absent means the document has no `usdcx` section: USDCx deposits and withdrawals are not configured. */
+  usdcx?: UsdcxConfig;
 }
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -75,6 +134,8 @@ const TOKEN_SYMBOL = /^[A-Z]{1,6}$/;
 // An RFC 3339 timestamp in UTC, such as 2026-10-26T00:00:00Z: one spelling, so every wallet reads the same instant.
 const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const LOCAL_HTTP_HOSTS = ['127.0.0.1', 'localhost'];
+const USDCX_CHAIN_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const MAX_UINT32 = 0xffffffff;
 
 // Each check throws on a violation and parseBridgeConfig catches once: one bad known field rejects the document.
 // The one exception is mainnetCountdown, which only drives a banner: a bad countdown turns it off (see readCountdown).
@@ -209,6 +270,76 @@ function readSwapTokens(value: unknown): SwapTokenConfig[] {
   return tokens;
 }
 
+// A Circle domain: the contracts carry it as a uint32, and Ethereum is domain 0.
+function uint32(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > MAX_UINT32) return invalid();
+  return value;
+}
+
+function required<T>(value: T | undefined): T {
+  return value === undefined ? invalid() : value;
+}
+
+// A route this build does not know is not an error: the chain is then a withdrawal destination only.
+function readUsdcxDeposit(value: unknown): UsdcxDepositConfig | undefined {
+  if (!isRecord(value) || typeof value.route !== 'string') return invalid();
+  switch (value.route) {
+    case 'xreserve':
+      return { route: 'xreserve', xReserve: evmAddress(value.xReserve) };
+    case 'executor':
+      return {
+        route: 'executor',
+        tokenMessenger: evmAddress(value.tokenMessenger),
+        tokenMessengerWithFees: evmAddress(value.tokenMessengerWithFees)
+      };
+    default:
+      return undefined;
+  }
+}
+
+function readUsdcxExecutor(value: unknown): UsdcxExecutorConfig {
+  if (!isRecord(value)) return invalid();
+  return { address: evmAddress(value.address), handler: evmAddress(value.handler) };
+}
+
+// The chain's id as the document gives it: the caller drops a chain this build ships no definition for.
+function readUsdcxChain(name: string, value: unknown): UsdcxChainConfig {
+  if (!USDCX_CHAIN_NAME.test(name) || !isRecord(value) || !isPositiveSafeInteger(value.chainId)) return invalid();
+  const deposit = read(value, 'deposit', readUsdcxDeposit);
+  const executor = read(value, 'executor', readUsdcxExecutor);
+  // The executor deposits into the xReserve of its own chain.
+  if (executor && deposit?.route !== 'xreserve') return invalid();
+  return {
+    name,
+    chainId: value.chainId,
+    domain: uint32(value.domain),
+    usdc: evmAddress(value.usdc),
+    ...(deposit === undefined ? {} : { deposit }),
+    ...(executor === undefined ? {} : { executor })
+  };
+}
+
+// The chains in the document's order. Two entries for one chain, or two executors, would make a route ambiguous.
+function readUsdcxChains(value: unknown): UsdcxChainConfig[] {
+  if (!isRecord(value)) return invalid();
+  const chains = Object.entries(value).map(([name, chain]) => readUsdcxChain(name, chain));
+  const chainIds = new Set(chains.map(chain => chain.chainId));
+  if (chainIds.size !== chains.length || chains.filter(chain => chain.executor).length > 1) return invalid();
+  return chains.filter(chain => SUPPORTED_EVM_CHAIN_IDS.includes(chain.chainId));
+}
+
+function readUsdcx(value: unknown, url: (value: unknown) => string): UsdcxConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) return invalid();
+  const irisUrl = read(value, 'irisUrl', url);
+  return {
+    midenDomain: uint32(required(value.midenDomain)),
+    attestationUrl: url(required(value.attestationUrl)),
+    ...(irisUrl === undefined ? {} : { irisUrl }),
+    chains: readUsdcxChains(required(value.chains))
+  };
+}
+
 function readConfig(body: unknown, network: string, allowLocalHttp: boolean): BridgeConfig {
   if (!isRecord(body)) return invalid();
   const { version } = body;
@@ -229,6 +360,7 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   const midenUsdcFaucet = read(epoch, 'midenUsdcFaucet', midenAccountId);
   const evmUsdc = read(epoch, 'evmUsdc', evmAddress);
   const protocol = read(epoch, 'earnProtocol', earnProtocol);
+  const usdcx = readUsdcx(body.usdcx, url);
   return {
     network,
     version,
@@ -249,10 +381,13 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
       earn: featureSwitch(features, 'earn'),
       fastBridge: featureSwitch(features, 'fastBridge'),
       bridgeIn: featureSwitch(features, 'bridgeIn'),
-      bridgeOut: featureSwitch(features, 'bridgeOut')
+      bridgeOut: featureSwitch(features, 'bridgeOut'),
+      usdcxIn: featureSwitch(features, 'usdcxIn'),
+      usdcxOut: featureSwitch(features, 'usdcxOut')
     },
     mainnetCountdown: readCountdown(body.mainnetCountdown),
-    swap: { tokens: readSwapTokens(swap.tokens), ...(etaUrl === undefined ? {} : { etaUrl }) }
+    swap: { tokens: readSwapTokens(swap.tokens), ...(etaUrl === undefined ? {} : { etaUrl }) },
+    ...(usdcx === undefined ? {} : { usdcx })
   };
 }
 

@@ -63,7 +63,7 @@ const LOADED: BridgeConfigSnapshot = {
     evm: {},
     agglayer: {},
     epoch: {},
-    features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
+    features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false, usdcxIn: false, usdcxOut: false },
     swap: { tokens: TEST_SWAP_TOKEN_CONFIG, etaUrl: 'https://quotes.example' }
   }
 };

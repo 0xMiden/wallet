@@ -21,7 +21,8 @@ import { isMobile } from 'lib/platform';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { useWalletStore } from 'lib/store';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
-import { usdcxPayoutFeeShortfall } from 'lib/usdcx/constant';
+import { usdcxPayoutFeeShortfall } from 'lib/usdcx/chains';
+import { useUsdcxRoutes } from 'lib/usdcx/use-usdcx-routes';
 import { isUsdcxWithdrawalAvailable, isUsdcxWithdrawalNetwork } from 'lib/usdcx/withdrawal';
 import { navigate, useLocation } from 'lib/woozie';
 import {
@@ -38,11 +39,10 @@ import {
   BRIDGE_NETWORKS,
   BridgeNetworkId,
   DEFAULT_BRIDGE_NETWORK,
-  DEFAULT_USDCX_BRIDGE_NETWORK,
   isEpochBridgeNetwork,
   SendNetworkId,
   sendBridgeNetworks,
-  USDCX_BRIDGE_NETWORKS
+  usdcxBridgeNetworks
 } from './bridge-networks';
 import { ScanQrDrawer } from './ScanQrDrawer';
 import { SelectRecipient } from './SelectRecipient';
@@ -333,6 +333,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
       ? bridgeNetwork
       : 'miden'
     : recipientNetwork;
+  // Subscribed, so the lists below follow the network's bridge config when its document lands.
+  const usdcxRoutes = useUsdcxRoutes();
+  const usdcxNetworks = usdcxBridgeNetworks();
   const offeredNetworks = sendBridgeNetworks(isUsdcxWithdrawalNetwork());
   const usdcxOnly = !isEpochBridgeNetwork(displayedNetwork) && offeredNetworks.some(n => n.id === displayedNetwork);
   const selectedContact = useMemo(() => {
@@ -389,14 +392,13 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // A USDCx burn's destination and amount. Circle takes its fee from the payout there, so the amount must exceed it.
   const usdcxPayout = useMemo(() => {
     const chainId =
-      usdcxAvailable && isBridge
-        ? USDCX_BRIDGE_NETWORKS.find(network => network.id === bridgeNetwork)?.chainId
-        : undefined;
+      usdcxAvailable && isBridge ? usdcxNetworks.find(network => network.id === bridgeNetwork)?.chainId : undefined;
     return chainId === undefined || amountBaseUnits === undefined ? undefined : { chainId, amount: amountBaseUnits };
-  }, [usdcxAvailable, isBridge, bridgeNetwork, amountBaseUnits]);
+  }, [usdcxAvailable, isBridge, bridgeNetwork, amountBaseUnits, usdcxNetworks]);
+  // Keyed on the routes too: the fee allowance is the listed destination's.
   const payoutFeeShortfall = useMemo(
-    () => usdcxPayout && usdcxPayoutFeeShortfall(usdcxPayout.chainId, usdcxPayout.amount),
-    [usdcxPayout]
+    () => (usdcxRoutes && usdcxPayout ? usdcxPayoutFeeShortfall(usdcxPayout.chainId, usdcxPayout.amount) : undefined),
+    [usdcxPayout, usdcxRoutes]
   );
 
   const epochQuote = useEpochQuote({
@@ -798,8 +800,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // link or draft carries one this network does not offer.
   useEffect(() => {
     if (!isBridge || !isValidRecipient || offeredNetworks.some(n => n.id === bridgeNetwork)) return;
-    onSelectNetwork(usdcxAvailable ? DEFAULT_USDCX_BRIDGE_NETWORK.id : DEFAULT_BRIDGE_NETWORK.id);
-  }, [isBridge, isValidRecipient, bridgeNetwork, offeredNetworks, onSelectNetwork, usdcxAvailable]);
+    const usdcxDefault = usdcxAvailable ? usdcxNetworks[0] : undefined;
+    onSelectNetwork((usdcxDefault ?? DEFAULT_BRIDGE_NETWORK).id);
+  }, [isBridge, isValidRecipient, bridgeNetwork, offeredNetworks, onSelectNetwork, usdcxAvailable, usdcxNetworks]);
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
   const onSelectRecent = useCallback(

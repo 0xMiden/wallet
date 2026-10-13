@@ -2,6 +2,8 @@
  * @jest-environment node
  */
 import { parseBridgeConfig } from 'lib/remote-config/schema';
+import { buildUsdcxRoutes, defaultUsdcxSource } from 'lib/usdcx/routes';
+import { TEST_USDCX_SECTION } from 'lib/usdcx/testing/config';
 
 import {
   FakeBridgeConfig,
@@ -10,6 +12,7 @@ import {
   PUBLISHED_BRIDGE_CONFIG_URL,
   testnetBridgeInDocument
 } from './fake-bridge-config';
+import { FORK_USDC_ADDRESS, FORK_XRESERVE_ADDRESS } from '../ios/helpers/xreserve-fork';
 
 const PUBLISHED_TESTNET = {
   network: 'testnet',
@@ -35,11 +38,19 @@ describe('served documents', () => {
   // feature "not configured" and each suite timing out on a greyed-out control.
   it('the localnet Epoch document passes the wallet parser with Earn and Fast on', () => {
     const config = parseBridgeConfig(localnetEpochDocument(), 'localnet', { allowLocalHttp: true });
-    expect(config?.features).toEqual({ earn: true, fastBridge: true, bridgeIn: false, bridgeOut: false });
+    expect(config?.features).toEqual({
+      earn: true,
+      fastBridge: true,
+      bridgeIn: false,
+      bridgeOut: false,
+      usdcxIn: false,
+      usdcxOut: false
+    });
     expect(config?.epoch.allocatorUrl).toBe('http://127.0.0.1:8548');
     expect(config?.epoch.positionsUrl).toBe('http://127.0.0.1:8549');
     expect(config?.epoch.midenUsdcFaucet).toBeUndefined();
     expect(config?.agglayer).toEqual({});
+    expect(config?.usdcx).toBeUndefined();
   });
 
   it('the bridge-in document takes the Miden side from the published one and the EVM side from Anvil', () => {
@@ -49,8 +60,51 @@ describe('served documents', () => {
     expect(config?.agglayer.indexerUrl).toBe('https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api');
     expect(config?.epoch.midenUsdcFaucet).toBe('0x537c15a622074e91188aa894456c52');
     expect(config?.epoch.allocatorUrl).toBe('http://127.0.0.1:8548');
-    expect(config?.features).toEqual({ earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true });
+    expect(config?.features).toEqual({
+      earn: true,
+      fastBridge: true,
+      bridgeIn: true,
+      bridgeOut: true,
+      usdcxIn: true,
+      usdcxOut: true
+    });
     expect(document.version).toBe(4);
+  });
+
+  it('the bridge-in document makes the Sepolia fork the first USDCx source, on the xReserve route', () => {
+    const config = parseBridgeConfig(testnetBridgeInDocument(PUBLISHED_TESTNET), 'testnet', { allowLocalHttp: true });
+    const usdcx = config?.usdcx;
+    if (!usdcx) throw new Error('the wallet parser dropped the usdcx section of the bridge-in document');
+    expect(usdcx.chains.map(chain => chain.name)).toEqual([
+      'sepolia',
+      'arc-testnet',
+      'base-sepolia',
+      'arbitrum-sepolia'
+    ]);
+
+    const routes = buildUsdcxRoutes(usdcx);
+    const [firstChainId] = [...routes.sources.keys()];
+    expect(firstChainId).toBe(11155111);
+    expect(routes.midenDomain).toBe(10007);
+    expect(routes.attestationApi).toBe(TEST_USDCX_SECTION.attestationUrl);
+
+    const source = defaultUsdcxSource(routes);
+    if (source?.route !== 'xreserve') throw new Error(`the default source is on the ${source?.route} route`);
+    expect(source.chain.id).toBe(11155111);
+    expect(source.domain).toBe(0);
+    expect(source.xReserve).toBe(FORK_XRESERVE_ADDRESS);
+    expect(source.usdc).toBe(FORK_USDC_ADDRESS);
+    expect(source.midenDomain).toBe(10007);
+    expect(FORK_XRESERVE_ADDRESS).toBe('0x008888878f94C0d87defdf0B07f46B93C1934442');
+    expect(FORK_USDC_ADDRESS).toBe('0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238');
+  });
+
+  it('the bridge-in document ignores a usdcx section of the published document', () => {
+    const published = { ...PUBLISHED_TESTNET, usdcx: TEST_USDCX_SECTION, features: { usdcxIn: false } };
+    const document = testnetBridgeInDocument(published);
+    expect(Object.keys(document.usdcx?.chains ?? {})[0]).toBe('sepolia');
+    expect(document.usdcx?.chains.sepolia?.deposit).toEqual({ route: 'xreserve', xReserve: FORK_XRESERVE_ADDRESS });
+    expect(document.features.usdcxIn).toBe(true);
   });
 
   it('refuses a published document that lacks a value the bridge-in suite reads', () => {

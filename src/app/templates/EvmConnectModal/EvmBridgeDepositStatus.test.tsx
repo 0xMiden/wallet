@@ -286,8 +286,10 @@ describe('EvmBridgeDepositStatus', () => {
     });
 
     // An executor-route row (Base Sepolia) hands its in-flight copy to the Arc-leg component, which
-    // explains each step and offers the execute; the layout's own footer stands down.
+    // explains each step and offers the execute; the layout's own footer stands down. The bridge config
+    // document names Base Sepolia as an executor source.
     it('shows the Arc leg for an executor-route row while it is delivering', () => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
       mockRowState = {
         row: makeRow(
           usdcxInputs({ sourceChainId: 84532, cctp: { sourceDomain: 6, message: '0x12', attestation: '0xab' } })

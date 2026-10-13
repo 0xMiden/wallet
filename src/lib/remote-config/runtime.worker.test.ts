@@ -59,7 +59,7 @@ const config = (version: number): BridgeConfig => ({
   evm: {},
   agglayer: {},
   epoch: {},
-  features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false }
+  features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false, usdcxIn: false, usdcxOut: false }
 });
 const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfig => {
   const skipped = { state: 'skipped' } as const;

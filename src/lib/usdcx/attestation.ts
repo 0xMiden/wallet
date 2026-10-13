@@ -1,7 +1,5 @@
 import { Hash, Hex, hexToBigInt, hexToNumber, isHex } from 'viem';
 
-import { USDCX_REMOTE_DOMAIN, XRESERVE_ATTESTATION_API_TESTNET } from './constant';
-
 // Circle's API can accept the socket and then stay silent. Bound every request
 // so a poll tick fails and retries instead of hanging the status screen.
 const XRESERVE_FETCH_TIMEOUT_MS = 15_000;
@@ -19,7 +17,8 @@ export interface XReserveAttestation {
 }
 
 export interface FetchXReserveAttestationsOptions {
-  baseUrl?: string;
+  /** Circle's xReserve attestation service: the `attestationApi` of the deposit's route. */
+  baseUrl: string;
   timeoutMs?: number;
 }
 
@@ -54,10 +53,7 @@ function parseAttestation(entry: unknown): XReserveAttestation | undefined {
  */
 export async function fetchXReserveAttestations(
   txHash: Hash,
-  {
-    baseUrl = XRESERVE_ATTESTATION_API_TESTNET,
-    timeoutMs = XRESERVE_FETCH_TIMEOUT_MS
-  }: FetchXReserveAttestationsOptions = {}
+  { baseUrl, timeoutMs = XRESERVE_FETCH_TIMEOUT_MS }: FetchXReserveAttestationsOptions
 ): Promise<XReserveAttestation[]> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -135,8 +131,8 @@ export interface UsdcxDepositExpectation {
   remoteToken: Hex;
   /** The row's amount, in USDC base units: an executor deposit pays its fee on top, so both routes match it. */
   amount: bigint;
-  /** Defaults to USDCX_REMOTE_DOMAIN. */
-  remoteDomain?: number;
+  /** Circle's remote-domain id for Miden: the `midenDomain` of the network's USDCx routes. */
+  remoteDomain: number;
 }
 
 export type UsdcxAttestationMismatchField = 'remoteDomain' | 'remoteToken' | 'recipient' | 'amount';
@@ -172,7 +168,7 @@ export function matchUsdcxDepositAttestation(
   expected: UsdcxDepositExpectation
 ): UsdcxAttestationMatch {
   if (list.length === 0) return { kind: 'pending' };
-  const remoteDomain = expected.remoteDomain ?? USDCX_REMOTE_DOMAIN;
+  const { remoteDomain } = expected;
   let unreadable = false;
   let mismatch: UsdcxAttestationMismatchField | undefined;
   for (const attestation of list) {

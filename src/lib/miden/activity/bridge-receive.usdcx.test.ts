@@ -28,6 +28,12 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
     }
   }
 }));
+// The reconciler reads the USDCx routes from the network's bridge config.
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .testnetRuntimeMock()
+);
 const mockReadOutcome = jest.fn();
 jest.mock('lib/walletconnect/receipt', () => ({
   waitForSepoliaReceipt: jest.fn(),

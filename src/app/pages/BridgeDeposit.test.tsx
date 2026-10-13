@@ -2,20 +2,48 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import type { FeatureAvailability } from 'lib/remote-config/availability';
+import { TEST_BRIDGE_CONFIG, TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { BridgeDeposit } from './BridgeDeposit';
 
 // The network banner now tops this screen, so the wallet names the chain on every surface that
 // commits value. Its sheet and the effective-endpoint lookup are tested in their own suites;
 // stubbing only those keeps the banner itself real here, so the assertion is not on a stub.
-// The network the USDCx route reads: on testnet that route keeps the entry open on its own.
-let mockEffectiveNetwork = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getTestNetworkNameKey: () => 'testnet',
-  getEffectiveNetworkName: () => mockEffectiveNetwork
+  getEffectiveNetworkName: () => 'testnet'
 }));
+
+// The bridge config snapshot the entry reads. The document decides which bridge-in routes can start.
+// `mockHoldFastPoll` records each fast-poll hold the page takes.
+let mockBridgeSnapshot: BridgeConfigSnapshot;
+const mockHoldFastPoll = jest.fn();
+jest.mock('lib/remote-config/runtime', () => ({
+  ...jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot),
+  holdFastPoll: () => {
+    mockHoldFastPoll();
+    return () => undefined;
+  }
+}));
+
+/** The testnet snapshot with other feature switches. Its document names no Agglayer bridge, so Slow never starts. */
+const snapshotWith = (features: Partial<typeof TEST_BRIDGE_CONFIG.features>): BridgeConfigSnapshot => ({
+  ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+  config: { ...TEST_BRIDGE_CONFIG, features: { ...TEST_BRIDGE_CONFIG.features, ...features } }
+});
+/** No bridge-in route can start: Fast and USDCx are switched off. */
+const NO_ROUTE_SNAPSHOT = snapshotWith({ fastBridge: false, usdcxIn: false });
+/** Only the USDCx route can start. */
+const USDCX_ONLY_SNAPSHOT = snapshotWith({ fastBridge: false });
+/** The document has no `usdcx` section, and the Fast route can start. */
+const NO_USDCX_SNAPSHOT: BridgeConfigSnapshot = {
+  ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+  config: { ...TEST_BRIDGE_CONFIG, usdcx: undefined }
+};
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
 
 jest.mock('react-i18next', () => ({
@@ -46,16 +74,6 @@ const mockNavigate = jest.fn();
 jest.mock('lib/woozie', () => ({ navigate: (...args: unknown[]) => mockNavigate(...args) }));
 
 jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
-
-let mockBridgeIn: FeatureAvailability = { state: 'available' };
-const mockAnyFeatureAvailability = jest.fn(
-  (features: readonly string[], _options?: { hold?: boolean }): FeatureAvailability =>
-    features.join() === 'fastBridgeIn,bridgeIn' ? mockBridgeIn : { state: 'loading' }
-);
-jest.mock('lib/remote-config/use-feature-availability', () => ({
-  useAnyFeatureAvailability: (features: readonly string[], options?: { hold?: boolean }) =>
-    mockAnyFeatureAvailability(features, options)
-}));
 
 jest.mock('components/ui/Button', () => ({
   Button: ({
@@ -96,8 +114,8 @@ jest.mock('app/icons/v2', () => ({
 describe('BridgeDeposit (#875)', () => {
   beforeEach(() => {
     mockConnection = { address: undefined, connected: false };
-    mockBridgeIn = { state: 'available' };
-    mockEffectiveNetwork = 'testnet';
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockHoldFastPoll.mockClear();
     mockNavigate.mockClear();
   });
 
@@ -136,24 +154,48 @@ describe('BridgeDeposit (#875)', () => {
     expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
   });
 
-  // Off testnet there is no USDCx route, so the Fast and Slow routes alone decide.
-  it('greys out Open wallet under the notice while neither bridge-in route can start', () => {
-    mockEffectiveNetwork = 'devnet';
-    mockBridgeIn = { state: 'unavailable', reason: 'not-deployed', detail: 'l1Bridge has no code' };
+  // The USDCx route is off and the Fast and Slow routes cannot start, so no route is left.
+  it('greys out Open wallet under the notice while no bridge-in route can start', () => {
+    mockBridgeSnapshot = NO_ROUTE_SNAPSHOT;
     render(<BridgeDeposit />);
 
     expect(screen.getByRole('button', { name: 'openWallet' })).toBeDisabled();
     expect(screen.getByTestId('feature-unavailable-notice')).toHaveTextContent('bridgeFeatureUnavailableTitle');
   });
 
-  // The USDCx route reads no bridge config, so on testnet it keeps the entry open and holds no fast poll.
-  it('keeps Open wallet enabled on testnet while the Fast and Slow routes cannot start', () => {
-    mockBridgeIn = { state: 'unavailable', reason: 'not-deployed', detail: 'l1Bridge has no code' };
+  // The document lists the USDCx route and its switch is on, so that route keeps the entry open on its own
+  // and the page holds no fast poll.
+  it('keeps Open wallet enabled while the document offers USDCx and the Fast and Slow routes cannot start', () => {
+    mockBridgeSnapshot = USDCX_ONLY_SNAPSHOT;
     render(<BridgeDeposit />);
 
     expect(screen.getByRole('button', { name: 'openWallet' })).toBeEnabled();
     expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
-    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn'], { hold: false });
+    expect(mockHoldFastPoll).not.toHaveBeenCalled();
+  });
+
+  // The opposite case: a document with no `usdcx` section leaves the entry to the Fast and Slow routes.
+  it('keeps Open wallet enabled on the Fast route while the document has no usdcx section', () => {
+    mockBridgeSnapshot = NO_USDCX_SNAPSHOT;
+    render(<BridgeDeposit />);
+
+    expect(screen.getByRole('button', { name: 'openWallet' })).toBeEnabled();
+    expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
+  });
+
+  it('greys out Open wallet while the document has no usdcx section and the Fast and Slow routes cannot start', () => {
+    mockBridgeSnapshot = {
+      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+      config: {
+        ...TEST_BRIDGE_CONFIG,
+        features: { ...TEST_BRIDGE_CONFIG.features, fastBridge: false },
+        usdcx: undefined
+      }
+    };
+    render(<BridgeDeposit />);
+
+    expect(screen.getByRole('button', { name: 'openWallet' })).toBeDisabled();
+    expect(screen.getByTestId('feature-unavailable-notice')).toBeInTheDocument();
   });
 
   // The connected branch hands the page to the deposit screen, which holds for its own greyed-out routes.
@@ -162,13 +204,12 @@ describe('BridgeDeposit (#875)', () => {
     ['once a wallet is connected', true, false]
   ])('asks for the fast-poll hold only where it draws the notice: %s', (_when, connected, hold) => {
     mockConnection = connected ? { address: '0xabc', connected: true } : { address: undefined, connected: false };
-    mockEffectiveNetwork = 'devnet';
-    mockBridgeIn = { state: 'unavailable', reason: 'not-deployed', detail: 'l1Bridge has no code' };
+    mockBridgeSnapshot = NO_ROUTE_SNAPSHOT;
 
     render(<BridgeDeposit />);
 
     expect(screen.queryByTestId('feature-unavailable-notice') !== null).toBe(hold);
-    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn'], { hold });
+    expect(mockHoldFastPoll).toHaveBeenCalledTimes(hold ? 1 : 0);
   });
 
   it('hands a connected wallet to the deposit screen, whose form carries its own warning', () => {

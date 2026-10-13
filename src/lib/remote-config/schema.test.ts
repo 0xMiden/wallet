@@ -1,4 +1,13 @@
-import { parseBridgeConfig, SUPPORTED_EARN_PROTOCOLS, SUPPORTED_EVM_CHAIN_IDS } from './schema';
+import { TEST_USDCX_SECTION } from 'lib/usdcx/testing/config';
+
+import {
+  isUsdcxDepositSource,
+  parseBridgeConfig,
+  SUPPORTED_EARN_PROTOCOLS,
+  SUPPORTED_EVM_CHAIN_IDS,
+  type UsdcxConfig,
+  usdcxExecutorChain
+} from './schema';
 
 // The spec's testnet document, as the config repo publishes it.
 const doc = (overrides: Record<string, unknown> = {}) => ({
@@ -28,7 +37,16 @@ const withSection = (name: Section, fields: Record<string, unknown>) => {
   return { ...base, [name]: { ...base[name], ...fields } };
 };
 
-const ALL_OFF = { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false };
+const ALL_OFF = {
+  earn: false,
+  fastBridge: false,
+  bridgeIn: false,
+  bridgeOut: false,
+  usdcxIn: false,
+  usdcxOut: false
+};
+// The spec's document predates the USDCx switches: a missing switch is off.
+const DOC_FEATURES = { ...ALL_OFF, earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true };
 
 it('parses the published testnet document, lowercasing addresses', () => {
   expect(parseBridgeConfig(doc(), 'testnet')).toStrictEqual({
@@ -47,7 +65,7 @@ it('parses the published testnet document, lowercasing addresses', () => {
       evmUsdc: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
       earnProtocol: 'dummy-lending'
     },
-    features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true },
+    features: DOC_FEATURES,
     mainnetCountdown: { enabled: true, launchAt: Date.UTC(2026, 9, 26) },
     swap: { tokens: [] }
   });
@@ -270,7 +288,7 @@ it.each([
   const parsed = parseBridgeConfig(body, 'testnet');
   expect(parsed).not.toBeNull();
   expect(parsed?.mainnetCountdown).toStrictEqual({ enabled: false });
-  expect(parsed?.features).toStrictEqual({ earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true });
+  expect(parsed?.features).toStrictEqual(DOC_FEATURES);
   expect(parsed?.evm).toStrictEqual({ chainId: 11155111 });
   expect(parsed?.epoch.allocatorUrl).toBe('https://testnet-dev.epochprotocol.xyz');
 });
@@ -293,5 +311,167 @@ describe('the E2E local http allowance', () => {
   it.each(['http://allocator.example', 'http://10.0.2.2:8548'])('still rejects %s', input => {
     const body = withSection('epoch', { allocatorUrl: input });
     expect(parseBridgeConfig(body, 'testnet', { allowLocalHttp: true })).toBeNull();
+  });
+});
+
+describe('the usdcx section', () => {
+  const ARC = TEST_USDCX_SECTION.chains['arc-testnet'];
+  const SEPOLIA = TEST_USDCX_SECTION.chains.sepolia;
+  const usdcx = (overrides: Record<string, unknown> = {}) => doc({ usdcx: { ...TEST_USDCX_SECTION, ...overrides } });
+  const withChains = (chains: Record<string, unknown>) => usdcx({ chains });
+  const parsedUsdcx = (body: unknown) => parseBridgeConfig(body, 'testnet')?.usdcx;
+
+  it('reads the chains in the order of the document, lowercasing addresses and naming each by its key', () => {
+    expect(parsedUsdcx(usdcx())).toStrictEqual({
+      midenDomain: 10007,
+      attestationUrl: 'https://xreserve-api-testnet.circle.com',
+      irisUrl: 'https://iris-api-sandbox.circle.com',
+      chains: [
+        {
+          name: 'arc-testnet',
+          chainId: 5042002,
+          domain: 26,
+          usdc: '0x3600000000000000000000000000000000000000',
+          deposit: { route: 'xreserve', xReserve: '0x008888878f94c0d87defdf0b07f46b93c1934442' },
+          executor: {
+            address: '0xedc81040756accff070c21d37b265b9d0b5ba45e',
+            handler: '0xd05e7d2e7d30b92c5f17d7d0fc575fce231f1a48'
+          }
+        },
+        {
+          name: 'sepolia',
+          chainId: 11155111,
+          domain: 0,
+          usdc: '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238',
+          deposit: {
+            route: 'executor',
+            tokenMessenger: '0x8fe6b999dc680ccfdd5bf7eb0974218be2542daa',
+            tokenMessengerWithFees: '0x8745d906d67c346e5eb1aeeed38eb87f34df0c0a'
+          }
+        },
+        expect.objectContaining({ name: 'base-sepolia', chainId: 84532, domain: 6 }),
+        expect.objectContaining({ name: 'arbitrum-sepolia', chainId: 421614, domain: 3 })
+      ]
+    });
+  });
+
+  it('leaves the section out of a document that has none, with both switches off', () => {
+    const parsed = parseBridgeConfig(doc(), 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed && 'usdcx' in parsed).toBe(false);
+    expect(parsed?.features).toMatchObject({ usdcxIn: false, usdcxOut: false });
+  });
+
+  it('reads the two switches', () => {
+    const body = { ...usdcx(), features: { usdcxIn: true, usdcxOut: true } };
+    expect(parseBridgeConfig(body, 'testnet')?.features).toStrictEqual({ ...ALL_OFF, usdcxIn: true, usdcxOut: true });
+  });
+
+  it('reads a document with no Iris API, and one with no chain', () => {
+    expect(parsedUsdcx(usdcx({ irisUrl: undefined }))).not.toHaveProperty('irisUrl');
+    expect(parsedUsdcx(withChains({}))?.chains).toStrictEqual([]);
+  });
+
+  it('keeps a chain with no deposit as a destination, and drops a route this build does not know', () => {
+    const { deposit: _deposit, ...destinationOnly } = SEPOLIA;
+    const chains = {
+      sepolia: destinationOnly,
+      'base-sepolia': { ...SEPOLIA, chainId: 84532, deposit: { route: 'x' } }
+    };
+    expect(parsedUsdcx(withChains(chains))?.chains).toStrictEqual([
+      { name: 'sepolia', chainId: 11155111, domain: 0, usdc: SEPOLIA.usdc.toLowerCase() },
+      { name: 'base-sepolia', chainId: 84532, domain: 0, usdc: SEPOLIA.usdc.toLowerCase() }
+    ]);
+  });
+
+  // A newer document may list a chain this build ships no definition for: the rest of the list still counts.
+  it('drops a chain this build does not support', () => {
+    const chains = { ...TEST_USDCX_SECTION.chains, base: { ...SEPOLIA, chainId: 8453 } };
+    expect(parsedUsdcx(withChains(chains))?.chains.map(chain => chain.name)).toStrictEqual([
+      'arc-testnet',
+      'sepolia',
+      'base-sepolia',
+      'arbitrum-sepolia'
+    ]);
+  });
+
+  it('accepts domain 0 and the largest uint32', () => {
+    expect(parsedUsdcx(usdcx({ midenDomain: 0 }))?.midenDomain).toBe(0);
+    expect(parsedUsdcx(usdcx({ midenDomain: 0xffffffff }))?.midenDomain).toBe(0xffffffff);
+  });
+
+  it.each<[string, unknown]>([
+    ['a section that is an array', doc({ usdcx: [] })],
+    ['a null section', doc({ usdcx: null })],
+    ['no Miden domain', usdcx({ midenDomain: undefined })],
+    ['a Miden domain written as text', usdcx({ midenDomain: '10007' })],
+    ['a negative Miden domain', usdcx({ midenDomain: -1 })],
+    ['a Miden domain above uint32', usdcx({ midenDomain: 0x100000000 })],
+    ['no attestation URL', usdcx({ attestationUrl: undefined })],
+    ['an http attestation URL', usdcx({ attestationUrl: 'http://xreserve-api-testnet.circle.com' })],
+    ['an Iris URL with a query', usdcx({ irisUrl: 'https://iris-api-sandbox.circle.com/?key=1' })],
+    ['no chains', usdcx({ chains: undefined })],
+    ['chains as a list', usdcx({ chains: [ARC] })],
+    ['a chain name with an upper-case letter', withChains({ Arc: ARC })],
+    ['a chain name with a space', withChains({ 'arc testnet': ARC })],
+    ['a chain name that ends with a hyphen', withChains({ 'arc-': ARC })],
+    ['an empty chain name', withChains({ '': ARC })],
+    ['a chain that is not an object', withChains({ arc: 5042002 })],
+    ['a chain id written as text', withChains({ arc: { ...ARC, chainId: '5042002' } })],
+    ['no chain id', withChains({ arc: { ...ARC, chainId: undefined } })],
+    ['no Circle domain', withChains({ arc: { ...ARC, domain: undefined } })],
+    ['a fractional Circle domain', withChains({ arc: { ...ARC, domain: 26.5 } })],
+    ['a 19-byte USDC', withChains({ arc: { ...ARC, usdc: '0x36000000000000000000000000000000000000' } })],
+    ['no USDC', withChains({ arc: { ...ARC, usdc: undefined } })],
+    ['a deposit that is not an object', withChains({ arc: { ...ARC, deposit: 'xreserve' } })],
+    ['a deposit with no route', withChains({ arc: { ...ARC, deposit: { xReserve: ARC.deposit.xReserve } } })],
+    ['a numeric route', withChains({ arc: { ...ARC, deposit: { route: 1 } } })],
+    ['an xReserve route with no xReserve', withChains({ arc: { ...ARC, deposit: { route: 'xreserve' } } })],
+    [
+      'an executor route with no fee entry point',
+      withChains({ sepolia: { ...SEPOLIA, deposit: { route: 'executor', tokenMessenger: ARC.usdc } } })
+    ],
+    ['an executor that is not an object', withChains({ arc: { ...ARC, executor: ARC.executor.address } })],
+    ['an executor with no handler', withChains({ arc: { ...ARC, executor: { address: ARC.executor.address } } })],
+    ['an executor on a chain with the executor route', withChains({ sepolia: { ...SEPOLIA, executor: ARC.executor } })],
+    [
+      'an executor on a chain with no deposit',
+      withChains({ arc: { chainId: ARC.chainId, domain: ARC.domain, usdc: ARC.usdc, executor: ARC.executor } })
+    ],
+    ['two chains with one chain id', withChains({ arc: ARC, 'arc-again': ARC })],
+    [
+      'two chains that carry an executor',
+      withChains({ arc: ARC, sepolia: { ...ARC, chainId: SEPOLIA.chainId, domain: SEPOLIA.domain } })
+    ],
+    // The duplicate is refused before a chain this build does not support is dropped.
+    [
+      'two unsupported chains with one chain id',
+      withChains({ base: { ...SEPOLIA, chainId: 8453 }, b: { ...SEPOLIA, chainId: 8453 } })
+    ],
+    ['a USDCx switch written as text', { ...usdcx(), features: { usdcxIn: 'true' } }]
+  ])('rejects %s', (_label, body) => {
+    expect(parseBridgeConfig(body, 'testnet')).toBeNull();
+  });
+
+  it('tells a deposit source from a destination', () => {
+    const config = parsedUsdcx(usdcx());
+    const noIris = parsedUsdcx(usdcx({ irisUrl: undefined }));
+    const { 'arc-testnet': _arc, ...executorChains } = TEST_USDCX_SECTION.chains;
+    const noExecutor = parsedUsdcx(withChains(executorChains));
+    const sources = (c: UsdcxConfig | undefined) =>
+      c?.chains.filter(chain => isUsdcxDepositSource(c, chain)).map(chain => chain.name);
+    expect(sources(config)).toStrictEqual(['arc-testnet', 'sepolia', 'base-sepolia', 'arbitrum-sepolia']);
+    expect(sources(noIris)).toStrictEqual(['arc-testnet']);
+    expect(sources(noExecutor)).toStrictEqual([]);
+    expect(config && usdcxExecutorChain(config)?.name).toBe('arc-testnet');
+    expect(noExecutor && usdcxExecutorChain(noExecutor)).toBeUndefined();
+  });
+
+  it('accepts a local http service only with the E2E allowance', () => {
+    const body = usdcx({ attestationUrl: 'http://127.0.0.1:8551' });
+    expect(parseBridgeConfig(body, 'testnet')).toBeNull();
+    expect(parseBridgeConfig(body, 'testnet', { allowLocalHttp: true })?.usdcx?.attestationUrl).toBe(
+      'http://127.0.0.1:8551'
+    );
   });
 });

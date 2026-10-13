@@ -9,8 +9,9 @@ import { act } from 'react-dom/test-utils';
 import { PageActiveContext } from 'app/layouts/page-active';
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { reducedMotionTransition, tabBarMotion } from 'lib/animation';
+import { TEST_BRIDGE_CONFIG, TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
 import { hapticLight } from 'lib/mobile/haptics';
-import type { FeatureAvailability } from 'lib/remote-config/availability';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 import { Receive } from './Receive';
@@ -84,7 +85,6 @@ jest.mock('app/icons/v2', () => ({
 let mockNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getTestNetworkNameKey: () => mockNetworkKey,
-  // The network the USDCx route reads: on testnet that route keeps Cross Chain open on its own.
   getEffectiveNetworkName: () => mockNetworkKey ?? 'mainnet'
 }));
 
@@ -169,15 +169,34 @@ jest.mock('lib/platform', () => ({
   isExtension: () => mockIsExtension()
 }));
 
-let mockCrossChain: FeatureAvailability = { state: 'available' };
-const mockAnyFeatureAvailability = jest.fn(
-  (features: readonly string[], _options?: { hold?: boolean }): FeatureAvailability =>
-    features.join() === 'fastBridgeIn,bridgeIn' ? mockCrossChain : { state: 'loading' }
-);
-jest.mock('lib/remote-config/use-feature-availability', () => ({
-  useAnyFeatureAvailability: (features: readonly string[], options?: { hold?: boolean }) =>
-    mockAnyFeatureAvailability(features, options)
+// The bridge config snapshot Cross Chain reads. The document decides which bridge-in routes can start.
+// `mockHoldFastPoll` records each fast-poll hold the page takes.
+let mockBridgeSnapshot: BridgeConfigSnapshot;
+const mockHoldFastPoll = jest.fn();
+jest.mock('lib/remote-config/runtime', () => ({
+  ...jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot),
+  holdFastPoll: () => {
+    mockHoldFastPoll();
+    return () => undefined;
+  }
 }));
+
+/** The testnet snapshot with other feature switches. Its document names no Agglayer bridge, so Slow never starts. */
+const snapshotWith = (features: Partial<typeof TEST_BRIDGE_CONFIG.features>): BridgeConfigSnapshot => ({
+  ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+  config: { ...TEST_BRIDGE_CONFIG, features: { ...TEST_BRIDGE_CONFIG.features, ...features } }
+});
+/** No bridge-in route can start: Fast and USDCx are switched off. */
+const NO_ROUTE_SNAPSHOT = snapshotWith({ fastBridge: false, usdcxIn: false });
+/** Only the USDCx route can start. */
+const USDCX_ONLY_SNAPSHOT = snapshotWith({ fastBridge: false });
+/** The document has no `usdcx` section, and the Fast and Slow routes cannot start. */
+const NO_USDCX_NO_ROUTE_SNAPSHOT: BridgeConfigSnapshot = {
+  ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+  config: { ...TEST_BRIDGE_CONFIG, features: { ...TEST_BRIDGE_CONFIG.features, fastBridge: false }, usdcx: undefined }
+};
 
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
@@ -222,7 +241,8 @@ describe('Receive - Address', () => {
 
   beforeEach(() => {
     mockReduceMotion = false;
-    mockCrossChain = { state: 'available' };
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockHoldFastPoll.mockClear();
     mockNetworkKey = 'testnet';
     mockQRCodeProps.mockClear();
     mockQrBlob = null;
@@ -356,20 +376,29 @@ describe('Receive - Address', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
-  // The USDCx route reads no bridge config, so on testnet it keeps the tile open and holds no fast poll.
-  it('keeps Cross Chain enabled on testnet while the Fast and Slow routes cannot start', async () => {
-    mockCrossChain = { state: 'unavailable', reason: 'service-down', detail: 'indexer /healthz: timeout' };
+  // The document lists the USDCx route and its switch is on, so that route keeps the tile open on its own
+  // and the page holds no fast poll.
+  it('keeps Cross Chain enabled while the document offers USDCx and the Fast and Slow routes cannot start', async () => {
+    mockBridgeSnapshot = USDCX_ONLY_SNAPSHOT;
     const container = await renderReceive();
 
     expect(container.querySelector('[data-testid="receive-cross-chain"]')).toBeEnabled();
     expect(container.querySelector('[data-testid="feature-unavailable-notice"]')).toBeNull();
-    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn'], { hold: false });
+    expect(mockHoldFastPoll).not.toHaveBeenCalled();
   });
 
-  // Off testnet there is no USDCx route, so the Fast and Slow routes alone decide.
-  it('greys out Cross Chain under the notice while neither bridge-in route can start', async () => {
-    mockNetworkKey = 'devnet';
-    mockCrossChain = { state: 'unavailable', reason: 'service-down', detail: 'indexer /healthz: timeout' };
+  // The opposite case: with no `usdcx` section in the document, the Fast and Slow routes alone decide.
+  it('greys out Cross Chain while the document has no usdcx section and the Fast and Slow routes cannot start', async () => {
+    mockBridgeSnapshot = NO_USDCX_NO_ROUTE_SNAPSHOT;
+    const container = await renderReceive();
+
+    expect(container.querySelector('[data-testid="receive-cross-chain"]')).toBeDisabled();
+    expect(container.querySelector('[data-testid="feature-unavailable-notice"]')).not.toBeNull();
+  });
+
+  // The USDCx switch is off and the Fast and Slow routes cannot start, so no route is left.
+  it('greys out Cross Chain under the notice while no bridge-in route can start', async () => {
+    mockBridgeSnapshot = NO_ROUTE_SNAPSHOT;
     const container = await renderReceive();
 
     const crossChain = container.querySelector('[data-testid="receive-cross-chain"]')!;
@@ -391,13 +420,12 @@ describe('Receive - Address', () => {
     ['on the extension', true]
   ])('draws Cross Chain and asks for the fast-poll hold: %s', async (_where, extension) => {
     mockIsExtension.mockReturnValue(extension);
-    mockNetworkKey = 'devnet';
-    mockCrossChain = { state: 'unavailable', reason: 'service-down', detail: 'indexer /healthz: timeout' };
+    mockBridgeSnapshot = NO_ROUTE_SNAPSHOT;
     const container = await renderReceive();
 
     expect(container.querySelector('[data-testid="receive-cross-chain"]')).not.toBeNull();
     // The hold applies on every platform.
-    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn'], { hold: true });
+    expect(mockHoldFastPoll).toHaveBeenCalledTimes(1);
   });
 
   it("opens the pane on the code through the frame's visual top, not a page-local pull-up", async () => {

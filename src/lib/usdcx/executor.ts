@@ -24,12 +24,10 @@ import {
   CIRCLE_USDC_DECIMALS,
   USDCX_DEPOSIT_HOOK_DATA,
   USDCX_DEPOSIT_MAX_FEE,
-  USDCX_REMOTE_DOMAIN,
-  UsdcxExecutorSource,
-  UsdcxExecutorTarget,
   XRESERVE_ABI
 } from './constant';
 import { UsdcxDomainNotRegisteredError } from './deposit';
+import type { UsdcxExecutorSource, UsdcxExecutorTarget } from './routes';
 
 /** `depositToRemote(value, ...)`: the amount is the first argument, right after the 4-byte selector. */
 const DEPOSIT_AMOUNT_CALLDATA_INDEX = 4n;
@@ -63,7 +61,7 @@ export function encodeXReserveDepositCalldata(target: UsdcxExecutorTarget, remot
   return encodeFunctionData({
     abi: XRESERVE_ABI,
     functionName: 'depositToRemote',
-    args: [0n, USDCX_REMOTE_DOMAIN, remoteRecipient, target.usdc, USDCX_DEPOSIT_MAX_FEE, USDCX_DEPOSIT_HOOK_DATA]
+    args: [0n, target.midenDomain, remoteRecipient, target.usdc, USDCX_DEPOSIT_MAX_FEE, USDCX_DEPOSIT_HOOK_DATA]
   });
 }
 
@@ -281,8 +279,9 @@ export async function runUsdcxExecutorDeposit(
 ): Promise<Hash> {
   const intent = buildExecutorBurnIntent(amount, source, remoteRecipient, depositor);
 
-  if (!(await isRemoteDomainRegistered(USDCX_REMOTE_DOMAIN))) {
-    throw new UsdcxDomainNotRegisteredError(USDCX_REMOTE_DOMAIN);
+  const { midenDomain } = source.target;
+  if (!(await isRemoteDomainRegistered(midenDomain))) {
+    throw new UsdcxDomainNotRegisteredError(midenDomain);
   }
 
   const tryQuote = async (): Promise<CctpBurnQuote | undefined> => {

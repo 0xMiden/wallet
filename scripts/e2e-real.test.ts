@@ -62,6 +62,7 @@ import {
 } from './e2e-real.mjs';
 import * as harness from '../playwright/e2e/helpers/usdcx-constants';
 import * as wallet from '../src/lib/usdcx/constant';
+import { TEST_USDCX_SECTION } from '../src/lib/usdcx/testing/config';
 import { ARC_TESTNET } from '../src/lib/walletconnect/config';
 
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -82,7 +83,6 @@ function cleanEnv() {
     'USDCX_HARNESS_ARC_KEY',
     'E2E_ARC_KEY_ROLE',
     'E2E_EVM_RPC_URL',
-    'MIDEN_E2E_USDCX_CHAIN',
     'MIDEN_FEE_FAUCET_ID',
     'GUARDIAN_URL',
     'EXTENSION_DIST',
@@ -1013,7 +1013,6 @@ describe('the usdcx suites refuse what would not apply, before any probe or buil
 
   it.each([
     ['E2E_EVM_RPC_URL', 'https://refused-evm-rpc.example'],
-    ['MIDEN_E2E_USDCX_CHAIN', 'refused-usdcx-chain'],
     ['MIDEN_FEE_FAUCET_ID', '0xrefusedfeefaucet'],
     ['GUARDIAN_URL', 'https://refused-guardian.example'],
     ['EXTENSION_DIST', '/refused/extension-dist'],
@@ -1263,7 +1262,6 @@ describe('the usdcx refusals stay out of the other entry points', () => {
   it('--agglayer-indexer-only with every refused variable exported reads the document and asks only its indexer', () => {
     const res = stubbed(['--agglayer-indexer-only'], DOCUMENT, {
       E2E_EVM_RPC_URL: 'https://evm.example',
-      MIDEN_E2E_USDCX_CHAIN: 'sepolia',
       MIDEN_FEE_FAUCET_ID: '0x01',
       GUARDIAN_URL: 'https://guardian.example',
       EXTENSION_DIST: '/extension-dist',
@@ -1420,20 +1418,19 @@ describe('usdcxGrantProblem', () => {
 });
 
 // The runner reads no TypeScript at import, so it keeps copies; each must equal what the specs and the wallet use.
-// The wallet holds no GatewayMinter and no harness floors, so the harness stands in twice for those rows.
+// The wallet reads its USDCx routes from the config document, so the last column of those rows is the fixture copy
+// of the published testnet `usdcx` section. The wallet holds no GatewayMinter and no harness floors, so the harness
+// stands in twice for those rows.
 describe('the usdcx constants are the ones the harness and the wallet use', () => {
+  const ARC_SECTION = TEST_USDCX_SECTION.chains['arc-testnet'];
   it.each([
     ['ARC_TESTNET_CHAIN_ID', ARC_TESTNET_CHAIN_ID, harness.ARC_CHAIN_ID, ARC_TESTNET.id],
-    ['ARC_XRESERVE', ARC_XRESERVE, harness.ARC_XRESERVE, wallet.XRESERVE_ADDRESS.get(ARC_TESTNET.id)],
-    ['ARC_USDC', ARC_USDC, harness.ARC_USDC, wallet.CIRCLE_USDC_ADDRESS.get(ARC_TESTNET.id)],
-    ['ARC_CIRCLE_DOMAIN', ARC_CIRCLE_DOMAIN, harness.ARC_CIRCLE_DOMAIN, wallet.CIRCLE_DOMAIN.get(ARC_TESTNET.id)],
-    ['USDCX_REMOTE_DOMAIN', USDCX_REMOTE_DOMAIN, harness.USDCX_REMOTE_DOMAIN, wallet.USDCX_REMOTE_DOMAIN],
-    [
-      'XRESERVE_API_TESTNET',
-      XRESERVE_API_TESTNET,
-      harness.ARC_ATTESTATION_API,
-      wallet.XRESERVE_ATTESTATION_API_TESTNET
-    ],
+    ['ARC_TESTNET_CHAIN_ID (document)', ARC_TESTNET_CHAIN_ID, harness.ARC_CHAIN_ID, ARC_SECTION.chainId],
+    ['ARC_XRESERVE', ARC_XRESERVE, harness.ARC_XRESERVE, ARC_SECTION.deposit.xReserve],
+    ['ARC_USDC', ARC_USDC, harness.ARC_USDC, ARC_SECTION.usdc],
+    ['ARC_CIRCLE_DOMAIN', ARC_CIRCLE_DOMAIN, harness.ARC_CIRCLE_DOMAIN, ARC_SECTION.domain],
+    ['USDCX_REMOTE_DOMAIN', USDCX_REMOTE_DOMAIN, harness.USDCX_REMOTE_DOMAIN, TEST_USDCX_SECTION.midenDomain],
+    ['XRESERVE_API_TESTNET', XRESERVE_API_TESTNET, harness.ARC_ATTESTATION_API, TEST_USDCX_SECTION.attestationUrl],
     ['USDCX_DECIMALS', USDCX_DECIMALS, wallet.USDCX_DECIMALS, wallet.USDCX_DECIMALS],
     ['GATEWAY_MINTER', GATEWAY_MINTER, harness.GATEWAY_MINTER, harness.GATEWAY_MINTER],
     [

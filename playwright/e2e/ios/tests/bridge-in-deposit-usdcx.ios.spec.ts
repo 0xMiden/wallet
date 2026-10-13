@@ -5,13 +5,13 @@ import {
   ERC20_APPROVE_ABI,
   USDCX_DEPOSIT_HOOK_DATA,
   USDCX_DEPOSIT_MAX_FEE,
-  USDCX_REMOTE_DOMAIN,
   XRESERVE_ABI
 } from '../../../../src/lib/usdcx/constant';
 import { expect, test } from '../fixtures/two-simulators';
 import { AnvilInstance } from '../helpers/anvil';
 import { WcCounterparty, type WcRequestLog } from '../helpers/wc-counterparty';
 import {
+  FORK_MIDEN_DOMAIN,
   FORK_USDC_ADDRESS,
   FORK_XRESERVE_ADDRESS,
   fundForkUsdc,
@@ -44,18 +44,15 @@ import {
  * fork, so nothing signs the deposit and no mint follows.
  *
  * Build requires `E2E_EVM_RPC_URL=http://127.0.0.1:8545` (Sepolia reads → the
- * fork) and `MIDEN_E2E_USDCX_CHAIN=sepolia` (the wallet's USDCx route uses
- * Sepolia's xReserve and USDC). The run reads the fork state from
- * `E2E_SEPOLIA_FORK_URL`, or a public Sepolia RPC when that is unset.
+ * fork) and `MIDEN_REMOTE_CONFIG_URL=http://127.0.0.1:8550`. The wallet then reads
+ * the config document this suite's global setup serves (`testnetBridgeInDocument`
+ * in helpers/fake-bridge-config.ts). Its `usdcx` section lists Sepolia first, as an
+ * `xreserve` source with the fork's xReserve and USDC, so Sepolia is the wallet's
+ * default USDCx source. The run reads the fork state from `E2E_SEPOLIA_FORK_URL`,
+ * or a public Sepolia RPC when that is unset.
  */
 test.describe('Bridge-IN deposit (Circle xReserve/USDC on a Sepolia fork, full real UI)', () => {
   test.describe.configure({ mode: 'serial' });
-  // The wallet deposits on the chain its build names. Without the flag it would send
-  // Arc's token address to Sepolia's xReserve, which reverts.
-  test.skip(
-    (process.env.MIDEN_E2E_USDCX_CHAIN ?? '').trim() !== 'sepolia',
-    'requires an app built with MIDEN_E2E_USDCX_CHAIN=sepolia (set it for the build and the run)'
-  );
 
   const ANVIL_PORT = 8545;
   const FORK_URL = (process.env.E2E_SEPOLIA_FORK_URL ?? '').trim() || 'https://ethereum-sepolia-rpc.publicnode.com';
@@ -155,7 +152,7 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC on a Sepolia fork, full r
         }
         const [value, remoteDomain, remoteRecipient, localToken, maxFee, hookData] = decoded.args;
         expect(value, 'deposit amount').toBe(DEPOSIT_UNITS);
-        expect(remoteDomain, 'remote domain = Miden').toBe(USDCX_REMOTE_DOMAIN);
+        expect(remoteDomain, 'remote domain = Miden').toBe(FORK_MIDEN_DOMAIN);
         expect(localToken.toLowerCase(), 'deposited token = Sepolia USDC').toBe(FORK_USDC_ADDRESS.toLowerCase());
         expect(maxFee, 'max fee').toBe(USDCX_DEPOSIT_MAX_FEE);
         expect(hookData, 'hook data').toBe(USDCX_DEPOSIT_HOOK_DATA);

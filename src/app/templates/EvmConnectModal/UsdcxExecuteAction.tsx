@@ -6,7 +6,8 @@ import { useTranslation } from 'react-i18next';
 import { Button, ButtonVariant } from 'components/Button';
 import { IBridgedReceivePhase, IUsdcxCctpLeg } from 'lib/miden/db/types';
 import { hapticMedium } from 'lib/mobile/haptics';
-import { getUsdcxExecutorSource, isUsdcxExecutorSource } from 'lib/usdcx/constant';
+import { getUsdcxExecutorSource, isUsdcxExecutorSource } from 'lib/usdcx/chains';
+import { useUsdcxRoutes } from 'lib/usdcx/use-usdcx-routes';
 
 import { useCctpExecute } from './useCctpExecute';
 
@@ -36,6 +37,8 @@ export const UsdcxExecuteAction: React.FC<UsdcxExecuteActionProps> = ({
 }) => {
   const { t } = useTranslation();
   const execute = useCctpExecute();
+  // Subscribed: the route checks below read the network's bridge config, which can land after this row draws.
+  useUsdcxRoutes();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

@@ -1,3 +1,5 @@
+import { TEST_USDCX_CONFIG } from 'lib/usdcx/testing/config';
+
 import {
   type AvailabilityInput,
   BRIDGE_FEATURES,
@@ -8,7 +10,7 @@ import {
 } from './availability';
 import type { DerivedBridgeConfig, Probe } from './derive';
 import { _resetE2eOverridesForTest, type E2eOverrides, setEarnCollateralFaucetOverride } from './e2e-overrides';
-import type { BridgeConfig } from './schema';
+import type { BridgeConfig, UsdcxConfig } from './schema';
 
 const CONFIG: BridgeConfig = {
   network: 'testnet',
@@ -26,7 +28,8 @@ const CONFIG: BridgeConfig = {
     evmUsdc: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
     earnProtocol: 'dummy-lending'
   },
-  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
+  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true, usdcxIn: true, usdcxOut: true },
+  usdcx: TEST_USDCX_CONFIG
 };
 const DERIVED: DerivedBridgeConfig = {
   network: 'testnet',
@@ -122,7 +125,9 @@ it.each([
   ['earn', ['earnDeposit']],
   ['fastBridge', ['fastBridgeOut', 'fastBridgeIn']],
   ['bridgeIn', ['bridgeIn']],
-  ['bridgeOut', ['bridgeOut']]
+  ['bridgeOut', ['bridgeOut']],
+  ['usdcxIn', ['usdcxIn']],
+  ['usdcxOut', ['usdcxOut']]
 ] as const)('turns off only the features behind the %s switch', (toggle, affected) => {
   expect(states(ready(config({ features: { [toggle]: false } })))).toEqual(
     only(affected, unavailable('off', `features.${toggle} is off`))
@@ -204,6 +209,64 @@ it('is loading while a valid document has no derivation yet', () => {
   expect(
     featureAvailability('earnDeposit', ready(config({ features: { earn: false } }), null), NO_OVERRIDES)
   ).toMatchObject({ reason: 'off' });
+});
+
+describe('the USDCx routes', () => {
+  const withUsdcx = (usdcx: UsdcxConfig | undefined): AvailabilityInput => {
+    const { usdcx: _listed, ...rest } = config();
+    return ready(usdcx ? { ...rest, usdcx } : rest);
+  };
+  const executorChains = TEST_USDCX_CONFIG.chains.filter(chain => chain.deposit?.route === 'executor');
+  const noSource = unavailable('not-configured', 'usdcx.chains[].deposit is not configured');
+  const noDestination = unavailable('not-configured', 'usdcx.chains is not configured');
+
+  it('reads a document with no usdcx section as not configured in both directions', () => {
+    expect(states(withUsdcx(undefined))).toEqual({
+      ...only([], AVAILABLE),
+      usdcxIn: noSource,
+      usdcxOut: noDestination
+    });
+  });
+
+  it('reads a section with no chain as not configured in both directions', () => {
+    const snapshot = withUsdcx({ ...TEST_USDCX_CONFIG, chains: [] });
+    expect(featureAvailability('usdcxIn', snapshot, NO_OVERRIDES)).toEqual(noSource);
+    expect(featureAvailability('usdcxOut', snapshot, NO_OVERRIDES)).toEqual(noDestination);
+  });
+
+  // An executor deposit needs the chain that carries the executor, and Circle's Iris API.
+  it.each<[string, UsdcxConfig]>([
+    ['no chain carries the executor', { ...TEST_USDCX_CONFIG, chains: executorChains }],
+    ['the document names no Iris API', { ...TEST_USDCX_CONFIG, chains: executorChains, irisUrl: undefined }]
+  ])('offers withdrawals but no deposit while %s', (_label, usdcx) => {
+    const snapshot = withUsdcx(usdcx);
+    expect(featureAvailability('usdcxIn', snapshot, NO_OVERRIDES)).toEqual(noSource);
+    expect(featureAvailability('usdcxOut', snapshot, NO_OVERRIDES)).toEqual(AVAILABLE);
+  });
+
+  it('keeps the xReserve chain a deposit source while the document names no Iris API', () => {
+    const { irisUrl: _irisUrl, ...noIris } = TEST_USDCX_CONFIG;
+    expect(featureAvailability('usdcxIn', withUsdcx(noIris), NO_OVERRIDES)).toEqual(AVAILABLE);
+  });
+
+  // The routes have no derived check, so they do not wait for one and no failed check holds them.
+  it('reads from the document alone, with no derivation and with every check failed', () => {
+    const noDerivation = ready(config(), null);
+    expect(featureAvailability('usdcxIn', noDerivation, NO_OVERRIDES)).toEqual(AVAILABLE);
+    expect(featureAvailability('usdcxOut', noDerivation, NO_OVERRIDES)).toEqual(AVAILABLE);
+    const allDown = ready(
+      config(),
+      derived({
+        epoch: { allocator: ERROR('down'), midenUsdcFaucet: ERROR('down'), evmUsdc: ERROR('down') },
+        agglayer: { indexer: ERROR('down'), l1BridgeCode: ERROR('down'), rollupId: ERROR('down') }
+      })
+    );
+    expect(featureAvailability('usdcxIn', allDown, NO_OVERRIDES)).toEqual(AVAILABLE);
+    expect(featureAvailability('usdcxOut', allDown, NO_OVERRIDES)).toEqual(AVAILABLE);
+    expect(
+      featureAvailability('usdcxOut', ready(config({ features: { usdcxOut: false } }), null), NO_OVERRIDES)
+    ).toEqual(unavailable('off', 'features.usdcxOut is off'));
+  });
 });
 
 describe('the E2E collateral faucet', () => {

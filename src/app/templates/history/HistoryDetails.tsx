@@ -53,7 +53,7 @@ import { selectMidenUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
-import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
+import { isUsdcxExecutorSource } from 'lib/usdcx/chains';
 import { useUsdcxDestinationTransaction } from 'lib/usdcx/use-destination-transaction';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { navigate } from 'lib/woozie';

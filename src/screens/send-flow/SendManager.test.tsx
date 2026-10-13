@@ -2,10 +2,16 @@ import React from 'react';
 
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
-import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
@@ -229,37 +235,42 @@ jest.mock('./useRecentRecipients', () => ({
   useRecentRecipients: (...a: any[]) => useRecentRecipientsMock(...a)
 }));
 
+// The bridge config snapshot the flow reads. Its document lists the USDCx destinations and their order.
+let mockBridgeSnapshot: BridgeConfigSnapshot;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+
+/** The testnet snapshot with no `usdcx` section in its document. */
+const NO_USDCX_SNAPSHOT: BridgeConfigSnapshot = {
+  ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+  config: { ...TEST_BRIDGE_CONFIG, usdcx: undefined }
+};
+/** The testnet snapshot with `features.usdcxOut` off. */
+const USDCX_OUT_OFF_SNAPSHOT: BridgeConfigSnapshot = {
+  ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+  config: { ...TEST_BRIDGE_CONFIG, features: { ...TEST_BRIDGE_CONFIG.features, usdcxOut: false } }
+};
+
+// The real module, so the USDCx destinations come from the snapshot. Only the full network list is a stand-in.
 let mockBridgeNetworks: Array<{ id: string; name: string; chainId: number }> = [];
-jest.mock('./bridge-networks', () => {
-  const sepolia = { id: 'sepolia', name: 'Sepolia', chainId: 11155111 };
-  // The testnet USDCx destinations, in the destination table's order.
-  const usdcxNetworks = [
-    { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 },
-    sepolia,
-    { id: 'arbitrum-sepolia', name: 'Arbitrum Sepolia', chainId: 421614 },
-    { id: 'base-sepolia', name: 'Base Sepolia', chainId: 84532 }
-  ];
-  const sepoliaOnly = [sepolia];
-  return {
-    DEFAULT_BRIDGE_NETWORK: sepolia,
-    get BRIDGE_NETWORKS() {
-      return mockBridgeNetworks;
-    },
-    getBridgeNetwork: jest.fn(),
-    USDCX_BRIDGE_NETWORKS: usdcxNetworks,
-    DEFAULT_USDCX_BRIDGE_NETWORK: usdcxNetworks[0],
-    isUsdcxBridgeNetwork: (id: string | undefined) => usdcxNetworks.some(n => n.id === id),
-    isEpochBridgeNetwork: (id: string | undefined) => id === sepolia.id,
-    sendBridgeNetworks: (usdcxWithdrawals: boolean) => (usdcxWithdrawals ? usdcxNetworks : sepoliaOnly)
-  };
-});
+jest.mock('./bridge-networks', () => ({
+  ...jest.requireActual<typeof import('./bridge-networks')>('./bridge-networks'),
+  get BRIDGE_NETWORKS() {
+    return mockBridgeNetworks;
+  },
+  getBridgeNetwork: jest.fn()
+}));
 
 // USDCx withdrawal is offered only for the token id a test names; unset, every token takes the Epoch route.
+// Whether the network offers USDCx withdrawals at all is the real rule, read from the snapshot.
 let mockUsdcxTokenId: string | undefined;
-let mockUsdcxWithdrawalNetwork = true;
 jest.mock('lib/usdcx/withdrawal', () => ({
   isUsdcxWithdrawalAvailable: (tokenId: string | undefined) => !!tokenId && tokenId === mockUsdcxTokenId,
-  isUsdcxWithdrawalNetwork: () => mockUsdcxWithdrawalNetwork
+  isUsdcxWithdrawalNetwork: () =>
+    jest.requireActual<typeof import('lib/usdcx/withdrawal')>('lib/usdcx/withdrawal').isUsdcxWithdrawalNetwork()
 }));
 
 let mockEpochAmount: string | undefined;
@@ -369,7 +380,7 @@ beforeEach(() => {
   mockRenderRouteName = undefined;
   mockEpochAmount = undefined;
   mockUsdcxTokenId = undefined;
-  mockUsdcxWithdrawalNetwork = true;
+  mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
   mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
   mockSelectedContact = { id: '0xcontact', name: 'Alice', isOwned: false, contactType: 'external' };
   capturedBackHandler = null;
@@ -1797,19 +1808,32 @@ describe('USDCx withdrawal wiring', () => {
     expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
   });
 
+  // The four USDCx destinations of the document, in the document's order.
   it('offers all bridge destinations before and after token selection', () => {
     renderFlow();
-    expect(offeredNetworks()).toEqual(['arc-testnet', 'sepolia', 'arbitrum-sepolia', 'base-sepolia']);
+    expect(offeredNetworks()).toEqual(['arc-testnet', 'sepolia', 'base-sepolia', 'arbitrum-sepolia']);
     pickToken(usdcxToken);
     pickEvmRecipient();
-    expect(offeredNetworks()).toEqual(['arc-testnet', 'sepolia', 'arbitrum-sepolia', 'base-sepolia']);
+    expect(offeredNetworks()).toEqual(['arc-testnet', 'sepolia', 'base-sepolia', 'arbitrum-sepolia']);
 
     pickToken(otherToken);
-    expect(offeredNetworks()).toEqual(['arc-testnet', 'sepolia', 'arbitrum-sepolia', 'base-sepolia']);
+    expect(offeredNetworks()).toEqual(['arc-testnet', 'sepolia', 'base-sepolia', 'arbitrum-sepolia']);
+  });
+
+  it.each<[string, BridgeConfigSnapshot]>([
+    ['the document has no usdcx section', NO_USDCX_SNAPSHOT],
+    ['features.usdcxOut is off', USDCX_OUT_OFF_SNAPSHOT]
+  ])('offers Sepolia alone as a destination while %s', (_when, snapshot) => {
+    mockBridgeSnapshot = snapshot;
+    renderFlow();
+    expect(offeredNetworks()).toEqual(['sepolia']);
+    pickEvmRecipient();
+    expect(offeredNetworks()).toEqual(['sepolia']);
+    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^sepolia$/);
   });
 
   it('offers Sepolia alone where USDCx withdrawals do not exist and moves a saved USDCx-only destination there', () => {
-    mockUsdcxWithdrawalNetwork = false;
+    mockBridgeSnapshot = NO_USDCX_SNAPSHOT;
     const { rerender } = renderFlow();
     pickToken(otherToken);
     mockSelectedContact = { id: '0xrecip', name: 'R', isOwned: false, contactType: 'external', network: 'arc-testnet' };
@@ -1825,14 +1849,18 @@ describe('USDCx withdrawal wiring', () => {
     expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
   });
 
+  // A new document lands with `features.usdcxOut` off. The flow follows the snapshot with no remount.
   it('moves a USDCx-only destination to Sepolia when the effective network stops offering it', () => {
-    const { rerender } = renderFlow();
+    renderFlow();
     pickEvmRecipient();
     fireEvent.click(screen.getByTestId('sr-network-arc-testnet'));
     expect(screen.getByTestId('sr-network')).toHaveTextContent(/^arc-testnet$/);
 
-    mockUsdcxWithdrawalNetwork = false;
-    rerender(<SendFlow isLoading={false} />);
+    mockBridgeSnapshot = USDCX_OUT_OFF_SNAPSHOT;
+    act(() => {
+      publishMockBridgeSnapshot();
+    });
+    expect(offeredNetworks()).toEqual(['sepolia']);
     expect(screen.getByTestId('sr-network')).toHaveTextContent(/^sepolia$/);
   });
 

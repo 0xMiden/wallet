@@ -1,8 +1,19 @@
+import { TEST_BRIDGE_CONFIG, TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { pollUsdcxDestination, readUsdcxDestinationBalance, readUsdcxDestinationSnapshot } from './destination-status';
 
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
+// The destination's USDC and its fee allowance come from the network's bridge config.
+let mockBridgeSnapshot: BridgeConfigSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+});
 
 let stored: ITransaction;
 const mockReadContract = jest.fn();
@@ -259,6 +270,20 @@ it('does not check old, restored, unsubmitted or unburned rows', async () => {
   await pollUsdcxDestination(row({ phase: 'pending' }), read);
   await pollUsdcxDestination(row({ phase: 'discarded' }), read);
   expect(read).not.toHaveBeenCalled();
+});
+
+// The destination's USDC comes from the bridge config. Without it the row stays open and confirms on a later check.
+it('neither reads nor confirms while the bridge config does not list the destination', async () => {
+  const { usdcx: _usdcx, ...config } = TEST_BRIDGE_CONFIG;
+  mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config };
+  await pollUsdcxDestination(stored, read);
+  mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null };
+  await pollUsdcxDestination(stored, read);
+  expect(read).not.toHaveBeenCalled();
+  expect(stored.extraInputs.usdcxBurn.destinationBalanceConfirmed).toBeUndefined();
+  mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+  await pollUsdcxDestination(stored, read);
+  expect(stored.extraInputs.usdcxBurn.destinationBalanceConfirmed).toEqual(arrived);
 });
 
 it('does not apply an RPC response after the burn note changes', async () => {

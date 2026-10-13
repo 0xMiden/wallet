@@ -20,7 +20,7 @@ const configNaming = (midenBridge: string): BridgeConfigSnapshot => ({
     evm: {},
     agglayer: { midenBridge },
     epoch: {},
-    features: { earn: false, fastBridge: false, bridgeIn: true, bridgeOut: true }
+    features: { earn: false, fastBridge: false, bridgeIn: true, bridgeOut: true, usdcxIn: false, usdcxOut: false }
   },
   derived: null,
   lastFetch: null

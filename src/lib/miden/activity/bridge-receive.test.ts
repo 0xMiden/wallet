@@ -1,6 +1,8 @@
 import { EPOCH_INTENT_STATUS_TIMEOUT_MS } from 'lib/epoch/intent-status';
 import { getEpochReadOnlySdk } from 'lib/epoch/sdk';
+import { TEST_BRIDGE_CONFIG, TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
 import * as Repo from 'lib/miden/repo';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { BridgeReceiveLockManager, createBridgeReceiveReconciler, reconcileBridgedReceives } from './bridge-receive';
 
@@ -26,6 +28,16 @@ jest.mock('lib/miden/repo', () => ({
     }))
   }
 }));
+// The reconciler reads the USDCx routes from the network's bridge config: the suite swaps the snapshot it holds.
+let mockBridgeSnapshot: BridgeConfigSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+});
 jest.mock('lib/usdcx/attestation', () => ({
   fetchXReserveAttestations: (...args: unknown[]) => fetchAttestations(...args),
   matchUsdcxDepositAttestation: (...args: unknown[]) => matchAttestation(...args)
@@ -788,19 +800,43 @@ describe('reconcileBridgedReceives with a USDCx row', () => {
     ...row,
     extraInputs: { provider: 'usdcx', phase: 'delivering', evmTxHash: DEPOSIT_HASH, ...extraInputs }
   });
+  // The Miden domain an attestation is matched against is the bridge config's.
   const derived = {
     remoteRecipient: 'recipient-of:miden-account',
     remoteToken: 'token-of:usdcx-faucet',
-    amount: 5_000_000n
+    amount: 5_000_000n,
+    remoteDomain: 10007
   };
+
+  // The route of a row cannot be told from the row alone, so it waits for a document that lists it.
+  it.each<[string, BridgeConfigSnapshot, Record<string, unknown>]>([
+    ['no accepted document', { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null }, {}],
+    [
+      'a document with no usdcx section',
+      { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: { ...TEST_BRIDGE_CONFIG, usdcx: undefined } },
+      { sourceChainId: 5042002 }
+    ],
+    ['a document that does not list its source chain', TEST_BRIDGE_CONFIG_SNAPSHOT, { sourceChainId: 1 }]
+  ])('asks nobody and writes nothing for a delivering USDCx row with %s', async (_label, snapshot, extra) => {
+    mockBridgeSnapshot = snapshot;
+    rows.push(usdcxRow(extra));
+
+    await reconcileBridgedReceives();
+
+    expect(fetchAttestations).not.toHaveBeenCalled();
+    expect(fetchAttestedMessage).not.toHaveBeenCalled();
+    expect(updatePhase).not.toHaveBeenCalled();
+  });
 
   it('leaves a delivering USDCx row untouched while Circle has not attested it', async () => {
     rows.push(usdcxRow());
 
     await reconcileBridgedReceives();
 
-    // A legacy row names no source chain, so the attestation module's testnet default applies.
-    expect(fetchAttestations).toHaveBeenCalledWith(DEPOSIT_HASH, { baseUrl: undefined });
+    // A legacy row names no source chain, so it reads the network's attestation service.
+    expect(fetchAttestations).toHaveBeenCalledWith(DEPOSIT_HASH, {
+      baseUrl: 'https://xreserve-api-testnet.circle.com'
+    });
     expect(getIntentStatus).not.toHaveBeenCalled();
     expect(fetchDeposits).not.toHaveBeenCalled();
     expect(waitForReceipt).not.toHaveBeenCalled();
@@ -1042,7 +1078,8 @@ describe('reconcileBridgedReceives with a USDCx executor row', () => {
     expect(matchAttestation).toHaveBeenCalledWith([], {
       remoteRecipient: 'recipient-of:miden-account',
       remoteToken: 'token-of:usdcx-faucet',
-      amount: 5_000_000n
+      amount: 5_000_000n,
+      remoteDomain: 10007
     });
     expect(fetchAttestedMessage).not.toHaveBeenCalled();
     expect(readOutcome).not.toHaveBeenCalled();

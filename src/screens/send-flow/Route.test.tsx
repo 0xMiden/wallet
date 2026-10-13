@@ -30,6 +30,12 @@ jest.mock('lib/miden/metadata/resolve', () => ({
   resolveDisplayMetadata: jest.fn(() => ({ symbol: 'USDCx', name: 'USDCx', decimals: 6 }))
 }));
 jest.mock('lib/platform', () => ({ isMobile: () => true }));
+// The payout rows read the fee allowance of each destination from the bridge config snapshot.
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .testnetRuntimeMock()
+);
 jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn() }));
 
 const AVAILABLE: FeatureAvailability = { state: 'available' };

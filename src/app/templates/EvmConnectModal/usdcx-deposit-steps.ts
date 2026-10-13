@@ -1,6 +1,7 @@
 import { IBridgedReceivePhase, IUsdcxCctpLeg } from 'lib/miden/db/types';
 import { isCctpForwardFailed } from 'lib/usdcx/cctp';
-import { getUsdcxExecutorSource, getUsdcxSourceChain, isUsdcxExecutorSource } from 'lib/usdcx/constant';
+import { getUsdcxSourceChains } from 'lib/usdcx/chains';
+import { getChain } from 'lib/walletconnect/config';
 import type { TransactionStepState } from 'screens/generating-transaction/types';
 
 /** One step of a USDCx deposit, as the status screen and the Activity detail list them. */
@@ -28,9 +29,12 @@ export interface UsdcxDepositStepsInput {
  */
 export function usdcxDepositSteps({ sourceChainId, phase, cctp }: UsdcxDepositStepsInput): UsdcxDepositStep[] {
   const failed = phase === 'failed';
-  const sourceName = sourceChainId === undefined ? undefined : getUsdcxSourceChain(sourceChainId).chain.name;
-  const executor = sourceChainId !== undefined && isUsdcxExecutorSource(sourceChainId);
-  const targetName = executor ? getUsdcxExecutorSource(sourceChainId).target.chain.name : undefined;
+  // The row draws with or without the bridge config: the chain's name is compiled, and only an executor deposit has
+  // a CCTP leg. The config adds the executor chain's name, and tells the route before the burn is signed.
+  const sourceName = sourceChainId === undefined ? undefined : getChain(sourceChainId)?.name;
+  const source = sourceChainId === undefined ? undefined : getUsdcxSourceChains().get(sourceChainId);
+  const executor = source?.route === 'cctp-executor' || cctp !== undefined;
+  const targetName = source?.route === 'cctp-executor' ? source.target.chain.name : undefined;
 
   // Each flag is true once the step it names has happened; later phases imply the earlier steps.
   const sourceDone = phase !== 'submitting';

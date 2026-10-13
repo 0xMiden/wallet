@@ -65,8 +65,8 @@ const MIDEN_FAUCET_API = {
 
 /**
  * Arc Testnet and Circle's xReserve as the usdcx suites use them. The runner reads no TypeScript at import time, so
- * these copy src/lib/usdcx/constant.ts and playwright/e2e/helpers/usdcx-constants.ts; e2e-real.test.ts pins each copy
- * to both.
+ * these copy the testnet `usdcx` section (src/lib/usdcx/testing/config.ts) and
+ * playwright/e2e/helpers/usdcx-constants.ts; e2e-real.test.ts pins each copy to both.
  */
 export const ARC_TESTNET_CHAIN_ID = 5042002;
 export const ARC_XRESERVE = '0x008888878f94C0d87defdf0B07f46B93C1934442';
@@ -243,14 +243,13 @@ next run removes a lock whose run died.
 // ── args ────────────────────────────────────────────────────────────────────
 
 /**
- * Exported variables a usdcx run refuses, each with why. An E2E build bakes the first three in, nothing a usdcx spec
+ * Exported variables a usdcx run refuses, each with why. An E2E build bakes the first two in, nothing a usdcx spec
  * runs reads GUARDIAN_URL, and the wallet fixture (two-wallets.ts) reads the last three in place of the build this run
  * makes and the fresh profiles its wallets start from, so each would move what the run checks, or seem to, without a
  * word. Refused by name.
  */
 const USDCX_REFUSED_EXPORTS = {
   E2E_EVM_RPC_URL: 'an E2E build reads Sepolia, Base Sepolia and Arbitrum Sepolia through it',
-  MIDEN_E2E_USDCX_CHAIN: 'an E2E build then starts a bridge-in from Sepolia instead of Arc Testnet',
   MIDEN_FEE_FAUCET_ID: 'an E2E build then pins the fee asset instead of discovering it from the node',
   GUARDIAN_URL: 'the usdcx suites always use the hosted Guardian of --network, so it would silently not apply',
   EXTENSION_DIST: 'the test then loads the extension build it names instead of the one this run builds',

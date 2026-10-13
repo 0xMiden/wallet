@@ -1,8 +1,16 @@
 import type { DerivedBridgeConfig, Probe } from './derive';
 import { getE2eOverrides, type E2eOverrides } from './e2e-overrides';
-import type { BridgeConfig, BridgeSwitch } from './schema';
+import { type BridgeConfig, type BridgeSwitch, isUsdcxDepositSource } from './schema';
 
-export const BRIDGE_FEATURES = ['earnDeposit', 'fastBridgeOut', 'fastBridgeIn', 'bridgeIn', 'bridgeOut'] as const;
+export const BRIDGE_FEATURES = [
+  'earnDeposit',
+  'fastBridgeOut',
+  'fastBridgeIn',
+  'bridgeIn',
+  'bridgeOut',
+  'usdcxIn',
+  'usdcxOut'
+] as const;
 export type BridgeFeature = (typeof BRIDGE_FEATURES)[number];
 export type UnavailableReason = 'off' | 'not-configured' | 'not-deployed' | 'service-down';
 export type FeatureAvailability =
@@ -22,10 +30,14 @@ const SWITCHES: Record<BridgeFeature, BridgeSwitch> = {
   fastBridgeOut: 'fastBridge',
   fastBridgeIn: 'fastBridge',
   bridgeIn: 'bridgeIn',
-  bridgeOut: 'bridgeOut'
+  bridgeOut: 'bridgeOut',
+  usdcxIn: 'usdcxIn',
+  usdcxOut: 'usdcxOut'
 };
 
 type Requirement =
+  | 'usdcxSource'
+  | 'usdcxDestination'
   | 'allocator'
   | 'midenUsdc'
   | 'evmUsdc'
@@ -42,8 +54,13 @@ const NEEDS: Record<BridgeFeature, readonly Requirement[]> = {
   fastBridgeIn: ['allocator', 'evmUsdc', 'midenUsdc'],
   bridgeIn: ['l1Bridge', 'midenBridge', 'registry', 'indexer'],
   // Bridge out puts the L1 bridge's networkID() in its note as the destination network.
-  bridgeOut: ['midenBridge', 'registry', 'evmNetworkId']
+  bridgeOut: ['midenBridge', 'registry', 'evmNetworkId'],
+  usdcxIn: ['usdcxSource'],
+  usdcxOut: ['usdcxDestination']
 };
+
+// Undefined reads as not configured. A chain this build ships no definition for is not in the parsed list.
+const some = (found: boolean | undefined) => (found ? true : undefined);
 
 /** The document values each requirement reads, by their path in the document. */
 const VALUES: Record<Requirement, (config: BridgeConfig) => Array<[string, unknown]>> = {
@@ -68,7 +85,12 @@ const VALUES: Record<Requirement, (config: BridgeConfig) => Array<[string, unkno
   ],
   midenBridge: ({ agglayer }) => [['agglayer.midenBridge', agglayer.midenBridge]],
   registry: ({ agglayer }) => [['agglayer.midenBridge', agglayer.midenBridge]],
-  indexer: ({ agglayer }) => [['agglayer.indexerUrl', agglayer.indexerUrl]]
+  indexer: ({ agglayer }) => [['agglayer.indexerUrl', agglayer.indexerUrl]],
+  // The USDCx routes have no derived check: the wallet reads Circle's contracts only when a transfer starts.
+  usdcxSource: ({ usdcx }) => [
+    ['usdcx.chains[].deposit', some(usdcx?.chains.some(chain => isUsdcxDepositSource(usdcx, chain)))]
+  ],
+  usdcxDestination: ({ usdcx }) => [['usdcx.chains', some(usdcx && usdcx.chains.length > 0)]]
 };
 
 /** The derived check behind each requirement; the Earn market is computed from the document alone. */
@@ -128,7 +150,8 @@ export function featureAvailability(
   const needs = NEEDS[feature];
   const notConfigured = needs.map(need => valueFailure(need, config, overrides)).find(failure => failure !== null);
   if (notConfigured) return { state: 'unavailable', ...notConfigured };
-  if (!derived) return { state: 'loading' };
+  // A feature with no derived check reads from the document alone, so it never waits for the derivation.
+  if (!derived) return needs.some(need => PROBES[need]) ? { state: 'loading' } : { state: 'available' };
   const failures = needs.map(need => probeFailure(need, derived, overrides));
   for (const reason of PROBE_REASONS) {
     const failure = failures.find(candidate => candidate?.reason === reason);

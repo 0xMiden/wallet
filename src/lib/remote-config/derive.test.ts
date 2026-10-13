@@ -49,7 +49,7 @@ const TESTNET: BridgeConfig = {
     evmUsdc: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
     earnProtocol: 'dummy-lending'
   },
-  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
+  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true, usdcxIn: false, usdcxOut: false }
 };
 const ETH: BridgeToken = {
   midenFaucetId: '0x0b372f2735e33e91216d995bf29b91',

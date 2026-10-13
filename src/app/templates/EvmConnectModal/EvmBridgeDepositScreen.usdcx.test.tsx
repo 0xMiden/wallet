@@ -1,12 +1,15 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { toFunctionSelector } from 'viem';
 
+import { TEST_BRIDGE_CONFIG, TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { runUsdcxDeposit } from 'lib/usdcx/deposit';
 import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import { buildExecutorBurnIntent, quoteExecutorBurn, runUsdcxExecutorDeposit } from 'lib/usdcx/executor';
+import { TEST_USDCX_ROUTES } from 'lib/usdcx/testing/config';
 import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
@@ -216,16 +219,27 @@ jest.mock('./EvmBridgeDepositStatus', () => ({
   EvmBridgeDepositStatus: () => <div data-testid="deposit-status" />
 }));
 
+// As the real drawer does, the stand-in draws the Circle USDC row only when the host gives its balance.
 jest.mock('./EvmBridgeTokenDrawer', () => ({
-  EvmBridgeTokenDrawer: ({ open, onSelect }: { open: boolean; onSelect: (token: string) => void }) =>
+  EvmBridgeTokenDrawer: ({
+    open,
+    circleUsdcBalance,
+    onSelect
+  }: {
+    open: boolean;
+    circleUsdcBalance?: string;
+    onSelect: (token: string) => void;
+  }) =>
     open ? (
       <div>
         <button data-testid="pick-eth" onClick={() => onSelect('ETH')}>
           ETH
         </button>
-        <button data-testid="pick-circle-usdc" onClick={() => onSelect('CIRCLE_USDC')}>
-          USDC
-        </button>
+        {circleUsdcBalance !== undefined && (
+          <button data-testid="pick-circle-usdc" onClick={() => onSelect('CIRCLE_USDC')}>
+            USDC
+          </button>
+        )}
       </div>
     ) : null
 }));
@@ -234,14 +248,16 @@ jest.mock('./EvmBridgeNetworkDrawer', () => ({
   EvmBridgeNetworkDrawer: ({
     open,
     networks,
+    selected,
     onSelect
   }: {
     open: boolean;
     networks: readonly { id: string; name: string; chainId: number }[];
+    selected: { id: string };
     onSelect: (network: { id: string; name: string; chainId: number }) => void;
   }) =>
     open ? (
-      <div data-testid="network-drawer">
+      <div data-testid="network-drawer" data-selected={selected.id}>
         {networks.map(network => (
           <button key={network.id} data-testid={`pick-network-${network.id}`} onClick={() => onSelect(network)}>
             {network.name}
@@ -251,8 +267,14 @@ jest.mock('./EvmBridgeNetworkDrawer', () => ({
     ) : null
 }));
 
-// The xReserve route starts on testnet only; these cases run where it can.
-jest.mock('lib/usdcx/use-bridge-in-availability', () => ({ isUsdcxDepositAvailable: () => true }));
+// The bridge config snapshot the screen reads. The USDCx route starts where the document lists a source chain and
+// has `features.usdcxIn` on; the default snapshot of these cases does both.
+let mockBridgeSnapshot: BridgeConfigSnapshot;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
 
 jest.mock('./EvmSwitchWalletDrawer', () => ({
   EvmSwitchWalletDrawer: () => null
@@ -329,6 +351,7 @@ const reachUsdcxRoute = async () => {
 describe('EvmBridgeDepositScreen USDCx route', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
     mockUseDebounce.mockImplementation((value: unknown) => [value]);
     jest.mocked(usdcxRemoteRecipientFor).mockImplementation(actualUsdcxRemoteRecipientFor);
     jest.mocked(quoteExecutorBurn).mockRejectedValue(new Error('no quote in tests'));
@@ -485,6 +508,64 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(screen.getByTestId('pick-network-sepolia')).toBeInTheDocument();
     expect(screen.getByTestId('pick-network-base-sepolia')).toBeInTheDocument();
     expect(screen.getByTestId('pick-network-arbitrum-sepolia')).toBeInTheDocument();
+  });
+
+  it('lists the four source chains in the order of the document and starts on the first one', async () => {
+    renderScreen();
+    await pickToken('pick-circle-usdc');
+    fireEvent.click(screen.getByTestId('open-network-drawer'));
+    await settle();
+
+    const drawer = screen.getByTestId('network-drawer');
+    expect(
+      within(drawer)
+        .getAllByRole('button')
+        .map(button => button.textContent)
+    ).toEqual([...TEST_USDCX_ROUTES.sources.values()].map(source => source.chain.name));
+    expect(
+      within(drawer)
+        .getAllByRole('button')
+        .map(button => button.getAttribute('data-testid'))
+    ).toEqual([
+      'pick-network-arc-testnet',
+      'pick-network-sepolia',
+      'pick-network-base-sepolia',
+      'pick-network-arbitrum-sepolia'
+    ]);
+    // The default source is the first chain of the document: Arc Testnet.
+    expect(drawer).toHaveAttribute('data-selected', 'arc-testnet');
+  });
+
+  // The document decides whether Circle USDC is a source token: a missing `usdcx` section or the switch off hides it.
+  it.each<[string, BridgeConfigSnapshot]>([
+    [
+      'the document has no usdcx section',
+      { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: { ...TEST_BRIDGE_CONFIG, usdcx: undefined } }
+    ],
+    [
+      'features.usdcxIn is off',
+      {
+        ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+        config: { ...TEST_BRIDGE_CONFIG, features: { ...TEST_BRIDGE_CONFIG.features, usdcxIn: false } }
+      }
+    ]
+  ])('does not offer Circle USDC as a source token while %s', async (_when, snapshot) => {
+    mockBridgeSnapshot = snapshot;
+    renderScreen();
+    fireEvent.click(screen.getByTestId('open-token-drawer'));
+    await settle();
+
+    expect(screen.getByTestId('pick-eth')).toBeInTheDocument();
+    expect(screen.queryByTestId('pick-circle-usdc')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('open-network-drawer')).not.toBeInTheDocument();
+  });
+
+  it('offers Circle USDC as a source token while the document lists a source chain and the switch is on', async () => {
+    renderScreen();
+    fireEvent.click(screen.getByTestId('open-token-drawer'));
+    await settle();
+
+    expect(screen.getByTestId('pick-circle-usdc')).toBeInTheDocument();
   });
 
   it.each([false, true])('burns through the token messenger on an executor source (native=%s)', async native => {

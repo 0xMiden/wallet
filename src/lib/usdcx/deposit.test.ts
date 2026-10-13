@@ -1,6 +1,9 @@
-import { mainnet, sepolia } from 'viem/chains';
+import { sepolia } from 'viem/chains';
 
-import { USDCX_DEPOSIT_HOOK_DATA, USDCX_DEPOSIT_MAX_FEE, USDCX_REMOTE_DOMAIN, XRESERVE_ADDRESS } from './constant';
+import { TEST_BRIDGE_CONFIG, TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+
+import { USDCX_DEPOSIT_HOOK_DATA, USDCX_DEPOSIT_MAX_FEE } from './constant';
 import {
   buildDepositToRemoteArgs,
   isUsdcxDomainNotRegisteredError,
@@ -8,6 +11,42 @@ import {
   UsdcxDepositDeps,
   UsdcxDomainNotRegisteredError
 } from './deposit';
+import {
+  parseUsdcxSection,
+  TEST_USDCX_MIDEN_DOMAIN,
+  TEST_USDCX_SECTION,
+  testUsdcxXReserveSource
+} from './testing/config';
+
+// The deposit reads its chain's contracts from the network's bridge config.
+let mockBridgeSnapshot: BridgeConfigSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+});
+
+const USDCX_REMOTE_DOMAIN = TEST_USDCX_MIDEN_DOMAIN;
+/** A document in which Sepolia has its own xReserve, as the one the E2E Sepolia fork serves. */
+const SEPOLIA_XRESERVE = '0x008888878f94C0d87defdf0B07f46B93C1934442';
+const SEPOLIA_XRESERVE_SNAPSHOT: BridgeConfigSnapshot = {
+  ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+  config: {
+    ...TEST_BRIDGE_CONFIG,
+    usdcx: parseUsdcxSection({
+      ...TEST_USDCX_SECTION,
+      chains: {
+        sepolia: {
+          ...TEST_USDCX_SECTION.chains.sepolia,
+          deposit: { route: 'xreserve', xReserve: SEPOLIA_XRESERVE }
+        }
+      }
+    })
+  }
+};
 
 jest.mock('lib/miden/activity', () => ({
   updateBridgedReceivePhase: jest.fn()
@@ -16,6 +55,7 @@ jest.mock('lib/miden/activity', () => ({
 const RECIPIENT = '0x00000000000000000000000000000000b64e1827414584510723cad8e145a400' as const;
 const MIXED_CASE_RECIPIENT = '0x00000000000000000000000000000000B64E1827414584510723CAD8E145A400' as const;
 const ARC_TESTNET_ID = 5042002;
+const ARC_XRESERVE = testUsdcxXReserveSource(ARC_TESTNET_ID).xReserve;
 const APPROVE_HASH = `0x${'1'.repeat(64)}` as const;
 const DEPOSIT_HASH = `0x${'2'.repeat(64)}` as const;
 
@@ -66,12 +106,20 @@ describe('buildDepositToRemoteArgs', () => {
   });
 
   it('names the USDC of the source chain as the local token', () => {
-    expect(buildDepositToRemoteArgs('1', RECIPIENT, mainnet.id)[3]).toBe('0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48');
+    mockBridgeSnapshot = SEPOLIA_XRESERVE_SNAPSHOT;
+    expect(buildDepositToRemoteArgs('1', RECIPIENT, sepolia.id)[3]).toBe('0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238');
   });
 
-  // Sepolia's xReserve has no Miden domain, so outside the e2e build Sepolia deposits through the executor.
+  // Sepolia's xReserve has no Miden domain, so the testnet document sends a Sepolia deposit through the executor.
   it.each([84532, sepolia.id])('refuses chain %i, which has no local xReserve', chainId => {
     expect(() => buildDepositToRemoteArgs('1', RECIPIENT, chainId)).toThrow('no local xReserve');
+  });
+
+  it('refuses a chain the document does not list, and every chain while it lists none', () => {
+    expect(() => buildDepositToRemoteArgs('1', RECIPIENT, 1)).toThrow('not configured');
+    const { usdcx: _usdcx, ...config } = TEST_BRIDGE_CONFIG;
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config };
+    expect(() => buildDepositToRemoteArgs('1', RECIPIENT, ARC_TESTNET_ID)).toThrow('not configured');
   });
 
   it('trims the amount', () => {
@@ -95,7 +143,7 @@ describe('runUsdcxDeposit', () => {
       'receipt:deposit',
       'phase:delivering'
     ]);
-    expect(deps.signer.approve).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(ARC_TESTNET_ID), 1_500_000n);
+    expect(deps.signer.approve).toHaveBeenCalledWith(ARC_XRESERVE, 1_500_000n);
     expect(deps.signer.depositToRemote).toHaveBeenCalledWith(
       buildDepositToRemoteArgs('1.5', RECIPIENT, ARC_TESTNET_ID)
     );
@@ -124,16 +172,17 @@ describe('runUsdcxDeposit', () => {
 
     await runUsdcxDeposit('row-1', '1', RECIPIENT, deps);
 
-    expect(deps.readAllowance).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(ARC_TESTNET_ID));
+    expect(deps.readAllowance).toHaveBeenCalledWith(ARC_XRESERVE);
   });
 
   it('takes the xReserve and USDC of the chain the deps name', async () => {
-    const { deps } = makeDeps({ sourceChainId: mainnet.id });
+    mockBridgeSnapshot = SEPOLIA_XRESERVE_SNAPSHOT;
+    const { deps } = makeDeps({ sourceChainId: sepolia.id });
 
     await runUsdcxDeposit('row-1', '1', RECIPIENT, deps);
 
-    expect(deps.readAllowance).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(mainnet.id));
-    expect(deps.signer.depositToRemote).toHaveBeenCalledWith(buildDepositToRemoteArgs('1', RECIPIENT, mainnet.id));
+    expect(deps.readAllowance).toHaveBeenCalledWith(SEPOLIA_XRESERVE);
+    expect(deps.signer.depositToRemote).toHaveBeenCalledWith(buildDepositToRemoteArgs('1', RECIPIENT, sepolia.id));
   });
 
   // 1.5 USDC is 1_500_000 base units: an allowance equal to it, or more than it, covers the deposit.
@@ -157,7 +206,7 @@ describe('runUsdcxDeposit', () => {
 
     await runUsdcxDeposit('row-1', '1.5', RECIPIENT, deps);
 
-    expect(deps.signer.approve).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(ARC_TESTNET_ID), 1_500_000n);
+    expect(deps.signer.approve).toHaveBeenCalledWith(ARC_XRESERVE, 1_500_000n);
   });
 
   it('checks the remote domain with the configured value', async () => {

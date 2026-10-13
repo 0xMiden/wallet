@@ -4,7 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { formatUnits } from 'viem';
 
 import { DetailRow } from 'components/ui/DetailCard';
-import { minimumUsdcxPayout, USDCX_DECIMALS, USDCX_DESTINATIONS } from 'lib/usdcx/constant';
+import { USDCX_DECIMALS } from 'lib/usdcx/constant';
+import { minimumPayout } from 'lib/usdcx/routes';
+import { useUsdcxRoutes } from 'lib/usdcx/use-usdcx-routes';
 
 /** A USDCx burn's destination chain and its amount in USDCx base units. */
 export interface UsdcxPayoutTarget {
@@ -19,9 +21,10 @@ export interface UsdcxPayoutTarget {
  */
 export const UsdcxPayoutRows: React.FC<UsdcxPayoutTarget> = ({ chainId, amount }) => {
   const { t } = useTranslation();
-  const allowance = USDCX_DESTINATIONS.get(chainId)?.payoutFeeAllowance;
-  if (allowance === undefined) return null;
-  const payout = minimumUsdcxPayout(chainId, amount);
+  const routes = useUsdcxRoutes();
+  const allowance = routes?.destinations.get(chainId)?.payoutFeeAllowance;
+  if (!routes || allowance === undefined) return null;
+  const payout = minimumPayout(routes.destinations, chainId, amount);
 
   return (
     <>

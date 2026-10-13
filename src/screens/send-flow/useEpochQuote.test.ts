@@ -31,7 +31,7 @@ const configFor = ({
     evm: { chainId },
     agglayer: {},
     epoch: { allocatorUrl, evmUsdc },
-    features: { earn: false, fastBridge: true, bridgeIn: false, bridgeOut: false }
+    features: { earn: false, fastBridge: true, bridgeIn: false, bridgeOut: false, usdcxIn: false, usdcxOut: false }
   },
   derived: {
     network: 'testnet',

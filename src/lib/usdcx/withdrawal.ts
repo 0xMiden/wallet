@@ -1,10 +1,11 @@
 import { hexToBytes, isAddress, padHex } from 'viem';
 
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
+import { featureAvailability } from 'lib/remote-config/availability';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
-import { USDCX_DESTINATIONS, usdcxPayoutFeeShortfall } from './constant';
+import { getUsdcxDestinations, usdcxPayoutFeeShortfall } from './chains';
 
 export class UsdcxBurnError extends Error {
   /** `values` fills the copy's placeholders, such as the fee allowance a burn must exceed. */
@@ -32,9 +33,12 @@ export function isUsdcxFaucet(faucetId: string | undefined): boolean {
   return !!faucetId && !!usdcxFaucetId && sameWalletAccountId(faucetId, usdcxFaucetId);
 }
 
-/** Whether the effective network offers USDCx withdrawals at all, before any token is chosen: testnet only. */
+/**
+ * Whether the effective network offers USDCx withdrawals at all, before any token is chosen: its bridge config lists
+ * a destination and has `features.usdcxOut` on. A component that reads it subscribes with `useUsdcxRoutes`.
+ */
 export function isUsdcxWithdrawalNetwork(): boolean {
-  return getEffectiveNetworkName() === 'testnet';
+  return featureAvailability('usdcxOut', getBridgeConfigSnapshot()).state === 'available';
 }
 
 export function isUsdcxWithdrawalAvailable(faucetId: string | undefined): boolean {
@@ -63,12 +67,11 @@ export function encodeBurnWithdrawal(destinationAddress: string, destinationDoma
 }
 
 /**
- * Whether `destinationChainId` is a destination a burn can pay out to on the effective network:
- * a `USDCX_DESTINATIONS` entry whose chain is a testnet while withdrawals are testnet-only.
+ * Whether `destinationChainId` is a destination a burn can pay out to on the effective network: a chain its bridge
+ * config lists.
  */
 export function isUsdcxDestinationChain(destinationChainId: number): boolean {
-  const entry = USDCX_DESTINATIONS.get(destinationChainId);
-  return !!entry && entry.chain.testnet === true;
+  return getUsdcxDestinations().has(destinationChainId);
 }
 
 export function validateUsdcxWithdrawal(faucetId: string, destinationChainId: number, amount: bigint): void {

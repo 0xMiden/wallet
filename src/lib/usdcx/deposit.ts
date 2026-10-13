@@ -2,13 +2,8 @@ import { Address, Hash, Hex, parseUnits } from 'viem';
 
 import { updateBridgedReceivePhase } from 'lib/miden/activity';
 
-import {
-  CIRCLE_USDC_DECIMALS,
-  getUsdcxXReserveSource,
-  USDCX_DEPOSIT_HOOK_DATA,
-  USDCX_DEPOSIT_MAX_FEE,
-  USDCX_REMOTE_DOMAIN
-} from './constant';
+import { getUsdcxXReserveSource } from './chains';
+import { CIRCLE_USDC_DECIMALS, USDCX_DEPOSIT_HOOK_DATA, USDCX_DEPOSIT_MAX_FEE } from './constant';
 
 /** The argument tuple of xReserve `depositToRemote`. */
 export type DepositToRemoteArgs = readonly [
@@ -27,7 +22,7 @@ export interface UsdcxSigner {
 }
 
 export interface UsdcxDepositDeps {
-  /** The EVM chain the deposit is made on; it must be a `USDCX_SOURCE_CHAINS` entry with a local xReserve. */
+  /** The EVM chain the deposit is made on; it must be a source chain of the bridge config with a local xReserve. */
   sourceChainId: number;
   signer: UsdcxSigner;
   isRemoteDomainRegistered(remoteDomain: number): Promise<boolean>;
@@ -58,11 +53,12 @@ export function buildDepositToRemoteArgs(
   remoteRecipient: Hex,
   sourceChainId: number
 ): DepositToRemoteArgs {
+  const { usdc, midenDomain } = getUsdcxXReserveSource(sourceChainId);
   return [
     parseUnits(amount.trim(), CIRCLE_USDC_DECIMALS),
-    USDCX_REMOTE_DOMAIN,
+    midenDomain,
     remoteRecipient,
-    getUsdcxXReserveSource(sourceChainId).usdc,
+    usdc,
     USDCX_DEPOSIT_MAX_FEE,
     USDCX_DEPOSIT_HOOK_DATA
   ];

@@ -43,6 +43,12 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 jest.mock('lib/miden/transaction/initiate', () => ({ initiateBridgedSendTransaction: jest.fn() }));
 jest.mock('lib/miden-chain/constants', () => ({ getRpcEndpoint: () => 'https://rpc.example' }));
 jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetId: jest.fn() }));
+// The burn reads its destination's Circle domain from the network's bridge config.
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .testnetRuntimeMock()
+);
 jest.mock('./destination-status', () => ({
   readUsdcxDestinationBalance: jest.fn(),
   readUsdcxDestinationSnapshot: jest.fn()

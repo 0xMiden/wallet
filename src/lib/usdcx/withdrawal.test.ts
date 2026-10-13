@@ -1,11 +1,30 @@
+import { TEST_BRIDGE_CONFIG, TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+
 import { encodeBurnWithdrawal, isUsdcxWithdrawalNetwork, UsdcxBurnError, validateUsdcxWithdrawal } from './withdrawal';
 
 const USDCX_FAUCET_ID_BECH32 = 'mtst1native';
 jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetIdSync: () => 'mtst1native' }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({ sameWalletAccountId: (a: string, b: string) => a === b }));
-let network = 'testnet';
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => network }));
+// Withdrawals exist where the network's bridge config lists a destination and has the switch on.
+let mockBridgeSnapshot: BridgeConfigSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+});
+
+const { usdcx: _usdcx, ...configWithoutUsdcx } = TEST_BRIDGE_CONFIG;
+/** A network whose document has no usdcx section, as devnet's. */
+const NO_USDCX: BridgeConfigSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: configWithoutUsdcx };
+const SWITCHED_OFF: BridgeConfigSnapshot = {
+  ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+  config: { ...TEST_BRIDGE_CONFIG, features: { ...TEST_BRIDGE_CONFIG.features, usdcxOut: false } }
+};
 
 describe('USDCx withdrawal encoding', () => {
   // The miden-usdcx 0.17 layout: word 0 is [domain, 0, 0, 0]; words 1 and 2 are the recipient.
@@ -54,7 +73,7 @@ describe('USDCx withdrawal encoding', () => {
     }
   );
 
-  it('requires the configured faucet, testnet, positive amount, and a testnet destination chain id', () => {
+  it('requires the configured faucet, a listed destination chain id, a positive amount and the switch', () => {
     // 2 USDCx, since a burn must exceed its destination's payout fee allowance (1.5 USDC on Sepolia).
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 2_000_000n)).not.toThrow();
     // Sepolia, Base Sepolia and Arbitrum Sepolia are direct-payout destinations of the burn.
@@ -62,13 +81,16 @@ describe('USDCx withdrawal encoding', () => {
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 84532, 2_000_000n)).not.toThrow();
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 421614, 2_000_000n)).not.toThrow();
     expect(() => validateUsdcxWithdrawal('another-faucet', 5042002, 1n)).toThrow('usdcxUnsupportedFaucet');
-    // Mainnet destinations are configured but not offered while withdrawals are testnet-only.
+    // A mainnet chain is not a destination of the testnet document.
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 1, 1n)).toThrow('usdcxInvalidDestination');
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 0, 1n)).toThrow('usdcxInvalidDestination');
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 0n)).toThrow('usdcxInvalidAmount');
-    network = 'devnet';
+    mockBridgeSnapshot = NO_USDCX;
     expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 1n)).toThrow('usdcxUnsupportedFaucet');
-    network = 'testnet';
+    mockBridgeSnapshot = SWITCHED_OFF;
+    expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 5042002, 2_000_000n)).toThrow(
+      'usdcxUnsupportedFaucet'
+    );
   });
 
   // Circle takes its payout fee from the amount: a flat ~1.0035 USDC on Ethereum, against a 1.5 USDC allowance.
@@ -91,10 +113,18 @@ describe('USDCx withdrawal encoding', () => {
     );
   });
 
-  it('offers withdrawals on testnet only, whatever the token', () => {
+  it('offers withdrawals where the document lists a destination and has the switch on, whatever the token', () => {
     expect(isUsdcxWithdrawalNetwork()).toBe(true);
-    network = 'devnet';
+    // The routes have no derived check: a document whose derivation is still out offers them.
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, derived: null };
+    expect(isUsdcxWithdrawalNetwork()).toBe(true);
+    mockBridgeSnapshot = NO_USDCX;
     expect(isUsdcxWithdrawalNetwork()).toBe(false);
-    network = 'testnet';
+    mockBridgeSnapshot = SWITCHED_OFF;
+    expect(isUsdcxWithdrawalNetwork()).toBe(false);
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, config: null, derived: null };
+    expect(isUsdcxWithdrawalNetwork()).toBe(false);
+    mockBridgeSnapshot = { ...TEST_BRIDGE_CONFIG_SNAPSHOT, status: 'loading' };
+    expect(isUsdcxWithdrawalNetwork()).toBe(false);
   });
 });

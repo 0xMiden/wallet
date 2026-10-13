@@ -2,10 +2,11 @@ import { createPublicClient, http, isAddress } from 'viem';
 
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus, IUsdcxBurn } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { getChain } from 'lib/walletconnect/config';
 
-import { CIRCLE_USDC_ADDRESS, ERC20_BALANCE_OF_ABI, minimumUsdcxPayout } from './constant';
+import { getUsdcxDestinations, minimumUsdcxPayout } from './chains';
+import { ERC20_BALANCE_OF_ABI } from './constant';
 
 export interface UsdcxBalanceSnapshot {
   balance: string;
@@ -24,7 +25,7 @@ export async function readUsdcxDestinationBalance(
   timeoutMs = DESTINATION_READ_TIMEOUT_MS
 ): Promise<UsdcxBalanceSnapshot> {
   const chain = getChain(chainId);
-  const token = CIRCLE_USDC_ADDRESS.get(chainId);
+  const token = getUsdcxDestinations().get(chainId)?.usdc;
   if (!chain || !token || !isAddress(recipient)) throw new Error('Invalid USDC destination');
   const client = createPublicClient({ transport: http(chain.rpcUrl, { timeout: timeoutMs, retryCount: 0 }) });
   const blockNumber = await client.getBlockNumber({ cacheTime: 0 });
@@ -94,7 +95,6 @@ export async function pollUsdcxDestination(tx: ITransaction, readBalance = readU
   const burn = extra?.usdcxBurn;
   const before = burn?.destinationBalanceBefore;
   if (
-    getEffectiveNetworkName() !== 'testnet' ||
     tx.restoredFromBackup ||
     tx.type !== 'bridged-send' ||
     tx.status !== ITransactionStatus.Completed ||
@@ -107,6 +107,11 @@ export async function pollUsdcxDestination(tx: ITransaction, readBalance = readU
   ) {
     return;
   }
+
+  // The destination's USDC and its fee allowance come from the network's bridge config. While this realm holds no
+  // document that lists the chain, the row stays open for another check.
+  await initBridgeConfig();
+  if (!getUsdcxDestinations().has(extra.destinationNetwork)) return;
 
   // Circle deducts its fee from the payout, so the balance rises by less than the sent amount. A burn the fee
   // allowance takes whole has no floor an unrelated credit could not meet, so it stays at Burn confirmed.

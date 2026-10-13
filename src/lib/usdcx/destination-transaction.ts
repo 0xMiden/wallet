@@ -1,8 +1,9 @@
 import { createPublicClient, http, isAddress, parseAbiItem } from 'viem';
 
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { getChain } from 'lib/walletconnect/config';
 
-import { CIRCLE_USDC_ADDRESS, minimumUsdcxPayout } from './constant';
+import { getUsdcxDestinations, minimumUsdcxPayout } from './chains';
 
 const TRANSFER_EVENT = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)');
 const MAX_SEARCH_BLOCKS = 2_000n;
@@ -22,7 +23,8 @@ export async function findUsdcxDestinationTransaction({
   confirmedBlock: string;
 }): Promise<string | undefined> {
   const chain = getChain(chainId);
-  const token = CIRCLE_USDC_ADDRESS.get(chainId);
+  await initBridgeConfig();
+  const token = getUsdcxDestinations().get(chainId)?.usdc;
   // The payout is the sent amount minus Circle's fee, so match the range the balance check accepts. A burn the fee
   // allowance takes whole has no such range.
   const minimum = minimumUsdcxPayout(chainId, amount);

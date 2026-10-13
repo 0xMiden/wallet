@@ -316,7 +316,8 @@ async function depositLeg(
     const verdict = matchUsdcxDepositAttestation([attestation], {
       remoteRecipient: recipient,
       remoteToken: opts.xreserve.remoteToken,
-      amount: DEPOSIT_UNITS
+      amount: DEPOSIT_UNITS,
+      remoteDomain: USDCX_REMOTE_DOMAIN
     });
     expect(verdict.kind, "the wallet's own matcher accepts Circle's attestation").toBe('attested');
     opts.evidence.ids.attestationSigner = signer;

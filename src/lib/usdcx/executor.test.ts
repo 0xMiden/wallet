@@ -2,14 +2,7 @@ import { decodeAbiParameters, decodeFunctionData, hexToString, padHex, size, sli
 import { baseSepolia } from 'viem/chains';
 
 import { CctpBurnQuote } from './cctp';
-import {
-  CCTP_EXECUTOR_HOOK_NAME,
-  CCTP_FORWARD_HOOK_NAME,
-  getUsdcxExecutorSource,
-  TOKEN_MESSENGER_V2_ADDRESS,
-  USDCX_REMOTE_DOMAIN,
-  XRESERVE_ABI
-} from './constant';
+import { CCTP_EXECUTOR_HOOK_NAME, CCTP_FORWARD_HOOK_NAME, XRESERVE_ABI } from './constant';
 import { isUsdcxDomainNotRegisteredError, UsdcxDomainNotRegisteredError } from './deposit';
 import {
   addressToBytes32,
@@ -24,12 +17,15 @@ import {
   runUsdcxExecutorDeposit,
   UsdcxExecutorDepositDeps
 } from './executor';
+import { TEST_USDCX_MIDEN_DOMAIN, testUsdcxExecutorSource } from './testing/config';
 
 jest.mock('lib/miden/activity', () => ({
   updateBridgedReceivePhase: jest.fn()
 }));
 
-const SOURCE = getUsdcxExecutorSource(baseSepolia.id);
+const SOURCE = testUsdcxExecutorSource(baseSepolia.id);
+const USDCX_REMOTE_DOMAIN = TEST_USDCX_MIDEN_DOMAIN;
+const TOKEN_MESSENGER_V2_ADDRESS = SOURCE.tokenMessenger;
 const TARGET = SOURCE.target;
 const RECIPIENT = '0x00000000000000000000000000000000b64e1827414584510723cad8e145a400' as const;
 const MIXED_CASE_RECIPIENT = '0x00000000000000000000000000000000B64E1827414584510723CAD8E145A400' as const;

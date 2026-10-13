@@ -18,7 +18,7 @@ const config = (midenUsdcFaucet?: string): BridgeConfig => ({
   evm: {},
   agglayer: {},
   epoch: midenUsdcFaucet ? { midenUsdcFaucet } : {},
-  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
+  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true, usdcxIn: false, usdcxOut: false }
 });
 const derived = (tokens: DerivedBridgeConfig['agglayer']['tokens']): DerivedBridgeConfig => {
   const skipped = { state: 'skipped' } as const;

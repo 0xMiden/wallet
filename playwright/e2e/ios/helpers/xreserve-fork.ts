@@ -9,7 +9,7 @@ import {
 } from 'viem';
 import { sepolia } from 'viem/chains';
 
-import { CIRCLE_USDC_ADDRESS, USDCX_REMOTE_DOMAIN, XRESERVE_ADDRESS } from '../../../../src/lib/usdcx/constant';
+import { TEST_USDCX_SECTION } from '../../../../src/lib/usdcx/testing/config';
 
 /**
  * Prepares a local Anvil FORK of Sepolia for the USDCx bridge-in deposit, so the
@@ -19,8 +19,9 @@ import { CIRCLE_USDC_ADDRESS, USDCX_REMOTE_DOMAIN, XRESERVE_ADDRESS } from '../.
  * USDC is the chain's native token and its transfers call Arc precompiles (the
  * blocklist at 0x1800…0001). Anvil does not have them, so every USDC transfer
  * reverts on an Arc fork. Sepolia's USDC is a plain ERC-20, and Sepolia's xReserve
- * is the same contract at the same address. The e2e build picks Sepolia with
- * `MIDEN_E2E_USDCX_CHAIN=sepolia`.
+ * is the same contract at the same address. The wallet picks Sepolia because the
+ * config document the suite serves lists it first, as an `xreserve` source
+ * (`testnetBridgeInDocument` in helpers/fake-bridge-config.ts).
  *
  * Circle has not registered the Miden domain on Sepolia's xReserve, so a deposit
  * there reverts with `RemoteDomainNotRegistered`. On the fork this helper does
@@ -33,16 +34,21 @@ import { CIRCLE_USDC_ADDRESS, USDCX_REMOTE_DOMAIN, XRESERVE_ADDRESS } from '../.
  * Every step was run by hand against a Sepolia fork before it was written here.
  */
 
-// Read from the address maps, not the source table: this module loads in the Playwright process, which has no
-// MIDEN_E2E_TEST, and there Sepolia is an executor source with no xReserve route.
-function sepoliaAddress(addresses: ReadonlyMap<number, Address>, name: string): Address {
-  const address = addresses.get(sepolia.id);
-  if (!address) throw new Error(`xreserve-fork: no Sepolia ${name} address is configured`);
-  return address;
-}
+// The fork's own constants. The testnet document lists Sepolia as an `executor` source, so it does not carry
+// Sepolia's xReserve address. The suite's document names these values instead.
+/** The chain the fork copies. */
+export const FORK_CHAIN_ID: number = sepolia.id;
+/** Circle's domain of Sepolia. */
+export const FORK_CIRCLE_DOMAIN = 0;
+/** Circle's xReserve on Sepolia. */
+export const FORK_XRESERVE_ADDRESS: Address = '0x008888878f94C0d87defdf0B07f46B93C1934442';
+/** Circle's USDC on Sepolia. */
+export const FORK_USDC_ADDRESS: Address = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238';
+/** Circle's remote-domain id for Miden. The fork registers it, and the suite's document names it as `midenDomain`. */
+export const FORK_MIDEN_DOMAIN: number = TEST_USDCX_SECTION.midenDomain;
 
-const SEPOLIA_USDC = sepoliaAddress(CIRCLE_USDC_ADDRESS, 'USDC');
-const XRESERVE = sepoliaAddress(XRESERVE_ADDRESS, 'xReserve');
+const SEPOLIA_USDC = FORK_USDC_ADDRESS;
+const XRESERVE = FORK_XRESERVE_ADDRESS;
 
 /**
  * The remote token the fork registers for the Miden domain: the faucet id Circle
@@ -142,7 +148,7 @@ export async function registerMidenDomainOnFork(
   rpcUrl: string,
   remoteToken: Hex = DEFAULT_MIDEN_REMOTE_TOKEN
 ): Promise<void> {
-  const domain = USDCX_REMOTE_DOMAIN;
+  const domain = FORK_MIDEN_DOMAIN;
   const read = async (functionName: 'owner' | 'registrationManager'): Promise<Address> =>
     wordToAddress(await ethCall(rpcUrl, XRESERVE, encodeFunctionData({ abi: XRESERVE_ADMIN_ABI, functionName })));
   const registrationManager = await read('registrationManager');
@@ -212,6 +218,3 @@ export async function registerMidenDomainOnFork(
     );
   }
 }
-
-export const FORK_XRESERVE_ADDRESS: Address = XRESERVE;
-export const FORK_USDC_ADDRESS: Address = SEPOLIA_USDC;

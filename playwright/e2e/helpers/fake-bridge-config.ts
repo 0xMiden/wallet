@@ -1,9 +1,17 @@
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
 
+import { TEST_USDCX_SECTION } from '../../../src/lib/usdcx/testing/config';
 import { AGGLAYER_BRIDGE_ADDRESS, MOCK_USDC_ADDRESS } from '../ios/helpers/evm-doubles';
+import {
+  FORK_CHAIN_ID,
+  FORK_CIRCLE_DOMAIN,
+  FORK_MIDEN_DOMAIN,
+  FORK_USDC_ADDRESS,
+  FORK_XRESERVE_ADDRESS
+} from '../ios/helpers/xreserve-fork';
 
 /**
- * Serves the wallet's remote Epoch and Agglayer config document (`/<network>.json`, the shape
+ * Serves the wallet's remote Epoch, Agglayer and USDCx config document (`/<network>.json`, the shape
  * 0xMiden/wallet-config publishes) from the test, so a hermetic suite controls every value and
  * switch. E2E builds read it from `MIDEN_REMOTE_CONFIG_URL`, which the suites' workflows and
  * package.json scripts set to `FAKE_BRIDGE_CONFIG_URL`, so the port here is fixed.
@@ -19,6 +27,27 @@ const FAKE_ALLOCATOR_URL = 'http://127.0.0.1:8548';
 const FAKE_POSITIONS_URL = 'http://127.0.0.1:8549';
 const SEPOLIA_CHAIN_ID = 11155111;
 
+/** One chain of the `usdcx` section. A chain with no `deposit` is a withdrawal destination only. */
+export interface UsdcxChainDocument {
+  chainId: number;
+  /** Circle's domain of the chain. */
+  domain: number;
+  usdc: string;
+  /** `xreserve` carries `xReserve`; `executor` carries the two token messengers. */
+  deposit?: { route: string; xReserve?: string; tokenMessenger?: string; tokenMessengerWithFees?: string };
+  /** Circle's executor and its handler. At most one chain carries it. */
+  executor?: { address: string; handler: string };
+}
+
+/** The `usdcx` section: Circle's xReserve and CCTP routes. The first chain with a deposit is the default source. */
+export interface UsdcxDocument {
+  midenDomain: number;
+  attestationUrl: string;
+  irisUrl?: string;
+  /** Keyed by the chain's name, in the picker order. */
+  chains: Record<string, UsdcxChainDocument>;
+}
+
 export interface BridgeConfigDocument {
   network: string;
   version: number;
@@ -31,7 +60,17 @@ export interface BridgeConfigDocument {
     evmUsdc?: string;
     earnProtocol?: string;
   };
-  features: { earn: boolean; fastBridge: boolean; bridgeIn: boolean; bridgeOut: boolean };
+  /** An absent `usdcxIn` or `usdcxOut` reads as off, as in the wallet's parser. */
+  features: {
+    earn: boolean;
+    fastBridge: boolean;
+    bridgeIn: boolean;
+    bridgeOut: boolean;
+    usdcxIn?: boolean;
+    usdcxOut?: boolean;
+  };
+  /** Absent means USDCx deposits and withdrawals are not configured. */
+  usdcx?: UsdcxDocument;
   /** The swap registry; the swap suites set theirs through `__TEST_SET_SWAP_TOKENS__` instead. */
   swap?: {
     tokens: Array<{ symbol: string; faucetId: string; decimals: number; logo?: string; priceSymbol?: string }>;
@@ -71,10 +110,41 @@ function publishedText(published: Record<string, unknown>, section: string, fiel
   return value;
 }
 
+/** The name of the fork's chain in the `usdcx` section. */
+const FORK_CHAIN_NAME = 'sepolia';
+
+/**
+ * The `usdcx` section of the bridge-in suite. The USDCx spec forks Sepolia on Anvil (ios/helpers/xreserve-fork.ts),
+ * so Sepolia is an `xreserve` source here, with the fork's xReserve and USDC. It is the first chain, so it is the
+ * wallet's default source. The other chains, the Miden domain and Circle's two service URLs are the testnet
+ * section's. The suite does not fake the attestation service: Circle does not see a fork, so the deposit row stays
+ * at `delivering`.
+ */
+export function forkUsdcxSection(): UsdcxDocument {
+  const otherChains: Record<string, UsdcxChainDocument> = Object.fromEntries(
+    Object.entries(TEST_USDCX_SECTION.chains).filter(([name]) => name !== FORK_CHAIN_NAME)
+  );
+  return {
+    midenDomain: FORK_MIDEN_DOMAIN,
+    attestationUrl: TEST_USDCX_SECTION.attestationUrl,
+    irisUrl: TEST_USDCX_SECTION.irisUrl,
+    chains: {
+      [FORK_CHAIN_NAME]: {
+        chainId: FORK_CHAIN_ID,
+        domain: FORK_CIRCLE_DOMAIN,
+        usdc: FORK_USDC_ADDRESS,
+        deposit: { route: 'xreserve', xReserve: FORK_XRESERVE_ADDRESS }
+      },
+      ...otherChains
+    }
+  };
+}
+
 /**
  * Bridge-in on iOS: the Miden leg is live testnet, so its bridge account, indexer and USDC faucet
  * come from the published `testnet.json`; the EVM leg is the local Anvil, whose mocks sit at the
- * bridge and USDC addresses this document names, and the allocator is the local fake.
+ * bridge and USDC addresses this document names, and the allocator is the local fake. The `usdcx`
+ * section is the suite's own (`forkUsdcxSection`), whatever the published document carries.
  */
 export function testnetBridgeInDocument(published: unknown): BridgeConfigDocument {
   if (!isRecord(published) || published.network !== 'testnet') {
@@ -94,7 +164,8 @@ export function testnetBridgeInDocument(published: unknown): BridgeConfigDocumen
       midenUsdcFaucet: publishedText(published, 'epoch', 'midenUsdcFaucet'),
       evmUsdc: MOCK_USDC_ADDRESS
     },
-    features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
+    features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true, usdcxIn: true, usdcxOut: true },
+    usdcx: forkUsdcxSection()
   };
 }
 

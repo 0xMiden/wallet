@@ -14,6 +14,12 @@ jest.mock('wagmi', () => ({
   useSwitchChain: () => ({ switchChainAsync: mockSwitch })
 }));
 jest.mock('lib/miden/activity', () => ({ updateBridgedReceivePhase: jest.fn() }));
+// The hook reads the executor route of the source chain from the bridge config snapshot.
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .testnetRuntimeMock()
+);
 jest.mock('lib/walletconnect/native', () => ({ isNativeReownAvailable: () => false }));
 jest.mock('lib/walletconnect/receipt', () => ({
   ...jest.requireActual<typeof import('lib/walletconnect/receipt')>('lib/walletconnect/receipt'),

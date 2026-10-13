@@ -12,7 +12,12 @@ import {
   XReserveAttestation
 } from './attestation';
 import vectors from './attestation.vectors.json';
-import { USDCX_REMOTE_DOMAIN, XRESERVE_ATTESTATION_API_TESTNET } from './constant';
+import { TEST_USDCX_MIDEN_DOMAIN, TEST_USDCX_SECTION } from './testing/config';
+
+const USDCX_REMOTE_DOMAIN = TEST_USDCX_MIDEN_DOMAIN;
+const ATTESTATION_API = TEST_USDCX_SECTION.attestationUrl;
+/** The service every read names: the caller passes the one of the deposit's route. */
+const SERVICE = { baseUrl: ATTESTATION_API };
 
 const fetchMock = jest.fn();
 Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
@@ -38,10 +43,10 @@ describe('fetchXReserveAttestations', () => {
   it('queries the attestations endpoint by transaction hash', async () => {
     fetchMock.mockResolvedValue(okResponse({ attestations: [] }));
 
-    await fetchXReserveAttestations(TX_HASH);
+    await fetchXReserveAttestations(TX_HASH, SERVICE);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `${XRESERVE_ATTESTATION_API_TESTNET}/v1/attestations?txHash=${TX_HASH}`,
+      `${ATTESTATION_API}/v1/attestations?txHash=${TX_HASH}`,
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
   });
@@ -58,19 +63,19 @@ describe('fetchXReserveAttestations', () => {
   it('returns an empty list before Circle signs', async () => {
     fetchMock.mockResolvedValue(okResponse({ attestations: [] }));
 
-    await expect(fetchXReserveAttestations(TX_HASH)).resolves.toEqual([]);
+    await expect(fetchXReserveAttestations(TX_HASH, SERVICE)).resolves.toEqual([]);
   });
 
   it('parses a signed attestation', async () => {
     fetchMock.mockResolvedValue(okResponse({ attestations: [entry()] }));
 
-    await expect(fetchXReserveAttestations(TX_HASH)).resolves.toEqual([entry()]);
+    await expect(fetchXReserveAttestations(TX_HASH, SERVICE)).resolves.toEqual([entry()]);
   });
 
   it('accepts a numeric-string remote domain', async () => {
     fetchMock.mockResolvedValue(okResponse({ attestations: [entry({ remoteDomain: '10007' })] }));
 
-    const parsed = await fetchXReserveAttestations(TX_HASH);
+    const parsed = await fetchXReserveAttestations(TX_HASH, SERVICE);
     expect(parsed.map(entry => entry.remoteDomain)).toEqual([10007]);
   });
 
@@ -84,19 +89,19 @@ describe('fetchXReserveAttestations', () => {
   ])('drops an entry with %s', async (_label, malformed) => {
     fetchMock.mockResolvedValue(okResponse({ attestations: [malformed, entry()] }));
 
-    await expect(fetchXReserveAttestations(TX_HASH)).resolves.toEqual([entry()]);
+    await expect(fetchXReserveAttestations(TX_HASH, SERVICE)).resolves.toEqual([entry()]);
   });
 
   it('returns an empty list when the body has no attestations array', async () => {
     fetchMock.mockResolvedValue(okResponse({}));
 
-    await expect(fetchXReserveAttestations(TX_HASH)).resolves.toEqual([]);
+    await expect(fetchXReserveAttestations(TX_HASH, SERVICE)).resolves.toEqual([]);
   });
 
   it('throws on a non-OK response', async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
 
-    await expect(fetchXReserveAttestations(TX_HASH)).rejects.toThrow('HTTP 500');
+    await expect(fetchXReserveAttestations(TX_HASH, SERVICE)).rejects.toThrow('HTTP 500');
   });
 
   it('aborts when headers arrive but the response body stops', async () => {
@@ -109,7 +114,7 @@ describe('fetchXReserveAttestations', () => {
         })
     }));
 
-    const pending = fetchXReserveAttestations(TX_HASH, { timeoutMs: 1000 });
+    const pending = fetchXReserveAttestations(TX_HASH, { ...SERVICE, timeoutMs: 1000 });
     await Promise.all([expect(pending).rejects.toThrow('aborted'), jest.advanceTimersByTimeAsync(1000)]);
     expect(jest.getTimerCount()).toBe(0);
   });
@@ -123,7 +128,7 @@ describe('fetchXReserveAttestations', () => {
         })
     );
 
-    const pending = fetchXReserveAttestations(TX_HASH, { timeoutMs: 1000 });
+    const pending = fetchXReserveAttestations(TX_HASH, { ...SERVICE, timeoutMs: 1000 });
     jest.advanceTimersByTime(1000);
     await expect(pending).rejects.toThrow('aborted');
   });
@@ -214,6 +219,7 @@ const expected = (overrides: Partial<UsdcxDepositExpectation> = {}): UsdcxDeposi
   remoteRecipient: ACCOUNT_RECIPIENT,
   remoteToken: USDCX_TOKEN,
   amount: 2_000_000_000n,
+  remoteDomain: USDCX_REMOTE_DOMAIN,
   ...overrides
 });
 

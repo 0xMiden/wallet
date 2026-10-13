@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.4 (TBD)
+
+### Changes
+
+- [CHANGE][all] The USDCx contracts, Circle's domains and Circle's service URLs come from the `usdcx` section of the network's document in `0xMiden/wallet-config`, no longer from compiled tables; the `usdcxIn` and `usdcxOut` switches there stop new USDCx deposits and withdrawals, and a network whose document lists no USDCx route shows neither. The order of the document's chains is the picker order, and its first chain is the default.
+
 ## 1.17.3 (2026-10-12)
 
 ### Features

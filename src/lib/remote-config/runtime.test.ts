@@ -90,7 +90,7 @@ const config = (version: number, network = 'testnet'): BridgeConfig => ({
   evm: { chainId: 11155111 },
   agglayer: {},
   epoch: { allocatorUrl: 'https://allocator.example' },
-  features: { earn: true, fastBridge: true, bridgeIn: false, bridgeOut: false }
+  features: { earn: true, fastBridge: true, bridgeIn: false, bridgeOut: false, usdcxIn: false, usdcxOut: false }
 });
 const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfig => ({
   network: source.network,
