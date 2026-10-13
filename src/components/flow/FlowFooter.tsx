@@ -62,7 +62,11 @@ export const FlowFooter: React.FC<FlowFooterProps> = ({
       data-slot={dataSlot}
       data-navbar-cushion={navbarCushion ? 'true' : undefined}
       data-flow-footer=""
-      className={cn('shrink-0 pt-3', navbarCushion ? stepFooterCushionClass() : 'pb-4', className)}
+      className={cn(
+        'shrink-0 pt-3',
+        navbarCushion ? stepFooterCushionClass() : 'pb-[calc(1rem+var(--wallet-control-safe-bottom,0px))]',
+        className
+      )}
     >
       {children}
     </div>

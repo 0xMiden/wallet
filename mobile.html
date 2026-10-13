@@ -68,6 +68,11 @@
            motion. */
       }
 
+      html[data-ios-wallet-canvas] body {
+        --wallet-control-safe-bottom: max(0px, calc(var(--app-safe-bottom) - var(--keyboard-height, 0px)));
+        padding-bottom: max(0px, var(--keyboard-height, 0px)) !important;
+      }
+
       /* Ensure #root children take full height */
       #root > div {
         width: 100% !important;
@@ -169,6 +174,7 @@
       // 'dark'/'light' from localStorage wins; 'system' (or no value) follows
       // prefers-color-scheme. React re-applies via initTheme() after mount.
       (function () {
+        document.documentElement.toggleAttribute('data-ios-wallet-canvas', window.Capacitor?.getPlatform?.() === 'ios');
         var setting = null;
         try {
           setting = localStorage.getItem('theme_setting');

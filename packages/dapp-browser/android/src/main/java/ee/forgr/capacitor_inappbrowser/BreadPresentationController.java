@@ -50,7 +50,6 @@ final class BreadPresentationController {
     private final FrameLayout overlay;
     private final FrameLayout cover;
     private final ImageButton back;
-    private final TextView hint;
     private final TextView error;
     private final Button retry;
     private final ProgressBar spinner;
@@ -71,8 +70,8 @@ final class BreadPresentationController {
     private int layoutHeight;
     private int controlTop;
     private int controlLeft;
+    private Insets safeArea = Insets.NONE;
     private int theme = FALLBACK;
-    private boolean hintShown;
     private boolean appliedFullscreen;
     private final FullscreenRotation dialogRotation = new FullscreenRotation();
     private final FullscreenRotation hostRotation = new FullscreenRotation();
@@ -146,8 +145,9 @@ final class BreadPresentationController {
         back.setPadding(dp(14), dp(10), dp(14), dp(10));
         back.setScaleType(ImageView.ScaleType.FIT_CENTER);
         back.setOnClickListener(v -> {
+            if (!state.effectiveVisibility() || owner.managedClosing()) return;
             v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
-            owner.dismiss();
+            owner.presentationMinimizeRequested(state.policyRevision(), state.acknowledgedVisibilitySequence());
         });
         GradientDrawable capsule = new GradientDrawable();
         capsule.setColor(0xcc292929);
@@ -167,17 +167,6 @@ final class BreadPresentationController {
         back.clearColorFilter();
         back.setImageTintList(null);
         overlay.addView(back, new FrameLayout.LayoutParams(dp(76), dp(48), Gravity.TOP | Gravity.START));
-        hint = new TextView(owner.getContext());
-        hint.setText(options.hintLabel);
-        hint.setTextColor(Color.WHITE);
-        hint.setTextSize(14);
-        hint.setPadding(dp(12), dp(8), dp(12), dp(8));
-        GradientDrawable hintBackground = new GradientDrawable();
-        hintBackground.setColor(0xe6292929);
-        hintBackground.setCornerRadius(dp(12));
-        hint.setBackground(hintBackground);
-        overlay.addView(hint, new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.START));
-        hint.setVisibility(View.GONE);
         ViewGroup root = owner.findViewById(R.id.coordinator_layout);
         root.addView(overlay, new ViewGroup.LayoutParams(-1, -1));
         webView.addOnLayoutChangeListener((v, l, t, r, b, oldL, oldT, oldR, oldB) -> {
@@ -189,9 +178,10 @@ final class BreadPresentationController {
             }
         });
         ViewCompat.setOnApplyWindowInsetsListener(overlay, (view, insets) -> {
-            Insets safe = insets.getInsets(WindowInsetsCompat.Type.displayCutout() | WindowInsetsCompat.Type.systemBars());
+            Insets safe = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.displayCutout() | WindowInsetsCompat.Type.systemBars());
             int top = safe.top + dp(8), left = safe.left + dp(8);
-            if (top != controlTop || left != controlLeft) {
+            if (!safe.equals(safeArea) || top != controlTop || left != controlLeft) {
+                safeArea = safe;
                 controlTop = top;
                 controlLeft = left;
                 positionControls();
@@ -396,7 +386,7 @@ final class BreadPresentationController {
 
     void applyWindow() {
         if (owner.managedClosing()) return;
-        if (!state.effectiveVisibility()) return;
+        if (!state.surfaceVisibility()) return;
         Window window = owner.getWindow();
         if (window == null) return;
         WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, window.getDecorView());
@@ -491,7 +481,7 @@ final class BreadPresentationController {
             notifiedPolicyRevision = state.policyRevision();
             owner.presentationChanged(state.fullscreen(), state.policyResolved(), state.policyRevision());
         }
-        if (!state.effectiveVisibility()) {
+        if (!state.surfaceVisibility()) {
             owner.applyPresentationVisibility(false);
             restoreWindow();
             renderCover();
@@ -517,12 +507,8 @@ final class BreadPresentationController {
         // Update CSS only after the WebView has its final native dimensions, then fence its paint.
         webView.post(() -> {
             if (!state.canReveal(generation)) return;
-            String token = JSONObject.quote(state.token());
-            int inset = fullscreen() ? controlTop + back.getHeight() + dp(8) : 0;
-            String update = "(()=>{if(window.__breadPresentationToken!==" + token + ")return false;"
-                + "window.__breadPresentationUpdate({token:" + token + ",display:"
-                + JSONObject.quote(fullscreen() ? "fullscreen" : "browser") + ",controlInsetTop:"
-                + inset + "*innerWidth/" + webView.getWidth() + "});return true})()";
+            String update = metricUpdate();
+            if (update == null) { pendingPaint = -1; return; }
             webView.evaluateJavascript(update, result -> {
                 if (!"true".equals(result) || !state.canReveal(generation)) return;
                 webView.postVisualStateCallback(generation, new WebView.VisualStateCallback() {
@@ -534,17 +520,58 @@ final class BreadPresentationController {
         });
     }
 
+    private String metricUpdate() {
+        if (state.token() == null || webView.getWidth() == 0) return null;
+        int[] controlPosition = new int[2], webPosition = new int[2];
+        back.getLocationInWindow(controlPosition);
+        webView.getLocationInWindow(webPosition);
+        boolean fullscreen = fullscreen();
+        try {
+            JSONObject bounds = new JSONObject().put("left", Math.max(0, controlPosition[0] - webPosition[0]))
+                .put("top", Math.max(0, controlPosition[1] - webPosition[1]))
+                .put("width", back.getWidth()).put("height", back.getHeight());
+            JSONObject safe = new JSONObject().put("top", safeArea.top).put("left", safeArea.left)
+                .put("right", safeArea.right).put("bottom", safeArea.bottom);
+            JSONObject metrics = new JSONObject().put("token", state.token()).put("revision", state.generation())
+                .put("display", fullscreen ? "fullscreen" : "browser").put("width", webView.getWidth())
+                .put("inset", fullscreen ? bounds.getInt("top") + back.getHeight() + dp(8) : 0)
+                .put("controlBounds", fullscreen ? bounds : JSONObject.NULL)
+                .put("safeAreaInsets", fullscreen ? safe : JSONObject.NULL);
+            return "(()=>{const metrics=" + metrics + ";" + METRIC_SCRIPT + "})()";
+        } catch (org.json.JSONException ignored) { return null; }
+    }
+
+    static final String METRIC_SCRIPT = """
+        if (window.__breadPresentationToken !== metrics.token) return false;
+        const previous = window.__breadNativeMetrics;
+        if (previous?.token === metrics.token && previous.revision > metrics.revision) return false;
+        window.__breadNativeMetrics = metrics;
+        if (!window.__breadReprojectMetrics) {
+            window.__breadReprojectMetrics = () => {
+                const current = window.__breadNativeMetrics;
+                if (!current || window.__breadPresentationToken !== current.token) return;
+                const scale = innerWidth / current.width;
+                const project = value => value && Object.fromEntries(Object.entries(value).map(([key, value]) => [key, value * scale]));
+                const update = {token: current.token, display: current.display, controlInsetTop: current.inset * scale,
+                    controlBounds: project(current.controlBounds), safeAreaInsets: project(current.safeAreaInsets)};
+                const key = JSON.stringify(update);
+                if (current.projectedKey === key) return;
+                current.projectedKey = key;
+                window.__breadPresentationUpdate(update);
+            };
+            addEventListener('resize', window.__breadReprojectMetrics);
+            if (window.visualViewport) visualViewport.addEventListener('resize', window.__breadReprojectMetrics);
+        }
+        window.__breadReprojectMetrics();
+        return true;
+        """;
+
     private void reveal(long generation) {
         applyWindow();
         if (!state.canReveal(generation)) return;
         state.painted(generation);
         pendingPaint = -1;
         back.setVisibility(fullscreen() ? View.VISIBLE : View.GONE);
-        if (fullscreen() && !hintShown) {
-            hintShown = true;
-            hint.setVisibility(View.VISIBLE);
-            handler.postDelayed(() -> hint.setVisibility(View.GONE), 3500);
-        }
         if (ValueAnimator.areAnimatorsEnabled()) {
             cover.animate().alpha(0).setDuration(160).withEndAction(() -> {
                 finishReveal(generation);
@@ -571,10 +598,6 @@ final class BreadPresentationController {
         button.topMargin = controlTop;
         button.leftMargin = controlLeft;
         back.setLayoutParams(button);
-        FrameLayout.LayoutParams label = (FrameLayout.LayoutParams) hint.getLayoutParams();
-        label.topMargin = controlTop + dp(56);
-        label.leftMargin = controlLeft;
-        hint.setLayoutParams(label);
     }
 
     private int dp(int value) { return Math.round(value * owner.getContext().getResources().getDisplayMetrics().density); }

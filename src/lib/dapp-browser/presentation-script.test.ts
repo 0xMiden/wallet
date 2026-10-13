@@ -8,9 +8,15 @@ interface PageWindow {
   breadPresentation?: { postMessage: (value: string) => void };
   bread?: { version: number; presentation: { ready: () => Promise<void>; close: () => Promise<void> } };
   __breadPresentationToken?: string;
-  __breadPresentationState?: { token: string; display: string };
+  __breadPresentationState?: { token: string; display: string; controlBounds?: object; safeAreaInsets?: object };
   __breadPresentationRespond?: (response: { token: string; requestId: string; ok: boolean; error?: string }) => void;
-  __breadPresentationUpdate?: (update: { token: string; display: string; controlInsetTop: number }) => void;
+  __breadPresentationUpdate?: (update: {
+    token: string;
+    display: string;
+    controlInsetTop: number;
+    controlBounds?: unknown;
+    safeAreaInsets?: unknown;
+  }) => void;
 }
 function page(metadata = '', transport: 'ios' | 'android' | 'none' = 'ios') {
   const doc = document.implementation.createHTMLDocument();
@@ -179,4 +185,117 @@ it('refreshes injection padding from actual native presentation state without re
   expect(p.win.bread).toBe(api);
   p.win.__breadPresentationUpdate?.({ token: p.win.__breadPresentationToken!, display: 'browser', controlInsetTop: 0 });
   expect(p.doc.getElementById('miden-wallet-bottom-pad')?.textContent).toContain('96px');
+});
+
+const bounds = { left: 12, top: 62, width: 64, height: 48 };
+const safeArea = { top: 54, left: 0, right: 0, bottom: 34 };
+
+it('publishes independently frozen optional geometry and clears it on browser mode', () => {
+  const p = page();
+  p.evaluate();
+  const token = p.win.__breadPresentationToken!;
+  p.win.__breadPresentationUpdate?.({
+    token,
+    display: 'fullscreen',
+    controlInsetTop: 118,
+    controlBounds: bounds,
+    safeAreaInsets: safeArea
+  });
+  expect(p.doc.documentElement.style.getPropertyValue('--bread-control-top')).toBe('62px');
+  expect(p.doc.documentElement.style.getPropertyValue('--bread-safe-area-bottom')).toBe('34px');
+  expect(p.doc.documentElement.dataset.breadControlBounds).toBe('true');
+  expect(p.win.__breadPresentationState?.controlBounds).toEqual(bounds);
+  expect(Object.isFrozen(p.win.__breadPresentationState?.controlBounds)).toBe(true);
+  expect(Object.isFrozen(p.win.__breadPresentationState?.safeAreaInsets)).toBe(true);
+  p.win.__breadPresentationUpdate?.({
+    token,
+    display: 'browser',
+    controlInsetTop: 0,
+    controlBounds: bounds,
+    safeAreaInsets: safeArea
+  });
+  expect(p.doc.documentElement.style.getPropertyValue('--bread-control-top')).toBe('');
+  expect(p.doc.documentElement.style.getPropertyValue('--bread-safe-area-bottom')).toBe('');
+  expect(p.doc.documentElement.dataset.breadControlBounds).toBeUndefined();
+  expect(p.win.__breadPresentationState?.controlBounds).toBeUndefined();
+});
+
+it.each([
+  null,
+  {},
+  { ...bounds, top: -1 },
+  { ...bounds, left: Infinity },
+  { ...bounds, width: '64' },
+  { ...bounds, height: NaN }
+])('falls back to legacy inset for malformed rectangle %p', controlBounds => {
+  const p = page();
+  p.evaluate();
+  const token = p.win.__breadPresentationToken!;
+  p.win.__breadPresentationUpdate?.({
+    token,
+    display: 'fullscreen',
+    controlInsetTop: 118,
+    controlBounds: bounds,
+    safeAreaInsets: safeArea
+  });
+  p.win.__breadPresentationUpdate?.({
+    token,
+    display: 'fullscreen',
+    controlInsetTop: 130,
+    controlBounds,
+    safeAreaInsets: { ...safeArea, right: -1 }
+  });
+  expect(p.doc.documentElement.style.getPropertyValue('--bread-control-inset-top')).toBe('130px');
+  expect(p.doc.documentElement.style.getPropertyValue('--bread-control-top')).toBe('');
+  expect(p.doc.documentElement.style.getPropertyValue('--bread-safe-area-right')).toBe('');
+  expect(p.doc.documentElement.dataset.breadControlBounds).toBeUndefined();
+});
+
+it('preserves current geometry after stale token and returns to legacy updates safely', () => {
+  const p = page();
+  p.evaluate();
+  const token = p.win.__breadPresentationToken!;
+  p.win.__breadPresentationUpdate?.({
+    token,
+    display: 'fullscreen',
+    controlInsetTop: 118,
+    controlBounds: bounds,
+    safeAreaInsets: safeArea
+  });
+  p.win.__breadPresentationUpdate?.({ token: 'old', display: 'browser', controlInsetTop: 0 });
+  expect(p.doc.documentElement.style.getPropertyValue('--bread-control-left')).toBe('12px');
+  p.win.__breadPresentationUpdate?.({ token, display: 'fullscreen', controlInsetTop: 120 });
+  expect(p.doc.documentElement.style.getPropertyValue('--bread-control-left')).toBe('');
+  expect(p.doc.documentElement.style.getPropertyValue('--bread-control-inset-top')).toBe('120px');
+});
+
+it('keeps valid bounds when optional safe-area data is invalid', () => {
+  const p = page();
+  p.evaluate();
+  p.win.__breadPresentationUpdate?.({
+    token: p.win.__breadPresentationToken!,
+    display: 'fullscreen',
+    controlInsetTop: 118,
+    controlBounds: bounds,
+    safeAreaInsets: { ...safeArea, bottom: Infinity }
+  });
+  expect(p.doc.documentElement.dataset.breadControlBounds).toBe('true');
+  expect(p.doc.documentElement.style.getPropertyValue('--bread-control-width')).toBe('64px');
+  expect(p.win.__breadPresentationState?.safeAreaInsets).toBeUndefined();
+});
+
+it('keeps geometry snapshots independent of the update objects', () => {
+  const p = page();
+  p.evaluate();
+  const incoming = { ...bounds };
+  p.win.__breadPresentationUpdate?.({
+    token: p.win.__breadPresentationToken!,
+    display: 'fullscreen',
+    controlInsetTop: 118,
+    controlBounds: incoming,
+    safeAreaInsets: safeArea
+  });
+  incoming.width = 128;
+  expect(p.win.__breadPresentationState?.controlBounds).toEqual(bounds);
+  expect(p.doc.documentElement.style.getPropertyValue('--bread-control-width')).toBe('64px');
 });
