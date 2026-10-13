@@ -11,6 +11,8 @@ jest.mock('react-i18next', () => ({
 jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn(), hapticLight: jest.fn() }));
 
 const mockCheck = jest.fn<Promise<'granted' | 'rejected'>, [string]>();
+const mockWrite = jest.fn<Promise<void>, [{ string: string }]>();
+jest.mock('@capacitor/clipboard', () => ({ Clipboard: { write: (value: { string: string }) => mockWrite(value) } }));
 jest.mock('lib/mainnet-access', () => ({
   MAINNET_ACCESS_CODE_LENGTH: 12,
   isMainnetAccessCodeComplete: (code: string) => /^(?:[0-9]{8}|[A-Za-z0-9]{12})$/.test(code),
@@ -29,6 +31,7 @@ const submit = async () => {
 describe('MainnetAccessScreen', () => {
   beforeEach(() => {
     mockCheck.mockReset();
+    mockWrite.mockReset().mockResolvedValue(undefined);
   });
 
   it('asks for the code on the step layout, with its own title and no way on without a code', () => {
@@ -57,6 +60,19 @@ describe('MainnetAccessScreen', () => {
 
     type('8gKIgL0O6HcU');
     expect(submitButton()).toBeEnabled();
+  });
+
+  it('copies the entered code with its letter case and does not submit the form', async () => {
+    render(<MainnetAccessScreen />);
+    const copy = screen.getByTestId('onboarding-mainnet-access-copy');
+    expect(copy).toBeDisabled();
+    type('8gKIgL0O6HcU');
+    await act(async () => {
+      fireEvent.click(copy);
+    });
+    expect(mockWrite).toHaveBeenCalledWith({ string: '8gKIgL0O6HcU' });
+    expect(copy).toHaveAttribute('data-copied', 'true');
+    expect(mockCheck).not.toHaveBeenCalled();
   });
 
   it('asks the node, then hands an accepted code on with letter case preserved', async () => {

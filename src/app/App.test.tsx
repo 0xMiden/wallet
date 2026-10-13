@@ -192,9 +192,6 @@ jest.mock('app/templates/PinExtensionPrompt', () => ({
 }));
 
 // The gate reads useAppEnv and Woozie.useLocation, which the env and router mocks above do not provide.
-jest.mock('app/templates/TestnetEndedGate', () => ({
-  TestnetEndedGate: () => null
-}));
 jest.mock('app/templates/HotKeyRotationGate', () => ({
   HotKeyRotationGate: () => null
 }));

@@ -6,6 +6,7 @@ import { englishWordlist as wordslist, generateMnemonic } from '@miden/hd-key';
 import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
 import { markOnboardingFinishing, navigateOnFromOnboarding } from 'app/onboarding-finish';
+import { OnboardingNetwork } from 'app/templates/OnboardingNetwork';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import type { DecryptedWalletFile } from 'lib/miden/backup-file';
@@ -149,7 +150,26 @@ const fileRegistrationBinding = (payload: DecryptedWalletFile) => ({
   importedAccounts: payload.importedAccounts.map(({ secretKeyHex: _secretKeyHex, ...rest }) => rest)
 });
 
-const Welcome: FC = () => {
+function requiresCreateCode(hash: string, type: OnboardingType | null): boolean {
+  switch (hash) {
+    case '#select-wallet-type':
+    case '#choose-protection':
+    case '#setup-biometric':
+    case '#guardian-intro':
+    case '#meet-guardian':
+    case '#choose-guardian':
+      return true;
+    case '#network-notice':
+    case '#setup-passcode':
+    case '#create-password':
+    case '#confirmation':
+      return type !== OnboardingType.Import;
+    default:
+      return false;
+  }
+}
+
+const Welcome: FC<{ inviteOnly: boolean }> = ({ inviteOnly }) => {
   const { t } = useTranslation();
   const { hash } = useLocation();
   const [step, setStep] = useState(OnboardingStep.Welcome);
@@ -443,6 +463,9 @@ const Welcome: FC = () => {
   );
 
   const register = useCallback(async () => {
+    if (inviteOnly && onboardingType !== OnboardingType.Import && !accessCode) {
+      throw new Error(t('mainnetAccessOnboardingBody'));
+    }
     if (password && keyPairPayload) {
       // The pair stays in this onboarding component, never in wallet state.
       const actualPassword = password === '__HARDWARE_ONLY__' ? undefined : password;
@@ -519,6 +542,8 @@ const Welcome: FC = () => {
       throw new Error('Missing password or recovery phrase');
     }
   }, [
+    inviteOnly,
+    t,
     accessCode,
     password,
     seedPhrase,
@@ -662,6 +687,13 @@ const Welcome: FC = () => {
         startCreateFlow();
         break;
       case 'choose-protection':
+        if (inviteOnly) {
+          beginOnboardingFlow('create');
+          resetFlowState();
+          setOnboardingType(OnboardingType.Create);
+          navigate('/#mainnet-access');
+          break;
+        }
         beginOnboardingFlow('create');
         resetFlowState();
         // On a test network the chosen flow waits behind the network notice (#875); acknowledging
@@ -1020,6 +1052,11 @@ const Welcome: FC = () => {
       if (hash !== '#confirmation') navigate('/#confirmation');
       return;
     }
+    if (inviteOnly && !accessCode && requiresCreateCode(hash, onboardingType)) {
+      setStep(OnboardingStep.Welcome);
+      navigate('/');
+      return;
+    }
     switch (hash) {
       case '':
         setStep(OnboardingStep.Welcome);
@@ -1130,7 +1167,16 @@ const Welcome: FC = () => {
       default:
         break;
     }
-  }, [hash, password, onboardingType, isHardwareSecurityAvailable, biometricProtectionSupported, protectionStepRoute]);
+  }, [
+    hash,
+    password,
+    onboardingType,
+    isHardwareSecurityAvailable,
+    biometricProtectionSupported,
+    protectionStepRoute,
+    inviteOnly,
+    accessCode
+  ]);
 
   // The flow state's lifecycle, acting only when the hash CHANGES: the routing effect above re-runs on every
   // password or type change, and a reset there would wipe what the next action just set.
@@ -1146,7 +1192,7 @@ const Welcome: FC = () => {
       // Arriving at Welcome from inside the flow (history, an edited URL, a guard's redirect) ends the attempt.
       // The first render is not an arrival: a fresh load, or the E2E bypass seeding the flow on mount.
       if (previous !== null) cancelOnLeavingOnboarding('/');
-    } else if (hash === '#select-wallet-type' || hash === '#choose-protection') {
+    } else if (hash === '#select-wallet-type' || (hash === '#choose-protection' && !accessCode)) {
       // Every create submits its credential after these screens.
       resetFlowState();
     } else if (hash === '#select-import-type' && onboardingType !== OnboardingType.Import) {
@@ -1157,7 +1203,7 @@ const Welcome: FC = () => {
       // Also Meet your Guardian's back target inside a create, so only an import or a lost flow is reset here.
       resetFlowState();
     }
-  }, [hash, onboardingType, resetFlowState, cancelOnLeavingOnboarding]);
+  }, [hash, onboardingType, resetFlowState, cancelOnLeavingOnboarding, accessCode]);
 
   // Leaving the step (the Guardian lookup hand-off, switch-to-password, browser back) retires a failure message,
   // so it cannot greet a later visit.
@@ -1197,6 +1243,7 @@ const Welcome: FC = () => {
     <AwaitFonts name="Nunito" weights={[500, 600, 700]}>
       <div data-onboarding-root="true" className="h-full w-full bg-app-bg">
         <OnboardingFlow
+          inviteOnly={inviteOnly}
           wordslist={wordslist}
           seedPhrase={seedPhrase}
           onboardingType={onboardingType}
@@ -1222,4 +1269,8 @@ const Welcome: FC = () => {
   );
 };
 
-export default Welcome;
+const WelcomePage: FC = () => (
+  <OnboardingNetwork>{inviteOnly => <Welcome inviteOnly={inviteOnly} />}</OnboardingNetwork>
+);
+
+export default WelcomePage;

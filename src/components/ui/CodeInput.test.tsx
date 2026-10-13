@@ -26,6 +26,24 @@ describe('CodeInput', () => {
     expect(input).toHaveAttribute('maxlength', '8');
   });
 
+  it('stacks six-character groups with one input for the complete code', () => {
+    const { container } = render(
+      <CodeInput
+        value="8gKIgL0O6HcU"
+        onChange={jest.fn()}
+        label="Access code"
+        length={12}
+        groupSize={6}
+        layout="vertical"
+      />
+    );
+    const input = screen.getByRole('textbox');
+    expect(input.parentElement).toHaveClass('flex-col');
+    const groups = Array.from(container.querySelectorAll('[aria-hidden="true"].flex'));
+    expect(groups.map(group => group.textContent)).toEqual(['8gKIgL', '0O6HcU']);
+    expect(input.parentElement?.querySelectorAll(':scope > span')).toHaveLength(0);
+  });
+
   it('follows the length it is given', () => {
     const { container } = render(<Harness length={6} />);
 

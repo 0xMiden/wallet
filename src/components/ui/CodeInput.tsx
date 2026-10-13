@@ -14,6 +14,7 @@ export interface CodeInputProps {
   format?: 'numeric' | 'alphanumeric';
   /** The number of cells between two dashes. */
   groupSize?: number;
+  layout?: 'horizontal' | 'vertical';
   invalid?: boolean;
   disabled?: boolean;
   autoFocus?: boolean;
@@ -49,6 +50,7 @@ export const CodeInput = forwardRef<HTMLInputElement, CodeInputProps>(function C
     length = 8,
     format = 'numeric',
     groupSize = 4,
+    layout = 'horizontal',
     invalid,
     disabled,
     autoFocus,
@@ -62,11 +64,22 @@ export const CodeInput = forwardRef<HTMLInputElement, CodeInputProps>(function C
   const inputFormat = FORMATS[format];
 
   return (
-    <div className={cn('relative flex items-center justify-between gap-1.5', className)}>
+    <div
+      className={cn(
+        'relative flex items-center justify-between gap-1.5',
+        layout === 'vertical' && 'flex-col gap-3',
+        className
+      )}
+    >
       {groups.map((group, groupIndex) => (
         <React.Fragment key={group[0]}>
-          {groupIndex > 0 && <span aria-hidden="true" className="h-0.5 w-2 shrink-0 rounded-full bg-ink opacity-40" />}
-          <div aria-hidden="true" className={cn('flex gap-1.5', length > 8 && 'min-w-0 flex-1')}>
+          {groupIndex > 0 && layout === 'horizontal' && (
+            <span aria-hidden="true" className="h-0.5 w-2 shrink-0 rounded-full bg-ink opacity-40" />
+          )}
+          <div
+            aria-hidden="true"
+            className={cn('flex gap-1.5', length > 8 && 'min-w-0 flex-1', layout === 'vertical' && 'w-full')}
+          >
             {group.map(index => {
               const active = focused && index === value.length;
               return (

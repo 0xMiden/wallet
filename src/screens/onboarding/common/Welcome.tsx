@@ -18,6 +18,7 @@ import { NoCodeSheet } from './NoCodeSheet';
 
 export interface WelcomeScreenProps extends Omit<React.ButtonHTMLAttributes<HTMLDivElement>, 'onSubmit'> {
   onSubmit?: (action: Actions) => void;
+  inviteOnly?: boolean;
 }
 
 /**
@@ -47,7 +48,7 @@ function useConfigSettled(loading: boolean): boolean {
   return !loading || waitEnded;
 }
 
-export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
+export const WelcomeScreen = ({ onSubmit, inviteOnly: required = false }: WelcomeScreenProps) => {
   const { t } = useTranslation();
   const tapCount = useRef(0);
   const lastTap = useRef(0);
@@ -55,7 +56,10 @@ export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
   const settled = useConfigSettled(snapshot.status === 'loading');
   const [unlocked, setUnlocked] = useState(isInviteOnboardingUnlocked);
   const [noCodeOpen, setNoCodeOpen] = useState(false);
-  const { inviteOnly, tapsUnlockInviteOnly } = welcomeOnboarding(selectInviteOnlyOnboarding(snapshot), unlocked);
+  const { inviteOnly, tapsUnlockInviteOnly } = welcomeOnboarding(
+    required || selectInviteOnlyOnboarding(snapshot),
+    unlocked
+  );
   // Hidden, not removed, so the hero does not move when the actions show.
   const actionClassName = cn('max-w-none', !settled && 'invisible');
 

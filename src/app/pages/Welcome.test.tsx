@@ -54,6 +54,11 @@ const finishWarns = (warn: jest.SpyInstance) =>
 // exercises ONLY Welcome.tsx's own branching.
 // ---------------------------------------------------------------------------
 
+let mockInviteOnly = false;
+jest.mock('app/templates/OnboardingNetwork', () => ({
+  OnboardingNetwork: ({ children }: { children: (inviteOnly: boolean) => React.ReactNode }) => children(mockInviteOnly)
+}));
+
 // Latest props handed to the stubbed OnboardingFlow (re-read after every render
 // so `onAction` always reflects the component's current closure/state).
 const mockFlowProps: { current: any } = { current: null };
@@ -389,6 +394,7 @@ beforeEach(() => {
   mockOnFlowRender.current = null;
   mockBackHandlerRef.current = null;
   mockTestNetworkKey = 'testnet';
+  mockInviteOnly = false;
   mockIsMobileFn.mockReturnValue(false);
   mockIsDesktopFn.mockReturnValue(false);
   mockDesktopHW.mockResolvedValue(false);
@@ -1021,6 +1027,48 @@ describe('Welcome — hash → step routing', () => {
 // ===========================================================================
 
 describe('Welcome - mainnet access and the network notice (#875)', () => {
+  it.each(['#select-wallet-type', '#choose-protection', '#setup-biometric', '#setup-passcode'])(
+    'requires a code for the direct create route %s in invite-only mode',
+    async hash => {
+      mockInviteOnly = true;
+      await renderWelcome();
+      await setHash(hash);
+      expect(mockNavigate).toHaveBeenLastCalledWith('/');
+      expect(currentStep()).toBe(OnboardingStep.Welcome);
+    }
+  );
+
+  it('requires a code when the general create action is used in invite-only mode', async () => {
+    mockInviteOnly = true;
+    await renderWelcome();
+    await dispatch({ id: 'choose-protection' });
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#mainnet-access');
+  });
+
+  it('allows mainnet recovery without a code in invite-only mode', async () => {
+    mockInviteOnly = true;
+    mockTestNetworkKey = null;
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#select-import-type');
+    await setHash('#import-from-seed');
+    expect(currentStep()).toBe(OnboardingStep.ImportFromSeed);
+  });
+
+  it('keeps the accepted code through the mobile protection screen', async () => {
+    mockInviteOnly = true;
+    mockIsMobileFn.mockReturnValue(true);
+    mockBiometricHW.mockResolvedValue(true);
+    await renderWelcome();
+    await dispatch({ id: 'mainnet-access' });
+    await setHash('#mainnet-access');
+    await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+    await setHash('#choose-protection');
+    expect(currentStep()).toBe(OnboardingStep.ChooseProtection);
+    await setHash('#setup-biometric');
+    expect(currentStep()).toBe(OnboardingStep.SetupBiometric);
+  });
+
   it('invite-only Welcome: parks the create flow behind the mainnet access step and starts it on an accepted code', async () => {
     mockIsMobileFn.mockReturnValue(false);
     await renderWelcome();

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Button } from 'components/Button';
 import { CodeInput } from 'components/ui/CodeInput';
+import { CopyButton } from 'components/ui/CopyButton';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { checkMainnetAccessCode, isMainnetAccessCodeComplete, MAINNET_ACCESS_CODE_LENGTH } from 'lib/mainnet-access';
 
@@ -93,11 +94,15 @@ export const MainnetAccessScreen: React.FC<MainnetAccessScreenProps> = ({ onSubm
       }
     >
       <div className="flex flex-col gap-3 pt-5">
-        <span className="px-1 text-label text-muted">{t('mainnetAccessCodeLabel')}</span>
+        <div className="flex items-center justify-between px-1">
+          <span className="text-label text-muted">{t('mainnetAccessCodeLabel')}</span>
+          <CopyButton text={code} disabled={!code} icon="leading" data-testid="onboarding-mainnet-access-copy" />
+        </div>
         <CodeInput
           value={code}
           onChange={changeCode}
           length={MAINNET_ACCESS_CODE_LENGTH}
+          layout="vertical"
           groupSize={6}
           format="alphanumeric"
           label={t('mainnetAccessCodeLabel')}

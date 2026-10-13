@@ -41,6 +41,7 @@ import {
 } from './types';
 
 export interface OnboardingFlowProps {
+  inviteOnly?: boolean;
   wordslist: readonly string[];
   seedPhrase: string[] | null;
   onboardingType: OnboardingType | null;
@@ -131,6 +132,7 @@ const Header: React.FC<{
 );
 
 export const OnboardingFlow: FC<OnboardingFlowProps> = ({
+  inviteOnly,
   wordslist,
   seedPhrase,
   onboardingType,
@@ -279,7 +281,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
 
     switch (step) {
       case OnboardingStep.Welcome:
-        return <WelcomeScreen onSubmit={onWelcomeAction} />;
+        return <WelcomeScreen inviteOnly={inviteOnly} onSubmit={onWelcomeAction} />;
       case OnboardingStep.MainnetAccess:
         return <MainnetAccessScreen onSubmit={onMainnetAccessGranted} />;
       case OnboardingStep.NetworkNotice:
@@ -372,6 +374,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return <></>;
     }
   }, [
+    inviteOnly,
     step,
     meetGuardianProgress,
     isLoading,
