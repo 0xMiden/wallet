@@ -2,6 +2,10 @@
 
 ## 1.17.4 (TBD)
 
+### Features
+
+- [FEATURE][all] The Guardian operators of each network come from the `guardians` list in `0xMiden/wallet-config`, so a new or removed operator reaches every wallet within about an hour with no release; the list the wallet ships with is used only until a document names the operators.
+
 ### Fixes
 
 - [FIX][all] A dApp custom request from a Guardian account that declares the network accounts its notes target as public foreign accounts is no longer refused; any other foreign account still is.

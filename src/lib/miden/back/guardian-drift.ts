@@ -514,13 +514,15 @@ async function runGuardianDriftPass(
       //
       // So the claim gets corroborated instead of believed. The built-ins report
       // themselves over the same unauthenticated endpoint, but the asymmetry is
-      // in WHO chose the URL: `getBuiltInGuardianOptionsForNetwork` is wallet
-      // code, whereas the stored endpoint is mutable vault state that this very
+      // in WHO chose the URL: `getBuiltInGuardianOptionsForNetwork` is the
+      // wallet's own configuration (the `0xMiden/wallet-config` document's
+      // `guardians`, else the bundled list), whereas the stored endpoint is
+      // mutable vault state that this very
       // function writes. Deliberately NOT the onboarding picker's
       // `getGuardianOptionsForNetwork`, which appends the developer URL override:
       // that is persisted, user-settable state, so including it would seat the
-      // same category of value on both sides of the comparison. Trusting wallet
-      // code is bounded by the wallet's own configuration; trusting what is in
+      // same category of value on both sides of the comparison. Trusting that
+      // list is bounded by the wallet's own configuration; trusting what is in
       // the vault, or in settings, is bounded by nothing.
       const corroboration = await identifyGuardianOperator(onChain);
       // Corroboration that could not RUN is not corroboration that found

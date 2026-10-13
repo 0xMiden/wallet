@@ -1,3 +1,4 @@
+import { _resetGuardianRegistryForTest, getNetworkGuardians } from 'lib/miden-chain/guardian-registry';
 import { FOREGROUND_STALE_MS, MAX_BACKOFF_MS } from 'lib/versioned-document';
 
 import type { FeatureAvailability, UnavailableReason } from './availability';
@@ -16,7 +17,7 @@ import {
   _refreshBridgeConfigForTest,
   subscribeBridgeConfig
 } from './runtime';
-import type { BridgeConfig } from './schema';
+import type { BridgeConfig, GuardianConfig } from './schema';
 import type { StoredBridgeConfig } from './source';
 import { selectNativeEthFaucet } from './values';
 
@@ -1070,5 +1071,96 @@ describe('the poll schedule', () => {
     await initBridgeConfig();
     await flush();
     expect(mockFeatureAvailability).toHaveBeenCalledWith('earnDeposit', getBridgeConfigSnapshot(), mockOverrides);
+  });
+});
+
+describe('the Guardian operators', () => {
+  const KODA = { id: 'kodax', name: 'Koda', operatedBy: 'Koda', location: 'Asia', endpoint: 'https://koda.example' };
+  const NEW = { id: 'new-one', name: 'New', operatedBy: 'New Co', location: 'EU', endpoint: 'https://new.example' };
+  const BUNDLED_TESTNET = ['open-zeppelin', 'gateway', 'lambda-class', 'kodax'];
+  // A stored document of `version` that lists `guardians`, with its derivation, as a fetch leaves them.
+  const seedGuardians = (version: number, guardians: GuardianConfig[] | undefined, network = 'testnet') => {
+    const document = { ...config(version, network), ...(guardians === undefined ? {} : { guardians }) };
+    mockStorage.set(`bridge_config_v1:${network}`, { config: document, fetchedAt: NOW });
+    mockStorage.set(`bridge_config_derived_v1:${network}`, derivedFor(document, NOW));
+  };
+  const ids = (network = 'testnet') => getNetworkGuardians(network).map(option => option.id);
+
+  beforeEach(() => _resetGuardianRegistryForTest());
+  afterAll(() => _resetGuardianRegistryForTest());
+
+  it('are the bundled list until a document is read', () => {
+    expect(ids()).toEqual(BUNDLED_TESTNET);
+  });
+
+  it('become the stored document list once the realm hydrates, with no fetch', async () => {
+    seedGuardians(3, [KODA, NEW]);
+    await initBridgeConfig();
+    expect(getNetworkGuardians('testnet')).toEqual([KODA, NEW]);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('stay the bundled list under a document that has no guardians section', async () => {
+    seedGuardians(3, undefined);
+    await initBridgeConfig();
+    expect(ids()).toEqual(BUNDLED_TESTNET);
+  });
+
+  it('follow a newer document that a fetch brings', async () => {
+    seedGuardians(3, [KODA]);
+    await initBridgeConfig();
+    mockFetch.mockImplementation(async network => {
+      seedGuardians(4, [NEW, KODA], network);
+      return { config: { ...config(4, network), guardians: [NEW, KODA] }, fetchedAt: Date.now() };
+    });
+    await _refreshBridgeConfigForTest();
+    expect(ids()).toEqual(['new-one', 'kodax']);
+  });
+
+  it('go back to the bundled list when a newer document drops the section', async () => {
+    seedGuardians(3, [NEW]);
+    await initBridgeConfig();
+    mockFetch.mockImplementation(async network => storeEntry(network, 4));
+    await _refreshBridgeConfigForTest();
+    expect(ids()).toEqual(BUNDLED_TESTNET);
+  });
+
+  it('keep the document list when a fetch fails', async () => {
+    seedGuardians(3, [NEW]);
+    await initBridgeConfig();
+    failFetch();
+    await _refreshBridgeConfigForTest();
+    expect(ids()).toEqual(['new-one']);
+  });
+
+  it('follow a newer document another realm committed', async () => {
+    seedGuardians(3, [KODA]);
+    await initBridgeConfig();
+    seedGuardians(4, [NEW]);
+    fireChange(CACHE);
+    await flush();
+    expect(ids()).toEqual(['new-one']);
+  });
+
+  it('keep the list a wipe took the document of, and with no document to follow', async () => {
+    seedGuardians(3, [NEW]);
+    await initBridgeConfig();
+    mockStorage.clear();
+    failFetch();
+    await rereadAfterWipe();
+    await flush();
+    expect(getBridgeConfigSnapshot().config).toBeNull();
+    expect(ids()).toEqual(['new-one']);
+  });
+
+  it('give each network its own document list', async () => {
+    seedGuardians(3, [NEW]);
+    seedGuardians(5, [KODA], 'devnet');
+    await initBridgeConfig();
+    expect(ids('devnet')).toEqual(['open-zeppelin']);
+    mockNetwork = 'devnet';
+    await initBridgeConfig();
+    expect(ids('devnet')).toEqual(['kodax']);
+    expect(ids('testnet')).toEqual(['new-one']);
   });
 });

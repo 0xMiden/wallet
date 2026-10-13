@@ -15,6 +15,7 @@
 import { GuardianHttpClient } from '@openzeppelin/guardian-client';
 
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import { _resetGuardianRegistryForTest, setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
 
 import {
   checkEndpointCommitment,
@@ -77,6 +78,13 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveGuardianUrl: () => mockGuardianUrlOverride
 }));
 
+// The config document's hydration, which every round awaits before it reads the built-in operators. A test gives it
+// the list a stored document would put in the registry.
+let mockHydrateConfigDocument: () => void = () => undefined;
+jest.mock('lib/remote-config/runtime', () => ({
+  initBridgeConfig: async () => mockHydrateConfigDocument()
+}));
+
 // The shared native-HTTP double records the probe each `GET /pubkey` takes and its verdict.
 jest.mock('lib/miden/guardian/native-http');
 const { mockProbedEndpoints, mockProbeVerdicts, resetMockProbes } = jest.requireMock<
@@ -86,6 +94,46 @@ const { mockProbedEndpoints, mockProbeVerdicts, resetMockProbes } = jest.require
 afterEach(() => {
   jest.restoreAllMocks();
   mockPubkeyByEndpoint = { ...MOCK_DEFAULT_PUBKEYS };
+  mockHydrateConfigDocument = () => undefined;
+  _resetGuardianRegistryForTest();
+});
+
+// The built-ins are the config document's `guardians`, not the bundled list, once a document names them. The round
+// must read the list only after the stored document is in memory: a service-worker lap can run before startup did.
+describe('the config document operators', () => {
+  const LISTED = 'https://listed.guardian.test';
+  const listOnly = (endpoint: string) => () =>
+    setDocumentGuardians(MIDEN_NETWORK_NAME.TESTNET, [
+      { id: 'listed', name: 'Listed', operatedBy: 'Listed Co', location: 'EU', endpoint }
+    ]);
+
+  it('identifies an operator only the document lists, hydrated by the round itself', async () => {
+    mockPubkeyByEndpoint[LISTED] = served(KEY_F);
+    mockHydrateConfigDocument = listOnly(LISTED);
+
+    expect(await identifyGuardianOperator(KEY_F, MIDEN_NETWORK_NAME.TESTNET)).toEqual({
+      outcome: 'identified',
+      operator: expect.objectContaining({ id: 'listed', endpoint: LISTED })
+    });
+  });
+
+  it('no longer names a bundled operator the document removed', async () => {
+    mockPubkeyByEndpoint[LISTED] = served(KEY_F);
+    mockHydrateConfigDocument = listOnly(LISTED);
+
+    // OpenZeppelin still serves KEY_A, but it is not in the document: the round is complete without it.
+    expect(await identifyGuardianOperator(KEY_A, MIDEN_NETWORK_NAME.TESTNET)).toEqual({ outcome: 'none' });
+  });
+
+  it('asks only the listed operators', async () => {
+    mockPubkeyByEndpoint[LISTED] = served(KEY_F);
+    mockHydrateConfigDocument = listOnly(LISTED);
+    resetMockProbes();
+
+    await identifyGuardianOperator(KEY_F, MIDEN_NETWORK_NAME.TESTNET);
+
+    expect(mockProbedEndpoints).toEqual([LISTED]);
+  });
 });
 
 describe('normalizeHex', () => {

@@ -33,6 +33,25 @@ export interface SwapConfig {
   etaUrl?: string;
 }
 
+/** The picker pings every listed Guardian operator, so the list is bounded. */
+export const MAX_GUARDIANS = 16;
+export const MAX_GUARDIAN_ID_LENGTH = 32;
+/** The longest name, operator or location the wallet shows. */
+export const MAX_GUARDIAN_LABEL_LENGTH = 48;
+/** Ids the wallet gives its own entries: the developer's custom endpoint and the no-Guardian choice. */
+export const RESERVED_GUARDIAN_IDS: readonly string[] = ['custom', 'no-guardian'];
+
+/** A Guardian operator as the document lists it: the shape of `ResolvedGuardianOption`. */
+export interface GuardianConfig {
+  /** Unique in the list. Keys the bundled logo and description; an id with neither shows `name` and `operatedBy`. */
+  id: string;
+  name: string;
+  operatedBy: string;
+  location: string;
+  /** The Guardian base URL, without a trailing slash; unique in the list. */
+  endpoint: string;
+}
+
 /** EVM chains the wallet ships RPC and explorer definitions for: the WalletConnect chain registry (Sepolia). */
 export const SUPPORTED_EVM_CHAIN_IDS: readonly number[] = SUPPORTED_CHAINS.map(chain => chain.id);
 
@@ -67,11 +86,21 @@ export interface BridgeConfig {
   mainnetCountdown?: MainnetCountdownConfig;
   /** Always set by the parser; optional in the type for the same reason. Absent reads as no swap tokens. */
   swap?: SwapConfig;
+  /**
+   * The network's Guardian operators in picker order, the first being the default. Never empty. Absent means the
+   * document names none, and the wallet uses the list it ships with (`lib/miden-chain/guardian-registry`).
+   */
+  guardians?: GuardianConfig[];
 }
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const MIDEN_ACCOUNT_ID = /^0x[0-9a-fA-F]{30}$/;
 const TOKEN_SYMBOL = /^[A-Z]{1,6}$/;
+// Lower-case letters and digits in groups joined by single hyphens.
+const GUARDIAN_ID = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+// C0 controls, DEL and C1 controls: none belongs in a line of text the wallet shows.
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/;
 // An RFC 3339 timestamp in UTC, such as 2026-10-26T00:00:00Z: one spelling, so every wallet reads the same instant.
 const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const LOCAL_HTTP_HOSTS = ['127.0.0.1', 'localhost'];
@@ -209,6 +238,40 @@ function readSwapTokens(value: unknown): SwapTokenConfig[] {
   return tokens;
 }
 
+function guardianId(value: unknown): string {
+  if (typeof value !== 'string' || value.length > MAX_GUARDIAN_ID_LENGTH || !GUARDIAN_ID.test(value)) return invalid();
+  return RESERVED_GUARDIAN_IDS.includes(value) ? invalid() : value;
+}
+
+// A line of text the wallet shows as written: 1 to 48 characters, no control character, no space at either end.
+function guardianLabel(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > MAX_GUARDIAN_LABEL_LENGTH) return invalid();
+  return value !== value.trim() || CONTROL_CHARACTER.test(value) ? invalid() : value;
+}
+
+function readGuardian(value: unknown, url: (value: unknown) => string): GuardianConfig {
+  if (!isRecord(value)) return invalid();
+  return {
+    id: guardianId(value.id),
+    name: guardianLabel(value.name),
+    operatedBy: guardianLabel(value.operatedBy),
+    location: guardianLabel(value.location),
+    endpoint: url(value.endpoint)
+  };
+}
+
+// The list in the document's order. An empty list would leave a new wallet with no operator to choose, so it is
+// refused: a document that names no operator omits the field. Two entries for one id or one endpoint are ambiguous.
+function readGuardians(value: unknown, url: (value: unknown) => string): GuardianConfig[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_GUARDIANS) return invalid();
+  const guardians = value.map(entry => readGuardian(entry, url));
+  const ids = new Set(guardians.map(guardian => guardian.id));
+  const endpoints = new Set(guardians.map(guardian => guardian.endpoint));
+  if (ids.size !== guardians.length || endpoints.size !== guardians.length) return invalid();
+  return guardians;
+}
+
 function readConfig(body: unknown, network: string, allowLocalHttp: boolean): BridgeConfig {
   if (!isRecord(body)) return invalid();
   const { version } = body;
@@ -229,6 +292,7 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   const midenUsdcFaucet = read(epoch, 'midenUsdcFaucet', midenAccountId);
   const evmUsdc = read(epoch, 'evmUsdc', evmAddress);
   const protocol = read(epoch, 'earnProtocol', earnProtocol);
+  const guardians = readGuardians(body.guardians, url);
   return {
     network,
     version,
@@ -252,7 +316,8 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
       bridgeOut: featureSwitch(features, 'bridgeOut')
     },
     mainnetCountdown: readCountdown(body.mainnetCountdown),
-    swap: { tokens: readSwapTokens(swap.tokens), ...(etaUrl === undefined ? {} : { etaUrl }) }
+    swap: { tokens: readSwapTokens(swap.tokens), ...(etaUrl === undefined ? {} : { etaUrl }) },
+    ...(guardians === undefined ? {} : { guardians })
   };
 }
 

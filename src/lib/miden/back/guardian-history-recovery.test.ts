@@ -8,7 +8,6 @@ import {
 
 import { reportGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
-import { MIDEN_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/constants';
 import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
@@ -68,9 +67,14 @@ jest.mock('lib/miden/front/storage', () => {
   };
 });
 jest.mock('lib/guardian-note-recovery-progress', () => ({ reportGuardianNoteRecoveryProgress: jest.fn() }));
+// The network's operators; a test may replace a network's list and restore it.
+const mockNetworkGuardianEndpoints = new Map<string, string[]>([['testnet', ['https://one/', 'https://two']]]);
 jest.mock('lib/miden-chain/constants', () => ({
-  MIDEN_GUARDIAN_ENDPOINTS: new Map([['testnet', ['https://one/', 'https://two']]])
+  getGuardianEndpointsForNetwork: (network: string) => mockNetworkGuardianEndpoints.get(network) ?? []
 }));
+// The pass hydrates the config document before it reads the network's operators.
+const mockInitBridgeConfig = jest.fn(async () => undefined);
+jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: () => mockInitBridgeConfig() }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
 // The node a terminal fee answer came from: the effective RPC URL and network name.
 let mockFeeScope = 'rpc-a|testnet';
@@ -2374,8 +2378,8 @@ it('does not visit a plain http operator on a remote host', async () => {
 
 it('reads a renamed built-in host once under the spelling the account saved', async () => {
   const oldHost = 'https://guardian.openzeppelin.com';
-  const builtIn = MIDEN_GUARDIAN_ENDPOINTS.get('testnet');
-  MIDEN_GUARDIAN_ENDPOINTS.set('testnet', ['https://guardian-testnet.openzeppelin.com']);
+  const builtIn = mockNetworkGuardianEndpoints.get('testnet');
+  mockNetworkGuardianEndpoints.set('testnet', ['https://guardian-testnet.openzeppelin.com']);
   jest.mocked(resolveGuardianEndpoint).mockReturnValue(oldHost);
   try {
     source(oldHost, [{ entries: [entry(1)] }]);
@@ -2383,7 +2387,7 @@ it('reads a renamed built-in host once under the spelling the account saved', as
     expect(createClient.mock.calls.map(call => call[1])).toEqual([oldHost]);
     expect(Object.values((await readGuardianHistoryState()).checkpoints)).toHaveLength(1);
   } finally {
-    MIDEN_GUARDIAN_ENDPOINTS.set('testnet', builtIn ?? []);
+    mockNetworkGuardianEndpoints.set('testnet', builtIn ?? []);
     jest.mocked(resolveGuardianEndpoint).mockReturnValue('https://one');
   }
 });
@@ -2391,8 +2395,8 @@ it('reads a renamed built-in host once under the spelling the account saved', as
 it('finds a checkpoint written under the old host name when the list spells the new one', async () => {
   const oldHost = 'https://guardian.openzeppelin.com';
   const newHost = 'https://guardian-testnet.openzeppelin.com';
-  const builtIn = MIDEN_GUARDIAN_ENDPOINTS.get('testnet');
-  MIDEN_GUARDIAN_ENDPOINTS.set('testnet', [newHost]);
+  const builtIn = mockNetworkGuardianEndpoints.get('testnet');
+  mockNetworkGuardianEndpoints.set('testnet', [newHost]);
   try {
     await saveCheckpoint('https://one', { completed: true });
     await saveCheckpoint(oldHost, { completed: true });
@@ -2401,23 +2405,23 @@ it('finds a checkpoint written under the old host name when the list spells the 
     expect((await run()).sourceFailures).toBe(0);
     expect(createClient).not.toHaveBeenCalled();
   } finally {
-    MIDEN_GUARDIAN_ENDPOINTS.set('testnet', builtIn ?? []);
+    mockNetworkGuardianEndpoints.set('testnet', builtIn ?? []);
   }
 });
 
 describe('own operator across a renamed host', () => {
   const oldHost = 'https://guardian.openzeppelin.com';
   const newHost = 'https://guardian-testnet.openzeppelin.com';
-  const builtIn = MIDEN_GUARDIAN_ENDPOINTS.get('testnet');
+  const builtIn = mockNetworkGuardianEndpoints.get('testnet');
   const hostCheckpoint = async () => operatorCheckpoint(newHost);
 
   // The list keeps the built-in new spelling while the wallet's own switch row recorded the old one.
   beforeEach(async () => {
-    MIDEN_GUARDIAN_ENDPOINTS.set('testnet', [newHost]);
+    mockNetworkGuardianEndpoints.set('testnet', [newHost]);
     await switchRow(ITransactionStatus.Completed, oldHost, 'https://one');
   });
   afterEach(() => {
-    MIDEN_GUARDIAN_ENDPOINTS.set('testnet', builtIn ?? []);
+    mockNetworkGuardianEndpoints.set('testnet', builtIn ?? []);
   });
 
   it('counts an unsupported answer as an own failure and leaves its checkpoint open', async () => {

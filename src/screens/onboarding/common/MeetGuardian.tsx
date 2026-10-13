@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useGuardianPings } from 'app/hooks/useGuardianAvailability';
+import { useGuardianOptions } from 'app/hooks/useGuardianOptions';
 import { Button } from 'components/Button';
 import { GuardianLogoTile } from 'components/GuardianLogoTile';
 import { Notice } from 'components/ui/Notice';
@@ -10,7 +11,6 @@ import { Pill } from 'components/ui/Pill';
 import { Skeleton } from 'components/ui/Skeleton';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { TextAction } from 'components/ui/TextAction';
-import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
 import { MeetGuardianProgress, NO_GUARDIAN_ID } from 'screens/onboarding/types';
 
@@ -49,7 +49,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
   const { chosenId, fastestId } = progress;
 
   // Providers that run a Guardian on the active network, resolved to their endpoint on it.
-  const options = useMemo(() => getGuardianOptionsForNetwork(), []);
+  const options = useGuardianOptions();
   const endpoints = useMemo(() => options.map(option => option.endpoint), [options]);
   const verdicts = useGuardianPings(endpoints);
 

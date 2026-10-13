@@ -6,7 +6,6 @@ import {
   MIDEN_FAUCET_API_ENDPOINTS,
   MIDEN_EXPLORER_ENDPOINTS,
   MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS,
-  MIDEN_GUARDIAN_ENDPOINTS,
   DEFAULT_NETWORK
 } from './constants';
 import {
@@ -218,7 +217,8 @@ describe('effective-endpoints resolver', () => {
     it('falls back to the effective network default guardian endpoint when no override is loaded', () => {
       const m = loadModule();
       const network = m.getEffectiveNetworkName();
-      expect(m.getEffectiveDefaultGuardianEndpoint()).toBe(MIDEN_GUARDIAN_ENDPOINTS.get(network)?.[0]);
+      expect(network).toBe(MIDEN_NETWORK_NAME.TESTNET);
+      expect(m.getEffectiveDefaultGuardianEndpoint()).toBe('https://guardian-testnet.openzeppelin.com');
     });
 
     it('is keyed by the effective (overridden) network, not the build network, when no custom guardian URL is set', async () => {
@@ -230,16 +230,27 @@ describe('effective-endpoints resolver', () => {
       override.guardianUrl = '';
       await m.applyEndpointOverride(override);
       expect(m.getEffectiveNetworkName()).toBe(MIDEN_NETWORK_NAME.DEVNET);
-      expect(m.getEffectiveDefaultGuardianEndpoint()).toBe(
-        MIDEN_GUARDIAN_ENDPOINTS.get(MIDEN_NETWORK_NAME.DEVNET)?.[0]
-      );
+      expect(m.getEffectiveDefaultGuardianEndpoint()).toBe('https://guardian-devnet.openzeppelin.com');
+    });
+
+    it('takes the first operator of the config document list once the realm has one', () => {
+      let m!: typeof import('./effective-endpoints');
+      jest.isolateModules(() => {
+        const { setDocumentGuardians } = require('./guardian-registry');
+        m = require('./effective-endpoints');
+        setDocumentGuardians(m.getEffectiveNetworkName(), [
+          { id: 'kodax', name: 'Koda', operatedBy: 'Koda', location: 'Asia', endpoint: 'https://koda.example' },
+          { id: 'open-zeppelin', name: 'OZ', operatedBy: 'OZ', location: 'US', endpoint: 'https://oz.example' }
+        ]);
+      });
+      expect(m.getEffectiveDefaultGuardianEndpoint()).toBe('https://koda.example');
+      expect(m.buildDefaultOverrideFor(m.getEffectiveNetworkName()).guardianUrl).toBe('https://koda.example');
     });
 
     it("returns '' when the effective network has no configured guardian and no custom URL is set", async () => {
       const m = loadModule();
       await m.applyEndpointOverride(m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.MAINNET));
       expect(m.getEffectiveNetworkName()).toBe(MIDEN_NETWORK_NAME.MAINNET);
-      expect(MIDEN_GUARDIAN_ENDPOINTS.get(MIDEN_NETWORK_NAME.MAINNET)).toBeUndefined();
       expect(m.getEffectiveDefaultGuardianEndpoint()).toBe('');
     });
   });
