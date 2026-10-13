@@ -2,6 +2,8 @@
 
 ## Project Structure & Module Organization
 
+The wallet only allows creating Guardian accounts. All accounts in the wallet are Guardian (guarded multisig) accounts. Treat this as a product invariant when implementing features or diagnosing reports; do not ask whether a wallet account is a Guardian account or assume a single-signature wallet account.
+
 Miden Wallet ships as a Chrome/Firefox extension, iOS/Android app (Capacitor), and macOS app (Tauri). React + Zustand frontend; service-worker backend (Effector store + vault). The backend is the source of truth; the frontend syncs via intercom port messaging (`src/lib/intercom/`).
 
 The main TypeScript/React application lives in `src/`. Put reusable UI in `src/components/`, screens and flows in `src/screens/`, app routing/providers in `src/app/`, and platform or domain logic in `src/lib/`:

@@ -6,6 +6,7 @@
 
 - [FIX][ios] Wallet pages extend to the display bottom beneath the home indicator. Navigation, review actions and pinned controls retain their safe-area clearance while keyboard insets continue to protect focused flows.
 - [FIX][all] Opt-in crash reports retain scrubbed causes, capture source, app/build identity and validated compiled positions, with source-bound request types, approval-id categories and SDK startup stages. Unvalidated frame paths are omitted; diagnostics exclude request payloads, addresses, amounts and device identifiers.
+- [FIX][all] Handled transaction failures reach opt-in Sentry reporting, including failures with the extension popup closed and later bridge, earn and node-verdict failures. Reports retain closed execution and authentication diagnostics without transaction values or user identifiers.
 - [FIX][all] Amount entry keeps canonical Latin digits on Persian and Arabic devices, preventing lost digits and invalid base-unit conversion in Send and Swap. Incomplete or malformed swap amounts clear the previous quote and wait for valid input.
 - [FIX][mobile] Fullscreen dApps publish the occupied Bread control rectangle and safe-area metrics so headers can share its row, restore retained covered pages before foreground reveal, and minimize into Bread through its logo without reloading the game when reopened. Wallet overlays and fresh paint checks retain ownership.
 

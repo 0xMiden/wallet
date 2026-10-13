@@ -97,6 +97,48 @@ afterEach(() => {
 });
 
 describe('integration selection', () => {
+  it('does not resurrect a pending lazy report after reporting is stopped', async () => {
+    let allow: (value: boolean) => void = () => {};
+    jest.mocked(isTelemetryEnabledAsync).mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          allow = resolve;
+        })
+    );
+    captureCrash(new Error('handled transaction failed'), 'manual', { initializeIfNeeded: true });
+    stopCrashReporting();
+    allow(true);
+    await flushMicrotasks();
+    expect(clientOptions).toHaveLength(0);
+    expect(captured).toHaveLength(0);
+  });
+
+  it('initializes handled-only reporting without new global error listeners', async () => {
+    consentOn();
+    const listener = jest.spyOn(globalThis, 'addEventListener');
+    captureCrash(new Error('handled transaction failed'), 'manual', { initializeIfNeeded: true });
+    await flushMicrotasks();
+    expect(captured).toHaveLength(1);
+    expect(listener).not.toHaveBeenCalled();
+    listener.mockRestore();
+  });
+  it('initializes once when a handled failure arrives without any frontend scope', async () => {
+    consentOn();
+    captureCrash(new Error('handled transaction failed'), 'manual', { initializeIfNeeded: true });
+    await flushMicrotasks();
+    captureCrash(new Error('another transaction failed'), 'manual', { initializeIfNeeded: true });
+    await flushMicrotasks();
+    expect(clientOptions).toHaveLength(1);
+    expect(captured).toHaveLength(2);
+  });
+
+  it('does not initialize a lazy crash client when consent is disabled', async () => {
+    consentOff();
+    captureCrash(new Error('handled transaction failed'), 'manual', { initializeIfNeeded: true });
+    await flushMicrotasks();
+    expect(clientOptions).toHaveLength(0);
+    expect(captured).toHaveLength(0);
+  });
   it('pins the allowlist contents, so nothing can be added without a test change', () => {
     expect(CRASH_INTEGRATION_ALLOWLIST).toEqual(['InboundFilters', 'LinkedErrors', 'Dedupe']);
   });
@@ -193,12 +235,16 @@ describe('client construction', () => {
 
   it('stops reporting global errors once crash reporting stops', async () => {
     consentOn();
+    const add = jest.spyOn(globalThis, 'addEventListener');
     initCrashReporting();
+    const handler = add.mock.calls.find(([type]) => type === 'error')?.[1] as EventListener;
+    expect(typeof handler).toBe('function');
     stopCrashReporting();
-    globalThis.dispatchEvent(new ErrorEvent('error', { error: new Error('boom') }));
+    handler(new ErrorEvent('error', { error: new Error('boom') }));
     await flushMicrotasks();
 
     expect(captured).toHaveLength(0);
+    add.mockRestore();
   });
 
   it('does not throw when closing the client fails', () => {

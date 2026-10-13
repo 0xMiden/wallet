@@ -56,12 +56,13 @@
 
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
-import { clearGuardianAccountLocks } from 'lib/miden/guardian/serialize';
+import { clearGuardianAccountLocks, GuardianBackpressureError } from 'lib/miden/guardian/serialize';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { WalletType } from 'screens/onboarding/types';
 
 import { isUnconfirmedFailure, TRANSACTION_EXPIRED_ERROR } from './constants';
 import { generateTransaction, MAX_QUEUED_AGE } from './index';
+import { requeueFailedTransaction } from './retry';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransaction, ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
 import { markErrorBeforeSubmit } from '../sdk/sdk-error-code';
@@ -96,6 +97,7 @@ var mockThrowOnStageWrite: string | null = null;
 // Makes the row read inside the requeue wake fail a bounded number of times, so
 // the wake's read-failure path is reachable. Armed AFTER the requeue, since the
 // requeue itself reads the row through the same seam.
+var mockFailDiagnosticWrite = false;
 var mockFailRowReads: { id: string; times: number } | null = null;
 
 // One-shot: the next read of this row returns the row as it was, then advances
@@ -152,7 +154,16 @@ jest.mock('lib/miden/repo', () => ({
           // these fixtures carry.
           const draft = dexieLikeClone(row);
           if (fn(draft) === false) mockDeclinedWrites += 1;
-          else Object.assign(row, draft);
+          else {
+            if (mockFailDiagnosticWrite && draft.failureDiagnostics !== row.failureDiagnostics) {
+              mockFailDiagnosticWrite = false;
+              throw new Error('diagnostic storage unavailable');
+            }
+            for (const key of Object.keys(row)) {
+              if (!Object.prototype.hasOwnProperty.call(draft, key)) delete row[key];
+            }
+            Object.assign(row, draft);
+          }
         }
         if (mockThrowOnStageWrite !== null && row?.stage === mockThrowOnStageWrite && stageBefore !== row.stage) {
           throw new Error(`dexie write blew up stamping '${mockThrowOnStageWrite}'`);
@@ -215,13 +226,22 @@ jest.mock('../front', () => ({
   onStorageChanged: jest.fn()
 }));
 
-const mockPrepareCustomRequestBytes = jest.fn(async (_client: unknown, _account: string, bytes: Uint8Array) => bytes);
+const mockPrepareCustomRequestBytes = jest.fn(
+  async (
+    _client: unknown,
+    _account: string,
+    bytes: Uint8Array,
+    _hold?: unknown,
+    _observe?: (diagnostics: import('lib/telemetry/transaction-failure').TransactionFailureDiagnostics) => void
+  ) => bytes
+);
 jest.mock('lib/miden/sdk/custom-request', () => ({
-  prepareCustomRequestBytes: (client: unknown, account: string, bytes: Uint8Array) =>
-    mockPrepareCustomRequestBytes(client, account, bytes)
+  prepareCustomRequestBytes: (...args: Parameters<typeof mockPrepareCustomRequestBytes>) =>
+    mockPrepareCustomRequestBytes(...args)
 }));
 
 jest.mock('lib/settings/constants', () => ({}));
+jest.mock('lib/telemetry/transaction-failure', () => ({ reportTransactionFailure: jest.fn() }));
 
 const mockIsGuardianAccount = jest.fn();
 const mockGetOrCreateMultisigService = jest.fn();
@@ -575,6 +595,7 @@ beforeEach(() => {
   mockPlatformIsExtension = true;
   mockThrowOnStageWrite = null;
   mockFailRowReads = null;
+  mockFailDiagnosticWrite = false;
   mockClaimRowOnRead = null;
   mockDeclinedWrites = 0;
   mockScansSeeStore = false;
@@ -2588,6 +2609,108 @@ describe('guardian custom proposals preserve the prepared request through signin
     expect(service.createCustomProposal).toHaveBeenCalledWith(enriched);
     expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop', enriched);
     expect(Array.from(txStore.find(row => row.id === id)!.requestBytes as Uint8Array)).toEqual([71, 72, 73]);
+  });
+
+  it('execute: persists auth diagnostics before creating the proposal', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'diagnosed-execute';
+    const { service } = arrange(id, executeCase.row);
+    const diagnostics = { authPreparation: 'provided', authLayout: 'fee', commitmentMatch: 'neither' } as const;
+    mockPrepareCustomRequestBytes.mockImplementationOnce(async (_client, _account, bytes, _hold, observe) => {
+      observe?.(diagnostics);
+      return bytes;
+    });
+    service.createCustomProposal.mockImplementationOnce(async () => {
+      expect(txStore.find(row => row.id === id)?.failureDiagnostics).toEqual(diagnostics);
+      return { id: 'prop', nonce: 7 };
+    });
+    await generateTransaction(buildTx(id, executeCase.row) as never, signCallback, false, provider as never);
+    expect(txStore.find(row => row.id === id)?.failureDiagnostics).toEqual(diagnostics);
+  });
+
+  it('execute: preserves auth diagnostics when request preparation throws', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'diagnosed-prepare-failure';
+    arrange(id, executeCase.row);
+    const diagnostics = { authPreparation: 'failed', authLayout: 'absent', commitmentMatch: 'unavailable' } as const;
+    mockPrepareCustomRequestBytes.mockImplementationOnce(async (_client, _account, _bytes, _hold, observe) => {
+      observe?.(diagnostics);
+      throw new Error('unsupported custom request');
+    });
+    await generateTransaction(buildTx(id, executeCase.row) as never, signCallback, false, provider as never);
+    expect(txStore.find(row => row.id === id)?.failureDiagnostics).toEqual(diagnostics);
+    expect(txStore.find(row => row.id === id)?.status).toBe(ITransactionStatus.Failed);
+  });
+
+  it('execute: automatic retry clears observed auth facts before a service failure on the next attempt', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'diagnosed-automatic-retry';
+    const { service } = arrange(id, executeCase.row);
+    const tx = buildTx(id, executeCase.row);
+    const diagnostics = { authPreparation: 'provided', authLayout: 'fee', commitmentMatch: 'neither' } as const;
+    mockPrepareCustomRequestBytes.mockImplementationOnce(async (_client, _account, bytes, _hold, observe) => {
+      observe?.(diagnostics);
+      return bytes;
+    });
+    service.createCustomProposal.mockRejectedValueOnce(new GuardianBackpressureError('guardian-acc', 7));
+    await generateTransaction(tx as never, signCallback, false, provider as never);
+    const stored = txStore.find(row => row.id === id)!;
+    expect(stored.status).toBe(ITransactionStatus.Queued);
+    expect(stored).not.toHaveProperty('failureDiagnostics');
+    mockGetOrCreateMultisigService.mockRejectedValueOnce(new Error('unsupported service configuration'));
+    await generateTransaction(tx as never, signCallback, false, provider as never);
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored).not.toHaveProperty('failureDiagnostics');
+    expect(tx).not.toHaveProperty('failureDiagnostics');
+    expect(jest.requireMock('lib/telemetry/transaction-failure').reportTransactionFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ diagnostics: undefined })
+    );
+    expect(stored.requestBytes).toBe(executeCase.row.requestBytes);
+  });
+
+  it('execute: explicit retry clears old auth facts before client creation fails on the next attempt', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const diagnostics = { authPreparation: 'provided', authLayout: 'fee', commitmentMatch: 'neither' } as const;
+    const id = 'diagnosed-explicit-retry';
+    const { row: tx } = arrange(id, {
+      ...executeCase.row,
+      status: ITransactionStatus.Failed,
+      stage: 'proving',
+      failureDiagnostics: diagnostics
+    });
+    const restoreLocks = installNavigatorLocks();
+    try {
+      await requeueFailedTransaction(id);
+      const stored = txStore.find(row => row.id === id)!;
+      expect(stored).not.toHaveProperty('failureDiagnostics');
+      mockGetMidenClient.mockRejectedValueOnce(new Error('unsupported client configuration'));
+      await generateTransaction(tx as never, signCallback, false, provider as never);
+      expect(stored.status).toBe(ITransactionStatus.Failed);
+      expect(stored).not.toHaveProperty('failureDiagnostics');
+      expect(tx).not.toHaveProperty('failureDiagnostics');
+      expect(jest.requireMock('lib/telemetry/transaction-failure').reportTransactionFailure).toHaveBeenCalledWith(
+        expect.objectContaining({ diagnostics: undefined })
+      );
+      expect(stored.requestBytes).toBe(executeCase.row.requestBytes);
+    } finally {
+      restoreLocks();
+    }
+  });
+
+  it('execute: continues proposing when the diagnostic storage write fails', async () => {
+    const executeCase = valueMovingCases().find(c => c.type === 'execute')!;
+    const id = 'diagnosed-storage-failure';
+    const { service } = arrange(id, executeCase.row);
+    mockPrepareCustomRequestBytes.mockImplementationOnce(async (_client, _account, bytes, _hold, observe) => {
+      observe?.({ authPreparation: 'provided', authLayout: 'guardian', commitmentMatch: 'guardian' });
+      mockFailDiagnosticWrite = true;
+      return bytes;
+    });
+    await generateTransaction(buildTx(id, executeCase.row) as never, signCallback, false, provider as never);
+    expect(service.createCustomProposal).toHaveBeenCalledWith(executeCase.row.requestBytes);
+    expect(service.signAndCreateTransactionRequest).toHaveBeenCalled();
+    expect(txStore.find(row => row.id === id)?.status).not.toBe(ITransactionStatus.Failed);
+    expect(mockFailDiagnosticWrite).toBe(false);
   });
 
   it('execute: proposes the dApp bytes as they are and signs those same bytes', async () => {
