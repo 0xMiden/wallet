@@ -9,12 +9,15 @@ describe('welcomeOnboarding', () => {
     expect(welcomeOnboarding(null, true)).toEqual({ inviteOnly: true, tapsUnlockInviteOnly: false });
   });
 
-  it.each([
-    [true, false],
-    [true, true],
-    [false, false],
-    [false, true]
-  ])('shows the variant the config sets (inviteOnly %s), whatever the unlock (%s)', (configured, unlocked) => {
-    expect(welcomeOnboarding(configured, unlocked)).toEqual({ inviteOnly: configured, tapsUnlockInviteOnly: false });
+  it.each([false, true])(
+    'shows the invite-only Welcome directly when the config sets inviteOnly true, whatever the unlock (%s)',
+    unlocked => {
+      expect(welcomeOnboarding(true, unlocked)).toEqual({ inviteOnly: true, tapsUnlockInviteOnly: false });
+    }
+  );
+
+  it('keeps the tap unlock when the config sets inviteOnly false', () => {
+    expect(welcomeOnboarding(false, false)).toEqual({ inviteOnly: false, tapsUnlockInviteOnly: true });
+    expect(welcomeOnboarding(false, true)).toEqual({ inviteOnly: true, tapsUnlockInviteOnly: false });
   });
 });

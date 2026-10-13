@@ -58,9 +58,9 @@ export const WelcomeScreen = ({ onSubmit }: WelcomeScreenProps) => {
   // Hidden, not removed, so the hero does not move when the actions show.
   const actionClassName = cn('max-w-none', !settled && 'invisible');
 
-  // When the remote config sets no variant, seven taps unlock the invite-only Welcome and seven
-  // more open Developer Settings. When the config sets the variant, seven taps open Developer
-  // Settings.
+  // Unless the remote config sets the invite-only variant, seven taps unlock the invite-only
+  // Welcome and seven more open Developer Settings. When the config sets it, seven taps open
+  // Developer Settings.
   const handleLogoTap = (e: React.MouseEvent) => {
     e.preventDefault();
     window.getSelection()?.removeAllRanges();

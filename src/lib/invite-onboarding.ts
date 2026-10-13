@@ -4,10 +4,10 @@
  * recover flows behind the test-network notice.
  *
  * The remote wallet config chooses the variant with `onboarding.inviteOnly`. When the document
- * sets it, that value decides, and seven logo taps open Developer Settings. When the document does
- * not set it (an older document), the general variant shows, seven logo taps unlock the invite-only
- * variant, and seven more open Developer Settings. The unlock lives for the page's life and is not
- * stored.
+ * sets it to true, the invite-only variant shows directly, and seven logo taps open Developer
+ * Settings. When the document sets it to false or does not set it (an older document), the general
+ * variant shows, seven logo taps unlock the invite-only variant, and seven more open Developer
+ * Settings. The unlock lives for the page's life and is not stored.
  */
 let unlocked = false;
 
@@ -29,6 +29,6 @@ export interface WelcomeOnboarding {
  * document sets none) and the unlock taps of this page.
  */
 export function welcomeOnboarding(configured: boolean | null, tapUnlocked: boolean): WelcomeOnboarding {
-  if (configured !== null) return { inviteOnly: configured, tapsUnlockInviteOnly: false };
+  if (configured === true) return { inviteOnly: true, tapsUnlockInviteOnly: false };
   return { inviteOnly: tapUnlocked, tapsUnlockInviteOnly: !tapUnlocked };
 }

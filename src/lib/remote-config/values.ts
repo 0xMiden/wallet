@@ -75,7 +75,7 @@ export function selectEarnMarket(s: BridgeConfigSnapshot): EarnMarket | null {
 /**
  * The Welcome variant the document sets: true for the invite-only way in, false for the create and
  * recover flows. Null when the document has no `onboarding.inviteOnly`, or no document is accepted
- * yet: then the logo taps choose the variant.
+ * yet. Welcome reads false and null alike: the general variant, with the logo taps as the unlock.
  */
 export function selectInviteOnlyOnboarding(s: BridgeConfigSnapshot): boolean | null {
   return s.config?.onboarding?.inviteOnly ?? null;

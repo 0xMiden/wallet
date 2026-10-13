@@ -103,7 +103,7 @@ describe('onboarding.inviteOnly', () => {
   it.each([
     ['no onboarding section', doc()],
     ['an empty onboarding section', doc({ onboarding: {} })]
-  ])('leaves onboarding out for %s, so the logo taps choose', (_label, body) => {
+  ])('leaves onboarding out for %s', (_label, body) => {
     const parsed = parseBridgeConfig(body, 'testnet');
     expect(parsed).not.toBeNull();
     expect(parsed).not.toHaveProperty('onboarding');

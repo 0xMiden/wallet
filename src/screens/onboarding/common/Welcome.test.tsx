@@ -330,8 +330,7 @@ describe('WelcomeScreen variant from the remote config', () => {
     expect(screen.queryByTestId('btn-getStarted')).not.toBeInTheDocument();
   });
 
-  it('shows the general Welcome when the config sets inviteOnly false, even after an earlier unlock', () => {
-    setInviteOnboardingUnlocked(true);
+  it('shows the general Welcome when the config sets inviteOnly false', () => {
     mockSnapshot = snapshotWith({ inviteOnly: false });
     renderComponent();
     expect(screen.getByTestId('onboarding-bread-logo')).not.toHaveAttribute('data-invite-onboarding');
@@ -339,14 +338,25 @@ describe('WelcomeScreen variant from the remote config', () => {
     expect(screen.queryByTestId('btn-iHaveACode')).not.toBeInTheDocument();
   });
 
-  it('opens developer settings after 7 taps when the config sets inviteOnly false, with no variant switch', () => {
+  it('keeps the invite-only Welcome of an earlier unlock when the config sets inviteOnly false', () => {
+    setInviteOnboardingUnlocked(true);
+    mockSnapshot = snapshotWith({ inviteOnly: false });
+    renderComponent();
+    expect(screen.getByTestId('btn-iHaveACode')).toBeInTheDocument();
+    expect(screen.queryByTestId('btn-getStarted')).not.toBeInTheDocument();
+  });
+
+  it('unlocks the invite-only Welcome after 7 taps when the config sets inviteOnly false, then opens developer settings', () => {
     mockSnapshot = snapshotWith({ inviteOnly: false });
     renderComponent();
     tapLogo(7);
-    expect(mockNavigate).toHaveBeenCalledWith('/developer-settings');
+    expect(mockNavigate).not.toHaveBeenCalled();
     expect(hapticMedium).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('btn-getStarted')).toBeInTheDocument();
-    expect(screen.queryByTestId('btn-iHaveACode')).not.toBeInTheDocument();
+    expect(screen.getByTestId('btn-iHaveACode')).toBeInTheDocument();
+    expect(screen.queryByTestId('btn-getStarted')).not.toBeInTheDocument();
+
+    tapLogo(7);
+    expect(mockNavigate).toHaveBeenCalledWith('/developer-settings');
   });
 
   it('follows the config when it lands after the first render', () => {

@@ -31,7 +31,8 @@ export interface BridgeConfig {
   features: Record<BridgeSwitch, boolean>;
   /**
    * Only there when the document sets `onboarding.inviteOnly`. True: Welcome shows the invite-only
-   * way in. False: Welcome shows the create and recover flows. Absent: the logo taps choose.
+   * way in directly. False or absent: Welcome shows the create and recover flows, and the logo taps
+   * unlock the invite-only way in.
    */
   onboarding?: { inviteOnly: boolean };
 }

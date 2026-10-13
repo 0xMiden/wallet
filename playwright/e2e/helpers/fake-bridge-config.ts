@@ -33,8 +33,9 @@ export interface BridgeConfigDocument {
   };
   features: { earn: boolean; fastBridge: boolean; bridgeIn: boolean; bridgeOut: boolean };
   /**
-   * The Welcome variant. Absent: the general Welcome, which the suites drive with Get started, and
-   * seven logo taps unlock the invite-only Welcome. True or false: only that variant shows.
+   * The Welcome variant. Absent or false: the general Welcome, which the suites drive with Get
+   * started, and seven logo taps unlock the invite-only Welcome. True: the invite-only Welcome shows
+   * directly.
    */
   onboarding?: { inviteOnly?: boolean };
 }
