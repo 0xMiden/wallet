@@ -171,7 +171,8 @@ function restoreDiagnostics(event: Record<string, unknown>, reportable: Error, d
   for (let index = exception.values.length - 1; index >= 0 && link instanceof Error; index--) {
     const value: unknown = exception.values[index];
     const frames = capturedFrames.get(link);
-    if (isRecord(value) && frames !== undefined && frames.length > 0) {
+    // An empty snapshot overrides frames parsed from a multiline error message.
+    if (isRecord(value) && frames !== undefined) {
       value.stacktrace = { frames: frames.map(frame => ({ ...frame })) };
     }
     link = link.cause;

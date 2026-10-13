@@ -1167,6 +1167,34 @@ describe('crash-report egress', () => {
     expect(wireText()).toContain('"filename":"app:///mobile.js","lineno":1,"colno":5000');
   });
 
+  it.each([
+    { location: 'root', label: 'missing', stack: undefined },
+    { location: 'root', label: 'empty', stack: '' },
+    { location: 'root', label: 'rejected', stack: 'Error: unrelated header' },
+    { location: 'cause', label: 'missing', stack: undefined },
+    { location: 'cause', label: 'empty', stack: '' },
+    { location: 'cause', label: 'rejected', stack: 'Error: unrelated header' }
+  ])('enforces the authoritative empty frame snapshot for $location/$label stacks', async ({ location, stack }) => {
+    consentOn();
+    initCrashReporting();
+    const injected = new Error('zxywvu\n    at zzzqqq (https://qxzyw.example/qxzyw:7:777)');
+    injected.stack = stack;
+    const failure = location === 'root' ? injected : new Error('outer failure', { cause: injected });
+    if (location === 'cause') {
+      failure.stack = 'Error: outer failure\n    at actual (capacitor://localhost/mobile.js:1:5000)';
+    }
+    captureCrash(failure);
+    await flushEgress();
+    const text = wireText();
+    expect(captured.length).toBeGreaterThan(0);
+    expect(text).toContain('zxywvu');
+    expect(text).toContain('"stacktrace":{"frames":[]}');
+    expect(text).not.toContain('"filename":"https://qxzyw.example/qxzyw"');
+    expect(text).not.toContain('"lineno":7');
+    expect(text).not.toContain('"colno":777');
+    expect(text.includes('"colno":5000')).toBe(location === 'cause');
+  });
+
   it('reaches only the configured Sentry host', async () => {
     consentOn();
     initCrashReporting();

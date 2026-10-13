@@ -600,6 +600,23 @@ describe('diagnostic snapshots', () => {
     expect(reads).toEqual({ name: 1, message: 1, stack: 1 });
   });
 
+  it('replaces SDK-created frames with the trusted empty frame snapshot', async () => {
+    consentOn();
+    initCrashReporting();
+    jest.requireMock<{ defaultStackParser: jest.Mock }>('@sentry/browser').defaultStackParser.mockReturnValueOnce([]);
+    const failure = new Error('message\n    at injected (https://unknown.example/path:7:777)');
+    failure.stack = undefined;
+    captureCrash(failure);
+    await flushMicrotasks();
+    const event = {
+      exception: {
+        values: [{ stacktrace: { frames: [{ filename: 'https://unknown.example/path', lineno: 7, colno: 777 }] } }]
+      }
+    };
+    scrubEvent(event, { originalException: captured[0] });
+    expect(event.exception.values[0]?.stacktrace.frames).toEqual([]);
+  });
+
   it('bounds causes to three links and terminates cyclic chains', async () => {
     consentOn();
     initCrashReporting();
