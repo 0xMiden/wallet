@@ -12,11 +12,21 @@ permissions:
   # The linked-PR injections list a dispatched branch's open pull request and read its description.
   pull-requests: read
 jobs:
-  # TEMPORARY: Run Earn on pull requests to test CI latency.
-  # Remove pull-request execution before merging this change.
+  # Heavy job runs on push-to-main and workflow_dispatch, not on pull_request.
+  # The workflow still triggers on PRs so earn-e2e-gate (the required check) can
+  # report green when the suite is skipped.
   earn-e2e:
     name: earn-e2e (chrome)
-    runs-on: Linux-ARM64-Runner
+    if: github.event_name != 'pull_request'
+    # 2 vCPUs is ADEQUATE — do not "fix" this suite by chasing a larger runner.
+    # That was measured twice. On this runner two consumes completed end to end in
+    # 12.1s and 9.9s, and the node batched both; capping the prover's rayon pool to
+    # 2 threads off-CI proves a consume in ~6s, 20x under the 120s delegated-prove
+    # ceiling. The "4 prove requests, no completion line" reading that once lived
+    # here was wrong: at this log level the prover emits only the
+    # `Generated execution traces` INFO line, and it emitted one for each request
+    # INCLUDING the two that succeeded.
+    runs-on: warp-ubuntu-latest-arm64-2x
     # 120 rather than 60/75: while this branch carries `Client PR:` / `Web SDK PR:` /
     # `Guardian PR:` markers, the suite builds the miden-client CLI and the node from
     # source. That is a cold cargo build the pin-keyed cache cannot serve until one run
@@ -24,7 +34,9 @@ jobs:
     # cache stayed empty and every run stayed cold. Observed: 15 min for the wallet build
     # plus 59 min of client build still unfinished at the 75-minute mark. The ceiling only
     # binds on a cold build; a warm run is unaffected by raising it.
-    # A dispatch can compile linked SDK, CLI, and node dependencies.
+    # A dispatch may first build a linked web-sdk PR from source (still unfinished at 33 min on this runner,
+    # pr-e2e-bridge-guardian.yml).
+    # A `Client PR:` or `Protocol PR:` marker on that PR also rebuilds the CLI and the node cold (14 and 71 min here).
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 270 || 120 }}
     env:
       E2E_NETWORK: localhost
@@ -193,7 +205,9 @@ jobs:
         working-directory: playwright/e2e/local-stack
         run: docker compose --env-file versions.env -f docker-compose.local.yml --profile guardian down -v || true
 
-  # Report the Earn result on every event during the temporary latency test.
+  # Stable required-check name. On PRs the heavy job is skipped and this still
+  # reports success so branch protection is not blocked. On main it requires
+  # earn-e2e to have succeeded.
   earn-e2e-gate:
     name: earn-e2e-gate
     needs: [earn-e2e]
@@ -202,5 +216,11 @@ jobs:
     steps:
       - run: |
           RESULT="${{ needs.earn-e2e.result }}"
-          [ "$RESULT" = success ] || { echo "earn-e2e $RESULT"; exit 1; }
-          echo "earn-e2e ok"
+          EVENT="${{ github.event_name }}"
+          if [ "$EVENT" = pull_request ]; then
+            [ "$RESULT" = skipped ] || { echo "earn-e2e $RESULT on PR, expected skipped"; exit 1; }
+            echo "earn-e2e skipped on PR"
+          else
+            [ "$RESULT" = success ] || { echo "earn-e2e $RESULT"; exit 1; }
+            echo "earn-e2e ok"
+          fi

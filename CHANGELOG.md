@@ -5,9 +5,10 @@
 ### Fixes
 
 - [FIX][all] Amount entry keeps canonical Latin digits on Persian and Arabic devices, preventing lost digits and invalid base-unit conversion in Send and Swap. Incomplete or malformed swap amounts clear the previous quote and wait for valid input.
+
 ### Changes
 
-- [CHANGE][ci] Run selected E2E suites on regular GitHub runners and the organization ARM64 runner to compare CI cost and completion time. Keep WarpBuild for linked dependency builds in Guardian bridge-out.
+- [CHANGE][ci] Run selected E2E suites on regular GitHub runners to compare CI cost and completion time. Keep WarpBuild for linked dependency builds in Guardian bridge-out and for Earn. Temporarily run Swap on PRs to measure the free ARM64 runner. Update workflow checks and give manual builds enough time on regular runners. Restore Android rotation after a weak owner reference clears before reference-queue cleanup.
 
 ## 1.17.3 (2026-10-12)
 
