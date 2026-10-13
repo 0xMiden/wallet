@@ -19,6 +19,8 @@ export interface UseSwapEtaOpts {
   /** Human display amounts, as typed. */
   offerAmount: string;
   requestAmount: string;
+  /** Permit oracle-rate bootstrap before the receive amount has been user-edited. Defaults to true. */
+  allowRequestBootstrap?: boolean;
   /** Gate: only quote when the pair is swappable (e.g. two different tokens). */
   enabled: boolean;
 }
@@ -62,6 +64,7 @@ export function useSwapEta({
   requestToken,
   offerAmount,
   requestAmount,
+  allowRequestBootstrap = true,
   enabled
 }: UseSwapEtaOpts): SwapEtaState {
   const etaUrl = useBridgeConfigSnapshot({ load: false }).config?.swap?.etaUrl;
@@ -76,6 +79,7 @@ export function useSwapEta({
     enabled &&
     parsedOffer !== undefined &&
     parsedRequest !== undefined &&
+    (requestRaw > 0n || allowRequestBootstrap) &&
     offerRaw > 0n &&
     offerToken.faucetId !== requestToken.faucetId;
 
@@ -90,7 +94,11 @@ export function useSwapEta({
         etaUrl
       })
     : '';
-  const [debouncedKey] = useDebounce(key, 500);
+  // Keep each settled delivery observable, even if a skipped key is delivered again.
+  const [debouncedInput, debounceControl] = useDebounce({ key }, 500, {
+    equalityFn: (previous, current) => previous.key === current.key
+  });
+  const debouncedKey = debouncedInput.key;
   const [state, setState] = useState<PairedState>(IDLE);
   const reqId = useRef(0);
   const livePair = pairOf(offerToken.faucetId, requestToken.faucetId, etaUrl);
@@ -114,7 +122,7 @@ export function useSwapEta({
     setState(prev => ({ loading: true, pair, eta: prev.pair === pair ? prev.eta : undefined }));
     // The debounce delivers the live key 500 ms late, so a flip in this render would build the request from the
     // other pair's tokens; wait for it instead. A readiness change must also wait for the current amount key.
-    if (pair !== livePair || debouncedKey !== key) return;
+    if (pair !== livePair || debouncedKey !== key || debounceControl.isPending()) return;
     getSwapEta(offerToken, BigInt(oa), requestToken, BigInt(ra))
       .then(eta => {
         if (id !== reqId.current) return;
@@ -126,7 +134,7 @@ export function useSwapEta({
       });
     // Debounce owns amount changes; livePair and ready invalidate stale tokens or input before it expires.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedKey, livePair, ready]);
+  }, [debouncedInput, livePair, ready]);
 
   // Invalid entry hides the last valid quote before the debounce catches up.
   if (!ready) return IDLE;
