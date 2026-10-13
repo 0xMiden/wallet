@@ -27,6 +27,7 @@ import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import * as Repo from 'lib/miden/repo';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
+import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import {
@@ -1474,6 +1475,17 @@ export const updateEarnWithdrawPhase = async (
     return undefined;
   });
 
+  if (settled !== undefined && phase === 'failed' && !settled.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'earn_settlement',
+      type: settled.type,
+      stage: settled.stage,
+      delegateTransaction: settled.delegateTransaction,
+      diagnostics: settled.failureDiagnostics,
+      error: extra?.error ?? settled.rawError ?? settled.error
+    });
+  }
+
   // Reported from here because there is nowhere else it could be. This row is
   // `Completed` in the database from birth and its real outcome lives in
   // `extraInputs.phase`, so it never makes a terminal write through
@@ -1535,6 +1547,7 @@ export const updateBridgedReceivePhase = async (
   { onlyIfNoExecuteHash = false }: { onlyIfNoExecuteHash?: boolean } = {}
 ) => {
   let settled: ITransaction | undefined;
+  let failed: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
     if (!canMoveBridgedReceivePhase(inputs?.phase, phase)) return;
@@ -1561,6 +1574,7 @@ export const updateBridgedReceivePhase = async (
     // the note exists and is claimable, then it is claimed — so a row can pass
     // through both and must report on the first.
     const fromPhase = inputs?.phase;
+    if (phase === 'failed' && fromPhase !== 'failed') failed = tx;
     if (
       (fromPhase === undefined || !BRIDGED_RECEIVE_SETTLED_PHASES.has(fromPhase)) &&
       BRIDGED_RECEIVE_SETTLED_PHASES.has(phase)
@@ -1585,6 +1599,17 @@ export const updateBridgedReceivePhase = async (
     }
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
   });
+
+  if (failed !== undefined && !failed.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'bridge_receive_settlement',
+      type: failed.type,
+      stage: failed.stage,
+      delegateTransaction: failed.delegateTransaction,
+      diagnostics: failed.failureDiagnostics,
+      error: extra?.error ?? failed.rawError ?? failed.error
+    });
+  }
 
   // Same reason as the earn-withdraw writer above: this row is `Completed` from
   // birth and carries its real outcome in `extraInputs.phase`, so it never makes
@@ -1760,7 +1785,9 @@ export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Pro
     });
     return;
   }
+  let failed: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
+    if (rotationVerdict(tx)?.kind !== 'submitted-unconfirmed') return false;
     tx.status = ITransactionStatus.Failed;
     tx.displayMessage = 'Guardian switch discarded';
     // Plain prose, like every other `tx.error` (the field carries thrown-error
@@ -1777,7 +1804,19 @@ export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Pro
     // "completed with no evidence either way", and the node has now answered.
     // The row's terminal status carries the outcome from here.
     tx.extraInputs = { ...tx.extraInputs, commitUnconfirmed: false };
+    failed = { ...tx };
+    return undefined;
   });
+  if (failed !== undefined && !failed.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'guardian_node_verdict',
+      type: failed.type,
+      stage: failed.stage,
+      delegateTransaction: failed.delegateTransaction,
+      diagnostics: failed.failureDiagnostics,
+      error: failed.error
+    });
+  }
 };
 
 /**
@@ -1856,6 +1895,16 @@ export const markBridgedSendFailed = async (id: string, error: string) => {
     return undefined;
   });
   if (demoted === undefined) return;
+  if (!demoted.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'bridge_send_settlement',
+      type: demoted.type,
+      stage: demoted.stage,
+      delegateTransaction: demoted.delegateTransaction,
+      diagnostics: demoted.failureDiagnostics,
+      error
+    });
+  }
 
   console.error(
     committed

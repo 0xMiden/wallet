@@ -18,6 +18,7 @@ import { beginFlow, classifyError } from './report-flow';
 import { __resetRunForTest } from './run';
 import { WIRE_KEYS } from './serialize';
 import { sendEvent } from './sink';
+import { reportTransactionFailure } from './transaction-failure';
 import {
   TelemetryErrorKind,
   TelemetryEvent,
@@ -963,6 +964,35 @@ describe('product-event egress', () => {
 });
 
 describe('crash-report egress', () => {
+  it('reports a handled offscreen assertion without raw transaction data or a frontend scope', async () => {
+    consentOn();
+    reportTransactionFailure({
+      type: 'execute',
+      stage: 'executing',
+      delegateTransaction: true,
+      error: poisonedError(
+        "Offscreen call 'newTransaction' failed: assertion failed with error code: 15404814807981965102"
+      ),
+      diagnostics: { authPreparation: 'provided', authLayout: 'guardian', commitmentMatch: 'guardian' }
+    });
+    await flushEgress();
+    expect(captured).toHaveLength(1);
+    expect(wireText()).toContain('ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH');
+    expect(wireText()).toContain('WalletTransactionFailure');
+    expect(wireText()).toContain('executing');
+    expect(wireText()).toContain('offscreen');
+    expect(leaksIn(wireText())).toEqual([]);
+  });
+
+  it('retains each separate terminal failure even when their diagnostic facts match', async () => {
+    consentOn();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      reportTransactionFailure({ type: 'execute', stage: 'executing', error: 'advice stack read failed' });
+      await flushEgress();
+    }
+    expect(captured).toHaveLength(2);
+  });
+
   it('sends an envelope at all, so every absence assertion below can fail', async () => {
     consentOn();
     initCrashReporting();
