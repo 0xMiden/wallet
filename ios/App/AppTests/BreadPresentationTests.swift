@@ -22,6 +22,8 @@ private final class PolicyRecordingPlugin: InAppBrowserPlugin {
 
 @MainActor
 final class BreadPresentationTests: XCTestCase {
+    private var screenshotRequestDirectory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("bread-rotation-regression")
+
     private func metricFixture() async throws -> (WKWebView, UIWindow) {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
         let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 402, height: 400))
@@ -88,33 +90,7 @@ final class BreadPresentationTests: XCTestCase {
             let started = CACurrentMediaTime()
             let orientation = scene.interfaceOrientation.rawValue
             let active = rotating()
-            let requestID = UUID().uuidString
-            let screenshot = directory.appendingPathComponent("\(requestID).png")
-            let failure = directory.appendingPathComponent("\(requestID).error")
-            let device = try XCTUnwrap(ProcessInfo.processInfo.environment["SIMULATOR_UDID"])
-            let request = try JSONSerialization.data(withJSONObject: ["id": requestID, "device": device,
-                "requestedAt": Date().timeIntervalSince1970 * 1000, "directory": directory.path,
-                "label": label, "rotating": active])
-            let requestAttachment = XCTAttachment(data: request, uniformTypeIdentifier: "public.json")
-            requestAttachment.name = "\(label)-capture-request"
-            requestAttachment.lifetime = .keepAlways; add(requestAttachment)
-            try request.write(to: directory.appendingPathComponent("request.json"), options: .atomic)
-            // Host screenshot transport can exceed native UI deadlines.
-            let receiptDeadline = CACurrentMediaTime() + 30
-            var captured = false
-            while CACurrentMediaTime() < receiptDeadline {
-                if FileManager.default.fileExists(atPath: screenshot.path) || FileManager.default.fileExists(atPath: failure.path) {
-                    captured = true
-                    break
-                }
-                try await Task.sleep(nanoseconds: 20_000_000)
-            }
-            XCTAssertTrue(captured, "Screenshot transport did not publish PNG/error within 30s for \(requestID); inspect artifacts/ios-screenshot-helper.log")
-            if FileManager.default.fileExists(atPath: failure.path) {
-                throw NSError(domain: "SimulatorScreenshot", code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: try String(contentsOf: failure, encoding: .utf8)])
-            }
-            let image = try XCTUnwrap(UIImage(contentsOfFile: screenshot.path))
+            let image = try await captureComposedScreenshot(label, rotating: active)
             let ended = CACurrentMediaTime()
             let ratio = min(1, 1800 / max(image.size.width, image.size.height))
             let format = UIGraphicsImageRendererFormat(); format.scale = 1
@@ -917,13 +893,75 @@ final class BreadPresentationTests: XCTestCase {
         }
     }
 
-    private func captureForegroundSurface(_ name: String) throws {
+    private func captureComposedScreenshot(_ label: String, rotating: Bool = false) async throws -> UIImage {
+        let directory = screenshotRequestDirectory
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let requestID = UUID().uuidString
+        let screenshot = directory.appendingPathComponent("\(requestID).png")
+        let failure = directory.appendingPathComponent("\(requestID).error")
+        let device = try XCTUnwrap(ProcessInfo.processInfo.environment["SIMULATOR_UDID"])
+        let request = try JSONSerialization.data(withJSONObject: ["id": requestID, "device": device,
+            "requestedAt": Date().timeIntervalSince1970 * 1000, "directory": directory.path,
+            "label": label, "rotating": rotating])
+        let requestAttachment = XCTAttachment(data: request, uniformTypeIdentifier: "public.json")
+        requestAttachment.name = "\(label)-capture-request"
+        requestAttachment.lifetime = .keepAlways; add(requestAttachment)
+        try request.write(to: directory.appendingPathComponent("request.json"), options: .atomic)
+        // Host screenshot transport can exceed native UI deadlines.
+        let receiptDeadline = CACurrentMediaTime() + 30
+        var captured = false
+        while CACurrentMediaTime() < receiptDeadline {
+            if FileManager.default.fileExists(atPath: screenshot.path) || FileManager.default.fileExists(atPath: failure.path) {
+                captured = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(captured, "Screenshot transport did not publish PNG/error within 30s for \(requestID); inspect artifacts/ios-screenshot-helper.log")
+        if FileManager.default.fileExists(atPath: failure.path) {
+            throw NSError(domain: "SimulatorScreenshot", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: try String(contentsOf: failure, encoding: .utf8)])
+        }
+        let image = try XCTUnwrap(UIImage(contentsOfFile: screenshot.path))
+        return image
+    }
+
+    func testForegroundCaptureUsesHostTransportReceipt() async throws {
+        let previousDirectory = screenshotRequestDirectory
+        screenshotRequestDirectory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("bread-capture-stub-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: screenshotRequestDirectory, withIntermediateDirectories: true)
+        let directory = screenshotRequestDirectory
+        defer { screenshotRequestDirectory = previousDirectory; try? FileManager.default.removeItem(at: directory) }
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let fixture = UIGraphicsImageRenderer(size: CGSize(width: 13, height: 9), format: format).image { context in
+            UIColor.cyan.setFill(); context.fill(CGRect(x: 0, y: 0, width: 13, height: 9))
+        }
+        let label = "host-transport-stub-\(UUID().uuidString)"
+        let receipt = Task { @MainActor in
+            let requested = try await eventually { FileManager.default.fileExists(atPath: directory.appendingPathComponent("request.json").path) }
+            guard requested else { return false }
+            let request = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: directory.appendingPathComponent("request.json"))) as? [String: Any])
+            XCTAssertEqual(request["label"] as? String, label)
+            XCTAssertEqual(request["device"] as? String, ProcessInfo.processInfo.environment["SIMULATOR_UDID"])
+            let id = try XCTUnwrap(request["id"] as? String)
+            try XCTUnwrap(fixture.pngData()).write(to: directory.appendingPathComponent(id + ".png"), options: .atomic)
+            return true
+        }
+        defer { receipt.cancel() }
+        try await captureForegroundSurface(label)
+        let requested = try await receipt.value
+        XCTAssertTrue(requested, "Foreground evidence must request an authorized host screenshot")
+        let evidence = URL(fileURLWithPath: ProcessInfo.processInfo.environment["BREAD_FOREGROUND_EVIDENCE"] ?? NSTemporaryDirectory()).appendingPathComponent("native-surfaces").appendingPathComponent(label + ".png")
+        defer { try? FileManager.default.removeItem(at: evidence) }
+        let received = try XCTUnwrap(UIImage(contentsOfFile: evidence.path))
+        XCTAssertEqual(received.size, fixture.size, "Evidence must contain the host receipt, not an in-process screen capture")
+    }
+
+    private func captureForegroundSurface(_ name: String) async throws {
         let directory = URL(fileURLWithPath: ProcessInfo.processInfo.environment["BREAD_FOREGROUND_EVIDENCE"] ?? NSTemporaryDirectory()).appendingPathComponent("native-surfaces")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let screenshot = XCUIScreen.main.screenshot()
+        let image = try await captureComposedScreenshot(name)
         let path = directory.appendingPathComponent(name + ".png")
-        try screenshot.pngRepresentation.write(to: path)
-        let image = try XCTUnwrap(UIImage(contentsOfFile: path.path))
         let scale = min(1, 1800 / max(image.size.width, image.size.height))
         let format = UIGraphicsImageRendererFormat(); format.scale = 1
         let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
@@ -1028,11 +1066,11 @@ final class BreadPresentationTests: XCTestCase {
         let native: [String: Any] = ["webFrameBottom": web.convert(web.bounds, to: window).maxY,
             "windowBottom": window.bounds.maxY, "adjustedBottomInset": web.scrollView.adjustedContentInset.bottom,
             "nativeSafeBottom": web.safeAreaInsets.bottom]
-        try captureForegroundSurface("wallet-bottom-before-override")
+        try await captureForegroundSurface("wallet-bottom-before-override")
         _ = try await web.evaluateJavaScript("window.__walletOriginalPadding=document.body.style.getPropertyValue('padding-bottom'); document.body.style.setProperty('padding-bottom','0px','important'); true")
         try await Task.sleep(nanoseconds: 300_000_000)
         let after = try await walletCanvasMetrics(web)
-        try captureForegroundSurface("wallet-bottom-after-override")
+        try await captureForegroundSurface("wallet-bottom-after-override")
         let result: [String: Any] = ["native":native,"before":before,"after":after]
         try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
             .write(to: directory.appendingPathComponent("metrics.json"))
@@ -1172,7 +1210,7 @@ final class BreadPresentationTests: XCTestCase {
         XCTAssertFalse(live.cover.isHidden)
         XCTAssertEqual(live.cover.alpha, 1)
         XCTAssertEqual(live.presentation.state.phase, .temporarilyHidden)
-        try captureForegroundSurface("notification-first-covered-surface")
+        try await captureForegroundSurface("notification-first-covered-surface")
         live.presentation.setVisible(false)
         NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: nil)
         XCTAssertTrue(live.window.isHidden, "Host-owned overlays and parked pages must stay hidden")
