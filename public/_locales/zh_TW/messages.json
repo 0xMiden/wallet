@@ -5568,28 +5568,6 @@
       }
     }
   },
-  "testnetEndedTitle": {
-    "message": "Miden $network$ 已結束",
-    "englishSource": "Miden $network$ has ended",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "testnetEndedBody": {
-    "message": "Bread 已從 Miden $network$ 遷移。測試代幣從未具有實際價值，且不會被保留。請重置應用程式以清除此錢包、其餘額及交易紀錄，然後重新設定 Bread。",
-    "englishSource": "Bread has moved on from Miden $network$. Test tokens never had real value and do not carry over. Reset the app to clear this wallet, its balances and its history, then set up Bread again.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "testnetEndedReset": {
-    "message": "重置並重新開始",
-    "englishSource": "Reset and start over"
-  },
   "mainnetAccessCodeLabel": {
     "message": "存取碼",
     "englishSource": "Access code"
@@ -5645,6 +5623,18 @@
   "mainnetCountdownLink": {
     "message": "加入早期體驗名單",
     "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "切換至主網",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "重置並切換至主網",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "您可以繼續使用測試網。切換操作會將此錢包、其餘額及交易紀錄從本裝置中清除。請先備份您的復原資訊。測試代幣不會轉移至主網。隨後，您將使用邀請碼建立主網錢包，或復原現有的主網錢包。",
+    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
   },
   "mainnetCountdownLabel": {
     "message": "距離 Bread 正式上線還剩：$time$",

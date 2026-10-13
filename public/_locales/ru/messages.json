@@ -5568,28 +5568,6 @@
       }
     }
   },
-  "testnetEndedTitle": {
-    "message": "Miden $network$ завершил свою деятельность",
-    "englishSource": "Miden $network$ has ended",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "testnetEndedBody": {
-    "message": "Bread перешёл с Miden $network$. Тестовые токены никогда не имели реальной стоимости и не переносятся. Сбросьте настройки приложения, чтобы очистить этот кошелёк, его остатки и историю, а затем настройте Bread заново.",
-    "englishSource": "Bread has moved on from Miden $network$. Test tokens never had real value and do not carry over. Reset the app to clear this wallet, its balances and its history, then set up Bread again.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "testnetEndedReset": {
-    "message": "Сбросить настройки и начать заново",
-    "englishSource": "Reset and start over"
-  },
   "mainnetAccessCodeLabel": {
     "message": "Код доступа",
     "englishSource": "Access code"
@@ -5645,6 +5623,18 @@
   "mainnetCountdownLink": {
     "message": "Включитесь в список раннего доступа",
     "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "Переход на основную сеть",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "Сброс настроек и переход на основную сеть",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "Вы можете продолжать использовать тестовую сеть. Переключение очищает этот кошелек, его остатки и историю с данного устройства. Сначала сохраните свои данные для восстановления. Тестовые токены не переносятся в основную сеть. Затем вы создадите кошелек в основной сети с помощью кода приглашения или восстановите существующий кошелек в основной сети.",
+    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
   },
   "mainnetCountdownLabel": {
     "message": "Время, оставшееся до запуска основной сети Bread: $time$",

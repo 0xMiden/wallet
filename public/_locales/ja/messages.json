@@ -5568,28 +5568,6 @@
       }
     }
   },
-  "testnetEndedTitle": {
-    "message": "Miden $network$は終了しました",
-    "englishSource": "Miden $network$ has ended",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "testnetEndedBody": {
-    "message": "BreadはMiden $network$から移行しました。テスト用トークンには実在する価値はなく、引き継がれることもありません。アプリをリセットして、このウォレット、その残高、および履歴をすべて消去した後、Breadを再度セットアップしてください。",
-    "englishSource": "Bread has moved on from Miden $network$. Test tokens never had real value and do not carry over. Reset the app to clear this wallet, its balances and its history, then set up Bread again.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "testnetEndedReset": {
-    "message": "リセットして最初からやり直す",
-    "englishSource": "Reset and start over"
-  },
   "mainnetAccessCodeLabel": {
     "message": "アクセスコード",
     "englishSource": "Access code"
@@ -5645,6 +5623,18 @@
   "mainnetCountdownLink": {
     "message": "早期アクセスリストに登録する",
     "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "メインネットへの移行",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "リセットしてメインネットに切り替える",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "testnetは引き続き使用可能です。切り替えを行うと、このデバイスから当該ウォレット、その残高、および履歴がすべて消去されます。まず、リカバリー情報を保存してください。テストトークンはメインネットには移行されません。その後、招待コードを使用してメインネットウォレットを作成するか、既存のメインネットウォレットを復元することになります。",
+    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
   },
   "mainnetCountdownLabel": {
     "message": "Breadのメインネット移行までの残り時間：$time$",

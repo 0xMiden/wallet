@@ -5568,28 +5568,6 @@
       }
     }
   },
-  "testnetEndedTitle": {
-    "message": "Miden $network$ sona erdi",
-    "englishSource": "Miden $network$ has ended",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "testnetEndedBody": {
-    "message": "Bread, Miden $network$'ten ayrılmıştır. Test token'larının hiçbir zaman gerçek bir değeri olmamıştır ve bunlar yeni sisteme aktarılmaz. Bu cüzdanı, bakiyelerini ve geçmişini silmek için uygulamayı sıfırlayın, ardından Bread'i yeniden kurun.",
-    "englishSource": "Bread has moved on from Miden $network$. Test tokens never had real value and do not carry over. Reset the app to clear this wallet, its balances and its history, then set up Bread again.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "testnetEndedReset": {
-    "message": "Sıfırlayın ve baştan başlayın",
-    "englishSource": "Reset and start over"
-  },
   "mainnetAccessCodeLabel": {
     "message": "Erişim kodu",
     "englishSource": "Access code"
@@ -5645,6 +5623,18 @@
   "mainnetCountdownLink": {
     "message": "Erken erişim listesine katılın",
     "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "Mainnet’e geçiş",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "Sıfırla ve ana ağa geç",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "Testnet'i kullanmaya devam edebilirsiniz. Anahtarı değiştirme işlemi, bu cüzdanı, bakiyelerini ve geçmişini bu cihazdan siler. Önce kurtarma bilgilerinizi kaydedin. Test token'ları mainnet'e aktarılmaz. Ardından bir davet kodu ile bir mainnet cüzdanı oluşturacak veya mevcut bir mainnet cüzdanını kurtaracaksınız.",
+    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
   },
   "mainnetCountdownLabel": {
     "message": "Bread'in ana ağa geçmesine kalan süre: $time$",

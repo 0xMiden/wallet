@@ -5568,28 +5568,6 @@
       }
     }
   },
-  "testnetEndedTitle": {
-    "message": "Miden $network$ a pris fin",
-    "englishSource": "Miden $network$ has ended",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "testnetEndedBody": {
-    "message": "Bread a abandonné le réseau « Miden $network$ ». Les jetons de test n’ont jamais eu de valeur réelle et ne sont pas transférés. Réinitialisez l’application pour vider ce portefeuille, ses soldes et son historique, puis reconfigurez Bread.",
-    "englishSource": "Bread has moved on from Miden $network$. Test tokens never had real value and do not carry over. Reset the app to clear this wallet, its balances and its history, then set up Bread again.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
-  },
-  "testnetEndedReset": {
-    "message": "Réinitialiser et recommencer",
-    "englishSource": "Reset and start over"
-  },
   "mainnetAccessCodeLabel": {
     "message": "Code d’accès",
     "englishSource": "Access code"
@@ -5645,6 +5623,18 @@
   "mainnetCountdownLink": {
     "message": "Inscrivez-vous à la liste d’accès anticipé",
     "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "Passer au réseau principal",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "Réinitialisation et passage au mainnet",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "Vous pouvez continuer à utiliser le testnet. La transition efface ce portefeuille, ses soldes et son historique de cet appareil. Sauvegardez d’abord vos informations de récupération. Les jetons de test ne sont pas transférés vers le mainnet. Vous créerez ensuite un portefeuille mainnet à l’aide d’un code d’invitation ou récupérerez un portefeuille mainnet existant.",
+    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
   },
   "mainnetCountdownLabel": {
     "message": "Temps restant avant le lancement du réseau principal de Bread : $time$",
