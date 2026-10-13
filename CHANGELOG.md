@@ -4,7 +4,7 @@
 
 ### Changes
 
-- [CHANGE][all] The swap tokens come from the DEX solver's Pairs API (`GET /v2/pairs` on the host that `swap.etaUrl` names in `0xMiden/wallet-config`) instead of the document's `swap.tokens`, so the wallet lists each token the solver swaps (USDCx is new) and the swap form opens on the solver's first pair. The "To" picker lists only the tokens the solver pairs with the "From" token, and a new "From" token moves "To" to a token it pairs with, so the form no longer accepts a pair the solver cannot fill. A solver that does not answer keeps the tokens last read.
+- [CHANGE][all] The swap tokens come from the DEX solver's Pairs API (`GET /v2/pairs` on the host that `swap.etaUrl` names in `0xMiden/wallet-config`) instead of the document's `swap.tokens`, so the wallet lists each token the solver swaps (USDCx is new) and the swap form opens with the network's native asset (USDCx) on the pay side. The "To" picker lists only the tokens the solver pairs with the "From" token, and a new "From" token moves "To" to a token it pairs with, so the form no longer accepts a pair the solver cannot fill. A solver that does not answer keeps the tokens last read.
 
 ## 1.17.3 (2026-10-12)
 

@@ -513,15 +513,14 @@ describe('deriveRequestAmount', () => {
 describe('getDefaultSwapPair', () => {
   afterEach(() => _setSwapTokensForTest(undefined));
 
-  it("opens on the solver's first pair, in the pair's order, whether or not native discovery has landed", () => {
+  it("opens on the solver's first pair, in the pair's order, while the native asset is unknown or in no pair", () => {
     // The first pair names neither of the first two tokens: the pair decides, not the token order.
     mockSnapshot.mockReturnValue(listing({ ...SOLVER_PAIRS, pairs: [SOLVER_PAIRS.pairs[2]!, SOLVER_PAIRS.pairs[0]!] }));
     // Cold start: discovery has not populated the synchronous cache yet.
     mockGetNativeAssetIdSync.mockReturnValue(null);
     const cold = getDefaultSwapPair();
 
-    // Warm start: the discovered native asset is now FIRST in the list, which
-    // is what made an index-based default flip between the two.
+    // A native asset the solver lists in no pair is first in the list, and still not the default.
     mockGetNativeAssetIdSync.mockReturnValue('0xnative');
     mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'MIDEN', decimals: 6 });
     const warm = getDefaultSwapPair();
@@ -534,6 +533,19 @@ describe('getDefaultSwapPair', () => {
     expect(warm).toEqual(cold);
   });
 
+  it('pays with the native asset and receives its first partner once the solver pairs it, in either spelling', () => {
+    // The fixture's pairs: IMIDEN-IETH, IETH-IUSDT, IBTC-IUSDT. IUSDT pairs with IETH and IBTC.
+    const expected = {
+      offer: expect.objectContaining({ symbol: 'IUSDT', faucetId: canonical(TEST_TOKEN_IUSDT.faucetId) }),
+      request: expect.objectContaining({ symbol: 'IETH', faucetId: canonical(TEST_TOKEN_IETH.faucetId) })
+    };
+    mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'IUSDT', decimals: 8 });
+    mockGetNativeAssetIdSync.mockReturnValue(HEX_TOKENS[2]!.faucetId);
+    expect(getDefaultSwapPair()).toEqual(expected);
+    mockGetNativeAssetIdSync.mockReturnValue(canonical(TEST_TOKEN_IUSDT.faucetId));
+    expect(getDefaultSwapPair()).toEqual(expected);
+  });
+
   it('has no pair while the registry is not loaded or the solver lists no pair', () => {
     mockSnapshot.mockReturnValue(UNLOADED);
     expect(getDefaultSwapPair()).toBeNull();
@@ -543,7 +555,8 @@ describe('getDefaultSwapPair', () => {
     expect(getDefaultSwapPair()).toBeNull();
   });
 
-  it("opens on an override's first two tokens", () => {
+  it("opens on an override's first two tokens, whatever the native asset is", () => {
+    mockGetNativeAssetIdSync.mockReturnValue(TEST_TOKEN_IUSDT.faucetId);
     _setSwapTokensForTest([TEST_TOKEN_IBTC, TEST_TOKEN_IUSDT]);
     expect(getDefaultSwapPair()).toEqual({ offer: TEST_TOKEN_IBTC, request: TEST_TOKEN_IUSDT });
   });

@@ -140,19 +140,28 @@ export interface SwapPair {
 }
 
 /**
- * The pair the swap form opens on: the solver's first pair, in the order the pair names its
- * faucets (an E2E override has no pairs, so there it is the override's first two tokens). Read
- * from the listed tokens and never from `getSwapTokens()`, which puts the discovered native asset
- * first once discovery has landed: seeding from that list gave a cold start into /swap a different
- * default pair than a warm one - same build, same user, different defaults on a money screen.
+ * The pair the swap form opens on. The pay side is the network's native asset (USDCX on testnet,
+ * discovered in `lib/miden-chain/native-asset`) and the receive side its first partner, when the
+ * solver lists a pair of the native asset. Else it is the solver's first pair, in the order the
+ * pair names its faucets: that is also the pair a cold start shows until discovery of the native
+ * asset has landed, which happens once per network, since the id is stored. An E2E override has
+ * no pairs, so there it is the override's first two tokens.
  * Null while the registry is not loaded or lists no pair.
  */
 export const getDefaultSwapPair = (): SwapPair | null => {
   const listed = listedSwapTokens();
+  if (_swapTokensOverride) {
+    const [offer, request] = listed;
+    return offer && request ? { offer, request } : null;
+  }
+  const nativeId = getNativeAssetIdSync();
+  const native = nativeId ? getSwapTokenByFaucetId(nativeId) : undefined;
+  const [nativePartner] = nativeId ? getSwapPartners(nativeId) : [];
+  if (native && nativePartner) return { offer: native, request: nativePartner };
   const firstPair = selectSwapPairs(getBridgeConfigSnapshot())?.pairs[0];
-  const [offer, request] = _swapTokensOverride
-    ? listed
-    : (firstPair?.faucetIds ?? []).map(faucetId => listed.find(token => sameFaucet(token.faucetId, faucetId)));
+  const [offer, request] = (firstPair?.faucetIds ?? []).map(faucetId =>
+    listed.find(token => sameFaucet(token.faucetId, faucetId))
+  );
   return offer && request ? { offer, request } : null;
 };
 
