@@ -148,7 +148,11 @@ jest.mock('lib/remote-config/use-feature-availability', () => ({
   useBridgeConfigSnapshot: () => ({}),
   useFeatureAvailability: (feature: string, options?: { hold?: boolean }) => mockFeatureAvailability(feature, options)
 }));
-jest.mock('lib/remote-config/values', () => ({ selectMidenUsdc: () => mockCollateral }));
+// The swap registry reads the other getters when the screen prices the deposit token.
+jest.mock('lib/remote-config/values', () => ({
+  ...jest.requireActual<typeof import('lib/remote-config/values')>('lib/remote-config/values'),
+  selectMidenUsdc: () => mockCollateral
+}));
 
 const mockNavigate = navigate as jest.Mock;
 
