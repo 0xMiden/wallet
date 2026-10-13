@@ -41,8 +41,8 @@ jobs:
     # The suites' own budgets come to 160 min: usdcx 60 (playwright.usdcx.config.ts), usdcx-in 30 and usdcx-burn two
     # tests of 35 (their describes). Each suite's preflight and build add about 5, and a cold setup about 30 (the CLI
     # compile, the Playwright browsers' 12 and apt's 6), so 205, rounded up to 210.
-    # A dispatch may first build a linked web-sdk PR from source, and its CLI cold, on this runner (30 more).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 240 || 210 }}
+    # A dispatch can also compile a linked SDK and CLI from source.
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 255 || 210 }}
     steps:
       - uses: actions/checkout@v4
 
