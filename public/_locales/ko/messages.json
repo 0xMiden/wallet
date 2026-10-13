@@ -5568,22 +5568,27 @@
       }
     }
   },
-  "networkModeHomeBanner": {
-    "message": "현재 위치: Miden $network$",
-    "englishSource": "You are on Miden $network$",
+  "testnetEndedTitle": {
+    "message": "Miden $network$가 종료되었습니다",
+    "englishSource": "Miden $network$ has ended",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
   },
-  "switchToMainnet": {
-    "message": "메인넷으로 전환",
-    "englishSource": "Switch to mainnet"
+  "testnetEndedBody": {
+    "message": "Bread는 Miden $network$에서 벗어나 새로운 단계로 넘어갔습니다. 테스트 토큰은 실제 가치가 없었으며, 기존 계정으로 이관되지 않습니다. 앱을 초기화하여 이 지갑과 잔액, 내역을 모두 삭제한 후, Bread를 다시 설정하십시오.",
+    "englishSource": "Bread has moved on from Miden $network$. Test tokens never had real value and do not carry over. Reset the app to clear this wallet, its balances and its history, then set up Bread again.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
-  "mainnetAccessDescription": {
-    "message": "메인넷은 현재 초대받은 사용자만 이용할 수 있습니다. 수신한 8자리 액세스 코드를 입력하세요.",
-    "englishSource": "Mainnet is invite-only for now. Enter the 8-digit access code you received."
+  "testnetEndedReset": {
+    "message": "재설정하고 다시 시작하기",
+    "englishSource": "Reset and start over"
   },
   "mainnetAccessCodeLabel": {
     "message": "접근 코드",
@@ -5592,15 +5597,6 @@
   "unlockMainnet": {
     "message": "메인넷 잠금 해제",
     "englishSource": "Unlock mainnet"
-  },
-  "mainnetAccessNoCode": {
-    "message": "코드가 없나요? Miden $network$를 계속 사용하시면 됩니다.",
-    "englishSource": "No code? You can keep using Miden $network$.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
   },
   "mainnetAccessCodeRejected": {
     "message": "이 코드가 작동하지 않았습니다. 코드를 확인하고 다시 시도해 주세요.",
@@ -5614,34 +5610,33 @@
     "message": "메인넷",
     "englishSource": "Mainnet"
   },
-  "mainnetAccessHeader": {
-    "message": "메인넷 접속",
-    "englishSource": "Mainnet access"
+  "mainnetAccessTitle": {
+    "message": "메인넷 접속 코드가 있으신가요?",
+    "englishSource": "Have a mainnet access code?"
   },
   "mainnetAccessOnboardingBody": {
-    "message": "메인넷은 현재 초대제입니다. 초대장에 기재된 8자리 코드를 입력하면 지갑이 Miden 메인넷에서 시작됩니다.",
-    "englishSource": "Mainnet is invite-only for now. Enter the eight-digit code from your invite and your wallet starts on Miden Mainnet."
+    "message": "메인넷은 현재 초대제입니다. 초대장에 기재된 12자리 코드를 입력하면 지갑이 Miden 메인넷에서 활성화됩니다.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
   },
   "mainnetAccessHint": {
     "message": "코드는 초대 이메일에 있습니다.",
     "englishSource": "The code is in your invite email."
   },
-  "mainnetAccessContinueOnNetwork": {
-    "message": "Miden $network$에서 계속 읽기",
-    "englishSource": "Continue on Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
+  "iHaveACode": {
+    "message": "코드가 있습니다",
+    "englishSource": "I have a code"
   },
-  "mainnetWelcomeTitle": {
-    "message": "메인넷에 오신 것을 환영합니다",
-    "englishSource": "Welcome to mainnet"
+  "iDontHaveACode": {
+    "message": "코드는 없습니다",
+    "englishSource": "I don't have a code"
   },
-  "mainnetWelcomeBody": {
-    "message": "갓 완성되었습니다. 귀하의 액세스 코드가 정상적으로 작동했습니다.",
-    "englishSource": "Fresh out of the oven. Your access code worked."
+  "noCodeTitle": {
+    "message": "Bread는 초대 전용입니다",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "새로운 지갑을 생성하려면 초대 링크를 통해 받은 메인넷 접속 코드가 필요합니다. 이미 존재하는 계정은 여전히 복구할 수 있습니다.",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
   },
   "networkModePillNoValue": {
     "message": "토큰에는 실제 가치가 없습니다",

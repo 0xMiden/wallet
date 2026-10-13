@@ -5568,22 +5568,27 @@
       }
     }
   },
-  "networkModeHomeBanner": {
-    "message": "Vous êtes sur Miden $network$",
-    "englishSource": "You are on Miden $network$",
+  "testnetEndedTitle": {
+    "message": "Miden $network$ a pris fin",
+    "englishSource": "Miden $network$ has ended",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
   },
-  "switchToMainnet": {
-    "message": "Passer au réseau principal",
-    "englishSource": "Switch to mainnet"
+  "testnetEndedBody": {
+    "message": "Bread a abandonné le réseau « Miden $network$ ». Les jetons de test n’ont jamais eu de valeur réelle et ne sont pas transférés. Réinitialisez l’application pour vider ce portefeuille, ses soldes et son historique, puis reconfigurez Bread.",
+    "englishSource": "Bread has moved on from Miden $network$. Test tokens never had real value and do not carry over. Reset the app to clear this wallet, its balances and its history, then set up Bread again.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
-  "mainnetAccessDescription": {
-    "message": "Le mainnet est pour l’instant accessible uniquement sur invitation. Saisissez le code d’accès à 8 chiffres que vous avez reçu.",
-    "englishSource": "Mainnet is invite-only for now. Enter the 8-digit access code you received."
+  "testnetEndedReset": {
+    "message": "Réinitialiser et recommencer",
+    "englishSource": "Reset and start over"
   },
   "mainnetAccessCodeLabel": {
     "message": "Code d’accès",
@@ -5592,15 +5597,6 @@
   "unlockMainnet": {
     "message": "Déverrouiller le réseau principal",
     "englishSource": "Unlock mainnet"
-  },
-  "mainnetAccessNoCode": {
-    "message": "Vous n’avez pas le code ? Vous pouvez continuer à utiliser Miden $network$.",
-    "englishSource": "No code? You can keep using Miden $network$.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
   },
   "mainnetAccessCodeRejected": {
     "message": "Ce code n'a pas fonctionné. Vérifiez-le et réessayez.",
@@ -5614,34 +5610,33 @@
     "message": "Mainnet",
     "englishSource": "Mainnet"
   },
-  "mainnetAccessHeader": {
-    "message": "Accès au réseau principal",
-    "englishSource": "Mainnet access"
+  "mainnetAccessTitle": {
+    "message": "Disposez-vous d’un code d’accès au réseau principal ?",
+    "englishSource": "Have a mainnet access code?"
   },
   "mainnetAccessOnboardingBody": {
-    "message": "Le Mainnet est pour l’instant accessible uniquement sur invitation. Saisissez le code à huit chiffres figurant sur votre invitation et votre portefeuille sera activé sur le Mainnet de Miden.",
-    "englishSource": "Mainnet is invite-only for now. Enter the eight-digit code from your invite and your wallet starts on Miden Mainnet."
+    "message": "Le Mainnet est pour l’instant accessible uniquement sur invitation. Saisissez le code à 12 caractères figurant sur votre invitation et votre portefeuille sera activé sur le Mainnet de Miden.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
   },
   "mainnetAccessHint": {
     "message": "Le code se trouve dans votre e-mail d'invitation.",
     "englishSource": "The code is in your invite email."
   },
-  "mainnetAccessContinueOnNetwork": {
-    "message": "Continuer sur Miden $network$",
-    "englishSource": "Continue on Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
+  "iHaveACode": {
+    "message": "J'ai un code",
+    "englishSource": "I have a code"
   },
-  "mainnetWelcomeTitle": {
-    "message": "Bienvenue sur le réseau principal",
-    "englishSource": "Welcome to mainnet"
+  "iDontHaveACode": {
+    "message": "Je n’ai pas de code",
+    "englishSource": "I don't have a code"
   },
-  "mainnetWelcomeBody": {
-    "message": "Tout juste sorti du four. Votre code d’accès a fonctionné.",
-    "englishSource": "Fresh out of the oven. Your access code worked."
+  "noCodeTitle": {
+    "message": "Bread est accessible uniquement sur invitation",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "Un nouveau portefeuille nécessite un code d’accès au réseau principal fourni dans votre invitation. Un compte existant peut toujours être récupéré.",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
   },
   "networkModePillNoValue": {
     "message": "Les jetons n’ont aucune valeur réelle",

@@ -5568,22 +5568,27 @@
       }
     }
   },
-  "networkModeHomeBanner": {
-    "message": "Şu anda Miden $network$ adresindesiniz.",
-    "englishSource": "You are on Miden $network$",
+  "testnetEndedTitle": {
+    "message": "Miden $network$ sona erdi",
+    "englishSource": "Miden $network$ has ended",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
   },
-  "switchToMainnet": {
-    "message": "Mainnet'e geçin",
-    "englishSource": "Switch to mainnet"
+  "testnetEndedBody": {
+    "message": "Bread, Miden $network$'ten ayrılmıştır. Test token'larının hiçbir zaman gerçek bir değeri olmamıştır ve bunlar yeni sisteme aktarılmaz. Bu cüzdanı, bakiyelerini ve geçmişini silmek için uygulamayı sıfırlayın, ardından Bread'i yeniden kurun.",
+    "englishSource": "Bread has moved on from Miden $network$. Test tokens never had real value and do not carry over. Reset the app to clear this wallet, its balances and its history, then set up Bread again.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
-  "mainnetAccessDescription": {
-    "message": "Mainnet şimdilik sadece davetle erişilebilir durumdadır. Aldığınız 8 haneli erişim kodunu girin.",
-    "englishSource": "Mainnet is invite-only for now. Enter the 8-digit access code you received."
+  "testnetEndedReset": {
+    "message": "Sıfırlayın ve baştan başlayın",
+    "englishSource": "Reset and start over"
   },
   "mainnetAccessCodeLabel": {
     "message": "Erişim kodu",
@@ -5592,15 +5597,6 @@
   "unlockMainnet": {
     "message": "Mainnet'in kilidini aç",
     "englishSource": "Unlock mainnet"
-  },
-  "mainnetAccessNoCode": {
-    "message": "Kod yok mu? Miden $network$ adresini kullanmaya devam edebilirsiniz.",
-    "englishSource": "No code? You can keep using Miden $network$.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
   },
   "mainnetAccessCodeRejected": {
     "message": "Bu kod çalışmadı. Kontrol edin ve tekrar deneyin.",
@@ -5614,34 +5610,33 @@
     "message": "Mainnet",
     "englishSource": "Mainnet"
   },
-  "mainnetAccessHeader": {
-    "message": "Mainnet erişimi",
-    "englishSource": "Mainnet access"
+  "mainnetAccessTitle": {
+    "message": "Mainnet erişim kodunuz var mı?",
+    "englishSource": "Have a mainnet access code?"
   },
   "mainnetAccessOnboardingBody": {
-    "message": "Mainnet şimdilik sadece davetle erişilebilir. Davetinizdeki sekiz basamaklı kodu girin; cüzdanınız Miden Mainnet'te çalışmaya başlayacaktır.",
-    "englishSource": "Mainnet is invite-only for now. Enter the eight-digit code from your invite and your wallet starts on Miden Mainnet."
+    "message": "Mainnet şimdilik sadece davetle erişilebilir. Davetinizdeki 12 karakterlik kodu girin ve cüzdanınız Miden Mainnet'te açılsın.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
   },
   "mainnetAccessHint": {
     "message": "Kod, davet e-postanızda yer almaktadır.",
     "englishSource": "The code is in your invite email."
   },
-  "mainnetAccessContinueOnNetwork": {
-    "message": "Miden $network$ adresinde devam edin",
-    "englishSource": "Continue on Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
+  "iHaveACode": {
+    "message": "Bir kodum var",
+    "englishSource": "I have a code"
   },
-  "mainnetWelcomeTitle": {
-    "message": "Mainnet'e hoş geldiniz",
-    "englishSource": "Welcome to mainnet"
+  "iDontHaveACode": {
+    "message": "Elimde bir kod yok",
+    "englishSource": "I don't have a code"
   },
-  "mainnetWelcomeBody": {
-    "message": "Henüz yeni çıktı. Erişim kodunuz işe yaradı.",
-    "englishSource": "Fresh out of the oven. Your access code worked."
+  "noCodeTitle": {
+    "message": "Bread'e katılım davetle mümkündür",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "Yeni bir cüzdan için davetinizden alacağınız bir ana ağ erişim kodu gereklidir. Halihazırda mevcut olan bir hesap yine de kurtarılabilir.",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
   },
   "networkModePillNoValue": {
     "message": "Tokenların gerçek bir değeri yok",

@@ -5568,22 +5568,27 @@
       }
     }
   },
-  "networkModeHomeBanner": {
-    "message": "您当前位于 Miden $network$",
-    "englishSource": "You are on Miden $network$",
+  "testnetEndedTitle": {
+    "message": "Miden $network$ 已结束",
+    "englishSource": "Miden $network$ has ended",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
   },
-  "switchToMainnet": {
-    "message": "切换到主网",
-    "englishSource": "Switch to mainnet"
+  "testnetEndedBody": {
+    "message": "Bread 已脱离 Miden $network$。测试代币从未具有实际价值，且不会被继承。请重置应用以清空该钱包、其余额及交易记录，然后重新设置 Bread。",
+    "englishSource": "Bread has moved on from Miden $network$. Test tokens never had real value and do not carry over. Reset the app to clear this wallet, its balances and its history, then set up Bread again.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
-  "mainnetAccessDescription": {
-    "message": "主网目前仅限受邀用户加入。请输入您收到的 8 位访问码。",
-    "englishSource": "Mainnet is invite-only for now. Enter the 8-digit access code you received."
+  "testnetEndedReset": {
+    "message": "重置并重新开始",
+    "englishSource": "Reset and start over"
   },
   "mainnetAccessCodeLabel": {
     "message": "访问码",
@@ -5592,15 +5597,6 @@
   "unlockMainnet": {
     "message": "解锁主网",
     "englishSource": "Unlock mainnet"
-  },
-  "mainnetAccessNoCode": {
-    "message": "没有代码？您可以继续使用 Miden $network$。",
-    "englishSource": "No code? You can keep using Miden $network$.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
   },
   "mainnetAccessCodeRejected": {
     "message": "此代码无法正常运行。请检查并重试。",
@@ -5614,34 +5610,33 @@
     "message": "主网",
     "englishSource": "Mainnet"
   },
-  "mainnetAccessHeader": {
-    "message": "主网访问",
-    "englishSource": "Mainnet access"
+  "mainnetAccessTitle": {
+    "message": "你有主网访问码吗？",
+    "englishSource": "Have a mainnet access code?"
   },
   "mainnetAccessOnboardingBody": {
-    "message": "主网目前仅限受邀者加入。输入邀请中的八位数字代码，您的钱包即将在 Miden 主网上启动。",
-    "englishSource": "Mainnet is invite-only for now. Enter the eight-digit code from your invite and your wallet starts on Miden Mainnet."
+    "message": "主网目前仅限受邀用户使用。输入邀请函中的12位代码，您的钱包即可在Miden主网上启动。",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
   },
   "mainnetAccessHint": {
     "message": "代码在您的邀请邮件中。",
     "englishSource": "The code is in your invite email."
   },
-  "mainnetAccessContinueOnNetwork": {
-    "message": "继续阅读 Miden $network$",
-    "englishSource": "Continue on Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
+  "iHaveACode": {
+    "message": "我有一段代码",
+    "englishSource": "I have a code"
   },
-  "mainnetWelcomeTitle": {
-    "message": "欢迎来到主网",
-    "englishSource": "Welcome to mainnet"
+  "iDontHaveACode": {
+    "message": "我没有代码",
+    "englishSource": "I don't have a code"
   },
-  "mainnetWelcomeBody": {
-    "message": "新鲜出炉。您的访问码已验证通过。",
-    "englishSource": "Fresh out of the oven. Your access code worked."
+  "noCodeTitle": {
+    "message": "Bread 仅限受邀用户加入",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "新钱包需要您邀请链接中的主网访问码。已存在的账户仍可恢复。",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
   },
   "networkModePillNoValue": {
     "message": "代币没有实际价值",

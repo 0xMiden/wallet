@@ -5568,22 +5568,27 @@
       }
     }
   },
-  "networkModeHomeBanner": {
-    "message": "Você está no site Miden $network$",
-    "englishSource": "You are on Miden $network$",
+  "testnetEndedTitle": {
+    "message": "A Miden $network$ foi encerrada",
+    "englishSource": "Miden $network$ has ended",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
   },
-  "switchToMainnet": {
-    "message": "Mudar para a mainnet",
-    "englishSource": "Switch to mainnet"
+  "testnetEndedBody": {
+    "message": "O Bread deixou de fazer parte da Miden $network$. Os tokens de teste nunca tiveram valor real e não são transferidos. Reinicie o aplicativo para limpar esta carteira, seus saldos e seu histórico e, em seguida, configure o Bread novamente.",
+    "englishSource": "Bread has moved on from Miden $network$. Test tokens never had real value and do not carry over. Reset the app to clear this wallet, its balances and its history, then set up Bread again.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
-  "mainnetAccessDescription": {
-    "message": "A Mainnet está disponível apenas por convite, por enquanto. Digite o código de acesso de 8 dígitos que você recebeu.",
-    "englishSource": "Mainnet is invite-only for now. Enter the 8-digit access code you received."
+  "testnetEndedReset": {
+    "message": "Reinicie e comece de novo",
+    "englishSource": "Reset and start over"
   },
   "mainnetAccessCodeLabel": {
     "message": "Código de acesso",
@@ -5592,15 +5597,6 @@
   "unlockMainnet": {
     "message": "Desbloquear a mainnet",
     "englishSource": "Unlock mainnet"
-  },
-  "mainnetAccessNoCode": {
-    "message": "Não tem código? Você pode continuar usando Miden $network$.",
-    "englishSource": "No code? You can keep using Miden $network$.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
   },
   "mainnetAccessCodeRejected": {
     "message": "Este código não funcionou. Verifique-o e tente novamente.",
@@ -5614,34 +5610,33 @@
     "message": "Mainnet",
     "englishSource": "Mainnet"
   },
-  "mainnetAccessHeader": {
-    "message": "Acesso à mainnet",
-    "englishSource": "Mainnet access"
+  "mainnetAccessTitle": {
+    "message": "Você tem um código de acesso à mainnet?",
+    "englishSource": "Have a mainnet access code?"
   },
   "mainnetAccessOnboardingBody": {
-    "message": "A Mainnet é, por enquanto, apenas para convidados. Digite o código de oito dígitos do seu convite e sua carteira será ativada na Mainnet da Miden.",
-    "englishSource": "Mainnet is invite-only for now. Enter the eight-digit code from your invite and your wallet starts on Miden Mainnet."
+    "message": "A Mainnet é, por enquanto, apenas para convidados. Digite o código de 12 caracteres do seu convite e sua carteira será ativada na Mainnet da Miden.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
   },
   "mainnetAccessHint": {
     "message": "O código está no seu e-mail de convite.",
     "englishSource": "The code is in your invite email."
   },
-  "mainnetAccessContinueOnNetwork": {
-    "message": "Continue em Miden $network$",
-    "englishSource": "Continue on Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
+  "iHaveACode": {
+    "message": "Tenho um código",
+    "englishSource": "I have a code"
   },
-  "mainnetWelcomeTitle": {
-    "message": "Bem-vindo à mainnet",
-    "englishSource": "Welcome to mainnet"
+  "iDontHaveACode": {
+    "message": "Não tenho um código",
+    "englishSource": "I don't have a code"
   },
-  "mainnetWelcomeBody": {
-    "message": "Recém-saído do forno. Seu código de acesso funcionou.",
-    "englishSource": "Fresh out of the oven. Your access code worked."
+  "noCodeTitle": {
+    "message": "O Bread é apenas para convidados",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "Uma nova carteira precisa de um código de acesso à mainnet fornecido no seu convite. Uma conta que já exista ainda pode ser recuperada.",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
   },
   "networkModePillNoValue": {
     "message": "Os tokens não têm valor real",

@@ -5568,22 +5568,27 @@
       }
     }
   },
-  "networkModeHomeBanner": {
-    "message": "Вы находитесь на сайте Miden $network$",
-    "englishSource": "You are on Miden $network$",
+  "testnetEndedTitle": {
+    "message": "Miden $network$ завершил свою деятельность",
+    "englishSource": "Miden $network$ has ended",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
   },
-  "switchToMainnet": {
-    "message": "Переключиться на основную сеть",
-    "englishSource": "Switch to mainnet"
+  "testnetEndedBody": {
+    "message": "Bread перешёл с Miden $network$. Тестовые токены никогда не имели реальной стоимости и не переносятся. Сбросьте настройки приложения, чтобы очистить этот кошелёк, его остатки и историю, а затем настройте Bread заново.",
+    "englishSource": "Bread has moved on from Miden $network$. Test tokens never had real value and do not carry over. Reset the app to clear this wallet, its balances and its history, then set up Bread again.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
-  "mainnetAccessDescription": {
-    "message": "На данный момент доступ к Mainnet предоставляется только по приглашению. Введите полученный вами 8-значный код доступа.",
-    "englishSource": "Mainnet is invite-only for now. Enter the 8-digit access code you received."
+  "testnetEndedReset": {
+    "message": "Сбросить настройки и начать заново",
+    "englishSource": "Reset and start over"
   },
   "mainnetAccessCodeLabel": {
     "message": "Код доступа",
@@ -5592,15 +5597,6 @@
   "unlockMainnet": {
     "message": "Разблокировать мейннет",
     "englishSource": "Unlock mainnet"
-  },
-  "mainnetAccessNoCode": {
-    "message": "Нет кода? Вы можете продолжать пользоваться Miden $network$.",
-    "englishSource": "No code? You can keep using Miden $network$.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
   },
   "mainnetAccessCodeRejected": {
     "message": "Этот код не сработал. Проверьте его и попробуйте ещё раз.",
@@ -5614,34 +5610,33 @@
     "message": "Mainnet",
     "englishSource": "Mainnet"
   },
-  "mainnetAccessHeader": {
-    "message": "Доступ к основной сети",
-    "englishSource": "Mainnet access"
+  "mainnetAccessTitle": {
+    "message": "Есть код доступа к основной сети?",
+    "englishSource": "Have a mainnet access code?"
   },
   "mainnetAccessOnboardingBody": {
-    "message": "На данный момент доступ к Mainnet предоставляется только по приглашению. Введите восьмизначный код из вашего приглашения, и ваш кошелек начнёт работу в сети Miden Mainnet.",
-    "englishSource": "Mainnet is invite-only for now. Enter the eight-digit code from your invite and your wallet starts on Miden Mainnet."
+    "message": "На данный момент доступ к Mainnet предоставляется только по приглашению. Введите 12-символьный код из вашего приглашения, и ваш кошелек начнёт работу в сети Miden Mainnet.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
   },
   "mainnetAccessHint": {
     "message": "Код находится в вашем пригласительном письме.",
     "englishSource": "The code is in your invite email."
   },
-  "mainnetAccessContinueOnNetwork": {
-    "message": "Продолжение на Miden $network$",
-    "englishSource": "Continue on Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
+  "iHaveACode": {
+    "message": "У меня есть код",
+    "englishSource": "I have a code"
   },
-  "mainnetWelcomeTitle": {
-    "message": "Добро пожаловать в основную сеть",
-    "englishSource": "Welcome to mainnet"
+  "iDontHaveACode": {
+    "message": "У меня нет кода",
+    "englishSource": "I don't have a code"
   },
-  "mainnetWelcomeBody": {
-    "message": "Только что готово. Ваш код доступа сработал.",
-    "englishSource": "Fresh out of the oven. Your access code worked."
+  "noCodeTitle": {
+    "message": "Bread доступен только по приглашению",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "Для нового кошелька требуется код доступа к основной сети из вашего приглашения. Уже существующий аккаунт по-прежнему можно восстановить.",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
   },
   "networkModePillNoValue": {
     "message": "Токены не имеют реальной ценности",

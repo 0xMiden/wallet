@@ -5568,22 +5568,27 @@
       }
     }
   },
-  "networkModeHomeBanner": {
-    "message": "現在、Miden $network$ にアクセスしています。",
-    "englishSource": "You are on Miden $network$",
+  "testnetEndedTitle": {
+    "message": "Miden $network$は終了しました",
+    "englishSource": "Miden $network$ has ended",
     "placeholders": {
       "network": {
         "content": "$1"
       }
     }
   },
-  "switchToMainnet": {
-    "message": "メインネットに切り替える",
-    "englishSource": "Switch to mainnet"
+  "testnetEndedBody": {
+    "message": "BreadはMiden $network$から移行しました。テスト用トークンには実在する価値はなく、引き継がれることもありません。アプリをリセットして、このウォレット、その残高、および履歴をすべて消去した後、Breadを再度セットアップしてください。",
+    "englishSource": "Bread has moved on from Miden $network$. Test tokens never had real value and do not carry over. Reset the app to clear this wallet, its balances and its history, then set up Bread again.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
-  "mainnetAccessDescription": {
-    "message": "メインネットは現時点では招待制となっています。受け取った8桁のアクセスコードを入力してください。",
-    "englishSource": "Mainnet is invite-only for now. Enter the 8-digit access code you received."
+  "testnetEndedReset": {
+    "message": "リセットして最初からやり直す",
+    "englishSource": "Reset and start over"
   },
   "mainnetAccessCodeLabel": {
     "message": "アクセスコード",
@@ -5592,15 +5597,6 @@
   "unlockMainnet": {
     "message": "メインネットのロックを解除する",
     "englishSource": "Unlock mainnet"
-  },
-  "mainnetAccessNoCode": {
-    "message": "コードがない？ それなら、引き続き Miden $network$ をご利用ください。",
-    "englishSource": "No code? You can keep using Miden $network$.",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
   },
   "mainnetAccessCodeRejected": {
     "message": "このコードは動作しませんでした。コードを確認して、もう一度試してください。",
@@ -5614,34 +5610,33 @@
     "message": "メインネット",
     "englishSource": "Mainnet"
   },
-  "mainnetAccessHeader": {
-    "message": "メインネットへのアクセス",
-    "englishSource": "Mainnet access"
+  "mainnetAccessTitle": {
+    "message": "メインネットへのアクセスコードをお持ちですか？",
+    "englishSource": "Have a mainnet access code?"
   },
   "mainnetAccessOnboardingBody": {
-    "message": "メインネットは現時点では招待制です。招待状に記載されている8桁のコードを入力すると、ウォレットがMidenメインネットで起動します。",
-    "englishSource": "Mainnet is invite-only for now. Enter the eight-digit code from your invite and your wallet starts on Miden Mainnet."
+    "message": "メインネットは現時点では招待制となっています。招待状に記載された12文字のコードを入力すると、ウォレットがMidenメインネットで利用開始されます。",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
   },
   "mainnetAccessHint": {
     "message": "コードは招待メールに記載されています。",
     "englishSource": "The code is in your invite email."
   },
-  "mainnetAccessContinueOnNetwork": {
-    "message": "続きは Miden $network$ をご覧ください。",
-    "englishSource": "Continue on Miden $network$",
-    "placeholders": {
-      "network": {
-        "content": "$1"
-      }
-    }
+  "iHaveACode": {
+    "message": "コードがあります",
+    "englishSource": "I have a code"
   },
-  "mainnetWelcomeTitle": {
-    "message": "メインネットへようこそ",
-    "englishSource": "Welcome to mainnet"
+  "iDontHaveACode": {
+    "message": "コードは持っていません",
+    "englishSource": "I don't have a code"
   },
-  "mainnetWelcomeBody": {
-    "message": "出来立てほやほやです。アクセスコードが有効でした。",
-    "englishSource": "Fresh out of the oven. Your access code worked."
+  "noCodeTitle": {
+    "message": "Breadは招待制です",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "新しいウォレットには、招待リンクから取得したメインネットアクセスコードが必要です。既存のアカウントは、引き続き復元可能です。",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
   },
   "networkModePillNoValue": {
     "message": "トークンに実際の価値はありません",
