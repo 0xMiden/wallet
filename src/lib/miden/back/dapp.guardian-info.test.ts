@@ -157,7 +157,7 @@ beforeEach(() => {
     fn({ vault: { fetchAccounts: mockFetchAccounts } })
   );
   mockGuardianProviderFromEndpoint.mockImplementation((endpoint: string | null) =>
-    endpoint === 'https://guardian.openzeppelin.com' ? 'open-zeppelin' : endpoint ? 'custom' : null
+    endpoint === 'https://guardian-testnet.openzeppelin.com' ? 'open-zeppelin' : endpoint ? 'custom' : null
   );
 });
 
@@ -197,11 +197,11 @@ describe('requestGuardianInfo', () => {
       {
         publicKey: 'pk',
         type: WalletType.Guardian,
-        guardianEndpoint: 'https://guardian.openzeppelin.com',
+        guardianEndpoint: 'https://guardian-testnet.openzeppelin.com',
         guardianSyncStatus: 'in-sync'
       }
     ]);
-    mockResolveGuardianEndpoint.mockReturnValue('https://guardian.openzeppelin.com');
+    mockResolveGuardianEndpoint.mockReturnValue('https://guardian-testnet.openzeppelin.com');
 
     const res = await dapp.requestGuardianInfo('https://dapp', {
       type: MidenDAppMessageType.GuardianInfoRequest,
@@ -211,7 +211,7 @@ describe('requestGuardianInfo', () => {
     expect(res.type).toBe(MidenDAppMessageType.GuardianInfoResponse);
     expect(res.guardianInfo).toEqual({
       isGuardianAccount: true,
-      guardianEndpoint: 'https://guardian.openzeppelin.com',
+      guardianEndpoint: 'https://guardian-testnet.openzeppelin.com',
       guardianProvider: 'open-zeppelin',
       guardianSyncStatus: 'in-sync'
     });
@@ -300,11 +300,11 @@ describe('requestGuardianInfo', () => {
       {
         publicKey: 'pk6',
         type: WalletType.Guardian,
-        guardianEndpoint: 'https://guardian.openzeppelin.com',
+        guardianEndpoint: 'https://guardian-testnet.openzeppelin.com',
         guardianSyncStatus: 'needs-user-input'
       }
     ]);
-    mockResolveGuardianEndpoint.mockReturnValue('https://guardian.openzeppelin.com');
+    mockResolveGuardianEndpoint.mockReturnValue('https://guardian-testnet.openzeppelin.com');
 
     const res = await dapp.requestGuardianInfo('https://dapp', {
       type: MidenDAppMessageType.GuardianInfoRequest,

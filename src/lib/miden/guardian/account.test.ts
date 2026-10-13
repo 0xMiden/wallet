@@ -40,8 +40,8 @@ jest.mock('lib/miden-chain/constants', () => ({
     {
       id: 'open-zeppelin',
       endpoint: new Map([
-        ['testnet', 'https://guardian.openzeppelin.com'],
-        ['devnet', 'https://guardian-stg.openzeppelin.com']
+        ['testnet', 'https://guardian-testnet.openzeppelin.com'],
+        ['devnet', 'https://guardian-devnet.openzeppelin.com']
       ])
     },
     {
@@ -368,7 +368,7 @@ describe('assertGuardianKeyCommitment', () => {
 
 describe('guardianProviderFromEndpoint', () => {
   it('maps a known OpenZeppelin endpoint to its provider id', () => {
-    expect(guardianProviderFromEndpoint('https://guardian.openzeppelin.com')).toBe('open-zeppelin');
+    expect(guardianProviderFromEndpoint('https://guardian-testnet.openzeppelin.com')).toBe('open-zeppelin');
   });
 
   it('maps a known Gateway endpoint to its provider id', () => {
@@ -399,7 +399,13 @@ describe('guardianProviderFromEndpoint', () => {
   // or default-port spelling of a built-in must still map to it rather than falling
   // through to 'custom'.
   it('maps a host-case spelling of a known endpoint to its provider id', () => {
-    expect(guardianProviderFromEndpoint('https://Guardian.OpenZeppelin.com')).toBe('open-zeppelin');
+    expect(guardianProviderFromEndpoint('https://Guardian-Testnet.OpenZeppelin.com')).toBe('open-zeppelin');
+  });
+
+  // An account created before the rename still has the old host saved.
+  it('maps a renamed OpenZeppelin host to its provider id', () => {
+    expect(guardianProviderFromEndpoint('https://guardian.openzeppelin.com')).toBe('open-zeppelin');
+    expect(guardianProviderFromEndpoint('https://guardian-stg.openzeppelin.com')).toBe('open-zeppelin');
   });
 });
 

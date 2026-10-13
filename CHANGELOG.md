@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.4 (TBD)
+
+### Fixes
+
+- [FIX][all] OpenZeppelin Guardian endpoints moved to `guardian-testnet.openzeppelin.com` (testnet) and `guardian-devnet.openzeppelin.com` (devnet), replacing `guardian.openzeppelin.com` and `guardian-stg.openzeppelin.com`. Existing accounts keep their saved host, which is still recognised as OpenZeppelin.
+
 ## 1.17.3 (2026-10-12)
 
 ### Features

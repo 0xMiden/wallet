@@ -37,13 +37,13 @@ const served = (key: string) => `0x${key.toUpperCase()}`;
 // unchecked `response.json()` cast, so a real endpoint can serve any JSON type and
 // a fixture pinned to `string` cannot express the case that took the fan-out down.
 const MOCK_DEFAULT_PUBKEYS: Record<string, unknown> = {
-  'https://guardian.openzeppelin.com': served(KEY_A),
+  'https://guardian-testnet.openzeppelin.com': served(KEY_A),
   'https://miden-guardian.dev.eu-north-3.gateway.fm': served(KEY_B),
   'https://miden-guardian.lambdaclass.com': served(KEY_C),
   'https://guardian-testnet.kodax.com': served(KEY_D),
   // The devnet OpenZeppelin endpoint, so a lookup that resolved the wrong
   // network answers with a DIFFERENT key rather than with nothing.
-  'https://guardian-stg.openzeppelin.com': served(KEY_E),
+  'https://guardian-devnet.openzeppelin.com': served(KEY_E),
   // The developer URL override, which is a selectable option in the onboarding
   // picker but must never be probed as a built-in operator.
   'https://dev-override.guardian.test': served(KEY_F)
@@ -228,7 +228,7 @@ describe('one operator serving a nonsense commitment type', () => {
   // call sites throws after writing `'resolving'`, stranding the account in a
   // status that blocks every transaction and shows no banner.
   it('does not take the whole round down with it', async () => {
-    mockPubkeyByEndpoint['https://guardian.openzeppelin.com'] = 1234;
+    mockPubkeyByEndpoint['https://guardian-testnet.openzeppelin.com'] = 1234;
 
     const lookup = await identifyGuardianOperator(served(KEY_B), MIDEN_NETWORK_NAME.TESTNET);
 
@@ -244,7 +244,7 @@ describe('one operator serving a nonsense commitment type', () => {
   // `'none'` is what authorizes an accusation, and buying one by making a single
   // operator misbehave is precisely what the completeness rule prevents.
   it('leaves the round incomplete, so no built-in can be ruled out', async () => {
-    mockPubkeyByEndpoint['https://guardian.openzeppelin.com'] = { nested: 'object' };
+    mockPubkeyByEndpoint['https://guardian-testnet.openzeppelin.com'] = { nested: 'object' };
 
     const lookup = await identifyGuardianOperator('0xNOBODYSERVESTHIS', MIDEN_NETWORK_NAME.TESTNET);
 
@@ -254,16 +254,16 @@ describe('one operator serving a nonsense commitment type', () => {
   // The same field reaches `checkEndpointCommitment`, which the drift reconciler
   // and the manual-URL apply both gate on. It must fail closed, not throw.
   it('reads as unreachable through checkEndpointCommitment', async () => {
-    mockPubkeyByEndpoint['https://guardian.openzeppelin.com'] = true;
+    mockPubkeyByEndpoint['https://guardian-testnet.openzeppelin.com'] = true;
 
-    await expect(checkEndpointCommitment('https://guardian.openzeppelin.com', served(KEY_A))).resolves.toBe(
+    await expect(checkEndpointCommitment('https://guardian-testnet.openzeppelin.com', served(KEY_A))).resolves.toBe(
       'unreachable'
     );
   });
 
   // A string that is not a 32-byte word is no Guardian's key either, so it counts exactly as a nonsense type does.
   it('leaves the round incomplete when a built-in answers a string that is not a 32-byte word', async () => {
-    mockPubkeyByEndpoint['https://guardian.openzeppelin.com'] = '0xdeadbeef';
+    mockPubkeyByEndpoint['https://guardian-testnet.openzeppelin.com'] = '0xdeadbeef';
 
     const lookup = await identifyGuardianOperator('0xNOBODYSERVESTHIS', MIDEN_NETWORK_NAME.TESTNET);
 
@@ -271,9 +271,9 @@ describe('one operator serving a nonsense commitment type', () => {
   });
 
   it('reads a string that is not a 32-byte word as unreachable through checkEndpointCommitment', async () => {
-    mockPubkeyByEndpoint['https://guardian.openzeppelin.com'] = '0xdeadbeef';
+    mockPubkeyByEndpoint['https://guardian-testnet.openzeppelin.com'] = '0xdeadbeef';
 
-    await expect(checkEndpointCommitment('https://guardian.openzeppelin.com', KEY_B)).resolves.toBe('unreachable');
+    await expect(checkEndpointCommitment('https://guardian-testnet.openzeppelin.com', KEY_B)).resolves.toBe('unreachable');
   });
 });
 
@@ -295,11 +295,11 @@ describe('the built-in set excludes the developer URL override', () => {
 // difference.
 describe('checkEndpointCommitment', () => {
   it('reports a match when the endpoint pubkey commitment matches (normalized)', async () => {
-    expect(await checkEndpointCommitment('https://guardian.openzeppelin.com', `0x${KEY_A}`)).toBe('match');
+    expect(await checkEndpointCommitment('https://guardian-testnet.openzeppelin.com', `0x${KEY_A}`)).toBe('match');
   });
 
   it('reports a mismatch when the endpoint answers with a different key', async () => {
-    expect(await checkEndpointCommitment('https://guardian.openzeppelin.com', KEY_B)).toBe('mismatch');
+    expect(await checkEndpointCommitment('https://guardian-testnet.openzeppelin.com', KEY_B)).toBe('mismatch');
   });
 
   it('reports unreachable when the endpoint fetch throws', async () => {
@@ -307,7 +307,7 @@ describe('checkEndpointCommitment', () => {
       throw new Error('network unreachable');
     });
 
-    expect(await checkEndpointCommitment('https://guardian.openzeppelin.com', KEY_A)).toBe('unreachable');
+    expect(await checkEndpointCommitment('https://guardian-testnet.openzeppelin.com', KEY_A)).toBe('unreachable');
   });
 
   // An answer carrying no commitment is not a guardian answering, so it is no
@@ -332,11 +332,11 @@ describe('checkEndpointCommitment', () => {
 
 describe('verifyEndpointMatchesCommitment', () => {
   it('returns match when the endpoint pubkey commitment matches (normalized)', async () => {
-    expect(await verifyEndpointMatchesCommitment('https://guardian.openzeppelin.com', `0x${KEY_A}`)).toBe('match');
+    expect(await verifyEndpointMatchesCommitment('https://guardian-testnet.openzeppelin.com', `0x${KEY_A}`)).toBe('match');
   });
 
   it('returns mismatch when the endpoint pubkey commitment does not match', async () => {
-    expect(await verifyEndpointMatchesCommitment('https://guardian.openzeppelin.com', KEY_B)).toBe('mismatch');
+    expect(await verifyEndpointMatchesCommitment('https://guardian-testnet.openzeppelin.com', KEY_B)).toBe('mismatch');
   });
 
   // Boolean by design for callers about to WRITE the endpoint: unreachable and
@@ -346,7 +346,7 @@ describe('verifyEndpointMatchesCommitment', () => {
       throw new Error('network unreachable');
     });
 
-    expect(await verifyEndpointMatchesCommitment('https://guardian.openzeppelin.com', KEY_A)).toBe('unreachable');
+    expect(await verifyEndpointMatchesCommitment('https://guardian-testnet.openzeppelin.com', KEY_A)).toBe('unreachable');
   });
 
   // This is one-shot and user-initiated, so it gets a far longer budget than the
@@ -402,15 +402,15 @@ describe('mobile native-HTTP probe', () => {
   it('takes a probe of every built-in it asks from identifyGuardianOperator', async () => {
     await identifyGuardianOperator('0xAAA', MIDEN_NETWORK_NAME.TESTNET);
     expect(mockProbedEndpoints).toEqual(
-      expect.arrayContaining(['https://guardian.openzeppelin.com', 'https://miden-guardian.lambdaclass.com'])
+      expect.arrayContaining(['https://guardian-testnet.openzeppelin.com', 'https://miden-guardian.lambdaclass.com'])
     );
   });
 
   it('keeps the origin routed once the endpoint answers with a key, even another operator key', async () => {
-    mockPubkeyByEndpoint['https://guardian.openzeppelin.com'] = `0x${'ab'.repeat(32)}`;
+    mockPubkeyByEndpoint['https://guardian-testnet.openzeppelin.com'] = `0x${'ab'.repeat(32)}`;
 
-    await expect(checkEndpointCommitment('https://guardian.openzeppelin.com', KEY_B)).resolves.toBe('mismatch');
-    expect(mockProbeVerdicts).toEqual([['https://guardian.openzeppelin.com', true]]);
+    await expect(checkEndpointCommitment('https://guardian-testnet.openzeppelin.com', KEY_B)).resolves.toBe('mismatch');
+    expect(mockProbeVerdicts).toEqual([['https://guardian-testnet.openzeppelin.com', true]]);
   });
 
   it('releases the origin when the endpoint answers without a key', async () => {

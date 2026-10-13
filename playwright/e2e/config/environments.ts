@@ -27,7 +27,7 @@ const ENVIRONMENTS: Record<string, EnvironmentConfig> = {
     // Real testnet guardian operators (from src/lib/miden-chain/constants.ts
     // GUARDIAN_OPTIONS). OpenZeppelin is the default/primary; Koda is a distinct
     // second operator for switch tests.
-    guardianUrl: 'https://guardian.openzeppelin.com',
+    guardianUrl: 'https://guardian-testnet.openzeppelin.com',
     guardianUrlB: 'https://guardian-testnet.kodax.com',
     // Testnet moved to the fee-charging 0.16 node on 2026-09-09: mint from the public faucet
     // before the first transaction, exactly as devnet does, or the kernel rejects the fee.
@@ -45,7 +45,7 @@ const ENVIRONMENTS: Record<string, EnvironmentConfig> = {
     delegateProving: true,
     // OpenZeppelin runs on devnet too; the other operators are testnet-only, so
     // there is no distinct second guardian for switch tests here.
-    guardianUrl: 'https://guardian-stg.openzeppelin.com',
+    guardianUrl: 'https://guardian-devnet.openzeppelin.com',
     // Devnet's 2026-08-27 re-genesis enabled fees; its genesis and tip headers both
     // report verification_base_fee = 10000. Testnet's header carries none.
     chargesFees: true

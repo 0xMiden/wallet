@@ -1518,8 +1518,8 @@ describe('the usdcx preflight', () => {
         ...Object.values(XRESERVE_CALLS),
         `eth_getCode ["${GATEWAY_MINTER}","latest"]`,
         `${XRESERVE_API_TESTNET}/v1/info`,
-        'https://guardian.openzeppelin.com/status',
-        'https://guardian.openzeppelin.com/pubkey?scheme=ecdsa',
+        'https://guardian-testnet.openzeppelin.com/status',
+        'https://guardian-testnet.openzeppelin.com/pubkey?scheme=ecdsa',
         'https://faucet-api.testnet.miden.io/get_metadata',
         'native asset https://rpc.testnet.miden.io'
       ])
