@@ -5,6 +5,7 @@
 ### Fixes
 
 - [FIX][all] Opt-in crash reports retain scrubbed causes, capture source, app/build identity and validated compiled positions, with source-bound request types, approval-id categories and SDK startup stages. Unvalidated frame paths are omitted; diagnostics exclude request payloads, addresses, amounts and device identifiers.
+- [FIX][all] Handled transaction failures reach opt-in Sentry reporting, including failures with the extension popup closed and later bridge, earn and node-verdict failures. Reports retain closed execution and authentication diagnostics without transaction values or user identifiers.
 - [FIX][all] Amount entry keeps canonical Latin digits on Persian and Arabic devices, preventing lost digits and invalid base-unit conversion in Send and Swap. Incomplete or malformed swap amounts clear the previous quote and wait for valid input.
 
 ## 1.17.3 (2026-10-12)

@@ -509,6 +509,7 @@ const writeRequeue = async (txId: string, plan: RequeuePlan): Promise<RequeueWri
     dbTx.queuedSeq = nextQueuedSeq();
     dbTx.processingStartedAt = undefined;
     dbTx.attemptId = undefined;
+    delete dbTx.failureDiagnostics;
     dbTx.completedAt = undefined;
     dbTx.stage = undefined;
     // Clear the stage stamps with the stage. `setTransactionStage` is

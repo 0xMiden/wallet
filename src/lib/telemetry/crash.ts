@@ -109,7 +109,14 @@ export function selectIntegrations<T extends NamedIntegration>(integrations: T[]
  * result, so the allowlist stays an enforced invariant and not a comment.
  */
 function buildIntegrations() {
-  return selectIntegrations([inboundFiltersIntegration(), linkedErrorsIntegration(), dedupeIntegration()]);
+  const dedupe = dedupeIntegration();
+  const processEvent = dedupe.processEvent;
+  dedupe.processEvent = (event, hint, activeClient) => {
+    // Guarded terminal writes already deduplicate no-ops; separate failed attempts must each be counted.
+    if (event.exception?.values?.some(value => value.type === 'WalletTransactionFailure')) return event;
+    return processEvent ? processEvent(event, hint, activeClient) : event;
+  };
+  return selectIntegrations([inboundFiltersIntegration(), linkedErrorsIntegration(), dedupe]);
 }
 
 const WORDLIST: readonly string[] = englishWordlist;
@@ -198,15 +205,34 @@ export function scrubEvent<T>(event: T, hint?: { originalException?: unknown }):
 
 let scope: Scope | null = null;
 let client: BrowserClient | null = null;
+let reportingGeneration = 0;
+let listenersInstalled = false;
 
 const onGlobalError = (event: ErrorEvent) => captureCrash(event.error, 'onerror');
 const onUnhandledRejection = (event: PromiseRejectionEvent) => captureCrash(event.reason, 'onunhandledrejection');
 
-export function initCrashReporting(): void {
+function installCrashListeners(): void {
+  if (listenersInstalled || typeof globalThis.addEventListener !== 'function') return;
+  globalThis.addEventListener('error', onGlobalError);
+  globalThis.addEventListener('unhandledrejection', onUnhandledRejection);
+  listenersInstalled = true;
+}
+
+export function initCrashReporting(options: { listenToGlobals?: boolean } = {}): void {
+  if (client !== null) {
+    if (options.listenToGlobals !== false) installCrashListeners();
+    return;
+  }
   try {
+    const generation = reportingGeneration;
     const created = new BrowserClient({
       dsn: process.env.SENTRY_DSN ?? '',
-      transport: makeFetchTransport,
+      transport: options =>
+        makeFetchTransport(options, async (...args) => {
+          if (!(await isTelemetryEnabledAsync()) || generation !== reportingGeneration)
+            return new Response('', { status: 200 });
+          return globalThis.fetch(...args);
+        }),
       stackParser: defaultStackParser,
       integrations: buildIntegrations(),
       sendDefaultPii: false,
@@ -222,8 +248,7 @@ export function initCrashReporting(): void {
     scope = createdScope;
 
     // `GlobalHandlers` is excluded, so these are ours to register.
-    globalThis.addEventListener('error', onGlobalError);
-    globalThis.addEventListener('unhandledrejection', onUnhandledRejection);
+    if (options.listenToGlobals !== false) installCrashListeners();
   } catch {
     // Crash reporting must never keep the wallet from starting.
   }
@@ -238,12 +263,21 @@ export function stopCrashReporting(): void {
   const closing = client;
   scope = null;
   client = null;
+  reportingGeneration++;
   try {
-    globalThis.removeEventListener('error', onGlobalError);
-    globalThis.removeEventListener('unhandledrejection', onUnhandledRejection);
-    if (closing !== null) void closing.close(0);
+    if (listenersInstalled) {
+      globalThis.removeEventListener('error', onGlobalError);
+      globalThis.removeEventListener('unhandledrejection', onUnhandledRejection);
+    }
   } catch {
     // Best-effort.
+  } finally {
+    listenersInstalled = false;
+    try {
+      if (closing !== null) void Promise.resolve(closing.close(0)).catch(() => {});
+    } catch {
+      // Closing a telemetry client must not affect the wallet.
+    }
   }
 }
 
@@ -282,7 +316,11 @@ function rebuildError(error: Error, seen: Set<Error>, depth: number): Error {
   return reportable;
 }
 
-export function captureCrash(error: unknown, source: CrashSource = 'manual'): void {
+export function captureCrash(
+  error: unknown,
+  source: CrashSource = 'manual',
+  options: { initializeIfNeeded?: boolean } = {}
+): void {
   try {
     if (!(error instanceof Error)) return;
     // Snapshot before consent's await: later handling may mutate the original failure.
@@ -297,11 +335,18 @@ export function captureCrash(error: unknown, source: CrashSource = 'manual'): vo
         ? { type: source, handled: false }
         : { type: source === 'react' ? 'react' : 'generic', handled: true };
     const reportingClient = client;
+    const generation = reportingGeneration;
     void (async () => {
       try {
         if (!(await isTelemetryEnabledAsync())) return;
+        if (generation !== reportingGeneration) return;
+        if (options.initializeIfNeeded && client === null) initCrashReporting({ listenToGlobals: false });
         const target = scope;
-        if (target === null || client !== reportingClient) return;
+        if (
+          target === null ||
+          ((!options.initializeIfNeeded || reportingClient !== null) && client !== reportingClient)
+        )
+          return;
         target.captureException(reportable, { mechanism });
       } catch {
         // Best-effort: telemetry must not be able to fail a wallet operation.
