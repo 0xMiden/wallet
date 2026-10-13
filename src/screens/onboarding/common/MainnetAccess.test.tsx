@@ -11,8 +11,8 @@ jest.mock('react-i18next', () => ({
 jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn(), hapticLight: jest.fn() }));
 
 const mockCheck = jest.fn<Promise<'granted' | 'rejected'>, [string]>();
-const mockWrite = jest.fn<Promise<void>, [{ string: string }]>();
-jest.mock('@capacitor/clipboard', () => ({ Clipboard: { write: (value: { string: string }) => mockWrite(value) } }));
+const mockRead = jest.fn<Promise<{ value: string; type: string }>, []>();
+jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: () => mockRead() } }));
 jest.mock('lib/mainnet-access', () => ({
   MAINNET_ACCESS_CODE_LENGTH: 12,
   isMainnetAccessCodeComplete: (code: string) => /^(?:[0-9]{8}|[A-Za-z0-9]{12})$/.test(code),
@@ -31,7 +31,7 @@ const submit = async () => {
 describe('MainnetAccessScreen', () => {
   beforeEach(() => {
     mockCheck.mockReset();
-    mockWrite.mockReset().mockResolvedValue(undefined);
+    mockRead.mockReset().mockResolvedValue({ value: '8gKI-gL0O 6HcUextra', type: 'text/plain' });
   });
 
   it('asks for the code on the step layout, with its own title and no way on without a code', () => {
@@ -62,17 +62,37 @@ describe('MainnetAccessScreen', () => {
     expect(submitButton()).toBeEnabled();
   });
 
-  it('copies the entered code with its letter case and does not submit the form', async () => {
+  it('pastes a code with its letter case, removes separators, and does not submit', async () => {
     render(<MainnetAccessScreen />);
-    const copy = screen.getByTestId('onboarding-mainnet-access-copy');
-    expect(copy).toBeDisabled();
-    type('8gKIgL0O6HcU');
+    const paste = screen.getByTestId('onboarding-mainnet-access-paste');
+    expect(paste).toBeEnabled();
     await act(async () => {
-      fireEvent.click(copy);
+      fireEvent.click(paste);
     });
-    expect(mockWrite).toHaveBeenCalledWith({ string: '8gKIgL0O6HcU' });
-    expect(copy).toHaveAttribute('data-copied', 'true');
+    expect(mockRead).toHaveBeenCalledTimes(1);
+    expect(code()).toHaveValue('8gKIgL0O6HcU');
     expect(mockCheck).not.toHaveBeenCalled();
+  });
+
+  it('keeps the entered code when clipboard access fails', async () => {
+    mockRead.mockRejectedValueOnce(new Error('Clipboard denied'));
+    render(<MainnetAccessScreen />);
+    type('47291835');
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('onboarding-mainnet-access-paste'));
+    });
+    expect(code()).toHaveValue('47291835');
+    expect(screen.getByRole('alert')).toHaveTextContent('mainnetAccessPasteFailed');
+  });
+
+  it('keeps the entered code when the clipboard is empty', async () => {
+    mockRead.mockResolvedValueOnce({ value: '', type: 'text/plain' });
+    render(<MainnetAccessScreen />);
+    type('47291835');
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('onboarding-mainnet-access-paste'));
+    });
+    expect(code()).toHaveValue('47291835');
   });
 
   it('asks the node, then hands an accepted code on with letter case preserved', async () => {

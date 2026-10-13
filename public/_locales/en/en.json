@@ -368,6 +368,7 @@
   "more": "more",
   "addressBook": "Address Book",
   "paste": "Paste",
+  "mainnetAccessPasteFailed": "Could not read the clipboard. Enter your code or try again.",
   "nothingToPaste": "Nothing to paste. Copy an address first.",
   "chooseRecipient": "Choose recipient",
   "sendTo": "Send to",
