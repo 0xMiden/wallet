@@ -374,3 +374,33 @@ Official registry SDK 0.17.1 is installed with its published integrity and exact
 - [ ] Reconcile ancestry and atomically fast-forward main and next with the original PR-only policy restored.
 
 Review: both failed native grants committed after their fixture deadlines; CLI 0.17.1 consumed another grant successfully in the same run. The release packages remain sourced from the reviewed funding fix. All 50 focused tests pass, with types, scoped lint and formatting clean. Internal re-review confirmed the existing funding-source regression was repaired and found no remaining P0/P1 issues.
+
+## Native mobile companion 2026-10-13
+
+- [x] Record failing geometry and lifecycle regressions.
+- [x] Implement optional geometry and covered native foreground ownership.
+- [x] Remove redundant entry hint, document contract and add unreleased changelog.
+- [x] Minimize through the standard app path, retain the document and fence deferred snapshot/hide ownership.
+- [x] Run 429 focused noncoverage tests, typecheck, targeted lint and the pinned mobile build.
+- [x] Complete current-main native gates: 31 iOS passes plus one recorder skip, and 90 Android passes.
+- [x] Complete integrated simulator geometry/minimize acceptance through the production Provider.
+- [x] Correct generic plugin privacy image ownership with actual-plugin RED-to-GREEN controls and ten fallback cases.
+- [x] Verify all 2,688 source frames and every transition of three real full-app OS resumes after the plugin correction.
+
+Review: focused native review has no actionable source finding. First real OS recording exposed the host in 8 of 529 source frames; retaining covered snapshot ownership removes that exposure in all 425 source frames of the second recording. Coverage remains CI-only with every threshold unchanged at 95%. Final integrated acceptance passes in the production Provider: same-document minimize/restore, shared native/game headers and three real OS resumes without Explore or the white Bread privacy image. Publication belongs to the companion PR.
+
+## iOS wallet canvas bottom 2026-10-13
+
+- [x] Prove native viewport reaches the edge and body safe-area padding shortens the canvas.
+- [x] Capture actual dark Explore before and after a single body-padding override.
+- [x] Move iOS safe-area reservation into navigation and CTA controls while retaining keyboard inset.
+- [x] Audit every full-height bottom control and measure actual React ancestry with compiled CSS.
+- [x] Verify actual WK geometry, visible/hidden nav and CTA/keyboard clearance.
+- [x] Run full noncoverage unit, lint, typecheck and fresh mobile/native gates.
+- [x] Capture fresh light/dark Explore, actual scrolled lists and keyboard/CTA acceptance screenshots.
+
+Criterion: "lets have the wallet fo to very bottom of iphone screens too", with the gesture bar overlaid. Native WK frame and window end at 874 points, adjusted scroll inset is zero; existing body padding 34 stops both canvas and footer at 840. Overriding only body padding moves both to 874, confirming the CSS cause. The physical screenshot's apparent strip is its body background/shadow, not a native black frame gap.
+
+Final canvas acceptance: native suite33 passes with2 opt-in skips, Android90 passes, full ESLint and TypeScript pass. Twelve actual React DOM cases with compiled CSS verify final controls, scrolling and single-floor recovery clearance. Fresh final-build simulator screenshots show dark Explore, light Language/Settings after scrolling, and Send with and without the keyboard. The simulator captures omit the home-indicator stroke; the page background reaches the actual bottom, and native home-indicator behavior is unchanged. Full noncoverage unit verification passes 23,358 tests across 1,020 suites, with four tests and one suite skipped.
+
+Review: final corrected full noncoverage run passes 23,358 tests across 1,020 suites, with four tests and one suite skipped. Full lint and typecheck pass, native gates pass 33 iOS and 90 Android tests, and 12 actual React geometry cases pass. Fresh final App screenshots show the canvas reaching the bottom while controls and keyboard CTAs remain clear. Coverage remains CI-only at unchanged 95% thresholds.

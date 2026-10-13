@@ -96,7 +96,7 @@ export const HelpImproveWalletScreen: React.FC<HelpImproveWalletScreenProps> = (
           </div>
         </div>
 
-        <div className="w-full flex flex-col items-center gap-3 pb-6 shrink-0">
+        <div className="w-full flex flex-col items-center gap-3 pb-[calc(1.5rem+var(--wallet-control-safe-bottom,0px))] shrink-0">
           <Button title={t('helpImproveWalletAccept')} onClick={onAccept} data-testid="help-improve-wallet-accept" />
           <Button
             title={t('helpImproveWalletDecline')}

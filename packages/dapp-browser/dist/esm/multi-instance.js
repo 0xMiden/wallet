@@ -37,6 +37,8 @@ export class DappWebViewInstance {
     this.visibilitySequence = 0;
   }
 
+  get currentVisibilitySequence() { return this.visibilitySequence; }
+
   /** Move the webview to the given rect (delegates to updateDimensions). */
   setRect(rect) {
     if (this.closed || this.closePromise) return Promise.resolve();

@@ -13,8 +13,10 @@ private final class CloseFenceWebView: WKWebView {
 
 private final class PolicyRecordingPlugin: InAppBrowserPlugin {
     var policies = [[String: Any]]()
+    var minimizations = [[String: Any]]()
     override func notifyListeners(_ eventName: String, data: [String: Any]?) {
         if eventName == "presentationChanged", let data { policies.append(data) }
+        if eventName == "presentationMinimizeRequested", let data { minimizations.append(data) }
     }
 }
 
@@ -54,7 +56,9 @@ final class BreadPresentationTests: XCTestCase {
                          display: String = "fullscreen", token: String = "metrics", fence: Bool = false) async throws -> Bool {
         try await web.callAsyncJavaScript(BreadPresentationController.metricScript,
             arguments: ["token": token, "revision": revision, "width": width, "inset": inset,
-                        "display": display, "fence": fence], in: nil, contentWorld: .page) as? Bool == true
+                        "display": display, "fence": fence,
+                        "controlBounds": ["left":12,"top":62,"width":64,"height":48],
+                        "safeAreaInsets": ["top":54,"left":0,"right":0,"bottom":34]], in: nil, contentWorld: .page) as? Bool == true
     }
 
     func testFullscreenRotationKeepsHostCoveredUntilFreshPaint() async throws {
@@ -163,6 +167,22 @@ final class BreadPresentationTests: XCTestCase {
         try data.write(to: directory.appendingPathComponent("captures.json"))
         let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
         attachment.name = "rotation-captures"; attachment.lifetime = .keepAlways; add(attachment)
+    }
+
+    func testNativeGeometryUsesCurrentViewportScaleAndRevision() async throws {
+        let (web, window) = try await metricFixture()
+        defer { InAppBrowserPlugin.releaseContainerWindow(window) }
+        _ = try await project(web, revision: 1, width: 804)
+        let geometry = try await web.evaluateJavaScript("values.at(-1)") as? [String: Any]
+        let bounds = geometry?["controlBounds"] as? [String: Double]
+        let safe = geometry?["safeAreaInsets"] as? [String: Double]
+        XCTAssertEqual(bounds?["top"], 31)
+        XCTAssertEqual(bounds?["width"], 32)
+        XCTAssertEqual(safe?["bottom"], 17)
+        _ = try await project(web, revision: 2, width: 402)
+        _ = try await project(web, revision: 1, width: 804)
+        let current = try await web.evaluateJavaScript("values.at(-1).controlBounds.top") as? Double
+        XCTAssertEqual(current, 62)
     }
 
     func testNativeMetricsReprojectWhenViewportResizeArrivesAfterPublication() async throws {
@@ -825,6 +845,344 @@ final class BreadPresentationTests: XCTestCase {
             XCTAssertTrue(instance.containerWindow === window)
         }
         XCTAssertTrue(WKWebViewController().initiallyVisible)
+    }
+
+    func testBreadCapsuleRequestsHostMinimizeWithoutClosingRetainedDocument() async throws {
+        let live = try await livePresentation()
+        defer { live.dispose() }
+        let plugin = PolicyRecordingPlugin()
+        live.owner.capBrowserPlugin = plugin
+        try await configure(live, theme: nil)
+        let generation = live.presentation.state.generation
+        let capsule = try XCTUnwrap(live.owner.view.subviews.compactMap { $0 as? UIButton }
+            .first { $0.accessibilityIdentifier?.hasPrefix("bread-presentation-") == true })
+        capsule.sendActions(for: .touchUpInside)
+        XCTAssertEqual(plugin.minimizations.count, 1)
+        XCTAssertEqual(plugin.minimizations.first?["visibilitySequence"] as? Int, live.presentation.state.acknowledgedVisibilitySequence)
+        XCTAssertEqual(live.presentation.state.generation, generation)
+        XCTAssertTrue(WebViewRegistry.shared.get(id: live.instance.id) === live.instance)
+    }
+
+    func testLateFirstAcknowledgementKeepsNeverShownControllerHiddenInBackground() async throws {
+        let live = try await livePresentation(initiallyVisible: false)
+        defer { live.dispose() }
+        try await publicVisibility(live, visible: true, sequence: 1)
+        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'configure',display:'fullscreen'})); true")
+        let configured = try await eventually { live.presentation.state.policyResolved }
+        XCTAssertTrue(configured)
+        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'ready'})); true")
+        let ready = try await eventually { live.presentation.state.documentReady }
+        XCTAssertTrue(ready)
+        XCTAssertFalse(live.presentation.state.effectiveVisibility)
+        live.presentation.state.layoutPrepared(generation: live.presentation.state.generation)
+        NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+        try await publicVisibility(live, visible: true, revision: live.presentation.state.policyRevision, sequence: 2)
+        XCTAssertTrue(live.window.isHidden, "A never-shown controller cannot inherit background window ownership")
+        XCTAssertFalse(live.window.isKeyWindow)
+    }
+
+    func testLateFirstPolicyAcknowledgementCannotRetainNeverShownDocument() {
+        let state = BreadPresentationState(timeout: 30)
+        let generation = state.beginNavigation()
+        state.requestVisibility(true, sequence: 1)
+        state.configure(.fullscreen, generation: generation)
+        state.ready(generation: generation)
+        XCTAssertFalse(state.effectiveVisibility)
+        state.layoutPrepared(generation: generation)
+        state.setForeground(false)
+        state.invalidateLayout()
+        state.requestVisibility(true, policyRevision: state.policyRevision, sequence: 2)
+        XCTAssertFalse(state.surfaceVisibility, "Late first acknowledgement cannot grant background snapshot ownership")
+    }
+
+    func testCoveredForegroundEligibilityRejectsColdHiddenBrowserFailedAndClosedPages() {
+        for scenario in ["cold", "hidden", "browser", "failed", "closed", "navigation", "unacknowledged"] {
+            let state = BreadPresentationState(timeout: 30)
+            let generation = state.beginNavigation()
+            state.configure(.fullscreen, generation: generation)
+            state.ready(generation: generation)
+            state.requestVisibility(true, policyRevision: state.policyRevision)
+            if scenario != "cold" { state.layoutPrepared(generation: generation) }
+            switch scenario {
+            case "hidden": state.requestVisibility(false)
+            case "browser": state.configure(.browser, generation: generation)
+            case "failed": state.fail(generation: generation)
+            case "closed": state.close()
+            case "navigation": state.beginNavigation()
+            case "unacknowledged": state.configure(.browser, generation: generation); state.configure(.fullscreen, generation: generation)
+            default: break
+            }
+            state.setForeground(false)
+            XCTAssertFalse(state.surfaceVisibility, scenario)
+        }
+    }
+
+    private func captureForegroundSurface(_ name: String) throws {
+        let directory = URL(fileURLWithPath: ProcessInfo.processInfo.environment["BREAD_FOREGROUND_EVIDENCE"] ?? NSTemporaryDirectory()).appendingPathComponent("native-surfaces")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let screenshot = XCUIScreen.main.screenshot()
+        let path = directory.appendingPathComponent(name + ".png")
+        try screenshot.pngRepresentation.write(to: path)
+        let image = try XCTUnwrap(UIImage(contentsOfFile: path.path))
+        let scale = min(1, 1800 / max(image.size.width, image.size.height))
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let capped = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        try XCTUnwrap(capped.pngData()).write(to: path)
+        let attachment = XCTAttachment(image: capped)
+        attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+    }
+
+    private func mainWalletWebView() throws -> WKWebView {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        return try XCTUnwrap(scene.windows.compactMap { ($0.rootViewController as? CAPBridgeViewController)?.webView }.first)
+    }
+
+    private func walletCanvasMetrics(_ web: WKWebView) async throws -> [String: Any] {
+        let loaded = try await eventually { (try? await web.evaluateJavaScript("document.readyState !== 'loading' && !!document.getElementById('root')")) as? Bool == true }
+        XCTAssertTrue(loaded)
+        let result = try await web.evaluateJavaScript("""
+            (()=>{const root=document.getElementById('root');const body=getComputedStyle(document.body);
+            const footer=document.querySelector('[data-tabbar-footer="true"]');
+            return {viewportHeight:innerHeight,viewportWidth:innerWidth,rootTop:root.getBoundingClientRect().top,
+                rootBottom:root.getBoundingClientRect().bottom,bodyBottomPadding:body.paddingBottom,
+                bodyBackground:body.backgroundColor,rootBackground:getComputedStyle(root).backgroundColor,
+                safeBottom:body.getPropertyValue('--app-safe-bottom'),keyboard:body.getPropertyValue('--keyboard-height'),
+                footerBottom:footer?.getBoundingClientRect().bottom??null,href:location.href};})()
+            """)
+        return try XCTUnwrap(result as? [String: Any])
+    }
+
+    func testMainWalletCanvasReachesNativeViewportBottom() async throws {
+        let web = try mainWalletWebView()
+        let metrics = try await walletCanvasMetrics(web)
+        let window = try XCTUnwrap(web.window)
+        XCTAssertEqual(web.convert(web.bounds, to: window).maxY, window.bounds.maxY, accuracy: 0.5)
+        XCTAssertEqual(web.scrollView.adjustedContentInset.bottom, 0, accuracy: 0.5)
+        XCTAssertEqual(try XCTUnwrap(metrics["rootBottom"] as? Double),
+            try XCTUnwrap(metrics["viewportHeight"] as? Double), accuracy: 0.5,
+            "Wallet canvas must reach the native bottom with the home indicator overlaid")
+    }
+
+    func testMainWalletControlClearanceSurvivesHiddenNavAndKeyboard() async throws {
+        let web = try mainWalletWebView()
+        _ = try await walletCanvasMetrics(web)
+        let safe = max(16, web.safeAreaInsets.bottom)
+        _ = try await web.evaluateJavaScript("""
+            window.__walletGeometrySaved={keyboard:document.body.style.getPropertyValue('--keyboard-height'),hidden:document.body.hasAttribute('data-hide-navbar')};
+            const fixture=document.createElement('div');fixture.id='wallet-geometry-fixture';
+            fixture.dataset.tabLayout='floating';fixture.style.cssText='position:fixed;left:0;width:100%;pointer-events:none';
+            fixture.innerHTML=`<div id="qa-wallet-nav" data-tabbar-footer="true" style="position:absolute;bottom:0;width:100%"><button style="height:58px;display:block">Nav</button></div>
+                <div id="qa-wallet-cta" data-flow-footer data-navbar-cushion="true" class="pb-[calc(max(1rem,calc(var(--navbar-cushion,1rem)-var(--keyboard-height,0px)))+var(--wallet-control-safe-bottom,0px))]" style="position:absolute;bottom:0"><button style="height:44px;display:block">CTA</button></div>
+                <div id="qa-wallet-cta-opt-out" data-flow-footer class="pb-[calc(1rem+var(--wallet-control-safe-bottom,0px))]" style="position:absolute;bottom:0"><button style="height:44px;display:block">CTA</button></div>`;
+            document.body.appendChild(fixture);true
+            """)
+        defer {
+            web.evaluateJavaScript("document.getElementById('wallet-geometry-fixture')?.remove();document.body.style.setProperty('--keyboard-height',window.__walletGeometrySaved.keyboard);document.body.toggleAttribute('data-hide-navbar',window.__walletGeometrySaved.hidden);true")
+        }
+        for (hidden, keyboard) in [(false, 0), (true, 0), (true, 300)] {
+            let result = try await web.callAsyncJavaScript("""
+                document.body.toggleAttribute('data-hide-navbar',hidden);
+                document.body.style.setProperty('--keyboard-height',keyboard+'px');
+                await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+                if(hidden)await new Promise(resolve=>setTimeout(resolve,300));
+                const root=document.getElementById('root').getBoundingClientRect();const fixture=document.getElementById('wallet-geometry-fixture');
+                fixture.style.top=root.top+'px';fixture.style.height=root.height+'px';
+                const nav=document.getElementById('qa-wallet-nav');const cta=document.getElementById('qa-wallet-cta');
+                return {rootBottom:root.bottom,viewport:innerHeight,navBoxBottom:nav.getBoundingClientRect().bottom,
+                    navControlBottom:nav.querySelector('button').getBoundingClientRect().bottom,
+                    ctaBottom:cta.querySelector('button').getBoundingClientRect().bottom,
+                    optOutBottom:document.querySelector('#qa-wallet-cta-opt-out button').getBoundingClientRect().bottom,navVisibility:getComputedStyle(nav).visibility};
+                """, arguments: ["hidden":hidden,"keyboard":keyboard], in: nil, contentWorld: .page)
+            let metrics = try XCTUnwrap(result as? [String: Any])
+            let bottom = try XCTUnwrap(metrics["rootBottom"] as? Double)
+            let protected = keyboard > 0 ? 0 : Double(safe)
+            XCTAssertEqual(bottom, try XCTUnwrap(metrics["viewport"] as? Double) - Double(keyboard), accuracy: 0.5)
+            XCTAssertEqual(try XCTUnwrap(metrics["navBoxBottom"] as? Double), bottom, accuracy: 0.5)
+            XCTAssertEqual(try XCTUnwrap(metrics["navControlBottom"] as? Double), bottom - protected, accuracy: 0.5)
+            XCTAssertEqual(try XCTUnwrap(metrics["ctaBottom"] as? Double), bottom - protected - (hidden ? 16 : 80), accuracy: 0.5)
+            XCTAssertEqual(try XCTUnwrap(metrics["optOutBottom"] as? Double), bottom - protected - 16, accuracy: 0.5)
+            XCTAssertEqual(metrics["navVisibility"] as? String, hidden ? "hidden" : "visible")
+        }
+    }
+
+    func testExternallyDrivenWalletBottomDiagnostic() async throws {
+        guard let directoryPath = ProcessInfo.processInfo.environment["BREAD_WALLET_BOTTOM_EVIDENCE"] else {
+            throw XCTSkip("Owned wallet bottom diagnostic is opt-in")
+        }
+        let directory = URL(fileURLWithPath: directoryPath)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let web = try mainWalletWebView()
+        _ = try await walletCanvasMetrics(web)
+        try Data("ready".utf8).write(to: directory.appendingPathComponent("ready"))
+        let command = directory.appendingPathComponent("capture")
+        let deadline = Date().addingTimeInterval(120)
+        while !FileManager.default.fileExists(atPath: command.path), Date() < deadline {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: command.path))
+        let before = try await walletCanvasMetrics(web)
+        let window = try XCTUnwrap(web.window)
+        let native: [String: Any] = ["webFrameBottom": web.convert(web.bounds, to: window).maxY,
+            "windowBottom": window.bounds.maxY, "adjustedBottomInset": web.scrollView.adjustedContentInset.bottom,
+            "nativeSafeBottom": web.safeAreaInsets.bottom]
+        try captureForegroundSurface("wallet-bottom-before-override")
+        _ = try await web.evaluateJavaScript("window.__walletOriginalPadding=document.body.style.getPropertyValue('padding-bottom'); document.body.style.setProperty('padding-bottom','0px','important'); true")
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let after = try await walletCanvasMetrics(web)
+        try captureForegroundSurface("wallet-bottom-after-override")
+        let result: [String: Any] = ["native":native,"before":before,"after":after]
+        try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
+            .write(to: directory.appendingPathComponent("metrics.json"))
+        _ = try await web.evaluateJavaScript("document.body.style.removeProperty('padding-bottom');if(window.__walletOriginalPadding)document.body.style.setProperty('padding-bottom',window.__walletOriginalPadding);true")
+        XCTAssertEqual(try XCTUnwrap(after["rootBottom"] as? Double), try XCTUnwrap(after["viewportHeight"] as? Double), accuracy: 0.5)
+    }
+
+    func testExternallyDrivenRetainedGameLifecycle() async throws {
+        guard let directoryPath = ProcessInfo.processInfo.environment["BREAD_FOREGROUND_EVIDENCE"] else {
+            throw XCTSkip("Requires an external lifecycle recorder")
+        }
+        let directory = URL(fileURLWithPath: directoryPath)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let live = try await livePresentation()
+        defer { live.dispose() }
+        try await configure(live, theme: "#061426")
+        live.instance.navigationController.navigationBar.isHidden = true
+        live.instance.navigationController.view.layoutIfNeeded()
+        _ = try await live.web.evaluateJavaScript("""
+            document.body.style.cssText='margin:0;background:#124d37;color:white;font:32px system-ui';
+            document.body.innerHTML='<div style="padding:140px 24px">Retained fullscreen game</div>';
+            window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'ready'})); true
+            """)
+        let visible = try await eventually { live.presentation.state.phase == .visible && live.cover.isHidden }
+        XCTAssertTrue(visible)
+        let hostPaint = UIView(frame: live.host?.bounds ?? .zero)
+        hostPaint.backgroundColor = .magenta
+        hostPaint.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        live.host?.addSubview(hostPaint)
+        defer { hostPaint.removeFromSuperview() }
+        let ready = try JSONSerialization.data(withJSONObject: ["ready":true,"time":Date().timeIntervalSince1970])
+        try ready.write(to: directory.appendingPathComponent("ready.json"), options: .atomic)
+        let finished = directory.appendingPathComponent("finished")
+        let deadline = Date().addingTimeInterval(120)
+        while !FileManager.default.fileExists(atPath: finished.path), Date() < deadline {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: finished.path), "Lifecycle recorder must complete")
+        let restored = try await eventually { live.presentation.state.phase == .visible && live.cover.isHidden }
+        XCTAssertTrue(restored)
+        XCTAssertFalse(live.window.isHidden)
+        XCTAssertTrue(live.window.isKeyWindow)
+    }
+
+    func testProductionPluginPrivacyUsesOpaqueRetainedGameBeforeAddingLaunchImage() async throws {
+        let live = try await livePresentation()
+        defer { live.dispose() }
+        let plugin = InAppBrowserPlugin()
+        plugin.navigationWebViewController = live.instance.navigationController
+        try await configure(live, theme: "#061426")
+        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'ready'})); true")
+        let visible = try await eventually { live.presentation.state.phase == .visible && live.cover.isHidden }
+        XCTAssertTrue(visible)
+        plugin.appWillResignActive(NSNotification(name: UIApplication.willResignActiveNotification, object: nil))
+        XCTAssertFalse(live.cover.isHidden, "Plugin must establish the native privacy cover synchronously")
+        XCTAssertEqual(live.cover.alpha, 1)
+        XCTAssertTrue(live.cover.isOpaque)
+        XCTAssertEqual(live.cover.frame, live.owner.view.bounds)
+        XCTAssertTrue(live.web.accessibilityElementsHidden)
+        XCTAssertFalse(live.presentation.state.foreground)
+        XCTAssertFalse(live.window.isHidden)
+        XCTAssertTrue(live.window.isKeyWindow)
+        XCTAssertTrue(live.instance.navigationController.view.subviews.compactMap { $0 as? UIImageView }.isEmpty,
+            "Generic Bread launch image must not obscure the eligible game privacy cover")
+        plugin.appDidBecomeActive(NSNotification(name: UIApplication.didBecomeActiveNotification, object: nil))
+    }
+
+    func testProductionPluginPreservesGenericPrivacyForIneligibleGameSurfaces() async throws {
+        for policy in ["browser", "parked", "cold", "unacknowledged", "failed", "replaced", "host-owned", "closed", "non-key", "managed-close"] {
+            let live = try await livePresentation()
+            defer { live.dispose() }
+            let plugin = InAppBrowserPlugin()
+            plugin.navigationWebViewController = live.instance.navigationController
+            try await configure(live, theme: "#061426")
+            if policy != "cold" {
+                _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'ready'})); true")
+                let visible = try await eventually { live.presentation.state.phase == .visible && live.cover.isHidden }
+                XCTAssertTrue(visible)
+            }
+            switch policy {
+            case "browser":
+                live.presentation.state.configure(.browser, generation: live.presentation.state.generation)
+                live.presentation.setVisible(true, policyRevision: live.presentation.state.policyRevision)
+            case "parked", "host-owned": live.presentation.setVisible(false)
+            case "unacknowledged":
+                live.presentation.state.configure(.browser, generation: live.presentation.state.generation)
+                live.presentation.state.configure(.fullscreen, generation: live.presentation.state.generation)
+            case "failed": live.presentation.failed()
+            case "replaced": live.presentation.beginNavigation()
+            case "closed": live.presentation.close()
+            case "non-key": live.host?.makeKey()
+            case "managed-close":
+                let managed = try XCTUnwrap(ManagedHostClose(options: ["token": "privacy-close"], instance: live.instance,
+                    host: { nil }, notify: { _ in }, finish: {}))
+                live.instance.managedClose = managed
+                live.owner.managedClose = managed
+                managed.request()
+            default: break
+            }
+            plugin.appWillResignActive(NSNotification(name: UIApplication.willResignActiveNotification, object: nil))
+            XCTAssertEqual(live.instance.navigationController.view.subviews.compactMap { $0 as? UIImageView }.count, 1,
+                "Generic privacy must remain for \(policy)")
+            plugin.appDidBecomeActive(NSNotification(name: UIApplication.didBecomeActiveNotification, object: nil))
+            XCTAssertTrue(live.instance.navigationController.view.subviews.compactMap { $0 as? UIImageView }.isEmpty)
+        }
+    }
+
+    func testResigningRetainedFullscreenKeepsPrivacyCoveredSnapshotOwnership() async throws {
+        let live = try await livePresentation()
+        defer { live.dispose() }
+        try await configure(live, theme: "#061426")
+        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'ready'})); true")
+        let visible = try await eventually { live.presentation.state.phase == .visible && live.cover.isHidden }
+        XCTAssertTrue(visible)
+        NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+        XCTAssertFalse(live.window.isHidden, "Task-switch snapshot must retain the opaque game surface")
+        XCTAssertTrue(live.window.isKeyWindow, "Host must not acquire snapshot ownership on resign")
+        XCTAssertFalse(live.cover.isHidden)
+        XCTAssertEqual(live.cover.alpha, 1)
+        XCTAssertFalse(live.presentation.state.foreground)
+        live.presentation.setVisible(false)
+        XCTAssertTrue(live.window.isHidden, "Host-owned wallet overlays still revoke snapshot ownership")
+    }
+
+    func testForegroundEntryRestoresOnlyEligibleRetainedCoveredFullscreen() async throws {
+        let live = try await livePresentation()
+        defer { live.dispose() }
+        try await configure(live, theme: nil)
+        _ = try await live.web.evaluateJavaScript("window.webkit.messageHandlers.breadPresentation.postMessage(JSON.stringify({token:'live',type:'ready'})); true")
+        let initial = try await eventually { live.presentation.state.phase == .visible && live.cover.isHidden }
+        XCTAssertTrue(initial)
+        NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+        XCTAssertFalse(live.window.isHidden)
+        NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        XCTAssertFalse(live.window.isHidden, "First foreground surface must be the retained covered game")
+        XCTAssertTrue(live.window.isKeyWindow)
+        XCTAssertFalse(live.cover.isHidden)
+        XCTAssertEqual(live.cover.alpha, 1)
+        XCTAssertEqual(live.presentation.state.phase, .temporarilyHidden)
+        try captureForegroundSurface("notification-first-covered-surface")
+        live.presentation.setVisible(false)
+        NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        XCTAssertTrue(live.window.isHidden, "Host-owned overlays and parked pages must stay hidden")
+        live.presentation.setVisible(true)
+        live.presentation.beginNavigation()
+        NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        XCTAssertTrue(live.window.isHidden, "A replacement document cannot borrow retained ownership")
+        live.presentation.close()
+        NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        XCTAssertTrue(live.window.isHidden)
     }
 
     func testForegroundResumeRetriesAnInterruptedRealPaint() async throws {
