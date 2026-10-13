@@ -219,19 +219,16 @@ describe('guardian e2e suite split', () => {
   });
 });
 
-describe('PR workflow execution policy', () => {
-  it('swap-e2e temporarily runs on pull_request to test CI latency', () => {
+describe('PR workflows skip the heavy swap and earn jobs', () => {
+  it('swap-e2e is skipped on pull_request and uses free ARM64', () => {
     const src = configSource('.github/workflows/pr-e2e-swap.yml');
-    expect(jobIf('.github/workflows/pr-e2e-swap.yml', 'swap-e2e', src)).toBeNull();
-    expect(src).toMatch(/TEMPORARY: Run Swap on pull requests to test CI latency/);
-    expect(src).toMatch(/Remove pull-request execution before merging this change/);
+    expect(jobIf('.github/workflows/pr-e2e-swap.yml', 'swap-e2e', src)).toBe("github.event_name != 'pull_request'");
     expect(src).toMatch(/runs-on: ubuntu-24.04-arm/);
   });
 
-  it('earn-e2e is skipped on pull_request and retains WarpBuild', () => {
+  it('earn-e2e is skipped on pull_request', () => {
     const src = configSource('.github/workflows/pr-e2e-earn.yml');
     expect(jobIf('.github/workflows/pr-e2e-earn.yml', 'earn-e2e', src)).toBe("github.event_name != 'pull_request'");
-    expect(src).toMatch(/runs-on: warp-ubuntu-latest-arm64-2x/);
     expect(src).not.toMatch(/select-earn-e2e/);
   });
 
@@ -909,9 +906,12 @@ describe("jobIf reads a job's own job-level if:, never another if: in the file",
   });
 
   it('a swap-e2e if: widened to main-based pull requests no longer reads as skipped on pull_request', () => {
+    const lines = configSource(SWAP).split('\n');
+    const at = lines.indexOf("    if: github.event_name != 'pull_request'", lines.indexOf('  swap-e2e:'));
+    expect(lines[at]).toBe("    if: github.event_name != 'pull_request'");
     const widened = "github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main'";
-    const source = ['jobs:', '  swap-e2e:', `    if: ${widened}`].join('\n');
-    expect(jobIf(SWAP, 'swap-e2e', source)).toBe(widened);
+    lines.splice(at, 1, `    if: ${widened}`);
+    expect(jobIf(SWAP, 'swap-e2e', lines.join('\n'))).toBe(widened);
   });
 });
 

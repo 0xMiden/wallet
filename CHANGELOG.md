@@ -8,7 +8,7 @@
 
 ### Changes
 
-- [CHANGE][ci] Run selected E2E suites on regular GitHub runners to compare CI cost and completion time. Keep WarpBuild for linked dependency builds in Guardian bridge-out and for Earn. Temporarily run Swap on PRs to measure the free ARM64 runner. Update workflow checks and give manual builds enough time on regular runners. Restore Android rotation after a weak owner reference clears before reference-queue cleanup.
+- [CHANGE][ci] Use free ARM64 runners for Swap and regular Ubuntu runners for Guardian bridge-out. Keep WarpBuild for linked Guardian bridge-out builds and manual runs. Restore Android rotation when a weak owner reference clears before reference-queue cleanup.
 
 ## 1.17.3 (2026-10-12)
 
