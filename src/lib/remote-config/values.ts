@@ -4,6 +4,7 @@ import type { BridgeToken, Probe, TokenMetadata } from './derive';
 import { getE2eOverrides, type MidenUsdc } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
 import type { EarnProtocol } from './schema';
+import type { SwapPairs } from './swap-pairs';
 
 /** Thrown by a `get*` getter while the accepted document or its derivation cannot supply the value. */
 export class BridgeConfigUnavailableError extends Error {
@@ -51,9 +52,14 @@ export function selectMidenUsdc(s: BridgeConfigSnapshot): MidenUsdc | null {
   return faucetId && metadata ? { faucetId, ...metadata } : null;
 }
 
-/** The faucet the document lists a swap token under `symbol` at ('0x' + 30 lowercase hex), or null when it lists none. */
-export function selectSwapTokenFaucetId(s: BridgeConfigSnapshot, symbol: string): string | null {
-  return s.config?.swap?.tokens.find(token => token.symbol === symbol)?.faucetId ?? null;
+/** The solver's tokens and pairs (`GET /v2/pairs` on the document's `swap.etaUrl`), or null while no read has succeeded. */
+export function selectSwapPairs(s: BridgeConfigSnapshot): SwapPairs | null {
+  return okValue(s.derived?.swap?.pairs);
+}
+
+/** The faucet the solver lists a swap token under `ticker` at ('0x' + 30 lowercase hex), or null when it lists none. */
+export function selectSwapTokenFaucetId(s: BridgeConfigSnapshot, ticker: string): string | null {
+  return selectSwapPairs(s)?.tokens.find(token => token.ticker === ticker)?.faucetId ?? null;
 }
 
 export function selectEvmUsdc(s: BridgeConfigSnapshot): EvmUsdc | null {

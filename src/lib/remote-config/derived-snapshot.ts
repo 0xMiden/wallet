@@ -2,6 +2,7 @@ import { isRecord } from 'lib/update/guards';
 
 import type { BridgeToken, DerivedBridgeConfig, Probe, TokenMetadata } from './derive';
 import type { BridgeConfig, EvmAddress } from './schema';
+import { parseSwapPairs } from './swap-pairs';
 
 /** `bridge_config_derived_v1:<network>`, holding a DerivedBridgeConfig, which records its document version. */
 export function bridgeConfigDerivedKey(network: string): string {
@@ -72,6 +73,8 @@ export function parseStoredDerived(value: unknown, network: string, version: num
   const allocator = probe(epoch.allocator, yes);
   const midenUsdcFaucet = probe(epoch.midenUsdcFaucet, metadata);
   const evmUsdc = probe(epoch.evmUsdc, metadata);
+  // A copy stored by a build that read no swap pairs has no such probe, so it reads as missing and is derived again.
+  const swapPairs = isRecord(value.swap) ? probe(value.swap.pairs, parseSwapPairs) : null;
   if (
     !rollupId ||
     !tokens ||
@@ -80,7 +83,8 @@ export function parseStoredDerived(value: unknown, network: string, version: num
     !indexer ||
     !allocator ||
     !midenUsdcFaucet ||
-    !evmUsdc
+    !evmUsdc ||
+    !swapPairs
   ) {
     return null;
   }
@@ -89,7 +93,8 @@ export function parseStoredDerived(value: unknown, network: string, version: num
     version,
     derivedAt,
     agglayer: { rollupId, tokens, evmNetworkId, l1BridgeCode, indexer },
-    epoch: { allocator, midenUsdcFaucet, evmUsdc }
+    epoch: { allocator, midenUsdcFaucet, evmUsdc },
+    swap: { pairs: swapPairs }
   };
 }
 
@@ -101,6 +106,7 @@ export function failedDerivation(config: BridgeConfig, message: string, derivedA
     version: config.version,
     derivedAt,
     agglayer: { rollupId: error, tokens: error, evmNetworkId: error, l1BridgeCode: error, indexer: error },
-    epoch: { allocator: error, midenUsdcFaucet: error, evmUsdc: error }
+    epoch: { allocator: error, midenUsdcFaucet: error, evmUsdc: error },
+    swap: { pairs: error }
   };
 }

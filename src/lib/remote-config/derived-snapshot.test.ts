@@ -27,6 +27,18 @@ const whole = (): DerivedBridgeConfig => ({
     allocator: { state: 'error', message: 'HTTP 502' },
     midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
     evmUsdc: { state: 'skipped' }
+  },
+  swap: {
+    pairs: {
+      state: 'ok',
+      value: {
+        tokens: [
+          { faucetId: '0xe33498f1176661512b5ac4ded86ec7', ticker: 'IETH', decimals: 8, binanceAsset: 'ETH' },
+          { faucetId: '0x094698fc4bc531d136db0866f38902', ticker: 'IUSDT', decimals: 8 }
+        ],
+        pairs: [{ faucetIds: ['0xe33498f1176661512b5ac4ded86ec7', '0x094698fc4bc531d136db0866f38902'] }]
+      }
+    }
   }
 });
 
@@ -123,8 +135,22 @@ it('reads a derivation that threw as every check failed', () => {
     version: 4,
     derivedAt: 7,
     agglayer: { rollupId: error, tokens: error, evmNetworkId: error, l1BridgeCode: error, indexer: error },
-    epoch: { allocator: error, midenUsdcFaucet: error, evmUsdc: error }
+    epoch: { allocator: error, midenUsdcFaucet: error, evmUsdc: error },
+    swap: { pairs: error }
   });
+});
+
+it('reads a copy with no swap pairs, as a build before them stored it, as missing', () => {
+  const { swap: _swap, ...before } = whole();
+  expect(parseStoredDerived(before, 'testnet', 4)).toBeNull();
+});
+
+it.each([
+  ['pairs that are not a probe', { pairs: 'ok' }],
+  ['pairs in an unknown state', { pairs: { state: 'pending' } }],
+  ['a registry that does not parse', { pairs: { state: 'ok', value: { tokens: [{ ticker: 'IETH' }], pairs: [] } } }]
+])('rejects a snapshot whose swap section holds %s', (_label, swap) => {
+  expect(parseStoredDerived({ ...whole(), swap }, 'testnet', 4)).toBeNull();
 });
 
 it('keys the snapshot by network', () => {

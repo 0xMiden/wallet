@@ -37,8 +37,10 @@ const mockGetSwapTokens = jest.fn<SwapToken[], []>(() => []);
 jest.mock('lib/miden/swap/tokens', () => ({
   normalizedFaucetId: jest.requireActual('lib/miden/swap/tokens').normalizedFaucetId
 }));
+// The pair filter itself is the hook's; the sheet only says whose partners it lists.
+const mockPickerTokens = jest.fn((_partnersOf?: string) => mockGetSwapTokens());
 jest.mock('lib/miden/swap/use-swap-tokens', () => ({
-  useSwapTokens: () => mockGetSwapTokens()
+  useSwapPickerTokens: (partnersOf?: string) => mockPickerTokens(partnersOf)
 }));
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -390,6 +392,18 @@ describe('SelectSwapTokenDrawer', () => {
 
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('lists the tokens that pair with the other side when given its faucet, else every token with a pair', () => {
+    mockPickerTokens.mockClear();
+    renderDrawer();
+    expect(mockPickerTokens).toHaveBeenLastCalledWith(undefined);
+
+    mockPickerTokens.mockImplementation(partnersOf => (partnersOf === 'fid-eth' ? [IUSDT] : mockGetSwapTokens()));
+    renderDrawer({ partnersOf: 'fid-eth' });
+    expect(mockPickerTokens).toHaveBeenLastCalledWith('fid-eth');
+    expect(screen.getAllByTestId(/^swap-token-/).at(-1)).toHaveAttribute('data-testid', 'swap-token-IUSDT');
+    mockPickerTokens.mockImplementation(() => mockGetSwapTokens());
   });
 
   it('renders drawer chrome but no rows when the registry is empty', () => {

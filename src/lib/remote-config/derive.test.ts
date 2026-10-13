@@ -1,6 +1,7 @@
 import { Endpoint } from '@miden-sdk/miden-sdk/lazy';
 import { createPublicClient, http } from 'viem';
 
+import { TEST_SWAP_PAIRS_RESPONSE } from 'lib/miden/swap/testing/registry';
 import type { JsonFetch, JsonResponse } from 'lib/remote-json';
 import { getChain } from 'lib/walletconnect/config';
 
@@ -13,6 +14,7 @@ import {
   NotDeployedError
 } from './derive';
 import type { BridgeConfig } from './schema';
+import { parseSwapPairs } from './swap-pairs';
 
 const mockGetAccountDetails = jest.fn();
 const mockFromAccountStorage = jest.fn();
@@ -118,7 +120,9 @@ const HEALTHY: DerivedBridgeConfig = {
     allocator: { state: 'ok', value: true },
     midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
     evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 18 } }
-  }
+  },
+  // TESTNET names no solver.
+  swap: { pairs: { state: 'skipped' } }
 };
 
 const SKIPPED = { state: 'skipped' };
@@ -258,6 +262,29 @@ describe('deriveBridgeConfig', () => {
     expect(io.readMidenFaucet).toHaveBeenCalledTimes(1);
     releaseRegistry({ rollupId: 86, tokens: [ETH] });
     await expect(pending).resolves.toEqual(HEALTHY);
+  });
+});
+
+describe('the swap pairs', () => {
+  const PAIRS_URL = 'https://quotes.example/v2/pairs';
+  const withSolver: BridgeConfig = { ...TESTNET, swap: { etaUrl: 'https://quotes.example' } };
+  const derivePairs = async (bodies: Record<string, unknown>) =>
+    (await deriveBridgeConfig(withSolver, deps({ fetch: healthFetch({ ...HEALTH, ...bodies }) }))).swap?.pairs;
+
+  it("reads the solver's tokens and pairs under the document's swap.etaUrl", async () => {
+    const fetch = healthFetch({ ...HEALTH, [PAIRS_URL]: TEST_SWAP_PAIRS_RESPONSE });
+    const derived = await deriveBridgeConfig(withSolver, deps({ fetch }));
+    expect(fetch.mock.calls.map(([url]) => url)).toContain(PAIRS_URL);
+    expect(derived.swap?.pairs).toEqual({ state: 'ok', value: parseSwapPairs(TEST_SWAP_PAIRS_RESPONSE) });
+    expect(derived).toEqual({ ...HEALTHY, swap: derived.swap });
+  });
+
+  it('reads a solver that is not ready (503), or that answers another body, as a failed read', async () => {
+    expect(await derivePairs({})).toMatchObject({ state: 'error' });
+    expect(await derivePairs({ [PAIRS_URL]: { tokens: 'none' } })).toEqual({
+      state: 'error',
+      message: `${PAIRS_URL} answered an unexpected body`
+    });
   });
 });
 

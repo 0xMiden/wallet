@@ -10,7 +10,8 @@ import {
 import { quotedPrice, type TokenPriceInfo, type TokenPrices } from 'lib/prices/binance';
 import { isE2eFixtureSymbol } from 'lib/prices/constant';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import type { SwapTokenConfig } from 'lib/remote-config/schema';
+import type { SwapPairsToken } from 'lib/remote-config/swap-pairs';
+import { selectSwapPairs } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
 
 import { bridgePriceAllowlist } from './bridge-price-allowlist';
@@ -19,10 +20,11 @@ import { canonicalFaucetId, normalizedFaucetId } from './faucet-ids';
 export { _resetNormalizedFaucetIdsForTest, canonicalFaucetId, normalizedFaucetId } from './faucet-ids';
 
 /**
- * The swap registry: the tokens the network's bridge config lists under `swap.tokens`
- * (`0xMiden/wallet-config`, `<network>.json`), with the network's discovered native asset
- * prepended at runtime. Nothing is compiled in: a network whose document names no tokens has
- * no swap registry, and the swap entry point reads as unavailable (`swapAvailability`).
+ * The swap registry: the tokens the DEX solver lists (`GET /v2/pairs` on the host the network's
+ * bridge config names under `swap.etaUrl`, read with the config's derived values), with the
+ * network's discovered native asset prepended at runtime. Nothing is compiled in: a network
+ * whose document names no solver, or whose solver lists no pair, has no swap registry, and the
+ * swap entry point reads as unavailable (`swapAvailability`).
  *
  * The user enters a human-readable amount and `stringToBigInt(amount, token.decimals)` converts
  * it to base units, so each entry's `decimals` must be the faucet's real on-chain decimals: a
@@ -38,7 +40,7 @@ export interface SwapToken {
   symbol: string;
   /**
    * The SDK's bech32 form of the faucet id, the form every persisted row and balance key
-   * carries. The document spells a faucet in hex, so until the SDK's WASM can convert it the
+   * carries. The solver spells a faucet in hex, so until the SDK's WASM can convert it the
    * entry carries the hex; `getSwapTokenByFaucetId` compares canonically for that reason.
    */
   faucetId: string;
@@ -54,28 +56,38 @@ export interface SwapToken {
 
 let _swapTokensOverride: SwapToken[] | undefined;
 
-function configuredSwapToken(token: SwapTokenConfig): SwapToken {
+/** The marks `components/TokenLogo` ships. */
+const TOKEN_MARKS: readonly string[] = ['MIDEN', 'ETH', 'USDC', 'BTC'];
+
+// The solver names no logo. Its tokens carry the ticker of the asset they stand for behind an 'I'
+// (IETH, IBTC, IMIDEN), so that asset's mark is the fallback; any other token keeps its own ticker.
+function logoSymbolFor(ticker: string): string {
+  const bare = ticker.startsWith('I') ? ticker.slice(1) : ticker;
+  return TOKEN_MARKS.includes(bare) ? bare : ticker;
+}
+
+function listedSwapToken(token: SwapPairsToken): SwapToken {
   return {
-    symbol: token.symbol,
+    symbol: token.ticker,
     faucetId: normalizedFaucetId(token.faucetId),
     decimals: token.decimals,
-    logoSymbol: token.logo ?? token.symbol,
-    ...(token.priceSymbol === undefined ? {} : { priceSymbol: token.priceSymbol })
+    logoSymbol: logoSymbolFor(token.ticker),
+    ...(token.binanceAsset === undefined ? {} : { priceSymbol: token.binanceAsset })
   };
 }
 
-/** The document's tokens in its order, or an E2E suite's override; never the native asset. */
+/** The solver's tokens in its order, or an E2E suite's override; never the native asset. */
 function listedSwapTokens(): SwapToken[] {
   if (_swapTokensOverride) return _swapTokensOverride;
-  const tokens = getBridgeConfigSnapshot().config?.swap?.tokens ?? [];
-  return tokens.map(configuredSwapToken);
+  const tokens = selectSwapPairs(getBridgeConfigSnapshot())?.tokens ?? [];
+  return tokens.map(listedSwapToken);
 }
 
 const sameFaucet = (a: string, b: string): boolean => normalizedFaucetId(a) === normalizedFaucetId(b);
 
 /**
- * Live registry read — all consumers use this so a loaded document, and an E2E override, take
- * effect. A component reads it through `useSwapTokens`, which re-renders when the document lands.
+ * Live registry read — all consumers use this so a loaded registry, and an E2E override, take
+ * effect. A component reads it through `useSwapTokens`, which re-renders when the registry lands.
  *
  * The native asset ID is network-derived and may not be available during the
  * first render. Once discovery populates the synchronous cache, put MIDEN ahead
@@ -102,20 +114,45 @@ export const getSwapTokens = (): SwapToken[] => {
   ];
 };
 
+/**
+ * The tokens `faucetId` swaps with: every token that shares a solver pair with it, in the
+ * registry's order. A pair swaps in both directions, so this is the "To" list for a "From" token
+ * and the reverse. A token in no pair (a native asset the solver does not list) has none. An E2E
+ * override has no pairs, so there every other token is a partner.
+ */
+export const getSwapPartners = (faucetId: string): SwapToken[] => {
+  const others = getSwapTokens().filter(token => !sameFaucet(token.faucetId, faucetId));
+  if (_swapTokensOverride) return others;
+  const pairs = selectSwapPairs(getBridgeConfigSnapshot())?.pairs ?? [];
+  const partnerIds = pairs
+    .filter(pair => pair.faucetIds.some(id => sameFaucet(id, faucetId)))
+    .flatMap(pair => pair.faucetIds.filter(id => !sameFaucet(id, faucetId)));
+  return others.filter(token => partnerIds.some(id => sameFaucet(id, token.faucetId)));
+};
+
+/** Whether the solver lists a pair of these two faucets, in any spelling of either id. */
+export const isSwapPair = (faucetId: string, otherFaucetId: string): boolean =>
+  getSwapPartners(faucetId).some(token => sameFaucet(token.faucetId, otherFaucetId));
+
 export interface SwapPair {
   offer: SwapToken;
   request: SwapToken;
 }
 
 /**
- * The pair the swap form opens on: the document's first two tokens, in its order. Read from the
- * listed tokens and never from `getSwapTokens()`, which puts the discovered native asset first
- * once discovery has landed: seeding from that list gave a cold start into /swap a different
+ * The pair the swap form opens on: the solver's first pair, in the order the pair names its
+ * faucets (an E2E override has no pairs, so there it is the override's first two tokens). Read
+ * from the listed tokens and never from `getSwapTokens()`, which puts the discovered native asset
+ * first once discovery has landed: seeding from that list gave a cold start into /swap a different
  * default pair than a warm one - same build, same user, different defaults on a money screen.
- * Null while the document is not loaded or names fewer than two tokens.
+ * Null while the registry is not loaded or lists no pair.
  */
 export const getDefaultSwapPair = (): SwapPair | null => {
-  const [offer, request] = listedSwapTokens();
+  const listed = listedSwapTokens();
+  const firstPair = selectSwapPairs(getBridgeConfigSnapshot())?.pairs[0];
+  const [offer, request] = _swapTokensOverride
+    ? listed
+    : (firstPair?.faucetIds ?? []).map(faucetId => listed.find(token => sameFaucet(token.faucetId, faucetId)));
   return offer && request ? { offer, request } : null;
 };
 
@@ -124,7 +161,7 @@ export const _setSwapTokensForTest = (tokens: SwapToken[] | undefined): void => 
   _swapTokensOverride = tokens;
 };
 
-/** The registry token for a faucet in any spelling of its id (a persisted row's bech32, the document's hex). */
+/** The registry token for a faucet in any spelling of its id (a persisted row's bech32, the solver's hex). */
 export const getSwapTokenByFaucetId = (faucetId?: string): SwapToken | undefined =>
   faucetId ? getSwapTokens().find(token => sameFaucet(token.faucetId, faucetId)) : undefined;
 

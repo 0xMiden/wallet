@@ -253,7 +253,9 @@ function keepValuesRead(next: DerivedBridgeConfig, previous: DerivedBridgeConfig
       ...epoch,
       midenUsdcFaucet: kept(epoch.midenUsdcFaucet, previous.epoch.midenUsdcFaucet),
       evmUsdc: kept(epoch.evmUsdc, previous.epoch.evmUsdc)
-    }
+    },
+    // The swap registry too: a solver that is down for one check must not empty the token pickers.
+    ...(next.swap && previous.swap ? { swap: { pairs: kept(next.swap.pairs, previous.swap.pairs) } } : {})
   };
 }
 
@@ -316,10 +318,13 @@ function startRefresh(state: NetworkState): Promise<void> {
 
 function unavailableReasons(snapshot: BridgeConfigSnapshot): UnavailableReason[] {
   const overrides = getE2eOverrides();
-  return BRIDGE_FEATURES.flatMap(feature => {
+  const reasons = BRIDGE_FEATURES.flatMap(feature => {
     const availability = featureAvailability(feature, snapshot, overrides);
     return availability.state === 'unavailable' ? [availability.reason] : [];
   });
+  // Swap is not a switched feature, but a failed read of the solver's pairs clears the same way: the solver comes back.
+  const swapDown: UnavailableReason[] = snapshot.derived?.swap?.pairs.state === 'error' ? ['service-down'] : [];
+  return [...reasons, ...swapDown];
 }
 
 function pollInterval(state: NetworkState): number {

@@ -1,4 +1,3 @@
-import { KNOWN_SYMBOLS } from 'lib/prices/constant';
 import { isRecord } from 'lib/update/guards';
 import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 
@@ -6,30 +5,11 @@ import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 export const BRIDGE_SWITCHES = ['earn', 'fastBridge', 'bridgeIn', 'bridgeOut'] as const;
 export type BridgeSwitch = (typeof BRIDGE_SWITCHES)[number];
 
-/** The marks `components/TokenLogo` ships, which a swap token's `logo` names. */
-export const SUPPORTED_SWAP_TOKEN_LOGOS = ['MIDEN', 'ETH', 'USDC', 'BTC'] as const;
-export type SwapTokenLogo = (typeof SUPPORTED_SWAP_TOKEN_LOGOS)[number];
-
-/** A fungible faucet's decimals: the protocol allows up to 12 (miden-objects `BasicFungibleFaucet::MAX_DECIMALS`). */
-export const MAX_SWAP_TOKEN_DECIMALS = 12;
-
-/** A swap token as the document lists it. */
-export interface SwapTokenConfig {
-  /** 1 to 6 upper-case letters, as the protocol's `TokenSymbol` allows; unique in the list. */
-  symbol: string;
-  /** '0x' + 30 lowercase hex; unique in the list. */
-  faucetId: string;
-  /** The faucet's on-chain decimals: typed amounts are converted with it. */
-  decimals: number;
-  logo?: SwapTokenLogo;
-  /** The asset the price feed values the token at (a `KNOWN_SYMBOLS` key); absent means unpriced. */
-  priceSymbol?: string;
-}
-
 export interface SwapConfig {
-  /** In picker order; the first two are the pair the swap form opens on. */
-  tokens: SwapTokenConfig[];
-  /** The DEX quote service's base URL, which `getSwapEta` appends `/v1/swap-eta` to; absent means no quotes. */
+  /**
+   * The DEX solver's base URL. The swap registry is its `/v2/pairs` (see `swap-pairs.ts`) and `getSwapEta` appends
+   * `/v1/swap-eta` to it; absent means no swap tokens and no quotes.
+   */
   etaUrl?: string;
 }
 
@@ -65,13 +45,12 @@ export interface BridgeConfig {
   features: Record<BridgeSwitch, boolean>;
   /** Always set by the parser; optional in the type so a stand-in config built by a test needs none. */
   mainnetCountdown?: MainnetCountdownConfig;
-  /** Always set by the parser; optional in the type for the same reason. Absent reads as no swap tokens. */
+  /** Always set by the parser; optional in the type for the same reason. Absent reads as no swap solver. */
   swap?: SwapConfig;
 }
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const MIDEN_ACCOUNT_ID = /^0x[0-9a-fA-F]{30}$/;
-const TOKEN_SYMBOL = /^[A-Z]{1,6}$/;
 // An RFC 3339 timestamp in UTC, such as 2026-10-26T00:00:00Z: one spelling, so every wallet reads the same instant.
 const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const LOCAL_HTTP_HOSTS = ['127.0.0.1', 'localhost'];
@@ -159,56 +138,6 @@ function readCountdown(value: unknown): MainnetCountdownConfig {
   return { enabled: enabled === true, ...(moment === undefined ? {} : { launchAt: moment }) };
 }
 
-function swapTokenLogo(value: unknown): SwapTokenLogo | undefined {
-  if (typeof value !== 'string') return invalid();
-  return SUPPORTED_SWAP_TOKEN_LOGOS.find(logo => logo === value);
-}
-
-// A symbol the feed does not quote is dropped, not an error: the token is then unpriced, like any unknown token.
-function priceSymbol(value: unknown): string | undefined {
-  if (typeof value !== 'string') return invalid();
-  return typeof KNOWN_SYMBOLS[value] === 'string' ? value : undefined;
-}
-
-function tokenSymbol(value: unknown): string {
-  if (typeof value !== 'string' || !TOKEN_SYMBOL.test(value)) return invalid();
-  return value;
-}
-
-function tokenDecimals(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > MAX_SWAP_TOKEN_DECIMALS) {
-    return invalid();
-  }
-  return value;
-}
-
-function readSwapToken(value: unknown): SwapTokenConfig {
-  if (!isRecord(value)) return invalid();
-  const symbol = tokenSymbol(value.symbol);
-  const faucetId = midenAccountId(value.faucetId);
-  const decimals = tokenDecimals(value.decimals);
-  const logo = read(value, 'logo', swapTokenLogo);
-  const priced = read(value, 'priceSymbol', priceSymbol);
-  return {
-    symbol,
-    faucetId,
-    decimals,
-    ...(logo === undefined ? {} : { logo }),
-    ...(priced === undefined ? {} : { priceSymbol: priced })
-  };
-}
-
-// The list in the document's order. Two entries for one faucet, or one symbol, would make the picker ambiguous.
-function readSwapTokens(value: unknown): SwapTokenConfig[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) return invalid();
-  const tokens = value.map(readSwapToken);
-  const faucetIds = new Set(tokens.map(token => token.faucetId));
-  const symbols = new Set(tokens.map(token => token.symbol));
-  if (faucetIds.size !== tokens.length || symbols.size !== tokens.length) return invalid();
-  return tokens;
-}
-
 function readConfig(body: unknown, network: string, allowLocalHttp: boolean): BridgeConfig {
   if (!isRecord(body)) return invalid();
   const { version } = body;
@@ -252,7 +181,7 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
       bridgeOut: featureSwitch(features, 'bridgeOut')
     },
     mainnetCountdown: readCountdown(body.mainnetCountdown),
-    swap: { tokens: readSwapTokens(swap.tokens), ...(etaUrl === undefined ? {} : { etaUrl }) }
+    swap: etaUrl === undefined ? {} : { etaUrl }
   };
 }
 

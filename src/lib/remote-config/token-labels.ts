@@ -11,7 +11,7 @@ export const TEST_EPOCH_USDC_LABEL = 'Test Epoch USDC';
 /** What testnet calls the swap registry's iETH, a test asset that is not ETH (#477). A token name: never translated. */
 export const TEST_IETH_LABEL = 'Test iETH';
 
-/** The symbol the document lists testnet's iETH under; its faucet is whatever the document says. */
+/** The ticker the swap solver lists testnet's iETH under; its faucet is whatever the solver says. */
 export const IETH_SYMBOL = 'IETH';
 
 /** The copy a token page and an info sheet show for a token: what it is, and where its swaps execute. */
@@ -26,7 +26,7 @@ interface TestnetToken {
   info?: TestnetTokenInfo;
 }
 
-// The swap token testnet describes as well as names: the document's IETH entry, at whatever faucet it lists.
+// The swap token testnet describes as well as names: the solver's IETH token, at whatever faucet it lists.
 function describedTestnetTokens(s: BridgeConfigSnapshot): TestnetToken[] {
   return [
     {

@@ -18,7 +18,8 @@ import {
 } from './runtime';
 import type { BridgeConfig } from './schema';
 import type { StoredBridgeConfig } from './source';
-import { selectNativeEthFaucet } from './values';
+import type { SwapPairs } from './swap-pairs';
+import { selectNativeEthFaucet, selectSwapPairs } from './values';
 
 let mockNetwork = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -107,7 +108,8 @@ const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfi
     allocator: { state: 'ok', value: true },
     midenUsdcFaucet: { state: 'skipped' },
     evmUsdc: { state: 'skipped' }
-  }
+  },
+  swap: { pairs: { state: 'skipped' } }
 });
 // What the source stores on a fetch, or another realm leaves behind.
 const storeEntry = (network: string, version: number, fetchedAt = Date.now()): StoredBridgeConfig => {
@@ -682,13 +684,21 @@ describe('a re-derivation that cannot read a value', () => {
     scale: 10
   };
   const USDC = { symbol: 'USDC', decimals: 18 };
+  const SWAP_PAIRS: SwapPairs = {
+    tokens: [
+      { faucetId: '0xe33498f1176661512b5ac4ded86ec7', ticker: 'IETH', decimals: 8, binanceAsset: 'ETH' },
+      { faucetId: '0x094698fc4bc531d136db0866f38902', ticker: 'IUSDT', decimals: 8 }
+    ],
+    pairs: [{ faucetIds: ['0xe33498f1176661512b5ac4ded86ec7', '0x094698fc4bc531d136db0866f38902'] }]
+  };
   const down = { state: 'error', message: 'timeout' } as const;
   const read = (source: BridgeConfig): DerivedBridgeConfig => {
     const base = derivedFor(source, Date.now());
     return {
       ...base,
       agglayer: { ...base.agglayer, tokens: { state: 'ok', value: [ETH] }, l1BridgeCode: { state: 'ok', value: true } },
-      epoch: { ...base.epoch, evmUsdc: { state: 'ok', value: USDC } }
+      epoch: { ...base.epoch, evmUsdc: { state: 'ok', value: USDC } },
+      swap: { pairs: { state: 'ok', value: SWAP_PAIRS } }
     };
   };
   const unread = (source: BridgeConfig): DerivedBridgeConfig => {
@@ -696,7 +706,8 @@ describe('a re-derivation that cannot read a value', () => {
     return {
       ...base,
       agglayer: { ...base.agglayer, tokens: down, l1BridgeCode: { state: 'absent' } },
-      epoch: { ...base.epoch, allocator: down, evmUsdc: down }
+      epoch: { ...base.epoch, allocator: down, evmUsdc: down },
+      swap: { pairs: down }
     };
   };
 
@@ -717,12 +728,15 @@ describe('a re-derivation that cannot read a value', () => {
     };
     const { derived } = getBridgeConfigSnapshot();
     expect({ ...derived?.agglayer, ...derived?.epoch }).toMatchObject(kept);
+    // A solver that is down for one check does not empty the swap registry.
+    expect(selectSwapPairs(getBridgeConfigSnapshot())).toEqual(SWAP_PAIRS);
     const stored = mockStorage.get(DERIVED);
     expect(stored).toEqual(derived);
     serve(2);
     mockDerive.mockImplementationOnce(async source => unread(source));
     await _refreshBridgeConfigForTest();
     expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBeNull();
+    expect(selectSwapPairs(getBridgeConfigSnapshot())).toBeNull();
     expect(getBridgeConfigSnapshot().derived?.epoch.evmUsdc).toEqual(down);
   });
 
@@ -851,6 +865,20 @@ describe('the poll schedule', () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
     }
   );
+
+  it("re-checks every 5 minutes while the read of the solver's swap pairs has failed", async () => {
+    seed(1);
+    mockStorage.set(DERIVED, {
+      ...derivedFor(config(1), NOW),
+      swap: { pairs: { state: 'error', message: 'HTTP 503' } }
+    });
+    serve(1);
+    await initBridgeConfig();
+    await jest.advanceTimersByTimeAsync(DEGRADED_POLL_MS - 1);
+    expect(mockFetch).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
 
   it("re-arms for the network it returns to, on that network's own degraded cadence", async () => {
     mockFeatureAvailability.mockImplementation((_feature, snapshot) =>

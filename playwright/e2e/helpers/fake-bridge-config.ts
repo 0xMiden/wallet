@@ -32,11 +32,11 @@ export interface BridgeConfigDocument {
     earnProtocol?: string;
   };
   features: { earn: boolean; fastBridge: boolean; bridgeIn: boolean; bridgeOut: boolean };
-  /** The swap registry; the swap suites set theirs through `__TEST_SET_SWAP_TOKENS__` instead. */
-  swap?: {
-    tokens: Array<{ symbol: string; faucetId: string; decimals: number; logo?: string; priceSymbol?: string }>;
-    etaUrl?: string;
-  };
+  /**
+   * The swap solver, whose `/v2/pairs` is the swap registry; the swap suites set theirs through
+   * `__TEST_SET_SWAP_TOKENS__` instead.
+   */
+  swap?: { etaUrl?: string };
 }
 
 /**

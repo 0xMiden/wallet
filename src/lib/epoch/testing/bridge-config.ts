@@ -1,7 +1,9 @@
-import { TEST_SWAP_SECTION } from 'lib/miden/swap/testing/registry';
+import { TEST_SWAP_PAIRS, TEST_SWAP_SECTION } from 'lib/miden/swap/testing/registry';
+import type { DerivedBridgeConfig } from 'lib/remote-config/derive';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { BridgeConfig } from 'lib/remote-config/schema';
+import type { SwapPairs } from 'lib/remote-config/swap-pairs';
 import type { EarnMarket, EvmUsdc } from 'lib/remote-config/values';
 
 /** Today's testnet Epoch deployment on fixed test hosts: the bridge-config values the Epoch suites run against. */
@@ -48,7 +50,7 @@ export function remoteConfigValuesMock() {
   };
 }
 
-/** The testnet document naming the fixtures above, and the swap registry's tokens (`TEST_SWAP_SECTION`). */
+/** The testnet document naming the fixtures above, and the swap solver (`TEST_SWAP_SECTION`). */
 export const TEST_BRIDGE_CONFIG: BridgeConfig = {
   network: 'testnet',
   version: 1,
@@ -67,24 +69,33 @@ export const TEST_BRIDGE_CONFIG: BridgeConfig = {
 
 const SKIPPED: { state: 'skipped' } = { state: 'skipped' };
 
-/** That document as this realm holds it once loaded, with both USDC tokens read. */
+const TEST_DERIVED: DerivedBridgeConfig = {
+  network: 'testnet',
+  version: 1,
+  derivedAt: 0,
+  agglayer: { rollupId: SKIPPED, tokens: SKIPPED, evmNetworkId: SKIPPED, l1BridgeCode: SKIPPED, indexer: SKIPPED },
+  epoch: {
+    allocator: { state: 'ok', value: true },
+    midenUsdcFaucet: { state: 'ok', value: { symbol: TEST_MIDEN_USDC.symbol, decimals: TEST_MIDEN_USDC.decimals } },
+    evmUsdc: { state: 'ok', value: { symbol: TEST_EVM_USDC.symbol, decimals: TEST_EVM_USDC.decimals } }
+  },
+  swap: { pairs: { state: 'ok', value: TEST_SWAP_PAIRS } }
+};
+
+/** That document as this realm holds it once loaded, with both USDC tokens and the solver's pairs (`TEST_SWAP_PAIRS`) read. */
 export const TEST_BRIDGE_CONFIG_SNAPSHOT: BridgeConfigSnapshot = {
   network: 'testnet',
   status: 'ready',
   config: TEST_BRIDGE_CONFIG,
-  derived: {
-    network: 'testnet',
-    version: 1,
-    derivedAt: 0,
-    agglayer: { rollupId: SKIPPED, tokens: SKIPPED, evmNetworkId: SKIPPED, l1BridgeCode: SKIPPED, indexer: SKIPPED },
-    epoch: {
-      allocator: { state: 'ok', value: true },
-      midenUsdcFaucet: { state: 'ok', value: { symbol: TEST_MIDEN_USDC.symbol, decimals: TEST_MIDEN_USDC.decimals } },
-      evmUsdc: { state: 'ok', value: { symbol: TEST_EVM_USDC.symbol, decimals: TEST_EVM_USDC.decimals } }
-    }
-  },
+  derived: TEST_DERIVED,
   lastFetch: null
 };
+
+/** `TEST_BRIDGE_CONFIG_SNAPSHOT` with the solver answering `pairs` instead. */
+export const testSnapshotWithSwapPairs = (pairs: SwapPairs): BridgeConfigSnapshot => ({
+  ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+  derived: { ...TEST_DERIVED, swap: { pairs: { state: 'ok', value: pairs } } }
+});
 
 const mockRuntimeListeners = new Set<() => void>();
 

@@ -22,7 +22,14 @@ import {
   SpendingLimitAuthorization,
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
-import { deriveRequestAmount, getDefaultSwapPair, SwapPair, SwapToken } from 'lib/miden/swap/tokens';
+import {
+  deriveRequestAmount,
+  getDefaultSwapPair,
+  getSwapPartners,
+  isSwapPair,
+  SwapPair,
+  SwapToken
+} from 'lib/miden/swap/tokens';
 import { swapAvailability, useSwapTokens } from 'lib/miden/swap/use-swap-tokens';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
@@ -337,10 +344,15 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
 
   // Picking the token already on the opposite side flips the two sides rather
   // than landing on an invalid same-token state. The drawer closes itself.
+  // The "To" drawer lists only the partners of the pay token. A new pay token that
+  // the solver does not pair with the receive token moves the receive side to its
+  // first partner, so the form never holds a pair the solver cannot fill.
   const onTokenSelected = useCallback(
     (token: SwapToken) => {
       if (selectingSide === 'offer') {
+        const [firstPartner] = getSwapPartners(token.faucetId);
         if (token.faucetId === requestToken.faucetId) setRequestToken(offerToken);
+        else if (firstPartner && !isSwapPair(token.faucetId, requestToken.faucetId)) setRequestToken(firstPartner);
         setOfferToken(token);
       } else {
         if (token.faucetId === offerToken.faucetId) setOfferToken(requestToken);
@@ -648,6 +660,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         open={showTokenDrawer}
         onOpenChange={setShowTokenDrawer}
         currentFaucetId={selectingSide === 'offer' ? offerToken.faucetId : requestToken.faucetId}
+        partnersOf={selectingSide === 'offer' ? undefined : offerToken.faucetId}
         onSelect={onTokenSelected}
       />
       {spendingLimitChallenge !== undefined && (

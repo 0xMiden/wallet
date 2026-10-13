@@ -17,6 +17,7 @@ import { isRecord } from 'lib/update/guards';
 import { getChain } from 'lib/walletconnect/config';
 
 import type { BridgeConfig, EvmAddress } from './schema';
+import { parseSwapPairs, SWAP_PAIRS_PATH, type SwapPairs } from './swap-pairs';
 
 export type Probe<T> =
   | { state: 'ok'; value: T }
@@ -51,6 +52,11 @@ export interface DerivedBridgeConfig {
     allocator: Probe<true>;
     midenUsdcFaucet: Probe<TokenMetadata>; // existence and metadata in one read
     evmUsdc: Probe<TokenMetadata>;
+  };
+  /** Always set by a derivation; optional in the type so a stand-in snapshot built by a test needs none. */
+  swap?: {
+    /** The solver's tokens and pairs, read from `swap.etaUrl`. */
+    pairs: Probe<SwapPairs>;
   };
 }
 
@@ -238,6 +244,24 @@ const ERC20_ABI = parseAbi(['function symbol() view returns (string)', 'function
 const isAllocatorHealthy = (body: unknown) => isRecord(body) && body.status === 'healthy';
 const isIndexerServing = (body: unknown) => isRecord(body) && body.status === 'SERVING';
 
+const SWAP_PAIRS_TIMEOUT_MS = 10_000;
+const SWAP_PAIRS_MAX_BYTES = 64 * 1_024;
+
+// The solver answers 503 `not_ready` for a moment after it starts. That is an error here, so a registry read before
+// stays in use (see keepValuesRead in runtime.ts).
+function readSwapPairs(fetchFn: JsonFetch, etaUrl: string): Promise<Probe<SwapPairs>> {
+  return attempt(async () => {
+    const url = `${etaUrl}${SWAP_PAIRS_PATH}`;
+    const body = await fetchBoundedJson(fetchFn, url, {
+      maxBytes: SWAP_PAIRS_MAX_BYTES,
+      timeoutMs: SWAP_PAIRS_TIMEOUT_MS
+    });
+    const pairs = parseSwapPairs(body);
+    if (!pairs) throw new Error(`${url} answered an unexpected body`);
+    return pairs;
+  });
+}
+
 async function readMidenFaucet(faucetId: string, rpcUrl: string): Promise<TokenMetadata> {
   await ensureSdkWasmReady();
   const rpc = new RpcClient(new Endpoint(rpcUrl));
@@ -332,13 +356,14 @@ export async function deriveBridgeConfig(
   const rpcUrl = io.midenRpcUrl();
   const { agglayer, epoch, evm } = config;
   const reads = evm.chainId === undefined ? null : io.evm(evm.chainId);
-  const [registry, l1Bridge, indexer, allocator, midenUsdcFaucet, evmUsdc] = await Promise.all([
+  const [registry, l1Bridge, indexer, allocator, midenUsdcFaucet, evmUsdc, swapPairs] = await Promise.all([
     when(agglayer.midenBridge, bridge => attempt(() => io.readBridgeRegistry(bridge, rpcUrl))),
     probeL1Bridge(reads, agglayer.l1Bridge),
     when(agglayer.indexerUrl, url => checkHealth(io.fetch, `${url}/healthz`, isIndexerServing)),
     when(epoch.allocatorUrl, url => checkHealth(io.fetch, `${url}/health`, isAllocatorHealthy)),
     when(epoch.midenUsdcFaucet, faucetId => attempt(() => io.readMidenFaucet(faucetId, rpcUrl))),
-    probeErc20(reads, epoch.evmUsdc)
+    probeErc20(reads, epoch.evmUsdc),
+    when(config.swap?.etaUrl, url => readSwapPairs(io.fetch, url))
   ]);
 
   let tokens: Probe<BridgeToken[]> = registry.state === 'ok' ? { state: 'ok', value: registry.value.tokens } : registry;
@@ -356,6 +381,7 @@ export async function deriveBridgeConfig(
       l1BridgeCode: l1Bridge.code,
       indexer
     },
-    epoch: { allocator, midenUsdcFaucet, evmUsdc }
+    epoch: { allocator, midenUsdcFaucet, evmUsdc },
+    swap: { pairs: swapPairs }
   };
 }

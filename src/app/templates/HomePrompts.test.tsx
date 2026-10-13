@@ -5,10 +5,9 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { IconName } from 'app/icons/v2';
 import {
   publishMockBridgeSnapshot,
-  TEST_BRIDGE_CONFIG,
-  TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
-  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
+  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID,
+  testSnapshotWithSwapPairs
 } from 'lib/epoch/testing/bridge-config';
 import { SharedEarnLocks } from 'lib/epoch/testing/earn-locks';
 import {
@@ -17,7 +16,7 @@ import {
   reportGuardianNoteRecoveryProgress
 } from 'lib/guardian-note-recovery-progress';
 import type { TokenBalanceData } from 'lib/miden/front';
-import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH, testSwapPairsToken } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import {
   FaucetAmountOverCapError,
@@ -292,22 +291,11 @@ const tokenPrices = {
   USDC: { price: 1, change24h: 0, percentageChange24h: 0 }
 };
 
-const iethPriceSnapshot = (priceSymbol?: string): BridgeConfigSnapshot => ({
-  ...TEST_BRIDGE_CONFIG_SNAPSHOT,
-  config: {
-    ...TEST_BRIDGE_CONFIG,
-    swap: {
-      tokens: [
-        {
-          symbol: TEST_TOKEN_IETH.symbol,
-          faucetId: TEST_TOKEN_IETH.faucetId,
-          decimals: TEST_TOKEN_IETH.decimals,
-          ...(priceSymbol === undefined ? {} : { priceSymbol })
-        }
-      ]
-    }
-  }
-});
+const iethPriceSnapshot = (priceSymbol?: string): BridgeConfigSnapshot =>
+  testSnapshotWithSwapPairs({
+    tokens: [testSwapPairsToken({ ...TEST_TOKEN_IETH, priceSymbol })],
+    pairs: []
+  });
 
 // The faucet prompt's status is per account, so its writes are asserted with the
 // account they belong to rather than through the wallet-wide prompt spies.

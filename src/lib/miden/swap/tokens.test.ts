@@ -7,10 +7,11 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync, getNativeAssetMetadataSync } from 'lib/miden-chain/native-asset';
 import { isCoveredSymbol } from 'lib/prices/usd';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { parseSwapPairs, type SwapPairs } from 'lib/remote-config/swap-pairs';
 
 import { bridgePriceAllowlist } from './bridge-price-allowlist';
 import {
-  TEST_SWAP_TOKEN_CONFIG,
+  TEST_SWAP_PAIRS_RESPONSE,
   TEST_SWAP_TOKEN_DECIMALS,
   TEST_SWAP_TOKENS,
   TEST_TOKEN_IBTC,
@@ -24,7 +25,9 @@ import {
   getDefaultSwapPair,
   getSwapTokenByFaucetId,
   getSwapEta,
+  getSwapPartners,
   getSwapTokens,
+  isSwapPair,
   getSwapTokenBySymbol,
   normalizedFaucetId,
   priceSymbolFor,
@@ -43,8 +46,11 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetMetadataSync: jest.fn(),
   getSdkSyncedNativeAssetIdSync: jest.fn()
 }));
-// The registry reads the document this realm has loaded; each suite below says which.
+// The registry reads the solver's pairs this realm has loaded; each suite below says which.
 jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: jest.fn() }));
+
+const SKIPPED: { state: 'skipped' } = { state: 'skipped' };
+const HEX_TOKENS = TEST_SWAP_PAIRS_RESPONSE.tokens;
 
 const UNLOADED: BridgeConfigSnapshot = {
   network: 'testnet',
@@ -54,8 +60,8 @@ const UNLOADED: BridgeConfigSnapshot = {
   lastFetch: null
 };
 const NO_DOCUMENT: BridgeConfigSnapshot = { ...UNLOADED, status: 'ready' };
-/** The testnet document, with its four swap tokens and nothing else the registry reads. */
-const LOADED: BridgeConfigSnapshot = {
+/** A document that names the solver, with the read of its pairs as given and nothing else the registry reads. */
+const withPairs = (pairs: NonNullable<NonNullable<BridgeConfigSnapshot['derived']>['swap']>['pairs']) => ({
   ...NO_DOCUMENT,
   config: {
     network: 'testnet',
@@ -64,15 +70,25 @@ const LOADED: BridgeConfigSnapshot = {
     agglayer: {},
     epoch: {},
     features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
-    swap: { tokens: TEST_SWAP_TOKEN_CONFIG, etaUrl: 'https://quotes.example' }
+    swap: { etaUrl: 'https://quotes.example' }
+  },
+  derived: {
+    network: 'testnet',
+    version: 3,
+    derivedAt: 0,
+    agglayer: { rollupId: SKIPPED, tokens: SKIPPED, evmNetworkId: SKIPPED, l1BridgeCode: SKIPPED, indexer: SKIPPED },
+    epoch: { allocator: SKIPPED, midenUsdcFaucet: SKIPPED, evmUsdc: SKIPPED },
+    swap: { pairs }
   }
-};
+});
+const listing = (pairs: SwapPairs): BridgeConfigSnapshot => withPairs({ state: 'ok', value: pairs });
+/** The solver's four tokens and three pairs, as the parser reads its answer. */
+const SOLVER_PAIRS: SwapPairs = parseSwapPairs(TEST_SWAP_PAIRS_RESPONSE)!;
+const LOADED: BridgeConfigSnapshot = listing(SOLVER_PAIRS);
 const mockSnapshot = jest.mocked(getBridgeConfigSnapshot);
 
-// The document spells each faucet in hex and the fixtures in bech32: the fake SDK below maps one to the other.
-const mockBech32ByHex = new Map(
-  TEST_SWAP_TOKEN_CONFIG.map((token, i) => [token.faucetId, TEST_SWAP_TOKENS[i]!.faucetId])
-);
+// The solver spells each faucet in hex and the fixtures in bech32: the fake SDK below maps one to the other.
+const mockBech32ByHex = new Map(HEX_TOKENS.map((token, i) => [token.faucetId, TEST_SWAP_TOKENS[i]!.faucetId]));
 
 // Balances key a faucet by the SDK's bech32 form of its id, whose prefix names the network; make that
 // form visibly different. As the SDK's re-encode does, an id in any network's form re-encodes under
@@ -129,10 +145,10 @@ describe('swap token registry accessor', () => {
 
   afterEach(() => _setSwapTokensForTest(undefined)); // reset to default
 
-  // The document's entries, each faucet in the SDK's form, each logo as named, each price symbol as given.
+  // The solver's entries, each faucet in the SDK's form, each priced at the asset the feed quotes.
   const listed = TEST_SWAP_TOKENS.map(token => ({ ...token, faucetId: canonical(token.faucetId) }));
 
-  it("reads the document's tokens in its order, with each faucet in the SDK's form", () => {
+  it("reads the solver's tokens in its order, with each faucet in the SDK's form", () => {
     expect(getSwapTokens()).toEqual(listed);
     expect(getSwapTokenBySymbol('IMIDEN')).toEqual(listed[0]);
     expect(getSwapTokenBySymbol('IBTC')?.priceSymbol).toBe('BTC');
@@ -148,27 +164,34 @@ describe('swap token registry accessor', () => {
     expect(getSwapTokenBySymbol('IETH')?.faucetId).toBe(canonical(TEST_TOKEN_IETH.faucetId));
   });
 
-  it('draws a token with no logo named under its own symbol, and a token with one under that mark', () => {
-    mockSnapshot.mockReturnValue({
-      ...LOADED,
-      config: {
-        ...LOADED.config!,
-        swap: {
-          tokens: [
-            { symbol: 'IABC', faucetId: '0x0000000000000000000000000000ab', decimals: 8 },
-            { ...TEST_SWAP_TOKEN_CONFIG[1]! }
-          ]
-        }
-      }
+  it("draws a token under the mark of the asset its ticker names behind an 'I', else under its own ticker", () => {
+    const token = (ticker: string, last: string) => ({
+      faucetId: `0x00000000000000000000000000${last}`,
+      ticker,
+      decimals: 8
     });
-    expect(getSwapTokens().map(token => token.logoSymbol)).toEqual(['IABC', 'ETH']);
+    mockSnapshot.mockReturnValue(
+      listing({
+        tokens: [
+          token('IABC', '00ab'),
+          token('IETH', '00ac'),
+          token('IMIDEN', '00ad'),
+          token('USDCX', '00ae'),
+          token('BTC', '00af')
+        ],
+        pairs: []
+      })
+    );
+    expect(getSwapTokens().map(token => token.logoSymbol)).toEqual(['IABC', 'ETH', 'MIDEN', 'USDCX', 'BTC']);
   });
 
   it.each([
     ['the document is still loading', UNLOADED],
     ['no document is accepted', NO_DOCUMENT],
-    ['the document lists no swap tokens', { ...LOADED, config: { ...LOADED.config!, swap: { tokens: [] } } }],
-    ['the document predates the swap section', { ...LOADED, config: { ...LOADED.config!, swap: undefined } }]
+    ['the solver lists no tokens', listing({ tokens: [], pairs: [] })],
+    ["the read of the solver's pairs failed", withPairs({ state: 'error', message: 'HTTP 503' })],
+    ['the document names no solver', withPairs(SKIPPED)],
+    ['the derivation predates the swap pairs', { ...LOADED, derived: { ...LOADED.derived!, swap: undefined } }]
   ])('has no tokens while %s', (_name, snapshot) => {
     mockSnapshot.mockReturnValue(snapshot);
     expect(getSwapTokens()).toEqual([]);
@@ -191,12 +214,12 @@ describe('swap token registry accessor', () => {
     expect(getSwapTokenByFaucetId('mtst1native')).toEqual(expect.objectContaining({ symbol: 'MIDEN', decimals: 6 }));
   });
 
-  it('does not duplicate a native asset the document already lists, in either spelling', () => {
+  it('does not duplicate a native asset the solver already lists, in either spelling', () => {
     mockGetNativeAssetIdSync.mockReturnValue(TEST_TOKEN_IMIDEN.faucetId);
     mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'IMIDEN', decimals: 8 });
     expect(getSwapTokens().filter(token => token.symbol === 'IMIDEN')).toHaveLength(1);
 
-    mockGetNativeAssetIdSync.mockReturnValue(TEST_SWAP_TOKEN_CONFIG[0]!.faucetId);
+    mockGetNativeAssetIdSync.mockReturnValue(HEX_TOKENS[0]!.faucetId);
     expect(getSwapTokens().filter(token => token.symbol === 'IMIDEN')).toHaveLength(1);
   });
 
@@ -221,7 +244,7 @@ describe('swap token price symbols', () => {
     expect(getSwapTokenBySymbol('IBTC')?.priceSymbol).toBe('BTC');
   });
 
-  it('leaves IUSDT and IMIDEN unpriced, whatever logo they borrow', () => {
+  it('leaves IUSDT and IMIDEN unpriced: the feed quotes neither asset the solver prices them with', () => {
     expect(getSwapTokenBySymbol('IUSDT')).toEqual(
       expect.objectContaining({ symbol: 'IUSDT', faucetId: canonical(TEST_TOKEN_IUSDT.faucetId) })
     );
@@ -263,12 +286,7 @@ describe('priceSymbolFor', () => {
   it('matches a faucet spelled in another encoding than the allowlist entry (hex against bech32)', () => {
     // Both spellings canonicalize to one id, the way the SDK maps a hex id and its bech32 form.
     // Every spelling of iETH, the canonical one included: the SDK re-encodes its own form to itself.
-    const iethSpellings = [
-      '0xiethhex',
-      TEST_TOKEN_IETH.faucetId,
-      TEST_SWAP_TOKEN_CONFIG[1]!.faucetId,
-      'canonical-ieth'
-    ];
+    const iethSpellings = ['0xiethhex', TEST_TOKEN_IETH.faucetId, HEX_TOKENS[1]!.faucetId, 'canonical-ieth'];
     mockToBech32.mockImplementation((id: any) => (iethSpellings.includes(id) ? 'canonical-ieth' : `bech32:${id}`));
     expect(priceSymbolFor('0xiethhex', 'IETH')).toBe('ETH');
   });
@@ -424,11 +442,11 @@ describe('normalizedFaucetId', () => {
 describe('getSwapTokenByFaucetId', () => {
   afterEach(() => _setSwapTokensForTest(undefined));
 
-  it("resolves a registry token by faucet id in any spelling: a row's bech32, the document's hex", () => {
+  it("resolves a registry token by faucet id in any spelling: a row's bech32, the solver's hex", () => {
     const expected = { ...TEST_TOKEN_IMIDEN, faucetId: canonical(TEST_TOKEN_IMIDEN.faucetId) };
     expect(getSwapTokenByFaucetId(TEST_TOKEN_IMIDEN.faucetId)).toEqual(expected);
     expect(getSwapTokenByFaucetId(canonical(TEST_TOKEN_IMIDEN.faucetId))).toEqual(expected);
-    expect(getSwapTokenByFaucetId(TEST_SWAP_TOKEN_CONFIG[0]!.faucetId)).toEqual(expected);
+    expect(getSwapTokenByFaucetId(HEX_TOKENS[0]!.faucetId)).toEqual(expected);
   });
 
   it('returns undefined for an unknown faucet id', () => {
@@ -495,16 +513,9 @@ describe('deriveRequestAmount', () => {
 describe('getDefaultSwapPair', () => {
   afterEach(() => _setSwapTokensForTest(undefined));
 
-  it("opens on the document's first two tokens whether or not native discovery has landed", () => {
-    mockSnapshot.mockReturnValue({
-      ...LOADED,
-      config: {
-        ...LOADED.config!,
-        swap: {
-          tokens: [TEST_SWAP_TOKEN_CONFIG[3]!, TEST_SWAP_TOKEN_CONFIG[2]!, ...TEST_SWAP_TOKEN_CONFIG.slice(0, 2)]
-        }
-      }
-    });
+  it("opens on the solver's first pair, in the pair's order, whether or not native discovery has landed", () => {
+    // The first pair names neither of the first two tokens: the pair decides, not the token order.
+    mockSnapshot.mockReturnValue(listing({ ...SOLVER_PAIRS, pairs: [SOLVER_PAIRS.pairs[2]!, SOLVER_PAIRS.pairs[0]!] }));
     // Cold start: discovery has not populated the synchronous cache yet.
     mockGetNativeAssetIdSync.mockReturnValue(null);
     const cold = getDefaultSwapPair();
@@ -523,19 +534,67 @@ describe('getDefaultSwapPair', () => {
     expect(warm).toEqual(cold);
   });
 
-  it('has no pair while the document lists fewer than two tokens', () => {
+  it('has no pair while the registry is not loaded or the solver lists no pair', () => {
     mockSnapshot.mockReturnValue(UNLOADED);
     expect(getDefaultSwapPair()).toBeNull();
-    mockSnapshot.mockReturnValue({
-      ...LOADED,
-      config: { ...LOADED.config!, swap: { tokens: [TEST_SWAP_TOKEN_CONFIG[0]!] } }
-    });
+    mockSnapshot.mockReturnValue(listing({ ...SOLVER_PAIRS, pairs: [] }));
+    expect(getDefaultSwapPair()).toBeNull();
+    mockSnapshot.mockReturnValue(withPairs({ state: 'error', message: 'HTTP 503' }));
     expect(getDefaultSwapPair()).toBeNull();
   });
 
   it("opens on an override's first two tokens", () => {
     _setSwapTokensForTest([TEST_TOKEN_IBTC, TEST_TOKEN_IUSDT]);
     expect(getDefaultSwapPair()).toEqual({ offer: TEST_TOKEN_IBTC, request: TEST_TOKEN_IUSDT });
+  });
+});
+
+describe('getSwapPartners', () => {
+  beforeEach(() => {
+    mockGetNativeAssetIdSync.mockReturnValue(null);
+    mockGetNativeAssetMetadataSync.mockReturnValue(null);
+  });
+  afterEach(() => _setSwapTokensForTest(undefined));
+  const symbols = (faucetId: string) => getSwapPartners(faucetId).map(token => token.symbol);
+
+  // The fixture's pairs: IMIDEN-IETH, IETH-IUSDT, IBTC-IUSDT.
+  it("lists the tokens that share a solver pair with a faucet, in the registry's order and either direction", () => {
+    expect(symbols(TEST_TOKEN_IETH.faucetId)).toEqual(['IMIDEN', 'IUSDT']);
+    expect(symbols(TEST_TOKEN_IUSDT.faucetId)).toEqual(['IETH', 'IBTC']);
+    expect(symbols(TEST_TOKEN_IMIDEN.faucetId)).toEqual(['IETH']);
+    expect(symbols(TEST_TOKEN_IBTC.faucetId)).toEqual(['IUSDT']);
+  });
+
+  it('matches a faucet in any spelling of its id', () => {
+    expect(symbols(HEX_TOKENS[3]!.faucetId)).toEqual(['IUSDT']);
+    expect(symbols(canonical(TEST_TOKEN_IBTC.faucetId))).toEqual(['IUSDT']);
+    expect(isSwapPair(HEX_TOKENS[3]!.faucetId, TEST_TOKEN_IUSDT.faucetId)).toBe(true);
+    expect(isSwapPair(TEST_TOKEN_IUSDT.faucetId, canonical(TEST_TOKEN_IBTC.faucetId))).toBe(true);
+  });
+
+  it('gives no partner to two tokens the solver does not pair, a token with itself, or an unknown faucet', () => {
+    expect(isSwapPair(TEST_TOKEN_IMIDEN.faucetId, TEST_TOKEN_IBTC.faucetId)).toBe(false);
+    expect(isSwapPair(TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IETH.faucetId)).toBe(false);
+    expect(getSwapPartners('mtst1unknown')).toEqual([]);
+  });
+
+  it('gives no partner to a native asset the solver lists in no pair', () => {
+    mockGetNativeAssetIdSync.mockReturnValue('mtst1native');
+    mockGetNativeAssetMetadataSync.mockReturnValue({ symbol: 'MIDEN', decimals: 6 });
+    expect(getSwapTokens()[0]!.symbol).toBe('MIDEN');
+    expect(getSwapPartners('mtst1native')).toEqual([]);
+    expect(symbols(TEST_TOKEN_IBTC.faucetId)).toEqual(['IUSDT']);
+  });
+
+  it('has no partners while the read of the pairs has failed', () => {
+    mockSnapshot.mockReturnValue(withPairs({ state: 'error', message: 'HTTP 503' }));
+    expect(getSwapPartners(TEST_TOKEN_IETH.faucetId)).toEqual([]);
+  });
+
+  it('pairs every two tokens of an override, which has no pairs', () => {
+    _setSwapTokensForTest([TEST_TOKEN_IBTC, TEST_TOKEN_IMIDEN, TEST_TOKEN_IETH]);
+    expect(getSwapPartners(TEST_TOKEN_IBTC.faucetId)).toEqual([TEST_TOKEN_IMIDEN, TEST_TOKEN_IETH]);
+    expect(isSwapPair(TEST_TOKEN_IMIDEN.faucetId, TEST_TOKEN_IBTC.faucetId)).toBe(true);
   });
 });
 
@@ -552,10 +611,7 @@ describe('getSwapEta', () => {
     await expect(getSwapEta(TEST_TOKEN_IMIDEN, 1n, TEST_TOKEN_IUSDT, 0n)).resolves.toEqual({ canFill: true });
     expect(fetchMock.mock.calls[0]?.[0]).toMatch(/^https:\/\/quotes\.example\/v1\/swap-eta\?offered_faucet=/);
 
-    mockSnapshot.mockReturnValue({
-      ...LOADED,
-      config: { ...LOADED.config!, swap: { tokens: TEST_SWAP_TOKEN_CONFIG } }
-    });
+    mockSnapshot.mockReturnValue({ ...LOADED, config: { ...LOADED.config!, swap: {} } });
     await expect(getSwapEta(TEST_TOKEN_IMIDEN, 1n, TEST_TOKEN_IUSDT, 0n)).rejects.toBeInstanceOf(
       SwapEtaUnavailableError
     );

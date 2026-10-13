@@ -163,7 +163,12 @@ jest.mock('./SelectSwapToken', () => ({
   SelectSwapTokenDrawer: (props: Record<string, any>) => {
     mockDrawerProps = props as typeof mockDrawerProps;
     return (
-      <div data-testid="swap-token-drawer" data-open={String(props.open)} data-current={props.currentFaucetId ?? ''}>
+      <div
+        data-testid="swap-token-drawer"
+        data-open={String(props.open)}
+        data-current={props.currentFaucetId ?? ''}
+        data-partners-of={props.partnersOf ?? ''}
+      >
         <button data-testid="drawer-close" onClick={() => props.onOpenChange(false)} />
       </div>
     );
@@ -211,8 +216,19 @@ jest.mock('components/SpendingLimitChallenge', () => ({
 }));
 
 let mockDefaultPairOverride: SwapPair | undefined;
+// The solver's pairs, by faucet id; undefined means every two tokens of the registry are a pair.
+let mockSolverPairs: Array<[string, string]> | undefined;
+const mockSwapPartners = (faucetId: string) =>
+  mockGetSwapTokens().filter(
+    token =>
+      token.faucetId !== faucetId &&
+      (mockSolverPairs === undefined ||
+        mockSolverPairs.some(pair => pair.includes(faucetId) && pair.includes(token.faucetId)))
+  );
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokens: () => mockGetSwapTokens(),
+  getSwapPartners: (faucetId: string) => mockSwapPartners(faucetId),
+  isSwapPair: (faucetId: string, other: string) => mockSwapPartners(faucetId).some(token => token.faucetId === other),
   // The form opens on the document's first two tokens; mirror that over the mocked registry.
   getDefaultSwapPair: () => {
     if (mockDefaultPairOverride !== undefined) return mockDefaultPairOverride;
@@ -355,6 +371,7 @@ beforeEach(() => {
   mockAccountReturn = { publicKey: 'pk-1' };
 
   mockGetSwapTokens.mockImplementation(() => [mockTokenA, mockTokenB, mockTokenC]);
+  mockSolverPairs = undefined;
   mockGetBech32.mockImplementation(mockFakeBech32);
   mockAccountIdStringToSdk.mockImplementation((s: string) => s);
   mockConfirmSensitive.mockResolvedValue(true);
@@ -738,6 +755,45 @@ describe('SwapFlow / SwapManager', () => {
 
       expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('AAA');
       expect(screen.getByTestId('sa-request-token')).toHaveTextContent('CCC');
+    });
+
+    it('lists every token with a pair on the offer side, and only the partners of the pay token on the request side', () => {
+      renderFlow();
+      fireEvent.click(screen.getByTestId('sa-select-offer'));
+      expect(screen.getByTestId('swap-token-drawer')).toHaveAttribute('data-partners-of', '');
+
+      fireEvent.click(screen.getByTestId('sa-select-request'));
+      expect(screen.getByTestId('swap-token-drawer')).toHaveAttribute('data-partners-of', 'faucet-A');
+    });
+
+    it('offer side: a pay token the solver does not pair with the receive token moves the receive side to its first partner', () => {
+      // A-B and A-C are pairs; B-C is not.
+      mockSolverPairs = [
+        ['faucet-A', 'faucet-B'],
+        ['faucet-A', 'faucet-C']
+      ];
+      renderFlow();
+      fireEvent.click(screen.getByTestId('sa-select-request'));
+      act(() => mockDrawerProps.onSelect(mockTokenC));
+      fireEvent.click(screen.getByTestId('sa-select-offer'));
+      act(() => mockDrawerProps.onSelect(mockTokenB));
+
+      expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('BBB');
+      expect(screen.getByTestId('sa-request-token')).toHaveTextContent('AAA');
+    });
+
+    it('offer side: a pay token the solver pairs with the receive token keeps the receive side', () => {
+      mockSolverPairs = [
+        ['faucet-A', 'faucet-B'],
+        ['faucet-C', 'faucet-B'],
+        ['faucet-C', 'faucet-A']
+      ];
+      renderFlow();
+      fireEvent.click(screen.getByTestId('sa-select-offer'));
+      act(() => mockDrawerProps.onSelect(mockTokenC));
+
+      expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('CCC');
+      expect(screen.getByTestId('sa-request-token')).toHaveTextContent('BBB');
     });
   });
 
