@@ -4,9 +4,11 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.view.Window;
 import android.view.WindowManager;
+import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.WeakHashMap;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -14,6 +16,7 @@ import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
+import org.robolectric.util.ReflectionHelpers;
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -191,5 +194,41 @@ public class FullscreenRotationTest {
         FullscreenRotation replacement = owner();
         replacement.acquire(window); replacement.release();
         assertEquals(3, window.getAttributes().rotationAnimation);
+    }
+
+    private void clearOwnerWithoutEnqueueing() {
+        WeakHashMap<Window, ?> policies = ReflectionHelpers.getStaticField(FullscreenRotation.class, "policies");
+        Object policy = policies.get(window);
+        assertNotNull(policy);
+        WeakHashMap<FullscreenRotation, Boolean> registered = ReflectionHelpers.getField(policy, "owners");
+        Reference<?> entry = (Reference<?>) registered.entrySet().iterator().next();
+        // Model a cleared weak key before its reference-queue notification arrives.
+        entry.clear();
+        assertNull(entry.get());
+        assertEquals("WeakHashMap still counts the unenqueued cleared entry", 1, registered.size());
+        assertFalse("There is no live rotation owner", registered.keySet().iterator().hasNext());
+    }
+
+    @Test public void clearedOwnerWithoutQueueNotificationCannotBlockOriginalRestore() {
+        hint(window, 3);
+        owner().acquire(window);
+        clearOwnerWithoutEnqueueing();
+        FullscreenRotation replacement = owner();
+        replacement.acquire(window);
+        assertEquals(2, window.getAttributes().rotationAnimation);
+        replacement.release();
+        assertEquals(3, window.getAttributes().rotationAnimation);
+    }
+
+    @Test public void clearedOwnerWithoutQueueNotificationPermitsNewExternalPolicyOnTakeover() {
+        hint(window, 3);
+        owner().acquire(window);
+        clearOwnerWithoutEnqueueing();
+        hint(window, 1);
+        FullscreenRotation replacement = owner();
+        replacement.acquire(window);
+        assertEquals(2, window.getAttributes().rotationAnimation);
+        replacement.release();
+        assertEquals(1, window.getAttributes().rotationAnimation);
     }
 }
