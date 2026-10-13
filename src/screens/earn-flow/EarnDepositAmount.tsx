@@ -113,13 +113,14 @@ const EarnDepositAmount: FC<EarnDepositAmountProps> = ({ vaultId }) => {
           <div className="min-h-0 flex-1">
             <SelectAmount
               accent="earn"
+              pageInset
+              showAmountDivider={false}
               token={token}
               amount={amount}
               isValidAmount={isValidAmount}
               label={t('earnDepositAmountLabel')}
               confirmTitle={t('confirm')}
               showNetworkPill={false}
-              showBalanceHelper={!hasAmount}
               // Say WHY Continue is dead. Without this the user sees a positive,
               // in-balance amount and a disabled button with no explanation — the
               // send and swap flows both name the same condition. `SelectAmount`

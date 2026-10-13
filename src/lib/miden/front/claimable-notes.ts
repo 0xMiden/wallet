@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getNoteHoldingTransactions } from 'lib/miden/activity';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
+import { applyOverrideFor } from 'lib/miden/metadata/overrides';
 import { getQuarantinedNoteIds } from 'lib/miden/note-quarantine';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { isExtension, isIOS } from 'lib/platform';
 import { SerializedConsumableNote, SyncData, WalletMessageType } from 'lib/shared/types';
-import { getIntercom, useWalletStore } from 'lib/store';
+import { faucetMetadataOf, getIntercom, useWalletStore } from 'lib/store';
 import { useRetryableSWR } from 'lib/swr';
 
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -17,10 +18,10 @@ import { AssetMetadata } from '../metadata';
 import { claimingTxIdByNoteId } from './claiming-tx-map';
 import { onNotesRefresh } from './note-refresh';
 import { fetchFromStorage, putToStorage } from './storage';
-import { isSyncFused, noteNonEvictionSyncFailure, noteSyncSuccess, noteSyncWatchdogEviction } from './sync-fuse';
+import { isSyncFused, noteProbeFailure, noteSyncSuccess } from './sync-fuse';
 import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { assertWasmHoldCurrent, runWhenClientIdle, withWasmClientLock } from '../sdk/miden-client';
-import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
+import { WASM_LOCK_SYNC_WATCHDOG_MS } from '../sdk/wasm-client-poison';
 import { classifySwapOrderNotes } from '../swap/classification';
 import { ConsumableNote, NoteTypeEnum, SwapOrderNoteMetadata } from '../types';
 import { useTokensMetadata } from './assets';
@@ -115,14 +116,12 @@ async function buildMetadataMapFromCache(
   return map;
 }
 
-async function findMissingFaucetIds(
-  notes: ParsedNote[],
-  metadataByFaucetId: Record<string, AssetMetadata>
-): Promise<string[]> {
+/** Missing means no faucet record: an entry an override made is shown meanwhile, and the record must still come. */
+async function findMissingFaucetIds(notes: ParsedNote[]): Promise<string[]> {
   const missing = new Set<string>();
   const nativeId = getNativeAssetIdSync();
   for (const n of notes) {
-    if (n.faucetId !== nativeId && !metadataByFaucetId[n.faucetId]) {
+    if (n.faucetId !== nativeId && !faucetMetadataOf(n.faucetId)) {
       missing.add(n.faucetId);
     }
   }
@@ -200,8 +199,7 @@ async function fetchNotesFromLocalClient(
     // Keyed on 'claimable-notes' rather than shared, because a healthy chain sync says
     // nothing about a note read whose call is parked, and a single counter let either
     // fact erase the other.
-    if (isSyncWatchdogEviction(e)) noteSyncWatchdogEviction('claimable-notes');
-    else noteNonEvictionSyncFailure('claimable-notes');
+    noteProbeFailure('claimable-notes', e);
     debugInfoRef.current = {
       ...debugInfoRef.current,
       error: `getConsumableNotes failed: ${e}`,
@@ -210,6 +208,13 @@ async function fetchNotesFromLocalClient(
     throw e;
   }
 
+  // Notes the pre-confirm dry-run imported to simulate a not-yet-approved custom transaction, hidden from the
+  // claimable UI until the user confirms (or forever, if they cancel). See note-quarantine.ts.
+  //
+  // Read BEFORE the holding rows, as the service worker does: a confirm queues the dApp transaction holding the
+  // note and only then releases the quarantine, so in this order a confirm landing between the reads leaves the note
+  // hidden or held. The other order could see it released and not yet held, and auto-consume would count it.
+  const quarantined = await getQuarantinedNoteIds();
   const uncompletedTxs = await getNoteHoldingTransactions(publicAddress);
   const notesBeingClaimed = claimingTxIdByNoteId(uncompletedTxs);
 
@@ -232,8 +237,7 @@ async function fetchNotesFromLocalClient(
   } catch (e) {
     // Same ledger as the read above: this is the second hold of one probe, and an
     // eviction here is the same parked client with the same per-lap cost.
-    if (isSyncWatchdogEviction(e)) noteSyncWatchdogEviction('claimable-notes');
-    else noteNonEvictionSyncFailure('claimable-notes');
+    noteProbeFailure('claimable-notes', e);
     throw e;
   }
 
@@ -243,16 +247,11 @@ async function fetchNotesFromLocalClient(
   // evidence that hold was accumulating, which is how a fuse becomes unreachable.
   noteSyncSuccess('claimable-notes');
 
-  // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
-  // custom transaction — hidden from the claimable UI until the user
-  // confirms (or forever, if they cancel). See note-quarantine.ts.
-  //
   // NOTE: `parseNotes`'s 2nd arg (`notesBeingClaimed`) only flags matching
   // notes as `isBeingClaimed` — it does NOT remove them from the result, so
   // it cannot be reused to hide quarantined notes. We instead filter the
   // parsed result by id (parseNotes derives ids the same way, via
   // `note.id()?.toString()`, so the ids match exactly).
-  const quarantined = await getQuarantinedNoteIds();
   const parsed = parseNotes(rawNotes, notesBeingClaimed, swapOrders);
   const visible = quarantined.size === 0 ? parsed : parsed.filter(n => !quarantined.has(n.id));
   // Display dates come from block headers, read now that both holds have released the client.
@@ -434,6 +433,7 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
   // the new account's notes, whether the new read is still pending or keeps failing.
   const [claimingRead, setClaimingRead] = useState<ClaimingRead>({ generation: -1, txIdByNoteId: NO_CLAIMING });
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
+  const tokenMetadataOverrides = useWalletStore(s => s.tokenMetadataOverrides);
   // Whether this VISIT has seen the service worker write a sync for this account.
   // miden_sync_data outlives the popup, so the first read is the snapshot a previous
   // session left behind; a consumer that treats the first list as what exists now
@@ -574,7 +574,10 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
           id: n.id,
           faucetId: n.faucetId,
           amount: n.amountBaseUnits,
-          metadata: (n.metadata as AssetMetadata) || assetsMetadata[n.faucetId],
+          // The service worker attaches the faucet's metadata; the store entry has the override already.
+          metadata: n.metadata
+            ? applyOverrideFor(n.faucetId, n.metadata as AssetMetadata, tokenMetadataOverrides)
+            : assetsMetadata[n.faucetId]!,
           senderAddress: n.senderAddress,
           isBeingClaimed: claimingTxIds.has(n.id),
           claimingTxId: claimingTxIds.get(n.id),
@@ -585,7 +588,7 @@ function useExtensionClaimableNotes(publicAddress: string, enabled: boolean) {
           standardPayment: n.standardPayment
         }))
     );
-  }, [enabled, extensionNotes, claimingRead, boundGeneration, assetsMetadata]);
+  }, [enabled, extensionNotes, claimingRead, boundGeneration, assetsMetadata, tokenMetadataOverrides]);
 
   const mutate = useCallback(() => {
     // Trigger a SyncRequest to get fresh data
@@ -641,14 +644,13 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
     // 3) Schedule background metadata pre-fetch for unknown tokens (non-blocking).
     // This doesn't "warm up" the WASM client — it fetches token metadata (symbol, decimals)
     // via RPC so tokens display with proper names on subsequent renders instead of "Unknown".
-    const missingFaucetIds = await findMissingFaucetIds(parsedNotes, metadataByFaucetId);
+    const missingFaucetIds = await findMissingFaucetIds(parsedNotes);
     if (missingFaucetIds.length > 0) {
       runWhenClientIdle(async () => {
         const fetched: Record<string, AssetMetadata> = {};
         for (const id of missingFaucetIds) {
           try {
-            const { base } = await fetchMetadata(id);
-            fetched[id] = base;
+            fetched[id] = await fetchMetadata(id);
           } catch (e) {
             console.warn('Metadata fetch failed for', id, e);
           }

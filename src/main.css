@@ -384,6 +384,12 @@ button:disabled,
   line-height: var(--tw-leading, 1);
   font-weight: var(--tw-font-weight, 700);
 }
+@utility text-tag {
+  font-family: var(--font-heading);
+  font-size: 11px;
+  line-height: var(--tw-leading, 1);
+  font-weight: var(--tw-font-weight, 700);
+}
 @utility text-body {
   font-family: var(--font-sans);
   font-size: 16px;

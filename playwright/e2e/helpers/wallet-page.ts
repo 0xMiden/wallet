@@ -1471,13 +1471,13 @@ export class ChromeWalletPage implements ChromeWalletPageApi {
     await this.page.getByTestId('create-password-verify-input').fill(password);
     await this.page.getByTestId('create-password-submit').click();
 
-    // Meet your Guardian picks the fastest operator itself; the picker behind "Choose a
-    // different Guardian" is the only screen that lists them by endpoint.
+    // Choose your Guardian picks the fastest operator itself; the provider sheet behind
+    // "Change provider" is the only place that lists them by endpoint. A pick closes it.
     await openGuardianPickerFromMeetGuardian(this.page, 60_000);
     const guardian = this.page.locator(`[data-guardian-endpoint="${guardianUrl}"]`);
     await guardian.waitFor({ timeout: 60_000 });
     await guardian.click();
-    await this.page.getByTestId('choose-guardian-continue').click();
+    await this.page.getByTestId('meet-guardian-continue').click();
     await this.page.getByTestId('onboarding-confirmation-submit').click();
     await this.page.getByTestId('explore-page').waitFor({ timeout: 120_000 });
     return this.getAccountAddress();

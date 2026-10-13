@@ -59,6 +59,11 @@ export function isTransientCliError(stderr: string): boolean {
   );
 }
 
+/** A delegated transaction whose proof the remote prover failed or never answered, as opposed to its execution. */
+export function isRemoteProverFailure(stderr: string): boolean {
+  return /transaction\s+proving\s+failed|failed\s+to\s+connect\s+to(\s+the)?(\s+remote)?\s+prover/i.test(stderr);
+}
+
 /**
  * The status `miden-client tx` lists for `txId`, or undefined when the table has no row for it.
  * Rows read `│ <id> ┆ Pending ┆ …`, `│ <id> ┆ Committed (Block: N) ┆ …` or `│ <id> ┆ Discarded (Cause) ┆ …`:
@@ -737,11 +742,11 @@ export class MidenCli {
     // itself. No-op where the chain charges nothing.
     await this.fundAccountForFees(targetAccountId);
 
-    let mintArgs = `mint --target ${targetAccountId} --asset ${amount}::${faucetId} --note-type ${noteType} --force`;
-
-    if (this.env.delegateProving) {
-      mintArgs += ' --delegate-proving';
-    }
+    const mintArgs = `mint --target ${targetAccountId} --asset ${amount}::${faucetId} --note-type ${noteType} --force`;
+    // The hosted prover can stall for minutes while the node is healthy (testnet, 2026-10-10: five delegated
+    // proofs in a row ended "Timeout expired"). The CLI proves its other transactions locally already, so once a
+    // delegated proof fails the rest of the attempts prove locally too.
+    let delegate = this.env.delegateProving;
 
     const maxAttempts = 5;
     let lastErr = '';
@@ -751,7 +756,9 @@ export class MidenCli {
       // a minute) behind the tip (`failed to reconstruct vault ... root not found`), and a retry at the same
       // height fails the same way. Sync first, on every attempt.
       await this.sync();
-      const result = await this.run(mintArgs, { timeoutMs: this.env.txTimeoutMs });
+      const result = await this.run(delegate ? `${mintArgs} --delegate-proving` : mintArgs, {
+        timeoutMs: this.env.txTimeoutMs
+      });
       if (result.exitCode === 0) {
         const txId = result.parsed?.transactionId;
         const noteId = result.parsed?.noteId;
@@ -767,8 +774,13 @@ export class MidenCli {
         continue;
       }
       lastErr = result.stderr;
-      const transient = isTransientCliError(lastErr);
-      if (!transient || attempt === maxAttempts) break;
+      const proverFailed = delegate && isRemoteProverFailure(lastErr);
+      if (proverFailed) {
+        delegate = false;
+        // eslint-disable-next-line no-console
+        console.log(`[miden-cli] mint attempt ${attempt}/${maxAttempts}: the hosted prover failed; proving locally`);
+      }
+      if (!(proverFailed || isTransientCliError(lastErr)) || attempt === maxAttempts) break;
       const backoffMs = Math.min(30_000, 1_000 * 2 ** (attempt - 1));
       // eslint-disable-next-line no-console
       console.log(

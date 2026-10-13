@@ -8,7 +8,6 @@ import { cacheScope } from 'lib/miden-chain/native-asset';
 import type { WalletAccount } from 'lib/shared/types';
 
 import { midenClientProxy } from './miden-client-proxy';
-import { OperationAbortedError } from './offscreen-codec';
 import { type ITransaction, ITransactionStatus } from '../db/types';
 import { resolveGuardianEndpoint } from '../guardian/account';
 import { withTimeout } from '../guardian/discover';
@@ -31,17 +30,18 @@ import {
 } from '../guardian/history-storage';
 import { db, transactions } from '../repo';
 import { canonicalWalletAccountId } from '../sdk/helpers';
+import { isPipelineKillLink } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 class HistoryInterrupted extends Error {}
 
-// An eviction or an offscreen abort of a summary or local result-commitment decode the pass was not interrupted for.
-// It says the decode did not finish, not that the bytes failed a check, so the source is filed 'network' and never
-// spends the invalid-data cap.
+// An eviction, an offscreen abort or a terminated client of a summary or local result-commitment decode the pass was
+// not interrupted for. It says the decode did not finish, not that the bytes failed a check, so the source is filed
+// 'network' and never spends the invalid-data cap.
 class HistoryDecodeAborted extends Error {
   constructor(
     readonly session: number,
-    cause: Error
+    cause: unknown
   ) {
     super('Guardian history decode was aborted', { cause });
   }
@@ -406,7 +406,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             const decodeSession = unsupportedHistorySession;
             decodeScope = cacheScope();
             const summary = await midenClientProxy.decodeGuardianHistory(encoded).catch(async (error: unknown) => {
-              if (!(isWasmClientPoisonedError(error) || error instanceof OperationAbortedError)) throw error;
+              if (!isPipelineKillLink(error)) throw error;
               if (await interrupted()) throw error;
               throw new HistoryDecodeAborted(decodeSession, error);
             });
@@ -430,7 +430,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             try {
               commitments.set(row.id, await midenClientProxy.getGuardianResultCommitment(row.resultBytes));
             } catch (error) {
-              if (error instanceof OperationAbortedError || isWasmClientPoisonedError(error)) {
+              if (isPipelineKillLink(error)) {
                 if (await interrupted()) throw error;
                 throw new HistoryDecodeAborted(commitmentSession, error);
               }
@@ -525,12 +525,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         }
       } catch (thrown) {
         const error = thrown instanceof HistoryRequestFailed ? thrown.cause : thrown;
-        if (
-          error instanceof HistoryInterrupted ||
-          error instanceof OperationAbortedError ||
-          isWasmClientPoisonedError(error)
-        )
-          throw error;
+        if (error instanceof HistoryInterrupted || isPipelineKillLink(error)) throw error;
         if (error instanceof GuardianHistoryFeeUnavailableError) {
           if (await interrupted()) throw new HistoryInterrupted();
           const stopped = await saveGuardianHistoryCheckpoint(context.generation, {
@@ -595,7 +590,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
     // Reported apart from a yield: an evicted run keeps its reservation until the next backend start, as for notes.
     if (isWasmClientPoisonedError(error))
       return { deferred: true, evicted: true, sourceFailures, restored, deferredSources };
-    if (error instanceof HistoryInterrupted || error instanceof OperationAbortedError) {
+    if (error instanceof HistoryInterrupted || isPipelineKillLink(error)) {
       return { deferred: true, sourceFailures, restored, deferredSources };
     }
     throw error;

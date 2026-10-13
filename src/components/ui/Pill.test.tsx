@@ -206,6 +206,7 @@ describe('variants', () => {
     ['warning', ['bg-pending-tint', 'text-pending-tint-ink', 'border-transparent']],
     ['negative', ['bg-negative-tint', 'text-negative-tint-ink', 'border-transparent']],
     ['inactive', ['bg-fill-pressed', 'text-ink', 'border-transparent']],
+    ['muted', ['bg-fill', 'text-muted', 'border-transparent']],
     ['plain', ['border-transparent']]
   ] as const)('gives the %s tone its colors', (tone, classes) => {
     render(
@@ -224,7 +225,8 @@ describe('variants', () => {
   it.each([
     ['xs', ['h-5', 'gap-1', 'px-2', 'text-badge', 'font-semibold'], ['-ml-0.5', 'h-3', 'w-3']],
     ['sm', ['h-6', 'gap-1', 'px-2', 'text-badge'], ['-ml-0.5', 'h-3.5', 'w-3.5']],
-    ['md', ['h-8', 'gap-1.5', 'px-3', 'text-pill'], ['-ml-1', 'h-4', 'w-4']]
+    ['md', ['h-8', 'gap-1.5', 'px-3', 'text-pill'], ['-ml-1', 'h-4', 'w-4']],
+    ['tag', ['h-4.5', 'gap-1', 'px-1.5', 'text-tag'], ['-ml-0.5', 'h-3', 'w-3']]
   ] as const)('sizes the %s pill and its icon box', (size, pillClasses, iconClasses) => {
     render(
       <Pill data-testid="pill" size={size} icon={<svg data-testid="glyph" />}>
@@ -233,6 +235,16 @@ describe('variants', () => {
     );
     expect(screen.getByTestId('pill')).toHaveClass('rounded-full', 'border', ...pillClasses);
     expect(screen.getByTestId('glyph').parentElement).toHaveClass('shrink-0', ...iconClasses);
+  });
+
+  // tailwind-merge reads an unregistered `text-*` as a colour, so the muted ink would drop the label's type.
+  it('keeps the tag label type beside the muted ink', () => {
+    render(
+      <Pill data-testid="pill" size="tag" tone="muted">
+        Unverified
+      </Pill>
+    );
+    expect(screen.getByTestId('pill')).toHaveClass('text-tag', 'text-muted');
   });
 });
 
@@ -296,7 +308,8 @@ describe('trailingIcon', () => {
 
   it.each([
     ['xs', 'h-3', 'w-3', '-mr-0.5'],
-    ['sm', 'h-3.5', 'w-3.5', '-mr-0.5']
+    ['sm', 'h-3.5', 'w-3.5', '-mr-0.5'],
+    ['tag', 'h-3', 'w-3', '-mr-0.5']
   ] as const)('sizes the trailing glyph for %s', (size, h, w, mr) => {
     render(
       <Pill size={size} trailingIcon={<svg data-testid="trail" />}>

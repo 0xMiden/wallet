@@ -28,7 +28,9 @@ const PANE_TREES = [
   'screens/earn-flow',
   'screens/send-flow',
   'screens/swap-flow',
-  'components/flow'
+  'components/flow',
+  // Rendered as a row in the send, swap and earn panes, so its own margins meet the same gutter.
+  'components/AmountInput.tsx'
 ];
 
 const sourceFiles = (relative: string): string[] => {

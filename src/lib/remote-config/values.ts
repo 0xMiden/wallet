@@ -51,6 +51,11 @@ export function selectMidenUsdc(s: BridgeConfigSnapshot): MidenUsdc | null {
   return faucetId && metadata ? { faucetId, ...metadata } : null;
 }
 
+/** The faucet the document lists a swap token under `symbol` at ('0x' + 30 lowercase hex), or null when it lists none. */
+export function selectSwapTokenFaucetId(s: BridgeConfigSnapshot, symbol: string): string | null {
+  return s.config?.swap?.tokens.find(token => token.symbol === symbol)?.faucetId ?? null;
+}
+
 export function selectEvmUsdc(s: BridgeConfigSnapshot): EvmUsdc | null {
   const address = s.config?.epoch.evmUsdc;
   const chainId = s.config?.evm.chainId;

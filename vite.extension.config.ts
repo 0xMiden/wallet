@@ -232,6 +232,9 @@ const sharedDefine = {
   // E2E builds read the bridge config document from this base instead of the published repo. Ignored unless
   // MIDEN_E2E_TEST is 'true' (lib/remote-config/source.ts); empty by default, so every other build reads the repo.
   'process.env.MIDEN_REMOTE_CONFIG_URL': JSON.stringify(process.env.MIDEN_REMOTE_CONFIG_URL ?? ''),
+  // E2E builds read the Explore catalog from this base instead of the published repo. Ignored unless MIDEN_E2E_TEST
+  // is 'true' (lib/explore-config/source.ts); empty by default, so every other build reads the repo.
+  'process.env.MIDEN_EXPLORE_CONFIG_URL': JSON.stringify(process.env.MIDEN_EXPLORE_CONFIG_URL ?? ''),
   'process.env.MIDEN_FEE_FAUCET_ID': JSON.stringify(process.env.MIDEN_FEE_FAUCET_ID ?? ''),
   // E2E behaviour opt-outs. Separate from MIDEN_E2E_TEST (which only installs
   // the __TEST_*__ hooks) so a harness build can keep the hooks while still
@@ -252,6 +255,7 @@ const sharedDefine = {
   ),
   'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(process.env.WALLETCONNECT_PROJECT_ID ?? ''),
   'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
+  'process.env.MIDEN_E2E_USDCX_CHAIN': JSON.stringify(process.env.MIDEN_E2E_USDCX_CHAIN ?? ''),
   // dApp-bridge debug logging: `dappDebug` (lib/miden/back/dapp.ts) and `dlog`
   // (lib/dapp-browser/message-handler.ts) both read this. It MUST be defined in
   // every config that bundles either module — an un-defined `process.env.X` read

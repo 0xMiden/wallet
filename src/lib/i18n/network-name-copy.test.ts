@@ -52,7 +52,6 @@ const UNPUNCTUATED_KEYS = [
   'networkModeBanner',
   'networkModeSheetTitle',
   'networkModePillNoValue',
-  'networkNoticeChip',
   'networkNoticeNoValueTitle',
   'networkNoticeNoRealFundsTitle',
   'networkNoticeResetTitle',

@@ -19,6 +19,9 @@ jest.mock('screens/earn-flow/components', () => ({
   EarnSummaryPanel: ({ summary, titleId }: { summary: { totalRewardsUsd: number }; titleId: string }) => (
     <div data-testid="earn-summary-panel" data-title-id={titleId} data-total-rewards={summary.totalRewardsUsd} />
   ),
+  EarnAssetMark: ({ asset, network }: { asset: string; network: string }) => (
+    <span data-testid="earn-asset-mark" data-asset={asset} data-network={network} />
+  ),
   earnSubjectTitle: ({ protocol }: { protocol: string }) => protocol,
   EarnSubjectSubtitle: ({ subject }: { subject: { asset: string; network: string } }) =>
     `${subject.asset} on ${subject.network}`
@@ -259,11 +262,40 @@ describe('Earn page', () => {
     const firstCard = cards[0]!;
     expect(firstCard).toHaveTextContent(`earnPositionsApy:${first.apy}`);
     expect(firstCard).toHaveTextContent(first.amount);
-    expect(firstCard).toHaveTextContent(`${first.rewards} • ${first.age}`);
+    // No rewards/age line: neither has a source yet, and it only ever drew placeholder dashes.
+    expect(firstCard).not.toHaveTextContent(`${first.rewards} • ${first.age}`);
 
-    // ProviderLogo probe receives the position's protocol.
-    const logo = within(firstCard).getByTestId('provider-logo');
-    expect(logo).toHaveAttribute('data-protocol', first.protocol);
+    // The asset's mark, badged with its network, leads the row.
+    const mark = within(firstCard).getByTestId('earn-asset-mark');
+    expect(mark).toHaveAttribute('data-asset', first.asset);
+    expect(mark).toHaveAttribute('data-network', first.network);
+  });
+
+  it('sets each position row in the heading face', () => {
+    render(<Earn />);
+
+    positions.forEach(position => {
+      const card = screen.getByTestId(`earn-position-card-${position.id}`);
+      const row = within(card).getByTestId('earn-asset-mark').parentElement;
+      expect(row).toHaveClass('face-heading', 'flex', 'items-center');
+      expect(row).toContainElement(within(card).getByText(position.amount));
+    });
+  });
+
+  it('spans a lone position across the row, and keeps several at their own width to scroll', () => {
+    const { unmount } = render(<Earn />);
+    expect(positions.length).toBeGreaterThan(1);
+    positions.forEach(position => {
+      const card = screen.getByTestId(`earn-position-card-${position.id}`);
+      expect(card).toHaveClass('shrink-0');
+      expect(card).not.toHaveClass('w-full');
+    });
+    unmount();
+
+    const lone = positions[0]!;
+    mockUseEarnPositions.mockReturnValue({ ...EARN_DATA, positions: [lone] });
+    render(<Earn />);
+    expect(screen.getByTestId(`earn-position-card-${lone.id}`)).toHaveClass('w-full', 'shrink-0');
   });
 
   it('uses theme-aware text colors for position and vault labels', () => {

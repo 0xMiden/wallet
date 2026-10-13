@@ -41,6 +41,8 @@ import { clearNoteReceivedNotification } from 'lib/mobile/native-notifications';
 import { isExtension, isMobile } from 'lib/platform';
 import { pricesLoaded } from 'lib/prices';
 import type { TokenPrices } from 'lib/prices';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isAutoConsumeEnabled, isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
@@ -76,6 +78,7 @@ const Explore: FC = () => {
     mutate: mutateBalances
   } = useAllBalances(account.publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
 
   const {
     data: claimableNotes,
@@ -193,6 +196,8 @@ const Explore: FC = () => {
   }, [address]);
 
   const { sortedTokens, hiddenTokens } = useMemo(() => {
+    // Pricing helpers read the runtime singleton; its snapshot invalidates cached values.
+    void bridgeConfig;
     // A token with no price, or whose balance was scaled by guessed decimals, ranks as worth
     // nothing, never as its token count at $1 a unit.
     const fiatValues = new Map(
@@ -215,17 +220,16 @@ const Explore: FC = () => {
       sortedTokens: sorted.filter(token => !isHidden(token.tokenId)),
       hiddenTokens: sorted.filter(token => isHidden(token.tokenId))
     };
-  }, [allTokenBalances, isHidden, midenFaucetId, tokenPrices]);
+  }, [allTokenBalances, isHidden, midenFaucetId, tokenPrices, bridgeConfig]);
 
   // The price symbols of the tokens the Balance total sums, so the card waits on the feed only
   // while one of them is a symbol the feed lists (`pricesLoaded`).
-  const totalPriceSymbols = useMemo(
-    () =>
-      allTokenBalances
-        .filter(token => token.balance > 0 && !isHidden(token.tokenId) && hasKnownScale(token.metadata))
-        .map(token => priceSymbolFor(token.tokenId, token.metadata.symbol)),
-    [allTokenBalances, isHidden]
-  );
+  const totalPriceSymbols = useMemo(() => {
+    void bridgeConfig;
+    return allTokenBalances
+      .filter(token => token.balance > 0 && !isHidden(token.tokenId) && hasKnownScale(token.metadata))
+      .map(token => priceSymbolFor(token.tokenId, token.metadata.symbol));
+  }, [allTokenBalances, isHidden, bridgeConfig]);
 
   const refreshExplore = useCallback(async () => {
     if (isRefreshing) return;
@@ -491,6 +495,7 @@ interface HiddenAssetsProps {
 /** The held tokens the user hid (#813), folded under the asset list: each opens its page or comes back. */
 const HiddenAssets: FC<HiddenAssetsProps> = ({ tokens, tokenPrices, onUnhide, assetListRef }) => {
   const { t } = useTranslation();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const [open, setOpen] = useState(false);
   // The last Unhide's own result (#813): the hook reports none, only what each call resolves with.
   const [unhideFailed, setUnhideFailed] = useState(false);
@@ -569,7 +574,9 @@ const HiddenAssets: FC<HiddenAssetsProps> = ({ tokens, tokenPrices, onUnhide, as
                       else unhideButtons.current.delete(asset.tokenId);
                     }}
                     className="shrink-0"
-                    aria-label={t('unhideTokenLabel', { name: asset.metadata.name || asset.metadata.symbol })}
+                    aria-label={t('unhideTokenLabel', {
+                      name: midenTokenLabel(bridgeConfig, asset.tokenId, asset.metadata.name || asset.metadata.symbol)
+                    })}
                     onClick={() => {
                       const inFlight = inFlightUnhides.current;
                       if (inFlight.has(asset.tokenId)) return;

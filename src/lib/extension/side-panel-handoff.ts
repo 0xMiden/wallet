@@ -66,6 +66,20 @@ export function postOnboardingRoute(): '/finish-side-panel' | '/' {
 export const ONBOARDING_HANDOFF_ROUTES: ReadonlySet<string> = new Set(['/finish-side-panel', '/help-improve-wallet']);
 
 /**
+ * Routes reachable while a wallet is technically Ready that belong to onboarding or destructive
+ * recovery rather than the normal shell: the handoff screens plus the forgot-password and reset
+ * flows. The surfaces that must not cover them (the update card, the mainnet countdown) share this
+ * one list so they cannot drift.
+ */
+export const OUTSIDE_WALLET_SHELL_ROUTES: ReadonlySet<string> = new Set([
+  ...ONBOARDING_HANDOFF_ROUTES,
+  '/forgot-password',
+  '/forgot-password-info',
+  '/reset-required',
+  '/reset-wallet'
+]);
+
+/**
  * Open the side panel onto the (already-Ready) wallet and make it the primary
  * action surface. MUST be called synchronously within the user gesture of the
  * final "Open wallet" click. Returns true if the panel opened, false on failure

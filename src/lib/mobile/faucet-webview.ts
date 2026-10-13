@@ -5,6 +5,7 @@ import { InAppBrowser, ToolBarType } from '@miden/dapp-browser';
 import { PREVENT_INPUT_ZOOM_SCRIPT } from 'lib/mobile/prevent-input-zoom';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
+import { webviewToolbarColors } from 'lib/mobile/webview-theme';
 import { isMobile } from 'lib/platform';
 
 // PR-4 chunk 9: faucet uses its own instance id so its messageFromWebview
@@ -275,6 +276,7 @@ export async function openFaucetWebview({ url, title, recipientAddress }: Faucet
     title,
     toolbarType: ToolBarType.NAVIGATION,
     showReloadButton: true,
-    isPresentAfterPageLoad: false
+    isPresentAfterPageLoad: false,
+    ...webviewToolbarColors()
   });
 }

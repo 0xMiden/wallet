@@ -37,6 +37,8 @@ on:
 
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -47,7 +49,9 @@ jobs:
     name: Stress + balance conservation (localnet)
     runs-on: warp-ubuntu-latest-x64-8x
     # Stack bring-up + CLI + extension build (~20 min cold) plus the run itself.
-    timeout-minutes: 90
+    # A dispatch may first build a linked web-sdk PR from source (about 9 min on this runner, pr-e2e-bridge-guardian.yml),
+    # and a `Client PR:` or `Protocol PR:` marker on it rebuilds the CLI (~8m) and the node (~28m) cold.
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 150 || 90 }}
     env:
       E2E_NETWORK: localhost
       MIDEN_NTX_AUTH: e2e-ntx-secret
@@ -87,7 +91,20 @@ jobs:
             ~/.cargo/bin
             ~/.cargo/registry
           key: ${{ steps.cargo_cache_key.outputs.key }}
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does; on any other run both are no-ops.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        uses: ./.github/actions/inject-linked-guardian-pr
       - run: yarn install --frozen-lockfile
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
       - name: Pre-install miden-client-cli (off the per-test clock)
         # The harness auto-installs the CLI lazily on first use, but that ~7min compile
         # blows the 300s per-test timeout, so it is pre-installed here. The action also

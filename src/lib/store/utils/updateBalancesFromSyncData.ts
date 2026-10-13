@@ -4,12 +4,17 @@ import { getFaucetIdSetting } from 'lib/miden/assets';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
+import {
+  applyOverrideFor,
+  getTokenMetadataOverrides,
+  overrideFor,
+  TokenMetadataOverrides
+} from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { SerializedVaultAsset } from 'lib/shared/types';
 
-import { setTokensBaseMetadata } from '../../miden/front/assets';
-import { useWalletStore } from '../index';
+import { faucetMetadataOf, useWalletStore, withLandedBalances } from '../index';
 import { balancePrice } from './balancePrice';
 
 /**
@@ -24,16 +29,22 @@ export async function updateBalancesFromSyncData(
   vaultAssets: SerializedVaultAsset[]
 ): Promise<void> {
   const store = useWalletStore.getState();
-  const localMetadatas = { ...store.assetsMetadata };
   /* c8 ignore next -- tokenPrices always initialized in store */
   const tokenPrices = store.tokenPrices ?? {};
   const midenFaucetId = await getFaucetIdSetting();
   const actualNativeId = getNativeAssetIdSync();
+  // Read from storage, not from the store: a sync can land before the provider loads them.
+  const overrides = await getTokenMetadataOverrides().catch((error): TokenMetadataOverrides => {
+    console.warn('Token metadata overrides read failed', error);
+    return {};
+  });
 
   const balances: TokenBalanceData[] = [];
+  // The faucets whose rows took an override from the storage read; the landing applies the store's current ones.
+  const overridden = new Set<string>();
   let hasMiden = false;
 
-  // Collect metadata from sync data to persist
+  // Collect metadata from sync data to adopt into the store
   const newMetadatas: Record<string, AssetMetadata> = {};
 
   // Build balance list — metadata comes from the sync data (pre-fetched by SW)
@@ -42,11 +53,13 @@ export async function updateBalancesFromSyncData(
     if (isMiden) hasMiden = true;
 
     let tokenMetadata: AssetMetadata;
-    const cached = localMetadatas[asset.faucetId];
     // A cached record whose scale is a guess is provisional: real metadata
     // arriving on a later sync must be allowed to replace it. Preferring the
     // cache unconditionally is what made a single failed lookup permanent.
-    const localMeta = hasKnownScale(cached) ? cached : undefined;
+    // The faucet's own record, not the store entry: an override's decimals make
+    // the placeholder entry look known, and the overrides apply on top below.
+    const record = faucetMetadataOf(asset.faucetId);
+    const localMeta = hasKnownScale(record) ? record : undefined;
     if (asset.faucetId === actualNativeId) {
       tokenMetadata = getNativeDisplayMetadataSync(asset.metadata ?? localMeta, asset.faucetId);
     } else if (localMeta) {
@@ -57,19 +70,24 @@ export async function updateBalancesFromSyncData(
         decimals: asset.metadata.decimals,
         symbol: asset.metadata.symbol,
         name: asset.metadata.name,
-        thumbnailUri: asset.metadata.thumbnailUri,
-        // Carried through: this record is PERSISTED by `setTokensBaseMetadata`
-        // below, so dropping the marker here stores the placeholder's guessed
+        description: asset.metadata.description,
+        // Carried through: this record is adopted below as the faucet's own,
+        // so dropping the marker here records the placeholder's guessed
         // decimals as though the faucet had reported them.
         scaleIsUnknown: asset.metadata.scaleIsUnknown
       };
-      // Only a resolved record is worth storing. Persisting the placeholder
+      // Only a resolved record is worth adopting. Recording the placeholder
       // would freeze the guess in place for a faucet whose lookup merely
-      // failed this once — the sync retries, but the cache would already have
+      // failed this once: the sync retries, but the store would already have
       // an answer for it.
       if (hasKnownScale(tokenMetadata)) newMetadatas[asset.faucetId] = tokenMetadata;
     } else {
       tokenMetadata = DEFAULT_TOKEN_METADATA;
+    }
+    // The user's display values apply after the faucet's record is kept to store above.
+    if (!isMiden) {
+      tokenMetadata = applyOverrideFor(asset.faucetId, tokenMetadata, overrides);
+      if (overrideFor(overrides, asset.faucetId)) overridden.add(asset.faucetId);
     }
 
     const balance = new BigNumber(asset.amountBaseUnits).div(10 ** tokenMetadata.decimals);
@@ -83,32 +101,24 @@ export async function updateBalancesFromSyncData(
     });
   }
 
-  // Persist newly discovered metadata
+  // Adopted into the store only. The service worker already persisted each record it read, under the
+  // current schema; a snapshot an older worker left can still carry the old shape.
   if (Object.keys(newMetadatas).length > 0) {
-    await setTokensBaseMetadata(newMetadatas);
     store.setAssetsMetadata(newMetadatas);
   }
 
   // Always include MIDEN token (even if 0 balance) — pre-discovery we omit
   // the placeholder row so the UI doesn't render MIDEN under a stale ID.
   if (!hasMiden && midenFaucetId) {
+    const displayMetadata = getNativeDisplayMetadataSync(faucetMetadataOf(midenFaucetId), midenFaucetId);
     balances.push({
       tokenId: midenFaucetId,
-      tokenSlug: getNativeDisplayMetadataSync(localMetadatas[midenFaucetId], midenFaucetId).symbol,
-      metadata: getNativeDisplayMetadataSync(localMetadatas[midenFaucetId], midenFaucetId),
-      ...balancePrice(
-        tokenPrices,
-        midenFaucetId,
-        getNativeDisplayMetadataSync(localMetadatas[midenFaucetId], midenFaucetId).symbol
-      ),
+      tokenSlug: displayMetadata.symbol,
+      metadata: displayMetadata,
+      ...balancePrice(tokenPrices, midenFaucetId, displayMetadata.symbol),
       balance: 0
     });
   }
 
-  // Update Zustand store
-  useWalletStore.setState(state => ({
-    balances: { ...state.balances, [accountPublicKey]: balances },
-    balancesLoading: { ...state.balancesLoading, [accountPublicKey]: false },
-    balancesLastFetched: { ...state.balancesLastFetched, [accountPublicKey]: Date.now() }
-  }));
+  useWalletStore.setState(state => withLandedBalances(state, accountPublicKey, balances, midenFaucetId, overridden));
 }

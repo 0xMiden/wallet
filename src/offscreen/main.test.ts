@@ -80,11 +80,6 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => {
     Note: {
       deserialize: (...a: any[]) => g.__off.deserializeNote(...a)
     },
-    // #784: the guardianPipeline DISPATCH decodes the crossed wire-form anchor
-    // back into a ChainAnchor before pinning executeRequest to it.
-    ChainAnchor: {
-      deserialize: (...a: any[]) => g.__off.deserializeChainAnchor(...a)
-    },
     TransactionProver: {
       deserialize: (...a: any[]) => g.__off.deserializeProver(...a),
       newLocalProver: (...a: any[]) => g.__off.newLocalProver(...a)
@@ -353,9 +348,6 @@ function resetControl() {
     // DISPATCH hands to the client. Echo the bytes so the test can assert the note
     // crossed intact.
     deserializeNote: jest.fn((b: Uint8Array) => ({ __noteFromBytes: Array.from(b) })),
-    // #784: ChainAnchor.deserialize(anchorBytes) → the anchor the guardianPipeline
-    // DISPATCH pins executeRequest to. Echoes the bytes; free() is a per-test spy.
-    deserializeChainAnchor: jest.fn((b: Uint8Array) => ({ __anchorFromBytes: Array.from(b), free: jest.fn() })),
     deserializeProver: jest.fn(async (d: string) => ({ __fromDescriptor: d })),
     newLocalProver: jest.fn(() => ({ __local: true })),
     // The explicit REMOTE prover the guardian pipeline hands a delegated prove, so
@@ -2745,47 +2737,19 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     expect(sendResponse.mock.calls[0][0].ok).toBe(true);
   });
 
-  it('dispatches sendPrivateNote → re-hydrates the note from bytes and relays it on THIS client (void result)', async () => {
+  // Both relays run on the SW client (`midenClientProxy`), so this realm no longer answers them.
+  it.each([
+    ['sendPrivateNote', [encodeArg(new Uint8Array([0xde, 0xad])), encodeArg('mtst1qrecipient')]],
+    ['relayPrivateNoteById', [encodeArg('0xnote'), encodeArg('mtst1qrecipient')]]
+  ])('answers %s as an unknown method, relaying nothing', async (method, argsB64) => {
     await loadModule();
     const sendResponse = jest.fn();
-    const noteBytes = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
-    capturedListener!(
-      callReq({ method: 'sendPrivateNote', argsB64: [encodeArg(noteBytes), encodeArg('mtst1qrecipient')] }),
-      {},
-      sendResponse
-    );
+    capturedListener!(callReq({ method, argsB64 }), {}, sendResponse);
     await flush();
 
-    // The raw note bytes crossed intact and were re-hydrated via Note.deserialize...
-    expect(G.__off.deserializeNote).toHaveBeenCalledTimes(1);
-    expect(Array.from(G.__off.deserializeNote.mock.calls[0][0])).toEqual([0xde, 0xad, 0xbe, 0xef]);
-    // ...then relayed on THIS (offscreen) client with the re-hydrated note + recipient.
-    expect(G.__off.clientSendPrivateNote).toHaveBeenCalledTimes(1);
-    expect(G.__off.clientSendPrivateNote.mock.calls[0][0]).toEqual({ __noteFromBytes: [0xde, 0xad, 0xbe, 0xef] });
-    expect(G.__off.clientSendPrivateNote.mock.calls[0][1]).toBe('mtst1qrecipient');
-    const resp = sendResponse.mock.calls[0][0];
-    expect(resp.ok).toBe(true);
-    // A relay — nothing to serialize back.
-    expect(resp.resultB64).toBeNull();
-  });
-
-  it('dispatches relayPrivateNoteById → re-pushes on THIS client with no note bytes to re-hydrate', async () => {
-    await loadModule();
-    const sendResponse = jest.fn();
-    capturedListener!(
-      callReq({ method: 'relayPrivateNoteById', argsB64: [encodeArg('0xnote'), encodeArg('mtst1qrecipient')] }),
-      {},
-      sendResponse
-    );
-    await flush();
-
-    // The sweep runs long after the sending session, so it carries ids only — the
-    // note is resolved from THIS realm's store, which is where it was applied.
-    expect(G.__off.deserializeNote).not.toHaveBeenCalled();
-    expect(G.__off.clientRelayPrivateNoteById).toHaveBeenCalledWith('0xnote', 'mtst1qrecipient');
-    const resp = sendResponse.mock.calls[0][0];
-    expect(resp.ok).toBe(true);
-    expect(resp.resultB64).toBeNull();
+    expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: false, errorCode: 'UNKNOWN_METHOD' });
+    expect(G.__off.clientSendPrivateNote).not.toHaveBeenCalled();
+    expect(G.__off.clientRelayPrivateNoteById).not.toHaveBeenCalled();
   });
 
   it('dispatches isOutputNoteConsumed → returns the receipt as bytes', async () => {
@@ -3660,7 +3624,6 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
     expect(response.mock.calls[0][0].ok).toBe(true);
     expect(G.__off.guardianExecuteRequest).toHaveBeenCalledWith('acc', request);
-    expect(G.__off.deserializeChainAnchor).not.toHaveBeenCalled();
     const syncOrder = G.__off.clientSyncChain.mock.invocationCallOrder[0];
     const heightOrder = G.__off.clientGetSyncHeight.mock.invocationCallOrder[0];
     const executeOrder = G.__off.guardianExecuteRequest.mock.invocationCallOrder[0];
@@ -5188,7 +5151,7 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
     });
   });
 
-  it('records tip execution without decoding a historical anchor', async () => {
+  it('records tip execution after preparing the current tip', async () => {
     await withE2EFlag('true', async () => {
       await loadModule();
       const posted = capturePosts();
@@ -5202,7 +5165,9 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
       );
       await flush();
 
-      expect(G.__off.deserializeChainAnchor).not.toHaveBeenCalled();
+      expect(G.__off.clientSyncChain.mock.invocationCallOrder[0]).toBeLessThan(
+        G.__off.guardianExecuteRequest.mock.invocationCallOrder[0]
+      );
       expect(markerLines(posted).some(l => l.includes('guardianPipeline calling executeRequest at current tip'))).toBe(
         true
       );
@@ -5216,10 +5181,8 @@ describe('offscreen/main — E2E prove markers (#718)', () => {
       capturedListener!(
         callReq({
           method: 'guardianPipeline',
-          // ANCHORED, so this covers the #784 markers too. With a 3-slot
-          // envelope the anchor-conditional decode marker is never reached, and
-          // an anchor breadcrumb that skipped the flag gate would ship its
-          // trail to production with every assertion here still green.
+          // Four slots, the shape the SW packer always sends; the leaf reads
+          // nothing from the 4th.
           argsB64: [encodeArg('acc'), encodeArg(new Uint8Array([9])), encodeArg(false), encodeArg('BwcH')]
         }),
         {},

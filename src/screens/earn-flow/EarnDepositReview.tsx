@@ -1,10 +1,12 @@
 import React, { FC, useEffect, useMemo, useState } from 'react';
 
+import classNames from 'clsx';
 import { useTranslation } from 'react-i18next';
 import { Area, AreaChart, ReferenceLine, XAxis, YAxis } from 'recharts';
 
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
+import { amountCaptionClassName, amountFigureClassName } from 'components/AmountInput';
 import { Button, ButtonVariant } from 'components/Button';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, type SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
@@ -29,13 +31,13 @@ import { selectMidenUsdc } from 'lib/remote-config/values';
 import { useWalletStore } from 'lib/store';
 import { classifyError } from 'lib/telemetry';
 import { enterRouteFlow, reportRouteFlowStep, settleRouteFlow } from 'lib/telemetry/route-flow';
-import { CHART_POSITIVE, CHART_RULE, ChartContainer } from 'lib/ui/charts';
+import { CHART_DOT_RING, CHART_POSITIVE, CHART_RULE, ChartContainer } from 'lib/ui/charts';
 import { goBack, navigate, useLocation } from 'lib/woozie';
 
 import { EarnAmountUnit, EarnAssetMark, EarnHero, EarnSubjectSubtitle, earnSubjectTitle } from './components';
 import { placeholderVault } from './earn-mapping';
 import { EarnLoadError } from './EarnLoadError';
-import { EarnVault } from './types';
+import { ChartDotProps, EarnVault } from './types';
 import { earnItemLoadState, useEarnPositions } from './useEarnPositions';
 
 // Fractions of a year for the projection columns; rewards = amount × APY × fraction.
@@ -270,9 +272,16 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
           <>
             {loadFailed && <EarnLoadError onRetry={refetch} message={t('earnVaultLoadError')} />}
             <EarnHero
+              layout="label-first"
+              // As far under the divider as the vault page's caption and the Earn tab's.
+              className="mt-7"
               labelId="earn-deposit-review-amount"
+              // The amount step's own caption and entry sizes, so the figure doesn't shrink when the
+              // review takes over from the screen it was typed on.
+              labelClassName={amountCaptionClassName}
+              figureClassName={classNames('mt-3 text-ink', amountFigureClassName(formatMoneyAmount(amount, 'typed')))}
               value={formatMoneyAmount(amount, 'typed')}
-              unit={<EarnAmountUnit symbol={depositSymbol} />}
+              unit={<EarnAmountUnit symbol={depositSymbol} compact />}
               label={t('earnDepositAmountTitle')}
             />
 
@@ -315,11 +324,16 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
       value: amount + item.reward
     }))
   ];
+  const endValue = chartData[chartData.length - 1]!.value;
+  // A sliver of room above and below so the end dots aren't clipped; 1 when there's no climb at all.
+  const yPadding = (endValue - amount) * 0.12 || 1;
 
   return (
-    <div className="flex flex-col gap-4">
-      <Card padding="tile">
-        <div className="h-22">
+    // Set wholly in Nunito, the projection and the details alike.
+    <div className="face-heading flex flex-col gap-4">
+      {/* An outline on the page, like the details under it, rather than a fill. */}
+      <Card surface="outline" padding="tile">
+        <div className="h-28">
           <ChartContainer config={{ projected: { color: CHART_POSITIVE } }} className="h-full w-full aspect-auto">
             <AreaChart data={chartData} margin={{ top: 12, right: 8, left: 8, bottom: 0 }}>
               <defs>
@@ -329,8 +343,10 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
                 </linearGradient>
               </defs>
               <XAxis dataKey="label" hide />
-              <YAxis domain={[amount * 0.98, chartData[chartData.length - 1]!.value * 1.02]} hide />
-              <ReferenceLine y={amount * 0.98} stroke={CHART_RULE} strokeDasharray="5 6" className="pt-0.5" />
+              {/* The curve spans the card: today's amount on the floor, the year's at the top. */}
+              <YAxis domain={[amount - yPadding, endValue + yPadding]} hide />
+              {/* A dashed rule level with today's amount, so the climb reads against where it starts. */}
+              <ReferenceLine y={amount} stroke={CHART_RULE} strokeDasharray="5 6" />
               <Area
                 dataKey="value"
                 type="natural"
@@ -338,7 +354,32 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
                 strokeWidth={3}
                 fill="url(#earn-deposit-projection-area)"
                 baseValue={amount}
-                dot={{ r: 0 }}
+                // Today as a hollow ring on the rule, the year's end as the filled point.
+                dot={(props: ChartDotProps) =>
+                  props.index === 0 ? (
+                    <circle
+                      key="start"
+                      cx={props.cx}
+                      cy={props.cy}
+                      r={4}
+                      fill={CHART_DOT_RING}
+                      stroke="var(--ds-muted)"
+                      strokeWidth={2}
+                    />
+                  ) : props.index === chartData.length - 1 ? (
+                    <circle
+                      key="end"
+                      cx={props.cx}
+                      cy={props.cy}
+                      r={5}
+                      fill={CHART_POSITIVE}
+                      stroke={CHART_DOT_RING}
+                      strokeWidth={2.5}
+                    />
+                  ) : (
+                    <g key={props.index} />
+                  )
+                }
                 activeDot={false}
               />
             </AreaChart>
@@ -349,7 +390,7 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
           <div className="grid grid-cols-3 gap-3 text-center">
             {projections.map(item => (
               <div key={item.label}>
-                <div className="text-label text-muted">{item.label}</div>
+                <div className="text-label uppercase tracking-wide text-muted">{item.label}</div>
                 <div className="mt-1 text-value text-positive-tint-ink">
                   {t('earnProjectedRewardAmount', { amount: `$${toAdaptiveFixed(item.reward)}` })}
                 </div>
@@ -359,9 +400,8 @@ const DepositProjection: FC<{ vault: EarnVault; amount: number }> = ({ vault, am
         </div>
       </Card>
 
-      {/* The shared detail card: one `fill` block of label/value rows, hairlines between them, as
-          on every other review in the app. */}
-      <DetailCard>
+      {/* The shared detail card on its outline surface, matching the projection above it. */}
+      <DetailCard surface="outline">
         <DetailRow label={t('earnCollateralLabel')}>{t('earnCollateralValue')}</DetailRow>
         <DetailRow label={t('route')}>
           {t('earnDepositRoute', { protocol: vault.protocol, network: vault.network })}

@@ -2,6 +2,7 @@ import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable'
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
+import { importedNoteIds } from 'lib/miden/note-quarantine';
 import * as Repo from 'lib/miden/repo';
 import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
@@ -24,6 +25,7 @@ import {
   isLiveTransaction,
   ITransaction,
   ITransactionStatus,
+  IUsdcxBurn,
   ReplaceHotKeyTransaction,
   SendTransaction,
   SwapTransaction,
@@ -38,7 +40,8 @@ import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { queueOutgoingTransaction, spendsOf } from '../spending-limits/queue';
 import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
-import { EARN_DEPOSIT_MISSING_REQUEST_ERROR } from './constants';
+import { EARN_DEPOSIT_MISSING_REQUEST_ERROR, NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR } from './constants';
+import { getNoteHoldingTransactions } from './get';
 import { holdsNotes } from './verdict-rules';
 
 export const requestCustomTransaction = async (
@@ -61,6 +64,8 @@ export const requestCustomTransaction = async (
     recipientAccountId,
     spentAssetTotals
   );
+  // On the row from its insert, before the confirm releases the carried notes' quarantine and a sync lap can list them.
+  transaction.heldNoteIds = [...new Set([...(inputNoteIds ?? []), ...importedNoteIds(importNotes)])];
   // A custom request that moves nothing is not a spend, so it keeps the plain insert. One that
   // does goes through the same chokepoint as every other outgoing transaction.
   if (spentAssetTotals !== undefined && spentAssetTotals.length > 0) {
@@ -87,7 +92,11 @@ export const initiateConsumeTransactionFromId = async (
   // consume sheet, the failed-bridge "Reclaim funds" button), so they pass
   // `true`: auto-consume's backoff must not swallow a claim the user just
   // approved and answer it with the previous attempt's Failed row.
-  manualRetry?: boolean
+  manualRetry?: boolean,
+  // A dApp's own consume request. The dedup may answer with the dApp transaction holding the note, and that id would
+  // let this dApp read another transaction's outcome and output notes, private ones included (`waitForTransaction`),
+  // so only a claim may answer it. The wallet's own callers link the user to the holder instead.
+  dappRequest?: boolean
 ): Promise<string> => {
   // Routed through `midenClientProxy.getInputNoteSummary` (issue #260, slice 7a):
   // flag-ON it reads the OFFSCREEN client that owns the note (the SW client is
@@ -106,7 +115,15 @@ export const initiateConsumeTransactionFromId = async (
     type: summary.noteType !== undefined ? toNoteTypeString(summary.noteType) : 'unknown'
   };
 
-  return await initiateConsumeTransaction(accountId, note, delegateTransaction, manualRetry);
+  const id = await initiateConsumeTransaction(accountId, note, delegateTransaction, manualRetry);
+  if (dappRequest) {
+    // A dApp transaction carries `heldNoteIds` whatever its type, since completion can re-type it as a consume.
+    const row = await Repo.transactions.where({ id }).first();
+    if (row?.type !== 'consume' || row.heldNoteIds !== undefined) {
+      throw new Error(NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR);
+    }
+  }
+  return id;
 };
 
 // NOTE: this used to take a `background` flag that routed Guardian auto-consume
@@ -303,6 +320,15 @@ const queueConsumeRows = async (
     // A skipped note's row is the one that kept it out, not the one the other notes joined.
     const coveringTxIdByNoteId = new Map<string, string>();
     const nowSec = Math.floor(Date.now() / 1000);
+    // The notes a dApp transaction will consume, held while it is live or awaiting its verdict and for a grace window
+    // after it completed (`isNoteHoldingRow`): a claim of one races that transaction for the note, or follows it into
+    // a nullifier the note list has not read yet. Read by `heldNoteIds`, since completion can re-type the row.
+    const heldByDappTransaction = new Map<string, string>();
+    for (const row of await getNoteHoldingTransactions(accountId)) {
+      for (const noteId of row.heldNoteIds ?? []) {
+        if (!heldByDappTransaction.has(noteId)) heldByDappTransaction.set(noteId, row.id);
+      }
+    }
 
     for (const note of notes) {
       // Read every consume row covering this noteId once (scalar `noteId`
@@ -349,6 +375,14 @@ const queueConsumeRows = async (
             dbTx.requeueStreak = undefined;
           });
         }
+        continue;
+      }
+
+      // Unlike a claim above, a tap leaves the dApp transaction's own backoff alone: it is not a retry of that row.
+      const dappTransactionId = heldByDappTransaction.get(note.id);
+      if (dappTransactionId !== undefined) {
+        blockingId = blockingId ?? dappTransactionId;
+        coveringTxIdByNoteId.set(note.id, dappTransactionId);
         continue;
       }
 
@@ -536,10 +570,10 @@ export const initiateSwapTransaction = async (
  * for the effective network, rather than queueing one that cannot possibly be
  * delivered. Throwing here is the whole point: this runs BEFORE anything is
  * queued, proved or submitted, so the user keeps their assets and sees an error
- * they can act on. Allowing it through inverts that — `relay_private_note`
- * resolves the transport API before it writes its retry outbox, so the send would
- * land on chain, reach nobody, and leave no retry record. Every private send on
- * such a network would be an unrecoverable loss reported as "Sent".
+ * they can act on. Allowing it through inverts that: with no transport every relay
+ * fails with `NoteTransportError::Disabled` and no retry can do better, so the send
+ * would land on chain and reach nobody. Every private send on such a network would
+ * be an unrecoverable loss.
  *
  * This is not hypothetical: `MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS` has no mainnet
  * entry, and mainnet is a selectable network.
@@ -608,7 +642,8 @@ export const initiateBridgedSendTransaction = async (
   delegateTransaction?: boolean,
   sendParams?: IBridgedSendNoteParams,
   spendingLimitAuthorization?: SpendingLimitAuthorization,
-  agglayerExitTxHash?: string
+  agglayerExitTxHash?: string,
+  usdcxBurn?: IUsdcxBurn
 ): Promise<string> => {
   const dbTransaction = new BridgedSendTransaction(
     accountId,
@@ -622,6 +657,11 @@ export const initiateBridgedSendTransaction = async (
     sendParams,
     agglayerExitTxHash
   );
+  if (provider === 'usdcx') {
+    if (!requestBytes || !usdcxBurn) throw new Error('USDCx burn requires a persisted request and note id');
+    dbTransaction.extraInputs.usdcxBurn = usdcxBurn;
+    dbTransaction.noteType = NoteTypeEnum.Public;
+  }
   await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
 
   return dbTransaction.id;
@@ -702,6 +742,7 @@ export const initiateBridgedReceiveTransaction = async (args: {
   faucetId: string;
   provider: IBridgeProvider;
   sourceAddress: string;
+  sourceChainId?: number;
   sourceAmount: string;
   sourceSymbol: string;
   outputAmount?: string;
@@ -718,6 +759,7 @@ export const initiateBridgedReceiveTransaction = async (args: {
     args.outputAmount,
     args.outputSymbol
   );
+  dbTransaction.extraInputs.sourceChainId = args.sourceChainId;
   await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;
 };

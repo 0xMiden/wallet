@@ -3,18 +3,20 @@ import BigNumber from 'bignumber.js';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
-import { fetchFromStorage } from 'lib/miden/front';
+import { fetchFromStorage, putToStorage } from 'lib/miden/front';
 import { TokenBalanceData } from 'lib/miden/front/balance';
-import {
-  isSyncFused,
-  noteNonEvictionSyncFailure,
-  noteSyncSuccess,
-  noteSyncWatchdogEviction
-} from 'lib/miden/front/sync-fuse';
+import { isSyncFused, noteProbeFailure, noteSyncSuccess } from 'lib/miden/front/sync-fuse';
 import { getGuardianCommitmentFromAccount } from 'lib/miden/guardian/account';
 import { AssetMetadata, DEFAULT_TOKEN_METADATA, fetchTokenMetadata } from 'lib/miden/metadata';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
+import {
+  applyOverrideFor,
+  getTokenMetadataOverrides,
+  overrideFor,
+  TokenMetadataOverrides
+} from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { ensureTokensMetadataSchema } from 'lib/miden/metadata/storage';
 import { getBech32AddressFromAccountId } from 'lib/miden/sdk/helpers';
 import {
   getCurrentWasmLockHold,
@@ -23,11 +25,7 @@ import {
   withWasmClientLock,
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
-import {
-  isSyncWatchdogEviction,
-  WASM_LOCK_SYNC_WATCHDOG_MS,
-  WasmClientPoisonedError
-} from 'lib/miden/sdk/wasm-client-poison';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import type { TokenPrices } from 'lib/prices';
@@ -38,6 +36,15 @@ import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, setTokensBaseMetadata } from '../
 export interface FetchBalancesOptions {
   /** Callback to update asset metadata in the store */
   setAssetsMetadata?: (metadata: Record<string, AssetMetadata>) => void;
+  /**
+   * The faucet's own record of a token, never an entry an override made: only a faucet with one skips the
+   * metadata fetch. The store passes its accessor; without it, `tokenMetadatas` are taken as the records.
+   */
+  faucetMetadataOf?: (faucetId: string) => AssetMetadata | undefined;
+  /** Called for each faucet whose row this read built with an override, so the landing can apply the current one */
+  onOverrideApplied?: (faucetId: string) => void;
+  /** Called once with the display faucet setting this read builds the MIDEN row for, so the landing records that one */
+  onDisplayFaucetId?: (faucetId: string | null) => void;
   /** Token prices from Binance API (symbol -> { price, change24h }) */
   tokenPrices?: TokenPrices;
   /**
@@ -172,11 +179,23 @@ export async function fetchBalances(
   tokenMetadatas: Record<string, AssetMetadata>,
   options: FetchBalancesOptions = {}
 ): Promise<TokenBalanceData[] | null> {
-  const { setAssetsMetadata, tokenPrices = {}, waitForLock = false } = options;
+  const {
+    setAssetsMetadata,
+    faucetMetadataOf = (faucetId: string) => tokenMetadatas[faucetId],
+    onOverrideApplied,
+    onDisplayFaucetId,
+    tokenPrices = {},
+    waitForLock = false
+  } = options;
   const balances: TokenBalanceData[] = [];
 
-  // Local copy of metadata that we can add to during this fetch
-  const localMetadatas = { ...tokenMetadatas };
+  // The faucets' own records, never a store entry an override made: the overrides read from storage
+  // apply on top, so a reset that landed while this read was in flight is not undone by it.
+  const localMetadatas: Record<string, AssetMetadata> = {};
+  for (const id of Object.keys(tokenMetadatas)) {
+    const record = faucetMetadataOf(id);
+    if (record) localMetadatas[id] = record;
+  }
 
   // Read the account under the wallet WASM mutex. `getAccount` borrows the
   // WebClient's single RefCell; while a transaction is mid-`_withInnerWebClient`
@@ -239,8 +258,7 @@ export async function fetchBalances(
     // Report before rethrowing, so this probe accumulates its own evidence. Bounding the
     // hold capped one park at 120s; only the fuse stops the wallet re-entering that park
     // — and leaking the client it poisoned — on the very next refresh, indefinitely.
-    if (isSyncWatchdogEviction(e)) noteSyncWatchdogEviction('balances');
-    else noteNonEvictionSyncFailure('balances');
+    noteProbeFailure('balances', e);
     throw e;
   };
 
@@ -259,9 +277,20 @@ export async function fetchBalances(
   noteSyncSuccess('balances');
   const { account, assets } = read.value;
 
+  // This read writes the cached records back below. Clear an old-shape cache first, so they do not survive the clear.
+  await ensureTokensMetadataSchema(fetchFromStorage, putToStorage).catch(error =>
+    console.warn('Token metadata cache check failed', error)
+  );
   const cachedMetadatas =
     (await fetchFromStorage<Record<string, AssetMetadata>>(ALL_TOKENS_BASE_METADATA_STORAGE_KEY)) || {};
+  // Read from storage, not from the store: the Ready-time read can run before the provider loads them.
+  // The cached records below replace the store's entries, so the overrides are applied again to each row.
+  const overrides = await getTokenMetadataOverrides().catch((error): TokenMetadataOverrides => {
+    console.warn('Token metadata overrides read failed', error);
+    return {};
+  });
   const midenFaucetId = await getFaucetIdSetting();
+  onDisplayFaucetId?.(midenFaucetId);
   const actualNativeId = getNativeAssetIdSync();
 
   // Fetch missing metadata OUTSIDE the lock — RpcClient doesn't use the WASM client
@@ -273,7 +302,12 @@ export async function fetchBalances(
     const metadataFetchPromises = assets
       .filter(asset => {
         const assetId = getBech32AddressFromAccountId(asset.faucetId());
-        return assetId !== actualNativeId && !localMetadatas[assetId] && shouldRetryUnresolved(assetId, now);
+        return (
+          assetId !== actualNativeId &&
+          !cachedMetadatas[assetId] &&
+          !faucetMetadataOf(assetId) &&
+          shouldRetryUnresolved(assetId, now)
+        );
       })
       .map(async asset => {
         const assetId = getBech32AddressFromAccountId(asset.faucetId());
@@ -295,11 +329,11 @@ export async function fetchBalances(
           const tokenMetadata = await withRpcTimeout(() => fetchTokenMetadata(assetId), 'balance-token-metadata', {
             retries: 0
           });
-          if (hasKnownScale(tokenMetadata.base)) {
-            fetchedMetadatas[assetId] = tokenMetadata.base;
+          if (hasKnownScale(tokenMetadata)) {
+            fetchedMetadatas[assetId] = tokenMetadata;
             unresolvedFaucets.delete(assetId);
           } else {
-            localMetadatas[assetId] = tokenMetadata.base;
+            localMetadatas[assetId] = tokenMetadata;
             recordUnresolved(assetId, now);
           }
         } catch (e) {
@@ -359,7 +393,8 @@ export async function fetchBalances(
         ? getNativeDisplayMetadataSync(localMetadatas[tokenId], tokenId)
         : isMiden
           ? nativeMetadata
-          : (localMetadatas[tokenId] ?? DEFAULT_TOKEN_METADATA);
+          : applyOverrideFor(tokenId, localMetadatas[tokenId] ?? DEFAULT_TOKEN_METADATA, overrides);
+    if (tokenId !== actualNativeId && !isMiden && overrideFor(overrides, tokenId)) onOverrideApplied?.(tokenId);
 
     const balance = new BigNumber(asset.amount().toString()).div(10 ** tokenMetadata.decimals);
 

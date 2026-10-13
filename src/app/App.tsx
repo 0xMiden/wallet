@@ -11,6 +11,7 @@ import DisableOutlinesForClick from 'app/a11y/DisableOutlinesForClick';
 import RootSuspenseFallback from 'app/a11y/RootSuspenseFallback';
 import { AppEnvProvider } from 'app/env';
 import ErrorBoundary from 'app/ErrorBoundary';
+import { ExternalPageFailedNotice } from 'app/ExternalPageFailedNotice';
 import Dialogs from 'app/layouts/Dialogs';
 import { MobileBackBridge } from 'app/MobileBackBridge';
 import PageRouter from 'app/PageRouter';
@@ -65,7 +66,8 @@ const App: FC<AppProps> = ({ env }) => {
     // every send, so this is the outer of two gates, not the only one.
     if (isTelemetryEnabled()) initCrashReporting();
     // Display prices and the other synchronous readers use the bridge config snapshot, so every page realm loads it at
-    // boot instead of whenever a bridge screen mounts. The first load also starts this realm's poll. It never rejects.
+    // boot instead of whenever a bridge screen mounts, then follows every change of the effective network through
+    // `followEffectiveNetwork`. The first load also starts this realm's poll. It never rejects.
     void initBridgeConfig();
   }, []);
 
@@ -141,6 +143,7 @@ const AppProvider: FC<AppProps> = ({ children, env }) => {
         <ScreenKeyPublisher />
         {isExtension() && <PinExtensionPrompt />}
         {checkIsMobile() && <MobileBackBridge />}
+        {checkIsMobile() && <ExternalPageFailedNotice />}
         {checkIsDesktop() && (
           <Suspense fallback={null}>
             <DesktopDappHandler />

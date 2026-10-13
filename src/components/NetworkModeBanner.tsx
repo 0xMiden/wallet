@@ -3,16 +3,19 @@ import React, { createContext, FC, useCallback, useContext, useState } from 'rea
 import { useTranslation } from 'react-i18next';
 
 import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
+import { NetworkModePill } from 'components/NetworkModePill';
 import { NetworkModeSheet } from 'components/NetworkModeSheet';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 
 /**
- * Full-width banner that tops the dApp confirm window with the Miden network the wallet is on,
- * where the network matters for what is about to be signed. The wallet itself shows the `home`
- * variant above Home's action bar. The name follows the effective network, so a
- * Developer Settings override shows here too, and the banner renders nothing on mainnet. The colors
- * come from the build-time brand ramp, so a devnet build shows the slate palette.
+ * Names the Miden network the wallet is on, where the network matters for what is about to be
+ * signed. The `confirm` variant tops every screen that commits value and draws `NetworkModePill`
+ * (the network, "Tokens have no real value", the info glyph). The `home` variant is the full-width
+ * banner above Home's action bar; its colors come from the build-time brand ramp, so a devnet build
+ * shows the slate palette. The mainnet countdown banner (`MainnetCountdownBanner`) is a different
+ * strip, which the router draws above every page. The name follows the effective network, so a
+ * Developer Settings override shows here too, and the banner renders nothing on mainnet.
  *
  * Tapping the banner opens the test-network explanation sheet (#875). The way to mainnet is not
  * here: when the remote config ends a test network, `TestnetEndedGate` covers the wallet with the
@@ -43,7 +46,8 @@ export interface NetworkModeBannerProps {
   variant?: 'confirm' | 'home';
 }
 
-export const NetworkModeBanner: FC<NetworkModeBannerProps> = ({ variant = 'confirm' }) => {
+/** The full-width banner above Home's action bar. `networkKey` is the i18n key of the network's name. */
+const HomeNetworkBanner: FC<{ networkKey: string }> = ({ networkKey }) => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
@@ -51,12 +55,6 @@ export const NetworkModeBanner: FC<NetworkModeBannerProps> = ({ variant = 'confi
     hapticLight();
     setOpen(true);
   }, []);
-
-  const alreadyNamed = useContext(NetworkAlreadyNamed);
-
-  const networkKey = getTestNetworkNameKey();
-  if (!networkKey || alreadyNamed) return null;
-  const network = t(networkKey);
 
   return (
     <>
@@ -69,18 +67,29 @@ export const NetworkModeBanner: FC<NetworkModeBannerProps> = ({ variant = 'confi
         data-testid="network-mode-banner"
       >
         <BreadLogo aria-hidden="true" className="size-[18px] shrink-0" />
-        {variant === 'home' ? (
-          <span className="truncate text-action text-primary-orange-dark dark:text-primary-orange-light">
-            {t('networkModeHomeBanner', { network })}
-          </span>
-        ) : (
-          <span className="font-heading text-sm font-bold text-primary-orange-dark dark:text-primary-orange-light">
-            {t('networkModeBanner', { network })}
-          </span>
-        )}
+        <span className="truncate text-action text-primary-orange-dark dark:text-primary-orange-light">
+          {t('networkModeHomeBanner', { network: t(networkKey) })}
+        </span>
       </button>
 
       <NetworkModeSheet open={open} onOpenChange={setOpen} />
     </>
+  );
+};
+
+export const NetworkModeBanner: FC<NetworkModeBannerProps> = ({ variant = 'confirm' }) => {
+  const alreadyNamed = useContext(NetworkAlreadyNamed);
+
+  const networkKey = getTestNetworkNameKey();
+  if (!networkKey || alreadyNamed) return null;
+
+  if (variant === 'home') return <HomeNetworkBanner networkKey={networkKey} />;
+
+  // The network pill, inset at the page margin over the screen's header, so every screen that
+  // commits value names the network in the same words and shape.
+  return (
+    <div className="shrink-0 px-4 pt-2">
+      <NetworkModePill data-testid="network-mode-banner" />
+    </div>
   );
 };

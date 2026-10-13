@@ -107,7 +107,6 @@ import { queueNoteImport } from '../activity';
 import { isLikelyNetworkError } from '../activity/connectivity-classify';
 import { assertValidRecallBlocks, toNoteTypeString, toPersistedNoteType } from '../helpers';
 import { midenClientProxy } from './miden-client-proxy';
-import { isOperationAbortedError } from './offscreen-codec';
 import { getCurrentMidenNetwork } from './safe-network';
 import { simulateCustomTransaction, type SimulateCustomTxResult } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
@@ -116,7 +115,7 @@ import { IConsumedAssetTotal } from '../db/types';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
-import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
+import { isPipelineKillLink } from '../sdk/sdk-error-code';
 import {
   initiateSendTransaction,
   requestCustomTransaction,
@@ -430,9 +429,10 @@ export async function generatePromisifyRequestPermission(
       });
     } catch (e) {
       console.error('[DApp] Error fetching account public key:', e);
-      // A lock-recovery eviction is a retryable internal failure, not a
-      // permissions verdict (issue #775).
-      if (isWasmClientPoisonedError(e)) throw e;
+      // A kill (a lock-recovery eviction, an offscreen abort or a terminated
+      // client) is a retryable internal failure, not a permissions verdict
+      // (issue #775).
+      if (isPipelineKillLink(e)) throw e;
       throw new Error(MidenDAppErrorType.NotGranted);
     }
 
@@ -499,13 +499,14 @@ export async function generatePromisifyRequestPermission(
               // dApp at "Connecting…" until the session is cleared. Mirrors the
               // non-extension branch, which throws NotGranted on the same failure.
               //
-              // …except for a lock-recovery eviction (#775), which that branch
-              // rethrows verbatim precisely because it is a retryable internal
-              // failure and NOT a permissions verdict. Reporting the user's own
-              // approval back as NotGranted tells the dApp to stop asking. The
+              // …except for a kill (a lock-recovery eviction, an offscreen abort
+              // or a terminated client, #775), which that branch rethrows
+              // verbatim precisely because it is a retryable internal failure
+              // and NOT a permissions verdict. Reporting the user's own approval
+              // back as NotGranted tells the dApp to stop asking. The
               // `decline()` below still closes the prompt; its own reject is a
               // no-op once this one has settled the promise.
-              if (isWasmClientPoisonedError(publicKeyError)) reject(publicKeyError);
+              if (isPipelineKillLink(publicKeyError)) reject(publicKeyError);
               decline();
             } else {
               if (!existingPermission)
@@ -738,12 +739,13 @@ const generatePromisifySign = async (
           // worse than approving and then declining.
           const authorized = await withUnlocked(() =>
             withWasmClientLock(hold => publicKeyBelongsToAccount(dApp.accountId, req.sourcePublicKey, hold))
-          ).catch(err => (isWasmClientPoisonedError(err) ? err : false));
+          ).catch((err: unknown) => (isPipelineKillLink(err) ? err : false));
           if (authorized !== true) {
-            // A lock-recovery eviction (issue #775) is not an authorization
-            // verdict — reject an APPROVED request with the real, retryable
-            // failure rather than a false NotGranted.
-            reject(isWasmClientPoisonedError(authorized) ? authorized : new Error(MidenDAppErrorType.NotGranted));
+            // A kill (a lock-recovery eviction, an offscreen abort or a
+            // terminated client, issue #775) is not an authorization verdict:
+            // reject an APPROVED request with the real, retryable failure
+            // rather than a false NotGranted.
+            reject(isPipelineKillLink(authorized) ? authorized : new Error(MidenDAppErrorType.NotGranted));
             return {
               type: MidenMessageType.DAppSignConfirmationResponse
             };
@@ -961,9 +963,10 @@ async function getPrivateNoteDetails(
     });
     return privateNotes;
   } catch (e) {
-    // A lock-recovery eviction is a retryable internal failure, not a
-    // parameter problem (issue #775).
-    if (isWasmClientPoisonedError(e)) throw e;
+    // A kill (a lock-recovery eviction, an offscreen abort or a terminated
+    // client) is a retryable internal failure, not a parameter problem
+    // (issue #775).
+    if (isPipelineKillLink(e)) throw e;
     throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
   }
 }
@@ -1126,9 +1129,10 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
     });
     return consumableNotes;
   } catch (e) {
-    // A lock-recovery eviction is a retryable internal failure, not a
-    // parameter problem (issue #775).
-    if (isWasmClientPoisonedError(e)) throw e;
+    // A kill (a lock-recovery eviction, an offscreen abort or a terminated
+    // client) is a retryable internal failure, not a parameter problem
+    // (issue #775).
+    if (isPipelineKillLink(e)) throw e;
     throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
   }
 }
@@ -1274,9 +1278,10 @@ async function getAssets(accountId: string): Promise<Asset[]> {
 
     return assets;
   } catch (e) {
-    // A lock-recovery eviction is a retryable internal failure, not a
-    // parameter problem (issue #775).
-    if (isWasmClientPoisonedError(e)) throw e;
+    // A kill (a lock-recovery eviction, an offscreen abort or a terminated
+    // client) is a retryable internal failure, not a parameter problem
+    // (issue #775).
+    if (isPipelineKillLink(e)) throw e;
     throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
   }
 }
@@ -1392,17 +1397,17 @@ async function importDAppPrivateNote(note: string): Promise<string> {
       })
     );
   } catch (e) {
-    // Both abandonment shapes, for the reason the same gate in `back/main.ts` gives: an
-    // eviction or a deadline kill leaves it unknown whether the note landed, so the note
-    // has to be preserved. This is the sharper of the two sites — the dApp is the only
+    // Every kill shape, for the reason the same gate in `back/main.ts` gives: an eviction,
+    // a deadline kill or a terminated client leaves it unknown whether the note landed, so
+    // the note has to be preserved. This is the sharper of the two sites: the dApp is the only
     // other holder of these bytes.
     //
-    // Of the two, only the poison shape is one `isLikelyNetworkError` genuinely misses
-    // (its message is closed wallet-authored text). The abort shape reaches the classifier
+    // Of the three, the poison and the terminated client are the shapes `isLikelyNetworkError`
+    // genuinely misses (their messages are closed text). The abort shape reaches the classifier
     // as a match today purely because its message contains 'aborted', which is a
     // coincidence of transport-text heuristics rather than a contract — so it is named
     // here too, and the clause stays load-bearing the moment that token list is re-tuned.
-    if (isLikelyNetworkError(e) || isWasmClientPoisonedError(e) || isOperationAbortedError(e)) {
+    if (isLikelyNetworkError(e) || isPipelineKillLink(e)) {
       await queueNoteImport(note).catch(queueError =>
         console.error('[importDAppPrivateNote] failed to queue the note for background retry', queueError)
       );
@@ -1414,16 +1419,16 @@ async function importDAppPrivateNote(note: string): Promise<string> {
 /**
  * What a failed dApp note import is reported as.
  *
- * `InvalidParams` says "your bytes are bad" — a verdict the dApp can act on by
- * not sending them again. An ABANDONMENT is the opposite claim: the bytes were
- * fine, the wallet's client was evicted mid-import, and the import may even have
- * landed. Flattening it into `InvalidParams` told a dApp to give up on a note
- * whose retry was the correct move, and lost the one signal
- * `isWasmClientPoisonedError` exists to carry. Same rule the connect path
- * follows.
+ * `InvalidParams` says "your bytes are bad", a verdict the dApp can act on by
+ * not sending them again. A KILL is the opposite claim: the bytes were fine, the
+ * import was stopped from outside (a lock-recovery eviction, an offscreen abort
+ * or a terminated client), and it may even have landed. Flattening it into
+ * `InvalidParams` told a dApp to give up on a note whose retry was the correct
+ * move, and lost the one signal the kill exists to carry. Same rule the connect
+ * path follows.
  */
-const importPrivateNoteFailure = (e: unknown): Error =>
-  isWasmClientPoisonedError(e) ? e : new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+const importPrivateNoteFailure = (e: unknown): unknown =>
+  isPipelineKillLink(e) ? e : new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
 
 export const generatePromisifyImportPrivateNote = async (
   resolve: (value: MidenDAppImportPrivateNoteResponse | PromiseLike<MidenDAppImportPrivateNoteResponse>) => void,
@@ -2281,11 +2286,13 @@ const generatePromisifyConsumeTransaction = async (
         // `manualRetry`: the user just approved THIS consume on the sheet, so it
         // must not be dropped by auto-consume's exponential backoff — which
         // would queue nothing and answer the dApp with the previous attempt's
-        // Failed row id.
+        // Failed row id. The last `true` refuses a note another transaction holds
+        // rather than answer with that transaction (see the callee).
         return await initiateConsumeTransactionFromId(
           req.sourcePublicKey,
           noteId,
           delegateFromConfirmation(result),
+          true,
           true
         );
       });
@@ -2324,8 +2331,15 @@ const generatePromisifyConsumeTransaction = async (
                 await queueNoteImport(noteBytes);
               }
               // `manualRetry`: approved on the confirm page — see the
-              // non-extension branch above for why the backoff must not apply.
-              return await initiateConsumeTransactionFromId(req.sourcePublicKey, noteId, confirmReq.delegate, true);
+              // non-extension branch above for why the backoff must not apply,
+              // and why the last `true`.
+              return await initiateConsumeTransactionFromId(
+                req.sourcePublicKey,
+                noteId,
+                confirmReq.delegate,
+                true,
+                true
+              );
             });
             startDappBackgroundProcessing();
             resolve({
@@ -2481,13 +2495,16 @@ async function requestConfirm({ id, payload, onDecline, handleIntercomRequest, h
     left = Math.round(screenX + outerWidth / 2 - CONFIRM_WINDOW_WIDTH / 2);
   }
 
+  left = Math.max(left, 20);
+  top = Math.max(top, 20);
+
   const confirmWin = await browser.windows.create({
     type: 'popup',
     url: browser.runtime.getURL(`confirm.html#?id=${id}`),
     width: isWin ? CONFIRM_WINDOW_WIDTH + 16 : CONFIRM_WINDOW_WIDTH,
     height: isWin ? CONFIRM_WINDOW_HEIGHT + 17 : CONFIRM_WINDOW_HEIGHT,
-    top: Math.max(top, 20),
-    left: Math.max(left, 20)
+    top,
+    left
   });
 
   // Firefox currently ignores left/top for create, but it works for update
@@ -2990,7 +3007,7 @@ async function formatSimulatedCustomEffects(
  * to spend on jargon; the real error is already on the console above.
  */
 function consentReason(e: unknown): string {
-  if (isWasmClientPoisonedError(e) || isOperationAbortedError(e)) {
+  if (isPipelineKillLink(e)) {
     return 'the simulation was interrupted before it finished';
   }
   return e instanceof Error ? e.message : String(e);

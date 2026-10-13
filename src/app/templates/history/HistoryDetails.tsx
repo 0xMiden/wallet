@@ -1,4 +1,4 @@
-import React, { FC, useCallback, useEffect, useRef, useState, memo } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 
 import BigNumber from 'bignumber.js';
 import { TFunction } from 'i18next';
@@ -14,6 +14,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { GuardianChangeSummary } from 'components/GuardianChangeSummary';
 import { PageHeader } from 'components/PageHeader';
 import { DetailRow } from 'components/ui/DetailCard';
+import { SectionHeader } from 'components/ui/SectionHeader';
 import { Spinner } from 'components/ui/Spinner';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { isAgglayerExitUnfindable } from 'lib/agglayer/status';
@@ -41,15 +42,20 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
 import { requestSwapOrderRefresh, useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
 import { getSwapTokenByFaucetId, tokenQuote } from 'lib/miden/swap/tokens';
+import { RETRY_WINDOW_SECONDS } from 'lib/miden/transaction/note-delivery-window';
 import { getExplorerAccountUrl, getExplorerTxUrl } from 'lib/miden-chain/constants';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { hapticLight } from 'lib/mobile/haptics';
 import type { TokenPrices } from 'lib/prices';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { selectMidenUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
+import { useUsdcxDestinationTransaction } from 'lib/usdcx/use-destination-transaction';
+import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
 import { navigate } from 'lib/woozie';
 import {
   consumeAssetBreakdown,
@@ -72,16 +78,19 @@ import { ExternalLinkValue, StatusPill } from './TransactionStatus';
 import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
-  bridgeStatusOf,
+  bridgeBadgeStatusOf,
   earnWithdrawAmountFields,
   earnWithdrawShowsSource,
   formatDate,
   formatMoneyAmount,
   isBridgeInEntry,
+  labelHistoryEntry,
   swapSettlementOf
 } from './transactionUtils';
 import { useSwapSettlementNotes } from './useSwapSettlementNotes';
 import { useTransactionActions } from './useTransactionActions';
+import { UsdcxDepositSteps } from '../EvmConnectModal/UsdcxDepositSteps';
+import { UsdcxExecuteAction } from '../EvmConnectModal/UsdcxExecuteAction';
 
 const SEPOLIA_ADDRESS_URL = (addr: string) => `https://sepolia.etherscan.io/address/${addr}`;
 const SEPOLIA_TX_URL = (hash: string) => `https://sepolia.etherscan.io/tx/${hash}`;
@@ -131,8 +140,11 @@ const SectionDivider: FC<{ color: string }> = ({ color }) => (
 
 /** Bridge hero amounts: "IN → OUT" with the destination token greyed, matching the activity row. */
 const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const bridgeIn = isBridgeInEntry(entry);
-  const { inSymbol, outSymbol, outAmount } = bridgeIn ? bridgeInRowDisplay(entry) : bridgeRowDisplay(entry);
+  const { inSymbol, inLabel, outLabel, outAmount } = bridgeIn
+    ? bridgeInRowDisplay(bridgeConfig, entry)
+    : bridgeRowDisplay(bridgeConfig, entry);
   // A bridge-in's source side is what an Earn withdrawal redeemed (rounded down), what a Fast
   // deposit cost (rounded up) or what was typed on the Slow route. A bridge-out's is the typed
   // Miden-side amount, already exact. The row helpers above format the out side, as the list row
@@ -144,15 +156,19 @@ const BridgeHeroAmounts: FC<{ entry: IHistoryEntry }> = ({ entry }) => {
   return (
     <div className="mt-1 flex w-full min-w-0 max-w-full flex-wrap items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none break-all">
       <span className="min-w-0 text-ink">{inAmount}</span>
-      <span className="min-w-0 text-text-muted">{inSymbol}</span>
-      <Icon
-        name={IconName.ArrowRight}
-        size="md"
-        fill="currentColor"
-        className="mx-0.5 shrink-0 self-center text-text-muted"
-      />
-      <span className="min-w-0 text-ink">{displayedOutAmount}</span>
-      <span className="min-w-0 text-text-muted">{outSymbol}</span>
+      <span className="min-w-0 text-text-muted">{inLabel}</span>
+      {entry.bridgeProvider !== 'usdcx' && (
+        <>
+          <Icon
+            name={IconName.ArrowRight}
+            size="md"
+            fill="currentColor"
+            className="mx-0.5 shrink-0 self-center text-text-muted"
+          />
+          <span className="min-w-0 text-ink">{displayedOutAmount}</span>
+          <span className="min-w-0 text-text-muted">{outLabel}</span>
+        </>
+      )}
     </div>
   );
 };
@@ -265,14 +281,21 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const assetsMetadata = useWalletStore(s => s.assetsMetadata);
   const configuredNativeFaucet = useMidenFaucetId();
+  const bridgeConfig = useBridgeConfigSnapshot();
   // An Earn withdrawal's redeemed USDC is priced through the collateral faucet the config names.
-  const earnCollateral = selectMidenUsdc(useBridgeConfigSnapshot());
+  const earnCollateral = selectMidenUsdc(bridgeConfig);
   // The transaction row is push-driven. Status changes and metadata patches
   // written by the app-root watchers re-render this view without page polling.
   const { row, loaded } = useTransactionRow(transactionId);
-  const [entry, setEntry] = useState<IHistoryEntry | null>(null);
+  const [derivedEntry, setDerivedEntry] = useState<IHistoryEntry | null>(null);
+  // Labelled at render, so the page follows a config publish without deriving the row again.
+  const entry = useMemo(
+    () => (derivedEntry ? labelHistoryEntry(bridgeConfig, derivedEntry) : null),
+    [bridgeConfig, derivedEntry]
+  );
   const [transaction, setTransaction] = useState<ITransaction | undefined>();
   const transactionSummaryBadgeContent = useTransactionSummaryBadgeContent(transaction);
+  const usdcxDestinationTxHash = useUsdcxDestinationTransaction(transaction);
   const [deriveError, setDeriveError] = useState<string | null>(null);
   // The root tracker follows the orderId persisted by completeSwapTransaction.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
@@ -304,7 +327,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   useEffect(() => {
     if (!row) {
       if (loaded) {
-        setEntry(null);
+        setDerivedEntry(null);
         setTransaction(undefined);
       }
       return;
@@ -401,6 +424,13 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           isUnconfirmed: isOutcomeUnconfirmed(tx),
           notConfirmedHint: notConfirmedHintKey(tx),
           noteDelivery: tx.noteDelivery,
+          // The sweep stamps the flag only on a pass that visits the row, which a send past
+          // the receipt window may never get, and it never pushes a restored row: a send past
+          // the retry window and a restored row count as stopped whatever the flag says.
+          relayRetriesStopped:
+            tx.relayRetriesStopped === true ||
+            tx.restoredFromBackup === true ||
+            Math.floor(Date.now() / 1000) - (tx.completedAt ?? tx.initiatedAt) > RETRY_WINDOW_SECONDS,
           bridgeProvider: bridge?.provider,
           bridgeDestinationAddress: bridge?.destinationAddress,
           bridgeDestinationNetwork: bridge?.destinationNetwork,
@@ -411,6 +441,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeFillTxHash: bridge?.fillTxHash,
           bridgeFillChainId: bridge?.fillChainId,
           bridgeEpochStatus: bridge?.epochStatus,
+          usdcxBurn: bridge?.usdcxBurn,
           bridgeReclaimHeight: bridge?.reclaimHeight,
           bridgeReclaimNoteId: bridge?.reclaimNoteId,
           bridgeSubmitClaimed: bridge?.submitClaimed,
@@ -419,10 +450,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeAgglayerExitUnfindable: bridge !== undefined && isAgglayerExitUnfindable(bridge),
           bridgeInProvider: bridgeReceive?.provider ?? consumedBridge?.provider,
           bridgeInSourceAddress: bridgeReceive?.sourceAddress ?? consumedBridge?.intentOwner,
+          bridgeInSourceChainId: bridgeReceive?.sourceChainId,
           bridgeInSourceAmount: bridgeReceive?.sourceAmount ?? consumedBridge?.sourceAmount,
           bridgeInSourceSymbol: bridgeReceive?.sourceSymbol ?? consumedBridge?.sourceSymbol,
           bridgeInEvmTxHash: bridgeReceive?.evmTxHash ?? consumedBridge?.evmTxHash,
           bridgeInPhase: bridgeReceive?.phase,
+          bridgeInCctp: bridgeReceive?.cctp,
           bridgeInOutputAmount: bridgeReceive?.outputAmount,
           bridgeInOutputSymbol: bridgeReceive?.outputSymbol,
           bridgeInMidenNoteId:
@@ -457,7 +490,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         setEarnWithdraw(earnWithdrawExtra ?? null);
         setEarnDeposit(earnDepositExtra ?? null);
         setTransaction(tx);
-        setEntry(historyEntry);
+        setDerivedEntry(historyEntry);
       } catch (error) {
         console.error('[HistoryDetails] Failed to derive transaction view:', { transactionId, error });
         if (!cancelled) {
@@ -600,7 +633,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // synchronously, so a faucet the store resolves later re-renders both.
   const assetBreakdown =
     spansMultipleAssets && transaction
-      ? consumeAssetBreakdown(transaction, assetsMetadata, configuredNativeFaucet)
+      ? consumeAssetBreakdown(bridgeConfig, transaction, assetsMetadata, configuredNativeFaucet)
       : [];
   // The hero and the badge print one amount. An Earn withdrawal's is already formatted, and an
   // Earn deposit's and a (cancelled) bridge-out's are the amount typed, each as its Activity row shows it.
@@ -630,7 +663,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     (entry?.txType === 'swap' && requestedToken !== null) ||
     (transactionSummaryBadgeContent !== undefined && !badgeShowsHistoryAmount);
   const pricedAmount =
-    entry && isBridgeIn ? bridgeInRowDisplay(entry).outAmount : heroPrintsRowAmount ? entry?.amount : historyAmount;
+    entry && isBridgeIn
+      ? bridgeInRowDisplay(bridgeConfig, entry).outAmount
+      : heroPrintsRowAmount
+        ? entry?.amount
+        : historyAmount;
   // An Earn withdrawal's row names the native asset it credits, so while its hero prints the redeemed USDC that
   // side is priced through the Earn collateral faucet.
   const pricedFaucetId =
@@ -670,7 +707,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             requestedAmount={requestedToken.amount}
             requestedDecimals={requestedToken.decimals}
             requestedScaleIsKnown={requestedToken.scaleIsKnown}
-            requestedSymbol={requestedToken.symbol}
+            requestedSymbol={
+              requestedToken.symbol === undefined
+                ? undefined
+                : midenTokenLabel(bridgeConfig, requestedToken.faucetId, requestedToken.symbol)
+            }
             requestedFaucetId={requestedToken.faucetId}
             filledAmount={receipt.filledAmount}
             orderState={receipt.orderState}
@@ -721,10 +762,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 {isBridge ? (
                   // Not-confirmed wins over the route's own lifecycle (#1250 F-024): the row's
                   // outcome is unknown, not the confirmed failure `bridgeStatusOf` would report.
+                  // A USDCx deposit and a USDCx burn read their own phases (`bridgeBadgeStatusOf`).
                   <StatusBadge
                     size="md"
                     live
-                    status={entry.isUnconfirmed ? 'unconfirmed' : bridgeStatusOf(entry)}
+                    status={entry.isUnconfirmed ? 'unconfirmed' : bridgeBadgeStatusOf(entry)}
                     data-testid="history-status-pill"
                   />
                 ) : isEarnWithdraw && earnWithdraw ? (
@@ -771,7 +813,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     <DetailRow label={t('from')}>
                       <ExternalLinkValue
                         displayValue={<HashChip hash={entry.bridgeInSourceAddress} trimHash className="ml-2" />}
-                        href={SEPOLIA_ADDRESS_URL(entry.bridgeInSourceAddress)}
+                        href={`${getChain(entry.bridgeInSourceChainId ?? DEFAULT_CHAIN_ID)?.explorer}/address/${entry.bridgeInSourceAddress}`}
                       />
                     </DetailRow>
                   )}
@@ -980,6 +1022,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               'pending' means the wallet recorded the debt and never recorded an
               outcome - the process died mid-relay - which is no more reassuring than
               an outright failure.
+
+              The hint follows the delivery sweep: while it is still pushing, the
+              warning can clear on its own; once it has stopped for this row (its flag,
+              a restored row, or a send past the retry window), only the transaction ID
+              can recover the transfer.
             */}
             {(entry.noteDelivery === 'undelivered' || entry.noteDelivery === 'pending') && (
               <div className="mt-6">
@@ -1004,7 +1051,9 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                           : t('noteDeliveryPendingBody')}
                       </p>
                       <p className="text-xs font-medium text-text-muted wrap-break-word select-text">
-                        {t('noteDeliveryRecoveryHint')}
+                        {entry.relayRetriesStopped
+                          ? t('noteDeliveryRetriesStoppedHint')
+                          : t('noteDeliveryRecoveryHint')}
                       </p>
                     </div>
                   </DetailSection>
@@ -1066,7 +1115,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                 <div className="mt-6">
                   <SectionDivider color={sectionDividerColor} />
                 </div>
-                <BridgeClaimSection entry={entry} restoredFromBackup={transaction?.restoredFromBackup === true} />
+                <BridgeClaimSection
+                  entry={entry}
+                  restoredFromBackup={transaction?.restoredFromBackup === true}
+                  destinationTxHash={usdcxDestinationTxHash}
+                />
               </>
             )}
 
@@ -1074,16 +1127,37 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
             {isBridgeIn && (
               <div className="mt-6 mb-4">
                 <SectionDivider color={sectionDividerColor} />
+                {/* The steps between Pending and Confirmed of a USDCx deposit, read off the row. */}
+                {entry.bridgeInProvider === 'usdcx' && entry.bridgeInPhase && (
+                  <div className="mt-5">
+                    <SectionHeader size="md">{t('usdcxProgress')}</SectionHeader>
+                    <UsdcxDepositSteps
+                      sourceChainId={entry.bridgeInSourceChainId}
+                      phase={entry.bridgeInPhase}
+                      cctp={entry.bridgeInCctp}
+                    />
+                  </div>
+                )}
                 <div className="mt-5">
                   <DetailSection title={t('bridgeDetails')}>
                     <DetailRow label={t('route')}>
-                      {entry.bridgeInProvider === 'epoch' ? t('fastRouteLabel') : t('slowRouteLabel')}
+                      {(() => {
+                        switch (entry.bridgeInProvider) {
+                          case 'epoch':
+                            return t('fastRouteLabel');
+                          case 'usdcx':
+                            return t('usdcxRouteLabel');
+                          case 'agglayer':
+                          default:
+                            return t('slowRouteLabel');
+                        }
+                      })()}
                     </DetailRow>
                     {entry.bridgeInEvmTxHash && (
                       <DetailRow label={t('txIdLabel')}>
                         <ExternalLinkValue
                           displayValue={<HashChip hash={entry.bridgeInEvmTxHash} trimHash className="ml-2" />}
-                          href={SEPOLIA_TX_URL(entry.bridgeInEvmTxHash)}
+                          href={`${getChain(entry.bridgeInSourceChainId ?? DEFAULT_CHAIN_ID)?.explorer}/tx/${entry.bridgeInEvmTxHash}`}
                         />
                       </DetailRow>
                     )}
@@ -1095,6 +1169,21 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       )}
                     </DetailRow>
                   </DetailSection>
+                  {/* An executor-route USDCx deposit waits for the user to execute it on Arc; the row is the
+                      only place that offers it once the deposit screen is gone. */}
+                  {entry.txId &&
+                    entry.bridgeInProvider === 'usdcx' &&
+                    isUsdcxExecutorSource(entry.bridgeInSourceChainId) &&
+                    entry.bridgeInPhase &&
+                    !entry.restoredFromBackup && (
+                      <UsdcxExecuteAction
+                        txId={entry.txId}
+                        sourceChainId={entry.bridgeInSourceChainId}
+                        phase={entry.bridgeInPhase}
+                        cctp={entry.bridgeInCctp}
+                        className="mt-4"
+                      />
+                    )}
                 </div>
               </div>
             )}

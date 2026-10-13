@@ -786,33 +786,10 @@ const DISPATCH: Record<string, DispatchFn> = {
     return new TextEncoder().encode(JSON.stringify(result));
   },
 
-  // Relay a just-created PRIVATE note to the transport layer (issue #260, slice 7b).
-  // Under the flag the send ran here, so the note is an APPLIED OUTPUT note of THIS
-  // (offscreen) client's store, which is what makes the relay belong here.
-  // `sendPrivateNote` calls `notes.sendPrivateOutput({ noteId })`, which
-  // resolves the note by id from the calling client's store and reads the
-  // inclusion proof sync stored once that client has synced past the commitment.
-  // On the dormant SW client that lookup simply fails. The live `Note` can't cross postMessage, so it arrived as
-  // `Note.serialize()` raw bytes and is re-hydrated here purely to read its id back.
-  // A transport relay — no prove / sign — so a void result (nothing to
-  // re-hydrate); the SW-side caller only awaits it.
-  sendPrivateNote: async (_context, client, noteBytes: Uint8Array, to: string) => {
-    const note = (sdk as any).Note.deserialize(noteBytes);
-    await client.sendPrivateNote(note, to);
-    return null;
-  },
-
-  // Re-push of an already-relayed private note, by id (see `relayPrivateNoteById`).
-  // Belongs here for the same reason as `sendPrivateNote`: the output note lives in
-  // THIS realm's store, so the id lookup and the stored inclusion proof
-  // only resolve here. No note bytes to carry. The sweep has only the row.
-  relayPrivateNoteById: async (_context, client, noteId: string, to: string) => {
-    await client.relayPrivateNoteById(noteId, to);
-    return null;
-  },
-
-  // Delivery receipt read for the sweep. Same store-ownership argument; returns the
-  // boolean as UTF-8 bytes because the op channel carries bytes, not values.
+  // Delivery receipt read for the sweep, routed here as reads are under the flag. The
+  // relays themselves run on the SW client (`midenClientProxy.sendPrivateNote`), whose
+  // store holds the output notes this client applied. Returns the boolean as UTF-8
+  // bytes because the op channel carries bytes, not values.
   isOutputNoteConsumed: async (_context, client, noteId: string) => {
     const consumed = await client.isOutputNoteConsumed(noteId);
     return new TextEncoder().encode(consumed ? 'true' : 'false');

@@ -16,15 +16,20 @@
 const cache = new Map<string, string>();
 
 /**
- * Build the Google S2 favicon URL for an origin. Doesn't fetch — the
- * <img> tag with this src will lazy-load it.
+ * Build the favicon URL for an origin. Doesn't fetch - the <img> tag with
+ * this src will lazy-load it.
+ *
+ * It is the address S2 (`www.google.com/s2/favicons`) redirects to, asked for
+ * directly: extension pages are cross-origin isolated (COEP `require-corp`),
+ * and S2's redirect carries no `Cross-Origin-Resource-Policy`, so the browser
+ * refuses the image there. This response carries `cross-origin`.
  */
 export function buildFaviconUrl(origin: string): string {
-  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(origin)}&sz=64`;
+  return `https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=${encodeURIComponent(origin)}&size=64`;
 }
 
 /**
- * Get a cached favicon for an origin, or build the S2 URL on demand.
+ * Get a cached favicon for an origin, or build its URL on demand.
  * Always returns a string — there's no async fetch. The caller binds
  * this to an `<img src>` and lets the browser handle loading.
  */

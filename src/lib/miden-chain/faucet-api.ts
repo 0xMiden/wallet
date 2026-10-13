@@ -2,6 +2,7 @@ import { getEffectiveFaucetApiUrl, getEffectiveNetworkName } from 'lib/miden-cha
 import { requestTimeoutError } from 'lib/remote-json';
 
 import { MIDEN_FAUCET_API_ENDPOINTS } from './constants';
+import { faucetCapFromRefusal, faucetGrantAmount, faucetRateLimitSeconds } from './faucet-protocol';
 import { spawnFaucetPowWorker } from './spawn-faucet-pow-worker';
 
 export interface PowChallenge {
@@ -9,8 +10,8 @@ export interface PowChallenge {
   target: bigint;
 }
 
+// Faucet 0.17.0 answers a grant with its note id alone.
 export interface MintedNote {
-  txId: string;
   noteId: string;
 }
 
@@ -119,6 +120,37 @@ export async function faucetFetch<T>(
   return attempt(read);
 }
 
+/** The faucet refused an amount over its cap and named the cap, in base units. Nothing was minted. */
+export class FaucetAmountOverCapError extends Error {
+  constructor(
+    message: string,
+    readonly cap: bigint
+  ) {
+    super(message);
+    this.name = 'FaucetAmountOverCapError';
+  }
+}
+
+/** The faucet refused because this account asked too recently; `retryAfterSeconds` is the wait its body names. */
+export class FaucetRateLimitedError extends Error {
+  constructor(
+    message: string,
+    readonly retryAfterSeconds: number | null
+  ) {
+    super(message);
+    this.name = 'FaucetRateLimitedError';
+  }
+}
+
+// Every refusal keeps the message it always had; the two the user can act on also carry what the faucet named. The
+// wait comes from the body because a cross-origin page cannot read Retry-After: the faucet exposes no headers.
+function faucetRefusal(label: string, status: number, detail: string): Error {
+  const message = `${label} failed with status ${status}: ${detail}`;
+  if (status === 429) return new FaucetRateLimitedError(message, faucetRateLimitSeconds(detail));
+  const cap = status === 400 ? faucetCapFromRefusal(detail) : null;
+  return cap === null ? new Error(message) : new FaucetAmountOverCapError(message, cap);
+}
+
 export async function getPowChallenge(
   baseUrl: string,
   accountId: string,
@@ -130,7 +162,7 @@ export async function getPowChallenge(
     if (!response.ok) {
       // The status is the error; a body that fails or stalls past the bound only loses the explanation.
       const detail = await response.text().catch(() => '');
-      throw new Error(`Faucet PoW request failed with status ${response.status}: ${detail}`);
+      throw faucetRefusal('Faucet PoW request', response.status, detail);
     }
 
     const json: { challenge: string; target: number } = await response.json();
@@ -225,7 +257,6 @@ export async function requestTokens(
 ): Promise<MintedNote> {
   const params = new URLSearchParams({
     account_id: accountId,
-    is_private_note: 'false',
     asset_amount: amount.toString(),
     challenge,
     nonce: nonce.toString()
@@ -239,8 +270,8 @@ export async function requestTokens(
       return { kind: 'failed', status: response.status, detail: await response.text().catch(() => '') };
     }
     try {
-      const json: { tx_id: string; note_id: string } = await response.json();
-      return { kind: 'minted', note: { txId: json.tx_id, noteId: json.note_id } };
+      const json: { note_id: string } = await response.json();
+      return { kind: 'minted', note: { noteId: json.note_id } };
     } catch (error) {
       return { kind: 'unreadable', error };
     }
@@ -270,7 +301,7 @@ export async function requestTokens(
     // The faucet accepted the request, so it may have minted; only the ids were lost.
     throw new FaucetOutcomeUnknownError('Faucet token response could not be read', { cause: outcome.error });
   }
-  const failure = new Error(`Faucet token request failed with status ${outcome.status}: ${outcome.detail}`);
+  const failure = faucetRefusal('Faucet token request', outcome.status, outcome.detail);
   if (faucetStatusMayHaveMinted(outcome.status)) {
     throw new FaucetOutcomeUnknownError(failure.message, { cause: failure });
   }
@@ -294,24 +325,33 @@ export async function mintFromMidenFaucet(
   onMayMint?: (mayMint: boolean) => void
 ): Promise<MintedNote> {
   const baseUrl = getFaucetApiUrl();
-  const resolvedAmount = amount ?? (await getFaucetBaseAmount(baseUrl, signal));
-  const { challenge, target } = await getPowChallenge(baseUrl, address, resolvedAmount, signal);
-  const nonce = await solvePowChallenge(challenge, target, { signal });
-  await onBeforeSubmit?.();
-  return requestTokens(baseUrl, address, resolvedAmount, challenge, nonce, signal, onMayMint);
+  const mint = async (value: bigint): Promise<MintedNote> => {
+    const { challenge, target } = await getPowChallenge(baseUrl, address, value, signal);
+    const nonce = await solvePowChallenge(challenge, target, { signal });
+    await onBeforeSubmit?.();
+    return requestTokens(baseUrl, address, value, challenge, nonce, signal, onMayMint);
+  };
+  if (amount !== undefined) return mint(amount);
+
+  const metadata = await fetchFaucetMetadata(baseUrl, signal);
+  const chosen = faucetGrantAmount(metadata);
+  try {
+    return await mint(chosen);
+  } catch (error) {
+    // The faucet refuses an amount over its cap before anything is minted, and names the cap. Ask once more for
+    // exactly that from a fresh challenge (the first one is bound to the refused amount); a second refusal stands.
+    if (!(error instanceof FaucetAmountOverCapError) || error.cap <= 0n || error.cap >= chosen) throw error;
+    return mint(error.cap);
+  }
 }
 
-async function getFaucetBaseAmount(baseUrl: string, signal?: AbortSignal): Promise<bigint> {
+async function fetchFaucetMetadata(baseUrl: string, signal?: AbortSignal): Promise<unknown> {
   return faucetFetch(`${baseUrl}/get_metadata`, { signal }, async response => {
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
       throw new Error(`Faucet metadata request failed with status ${response.status}: ${detail}`);
     }
     const metadata: unknown = await response.json();
-    const baseAmount = metadata && typeof metadata === 'object' ? Reflect.get(metadata, 'base_amount') : undefined;
-    if (typeof baseAmount !== 'number' || !Number.isSafeInteger(baseAmount) || baseAmount <= 0) {
-      throw new Error('Faucet metadata base_amount must be a positive safe integer');
-    }
-    return BigInt(baseAmount);
+    return metadata;
   });
 }

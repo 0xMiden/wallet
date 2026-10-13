@@ -1,8 +1,13 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
+import fs from 'fs';
+import path from 'path';
+import { formatUnits, parseUnits, type Hash } from 'viem';
 
 import { captureEpochTraffic, fastFeeExpectation, waitForFastQuote } from './epoch-quote';
+import { readTransactionRowsWithBytes, type JsonValue, type TransactionRowSnapshot } from './history';
 import type { MidenCli } from './miden-cli';
 import { swOf } from './swap';
+import { ARC_CHAIN_ID, minimumUsdcxPayout, USDCX_DECIMALS, USDCX_DESTINATIONS } from './usdcx-constants';
 import type { ChromeWalletPageApi } from './wallet-page';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
 
@@ -278,9 +283,51 @@ export async function bridgeOutSlow(wallet: Wallet, opts: BridgeOutSlowOptions):
   await selectSlowAndSubmit(wallet, opts.stepTimeoutMs);
 }
 
+/** A destination USDC balance a USDCx burn row saved, six-decimal base units and the block it was read at. */
+export interface UsdcxBalanceSnapshotRow {
+  balance: string;
+  blockNumber: string;
+}
+
+export interface UsdcxBurnRow {
+  noteId: string;
+  destinationDomain: number;
+  /** 'pending' | 'consuming' | 'confirmed' | 'discarded'. */
+  phase: string;
+  lastError?: string;
+  /** Read before the burn was queued (usdcx/burn.ts). */
+  destinationBalanceBefore?: UsdcxBalanceSnapshotRow;
+  /** The balance that met the expected payout: the wallet's own destination confirmation. */
+  destinationBalanceConfirmed?: UsdcxBalanceSnapshotRow;
+  attemptCount?: number;
+  lastAttemptBlockNum?: number;
+}
+
+export interface BridgedSendExtraInputsRow {
+  usdcxBurn?: UsdcxBurnRow;
+  /** The 0x recipient. */
+  destinationAddress?: string;
+  /** The destination's EVM chain id (or the L1 bridge's network id for agglayer). */
+  destinationNetwork?: number;
+  intentNonce?: string;
+  outputAmount?: string;
+  evmTxHash?: string;
+  /** 'agglayer' (Slow) | 'epoch' (Fast) | 'usdcx'. */
+  provider?: string;
+  /** AggLayer L1 claim lifecycle: 'pending' | 'ready' | 'claimed'. */
+  claimStatus?: string;
+  /** AggLayer: the indexer tx_hash of the row's exit, stored when the B2AGG note is built. */
+  agglayerExitTxHash?: string;
+}
+
 export interface BridgedSendRow {
-  /** ITransactionStatus: Queued=0, GeneratingTransaction=1, Completed=2, Failed=3. */
+  /** The Dexie row id, the `:txId` of the generating and history-details routes. */
+  id: string;
+  /** ITransactionStatus: Queued=0, GeneratingTransaction=1, Completed=2, Failed=3, Unconfirmed=4. */
   status: number;
+  stage?: string;
+  /** Wall-clock ms of each stage's first entry in the current attempt. */
+  stageTimestamps?: Record<string, number>;
   /** User-facing failure reason on a Failed row. */
   error?: string;
   /** The underlying failure, before any friendly rewrite -- the one worth reading. */
@@ -290,17 +337,15 @@ export interface BridgedSendRow {
   outputNoteIds?: string[];
   /** The request the row was queued with, as plain numbers: `page.evaluate` hands back JSON-safe values only. */
   requestBytes?: number[];
-  extraInputs?: {
-    intentNonce?: string;
-    outputAmount?: string;
-    evmTxHash?: string;
-    /** 'agglayer' (Slow) | 'epoch' (Fast). */
-    provider?: string;
-    /** AggLayer L1 claim lifecycle: 'pending' | 'ready' | 'claimed'. */
-    claimStatus?: string;
-    /** AggLayer: the indexer tx_hash of the row's exit, stored when the B2AGG note is built. */
-    agglayerExitTxHash?: string;
-  };
+  /** Fee paid, base units as a decimal string; absent on a landed path, which records no fee. */
+  feeAmount?: string;
+  feeFaucetId?: string;
+  completedAt?: number;
+  /** The serialized `TransactionResult`, base64. The reaper releases it 10 min after `completedAt`. */
+  resultBytes?: string;
+  resultReleasedAt?: number;
+  submitEvidence?: JsonValue[];
+  extraInputs?: BridgedSendExtraInputsRow;
 }
 
 export interface SentNoteShape {
@@ -369,57 +414,506 @@ export async function inspectSentNote(
 /**
  * All `bridged-send` rows in the wallet's Dexie `transactions` store, syncing
  * nothing (a pure read of already-persisted rows). A fresh wallet that has done
- * one bridge has exactly one. Mirrors the swap suite's direct IndexedDB read.
+ * one bridge has exactly one. The read is history.ts's projection, so the
+ * row's bigints and bytes arrive JSON-safe.
  */
 export async function readBridgedSendRows(page: Page): Promise<BridgedSendRow[]> {
-  return page.evaluate(async () => {
-    const idb = (window as unknown as { indexedDB: IDBFactory }).indexedDB;
-    const db: IDBDatabase = await new Promise((res, rej) => {
-      const r = idb.open('TridentMain');
-      r.onsuccess = () => res(r.result);
-      r.onerror = () => rej(r.error);
-    });
-    try {
-      if (!db.objectStoreNames.contains('transactions')) return [];
-      const all: Array<{
-        type?: string;
-        status?: number;
-        displayMessage?: string;
-        transactionId?: string;
-        // Carried so a Failed row can say WHY. Without these a bridge failure reads as a bare
-        // `Expected: 2 / Received: 3` -- a status code with no cause attached, which is what made
-        // the non-guardian fee-auth gap take a code read rather than a log read to find.
-        error?: string;
-        rawError?: string;
-        outputNoteIds?: string[];
-        requestBytes?: Uint8Array;
-        extraInputs?: {
-          intentNonce?: string;
-          outputAmount?: string;
-          evmTxHash?: string;
-          provider?: string;
-          claimStatus?: string;
-          agglayerExitTxHash?: string;
-        };
-      }> = await new Promise((res, rej) => {
-        const r = db.transaction('transactions', 'readonly').objectStore('transactions').getAll();
-        r.onsuccess = () => res(r.result);
-        r.onerror = () => rej(r.error);
-      });
-      return all
-        .filter(t => t.type === 'bridged-send')
-        .map(t => ({
-          status: t.status ?? -1,
-          displayMessage: t.displayMessage,
-          transactionId: t.transactionId,
-          error: t.error,
-          rawError: t.rawError,
-          outputNoteIds: t.outputNoteIds,
-          requestBytes: t.requestBytes instanceof Uint8Array ? Array.from(t.requestBytes) : undefined,
-          extraInputs: t.extraInputs
-        }));
-    } finally {
-      db.close();
+  return (await readTransactionRowsWithBytes(page, 'bridged-send')).map(bridgedSendRowOf);
+}
+
+type JsonObject = { [key: string]: JsonValue };
+
+function objectField(source: JsonObject | undefined, key: string): JsonObject | undefined {
+  const value = source?.[key];
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
+}
+
+function stringField(source: JsonObject | undefined, key: string): string | undefined {
+  const value = source?.[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function numberField(source: JsonObject | undefined, key: string): number | undefined {
+  const value = source?.[key];
+  return typeof value === 'number' ? value : undefined;
+}
+
+function balanceSnapshotOf(source: JsonObject | undefined): UsdcxBalanceSnapshotRow | undefined {
+  const balance = stringField(source, 'balance');
+  const blockNumber = stringField(source, 'blockNumber');
+  return balance !== undefined && blockNumber !== undefined ? { balance, blockNumber } : undefined;
+}
+
+function usdcxBurnOf(source: JsonObject | undefined): UsdcxBurnRow | undefined {
+  const noteId = stringField(source, 'noteId');
+  const destinationDomain = numberField(source, 'destinationDomain');
+  const phase = stringField(source, 'phase');
+  if (noteId === undefined || destinationDomain === undefined || phase === undefined) return undefined;
+  return {
+    noteId,
+    destinationDomain,
+    phase,
+    lastError: stringField(source, 'lastError'),
+    destinationBalanceBefore: balanceSnapshotOf(objectField(source, 'destinationBalanceBefore')),
+    destinationBalanceConfirmed: balanceSnapshotOf(objectField(source, 'destinationBalanceConfirmed')),
+    attemptCount: numberField(source, 'attemptCount'),
+    lastAttemptBlockNum: numberField(source, 'lastAttemptBlockNum')
+  };
+}
+
+/** One projected transaction row as a `BridgedSendRow`, keeping only the `extraInputs` fields the type names. */
+export function bridgedSendRowOf(row: TransactionRowSnapshot): BridgedSendRow {
+  const extra = row.extraInputs;
+  return {
+    id: row.id,
+    status: row.status ?? -1,
+    stage: row.stage,
+    stageTimestamps: row.stageTimestamps,
+    error: row.error,
+    rawError: row.rawError,
+    displayMessage: row.displayMessage,
+    transactionId: row.transactionId,
+    outputNoteIds: row.outputNoteIds,
+    requestBytes: row.requestBytes,
+    feeAmount: row.feeAmount,
+    feeFaucetId: row.feeFaucetId,
+    completedAt: row.completedAt,
+    resultBytes: row.resultBytes,
+    resultReleasedAt: row.resultReleasedAt,
+    submitEvidence: row.submitEvidence,
+    extraInputs:
+      extra === undefined
+        ? undefined
+        : {
+            usdcxBurn: usdcxBurnOf(objectField(extra, 'usdcxBurn')),
+            destinationAddress: stringField(extra, 'destinationAddress'),
+            destinationNetwork: numberField(extra, 'destinationNetwork'),
+            intentNonce: stringField(extra, 'intentNonce'),
+            outputAmount: stringField(extra, 'outputAmount'),
+            evmTxHash: stringField(extra, 'evmTxHash'),
+            provider: stringField(extra, 'provider'),
+            claimStatus: stringField(extra, 'claimStatus'),
+            agglayerExitTxHash: stringField(extra, 'agglayerExitTxHash')
+          }
+  };
+}
+
+const EN_LOCALE_PATH = path.resolve(__dirname, '../../../public/_locales/en/en.json');
+let enMessages: Record<string, unknown> | undefined;
+
+function readEnMessages(): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(fs.readFileSync(EN_LOCALE_PATH, 'utf8'));
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`enText: ${EN_LOCALE_PATH} is not a flat JSON object`);
+  }
+  return Object.fromEntries(Object.entries(parsed));
+}
+
+/**
+ * The English copy of `key` (public/_locales/en/en.json) with each `$name$` replaced by `values[name]`. Throws on a
+ * missing key, on a value whose placeholder the copy does not have (an assertion built on it would pass against
+ * stale copy), and on a placeholder left unreplaced.
+ */
+export function enText(key: string, values: Record<string, string> = {}): string {
+  enMessages ??= readEnMessages();
+  const template = enMessages[key];
+  if (typeof template !== 'string') throw new Error(`enText: public/_locales/en/en.json has no "${key}"`);
+  let text = template;
+  for (const [name, value] of Object.entries(values)) {
+    const placeholder = `$${name}$`;
+    if (!template.includes(placeholder)) {
+      throw new Error(`enText: "${key}" has no ${placeholder}; its English copy is ${JSON.stringify(template)}`);
     }
+    text = text.split(placeholder).join(value);
+  }
+  const unreplaced = /\$[A-Za-z0-9_.]+\$/.exec(text);
+  if (unreplaced) throw new Error(`enText: "${key}" still holds ${unreplaced[0]}; pass a value for it`);
+  return text;
+}
+
+export interface CreateUsdcxBridgeReceiveArgs {
+  accountId: string;
+  /** Base units, as a decimal string. */
+  amount: string;
+  faucetId: string;
+  sourceChainId: number;
+  sourceAddress: string;
+  sourceAmount: string;
+  sourceSymbol: string;
+  evmTxHash: Hash;
+}
+
+/**
+ * A `usdcx` bridged-receive tracking row through the service worker's `__TEST_CREATE_BRIDGE_RECEIVE__`, which moves it
+ * to `delivering` with `evmTxHash` as the deposit screen does. Returns the row id.
+ */
+export async function createUsdcxBridgeReceive(wallet: Wallet, args: CreateUsdcxBridgeReceiveArgs): Promise<string> {
+  const id: unknown = await swOf(wallet).evaluate(async hookArgs => {
+    const hook: unknown = Reflect.get(globalThis, '__TEST_CREATE_BRIDGE_RECEIVE__');
+    if (typeof hook !== 'function') {
+      throw new Error('__TEST_CREATE_BRIDGE_RECEIVE__ is missing: the wallet was not built with MIDEN_E2E_TEST=true');
+    }
+    return hook({ ...hookArgs, provider: 'usdcx' });
+  }, args);
+  if (typeof id !== 'string' || id === '') {
+    throw new Error(`__TEST_CREATE_BRIDGE_RECEIVE__ returned ${JSON.stringify(id)}, not a row id`);
+  }
+  return id;
+}
+
+export type BridgeReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
+
+export type BridgeReceiveStateSnapshot = {
+  found: boolean;
+  phase?: BridgeReceivePhase;
+  displayMessage?: string;
+  status?: number;
+  amount?: string;
+  faucetId?: string;
+  evmTxHash?: string;
+  error?: string;
+  midenNoteId?: string;
+  sourceChainId?: number;
+  usdcxRemoteRecipient?: string;
+  /** Unix seconds the row first reached `ready`. */
+  readyAt?: number;
+};
+
+function isBridgeReceivePhase(value: unknown): value is BridgeReceivePhase {
+  return (
+    value === 'submitting' || value === 'delivering' || value === 'ready' || value === 'received' || value === 'failed'
+  );
+}
+
+/** `__TEST_BRIDGE_RECEIVE_STATE__`'s answer, checked field by field, so a renamed hook field fails here by name. */
+export function parseBridgeReceiveState(value: unknown): BridgeReceiveStateSnapshot {
+  if (value === null || typeof value !== 'object') {
+    throw new Error(`__TEST_BRIDGE_RECEIVE_STATE__ returned ${JSON.stringify(value)}, not a state object`);
+  }
+  const field = (key: string): unknown => Reflect.get(value, key);
+  const text = (key: string): string | undefined => {
+    const item = field(key);
+    return typeof item === 'string' ? item : undefined;
+  };
+  const count = (key: string): number | undefined => {
+    const item = field(key);
+    return typeof item === 'number' ? item : undefined;
+  };
+  const found = field('found');
+  if (typeof found !== 'boolean') throw new Error('__TEST_BRIDGE_RECEIVE_STATE__ has no boolean found');
+  const phase = field('phase');
+  if (phase !== undefined && !isBridgeReceivePhase(phase)) {
+    throw new Error(`__TEST_BRIDGE_RECEIVE_STATE__ returned an unknown phase ${JSON.stringify(phase)}`);
+  }
+  return {
+    found,
+    phase,
+    displayMessage: text('displayMessage'),
+    status: count('status'),
+    amount: text('amount'),
+    faucetId: text('faucetId'),
+    evmTxHash: text('evmTxHash'),
+    error: text('error'),
+    midenNoteId: text('midenNoteId'),
+    sourceChainId: count('sourceChainId'),
+    usdcxRemoteRecipient: text('usdcxRemoteRecipient'),
+    readyAt: count('readyAt')
+  };
+}
+
+/** One bridged-receive row through the service worker's `__TEST_BRIDGE_RECEIVE_STATE__`. */
+export async function bridgeReceiveState(wallet: Wallet, txId: string): Promise<BridgeReceiveStateSnapshot> {
+  const state: unknown = await swOf(wallet).evaluate(async id => {
+    const hook: unknown = Reflect.get(globalThis, '__TEST_BRIDGE_RECEIVE_STATE__');
+    if (typeof hook !== 'function') {
+      throw new Error('__TEST_BRIDGE_RECEIVE_STATE__ is missing: the wallet was not built with MIDEN_E2E_TEST=true');
+    }
+    return hook(id);
+  }, txId);
+  return parseBridgeReceiveState(state);
+}
+
+/**
+ * The symbol the UI shows for the native token: the current account's balance row, whose metadata the store resolves
+ * the way the send flow does (`getNativeDisplayMetadataSync`). Throws when the row or its symbol is missing.
+ */
+export async function readNativeDisplaySymbol(page: Page, nativeTokenId: string): Promise<string> {
+  const read = await page.evaluate(tokenId => {
+    const store:
+      | {
+          getState?: () => {
+            currentAccount?: { publicKey?: string } | null;
+            balances?: Record<string, Array<{ tokenId?: string; metadata?: { symbol?: string } }>>;
+          };
+        }
+      | undefined = Reflect.get(globalThis, '__TEST_STORE__');
+    const state = store?.getState?.();
+    const account = state?.currentAccount?.publicKey;
+    const rows = account === undefined ? [] : (state?.balances?.[account] ?? []);
+    return {
+      account: account ?? null,
+      symbol: rows.find(row => row.tokenId === tokenId)?.metadata?.symbol ?? null,
+      tokenIds: rows.map(row => String(row.tokenId ?? ''))
+    };
+  }, nativeTokenId);
+  if (!read.symbol) {
+    throw new Error(
+      `readNativeDisplaySymbol: no symbol for ${nativeTokenId} on account ${read.account ?? '(none)'}; ` +
+        `balance rows: ${read.tokenIds.join(', ') || '(none)'}`
+    );
+  }
+  return read.symbol;
+}
+
+/** The destination chips a USDCx burn offers on testnet, in no particular order (bridge-networks.ts). */
+export const USDCX_DESTINATION_CHIPS: readonly string[] = [
+  'send-network-arc-testnet',
+  'send-network-sepolia',
+  'send-network-base-sepolia',
+  'send-network-arbitrum-sepolia'
+];
+const ARC_CHIP = 'send-network-arc-testnet';
+// The burn's destination snapshot read alone may take its whole 15 s budget before the row is queued.
+const SUBMIT_TIMEOUT_MS = 60_000;
+const REVIEW_READY_TIMEOUT_MS = 60_000;
+const RPC_FAILURE = /\b(HTTP|RPC|JSON-RPC|429|5\d\d|fetch|timed? ?out|timeout|rate.?limit\w*)\b/i;
+
+export interface NetworkChipState {
+  testId: string;
+  /** The chip's `aria-pressed`, or null when it has none. */
+  pressed: string | null;
+}
+
+/** Why the chips are not exactly the four USDCx destinations with only `selected` pressed, or undefined when they are. */
+export function usdcxChipsProblem(chips: readonly NetworkChipState[], selected: string): string | undefined {
+  const ids = chips.map(chip => chip.testId).sort();
+  const expected = [...USDCX_DESTINATION_CHIPS].sort();
+  if (ids.join(',') !== expected.join(',')) {
+    return `network chips ${JSON.stringify(ids)}, expected exactly ${JSON.stringify(expected)}`;
+  }
+  const wrong = chips.filter(chip => chip.pressed !== (chip.testId === selected ? 'true' : 'false'));
+  return wrong.length === 0
+    ? undefined
+    : `aria-pressed ${wrong.map(chip => `${chip.testId}=${chip.pressed}`).join(', ')}; only ${selected} may be pressed`;
+}
+
+/** A query parameter of a hash route such as `fullpage.html#/send/review?network=arc-testnet`. */
+export function reviewQueryParam(url: string, name: string): string | null {
+  const { hash } = new URL(url);
+  const query = hash.includes('?') ? hash.slice(hash.indexOf('?') + 1) : '';
+  return new URLSearchParams(query).get(name);
+}
+
+/** A review-error that names an RPC failure, with no burn row queued: the wallet's Arc snapshot read failed (Q14). */
+export function isArcSnapshotFailure(reviewError: string, newUsdcxRows: number): boolean {
+  return newUsdcxRows === 0 && RPC_FAILURE.test(reviewError);
+}
+
+/** The value cell of the review's detail row labelled `label` (`DetailRow`: a label span beside a value div). */
+function detailRowValue(page: Page, label: string) {
+  if (label.includes('"')) throw new Error(`detailRowValue: label ${label} cannot be quoted in XPath`);
+  return page.locator(`xpath=//div[span[normalize-space(.)="${label}"]]/div`);
+}
+
+/** The value cell of a payout row, which `DetailRow` renders as a label span beside a value div. */
+function payoutRowValue(scope: Page | Locator, testId: string): Locator {
+  return scope.getByTestId(testId).locator(':scope > div');
+}
+
+function readNetworkChips(page: Page): Promise<NetworkChipState[]> {
+  return page
+    .locator('[data-testid^="send-network-"]:not([data-testid="send-network-options"])')
+    .evaluateAll(elements =>
+      elements.map(element => ({
+        testId: element.getAttribute('data-testid') ?? '',
+        pressed: element.getAttribute('aria-pressed')
+      }))
+    );
+}
+
+/**
+ * Polls until Arc Testnet alone is pressed among exactly the four USDCx destination chips. Every token shows the four
+ * chips (#1403), so this proves the set and its default; Arc pressed and `bridge-route-usdcx` prove USDCx mode.
+ */
+export async function expectArcPreselected(page: Page, timeoutMs: number): Promise<void> {
+  await expect
+    .poll(async () => usdcxChipsProblem(await readNetworkChips(page), ARC_CHIP) ?? 'ok', {
+      timeout: timeoutMs,
+      message:
+        'this checks the chip set and its default: exactly the four USDCx destination chips, Arc Testnet alone ' +
+        'pressed (every token shows the four chips, so USDCx mode rests on Arc pressed and bridge-route-usdcx)'
+    })
+    .toBe('ok');
+}
+
+/** What a USDCx burn's payout rows read (`UsdcxPayoutRows`). */
+export interface UsdcxPayoutRowsText {
+  /** `usdcx-payout-fee`: the most Circle takes. */
+  fee: string;
+  /** `usdcx-payout-net`: the least the recipient receives. */
+  net: string;
+}
+
+/**
+ * The payout rows a burn of `amount` USDCx to `chainId` shows, from the wallet's own fee allowance table. Throws when
+ * the allowance takes the whole amount: the wallet refuses that burn and leaves out its `usdcx-payout-net` row.
+ */
+export function usdcxPayoutRowsText(chainId: number, amount: string): UsdcxPayoutRowsText {
+  const destination = USDCX_DESTINATIONS.get(chainId);
+  if (destination === undefined) throw new Error(`usdcxPayoutRowsText: chain ${chainId} is not a USDCx destination`);
+  const allowance = formatUnits(destination.payoutFeeAllowance, USDCX_DECIMALS);
+  const payout = minimumUsdcxPayout(chainId, parseUnits(amount, USDCX_DECIMALS));
+  if (payout <= 0n) {
+    throw new Error(
+      `${amount} USDCx does not exceed the ${allowance} USDC payout fee allowance on ${destination.chain.name}, ` +
+        'so the wallet refuses the burn'
+    );
+  }
+  return {
+    fee: enText('usdcxPayoutFeeUpTo', { amount: allowance }),
+    net: enText('usdcxPayoutAtLeast', { amount: formatUnits(payout, USDCX_DECIMALS) })
+  };
+}
+
+/**
+ * Waits for the review's submit to enable. A review that refuses the burn keeps it disabled and says why in
+ * `review-error`, so that text is thrown once it shows instead of the wait running out.
+ */
+export async function waitForReviewSubmitEnabled(page: Page, timeoutMs: number): Promise<void> {
+  const submit = page.getByTestId('send-review-submit');
+  const error = page.getByTestId('review-error');
+  let refusal: string | undefined;
+  await expect
+    .poll(
+      async () => {
+        if (await submit.isEnabled()) return 'enabled';
+        if (!(await error.isVisible())) return 'waiting';
+        refusal = (await error.textContent()) ?? '';
+        return 'review-error';
+      },
+      { timeout: timeoutMs, intervals: [500], message: 'send-review-submit enables, or review-error names the refusal' }
+    )
+    .not.toBe('waiting');
+  if (refusal !== undefined) throw new Error(`the review refused the burn before submit: review-error "${refusal}"`);
+}
+
+export interface BridgeOutUsdcxOptions {
+  destAddress: `0x${string}`;
+  /** Human amount, as typed, e.g. '1'. */
+  amount: string;
+  /** The composite native id (`<bech32>_<suffix>`) the wallet discovered (balance-truth.ts). */
+  nativeTokenId: string;
+  /** From `readNativeDisplaySymbol`. */
+  nativeSymbol: string;
+  /** Per-step timeout (default 30s). */
+  stepTimeoutMs?: number;
+  /** Where usdcx-route.png, usdcx-review-light.png and usdcx-review-dark.png go. */
+  screenshotDir: string;
+}
+
+export interface BridgeOutUsdcxResult {
+  reviewUrl: string;
+  generatingUrl: string;
+}
+
+/**
+ * Burn the native USDCx to an Arc Testnet address through the real Send UI (spec section 5 step 6), ending on the
+ * generating-transaction screen. Checks on the way: exactly the four USDCx destination chips with Arc pressed, the
+ * route subtitle and fee row naming the native symbol, the payout rows and the burn notice on route and review, and
+ * the review's network.
+ */
+export async function bridgeOutUsdcx(wallet: Wallet, opts: BridgeOutUsdcxOptions): Promise<BridgeOutUsdcxResult> {
+  const { page, extensionId } = wallet;
+  const step = opts.stepTimeoutMs ?? STEP_TIMEOUT_MS;
+  if (opts.nativeSymbol.trim() === '' || opts.nativeSymbol.trim().toUpperCase() === 'MIDEN') {
+    throw new Error(`bridgeOutUsdcx: "${opts.nativeSymbol}" cannot name USDCx, the asset a USDCx burn spends`);
+  }
+  const payout = usdcxPayoutRowsText(ARC_CHAIN_ID, opts.amount);
+  const routeFees = enText('usdcxMidenFees', { symbol: opts.nativeSymbol });
+  const sponsorshipFee = enText('usdcxSponsorshipFee', { symbol: opts.nativeSymbol });
+  const notice = enText('usdcxWithdrawalNotice');
+  const rowsBefore = new Set((await readBridgedSendRows(page)).map(row => row.id));
+  fs.mkdirSync(opts.screenshotDir, { recursive: true });
+
+  await page.goto(
+    `chrome-extension://${extensionId}/fullpage.html#/send?tokenId=${encodeURIComponent(opts.nativeTokenId)}`
+  );
+  const flow = page.getByTestId('send-flow');
+  await expect(flow).toBeVisible({ timeout: step });
+  await flow.getByTestId('send-recipient-input').fill(opts.destAddress);
+  await expectArcPreselected(page, step);
+  await page.getByTestId(ARC_CHIP).click({ timeout: step });
+  await expect
+    .poll(async () => usdcxChipsProblem(await readNetworkChips(page), ARC_CHIP) ?? 'ok', { timeout: step })
+    .toBe('ok');
+  await flow.getByTestId('send-recipient-confirm').click({ timeout: step });
+  await flow.getByTestId('send-amount-input').fill(opts.amount);
+  await flow.getByTestId('send-amount-confirm').click({ timeout: step });
+
+  const route = flow.getByTestId('bridge-route-usdcx');
+  await expect(route).toBeVisible({ timeout: step });
+  // The route is forced for the native token; the click only guards against that changing.
+  await route.click({ timeout: step });
+  await expect(route.getByText(routeFees, { exact: true }), 'the route names the native fee asset').toBeVisible({
+    timeout: step
   });
+  await expect(payoutRowValue(flow, 'usdcx-payout-fee'), "the route quotes Circle's fee allowance").toHaveText(
+    payout.fee,
+    { timeout: step }
+  );
+  await expect(
+    payoutRowValue(flow, 'usdcx-payout-net'),
+    'the route quotes the least the recipient receives'
+  ).toHaveText(payout.net);
+  await expect(flow.getByTestId('usdcx-burn-notice')).toHaveText(notice, { timeout: step });
+  await page.screenshot({ path: path.join(opts.screenshotDir, 'usdcx-route.png') });
+  await flow.getByTestId('bridge-route-confirm').click({ timeout: step });
+
+  await page.waitForURL(/#\/send\/review\?/, { timeout: step });
+  const reviewUrl = page.url();
+  expect(reviewQueryParam(reviewUrl, 'network'), 'the review is for Arc Testnet').toBe('arc-testnet');
+  await expect(detailRowValue(page, enText('network'))).toHaveText('Arc Testnet', { timeout: step });
+  await expect(detailRowValue(page, enText('networkFee')), 'the fee row names the native fee asset').toHaveText(
+    sponsorshipFee
+  );
+  await expect(payoutRowValue(page, 'usdcx-payout-fee'), "the review quotes Circle's fee allowance").toHaveText(
+    payout.fee
+  );
+  await expect(
+    payoutRowValue(page, 'usdcx-payout-net'),
+    'the review quotes the least the recipient receives'
+  ).toHaveText(payout.net);
+  await expect(page.getByTestId('usdcx-burn-notice')).toHaveText(notice);
+  await waitForReviewSubmitEnabled(page, REVIEW_READY_TIMEOUT_MS);
+  await page.screenshot({ path: path.join(opts.screenshotDir, 'usdcx-review-light.png') });
+  await page.evaluate(() => document.documentElement.classList.add('dark'));
+  await page.screenshot({ path: path.join(opts.screenshotDir, 'usdcx-review-dark.png') });
+  await page.evaluate(() => document.documentElement.classList.remove('dark'));
+
+  await page.getByTestId('send-review-submit').click({ timeout: step });
+  const generating = /\/generating-transaction(-full)?\//;
+  let reviewError = '';
+  await expect
+    .poll(
+      async () => {
+        if (generating.test(page.url())) return 'generating';
+        const error = page.getByTestId('review-error');
+        if (!(await error.isVisible())) return 'waiting';
+        reviewError = (await error.textContent()) ?? '';
+        return 'review-error';
+      },
+      { timeout: SUBMIT_TIMEOUT_MS, intervals: [500] }
+    )
+    .not.toBe('waiting');
+  if (!generating.test(page.url())) {
+    const fresh = (await readBridgedSendRows(page)).filter(
+      row => row.extraInputs?.provider === 'usdcx' && !rowsBefore.has(row.id)
+    );
+    throw new Error(
+      isArcSnapshotFailure(reviewError, fresh.length)
+        ? `Arc RPC unavailable for the wallet's balance snapshot (burn.ts:103), infra: review-error "${reviewError}"`
+        : `the review refused the burn: review-error "${reviewError}", ${fresh.length} new usdcx rows`
+    );
+  }
+  return { reviewUrl, generatingUrl: page.url() };
 }

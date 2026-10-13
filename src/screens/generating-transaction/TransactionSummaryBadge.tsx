@@ -11,6 +11,8 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { AssetMetadata } from 'lib/miden/metadata/types';
 import { getSwapTokenByFaucetId, normalizedFaucetId } from 'lib/miden/swap/tokens';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { selectMidenUsdc } from 'lib/remote-config/values';
 import { formatAmount } from 'lib/shared/format';
@@ -247,6 +249,7 @@ export interface ConsumeAssetPart {
  * native branch simply does not match until it is.
  */
 export const consumeAssetBreakdown = (
+  bridgeConfig: BridgeConfigSnapshot,
   transaction: ITransaction,
   assetsMetadata: Record<string, AssetMetadata> | undefined,
   nativeFaucetId: string | null
@@ -271,19 +274,19 @@ export const consumeAssetBreakdown = (
     // withhold the quantity until real metadata resolves. Checked on the
     // resolved record rather than the placeholder's identity because the
     // placeholder is cached, and a stored copy is never `===` the constant.
-    const label = hasKnownScale(resolved)
-      ? `${formatAmount(total.amount, resolved.decimals)} ${resolved.symbol}`
-      : resolved.symbol;
+    const symbol = midenTokenLabel(bridgeConfig, total.faucetId, resolved.symbol);
+    const label = hasKnownScale(resolved) ? `${formatAmount(total.amount, resolved.decimals)} ${symbol}` : symbol;
     return { faucetId: total.faucetId, label };
   });
 };
 
 /** The same claim as `["20 A", "10 B"]`, for the one-line badge and receipt summaries. */
 export const formatConsumeAssetParts = (
+  bridgeConfig: BridgeConfigSnapshot,
   transaction: ITransaction,
   assetsMetadata: Record<string, AssetMetadata> | undefined,
   nativeFaucetId: string | null
-): string[] => consumeAssetBreakdown(transaction, assetsMetadata, nativeFaucetId).map(part => part.label);
+): string[] => consumeAssetBreakdown(bridgeConfig, transaction, assetsMetadata, nativeFaucetId).map(part => part.label);
 
 /**
  * Build the market label from an Epoch `marketUid` (`LENDER:chainId:token`) —
@@ -310,10 +313,11 @@ export const useEarnCollateralFallback = (faucetId: string | undefined): MidenUs
  * Implemented variants:
  *
  *   send          →  {amount} {symbol}        ->  {recipient}
- *   swap          →  (logo) {amount} {symbol} ->  (logo) {amount} {symbol}
+ *   swap          →  (logo) {amount} {name}   ->  (logo) {amount} {name}
  *   earn-deposit  →  {amount} {symbol}        ↑   {market name}     (up-arrow separator)
  *   consume       →  {amount} {symbol}        ->  Accepted
  *
+ * A swap side's {name} is its display name (`midenTokenLabel`); its logo keeps the registry symbol.
  * Other transaction types (switch-guardian, bridged sends) render nothing for
  * now. See CLAUDE.md -> "Transaction summary badge" for how to add a variant
  * and where each type's data lives.
@@ -323,6 +327,7 @@ export const useTransactionSummaryBadgeContent = (
 ): TransactionSummaryBadgeContent | undefined => {
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
   const nativeFaucetId = useMidenFaucetId();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const earnCollateral = useEarnCollateralFallback(
     transaction?.type === 'earn-deposit' ? transaction.faucetId : undefined
   );
@@ -330,7 +335,7 @@ export const useTransactionSummaryBadgeContent = (
 
   return useMemo(() => {
     if (transaction?.type === 'consume') {
-      const parts = formatConsumeAssetParts(transaction, assetsMetadata, nativeFaucetId);
+      const parts = formatConsumeAssetParts(bridgeConfig, transaction, assetsMetadata, nativeFaucetId);
 
       // Consume amount is optional (batch claims may not carry one) — no pill then.
       if (parts.length === 0) return undefined;
@@ -346,19 +351,20 @@ export const useTransactionSummaryBadgeContent = (
 
     if (transaction?.type === 'earn-deposit') {
       const tokenMetadata = transaction.faucetId ? assetsMetadata?.[transaction.faucetId] : undefined;
-      const decimals = tokenMetadata?.decimals ?? earnCollateral?.decimals;
-      const symbol = tokenMetadata?.symbol ?? earnCollateral?.symbol;
+      // As the deposit receipt: the placeholder's guessed decimals are not this faucet's scale, so the
+      // collateral the config names stands in, and without either the quantity is withheld.
+      const known = hasKnownScale(tokenMetadata) ? tokenMetadata : undefined;
+      const scale = known ?? earnCollateral;
+      const symbol = scale?.symbol ?? tokenMetadata?.symbol;
       const amount =
-        transaction.amount !== undefined && decimals !== undefined
-          ? formatAmount(transaction.amount, decimals)
-          : undefined;
+        transaction.amount !== undefined && scale ? formatAmount(transaction.amount, scale.decimals) : undefined;
       const marketUid: unknown = transaction.extraInputs?.marketUid;
       const rhs = typeof marketUid === 'string' ? earnMarketLabel(marketUid) : undefined;
 
-      if (!amount || !rhs || !symbol) return undefined;
+      if (transaction.amount === undefined || !rhs || !symbol) return undefined;
 
       return {
-        lhs: `${amount} ${symbol}`,
+        lhs: amount ? `${amount} ${symbol}` : symbol,
         rhs,
         separator: <EarnDepositArrowGlyph />
       };
@@ -377,8 +383,18 @@ export const useTransactionSummaryBadgeContent = (
       const requestedAmount = requested.scaleIsKnown ? formatAmount(requestedRaw, requested.decimals) : undefined;
 
       return {
-        lhs: <SwapAmountText amount={offeredAmount} symbol={offered.symbol} />,
-        rhs: <SwapAmountText amount={requestedAmount} symbol={requested.symbol} />,
+        lhs: (
+          <SwapAmountText
+            amount={offeredAmount}
+            symbol={midenTokenLabel(bridgeConfig, transaction.faucetId, offered.symbol)}
+          />
+        ),
+        rhs: (
+          <SwapAmountText
+            amount={requestedAmount}
+            symbol={midenTokenLabel(bridgeConfig, requestedFaucetId, requested.symbol)}
+          />
+        ),
         // The activity token, matching the swap row's icon above it, rather than the brand action
         // colour; `arrowInkFor` gives either spelling a stroke that clears 3:1 in both themes.
         fillForArrow: 'var(--tx-swap)'
@@ -388,7 +404,7 @@ export const useTransactionSummaryBadgeContent = (
     if (transaction?.type !== 'send') return undefined;
 
     const tokenMetadata = resolveDisplayMetadata(transaction.faucetId, assetsMetadata, nativeFaucetId);
-    const symbol = tokenMetadata.symbol;
+    const symbol = midenTokenLabel(bridgeConfig, transaction.faucetId, tokenMetadata.symbol);
     // A faucet the wallet has never resolved carries the placeholder's guessed
     // 6 decimals. Naming the token alone is honest; converting by a guess is
     // not, and this badge IS the hero of the transaction detail screen.
@@ -409,5 +425,5 @@ export const useTransactionSummaryBadgeContent = (
         </>
       )
     };
-  }, [assetsMetadata, earnCollateral, nativeFaucetId, t, transaction]);
+  }, [assetsMetadata, bridgeConfig, earnCollateral, nativeFaucetId, t, transaction]);
 };

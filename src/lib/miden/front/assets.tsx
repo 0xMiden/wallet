@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 
 import BigNumber from 'bignumber.js';
 import Fuse from 'fuse.js';
@@ -8,24 +8,35 @@ import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import {
   DEFAULT_TOKEN_METADATA,
   AssetMetadata,
-  DetailedAssetMetdata,
   fetchFromStorage,
   fetchTokenMetadata,
   onStorageChanged,
   putToStorage,
-  usePassiveStorage,
   isMidenAsset
 } from 'lib/miden/front';
+import { DEFAULT_TOKEN_METADATA as UNKNOWN_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
+import {
+  applyMetadataOverride,
+  canOverrideMetadata,
+  getTokenMetadataOverrides,
+  overrideFor,
+  parseTokenMetadataOverrides,
+  TOKENS_METADATA_OVERRIDES_STORAGE_KEY
+} from 'lib/miden/metadata/overrides';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
-import { updateTokensBaseMetadata } from 'lib/miden/metadata/storage';
+import {
+  ensureTokensMetadataSchema,
+  TOKENS_BASE_METADATA_STORAGE_KEY as ALL_TOKENS_BASE_METADATA_STORAGE_KEY,
+  updateTokensBaseMetadata
+} from 'lib/miden/metadata/storage';
 import { getNativeAssetIdSync, onNativeAssetChanged } from 'lib/miden-chain/native-asset';
-import { getStorageProvider } from 'lib/platform/storage-adapter';
-import { useWalletStore } from 'lib/store';
+import { subscribeBridgeConfig } from 'lib/remote-config/runtime';
+import { faucetMetadataOf, useWalletStore } from 'lib/store';
 import { balancePrice } from 'lib/store/utils/balancePrice';
-import { useRetryableSWR } from 'lib/swr';
 
-export const ALL_TOKENS_BASE_METADATA_STORAGE_KEY = 'tokens_base_metadata';
+// Defined once, beside the schema check that clears it, so every reader names the key it clears.
+export { ALL_TOKENS_BASE_METADATA_STORAGE_KEY };
 
 export type TokenBalance = {
   faucetId: string;
@@ -51,7 +62,8 @@ export function useAssetMetadata(_slug: string, assetId: string) {
   const isMidenFaucet = assetId === midenFaucetId;
   const isNativeFaucet = assetId === getNativeAssetIdSync();
   const tokenMetadata = assetsMetadata[assetId] ?? null;
-  const exist = Boolean(tokenMetadata);
+  // The faucet's record, not the entry: an override on a faucet with no record makes an entry.
+  const exist = faucetMetadataOf(assetId) !== undefined;
 
   // Auto-fetch missing metadata
   useEffect(() => {
@@ -61,10 +73,9 @@ export function useAssetMetadata(_slug: string, assetId: string) {
           try {
             const metadata = await fetchTokenMetadata(assetId);
             // Update Zustand store
-            setAssetsMetadata({ [assetId]: metadata.base });
+            setAssetsMetadata({ [assetId]: metadata });
             // Also persist to storage
-            await setTokensBaseMetadata({ [assetId]: metadata.base });
-            await setTokensDetailedMetadataStorage({ [assetId]: metadata.detailed });
+            await setTokensBaseMetadata({ [assetId]: metadata });
             return metadata;
           } catch (error) {
             autoFetchMetadataFails.add(assetId);
@@ -87,6 +98,11 @@ export function useAssetMetadata(_slug: string, assetId: string) {
 }
 
 export async function useAllAssetMetadata(): Promise<Record<string, AssetMetadata>> {
+  try {
+    await ensureTokensMetadataSchema(fetchFromStorage, putToStorage);
+  } catch (error) {
+    console.warn('Token metadata cache check failed', error);
+  }
   return (await fetchFromStorage(ALL_TOKENS_BASE_METADATA_STORAGE_KEY)) || defaultAllTokensBaseMetadata;
 }
 
@@ -100,21 +116,75 @@ const defaultAllTokensBaseMetadata: Record<string, AssetMetadata> = {};
  */
 export function TokensMetadataProvider({ children }: { children: React.ReactNode }) {
   const setAssetsMetadata = useWalletStore(s => s.setAssetsMetadata);
-  const initialSyncDone = useRef(false);
+  const hydrateTokenMetadataOverrides = useWalletStore(s => s.hydrateTokenMetadataOverrides);
 
-  // Load initial metadata from storage
-  const [initialAllTokensBaseMetadata] = usePassiveStorage<Record<string, AssetMetadata>>(
-    ALL_TOKENS_BASE_METADATA_STORAGE_KEY,
-    defaultAllTokensBaseMetadata
-  );
-
-  // Sync initial storage to Zustand once on mount
+  // Load the user's display values into the store, and keep them in step with storage.
+  // On the extension a write from another page fires a change event. Off the extension the event
+  // fires only on a wipe, so the store action that writes an override also updates the store.
   useEffect(() => {
-    if (!initialSyncDone.current && Object.keys(initialAllTokensBaseMetadata).length > 0) {
-      initialSyncDone.current = true;
-      setAssetsMetadata(initialAllTokensBaseMetadata);
-    }
-  }, [initialAllTokensBaseMetadata, setAssetsMetadata]);
+    let cancelled = false;
+    const stop = onStorageChanged<unknown>(TOKENS_METADATA_OVERRIDES_STORAGE_KEY, value =>
+      hydrateTokenMetadataOverrides(parseTokenMetadataOverrides(value))
+    );
+    // A faucet the bridge config names cannot be overridden, so the overrides apply again when the config changes
+    // which overridden faucets those are. A publish that changes none, such as a poll, leaves the store alone.
+    // The baseline follows the overrides the store holds, however they change: a read, a storage event, a write.
+    const refusedOverrides = () =>
+      Object.keys(useWalletStore.getState().tokenMetadataOverrides)
+        .filter(faucetId => !canOverrideMetadata(faucetId))
+        .sort()
+        .join(' ');
+    let refused = refusedOverrides();
+    const stopOverrides = useWalletStore.subscribe(
+      state => state.tokenMetadataOverrides,
+      () => {
+        refused = refusedOverrides();
+      }
+    );
+    const stopBridgeConfig = subscribeBridgeConfig(() => {
+      const next = refusedOverrides();
+      if (next === refused) return;
+      refused = next;
+      hydrateTokenMetadataOverrides(useWalletStore.getState().tokenMetadataOverrides);
+    });
+    getTokenMetadataOverrides().then(
+      overrides => {
+        if (!cancelled) hydrateTokenMetadataOverrides(overrides);
+      },
+      error => console.warn('Token metadata overrides read failed', error)
+    );
+    return () => {
+      cancelled = true;
+      stop();
+      stopOverrides();
+      stopBridgeConfig();
+    };
+  }, [hydrateTokenMetadataOverrides]);
+
+  // Sync the stored metadata to Zustand once on mount. The read comes after the shape check,
+  // so records of an older shape never get into Zustand.
+  useEffect(() => {
+    let cancelled = false;
+    const syncStoredMetadata = async () => {
+      try {
+        await ensureTokensMetadataSchema(fetchFromStorage, putToStorage);
+      } catch (error) {
+        console.warn('Token metadata cache check failed', error);
+      }
+      const stored = await fetchFromStorage<Record<string, AssetMetadata>>(ALL_TOKENS_BASE_METADATA_STORAGE_KEY);
+      if (cancelled || !stored || Object.keys(stored).length === 0) return;
+      setAssetsMetadata(stored);
+      // This sync ends after the native effect below. The chain metadata of the native token
+      // must stay ahead of a stored copy, so it is set again.
+      const nativeId = getNativeAssetIdSync();
+      const nativeMetadata = getNativeDisplayMetadataSync();
+      if (nativeId && hasKnownScale(nativeMetadata)) setAssetsMetadata({ [nativeId]: nativeMetadata });
+    };
+    syncStoredMetadata().catch(error => console.warn('Token metadata sync from storage failed', error));
+    return () => {
+      cancelled = true;
+    };
+  }, [setAssetsMetadata]);
 
   // Listen for storage changes and sync to Zustand (separate effect)
   useEffect(() => {
@@ -157,11 +227,6 @@ export function TokensMetadataProvider({ children }: { children: React.ReactNode
   return <>{children}</>;
 }
 
-// Helper to set detailed metadata to storage
-async function setTokensDetailedMetadataStorage(toSet: Record<string, DetailedAssetMetdata>): Promise<void> {
-  await getStorageProvider().set(mapObjectKeys(toSet, getDetailedMetadataStorageKey));
-}
-
 export async function setTokensBaseMetadata(toSet: Record<string, AssetMetadata>): Promise<void> {
   await updateTokensBaseMetadata(
     toSet,
@@ -170,11 +235,28 @@ export async function setTokensBaseMetadata(toSet: Record<string, AssetMetadata>
   );
 }
 
-export const getTokensBaseMetadata = async (assetId: string) => {
-  const allTokensBaseMetadata: Record<string, AssetMetadata> =
-    (await fetchFromStorage(ALL_TOKENS_BASE_METADATA_STORAGE_KEY)) || defaultAllTokensBaseMetadata;
-
-  return allTokensBaseMetadata[assetId];
+/**
+ * The cached metadata of a token, with the user's override applied.
+ * History rows read metadata here, not from the store, so the override is applied here too.
+ * Without a cached record, an override applies to the unknown-token placeholder.
+ */
+export const getTokensBaseMetadata = async (assetId: string): Promise<AssetMetadata | undefined> => {
+  try {
+    await ensureTokensMetadataSchema(fetchFromStorage, putToStorage);
+  } catch (error) {
+    console.warn('Token metadata cache check failed', error);
+  }
+  const [allTokensBaseMetadata, overrides] = await Promise.all([
+    fetchFromStorage<Record<string, AssetMetadata>>(ALL_TOKENS_BASE_METADATA_STORAGE_KEY),
+    getTokenMetadataOverrides().catch(error => {
+      console.warn('Token metadata overrides read failed', error);
+      return {};
+    })
+  ]);
+  const stored = (allTokensBaseMetadata || defaultAllTokensBaseMetadata)[assetId];
+  const override = overrideFor(overrides, assetId);
+  if (override === undefined) return stored;
+  return applyMetadataOverride(stored ?? UNKNOWN_TOKEN_METADATA, override);
 };
 
 /**
@@ -197,27 +279,6 @@ export const useGetTokenMetadata = () => {
     [assetsMetadata, nativeId]
   );
 };
-
-export function useDetailedAssetMetadata(assetSlug: string, assetId: string) {
-  const baseMetadata = useAssetMetadata(assetSlug, assetId);
-
-  const storageKey = useMemo(() => getDetailedMetadataStorageKey(assetId), [assetId]);
-
-  const { data: detailedMetadata, mutate } = useRetryableSWR<DetailedAssetMetdata>(
-    ['detailed-metadata', storageKey],
-    fetchFromStorage as (key: string) => Promise<DetailedAssetMetdata>,
-    {
-      revalidateOnFocus: false,
-      revalidateOnReconnect: false
-    }
-  );
-
-  useEffect(() => onStorageChanged(storageKey, mutate), [storageKey, mutate]);
-
-  if (assetId === getNativeAssetIdSync() && baseMetadata) return { ...detailedMetadata, ...baseMetadata };
-
-  return detailedMetadata ?? baseMetadata;
-}
 
 /**
  * useAllTokensBaseMetadata - Returns all cached token metadata
@@ -283,17 +344,4 @@ export function searchAssets(
   );
 
   return fuse.search(searchValue).map(({ item: { slug, id } }) => ({ slug, id }));
-}
-
-function getDetailedMetadataStorageKey(assetId: string) {
-  return `detailed_asset_metadata_${assetId}`;
-}
-
-function mapObjectKeys<T extends Record<string, any>>(obj: T, predicate: (key: string) => string): T {
-  const newObj: Record<string, any> = {};
-  for (const key of Object.keys(obj)) {
-    newObj[predicate(key)] = obj[key];
-  }
-
-  return newObj as T;
 }

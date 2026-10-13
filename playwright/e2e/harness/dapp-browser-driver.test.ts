@@ -1,7 +1,16 @@
 /**
  * @jest-environment node
  */
-import { DappBrowserDriver, type DappBrowserState, type DappDriverTarget } from './dapp-browser-driver';
+import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
+import { tmpdir } from 'os';
+
+import {
+  bundledGridCardCount,
+  DappBrowserDriver,
+  type DappBrowserState,
+  type DappDriverTarget
+} from './dapp-browser-driver';
+import { runDappBrowserJourney } from './dapp-browser-scenario';
 import { GENERATION_COLORS, type DappFixtureServer, type DappViewportReport } from './dapp-fixture-server';
 import type { RegionStats } from './dapp-visual';
 
@@ -16,7 +25,12 @@ jest.mock('@playwright/test', () => ({
     return {
       toBeTruthy: () => check(Boolean(actual), 'to be truthy'),
       toBeLessThan: (bound: number) => check(Number(actual) < bound, `to be less than ${bound}`),
+      toBeLessThanOrEqual: (bound: number) => check(Number(actual) <= bound, `to be at most ${bound}`),
       toBeGreaterThan: (bound: number) => check(Number(actual) > bound, `to be greater than ${bound}`),
+      toMatch: (pattern: RegExp) => check(pattern.test(String(actual)), `to match ${pattern}`),
+      toHaveLength: (length: number) =>
+        check(Array.isArray(actual) && actual.length === length, `to have length ${length}`),
+      toBeNull: () => check(actual === null, 'to be null'),
       not: { toBeNull: () => check(actual !== null, 'not to be null') }
     };
   }
@@ -50,7 +64,16 @@ function report(seq: number): DappViewportReport {
  * A driver over a fake page on a simulated clock that only the driver's own delays advance, and a fixture server
  * whose report count follows `seqs`, one entry per read.
  */
-function driverWith(seqs: number[]): { driver: DappBrowserDriver; shots: string[]; elapsed: () => number } {
+function driverWith(
+  seqs: number[],
+  artifactDir = '/tmp/dapp-driver-test'
+): {
+  driver: DappBrowserDriver;
+  target: DappDriverTarget;
+  server: DappFixtureServer;
+  shots: string[];
+  elapsed: () => number;
+} {
   const shots: string[] = [];
   let now = 0;
   let reads = 0;
@@ -77,8 +100,8 @@ function driverWith(seqs: number[]): { driver: DappBrowserDriver; shots: string[
     loadCount: () => 0,
     stop: async () => undefined
   };
-  const driver = new DappBrowserDriver({ target, server, artifactDir: '/tmp/dapp-driver-test', label: 'test' });
-  return { driver, shots, elapsed: () => now };
+  const driver = new DappBrowserDriver({ target, server, artifactDir, label: 'test' });
+  return { driver, target, server, shots, elapsed: () => now };
 }
 
 describe('DappBrowserDriver screenshot checks', () => {
@@ -137,5 +160,193 @@ describe('DappBrowserDriver screenshot checks', () => {
 
     await expect(driver.expectFreshFrame('beta', 'beta-restored')).rejects.toThrow('STALE frame');
     expect(elapsed()).toBe(5_000);
+  });
+
+  it('retains contradictory report receipts and the slot when the zero-width layout oracle fails', async () => {
+    const directory = await mkdtemp(`${tmpdir()}/dapp-layout-diagnostic-`);
+    try {
+      const { driver, server, elapsed } = driverWith([1], directory);
+      const zero = { ...report(1), width: 0, height: 0, at: 30 };
+      server.lastReport = () => zero;
+      server.reports = id =>
+        id === 'alpha'
+          ? [{ ...report(7), id: 'alpha', at: 10 }]
+          : id === 'beta'
+            ? [{ ...report(3), at: 20 }, zero]
+            : [];
+
+      await expect(driver.expectRelayoutMatchesSlot('beta', 'beta-restored')).rejects.toThrow(
+        'beta rendered at width 0'
+      );
+      expect(elapsed()).toBe(15_000);
+      const diagnostic = JSON.parse(await readFile(`${directory}/dapp-test-beta-restored-reports.json`, 'utf8'));
+      expect(diagnostic).toMatchObject({
+        dappId: 'beta',
+        selectedReport: { width: 0, height: 0, seq: 1, at: 30 },
+        expectedState: { foregroundId: 'dapp-beta', slotRect: { width: 400, height: 600 } },
+        observedState: { foregroundId: 'dapp-beta', slotRect: { width: 400, height: 600 } },
+        reports: {
+          alpha: [{ seq: 7, at: 10 }],
+          beta: [
+            { width: 400, seq: 3, at: 20 },
+            { width: 0, seq: 1, at: 30 }
+          ],
+          gamma: []
+        }
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the geometry failure when the diagnostic destination cannot be written', async () => {
+    const directory = await mkdtemp(`${tmpdir()}/dapp-layout-diagnostic-`);
+    try {
+      const destination = `${directory}/occupied`;
+      await writeFile(destination, 'occupied');
+      const { driver, server } = driverWith([1], destination);
+      server.lastReport = () => ({ ...report(1), width: 0 });
+
+      await expect(driver.expectRelayoutMatchesSlot('beta', 'beta-restored')).rejects.toThrow(
+        'beta rendered at width 0'
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('writes timeout diagnostics and keeps the width failure when the observed-state read never settles', async () => {
+    const directory = await mkdtemp(`${tmpdir()}/dapp-layout-diagnostic-`);
+    const { driver, target, server } = driverWith([1], directory);
+    const zero = { ...report(1), width: 0, height: 0, at: 30 };
+    server.lastReport = () => zero;
+    server.reports = id => (id === 'beta' ? [{ ...report(3), at: 20 }, zero] : []);
+    let rejectObserved: ((error: Error) => void) | undefined;
+    const stalled = new Promise<never>((_resolve, reject) => {
+      rejectObserved = reject;
+    });
+    const evalJs = target.evalJs;
+    let reads = 0;
+    target.evalJs = <T = unknown>(js: string): Promise<T> => (++reads === 1 ? evalJs<T>(js) : stalled);
+    let boundaryTimer: ReturnType<typeof setTimeout> | undefined;
+    const boundary = new Promise<never>((_resolve, reject) => {
+      boundaryTimer = setTimeout(() => reject(new Error('diagnostic read exceeded the test boundary')), 2000);
+    });
+    const outcome = driver.expectRelayoutMatchesSlot('beta', 'beta-stalled');
+    try {
+      await expect(Promise.race([outcome, boundary])).rejects.toThrow('beta rendered at width 0');
+      const diagnostic = JSON.parse(await readFile(`${directory}/dapp-test-beta-stalled-reports.json`, 'utf8'));
+      expect(diagnostic).toMatchObject({
+        selectedReport: { width: 0, seq: 1, at: 30 },
+        expectedState: { foregroundId: 'dapp-beta', slotRect: { width: 400, height: 600 } },
+        observedState: { error: expect.stringContaining('timed out') },
+        reports: {
+          alpha: [],
+          beta: [
+            { seq: 3, at: 20 },
+            { seq: 1, at: 30 }
+          ],
+          gamma: []
+        }
+      });
+    } finally {
+      clearTimeout(boundaryTimer);
+      rejectObserved?.(new Error('late observed-state rejection'));
+      await outcome.catch(() => undefined);
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('DappBrowserDriver curated grid', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  // A driver over a page whose grid holds each entry of `grids` in turn, one per read, on a clock only its delays move.
+  function gridDriver(grids: string[][]): {
+    driver: DappBrowserDriver;
+    server: DappFixtureServer;
+    reads: () => number;
+  } {
+    let now = 0;
+    let reads = 0;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const target: DappDriverTarget = {
+      evalJs: async () => JSON.parse(JSON.stringify(grids[Math.min(reads++, grids.length - 1)])),
+      click: async () => undefined,
+      waitFor: async () => undefined,
+      screenshot: async () => undefined,
+      navigateTo: async () => undefined,
+      delay: async ms => {
+        now += ms;
+      }
+    };
+    const server: DappFixtureServer = {
+      port: 0,
+      urlFor: () => '',
+      lastReport: () => report(1),
+      reports: () => [],
+      reset: () => undefined,
+      loadCount: () => 0,
+      stop: async () => undefined
+    };
+    const driver = new DappBrowserDriver({ target, server, artifactDir: '/tmp/dapp-driver-test', label: 'test' });
+    return { driver, server, reads: () => reads };
+  }
+
+  it('waits for the catalog to land instead of reading the grid once', async () => {
+    const both = ['https://faucet.example/', 'https://forkchoice.example/'];
+    const { driver, reads } = gridDriver([[], ['https://faucet.example/'], both]);
+
+    await expect(driver.waitForGridCards(2)).resolves.toEqual(both);
+    expect(reads()).toBe(3);
+  });
+
+  it('names what it last saw when the grid never fills', async () => {
+    const { driver } = gridDriver([['https://faucet.example/']]);
+
+    await expect(driver.waitForGridCards(2)).rejects.toThrow(
+      /at least 2 curated grid cards\. last value: \["https:\/\/faucet\.example\/"\]/
+    );
+  });
+
+  it("passes the journey's grid step on the one row devnet's bundled catalog draws", async () => {
+    const saved = process.env.E2E_NETWORK;
+    process.env.E2E_NETWORK = 'devnet';
+    const { driver, server } = gridDriver([['https://faucet.example/']]);
+    jest.spyOn(driver, 'gotoBrowserTab').mockResolvedValue();
+    jest.spyOn(driver, 'state').mockResolvedValue({ ...STATE, foregroundId: null, sessions: [] });
+    const ran: string[] = [];
+    const steps = {
+      outputDir: '/tmp/dapp-driver-test',
+      step: async (name: string, fn: () => Promise<void>) => {
+        if (ran.length > 0) throw new Error('only the grid step runs here');
+        ran.push(name);
+        await fn();
+      }
+    };
+    try {
+      await expect(runDappBrowserJourney({ driver, server, steps })).rejects.toThrow('only the grid step runs here');
+      expect(ran).toEqual(['launcher_renders_curated_grid']);
+    } finally {
+      if (saved === undefined) delete process.env.E2E_NETWORK;
+      else process.env.E2E_NETWORK = saved;
+    }
+  });
+});
+
+describe('bundledGridCardCount', () => {
+  const saved = process.env.E2E_NETWORK;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.E2E_NETWORK;
+    else process.env.E2E_NETWORK = saved;
+  });
+
+  it("counts the rows the E2E network's bundled catalog draws in its lists, testnet when none is named", () => {
+    process.env.E2E_NETWORK = 'devnet';
+    expect(bundledGridCardCount()).toBe(1);
+    delete process.env.E2E_NETWORK;
+    expect(bundledGridCardCount()).toBe(3);
   });
 });

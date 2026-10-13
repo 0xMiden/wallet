@@ -2,7 +2,9 @@ import React from 'react';
 
 import { fireEvent, render, screen } from '@testing-library/react';
 
+import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
 import type { ClaimableNoteWithMetadata } from 'lib/miden/front/claimable-notes';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { markActivityRead, resetActivityReadState } from 'lib/settings/activity-read';
 
 import { PendingActivityCard, type PendingActivityItem, type PendingActivityStatus } from './PendingActivityCard';
@@ -50,6 +52,17 @@ jest.mock('app/icons/v2', () => ({
 }));
 jest.mock('lib/i18n/numbers', () => ({ formatBigInt: () => '1', getAdaptiveDecimalPlaces: () => 3 }));
 
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+afterEach(() => {
+  mockBridgeSnapshot = undefined;
+});
+
 const note: ClaimableNoteWithMetadata = {
   id: 'note-1',
   faucetId: 'faucet',
@@ -70,6 +83,19 @@ const renderCard = (
 };
 
 describe('PendingActivityCard', () => {
+  it('names a transfer of the testnet bridge faucet by its label', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    const item: PendingActivityItem = {
+      note: { ...note, faucetId: TEST_MIDEN_USDC_FAUCET, metadata: { name: 'USDC', symbol: 'USDC', decimals: 6 } },
+      status: 'pending'
+    };
+    render(<PendingActivityCard item={item} onAccept={jest.fn()} onReject={jest.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { expanded: false }));
+
+    expect(screen.getByText('1 Test Epoch USDC')).toBeInTheDocument();
+  });
+
   // Resolving a `height: auto` keyframe makes Framer measure the element, which calls
   // `window.scrollTo` — unimplemented in jsdom, and noisy rather than fatal. Stub it away.
   beforeAll(() => Object.defineProperty(window, 'scrollTo', { value: () => {}, writable: true }));

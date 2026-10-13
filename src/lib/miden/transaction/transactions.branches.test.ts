@@ -310,14 +310,8 @@ describe('completeSendTransaction', () => {
   it('records undelivered and qualifies the message when the private-note relay fails', async () => {
     // The row stays Completed — the assets have left the account, so Failed would be
     // untrue and would offer a Retry that spends a second time — but it must not
-    // read as an unqualified success.
-    //
-    // This previously asserted a bare 'Sent' on the premise that "the SDK persists
-    // the relay payload to its durable outbox before calling transport, so eventual
-    // delivery is the SDK's responsibility". Rust writes that outbox entry INSIDE
-    // the relay, after resolving the transport API, so every failure upstream of
-    // that point queues nothing — and the wallet cannot tell which side of it a
-    // rejection came from. So the pessimistic state is recorded.
+    // read as an unqualified success. The SDK does not re-send a failed relay, so
+    // the row is what tells the user, and what the delivery sweep retries from.
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     mockSendPrivateNote.mockRejectedValueOnce(new Error('transport-down'));
@@ -356,11 +350,10 @@ describe('completeSendTransaction', () => {
   });
 
   it('records the relay as OWED before attempting it, with the landed tx id and note', async () => {
-    // The ordering is the fix, not an implementation detail: the SDK's outbox is
-    // written from inside the relay, so between submit and that write there was no
-    // durable statement anywhere that a note was owed. An interruption in that
-    // window was indistinguishable from a delivered note. Observed from inside the
-    // relay call, which is the only place the intermediate state is visible.
+    // The ordering is the fix, not an implementation detail: the SDK keeps no record
+    // of a relay it could not make, so without this stamp an interruption between
+    // submit and the outcome would read like a delivered note. Observed from inside
+    // the relay call, which is the only place the intermediate state is visible.
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     const helpers = require('../helpers');
@@ -385,11 +378,7 @@ describe('completeSendTransaction', () => {
 
   it('records undelivered when the WASM client lock cannot be acquired during a private send', async () => {
     // A lock failure on this path means the relay never ran, so the note was never
-    // handed to anyone. This previously asserted a bare 'Sent' on the grounds that
-    // "lock acquisition failures are non-fatal: the on-chain tx is the source of
-    // truth and the SDK's outbox + sync_state will reconcile" — but with no relay
-    // there is no outbox entry to reconcile FROM, so that reported the exact silent
-    // loss being hunted.
+    // handed to anyone, and only the row's state lets the delivery sweep retry it.
     const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
     txStore.push({ ...tx });
     const helpers = require('../helpers');

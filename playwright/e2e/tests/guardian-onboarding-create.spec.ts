@@ -20,17 +20,16 @@
  *                                  startCreateFlow() → protectionStepRoute()
  *   Create password              `create-password-input`
  *     └ Continue                 → generates the mnemonic + navigates to
- *                                  '/#meet-guardian' (onAction 'create-password-submit')
- *   Meet your Guardian           `onboarding-meet-guardian`: the fastest operator's card
- *                                  and its Change action, from the first probe round
- *     └ tick the three facts     → Continue opens
- *     └ the card's "Change"      → '/#choose-guardian' (onAction 'choose-guardian')
- *   Choose guardian              `onboarding-choose-guardian`, on the card's operator
- *     └ Continue, facts ticked   → WalletType.Guardian + '/#confirmation'
+ *                                  '/#guardian-intro' (onAction 'create-password-submit')
+ *   Meet your Guardian           `onboarding-guardian-intro`: what a Guardian is
+ *     └ Continue                 → '/#meet-guardian' (onAction 'guardian-intro-submit')
+ *   Choose your Guardian         `onboarding-meet-guardian`: the fastest operator,
+ *                                  from the first probe round
+ *     └ "Change provider"        → the provider sheet (`meet-guardian-provider-sheet`);
+ *                                  a card picks its operator and closes the sheet
+ *     └ Continue                 → WalletType.Guardian + '/#confirmation'
  *                                  (onAction 'choose-guardian-submit'), once the
  *                                  picked operator has answered online
- *     └ Continue, facts unticked → back to Meet your Guardian (onAction 'back'),
- *                                  its card showing the pick
  *   Confirmation                 `onboarding-confirmation`
  *     └ "Open wallet"            → register() → the telemetry consent prompt
  *                                  `onboarding-help-improve-wallet`
@@ -156,21 +155,21 @@ test.describe('Onboarding — create', () => {
     });
 
     await steps.step('guardian_choice_is_offered_and_accepted', async () => {
-      // Meet your Guardian picks the fastest operator on its own; the spec wants THE operator
-      // this run is configured for, so it ticks the three facts and opens the full picker.
+      // Choose your Guardian picks the fastest operator on its own; the spec wants THE operator
+      // this run is configured for, so it goes past the intro and opens the provider sheet.
       await openGuardianPickerFromMeetGuardian(page);
-      await expect(page.getByTestId('onboarding-choose-guardian')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('meet-guardian-provider-sheet')).toBeVisible({ timeout: 30_000 });
 
-      // The picker renders one card per operator that runs a guardian on this
+      // The sheet renders one card per operator that runs a guardian on this
       // network, each tagged with the endpoint it would bind to
-      // (`data-guardian-endpoint`, ChooseGuardian.tsx:142). Selecting by endpoint
+      // (`data-guardian-endpoint`, GuardianProviderSheet.tsx). Selecting by endpoint
       // rather than by position means the spec is asserting "the guardian this
       // run is configured for is offered", not "some card exists".
       const pickedGuardian = page.locator(`[data-guardian-endpoint="${envConfig.guardianUrl}"]`);
       await expect(pickedGuardian).toHaveCount(1);
       await pickedGuardian.click();
 
-      await page.getByTestId('choose-guardian-continue').click();
+      await page.getByTestId('meet-guardian-continue').click();
     });
 
     await steps.step('confirmation_creates_the_wallet_and_lands_on_home', async () => {

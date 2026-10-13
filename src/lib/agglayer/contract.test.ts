@@ -2,7 +2,7 @@ import type { EIP1193Provider } from 'viem';
 
 import { getAgglayerL1Bridge } from 'lib/remote-config/values';
 
-import { claimAgglayerDeposit } from './contract';
+import { claimAgglayerDeposit, midenAddrToEvmAddr } from './contract';
 import { type AgglayerDeposit, fetchMerkleProof } from './status';
 
 const mockFrom = jest.fn();
@@ -13,6 +13,22 @@ jest.mock('ethers', () => ({
 }));
 jest.mock('lib/remote-config/values', () => ({ getAgglayerL1Bridge: jest.fn() }));
 jest.mock('./status', () => ({ fetchMerkleProof: jest.fn() }));
+// As strict as the SDK where it matters: fromHex takes only a literal `0x`, and fromBech32 rejects an
+// underscore, standing in for a routing suffix it cannot decode.
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  AccountId: {
+    fromHex: (hex: string) => {
+      if (!hex.startsWith('0x')) throw new Error('hex encoded data must start with 0x');
+      return { toString: () => hex.toLowerCase() };
+    }
+  },
+  Address: {
+    fromBech32: (address: string) => {
+      if (address.includes('_')) throw new Error('invalid note tag length');
+      return { accountId: () => ({ toString: () => `0x${address.slice(address.indexOf('1') + 1)}` }) };
+    }
+  }
+}));
 
 const DEPOSIT: AgglayerDeposit = {
   leaf_type: 0,
@@ -29,10 +45,17 @@ const DEPOSIT: AgglayerDeposit = {
   ready_for_claim: true,
   global_index: '365072220160'
 };
-const provider: EIP1193Provider = { request: jest.fn(), on: jest.fn(), removeListener: jest.fn() };
+const mockRequest = jest.fn();
+const provider: EIP1193Provider = { request: mockRequest, on: jest.fn(), removeListener: jest.fn() };
+/** The provider answers eth_chainId with `chains` in turn, the last one from then on. */
+const onChains = (...chains: string[]) =>
+  mockRequest.mockImplementation(async ({ method }: { method: string }) =>
+    method === 'eth_chainId' ? (chains.length > 1 ? chains.shift() : chains[0]) : null
+  );
 
 beforeEach(() => {
   jest.clearAllMocks();
+  onChains('0xaa36a7');
   mockFrom.mockReturnValue({ claimAsset: mockClaimAsset });
   mockClaimAsset.mockResolvedValue({ hash: '0xclaim' });
   jest.mocked(fetchMerkleProof).mockResolvedValue({
@@ -56,5 +79,28 @@ it('fetches no proof and sends nothing while the config names no L1 bridge', asy
   });
   await expect(claimAgglayerDeposit({ deposit: DEPOSIT, provider })).rejects.toThrow('no L1 bridge');
   expect(fetchMerkleProof).not.toHaveBeenCalled();
+  expect(mockClaimAsset).not.toHaveBeenCalled();
+});
+
+it('pads the id of the address part of a composite whose routing suffix the bech32 parser rejects', () => {
+  expect(midenAddrToEvmAddr('mtst10123456789abcdef0123456789abcd_qruqqypuyph')).toBe(
+    '0x000000000123456789abcdef0123456789abcd00'
+  );
+});
+
+// A USDCx deposit can leave the wallet on Arc, where claimAsset to the L1 bridge's address would succeed against no
+// contract and read as claimed.
+it('switches a wallet on another chain to Sepolia before claiming', async () => {
+  jest.mocked(getAgglayerL1Bridge).mockReturnValue('0x00000000000000000000000000000000000000b2');
+  onChains('0x4cef52', '0xaa36a7');
+  await claimAgglayerDeposit({ deposit: DEPOSIT, provider });
+  expect(mockRequest).toHaveBeenCalledWith({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0xaa36a7' }] });
+  expect(mockClaimAsset).toHaveBeenCalledTimes(1);
+});
+
+it('refuses a claim on another chain without sending it', async () => {
+  jest.mocked(getAgglayerL1Bridge).mockReturnValue('0x00000000000000000000000000000000000000b2');
+  onChains('0x4cef52');
+  await expect(claimAgglayerDeposit({ deposit: DEPOSIT, provider })).rejects.toThrow('Sepolia');
   expect(mockClaimAsset).not.toHaveBeenCalled();
 });

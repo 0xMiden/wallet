@@ -1,7 +1,8 @@
 import type { ITransaction } from 'lib/miden/db/types';
+import { heldNoteIdsOf } from 'lib/miden/transaction/verdict-rules';
 
 /**
- * Maps each note id under an in-flight consume to the transaction claiming it.
+ * Maps each note id under an in-flight consume, or under a dApp transaction that will consume it, to that transaction.
  *
  * This is the single definition of "being claimed" for every platform. Mobile and
  * desktop already derived it from live consume rows; the extension used to keep its
@@ -16,17 +17,16 @@ import type { ITransaction } from 'lib/miden/db/types';
  * The value is the claiming row's id, not just membership, so the UI can send the
  * user to that transaction's progress screen instead of showing a dead label.
  *
- * Pass rows already narrowed to the account and to claims holding their notes
- * (`getNoteHoldingTransactions`); this only filters them down to consumes.
+ * Pass rows already narrowed to the account and to rows holding their notes
+ * (`getNoteHoldingTransactions`). A dApp transaction gates its notes too: Claim and
+ * auto-consume (`selectAutoConsumeBatch`) both read this map, and a claim of a note
+ * the transaction is about to consume races it.
  */
 export function claimingTxIdByNoteId(uncompletedTxs: readonly ITransaction[]): Map<string, string> {
   const byNoteId = new Map<string, string>();
 
   for (const tx of uncompletedTxs) {
-    if (tx.type !== 'consume') continue;
-    // Batch claims carry `noteIds`; a single-note claim carries `noteId`.
-    const noteIds = tx.noteIds ?? (tx.noteId != null ? [tx.noteId] : []);
-    for (const noteId of noteIds) {
+    for (const noteId of heldNoteIdsOf(tx)) {
       // First row wins: the dedup in `initiateConsumeTransaction` means a second
       // live row for the same note should not exist, and if one ever does the
       // older row is the one actually processing.

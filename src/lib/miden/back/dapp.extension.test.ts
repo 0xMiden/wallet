@@ -11,7 +11,10 @@
  * trigger the resolve / reject branches inside generatePromisify*.
  */
 
-import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
+import extensionBrowser from 'webextension-polyfill';
+
+import { MidenDAppConsumeRequest, MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MidenMessageType } from 'lib/miden/types';
 
@@ -182,7 +185,8 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 // Stub the wallet adapter package's enums (jest can't destructure the .mjs build).
 jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   PrivateDataPermission: { UponRequest: 'UPON_REQUEST', Auto: 'AUTO' },
-  AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
+  AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 },
+  WalletAdapterNetwork: { Testnet: 'testnet' }
 }));
 
 // Provide a richer browser stub than the default __mocks__/webextension-polyfill.
@@ -272,6 +276,61 @@ beforeEach(() => {
 // @ts-ignore — kept for reference
 
 describe('requestConfirm window-position fallback', () => {
+  it('keeps a confirmation onscreen when the focused window has no dimensions', async () => {
+    const focused = jest.mocked(extensionBrowser.windows.getLastFocused);
+    const create = jest.mocked(extensionBrowser.windows.create);
+    const update = jest.mocked(extensionBrowser.windows.update);
+    const originalUpdate = update.getMockImplementation();
+    focused.mockResolvedValueOnce({
+      id: 1,
+      focused: true,
+      incognito: false,
+      alwaysOnTop: false,
+      left: 0,
+      top: 0,
+      width: 0,
+      height: 0
+    });
+    create.mockResolvedValueOnce({ id: 999, focused: true, incognito: false, alwaysOnTop: false, left: 20, top: 20 });
+    update.mockImplementationOnce(async (_id, bounds) => {
+      const left = bounds.left ?? 0;
+      const top = bounds.top ?? 0;
+      const width = create.mock.calls.at(-1)?.[0]?.width ?? 0;
+      const height = create.mock.calls.at(-1)?.[0]?.height ?? 0;
+      const visibleWidth = Math.max(0, Math.min(1600, left + width) - Math.max(0, left));
+      const visibleHeight = Math.max(0, Math.min(1200, top + height) - Math.max(0, top));
+      if (visibleWidth * visibleHeight < (width * height) / 2) {
+        throw new Error('Invalid value for bounds. Bounds must be at least 50% within visible screen space.');
+      }
+      return { id: 999, focused: true, incognito: false, alwaysOnTop: false, left, top };
+    });
+    try {
+      const result = await driveConfirmation(
+        () =>
+          dapp
+            .requestSign('https://miden.xyz', {
+              type: MidenDAppMessageType.SignRequest,
+              sourcePublicKey: 'miden-account-1',
+              sourceAccountId: 'miden-account-1',
+              payload: 'aGVsbG8=',
+              kind: 'word'
+            })
+            .then(
+              () => 'approved',
+              (error: unknown) => (error instanceof Error ? error.message : String(error))
+            ),
+        MidenMessageType.DAppSignConfirmationRequest,
+        { confirmed: false }
+      );
+      expect(create).toHaveBeenCalledWith(expect.objectContaining({ left: 20, top: 20 }));
+      expect(result).toBe(MidenDAppErrorType.NotGranted);
+      expect(update).not.toHaveBeenCalled();
+    } finally {
+      update.mockReset();
+      if (originalUpdate) update.mockImplementation(originalUpdate);
+    }
+  });
+
   it('uses screen coordinates when getLastFocused throws', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     browser.windows.getLastFocused.mockRejectedValueOnce(new Error('no focused window'));
@@ -948,6 +1007,27 @@ describe('Full confirmation cycles in extension mode', () => {
     expect(sdk.initiateConsumeTransactionFromId.mock.calls[0][3]).toBe(true);
   });
 
+  it('requestConsumeTransaction refuses a note another transaction holds rather than answer with it', async () => {
+    // As the real call: a dApp's request is refused, the wallet's own claim is answered with the holding row.
+    const sdk = require('lib/miden/transaction');
+    sdk.initiateConsumeTransactionFromId.mockImplementationOnce(async (...args: unknown[]) => {
+      if (args[4] === true) throw new Error('This note is being consumed by another transaction');
+      return 'other-dapp-transaction';
+    });
+    const request: MidenDAppConsumeRequest = {
+      type: MidenDAppMessageType.ConsumeRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'private', amount: 50 }
+    };
+    await expect(
+      driveConfirmation(
+        () => dapp.requestConsumeTransaction('https://miden.xyz', request),
+        MidenMessageType.DAppTransactionConfirmationRequest,
+        { confirmed: true, delegate: true }
+      )
+    ).rejects.toThrow('This note is being consumed by another transaction');
+  });
+
   it('requestPrivateNotes rejects when user declines (covers onDecline at L641)', async () => {
     _g.__dappExtTest.midenClient.getInputNoteDetails = jest.fn().mockResolvedValue([]);
     await expect(
@@ -1410,6 +1490,24 @@ describe('a watchdog eviction mid-read abandons the extension flow instead of do
     expect((_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://evicted-dapp.xyz']).toBeUndefined();
   });
 
+  it('requestPermission rejects with the terminated-client refusal, not a false NotGranted, when the account read meets one', async () => {
+    // A terminated client is a kill like the eviction above: retryable, never a permissions verdict.
+    const terminated = new Error('WebClient terminated');
+    _g.__dappExtTest.midenClient.getAccount = jest.fn().mockRejectedValue(terminated);
+    await expect(
+      driveConfirmation(
+        () =>
+          dapp.requestPermission('https://terminated-dapp.xyz', {
+            type: MidenDAppMessageType.PermissionRequest,
+            appMeta: { name: 'Terminated Dapp' },
+            network: WalletAdapterNetwork.Testnet
+          }),
+        MidenMessageType.DAppPermConfirmationRequest,
+        { confirmed: true, accountPublicKey: 'miden-account-1', privateDataPermission: 'UPON_REQUEST' }
+      )
+    ).rejects.toBe(terminated);
+  });
+
   it('requestSign rejects with the poison error, not a false NotGranted, when evicted during the authorization read', async () => {
     arrangeSignerAccount();
     const getPublicKeyCommitments = jest.fn(() => [{ serialize: () => SIGNER_COMMITMENT }]);
@@ -1435,6 +1533,29 @@ describe('a watchdog eviction mid-read abandons the extension flow instead of do
     ).rejects.toThrow(WasmClientPoisonedError);
     expect(getPublicKeyCommitments).not.toHaveBeenCalled();
     // An abandoned authorization must fail the request, never sign anyway.
+    expect(signData).not.toHaveBeenCalled();
+  });
+
+  it('requestSign rejects with the terminated-client refusal, not a false NotGranted, when the authorization read meets one', async () => {
+    arrangeSignerAccount();
+    const terminated = new Error('WebClient terminated');
+    _g.__dappExtTest.midenClient.getAccount = jest.fn().mockRejectedValue(terminated);
+    const signData = jest.fn(async () => 'stolen-signature');
+    mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+    await expect(
+      driveConfirmation(
+        () =>
+          dapp.requestSign('https://miden.xyz', {
+            type: MidenDAppMessageType.SignRequest,
+            sourcePublicKey: SIGNER_COMMITMENT_HEX,
+            sourceAccountId: 'miden-account-1',
+            payload: 'aGVsbG8=',
+            kind: 'word'
+          }),
+        MidenMessageType.DAppSignConfirmationRequest,
+        { confirmed: true }
+      )
+    ).rejects.toBe(terminated);
     expect(signData).not.toHaveBeenCalled();
   });
 });

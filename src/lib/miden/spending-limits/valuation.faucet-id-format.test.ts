@@ -1,5 +1,6 @@
 import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
-import { _resetNormalizedFaucetIdsForTest, TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _resetNormalizedFaucetIdsForTest, _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import {
   getNativeAssetId,
@@ -48,8 +49,6 @@ const TST_METADATA = {
   decimals: 6,
   symbol: 'TST',
   name: 'TST',
-  shouldPreferSymbol: true,
-  thumbnailUri: '',
   scaleIsUnknown: false
 };
 
@@ -67,8 +66,8 @@ const BECH32_BY_ACCOUNT_ID = new Map<unknown, string>([
   [sentinelAccountId, BECH32_FAUCET],
   [usdcAccountId, USDC_BECH32],
   [nativeAccountId, NATIVE_BECH32],
-  [iethAccountId, TOKEN_IETH.faucetId],
-  [ibtcAccountId, TOKEN_IBTC.faucetId]
+  [iethAccountId, TEST_TOKEN_IETH.faucetId],
+  [ibtcAccountId, TEST_TOKEN_IBTC.faucetId]
 ]);
 const ACCOUNT_ID_BY_BECH32 = new Map([...BECH32_BY_ACCOUNT_ID].map(([accountId, bech32]) => [bech32, accountId]));
 // A bech32 id's prefix names its network, so each faucet above has one spelling per network.
@@ -127,6 +126,8 @@ jest.mock('../metadata', () => jest.requireActual('../metadata/fetch'));
 describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // The testnet document's registry, without loading a bridge config (the runtime above is a stub).
+    _setSwapTokensForTest(TEST_SWAP_TOKENS);
     // An earlier case's successful parse would otherwise match the allowlist without the SDK.
     _resetNormalizedFaucetIdsForTest();
     process.env.MIDEN_E2E_TEST = 'true';
@@ -172,6 +173,7 @@ describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format
 
   afterEach(() => {
     delete process.env.MIDEN_E2E_TEST;
+    _setSwapTokensForTest(undefined);
   });
 
   it('sanity: prices a spend already in the cache-matching bech32 form (the dApp SEND path)', async () => {
@@ -226,10 +228,10 @@ describe('resolveSpendsUsd against the real fetchTokenMetadata (faucet id format
       if (key === 'usd_price_cache') return { ETH: { priceMicro: '2000000000', fetchedAt: 10 } };
       // The spend was canonicalized, and its metadata cached, under the network it started on.
       mockNetwork = 'devnet';
-      return { [TOKEN_IETH.faucetId]: IETH_METADATA };
+      return { [TEST_TOKEN_IETH.faucetId]: IETH_METADATA };
     });
 
-    await expect(resolveSpendsUsd([{ faucetId: TOKEN_IETH.faucetId, amount: 100_000_000n }], 10)).resolves.toBe(
+    await expect(resolveSpendsUsd([{ faucetId: TEST_TOKEN_IETH.faucetId, amount: 100_000_000n }], 10)).resolves.toBe(
       2_000_000_000n
     );
   });

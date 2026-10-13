@@ -9,6 +9,8 @@ concurrency:
   cancel-in-progress: true
 permissions:
   contents: read
+  # The linked-PR injections list a dispatched branch's open pull request and read its description.
+  pull-requests: read
 jobs:
   # Hermetic, per-PR guardian bridge-OUT coverage. The standard-account bridge
   # suite (pr-e2e / playwright.bridge.config.ts) runs on real testnet and only
@@ -206,10 +208,10 @@ jobs:
   # reports no required name; a push, or a close and reopen, is what gets a
   # retargeted pull request its required names from its own pull_request run.
   # A by-hand workflow_dispatch run reports the required name on the branch
-  # head, against published packages, with no linked-PR injection: the inject
-  # actions exit on any event but pull_request. Branch protection accepts
-  # that check for a pull request at the same commit, which is the spec's
-  # by-hand escape hatch.
+  # head, built against the linked PRs that the branch's open pull request
+  # names, as its pull_request run is (none on main or next). Branch
+  # protection accepts that check for a pull request at the same commit,
+  # which is the spec's by-hand escape hatch.
   bridge-guardian-e2e-gate:
     name: ${{ (github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next') && 'bridge-guardian-e2e-gate' || 'bridge-guardian-e2e-gate (stacked)' }}
     needs: [bridge-guardian-e2e]

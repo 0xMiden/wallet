@@ -17,9 +17,35 @@
  */
 
 import { expect } from '@playwright/test';
+import { mkdir, writeFile } from 'fs/promises';
 
-import { fixtureDapp, GENERATION_COLORS, GENERATION_MARKER_PX, type DappFixtureServer } from './dapp-fixture-server';
+import {
+  fixtureDapp,
+  FIXTURE_DAPPS,
+  GENERATION_COLORS,
+  GENERATION_MARKER_PX,
+  type DappFixtureServer
+} from './dapp-fixture-server';
 import { describeStats, measureVerticalOffsetCss, sampleRegion, type Rect } from './dapp-visual';
+import { resolveWalletNetwork } from './extension-network';
+import devnetCatalog from '../../../src/lib/explore-config/snapshot/devnet.json';
+import testnetCatalog from '../../../src/lib/explore-config/snapshot/testnet.json';
+
+const BUNDLED_CATALOGS: Record<string, { sections: Array<{ kind: string; itemIds: string[] }> }> = {
+  devnet: devnetCatalog,
+  testnet: testnetCatalog
+};
+
+/**
+ * How many curated grid rows an E2E build draws for the network the suite runs on: one per distinct app the bundled
+ * catalog's list sections name, since such a build reads no other catalog and a featured section draws cards instead.
+ */
+export function bundledGridCardCount(): number {
+  const network = resolveWalletNetwork(process.env.E2E_NETWORK);
+  const catalog = BUNDLED_CATALOGS[network];
+  if (!catalog) throw new Error(`no bundled Explore catalog for ${network}`);
+  return new Set(catalog.sections.filter(section => section.kind === 'list').flatMap(section => section.itemIds)).size;
+}
 
 /** The slice of a mobile page object this driver needs. */
 export interface DappDriverTarget {
@@ -234,6 +260,19 @@ export class DappBrowserDriver {
   }
 
   /**
+   * The curated grid's card URLs once at least `min` cards render. The grid draws the bundled
+   * catalog's rows only once the network's floor has been read, so the wait covers that read as
+   * well as a network switch replacing those rows while the step reads them.
+   */
+  async waitForGridCards(min: number): Promise<string[]> {
+    return this.pollUntil(
+      `at least ${min} curated grid cards`,
+      () => this.gridCardUrls(),
+      urls => urls.length >= min
+    );
+  }
+
+  /**
    * Wait until `dappId` is the foreground session AND has finished loading.
    *
    * Waiting on `status === 'active' && !isLoading` rather than a fixed sleep is
@@ -419,7 +458,35 @@ export class DappBrowserDriver {
       async () => this.server.lastReport(dappId),
       r => !!r && Math.abs(r.width - slot.width) <= tolerancePx && Math.abs(r.height - slot.height) <= tolerancePx,
       15_000
-    ).catch(() => this.server.lastReport(dappId));
+    ).catch(async error => {
+      const selectedReport = this.server.lastReport(dappId);
+      let observedStateTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const diagnostic = {
+          capturedAt: Date.now(),
+          dappId,
+          label,
+          pollingError: String(error),
+          selectedReport: selectedReport ?? null,
+          reports: Object.fromEntries(FIXTURE_DAPPS.map(({ id }) => [id, this.server.reports(id)])),
+          expectedState: state,
+          observedState: await Promise.race([
+            this.state().catch(error => ({ error: String(error) })),
+            new Promise<{ error: string }>(resolve => {
+              observedStateTimer = setTimeout(() => resolve({ error: 'observed state timed out after 1000ms' }), 1000);
+            })
+          ]).finally(() => clearTimeout(observedStateTimer))
+        };
+        await mkdir(this.artifactDir, { recursive: true });
+        await writeFile(
+          `${this.artifactDir}/dapp-${this.label}-${label.replace(/[^a-zA-Z0-9_-]+/g, '-')}-reports.json`,
+          JSON.stringify(diagnostic, null, 2)
+        );
+      } catch {
+        // Diagnostics must not replace the geometry failure.
+      }
+      return selectedReport;
+    });
 
     expect(report, `[${label}] dApp '${dappId}' never reported its layout`).toBeTruthy();
     expect(

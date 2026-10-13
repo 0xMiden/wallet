@@ -50,9 +50,7 @@ function useResolvedAssets(assets: AssetAmount[]): ResolvedAsset[] {
           // ON-CHAIN for its real symbol+decimals, degrading to the "Unknown"
           // default (never native MIDEN) on failure — so an unrecognized
           // faucet is never mislabeled as native MIDEN on this security screen.
-          const md = await fetchTokenMetadata(a.faucetId)
-            .then(r => r.base)
-            .catch(() => undefined);
+          const md = await fetchTokenMetadata(a.faucetId).catch(() => undefined);
           return {
             faucetId: a.faucetId,
             amount: a.amount,
@@ -92,7 +90,7 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
   const isVerified = mode === 'verified';
 
   return (
-    <div className="flex flex-col items-center justify-center">
+    <div className="flex flex-col items-center justify-center" data-testid="tx-asset-view" data-mode={mode}>
       {mode === 'declared' && (
         <span className="text-text-muted text-xs mb-2 self-start">{t('declaredBySiteVerifying')}</span>
       )}
@@ -172,7 +170,7 @@ export const TransactionAssetView: React.FC<TransactionAssetViewProps> = ({ view
         </div>
         <div className="flex flex-row w-full items-center justify-between pb-1">
           <span className="text-text-muted">{t('outputNotesCreated')}</span>
-          <span>{view.outputNotesCreated}</span>
+          <span data-testid="tx-output-notes-created">{view.outputNotesCreated}</span>
         </div>
         {/*
           A cost the user pays, so it is shown rather than merely subtracted. It sits here, in

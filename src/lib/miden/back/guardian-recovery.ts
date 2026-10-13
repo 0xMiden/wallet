@@ -12,6 +12,7 @@ import { registerGuardianOrigin } from 'lib/miden/guardian/native-http';
 import { WalletSigner } from 'lib/miden/guardian/signer';
 import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 import { withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { getAllUncompletedTransactions } from 'lib/miden/transaction/get';
 import { b64ToU8 } from 'lib/shared/helpers';
@@ -24,7 +25,6 @@ import {
   terminalGuardianHistoryGeneration
 } from './guardian-history-recovery';
 import { midenClientProxy } from './miden-client-proxy';
-import { OperationAbortedError } from './offscreen-codec';
 import { accountsUpdated, store } from './store';
 import { doSync } from './sync-manager';
 import type { Vault } from './vault';
@@ -94,10 +94,11 @@ function isWalletLocked(): boolean {
  *
  * An eviction of the op's lock hold is the same abandonment, whether it comes
  * from the inline path's own hold or is rehydrated from the offscreen realm by
- * the proxy.
+ * the proxy. So is a call on a terminated client: the next offer runs on its
+ * successor.
  */
 function isAbortedOp(error: unknown): boolean {
-  return error instanceof OperationAbortedError || isWasmClientPoisonedError(error);
+  return isPipelineKillLink(error);
 }
 
 /** Defers the pass for an aborted op, recording whether the abort was an eviction. */

@@ -1,0 +1,139 @@
+{
+  "network": "testnet",
+  "version": 2,
+  "items": [
+    {
+      "id": "faucet",
+      "name": {
+        "en": "Faucet"
+      },
+      "tagline": {
+        "en": "Get testnet tokens"
+      },
+      "url": "https://faucet.testnet.miden.io/",
+      "category": "tools",
+      "icon": "icons/faucet.png",
+      "brandColor": "#778C72",
+      "isExchange": false
+    },
+    {
+      "id": "forkchoice-faucet",
+      "name": {
+        "en": "Forkchoice Faucet"
+      },
+      "tagline": {
+        "en": "Get testnet tokens for swap",
+        "de": "Testnet-Token für Swaps erhalten",
+        "en_GB": "Get testnet tokens for swap",
+        "es": "Obtén tokens de testnet para swaps",
+        "fr": "Obtenez des jetons testnet pour les swaps",
+        "ja": "スワップ用のテストネットトークンを入手",
+        "ko": "스왑용 테스트넷 토큰 받기",
+        "pl": "Zdobądź tokeny testnetowe do swapów",
+        "pt": "Obtenha tokens de testnet para swaps",
+        "ru": "Получите тестовые токены для обмена",
+        "tr": "Takas için testnet token’ı alın",
+        "uk": "Отримайте тестові токени для обміну",
+        "zh_CN": "获取用于兑换的测试网代币",
+        "zh_TW": "取得用於兌換的測試網代幣"
+      },
+      "url": "https://faucets.forkchoice.xyz/",
+      "category": "tools",
+      "icon": "icons/forkchoice-faucet.png",
+      "brandColor": "#2563EB",
+      "isExchange": false
+    },
+    {
+      "id": "where-legends-grow",
+      "name": {
+        "en": "Where Legends Grow"
+      },
+      "tagline": {
+        "en": "Build a football club, train your squad and play matches",
+        "de": "Fußballverein aufbauen, Kader trainieren und Spiele bestreiten",
+        "en_GB": "Build a football club, train your squad and play matches",
+        "es": "Crea un club de fútbol, entrena a tu plantilla y juega partidos",
+        "fr": "Créez un club de football, entraînez votre effectif et jouez des matchs",
+        "ja": "サッカークラブを作り、選手を育てて試合に挑む",
+        "ko": "축구 클럽을 만들고 선수단을 훈련시켜 경기하기",
+        "pl": "Zbuduj klub piłkarski, trenuj kadrę i rozgrywaj mecze",
+        "pt": "Crie um clube de futebol, treine seu elenco e dispute partidas",
+        "ru": "Создайте футбольный клуб, тренируйте команду и проводите матчи",
+        "tr": "Bir futbol kulübü kurun, kadronuzu çalıştırın ve maçlara çıkın",
+        "uk": "Створіть футбольний клуб, тренуйте команду та проводьте матчі",
+        "zh_CN": "组建足球俱乐部，训练球队并参加比赛",
+        "zh_TW": "組建足球俱樂部，訓練球隊並參加比賽"
+      },
+      "url": "https://wherelegendsgrow.com/",
+      "category": "games",
+      "icon": "icons/where-legends-grow.png",
+      "brandColor": "#07101F",
+      "isExchange": false
+    }
+  ],
+  "sections": [
+    {
+      "id": "featured",
+      "kind": "featured",
+      "title": {
+        "en": "Featured",
+        "de": "Empfohlen",
+        "en_GB": "Featured",
+        "es": "Destacado",
+        "fr": "À la une",
+        "ja": "おすすめ",
+        "ko": "추천",
+        "pl": "Polecane",
+        "pt": "Destaque",
+        "ru": "Рекомендуем",
+        "tr": "Öne çıkan",
+        "uk": "Рекомендоване",
+        "zh_CN": "精选",
+        "zh_TW": "精選"
+      },
+      "itemIds": ["faucet"]
+    },
+    {
+      "id": "helper-tools",
+      "kind": "list",
+      "title": {
+        "en": "Helper tools",
+        "de": "Hilfsprogramme",
+        "en_GB": "Helper tools",
+        "es": "Herramientas",
+        "fr": "Outils",
+        "ja": "ヘルパーツール",
+        "ko": "도우미 도구",
+        "pl": "Narzędzia pomocnicze",
+        "pt": "Ferramentas",
+        "ru": "Вспомогательные инструменты",
+        "tr": "Yardımcı araçlar",
+        "uk": "Допоміжні інструменти",
+        "zh_CN": "辅助工具",
+        "zh_TW": "輔助工具"
+      },
+      "itemIds": ["faucet", "forkchoice-faucet"]
+    },
+    {
+      "id": "games",
+      "kind": "list",
+      "title": {
+        "en": "Games",
+        "de": "Spiele",
+        "en_GB": "Games",
+        "es": "Juegos",
+        "fr": "Jeux",
+        "ja": "ゲーム",
+        "ko": "게임",
+        "pl": "Gry",
+        "pt": "Jogos",
+        "ru": "Игры",
+        "tr": "Oyunlar",
+        "uk": "Ігри",
+        "zh_CN": "游戏",
+        "zh_TW": "遊戲"
+      },
+      "itemIds": ["where-legends-grow"]
+    }
+  ]
+}

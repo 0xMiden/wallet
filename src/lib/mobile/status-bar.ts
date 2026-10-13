@@ -1,10 +1,15 @@
 import { Capacitor, registerPlugin, SystemBars, SystemBarsStyle, SystemBarType } from '@capacitor/core';
 
+import { ResolvedTheme } from 'lib/settings/constants';
+
 interface SystemChromePlugin {
   setBackground(options: { color: string }): Promise<void>;
 }
 
 const SystemChrome = registerPlugin<SystemChromePlugin>('SystemChrome');
+
+/** The page colour native chrome sits on in each resolved theme; the WebView headers use it too. */
+export const NATIVE_PAGE_COLOR: Record<ResolvedTheme, string> = { dark: '#191919', light: '#ffffff' };
 
 async function ignoreFailure(call: () => Promise<void>): Promise<void> {
   try {
@@ -21,7 +26,7 @@ async function applyNativeTheme(dark: boolean): Promise<void> {
   if (Capacitor.getPlatform() !== 'android') return;
   // SystemBars.setStyle resets the window background to the theme's
   // windowBackground, so the page colour goes on only after it settles.
-  await ignoreFailure(() => SystemChrome.setBackground({ color: dark ? '#191919' : '#ffffff' }));
+  await ignoreFailure(() => SystemChrome.setBackground({ color: NATIVE_PAGE_COLOR[dark ? 'dark' : 'light'] }));
 }
 
 /**

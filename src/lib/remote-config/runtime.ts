@@ -6,6 +6,7 @@ import {
   type StorageChangeSubscription
 } from 'lib/miden/front/storage';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { backoffDelay, foregroundThreshold, isCheckDue } from 'lib/versioned-document';
 
 import { BRIDGE_FEATURES, type BridgeFeature, featureAvailability, type UnavailableReason } from './availability';
 import { deriveBridgeConfig, type DerivedBridgeConfig, type Probe } from './derive';
@@ -33,11 +34,8 @@ export interface BridgeConfigSnapshot {
 }
 
 export const HEALTHY_POLL_MS = 3_600_000;
-export const FOREGROUND_STALE_MS = 900_000;
 export const DEGRADED_VISIBLE_POLL_MS = 60_000;
 export const DEGRADED_POLL_MS = 300_000;
-export const MAX_BACKOFF_MS = 900_000;
-const FIRST_BACKOFF_MS = 60_000;
 
 // Only these clear without a new document (a deploy finishing, a service coming back), so only these keep the
 // 5-minute cadence going in the background. Counting 'off' and 'not-configured' would keep devnet, a network whose
@@ -316,8 +314,6 @@ function startRefresh(state: NetworkState): Promise<void> {
   return state.refreshing;
 }
 
-const backoffDelay = (failures: number) => Math.min(FIRST_BACKOFF_MS * 2 ** (failures - 1), MAX_BACKOFF_MS);
-
 function unavailableReasons(snapshot: BridgeConfigSnapshot): UnavailableReason[] {
   const overrides = getE2eOverrides();
   return BRIDGE_FEATURES.flatMap(feature => {
@@ -339,9 +335,7 @@ function isDue(state: NetworkState, threshold: number): boolean {
   if (state.refreshing) return false;
   // Nothing to show and nothing has failed yet: there is no age to wait out.
   if (state.failures === 0 && (!state.stored || !state.derived)) return true;
-  const now = Date.now();
-  // A stamp later than the clock is skew and says nothing about age.
-  return now < state.checkedAt || now - state.checkedAt >= threshold;
+  return isCheckDue(state.checkedAt, threshold);
 }
 
 function clearTimer(): void {
@@ -373,7 +367,7 @@ async function check(kind: 'timer' | 'foreground'): Promise<void> {
   if (document.visibilityState === 'hidden') return;
   const interval = pollInterval(state);
   // On open and on a return to the foreground, a healthy copy counts as stale after 15 minutes, not 60.
-  const threshold = kind === 'foreground' ? Math.min(interval, FOREGROUND_STALE_MS) : interval;
+  const threshold = kind === 'foreground' ? foregroundThreshold(interval) : interval;
   if (isDue(state, threshold)) await startRefresh(state);
   else arm();
 }
@@ -418,6 +412,12 @@ export async function _refreshBridgeConfigForTest(): Promise<BridgeConfigSnapsho
   const state = await hydrateCurrent();
   await startRefresh(state);
   return stateFor(state.network).snapshot;
+}
+
+/** A page realm calls this after it changes the effective network: readers re-read, and the new network loads. */
+export function followEffectiveNetwork(): void {
+  listeners.forEach(listener => listener());
+  void initBridgeConfig().then(arm);
 }
 
 /** A greyed-out control on an active page holds the 60 s cadence while it is held. */

@@ -2543,7 +2543,7 @@
     semver "^7.5.4"
     uuid "^9.0.1"
 
-"@miden-sdk/miden-sdk@0.17.0", "@miden-sdk/miden-sdk@0.17.3":
+"@miden-sdk/miden-sdk@0.17.3":
   version "0.17.3"
   resolved "https://registry.yarnpkg.com/@miden-sdk/miden-sdk/-/miden-sdk-0.17.3.tgz#c7eecf9c6784567b898376d76aeed0c532113034"
   integrity sha512-37FIyywn/HAiFj/VM81J/FcAq+ZcaTXvHVnOizPfMZz/XEwgeVVYqawwFFSsemRT/bY910oV3b7Zi0iGGiPT7w==
@@ -2584,10 +2584,10 @@
   resolved "https://registry.yarnpkg.com/@miden-sdk/node-linux-x64-gnu/-/node-linux-x64-gnu-0.17.3.tgz#79c063f00535a9957ecc1f9fc0128d65b2a3ec8c"
   integrity sha512-S4R49wHo8nyBC2dfBhZYPpFSzqbDneU0N0fzd1OuL1D7VRpc4hL6dXs5hiaifVZHJL8SNH9mksCwr6eUeYdjTA==
 
-"@miden-sdk/react@0.17.0":
-  version "0.17.0"
-  resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.17.0.tgz#e4ae936449a6bd0bf9dd9e31224bff97da947814"
-  integrity sha512-XbvB+WAD4Dk/xC5+p6B7x53lYnMNyTOn2QnREd6k46zrEEcNfn9vBzo7CVhwRD3zB7dW6Ionm905o+Vc/5468w==
+"@miden-sdk/react@0.17.3":
+  version "0.17.3"
+  resolved "https://registry.yarnpkg.com/@miden-sdk/react/-/react-0.17.3.tgz#20a44a3047f99bea68305435fbcfb2fbd0b95f48"
+  integrity sha512-oLY0rrcXUvIcx3mpeIu7S/G0sVmgs+ZpitZWcYU2uxYKq5yM9+Bd6mMY13nbXIYqRWLN3od9B2bMdrDHWC87YA==
   dependencies:
     zustand "^5.0.0"
 
@@ -2719,20 +2719,20 @@
   resolved "https://registry.yarnpkg.com/@nolyfill/is-core-module/-/is-core-module-1.0.39.tgz#3dc35ba0f1e66b403c00b39344f870298ebb1c8e"
   integrity sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==
 
-"@openzeppelin/guardian-client@0.18.0", "@openzeppelin/guardian-client@^0.18.0":
-  version "0.18.0"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.18.0.tgz#c74a413d84ee8b179999b375221e9e35207f9b22"
-  integrity sha512-CqzjTvDawKfBxgmkS3s35v0ssHUg98+px4no5r866CiF6d4x1mfznyiXR3vq0lLynR/QTbTNih98L7g3S4TyVA==
+"@openzeppelin/guardian-client@0.18.1", "@openzeppelin/guardian-client@^0.18.1":
+  version "0.18.1"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/guardian-client/-/guardian-client-0.18.1.tgz#25f1e10e1d2fa74ee67eab351c8820bb167f9b76"
+  integrity sha512-46u/6QHQUewSkwRsjPDLFgD5xsCgwKp7OQQZQmZgud3zfb9ilPRP+m70EsB3k6qyIqaeTcl2LbjZKgKo8pNQVQ==
 
-"@openzeppelin/miden-multisig-client@0.18.0":
-  version "0.18.0"
-  resolved "https://registry.yarnpkg.com/@openzeppelin/miden-multisig-client/-/miden-multisig-client-0.18.0.tgz#90429ed19fa9d192c081329a610d82217f5e432b"
-  integrity sha512-2fBqzAXvNTczpjv37Gsr1Hi15zst0bU9tewocT2OHiG9ztDC8x8ogrbAuV16Vb2koqqAG4FAOX9np/q/CeNM2Q==
+"@openzeppelin/miden-multisig-client@0.18.1":
+  version "0.18.1"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/miden-multisig-client/-/miden-multisig-client-0.18.1.tgz#17024c811d7ed37a39150fc5b0cb4e3f696372dd"
+  integrity sha512-JnVY71aa3ewPq/C/T3gtDYw00EHJiwHwo96m52I6I8yhsoRzI/1SKDEfO+r1NTJ4lwOoJl+Cs3aczQbHUoZUog==
   dependencies:
-    "@miden-sdk/miden-sdk" "0.17.0"
+    "@miden-sdk/miden-sdk" "0.17.3"
     "@noble/curves" "^1.9.7"
     "@noble/hashes" "^2.0.1"
-    "@openzeppelin/guardian-client" "^0.18.0"
+    "@openzeppelin/guardian-client" "^0.18.1"
 
 "@oxc-project/types@=0.133.0":
   version "0.133.0"
@@ -2864,7 +2864,7 @@
   resolved "https://registry.yarnpkg.com/@radix-ui/react-context/-/react-context-1.1.4.tgz#5e39f26ebbefed27836e46e763e8f71e09999ccd"
   integrity sha512-QwH4PO5urrbO+FaGd5Aglg+YJgWTyyuZ3g/6mKvsqraLkglDdckw9JafgL5McL5VEJ6EPNduPaT3ZE9BttDAqg==
 
-"@radix-ui/react-dialog@^1.1.1":
+"@radix-ui/react-dialog@1.1.17", "@radix-ui/react-dialog@^1.1.1":
   version "1.1.17"
   resolved "https://registry.yarnpkg.com/@radix-ui/react-dialog/-/react-dialog-1.1.17.tgz#43d0f7b3a8b7f0d12f79fd67176528dcdd61ff7f"
   integrity sha512-TDTYmpdq8dI2+Xgvgj9AJ8Ghqq+Eph/TRVEdaFQPDItIY+6QSkU7MJMeevw1568Yw/2Ijz8BTphPSP2XejKphw==

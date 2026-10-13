@@ -11,6 +11,7 @@ import { accentForTransactionType } from 'components/flow/accent';
 import { FlowLayout } from 'components/flow/FlowLayout';
 import { RecoverySeedPrompt } from 'components/RecoverySeedPrompt';
 import { ErrorDetails } from 'components/ui/ErrorDetails';
+import { outlineSurfaceClassName } from 'components/ui/surfaces';
 import {
   acknowledgementOf,
   bridgeProviderOf,
@@ -520,7 +521,13 @@ export const GeneratingTransaction: React.FC<GeneratingTransactionProps> = ({
             <TransactionSummaryBadge {...transactionSummaryBadgeContent} className="mt-4" />
           )}
 
-          <div className="mt-6 w-full overflow-hidden rounded-2xl bg-fill">
+          {/* Earn's steps sit on the outline surface, in Nunito throughout, like the rest of its flow. */}
+          <div
+            className={classNames(
+              'mt-6 w-full overflow-hidden rounded-2xl',
+              accent === 'earn' ? classNames(outlineSurfaceClassName, 'face-heading') : 'bg-fill'
+            )}
+          >
             {steps.map((step, index) => {
               const waitingOnGuardian = guardianBusy && index === 0;
               const state = waitingOnGuardian

@@ -350,6 +350,151 @@ export async function waitForVaultBalanceByFaucetId(
   );
 }
 
+interface CurrentAccountRows {
+  account: string | null;
+  rows: Array<{ tokenId: string; decimals: number; balance: number }>;
+}
+
+// The store keys `balances` by the account's public key, the same key `currentAccount` carries (withLandedBalances in
+// src/lib/store/index.ts), so the current account's rows are one lookup and no other account's rows can leak in.
+async function currentAccountRows(page: Page): Promise<CurrentAccountRows> {
+  return page.evaluate(() => {
+    const store:
+      | {
+          getState?: () => {
+            currentAccount?: { publicKey?: string } | null;
+            balances?: Record<string, TokenBalanceData[]>;
+            assetsMetadata?: Record<string, AssetMetadata>;
+          };
+        }
+      | undefined = Reflect.get(window, '__TEST_STORE__');
+    const state = store?.getState?.();
+    const account = state?.currentAccount?.publicKey;
+    const rows = account === undefined ? [] : (state?.balances?.[account] ?? []);
+    return {
+      account: account ?? null,
+      rows: rows.map(token => ({
+        tokenId: String(token?.tokenId ?? ''),
+        decimals: Number(token?.metadata?.decimals ?? state?.assetsMetadata?.[String(token?.tokenId ?? '')]?.decimals),
+        balance: Number(token?.balance ?? 0)
+      }))
+    };
+  });
+}
+
+function rowsToBaseUnits(label: string, rows: CurrentAccountRows['rows']): bigint {
+  let total = 0n;
+  for (const row of rows) {
+    if (!Number.isInteger(row.decimals) || row.decimals < 0)
+      throw new Error(`${label}: missing or invalid token decimals`);
+    total += rowBaseUnits(label, row.balance, row.decimals);
+  }
+  return total;
+}
+
+/**
+ * Spendable base units of one faucet in the CURRENT account only. `vaultBalance` and `vaultBalanceByFaucetId` sum
+ * every account's rows, so with a second account in the wallet a debit on one hides behind the other's balance.
+ */
+export async function vaultBalanceOfCurrentAccount(page: Page, faucetId: string): Promise<bigint> {
+  const { account, rows } = await currentAccountRows(page);
+  if (account === null) throw new Error('vaultBalanceOfCurrentAccount: the store has no current account');
+  return rowsToBaseUnits(
+    `vaultBalanceOfCurrentAccount(${faucetId})`,
+    rows.filter(row => row.tokenId === faucetId)
+  );
+}
+
+/** Wait for an exact spendable balance of one faucet in the current account, or report expected and actual units. */
+export async function waitForVaultBalanceOfCurrentAccount(
+  page: Page,
+  faucetId: string,
+  expected: bigint,
+  opts: { timeoutMs?: number } = {}
+): Promise<void> {
+  return pollVaultBalance(
+    page,
+    `waitForVaultBalanceOfCurrentAccount(${faucetId})`,
+    () => vaultBalanceOfCurrentAccount(page, faucetId),
+    expected,
+    opts
+  );
+}
+
+/** Faucet id to base units summed over `entries`, zeros left out: the shape `assetMap` gives a dApp's view. */
+function nonzeroAssets(entries: ReadonlyArray<readonly [string, bigint]>): Record<string, string> {
+  const sums = new Map<string, bigint>();
+  for (const [id, amount] of entries) sums.set(id, (sums.get(id) ?? 0n) + amount);
+  return Object.fromEntries(
+    [...sums].filter(([, amount]) => amount !== 0n).map(([id, amount]) => [id, amount.toString()])
+  );
+}
+
+const storeAssets = (label: string, rows: CurrentAccountRows['rows']) =>
+  nonzeroAssets(rows.map(row => [row.tokenId, rowsToBaseUnits(`${label}(${row.tokenId})`, [row])] as const));
+
+/** Nonzero assets of the current account as faucet id to base units, the shape `assetMap` gives a dApp's view. */
+export async function vaultAssetsOfCurrentAccount(page: Page): Promise<Record<string, string>> {
+  const { account, rows } = await currentAccountRows(page);
+  if (account === null) throw new Error('vaultAssetsOfCurrentAccount: the store has no current account');
+  return storeAssets('vaultAssetsOfCurrentAccount', rows);
+}
+
+/** What a baseline's vault read sees (`storeHoldsSyncSince` in dapp-gates.ts), as nonzero base units per faucet. */
+export interface VaultReading {
+  storeAccount: string | null;
+  /** The store's vault for its current account. */
+  store: Record<string, string>;
+  /** The last sync the service worker published (`miden_sync_data`, sync-manager.ts:676-693), whichever account's. */
+  sync: { account: string; syncedAtMs: number; vault: Record<string, string> } | null;
+}
+
+/**
+ * The store's vault beside the sync it is refreshed from. On the extension the store takes `miden_sync_data` only on a
+ * 3 s poll (useIntercomSync.ts:165-186), so the two can differ for a few seconds after a sync. With `faucetIds`, both
+ * hold only those faucets, and no other token's display balance is converted (`rowBaseUnits` throws on a lossy one).
+ */
+export async function vaultReadingOfCurrentAccount(page: Page, faucetIds?: readonly string[]): Promise<VaultReading> {
+  const { account, rows } = await currentAccountRows(page);
+  const kept = (faucetId: string) => faucetIds === undefined || faucetIds.includes(faucetId);
+  const published = await page.evaluate(async () => {
+    const got = await chrome.storage.local.get('miden_sync_data');
+    const data: unknown = Reflect.get(got, 'miden_sync_data');
+    if (typeof data !== 'object' || data === null) return null;
+    const assets: unknown = Reflect.get(data, 'vaultAssets');
+    const stamp: unknown = Reflect.get(data, 'syncedAt');
+    return {
+      account: String(Reflect.get(data, 'accountPublicKey') ?? ''),
+      syncedAt: typeof stamp === 'number' ? stamp : null,
+      assets: (Array.isArray(assets) ? assets : []).map(asset => ({
+        faucetId: String(Reflect.get(Object(asset), 'faucetId') ?? ''),
+        amount: String(Reflect.get(Object(asset), 'amountBaseUnits') ?? '0')
+      }))
+    };
+  });
+  const stamp = published?.syncedAt ?? null;
+  return {
+    storeAccount: account,
+    store: storeAssets(
+      'vaultReadingOfCurrentAccount',
+      rows.filter(row => kept(row.tokenId))
+    ),
+    sync:
+      published === null || stamp === null
+        ? null
+        : {
+            account: published.account,
+            // Scaled as walletSyncedAtMs (test-dapp.ts) scales it, so a stamp in seconds never reads as long past.
+            syncedAtMs: stamp < 1e12 ? stamp * 1000 : stamp,
+            vault: nonzeroAssets(
+              published.assets
+                .filter(asset => kept(asset.faucetId))
+                .map(asset => [asset.faucetId, BigInt(asset.amount)] as const)
+            )
+          }
+  };
+}
+
 /** Re-read `read` every 2s until it equals `expected`, or throw with both amounts and `diagnose`'s lines. */
 async function pollVaultBalance(
   page: Page,

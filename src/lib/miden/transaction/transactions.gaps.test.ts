@@ -763,17 +763,8 @@ describe('a custom transaction that strands a private note says so', () => {
     expect(row.displayMessage).not.toContain('could not be delivered');
   });
 
-  // A relay throw IS treated as undelivered, and this case used to assert the
-  // opposite on the premise that the note is already in the client's store by the
-  // time the transport is called, so the SDK's retry outbox would deliver it.
-  //
-  // That premise does not survive contact with where the outbox is written. Rust
-  // writes the entry INSIDE the relay and only after it has resolved the transport
-  // API, so every failure upstream of that write queues nothing while throwing
-  // exactly like a mid-transport timeout that DID queue: transport not configured,
-  // a realm torn down before the op ran, and — new under 0.16 — `sendPrivateOutput`
-  // failing to resolve the note by id in this client's store. The two are
-  // indistinguishable from here, so the row records the pessimistic one:
+  // A relay throw IS treated as undelivered: the SDK does not re-send a failed
+  // relay, so the row's state is what the delivery sweep retries from, and
   // over-reporting a note that arrives anyway costs a stale warning, while
   // under-reporting costs the funds.
   it('flags a relay that threw, because the transport may never have received it', async () => {

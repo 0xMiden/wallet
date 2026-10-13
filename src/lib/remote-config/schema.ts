@@ -1,9 +1,37 @@
+import { KNOWN_SYMBOLS } from 'lib/prices/constant';
 import { isRecord } from 'lib/update/guards';
 import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 
 /** The per-feature switches a document carries; each stops new starts only. */
 export const BRIDGE_SWITCHES = ['earn', 'fastBridge', 'bridgeIn', 'bridgeOut'] as const;
 export type BridgeSwitch = (typeof BRIDGE_SWITCHES)[number];
+
+/** The marks `components/TokenLogo` ships, which a swap token's `logo` names. */
+export const SUPPORTED_SWAP_TOKEN_LOGOS = ['MIDEN', 'ETH', 'USDC', 'BTC'] as const;
+export type SwapTokenLogo = (typeof SUPPORTED_SWAP_TOKEN_LOGOS)[number];
+
+/** A fungible faucet's decimals: the protocol allows up to 12 (miden-objects `BasicFungibleFaucet::MAX_DECIMALS`). */
+export const MAX_SWAP_TOKEN_DECIMALS = 12;
+
+/** A swap token as the document lists it. */
+export interface SwapTokenConfig {
+  /** 1 to 6 upper-case letters, as the protocol's `TokenSymbol` allows; unique in the list. */
+  symbol: string;
+  /** '0x' + 30 lowercase hex; unique in the list. */
+  faucetId: string;
+  /** The faucet's on-chain decimals: typed amounts are converted with it. */
+  decimals: number;
+  logo?: SwapTokenLogo;
+  /** The asset the price feed values the token at (a `KNOWN_SYMBOLS` key); absent means unpriced. */
+  priceSymbol?: string;
+}
+
+export interface SwapConfig {
+  /** In picker order; the first two are the pair the swap form opens on. */
+  tokens: SwapTokenConfig[];
+  /** The DEX quote service's base URL, which `getSwapEta` appends `/v1/swap-eta` to; absent means no quotes. */
+  etaUrl?: string;
+}
 
 /** EVM chains the wallet ships RPC and explorer definitions for: the WalletConnect chain registry (Sepolia). */
 export const SUPPORTED_EVM_CHAIN_IDS: readonly number[] = SUPPORTED_CHAINS.map(chain => chain.id);
@@ -14,6 +42,12 @@ export type EarnProtocol = (typeof SUPPORTED_EARN_PROTOCOLS)[number];
 
 /** A 20-byte EVM address, lowercase. */
 export type EvmAddress = `0x${string}`;
+
+/** The switch and moment behind the mainnet countdown banner. `launchAt` is epoch milliseconds, UTC. */
+export interface MainnetCountdownConfig {
+  enabled: boolean;
+  launchAt?: number;
+}
 
 export interface BridgeConfig {
   network: string;
@@ -35,13 +69,21 @@ export interface BridgeConfig {
    * unlock the invite-only way in.
    */
   onboarding?: { inviteOnly: boolean };
+  /** Always set by the parser; optional in the type so a stand-in config built by a test needs none. */
+  mainnetCountdown?: MainnetCountdownConfig;
+  /** Always set by the parser; optional in the type for the same reason. Absent reads as no swap tokens. */
+  swap?: SwapConfig;
 }
 
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const MIDEN_ACCOUNT_ID = /^0x[0-9a-fA-F]{30}$/;
+const TOKEN_SYMBOL = /^[A-Z]{1,6}$/;
+// An RFC 3339 timestamp in UTC, such as 2026-10-26T00:00:00Z: one spelling, so every wallet reads the same instant.
+const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const LOCAL_HTTP_HOSTS = ['127.0.0.1', 'localhost'];
 
 // Each check throws on a violation and parseBridgeConfig catches once: one bad known field rejects the document.
+// The one exception is mainnetCountdown, which only drives a banner: a bad countdown turns it off (see readCountdown).
 const invalid = (): never => {
   throw new Error('invalid bridge config');
 };
@@ -98,7 +140,7 @@ function earnProtocol(value: unknown): EarnProtocol | undefined {
   return SUPPORTED_EARN_PROTOCOLS.find(protocol => protocol === value);
 }
 
-function featureSwitch(features: Record<string, unknown>, name: BridgeSwitch): boolean {
+function featureSwitch(features: Record<string, unknown>, name: string): boolean {
   const value = features[name];
   if (value === undefined) return false;
   return typeof value === 'boolean' ? value : invalid();
@@ -106,6 +148,75 @@ function featureSwitch(features: Record<string, unknown>, name: BridgeSwitch): b
 
 function flag(value: unknown): boolean {
   return typeof value === 'boolean' ? value : invalid();
+}
+
+// Undefined for anything but the one accepted spelling of a real instant. Engines differ on an impossible day
+// (V8 rolls 2026-02-30 over to March), so the date must survive a round trip through toISOString.
+function utcTimestamp(value: unknown): number | undefined {
+  if (typeof value !== 'string' || !UTC_TIMESTAMP.test(value)) return undefined;
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return undefined;
+  return new Date(parsed).toISOString().slice(0, 19) === value.slice(0, 19) ? parsed : undefined;
+}
+
+// Never throws: a countdown that is malformed in any way is off, and the rest of the document still counts.
+function readCountdown(value: unknown): MainnetCountdownConfig {
+  if (value === undefined || !isRecord(value)) return { enabled: false };
+  const { enabled, launchAt } = value;
+  if (enabled !== undefined && typeof enabled !== 'boolean') return { enabled: false };
+  const moment = launchAt === undefined ? undefined : utcTimestamp(launchAt);
+  if (launchAt !== undefined && moment === undefined) return { enabled: false };
+  return { enabled: enabled === true, ...(moment === undefined ? {} : { launchAt: moment }) };
+}
+
+function swapTokenLogo(value: unknown): SwapTokenLogo | undefined {
+  if (typeof value !== 'string') return invalid();
+  return SUPPORTED_SWAP_TOKEN_LOGOS.find(logo => logo === value);
+}
+
+// A symbol the feed does not quote is dropped, not an error: the token is then unpriced, like any unknown token.
+function priceSymbol(value: unknown): string | undefined {
+  if (typeof value !== 'string') return invalid();
+  return typeof KNOWN_SYMBOLS[value] === 'string' ? value : undefined;
+}
+
+function tokenSymbol(value: unknown): string {
+  if (typeof value !== 'string' || !TOKEN_SYMBOL.test(value)) return invalid();
+  return value;
+}
+
+function tokenDecimals(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > MAX_SWAP_TOKEN_DECIMALS) {
+    return invalid();
+  }
+  return value;
+}
+
+function readSwapToken(value: unknown): SwapTokenConfig {
+  if (!isRecord(value)) return invalid();
+  const symbol = tokenSymbol(value.symbol);
+  const faucetId = midenAccountId(value.faucetId);
+  const decimals = tokenDecimals(value.decimals);
+  const logo = read(value, 'logo', swapTokenLogo);
+  const priced = read(value, 'priceSymbol', priceSymbol);
+  return {
+    symbol,
+    faucetId,
+    decimals,
+    ...(logo === undefined ? {} : { logo }),
+    ...(priced === undefined ? {} : { priceSymbol: priced })
+  };
+}
+
+// The list in the document's order. Two entries for one faucet, or one symbol, would make the picker ambiguous.
+function readSwapTokens(value: unknown): SwapTokenConfig[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return invalid();
+  const tokens = value.map(readSwapToken);
+  const faucetIds = new Set(tokens.map(token => token.faucetId));
+  const symbols = new Set(tokens.map(token => token.symbol));
+  if (faucetIds.size !== tokens.length || symbols.size !== tokens.length) return invalid();
+  return tokens;
 }
 
 function readConfig(body: unknown, network: string, allowLocalHttp: boolean): BridgeConfig {
@@ -118,6 +229,8 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   const epoch = section(body.epoch);
   const features = section(body.features);
   const inviteOnly = read(section(body.onboarding), 'inviteOnly', flag);
+  const swap = section(body.swap);
+  const etaUrl = read(swap, 'etaUrl', url);
   const chain = read(evm, 'chainId', chainId);
   const l1Bridge = read(agglayer, 'l1Bridge', evmAddress);
   const midenBridge = read(agglayer, 'midenBridge', midenAccountId);
@@ -149,6 +262,8 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
       bridgeIn: featureSwitch(features, 'bridgeIn'),
       bridgeOut: featureSwitch(features, 'bridgeOut')
     },
+    mainnetCountdown: readCountdown(body.mainnetCountdown),
+    swap: { tokens: readSwapTokens(swap.tokens), ...(etaUrl === undefined ? {} : { etaUrl }) },
     ...(inviteOnly === undefined ? {} : { onboarding: { inviteOnly } })
   };
 }

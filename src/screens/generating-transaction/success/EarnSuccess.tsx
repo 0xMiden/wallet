@@ -86,7 +86,7 @@ export const EarnSuccess: FC<TransactionSuccessProps> = ({ transaction, txHash, 
       onClose={onDoneClick}
     >
       <SuccessSummaryPill lhs={amountText} rhs={market} separator={<EarnDepositArrowGlyph />} />
-      <ReceiptRows rows={rows} className="mt-6" />
+      <ReceiptRows rows={rows} surface="outline" className="mt-6" />
     </TransactionSuccessLayout>
   );
 };

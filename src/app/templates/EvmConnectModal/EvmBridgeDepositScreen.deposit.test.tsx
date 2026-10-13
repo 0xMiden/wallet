@@ -3,8 +3,17 @@ import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import type { ReportDeposit } from 'app/hooks/useFundTelemetry';
-import { initiateBridgedReceiveTransaction } from 'lib/miden/activity';
+import {
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_EVM_CHAIN_ID,
+  TEST_EVM_USDC,
+  TEST_MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
+import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { NativeReown } from 'lib/walletconnect/native';
+import { readSepoliaErc20Allowance, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 
@@ -23,7 +32,9 @@ jest.mock('@reown/appkit/react', () => ({
 }));
 
 const mockMutateAsync = jest.fn();
+const mockSwitchChainAsync = jest.fn().mockResolvedValue(undefined);
 jest.mock('wagmi', () => ({
+  useSwitchChain: () => ({ switchChainAsync: mockSwitchChainAsync }),
   useWriteContract: () => ({ mutateAsync: mockMutateAsync })
 }));
 
@@ -45,6 +56,19 @@ const READY_SNAPSHOT: MockSnapshot = {
       allocatorUrl: 'https://allocator.test',
       evmUsdc: '0x00000000000000000000000000000000000000c0',
       midenUsdcFaucet: '0x00000000000000000000000000e2e0'
+    }
+  },
+  lastFetch: null
+};
+/** The screen's own snapshot naming the testnet USDC pair the runtime fixture names. */
+const TESTNET_SNAPSHOT: MockSnapshot = {
+  status: 'ready',
+  config: {
+    evm: { chainId: TEST_EVM_CHAIN_ID },
+    epoch: {
+      allocatorUrl: 'https://allocator.test',
+      evmUsdc: TEST_EVM_USDC.address,
+      midenUsdcFaucet: TEST_MIDEN_USDC_FAUCET
     }
   },
   lastFetch: null
@@ -75,14 +99,34 @@ jest.mock('lib/remote-config/use-feature-availability', () => {
   };
 });
 // The suite's Miden account is no real address; the Slow route only needs its EVM form to exist.
+// The native Reown signer encodes `bridgeAsset` itself, so the ABI carries that one entry.
 jest.mock('lib/agglayer', () => ({
-  AGGLAYER_BRIDGE_ABI: [],
+  AGGLAYER_BRIDGE_ABI: [
+    {
+      type: 'function',
+      name: 'bridgeAsset',
+      stateMutability: 'payable',
+      inputs: [
+        { name: 'destinationNetwork', type: 'uint32' },
+        { name: 'destinationAddress', type: 'address' },
+        { name: 'amount', type: 'uint256' },
+        { name: 'token', type: 'address' },
+        { name: 'forceUpdateGlobalExitRoot', type: 'bool' },
+        { name: 'permitData', type: 'bytes' }
+      ],
+      outputs: []
+    }
+  ],
   AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL: 'ETH',
   midenAddrToEvmAddr: () => '0x00000000000000000000000000000000000000a1'
 }));
+// The symbol the Sepolia token read gave the configured USDC.
+let mockEvmUsdcSymbol = 'USDC';
 jest.mock('lib/remote-config/values', () => ({
   selectEvmUsdc: ({ config }: MockSnapshot) =>
-    config ? { address: config.epoch.evmUsdc, symbol: 'USDC', decimals: 18, chainId: config.evm.chainId } : null,
+    config
+      ? { address: config.epoch.evmUsdc, symbol: mockEvmUsdcSymbol, decimals: 18, chainId: config.evm.chainId }
+      : null,
   selectMidenUsdc: ({ config }: MockSnapshot) =>
     config ? { faucetId: config.epoch.midenUsdcFaucet, symbol: 'USDC', decimals: 6 } : null,
   getAgglayerDeposit: () => ({ l1Bridge: '0x00000000000000000000000000000000000000b2', rollupId: 77 })
@@ -127,9 +171,10 @@ jest.mock('lib/mobile/haptics', () => ({
 }));
 
 // The banner renders nothing on mainnet: pin a test network so its assertion does not rest on jest.setup's default.
+let mockTestNetwork: 'testnet' | 'devnet' = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getTestNetworkNameKey: () => 'testnet'
+  getTestNetworkNameKey: () => mockTestNetwork
 }));
 
 // The sheet the banner opens needs a router this suite does not mount; it is never opened here.
@@ -141,17 +186,24 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
   useMobileBackHandler: () => undefined
 }));
 
+// The signer flavour: the wagmi one unless a case selects the native Reown one.
+let mockNativeReown = false;
+// The fee read hits the chain; here the wallet estimates, as it does when the read fails.
+jest.mock('lib/walletconnect/fees', () => ({ readNativeFeeFields: async () => ({}) }));
+
 jest.mock('lib/walletconnect/native', () => ({
-  isNativeReownAvailable: () => false,
+  isNativeReownAvailable: () => mockNativeReown,
   NativeReown: { sendTransaction: jest.fn() },
   unwrapNativeResult: (value: unknown) => value
 }));
 
 jest.mock('lib/walletconnect/receipt', () => ({
-  waitForSepoliaReceipt: jest.fn().mockResolvedValue(undefined)
+  waitForSepoliaReceipt: jest.fn().mockResolvedValue(undefined),
+  readSepoliaErc20Allowance: jest.fn()
 }));
 
 jest.mock('lib/walletconnect/config', () => ({
+  ...jest.requireActual('lib/walletconnect/config'),
   DEFAULT_CHAIN_ID: 11155111,
   SUPPORTED_CHAINS: [{ id: 11155111 }],
   getChain: () => ({ rpcUrl: 'https://rpc.test', name: 'Sepolia' })
@@ -165,7 +217,8 @@ let mockLastConnectAnother: () => void = () => undefined;
 // Step components stubbed down to the affordances the deposit path needs.
 jest.mock('./EvmBridgeDepositForm', () => ({
   EvmBridgeDepositForm: ({
-    token,
+    tokenLabel,
+    arrivingName,
     amount,
     error,
     onAmountChange,
@@ -173,7 +226,8 @@ jest.mock('./EvmBridgeDepositForm', () => ({
     onSelectToken,
     onSwitch
   }: {
-    token: { name: string };
+    tokenLabel: string;
+    arrivingName: string;
     amount: string;
     error?: string;
     onAmountChange: (value?: string) => void;
@@ -186,7 +240,8 @@ jest.mock('./EvmBridgeDepositForm', () => ({
       <div>
         <span data-testid="form-error">{error}</span>
         <span data-testid="form-amount">{amount}</span>
-        <span data-testid="form-token">{token.name}</span>
+        <span data-testid="form-token">{tokenLabel}</span>
+        <span data-testid="form-arriving">{`arrives as ${arrivingName}`}</span>
         <button data-testid="set-amount" onClick={() => onAmountChange('1.5')}>
           amount
         </button>
@@ -212,21 +267,26 @@ jest.mock('./EvmBridgeDepositForm', () => ({
 
 /** The Review's latest Confirm handler: a tap can land on Review while the Navigator is leaving it. */
 let mockLastReviewConfirm: () => unknown = () => undefined;
+// The real `arrivingTokenName`, so the amount step names the arriving token by the rule the Review renders with.
 jest.mock('./EvmBridgeDepositReview', () => ({
+  ...jest.requireActual<typeof import('./EvmBridgeDepositReview')>('./EvmBridgeDepositReview'),
   EvmBridgeDepositReview: ({
     amount,
     fiat,
     outputAmount,
+    label,
     onConfirm
   }: {
     amount: string;
     fiat?: number;
     outputAmount?: string;
+    label?: string;
     onConfirm: () => void;
   }) => {
     mockLastReviewConfirm = onConfirm;
     return (
       <div>
+        <span data-testid="review-label">{label}</span>
         <span data-testid="review-amount">{amount}</span>
         <span data-testid="review-fiat">{fiat}</span>
         <span data-testid="review-output">{outputAmount}</span>
@@ -242,21 +302,33 @@ jest.mock('./EvmBridgeDepositStatus', () => ({
   EvmBridgeDepositStatus: () => <div data-testid="deposit-status" />
 }));
 
+// This realm's bridge config, for anything under the screen that reads it: the real, unloaded one, or the loaded testnet
+// one a case sets. The screen's own labels read the screen's snapshot above, so a label case sets both alike.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+
 jest.mock('./EvmBridgeTokenDrawer', () => ({
   EvmBridgeTokenDrawer: ({
     open,
     onSelect,
     usdcBalance,
+    usdcLabel,
     usdcLoading
   }: {
     open: boolean;
     onSelect: (token: string) => void;
     usdcBalance: string;
+    usdcLabel: string;
     usdcLoading: boolean;
   }) => {
     mockLastTokenSelect = onSelect;
     return (
       <div>
+        <span data-testid="usdc-label">{usdcLabel}</span>
         <span data-testid="usdc-balance">{usdcLoading ? 'loading' : usdcBalance}</span>
         {open ? (
           <button data-testid="pick-eth" onClick={() => onSelect('ETH')}>
@@ -277,6 +349,14 @@ jest.mock('./EvmSwitchWalletDrawer', () => ({
       </button>
     ) : null;
   }
+}));
+
+jest.mock('./EvmBridgeUsdcxRoute', () => ({
+  EvmBridgeUsdcxRoute: ({ onConfirm }: { onConfirm: () => void }) => (
+    <button data-testid="usdcx-confirm-route" onClick={onConfirm}>
+      route
+    </button>
+  )
 }));
 
 jest.mock('screens/send-flow/Route', () => ({
@@ -354,9 +434,9 @@ const reachSlowUsdcReview = async () => {
 };
 
 const connectAnother = jest.fn();
-const depositScreen = (reportDeposit?: ReportDeposit) => (
+const depositScreen = (reportDeposit?: ReportDeposit, evmAddress = '0xevm-wallet') => (
   <EvmBridgeDepositScreen
-    evmAddress="0xevm-wallet"
+    evmAddress={evmAddress}
     midenAccount={midenAccount as never}
     onConnectAnother={connectAnother}
     onClose={jest.fn()}
@@ -394,6 +474,8 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     jest.clearAllMocks();
     mockAvailability = {};
     mockSnapshot = READY_SNAPSHOT;
+    mockTestNetwork = 'testnet';
+    mockEvmUsdcSymbol = 'USDC';
     jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
     global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ result: '0x0' }) }) as never;
   });
@@ -401,6 +483,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
   // The Fast case below quotes into the shared store; every case starts from it idle.
   afterEach(() => {
     Object.assign(epochState, idleEpoch);
+    mockBridgeSnapshot = undefined;
   });
 
   it('routes the deposit submission through the reporter', async () => {
@@ -455,6 +538,53 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     });
 
     expect(initiateBridgedReceiveTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('names the USDC row USDC while no bridge config is loaded', () => {
+    mockSnapshot = { status: 'loading', config: null, lastFetch: null };
+    renderScreen();
+
+    expect(screen.getByTestId('usdc-label')).toHaveTextContent(/^USDC$/);
+  });
+
+  it('names the USDC row by the testnet label once the config names the token', () => {
+    mockSnapshot = TESTNET_SNAPSHOT;
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    renderScreen();
+
+    expect(screen.getByTestId('usdc-label')).toHaveTextContent('Test Epoch USDC');
+  });
+
+  it('names the configured USDC by the testnet label on the Review', async () => {
+    mockSnapshot = TESTNET_SNAPSHOT;
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    renderScreen();
+
+    await reachSlowUsdcReview();
+
+    expect(await screen.findByTestId('review-label')).toHaveTextContent('Test Epoch USDC');
+  });
+
+  // Off testnet no label applies, so the drawer row must carry the symbol the token read gave, as the Review does.
+  it('names the USDC on the drawer row as the Review does, off testnet too', async () => {
+    mockTestNetwork = 'devnet';
+    mockEvmUsdcSymbol = 'USDC.e';
+    renderScreen();
+
+    await reachSlowUsdcReview();
+
+    expect(await screen.findByTestId('review-label')).toHaveTextContent(/^USDC\.e$/);
+    expect(screen.getByTestId('usdc-label')).toHaveTextContent(/^USDC\.e$/);
+  });
+
+  it('keeps ETH on its symbol on the Review on testnet', async () => {
+    mockSnapshot = TESTNET_SNAPSHOT;
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    renderScreen();
+
+    await reachReview();
+
+    expect(await screen.findByTestId('review-label')).toHaveTextContent(/^ETH$/);
   });
 
   // The deposit is what the wallet signs for, so it rounds up: never less than leaves the account.
@@ -531,11 +661,18 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
   });
 
   it('bridges the Slow route through the L1 bridge and the rollup id the config names', async () => {
+    mockSwitchChainAsync.mockClear();
     renderScreen();
 
     await reachReview();
     fireEvent.click(screen.getByTestId('confirm-deposit'));
     await settle();
+
+    // A USDCx deposit may have left the web wallet on Arc or Base: the Slow route switches back before it signs.
+    expect(mockSwitchChainAsync).toHaveBeenCalledWith({ chainId: 11155111 });
+    expect(mockSwitchChainAsync.mock.invocationCallOrder[0]).toBeLessThan(
+      mockMutateAsync.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY
+    );
 
     expect(mockMutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -739,6 +876,26 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(epochState.executeEVMToMiden).toHaveBeenCalledTimes(1);
   });
 
+  // The screen keeps the route when the user steps back, so the amount step names what that route delivers.
+  it('names the arriving USDC on the amount step by its symbol on the Slow route, as its Review does', async () => {
+    renderScreen();
+    await reachSlowUsdcReview();
+
+    await goBackTo(2);
+
+    expect(screen.getByTestId('form-arriving')).toHaveTextContent(/^arrives as USDC$/);
+  });
+
+  it('names the arriving USDC on the amount step by the testnet label on the Fast route', async () => {
+    quoteFast();
+    renderScreen();
+    await reachFastReview();
+
+    await goBackTo(2);
+
+    expect(screen.getByTestId('form-arriving')).toHaveTextContent(/^arrives as Test Epoch USDC$/);
+  });
+
   it('lets the route change again once a confirm whose row failed has settled', async () => {
     quoteFast();
     renderScreen();
@@ -784,7 +941,8 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     act(() => mockLastTokenSelect('ETH'));
     await settle();
 
-    expect(screen.getByTestId('form-token')).toHaveTextContent(/^USDC$/);
+    // The default snapshot is testnet's and names the EVM USDC, so the form names it by the label.
+    expect(screen.getByTestId('form-token')).toHaveTextContent(/^Test Epoch USDC$/);
     row.release();
     await settle();
   });
@@ -833,7 +991,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
 
     await tryEveryInput();
     expect(screen.queryByTestId('pick-eth')).not.toBeInTheDocument();
-    expect(screen.getByTestId('form-token')).toHaveTextContent(/^USDC$/);
+    expect(screen.getByTestId('form-token')).toHaveTextContent(/^Test Epoch USDC$/);
 
     row.release();
     await settle();
@@ -1070,6 +1228,147 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(epochState).toMatchObject({ status: 'idle', flow: null, quote: null });
     expect(epochState.quoteEVMToMiden).toBe(idleEpoch.quoteEVMToMiden);
     expect(epochState.quoteEVMToMiden()).toBeUndefined();
+  });
+});
+
+describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
+  const EVM_WALLET = '0x00000000000000000000000000000000000000e1';
+  const USDC = '0x00000000000000000000000000000000000000c0';
+  const L1_BRIDGE = '0x00000000000000000000000000000000000000b2';
+  /** The typed 10.6512 at the 18 decimals the suite gives the configured USDC. */
+  const DEPOSIT = 10_651_200_000_000_000_000n;
+
+  /** The allowance the Sepolia read answers with; a null answer is a failed read. */
+  const answerAllowance = (allowance: bigint | null) =>
+    allowance === null
+      ? jest.mocked(readSepoliaErc20Allowance).mockRejectedValue(new Error('rpc down'))
+      : jest.mocked(readSepoliaErc20Allowance).mockResolvedValue(allowance);
+
+  const confirmSlowUsdcDeposit = async () => {
+    render(depositScreen(undefined, EVM_WALLET));
+    await reachSlowUsdcReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAvailability = {};
+    mockSnapshot = READY_SNAPSHOT;
+    mockNativeReown = false;
+    jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
+    mockMutateAsync.mockResolvedValue('0xhash');
+    jest.mocked(NativeReown.sendTransaction).mockResolvedValue({ hash: '0xhash' });
+  });
+
+  afterEach(() => {
+    Object.assign(epochState, idleEpoch);
+    mockNativeReown = false;
+  });
+
+  it('reads the allowance the wallet gave the L1 bridge on the USDC, through the Sepolia RPC', async () => {
+    answerAllowance(DEPOSIT);
+
+    await confirmSlowUsdcDeposit();
+
+    expect(readSepoliaErc20Allowance).toHaveBeenCalledTimes(1);
+    expect(readSepoliaErc20Allowance).toHaveBeenCalledWith(USDC, EVM_WALLET, L1_BRIDGE);
+  });
+
+  it.each([
+    ['equal to the deposit', DEPOSIT],
+    ['larger than the deposit', DEPOSIT * 2n]
+  ])('sends no approval through wagmi when the allowance is %s', async (_name, allowance) => {
+    answerAllowance(allowance);
+
+    await confirmSlowUsdcDeposit();
+
+    expect(mockMutateAsync).toHaveBeenCalledTimes(1);
+    expect(mockMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ chainId: 11155111, address: L1_BRIDGE, functionName: 'bridgeAsset', value: 0n })
+    );
+    // The one receipt is the deposit's.
+    expect(waitForSepoliaReceipt).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['zero', 0n],
+    ['one unit short of the deposit', DEPOSIT - 1n]
+  ])('approves the exact deposit through wagmi when the allowance is %s', async (_name, allowance) => {
+    answerAllowance(allowance);
+
+    await confirmSlowUsdcDeposit();
+
+    expect(mockMutateAsync).toHaveBeenCalledTimes(2);
+    expect(mockMutateAsync).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        chainId: 11155111,
+        address: USDC,
+        functionName: 'approve',
+        args: [L1_BRIDGE, DEPOSIT]
+      })
+    );
+    expect(mockMutateAsync).toHaveBeenNthCalledWith(2, expect.objectContaining({ functionName: 'bridgeAsset' }));
+    expect(waitForSepoliaReceipt).toHaveBeenCalledTimes(2);
+  });
+
+  it('sends no approval through native Reown when the allowance covers the deposit', async () => {
+    mockNativeReown = true;
+    answerAllowance(DEPOSIT);
+
+    await confirmSlowUsdcDeposit();
+
+    expect(NativeReown.sendTransaction).toHaveBeenCalledTimes(1);
+    expect(NativeReown.sendTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({ chainId: 11155111, from: EVM_WALLET, to: L1_BRIDGE })
+    );
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('approves the exact deposit through native Reown when the allowance is short', async () => {
+    mockNativeReown = true;
+    answerAllowance(DEPOSIT - 1n);
+
+    await confirmSlowUsdcDeposit();
+
+    expect(NativeReown.sendTransaction).toHaveBeenCalledTimes(2);
+    // `approve(address,uint256)` on the USDC, for the bridge and the deposit amount.
+    expect(NativeReown.sendTransaction).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        chainId: 11155111,
+        from: EVM_WALLET,
+        to: USDC,
+        data: `0x095ea7b3${L1_BRIDGE.slice(2).padStart(64, '0')}${DEPOSIT.toString(16).padStart(64, '0')}`
+      })
+    );
+    expect(NativeReown.sendTransaction).toHaveBeenNthCalledWith(2, expect.objectContaining({ to: L1_BRIDGE }));
+  });
+
+  it('reads no allowance for a native ETH deposit', async () => {
+    answerAllowance(0n);
+    render(depositScreen(undefined, EVM_WALLET));
+
+    await reachReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(readSepoliaErc20Allowance).not.toHaveBeenCalled();
+    expect(mockMutateAsync).toHaveBeenCalledTimes(1);
+    expect(mockMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ functionName: 'bridgeAsset' }));
+  });
+
+  it('sends nothing and fails the row when the allowance read fails', async () => {
+    answerAllowance(null);
+
+    await confirmSlowUsdcDeposit();
+
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+    expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
+      error: 'Could not check the USDC allowance the bridge has on Sepolia.'
+    });
   });
 });
 

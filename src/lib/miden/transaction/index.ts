@@ -32,6 +32,7 @@ import {
   GuardianBackpressureError,
   type GuardianCandidate,
   guardianRetryAfterSec,
+  isGuardianCommitmentMismatch,
   isGuardianPendingConflict,
   isGuardianRateLimited,
   recordGuardianCandidate,
@@ -41,6 +42,7 @@ import {
 import { assertGuardianInSync } from 'lib/miden/guardian/sync-guard';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import * as Repo from 'lib/miden/repo';
+import { prepareCustomRequestBytes } from 'lib/miden/sdk/custom-request';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncUnderBoundedLock } from 'lib/miden/sync-lock';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
@@ -103,6 +105,7 @@ import {
 import type { CandidateRelease } from './reconcile-unconfirmed';
 import { bridgeProviderOf } from './retry';
 import { canAwaitVerdict } from './verdict-rules';
+import { adoptLandedConsume } from '../activity/bridge-in';
 import { isLikelyNetworkError, isPermanentHttpRejection } from '../activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from '../activity/connectivity-state';
 import { importAllNotes } from '../activity/notes';
@@ -155,6 +158,7 @@ import {
 import { getRealmReaderClient, proveDelegated } from '../sdk/miden-client-interface';
 import { buildNativeProverCallback } from '../sdk/native-prover-mobile';
 import {
+  carriesIndefiniteSubmitOutcome,
   errorMessageParts,
   extractLanded,
   extractSdkErrorCode,
@@ -163,6 +167,7 @@ import {
   isIndefiniteSubmitOutcomeError,
   isKilledPipeline,
   isPoisonedPipeline,
+  isRunningPipelineKill,
   isStaleInitialCommitmentError,
   isSubmitCrossingUnrecorded,
   isTransactionDiscardedError,
@@ -981,7 +986,10 @@ async function requeueWithWake(
   );
 }
 
-/** The Completed fields of a landed value-moving row: its label and delivery, and the id its failure carried. */
+/**
+ * The Completed fields of a landed value-moving row: its label and delivery, and the id its failure carried. The row
+ * owes notes no client store holds, so the delivery sweep leaves it inert (see `landedValueRowFields`).
+ */
 const landedRowFields = (tx: ITransaction, error: unknown) => {
   const landed = extractLanded(error);
   return { ...landedValueRowFields(tx, landed.privateOutputNotes), ...landedTransactionIdFields(landed) };
@@ -1223,6 +1231,7 @@ async function tryCompleteKilledConsume(transaction: Transaction, error: unknown
     displayMessage: reclaimed ? 'Reclaimed' : 'Received',
     completedAt: Math.floor(Date.now() / 1000) // seconds
   });
+  await adoptLandedConsume(transaction.id);
   return true;
 }
 
@@ -1463,6 +1472,7 @@ const generateTransactionWithProvider = async (
           // updateTransactionStatus throws if the tx is already finalized — fine.
           console.warn('[Guardian] could not re-mark Completed (likely already finalized):', markErr);
         }
+        if (transaction.type === 'consume') await adoptLandedConsume(transaction.id);
         return;
       }
       // An offscreen wedge-kill (deadline / `closeDocument`) surfaces as a
@@ -1678,17 +1688,13 @@ const generateTransactionWithProvider = async (
       // enqueue time would leave a row that waited behind a deep queue with no
       // budget at all, which is precisely the sustained-load case this exists for.
       //
-      // This is a BACKSTOP, and should stay one. The window it retries across is
-      // closable rather than irreducible: since protocol 0.16 a signed summary
-      // binds the reference block commitment, and the SDK takes the proposer's
-      // anchor through `executeRequest`'s `AnchoredOptions` precisely so the
-      // signed summary reproduces on a client whose sync height has moved. The
-      // proposal already carries that anchor (`chainAnchor` in its metadata);
-      // threading it into both leaves is in review as #786, at zero extra round
-      // trips. Until it lands, every retry here costs a fresh proposal and
-      // co-signature from a guardian that is by construction already loaded —
-      // which is why this arm should shrink when #786 does land, not stay at its
-      // current width.
+      // This is a BACKSTOP, and should stay one. A block landing between the
+      // co-signature and the execute no longer changes the summary: it binds the
+      // block its auth args name (the proposal's `boundBlockNum`), the request
+      // declares that block, and both leaves execute at the tip after
+      // `prepareGuardianTipExecution`, so a client whose sync height has moved
+      // reproduces it. Every retry here still costs a fresh proposal and
+      // co-signature from a guardian that is by construction already loaded.
       const nowSec = Math.floor(Date.now() / 1000);
       // Jittered so a fleet that all hit this at the same moment — which is the
       // shape of the incident, since the trigger is guardian latency under load
@@ -2050,7 +2056,7 @@ const ensureGuardianRecallableSendRequestBytes = async (
     return transaction.requestBytes;
   }
   // A fresh salt per build. miden-client derives the native 1/1 conversion info from
-  // the execution reference header -- for a proposal, its chain anchor -- and commits
+  // the block the auth args bind -- for a proposal, its `boundBlockNum` -- and commits
   // `hash(CONVERSION_INFO || SALT)` into the auth arg itself. The salt is serialized
   // with the request, and these bytes are built once and persisted, so the co-signed
   // summary reproduces. Rebuilt only when nothing was broadcast; see PRE_SUBMIT_STAGES.
@@ -2745,13 +2751,12 @@ const generateDirectSwitchGuardianTransaction = async (
   // contacted at all, and the reason this path is running is that the outgoing
   // one could not be reached.
   await setTransactionStage(transaction.id, 'signing-locally');
-  const { request: tr, chainAnchorB64 } = await createDirectSwitchGuardianRequest(
+  const tr = await createDirectSwitchGuardianRequest(
     walletAccount,
     transaction.extraInputs.newGuardianEndpoint,
     guardianProvider.signWord
   );
 
-  // Keep the anchor transport slot for compatibility; final multisig execution uses the tip.
   await setTransactionStage(transaction.id, 'sending');
   const attempt = attemptContextOf(transaction);
   let result: TransactionResult;
@@ -2764,8 +2769,7 @@ const generateDirectSwitchGuardianTransaction = async (
         requestBytes,
         transaction.delegateTransaction,
         signCallback,
-        stageStampFor(transaction.id, attempt),
-        chainAnchorB64
+        stageStampFor(transaction.id, attempt)
       )
     );
   } else {
@@ -2773,8 +2777,7 @@ const generateDirectSwitchGuardianTransaction = async (
       transaction.accountId,
       tr,
       transaction.delegateTransaction,
-      stageStampFor(transaction.id, attempt),
-      chainAnchorB64
+      stageStampFor(transaction.id, attempt)
     );
   }
 
@@ -2856,7 +2859,9 @@ const generateDirectSwitchGuardianTransaction = async (
  * the refused candidate (its 409 is then waited out by the rebuild's own proposal
  * retry), and the rebuild proposes the key the first run persisted
  * (`resolveRotationHotKey`), so even a misread refusal of a rotation that did land
- * rebuilds to the same signer set.
+ * rebuilds to the same signer set. The Guardian's `commitment_mismatch` on the push is
+ * the same verdict one step earlier and shares the one rebuild: it refuses before writing
+ * a candidate, and the push runs only after the key is persisted and stamped on the row.
  */
 const generateGuardianTransactionOnFreshState = async (
   transaction: ITransaction,
@@ -2866,12 +2871,13 @@ const generateGuardianTransactionOnFreshState = async (
   try {
     await generateGuardianTransaction(transaction, signCallback, guardianProvider);
   } catch (error) {
-    if (transaction.type !== 'replace-hot-key' || !isStaleInitialCommitmentError(error)) {
+    const guardianRefused = isGuardianCommitmentMismatch(error);
+    if (transaction.type !== 'replace-hot-key' || !(isStaleInitialCommitmentError(error) || guardianRefused)) {
       throw error;
     }
     console.warn(
-      '[Guardian] replace-hot-key refused as built on superseded account state; rebuilding on fresh ' +
-        `state with the same key: ${describeError(error)}`
+      `[Guardian] replace-hot-key refused by the ${guardianRefused ? 'Guardian' : 'node'} as built on superseded ` +
+        `account state; rebuilding on fresh state with the same key: ${describeError(error)}`
     );
     await generateGuardianTransaction(transaction, signCallback, guardianProvider);
   }
@@ -3567,12 +3573,19 @@ const generateGuardianTransaction = async (
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
-      // A dApp builds this request itself and the wallet only ever sees finished bytes, so
-      // unlike every other custom-proposal path there is no builder here to commit fee
-      // conversion info on. The SDK exposes no auth-arg setter on a finished request, so on a
-      // guarded account and a fee-charging chain this aborts in `fee::pay_fee`. Committing it
-      // has to happen where the request is built, i.e. dApp-side.
-      proposalResult = await service.createCustomProposal(requestBytes);
+      const preparedBytes = await withWasmClientLock(async hold => {
+        const client = await getMidenClient();
+        assertWasmHoldCurrent(hold, 'after the custom request client build');
+        return prepareCustomRequestBytes(client.client, transaction.accountId, requestBytes, hold);
+      });
+      if (preparedBytes !== requestBytes) {
+        // Signing and retries must reuse the salt and bound block the proposal executes with.
+        await Repo.transactions.where({ id: transaction.id }).modify(t => {
+          t.requestBytes = preparedBytes;
+        });
+        transaction.requestBytes = preparedBytes;
+      }
+      proposalResult = await service.createCustomProposal(preparedBytes);
       break;
     }
   }
@@ -3916,7 +3929,8 @@ const generateGuardianTransaction = async (
     ) {
       transaction.extraInputs = { ...transaction.extraInputs, proposalNonce: proposalResult.nonce };
     }
-    if (!submitResolved && !keptForVerdict) {
+    // A Guardian `commitment_mismatch` refused the push before it wrote a candidate, so there is nothing to abandon.
+    if (!submitResolved && !keptForVerdict && !isGuardianCommitmentMismatch(error)) {
       try {
         // DEADLINE-BOUNDED, like the identical cleanup on the cold co-sign path.
         // This call reaches the same operator, over the same transport, that the
@@ -4219,17 +4233,17 @@ export const generateTransactionsLoop = async (
     // realm-wide slot let a dry run's or an earlier write's locked sign requeue an
     // unrelated failure, including one already on chain (#878 review).
     //
-    // The abandonment exclusion still sits on the WHOLE condition, not just inside
+    // The abandonment exclusion sits on the WHOLE locked condition, not just inside
     // `isLockedError` (issue #775): an evicted write's error can carry a locked tag
-    // recorded before the eviction, and the defer branch requeues the row as a
+    // recorded before the eviction, and the locked branch requeues the row as a
     // fresh write while the abandoned pipeline can still submit, turning one send
     // into two payments. The requeue's "strictly pre-submit" justification below
-    // is exactly what an abandonment breaks. BOTH kill shapes, not just poison: an
-    // offscreen deadline arrives as `OperationAbortedError` from the identical
-    // point and is equally still running (`cancel.ts` treats the two as one class).
-    // Either one counts at any depth of the cause chain (#1313).
-    // The indefinite outcome proves the submit call was reached, which breaks both
-    // arms' strictly-pre-submit premise (#1081).
+    // is exactly what an abandonment breaks. `abandoned` covers three kill shapes at any
+    // depth of the cause chain (#1313): an eviction, an offscreen deadline kill
+    // (`OperationAbortedError`, from the identical point) and a terminated client. Only
+    // the eviction and the abort may still be running (`isRunningPipelineKill`; `cancel.ts`
+    // treats the two as one class). The indefinite outcome proves the submit call was
+    // reached, which breaks both arms' strictly-pre-submit premise (#1081).
     const abandoned = isKilledPipeline(e) || isIndefiniteSubmitOutcomeError(e);
 
     // The initial sync is the only pipeline step that runs while the committed
@@ -4237,15 +4251,19 @@ export const generateTransactionsLoop = async (
     // strictly pre-build for every transaction type, so defer it instead of
     // turning a transient RPC error into a terminal failure. Re-read the row:
     // `nextTransaction` predates the stage stamp, and a concurrent user cancel
-    // must win over this retry. Abandoned operations remain on the existing kill
-    // path even here, since they may still be running after their caller rejects.
+    // must win over this retry. The boundary skips the requeue only for a running kill,
+    // which may still be running after its caller rejects, an indefinite submit outcome,
+    // a lock or a permanent rejection. So a failure whose only kill is a terminated client
+    // is deferred: the SDK refused the call or stopped the worker running it. The outcome
+    // is read off the text even under a terminated client, since it proves the submit was reached.
     // A permanent rejection cannot succeed on retry, so deferring it only spends the 30-minute
     // MAX_QUEUED_AGE budget on ~60 lock-held syncs and then reports the generic expiry instead of
     // the node's own answer. `notes.ts` already carves the same predicate out of its transient set
     // for the same reason, after a permanent 400 burned ~288 retries there.
     const currentRow = await Repo.transactions.where({ id: nextTransaction.id }).first();
     if (
-      !abandoned &&
+      !isRunningPipelineKill(e) &&
+      !carriesIndefiniteSubmitOutcome(e) &&
       !isLockedError(e) &&
       !isPermanentHttpRejection(e) &&
       currentRow?.status === ITransactionStatus.Queued &&
@@ -4340,6 +4358,7 @@ export const generateTransactionsLoop = async (
           ...landedRowFields(tx, e),
           completedAt: Math.floor(Date.now() / 1000)
         });
+        if (tx.type === 'consume') await adoptLandedConsume(tx.id);
       }
       return false;
     }

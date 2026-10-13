@@ -20,6 +20,11 @@ jest.mock('./utils/fetchBalances', () => ({
   fetchingAddresses: new Set<string>()
 }));
 
+// The display faucet setting the action reads before it lands a read: the rows below are its MIDEN rows.
+jest.mock('lib/miden/assets/faucet-id-setting', () => ({
+  getFaucetIdSetting: jest.fn(async () => 'miden-faucet-id')
+}));
+
 jest.mock('lib/intercom/client', () => ({
   createIntercomClient: jest.fn(() => ({ request: jest.fn(), subscribe: jest.fn(() => () => {}) }))
 }));

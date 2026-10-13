@@ -2,8 +2,16 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
-import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
+import {
+  publishMockBridgeSnapshot,
+  TEST_BRIDGE_CONFIG,
+  TEST_BRIDGE_CONFIG_SNAPSHOT,
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
+} from 'lib/epoch/testing/bridge-config';
 import type { GuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
+import { TEST_TOKEN_IUSDT } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { resetActivityReadState } from 'lib/settings/activity-read';
 import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
 
@@ -35,6 +43,13 @@ let mockRecovery: GuardianNoteRecoveryProgress | null = null;
 let mockRecoveryPending: boolean | undefined = true;
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
+// This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
 jest.mock('lib/wallet-prompts', () => ({
   ...jest.requireActual('lib/wallet-prompts'),
   useGuardianNoteRecoveryProgress: (accountId: string | null) => (accountId === 'account' ? mockRecovery : null)
@@ -89,7 +104,7 @@ jest.mock('lib/i18n/numbers', () => ({
 }));
 // Every fixture note is 1 TOK (1000000 at 6 decimals) from the Earn collateral faucet, priced under
 // USDC at $2, so the row's total is $2 per LISTED transfer - the arithmetic the assertions below count on.
-const mockTokenPrices = { USDC: { price: 2, priceChange24h: 0 } };
+const mockTokenPrices = { USDC: { price: 2, priceChange24h: 0 }, ETH: { price: 1, priceChange24h: 0 } };
 jest.mock('lib/store', () => ({
   useWalletStore: (select: (state: { tokenPrices: unknown }) => unknown) => select({ tokenPrices: mockTokenPrices })
 }));
@@ -167,6 +182,7 @@ beforeEach(() => {
   mockRecoveryPending = true;
   mockHidden.ids = new Set();
   mockHistoryRenders.length = 0;
+  mockBridgeSnapshot = undefined;
   mockConfirm.mockResolvedValue(true);
 });
 
@@ -176,6 +192,60 @@ function expandCard(noteId: string): HTMLElement {
   fireEvent.click(within(card).getByRole('button', { expanded: false }));
   return card;
 }
+
+it('revalues an unchanged pending list on config-only price changes and removes an unavailable total', () => {
+  _setSwapTokensForTest(undefined);
+  const snapshotFor = (priceSymbol?: string): BridgeConfigSnapshot => ({
+    ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+    config: {
+      ...TEST_BRIDGE_CONFIG,
+      swap: {
+        tokens: [
+          {
+            symbol: TEST_TOKEN_IUSDT.symbol,
+            faucetId: TEST_TOKEN_IUSDT.faucetId,
+            decimals: TEST_TOKEN_IUSDT.decimals,
+            ...(priceSymbol === undefined ? {} : { priceSymbol })
+          }
+        ]
+      }
+    }
+  });
+  mockBridgeSnapshot = snapshotFor('USDC');
+  mockState.items = [
+    {
+      note: {
+        id: 'configured-pending',
+        faucetId: TEST_TOKEN_IUSDT.faucetId,
+        amount: '100000000',
+        senderAddress: 'sender',
+        isBeingClaimed: false,
+        type: 'unknown',
+        metadata: { symbol: TEST_TOKEN_IUSDT.symbol, name: 'Tether', decimals: TEST_TOKEN_IUSDT.decimals }
+      },
+      status: 'pending'
+    }
+  ];
+  try {
+    render(<ActivityPendingHistory search="" filter="pending" />);
+    expect(screen.getByTestId('pending-row-total')).toHaveTextContent('$2.00');
+
+    act(() => {
+      mockBridgeSnapshot = snapshotFor('ETH');
+      publishMockBridgeSnapshot();
+    });
+    expect(screen.getByTestId('pending-row-total')).toHaveTextContent('$1.00');
+
+    act(() => {
+      mockBridgeSnapshot = snapshotFor();
+      publishMockBridgeSnapshot();
+    });
+    expect(screen.getByTestId('pending-row-total')).toBeEmptyDOMElement();
+    expect(screen.getByText('activityPendingWaiting:1')).toBeInTheDocument();
+  } finally {
+    _setSwapTokensForTest(undefined);
+  }
+});
 
 it('hides the list spinner under its own progress bar', () => {
   render(<ActivityPendingHistory search="" filter="all" />);
@@ -586,4 +656,27 @@ it('draws each pending transfer as an outlined card on the page', () => {
   expect(card).toHaveClass('bg-page', 'border', 'border-hairline', 'rounded-2xl', 'overflow-hidden');
   expect(card).not.toHaveClass('bg-fill');
   expect(card).not.toHaveClass('bg-white');
+});
+
+describe('a search for the name a transfer is shown under', () => {
+  const listedIds = () =>
+    Array.from(screen.getByTestId('timeline').querySelectorAll('[data-pending-note-id]')).map(el =>
+      el.getAttribute('data-pending-note-id')
+    );
+
+  it('keeps the card of the bridged USDC faucet when the label is searched', () => {
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    render(<ActivityPendingHistory search="test epoch" filter="all" />);
+    expect(listedIds()).toEqual(['first', 'second', 'third']);
+  });
+
+  it('keeps the card once the bridge config lands after the search is typed', () => {
+    render(<ActivityPendingHistory search="test epoch" filter="all" />);
+    expect(listedIds()).toEqual([]);
+    act(() => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      publishMockBridgeSnapshot();
+    });
+    expect(listedIds()).toEqual(['first', 'second', 'third']);
+  });
 });

@@ -83,7 +83,9 @@ jest.mock('app/icons/v2', () => ({
 
 let mockNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
-  getTestNetworkNameKey: () => mockNetworkKey
+  getTestNetworkNameKey: () => mockNetworkKey,
+  // The network the USDCx route reads: on testnet that route keeps Cross Chain open on its own.
+  getEffectiveNetworkName: () => mockNetworkKey ?? 'mainnet'
 }));
 
 jest.mock('app/templates/EvmConnectModal', () => ({
@@ -354,7 +356,19 @@ describe('Receive - Address', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
+  // The USDCx route reads no bridge config, so on testnet it keeps the tile open and holds no fast poll.
+  it('keeps Cross Chain enabled on testnet while the Fast and Slow routes cannot start', async () => {
+    mockCrossChain = { state: 'unavailable', reason: 'service-down', detail: 'indexer /healthz: timeout' };
+    const container = await renderReceive();
+
+    expect(container.querySelector('[data-testid="receive-cross-chain"]')).toBeEnabled();
+    expect(container.querySelector('[data-testid="feature-unavailable-notice"]')).toBeNull();
+    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn'], { hold: false });
+  });
+
+  // Off testnet there is no USDCx route, so the Fast and Slow routes alone decide.
   it('greys out Cross Chain under the notice while neither bridge-in route can start', async () => {
+    mockNetworkKey = 'devnet';
     mockCrossChain = { state: 'unavailable', reason: 'service-down', detail: 'indexer /healthz: timeout' };
     const container = await renderReceive();
 
@@ -370,17 +384,20 @@ describe('Receive - Address', () => {
     expect(hapticLight).not.toHaveBeenCalled();
   });
 
-  // The fast poll is held only for a greyed-out Cross Chain tile, and the extension draws none.
+  // Every platform draws Cross Chain, the extension included (its relay socket closed only because
+  // the page's placeholder Buffer broke the relay token), so each one holds the fast poll.
   it.each([
-    ['off the extension', false, true],
-    ['on the extension', true, false]
-  ])('asks for the fast-poll hold exactly where it draws Cross Chain: %s', async (_where, extension, hold) => {
+    ['off the extension', false],
+    ['on the extension', true]
+  ])('draws Cross Chain and asks for the fast-poll hold: %s', async (_where, extension) => {
     mockIsExtension.mockReturnValue(extension);
+    mockNetworkKey = 'devnet';
     mockCrossChain = { state: 'unavailable', reason: 'service-down', detail: 'indexer /healthz: timeout' };
     const container = await renderReceive();
 
-    expect(container.querySelector('[data-testid="receive-cross-chain"]') !== null).toBe(hold);
-    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn'], { hold });
+    expect(container.querySelector('[data-testid="receive-cross-chain"]')).not.toBeNull();
+    // The hold applies on every platform.
+    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn'], { hold: true });
   });
 
   it("opens the pane on the code through the frame's visual top, not a page-local pull-up", async () => {

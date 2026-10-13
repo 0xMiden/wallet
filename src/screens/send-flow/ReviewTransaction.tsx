@@ -2,8 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { addDays, addSeconds, format, formatDistanceToNow } from 'date-fns';
 import { useTranslation } from 'react-i18next';
+import { formatUnits, parseUnits } from 'viem';
 
 import { useAppEnv } from 'app/env';
+import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
@@ -25,6 +27,7 @@ import { IConsumedAssetTotal } from 'lib/miden/db/types';
 import { useAccount, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useMidenContext } from 'lib/miden/front/client';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
+import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import {
   isSpendingLimitPriceUnavailable,
@@ -34,20 +37,33 @@ import {
 import { NoteTypeEnum } from 'lib/miden/types';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
+import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { classifyError } from 'lib/telemetry';
+import { initiateUsdcxBurn } from 'lib/usdcx/burn';
+import { USDCX_DECIMALS, usdcxPayoutFeeShortfall } from 'lib/usdcx/constant';
+import { useBurnPreflight } from 'lib/usdcx/use-burn-preflight';
+import { isUsdcxWithdrawalAvailable, UsdcxBurnError } from 'lib/usdcx/withdrawal';
 import { goBack, HistoryAction, navigate, Redirect, useLocation } from 'lib/woozie';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { approxFiatAmount } from './amount-format';
-import { getBridgeNetwork, BridgeNetworkId } from './bridge-networks';
+import {
+  getBridgeNetwork,
+  BridgeNetworkId,
+  isBridgeNetworkId,
+  isEpochBridgeNetwork,
+  isUsdcxBridgeNetwork
+} from './bridge-networks';
 import { dateTimeToRecallBlocks, RecallCalendarDrawer, SECONDS_PER_BLOCK } from './RecallCalendarDrawer';
 import { clearSendDraft } from './send-draft';
 import { enterSendFlow, reportSendStep, settleSendFlow } from './send-telemetry';
 import { SendStepLayout } from './SendStepLayout';
 import { BridgeRoute, UIToken } from './types';
 import { uiTokenFromBalance } from './ui-token';
+import { UsdcxPayoutRows } from './UsdcxPayoutRows';
 import { useEpochQuote } from './useEpochQuote';
 
 /**
@@ -69,7 +85,13 @@ export const ReviewTransaction: React.FC = () => {
 
   const { signTransaction } = useMidenContext();
 
-  const { amount, to, tokenId, network, route } = useMemo(() => {
+  const { amount, to, tokenId, network, route } = useMemo<{
+    amount: string;
+    to: string;
+    tokenId: string;
+    network?: BridgeNetworkId;
+    route?: BridgeRoute;
+  }>(() => {
     const params = new URLSearchParams(search);
     const networkParam = params.get('network');
     const routeParam = params.get('route');
@@ -77,8 +99,8 @@ export const ReviewTransaction: React.FC = () => {
       amount: params.get('amount') ?? '',
       to: params.get('to') ?? '',
       tokenId: params.get('tokenId') ?? '',
-      network: (networkParam ?? undefined) as BridgeNetworkId | undefined,
-      route: (routeParam ?? undefined) as BridgeRoute | undefined
+      network: isBridgeNetworkId(networkParam) ? networkParam : undefined,
+      route: routeParam === 'epoch' || routeParam === 'agglayer' || routeParam === 'usdcx' ? routeParam : undefined
     };
   }, [search]);
 
@@ -91,19 +113,32 @@ export const ReviewTransaction: React.FC = () => {
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
   const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   const token = useMemo<UIToken | undefined>(() => {
     const match = balanceData?.find(b => b.tokenId === tokenId);
     return match && uiTokenFromBalance(match, tokenPrices);
   }, [balanceData, tokenId, tokenPrices]);
+  const tokenLabel = token ? midenTokenLabel(bridgeConfig, token.id, token.name) : '';
+  // A burn's fee and the faucet's sponsorship are paid in the native asset, whatever it is on this network.
+  const nativeFaucetId = useNativeFeeFaucetId();
+  const assetsMetadata = useWalletStore(s => s.assetsMetadata);
+  const nativeSymbol = resolveDisplayMetadata(nativeFaucetId ?? undefined, assetsMetadata, nativeFaucetId).symbol;
+
+  const isUsdcxBurn = isBridge && route === 'usdcx';
+  const burnPreflight = useBurnPreflight(isUsdcxBurn && isUsdcxWithdrawalAvailable(token?.id));
 
   const amountBaseUnits = useMemo(() => {
     if (!token || !amount) return undefined;
     try {
+      if (isUsdcxBurn) {
+        if (!/^\d+(\.\d{1,6})?$/.test(amount)) return undefined;
+        return parseUnits(amount, USDCX_DECIMALS);
+      }
       return stringToBigInt(amount, token.decimals);
     } catch {
       return undefined;
     }
-  }, [token, amount]);
+  }, [token, amount, isUsdcxBurn]);
 
   // Forward-quote the USDC output for the Fast (Epoch) route — drives the
   // "you receive" row.
@@ -112,7 +147,7 @@ export const ReviewTransaction: React.FC = () => {
     faucetId: token?.id,
     destinationAddress: to,
     senderPublicKey: publicKey ?? undefined,
-    enabled: isBridge
+    enabled: isBridge && !isUsdcxBurn
   });
 
   // Private by default; the per-send toggle was removed from the UI. Only the
@@ -355,7 +390,21 @@ export const ReviewTransaction: React.FC = () => {
       reportSendStep('submitting');
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
-        if (route === 'agglayer') {
+        if (route === 'usdcx') {
+          if (!bridgeNetworkObj || !isUsdcxWithdrawalAvailable(token.id)) {
+            throw new UsdcxBurnError('usdcxUnsupportedFaucet');
+          }
+          const txId = await initiateUsdcxBurn({
+            senderPublicKey: publicKey,
+            faucetId: token.id,
+            amount: amountBaseUnits,
+            destinationAddress: to,
+            destinationChainId: bridgeNetworkObj.chainId,
+            spendingLimitAuthorization: authorization
+          });
+          if (isExtension()) requestSWTransactionProcessing();
+          goToGeneratingTransaction(txId);
+        } else if (route === 'agglayer') {
           // This page also opens from its URL, so it re-checks; after the route step that costs no RPC.
           if (!(await isAgglayerFaucetAllowed(token.id, getEffectiveRpcUrl()))) {
             throw new Error(t('agglayerTokenUnsupported'));
@@ -403,11 +452,28 @@ export const ReviewTransaction: React.FC = () => {
           return;
         }
         settleSendFlow(flow => flow.fail(classifyError(error)));
-        setSubmitError(error instanceof Error ? error.message : String(error));
+        setSubmitError(
+          error instanceof UsdcxBurnError
+            ? t(error.translationKey, error.values)
+            : error instanceof Error
+              ? error.message
+              : String(error)
+        );
         setIsSubmitting(false);
       }
     },
-    [amountBaseUnits, goToGeneratingTransaction, openUnpricedChallenge, publicKey, route, signTransaction, t, to, token]
+    [
+      amountBaseUnits,
+      bridgeNetworkObj,
+      goToGeneratingTransaction,
+      openUnpricedChallenge,
+      publicKey,
+      route,
+      signTransaction,
+      t,
+      to,
+      token
+    ]
   );
 
   const onSubmit = useCallback(async () => {
@@ -499,7 +565,12 @@ export const ReviewTransaction: React.FC = () => {
     !tokenId || !(parseFloat(amount) > 0) || !isValidRecipientAddress(to) || sameWalletAccountId(to, publicKey ?? '');
   // A cross-chain send must know its destination network, otherwise the review
   // rows and the submit path have nothing to act on.
-  const bridgeParamsInvalid = isBridge && !bridgeNetworkObj;
+  const bridgeParamsInvalid =
+    isBridge &&
+    (!bridgeNetworkObj ||
+      !route ||
+      (isUsdcxBurn ? !isUsdcxBridgeNetwork(network) : !isEpochBridgeNetwork(network)) ||
+      (isUsdcxBurn && !!token && !isUsdcxWithdrawalAvailable(token.id)));
   const tokenInvalid = !!balanceData && (!token || parseFloat(amount) > token.balance);
   if (paramsInvalid || bridgeParamsInvalid || tokenInvalid) {
     return <Redirect to="/send" />;
@@ -524,16 +595,34 @@ export const ReviewTransaction: React.FC = () => {
 
   // Agglayer carries the bridgeable token 1:1, so it receives what was typed; the Fast route
   // forward-quotes the USDC output, rounded down so it never promises more than arrives. Show a
-  // skeleton only while the Fast quote is still loading.
-  const youReceiveLoading = isBridge && route !== 'agglayer' && epochQuote.loading;
+  // skeleton only while the Fast quote is still loading. A USDCx burn has no quote at all.
+  const youReceiveLoading = isBridge && route === 'epoch' && epochQuote.loading;
   const youReceiveAmount =
     route === 'agglayer'
       ? formatMoneyAmount(amount, 'typed')
       : formatMoneyAmount(epochQuote.amount, 'receives', epochQuote.symbol);
+  // Slow carries the sent token 1:1; the Fast route's output is the configured EVM token.
+  const youReceiveSymbol = route === 'agglayer' ? (token?.name ?? '') : evmUsdcLabel(bridgeConfig, epochQuote.symbol);
   const youReceiveLabel =
-    youReceiveAmount != null ? `≈ ${youReceiveAmount} ${epochQuote.symbol}`.trim() : epochQuote.symbol;
-  const routeLabel = route === 'agglayer' ? t('slow') : t('fast');
-  const arrivalLabel = route === 'agglayer' ? t('slowArrival') : t('fastArrival');
+    youReceiveAmount != null ? `≈ ${youReceiveAmount} ${youReceiveSymbol}`.trim() : youReceiveSymbol;
+  const routeLabel = isUsdcxBurn ? t('usdcxRouteLabel') : route === 'agglayer' ? t('slow') : t('fast');
+  const arrivalLabel = isUsdcxBurn ? '' : route === 'agglayer' ? t('slowArrival') : t('fastArrival');
+  // Circle takes its fee from the payout, so a burn must exceed its destination's fee allowance.
+  const payoutFeeShortfall =
+    isUsdcxBurn && bridgeNetworkObj && amountBaseUnits !== undefined
+      ? usdcxPayoutFeeShortfall(bridgeNetworkObj.chainId, amountBaseUnits)
+      : undefined;
+  const burnValidationError = !isUsdcxBurn
+    ? undefined
+    : burnPreflight.error
+      ? t(burnPreflight.error instanceof UsdcxBurnError ? burnPreflight.error.translationKey : 'usdcxFaucetUnavailable')
+      : amountBaseUnits === undefined || amountBaseUnits <= 0n
+        ? t('usdcxInvalidAmount')
+        : burnPreflight.minimum !== undefined && amountBaseUnits < burnPreflight.minimum
+          ? t('usdcxBelowMinimumBurn')
+          : payoutFeeShortfall
+            ? t('usdcxSendMoreThanPayoutFee', payoutFeeShortfall)
+            : undefined;
 
   const fiatValue =
     token && token.scaleIsKnown && token.fiatPrice > 0 ? parseFloat(amount) * token.fiatPrice : undefined;
@@ -546,9 +635,9 @@ export const ReviewTransaction: React.FC = () => {
         onBack={() => goBack()}
         footer={
           <div className="flex flex-col gap-2">
-            {(scaleIsUnknown || submitError) && (
+            {(scaleIsUnknown || submitError || burnValidationError) && (
               <p data-testid="review-error" className="text-center text-sm text-red-500">
-                {scaleIsUnknown ? t('unknownTokenScale') : submitError}
+                {scaleIsUnknown ? t('unknownTokenScale') : (submitError ?? burnValidationError)}
               </p>
             )}
             <Button
@@ -562,7 +651,9 @@ export const ReviewTransaction: React.FC = () => {
               // before the user reaches for the button, and letting them tap a live
               // CTA only to be refused reads as a wallet fault rather than a
               // deliberate refusal.
-              disabled={isSubmitting || scaleIsUnknown}
+              disabled={
+                isSubmitting || scaleIsUnknown || (isUsdcxBurn && (burnPreflight.loading || !!burnValidationError))
+              }
               data-testid="send-review-submit"
               className="w-full max-w-none"
             />
@@ -573,8 +664,8 @@ export const ReviewTransaction: React.FC = () => {
         <Hero
           data-testid="review-amount"
           className="mt-3"
-          visual={<TokenLogo symbol={token?.name ?? ''} size="2xl" />}
-          value={`${amount} ${token?.name ?? ''}`}
+          visual={<TokenLogo symbol={token?.name ?? ''} faucetId={token?.id} size="2xl" />}
+          value={`${amount} ${tokenLabel}`}
           subtitle={fiatValue !== undefined ? t('approxFiatValue', { value: approxFiatAmount(fiatValue) }) : undefined}
         />
 
@@ -596,7 +687,7 @@ export const ReviewTransaction: React.FC = () => {
               the transaction is proven, so this quotes the upper bound the wallet already reserves
               against — the same amount the amount step withheld from `Available`. Absent on a
               zero-fee chain and before discovery; see `useNetworkFeeEstimate`. */}
-          {networkFee && (
+          {networkFee && !isUsdcxBurn && (
             // "Max" in the label already says the fee is an upper bound; the receipt shows what was paid.
             <DetailRow label={t('networkFeeMax')}>{networkFee}</DetailRow>
           )}
@@ -604,9 +695,25 @@ export const ReviewTransaction: React.FC = () => {
           {isBridge ? (
             <>
               <DetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</DetailRow>
-              <DetailRow label={t('youReceive')}>
-                {youReceiveLoading ? <Skeleton className="h-6 w-28" /> : youReceiveLabel}
-              </DetailRow>
+              {isUsdcxBurn ? (
+                <>
+                  <DetailRow label={t('usdcxMinimumBurn')}>
+                    {burnPreflight.minimum === undefined ? (
+                      <Skeleton className="h-6 w-28" />
+                    ) : (
+                      `${formatUnits(burnPreflight.minimum, USDCX_DECIMALS)} USDCx`
+                    )}
+                  </DetailRow>
+                  <DetailRow label={t('networkFee')}>{t('usdcxSponsorshipFee', { symbol: nativeSymbol })}</DetailRow>
+                  {bridgeNetworkObj && amountBaseUnits !== undefined && (
+                    <UsdcxPayoutRows chainId={bridgeNetworkObj.chainId} amount={amountBaseUnits} />
+                  )}
+                </>
+              ) : (
+                <DetailRow label={t('youReceive')}>
+                  {youReceiveLoading ? <Skeleton className="h-6 w-28" /> : youReceiveLabel}
+                </DetailRow>
+              )}
             </>
           ) : (
             <DetailRow
@@ -618,11 +725,16 @@ export const ReviewTransaction: React.FC = () => {
             </DetailRow>
           )}
         </DetailCard>
+        {isUsdcxBurn && (
+          <p className="mt-3 px-4 text-caption text-muted" data-testid="usdcx-burn-notice">
+            {t('usdcxWithdrawalNotice')}
+          </p>
+        )}
         {/* The reassurance about an unclaimed payment is one caption under the card, not a paragraph
             squeezed into the value column. */}
         {!isBridge && recallBlocks ? (
           <p className="mt-3 px-4 text-caption text-muted" data-testid="review-recall-note">
-            {t('recallReturnsNote', { amount: `${amount} ${token?.name ?? ''}` })}
+            {t('recallReturnsNote', { amount: `${amount} ${tokenLabel}` })}
           </p>
         ) : null}
       </SendStepLayout>
