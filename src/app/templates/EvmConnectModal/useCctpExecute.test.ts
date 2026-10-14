@@ -124,9 +124,9 @@ describe('on native Reown', () => {
     await expect(result.current('row', 84532, leg)).resolves.toBe(hash);
 
     expect(jest.mocked(prepareNativeSessionChain).mock.calls).toEqual([[target.chain.id]]);
-    expect(jest.mocked(prepareNativeSessionChain).mock.invocationCallOrder[0]).toBeLessThan(
-      jest.mocked(NativeReown.sendTransaction).mock.invocationCallOrder[0]
-    );
+    const [prepared] = jest.mocked(prepareNativeSessionChain).mock.invocationCallOrder;
+    const [sent] = jest.mocked(NativeReown.sendTransaction).mock.invocationCallOrder;
+    expect(prepared).toBeLessThan(sent!);
     expect(NativeReown.sendTransaction).toHaveBeenCalledWith(
       expect.objectContaining({ chainId: target.chain.id, to: target.executor })
     );
