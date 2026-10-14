@@ -1274,8 +1274,26 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   });
   const networkName = getChain(sourceChainId)?.name ?? '';
 
-  // Route-screen hint below the cards: ETH on Fast wraps to WETH, which isn't available yet.
-  const routeNotice = token === 'ETH' && route === 'epoch' ? t('fastEthWrapNotice') : undefined;
+  // Route-screen hint below the cards: ETH on Fast wraps to WETH, which isn't available yet. A typed amount the balance
+  // covers can still quote a Fast deposit, fee included, above it; fastReady then holds Confirm, and this says why.
+  const routeNotice = (() => {
+    if (token === 'ETH' && route === 'epoch') return t('fastEthWrapNotice');
+    const balance = usdcBalance.value;
+    const quoteForAmount =
+      route === 'epoch' &&
+      epochFlow === 'evm-to-miden' &&
+      epochStatus === 'quoted' &&
+      !!epochQuote &&
+      !!midenUsdc &&
+      epochQuote.params.minTokenOut === evmToMidenMinTokenOut(amount, midenUsdc.decimals);
+    if (!quoteForAmount || quotedTokenIn === null || balance === null || quotedTokenIn <= balance) return undefined;
+    // The deposit as the Review shows it, rounded up, and the balance rounded down, so the two never read as equal.
+    return t('fastQuoteAboveBalanceNotice', {
+      deposit: reviewAmount,
+      balance: formatMoneyAmount(formatUnits(balance, usdcDecimals), 'receives', tokenSymbol),
+      token: tokenLabel
+    });
+  })();
 
   // Review-step confirm state: spin while the submit is signing, and block
   // re-submits once it's in flight / done.

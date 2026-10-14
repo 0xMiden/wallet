@@ -1086,6 +1086,7 @@
   "viewOnEtherscan": "View on Etherscan",
   "delivering": "Delivering",
   "fastEthWrapNotice": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet.",
+  "fastQuoteAboveBalanceNotice": "Fast needs a deposit of $deposit$ $token$, fee included, but your connected wallet holds $balance$ $token$. Lower the amount or choose Slow.",
   "destinationNetwork": "Destination network",
   "claimStatus": "Claim status",
   "claimAsset": "Claim Asset",

@@ -415,12 +415,23 @@ jest.mock('./EvmBridgeUsdcxRoute', () => ({
 }));
 
 jest.mock('screens/send-flow/Route', () => ({
-  Route: ({ onRouteChange, onConfirm }: { onRouteChange: (route: string) => void; onConfirm: () => void }) => (
+  Route: ({
+    notice,
+    confirmDisabled,
+    onRouteChange,
+    onConfirm
+  }: {
+    notice?: React.ReactNode;
+    confirmDisabled?: boolean;
+    onRouteChange: (route: string) => void;
+    onConfirm: () => void;
+  }) => (
     <div>
+      <span data-testid="route-notice">{notice}</span>
       <button data-testid="pick-slow" onClick={() => onRouteChange('agglayer')}>
         slow
       </button>
-      <button data-testid="confirm-route" onClick={onConfirm}>
+      <button data-testid="confirm-route" disabled={confirmDisabled} onClick={onConfirm}>
         route
       </button>
     </div>
@@ -1733,6 +1744,91 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
     await settle();
 
     expect(screen.queryByTestId('confirm-deposit')).not.toBeInTheDocument();
+  });
+
+  // The Review's deposit rounds up and the balance rounds down, so the two figures never read as equal.
+  const ABOVE_BALANCE = `fastQuoteAboveBalanceNotice ${JSON.stringify({
+    deposit: '10.66',
+    balance: '10.65',
+    token: LABEL.USDC
+  })}`;
+
+  const reachFastRoute = async (amountButton = 'set-amount-padded') => {
+    fireEvent.click(screen.getByTestId(amountButton));
+    await settle();
+    fireEvent.click(screen.getByTestId('continue'));
+    await screen.findByTestId('confirm-route');
+  };
+
+  it('says why Confirm is held while the Fast deposit is above a balance the typed amount fits', async () => {
+    quoteFast();
+    answerBalance(FAST_DEPOSIT - 1n);
+    await renderWallet();
+
+    await reachFastRoute();
+
+    expect(screen.getByTestId('route-notice').textContent).toBe(ABOVE_BALANCE);
+    expect(screen.getByTestId('confirm-route')).toBeDisabled();
+  });
+
+  it('shows no balance notice for a Fast quote the balance covers', async () => {
+    quoteFast();
+    answerBalance(FAST_DEPOSIT);
+    await renderWallet();
+
+    await reachFastRoute();
+
+    expect(screen.getByTestId('route-notice')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('confirm-route')).toBeEnabled();
+  });
+
+  it.each<[string, () => void, string]>([
+    ['still loading', () => Object.assign(epochState, { status: 'quoting' }), 'set-amount-padded'],
+    // 1.5 asks for 1500000 faucet units; the quote is for 1505000.
+    ['for another amount', () => undefined, 'set-amount']
+  ])('shows no balance notice for a Fast quote %s', async (_case, stale, amountButton) => {
+    quoteFast();
+    stale();
+    answerBalance(FAST_DEPOSIT - 1n);
+    await renderWallet();
+
+    await reachFastRoute(amountButton);
+
+    expect(screen.getByTestId('route-notice')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('confirm-route')).toBeDisabled();
+  });
+
+  it('drops the balance notice while the balance is unknown', async () => {
+    quoteFast();
+    answerBalance(FAST_DEPOSIT - 1n);
+    const { rerender } = render(depositScreen(undefined, EVM_WALLET));
+    await settle();
+    await reachFastRoute();
+    expect(screen.getByTestId('route-notice').textContent).toBe(ABOVE_BALANCE);
+
+    // Another wallet, whose balance read never lands.
+    global.fetch = jest.fn(() => new Promise(() => undefined)) as never;
+    rerender(depositScreen(undefined, '0x00000000000000000000000000000000000000e2'));
+    await settle();
+
+    expect(screen.getByTestId('route-notice')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('confirm-route')).toBeDisabled();
+  });
+
+  // Picking ETH resets the store in the app; this one keeps the USDC quote, so both notices could apply.
+  it('keeps the ETH notice on the Fast route over a quote above the USDC balance', async () => {
+    quoteFast();
+    answerBalance(FAST_DEPOSIT - 1n);
+    await renderWallet();
+    fireEvent.click(screen.getByTestId('open-token-drawer'));
+    await settle();
+    fireEvent.click(screen.getByTestId('pick-eth'));
+    await settle();
+
+    await reachFastRoute();
+
+    expect(screen.getByTestId('route-notice').textContent).toBe('fastEthWrapNotice');
+    expect(screen.getByTestId('confirm-route')).toBeDisabled();
   });
 
   it.each([false, true])(
