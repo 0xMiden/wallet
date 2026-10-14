@@ -72,11 +72,11 @@ import { readNativeFeeFields } from 'lib/walletconnect/fees';
 import {
   isNativeReownAvailable,
   NativeReown,
-  NativeSessionChainNotApprovedError,
   prepareNativeSessionChain,
   unwrapNativeResult
 } from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
+import { nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
 import { BridgeNetwork, DEFAULT_BRIDGE_NETWORK, getBridgeNetworkByChainId } from 'screens/send-flow/bridge-networks';
 import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UIToken } from 'screens/send-flow/types';
@@ -681,13 +681,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     [resetEpoch, route]
   );
 
-  // A deposit failure as the screen shows it: a chain that the native session did not approve gets the
-  // localized reconnect message, and every other failure keeps its own message.
+  // Every other failure keeps the screen's own wording.
   const depositErrorMessage = useCallback(
-    (err: unknown): string =>
-      err instanceof NativeSessionChainNotApprovedError
-        ? t('evmChainNotApproved', { network: err.networkName })
-        : errorMessage(err),
+    (err: unknown): string => nativeSigningErrorMessage(err, t, errorMessage),
     [t]
   );
 

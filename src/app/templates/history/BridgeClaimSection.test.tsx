@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
+import { NativeSessionChainNotApprovedError } from 'lib/walletconnect/native';
 
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { IHistoryEntry } from './IHistoryEntry';
@@ -631,6 +632,17 @@ describe('BridgeClaimSection', () => {
       fireEvent.click(await screen.findByText('t:claimAsset'));
       expect(await screen.findByText('claim boom')).toBeInTheDocument();
       expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith('tx-1', 'failed');
+    });
+
+    it('shows the localized reconnect message when the session error is wrapped as a cause', async () => {
+      mockEvm = { provider: {}, address: '0xdead', isConnected: true, connect: jest.fn() };
+      mockFindExitDeposit.mockResolvedValueOnce(READY).mockResolvedValueOnce(READY);
+      mockClaimAgglayer.mockRejectedValueOnce(
+        new Error('claim wrapper', { cause: new NativeSessionChainNotApprovedError(11155111, 'Sepolia') })
+      );
+      renderSection({ entry: agglayer() });
+      fireEvent.click(await screen.findByText('t:claimAsset'));
+      expect(await screen.findByText('t:evmChainNotApproved')).toBeInTheDocument();
     });
 
     it('offers Claim again once its own claim has failed', async () => {
