@@ -265,6 +265,15 @@ function isValidAmount(amount: string): boolean {
   return Number.isFinite(parsed) && parsed > 0;
 }
 
+/** `amount` in base units at `decimals`, or null when parseUnits cannot read it. */
+function toBaseUnits(amount: string, decimals: number): bigint | null {
+  try {
+    return parseUnits(amount.trim(), decimals);
+  } catch {
+    return null;
+  }
+}
+
 // Bridge sub-flow steps. These run on a navigator nested inside this screen
 // (not the outer Receive navigator) so the manager below stays mounted across
 // the amount → route transition and keeps its state (amount, quote, route).
@@ -675,6 +684,23 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     [resetEpoch, route]
   );
 
+  // Read again right before the first wallet prompt: the balance can move after the amount step read it, and a wallet
+  // asked for more than it holds refuses only at its own simulation, after an approval has already cost gas (#1431).
+  const ensureBalanceCovers = useCallback(
+    async (spend: bigint, decimals: number, chainId: number, readBalance: () => Promise<bigint>) => {
+      const network = getChain(chainId)?.name ?? '';
+      const balance = await readBalance().catch((cause: unknown) => {
+        throw new Error(t('bridgeDepositBalanceReadFailed', { token: tokenLabel, network }), { cause });
+      });
+      if (balance < spend) {
+        throw new Error(
+          t('bridgeDepositBalanceTooLow', { balance: formatBalance(balance, decimals), token: tokenLabel, network })
+        );
+      }
+    },
+    [t, tokenLabel]
+  );
+
   const handleSlowBridge = useCallback(
     async (trackingTxId: string) => {
       if (!isValidAmount(amount) || (!nativeReownAvailable && !walletProvider)) {
@@ -716,6 +742,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           '0x'
         ] as const;
         const value = isNative ? amountInBaseUnits : 0n;
+        // ETH is held to the deposit alone; a gas shortfall on top stays the wallet's to report.
+        await ensureBalanceCovers(amountInBaseUnits, isNative ? ETH_DECIMALS : usdcDecimals, agglayerChainId, () =>
+          isNative
+            ? readEthBalance(evmAddress, agglayerChainId)
+            : readEpochUsdcBalance(evmAddress, tokenAddress, agglayerChainId)
+        );
         // An allowance that covers the deposit needs no approval: no second prompt, gas or receipt,
         // and `approve` would replace a larger allowance with this amount.
         // A failed or timed-out read fails the deposit before any wallet prompt: the approve's own
@@ -814,6 +846,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       agglayerRecovery,
       agglayerChainId,
       amount,
+      ensureBalanceCovers,
       evmAddress,
       evmUsdc,
       midenAccount.publicKey,
@@ -891,6 +924,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         // instead of throwing out of the flow.
         const recipient = usdcxRemoteRecipientFor(midenAccount.publicKey);
         if (!isAddress(evmAddress)) throw new Error(`Invalid EVM address: ${evmAddress}`);
+        await ensureBalanceCovers(
+          parseUnits(amount.trim(), CIRCLE_USDC_DECIMALS),
+          CIRCLE_USDC_DECIMALS,
+          usdcxChain.id,
+          () => readCircleUsdcBalance(evmAddress, usdcxSource)
+        );
         if (!nativeReownAvailable) await switchChainAsync({ chainId: usdcxChain.id });
         const readAllowance = (spender: `0x${string}`) => readCircleUsdcAllowance(evmAddress, spender, usdcxSource);
         const waitForReceipt = (hash: Hash) => waitForEvmReceipt(hash, usdcxChain);
@@ -1009,6 +1048,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     },
     [
       amount,
+      ensureBalanceCovers,
       evmAddress,
       midenAccount.publicKey,
       nativeReownAvailable,
@@ -1020,7 +1060,34 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     ]
   );
 
-  const setupReady = isValidAmount(amount);
+  const quotedTokenIn = useMemo(() => {
+    const raw = epochQuote?.quoteResult.tokenIn;
+    if (!raw) return null;
+    try {
+      return BigInt(String(raw));
+    } catch {
+      return null;
+    }
+  }, [epochQuote?.quoteResult.tokenIn]);
+
+  // Fast signs inside the store, so its balance is checked here, against the quoted deposit, fee included.
+  const handleFastBridge = useCallback(
+    async (trackingTxId: string) => {
+      try {
+        if (!evmUsdc || quotedTokenIn === null) throw new Error('The Fast route has no quoted deposit.');
+        await ensureBalanceCovers(quotedTokenIn, evmUsdc.decimals, evmUsdc.chainId, () =>
+          readEpochUsdcBalance(evmAddress, evmUsdc.address, evmUsdc.chainId)
+        );
+      } catch (err) {
+        console.error('[EvmBridgeDepositScreen] Fast bridge failed', err);
+        await updateBridgedReceivePhase(trackingTxId, 'failed', { error: errorMessage(err) }).catch(() => undefined);
+        return;
+      }
+      await executeEVMToMiden(trackingTxId);
+    },
+    [ensureBalanceCovers, evmAddress, evmUsdc, executeEVMToMiden, quotedTokenIn]
+  );
+
   const setupToken: UIToken = useMemo(() => {
     switch (token) {
       case 'ETH':
@@ -1067,9 +1134,17 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     usdcxSource?.usdc
   ]);
 
+  // Compared in base units: a float can round an amount at the balance either way.
+  const typedUnits = isValidAmount(amount) ? toBaseUnits(amount, setupToken.decimals) : null;
+  // Null while the balance loads or after its read failed, which the form shows: either way Continue waits.
+  const heldUnits = selectedBalance.value;
+  const amountExceedsBalance = typedUnits !== null && heldUnits !== null && typedUnits > heldUnits;
+  const setupReady = typedUnits !== null && heldUnits !== null && !amountExceedsBalance;
+
   // Fast (Epoch) only bridges USDC today: ETH-fast needs WETH wrapping, which is not built.
   // The quote must be for the amount on screen: it lags the input by the debounce, and
-  // an amount that rounds to zero faucet units is never quoted.
+  // an amount that rounds to zero faucet units is never quoted. Its deposit, not the
+  // typed amount, is what the balance has to cover.
   const fastReady =
     route === 'epoch' &&
     fastAvailability.state === 'available' &&
@@ -1078,16 +1153,20 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     epochStatus === 'quoted' &&
     !!epochQuote &&
     !!midenUsdc &&
-    epochQuote.params.minTokenOut === evmToMidenMinTokenOut(amount, midenUsdc.decimals);
+    epochQuote.params.minTokenOut === evmToMidenMinTokenOut(amount, midenUsdc.decimals) &&
+    quotedTokenIn !== null &&
+    usdcBalance.value !== null &&
+    quotedTokenIn <= usdcBalance.value;
+  // Picking Slow can move the USDC to the AggLayer chain's, so the amount is held to that balance here as well.
   const slowReady =
     route === 'agglayer' &&
     agglayerChainId !== undefined &&
     slowAvailability.state === 'available' &&
-    isValidAmount(amount) &&
+    setupReady &&
     slowStatus !== 'signing';
-  // USDCx has no quote: the deposit is 1:1 and the only check is a valid amount.
+  // USDCx has no quote: the deposit is 1:1, so the amount step's checks are the only ones.
   const usdcxReady =
-    route === 'usdcx' && token === 'CIRCLE_USDC' && usdcxAvailable && isValidAmount(amount) && slowStatus !== 'signing';
+    route === 'usdcx' && token === 'CIRCLE_USDC' && usdcxAvailable && setupReady && slowStatus !== 'signing';
   const canConfirmRoute = (() => {
     switch (route) {
       case 'epoch':
@@ -1105,16 +1184,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // is the amount shown as "depositing". It stays exact because the tracking row
   // stores it; every screen that shows it rounds it up. Falls back to the typed
   // amount for the Slow route and while no quote is present.
-  const quotedDeposit = useMemo(() => {
-    if (route !== 'epoch') return undefined;
-    const raw = epochQuote?.quoteResult.tokenIn;
-    if (!raw || raw === '0') return undefined;
-    try {
-      return formatUnits(BigInt(String(raw)), usdcDecimals);
-    } catch {
-      return undefined;
-    }
-  }, [route, epochQuote?.quoteResult.tokenIn, usdcDecimals]);
+  const quotedDeposit = useMemo(
+    () => (route === 'epoch' && quotedTokenIn ? formatUnits(quotedTokenIn, usdcDecimals) : undefined),
+    [route, quotedTokenIn, usdcDecimals]
+  );
   const depositAmount = quotedDeposit ?? amount;
   // What the Review hero prints; its fiat prices this figure, not the exact quote.
   const reviewAmount = quotedDeposit
@@ -1257,7 +1330,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             return handleUsdcxDeposit(id);
           case 'epoch':
           default:
-            return executeEVMToMiden(id);
+            return handleFastBridge(id);
         }
       };
       // The row is born `submitting`; the submission keeps the app-root watcher
@@ -1306,7 +1379,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     epochQuote?.quoteResult.tokenOut,
     epochStatus,
     evmAddress,
-    executeEVMToMiden,
+    handleFastBridge,
     handleSlowBridge,
     handleUsdcxDeposit,
     midenAccount.publicKey,
@@ -1397,7 +1470,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               arrivingName={arrivingName}
               amount={amount}
               isValidAmount={setupReady}
-              error={error ?? selectedBalance.error ?? undefined}
+              error={
+                amountExceedsBalance ? 'amountMustBeLessThanBalance' : (error ?? selectedBalance.error ?? undefined)
+              }
               evmAddress={evmAddress}
               onAmountChange={handleAmountChange}
               onSelectToken={handleOpenTokenDrawer}
@@ -1410,6 +1485,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     },
     [
       amount,
+      amountExceedsBalance,
       awaitingNextConfirmation,
       bridgeTxId,
       reviewAmount,

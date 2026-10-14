@@ -23,8 +23,11 @@ import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 // collaborator beyond the step components is stubbed - this suite is not a test
 // of the bridge itself.
 
+// The key, then any values it names, so a case can read which balance, token and network a message was given.
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key })
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, unknown>) => (values ? `${key} ${JSON.stringify(values)}` : key)
+  })
 }));
 
 jest.mock('@reown/appkit/react', () => ({
@@ -262,6 +265,7 @@ jest.mock('./EvmBridgeDepositForm', () => ({
     tokenLabel,
     arrivingName,
     amount,
+    isValidAmount,
     error,
     onAmountChange,
     onContinue,
@@ -271,6 +275,7 @@ jest.mock('./EvmBridgeDepositForm', () => ({
     tokenLabel: string;
     arrivingName: string;
     amount: string;
+    isValidAmount: boolean;
     error?: string;
     onAmountChange: (value?: string) => void;
     onContinue: () => void;
@@ -280,6 +285,7 @@ jest.mock('./EvmBridgeDepositForm', () => ({
     mockLastOpenTokenDrawer = onSelectToken;
     return (
       <div>
+        <span data-testid="form-ready">{String(isValidAmount)}</span>
         <span data-testid="form-error">{error}</span>
         <span data-testid="form-amount">{amount}</span>
         <span data-testid="form-token">{tokenLabel}</span>
@@ -418,6 +424,19 @@ jest.mock('screens/send-flow/Route', () => ({
 
 const midenAccount = { publicKey: 'mtst1account' };
 
+/** A 32-byte word: what an `eth_call` returns, and a hex `eth_getBalance` parses as well. */
+const word = (value: bigint) => `0x${value.toString(16).padStart(64, '0')}`;
+/** More of every token than any case types. */
+const FUNDED = 10n ** 30n;
+/** Every RPC read answers `balance`, the ETH and USDC reads alike; a null balance fails every read. */
+const answerBalance = (balance: bigint | null) => {
+  global.fetch = jest.fn().mockResolvedValue({
+    json: async () => (balance === null ? { error: { message: 'rpc down' } } : { result: word(balance) })
+  }) as never;
+};
+const balanceTooLow = (balance: string, token: string) =>
+  `bridgeDepositBalanceTooLow ${JSON.stringify({ balance, token, network: 'Sepolia' })}`;
+
 /** Drive the ETH + Slow route to Review, the deposit path with no quote needed. */
 const settle = () =>
   act(async () => {
@@ -479,7 +498,9 @@ const reachSlowUsdcReview = async (expectReview = true) => {
 };
 
 const connectAnother = jest.fn();
-const depositScreen = (reportDeposit?: ReportDeposit, evmAddress = '0xevm-wallet') => (
+// A real address: the USDC balance read refuses anything else, and the form holds Continue until that read lands.
+const EVM_ADDRESS = '0x00000000000000000000000000000000000000e0';
+const depositScreen = (reportDeposit?: ReportDeposit, evmAddress = EVM_ADDRESS) => (
   <EvmBridgeDepositScreen
     evmAddress={evmAddress}
     midenAccount={midenAccount as never}
@@ -525,7 +546,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     mockMutateAsync.mockReset();
     jest.mocked(readEvmErc20Allowance).mockResolvedValue(0n);
     jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
-    global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ result: '0x0' }) }) as never;
+    answerBalance(FUNDED);
   });
 
   // The Fast case below quotes into the shared store; every case starts from it idle.
@@ -753,7 +774,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
         midenFaucetId: '0x00000000000000000000000000e2e0',
         minTokenOut: '1500000'
       }),
-      '0xevm-wallet'
+      EVM_ADDRESS
     );
   });
 
@@ -793,7 +814,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
         minTokenOut: '1500000',
         ...moved
       }),
-      '0xevm-wallet'
+      EVM_ADDRESS
     );
   });
 
@@ -1144,7 +1165,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
           minTokenOut: '1505000',
           ...moved
         }),
-        '0xevm-wallet'
+        EVM_ADDRESS
       );
     }
   );
@@ -1305,6 +1326,7 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
     mockAgglayerChainId = 11155111;
     mockSnapshot = READY_SNAPSHOT;
     mockNativeReown = false;
+    answerBalance(FUNDED);
     jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
     mockMutateAsync.mockReset().mockResolvedValue('0xhash');
     jest.mocked(waitForEvmReceipt).mockReset().mockResolvedValue(undefined);
@@ -1528,10 +1550,216 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
   });
 });
 
+// #1431: an approval never checks the balance, so a deposit above it failed only at the wallet's second prompt.
+describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
+  const EVM_WALLET = '0x00000000000000000000000000000000000000e1';
+  const L1_BRIDGE = '0x00000000000000000000000000000000000000b2';
+  /** The typed 1.5, and the Slow USDC case's 10.6512, at the 18 decimals ETH and this suite's USDC share. */
+  const TYPED = 1_500_000_000_000_000_000n;
+  const SLOW_DEPOSIT = { USDC: 10_651_200_000_000_000_000n, ETH: TYPED };
+  const LABEL = { USDC: 'Test Epoch USDC', ETH: 'ETH' };
+  /** The Fast quote's `tokenIn`: what the wallet signs for, more than the 1.505 typed. */
+  const FAST_DEPOSIT = 10_651_200_000_000_000_000n;
+  const TOKENS = ['USDC', 'ETH'] as const;
+  const SLOW_CASES = [false, true].flatMap(native => TOKENS.map(token => [native, token] as const));
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAvailability = {};
+    mockAgglayerChainId = 11155111;
+    mockSnapshot = READY_SNAPSHOT;
+    mockTestNetwork = 'testnet';
+    mockEvmUsdcSymbol = 'USDC';
+    mockNativeReown = false;
+    answerBalance(FUNDED);
+    // A USDC amount is typed on the Fast route, which quotes it.
+    Object.assign(epochState, { quoteEVMToMiden: jest.fn().mockResolvedValue(undefined) });
+    jest.mocked(readEvmErc20Allowance).mockResolvedValue(0n);
+    jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
+    mockMutateAsync.mockReset().mockResolvedValue('0xhash');
+    jest.mocked(waitForEvmReceipt).mockReset().mockResolvedValue(undefined);
+    jest.mocked(NativeReown.sendTransaction).mockReset().mockResolvedValue({ hash: '0xhash' });
+  });
+
+  afterEach(() => {
+    Object.assign(epochState, idleEpoch);
+    mockNativeReown = false;
+  });
+
+  const renderWallet = async () => {
+    render(depositScreen(undefined, EVM_WALLET));
+    await settle();
+  };
+
+  const typeAmount = async (token: (typeof TOKENS)[number]) => {
+    if (token === 'ETH') {
+      fireEvent.click(screen.getByTestId('open-token-drawer'));
+      await settle();
+      fireEvent.click(screen.getByTestId('pick-eth'));
+      await settle();
+    }
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+  };
+
+  /** Continue leads to the route step only from an amount the form accepted. */
+  const expectContinueHeld = async () => {
+    expect(screen.getByTestId('form-ready')).toHaveTextContent(/^false$/);
+    fireEvent.click(screen.getByTestId('continue'));
+    await settle();
+    expect(screen.queryByTestId('pick-slow')).not.toBeInTheDocument();
+  };
+
+  const reachSlowReviewWith = (token: (typeof TOKENS)[number]) =>
+    token === 'ETH' ? reachReview() : reachSlowUsdcReview();
+
+  const expectNoPrompt = () => {
+    expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+    expect(mockSwitchChainAsync).not.toHaveBeenCalled();
+    expect(readEvmErc20Allowance).not.toHaveBeenCalled();
+  };
+
+  it.each(TOKENS)('holds Continue and says so for an amount above the %s balance', async token => {
+    answerBalance(TYPED - 1n);
+    await renderWallet();
+
+    await typeAmount(token);
+
+    expect(screen.getByTestId('form-error')).toHaveTextContent(/^amountMustBeLessThanBalance$/);
+    await expectContinueHeld();
+  });
+
+  it('holds Continue while the USDC balance is still loading', async () => {
+    global.fetch = jest.fn(() => new Promise(() => undefined)) as never;
+    await renderWallet();
+
+    await typeAmount('USDC');
+
+    // A balance still on its way is no error.
+    expect(screen.getByTestId('form-error')).toBeEmptyDOMElement();
+    await expectContinueHeld();
+  });
+
+  it('holds Continue and shows the read error when the USDC balance cannot be read', async () => {
+    answerBalance(null);
+    await renderWallet();
+
+    await typeAmount('USDC');
+
+    expect(screen.getByTestId('form-error')).toHaveTextContent(/^rpc down$/);
+    await expectContinueHeld();
+  });
+
+  it.each(TOKENS)('continues with an amount equal to the %s balance', async token => {
+    answerBalance(TYPED);
+    await renderWallet();
+
+    await typeAmount(token);
+
+    expect(screen.getByTestId('form-ready')).toHaveTextContent(/^true$/);
+    expect(screen.getByTestId('form-error')).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByTestId('continue'));
+    expect(await screen.findByTestId('pick-slow')).toBeInTheDocument();
+  });
+
+  it.each(SLOW_CASES)(
+    'raises no prompt and fails the row when the balance falls under a Slow deposit before Confirm (native=%s, %s)',
+    async (native, token) => {
+      mockNativeReown = native;
+      await renderWallet();
+      await reachSlowReviewWith(token);
+      answerBalance(SLOW_DEPOSIT[token] - 1n);
+
+      fireEvent.click(screen.getByTestId('confirm-deposit'));
+      await settle();
+
+      expectNoPrompt();
+      expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
+        error: balanceTooLow(token === 'ETH' ? '1.4999' : '10.6511', LABEL[token])
+      });
+    }
+  );
+
+  it.each(TOKENS)(
+    'raises no prompt and fails the row when the %s balance cannot be re-read at Confirm',
+    async token => {
+      await renderWallet();
+      await reachSlowReviewWith(token);
+      answerBalance(null);
+
+      fireEvent.click(screen.getByTestId('confirm-deposit'));
+      await settle();
+
+      expectNoPrompt();
+      expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
+        error: `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: LABEL[token], network: 'Sepolia' })}`
+      });
+    }
+  );
+
+  it.each(SLOW_CASES)(
+    'sends a Slow deposit equal to the balance to the L1 bridge (native=%s, %s)',
+    async (native, token) => {
+      mockNativeReown = native;
+      answerBalance(SLOW_DEPOSIT[token]);
+      await renderWallet();
+      await reachSlowReviewWith(token);
+
+      fireEvent.click(screen.getByTestId('confirm-deposit'));
+      await settle();
+
+      const signer = native ? NativeReown.sendTransaction : mockMutateAsync;
+      const bridgeCall = native ? { to: L1_BRIDGE } : { functionName: 'bridgeAsset' };
+      expect(signer).toHaveBeenLastCalledWith(expect.objectContaining(bridgeCall));
+      expect(updateBridgedReceivePhase).not.toHaveBeenCalledWith('bridge-tx', 'failed', expect.anything());
+    }
+  );
+
+  it('keeps the Fast route from Review while its quoted deposit is above the balance', async () => {
+    quoteFast();
+    // Covers the 1.505 typed, not the quote's 10.6512.
+    answerBalance(FAST_DEPOSIT - 1n);
+    await renderWallet();
+
+    await reachFastReview(false);
+    await settle();
+
+    expect(screen.queryByTestId('confirm-deposit')).not.toBeInTheDocument();
+  });
+
+  it('starts no Fast deposit and fails the row when the balance falls under its quote before Confirm', async () => {
+    quoteFast();
+    await renderWallet();
+    await reachFastReview();
+    answerBalance(FAST_DEPOSIT - 1n);
+
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(epochState.executeEVMToMiden).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
+      error: balanceTooLow('10.6511', LABEL.USDC)
+    });
+  });
+
+  it('starts a Fast deposit whose quote equals the balance', async () => {
+    quoteFast();
+    answerBalance(FAST_DEPOSIT);
+    await renderWallet();
+    await reachFastReview();
+
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(epochState.executeEVMToMiden).toHaveBeenCalledWith('bridge-tx');
+  });
+});
+
 describe('EvmBridgeDepositScreen names the network', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ result: '0x0' }) }) as never;
+    answerBalance(FUNDED);
   });
 
   // The shell's banner names the network on every step of this flow, review included (the

@@ -1076,6 +1076,8 @@
   "bridgeDepositProcessing": "Confirming bridge deposit",
   "bridgeDepositProcessingDescription": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them.",
   "bridgeDepositFailed": "Bridge deposit failed",
+  "bridgeDepositBalanceTooLow": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
+  "bridgeDepositBalanceReadFailed": "Could not check your $token$ balance on $network$. Nothing was sent.",
   "bridgeDepositSubmitted": "Bridge initiated!",
   "bridgeDepositDeliveryDescription": "The source transaction is confirmed. Your funds will appear on Miden when bridge delivery completes.",
   "viewOnEtherscan": "View on Etherscan",
