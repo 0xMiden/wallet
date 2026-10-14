@@ -148,8 +148,7 @@ jest.mock('lib/walletconnect/native', () => ({
 
 jest.mock('lib/walletconnect/receipt', () => ({
   ...jest.requireActual<typeof import('lib/walletconnect/receipt')>('lib/walletconnect/receipt'),
-  waitForEvmReceipt: jest.fn().mockResolvedValue(undefined),
-  waitForSepoliaReceipt: jest.fn().mockResolvedValue(undefined)
+  waitForEvmReceipt: jest.fn().mockResolvedValue(undefined)
 }));
 
 jest.mock('lib/walletconnect/config', () => ({

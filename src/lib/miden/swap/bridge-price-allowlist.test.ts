@@ -114,3 +114,44 @@ it('prices the Earn faucet an E2E run injects', () => {
   mockSnapshot = snapshot(config(USDC_FAUCET), null);
   expect(bridgePriceAllowlist()).toEqual([{ faucetId: '0xab000000000000ab00000000000001', priceSymbol: 'USDC' }]);
 });
+
+it("prices every AggLayer chain's native-ETH faucet at ETH", () => {
+  const BASE_ETH_FAUCET = '0x0c372f2735e33e91216d995bf29b91';
+  const base = config(USDC_FAUCET);
+  const sepolia = base.supportedEvmChains.sepolia;
+  if (!sepolia) throw new Error('The test chain is missing');
+  const baseReads: DerivedChainConfig = {
+    agglayer: {
+      rollupId: { state: 'skipped' },
+      tokens: {
+        state: 'ok',
+        value: [
+          {
+            midenFaucetId: BASE_ETH_FAUCET,
+            originToken: '0x0000000000000000000000000000000000000000',
+            originNetwork: 0,
+            scale: 9
+          }
+        ]
+      },
+      evmNetworkId: { state: 'skipped' },
+      l1BridgeCode: { state: 'skipped' }
+    },
+    epoch: { evmUsdc: { state: 'skipped' } }
+  };
+  mockSnapshot = snapshot(
+    {
+      ...base,
+      supportedEvmChains: {
+        ...base.supportedEvmChains,
+        'base-sepolia': { chainId: 84532, bridges: { agglayer: sepolia.bridges.agglayer } }
+      }
+    },
+    { ...registry, chains: { ...registry.chains, 84532: baseReads } }
+  );
+  expect(bridgePriceAllowlist()).toEqual([
+    { faucetId: USDC_FAUCET, priceSymbol: 'USDC' },
+    { faucetId: ETH_FAUCET, priceSymbol: 'ETH' },
+    { faucetId: BASE_ETH_FAUCET, priceSymbol: 'ETH' }
+  ]);
+});

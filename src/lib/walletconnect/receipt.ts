@@ -7,7 +7,6 @@ import {
   type Chain,
   type Hash
 } from 'viem';
-import { sepolia } from 'viem/chains';
 
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 
@@ -18,11 +17,6 @@ export class EvmTransactionRevertedError extends Error {
     super(`The ${chainName} transaction reverted`);
     this.name = 'EvmTransactionRevertedError';
   }
-}
-
-/** Wait for one successful Sepolia confirmation using the app's configured RPC. */
-export async function waitForSepoliaReceipt(hash: Hash): Promise<void> {
-  return waitForEvmReceipt(hash, sepolia);
 }
 
 export async function waitForEvmReceipt(hash: Hash, chain: Chain): Promise<void> {

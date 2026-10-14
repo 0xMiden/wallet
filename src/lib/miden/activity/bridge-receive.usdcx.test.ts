@@ -1,11 +1,18 @@
 import { BridgedReceiveTransaction, IBridgedReceiveExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { testBridgeSnapshot } from 'lib/remote-config/testing/fixture';
 import vectors from 'lib/usdcx/attestation.vectors.json';
+import { usdcxSourceChains } from 'lib/usdcx/constant';
 
+import { BRIDGE_DELIVERY_TIMED_OUT } from './bridge-in';
 import { reconcileBridgedReceives } from './bridge-receive';
 
+// The published testnet document unless a test moved it.
+let mockSnapshot: BridgeConfigSnapshot | undefined;
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () =>
+    mockSnapshot ??
     jest
       .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
       .testBridgeSnapshot()
@@ -37,7 +44,7 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
 }));
 const mockReadOutcome = jest.fn();
 jest.mock('lib/walletconnect/receipt', () => ({
-  waitForSepoliaReceipt: jest.fn(),
+  waitForEvmReceipt: jest.fn(),
   readEvmReceiptOutcome: (...args: unknown[]) => mockReadOutcome(...args)
 }));
 
@@ -65,6 +72,7 @@ const phaseOf = async (id: string) => (await Repo.transactions.get(id))?.extraIn
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  mockSnapshot = undefined;
   await Repo.transactions.clear();
   fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => vectors });
   mockReadOutcome.mockResolvedValue('pending');
@@ -129,5 +137,25 @@ describe('an executor-route USDCx deposit', () => {
     await reconcileBridgedReceives();
 
     expect(await phaseOf(id)).toMatchObject({ phase: 'ready' });
+  });
+
+  it('keeps a week-old attested, unexecuted message open by the route it saved after its chain leaves the document', async () => {
+    const usdcxSource = usdcxSourceChains().get(84532);
+    expect(usdcxSource?.route).toBe('cctp-executor');
+    const cctp = { sourceDomain: 6, message: '0x01', attestation: '0x02' };
+    const id = await addDeposit(ATTESTED_ACCOUNT, { sourceChainId: 84532, usdcxSource, cctp });
+    await Repo.transactions.update(id, { initiatedAt: Math.floor(Date.now() / 1000) - 8 * 24 * 60 * 60 });
+    const published = testBridgeSnapshot();
+    const { 'base-sepolia': _left, ...chains } = published.config?.supportedEvmChains ?? {};
+    mockSnapshot = published.config
+      ? { ...published, config: { ...published.config, supportedEvmChains: chains } }
+      : undefined;
+    expect(usdcxSourceChains().has(84532)).toBe(false);
+
+    await reconcileBridgedReceives();
+
+    const row = await Repo.transactions.get(id);
+    expect(row?.extraInputs).toMatchObject({ phase: 'delivering', cctp });
+    expect(row?.error).not.toBe(BRIDGE_DELIVERY_TIMED_OUT);
   });
 });

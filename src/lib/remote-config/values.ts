@@ -99,6 +99,13 @@ export function selectNativeEthFaucet(s: BridgeConfigSnapshot, chainId?: number)
   return selectNativeEthToken(s, chainId)?.midenFaucetId ?? null;
 }
 
+/** Every listed AggLayer chain's native-ETH faucet, each once: any of them can send a delivery. */
+export function selectNativeEthFaucets(s: BridgeConfigSnapshot): string[] {
+  const chains = Object.values(s.config?.supportedEvmChains ?? {}).filter(chain => chain.bridges.agglayer);
+  const faucets = chains.flatMap(chain => selectNativeEthFaucet(s, chain.chainId) ?? []);
+  return [...new Set(faucets)];
+}
+
 // Read synchronously: each realm hydrates its snapshot at startup, and an entry point stays greyed until its values are
 // in it, so code past one only reaches a null through a deep link or a document that changed under it.
 function getValue<T>(value: string, select: (s: BridgeConfigSnapshot) => T | null): T {
@@ -151,8 +158,11 @@ export function getAgglayerMidenBridge(chainId?: number): string {
   );
 }
 
-export function getAgglayerIndexerUrl(): string {
-  return getValue('agglayer.indexerUrl', s => s.config?.['bridge-providers'].agglayer.indexerUrl ?? null);
+/** The indexer, while the AggLayer chain `chainId` (or any, when none is given) is listed. */
+export function getAgglayerIndexerUrl(chainId?: number): string {
+  return getValue('agglayer.indexerUrl', s =>
+    selectAgglayerChain(s, chainId) ? (s.config?.['bridge-providers'].agglayer.indexerUrl ?? null) : null
+  );
 }
 
 export function getAgglayerL1Bridge(chainId?: number): `0x${string}` {
@@ -203,5 +213,14 @@ export function selectAgglayerRecoveryConfig(
   const rollupId = okValue(reads?.rollupId);
   const evmNetworkId = okValue(reads?.evmNetworkId);
   if (!chain || !route || !indexerUrl || rollupId === null || evmNetworkId === null) return undefined;
-  return { chainId: chain.chainId, ...route, indexerUrl, rollupId, evmNetworkId };
+  // Saved with the row, so its delivery still matches once the document drops the chain.
+  const nativeEth = selectNativeEthToken(s, chain.chainId);
+  return {
+    chainId: chain.chainId,
+    ...route,
+    indexerUrl,
+    rollupId,
+    evmNetworkId,
+    ...(nativeEth ? { nativeEthFaucetId: nativeEth.midenFaucetId, nativeEthScale: nativeEth.scale } : {})
+  };
 }

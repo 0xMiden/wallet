@@ -2,12 +2,18 @@ import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
 
 import { IBridgedReceiveExtraInputs, ITransaction } from '../db/types';
 
-/** An executor deposit whose attested message is on the row and not yet executed: it can be executed at any age. */
+/**
+ * An executor deposit whose attested message is on the row and not yet executed: it can be executed at any age. The
+ * route the row saved decides, so the deposit stays open after the document drops its chain.
+ */
 function holdsExecutableMessage(inputs: IBridgedReceiveExtraInputs): boolean {
+  const executor = inputs.usdcxSource
+    ? inputs.usdcxSource.route === 'cctp-executor'
+    : isUsdcxExecutorSource(inputs.sourceChainId);
   return (
     inputs.provider === 'usdcx' &&
     inputs.phase === 'delivering' &&
-    isUsdcxExecutorSource(inputs.sourceChainId) &&
+    executor &&
     inputs.cctp?.message !== undefined &&
     inputs.cctp.attestation !== undefined &&
     inputs.cctp.executeTxHash === undefined

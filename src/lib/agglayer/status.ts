@@ -2,6 +2,7 @@ import type { IBridgedSendExtraInputs } from 'lib/miden/db/types';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { getAgglayerEvmNetworkId, getAgglayerIndexerUrl, getAgglayerRollupId } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
+import { DEFAULT_CHAIN_ID } from 'lib/walletconnect/config';
 
 // A bridge indexer that accepts the connection then goes silent must not hang
 // the claim/poll flow forever; bound every AggLayer request, its body read
@@ -111,6 +112,12 @@ interface BridgesResponse {
   total_cnt: string;
 }
 
+// A row saved before its route was is from DEFAULT_CHAIN_ID, so it reads that chain's values, or none.
+const indexerUrlOf = (route?: AgglayerRecoveryConfig) => route?.indexerUrl ?? getAgglayerIndexerUrl(DEFAULT_CHAIN_ID);
+const rollupIdOf = (route?: AgglayerRecoveryConfig) => route?.rollupId ?? getAgglayerRollupId(DEFAULT_CHAIN_ID);
+const evmNetworkIdOf = (route?: AgglayerRecoveryConfig) =>
+  route?.evmNetworkId ?? getAgglayerEvmNetworkId(DEFAULT_CHAIN_ID);
+
 // Fetch recent deposits routed to `destAddr` (the Miden account in EVM form).
 // We pull a small window rather than just the latest so we can match our own
 // deposit by origin tx hash and not confuse it with an earlier bridge.
@@ -120,7 +127,7 @@ export async function fetchDeposits(
   route?: AgglayerRecoveryConfig
 ): Promise<AgglayerDeposit[]> {
   const data = await agglayerJson<BridgesResponse>(
-    `${route?.indexerUrl ?? getAgglayerIndexerUrl()}/bridges/${destAddr}?limit=${limit}&offset=0`,
+    `${indexerUrlOf(route)}/bridges/${destAddr}?limit=${limit}&offset=0`,
     'Agglayer bridge status'
   );
   return data.deposits ?? [];
@@ -135,7 +142,7 @@ export async function fetchDepositsPage(
   route?: AgglayerRecoveryConfig
 ): Promise<{ deposits: AgglayerDeposit[]; total: number }> {
   const data = await agglayerJson<BridgesResponse>(
-    `${route?.indexerUrl ?? getAgglayerIndexerUrl()}/bridges/${destAddr}?limit=${AGGLAYER_DEPOSITS_PAGE_SIZE}&offset=${offset}`,
+    `${indexerUrlOf(route)}/bridges/${destAddr}?limit=${AGGLAYER_DEPOSITS_PAGE_SIZE}&offset=${offset}`,
     'Agglayer bridge status'
   );
   return { deposits: data.deposits ?? [], total: Number(data.total_cnt) };
@@ -162,8 +169,7 @@ export function sameTxHash(left: string, right: string): boolean {
 
 /** A deposit the indexer filed as a Miden -> EVM exit: from the configured rollup, bound for the L1 network. */
 export const isMidenToEvmDeposit = (deposit: AgglayerDeposit, route?: AgglayerRecoveryConfig): boolean =>
-  deposit.network_id === (route?.rollupId ?? getAgglayerRollupId()) &&
-  deposit.dest_net === (route?.evmNetworkId ?? getAgglayerEvmNetworkId());
+  deposit.network_id === rollupIdOf(route) && deposit.dest_net === evmNetworkIdOf(route);
 
 /**
  * A Slow bridge-out no lookup can ever find, so it is never polled, prompts nothing and offers no claim. Only its
@@ -187,7 +193,7 @@ export async function fetchMidenToEvmDeposit(
   route?: AgglayerRecoveryConfig
 ): Promise<AgglayerDeposit> {
   const data = await agglayerJson<DepositResponse>(
-    `${route?.indexerUrl ?? getAgglayerIndexerUrl()}/bridge?net_id=${route?.rollupId ?? getAgglayerRollupId()}&deposit_cnt=${depositCnt}`,
+    `${indexerUrlOf(route)}/bridge?net_id=${rollupIdOf(route)}&deposit_cnt=${depositCnt}`,
     'Agglayer bridge deposit'
   );
   return data.deposit;
@@ -245,9 +251,9 @@ export async function searchAgglayerExitDeposit(
     }
   }
   const searchKey = JSON.stringify([
-    route?.indexerUrl ?? getAgglayerIndexerUrl(),
-    route?.rollupId ?? getAgglayerRollupId(),
-    route?.evmNetworkId ?? getAgglayerEvmNetworkId(),
+    indexerUrlOf(route),
+    rollupIdOf(route),
+    evmNetworkIdOf(route),
     l1Dest.toLowerCase(),
     exitTxHash.toLowerCase()
   ]);
@@ -304,7 +310,7 @@ export async function fetchMerkleProof(
   route?: AgglayerRecoveryConfig
 ): Promise<AgglayerMerkleProof> {
   const data = await agglayerJson<MerkleProofResponse>(
-    `${route?.indexerUrl ?? getAgglayerIndexerUrl()}/merkle-proof?deposit_cnt=${depositCnt}&net_id=${netId}`,
+    `${indexerUrlOf(route)}/merkle-proof?deposit_cnt=${depositCnt}&net_id=${netId}`,
     'Agglayer merkle-proof status'
   );
   return data.proof;

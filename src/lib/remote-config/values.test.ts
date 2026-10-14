@@ -23,7 +23,9 @@ import {
   selectEvmUsdc,
   selectMidenUsdc,
   selectMidenUsdcFaucetId,
+  selectAgglayerRecoveryConfig,
   selectNativeEthFaucet,
+  selectNativeEthFaucets,
   selectNativeEthToken
 } from './values';
 
@@ -117,7 +119,9 @@ const RECOVERY = {
   withdrawalEnabled: true,
   indexerUrl: 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api',
   rollupId: 86,
-  evmNetworkId: 0
+  evmNetworkId: 0,
+  nativeEthFaucetId: ETH_FAUCET,
+  nativeEthScale: 10
 };
 const ERROR = { state: 'error' as const, message: 'down' };
 
@@ -366,5 +370,27 @@ describe('getters', () => {
     expect(getAgglayerRollupId()).toBe(86);
     expect(getAgglayerEvmNetworkId()).toBe(0);
     expect(selectNativeEthFaucet(twoChains)).toBe(ETH_FAUCET);
+    expect(selectNativeEthFaucets(twoChains)).toEqual([ETH_FAUCET, ETH_ON_BASE]);
+    expect(selectAgglayerRecoveryConfig(twoChains, 84532)).toMatchObject({
+      chainId: 84532,
+      rollupId: 87,
+      evmNetworkId: 6,
+      nativeEthFaucetId: ETH_ON_BASE,
+      nativeEthScale: 9
+    });
+  });
+
+  it('name the indexer only for a listed AggLayer chain', () => {
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(snapshot());
+    expect(getAgglayerIndexerUrl(11155111)).toBe('https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api');
+    expect(() => getAgglayerIndexerUrl(84532)).toThrow(BridgeConfigUnavailableError);
+    expect(() => getAgglayerRollupId(84532)).toThrow(BridgeConfigUnavailableError);
+  });
+
+  it('save no native-ETH faucet with a route whose registry names none', () => {
+    const saved = selectAgglayerRecoveryConfig(withDerived({ agglayer: { tokens: { state: 'ok', value: [] } } }));
+    expect(saved).toMatchObject({ chainId: 11155111, rollupId: 86, evmNetworkId: 0 });
+    expect(saved).not.toHaveProperty('nativeEthFaucetId');
+    expect(saved).not.toHaveProperty('nativeEthScale');
   });
 });

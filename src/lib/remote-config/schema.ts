@@ -88,6 +88,9 @@ export interface AgglayerRecoveryConfig {
   indexerUrl: string;
   rollupId: number;
   evmNetworkId: number;
+  /** The native-ETH faucet that sends this chain's bridged-ETH deliveries, and its scale; absent on older rows. */
+  nativeEthFaucetId?: string;
+  nativeEthScale?: number;
 }
 
 export interface BridgeProviders {

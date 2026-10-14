@@ -4,8 +4,9 @@ import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
 import { accountRefToSdk, sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
-import { getBridgeConfigSnapshot, initBridgeConfig } from 'lib/remote-config/runtime';
-import { selectNativeEthFaucet, selectNativeEthToken } from 'lib/remote-config/values';
+import { type BridgeConfigSnapshot, getBridgeConfigSnapshot, initBridgeConfig } from 'lib/remote-config/runtime';
+import { selectNativeEthFaucets, selectNativeEthToken } from 'lib/remote-config/values';
+import { DEFAULT_CHAIN_ID } from 'lib/walletconnect/config';
 
 import { withinDeliveryWindow } from './bridge-receive-window';
 import { compareAccountIds } from './utils';
@@ -186,19 +187,10 @@ export function agglayerDeliveredAmount(trackedWei: bigint, scale: number): bigi
   return trackedWei / 10n ** BigInt(scale);
 }
 
-/**
- * Whether `sender` sent an AggLayer delivery, by the config this realm holds: the registered faucet whose origin is
- * native ETH on network 0 mints bridged ETH and sends its delivery notes. Matching stays off while the config cannot
- * name that faucet, so an ordinary incoming note is never mistaken for a bridge delivery. A path that runs without a
- * user action reads it through `isAgglayerDeliverySender`, which waits for this realm's config first.
- */
-export function isAgglayerBridgeDelivery(sender: string): boolean {
-  if (e2eAgglayerSenderOverride) return compareAccountIds(e2eAgglayerSenderOverride.trim(), sender);
-  const faucet = selectNativeEthFaucet(getBridgeConfigSnapshot());
-  if (!faucet) return false;
+// The consume reads its sender in bech32 and the registry names the faucet in hex: both go through the SDK, as
+// sameWalletAccountId compares, so the match never rests on the registry's text matching the SDK's.
+function sentByFaucet(sender: string, faucet: string): boolean {
   try {
-    // The consume reads its sender in bech32 and the registry names the faucet in hex: both go through the SDK, as
-    // sameWalletAccountId compares, so the match never rests on the registry's text matching the SDK's.
     return accountRefToSdk(sender).toString().toLowerCase() === accountRefToSdk(faucet).toString().toLowerCase();
   } catch (error) {
     console.warn('[bridge-in] could not compare the delivery sender', sender, error);
@@ -206,31 +198,53 @@ export function isAgglayerBridgeDelivery(sender: string): boolean {
   }
 }
 
-async function isAgglayerDeliverySender(sender: string): Promise<boolean> {
-  // A consume can land before this realm hydrated the config; from storage, never the network.
-  await initBridgeConfig();
-  return isAgglayerBridgeDelivery(sender);
+/**
+ * Whether `sender` sent an AggLayer delivery, by the config this realm holds: the registered faucet whose origin is
+ * native ETH on network 0 mints bridged ETH and sends its delivery notes, on any listed AggLayer chain. Matching stays
+ * off while the config names no such faucet, so an ordinary incoming note is never mistaken for a bridge delivery.
+ */
+export function isAgglayerBridgeDelivery(sender: string): boolean {
+  if (e2eAgglayerSenderOverride) return compareAccountIds(e2eAgglayerSenderOverride.trim(), sender);
+  return selectNativeEthFaucets(getBridgeConfigSnapshot()).some(faucet => sentByFaucet(sender, faucet));
+}
+
+/**
+ * The faucet that delivers a tracker's bridged ETH, and its scale: the ones its route saved, else the registry of the
+ * chain it was made on (DEFAULT_CHAIN_ID for a row saved before its route was). Undefined while neither names one.
+ */
+function deliveryOf(
+  snapshot: BridgeConfigSnapshot,
+  inputs: IBridgedReceiveExtraInputs
+): { faucet: string; scale: number } | undefined {
+  const route = inputs.agglayerRoute;
+  if (route?.nativeEthFaucetId !== undefined && route.nativeEthScale !== undefined) {
+    return { faucet: route.nativeEthFaucetId, scale: route.nativeEthScale };
+  }
+  const token = selectNativeEthToken(snapshot, route?.chainId ?? DEFAULT_CHAIN_ID);
+  return token ? { faucet: token.midenFaucetId, scale: token.scale } : undefined;
 }
 
 /**
  * Match an AggLayer-delivered note to the oldest compatible tracking row.
- * The delivery sender is authoritative; amount + recipient prevent two deposits
- * to the same wallet from being paired in the wrong order. A tracker holds the
- * deposit in wei and the bridge delivers it at the native-ETH faucet's registry
- * scale, so the two are compared through `agglayerDeliveredAmount`. The sender
- * delivers bridged ETH, so only native ETH trackers are compatible: an ERC-20
- * deposit with the same amount must not adopt its note.
+ * The delivery sender is authoritative: it must be the faucet that delivers the
+ * row's chain (`deliveryOf`). Amount + recipient prevent two deposits to the
+ * same wallet from being paired in the wrong order. A tracker holds the deposit
+ * in wei and the bridge delivers it at that faucet's registry scale, so the two
+ * are compared through `agglayerDeliveredAmount`. The sender delivers bridged
+ * ETH, so only native ETH trackers are compatible: an ERC-20 deposit with the
+ * same amount must not adopt its note.
  */
 export async function takeAgglayerBridgeInInfo(args: {
   accountId: string;
   senderAccountId: string;
   amount: bigint;
 }): Promise<IBridgeInInfo | undefined> {
-  if (!(await isAgglayerDeliverySender(args.senderAccountId))) return undefined;
-  // Matching stays off while the registry names no native-ETH faucet: without its scale no tracker's amount can be
-  // compared with the delivery's.
-  const scale = selectNativeEthToken(getBridgeConfigSnapshot())?.scale;
-  if (scale === undefined) return undefined;
+  // A consume can land before this realm hydrated the config; from storage, never the network.
+  await initBridgeConfig();
+  const snapshot = getBridgeConfigSnapshot();
+  const override = e2eAgglayerSenderOverride;
+  const sentBy = (faucet: string) =>
+    override ? compareAccountIds(override.trim(), args.senderAccountId) : sentByFaucet(args.senderAccountId, faucet);
 
   // A `ready` tracker is never polled again, so the reconciler's timeout never fails it; a tracker whose delivery came
   // long ago would otherwise take the next deposit of the same amount.
@@ -247,14 +261,21 @@ export async function takeAgglayerBridgeInInfo(args: {
       // whatever the backup's author wrote.
       if (tx.restoredFromBackup) return false;
       const inputs = tx.extraInputs as IBridgedReceiveExtraInputs | undefined;
+      if (
+        inputs?.provider !== 'agglayer' ||
+        inputs.sourceSymbol !== AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL ||
+        inputs.phase === 'received' ||
+        inputs.phase === 'failed' ||
+        tx.initiatedAt < cutoffSec ||
+        tx.amount === undefined
+      ) {
+        return false;
+      }
+      const delivery = deliveryOf(snapshot, inputs);
       return (
-        inputs?.provider === 'agglayer' &&
-        inputs.sourceSymbol === AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL &&
-        inputs.phase !== 'received' &&
-        inputs.phase !== 'failed' &&
-        tx.initiatedAt >= cutoffSec &&
-        tx.amount !== undefined &&
-        agglayerDeliveredAmount(tx.amount, scale) === args.amount
+        delivery !== undefined &&
+        agglayerDeliveredAmount(tx.amount, delivery.scale) === args.amount &&
+        sentBy(delivery.faucet)
       );
     })
     .toArray();
