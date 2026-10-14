@@ -96,7 +96,7 @@ import { FAUCET_NO_TOP_SAFE_AREA_SCRIPT, isFaucetOrigin } from 'lib/mobile/fauce
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
-import { isMobile } from 'lib/platform';
+import { isIOS, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { selectIsReady, useWalletStore } from 'lib/store';
 import { useModalsParams } from 'lib/ui/dialog';
@@ -292,6 +292,9 @@ async function sendResponseToInstance(instance: DappWebViewInstance, response: u
     }
   }
 }
+
+/** Only iOS reports the phone's top inset to the faucet under our header (`faucet-top-inset.ts`). */
+const needsFaucetTopInset = (origin: string): boolean => isIOS() && isFaucetOrigin(origin);
 
 /**
  * The provider — mounted at the TabLayout level (above the route switcher).
@@ -712,7 +715,10 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         } catch (e) {
           console.error('[DappBrowserProvider] Error injecting bridge:', e);
         }
-        if (isFaucetOrigin(state.origin)) {
+        // Re-read: the snapshot above predates the await, and `urlChangeEvent` may have confirmed the
+        // origin since. An unconfirmed one is left to that handler.
+        const loaded = getSessionStateById(id);
+        if (loaded?.instance === state.instance && loaded.originConfirmed && needsFaucetTopInset(loaded.origin)) {
           await state.instance.executeScript(FAUCET_NO_TOP_SAFE_AREA_SCRIPT).catch(() => undefined);
         }
         try {
@@ -753,6 +759,11 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
             originConfirmed: true,
             session: { ...s.session, url: newUrl, origin }
           }));
+          // A confirmation landing after the page loaded, which `browserPageLoaded` skipped.
+          const current = getSessionStateById(id);
+          if (current?.instance && !current.isLoading && needsFaucetTopInset(origin)) {
+            void current.instance.executeScript(FAUCET_NO_TOP_SAFE_AREA_SCRIPT).catch(() => undefined);
+          }
         } catch {
           /* ignore */
         }

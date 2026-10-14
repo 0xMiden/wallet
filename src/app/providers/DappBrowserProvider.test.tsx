@@ -75,12 +75,13 @@ jest.mock('@miden/dapp-browser', () => ({
 
 // ── isMobile must be true so the provider runs its full lifecycle ──
 const mockIsMobile = jest.fn(() => true);
+const mockIsIOS = jest.fn(() => false);
 jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile(),
   isExtension: () => false,
   isDesktop: () => false,
-  isIOS: () => false,
-  isAndroid: () => true
+  isIOS: () => mockIsIOS(),
+  isAndroid: () => !mockIsIOS()
 }));
 
 // ── framer-motion: AnimatePresence is a passthrough in tests ───────
@@ -224,7 +225,9 @@ jest.mock('lib/dapp-browser', () => ({
 import { dappConfirmationStore, type DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
 // ── screen-key: REAL module — the E2E signal under test below ──────
 import { getCurrentScreen, setRoutePart, __resetScreenKeyForTest } from 'lib/e2e/screen-key';
+import { getEffectiveFaucetUrl } from 'lib/miden-chain/effective-endpoints';
 import { onExternalPageFailed } from 'lib/mobile/external-page-failed';
+import { FAUCET_NO_TOP_SAFE_AREA_SCRIPT } from 'lib/mobile/faucet-top-inset';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { DialogsProvider } from 'lib/ui/dialog';
 
@@ -617,6 +620,92 @@ describe('session origin is derived from the URL being loaded, not a carried-ove
     });
 
     expect(mockHandleWebViewMessage).toHaveBeenCalledWith(expect.anything(), 'https://moved.example', 'dapp-a');
+  });
+});
+
+// ── The faucet's top inset style ──────────────────────────────────
+
+describe('faucet top inset style', () => {
+  const SLOT_RECT = { x: 0, y: 0, width: 375, height: 600 };
+  const FAUCET_URL = getEffectiveFaucetUrl();
+
+  function listenerFor(event: string): (e: unknown) => void | Promise<void> {
+    const call = mockAddListener.mock.calls.find(c => c[0] === event);
+    if (!call) throw new Error(`no listener registered for ${event}`);
+    return call[1] as (e: unknown) => void | Promise<void>;
+  }
+
+  async function settle() {
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+  }
+
+  const faucetInjections = () => mockExecuteScript.mock.calls.filter(c => c[1] === FAUCET_NO_TOP_SAFE_AREA_SCRIPT);
+
+  async function openAt(url: string) {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', url)));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+    return hook;
+  }
+
+  async function confirmUrl(url: string) {
+    act(() => {
+      void listenerFor('urlChangeEvent')({ id: 'dapp-a', url });
+    });
+    await settle();
+  }
+
+  async function loadPage() {
+    await act(async () => {
+      await listenerFor('browserPageLoaded')({ id: 'dapp-a' });
+    });
+    await settle();
+  }
+
+  beforeEach(() => mockIsIOS.mockReturnValue(true));
+  afterEach(() => mockIsIOS.mockReturnValue(false));
+
+  it('injects the style once into a confirmed faucet page on iOS', async () => {
+    await openAt(FAUCET_URL);
+    await confirmUrl(FAUCET_URL);
+    await loadPage();
+
+    expect(faucetInjections()).toEqual([['dapp-a', FAUCET_NO_TOP_SAFE_AREA_SCRIPT]]);
+  });
+
+  it('injects nothing into a faucet page whose origin is not confirmed', async () => {
+    await openAt(FAUCET_URL);
+    await loadPage();
+
+    expect(faucetInjections()).toHaveLength(0);
+  });
+
+  it('injects nothing into another origin', async () => {
+    await openAt('https://dapp-a.test/');
+    await confirmUrl('https://dapp-a.test/');
+    await loadPage();
+
+    expect(faucetInjections()).toHaveLength(0);
+  });
+
+  it('injects nothing into the faucet on Android', async () => {
+    mockIsIOS.mockReturnValue(false);
+    await openAt(FAUCET_URL);
+    await confirmUrl(FAUCET_URL);
+    await loadPage();
+
+    expect(faucetInjections()).toHaveLength(0);
+  });
+
+  it('injects the style once when the faucet is confirmed after its page loaded', async () => {
+    await openAt(FAUCET_URL);
+    await loadPage();
+    await confirmUrl(FAUCET_URL);
+
+    expect(faucetInjections()).toEqual([['dapp-a', FAUCET_NO_TOP_SAFE_AREA_SCRIPT]]);
   });
 });
 
