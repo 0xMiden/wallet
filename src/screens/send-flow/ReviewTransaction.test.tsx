@@ -192,7 +192,7 @@ jest.mock('components/ui/DetailCard', () => ({
       <span data-testid="row-label">{label}</span>
       {children !== undefined && <span data-testid="row-children">{children}</span>}
       {action && (
-        <button data-testid="row-edit" onClick={action.onClick}>
+        <button data-testid={action['data-testid']} aria-haspopup={action['aria-haspopup']} onClick={action.onClick}>
           {action.label}
         </button>
       )}
@@ -750,6 +750,7 @@ describe('ReviewTransaction — rendering', () => {
     await flush();
 
     expect(screen.getByTestId('recall-drawer').getAttribute('data-open')).toBe('false');
+    expect(screen.getByTestId('review-expiration-edit')).toHaveAttribute('aria-haspopup', 'dialog');
     fireEvent.click(screen.getByTestId('review-expiration-edit'));
     await flush();
     expect(screen.getByTestId('recall-drawer').getAttribute('data-open')).toBe('true');

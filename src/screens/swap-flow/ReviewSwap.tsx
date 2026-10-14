@@ -219,7 +219,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
     >
       {/* The card is its own block under the hero, not the next line of it: without this the
           receive amount and the first row read as one run of text. */}
-      <DetailCard surface="outline" className="mt-8 **:font-heading *:*:first:font-semibold">
+      <DetailCard surface="outline" face="heading" className="mt-8">
         {/* The solver spread explains the rate figure, but it is a sentence: as a sub-line it
             wrapped over three lines and pushed the rows apart, so it waits behind the (i). */}
         <DetailRow
@@ -282,7 +282,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
           />
         </DetailRow>
       </DetailCard>
-      <p className="mt-3 px-4 text-caption font-heading text-muted" data-testid="swap-expiry-note">
+      <p className="mt-3 px-4 text-caption face-heading text-muted" data-testid="swap-expiry-note">
         {t('swapExpiryNote', { amount: `${offerAmount} ${offerLabel}` })}
       </p>
       {submitError && <p className="select-text pt-2 text-sm font-medium text-status-negative">{submitError}</p>}

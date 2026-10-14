@@ -15,7 +15,6 @@ import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/
 import { TokenLogo } from 'components/TokenLogo';
 import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
-import { Pill } from 'components/ui/Pill';
 import { Skeleton } from 'components/ui/Skeleton';
 import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
@@ -672,7 +671,7 @@ export const ReviewTransaction: React.FC = () => {
           subtitle={fiatValue !== undefined ? t('approxFiatValue', { value: approxFiatAmount(fiatValue) }) : undefined}
         />
 
-        <DetailCard surface="outline" className="mt-6 **:font-heading *:*:first:font-semibold">
+        <DetailCard surface="outline" face="heading" className="mt-6">
           {/* The full address, never truncated: this is the last look before funds move. Set in body
               text rather than the bold value face, so it reads as something to check, not a headline. */}
           <DetailRow label={t('to')} stacked data-testid="review-row-to">
@@ -719,29 +718,29 @@ export const ReviewTransaction: React.FC = () => {
               )}
             </>
           ) : (
-            <DetailRow label={t('expires')} data-testid="review-row-expiration">
+            <DetailRow
+              label={t('expires')}
+              action={{
+                label: t('edit'),
+                onClick: () => setShowCalendar(true),
+                'aria-haspopup': 'dialog',
+                'data-testid': 'review-expiration-edit'
+              }}
+              data-testid="review-row-expiration"
+            >
               {expirationLabel}
-              <Pill
-                size="sm"
-                tone="selected"
-                aria-haspopup="dialog"
-                data-testid="review-expiration-edit"
-                onClick={() => setShowCalendar(true)}
-              >
-                {t('edit')}
-              </Pill>
             </DetailRow>
           )}
         </DetailCard>
         {isUsdcxBurn && (
-          <p className="mt-3 px-4 text-caption font-heading text-muted" data-testid="usdcx-burn-notice">
+          <p className="mt-3 px-4 text-caption face-heading text-muted" data-testid="usdcx-burn-notice">
             {t('usdcxWithdrawalNotice')}
           </p>
         )}
         {/* The reassurance about an unclaimed payment is one caption under the card, not a paragraph
             squeezed into the value column. */}
         {!isBridge && recallBlocks ? (
-          <p className="mt-3 px-4 text-caption font-heading text-muted" data-testid="review-recall-note">
+          <p className="mt-3 px-4 text-caption face-heading text-muted" data-testid="review-recall-note">
             {t('recallReturnsNote', { amount: `${amount} ${tokenLabel}` })}
           </p>
         ) : null}
