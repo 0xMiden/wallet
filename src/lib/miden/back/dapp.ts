@@ -1445,6 +1445,28 @@ async function importDAppPrivateNote(note: string): Promise<string> {
  */
 const importPrivateNoteFailure = (e: unknown): unknown => (isPipelineKillLink(e) ? e : dappRequestFailure(e));
 
+/**
+ * Imports the note that an approved consume request carries, before the consume reads it
+ * from the store (issue #1459).
+ *
+ * `initiateConsumeTransactionFromId` refuses a note that is not in the store, and it does
+ * that before it writes a row. Thus a queued import is too late: the transaction loop
+ * imports queued notes only for rows that already exist. A dApp-supplied private note is
+ * not in the store until this import, so the dApp had to get a separate import approval
+ * first. The consume sheet already showed this note, decoded from these bytes and checked
+ * against `noteId`, so that second approval showed the user nothing new.
+ *
+ * `importDAppPrivateNote` queues the bytes when the import fails transiently or is killed,
+ * so a failed consume does not lose the note. The id check refuses bytes whose imported
+ * note is not the note the consume will spend.
+ */
+async function importConsumeNoteBytes(noteId: string, noteBytes: string): Promise<void> {
+  const importedNoteId = await importDAppPrivateNote(noteBytes);
+  if (importedNoteId !== noteId) {
+    throw new Error('noteBytes describe a different note than noteId — refusing to consume it');
+  }
+}
+
 export const generatePromisifyImportPrivateNote = async (
   resolve: (value: MidenDAppImportPrivateNoteResponse | PromiseLike<MidenDAppImportPrivateNoteResponse>) => void,
   reject: (reason?: any) => void,
@@ -2319,7 +2341,7 @@ const generatePromisifyConsumeTransaction = async (
         await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
         const { noteId, noteBytes } = req.transaction;
         if (noteBytes) {
-          await queueNoteImport(noteBytes);
+          await importConsumeNoteBytes(noteId, noteBytes);
         }
         // `manualRetry`: the user just approved THIS consume on the sheet, so it
         // must not be dropped by auto-consume's exponential backoff — which
@@ -2340,7 +2362,8 @@ const generatePromisifyConsumeTransaction = async (
         transactionId
       });
     } catch (e) {
-      reject(dappRequestFailure(e));
+      // A killed note import may have landed and the bytes are queued: not bad params.
+      reject(importPrivateNoteFailure(e));
     }
     return;
   }
@@ -2368,7 +2391,7 @@ const generatePromisifyConsumeTransaction = async (
               await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
               const { noteId, noteBytes } = req.transaction;
               if (noteBytes) {
-                await queueNoteImport(noteBytes);
+                await importConsumeNoteBytes(noteId, noteBytes);
               }
               // `manualRetry`: approved on the confirm page — see the
               // non-extension branch above for why the backoff must not apply,
@@ -2387,7 +2410,8 @@ const generatePromisifyConsumeTransaction = async (
               transactionId
             });
           } catch (e) {
-            reject(dappRequestFailure(e));
+            // Same mapping as the non-extension branch above.
+            reject(importPrivateNoteFailure(e));
           }
         } else {
           decline();

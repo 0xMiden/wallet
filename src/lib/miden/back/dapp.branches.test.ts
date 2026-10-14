@@ -164,6 +164,7 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 // The assert re-implements the real comparison against this mock's hold so it is
 // never a vacuous no-op.
 let currentWasmHold: object | null = null;
+const mockImportNoteBytes = jest.fn();
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     getAccount: (id: string) => (globalThis as any).__dappBranchMockGetAccount(id),
@@ -182,7 +183,7 @@ jest.mock('../sdk/miden-client', () => ({
     getConsumableNotes: jest.fn(async () => []),
     getConsumableNoteDtos: jest.fn(async () => []),
     syncState: jest.fn(async () => {}),
-    importNoteBytes: jest.fn(async () => ({ toString: () => 'note-123' })),
+    importNoteBytes: (...args: unknown[]) => mockImportNoteBytes(...args),
     on: jest.fn()
   }),
   withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
@@ -254,6 +255,8 @@ beforeEach(() => {
   });
   mockGetTokenMetadata.mockResolvedValue({ decimals: 6, symbol: 'TOK' });
   mockStartTransactionProcessing.mockReturnValue(Promise.resolve());
+  mockImportNoteBytes.mockReset();
+  mockImportNoteBytes.mockResolvedValue('note-1');
 });
 
 // ─�� requestPermission (mobile paths) ─────────────────────��───────
@@ -392,15 +395,65 @@ describe('requestConsumeTransaction — mobile error branches', () => {
     ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
   });
 
-  it('queues noteBytes import when noteBytes present', async () => {
-    mockInitiateConsumeTransactionFromId.mockResolvedValue('tx-c');
-    const res = await dapp.requestConsumeTransaction('https://miden.xyz', {
-      type: MidenDAppMessageType.ConsumeRequest,
-      sourcePublicKey: 'miden-account-1',
-      transaction: { ...validTx, noteBytes: 'c29tZW5vdGVieXRlcw==' }
-    } as never);
-    expect(res.type).toBe(MidenDAppMessageType.ConsumeResponse);
-    expect(mockQueueNoteImport).toHaveBeenCalledWith('c29tZW5vdGVieXRlcw==');
+  // Issue #1459: the consume reads the note from the store before it writes a row, so
+  // queued bytes arrived too late and a dApp-supplied note needed a second approval.
+  describe('carried noteBytes', () => {
+    const noteBytes = 'c29tZW5vdGVieXRlcw==';
+    const consumeWithBytes = () =>
+      dapp.requestConsumeTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.ConsumeRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: { ...validTx, noteBytes }
+      } as never);
+
+    beforeEach(() => {
+      mockQueueNoteImport.mockResolvedValue(undefined);
+    });
+
+    it('imports the bytes into the store before it initiates the consume, in one approval', async () => {
+      const order: string[] = [];
+      mockImportNoteBytes.mockImplementationOnce(async (bytes: Uint8Array) => {
+        order.push(`import:${Buffer.from(bytes).toString('base64')}`);
+        return 'note-1';
+      });
+      mockInitiateConsumeTransactionFromId.mockImplementationOnce(async (_account: string, noteId: string) => {
+        order.push(`consume:${noteId}`);
+        return 'tx-c';
+      });
+
+      const res = await consumeWithBytes();
+
+      expect(res).toEqual({ type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-c' });
+      expect(order).toEqual([`import:${noteBytes}`, 'consume:note-1']);
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+      expect(mockQueueNoteImport).not.toHaveBeenCalled();
+    });
+
+    it('refuses to consume when the imported note is not the note being consumed', async () => {
+      mockImportNoteBytes.mockResolvedValueOnce('note-other');
+
+      await expect(consumeWithBytes()).rejects.toThrow(
+        `${MidenDAppErrorType.InvalidParams}: Error: noteBytes describe a different note than noteId`
+      );
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
+
+    it('queues the bytes and does not consume when the import fails on the network', async () => {
+      mockImportNoteBytes.mockRejectedValueOnce(new Error('Failed to fetch'));
+
+      await expect(consumeWithBytes()).rejects.toThrow(`${MidenDAppErrorType.InvalidParams}: Error: Failed to fetch`);
+      expect(mockQueueNoteImport).toHaveBeenCalledWith(noteBytes);
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
+
+    it('rejects with the kill itself, not InvalidParams, when the import is evicted', async () => {
+      const kill = new WasmClientPoisonedError('watchdog', new Error('import parked'));
+      mockImportNoteBytes.mockRejectedValueOnce(kill);
+
+      await expect(consumeWithBytes()).rejects.toBe(kill);
+      expect(mockQueueNoteImport).toHaveBeenCalledWith(noteBytes);
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
   });
 
   it('refuses a note another transaction holds rather than answer with that transaction', async () => {

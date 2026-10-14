@@ -1356,6 +1356,18 @@ describe('Full confirmation cycles in extension mode', () => {
 
   it('requestConsumeTransaction with noteBytes imports and resolves when confirmed', async () => {
     const { queueNoteImport } = jest.requireMock('lib/miden/activity');
+    const sdk = require('lib/miden/transaction');
+    // Issue #1459: the import must land before the consume reads the note from the store.
+    const order: string[] = [];
+    _g.__dappExtTest.midenClient.importNoteBytes = jest.fn(async (bytes: Uint8Array) => {
+      order.push(`import:${Buffer.from(bytes).toString('base64')}`);
+      return 'note-1';
+    });
+    _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
+    sdk.initiateConsumeTransactionFromId.mockImplementationOnce(async (_account: string, noteId: string) => {
+      order.push(`consume:${noteId}`);
+      return 'tx-c';
+    });
     const res = await driveConfirmation(
       () =>
         dapp.requestConsumeTransaction('https://miden.xyz', {
@@ -1373,8 +1385,9 @@ describe('Full confirmation cycles in extension mode', () => {
       MidenMessageType.DAppTransactionConfirmationRequest,
       { confirmed: true, delegate: true }
     );
-    expect(res.type).toBe(MidenDAppMessageType.ConsumeResponse);
-    expect(queueNoteImport).toHaveBeenCalledWith('c29tZWJ5dGVz');
+    expect(res).toEqual({ type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-c' });
+    expect(order).toEqual(['import:c29tZWJ5dGVz', 'consume:note-1']);
+    expect(queueNoteImport).not.toHaveBeenCalled();
   });
 
   it('requestConsumeTransaction rejects with InvalidParams when consume throws', async () => {
