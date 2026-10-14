@@ -600,6 +600,7 @@ describe('the bridge config version floor', () => {
 
 // Each network's accepted document and its derivation are network configuration, as the floor is. The service worker
 // has no scheduler, so a wipe that took them left its synchronous readers with no document after a create or import.
+// Developer Settings' reset takes them with the override they may have been read through, and keeps the floors.
 describe('the bridge config documents', () => {
   const DOCUMENTS = [
     'bridge_config_v1:testnet',
@@ -612,6 +613,8 @@ describe('the bridge config documents', () => {
     mockBrowserStorageGet.mockResolvedValue({
       endpoint_overrides: { rpcUrl: 'https://rpc.custom' },
       ...Object.fromEntries(DOCUMENTS.map(key => [key, {}])),
+      bridge_config_floor_v1: { testnet: 4 },
+      explore_config_floor_v1: { testnet: 2 },
       vault_key: 'v'
     });
   };
@@ -646,12 +649,20 @@ describe('the bridge config documents', () => {
     expect(mockBrowserStorageRemove.mock.calls).toEqual([[['vault_key']]]);
   });
 
-  it('survive the destructive reset that takes the endpoint override with it', async () => {
+  it('go with the destructive reset that takes the endpoint override with it, which keeps the floors', async () => {
     onExtension();
 
     await resetStorageDestructive({ keepEndpointOverride: false });
 
-    expect(mockBrowserStorageRemove.mock.calls).toEqual([[['endpoint_overrides', 'vault_key']]]);
+    expect(mockBrowserStorageRemove.mock.calls).toEqual([[['endpoint_overrides', ...DOCUMENTS, 'vault_key']]]);
+  });
+
+  it('survive the destructive reset that keeps the endpoint override, which removes the rest', async () => {
+    onExtension();
+
+    await resetStorageDestructive();
+
+    expect(mockBrowserStorageRemove.mock.calls).toEqual([[['vault_key']]]);
   });
 
   it('survive the recovery page wipe in their desktop form', async () => {

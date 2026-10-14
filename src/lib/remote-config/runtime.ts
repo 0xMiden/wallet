@@ -62,8 +62,9 @@ interface NetworkState {
   snapshot: BridgeConfigSnapshot;
 }
 
-// One entry per network, so a switch never hands one network's document to another. A wallet reset keeps every
-// network's stored document and its derivation, so a wipe leaves the entries as they are.
+// One entry per network, so a switch never hands one network's document to another. Every wipe but Developer Settings'
+// reset keeps each network's stored document and its derivation, so a wipe leaves the entries as they are; that reset
+// takes them and its caller reloads, which drops the entries.
 const states = new Map<string, NetworkState>();
 const listeners = new Set<() => void>();
 let holds = 0;
