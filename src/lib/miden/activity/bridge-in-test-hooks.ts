@@ -95,8 +95,8 @@ export function installBridgeInTestHooks(): void {
   // Created and advanced inside the submission lock, as the deposit screen does: a `submitting` row with no hash and
   // no live submission is failed as an orphan by the app-root reconciler.
   globalThis.__TEST_CREATE_BRIDGE_RECEIVE__ = async ({ evmTxHash, ...args }: CreateBridgeReceiveArgs) => {
-    // A USDCx row reads the document's source route and Miden domain. Creating the wallet wiped this realm's copy and
-    // the stored one, and initBridgeConfig never waits for the network, so this waits for the first document.
+    // A USDCx row reads the document's source route and Miden domain. A profile that never stored a document has
+    // nothing to hydrate, and initBridgeConfig never waits for the network, so this waits for the first document.
     await ensureBridgeConfig();
     let advanced: Promise<void> | undefined;
     const txId = await startBridgeReceiveSubmission(

@@ -3,9 +3,11 @@ import { rereadStorageCache } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 import { ENDPOINT_OVERRIDE_STORAGE_KEY } from 'lib/miden-chain/effective-endpoints';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { DESKTOP_STORAGE_PREFIX } from 'lib/platform/storage-adapter';
-import { BRIDGE_CONFIG_FLOOR_KEY } from 'lib/remote-config/source';
+import { bridgeConfigDerivedKey } from 'lib/remote-config/derived-snapshot';
+import { BRIDGE_CONFIG_FLOOR_KEY, bridgeConfigCacheKey } from 'lib/remote-config/source';
 import { storageCleared } from 'lib/storage-cleared';
 
 // Configuration, not wallet data, so a reset keeps it. The dev-settings endpoint override
@@ -13,11 +15,18 @@ import { storageCleared } from 'lib/storage-cleared';
 // account on one network while the client resolves another. Developer Settings' reset takes it
 // with the wipe through `keepEndpointOverride: false` rather than clearing it afterwards. The
 // bridge config and Explore catalog floors are the highest document versions each network has
-// accepted; losing one would let a reset wallet accept an older, superseded document.
+// accepted; losing one would let a reset wallet accept an older, superseded document. Each
+// network's accepted bridge config document and its derivation are network configuration too: the
+// service worker has no scheduler, so a wipe that took them would leave its synchronous readers with
+// no document after every create or import.
 export const PRESERVED_STORAGE_KEYS: readonly string[] = [
   ENDPOINT_OVERRIDE_STORAGE_KEY,
   BRIDGE_CONFIG_FLOOR_KEY,
-  EXPLORE_CONFIG_FLOOR_KEY
+  EXPLORE_CONFIG_FLOOR_KEY,
+  ...Object.values(MIDEN_NETWORK_NAME).flatMap(network => [
+    bridgeConfigCacheKey(network),
+    bridgeConfigDerivedKey(network)
+  ])
 ];
 
 // Removes every key but the kept ones. A kept key is never deleted and written back, so no

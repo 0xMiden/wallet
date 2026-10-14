@@ -2,7 +2,6 @@ import {
   fetchFromStorage,
   onStorageChanged,
   putToStorage,
-  registerStorageReread,
   type StorageChangeSubscription
 } from 'lib/miden/front/storage';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -63,14 +62,13 @@ interface NetworkState {
   snapshot: BridgeConfigSnapshot;
 }
 
-// One entry per network, so a switch never hands one network's document to another. A wipe replaces the entries; a
-// read or refresh still out lands on the forgotten entry, where nothing reads it.
+// One entry per network, so a switch never hands one network's document to another. A wallet reset keeps every
+// network's stored document and its derivation, so a wipe leaves the entries as they are.
 const states = new Map<string, NetworkState>();
 const listeners = new Set<() => void>();
 let holds = 0;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let schedulerInstalled = false;
-let rereadRegistered = false;
 
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -156,20 +154,8 @@ function forgetAll(): void {
   listeners.forEach(listener => listener());
 }
 
-function registerReread(): void {
-  if (rereadRegistered) return;
-  rereadRegistered = true;
-  // A wipe in this realm removed the stored copies, so the in-memory ones go too. A page reads again at once, which
-  // refetches; the service worker waits for its next use. Not awaited: a wipe must not wait on the network.
-  registerStorageReread(async () => {
-    forgetAll();
-    if (schedulerInstalled) void initBridgeConfig();
-  });
-}
-
 function hydrate(state: NetworkState): Promise<void> {
   if (state.hydration) return state.hydration;
-  registerReread();
   const reread = () => void rehydrate(state);
   state.subscriptions = [
     onStorageChanged(bridgeConfigCacheKey(state.network), reread),
@@ -397,7 +383,7 @@ async function hydrateCurrent(): Promise<NetworkState> {
   for (;;) {
     const state = stateFor(getEffectiveNetworkName());
     await hydrate(state);
-    // The network can change, and a wipe can forget the entry, while the read is out.
+    // The network can change, and a test reset can forget the entry, while the read is out.
     if (state.network === getEffectiveNetworkName() && states.get(state.network) === state) return state;
   }
 }

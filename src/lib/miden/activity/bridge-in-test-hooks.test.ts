@@ -5,10 +5,16 @@
 // The hooks run in the service worker, which has no document and so no bridge config scheduler; a node environment
 // keeps the real remote-config runtime on that path.
 import * as Repo from 'lib/miden/repo';
-import { initBridgeConfig } from 'lib/remote-config/runtime';
+import { PRESERVED_STORAGE_KEYS } from 'lib/miden/reset';
+import {
+  _refreshBridgeConfigForTest,
+  _resetBridgeConfigRuntimeForTest,
+  initBridgeConfig
+} from 'lib/remote-config/runtime';
 import { type BridgeConfig, parseBridgeConfig } from 'lib/remote-config/schema';
 import type { StoredBridgeConfig } from 'lib/remote-config/source';
 import testnet from 'lib/remote-config/testing/testnet.json';
+import { getUsdcxRemoteDomain } from 'lib/usdcx/constant';
 
 import { installBridgeInTestHooks } from './bridge-in-test-hooks';
 import type { IBridgedReceiveExtraInputs } from '../db/types';
@@ -60,26 +66,22 @@ const storeDocument = (): StoredBridgeConfig => {
   return entry;
 };
 
-beforeEach(async () => {
-  mockStorage.clear();
-  mockFetch.mockReset().mockImplementation(async () => storeDocument());
-  jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-  await Repo.transactions.clear();
-});
-
-afterEach(() => {
-  jest.restoreAllMocks();
-});
-
-it('creates a USDCx tracking row with the document domain right after a wallet-creation wipe', async () => {
-  // Service-worker startup hydrates the stored document; creating a wallet then wipes storage, and the realm with it.
+// Service-worker startup hydrates the stored document, and its first derivation lands.
+const startUp = async () => {
   storeDocument();
   await initBridgeConfig();
-  mockStorage.clear();
-  await Promise.all(mockRereads.map(reread => reread()));
-  installBridgeInTestHooks();
+  await _refreshBridgeConfigForTest();
+  mockFetch.mockClear();
+};
 
-  const txId = await globalThis.__TEST_CREATE_BRIDGE_RECEIVE__({
+// Creating a wallet removes every key but the kept ones, then runs this realm's rereads.
+const wipe = async () => {
+  for (const key of [...mockStorage.keys()]) if (!PRESERVED_STORAGE_KEYS.includes(key)) mockStorage.delete(key);
+  await Promise.all(mockRereads.map(reread => reread()));
+};
+
+const createArcReceive = () =>
+  globalThis.__TEST_CREATE_BRIDGE_RECEIVE__({
     accountId: 'mtst1account',
     amount: '20000',
     faucetId: 'mtst1usdcx',
@@ -91,6 +93,7 @@ it('creates a USDCx tracking row with the document domain right after a wallet-c
     evmTxHash: '0x1111111111111111111111111111111111111111111111111111111111111111'
   });
 
+const expectArcRow = async (txId: string) => {
   const inputs: IBridgedReceiveExtraInputs | undefined = (await Repo.transactions.where({ id: txId }).first())
     ?.extraInputs;
   expect(inputs).toMatchObject({
@@ -98,4 +101,47 @@ it('creates a USDCx tracking row with the document domain right after a wallet-c
     usdcxMidenDomain: 10007,
     usdcxSource: { route: 'xreserve', chain: { id: ARC_TESTNET_CHAIN_ID } }
   });
+};
+
+beforeEach(async () => {
+  _resetBridgeConfigRuntimeForTest();
+  mockStorage.clear();
+  mockFetch.mockReset().mockImplementation(async () => storeDocument());
+  jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  await Repo.transactions.clear();
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
+it('creates a USDCx tracking row with the document domain right after a wallet-creation wipe, with no fetch', async () => {
+  await startUp();
+  await wipe();
+  installBridgeInTestHooks();
+
+  await expectArcRow(await createArcReceive());
+  expect(mockFetch).not.toHaveBeenCalled();
+});
+
+it('fetches the first document for a USDCx tracking row in a profile that never stored one', async () => {
+  installBridgeInTestHooks();
+
+  await expectArcRow(await createArcReceive());
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  ['in the same realm', () => undefined],
+  ['after the service worker restarts', _resetBridgeConfigRuntimeForTest]
+])('hydrates the stored document after a wallet-creation wipe %s, with the network down', async (_where, after) => {
+  await startUp();
+  await wipe();
+  after();
+  mockFetch.mockRejectedValue(new Error('offline'));
+
+  await initBridgeConfig();
+
+  expect(getUsdcxRemoteDomain()).toBe(10007);
+  expect(mockFetch).not.toHaveBeenCalled();
 });

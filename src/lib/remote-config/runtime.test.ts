@@ -794,46 +794,32 @@ describe('a re-derivation that cannot read a value', () => {
   });
 });
 
+// A reset keeps every network's stored document and its derivation, so what this realm holds stays valid.
 describe('a wipe in this realm', () => {
-  it('drops the copy in memory and reads again at once', async () => {
+  it('keeps the copy in memory and fetches nothing', async () => {
     seed(1);
     await initBridgeConfig();
-    mockStorage.clear();
-    const refetch = gate();
-    mockFetch.mockImplementationOnce(async network => {
-      await refetch.opened;
-      return storeEntry(network, 1);
-    });
-    await rereadAfterWipe();
-    expect(getBridgeConfigSnapshot()).toEqual({
-      network: 'testnet',
-      status: 'loading',
-      config: null,
-      derived: null,
-      lastFetch: null
-    });
-    refetch.release();
     await flush();
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(getBridgeConfigSnapshot()).toMatchObject({ status: 'ready', config: config(1) });
+    const before = getBridgeConfigSnapshot();
+    await rereadAfterWipe();
+    await flush();
+    expect(getBridgeConfigSnapshot()).toBe(before);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('lands nothing from a refresh that was out across it', async () => {
+  it('lands a refresh that was out across it', async () => {
     const first = gate();
     mockFetch.mockImplementationOnce(async network => {
       await first.opened;
       return storeEntry(network, 1);
     });
-    const firstLoad = initBridgeConfig();
+    void initBridgeConfig();
     await flush();
-    serve(2);
     await rereadAfterWipe();
-    await flush();
-    expect(getBridgeConfigSnapshot()).toMatchObject({ config: config(2) });
     first.release();
     await flush();
-    expect(getBridgeConfigSnapshot()).toMatchObject({ config: config(2) });
-    await expect(firstLoad).resolves.toMatchObject({ status: 'loading', config: null });
+    expect(getBridgeConfigSnapshot()).toMatchObject({ status: 'ready', config: config(1) });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
 

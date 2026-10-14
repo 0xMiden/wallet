@@ -154,14 +154,15 @@ it('backs off a failed refresh before the next load may retry', async () => {
   expect(mockFetch).toHaveBeenCalledTimes(2);
 });
 
-it('after a wipe, drops the copy and waits for the next load to fetch', async () => {
+// A reset keeps the stored document and its derivation, so a request right after one reads them without a fetch.
+it('after a wipe, keeps the copy and fetches nothing', async () => {
   seed(1);
   await initBridgeConfig();
-  mockStorage.clear();
+  const before = getBridgeConfigSnapshot();
   await Promise.all(mockRereads.map(reread => reread()));
-  expect(mockFetch).not.toHaveBeenCalled();
-  expect(getBridgeConfigSnapshot().status).toBe('loading');
+  expect(getBridgeConfigSnapshot()).toBe(before);
   await initBridgeConfig();
   await flush();
-  expect(mockFetch).toHaveBeenCalledTimes(1);
+  expect(getBridgeConfigSnapshot()).toBe(before);
+  expect(mockFetch).not.toHaveBeenCalled();
 });

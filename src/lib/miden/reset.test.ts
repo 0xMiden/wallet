@@ -557,17 +557,13 @@ describe('announcing the platform wipe, once fully settled', () => {
 describe('the bridge config version floor', () => {
   const FLOOR = { bridge_config_floor_v1: { testnet: 4 } };
 
-  it('survives the wallet-setup wipe while the stored document goes', async () => {
+  it('survives the wallet-setup wipe', async () => {
     jest.mocked(isExtension).mockReturnValue(true);
-    mockBrowserStorageGet.mockResolvedValue({
-      ...FLOOR,
-      'bridge_config_v1:testnet': { fetchedAt: 1, body: {} },
-      vault_key: 'v'
-    });
+    mockBrowserStorageGet.mockResolvedValue({ ...FLOOR, vault_key: 'v' });
 
     await clearStorage();
 
-    expect(mockBrowserStorageRemove.mock.calls).toEqual([[['bridge_config_v1:testnet', 'vault_key']]]);
+    expect(mockBrowserStorageRemove.mock.calls).toEqual([[['vault_key']]]);
   });
 
   it('survives the destructive reset that takes the endpoint override with it', async () => {
@@ -585,11 +581,11 @@ describe('the bridge config version floor', () => {
 
   it('survives the mobile wipe', async () => {
     jest.mocked(isMobile).mockReturnValue(true);
-    _g.__resetTest.prefStub.keys.mockResolvedValue({ keys: ['bridge_config_floor_v1', 'bridge_config_v1:testnet'] });
+    _g.__resetTest.prefStub.keys.mockResolvedValue({ keys: ['bridge_config_floor_v1', 'vault_key'] });
 
     await clearStorage();
 
-    expect(_g.__resetTest.prefStub.remove.mock.calls).toEqual([[{ key: 'bridge_config_v1:testnet' }]]);
+    expect(_g.__resetTest.prefStub.remove.mock.calls).toEqual([[{ key: 'vault_key' }]]);
   });
 
   it('survives the recovery page wipe in its desktop form', async () => {
@@ -599,6 +595,71 @@ describe('the bridge config version floor', () => {
     await clearClientStorage();
 
     expect(Object.keys(localStorage)).toEqual(['miden_wallet_bridge_config_floor_v1']);
+  });
+});
+
+// Each network's accepted document and its derivation are network configuration, as the floor is. The service worker
+// has no scheduler, so a wipe that took them left its synchronous readers with no document after a create or import.
+describe('the bridge config documents', () => {
+  const DOCUMENTS = [
+    'bridge_config_v1:testnet',
+    'bridge_config_derived_v1:testnet',
+    'bridge_config_v1:devnet',
+    'bridge_config_derived_v1:devnet'
+  ];
+  const onExtension = () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockBrowserStorageGet.mockResolvedValue({
+      endpoint_overrides: { rpcUrl: 'https://rpc.custom' },
+      ...Object.fromEntries(DOCUMENTS.map(key => [key, {}])),
+      vault_key: 'v'
+    });
+  };
+  const inDesktopForm = () => {
+    for (const key of [...DOCUMENTS, 'vault_key']) localStorage.setItem(`miden_wallet_${key}`, '{}');
+  };
+  const desktopKeys = () => Object.keys(localStorage).sort();
+
+  it('survive the wallet-setup wipe on mobile, which removes the rest', async () => {
+    jest.mocked(isMobile).mockReturnValue(true);
+    _g.__resetTest.prefStub.keys.mockResolvedValue({ keys: [...DOCUMENTS, 'vault_key'] });
+
+    await clearStorage();
+
+    expect(_g.__resetTest.prefStub.remove.mock.calls).toEqual([[{ key: 'vault_key' }]]);
+  });
+
+  it('survive the wallet-setup wipe on desktop in their desktop form, which removes the rest', async () => {
+    jest.mocked(isDesktop).mockReturnValue(true);
+    inDesktopForm();
+
+    await clearStorage();
+
+    expect(desktopKeys()).toEqual(DOCUMENTS.map(key => `miden_wallet_${key}`).sort());
+  });
+
+  it('survive the wallet-setup wipe on the extension, which removes the rest', async () => {
+    onExtension();
+
+    await clearStorage();
+
+    expect(mockBrowserStorageRemove.mock.calls).toEqual([[['vault_key']]]);
+  });
+
+  it('survive the destructive reset that takes the endpoint override with it', async () => {
+    onExtension();
+
+    await resetStorageDestructive({ keepEndpointOverride: false });
+
+    expect(mockBrowserStorageRemove.mock.calls).toEqual([[['endpoint_overrides', 'vault_key']]]);
+  });
+
+  it('survive the recovery page wipe in their desktop form', async () => {
+    inDesktopForm();
+
+    await clearClientStorage();
+
+    expect(desktopKeys()).toEqual(DOCUMENTS.map(key => `miden_wallet_${key}`).sort());
   });
 });
 
