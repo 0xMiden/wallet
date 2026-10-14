@@ -211,7 +211,34 @@ it('reads a copy with no swap pairs, as a build before them stored it, as missin
 it.each([
   ['pairs that are not a probe', { pairs: 'ok' }],
   ['pairs in an unknown state', { pairs: { state: 'pending' } }],
-  ['a registry that does not parse', { pairs: { state: 'ok', value: { tokens: [{ ticker: 'IETH' }], pairs: [] } } }]
+  ['a registry that does not parse', { pairs: { state: 'ok', value: { tokens: [{ ticker: 'IETH' }], pairs: [] } } }],
+  [
+    'a registry that loses a token when parsed again',
+    {
+      pairs: {
+        state: 'ok',
+        value: {
+          tokens: [
+            { faucetId: '0xe33498f1176661512b5ac4ded86ec7', ticker: 'IETH', decimals: 8 },
+            { ticker: 'IUSDT', decimals: 8 }
+          ],
+          pairs: []
+        }
+      }
+    }
+  ],
+  [
+    'a registry that loses a pair when parsed again',
+    {
+      pairs: {
+        state: 'ok',
+        value: {
+          tokens: [{ faucetId: '0xe33498f1176661512b5ac4ded86ec7', ticker: 'IETH', decimals: 8 }],
+          pairs: [{ faucetIds: ['0xe33498f1176661512b5ac4ded86ec7'] }]
+        }
+      }
+    }
+  ]
 ])('rejects a snapshot whose swap section holds %s', (_label, swap) => {
   expect(parseStoredDerived({ ...whole(), swap }, 'testnet', 4)).toBeNull();
 });

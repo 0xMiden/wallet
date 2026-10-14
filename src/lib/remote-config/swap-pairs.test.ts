@@ -57,27 +57,84 @@ describe('parseSwapPairs', () => {
     expect(parsed?.pairs).toEqual([]);
   });
 
+  it('reads a ticker of up to 12 letters, the wallet symbol limit', () => {
+    const parsed = parseSwapPairs(
+      withTokens([
+        { ...ieth, ticker: 'IPOLKADOT' },
+        { ...iusdt, ticker: 'IUSDTETHEREU' }
+      ])
+    );
+    expect(parsed?.tokens.map(token => token.ticker)).toEqual(['IPOLKADOT', 'IUSDTETHEREU']);
+  });
+
+  it('leaves out every malformed or ambiguous token and its pairs, keeping the others', () => {
+    const iother = { faucetId: '0x0000000000000000000000000000cd', ticker: 'IPOLKADOT', decimals: 6 };
+    const parsed = parseSwapPairs({
+      tokens: [
+        imiden,
+        { ...ieth, decimals: 13 },
+        iusdt,
+        { ...iusdt, ticker: 'IUSDC' },
+        ibtc,
+        { ...ibtc, faucetId: '0x0000000000000000000000000000ab' },
+        iother
+      ],
+      pairs: [...TEST_SWAP_PAIRS_RESPONSE.pairs, { faucetIds: [imiden!.faucetId, iother.faucetId] }]
+    });
+    expect(parsed).toStrictEqual({
+      tokens: [
+        { faucetId: imiden!.faucetId, ticker: 'IMIDEN', decimals: 8 },
+        { faucetId: iother.faucetId, ticker: 'IPOLKADOT', decimals: 6 }
+      ],
+      pairs: [{ faucetIds: [imiden!.faucetId, iother.faucetId] }]
+    });
+  });
+
+  it('leaves out both entries for one faucet in either order, even when one is itself malformed', () => {
+    const malformed = { ...ieth, ticker: 'iEth' };
+    expect(parseSwapPairs(withTokens([imiden, ieth, malformed]))?.tokens.map(token => token.ticker)).toEqual([
+      'IMIDEN'
+    ]);
+    expect(parseSwapPairs(withTokens([malformed, ieth, imiden]))?.tokens.map(token => token.ticker)).toEqual([
+      'IMIDEN'
+    ]);
+  });
+
+  it.each([
+    ['a token that is not an object', 'IETH'],
+    ['a lower-case ticker', { ...ieth, ticker: 'iEth' }],
+    ['a thirteen-letter ticker', { ...ieth, ticker: 'IETHEREUMWRAP' }],
+    ['a ticker that is not a string', { ...ieth, ticker: 7 }],
+    ['a bech32 faucet id', { ...ieth, faucetId: 'mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h' }],
+    ['a missing faucet id', { ticker: 'IETH', decimals: 8 }],
+    ['missing decimals', { faucetId: ieth!.faucetId, ticker: 'IETH' }],
+    ['fractional decimals', { ...ieth, decimals: 8.5 }],
+    ['decimals above 12', { ...ieth, decimals: 13 }],
+    ['negative decimals', { ...ieth, decimals: -1 }],
+    ['an asset that is not a string', { ...ieth, binanceAsset: 1 }]
+  ])('leaves out a token over %s, keeping the others', (_name, token) => {
+    const parsed = parseSwapPairs(withTokens([token, iusdt, ibtc]));
+    expect(parsed?.tokens.map(entry => entry.ticker)).toEqual(['IUSDT', 'IBTC']);
+    expect(parsed?.pairs).toStrictEqual([{ faucetIds: [ibtc!.faucetId, iusdt!.faucetId] }]);
+  });
+
+  it.each([
+    ['a pair that is not an object', 'IETH-IUSDT'],
+    ['a pair with no faucet list', { name: 'IETH-IUSDT' }],
+    ['a pair of one faucet', { faucetIds: [ieth!.faucetId] }],
+    ['a pair of three faucets', { faucetIds: [ieth!.faucetId, iusdt!.faucetId, ibtc!.faucetId] }],
+    ['a pair of a faucet with itself', { faucetIds: [ieth!.faucetId, ieth!.faucetId] }],
+    ['a pair with a malformed faucet id', { faucetIds: [ieth!.faucetId, 'IUSDT'] }]
+  ])('leaves out %s, keeping the other pairs', (_name, pair) => {
+    const kept = { faucetIds: [ibtc!.faucetId, iusdt!.faucetId] };
+    expect(parseSwapPairs(withPairs([pair, kept]))?.pairs).toStrictEqual([kept]);
+  });
+
   it.each([
     ['a body that is not an object', ['IETH']],
     ['a token list that is not an array', withTokens({ IETH: ieth })],
     ['a pair list that is not an array', withPairs({})],
-    ['a missing pair list', { tokens: TEST_SWAP_PAIRS_RESPONSE.tokens }],
-    ['a token that is not an object', withTokens(['IETH'])],
-    ['a lower-case ticker', withTokens([{ ...ieth, ticker: 'iEth' }])],
-    ['a seven-letter ticker', withTokens([{ ...ieth, ticker: 'IBITCON' }])],
-    ['a bech32 faucet id', withTokens([{ ...ieth, faucetId: 'mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h' }])],
-    ['a missing faucet id', withTokens([{ ticker: 'IETH', decimals: 8 }])],
-    ['fractional decimals', withTokens([{ ...ieth, decimals: 8.5 }])],
-    ['decimals above 12', withTokens([{ ...ieth, decimals: 13 }])],
-    ['negative decimals', withTokens([{ ...ieth, decimals: -1 }])],
-    ['an asset that is not a string', withTokens([{ ...ieth, binanceAsset: 1 }])],
-    ['two tokens for one faucet', withTokens([ieth, { ...ieth, ticker: 'IBTC' }])],
-    ['two tokens for one ticker', withTokens([ieth, { ...ieth, faucetId: ibtc!.faucetId }])],
-    ['a pair that is not an object', withPairs(['IETH-IUSDT'])],
-    ['a pair of one faucet', withPairs([{ faucetIds: [ieth!.faucetId] }])],
-    ['a pair of three faucets', withPairs([{ faucetIds: [ieth!.faucetId, iusdt!.faucetId, ibtc!.faucetId] }])],
-    ['a pair of a faucet with itself', withPairs([{ faucetIds: [ieth!.faucetId, ieth!.faucetId] }])],
-    ['a pair with a malformed faucet id', withPairs([{ faucetIds: [ieth!.faucetId, 'IUSDT'] }])]
+    ['a missing pair list', { tokens: TEST_SWAP_PAIRS_RESPONSE.tokens }]
   ])('refuses the response over %s', (_name, body) => {
     expect(parseSwapPairs(body)).toBeNull();
   });
