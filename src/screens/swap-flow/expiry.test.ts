@@ -1,4 +1,10 @@
-import { EXPIRY_PRESETS, isValidExpirySeconds, MAX_EXPIRY_SECONDS, MIN_EXPIRY_SECONDS, presetForSeconds } from './expiry';
+import {
+  EXPIRY_PRESETS,
+  isValidExpirySeconds,
+  MAX_EXPIRY_SECONDS,
+  MIN_EXPIRY_SECONDS,
+  presetForSeconds
+} from './expiry';
 
 describe('expiry presets', () => {
   it.each([
