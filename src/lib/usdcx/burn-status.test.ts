@@ -3,6 +3,13 @@ import { RpcTimeoutError } from 'lib/miden-chain/rpc-timeout';
 
 import { burnPhaseFromStatus, pollUsdcxBurn } from './burn-status';
 
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
+
 let stored: ITransaction;
 const mockGetNetworkNoteStatus = jest.fn();
 const mockFree = jest.fn();

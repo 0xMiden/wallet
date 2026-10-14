@@ -5,9 +5,10 @@ import { updateBridgedReceivePhase } from 'lib/miden/activity';
 import {
   CIRCLE_USDC_DECIMALS,
   getUsdcxXReserveSource,
+  UsdcxXReserveSource,
   USDCX_DEPOSIT_HOOK_DATA,
   USDCX_DEPOSIT_MAX_FEE,
-  USDCX_REMOTE_DOMAIN
+  getUsdcxRemoteDomain
 } from './constant';
 
 /** The argument tuple of xReserve `depositToRemote`. */
@@ -27,8 +28,9 @@ export interface UsdcxSigner {
 }
 
 export interface UsdcxDepositDeps {
-  /** The EVM chain the deposit is made on; it must be a `USDCX_SOURCE_CHAINS` entry with a local xReserve. */
+  /** The EVM chain the deposit is made on; it must be a `usdcxSourceChains` entry with a local xReserve. */
   sourceChainId: number;
+  source?: UsdcxXReserveSource;
   signer: UsdcxSigner;
   isRemoteDomainRegistered(remoteDomain: number): Promise<boolean>;
   /** The USDC allowance the depositing account gave `spender`, in base units. */
@@ -56,13 +58,14 @@ export function isUsdcxDomainNotRegisteredError(error: unknown): error is UsdcxD
 export function buildDepositToRemoteArgs(
   amount: string,
   remoteRecipient: Hex,
-  sourceChainId: number
+  sourceChainId: number,
+  source = getUsdcxXReserveSource(sourceChainId)
 ): DepositToRemoteArgs {
   return [
     parseUnits(amount.trim(), CIRCLE_USDC_DECIMALS),
-    USDCX_REMOTE_DOMAIN,
+    source.midenDomain ?? getUsdcxRemoteDomain(),
     remoteRecipient,
-    getUsdcxXReserveSource(sourceChainId).usdc,
+    source.usdc,
     USDCX_DEPOSIT_MAX_FEE,
     USDCX_DEPOSIT_HOOK_DATA
   ];
@@ -86,9 +89,17 @@ export async function runUsdcxDeposit(
   trackingTxId: string,
   amount: string,
   remoteRecipient: Hex,
-  { sourceChainId, signer, isRemoteDomainRegistered, readAllowance, waitForReceipt, updatePhase }: UsdcxDepositDeps
+  {
+    sourceChainId,
+    source = getUsdcxXReserveSource(sourceChainId),
+    signer,
+    isRemoteDomainRegistered,
+    readAllowance,
+    waitForReceipt,
+    updatePhase
+  }: UsdcxDepositDeps
 ): Promise<Hash> {
-  const args = buildDepositToRemoteArgs(amount, remoteRecipient, sourceChainId);
+  const args = buildDepositToRemoteArgs(amount, remoteRecipient, sourceChainId, source);
   const [value, remoteDomain] = args;
 
   if (!(await isRemoteDomainRegistered(remoteDomain))) {
@@ -97,7 +108,7 @@ export async function runUsdcxDeposit(
 
   // An allowance that covers the deposit needs no approval: no second prompt, gas or receipt,
   // and `approve` would replace a larger allowance with this amount.
-  const { xReserve } = getUsdcxXReserveSource(sourceChainId);
+  const { xReserve } = source;
   if ((await readAllowance(xReserve)) < value) {
     const approvalHash = await signer.approve(xReserve, value);
     await waitForReceipt(approvalHash);

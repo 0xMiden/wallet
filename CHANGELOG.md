@@ -2,9 +2,14 @@
 
 ## 1.17.4 (TBD)
 
+### Features
+
+- [FEATURE][all] The send review page folds the transfer type and the expiration under an "Advanced options" row, closed by default with a one-line summary of both; a "Transfer type" sheet picks Private (the default) or Public, and a public send keeps a notice of what it reveals on the page and a "Send publicly" button whether or not the row is open.
+
 ### Fixes
 
 - [FIX][all] A dApp request for an account that is not the one currently open in Bread is refused before any approval popup or data read, instead of asking the user to approve a request for another account. A request approved after the open account changed or the dApp was disconnected is refused too.
+- [FIX][all] Every Guardian proposal syncs the chain right before it is built, so one that waits out a busy Guardian or a paused app no longer fails with `before_foreign_load` once the node has pruned the old block.
 - [FIX][all] A dApp custom request from a Guardian account that declares the network accounts its notes target as public foreign accounts is no longer refused; any other foreign account still is.
 - [FIX][all] OpenZeppelin Guardian endpoints moved to `guardian-testnet.openzeppelin.com` (testnet) and `guardian-devnet.openzeppelin.com` (devnet), replacing `guardian.openzeppelin.com` and `guardian-stg.openzeppelin.com`. Existing accounts keep their saved host, which is still recognised as OpenZeppelin.
 - [FIX][ios] Wallet pages extend to the display bottom beneath the home indicator. Navigation, review actions and pinned controls retain their safe-area clearance while keyboard insets continue to protect focused flows.
@@ -12,6 +17,11 @@
 - [FIX][all] Handled transaction failures reach opt-in Sentry reporting, including failures with the extension popup closed and later bridge, earn and node-verdict failures. Reports retain closed execution and authentication diagnostics without transaction values or user identifiers.
 - [FIX][all] Amount entry keeps canonical Latin digits on Persian and Arabic devices, preventing lost digits and invalid base-unit conversion in Send and Swap. Incomplete or malformed swap amounts clear the previous quote and wait for valid input.
 - [FIX][mobile] Fullscreen dApps publish the occupied Bread control rectangle and safe-area metrics so headers can share its row, restore retained covered pages before foreground reveal, and minimize into Bread through its logo without reloading the game when reopened. Wallet overlays and fresh paint checks retain ownership.
+- [FIX][all] The expiration calendar uses theme colors so dates, the month title and navigation arrows are visible in dark mode.
+
+### Features
+
+- [FEATURE][all] Read bridge routes, service URLs, and contract addresses from the remote configuration for each EVM chain. Keep Earn under its own switch and read its market from Epoch. Use the listed chains for wallet connections, and keep saved transfer data for recovery after a route is disabled or changed.
 
 ### Changes
 

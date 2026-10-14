@@ -38,11 +38,13 @@ import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   getMidenClient,
+  retireWasmClientForCaughtTrap,
   withWasmClientLock,
   type WasmClientLockOptions,
   type WasmLockHold
 } from '../sdk/miden-client';
-import { isGuardianCanonicalizationError } from '../sdk/sdk-error-code';
+import { isGuardianCanonicalizationError, isPipelineKillLink, someInCauseChain } from '../sdk/sdk-error-code';
+import { syncAndRecordFeeFaucet } from '../sdk/sync-and-record-fee-faucet';
 import {
   WASM_LOCK_SYNC_WATCHDOG_MS,
   WasmClientPoisonedError,
@@ -64,6 +66,32 @@ export const isGuardianAuthRejection = (err: unknown): boolean => {
   const code = 'code' in err ? err.code : undefined;
   return status === 401 || code === 'authentication_failed' || code === 'signer_not_authorized';
 };
+
+/**
+ * The chain sync a proposal runs right before it is built failed. That is the node's answer, never
+ * evidence about the Guardian, so callers must not route it to the direct on-chain switch. The message
+ * carries the cause's, so message-based outage classifiers still read it as an outage.
+ */
+export class ProposalChainSyncError extends Error {
+  constructor(cause: unknown) {
+    super(`chain sync before the proposal failed: ${cause instanceof Error ? cause.message : String(cause)}`, {
+      cause
+    });
+    this.name = 'ProposalChainSyncError';
+  }
+}
+
+export function isProposalChainSyncError(err: unknown): boolean {
+  return someInCauseChain(err, link => link instanceof ProposalChainSyncError);
+}
+
+/**
+ * Where one proposal attempt's hold stands, for a caller whose own deadline can stop awaiting it: `syncing` is set while
+ * its chain sync runs, so a rejection then (a deadline or an eviction) came from inside the sync. A caller that stops
+ * awaiting the attempt sets `abandoned` in whatever phase it is, and from then on the hold starts no sync and makes no
+ * proposal.
+ */
+export type ProposalSyncPhase = { syncing: boolean; abandoned: boolean };
 
 /**
  * `reRegisterCurrentStateOnGuardian` refused to push (#1233): this device's copy of the account is
@@ -379,7 +407,7 @@ export class MultisigService {
     amount: bigint,
     noteType: NoteType
   ): Promise<Proposal> {
-    return withWasmClientLock(() =>
+    return this.withChainSyncedHold('send proposal', () =>
       this.multisig.createP2idProposal(
         accountRefToSdk(recipientId).toString(),
         accountRefToSdk(faucetId).toString(),
@@ -393,7 +421,7 @@ export class MultisigService {
    * Create a consume notes transaction proposal.
    */
   async createConsumeNotesProposal(noteIds: string[]): Promise<Proposal> {
-    return withWasmClientLock(() => this.multisig.createConsumeNotesProposal(noteIds));
+    return this.withChainSyncedHold('consume proposal', () => this.multisig.createConsumeNotesProposal(noteIds));
   }
 
   /** Current on-chain threshold for `procedure`, or undefined if none is set. */
@@ -426,8 +454,8 @@ export class MultisigService {
 
   /** Create a proposal that sets `procedure`'s signature threshold to `threshold`. */
   async createUpdateProcedureThresholdProposal(procedure: string, threshold: number): Promise<Proposal> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return withWasmClientLock(() =>
+    return this.withChainSyncedHold('procedure-threshold proposal', () =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (this.multisig as any).createUpdateProcedureThresholdProposal(procedure, threshold)
     );
   }
@@ -446,7 +474,9 @@ export class MultisigService {
    * with a built-in type — so the default must be snake_case, not `'custom transaction'`.
    */
   async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom_transaction'): Promise<Proposal> {
-    return await withWasmClientLock(() => this.multisig.createCustomProposal(requestBytes, proposalType));
+    return await this.withChainSyncedHold('custom proposal', () =>
+      this.multisig.createCustomProposal(requestBytes, proposalType)
+    );
   }
 
   /**
@@ -473,9 +503,7 @@ export class MultisigService {
     proposalType: string,
     approvalExpirationDelta?: number
   ): Promise<{ proposal: Proposal; requestBytes: Uint8Array }> {
-    return await withWasmClientLock(async hold => {
-      const client = (await getMidenClient()).client;
-      assertWasmHoldCurrent(hold, 'rebased custom proposal: after the client build');
+    return await this.withChainSyncedHold('rebased custom proposal', async (hold, client) => {
       const notes = TransactionRequest.deserialize(requestBytes).expectedOutputOwnNotes();
       const builder = await feeAwareRequestBuilder(client, this.accountId, randomFeeSalt(), approvalExpirationDelta);
       assertWasmHoldCurrent(hold, 'rebased custom proposal: after the fee-aware builder');
@@ -791,7 +819,8 @@ export class MultisigService {
    * after the on-chain switch commits.
    */
   async createSwitchGuardianProposal(
-    newGuardianEndpoint: string
+    newGuardianEndpoint: string,
+    syncPhase?: ProposalSyncPhase
   ): Promise<{ proposal: Proposal; newEndpoint: string }> {
     try {
       // Not yet known to be a Guardian: on mobile its origin routes through native HTTP only while it is checked.
@@ -811,8 +840,10 @@ export class MultisigService {
       });
       // `createSwitchGuardianProposal` already creates and returns the proposal;
       // calling `createProposal` again would duplicate it (nonce collision).
-      const proposal = await withWasmClientLock(() =>
-        this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment)
+      const proposal = await this.withChainSyncedHold(
+        'switch-guardian proposal',
+        () => this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment),
+        syncPhase
       );
       return { proposal, newEndpoint: newGuardianEndpoint };
     } catch (error) {
@@ -903,6 +934,50 @@ export class MultisigService {
     const proposal = await this.multisig.createProposal(Date.now(), summaryBase64, metadata);
     console.log('Created replace-hot-key proposal:', proposal.id);
     return proposal;
+  }
+
+  /**
+   * A proposal's summary executes at the store's sync height and loads the fee faucet as a foreign
+   * account there; the node serves account state only 50 blocks back, so a height left stale by a
+   * 409 retry loop or a paused WebView fails `before_foreign_load` (#1442). So every proposal takes
+   * its hold here and syncs in it, right before `body` builds on the client it is handed.
+   */
+  private withChainSyncedHold<T>(
+    label: string,
+    body: (hold: WasmLockHold, client: MidenClient) => Promise<T>,
+    phase?: ProposalSyncPhase
+  ): Promise<T> {
+    // Nobody awaits an abandoned attempt, and a delta it pushed would make a later coordinated switch 409 and cancel.
+    const assertNotAbandoned = (when: string) => {
+      if (phase?.abandoned) throw new Error(`${label}: abandoned by its caller ${when}`);
+    };
+    return withWasmClientLock(async hold => {
+      assertNotAbandoned('while it waited for the hold');
+      const { client } = await getMidenClient();
+      assertWasmHoldCurrent(hold, `${label}: before the chain sync`);
+      assertNotAbandoned('during the client build');
+      if (phase) phase.syncing = true;
+      try {
+        await syncAndRecordFeeFaucet(
+          client,
+          () => client.syncChain(),
+          () => assertWasmHoldCurrent(hold, `${label}: chain sync`)
+        );
+      } catch (error) {
+        // A caught trap is retired in its own hold and rethrown raw: neither it nor a killed pipeline is the
+        // node's answer. Only a plain sync failure is tagged, never body's errors.
+        if (error instanceof WebAssembly.RuntimeError) {
+          retireWasmClientForCaughtTrap(hold, error);
+          throw error;
+        }
+        if (isPipelineKillLink(error)) throw error;
+        throw new ProposalChainSyncError(error);
+      } finally {
+        if (phase) phase.syncing = false;
+      }
+      assertNotAbandoned('during the chain sync');
+      return body(hold, client);
+    });
   }
 
   /**

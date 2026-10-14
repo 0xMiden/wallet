@@ -13,7 +13,14 @@ import {
   isGuardianAccount,
   type GuardianAccountProvider
 } from 'lib/miden/front/guardian-manager';
-import { GUARDIAN_CANDIDATE_HOLD_MS, MultisigService, PRIOR_CANDIDATE_CHECK_TIMEOUT_MS } from 'lib/miden/guardian';
+import {
+  GUARDIAN_CANDIDATE_HOLD_MS,
+  isProposalChainSyncError,
+  MultisigService,
+  PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+  ProposalChainSyncError,
+  type ProposalSyncPhase
+} from 'lib/miden/guardian';
 import {
   createDirectSwitchGuardianRequest,
   didDirectSwitchLand,
@@ -3251,6 +3258,7 @@ const generateGuardianTransaction = async (
       // (one rejection, either origin), so the message widens rather than
       // guesses; the direct path then re-fails on the new endpoint and names it.
       let unreachableSubject = 'outgoing guardian';
+      let syncPhase: ProposalSyncPhase | undefined;
       try {
         service = await withOutgoingGuardianDeadline(
           () => getOrCreateMultisigService(transaction.accountId, guardianProvider),
@@ -3258,14 +3266,27 @@ const generateGuardianTransaction = async (
         );
         await releaseUnabandonedCandidate(transaction, service);
         unreachableSubject = 'outgoing or new guardian';
-        const { proposal } = await withGuardianConflictRetry(() =>
-          withOutgoingGuardianDeadline(
-            () => service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint),
+        const { proposal } = await withGuardianConflictRetry(() => {
+          const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
+          syncPhase = phase;
+          return withOutgoingGuardianDeadline(
+            () => service.createSwitchGuardianProposal(sgTx.extraInputs.newGuardianEndpoint, phase),
             'pushing the switch-guardian proposal'
-          )
-        );
+          );
+        });
         proposalResult = proposal;
       } catch (error) {
+        // The arm awaits this attempt no longer, whatever rejected it, so its hold must push nothing in any phase.
+        if (syncPhase) syncPhase.abandoned = true;
+        // A deadline or an eviction can reject mid-sync. A kill is never the node's answer, so it keeps its own name;
+        // anything else there is the node keeping the attempt waiting, not the Guardian.
+        if (syncPhase?.syncing) {
+          if (isKilledPipeline(error)) throw error;
+          throw new ProposalChainSyncError(error);
+        }
+        // The node failed, not the Guardian: a direct switch would replace a coordinated proposal against a
+        // possibly healthy Guardian with a fresh on-chain write.
+        if (isProposalChainSyncError(error)) throw error;
         // When the guardian side is unreachable (down operator, DNS, proxy 5xx),
         // fall back to the direct on-chain switch — the whole point of
         // switch-guardian as a recovery path is escaping a dead guardian.

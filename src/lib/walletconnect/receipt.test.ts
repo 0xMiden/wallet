@@ -6,6 +6,7 @@ import { RpcTimeoutError } from 'lib/miden-chain/rpc-timeout';
 import {
   EvmTransactionRevertedError,
   readEvmReceiptOutcome,
+  readEvmErc20Allowance,
   readSepoliaErc20Allowance,
   waitForEvmReceipt
 } from './receipt';
@@ -14,7 +15,7 @@ const mockReadContract = jest.fn();
 const mockWaitForReceipt = jest.fn();
 const mockGetReceipt = jest.fn();
 const mockHttp = jest.fn();
-const mockCreatePublicClient = jest.fn(() => ({
+const mockCreatePublicClient = jest.fn((_options?: object) => ({
   readContract: mockReadContract,
   waitForTransactionReceipt: mockWaitForReceipt,
   getTransactionReceipt: mockGetReceipt
@@ -22,11 +23,12 @@ const mockCreatePublicClient = jest.fn(() => ({
 
 jest.mock('viem', () => ({
   ...jest.requireActual<typeof import('viem')>('viem'),
-  createPublicClient: () => mockCreatePublicClient(),
+  createPublicClient: (options: object) => mockCreatePublicClient(options),
   http: (...args: Parameters<typeof mockHttp>) => mockHttp(...args)
 }));
 
 jest.mock('./config', () => ({
+  ...jest.requireActual<typeof import('./config')>('./config'),
   DEFAULT_CHAIN_ID: 11155111,
   getChain: () => ({ rpcUrl: 'https://rpc.test' })
 }));
@@ -125,4 +127,15 @@ describe('readEvmReceiptOutcome', () => {
     mockGetReceipt.mockRejectedValueOnce(error);
     await expect(readEvmReceiptOutcome(hash, sepolia)).rejects.toBe(error);
   });
+});
+
+it('reads allowance on the selected chain rather than the old Sepolia default', async () => {
+  mockReadContract.mockResolvedValueOnce(12n);
+  await expect(readEvmErc20Allowance(TOKEN, OWNER, SPENDER, 84532)).resolves.toBe(12n);
+  expect(mockCreatePublicClient).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      chain: expect.objectContaining({ id: 84532 })
+    })
+  );
+  await expect(readEvmErc20Allowance(TOKEN, OWNER, SPENDER, 999999999)).rejects.toThrow('RPC is not configured');
 });

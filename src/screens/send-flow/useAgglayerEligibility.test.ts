@@ -17,10 +17,21 @@ const configNaming = (midenBridge: string): BridgeConfigSnapshot => ({
   config: {
     network: 'testnet',
     version: 1,
-    evm: {},
-    agglayer: { midenBridge },
-    epoch: {},
-    features: { earn: false, fastBridge: false, bridgeIn: true, bridgeOut: true }
+    'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
+    supportedEvmChains: {
+      sepolia: {
+        chainId: 11155111,
+        bridges: {
+          agglayer: {
+            depositEnabled: true,
+            withdrawalEnabled: true,
+            midenBridgeId: midenBridge,
+            contractAddress: '0x0000000000000000000000000000000000000001'
+          }
+        }
+      }
+    },
+    features: { earn: false }
   },
   derived: null,
   lastFetch: null
@@ -60,7 +71,7 @@ it('turns allowed once a config naming the bridge loads, whatever a check before
   publishConfig(LOADING);
   const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
   jest.mocked(isAgglayerFaucetAllowed).mockImplementation(async () => {
-    if (!mockConfigSnapshot.config?.agglayer.midenBridge) {
+    if (!mockConfigSnapshot.config?.supportedEvmChains.sepolia?.bridges.agglayer?.midenBridgeId) {
       throw new Error('The bridge config has no usable agglayer.midenBridge.');
     }
     return true;
@@ -87,7 +98,10 @@ it('reports loading and asks no registry while the config names no bridge', asyn
 
 it.each<[string, BridgeConfigSnapshot]>([
   ['no config', { ...configNaming(BRIDGE), config: null }],
-  ['a config without a bridge', { ...configNaming(BRIDGE), config: { ...configNaming(BRIDGE).config!, agglayer: {} } }]
+  [
+    'a config without a bridge',
+    { ...configNaming(BRIDGE), config: { ...configNaming(BRIDGE).config!, supportedEvmChains: {} } }
+  ]
 ])('settles as an error, asking no registry, once the snapshot is ready with %s', async (_case, snapshot) => {
   publishConfig(snapshot);
   jest.mocked(isAgglayerFaucetAllowed).mockResolvedValue(true);

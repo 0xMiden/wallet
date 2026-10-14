@@ -50,6 +50,8 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
         await nativeReown.present();
         return;
       }
+      const appkit = await import('lib/walletconnect/appkit');
+      await appkit.prepareAppKitConnection();
       await connect({ view: 'Connect', namespace: 'eip155' });
     } catch (err) {
       console.error('[BridgeDeposit] connect failed', err);
@@ -67,6 +69,8 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
         return;
       }
       await disconnect();
+      const appkit = await import('lib/walletconnect/appkit');
+      await appkit.prepareAppKitConnection();
       await connect({ view: 'Connect', namespace: 'eip155' });
     } catch (err) {
       console.error('[BridgeDeposit] switch wallet failed', err);

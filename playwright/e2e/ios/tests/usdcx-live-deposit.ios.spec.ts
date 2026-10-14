@@ -3,13 +3,8 @@ import path from 'path';
 import { decodeFunctionData, formatUnits, isHash, isHex, parseUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
-import { fetchXReserveAttestations, findAttestationForDomain } from '../../../../src/lib/usdcx/attestation';
-import {
-  CIRCLE_USDC_DECIMALS,
-  getUsdcxXReserveSource,
-  USDCX_REMOTE_DOMAIN,
-  XRESERVE_ABI
-} from '../../../../src/lib/usdcx/constant';
+import { fetchXReserveAttestations, findAttestationForDomain } from '../../../../src/lib/usdcx/attestation-protocol';
+import { CIRCLE_USDC_DECIMALS, XRESERVE_ABI } from '../../../../src/lib/usdcx/protocol';
 import { midenAccountHexToXReserveRecipient } from '../../../../src/lib/usdcx/recipient';
 import { ARC_TESTNET } from '../../../../src/lib/walletconnect/config';
 import { arcEndpoints, arcHost, readArcUsdc, readXReserveDomainState, type ArcReadDeps } from '../../helpers/arc-usdcx';
@@ -17,6 +12,7 @@ import { enText, parseBridgeReceiveState } from '../../helpers/bridge';
 import { describeTransactionRow, TxStatus, type TransactionRowSnapshot } from '../../helpers/history';
 import { mintFromPublicFaucet, publicFaucetApiUrl } from '../../helpers/public-faucet';
 import { waitForPublicNoteCommitment } from '../../helpers/public-note-commitment';
+import { USDCX_REMOTE_DOMAIN, getUsdcxXReserveSource } from '../../helpers/usdcx-config';
 import {
   ARC_CHAIN_ID,
   ARC_CIRCLE_DOMAIN,
@@ -158,7 +154,7 @@ const missingEnv = [
 const depositAmount = (process.env.USDCX_LIVE_DEPOSIT_AMOUNT ?? '').trim() || '0.01';
 const depositUnits = parseUnits(depositAmount, CIRCLE_USDC_DECIMALS);
 const arcRpcUrl = ARC_TESTNET.rpcUrls.default.http[0];
-const { usdc: arcUsdc, xReserve } = getUsdcxXReserveSource(ARC_TESTNET.id);
+const { usdc: arcUsdc, xReserve, attestationApi } = getUsdcxXReserveSource(ARC_TESTNET.id);
 
 function noteIdsOf(row: TransactionRowSnapshot): string[] {
   return [...(row.noteIds ?? []), ...(row.noteId ? [row.noteId] : [])].map(id => id.toLowerCase());
@@ -400,7 +396,9 @@ test.describe('Bridge-IN deposit (Circle xReserve/USDC, live testnets)', () => {
           .poll(
             async () => {
               localRelayer?.assertRunning();
-              const attestations = await fetchXReserveAttestations(depositHash).catch(() => []);
+              const attestations = await fetchXReserveAttestations(depositHash, { baseUrl: attestationApi }).catch(
+                () => []
+              );
               return findAttestationForDomain(attestations, USDCX_REMOTE_DOMAIN) !== undefined;
             },
             { timeout: ATTESTATION_TIMEOUT_MS, intervals: [15_000] }

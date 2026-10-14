@@ -4,6 +4,13 @@ import { RpcTimeoutError } from 'lib/miden-chain/rpc-timeout';
 import { initiateUsdcxBurn, readUsdcxMinimumBurn } from './burn';
 import { readUsdcxDestinationBalance, readUsdcxDestinationSnapshot } from './destination-status';
 
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
+
 const mockGetAccountDetails = jest.fn();
 const mockFree = jest.fn();
 // Enough of the SDK for `buildUsdcxBurnRequest` to assemble a request out of stand-ins.
@@ -109,11 +116,18 @@ describe('initiateUsdcxBurn', () => {
 
     await expect(initiateUsdcxBurn(args)).resolves.toBe('burn-row');
 
-    expect(readUsdcxDestinationSnapshot).toHaveBeenCalledWith(5042002, args.destinationAddress);
+    expect(readUsdcxDestinationSnapshot).toHaveBeenCalledWith(
+      5042002,
+      args.destinationAddress,
+      undefined,
+      '0x3600000000000000000000000000000000000000'
+    );
     expect(readUsdcxDestinationBalance).not.toHaveBeenCalled();
     expect(jest.mocked(initiateBridgedSendTransaction).mock.calls[0]?.[11]).toEqual({
       noteId: 'burn-note-id',
       destinationDomain: 26,
+      destinationUsdc: '0x3600000000000000000000000000000000000000',
+      payoutFeeAllowance: '100000',
       phase: 'pending',
       destinationBalanceBefore: snapshot
     });
