@@ -67,12 +67,6 @@ export const isGuardianAuthRejection = (err: unknown): boolean => {
 };
 
 /**
- * `reRegisterCurrentStateOnGuardian` refused to push (#1233): this device's copy of the account is
- * not the on-chain state, or either side could not be read. `/configure` overwrites the guardian's
- * state unconditionally, so pushing a copy that is behind the chain moves the guardian backwards
- * and discards its in-flight update. Nothing was written.
- */
-/**
  * The chain sync a proposal runs right before it is built failed. That is the node's answer, never
  * evidence about the Guardian, so callers must not route it to the direct on-chain switch. The message
  * carries the cause's, so message-based outage classifiers still read it as an outage.
@@ -90,6 +84,12 @@ export function isProposalChainSyncError(err: unknown): boolean {
   return someInCauseChain(err, link => link instanceof ProposalChainSyncError);
 }
 
+/**
+ * `reRegisterCurrentStateOnGuardian` refused to push (#1233): this device's copy of the account is
+ * not the on-chain state, or either side could not be read. `/configure` overwrites the guardian's
+ * state unconditionally, so pushing a copy that is behind the chain moves the guardian backwards
+ * and discards its in-flight update. Nothing was written.
+ */
 export class GuardianReRegisterRefusedError extends Error {
   constructor(accountId: string, cause: unknown) {
     super(`Not re-registering account ${accountId} on its guardian: its local state is not the on-chain state`, {
