@@ -134,11 +134,14 @@ jest.mock('app/env', () => ({
 }));
 
 jest.mock('./SendStepLayout', () => ({
-  SendStepLayout: ({ title, onBack, children, footer }: any) => (
+  SendStepLayout: ({ title, onBack, onClose, children, footer }: any) => (
     <div data-testid="review-layout">
       <h1>{title}</h1>
       <button data-testid="back-btn" aria-label="back" onClick={onBack}>
         back
+      </button>
+      <button data-testid="close-btn" aria-label="close" onClick={onClose}>
+        close
       </button>
       <div data-testid="hero">{children}</div>
       <div data-testid="footer">{footer}</div>
@@ -742,6 +745,19 @@ describe('ReviewTransaction — rendering', () => {
 
     fireEvent.click(screen.getByTestId('back-btn'));
     expect(goBackMock).toHaveBeenCalledTimes(1);
+    // Back keeps the draft, so the form reopens with what was entered.
+    expect(clearSendDraftMock).not.toHaveBeenCalled();
+  });
+
+  it('abandons the send from the header X: clears the draft, then goes home', async () => {
+    setValidRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    fireEvent.click(screen.getByTestId('close-btn'));
+    expect(clearSendDraftMock).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledWith('/');
+    expect(clearSendDraftMock.mock.invocationCallOrder[0]).toBeLessThan(navigateMock.mock.invocationCallOrder[0]!);
   });
 
   it('opens the recall calendar drawer via the expiration Edit pill', async () => {

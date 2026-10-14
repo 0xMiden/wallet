@@ -633,8 +633,11 @@ export const ReviewTransaction: React.FC = () => {
       <SendStepLayout
         title={t('reviewDetails')}
         onBack={() => goBack()}
-        // Abandons the send: home, like the flow's own close.
-        onClose={() => navigate('/')}
+        // Abandons the send: without the draft the next Send opens empty. Back keeps it to restore the form.
+        onClose={() => {
+          clearSendDraft();
+          navigate('/');
+        }}
         footer={
           <div className="flex flex-col gap-2">
             {(scaleIsUnknown || submitError || burnValidationError) && (
