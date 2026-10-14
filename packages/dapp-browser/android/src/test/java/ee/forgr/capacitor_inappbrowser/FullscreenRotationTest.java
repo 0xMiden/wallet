@@ -6,7 +6,6 @@ import android.view.Window;
 import android.view.WindowManager;
 import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.WeakHashMap;
