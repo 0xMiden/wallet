@@ -375,6 +375,15 @@ it('normalizes operators and accepts only exact nonempty note sets', () => {
   expect(sameNonemptyNotes(['a', 'b'], ['b', 'a'])).toBe(true);
 });
 
+it('folds a renamed built-in host into the first spelling seen', () => {
+  expect(
+    normalizeHistoryOperators(['https://guardian.openzeppelin.com', 'https://guardian-testnet.openzeppelin.com'])
+  ).toEqual(['https://guardian.openzeppelin.com']);
+  expect(
+    normalizeHistoryOperators(['https://guardian-devnet.openzeppelin.com', 'https://guardian-stg.openzeppelin.com'])
+  ).toEqual(['https://guardian-devnet.openzeppelin.com']);
+});
+
 it('keeps plain http operators only on the local hosts Guardian Settings accepts', () => {
   expect(
     normalizeHistoryOperators([

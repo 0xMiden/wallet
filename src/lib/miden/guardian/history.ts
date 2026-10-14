@@ -1,6 +1,6 @@
 import type { DeltaObject, HistoryEntry, ProposalMetadata } from '@openzeppelin/guardian-client';
 
-import { isValidGuardianUrl } from 'lib/settings/helpers';
+import { canonicalGuardianEndpoint, isValidGuardianUrl } from 'lib/settings/helpers';
 
 import type { IConsumedAssetTotal, ITransaction, ITransactionType } from '../db/types';
 import {
@@ -175,19 +175,22 @@ export function concreteRecoveredTransaction(inputs: RecoveredTransactionInputs)
 }
 
 export function normalizeHistoryOperators(endpoints: string[]): string[] {
-  const operators = new Set<string>();
+  // Keyed canonically so a renamed built-in host and its old name are one operator; the first spelling wins.
+  const operators = new Map<string, string>();
   for (const endpoint of endpoints) {
     if (!isValidGuardianUrl(endpoint)) continue;
     try {
       const url = new URL(endpoint);
       url.hash = '';
       url.search = '';
-      operators.add(url.toString().replace(/\/+$/, ''));
+      const normalized = url.toString().replace(/\/+$/, '');
+      const key = canonicalGuardianEndpoint(normalized);
+      if (!operators.has(key)) operators.set(key, normalized);
     } catch {
       // Ignore an invalid saved endpoint.
     }
   }
-  return [...operators];
+  return [...operators.values()];
 }
 
 export function sumHistoryAssets(notes: GuardianHistoryNote[]): IConsumedAssetTotal[] {

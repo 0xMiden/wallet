@@ -7,11 +7,13 @@ import {
 } from '@openzeppelin/guardian-client';
 
 import { reportGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
+import { MIDEN_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/constants';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
 import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
 import { ITransactionStatus } from '../db/types';
+import { resolveGuardianEndpoint } from '../guardian/account';
 import { GUARDIAN_HISTORY_VERSION, type GuardianHistoryCheckpoint, historyCheckpointId } from '../guardian/history';
 import {
   clearGuardianHistoryCheckpoints,
@@ -77,7 +79,7 @@ jest.mock('../guardian/history-storage', () => {
   const actual = jest.requireActual('../guardian/history-storage');
   return { ...actual, saveGuardianHistoryCheckpoint: jest.fn(actual.saveGuardianHistoryCheckpoint) };
 });
-jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: () => 'https://one' }));
+jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn(() => 'https://one') }));
 jest.mock('lib/miden/sdk/helpers', () => ({ canonicalWalletAccountId: (id: string) => id }));
 jest.mock('./miden-client-proxy', () => ({
   midenClientProxy: {
@@ -2368,4 +2370,20 @@ it('does not visit a plain http operator on a remote host', async () => {
   await localSwitch('http://plain.example');
   await run();
   expect(createClient.mock.calls.map(call => call[1])).not.toContain('http://plain.example');
+});
+
+it('reads a renamed built-in host once under the spelling the account saved', async () => {
+  const oldHost = 'https://guardian.openzeppelin.com';
+  const builtIn = MIDEN_GUARDIAN_ENDPOINTS.get('testnet');
+  MIDEN_GUARDIAN_ENDPOINTS.set('testnet', ['https://guardian-testnet.openzeppelin.com']);
+  jest.mocked(resolveGuardianEndpoint).mockReturnValue(oldHost);
+  try {
+    source(oldHost, [{ entries: [entry(1)] }]);
+    expect((await run()).sourceFailures).toBe(0);
+    expect(createClient.mock.calls.map(call => call[1])).toEqual([oldHost]);
+    expect(Object.values((await readGuardianHistoryState()).checkpoints)).toHaveLength(1);
+  } finally {
+    MIDEN_GUARDIAN_ENDPOINTS.set('testnet', builtIn ?? []);
+    jest.mocked(resolveGuardianEndpoint).mockReturnValue('https://one');
+  }
 });
