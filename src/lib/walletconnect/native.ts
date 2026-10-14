@@ -136,11 +136,15 @@ export function nativeChainName(chainId: number): string {
 }
 
 /**
- * Throws `NativeSessionChainNotApprovedError` when the session's approved chains do not include
- * `chainId`. A state without `chainIds` comes from an older native build that does not report
- * them: it passes, and the request goes to the Sign SDK as before.
+ * Throws `NativeSessionChainNotApprovedError` when there is no session (a session deleted before
+ * or during the wait reports neither `connected` nor a topic) or when the session's approved
+ * chains do not include `chainId`. A connected state without `chainIds` comes from an older
+ * native build that does not report them: it passes, and the request goes to the Sign SDK as before.
  */
 export function assertNativeSessionChain(state: ReownState, chainId: number, networkName: string): void {
+  if (!state.connected || !state.topic) {
+    throw new NativeSessionChainNotApprovedError(chainId, networkName);
+  }
   if (Array.isArray(state.chainIds) && !state.chainIds.includes(chainId)) {
     throw new NativeSessionChainNotApprovedError(chainId, networkName);
   }

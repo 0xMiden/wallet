@@ -135,6 +135,16 @@ describe('assertNativeSessionChain', () => {
   it('passes when an older native build reports no chainIds', () => {
     expect(() => assertNativeSessionChain(sessionState(undefined), ARC, 'Arc Testnet')).not.toThrow();
   });
+
+  it.each([
+    ['is not connected', { ...sessionState(undefined), connected: false, topic: undefined }],
+    ['is connected with no topic', { ...sessionState(undefined), topic: undefined }]
+  ])('refuses a state that %s, with or without chainIds', (_label, state) => {
+    expect(() => assertNativeSessionChain(state, ARC, 'Arc Testnet')).toThrow(NativeSessionChainNotApprovedError);
+    expect(() => assertNativeSessionChain({ ...state, chainIds: [ARC] }, ARC, 'Arc Testnet')).toThrow(
+      NativeSessionChainNotApprovedError
+    );
+  });
 });
 
 describe('ensureNativeSessionChain', () => {
@@ -273,6 +283,18 @@ describe('waiting for the session to approve an added chain', () => {
     expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
     expect(mockRemoveListener).toHaveBeenCalledTimes(1);
     expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('refuses the chain when the session is deleted during the wait', async () => {
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(1000);
+    const deleted: ReownState = { configured: true, connected: false, accounts: [] };
+    jest.mocked(NativeReown.getState).mockResolvedValue(deleted);
+    updateSession(deleted);
+    await jest.advanceTimersByTimeAsync(4000);
+
+    expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
   });
 
   it('refuses the chain at once when the wallet rejected the switch', async () => {
