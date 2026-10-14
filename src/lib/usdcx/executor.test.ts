@@ -1,10 +1,3 @@
-jest.mock('lib/remote-config/runtime', () => ({
-  getBridgeConfigSnapshot: () =>
-    jest
-      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
-      .testBridgeSnapshot()
-}));
-
 import { decodeAbiParameters, decodeFunctionData, hexToString, padHex, size, slice } from 'viem';
 import { baseSepolia } from 'viem/chains';
 
@@ -30,6 +23,13 @@ import {
   runUsdcxExecutorDeposit,
   UsdcxExecutorDepositDeps
 } from './executor';
+
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
 
 jest.mock('lib/miden/activity', () => ({
   updateBridgedReceivePhase: jest.fn()

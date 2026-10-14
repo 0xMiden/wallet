@@ -170,9 +170,9 @@ function destination(entry: SupportedEvmChainConfig): UsdcxDestination | undefin
   };
 }
 
-export function usdcxSourceChains(): ReadonlyMap<number, UsdcxSourceChain> {
+export function usdcxSourceChains(snapshot = getBridgeConfigSnapshot()): ReadonlyMap<number, UsdcxSourceChain> {
   const sources = new Map<number, UsdcxSourceChain>();
-  for (const entry of Object.values(getBridgeConfigSnapshot().config?.supportedEvmChains ?? {})) {
+  for (const entry of Object.values(snapshot.config?.supportedEvmChains ?? {})) {
     const source = sourceChain(entry);
     if (source) sources.set(entry.chainId, source);
   }

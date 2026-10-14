@@ -1,6 +1,3 @@
-import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
-import type { UsdcxSourceChain } from 'lib/usdcx/constant';
-import { getUsdcxRemoteDomain, usdcxSourceChains } from 'lib/usdcx/constant';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
@@ -9,8 +6,11 @@ import { importedNoteIds } from 'lib/miden/note-quarantine';
 import * as Repo from 'lib/miden/repo';
 import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
+import { getUsdcxRemoteDomain, usdcxSourceChains } from 'lib/usdcx/constant';
+import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 import { WalletType } from 'screens/onboarding/types';
 
 import { queueNoteImport } from '../activity/notes';

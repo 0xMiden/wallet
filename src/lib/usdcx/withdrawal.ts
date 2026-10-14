@@ -1,9 +1,9 @@
 import { hexToBytes, isAddress, padHex } from 'viem';
 
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { featureAvailability } from 'lib/remote-config/availability';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 
 import { usdcxDestinations, usdcxPayoutFeeShortfall } from './constant';
 

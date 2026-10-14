@@ -936,6 +936,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       // first-render cap -- the full balance, before the fee resolved. `token` itself
       // is no longer a dependency: it reaches the render only through this value.
       spendableToken,
+      bridgeNetwork,
       recipientAddress,
       isValidRecipient,
       recents,

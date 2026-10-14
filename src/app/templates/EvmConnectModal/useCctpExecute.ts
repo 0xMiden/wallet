@@ -4,8 +4,8 @@ import { encodeFunctionData, Hash, isHash, isHex, toHex } from 'viem';
 import { useSwitchChain, useWriteContract } from 'wagmi';
 
 import { updateBridgedReceivePhase } from 'lib/miden/activity';
-import * as Repo from 'lib/miden/repo';
 import { IBridgedReceiveExtraInputs, IUsdcxCctpLeg } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
 import { revertedExecuteLeg } from 'lib/usdcx/cctp';
 import { GENERIC_EXECUTOR_ABI, getUsdcxExecutorSource } from 'lib/usdcx/constant';
 import { readNativeFeeFields } from 'lib/walletconnect/fees';

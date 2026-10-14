@@ -1,13 +1,13 @@
+import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+
+import { pollUsdcxDestination, readUsdcxDestinationBalance, readUsdcxDestinationSnapshot } from './destination-status';
+
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () =>
     jest
       .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
       .testBridgeSnapshot()
 }));
-
-import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
-
-import { pollUsdcxDestination, readUsdcxDestinationBalance, readUsdcxDestinationSnapshot } from './destination-status';
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
 

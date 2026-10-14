@@ -1,11 +1,11 @@
+import { usdcxDepositSteps } from './usdcx-deposit-steps';
+
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () =>
     jest
       .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
       .testBridgeSnapshot()
 }));
-
-import { usdcxDepositSteps } from './usdcx-deposit-steps';
 
 const ARC_TESTNET = 5042002;
 const BASE_SEPOLIA = 84532;

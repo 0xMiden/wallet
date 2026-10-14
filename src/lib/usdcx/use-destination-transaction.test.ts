@@ -1,16 +1,16 @@
-jest.mock('lib/remote-config/runtime', () => ({
-  getBridgeConfigSnapshot: () =>
-    jest
-      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
-      .testBridgeSnapshot()
-}));
-
 import { act, renderHook, waitFor } from '@testing-library/react';
 
 import { ITransaction, ITransactionStatus, IUsdcxBurn } from 'lib/miden/db/types';
 
 import { findUsdcxDestinationTransaction } from './destination-transaction';
 import { useUsdcxDestinationTransaction } from './use-destination-transaction';
+
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
 
 jest.mock('./destination-transaction', () => ({ findUsdcxDestinationTransaction: jest.fn() }));
 const find = jest.mocked(findUsdcxDestinationTransaction);

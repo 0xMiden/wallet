@@ -1,15 +1,15 @@
+import React from 'react';
+
+import { act, fireEvent, render, screen } from '@testing-library/react';
+
+import { UsdcxExecuteAction } from './UsdcxExecuteAction';
+
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () =>
     jest
       .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
       .testBridgeSnapshot()
 }));
-
-import React from 'react';
-
-import { act, fireEvent, render, screen } from '@testing-library/react';
-
-import { UsdcxExecuteAction } from './UsdcxExecuteAction';
 
 const execute = jest.fn();
 

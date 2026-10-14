@@ -38,8 +38,8 @@ import {
 import { NoteTypeEnum } from 'lib/miden/types';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
-import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import type { BridgeFeature } from 'lib/remote-config/availability';
+import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';

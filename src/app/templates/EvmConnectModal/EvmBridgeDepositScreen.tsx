@@ -31,9 +31,9 @@ import { IBridgeProvider } from 'lib/miden/db/types';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
+import type { FeatureAvailability } from 'lib/remote-config/availability';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import { evmUsdcLabel } from 'lib/remote-config/token-labels';
-import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import {
   type EvmUsdc,
@@ -343,7 +343,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     return network ? [network] : [];
   });
   const usdcxSource = useMemo(
-    () => usdcxSourceChains().get(usdcxSourceChainId) ?? usdcxSourceChains().values().next().value,
+    () =>
+      usdcxSourceChains(bridgeConfig).get(usdcxSourceChainId) ?? usdcxSourceChains(bridgeConfig).values().next().value,
     [usdcxSourceChainId, bridgeConfig]
   );
   // Circle's fee for a forwarded executor-route burn, shown on the route card. A display quote only: the
@@ -637,11 +638,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     };
   }, [route, usdcxSource, debouncedUsdcxAmount, evmAddress, midenAccount.publicKey]);
 
-  // Only the USDCx route has more than one source chain; the others keep Sepolia and open nothing.
   const handleOpenNetworkDrawer = useCallback(() => {
     if (confirming.current) return;
     setNetworkDrawerOpen(true);
-  }, [route]);
+  }, []);
 
   const handleNetworkSelect = useCallback((next: BridgeNetwork) => {
     if (confirming.current) return;

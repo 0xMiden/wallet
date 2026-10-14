@@ -1,14 +1,7 @@
+import { sepolia } from 'viem/chains';
+
 import * as bridgeRuntime from 'lib/remote-config/runtime';
 import { testBridgeSnapshot } from 'lib/remote-config/testing/fixture';
-
-jest.mock('lib/remote-config/runtime', () => ({
-  getBridgeConfigSnapshot: () =>
-    jest
-      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
-      .testBridgeSnapshot()
-}));
-
-import { sepolia } from 'viem/chains';
 
 import {
   USDCX_DEPOSIT_HOOK_DATA,
@@ -23,6 +16,13 @@ import {
   UsdcxDepositDeps,
   UsdcxDomainNotRegisteredError
 } from './deposit';
+
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
 
 jest.mock('lib/miden/activity', () => ({
   updateBridgedReceivePhase: jest.fn()

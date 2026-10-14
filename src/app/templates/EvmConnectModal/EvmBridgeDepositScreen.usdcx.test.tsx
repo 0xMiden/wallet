@@ -1,12 +1,3 @@
-jest.mock('lib/remote-config/runtime', () => ({
-  getBridgeConfigSnapshot: () =>
-    jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
-      .TEST_BRIDGE_CONFIG_SNAPSHOT,
-  subscribeBridgeConfig: () => () => {},
-  initBridgeConfig: async () => {},
-  holdFastPoll: () => () => {}
-}));
-
 import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
@@ -19,6 +10,15 @@ import { buildExecutorBurnIntent, quoteExecutorBurn, runUsdcxExecutorDeposit } f
 import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
+
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+      .TEST_BRIDGE_CONFIG_SNAPSHOT,
+  subscribeBridgeConfig: () => () => {},
+  initBridgeConfig: async () => {},
+  holdFastPoll: () => () => {}
+}));
 
 /**
  * The RPC URLs the screen's xReserve registration read went to: the eth_call to `xReserve` whose data is
