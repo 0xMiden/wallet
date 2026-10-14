@@ -25,7 +25,7 @@ import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { TelemetryStep } from 'lib/telemetry/types';
 import { seedWalletPrompt, WalletPromptType } from 'lib/wallet-prompts';
 import { listen, navigate, useLocation } from 'lib/woozie';
-import { errorToMessage, isGuardianNotFound } from 'screens/onboarding/error-message';
+import { errorToMessage, isGuardianNotFound, isMainnetAccessCodeRejected } from 'screens/onboarding/error-message';
 import { OnboardingFlow } from 'screens/onboarding/navigator';
 import { NO_GUARDIAN_ID, OnboardingAction, OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
 
@@ -220,6 +220,8 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   // twice (a retry joins it), and a failed registration is forgotten because it may already have
   // wiped the wallet.
   const [accessCode, setAccessCode] = useState<string | undefined>();
+  // The node refused the held code at registration, which undid the setup: the code step says so.
+  const [accessCodeRejected, setAccessCodeRejected] = useState(false);
   const registrationRef = useRef<{ inputs: string; done: Promise<void> } | null>(null);
   // A confirmation attempt (a tap, or the side-panel auto-register) is in flight from its start to its outcome:
   // registration, prompt setup and readiness. While it runs, onboarding stays on Confirmation and ignores actions,
@@ -267,6 +269,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
   // Guardian discovery stops too. Setters and the probe's stable reset only, so the identity is stable.
   const resetFlowState = useCallback(() => {
     setAccessCode(undefined);
+    setAccessCodeRejected(false);
     setSeedPhrase(null);
     setKeyPairPayload(null);
     setPassword(null);
@@ -549,6 +552,13 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       // message on arrival.
       const failure = errorToMessage(error) ?? t('smthWentWrong');
       setRegistrationError(failure);
+      if (isMainnetAccessCodeRejected(error)) {
+        // The backend undid the setup; only another code can start it again.
+        setAccessCode(undefined);
+        setAccessCodeRejected(true);
+        navigate('/#mainnet-access');
+        return true;
+      }
       if (onboardingType === OnboardingType.Import && !walletFilePayload && walletType === WalletType.Guardian) {
         // The page change clears registrationError, so the screen gets its own copy of the reason.
         let lookupFailure: string;
@@ -666,6 +676,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       case 'mainnet-access-granted':
         // Keep the code for registration after account setup.
         setAccessCode(action.payload);
+        setAccessCodeRejected(false);
         startCreateFlow();
         break;
       case 'choose-protection':
@@ -1210,6 +1221,7 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         <OnboardingFlow
           inviteOnly={inviteOnly}
           onUnlockInviteOnly={onUnlockInviteOnly}
+          mainnetAccessRejected={accessCodeRejected}
           wordslist={wordslist}
           seedPhrase={seedPhrase}
           onboardingType={onboardingType}

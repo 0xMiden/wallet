@@ -1262,6 +1262,7 @@
   "unlockMainnet": "Unlock mainnet",
   "mainnetAccessCodeRejected": "This code did not work. Check it and try again.",
   "mainnetAccessCheckFailed": "We could not check this code. Try again later.",
+  "mainnetAccountNotAdmitted": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code.",
   "mainnet": "Mainnet",
   "mainnetAccessTitle": "Have a mainnet access code?",
   "mainnetAccessOnboardingBody": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet.",

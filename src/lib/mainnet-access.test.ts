@@ -1,4 +1,4 @@
-import { redeemMainnetAccessCode, type MainnetAccessTarget } from './mainnet-access';
+import { isMainnetAccountAdmitted, redeemMainnetAccessCode, type MainnetAccessTarget } from './mainnet-access';
 
 const mockReady = jest.fn<Promise<void>, []>();
 const mockAllowed = jest.fn<Promise<boolean>, [string]>();
@@ -116,5 +116,35 @@ describe('mainnet account registration', () => {
     mockReady.mockRejectedValue(failure);
     await expect(redeemMainnetAccessCode('12345678', target)).rejects.toBe(failure);
     expect(mockRegister).not.toHaveBeenCalled();
+  });
+});
+
+describe('mainnet account admission', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockReady.mockResolvedValue();
+  });
+
+  it.each([true, false])('answers whether the node admits the account (%s), with no code', async allowed => {
+    mockAllowed.mockResolvedValue(allowed);
+    await expect(isMainnetAccountAdmitted('mm1account_qruqqypuyph')).resolves.toBe(allowed);
+    expect(mockFromBech32).toHaveBeenCalledWith('mm1account');
+    expect(mockAllowed).toHaveBeenCalledWith('mm1account');
+    expect(mockRegister).not.toHaveBeenCalled();
+  });
+
+  it('rejects with an RPC timeout when the node never answers', async () => {
+    jest.useFakeTimers();
+    try {
+      mockAllowed.mockReturnValue(new Promise(() => {}));
+      const admitted = isMainnetAccountAdmitted('0x1234').catch((error: unknown) => error);
+      await jest.advanceTimersByTimeAsync(15_000);
+      expect(await admitted).toMatchObject({
+        name: 'RpcTimeoutError',
+        message: expect.stringContaining('mainnet-access-allowed')
+      });
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

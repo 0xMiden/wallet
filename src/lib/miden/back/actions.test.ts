@@ -2,10 +2,10 @@ import { MidenDAppMessageType } from 'lib/adapter/types';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { SendTransaction } from 'lib/miden/db/types';
 import { spendingLimits, transactions } from 'lib/miden/repo';
-import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/types';
 import { resolveSpendsUsd } from 'lib/miden/spending-limits/valuation';
 import { NoteTypeEnum } from 'lib/miden/types';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { sendEvent } from 'lib/telemetry/sink';
 import { WalletType } from 'screens/onboarding/types';
@@ -65,9 +65,11 @@ const mockedResolve = jest.mocked(resolveSpendsUsd);
 
 // Create mock vault instance
 const mockRedeemAccess = jest.fn<Promise<'granted' | 'rejected'>, [string, { accountId: string; rpcUrl: string }]>();
+const mockAdmitted = jest.fn<Promise<boolean>, [string]>();
 jest.mock('lib/mainnet-access', () => ({
   redeemMainnetAccessCode: (code: string, target: { accountId: string; rpcUrl: string }) =>
-    mockRedeemAccess(code, target)
+    mockRedeemAccess(code, target),
+  isMainnetAccountAdmitted: (accountId: string) => mockAdmitted(accountId)
 }));
 
 // The endpoint override a case sets; null leaves the build network's defaults.
@@ -229,6 +231,7 @@ jest.mock('./dapp', () => ({
 // The failed-restore undo reaches `storage.local.remove` through clearStorage; without it
 // the undo throws inside a finally and masks the failure it was undoing.
 const mockStorageRemove = jest.fn().mockResolvedValue(undefined);
+const mockStorageSet = jest.fn().mockResolvedValue(undefined);
 
 jest.mock('webextension-polyfill', () => {
   // One object behind both views: consumers read `default ?? module`, and a test
@@ -236,6 +239,7 @@ jest.mock('webextension-polyfill', () => {
   const storage = {
     local: {
       get: jest.fn().mockResolvedValue({ DAppEnabled: true }),
+      set: (...args: unknown[]) => mockStorageSet(...args),
       // A storage reset lists the keys (`get(null)`) and removes all but the kept ones, so the
       // failed-restore undo reaches `remove` through clearStorage.
       remove: (...args: unknown[]) => mockStorageRemove(...args)
@@ -276,6 +280,8 @@ describe('actions', () => {
     // do: an unconsumed one-shot would otherwise run a later test's undo down the
     // failure arm while its name claims the successful one.
     mockStorageRemove.mockReset().mockResolvedValue(undefined);
+    mockStorageSet.mockReset().mockResolvedValue(undefined);
+    mockAdmitted.mockReset();
     mockEndpointOverride = null;
     mockInited.mockClear();
     mockLocked.mockClear();
@@ -708,6 +714,153 @@ describe('actions', () => {
       } finally {
         mockRedeemAccess.mockReset();
       }
+    });
+
+    describe('on an invite-only network', () => {
+      const MAINNET = { rpcUrl: 'https://rpc.cedar.miden.io', networkName: MIDEN_NETWORK_NAME.MAINNET };
+      const spawnedFor = (publicKey: string) => ({
+        ...mockVault,
+        getCurrentAccount: jest.fn().mockResolvedValue({ publicKey }),
+        retire: jest.fn()
+      });
+
+      beforeEach(() => {
+        mockEndpointOverride = MAINNET;
+      });
+
+      afterEach(() => {
+        mockRedeemAccess.mockReset();
+      });
+
+      it('undoes a create at once when the node refuses its code, so a new code spawns afresh', async () => {
+        const { Vault } = jest.requireMock('lib/miden/back/vault');
+        const refused = spawnedFor('refused-account');
+        Vault.spawn.mockResolvedValueOnce(refused).mockResolvedValueOnce(spawnedFor('next-account'));
+        mockRedeemAccess.mockResolvedValueOnce('rejected').mockResolvedValueOnce('granted');
+
+        const failure = await registerNewWallet(
+          WalletType.Guardian,
+          'pw',
+          'words',
+          false,
+          undefined,
+          'refusedCode1'
+        ).catch((error: unknown) => error);
+        // clearStorage ran: the refused account's vault is gone, not kept for a retry.
+        expect(mockStorageRemove).toHaveBeenCalled();
+        expect(refused.retire).toHaveBeenCalledTimes(1);
+        expect(mockUnlocked).not.toHaveBeenCalled();
+        expect(failure).toMatchObject({ code: 'MAINNET_ACCESS_CODE_REJECTED' });
+
+        await registerNewWallet(WalletType.Guardian, 'pw', 'words', false, undefined, 'acceptedCode');
+        expect(Vault.spawn).toHaveBeenCalledTimes(2);
+        expect(mockRedeemAccess).toHaveBeenLastCalledWith('acceptedCode', {
+          accountId: 'next-account',
+          rpcUrl: MAINNET.rpcUrl
+        });
+        expect(mockUnlocked).toHaveBeenCalledTimes(1);
+      });
+
+      it('marks a create the node has not admitted, without its code, and clears the mark once admitted', async () => {
+        const { Vault } = jest.requireMock('lib/miden/back/vault');
+        Vault.spawn.mockResolvedValueOnce(spawnedFor('final-account'));
+        mockRedeemAccess.mockRejectedValueOnce(new Error('Node unavailable')).mockResolvedValueOnce('granted');
+
+        await expect(
+          registerNewWallet(WalletType.Guardian, 'pw', 'words', false, undefined, 'secretCode12')
+        ).rejects.toThrow('Node unavailable');
+        expect(mockStorageSet).toHaveBeenCalledTimes(1);
+        const [marker] = mockStorageSet.mock.calls[0]!;
+        expect(Object.values(marker)).toEqual(['final-account']);
+        expect(JSON.stringify(marker)).not.toContain('secretCode12');
+        expect(JSON.stringify(marker)).not.toContain('words');
+
+        await registerNewWallet(WalletType.Guardian, 'pw', 'words', false, undefined, 'secretCode12');
+        expect(Vault.spawn).toHaveBeenCalledTimes(1);
+        expect(mockStorageRemove).toHaveBeenCalledWith(Object.keys(marker));
+        expect(mockUnlocked).toHaveBeenCalledTimes(1);
+      });
+
+      it('undoes, on the next start, a setup the node had not admitted when its realm stopped', async () => {
+        const { Vault } = jest.requireMock('lib/miden/back/vault');
+        Vault.spawn.mockResolvedValueOnce(spawnedFor('final-account'));
+        mockRedeemAccess.mockRejectedValueOnce(new Error('Node unavailable'));
+        await expect(
+          registerNewWallet(WalletType.Guardian, 'pw', 'words', false, undefined, 'secretCode12')
+        ).rejects.toThrow('Node unavailable');
+        const stored: Record<string, unknown> = Object.assign(
+          { DAppEnabled: true },
+          ...mockStorageSet.mock.calls.map(([items]) => items)
+        );
+        mockStorageRemove.mockClear();
+        Vault.isExist.mockResolvedValueOnce(true);
+        // The isolated registry below shares these mocks, so the storage they model is the same.
+        const { get } = jest.requireMock('webextension-polyfill').default.storage.local;
+        get.mockImplementation(async (keys: string[] | null) =>
+          keys === null ? stored : Object.fromEntries(keys.filter(key => key in stored).map(key => [key, stored[key]]))
+        );
+        try {
+          // A realm restart: a fresh actions module, which holds no pending vault, over the same storage.
+          await jest.isolateModulesAsync(async () => {
+            const restarted: typeof import('./actions') = jest.requireActual('./actions');
+            await restarted.init();
+          });
+        } finally {
+          get.mockReset().mockResolvedValue({ DAppEnabled: true });
+        }
+
+        expect(mockInited).toHaveBeenLastCalledWith(false);
+        const removed = mockStorageRemove.mock.calls.flatMap(call => call[0] as string[]);
+        expect(removed).toEqual(expect.arrayContaining(Object.keys(stored)));
+      });
+
+      it('refuses a create without a code before the spawn, and lets a seed import without one spawn', async () => {
+        const { Vault } = jest.requireMock('lib/miden/back/vault');
+        await registerNewWallet(WalletType.Guardian, 'pw', 'words', false).catch(() => undefined);
+        expect(Vault.spawn).not.toHaveBeenCalled();
+        expect(mockUnlocked).not.toHaveBeenCalled();
+
+        Vault.spawn.mockResolvedValueOnce(spawnedFor('recovered-account'));
+        mockAdmitted.mockResolvedValueOnce(true);
+        await registerNewWallet(WalletType.Guardian, 'pw', 'words', true);
+        expect(Vault.spawn).toHaveBeenCalledTimes(1);
+        expect(mockAdmitted).toHaveBeenCalledWith('recovered-account');
+        expect(mockUnlocked).toHaveBeenCalledTimes(1);
+      });
+
+      it.each([
+        ['a seed import', 'spawn', () => registerNewWallet(WalletType.Guardian, 'pw', 'words', true)],
+        ['a hot-key import', 'spawnFromHotKey', () => registerWalletFromHotKey('pw', 'hot:evm')],
+        ['a wallet-file import', 'spawnFromMidenClient', () => registerImportedWallet('pw', 'words', [], [])]
+      ] as const)('%s whose account the node does not admit leaves no vault', async (_name, spawnMethod, invoke) => {
+        const { Vault } = jest.requireMock('lib/miden/back/vault');
+        const imported = spawnedFor('unadmitted-account');
+        Vault[spawnMethod].mockResolvedValueOnce(imported);
+        mockAdmitted.mockResolvedValueOnce(false);
+
+        const outcome = await invoke().then(
+          () => 'published',
+          (error: unknown) => error
+        );
+        expect(mockUnlocked).not.toHaveBeenCalled();
+        expect(imported.retire).toHaveBeenCalledTimes(1);
+        expect(mockStorageRemove).toHaveBeenCalled();
+        expect(mockAdmitted).toHaveBeenCalledWith('unadmitted-account');
+        expect(outcome).toBeInstanceOf(Error);
+      });
+    });
+
+    it('reads no admission for an import on a network that is not invite-only', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      Vault.spawnFromHotKey.mockResolvedValueOnce(mockVault);
+      Vault.spawnFromMidenClient.mockResolvedValueOnce(mockVault);
+      Vault.spawn.mockResolvedValueOnce(mockVault);
+      await registerWalletFromHotKey('pw', 'hot:evm');
+      await registerImportedWallet('pw', 'words', [], []);
+      await registerNewWallet(WalletType.Guardian, 'pw', 'words', true);
+      expect(mockAdmitted).not.toHaveBeenCalled();
+      expect(mockStorageSet).not.toHaveBeenCalled();
+      expect(mockUnlocked).toHaveBeenCalledTimes(3);
     });
 
     it('a spawn that fails leaves the realm sink as the store has it (#878)', async () => {

@@ -1755,6 +1755,35 @@ describe('Welcome — confirmation / register', () => {
     );
   });
 
+  it('returns a create whose code the node refused to the code step, without the code', async () => {
+    mockRegisterWallet.mockRejectedValueOnce(
+      Object.assign(new Error('mainnetAccessCodeRejected'), { code: 'MAINNET_ACCESS_CODE_REJECTED' })
+    );
+    await renderWelcome();
+    await dispatch({ id: 'mainnet-access' });
+    await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'choose-guardian-submit', payload: { guardianId: 'g', guardianEndpoint: 'https://g' } });
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockNavigate).toHaveBeenLastCalledWith('/#mainnet-access');
+    await setHash('#mainnet-access');
+    expect(currentStep()).toBe(OnboardingStep.MainnetAccess);
+    expect(mockFlowProps.current.mainnetAccessRejected).toBe(true);
+
+    // The refused code is gone: a registration from here carries none.
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenLastCalledWith(
+      WalletType.Guardian,
+      'pw',
+      expect.any(String),
+      false,
+      'https://g',
+      undefined
+    );
+  });
+
   it('restores a wallet file without the access code a create left held', async () => {
     await renderWelcome();
     await dispatch({ id: 'mainnet-access' });

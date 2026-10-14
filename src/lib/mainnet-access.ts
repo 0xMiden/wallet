@@ -34,6 +34,27 @@ export async function checkMainnetAccessCode(code: string): Promise<MainnetAcces
   return valid ? 'granted' : 'rejected';
 }
 
+const toAccountId = (accountId: string) =>
+  accountId.startsWith('0x')
+    ? AccountId.fromHex(accountId)
+    : Address.fromBech32(accountId.split('_')[0] ?? accountId).accountId();
+
+/**
+ * Whether the mainnet node already admits the account, as a recovered one must be, since only a
+ * new wallet brings a code. Node and transport failures, a timeout among them, are thrown.
+ */
+export async function isMainnetAccountAdmitted(accountId: string): Promise<boolean> {
+  await MidenClient.ready();
+  return withWasmClientLock(
+    async () => {
+      const id = toAccountId(accountId);
+      const { client } = await getMidenClient();
+      return withRpcTimeout(() => client.accounts.isAllowed(id), 'mainnet-access-allowed', { retries: 0 });
+    },
+    { label: 'mainnet-access-admitted' }
+  );
+}
+
 /**
  * Register the final account with the mainnet node. Keep the same account ID for retries.
  * Check access first to keep an unused code when the account is already allowed.
@@ -47,9 +68,7 @@ export async function redeemMainnetAccessCode(
   if (!target) throw new Error('Mainnet registration requires an account ID and RPC URL');
   await MidenClient.ready();
   return withWasmClientLock(async () => {
-    const accountId = target.accountId.startsWith('0x')
-      ? AccountId.fromHex(target.accountId)
-      : Address.fromBech32(target.accountId.split('_')[0] ?? target.accountId).accountId();
+    const accountId = toAccountId(target.accountId);
     if (getEffectiveRpcUrl() !== target.rpcUrl) throw new Error('Account registration RPC differs from wallet RPC');
     const { client } = await getMidenClient();
     if (await client.accounts.isAllowed(accountId)) return 'granted';

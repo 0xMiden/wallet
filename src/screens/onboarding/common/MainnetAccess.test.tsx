@@ -119,6 +119,13 @@ describe('MainnetAccessScreen', () => {
     expect(screen.queryByTestId('onboarding-mainnet-access-error')).not.toBeInTheDocument();
   });
 
+  it('opens with the refusal when the node refused the last code at registration', () => {
+    render(<MainnetAccessScreen rejected />);
+    expect(screen.getByTestId('onboarding-mainnet-access-error')).toHaveTextContent('mainnetAccessCodeRejected');
+    type('47291836');
+    expect(screen.queryByTestId('onboarding-mainnet-access-error')).not.toBeInTheDocument();
+  });
+
   it('says the check did not complete when the node fails, and keeps the code', async () => {
     mockCheck.mockRejectedValue(new Error('timeout'));
     const onSubmit = jest.fn();

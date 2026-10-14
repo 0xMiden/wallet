@@ -250,6 +250,11 @@ describe('OnboardingFlow — action wiring per screen', () => {
     expect(mockCaptured['mainnet-access'].onSkip).toBeUndefined();
   });
 
+  it("MainnetAccess: shows the node's refusal of the code a registration carried", () => {
+    renderFlow({ step: OnboardingStep.MainnetAccess, mainnetAccessRejected: true });
+    expect(mockCaptured['mainnet-access'].rejected).toBe(true);
+  });
+
   it('NetworkNotice: acknowledging dispatches network-notice-acknowledge', () => {
     const onAction = jest.fn();
     renderFlow({ step: OnboardingStep.NetworkNotice, onAction });

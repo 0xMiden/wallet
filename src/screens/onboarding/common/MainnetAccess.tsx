@@ -14,6 +14,8 @@ import { OnboardingStepLayout } from './OnboardingStepLayout';
 export interface MainnetAccessScreenProps {
   /** The node accepted the code. Keep it until account setup is complete. */
   onSubmit?: (code: string) => void;
+  /** The node refused the code a registration carried: the screen opens with the refusal. */
+  rejected?: boolean;
 }
 
 /** The body form's id: the submit button sits in the pinned footer, outside the form. */
@@ -27,10 +29,10 @@ type Failure = 'rejected' | 'unchecked' | 'clipboard';
  * access code here, and an accepted code is held until the final account exists, which the code
  * then registers. The check does not use the code.
  */
-export const MainnetAccessScreen: React.FC<MainnetAccessScreenProps> = ({ onSubmit }) => {
+export const MainnetAccessScreen: React.FC<MainnetAccessScreenProps> = ({ onSubmit, rejected = false }) => {
   const { t } = useTranslation();
   const [code, setCode] = useState('');
-  const [failure, setFailure] = useState<Failure | null>(null);
+  const [failure, setFailure] = useState<Failure | null>(rejected ? 'rejected' : null);
   const [submitting, setSubmitting] = useState(false);
   const [pasting, setPasting] = useState(false);
 

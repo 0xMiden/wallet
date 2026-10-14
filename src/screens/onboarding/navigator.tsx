@@ -45,6 +45,8 @@ export interface OnboardingFlowProps {
   onUnlockInviteOnly?: () => void;
   /** Welcome offers recovery only (ForgotPassword on an invite-only network). */
   recoverOnly?: boolean;
+  /** The node refused the access code a registration carried; the code step says so. */
+  mainnetAccessRejected?: boolean;
   wordslist: readonly string[];
   seedPhrase: string[] | null;
   onboardingType: OnboardingType | null;
@@ -138,6 +140,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   inviteOnly,
   onUnlockInviteOnly,
   recoverOnly,
+  mainnetAccessRejected = false,
   wordslist,
   seedPhrase,
   onboardingType,
@@ -295,7 +298,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
           />
         );
       case OnboardingStep.MainnetAccess:
-        return <MainnetAccessScreen onSubmit={onMainnetAccessGranted} />;
+        return <MainnetAccessScreen rejected={mainnetAccessRejected} onSubmit={onMainnetAccessGranted} />;
       case OnboardingStep.NetworkNotice:
         return <NetworkNoticeScreen onSubmit={onNetworkNoticeSubmit} />;
       case OnboardingStep.ChooseProtection:
@@ -389,6 +392,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     inviteOnly,
     onUnlockInviteOnly,
     recoverOnly,
+    mainnetAccessRejected,
     step,
     meetGuardianProgress,
     isLoading,
