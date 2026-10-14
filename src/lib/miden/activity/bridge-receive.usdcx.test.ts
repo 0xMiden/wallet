@@ -169,6 +169,20 @@ describe('an executor-route USDCx deposit', () => {
     expect(row?.error).not.toBe(BRIDGE_DELIVERY_TIMED_OUT);
   });
 
+  it('times out a week-old attested, unexecuted message with no saved route when the document does not name its source an executor route', async () => {
+    const usdcxSource = usdcxSourceChains().get(5042002);
+    expect(usdcxSource?.route).not.toBe('cctp-executor');
+    const cctp = { sourceDomain: 26, message: '0x01', attestation: '0x02' };
+    const id = await addDeposit(ATTESTED_ACCOUNT, { sourceChainId: 5042002, cctp });
+    await Repo.transactions.update(id, { initiatedAt: Math.floor(Date.now() / 1000) - 8 * 24 * 60 * 60 });
+
+    await reconcileBridgedReceives();
+
+    const row = await Repo.transactions.get(id);
+    expect(row?.extraInputs).toMatchObject({ phase: 'failed' });
+    expect(row?.error).toBe(BRIDGE_DELIVERY_TIMED_OUT);
+  });
+
   it('keeps a week-old attested, unexecuted message with no saved route open on a pass before hydration', async () => {
     // A row from before routes were saved is classified by the document, which the watcher's first pass on a page that
     // has just opened can reach before this realm read its stored copy.
