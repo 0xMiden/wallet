@@ -1936,6 +1936,18 @@ describe('PR workflows run the heavy E2E jobs only on a pull request based on ma
     }
   });
 
+  it('the bridge-guardian runs-on picks WarpBuild on a dispatch or a wallet-body marker only, not the markers the linked web-sdk PR carries', () => {
+    const source = readFileSync(resolve(repoRoot, '.github/workflows/pr-e2e-bridge-guardian.yml'), 'utf8');
+    const runsOn = /^ {4}runs-on: >-\n((?: {6}.*\n)+)/m.exec(source)?.[1];
+    expect(runsOn).toBeDefined();
+    const checked = [
+      ...(runsOn ?? '').matchAll(
+        /github\.event_name == '([^']+)'|contains\(github\.event\.pull_request\.body, '([^']+)'\)/g
+      )
+    ].map(m => m[1] ?? m[2]);
+    expect(checked).toEqual(['workflow_dispatch', 'Web SDK PR:', 'Guardian PR:']);
+  });
+
   it('the E2E workflows trigger on exactly their intended events, so no label re-runs a gate', () => {
     expect(onBlock('.github/workflows/pr-e2e-local.yml')).toBe('  pull_request:\n  workflow_dispatch: {}');
     expect(onBlock('.github/workflows/pr-e2e-guardian-lifecycle.yml')).toBe(

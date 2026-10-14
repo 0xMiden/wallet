@@ -24,17 +24,18 @@ jobs:
     # Full suite only when the base is main or next; bridge-guardian-e2e-gate
     # below reports the required name under the same rule (#1071).
     if: github.event_name != 'pull_request' || github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'next'
-    # Use WarpBuild when a job can compile linked dependencies.
-    # A dispatched branch can name linked dependencies in its pull request.
+    # WarpBuild when a job can compile linked dependencies. The wallet PR body carries
+    # `Web SDK PR:` and `Guardian PR:`; `Client PR:` and `Protocol PR:` live on the
+    # linked web-sdk PR's body and ride on `Web SDK PR:`. The runner comes from the
+    # event payload while the injections read the live body, so after adding or
+    # removing a marker push a commit (or close and reopen) rather than re-running.
     runs-on: >-
       ${{ (github.event_name == 'workflow_dispatch' ||
            contains(github.event.pull_request.body, 'Web SDK PR:') ||
-           contains(github.event.pull_request.body, 'Guardian PR:') ||
-           contains(github.event.pull_request.body, 'Client PR:') ||
-           contains(github.event.pull_request.body, 'Protocol PR:')) &&
+           contains(github.event.pull_request.body, 'Guardian PR:')) &&
           'warp-ubuntu-latest-x64-8x' || 'ubuntu-24.04' }}
-    # 120 rather than 60/75: while this branch carries `Client PR:` / `Web SDK PR:` /
-    # `Guardian PR:` markers, the suite builds the miden-client CLI and the node from
+    # 120 rather than 60/75: while the PR carries `Web SDK PR:` / `Guardian PR:` markers
+    # (or its linked web-sdk PR carries `Client PR:` / `Protocol PR:`), the suite builds the miden-client CLI and the node from
     # source. That is a cold cargo build the pin-keyed cache cannot serve until one run
     # finishes and populates ~/.cargo/bin — and every run was timing out first, so the
     # cache stayed empty and every run stayed cold. Observed: 15 min for the wallet build
