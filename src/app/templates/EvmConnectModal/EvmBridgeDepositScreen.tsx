@@ -69,8 +69,14 @@ import {
 } from 'lib/usdcx/executor';
 import { DEFAULT_CHAIN_ID, EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
 import { readNativeFeeFields } from 'lib/walletconnect/fees';
-import { isNativeReownAvailable, NativeReown, unwrapNativeResult } from 'lib/walletconnect/native';
+import {
+  isNativeReownAvailable,
+  NativeReown,
+  prepareNativeSessionChain,
+  unwrapNativeResult
+} from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
+import { nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
 import { BridgeNetwork, DEFAULT_BRIDGE_NETWORK, getBridgeNetworkByChainId } from 'screens/send-flow/bridge-networks';
 import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UIToken } from 'screens/send-flow/types';
@@ -675,6 +681,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     [resetEpoch, route]
   );
 
+  // Every other failure keeps the screen's own wording.
+  const depositErrorMessage = useCallback(
+    (err: unknown): string => nativeSigningErrorMessage(err, t, errorMessage),
+    [t]
+  );
+
   const handleSlowBridge = useCallback(
     async (trackingTxId: string) => {
       if (!isValidAmount(amount) || (!nativeReownAvailable && !walletProvider)) {
@@ -699,6 +711,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         }
         // The L1 bridge the config names, and the Miden rollup id its bridge account reports.
         if (!agglayerChainId) throw new Error('AggLayer chain is not configured');
+        // Native Reown signs on the AggLayer chain: a session that did not approve it fails here, before any
+        // wallet prompt, instead of with the Sign SDK's "Invalid permissions for call.".
+        if (nativeReownAvailable) await prepareNativeSessionChain(agglayerChainId);
         const chain = EVM_CHAIN_DEFINITIONS.find(chain => chain.id === agglayerChainId);
         if (!chain) throw new Error('AggLayer chain is not supported');
         const captured = agglayerRecovery;
@@ -803,7 +818,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         setSlowStatus('submitted');
       } catch (err) {
         console.error('[EvmBridgeDepositScreen] Agglayer bridge failed', err);
-        const message = errorMessage(err);
+        const message = depositErrorMessage(err);
         setAwaitingNextConfirmation(false);
         setSlowError(message);
         setSlowStatus('failed');
@@ -814,6 +829,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       agglayerRecovery,
       agglayerChainId,
       amount,
+      depositErrorMessage,
       evmAddress,
       evmUsdc,
       midenAccount.publicKey,
@@ -891,6 +907,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         // instead of throwing out of the flow.
         const recipient = usdcxRemoteRecipientFor(midenAccount.publicKey);
         if (!isAddress(evmAddress)) throw new Error(`Invalid EVM address: ${evmAddress}`);
+        // Native Reown signs on the source chain: a session that did not approve it fails here, before the first
+        // wallet prompt, instead of with the Sign SDK's "Invalid permissions for call.".
+        if (nativeReownAvailable) await prepareNativeSessionChain(usdcxChain.id);
         if (!nativeReownAvailable) await switchChainAsync({ chainId: usdcxChain.id });
         const readAllowance = (spender: `0x${string}`) => readCircleUsdcAllowance(evmAddress, spender, usdcxSource);
         const waitForReceipt = (hash: Hash) => waitForEvmReceipt(hash, usdcxChain);
@@ -1001,7 +1020,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return;
         }
         console.error('[EvmBridgeDepositScreen] USDCx bridge failed', err);
-        const message = isUsdcxDomainNotRegisteredError(err) ? t('usdcxDomainNotRegistered') : errorMessage(err);
+        const message = isUsdcxDomainNotRegisteredError(err) ? t('usdcxDomainNotRegistered') : depositErrorMessage(err);
         setSlowError(message);
         setSlowStatus('failed');
         await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message }).catch(() => undefined);
@@ -1009,6 +1028,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     },
     [
       amount,
+      depositErrorMessage,
       evmAddress,
       midenAccount.publicKey,
       nativeReownAvailable,
@@ -1018,6 +1038,27 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       walletProvider,
       writeContract
     ]
+  );
+
+  // Fast (Epoch): the Epoch SDK signs on the Fast USDC's chain (the one it was quoted on) through the
+  // native Reown provider. The provider checks the session chain too, but this check runs before the SDK
+  // starts, so the row fails with the localized reconnect message and no wallet prompt opens.
+  const fastChainId = evmUsdc?.chainId;
+  const handleFastBridge = useCallback(
+    async (trackingTxId: string) => {
+      if (nativeReownAvailable && fastChainId !== undefined) {
+        try {
+          await prepareNativeSessionChain(fastChainId);
+        } catch (err) {
+          console.error('[EvmBridgeDepositScreen] Fast bridge failed', err);
+          const message = depositErrorMessage(err);
+          await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message }).catch(() => undefined);
+          return;
+        }
+      }
+      await executeEVMToMiden(trackingTxId);
+    },
+    [depositErrorMessage, executeEVMToMiden, fastChainId, nativeReownAvailable]
   );
 
   const setupReady = isValidAmount(amount);
@@ -1257,7 +1298,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             return handleUsdcxDeposit(id);
           case 'epoch':
           default:
-            return executeEVMToMiden(id);
+            return handleFastBridge(id);
         }
       };
       // The row is born `submitting`; the submission keeps the app-root watcher
@@ -1306,7 +1347,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     epochQuote?.quoteResult.tokenOut,
     epochStatus,
     evmAddress,
-    executeEVMToMiden,
+    handleFastBridge,
     handleSlowBridge,
     handleUsdcxDeposit,
     midenAccount.publicKey,

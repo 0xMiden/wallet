@@ -28,6 +28,7 @@ import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
+import { nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
 import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
 import { navigate } from 'lib/woozie';
 
@@ -295,12 +296,12 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
         console.error('[bridge-claim] claim failed', err);
         setStatus('failed');
         await updateBridgeClaimStatus(entry.txId, 'failed');
-        setError(err instanceof Error ? err.message : 'Claim failed');
+        setError(nativeSigningErrorMessage(err, t, e => (e instanceof Error ? e.message : 'Claim failed')));
       }
     } finally {
       setClaimInFlight(false);
     }
-  }, [claimable, evmProvider, entry.txId, entry.bridgeAgglayerRoute, exitTxHash, destination, restoredFromBackup]);
+  }, [claimable, evmProvider, entry.txId, entry.bridgeAgglayerRoute, exitTxHash, destination, restoredFromBackup, t]);
 
   // Read the current Miden block once, to know whether the reclaim window has opened.
   useEffect(() => {
