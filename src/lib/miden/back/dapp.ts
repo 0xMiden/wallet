@@ -72,7 +72,7 @@ import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getAssetSymbol, getTokenMetadata } from 'lib/miden/metadata/utils';
 import { NETWORKS } from 'lib/miden/networks';
-import { importedNoteIds, releaseNoteIds } from 'lib/miden/note-quarantine';
+import { importedNoteIds, noteIdFromBytes, releaseNoteIds } from 'lib/miden/note-quarantine';
 import { createSpendingLimitAuthorization } from 'lib/miden/spending-limits/authorization';
 import {
   assessOutgoingSpendingLimitDetails,
@@ -1459,14 +1459,22 @@ const importPrivateNoteFailure = (e: unknown): unknown => (isPipelineKillLink(e)
  * `importDAppPrivateNote` queues the bytes when the import fails transiently or is killed,
  * so a failed consume does not lose the note.
  *
- * The bytes are checked by the id they decode to, as the sheet checked them, never by the
- * import's answer: for raw `Note` bytes and a details-only `NoteFile` that is a details
- * commitment, not a note id. Bytes the decoder cannot read (a details-only `NoteFile`) go in
- * unchecked, since the sheet showed that note from the store.
+ * The bytes are checked by the id quarantine derives from them (a NoteFile's note id, else
+ * a bare Note's id), never by the import's answer: for raw `Note` bytes that answer is a
+ * details commitment, not a note id. Bytes that are neither a NoteFile nor a Note are
+ * refused here, as the import would refuse them.
  */
 async function importConsumeNoteBytes(noteId: string, noteBytes: string): Promise<void> {
-  const decoded = decodeConsumeNoteBytes(noteBytes);
-  if (decoded && decoded.noteId !== noteId) {
+  let carriedId: string | null = null;
+  try {
+    carriedId = noteIdFromBytes(b64ToU8(noteBytes));
+  } catch {
+    // Invalid base64 reads as unreadable bytes.
+  }
+  if (carriedId === null) {
+    throw new Error('noteBytes are neither a NoteFile nor a Note - refusing to consume it');
+  }
+  if (carriedId !== noteId) {
     throw new Error('noteBytes describe a different note than noteId - refusing to consume it');
   }
   await importDAppPrivateNote(noteBytes);

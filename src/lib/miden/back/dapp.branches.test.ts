@@ -32,6 +32,8 @@ const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
 const mockReleaseNoteIds = jest.fn((..._args: unknown[]) => Promise.resolve(undefined));
 jest.mock('lib/miden/note-quarantine', () => ({
   importedNoteIds: (notes: string[] | undefined) => (notes ?? []).map(n => `id:${n}`),
+  noteIdFromBytes: (bytes: Uint8Array) =>
+    jest.requireActual('lib/miden/note-quarantine').noteIdFromBytes(bytes),
   quarantineNoteIds: jest.fn(),
   releaseNoteIds: (...args: unknown[]) => mockReleaseNoteIds(...args)
 }));
@@ -425,6 +427,7 @@ describe('requestConsumeTransaction — mobile error branches', () => {
     };
 
     beforeEach(() => {
+      carryRawNote(() => sdkNote('note-1'));
       mockQueueNoteImport.mockResolvedValue(undefined);
       mockInitiateConsumeTransactionFromId.mockReset();
     });
@@ -474,8 +477,13 @@ describe('requestConsumeTransaction — mobile error branches', () => {
       expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
     });
 
-    it('imports a details-only NoteFile unchecked and consumes the note the sheet read from the store', async () => {
-      sdk.NoteFile = { deserialize: () => ({ note: () => undefined }) };
+    const detailsOnlyFile = (id: string) => ({
+      note: () => undefined,
+      noteId: () => ({ toString: () => id })
+    });
+
+    it('imports a details-only NoteFile whose noteId is the requested note and consumes it', async () => {
+      sdk.NoteFile = { deserialize: () => detailsOnlyFile('note-1') };
       sdk.Note = { deserialize: unparsable('Note') };
       mockImportNoteBytes.mockResolvedValueOnce(detailsCommitment);
       mockInitiateConsumeTransactionFromId.mockResolvedValueOnce('tx-c');
@@ -484,16 +492,25 @@ describe('requestConsumeTransaction — mobile error branches', () => {
       expect(mockImportNoteBytes).toHaveBeenCalledTimes(1);
     });
 
-    it('refuses bytes that are neither a NoteFile nor a Note without initiating the consume', async () => {
-      sdk.NoteFile = { deserialize: unparsable('NoteFile') };
+    it('refuses a details-only NoteFile whose noteId is another note before importing it', async () => {
+      sdk.NoteFile = { deserialize: () => detailsOnlyFile('note-other') };
       sdk.Note = { deserialize: unparsable('Note') };
-      mockImportNoteBytes.mockRejectedValueOnce(
-        new Error('importNoteBytes: bytes are neither a serialized NoteFile nor a serialized Note')
-      );
 
       await expect(consumeWithBytes()).rejects.toThrow(
-        `${MidenDAppErrorType.InvalidParams}: Error: importNoteBytes: bytes are neither`
+        `${MidenDAppErrorType.InvalidParams}: Error: noteBytes describe a different note than noteId`
       );
+      expect(mockImportNoteBytes).not.toHaveBeenCalled();
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
+
+    it('refuses bytes that are neither a NoteFile nor a Note before importing them', async () => {
+      sdk.NoteFile = { deserialize: unparsable('NoteFile') };
+      sdk.Note = { deserialize: unparsable('Note') };
+
+      await expect(consumeWithBytes()).rejects.toThrow(
+        `${MidenDAppErrorType.InvalidParams}: Error: noteBytes are neither a NoteFile nor a Note`
+      );
+      expect(mockImportNoteBytes).not.toHaveBeenCalled();
       expect(mockQueueNoteImport).not.toHaveBeenCalled();
       expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
     });

@@ -1358,6 +1358,20 @@ describe('Full confirmation cycles in extension mode', () => {
     const { queueNoteImport } = jest.requireMock('lib/miden/activity');
     const sdk = require('lib/miden/transaction');
     // Issue #1459: the import must land before the consume reads the note from the store.
+    const sdkLazy: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+    const originalSdk = { Note: sdkLazy.Note, NoteFile: sdkLazy.NoteFile };
+    sdkLazy.NoteFile = {
+      deserialize: () => {
+        throw new Error('not a NoteFile');
+      }
+    };
+    sdkLazy.Note = {
+      deserialize: () => ({
+        id: () => ({ toString: () => 'note-1' }),
+        metadata: () => undefined,
+        assets: () => ({ fungibleAssets: () => [] })
+      })
+    };
     const order: string[] = [];
     _g.__dappExtTest.midenClient.importNoteBytes = jest.fn(async (bytes: Uint8Array) => {
       order.push(`import:${Buffer.from(bytes).toString('base64')}`);
@@ -1386,6 +1400,7 @@ describe('Full confirmation cycles in extension mode', () => {
       { confirmed: true, delegate: true }
     );
     expect(res).toEqual({ type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-c' });
+    Object.assign(sdkLazy, originalSdk);
     expect(order).toEqual(['import:c29tZWJ5dGVz', 'consume:note-1']);
     expect(queueNoteImport).not.toHaveBeenCalled();
   });
@@ -1454,8 +1469,13 @@ describe('Full confirmation cycles in extension mode', () => {
       expect(transaction().initiateConsumeTransactionFromId).not.toHaveBeenCalled();
     });
 
-    it('imports a details-only NoteFile unchecked and consumes the note the sheet read from the store', async () => {
-      sdk.NoteFile = { deserialize: () => ({ note: () => undefined }) };
+    const detailsOnlyFile = (id: string) => ({
+      note: () => undefined,
+      noteId: () => ({ toString: () => id })
+    });
+
+    it('imports a details-only NoteFile whose noteId is the requested note and consumes it', async () => {
+      sdk.NoteFile = { deserialize: () => detailsOnlyFile('note-1') };
       sdk.Note = { deserialize: unparsable('Note') };
 
       await expect(consumeWithBytes()).resolves.toEqual({
@@ -1465,17 +1485,26 @@ describe('Full confirmation cycles in extension mode', () => {
       expect(_g.__dappExtTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
     });
 
-    it('refuses bytes that are neither a NoteFile nor a Note without initiating the consume', async () => {
+    it('refuses a details-only NoteFile whose noteId is another note before importing it', async () => {
+      sdk.NoteFile = { deserialize: () => detailsOnlyFile('note-other') };
+      sdk.Note = { deserialize: unparsable('Note') };
+
+      await expect(consumeWithBytes()).rejects.toThrow(
+        `${MidenDAppErrorType.InvalidParams}: Error: noteBytes describe a different note than noteId`
+      );
+      expect(_g.__dappExtTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
+      expect(transaction().initiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
+
+    it('refuses bytes that are neither a NoteFile nor a Note before importing them', async () => {
       const { queueNoteImport } = jest.requireMock('lib/miden/activity');
       sdk.NoteFile = { deserialize: unparsable('NoteFile') };
       sdk.Note = { deserialize: unparsable('Note') };
-      _g.__dappExtTest.midenClient.importNoteBytes = jest
-        .fn()
-        .mockRejectedValue(new Error('importNoteBytes: bytes are neither a serialized NoteFile nor a serialized Note'));
 
       await expect(consumeWithBytes()).rejects.toThrow(
-        `${MidenDAppErrorType.InvalidParams}: Error: importNoteBytes: bytes are neither`
+        `${MidenDAppErrorType.InvalidParams}: Error: noteBytes are neither a NoteFile nor a Note`
       );
+      expect(_g.__dappExtTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
       expect(queueNoteImport).not.toHaveBeenCalled();
       expect(transaction().initiateConsumeTransactionFromId).not.toHaveBeenCalled();
     });
