@@ -1,15 +1,17 @@
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
 
 import { IBridgedReceiveExtraInputs, ITransaction } from '../db/types';
 
 /**
  * An executor deposit whose attested message is on the row and not yet executed: it can be executed at any age. The
- * route the row saved decides, so the deposit stays open after the document drops its chain.
+ * route the row saved decides, so the deposit stays open after the document drops its chain. A row that saved none is
+ * classified by the document, so while this realm has none it may be one: a timeout is terminal.
  */
 function holdsExecutableMessage(inputs: IBridgedReceiveExtraInputs): boolean {
   const executor = inputs.usdcxSource
     ? inputs.usdcxSource.route === 'cctp-executor'
-    : isUsdcxExecutorSource(inputs.sourceChainId);
+    : getBridgeConfigSnapshot().config === null || isUsdcxExecutorSource(inputs.sourceChainId);
   return (
     inputs.provider === 'usdcx' &&
     inputs.phase === 'delivering' &&
