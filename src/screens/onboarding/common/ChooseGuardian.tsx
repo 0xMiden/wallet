@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next';
 
 import { useGuardianAvailability } from 'app/hooks/useGuardianAvailability';
+import { useGuardianOptions } from 'app/hooks/useGuardianOptions';
 import { usePageActive } from 'app/layouts/page-active';
 import { Button } from 'components/Button';
 import { ChoiceCardGroup, ChoiceCardItem } from 'components/ui/ChoiceCard';
@@ -12,7 +13,6 @@ import { TextAction } from 'components/ui/TextAction';
 import { TextField } from 'components/ui/TextField';
 import { pingGuardianEndpointLatency } from 'lib/miden/guardian/availability';
 import { USER_ENDPOINT_CHECK_TIMEOUT_MS } from 'lib/miden/guardian/operator-map';
-import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import { isValidGuardianUrl, sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
 import type { GuardianOption } from 'lib/shared/types';
 
@@ -73,7 +73,7 @@ export const ChooseGuardianScreen: React.FC<ChooseGuardianScreenProps> = ({
 
   // Providers that run a Guardian on the active network, resolved to their
   // endpoint on it.
-  const options = useMemo(() => getGuardianOptionsForNetwork(), []);
+  const options = useGuardianOptions();
 
   // Liveness ping per provider so an operator that's down right now is marked
   // offline on its card. An offline card is NOT selectable: a switch to a down

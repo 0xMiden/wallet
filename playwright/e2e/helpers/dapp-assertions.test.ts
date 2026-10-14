@@ -552,7 +552,7 @@ describe('a note from outside the journey', () => {
       expect(error).toBeInstanceOf(InfrastructureFault);
     });
 
-    it("leaves the read to K9's rule when the consume finished before the capture or moved the other account", async () => {
+    it('leaves the read to the per-read rule when the consume finished before the capture or moved the other account', async () => {
       const before = gift('gift', { completedAt: baseline.capturedAtSec - 5 });
       expect(await judge(read(movedOwn), [row('funding'), before], { ...baseline, rowIds: ['funding', 'gift'] })).toBe(
         undefined
@@ -570,7 +570,7 @@ describe('a note from outside the journey', () => {
       expect(await judge(read(movedOwn), [row('funding'), gift('gift'), row('tx-read')])).toBe(undefined);
     });
 
-    it("leaves a consume of a journey sender's note to K9's rule, even one running at the capture", async () => {
+    it("leaves a consume of a journey sender's note to the per-read rule, even one running at the capture", async () => {
       const grant = gift('grant', { secondaryAccountId: 'mtst1publicfaucet', status: 1, completedAt: undefined });
       expect(await judge(read(movedOwn), [row('funding'), grant], { ...baseline, rowIds: ['funding', 'grant'] })).toBe(
         undefined

@@ -1,12 +1,12 @@
 import { CapacitorHttp } from '@capacitor/core';
 
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
-import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
 import {
   getEffectiveNoteTransportUrl,
   getEffectiveProverUrl,
   getEffectiveRpcUrl
 } from 'lib/miden-chain/effective-endpoints';
+import { getKnownGuardians, subscribeGuardians } from 'lib/miden-chain/guardian-registry';
 import { isMobile } from 'lib/platform';
 
 /**
@@ -72,18 +72,16 @@ const probeHolds = new Map<string, Set<symbol>>();
 const NULL_BODY_STATUSES = new Set([204, 205, 304]);
 
 /**
- * Seed the built-in guardian origins. Deferred from module-load to first
- * interceptor install: importing this module must not iterate GUARDIAN_OPTIONS
- * eagerly, or a `lib/miden-chain/constants` <-> native-http import cycle can
- * observe `GUARDIAN_OPTIONS` before it's initialized (undefined, so a throw at
- * import time, which breaks unrelated module graphs and unit tests).
+ * Seed the origins of every operator the wallet's configuration names, on any
+ * network: each network's config-document list, else its bundled one
+ * (`getKnownGuardians`). Runs at the first interceptor install and again each
+ * time a document changes a list, so an operator a document adds is routed
+ * without a restart. An origin a document removes stays routed for the
+ * session, like every other registered origin. Deferred from module load: this
+ * module must not read the lists while its importers are still loading.
  */
 function seedBuiltinGuardianOrigins(): void {
-  for (const option of GUARDIAN_OPTIONS ?? []) {
-    for (const endpoint of option.endpoint.values()) {
-      addOrigin(endpoint);
-    }
-  }
+  for (const option of getKnownGuardians()) addOrigin(option.endpoint);
 }
 
 function parseOrigin(url: string): string | null {
@@ -106,7 +104,7 @@ function addOrigin(endpoint: string): void {
  * Route a guardian endpoint's origin for the rest of the session. For an
  * endpoint the account is bound to, or one just verified as a Guardian; an
  * endpoint that is still being checked takes `probeGuardianOrigin` instead.
- * The built-in GUARDIAN_OPTIONS are pre-seeded. Installs the boundary first.
+ * The operators the wallet's configuration names are pre-seeded. Installs the boundary first.
  */
 export function registerGuardianOrigin(endpoint: string): void {
   installGuardianFetchBoundary();
@@ -185,6 +183,7 @@ export function installGuardianFetchBoundary(): void {
   installed = true;
 
   seedBuiltinGuardianOrigins();
+  subscribeGuardians(seedBuiltinGuardianOrigins);
 
   const originalFetch: FetchFn = globalThis.fetch.bind(globalThis);
   const native = isMobile();

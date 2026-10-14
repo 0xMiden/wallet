@@ -41,6 +41,18 @@ const whole = (): DerivedBridgeConfig => ({
     allocator: { state: 'error', message: 'HTTP 502' },
     market: { state: 'ok', value: MARKET },
     midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } }
+  },
+  swap: {
+    pairs: {
+      state: 'ok',
+      value: {
+        tokens: [
+          { faucetId: '0xe33498f1176661512b5ac4ded86ec7', ticker: 'IETH', decimals: 8, binanceAsset: 'ETH' },
+          { faucetId: '0x094698fc4bc531d136db0866f38902', ticker: 'IUSDT', decimals: 8 }
+        ],
+        pairs: [{ faucetIds: ['0xe33498f1176661512b5ac4ded86ec7', '0x094698fc4bc531d136db0866f38902'] }]
+      }
+    }
   }
 });
 
@@ -186,8 +198,49 @@ it('reads a derivation that threw as every check failed, on every configured cha
     derivedAt: 7,
     chains: { 11155111: reads, 84532: reads },
     agglayer: { indexer: error },
-    epoch: { allocator: error, market: error, midenUsdcFaucet: error }
+    epoch: { allocator: error, market: error, midenUsdcFaucet: error },
+    swap: { pairs: error }
   });
+});
+
+it('reads a copy with no swap pairs, as a build before them stored it, as missing', () => {
+  const { swap: _swap, ...before } = whole();
+  expect(parseStoredDerived(before, 'testnet', 4)).toBeNull();
+});
+
+it.each([
+  ['pairs that are not a probe', { pairs: 'ok' }],
+  ['pairs in an unknown state', { pairs: { state: 'pending' } }],
+  ['a registry that does not parse', { pairs: { state: 'ok', value: { tokens: [{ ticker: 'IETH' }], pairs: [] } } }],
+  [
+    'a registry that loses a token when parsed again',
+    {
+      pairs: {
+        state: 'ok',
+        value: {
+          tokens: [
+            { faucetId: '0xe33498f1176661512b5ac4ded86ec7', ticker: 'IETH', decimals: 8 },
+            { ticker: 'IUSDT', decimals: 8 }
+          ],
+          pairs: []
+        }
+      }
+    }
+  ],
+  [
+    'a registry that loses a pair when parsed again',
+    {
+      pairs: {
+        state: 'ok',
+        value: {
+          tokens: [{ faucetId: '0xe33498f1176661512b5ac4ded86ec7', ticker: 'IETH', decimals: 8 }],
+          pairs: [{ faucetIds: ['0xe33498f1176661512b5ac4ded86ec7'] }]
+        }
+      }
+    }
+  ]
+])('rejects a snapshot whose swap section holds %s', (_label, swap) => {
+  expect(parseStoredDerived({ ...whole(), swap }, 'testnet', 4)).toBeNull();
 });
 
 it('keys the snapshot by network', () => {

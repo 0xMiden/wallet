@@ -127,8 +127,8 @@ export interface RanRow {
 }
 
 /**
- * K6's evidence: something ran, and every row that ran is a consume of the stale account. A row for any other account,
- * of another type or naming no account is not that bug, so the cell stays a new failure.
+ * Whether a stale consume executed: something ran, and every row that ran is a consume of the stale account. A row for
+ * any other account, of another type or naming no account is a different failure.
  */
 export function onlyStaleConsumesRan(ran: readonly RanRow[], staleAccount: string): boolean {
   return (
@@ -153,8 +153,8 @@ export interface NonCurrentRead {
 }
 
 /**
- * K9's evidence for M4-reads. A read stays on its session's account when it was refused before any popup with
- * NOT_GRANTED (Q10) or, after a popup, served exactly that account's vault (K9). A read served with no popup, an
+ * The evidence for M4-reads. A read stays on its session's account when it was refused before any popup with
+ * NOT_GRANTED (Q10) or, after a popup, served exactly that account's vault. A read served with no popup, an
  * approval that then failed and another account's vault are neither, so the cell stays a new failure.
  */
 export function nonCurrentReadEvidence(reads: readonly NonCurrentRead[]): {

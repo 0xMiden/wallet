@@ -1,10 +1,10 @@
 import React from 'react';
 
-import { createEvent, fireEvent, render, screen, within } from '@testing-library/react';
+import { createEvent, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
 
 import type { GuardianProbeVerdict } from 'app/hooks/useGuardianAvailability';
 
-import { GuardianProviderSheet, guardianOperatorCopy } from './GuardianProviderSheet';
+import { GuardianProviderSheet, guardianOperatorCopy, useGuardianOperatorText } from './GuardianProviderSheet';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
@@ -145,6 +145,34 @@ describe('GuardianProviderSheet', () => {
     renderSheet({ options: [OTHER], fastestId: null, value: null });
     expect(guardianOperatorCopy('other')).toBeUndefined();
     expect(card(OTHER.endpoint)).toHaveTextContent('Other Co · EU-WEST');
+  });
+
+  it('treats an id naming an inherited Object member as an operator with no bundled words', () => {
+    expect(guardianOperatorCopy('constructor')).toBeUndefined();
+    const { result } = renderHook(() => useGuardianOperatorText());
+    const option = { ...OTHER, id: 'constructor' };
+    expect(result.current(option)).toEqual({ about: 'Other Co', kind: 'Other Co' });
+  });
+
+  it('resolves bundled words without Object.hasOwn, which Safari before 15.4 lacks', () => {
+    const original = Object.hasOwn;
+    // @ts-expect-error simulating a WebView that predates Object.hasOwn
+    delete Object.hasOwn;
+    try {
+      expect(guardianOperatorCopy('gateway')).toEqual({
+        aboutKey: 'guardianAboutGateway',
+        kindKey: 'guardianKindGateway'
+      });
+      expect(guardianOperatorCopy('constructor')).toBeUndefined();
+    } finally {
+      Object.hasOwn = original;
+    }
+  });
+
+  it("shows the config document's kind text in place of the bundled one", () => {
+    renderSheet({ options: [{ ...OZ, kind: 'Security audits' }, KODA] });
+    expect(card(OZ.endpoint)).toHaveTextContent('Security audits · US-EAST');
+    expect(card(KODA.endpoint)).toHaveTextContent('guardianKindKodax · Asia (SK)');
   });
 
   it('has words for every operator the wallet ships', () => {

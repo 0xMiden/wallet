@@ -1855,6 +1855,10 @@
     "message": "Enter a valid amount to swap.",
     "englishSource": "Enter a valid amount to swap."
   },
+  "swapPairNotListed": {
+    "message": "This pair can no longer be swapped. Go back and choose another token.",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
+  },
   "swapPriceUnavailable": {
     "message": "Price unavailable. Try again shortly.",
     "englishSource": "Price unavailable. Try again shortly."
@@ -4648,6 +4652,15 @@
     "message": "EVM wallet connected",
     "englishSource": "EVM wallet connected"
   },
+  "evmChainNotApproved": {
+    "message": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "englishSource": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "connectedWallet": {
     "message": "Connected wallet",
     "englishSource": "Connected wallet"
@@ -4729,8 +4742,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Approve the request in your wallet and keep this screen open while the source network confirms it.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "message": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them.",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "Bridge deposit failed",
@@ -6260,6 +6273,14 @@
   "externalPageLoadFailed": {
     "message": "Couldn't open this page. Check your connection and try again.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "Waiting for the next wallet confirmation",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
   },
   "advancedOptions": {
     "message": "Advanced options",

@@ -31,6 +31,15 @@ import { UsdcxExecuteAction } from './UsdcxExecuteAction';
 interface EvmBridgeDepositStatusProps {
   txId: string;
   onDone: () => void;
+  /**
+   * The deposit has taken one wallet confirmation and is about to ask for the next. The Slow (AggLayer)
+   * and USDCx routes can say this: the screen raises their approve and their bridge, deposit or burn
+   * prompts itself, so it knows when an approval was signed. Only the Fast (Epoch) route cannot: it
+   * hands the whole sequence to the Epoch SDK, which reports nothing back on the deposit path, so there
+   * it stays false and the processing copy, which warns that the wallet may ask more than once, covers
+   * the gap.
+   */
+  awaitingNextConfirmation?: boolean;
 }
 
 /**
@@ -111,7 +120,11 @@ function routeLabelOf(provider: IBridgeProvider, t: (key: string) => string): st
 }
 
 /** Bridge-specific post-review progress/failure/success screen. */
-export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ txId, onDone }) => {
+export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
+  txId,
+  onDone,
+  awaitingNextConfirmation = false
+}) => {
   const { t } = useTranslation();
   const { row, loaded } = useTransactionRow(txId);
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
@@ -139,6 +152,9 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
   const sourceLabel = `${sourceAmount} ${sourceSymbol}`;
   const failed = inputs.phase === 'failed';
   const submitted = inputs.phase === 'delivering' || inputs.phase === 'ready' || inputs.phase === 'received';
+  // A failure has its own message, and a submitted deposit has left this screen, so the wait only
+  // speaks while the deposit is still in flight.
+  const waiting = awaitingNextConfirmation && !failed && !submitted;
   const routeLabel = routeLabelOf(inputs.provider, t);
   const sourceChain = getChain(inputs.sourceChainId ?? DEFAULT_CHAIN_ID);
 
@@ -214,7 +230,13 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
         <section className="flex flex-1 flex-col items-center pt-5">
           <Hero
             visual={<TransactionHeroIcon state={failed ? 'failed' : 'processing'} />}
-            name={failed ? t('bridgeDepositFailed') : t('bridgeDepositProcessing')}
+            name={
+              failed
+                ? t('bridgeDepositFailed')
+                : waiting
+                  ? t('bridgeDepositAwaitingNextConfirmation')
+                  : t('bridgeDepositProcessing')
+            }
           />
           <TransactionSummaryBadge
             lhs={sourceLabel}
@@ -222,8 +244,18 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({ 
             fillForArrow={TRANSACTION_COLORS.bridge}
             className="mt-4"
           />
-          <p className="mt-4 text-center text-sm font-medium text-ink">
-            {failed ? (inputs.error ?? t('transactionErrorDescription')) : t('bridgeDepositProcessingDescription')}
+          {/* The wait is announced: it appears while the user is looking at their wallet, not at
+              this screen, and it is the cue that the flow is not finished. */}
+          <p
+            className="mt-4 text-center text-sm font-medium text-ink"
+            role={failed ? undefined : 'status'}
+            data-testid="bridge-deposit-processing-description"
+          >
+            {failed
+              ? (inputs.error ?? t('transactionErrorDescription'))
+              : waiting
+                ? t('bridgeDepositAwaitingNextConfirmationDescription')
+                : t('bridgeDepositProcessingDescription')}
           </p>
         </section>
         <div className="w-full shrink-0 pt-10">

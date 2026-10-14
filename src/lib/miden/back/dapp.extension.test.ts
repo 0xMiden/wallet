@@ -700,8 +700,16 @@ async function driveConfirmation(
     port
   );
   beforeConfirm?.();
-  await listener({ type: confirmRequestType, id, ...extraConfirmFields }, port);
+  // What the confirm page is answered with; a handler that throws leaves it unset and the dApp unanswered.
+  _g.__dappExtTest.lastConfirmResponse = undefined;
+  _g.__dappExtTest.lastConfirmResponse = await listener({ type: confirmRequestType, id, ...extraConfirmFields }, port);
   return promise;
+}
+
+// A real switch writes both the vault's stored current account and the store's.
+function switchCurrentAccount(account: string) {
+  _g.__dappExtTestCurrentAccount = account;
+  mockGetCurrentAccountPublicKey.mockResolvedValue(account);
 }
 
 describe('Full confirmation cycles in extension mode', () => {
@@ -1276,6 +1284,22 @@ describe('Full confirmation cycles in extension mode', () => {
       expect(signData).not.toHaveBeenCalled();
     });
 
+    it('refuses a sign approved after the current account changed, before any key is used', async () => {
+      arrangeSignerAccount();
+      const signData = jest.fn(async () => 'stolen-signature');
+      mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+
+      await expect(
+        driveConfirmation(
+          () => dapp.requestSign('https://miden.xyz', request(SIGNER_COMMITMENT_HEX)),
+          MidenMessageType.DAppSignConfirmationRequest,
+          { confirmed: true },
+          () => switchCurrentAccount('miden-account-2')
+        )
+      ).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+      expect(signData).not.toHaveBeenCalled();
+    });
+
     it('refuses when the account cannot be resolved, rather than signing anyway', async () => {
       _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue(null);
       const signData = jest.fn(async () => 'stolen-signature');
@@ -1332,6 +1356,32 @@ describe('Full confirmation cycles in extension mode', () => {
 
   it('requestConsumeTransaction with noteBytes imports and resolves when confirmed', async () => {
     const { queueNoteImport } = jest.requireMock('lib/miden/activity');
+    const sdk = require('lib/miden/transaction');
+    // Issue #1459: the import must land before the consume reads the note from the store.
+    const sdkLazy: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+    const originalSdk = { Note: sdkLazy.Note, NoteFile: sdkLazy.NoteFile };
+    sdkLazy.NoteFile = {
+      deserialize: () => {
+        throw new Error('not a NoteFile');
+      }
+    };
+    sdkLazy.Note = {
+      deserialize: () => ({
+        id: () => ({ toString: () => 'note-1' }),
+        metadata: () => undefined,
+        assets: () => ({ fungibleAssets: () => [] })
+      })
+    };
+    const order: string[] = [];
+    _g.__dappExtTest.midenClient.importNoteBytes = jest.fn(async (bytes: Uint8Array) => {
+      order.push(`import:${Buffer.from(bytes).toString('base64')}`);
+      return 'note-1';
+    });
+    _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
+    sdk.initiateConsumeTransactionFromId.mockImplementationOnce(async (_account: string, noteId: string) => {
+      order.push(`consume:${noteId}`);
+      return 'tx-c';
+    });
     const res = await driveConfirmation(
       () =>
         dapp.requestConsumeTransaction('https://miden.xyz', {
@@ -1349,8 +1399,165 @@ describe('Full confirmation cycles in extension mode', () => {
       MidenMessageType.DAppTransactionConfirmationRequest,
       { confirmed: true, delegate: true }
     );
-    expect(res.type).toBe(MidenDAppMessageType.ConsumeResponse);
-    expect(queueNoteImport).toHaveBeenCalledWith('c29tZWJ5dGVz');
+    expect(res).toEqual({ type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-c' });
+    Object.assign(sdkLazy, originalSdk);
+    expect(order).toEqual(['import:c29tZWJ5dGVz', 'consume:note-1']);
+    expect(queueNoteImport).not.toHaveBeenCalled();
+  });
+
+  describe('requestConsumeTransaction with noteBytes checks them by the note they decode to', () => {
+    // What `notes.import` answers for raw Note bytes, which the wallet stores as a details-only NoteFile.
+    const detailsCommitment = '0x5d1e7a11';
+    const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+    const originalSdk = { Note: sdk.Note, NoteFile: sdk.NoteFile };
+    const sdkNote = (id: string) => ({
+      id: () => ({ toString: () => id }),
+      metadata: () => undefined,
+      assets: () => ({ fungibleAssets: () => [] })
+    });
+    const unparsable = (what: string) => () => {
+      throw new Error(`not a ${what}`);
+    };
+    const carryRawNote = (deserialize: () => unknown) => {
+      sdk.NoteFile = { deserialize: unparsable('NoteFile') };
+      sdk.Note = { deserialize };
+    };
+    const transaction = () => jest.requireMock('lib/miden/transaction');
+    const consumeWithBytes = () =>
+      driveConfirmation(
+        () =>
+          dapp.requestConsumeTransaction('https://miden.xyz', {
+            type: MidenDAppMessageType.ConsumeRequest,
+            sourcePublicKey: 'miden-account-1',
+            transaction: { accountAddress: 'miden-account-1', noteId: 'note-1', noteBytes: 'c29tZWJ5dGVz' }
+          } as never),
+        MidenMessageType.DAppTransactionConfirmationRequest,
+        { confirmed: true, delegate: true }
+      );
+
+    beforeEach(() => {
+      _g.__dappExtTest.midenClient.importNoteBytes = jest.fn().mockResolvedValue(detailsCommitment);
+      _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
+      transaction().initiateConsumeTransactionFromId.mockReset();
+      transaction().initiateConsumeTransactionFromId.mockResolvedValue('tx-c');
+    });
+
+    afterEach(() => {
+      Object.assign(sdk, originalSdk);
+      transaction().initiateConsumeTransactionFromId.mockReset();
+      transaction().initiateConsumeTransactionFromId.mockResolvedValue('tx-consume-1');
+    });
+
+    it('consumes raw Note bytes that decode to noteId, whatever id the import answers with', async () => {
+      carryRawNote(() => sdkNote('note-1'));
+
+      await expect(consumeWithBytes()).resolves.toEqual({
+        type: MidenDAppMessageType.ConsumeResponse,
+        transactionId: 'tx-c'
+      });
+      expect(_g.__dappExtTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses bytes that decode to another note before importing them', async () => {
+      // As in dapp.branches.test.ts: the sheet decoded note-1, so this pins the approval's own check.
+      carryRawNote(jest.fn().mockReturnValueOnce(sdkNote('note-1')).mockReturnValue(sdkNote('note-other')));
+
+      await expect(consumeWithBytes()).rejects.toThrow(
+        `${MidenDAppErrorType.InvalidParams}: Error: noteBytes describe a different note than noteId`
+      );
+      expect(_g.__dappExtTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
+      expect(transaction().initiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
+
+    const detailsOnlyFile = (id: string) => ({
+      note: () => undefined,
+      noteId: () => ({ toString: () => id })
+    });
+
+    it('imports a details-only NoteFile whose noteId is the requested note and consumes it', async () => {
+      sdk.NoteFile = { deserialize: () => detailsOnlyFile('note-1') };
+      sdk.Note = { deserialize: unparsable('Note') };
+
+      await expect(consumeWithBytes()).resolves.toEqual({
+        type: MidenDAppMessageType.ConsumeResponse,
+        transactionId: 'tx-c'
+      });
+      expect(_g.__dappExtTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses a details-only NoteFile whose noteId is another note before importing it', async () => {
+      sdk.NoteFile = { deserialize: () => detailsOnlyFile('note-other') };
+      sdk.Note = { deserialize: unparsable('Note') };
+
+      await expect(consumeWithBytes()).rejects.toThrow(
+        `${MidenDAppErrorType.InvalidParams}: Error: noteBytes describe a different note than noteId`
+      );
+      expect(_g.__dappExtTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
+      expect(transaction().initiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
+
+    describe('bytes that are neither a NoteFile nor a Note', () => {
+      beforeEach(() => {
+        sdk.NoteFile = { deserialize: unparsable('NoteFile') };
+        sdk.Note = { deserialize: unparsable('Note') };
+      });
+
+      it('are not imported, and a note the store holds is consumed', async () => {
+        const { queueNoteImport } = jest.requireMock('lib/miden/activity');
+
+        await expect(consumeWithBytes()).resolves.toEqual({
+          type: MidenDAppMessageType.ConsumeResponse,
+          transactionId: 'tx-c'
+        });
+        expect(_g.__dappExtTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
+        expect(queueNoteImport).not.toHaveBeenCalled();
+      });
+
+      it('are not imported, and a note the store lacks is refused by the consume itself', async () => {
+        const { queueNoteImport } = jest.requireMock('lib/miden/activity');
+        transaction().initiateConsumeTransactionFromId.mockRejectedValueOnce(new Error('Input note not found'));
+
+        await expect(consumeWithBytes()).rejects.toThrow(
+          `${MidenDAppErrorType.InvalidParams}: Error: Input note not found`
+        );
+        expect(_g.__dappExtTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
+        expect(queueNoteImport).not.toHaveBeenCalled();
+      });
+
+      it('leave a kill during the consume to reach the dApp as the kill', async () => {
+        const kill = new WasmClientPoisonedError('watchdog', new Error('store read parked'));
+        transaction().initiateConsumeTransactionFromId.mockRejectedValueOnce(kill);
+
+        await expect(consumeWithBytes()).rejects.toBe(kill);
+        expect(_g.__dappExtTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
+      });
+    });
+
+    it('refuses a carried note another transaction holds rather than answer with it', async () => {
+      carryRawNote(() => sdkNote('note-1'));
+      transaction().initiateConsumeTransactionFromId.mockImplementationOnce(async (...args: unknown[]) => {
+        if (args[4] === true) throw new Error('This note is being consumed by another transaction');
+        return 'other-dapp-transaction';
+      });
+
+      await expect(consumeWithBytes()).rejects.toThrow('This note is being consumed by another transaction');
+    });
+
+    // The import is the one await between the approval's check and the consume, and it can run long.
+    it.each([
+      ['the current account changes', () => (_g.__dappExtTestCurrentAccount = 'miden-account-2')],
+      ['the dApp disconnects', () => delete _g.__dappExtTest.storage[STORAGE_KEY]['https://miden.xyz']]
+    ])('refuses the consume when %s while the import is pending', async (_name, change) => {
+      carryRawNote(() => sdkNote('note-1'));
+      _g.__dappExtTest.midenClient.importNoteBytes = jest.fn(async () => {
+        change();
+        return detailsCommitment;
+      });
+
+      await expect(consumeWithBytes()).rejects.toThrow(MidenDAppErrorType.NotGranted);
+      expect(_g.__dappExtTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
+      expect(transaction().initiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
   });
 
   it('requestConsumeTransaction rejects with InvalidParams when consume throws', async () => {
@@ -1448,6 +1655,96 @@ describe('Full confirmation cycles in extension mode', () => {
     // A failed pubkey fetch must not persist a publicKey: null session.
     expect((_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://err-dapp.xyz']).toBeUndefined();
   });
+});
+
+describe('a prompted request approved after the current account changed (#1419, #1415)', () => {
+  const ORIGIN = 'https://miden.xyz';
+  const consumeTx = { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'Private', amount: '50' };
+  const transaction = () => require('lib/miden/transaction');
+
+  beforeEach(() => {
+    _g.__dappExtTest.midenClient.getAccount = jest
+      .fn()
+      .mockResolvedValue({ vault: () => ({ fungibleAssets: () => [] }) });
+    _g.__dappExtTest.midenClient.importNoteBytes = jest.fn().mockResolvedValue('imported-note-id');
+  });
+
+  // Each handler, its confirm request and response, and what it does once approved, none of which may run here.
+  const cases: ReadonlyArray<
+    readonly [string, () => Promise<unknown>, MidenMessageType, MidenMessageType, () => readonly jest.Mock[]]
+  > = [
+    [
+      'assets',
+      () =>
+        dapp.requestAssets(ORIGIN, {
+          type: MidenDAppMessageType.AssetsRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      MidenMessageType.DAppAssetsConfirmationRequest,
+      MidenMessageType.DAppAssetsConfirmationResponse,
+      () => []
+    ],
+    [
+      'privateNotes',
+      () =>
+        dapp.requestPrivateNotes(ORIGIN, {
+          type: MidenDAppMessageType.PrivateNotesRequest,
+          sourcePublicKey: 'miden-account-1',
+          noteIds: ['note-1']
+        } as never),
+      MidenMessageType.DAppPrivateNotesConfirmationRequest,
+      MidenMessageType.DAppPrivateNotesConfirmationResponse,
+      () => []
+    ],
+    [
+      'consumableNotes',
+      () =>
+        dapp.requestConsumableNotes(ORIGIN, {
+          type: MidenDAppMessageType.ConsumableNotesRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      MidenMessageType.DAppConsumableNotesConfirmationRequest,
+      MidenMessageType.DAppConsumableNotesConfirmationResponse,
+      () => []
+    ],
+    [
+      'importPrivateNote',
+      () =>
+        dapp.requestImportPrivateNote(ORIGIN, {
+          type: MidenDAppMessageType.ImportPrivateNoteRequest,
+          sourcePublicKey: 'miden-account-1',
+          note: 'aGVsbG8='
+        } as never),
+      MidenMessageType.DAppImportPrivateNoteConfirmationRequest,
+      MidenMessageType.DAppImportPrivateNoteConfirmationResponse,
+      () => [_g.__dappExtTest.midenClient.importNoteBytes]
+    ],
+    [
+      'consume',
+      () =>
+        dapp.requestConsumeTransaction(ORIGIN, {
+          type: MidenDAppMessageType.ConsumeRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: { ...consumeTx, noteBytes: 'aGVsbG8=' }
+        } as never),
+      MidenMessageType.DAppTransactionConfirmationRequest,
+      MidenMessageType.DAppTransactionConfirmationResponse,
+      () => [require('lib/miden/activity').queueNoteImport, transaction().initiateConsumeTransactionFromId]
+    ]
+  ];
+
+  it.each(cases)(
+    'refuses %s with NOT_GRANTED and still answers the confirm page',
+    async (_name, start, confirmRequest, confirmResponse, actions) => {
+      await expect(
+        driveConfirmation(start, confirmRequest, { confirmed: true, delegate: true }, () =>
+          switchCurrentAccount('miden-account-2')
+        )
+      ).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+      expect(_g.__dappExtTest.lastConfirmResponse).toEqual({ type: confirmResponse });
+      for (const action of actions()) expect(action).not.toHaveBeenCalled();
+    }
+  );
 });
 
 // ── Watchdog eviction mid-flow (#788 follow-up) ────────────────────

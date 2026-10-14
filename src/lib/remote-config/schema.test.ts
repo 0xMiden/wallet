@@ -134,62 +134,27 @@ it('parses the testnet document and normalizes addresses', () => {
   });
   expect(parsed?.features).toEqual({ earn: true });
   expect(parsed?.mainnetCountdown).toEqual({ enabled: true, launchAt: Date.UTC(2026, 9, 26) });
-  expect(parsed?.swap).toEqual({ tokens: [] });
+  expect(parsed?.swap).toEqual({});
 });
 
-describe('swap tokens', () => {
-  const tokens = [
-    { symbol: 'IMIDEN', faucetId: '0x750052a4af10cd51141f52c0ec2ada', decimals: 8, logo: 'MIDEN' },
-    { symbol: 'IETH', faucetId: '0xE33498F1176661512B5AC4DED86EC7', decimals: 8, logo: 'ETH', priceSymbol: 'ETH' }
-  ];
-  const withTokens = (list: unknown) => doc({ swap: { tokens: list } });
-
-  it('reads the list in order, lowercasing faucet ids and keeping the logo and price symbol', () => {
-    expect(parseBridgeConfig(withTokens(tokens), 'testnet')?.swap).toStrictEqual({
-      tokens: [
-        { symbol: 'IMIDEN', faucetId: '0x750052a4af10cd51141f52c0ec2ada', decimals: 8, logo: 'MIDEN' },
-        { symbol: 'IETH', faucetId: '0xe33498f1176661512b5ac4ded86ec7', decimals: 8, logo: 'ETH', priceSymbol: 'ETH' }
-      ]
-    });
+describe('swap section', () => {
+  it('reads a missing section, or a section that names no solver, as no solver', () => {
+    expect(parseBridgeConfig(doc({}), 'testnet')?.swap).toStrictEqual({});
+    expect(parseBridgeConfig(doc({ swap: {} }), 'testnet')?.swap).toStrictEqual({});
   });
 
-  it('reads a missing section, or a missing list, as no tokens', () => {
-    expect(parseBridgeConfig(doc({ swap: {} }), 'testnet')?.swap).toStrictEqual({ tokens: [] });
-    expect(parseBridgeConfig(withTokens([]), 'testnet')?.swap).toStrictEqual({ tokens: [] });
+  it('reads the solver as a base URL, normalized like every other URL field', () => {
+    const swap = { etaUrl: 'https://Quotes.Example:443/dex/' };
+    expect(parseBridgeConfig(doc({ swap }), 'testnet')?.swap).toStrictEqual({ etaUrl: 'https://quotes.example/dex' });
+    expect(parseBridgeConfig(doc({ swap: { etaUrl: 'http://quotes.example' } }), 'testnet')).toBeNull();
+    expect(parseBridgeConfig(doc({ swap: { etaUrl: 'https://quotes.example/?x=1' } }), 'testnet')).toBeNull();
+    expect(parseBridgeConfig(doc({ swap: { etaUrl: 42 } }), 'testnet')).toBeNull();
   });
 
-  it('reads the quote service as a base URL, normalized like every other URL field', () => {
-    const swap = { etaUrl: 'https://Quotes.Example:443/dex/', tokens };
-    expect(parseBridgeConfig(doc({ swap }), 'testnet')?.swap?.etaUrl).toBe('https://quotes.example/dex');
-    expect(parseBridgeConfig(doc({ swap: { etaUrl: 'http://quotes.example', tokens } }), 'testnet')).toBeNull();
-    expect(parseBridgeConfig(doc({ swap: { etaUrl: 'https://quotes.example/?x=1', tokens } }), 'testnet')).toBeNull();
-    expect(parseBridgeConfig(doc({ swap: { etaUrl: 42, tokens } }), 'testnet')).toBeNull();
-  });
-
-  it('drops a logo the wallet does not ship and a price symbol the feed does not quote, keeping the token', () => {
-    const [imiden] = tokens;
-    const parsed = parseBridgeConfig(withTokens([{ ...imiden, logo: 'SOL', priceSymbol: 'SOL' }]), 'testnet');
-    expect(parsed?.swap?.tokens).toStrictEqual([
-      { symbol: 'IMIDEN', faucetId: '0x750052a4af10cd51141f52c0ec2ada', decimals: 8 }
-    ]);
-  });
-
-  it.each([
-    ['a list that is not an array', { IETH: '0xe33498f1176661512b5ac4ded86ec7' }],
-    ['an entry that is not an object', ['IETH']],
-    ['a lower-case symbol', [{ ...tokens[1], symbol: 'iEth' }]],
-    ['a seven-letter symbol', [{ ...tokens[1], symbol: 'IBITCON' }]],
-    ['a bech32 faucet id', [{ ...tokens[1], faucetId: 'mtst1arcf9xpxfrc7wygpv744ytgr6cw2df6h' }]],
-    ['a missing faucet id', [{ symbol: 'IETH', decimals: 8 }]],
-    ['fractional decimals', [{ ...tokens[1], decimals: 8.5 }]],
-    ['decimals above 12', [{ ...tokens[1], decimals: 13 }]],
-    ['negative decimals', [{ ...tokens[1], decimals: -1 }]],
-    ['a logo that is not a string', [{ ...tokens[1], logo: 1 }]],
-    ['a price symbol that is not a string', [{ ...tokens[1], priceSymbol: null }]],
-    ['two entries for one faucet', [tokens[1], { ...tokens[1], symbol: 'IBTC' }]],
-    ['two entries for one symbol', [tokens[1], { ...tokens[1], faucetId: '0xaf8444c4a7c091114666adba25c5d0' }]]
-  ])('refuses the document over %s', (_name, list) => {
-    expect(parseBridgeConfig(withTokens(list), 'testnet')).toBeNull();
+  // The registry is the solver's /v2/pairs now: a list an older document still carries is not read, whatever it holds.
+  it('ignores a token list the document still carries', () => {
+    const swap = { etaUrl: 'https://quotes.example', tokens: [{ symbol: 'iEth', faucetId: 'not-an-id' }] };
+    expect(parseBridgeConfig(doc({ swap }), 'testnet')?.swap).toStrictEqual({ etaUrl: 'https://quotes.example' });
   });
 });
 
@@ -235,7 +200,7 @@ it('reads absent sections as empty and absent switches as off', () => {
     supportedEvmChains: {},
     features: ALL_OFF,
     mainnetCountdown: { enabled: false },
-    swap: { tokens: [] }
+    swap: {}
   });
 });
 
@@ -271,7 +236,7 @@ it('leaves absent provider fields out', () => {
     'bridge-providers': { epoch: partial['bridge-providers'].epoch, agglayer: {}, usdcx: {} },
     supportedEvmChains: {},
     mainnetCountdown: { enabled: false },
-    swap: { tokens: [] }
+    swap: {}
   });
 });
 
@@ -381,6 +346,30 @@ describe('values this build does not know', () => {
       'usdc-mainnet-output'
     ]);
     expect(parsed?.swap).toStrictEqual(published?.swap);
+  });
+
+  it('keeps only the declared Epoch output where Object.hasOwn is missing', () => {
+    const sepolia = chains.sepolia;
+    const usdc = sepolia.bridges.epoch.tokens.USDC;
+    const epoch = {
+      ...sepolia.bridges.epoch,
+      tokens: { USDC: { ...usdc, outputs: ['usdc-testnet-output', 'usdc-other'] } }
+    };
+    const body = {
+      ...withProviders({ epoch: providers.epoch }),
+      supportedEvmChains: { ...chains, sepolia: { ...sepolia, bridges: { ...sepolia.bridges, epoch } } }
+    };
+    const saved = Object.hasOwn;
+    // @ts-expect-error simulating Safari before 15.4
+    delete Object.hasOwn;
+    try {
+      const parsed = parseBridgeConfig(body, 'testnet');
+      expect(parsed?.supportedEvmChains.sepolia?.bridges.epoch?.tokens.USDC?.outputs).toStrictEqual([
+        'usdc-testnet-output'
+      ]);
+    } finally {
+      Object.hasOwn = saved;
+    }
   });
 
   it('reads Epoch outputs off testnet', () => {
@@ -512,6 +501,114 @@ it('reads a fraction of any length as the same instant', () => {
     parseBridgeConfig(withSection('mainnetCountdown', { launchAt }), 'testnet')?.mainnetCountdown;
   expect(at('2026-10-26T00:00:00.5Z')).toStrictEqual(at('2026-10-26T00:00:00.500Z'));
   expect(at('2026-10-26T00:00:00.5Z')?.launchAt).toBe(Date.UTC(2026, 9, 26, 0, 0, 0, 500));
+});
+
+describe('the Guardian operators', () => {
+  const OZ = {
+    id: 'open-zeppelin',
+    name: 'OpenZeppelin',
+    operatedBy: 'OpenZeppelin',
+    location: 'US-EAST',
+    endpoint: 'https://guardian-testnet.openzeppelin.com'
+  };
+  const KODA = {
+    id: 'kodax',
+    name: 'Koda',
+    operatedBy: 'Korea Digital Asset (Koda)',
+    location: 'Asia (SK)',
+    endpoint: 'https://guardian-testnet.kodax.com'
+  };
+  const entry = (index: number) => ({ ...OZ, id: `operator-${index}`, endpoint: `https://guardian-${index}.example` });
+  const guardians = (list: unknown) => parseBridgeConfig(doc({ guardians: list }), 'testnet');
+
+  it('reads no list from a document that has none, so the wallet keeps its own', () => {
+    const parsed = parseBridgeConfig(doc(), 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed && 'guardians' in parsed).toBe(false);
+  });
+
+  it('reads the list in document order', () => {
+    expect(guardians([KODA, OZ])?.guardians).toStrictEqual([KODA, OZ]);
+  });
+
+  it('puts an endpoint in the form the wallet compares: lowercase host, no default port, no trailing slash', () => {
+    const parsed = guardians([{ ...OZ, endpoint: 'https://GUARDIAN-TESTNET.openzeppelin.com:443//' }]);
+    expect(parsed?.guardians?.[0]?.endpoint).toBe('https://guardian-testnet.openzeppelin.com');
+  });
+
+  it('ignores a field of an entry that it does not know', () => {
+    expect(guardians([{ ...OZ, logoUrl: 'https://example.com/logo.png' }])?.guardians).toStrictEqual([OZ]);
+  });
+
+  it('accepts 16 operators and refuses 17', () => {
+    expect(guardians(Array.from({ length: 16 }, (_, index) => entry(index)))?.guardians).toHaveLength(16);
+    expect(guardians(Array.from({ length: 17 }, (_, index) => entry(index)))).toBeNull();
+  });
+
+  it.each<[string, unknown]>([
+    ['a list that is an object', {}],
+    ['a list that is null', null],
+    ['an empty list', []],
+    ['an entry that is a URL string', [OZ.endpoint]],
+    ['an entry that is null', [null]],
+    ['an id with an upper-case letter', [{ ...OZ, id: 'OpenZeppelin' }]],
+    ['an id with a double hyphen', [{ ...OZ, id: 'open--zeppelin' }]],
+    ['an id that ends in a hyphen', [{ ...OZ, id: 'open-' }]],
+    ['an empty id', [{ ...OZ, id: '' }]],
+    ['an id of 33 characters', [{ ...OZ, id: 'a'.repeat(33) }]],
+    ['a numeric id', [{ ...OZ, id: 7 }]],
+    ['the id of the custom endpoint', [{ ...OZ, id: 'custom' }]],
+    ['the id of the no-Guardian choice', [{ ...OZ, id: 'no-guardian' }]],
+    ['a missing name', [{ id: OZ.id, operatedBy: OZ.operatedBy, location: OZ.location, endpoint: OZ.endpoint }]],
+    ['an empty name', [{ ...OZ, name: '' }]],
+    ['a name of 49 characters', [{ ...OZ, name: 'n'.repeat(49) }]],
+    ['a name with a space at its start', [{ ...OZ, name: ' OpenZeppelin' }]],
+    ['an operator with a line break', [{ ...OZ, operatedBy: 'Open\nZeppelin' }]],
+    ['an operator with a C1 control', [{ ...OZ, operatedBy: 'Open\u0085Zeppelin' }]],
+    ['a numeric location', [{ ...OZ, location: 7 }]],
+    ['a missing endpoint', [{ id: OZ.id, name: OZ.name, operatedBy: OZ.operatedBy, location: OZ.location }]],
+    ['an http endpoint', [{ ...OZ, endpoint: 'http://guardian-testnet.openzeppelin.com' }]],
+    ['a local http endpoint', [{ ...OZ, endpoint: 'http://localhost:3000' }]],
+    ['an endpoint with a query', [{ ...OZ, endpoint: 'https://guardian-testnet.openzeppelin.com/?a=1' }]],
+    ['an endpoint with credentials', [{ ...OZ, endpoint: 'https://user:pass@guardian-testnet.openzeppelin.com' }]],
+    ['an about that is an object', [{ ...OZ, about: { en: 'A security company.' } }]],
+    ['an empty about', [{ ...OZ, about: '' }]],
+    ['an about of 161 characters', [{ ...OZ, about: 'a'.repeat(161) }]],
+    ['an about with a line break', [{ ...OZ, about: 'A security\ncompany.' }]],
+    ['an about with a space at its end', [{ ...OZ, about: 'A security company. ' }]],
+    ['a kind that is null', [{ ...OZ, kind: null }]],
+    ['a numeric kind', [{ ...OZ, kind: 7 }]],
+    ['a kind of 65 characters', [{ ...OZ, kind: 'k'.repeat(65) }]],
+    ['two entries with one id', [OZ, { ...KODA, id: OZ.id }]],
+    [
+      'two entries with one endpoint in two spellings',
+      [OZ, { ...KODA, endpoint: 'https://Guardian-Testnet.OpenZeppelin.com/' }]
+    ]
+  ])('rejects the document for %s', (_label, list) => {
+    expect(guardians(list)).toBeNull();
+  });
+
+  it('reads the about and kind texts as written', () => {
+    const described = { ...OZ, about: 'A smart contract security company.', kind: 'Smart contract security' };
+    expect(guardians([described, KODA])?.guardians).toStrictEqual([described, KODA]);
+  });
+
+  it('accepts an about and a kind at their length limits', () => {
+    const parsed = guardians([{ ...OZ, about: 'a'.repeat(160), kind: 'k'.repeat(64) }]);
+    expect(parsed?.guardians?.[0]).toMatchObject({ about: 'a'.repeat(160), kind: 'k'.repeat(64) });
+  });
+
+  it('accepts a name and an id at their length limits', () => {
+    const parsed = guardians([{ ...OZ, id: 'a'.repeat(32), name: 'n'.repeat(48) }]);
+    expect(parsed?.guardians?.[0]).toMatchObject({ id: 'a'.repeat(32), name: 'n'.repeat(48) });
+  });
+
+  it('accepts a local http endpoint only under the E2E allowance', () => {
+    const parsed = parseBridgeConfig(doc({ guardians: [{ ...OZ, endpoint: 'http://localhost:3000/' }] }), 'testnet', {
+      allowLocalHttp: true
+    });
+    expect(parsed?.guardians?.[0]?.endpoint).toBe('http://localhost:3000');
+  });
 });
 
 describe('the E2E local http allowance', () => {
