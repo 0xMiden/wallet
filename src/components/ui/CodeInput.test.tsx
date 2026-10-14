@@ -4,13 +4,35 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { CodeInput } from './CodeInput';
 
-const Harness = ({ initial = '', length }: { initial?: string; length?: number }) => {
+const Harness = ({
+  initial = '',
+  length,
+  format
+}: {
+  initial?: string;
+  length?: number;
+  format?: 'numeric' | 'alphanumeric';
+}) => {
   const [value, setValue] = useState(initial);
-  return <CodeInput value={value} onChange={setValue} label="Access code" length={length} data-testid="code" />;
+  return (
+    <CodeInput
+      value={value}
+      onChange={setValue}
+      label="Access code"
+      length={length}
+      format={format}
+      data-testid="code"
+    />
+  );
 };
 
 const cells = (container: HTMLElement) => Array.from(container.querySelectorAll('[data-slot="code-cell"]'));
 const type = (value: string) => fireEvent.change(screen.getByTestId('code'), { target: { value } });
+// A browser cuts pasted text at the field's maxlength before onChange sees it; jsdom's change event does not.
+const paste = (text: string) => {
+  const input = screen.getByTestId<HTMLInputElement>('code');
+  fireEvent.change(input, { target: { value: input.maxLength >= 0 ? text.slice(0, input.maxLength) : text } });
+};
 
 describe('CodeInput', () => {
   it('draws eight cells in two groups of four, with one native numeric field over them', () => {
@@ -23,7 +45,6 @@ describe('CodeInput', () => {
     const input = screen.getByRole('textbox', { name: 'Access code' });
     expect(input).toHaveAttribute('inputmode', 'numeric');
     expect(input).toHaveAttribute('autocomplete', 'one-time-code');
-    expect(input).toHaveAttribute('maxlength', '8');
   });
 
   it('stacks six-character groups with one input for the complete code', () => {
@@ -48,7 +69,8 @@ describe('CodeInput', () => {
     const { container } = render(<Harness length={6} />);
 
     expect(cells(container)).toHaveLength(6);
-    expect(screen.getByTestId('code')).toHaveAttribute('maxlength', '6');
+    type('1234567');
+    expect(screen.getByTestId('code')).toHaveValue('123456');
   });
 
   it('shows one digit for each cell', () => {
@@ -65,6 +87,17 @@ describe('CodeInput', () => {
     type('4729-1835 99');
 
     expect(screen.getByTestId('code')).toHaveValue('47291835');
+  });
+
+  it.each([
+    ['an access code', '8gKI-gL0O-6HcU', '8gKIgL0O6HcU', { length: 12, format: 'alphanumeric' as const }],
+    ['a numeric code', '4729-1835', '47291835', {}]
+  ])('keeps every character of %s pasted with separators', (_name, pasted, code, props) => {
+    render(<Harness {...props} />);
+
+    paste(pasted);
+
+    expect(screen.getByTestId('code')).toHaveValue(code);
   });
 
   it('keeps mixed-case letters and digits when an alphanumeric code is pasted', () => {

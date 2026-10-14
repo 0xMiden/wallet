@@ -35,11 +35,12 @@ describe('MainnetAccessScreen', () => {
   });
 
   it('asks for the code on the step layout, with its own title and no way on without a code', () => {
-    render(<MainnetAccessScreen />);
+    const { container } = render(<MainnetAccessScreen />);
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('mainnetAccessTitle');
     expect(screen.getByText('mainnetAccessOnboardingBody')).toHaveClass('text-muted');
-    expect(screen.getByRole('textbox', { name: 'mainnetAccessCodeLabel' })).toHaveAttribute('maxlength', '12');
+    expect(screen.getByRole('textbox', { name: 'mainnetAccessCodeLabel' })).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-slot="code-cell"]')).toHaveLength(12);
     expect(screen.getByText('mainnetAccessHint')).toBeInTheDocument();
     expect(screen.queryByTestId('onboarding-mainnet-access-skip')).not.toBeInTheDocument();
     expect(submitButton().closest('[data-slot="footer"]')).not.toBeNull();

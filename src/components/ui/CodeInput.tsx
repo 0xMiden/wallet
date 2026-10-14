@@ -103,7 +103,8 @@ export const CodeInput = forwardRef<HTMLInputElement, CodeInputProps>(function C
           </div>
         </React.Fragment>
       ))}
-      {/* 16px text: iOS zooms the page when a smaller input takes focus. */}
+      {/* 16px text: iOS zooms the page when a smaller input takes focus. No maxLength: the browser would cut a
+          pasted code at the length before onChange strips its separators. */}
       <input
         ref={ref}
         type="text"
@@ -113,7 +114,6 @@ export const CodeInput = forwardRef<HTMLInputElement, CodeInputProps>(function C
         autoCorrect="off"
         spellCheck={false}
         pattern={inputFormat.pattern}
-        maxLength={length}
         value={value}
         onChange={event => onChange(event.target.value.replace(inputFormat.excluded, '').slice(0, length))}
         onFocus={() => setFocused(true)}
