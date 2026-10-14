@@ -4,6 +4,7 @@ import { act, render, screen } from '@testing-library/react';
 
 import { isOnboardingFinishing } from 'app/onboarding-finish';
 import { deserializeInternalError, serializeInternalError } from 'lib/intercom/helpers';
+import type { EndpointOverride } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { OnboardingStep, OnboardingType, WalletType } from 'screens/onboarding/types';
@@ -78,10 +79,18 @@ jest.mock('screens/onboarding/navigator', () => ({
   }
 }));
 
+// The mainnet switch's realm refresh: on the extension, which these cases model, the service worker request.
+const mockRequest = jest.fn<Promise<void>, []>();
+const mockFollow = jest.fn();
 jest.mock('lib/miden/front', () => ({
   useMidenContext: () => ({
     registerWallet: mockRegisterWallet
-  })
+  }),
+  request: () => mockRequest()
+}));
+jest.mock('lib/remote-config/runtime', () => ({
+  ...jest.requireActual('lib/remote-config/runtime'),
+  followEffectiveNetwork: () => mockFollow()
 }));
 
 jest.mock('lib/miden/reset', () => ({
@@ -101,7 +110,8 @@ jest.mock('lib/extension/side-panel-handoff', () => ({
 const mockIsMobile = jest.fn(() => false);
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
-  isMobile: () => mockIsMobile()
+  isMobile: () => mockIsMobile(),
+  isExtension: () => true
 }));
 
 const readySnapshot = (onboarding?: { inviteOnly: boolean }): BridgeConfigSnapshot => ({
@@ -125,9 +135,12 @@ jest.mock('lib/remote-config/use-feature-availability', () => ({
 }));
 
 let mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
+// A stored network choice takes effect at once, as the real override cache does.
+const mockApply = jest.fn<Promise<void>, [EndpointOverride]>();
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getEffectiveNetworkName: () => mockNetwork
+  getEffectiveNetworkName: () => mockNetwork,
+  applyEndpointOverride: (override: EndpointOverride) => mockApply(override)
 }));
 
 // Store the latest handler closure so tests can invoke the mobile back handler
@@ -250,6 +263,10 @@ beforeEach(() => {
   mockRealFlow = false;
   mockSnapshot = readySnapshot();
   mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
+  mockApply.mockReset().mockImplementation(async override => {
+    mockNetwork = override.networkName;
+  });
+  mockRequest.mockReset().mockResolvedValue(undefined);
 });
 
 describe('ForgotPassword', () => {
@@ -1028,5 +1045,60 @@ describe('ForgotPassword on an invite-only network', () => {
     renderPage();
     expect(screen.getByTestId('onboarding-get-started')).toBeInTheDocument();
     expect(screen.getByTestId('onboarding-recover-account')).toBeInTheDocument();
+  });
+});
+
+describe('ForgotPassword recovery on an invite-only config', () => {
+  const recover = async () => {
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
+    await dispatch({ id: 'confirmation' });
+  };
+
+  beforeEach(() => {
+    mockSnapshot = readySnapshot({ inviteOnly: true });
+  });
+
+  it('switches to mainnet and refreshes the realm before the recovery wipes and registers', async () => {
+    renderPage();
+    await recover();
+
+    expect(mockApply).toHaveBeenCalledWith(
+      expect.objectContaining({ networkName: MIDEN_NETWORK_NAME.MAINNET, rpcUrl: '' })
+    );
+    const [applied] = mockApply.mock.invocationCallOrder;
+    const [refreshed] = mockRequest.mock.invocationCallOrder;
+    expect(applied).toBeLessThan(refreshed!);
+    expect(refreshed).toBeLessThan(mockClearClientStorage.mock.invocationCallOrder[0]!);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(applied).toBeLessThan(mockRegisterWallet.mock.invocationCallOrder[0]!);
+  });
+
+  it('shows a failed switch with nothing wiped, and a retry finishes the switch before recovering', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('Worker unavailable'));
+    const { container } = renderPage();
+    await recover();
+
+    expect(captured.props?.recoveryError).toBe('Worker unavailable');
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
+    expect(mockClearClientStorage).not.toHaveBeenCalled();
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+
+    await dispatch({ id: 'confirmation' });
+    expect(mockApply).toHaveBeenCalledTimes(1);
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the network alone when the config is not invite-only', async () => {
+    mockSnapshot = readySnapshot();
+    renderPage();
+    await recover();
+
+    expect(mockApply).not.toHaveBeenCalled();
+    expect(mockRequest).not.toHaveBeenCalled();
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
   });
 });
