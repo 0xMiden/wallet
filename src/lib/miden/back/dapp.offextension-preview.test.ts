@@ -343,11 +343,27 @@ describe('dApp custom-transaction approval shows the asset movement of the reque
     expect(rows.some(row => row.startsWith('Recipient (declared by the site), '))).toBe(true);
   });
 
-  it('says so when the request bytes cannot be decoded, rather than showing an assetless sheet', async () => {
+  it('rejects request bytes that cannot be deserialized before showing a confirmation sheet', async () => {
     sdk.TransactionRequest = {
       deserialize: () => {
         throw new Error('not a transaction request');
       }
+    };
+
+    await expect(
+      requestTransaction(DAPP_ORIGIN, customRequest('mtst1qqqqqqqqqqqqqqqqqqqqqqqqqqqsavings'), 'session-1')
+    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('keeps the opaque warning when a valid request cannot be summarized', async () => {
+    sdk.TransactionRequest = {
+      deserialize: () => ({
+        expectedOutputOwnNotes: () => {
+          throw new Error('summary unavailable');
+        }
+      })
     };
 
     await expect(

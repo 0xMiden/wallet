@@ -152,13 +152,4 @@ describe('known-bug registry', () => {
     expect(bug('K10').signature(hard('N4', { returnedIdUnlisted: false }))).toBe(false);
     expect(bug('K10').signature(hard('N4', { popupOpened: false, dappError: unresolved }))).toBe(false);
   });
-
-  it('K11 matches an undecodable custom request that opened a popup, and not a refusal or a deadline', () => {
-    expect(bug('K11').cells).toEqual({ 'R3-customUndecodable': ['offchain', 'guardian'] });
-    expect(bug('K11').signature(hard('R3-customUndecodable', { popupOpened: true }))).toBe(true);
-    expect(bug('K11').signature(soft('R3-customUndecodable', { popupOpened: true }))).toBe(false);
-    const refused = { name: 'InvalidParamsMidenWalletError', message: 'INVALID_PARAMS: Error: unexpected end of file' };
-    expect(bug('K11').signature(hard('R3-customUndecodable', { popupOpened: false, dappError: refused }))).toBe(false);
-    expect(bug('K11').signature(hard('R3-customUndecodable', {}, 'CellDeadlineExceeded: dApp one raw'))).toBe(false);
-  });
 });

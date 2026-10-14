@@ -402,7 +402,7 @@ function refusalCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
         'INVALID_PARAMS: Error: INVALID_PARAMS: Invalid CustomTransaction payload'
       )
     ),
-    // K11: the wallet prompts with its could-not-decode sheet instead (dapp.ts:2867-2879).
+    // Malformed request bytes are rejected before any confirmation surface opens.
     'R3-customUndecodable': refusedBeforePrompt(
       me => ({
         call: 'requestTransaction',

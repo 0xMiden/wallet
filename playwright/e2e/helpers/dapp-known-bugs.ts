@@ -138,15 +138,6 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
         : evidence.popupOpened === false &&
           (evidence.dappError?.message ?? '').includes('INVALID_PARAMS') &&
           (evidence.dappError?.message ?? '').includes('could not be resolved'))
-  },
-  {
-    id: 'K11',
-    title: 'A custom request whose transactionRequest cannot be deserialized opens a popup instead of being refused',
-    tracking: '0xMiden/wallet#1418 (open)',
-    cells: on(['R3-customUndecodable'], BOTH),
-    // The preview swallows the deserialize failure (src/lib/miden/back/dapp.ts:2867-2879) and the popup says it could
-    // not decode the request, so the refusal check sees a confirm page open.
-    signature: ({ source, evidence }) => source === 'hard' && evidence.popupOpened === true
   }
 ];
 
