@@ -9,7 +9,12 @@ import * as Repo from 'lib/miden/repo';
 import { revertedExecuteLeg } from 'lib/usdcx/cctp';
 import { GENERIC_EXECUTOR_ABI, getUsdcxExecutorSource } from 'lib/usdcx/constant';
 import { readNativeFeeFields } from 'lib/walletconnect/fees';
-import { isNativeReownAvailable, NativeReown, unwrapNativeResult } from 'lib/walletconnect/native';
+import {
+  isNativeReownAvailable,
+  NativeReown,
+  prepareNativeSessionChain,
+  unwrapNativeResult
+} from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
 /** The Arc leg of an executor-route deposit: `GenericExecutor.execute` with the attested CCTP message. */
@@ -48,6 +53,8 @@ export function useCctpExecute(): CctpExecute {
 
       let hash: Hash;
       if (nativeReownAvailable) {
+        // A session that did not approve the target chain fails here, before the wallet prompt.
+        await prepareNativeSessionChain(target.chain.id);
         const result = await NativeReown.sendTransaction({
           chainId: target.chain.id,
           to: target.executor,
