@@ -2260,7 +2260,7 @@ export class Vault {
       );
     }
     // After a hot-key rotation the session still holds the old commitment; a signature by the new key would not
-    // verify against it. The extension refuses this before approval, mobile and desktop only here.
+    // verify against it. The extension refuses this after approval, before signing; mobile and desktop only here.
     if (!sameCommitment(await commitmentFromPublicKeyHex(account.hotPublicKey), publicKey)) {
       throw new PublicError(
         "This Guardian account's everyday key changed after this site connected. Reconnect the site, then try again."
