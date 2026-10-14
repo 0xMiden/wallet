@@ -104,29 +104,27 @@ describe('mainnet account registration', () => {
     expect(mockRegister).toHaveBeenCalledTimes(1);
   });
 
-  it('holds the client lock under its own label', async () => {
+  it('bounds the client hold with the access watchdog under its own label', async () => {
     await redeemMainnetAccessCode('12345678', target);
-    expect(mockLockOptions).toHaveBeenCalledWith({ label: 'mainnet-access-redeem' });
+    expect(mockLockOptions).toHaveBeenCalledWith({ watchdogMs: 60_000, label: 'mainnet-access-redeem' });
   });
 
   it.each([
-    ['register', 'mainnet-access-register', () => mockRegister.mockReturnValue(new Promise(() => {}))],
-    ['sync', 'mainnet-access-sync', () => mockSync.mockReturnValue(new Promise(() => {}))],
-    ['access check', 'mainnet-access-allowed', () => mockAllowed.mockReturnValue(new Promise(() => {}))]
-  ])(
-    'rejects with an RPC timeout when the %s never settles, so a same-account retry can follow',
-    async (_call, label, stall) => {
-      jest.useFakeTimers();
-      try {
-        stall();
-        const redeemed = redeemMainnetAccessCode('12345678', target).catch((error: unknown) => error);
-        await jest.advanceTimersByTimeAsync(15_000);
-        expect(await redeemed).toMatchObject({ name: 'RpcTimeoutError', message: expect.stringContaining(label) });
-      } finally {
-        jest.useRealTimers();
-      }
+    ['register', () => mockRegister.mockReturnValue(new Promise(() => {}))],
+    ['sync', () => mockSync.mockReturnValue(new Promise(() => {}))],
+    ['access check', () => mockAllowed.mockReturnValue(new Promise(() => {}))]
+  ])('races no %s inside the hold, which only the watchdog ends', async (_call, stall) => {
+    jest.useFakeTimers();
+    try {
+      stall();
+      const settled = jest.fn();
+      redeemMainnetAccessCode('12345678', target).then(settled, settled);
+      await jest.advanceTimersByTimeAsync(120_000);
+      expect(settled).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
     }
-  );
+  });
 
   it('does not treat a funding failure as a rejected code', async () => {
     const failure = rejected('UNAVAILABLE');
@@ -163,16 +161,20 @@ describe('mainnet account admission', () => {
     expect(mockRegister).not.toHaveBeenCalled();
   });
 
-  it('rejects with an RPC timeout when the node never answers', async () => {
+  it('bounds the client hold with the access watchdog under its own label', async () => {
+    mockAllowed.mockResolvedValue(true);
+    await isMainnetAccountAdmitted('0x1234');
+    expect(mockLockOptions).toHaveBeenCalledWith({ watchdogMs: 60_000, label: 'mainnet-access-admitted' });
+  });
+
+  it('races no access check inside the hold, which only the watchdog ends', async () => {
     jest.useFakeTimers();
     try {
       mockAllowed.mockReturnValue(new Promise(() => {}));
-      const admitted = isMainnetAccountAdmitted('0x1234').catch((error: unknown) => error);
-      await jest.advanceTimersByTimeAsync(15_000);
-      expect(await admitted).toMatchObject({
-        name: 'RpcTimeoutError',
-        message: expect.stringContaining('mainnet-access-allowed')
-      });
+      const settled = jest.fn();
+      isMainnetAccountAdmitted('0x1234').then(settled, settled);
+      await jest.advanceTimersByTimeAsync(120_000);
+      expect(settled).not.toHaveBeenCalled();
     } finally {
       jest.useRealTimers();
     }

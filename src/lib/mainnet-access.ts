@@ -34,8 +34,12 @@ export async function checkMainnetAccessCode(code: string): Promise<MainnetAcces
   return valid ? 'granted' : 'rejected';
 }
 
-// One attempt per call: a retry would reach the client while the call that timed out still runs on it.
-const bounded = <T>(call: () => Promise<T>, label: string) => withRpcTimeout(call, label, { retries: 0 });
+/**
+ * The ceiling on a hold that runs the access-code node calls. A call is never raced inside the hold:
+ * one abandoned by a race keeps borrowing the client under the next holder, so a stalled call ends
+ * only through the watchdog's eviction, which replaces the client.
+ */
+export const MAINNET_ACCESS_WATCHDOG_MS = 60_000;
 
 const toAccountId = (accountId: string) =>
   accountId.startsWith('0x')
@@ -44,7 +48,7 @@ const toAccountId = (accountId: string) =>
 
 /**
  * Whether the mainnet node already admits the account, as a recovered one must be, since only a
- * new wallet brings a code. Node and transport failures, a timeout among them, are thrown.
+ * new wallet brings a code. Node and transport failures, a watchdog eviction among them, are thrown.
  */
 export async function isMainnetAccountAdmitted(accountId: string): Promise<boolean> {
   await MidenClient.ready();
@@ -52,16 +56,16 @@ export async function isMainnetAccountAdmitted(accountId: string): Promise<boole
     async () => {
       const id = toAccountId(accountId);
       const { client } = await getMidenClient();
-      return bounded(() => client.accounts.isAllowed(id), 'mainnet-access-allowed');
+      return client.accounts.isAllowed(id);
     },
-    { label: 'mainnet-access-admitted' }
+    { watchdogMs: MAINNET_ACCESS_WATCHDOG_MS, label: 'mainnet-access-admitted' }
   );
 }
 
 /**
  * Register the final account with the mainnet node. Keep the same account ID for retries.
  * Check access first to keep an unused code when the account is already allowed.
- * Node and transport failures, and a node call that outlives the RPC timeout, are thrown so the
+ * Node and transport failures, and a watchdog eviction of a stalled node call, are thrown so the
  * caller can show a retry action; the retry finds the account allowed if the register landed.
  */
 export async function redeemMainnetAccessCode(
@@ -76,15 +80,12 @@ export async function redeemMainnetAccessCode(
       const accountId = toAccountId(target.accountId);
       if (getEffectiveRpcUrl() !== target.rpcUrl) throw new Error('Account registration RPC differs from wallet RPC');
       const { client } = await getMidenClient();
-      const isAllowed = () => bounded(() => client.accounts.isAllowed(accountId), 'mainnet-access-allowed');
+      const isAllowed = () => client.accounts.isAllowed(accountId);
       if (await isAllowed()) return 'granted';
       try {
         // Sync the backend client to set the genesis metadata required by v17 registration.
-        await bounded(() => client.sync(), 'mainnet-access-sync');
-        await bounded(
-          () => client.accounts.register({ account: accountId, invitationCode: code }),
-          'mainnet-access-register'
-        );
+        await client.sync();
+        await client.accounts.register({ account: accountId, invitationCode: code });
         return 'granted';
       } catch (error) {
         switch (extractSdkErrorCode(error)) {
@@ -100,6 +101,6 @@ export async function redeemMainnetAccessCode(
         }
       }
     },
-    { label: 'mainnet-access-redeem' }
+    { watchdogMs: MAINNET_ACCESS_WATCHDOG_MS, label: 'mainnet-access-redeem' }
   );
 }
