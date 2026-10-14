@@ -930,6 +930,28 @@ describe('applyBridgeInInfoForNotes', () => {
       expect(applied).toBe(true);
       expect(result).toMatchObject({ midenNoteId: 'note-abc', epochAllocatorUrl: SAVED_ALLOCATOR });
     });
+
+    it('gives an intent registered without an allocator the one its tracking row saved, and keeps a saved one', async () => {
+      await registerPendingBridgeIn(EVM_OWNER, 'NONCE1', { provider: 'epoch', bridgeReceiveTxId: 'TX1' });
+      await registerPendingBridgeIn(EVM_OWNER, 'NONCE1', {
+        provider: 'epoch',
+        bridgeReceiveTxId: 'TX1',
+        epochAllocatorUrl: SAVED_ALLOCATOR
+      });
+      await registerPendingBridgeIn(EVM_OWNER, 'NONCE1', {
+        provider: 'epoch',
+        bridgeReceiveTxId: 'TX1',
+        epochAllocatorUrl: 'https://allocator.other'
+      });
+
+      let result: IBridgeInInfo | undefined;
+      await applyBridgeInInfoForNotes(['note-abc'], async matched => {
+        result = matched;
+      });
+
+      expect(mockGetEpochReadOnlySdk).toHaveBeenCalledWith(EVM_OWNER, SAVED_ALLOCATOR);
+      expect(result).toMatchObject({ midenNoteId: 'note-abc', epochAllocatorUrl: SAVED_ALLOCATOR });
+    });
   });
 });
 

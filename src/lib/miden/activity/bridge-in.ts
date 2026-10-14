@@ -518,7 +518,15 @@ export async function registerPendingBridgeIn(
   await withBridgeInRegistryLock(async () => {
     const registry = await readRegistry();
     const key = intentKey(userAddress, intentNonce);
-    if (registry.some(record => registryIdentity(record) === key)) return;
+    const existing = registry.find(record => registryIdentity(record) === key);
+    if (existing) {
+      // An intent registered before its allocator was known gains the one its tracking row saved; a saved one stands.
+      if (!existing.info.epochAllocatorUrl && info.epochAllocatorUrl) {
+        existing.info = { ...existing.info, epochAllocatorUrl: info.epochAllocatorUrl };
+        await writeRegistry(registry);
+      }
+      return;
+    }
     await writeRegistry([...registry, { userAddress, intentNonce, info, registeredAt: Date.now() }]);
   });
 }
