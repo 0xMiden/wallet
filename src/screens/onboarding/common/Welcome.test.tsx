@@ -51,9 +51,8 @@ const snapshotWith = (
   config: {
     network: 'testnet',
     version: 1,
-    evm: {},
-    agglayer: {},
-    epoch: {},
+    'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
+    supportedEvmChains: {},
     features: ALL_OFF,
     ...(onboarding === undefined ? {} : { onboarding })
   },
