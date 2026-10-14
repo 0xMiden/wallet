@@ -321,6 +321,43 @@ describe('getters', () => {
     expect(findEvmUsdc()).toBeNull();
   });
 
+  it("find each Epoch chain's own USDC, and the first listed one when no chain is given", () => {
+    const sepolia = CONFIG.supportedEvmChains.sepolia;
+    const epoch = sepolia?.bridges.epoch;
+    if (!sepolia || !epoch) throw new Error('The test chain is missing');
+    const BASE_USDC = '0x036cbd53842c5426634e7929541ec2318f3dcf7e';
+    const baseFirst = snapshot(
+      {
+        ...CONFIG,
+        supportedEvmChains: {
+          'base-sepolia': {
+            chainId: 84532,
+            bridges: {
+              epoch: { ...epoch, tokens: { USDC: { contractAddress: BASE_USDC, outputs: ['usdc-testnet-output'] } } }
+            }
+          },
+          sepolia
+        }
+      },
+      {
+        ...DERIVED,
+        chains: {
+          84532: { ...SEPOLIA_READS, epoch: { evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } } } },
+          11155111: SEPOLIA_READS
+        }
+      }
+    );
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(baseFirst);
+    expect(findEvmUsdc(11155111)).toEqual({
+      address: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
+      symbol: 'USDC',
+      decimals: 18,
+      chainId: 11155111
+    });
+    expect(findEvmUsdc()).toMatchObject({ chainId: 84532, decimals: 6 });
+    expect(findEvmUsdc(1)).toBeNull();
+  });
+
   it('requires a complete recovery snapshot before a new bridge-out and only the rollup for a deposit', () => {
     jest.mocked(getBridgeConfigSnapshot).mockReturnValue(withDerived({ agglayer: { rollupId: ERROR } }));
     // New bridge rows must save the rollup id so claims can continue after route removal.

@@ -22,11 +22,11 @@ import {
 import * as Repo from 'lib/miden/repo';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import {
+  type EvmUsdc,
   findEpochUsdcAddress,
   findEvmUsdc,
   getEpochAllocatorUrl,
-  getEvmUsdc,
-  getEvmUsdcAddress
+  getEvmUsdc
 } from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
@@ -175,8 +175,9 @@ async function submitEarnWithdrawal(
   if (!args.midenAccountPublicKey) throw new Error('A Miden destination account is required.');
   if (!args.marketUid) throw new Error('The lending market identifier is missing.');
   // Withdraw is a recovery action: it needs the document's token, not a successful read of it. The token's decimals
-  // are checked when that read is known; otherwise the position's own stand.
-  const usdc = findEvmUsdc();
+  // are checked against the market chain's USDC when that read is known; otherwise the position's own stand.
+  const chainId = Number(args.marketUid.split(':')[1]);
+  const usdc = findEvmUsdc(chainId);
   if (
     (verifyMarket && underlyingAddress.toLowerCase() !== args.marketUid.split(':')[2]?.toLowerCase()) ||
     (usdc !== null &&
@@ -185,7 +186,6 @@ async function submitEarnWithdrawal(
   ) {
     throw new Error(UNSUPPORTED_MARKET);
   }
-  const chainId = Number(args.marketUid.split(':')[1]);
   if (chainId !== sepolia.id) throw new Error('Gasless withdrawal currently supports Sepolia only.');
   if (verifyMarket && findEpochUsdcAddress(chainId)?.toLowerCase() !== underlyingAddress.toLowerCase()) {
     throw new Error(UNSUPPORTED_MARKET);
@@ -702,6 +702,24 @@ export async function reconcileEarnWithdrawals(deps: ResumeDeps = {}): Promise<v
 
 type ResubmitDeps = Omit<GaslessEarnWithdrawalDeps, 'initiateRow'>;
 
+const MISSING_RETRY_DETAILS = 'This withdrawal is missing the market details needed to retry - start a new withdrawal.';
+
+/**
+ * A retry recovers funds, so it needs the document's token and its decimals, not a live read of them: the row's own
+ * decimals stand in while that read fails or the market's chain now names another token. A row from before they were
+ * recorded refuses, through the getter while the read fails.
+ */
+function retryDecimals(chainId: number, underlying: string, sourceDecimals: number | undefined): number {
+  const isRowToken = (token: EvmUsdc | null): token is EvmUsdc =>
+    token?.address.toLowerCase() === underlying.toLowerCase();
+  const live = findEvmUsdc(chainId);
+  if (isRowToken(live)) return live.decimals;
+  if (sourceDecimals !== undefined) return sourceDecimals;
+  const usdc = getEvmUsdc(chainId);
+  if (isRowToken(usdc)) return usdc.decimals;
+  throw new Error(MISSING_RETRY_DETAILS);
+}
+
 /** Retry with a new intent and attempt identity while keeping the existing history row. */
 export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = {}): Promise<void> {
   const row = await Repo.transactions.where({ id: txId }).first();
@@ -712,26 +730,25 @@ export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = 
   if (!isEvmAddress(ei.evmOwner)) {
     throw new Error('This withdrawal has no valid position owner recorded - start a new withdrawal.');
   }
-  if (!ei.marketUid || !ei.sourceAmount) {
-    throw new Error('This withdrawal is missing the market details needed to retry - start a new withdrawal.');
-  }
+  if (!ei.marketUid || !ei.sourceAmount) throw new Error(MISSING_RETRY_DETAILS);
   const previous: ExpectedEarnWithdrawIntent = {
     owner: ei.evmOwner,
     nonce: ei.withdrawIntentNonce,
     attemptId: effectiveWithdrawAttemptId(txId, ei.submissionAttemptId)
   };
-  // A retry recovers funds, so it needs the document's token and its decimals, not a live read of them: the row's own
-  // decimals stand in while that read fails. A row from before they were recorded refuses through the getter.
-  const underlyingDecimals = findEvmUsdc()?.decimals ?? ei.sourceDecimals ?? getEvmUsdc().decimals;
+  const [, marketChain, marketUnderlying] = ei.marketUid.split(':');
+  const marketChainId = Number(marketChain);
+  const underlyingAddress = ei.underlyingAddress ?? marketUnderlying ?? findEpochUsdcAddress(marketChainId);
+  if (!underlyingAddress) throw new Error(MISSING_RETRY_DETAILS);
   await submitEarnWithdrawal(
     {
       midenAccountPublicKey: row.accountId,
       evmAddress: ei.evmOwner,
       marketUid: ei.marketUid,
-      underlyingAddress: ei.underlyingAddress ?? ei.marketUid.split(':')[2] ?? getEvmUsdcAddress(),
+      underlyingAddress,
       allocatorUrl: ei.epochAllocatorUrl,
       amount: ei.sourceAmount,
-      underlyingDecimals
+      underlyingDecimals: retryDecimals(marketChainId, underlyingAddress, ei.sourceDecimals)
     },
     {
       ...deps,

@@ -142,9 +142,9 @@ export function getEvmUsdcAddress(): `0x${string}` {
   });
 }
 
-/** The EVM USDC with its symbol and decimals, or null while that read has not succeeded. */
-export function findEvmUsdc(): EvmUsdc | null {
-  return selectEvmUsdc(getBridgeConfigSnapshot());
+/** The EVM USDC on `chainId` (else the first Epoch chain) with symbol and decimals, or null until that read works. */
+export function findEvmUsdc(chainId?: number): EvmUsdc | null {
+  return selectEvmUsdc(getBridgeConfigSnapshot(), chainId);
 }
 
 /** The Epoch USDC contract the document names on `chainId`, whether or not its token read succeeded. */

@@ -10,7 +10,13 @@ import {
   type IEarnWithdrawExtraInputs
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { findEpochUsdcAddress, findEvmUsdc, getEpochAllocatorUrl, getEvmUsdc } from 'lib/remote-config/values';
+import {
+  type EvmUsdc,
+  findEpochUsdcAddress,
+  findEvmUsdc,
+  getEpochAllocatorUrl,
+  getEvmUsdc
+} from 'lib/remote-config/values';
 
 import { clearEarnSubmissionLocksForTests, createEarnSubmissionLocks } from './earn-submission-lock';
 import {
@@ -260,6 +266,27 @@ describe('gaslessEarnWithdrawalToMiden', () => {
     ).rejects.toThrow('Gasless withdrawal only supports the configured USDC Earn market.');
     expect(findEpochUsdcAddress).toHaveBeenCalledWith(11155111);
     expect(deps.initiateRow).not.toHaveBeenCalled();
+  });
+
+  it("checks the position decimals against the market chain's USDC, not the first listed chain's", async () => {
+    const firstListed: EvmUsdc = {
+      address: '0x5555555555555555555555555555555555555555',
+      symbol: 'USDC',
+      decimals: 6,
+      chainId: 84532
+    };
+    jest
+      .mocked(findEvmUsdc)
+      .mockImplementation(chainId => (chainId === 11155111 ? { ...TEST_EVM_USDC, decimals: 18 } : firstListed));
+    const deps = baseDeps({ sdk: fakeSdk(jest.fn().mockResolvedValue({ nonce: 'NONCE1' })) });
+    try {
+      await expect(gaslessEarnWithdrawalToMiden(validArgs(), deps)).rejects.toThrow(
+        'Gasless withdrawal only supports the configured USDC Earn market.'
+      );
+      expect(deps.initiateRow).not.toHaveBeenCalled();
+    } finally {
+      jest.mocked(findEvmUsdc).mockReturnValue({ ...TEST_EVM_USDC, decimals: 6 });
+    }
   });
 
   it('withdraws at the position decimals while the token read has not succeeded, still only the configured token', async () => {
@@ -863,6 +890,48 @@ describe('resubmitEarnWithdrawal', () => {
     } finally {
       jest.mocked(findEpochUsdcAddress).mockReturnValue(TEST_EVM_USDC.address);
     }
+  });
+
+  describe("while the market chain's USDC is another token than the row's", () => {
+    const OTHER_USDC: EvmUsdc = {
+      address: '0x4444444444444444444444444444444444444444',
+      symbol: 'USDC',
+      decimals: 18,
+      chainId: 11155111
+    };
+    beforeEach(() => {
+      jest.mocked(findEvmUsdc).mockReturnValue(OTHER_USDC);
+      jest.mocked(getEvmUsdc).mockReturnValue(OTHER_USDC);
+    });
+    afterEach(() => {
+      jest.mocked(getEvmUsdc).mockReturnValue({ ...TEST_EVM_USDC, decimals: 6 });
+      jest.mocked(findEvmUsdc).mockReturnValue({ ...TEST_EVM_USDC, decimals: 6 });
+    });
+
+    it('retries at the decimals the row recorded for its own token', async () => {
+      const row = failedRow({ sourceDecimals: 6 });
+      mockRow(row);
+      const executeActions = jest.fn().mockResolvedValue({ nonce: 'FRESH_NONCE' });
+
+      await resubmitEarnWithdrawal('TX1', baseDeps({ sdk: fakeSdk(executeActions) }));
+
+      expect(executeActions).toHaveBeenCalledWith(
+        expect.objectContaining({ underlying: TEST_EVM_USDC.address, amount: '10000000' })
+      );
+      expect(findEvmUsdc).toHaveBeenCalledWith(11155111);
+    });
+
+    it('refuses a row that recorded no decimals instead of taking the other token', async () => {
+      const row = failedRow();
+      mockRow(row);
+      const executeActions = jest.fn().mockResolvedValue({ nonce: 'FRESH_NONCE' });
+
+      await expect(resubmitEarnWithdrawal('TX1', baseDeps({ sdk: fakeSdk(executeActions) }))).rejects.toThrow(
+        'start a new withdrawal'
+      );
+      expect(executeActions).not.toHaveBeenCalled();
+      expect(row.extraInputs.phase).toBe('failed');
+    });
   });
 
   describe('while the token read has not succeeded', () => {
