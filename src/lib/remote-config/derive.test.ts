@@ -325,6 +325,66 @@ describe('deriveBridgeConfig', () => {
   });
 });
 
+describe('the Earn market', () => {
+  const SEPOLIA_USDC = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
+  const SEPOLIA_UID = 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
+  const BASE_USDC = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
+  const CIRCLE_SEPOLIA_USDC = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238';
+  const withUsdcxChain: BridgeConfig = {
+    ...TESTNET,
+    supportedEvmChains: {
+      ...TESTNET.supportedEvmChains,
+      'base-sepolia': {
+        chainId: 84532,
+        bridges: {
+          usdcx: {
+            depositEnabled: true,
+            withdrawalEnabled: true,
+            domain: 6,
+            tokens: { USDC: { contractAddress: '0x036cbd53842c5426634e7929541ec2318f3dcf7e' } }
+          }
+        }
+      }
+    }
+  };
+  const item = (chainId: number, underlying: string, marketUid: string) => ({
+    chainId: String(chainId),
+    lenderInfo: { lenderKey: 'dummy-lending' },
+    data: [{ positions: [{ marketUid, underlyingInfo: { asset: { symbol: 'USDC', address: underlying } } }] }]
+  });
+  // Answers the positions route whichever chains it asks for, and the health routes as they answered.
+  const servingPositions = (items: unknown[]) =>
+    jest.fn<ReturnType<JsonFetch>, Parameters<JsonFetch>>(async url => {
+      if (url.startsWith('https://positions-testnet-dev.epochprotocol.xyz/positions?')) {
+        return answer({ success: true, data: { items } });
+      }
+      return url in HEALTH ? answer(HEALTH[url]) : answer(null, false);
+    });
+
+  it('takes the market only on a chain with an Epoch route, whatever the service lists first', async () => {
+    const fetch = servingPositions([
+      item(84532, BASE_USDC, `DUMMY_LENDING:84532:${BASE_USDC.toLowerCase()}`),
+      item(11155111, SEPOLIA_USDC, SEPOLIA_UID)
+    ]);
+    const derived = await deriveBridgeConfig(withUsdcxChain, deps({ fetch }));
+    expect(derived.epoch.market).toEqual(HEALTHY.epoch.market);
+    expect(fetch).toHaveBeenCalledWith(
+      'https://positions-testnet-dev.epochprotocol.xyz/positions?account=0x0000000000000000000000000000000000000000&chains=11155111',
+      expect.any(Object)
+    );
+  });
+
+  it.each([
+    ['another underlying', CIRCLE_SEPOLIA_USDC, `DUMMY_LENDING:11155111:${CIRCLE_SEPOLIA_USDC.toLowerCase()}`],
+    ['a uid naming another token', SEPOLIA_USDC, `DUMMY_LENDING:11155111:${CIRCLE_SEPOLIA_USDC.toLowerCase()}`],
+    ['a uid naming another chain', SEPOLIA_USDC, 'DUMMY_LENDING:84532:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69'],
+    ['a uid naming no token', SEPOLIA_USDC, 'DUMMY_LENDING:11155111:usdc']
+  ])('reads a Sepolia USDC position with %s as no market', async (_label, underlying, marketUid) => {
+    const fetch = servingPositions([item(11155111, underlying, marketUid)]);
+    expect((await deriveBridgeConfig(TESTNET, deps({ fetch }))).epoch.market).toEqual({ state: 'absent' });
+  });
+});
+
 describe('deriveBridgeConfig default I/O', () => {
   const faucetOnly: BridgeConfig = {
     ...TESTNET,

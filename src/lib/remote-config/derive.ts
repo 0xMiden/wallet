@@ -331,14 +331,23 @@ async function probeErc20(reads: EvmReads | null, token: EvmAddress | undefined)
   return code.state === 'ok' ? attempt(() => reads.erc20(token)) : code;
 }
 
+// The checksummed form of a 20-byte hex address, or null for anything else.
+const checksummed = (value: string | undefined): EvmAddress | null =>
+  value !== undefined && /^0x[0-9a-fA-F]{40}$/.test(value) ? getAddress(`0x${value.slice(2)}`) : null;
+
+// A deposit mandates the market's chain and token, so only an Epoch route's own USDC can be the market: the position's
+// chain, its underlying and the chain and token its uid names must all be that route's.
 async function discoverEarnMarket(config: BridgeConfig, io: DeriveDeps): Promise<Probe<EarnMarket>> {
   const positionsUrl = config['bridge-providers'].epoch.positionsUrl;
-  const chains = Object.values(config.supportedEvmChains);
-  if (!positionsUrl || chains.length === 0) return { state: 'skipped' };
+  const routes = Object.values(config.supportedEvmChains).flatMap(chain => {
+    const usdc = chain.bridges.epoch?.tokens.USDC?.contractAddress;
+    return usdc ? [{ chainId: chain.chainId, usdc: getAddress(usdc) }] : [];
+  });
+  if (!positionsUrl || routes.length === 0) return { state: 'skipped' };
   return attempt(async () => {
     const body = await fetchBoundedJson(
       io.fetch,
-      `${positionsUrl}/positions?account=0x0000000000000000000000000000000000000000&chains=${chains.map(chain => chain.chainId).join(',')}`,
+      `${positionsUrl}/positions?account=0x0000000000000000000000000000000000000000&chains=${routes.map(route => route.chainId).join(',')}`,
       { maxBytes: 512 * 1024, timeoutMs: HEALTH_TIMEOUT_MS }
     );
     if (!isRecord(body) || body.success !== true || !isRecord(body.data) || !Array.isArray(body.data.items)) {
@@ -348,22 +357,23 @@ async function discoverEarnMarket(config: BridgeConfig, io: DeriveDeps): Promise
       if (!isRecord(item) || !isRecord(item.lenderInfo) || !Array.isArray(item.data)) continue;
       const protocol = item.lenderInfo.lenderKey;
       if (typeof protocol !== 'string' || protocol !== 'dummy-lending') continue;
+      const route = routes.find(route => String(route.chainId) === item.chainId);
+      if (!route) continue;
       for (const group of item.data) {
         if (!isRecord(group) || !Array.isArray(group.positions)) continue;
         for (const position of group.positions) {
           if (!isRecord(position) || typeof position.marketUid !== 'string' || !isRecord(position.underlyingInfo))
             continue;
           const asset = position.underlyingInfo.asset;
-          if (!isRecord(asset) || typeof asset.address !== 'string') continue;
-          const chain = chains.find(chain => String(chain.chainId) === item.chainId);
-          const address = asset.address;
-          if (!chain || asset.symbol !== 'USDC' || !/^0x[0-9a-fA-F]{40}$/.test(address)) continue;
-          const underlying: EvmAddress = `0x${address.slice(2)}`;
+          if (!isRecord(asset) || asset.symbol !== 'USDC' || typeof asset.address !== 'string') continue;
+          const [, uidChain, uidToken] = position.marketUid.split(':');
+          if (checksummed(asset.address) !== route.usdc || checksummed(uidToken) !== route.usdc) continue;
+          if (uidChain !== String(route.chainId)) continue;
           return {
             marketUid: position.marketUid,
             protocolHash: keccak256(toBytes(protocol)),
-            underlying: getAddress(underlying),
-            chainId: chain.chainId
+            underlying: route.usdc,
+            chainId: route.chainId
           };
         }
       }

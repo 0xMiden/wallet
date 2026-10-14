@@ -37,7 +37,7 @@ function dependencies(): Partial<DeriveDeps> {
                     {
                       positions: [
                         {
-                          marketUid: 'FROM_EPOCH:11155111:usdc',
+                          marketUid: 'FROM_EPOCH:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
                           underlyingInfo: {
                             asset: { symbol: 'USDC', address: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69' }
                           }
@@ -63,7 +63,10 @@ it('reads each bridge from its listed chain and discovers the Earn market from E
   expect(result.derivedAt).toBe(100);
   expect(result.chains?.[11155111]?.agglayer.rollupId).toEqual({ state: 'ok', value: 86 });
   expect(result.chains?.[84532]?.epoch.evmUsdc).toEqual({ state: 'skipped' });
-  expect(result.epoch.market).toMatchObject({ state: 'ok', value: { marketUid: 'FROM_EPOCH:11155111:usdc' } });
+  expect(result.epoch.market).toMatchObject({
+    state: 'ok',
+    value: { marketUid: 'FROM_EPOCH:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69', chainId: 11155111 }
+  });
   expect(evm).toHaveBeenCalledWith(11155111);
 });
 
