@@ -272,13 +272,22 @@ export function useForegroundDappActive(): boolean {
  * Mirrors the PR-3 helper in `useDappBrowserWebView`; the retry loop protects
  * against the rare case where executeScript races the injection of
  * `window.__midenWalletResponse`.
+ *
+ * `stillTarget` is asked before every attempt, after each sleep, and the answer
+ * is dropped once it says no (#1416).
  */
-async function sendResponseToInstance(instance: DappWebViewInstance, response: unknown, retries = 3): Promise<void> {
+async function sendResponseToInstance(
+  instance: DappWebViewInstance,
+  response: unknown,
+  stillTarget: () => boolean,
+  retries = 3
+): Promise<void> {
   const code = `window.__midenWalletResponse(${JSON.stringify(JSON.stringify(response))});`;
   // Small delay before the first attempt to give the bridge time to settle
   // after an awaited user confirmation.
   await new Promise(resolve => setTimeout(resolve, 100));
   for (let attempt = 1; attempt <= retries; attempt++) {
+    if (!stillTarget()) return;
     try {
       await instance.executeScript(code);
       return;
@@ -684,19 +693,36 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           // availability probe, answered locally with PONG and never reaching
           // `processDApp`, so it carries no origin-derived authority.
           if (!state.originConfirmed && walletMessage.payload !== 'PING') {
-            await sendResponseToInstance(state.instance, {
-              type: 'MIDEN_PAGE_ERROR_RESPONSE',
-              payload: null,
-              reqId: walletMessage.reqId,
-              error: MidenDAppErrorType.NotGranted
-            });
+            // A refusal with no data, sent at once: nothing to bind.
+            await sendResponseToInstance(
+              state.instance,
+              {
+                type: 'MIDEN_PAGE_ERROR_RESPONSE',
+                payload: null,
+                reqId: walletMessage.reqId,
+                error: MidenDAppErrorType.NotGranted
+              },
+              () => true
+            );
             return;
           }
           // PR-4 chunk 8: pass the session id through to the backend so any
           // confirmation prompt this request triggers is keyed by it and
           // the React modal routes correctly.
-          const response = await handleWebViewMessage(walletMessage, state.origin, id);
-          await sendResponseToInstance(state.instance, response);
+          const requestOrigin = state.origin;
+          const response = await handleWebViewMessage(walletMessage, requestOrigin, id);
+          // The page may have left the origin that asked while this ran (a wait lasts up to five
+          // minutes), and its successor can redefine the response hook, so the answer goes only to
+          // that origin (#1416).
+          await sendResponseToInstance(state.instance, response, () => {
+            const current = getSessionStateById(id);
+            return (
+              current !== undefined &&
+              current.instance === state.instance &&
+              current.originConfirmed &&
+              current.origin === requestOrigin
+            );
+          });
         } catch (error) {
           console.error('[DappBrowserProvider] Error handling WebView message:', error);
         }
