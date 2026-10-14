@@ -441,6 +441,13 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   };
 }
 
+/** The Earn collateral faucet: the output the Epoch USDC token declares first, as the Epoch provider lists it. */
+export function epochCollateralFaucetId(config: BridgeConfig): string | undefined {
+  const epoch = Object.values(config.supportedEvmChains).find(chain => chain.bridges.epoch)?.bridges.epoch;
+  const name = epoch?.tokens.USDC?.outputs[0];
+  return name === undefined ? undefined : config['bridge-providers'].epoch.outputs?.[name]?.faucetId;
+}
+
 /**
  * The document for `network`, or null when it is malformed or names another network. Strict on known fields,
  * blind to unknown ones: a chain, route, token or output this build does not know or cannot complete is left out.

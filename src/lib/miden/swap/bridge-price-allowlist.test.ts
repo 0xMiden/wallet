@@ -20,7 +20,23 @@ const config = (midenUsdcFaucet?: string): BridgeConfig => ({
     agglayer: {},
     usdcx: {}
   },
-  supportedEvmChains: {},
+  supportedEvmChains: {
+    sepolia: {
+      chainId: 11155111,
+      bridges: {
+        epoch: {
+          depositEnabled: true,
+          withdrawalEnabled: true,
+          tokens: {
+            USDC: {
+              contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+              outputs: midenUsdcFaucet ? ['usdc-testnet-output'] : []
+            }
+          }
+        }
+      }
+    }
+  },
   features: { earn: true }
 });
 const derived = (tokens: DerivedBridgeConfig['agglayer']['tokens']): DerivedBridgeConfig => {

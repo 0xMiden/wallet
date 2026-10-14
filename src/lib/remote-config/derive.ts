@@ -16,7 +16,7 @@ import { fetchBoundedJson, type JsonFetch } from 'lib/remote-json';
 import { isRecord } from 'lib/update/guards';
 import { getChain } from 'lib/walletconnect/config';
 
-import type { BridgeConfig, EvmAddress } from './schema';
+import { type BridgeConfig, epochCollateralFaucetId, type EvmAddress } from './schema';
 import type { EarnMarket } from './values';
 
 export type Probe<T> =
@@ -381,7 +381,7 @@ export async function deriveBridgeConfig(
   const rpcUrl = io.midenRpcUrl();
   const providers = config['bridge-providers'];
   const epoch = providers.epoch;
-  const faucetId = epoch.outputs?.['usdc-testnet-output']?.faucetId;
+  const faucetId = epochCollateralFaucetId(config);
   const [market, allocator, midenUsdcFaucet, indexer] = await Promise.all([
     discoverEarnMarket(config, io),
     when(epoch.allocatorUrl, url => checkHealth(io.fetch, `${url}/health`, isAllocatorHealthy)),

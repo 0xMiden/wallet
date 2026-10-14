@@ -327,7 +327,9 @@ describe('deriveBridgeConfig', () => {
 describe('deriveBridgeConfig default I/O', () => {
   const faucetOnly: BridgeConfig = {
     ...TESTNET,
-    supportedEvmChains: {},
+    supportedEvmChains: {
+      sepolia: { chainId: 11155111, bridges: { epoch: TESTNET.supportedEvmChains.sepolia?.bridges.epoch } }
+    },
     'bridge-providers': {
       epoch: { outputs: { 'usdc-testnet-output': { faucetId: '0x537c15a622074e91188aa894456c52' } } },
       agglayer: {},

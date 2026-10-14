@@ -3,7 +3,7 @@ import { getAddress } from 'viem';
 import type { BridgeToken, Probe, TokenMetadata } from './derive';
 import { getE2eOverrides, type MidenUsdc } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
-import type { AgglayerRecoveryConfig, SupportedEvmChainConfig } from './schema';
+import { type AgglayerRecoveryConfig, epochCollateralFaucetId, type SupportedEvmChainConfig } from './schema';
 
 /** Thrown by a `get*` getter while the accepted document or its derivation cannot supply the value. */
 export class BridgeConfigUnavailableError extends Error {
@@ -49,7 +49,7 @@ export function selectEvmChainId(s: BridgeConfigSnapshot): number | null {
 export function selectMidenUsdcFaucetId(s: BridgeConfigSnapshot): string | null {
   return (
     getE2eOverrides().earnCollateralFaucet?.faucetId ??
-    s.config?.['bridge-providers'].epoch.outputs?.['usdc-testnet-output']?.faucetId ??
+    (s.config ? epochCollateralFaucetId(s.config) : undefined) ??
     null
   );
 }
@@ -57,7 +57,7 @@ export function selectMidenUsdcFaucetId(s: BridgeConfigSnapshot): string | null 
 export function selectMidenUsdc(s: BridgeConfigSnapshot): MidenUsdc | null {
   const override = getE2eOverrides().earnCollateralFaucet;
   if (override) return override;
-  const faucetId = s.config?.['bridge-providers'].epoch.outputs?.['usdc-testnet-output']?.faucetId;
+  const faucetId = s.config ? epochCollateralFaucetId(s.config) : undefined;
   const metadata = okValue(s.derived?.epoch.midenUsdcFaucet);
   return faucetId && metadata ? { faucetId, ...metadata } : null;
 }

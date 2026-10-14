@@ -213,6 +213,35 @@ describe('selectors', () => {
     expect(selectNativeEthToken(withDerived({ agglayer: { tokens: { state: 'ok', value: withoutEth } } }))).toBeNull();
   });
 
+  it('read the collateral faucet through the output the Epoch USDC token declares', () => {
+    const OTHER_FAUCET = '0x6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f';
+    const declaring = (outputs: string[], declared: Record<string, { faucetId: string }>): BridgeConfig => ({
+      ...CONFIG,
+      'bridge-providers': {
+        ...CONFIG['bridge-providers'],
+        epoch: { ...CONFIG['bridge-providers'].epoch, outputs: declared }
+      },
+      supportedEvmChains: {
+        sepolia: {
+          chainId: 11155111,
+          bridges: {
+            epoch: {
+              depositEnabled: true,
+              withdrawalEnabled: true,
+              tokens: { USDC: { contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69', outputs } }
+            }
+          }
+        }
+      }
+    });
+    const other = declaring(['other-output'], { 'other-output': { faucetId: OTHER_FAUCET } });
+    expect(selectMidenUsdcFaucetId(snapshot(other))).toBe(OTHER_FAUCET);
+    expect(selectMidenUsdc(snapshot(other))?.faucetId).toBe(OTHER_FAUCET);
+    const none = declaring([], CONFIG['bridge-providers'].epoch.outputs ?? {});
+    expect(selectMidenUsdcFaucetId(snapshot(none))).toBeNull();
+    expect(selectMidenUsdc(snapshot(none))).toBeNull();
+  });
+
   it('prefer the E2E collateral faucet, and only in an E2E build', () => {
     process.env.MIDEN_E2E_TEST = 'true';
     setEarnCollateralFaucetOverride({ faucetId: '0xab000000000000ab00000000000001' });
