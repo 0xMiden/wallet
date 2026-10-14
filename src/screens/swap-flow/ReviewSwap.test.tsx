@@ -363,7 +363,8 @@ describe('ReviewSwap', () => {
 
       expect(preset('2m')).toHaveAttribute('aria-checked', 'true');
       expect(screen.getByText('swapExpiryLabel')).toBeInTheDocument();
-      expect(screen.getByTestId('swap-expiry-note')).toHaveTextContent('swapExpiryNote');
+      // The note names the offer, since only the unfilled part of that amount comes back.
+      expect(screen.getByTestId('swap-expiry-note')).toHaveTextContent(/^swapExpiryNote_1\.5 IMIDEN$/);
     });
 
     it('snaps a stored value that is not a preset to the closest one, and pushes it up', () => {
