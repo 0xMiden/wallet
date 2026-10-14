@@ -273,7 +273,9 @@ describe('one operator serving a nonsense commitment type', () => {
   it('reads a string that is not a 32-byte word as unreachable through checkEndpointCommitment', async () => {
     mockPubkeyByEndpoint['https://guardian-testnet.openzeppelin.com'] = '0xdeadbeef';
 
-    await expect(checkEndpointCommitment('https://guardian-testnet.openzeppelin.com', KEY_B)).resolves.toBe('unreachable');
+    await expect(checkEndpointCommitment('https://guardian-testnet.openzeppelin.com', KEY_B)).resolves.toBe(
+      'unreachable'
+    );
   });
 });
 
@@ -332,7 +334,9 @@ describe('checkEndpointCommitment', () => {
 
 describe('verifyEndpointMatchesCommitment', () => {
   it('returns match when the endpoint pubkey commitment matches (normalized)', async () => {
-    expect(await verifyEndpointMatchesCommitment('https://guardian-testnet.openzeppelin.com', `0x${KEY_A}`)).toBe('match');
+    expect(await verifyEndpointMatchesCommitment('https://guardian-testnet.openzeppelin.com', `0x${KEY_A}`)).toBe(
+      'match'
+    );
   });
 
   it('returns mismatch when the endpoint pubkey commitment does not match', async () => {
@@ -346,7 +350,9 @@ describe('verifyEndpointMatchesCommitment', () => {
       throw new Error('network unreachable');
     });
 
-    expect(await verifyEndpointMatchesCommitment('https://guardian-testnet.openzeppelin.com', KEY_A)).toBe('unreachable');
+    expect(await verifyEndpointMatchesCommitment('https://guardian-testnet.openzeppelin.com', KEY_A)).toBe(
+      'unreachable'
+    );
   });
 
   // This is one-shot and user-initiated, so it gets a far longer budget than the
