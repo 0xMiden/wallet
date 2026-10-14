@@ -6,8 +6,11 @@ import { importedNoteIds } from 'lib/miden/note-quarantine';
 import * as Repo from 'lib/miden/repo';
 import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
+import { getUsdcxRemoteDomain, usdcxSourceChains } from 'lib/usdcx/constant';
+import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 import { WalletType } from 'screens/onboarding/types';
 
 import { queueNoteImport } from '../activity/notes';
@@ -643,7 +646,9 @@ export const initiateBridgedSendTransaction = async (
   sendParams?: IBridgedSendNoteParams,
   spendingLimitAuthorization?: SpendingLimitAuthorization,
   agglayerExitTxHash?: string,
-  usdcxBurn?: IUsdcxBurn
+  usdcxBurn?: IUsdcxBurn,
+  agglayerRoute?: AgglayerRecoveryConfig,
+  epochAllocatorUrl?: string
 ): Promise<string> => {
   const dbTransaction = new BridgedSendTransaction(
     accountId,
@@ -657,6 +662,11 @@ export const initiateBridgedSendTransaction = async (
     sendParams,
     agglayerExitTxHash
   );
+  if (provider === 'agglayer') {
+    if (!agglayerRoute) throw new Error('AggLayer recovery values are required');
+    dbTransaction.extraInputs.agglayerRoute = agglayerRoute;
+  }
+  if (provider === 'epoch') dbTransaction.extraInputs.epochAllocatorUrl = epochAllocatorUrl;
   if (provider === 'usdcx') {
     if (!requestBytes || !usdcxBurn) throw new Error('USDCx burn requires a persisted request and note id');
     dbTransaction.extraInputs.usdcxBurn = usdcxBurn;
@@ -685,7 +695,8 @@ export const initiateEarnDepositTransaction = async (
   sendParams: IBridgedSendNoteParams,
   delegateTransaction: boolean,
   requestBytes: Uint8Array,
-  spendingLimitAuthorization?: SpendingLimitAuthorization
+  spendingLimitAuthorization?: SpendingLimitAuthorization,
+  epochAllocatorUrl?: string
 ): Promise<string> => {
   if (!requestBytes?.length) throw new Error(EARN_DEPOSIT_MISSING_REQUEST_ERROR);
   const dbTransaction = new EarnDepositTransaction(
@@ -698,6 +709,7 @@ export const initiateEarnDepositTransaction = async (
     delegateTransaction,
     requestBytes
   );
+  dbTransaction.extraInputs.epochAllocatorUrl = epochAllocatorUrl;
   await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
   return dbTransaction.id;
 };
@@ -743,6 +755,9 @@ export const initiateBridgedReceiveTransaction = async (args: {
   provider: IBridgeProvider;
   sourceAddress: string;
   sourceChainId?: number;
+  agglayerRoute?: AgglayerRecoveryConfig;
+  usdcxSource?: UsdcxSourceChain;
+  epochAllocatorUrl?: string;
   sourceAmount: string;
   sourceSymbol: string;
   outputAmount?: string;
@@ -760,6 +775,16 @@ export const initiateBridgedReceiveTransaction = async (args: {
     args.outputSymbol
   );
   dbTransaction.extraInputs.sourceChainId = args.sourceChainId;
+  if (args.provider === 'agglayer') {
+    if (!args.agglayerRoute) throw new Error('AggLayer recovery values are required');
+    dbTransaction.extraInputs.agglayerRoute = args.agglayerRoute;
+  }
+  if (args.provider === 'epoch') dbTransaction.extraInputs.epochAllocatorUrl = args.epochAllocatorUrl;
+  if (args.provider === 'usdcx' && args.sourceChainId !== undefined) {
+    dbTransaction.extraInputs.usdcxSource = args.usdcxSource ?? usdcxSourceChains().get(args.sourceChainId);
+    dbTransaction.extraInputs.usdcxMidenDomain =
+      dbTransaction.extraInputs.usdcxSource?.midenDomain ?? getUsdcxRemoteDomain();
+  }
   await Repo.transactions.add(dbTransaction);
   return dbTransaction.id;
 };

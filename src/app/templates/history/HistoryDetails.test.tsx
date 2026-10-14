@@ -979,7 +979,7 @@ describe('HistoryDetails', () => {
 
   describe('Guardian change details', () => {
     const LAMBDA = 'https://miden-guardian.lambdaclass.com';
-    const OZ = 'https://guardian.openzeppelin.com';
+    const OZ = 'https://guardian-testnet.openzeppelin.com';
 
     it('renders both providers on brand tiles, old to new, with status and no wallet destination rows', async () => {
       setMockRow({

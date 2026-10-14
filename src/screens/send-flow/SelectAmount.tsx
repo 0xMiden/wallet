@@ -276,7 +276,7 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
       showDivider={showAmountDivider && !!amount && !!token}
       data-testid="send-amount-input"
       loading={loading}
-      onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
+      onValueChange={value => onAmountChange(value || '')}
     />
   );
 

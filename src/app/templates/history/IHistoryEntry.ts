@@ -14,6 +14,8 @@ import {
 } from 'lib/miden/db/types';
 import type { RotationVerdictKind } from 'lib/miden/guardian/rotation-verdict';
 import type { NotConfirmedHintKey } from 'lib/miden/transaction/verdict-rules';
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
+import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 
 /** A formatted secondary asset on a batch-consume row. */
 export interface IHistoryExtraAmount {
@@ -146,6 +148,8 @@ export interface IHistoryEntry {
   usdcxBurn?: IUsdcxBurn;
   bridgeDestinationAddress?: string;
   bridgeDestinationNetwork?: number;
+  bridgeAgglayerRoute?: AgglayerRecoveryConfig;
+  bridgeEpochAllocatorUrl?: string;
   bridgeClaimStatus?: IBridgeClaimStatus;
   // Epoch (Fast) route: quoted destination output + intent-status tracking.
   bridgeOutputAmount?: string;
@@ -184,6 +188,7 @@ export interface IHistoryEntry {
   bridgeInProvider?: IBridgeProvider;
   bridgeInSourceAddress?: string;
   bridgeInSourceChainId?: number;
+  bridgeInSourceConfig?: UsdcxSourceChain;
   bridgeInSourceAmount?: string;
   bridgeInSourceSymbol?: string;
   bridgeInEvmTxHash?: string;

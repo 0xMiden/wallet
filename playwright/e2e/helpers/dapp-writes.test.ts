@@ -165,7 +165,7 @@ describe('sideOf', () => {
     page: { evaluate: jest.fn(async () => ({ connected: { accountIdHex: '0xaccount' } })) }
   } as unknown as DappHandle;
   const guardianJourney = {
-    axis: guardianDappAxis('https://guardian.openzeppelin.com'),
+    axis: guardianDappAxis('https://guardian-testnet.openzeppelin.com'),
     walletA: {},
     nativeFaucetId: 'mtst1qfee',
     account: async (slot: string) => `mtst1q${slot}`

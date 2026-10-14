@@ -3,7 +3,10 @@ import type { MidenClient } from '@miden-sdk/miden-sdk/lazy';
 import { prepareCustomRequestBytes } from './custom-request';
 import type { WasmLockHold } from './miden-client';
 
-const client: MidenClient = Object.create(null);
+const rootWord = { free: jest.fn() };
+const hasProcedure = jest.fn(() => true);
+const getAccount = jest.fn(async (): Promise<object | null> => ({ code: () => ({ hasProcedure }) }));
+const client = { accounts: { get: getAccount } } as unknown as MidenClient;
 const hold: WasmLockHold = Object.create(null);
 const originalBytes = new Uint8Array([1, 2, 3]);
 const preparedBytes = new Uint8Array([4, 5, 6]);
@@ -17,8 +20,10 @@ const accountRefToSdk = jest.fn((account: string) => ({ toString: () => account.
 const enrichOwnOutputRequest = jest.fn((..._args: unknown[]): object => prepared);
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
-  TransactionRequest: { deserialize: (...args: unknown[]) => deserialize(...args) }
+  TransactionRequest: { deserialize: (...args: unknown[]) => deserialize(...args) },
+  Word: { fromHex: () => rootWord }
 }));
+jest.mock('@openzeppelin/miden-multisig-client', () => ({ getProcedureRoot: () => 'public-pinned-root' }));
 jest.mock('./helpers', () => ({
   accountRefToSdk: (account: string) => accountRefToSdk(account),
   feeAwareRequestBuilder: (...args: unknown[]) => feeAwareRequestBuilder(...args),
@@ -36,6 +41,8 @@ jest.mock('./miden-client', () => ({
 beforeEach(() => {
   jest.clearAllMocks();
   current = true;
+  hasProcedure.mockReturnValue(true);
+  getAccount.mockResolvedValue({ code: () => ({ hasProcedure }) });
   request.authArg.mockReturnValue(undefined);
   feeAwareRequestBuilder.mockImplementation(async () => builder);
   enrichOwnOutputRequest.mockReturnValue(prepared);
@@ -92,4 +99,192 @@ it('propagates unsupported request refusal before returning any replacement byte
     'only own output notes'
   );
   expect(prepared.serialize).not.toHaveBeenCalled();
+});
+
+it('records supplied authentication without rebuilding the dApp request', async () => {
+  request.authArg.mockReturnValue({ auth: true });
+  const observations: unknown[] = [];
+  await prepareCustomRequestBytes(client, '0xsender', originalBytes, hold, (value: unknown) => {
+    observations.push(value);
+  });
+  expect(observations).toEqual([
+    {
+      authPreparation: 'provided',
+      authLayout: 'unavailable',
+      commitmentMatch: 'unavailable',
+      accountAuthCode: 'current_guardian'
+    }
+  ]);
+});
+
+it('records the original authentication state when preparation fails', async () => {
+  enrichOwnOutputRequest.mockImplementationOnce(() => {
+    throw new Error('unsupported request');
+  });
+  const observations: unknown[] = [];
+  await expect(
+    prepareCustomRequestBytes(client, '0xsender', originalBytes, hold, (value: unknown) => {
+      observations.push(value);
+    })
+  ).rejects.toThrow('unsupported request');
+  expect(observations).toEqual([
+    {
+      authPreparation: 'unchanged',
+      authLayout: 'absent',
+      commitmentMatch: 'unavailable',
+      accountAuthCode: 'current_guardian'
+    },
+    {
+      authPreparation: 'failed',
+      authLayout: 'absent',
+      commitmentMatch: 'unavailable',
+      accountAuthCode: 'current_guardian'
+    }
+  ]);
+});
+
+it('does not let a diagnostics observer abort request preparation', async () => {
+  await expect(
+    prepareCustomRequestBytes(client, '0xsender', originalBytes, hold, () => {
+      throw new Error('diagnostics failed');
+    })
+  ).resolves.toBe(preparedBytes);
+});
+
+it('records wallet enrichment only after replacement bytes serialize', async () => {
+  const observations: unknown[] = [];
+  await prepareCustomRequestBytes(client, '0xsender', originalBytes, hold, value => observations.push(value));
+  expect(observations).toEqual([
+    {
+      authPreparation: 'unchanged',
+      authLayout: 'absent',
+      commitmentMatch: 'unavailable',
+      accountAuthCode: 'current_guardian'
+    },
+    {
+      authPreparation: 'wallet_enriched',
+      authLayout: 'unavailable',
+      commitmentMatch: 'unavailable',
+      accountAuthCode: 'current_guardian'
+    }
+  ]);
+});
+
+it('records a failed preparation even when deserialization fails', async () => {
+  deserialize.mockImplementationOnce(() => {
+    throw new Error('invalid bytes');
+  });
+  const observations: unknown[] = [];
+  await expect(
+    prepareCustomRequestBytes(client, '0xsender', originalBytes, hold, value => observations.push(value))
+  ).rejects.toThrow('invalid bytes');
+  expect(observations).toEqual([
+    {
+      authPreparation: 'failed',
+      authLayout: 'unavailable',
+      commitmentMatch: 'unavailable',
+      accountAuthCode: 'unavailable'
+    }
+  ]);
+});
+
+it.each([
+  [true, 'current_guardian'],
+  [false, 'unrecognized']
+])('records locally recognized account code when the current auth root is present: %s', async (matches, code) => {
+  hasProcedure.mockReturnValue(matches);
+  request.authArg.mockReturnValue({ auth: true });
+  const observations: unknown[] = [];
+  const result = await prepareCustomRequestBytes(client, '0XSENDER', originalBytes, hold, value =>
+    observations.push(value)
+  );
+  expect(result).toBe(originalBytes);
+  expect(observations).toEqual([
+    {
+      authPreparation: 'provided',
+      authLayout: 'unavailable',
+      commitmentMatch: 'unavailable',
+      accountAuthCode: code
+    }
+  ]);
+  expect(getAccount).toHaveBeenCalledWith('0xsender');
+});
+
+it('does not read account code for unobserved preview preparation', async () => {
+  request.authArg.mockReturnValue({ auth: true });
+  await prepareCustomRequestBytes(client, '0xsender', originalBytes, hold);
+  expect(getAccount).not.toHaveBeenCalled();
+});
+
+it('records unavailable account code when the local account is missing', async () => {
+  getAccount.mockResolvedValueOnce(null);
+  request.authArg.mockReturnValue({ auth: true });
+  const observations: unknown[] = [];
+  await prepareCustomRequestBytes(client, '0xsender', originalBytes, hold, value => observations.push(value));
+  expect(observations).toEqual([
+    {
+      authPreparation: 'provided',
+      authLayout: 'unavailable',
+      commitmentMatch: 'unavailable',
+      accountAuthCode: 'unavailable'
+    }
+  ]);
+});
+
+it('contains local account lookup failure without leaking the error or failing preparation', async () => {
+  getAccount.mockRejectedValueOnce(new Error('sensitive account data'));
+  request.authArg.mockReturnValue({ auth: true });
+  const observations: unknown[] = [];
+  await expect(
+    prepareCustomRequestBytes(client, '0xsender', originalBytes, hold, value => observations.push(value))
+  ).resolves.toBe(originalBytes);
+  expect(observations).toEqual([
+    {
+      authPreparation: 'provided',
+      authLayout: 'unavailable',
+      commitmentMatch: 'unavailable',
+      accountAuthCode: 'unavailable'
+    }
+  ]);
+});
+
+it('contains an account code accessor failure and preserves authored request bytes', async () => {
+  getAccount.mockResolvedValueOnce({
+    code: () => {
+      throw new Error('sensitive stored account');
+    }
+  });
+  request.authArg.mockReturnValue({ auth: true });
+  const observations: unknown[] = [];
+  await expect(
+    prepareCustomRequestBytes(client, '0xsender', originalBytes, hold, value => observations.push(value))
+  ).resolves.toBe(originalBytes);
+  expect(observations).toEqual([
+    {
+      authPreparation: 'provided',
+      authLayout: 'unavailable',
+      commitmentMatch: 'unavailable',
+      accountAuthCode: 'unavailable'
+    }
+  ]);
+});
+
+it('checks its lock after the diagnostic account read before returning authored bytes', async () => {
+  getAccount.mockImplementationOnce(async () => {
+    current = false;
+    return { code: () => ({ hasProcedure }) };
+  });
+  request.authArg.mockReturnValue({ auth: true });
+  const observations: unknown[] = [];
+  await expect(
+    prepareCustomRequestBytes(client, '0xsender', originalBytes, hold, value => observations.push(value))
+  ).rejects.toThrow('operation abandoned');
+  expect(observations).toEqual([
+    {
+      authPreparation: 'failed',
+      authLayout: 'unavailable',
+      commitmentMatch: 'unavailable',
+      accountAuthCode: 'current_guardian'
+    }
+  ]);
 });

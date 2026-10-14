@@ -141,6 +141,9 @@ const BUILD_MINUTES: Record<string, { webSdk: number; cli: number; node?: number
 };
 const RUNNERS: Record<string, string> = {
   'ubuntu-latest': 'ubuntu-latest',
+  'ubuntu-24.04': 'ubuntu-latest',
+  // Keep the measured two-core ARM budget until four-core build times are available.
+  'ubuntu-24.04-arm': 'arm64-2x',
   'warp-ubuntu-latest-x64-8x': 'x64-8x',
   'warp-ubuntu-latest-arm64-2x': 'arm64-2x'
 };
@@ -468,16 +471,18 @@ describe('the rule itself', () => {
       'a dispatch gets 119 minutes, under the 120 it needs'
     ]);
     expect(at('  workflow_dispatch:', dispatch(120, 60), 'warp-ubuntu-latest-arm64-2x')).toEqual([]);
+    expect(at('  workflow_dispatch:', dispatch(89, 60), 'ubuntu-24.04')).toEqual([
+      'a dispatch gets 89 minutes, under the 90 it needs'
+    ]);
+    expect(at('  workflow_dispatch:', dispatch(90, 60), 'ubuntu-24.04')).toEqual([]);
+    expect(at('  workflow_dispatch:', dispatch(119, 60), 'ubuntu-24.04-arm')).toEqual([
+      'a dispatch gets 119 minutes, under the 120 it needs'
+    ]);
+    expect(at('  workflow_dispatch:', dispatch(120, 60), 'ubuntu-24.04-arm')).toEqual([]);
     expect(at('  workflow_dispatch:', dispatch(79, 60), 'warp-ubuntu-latest-x64-8x')).toEqual([
       'a dispatch gets 79 minutes, under the 80 it needs'
     ]);
-    const unrecorded = [
-      'self-hosted',
-      'ubuntu-24.04',
-      'ubuntu-24.04-arm',
-      'warp-ubuntu-latest-x64-2x',
-      'warp-ubuntu-latest-arm64-4x'
-    ];
+    const unrecorded = ['self-hosted', 'warp-ubuntu-latest-x64-2x', 'warp-ubuntu-latest-arm64-4x'];
     for (const runner of unrecorded)
       expect(() => at('  workflow_dispatch:', dispatch(200, 60), runner)).toThrow('no recorded injection time');
   });
@@ -502,9 +507,13 @@ describe('the rule itself', () => {
     expect(at(119, x64, [cli, node])).toEqual(under(119, 120));
     expect(at(120, x64, [cli, node])).toEqual([]);
     expect(at(104, 'ubuntu-latest', [cli])).toEqual(under(104, 105));
+    expect(at(104, 'ubuntu-24.04', [cli])).toEqual(under(104, 105));
+    expect(at(105, 'ubuntu-24.04', [cli])).toEqual([]);
     expect(at(144, 'macos-26-xlarge', [cli])).toEqual(under(144, 145));
     expect(at(209, 'warp-ubuntu-latest-arm64-2x', [cli, node])).toEqual(under(209, 210));
     expect(at(210, 'warp-ubuntu-latest-arm64-2x', [cli, node])).toEqual([]);
+    expect(at(209, 'ubuntu-24.04-arm', [cli, node])).toEqual(under(209, 210));
+    expect(at(210, 'ubuntu-24.04-arm', [cli, node])).toEqual([]);
     for (const runner of ['ubuntu-latest', 'macos-26'])
       expect(() => at(300, runner, [node])).toThrow(`no recorded local node build time for runs-on: ${runner}`);
   });

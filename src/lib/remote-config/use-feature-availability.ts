@@ -44,6 +44,7 @@ export interface FeatureAvailabilityOptions {
    * while it reads unavailable. Defaults to true; a branch that draws neither passes false.
    */
   hold?: boolean;
+  chainId?: number;
 }
 
 // A greyed-out control on the page the user is looking at holds the 60 s cadence, whatever greyed it, so it recovers
@@ -57,10 +58,10 @@ function useFastPollWhileUnavailable(availability: FeatureAvailability, hold: bo
 /** The availability of the feature a control starts. */
 export function useFeatureAvailability(
   feature: BridgeFeature,
-  { hold = true }: FeatureAvailabilityOptions = {}
+  { hold = true, chainId }: FeatureAvailabilityOptions = {}
 ): FeatureAvailability {
   const { snapshot, overrides } = useAvailabilityInputs();
-  const availability = featureAvailability(feature, snapshot, overrides);
+  const availability = featureAvailability(feature, snapshot, overrides, chainId);
   useFastPollWhileUnavailable(availability, hold);
   return availability;
 }
@@ -71,12 +72,12 @@ export function useFeatureAvailability(
  */
 export function useAnyFeatureAvailability(
   features: readonly [BridgeFeature, ...BridgeFeature[]],
-  { hold = true }: FeatureAvailabilityOptions = {}
+  { hold = true, chainId }: FeatureAvailabilityOptions = {}
 ): FeatureAvailability {
   const { snapshot, overrides } = useAvailabilityInputs();
   const [first, ...rest] = features;
-  const head = featureAvailability(first, snapshot, overrides);
-  const all = [head, ...rest.map(feature => featureAvailability(feature, snapshot, overrides))];
+  const head = featureAvailability(first, snapshot, overrides, chainId);
+  const all = [head, ...rest.map(feature => featureAvailability(feature, snapshot, overrides, chainId))];
   const available = all.some(candidate => candidate.state === 'available');
   const availability = available ? AVAILABLE : (all.find(candidate => candidate.state === 'loading') ?? head);
   useFastPollWhileUnavailable(availability, hold);

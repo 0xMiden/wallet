@@ -6008,26 +6008,6 @@
     "message": "Kazançlarınız",
     "englishSource": "Your Earnings"
   },
-  "durationUnitSeconds": {
-    "message": "Sn.",
-    "englishSource": "Sec"
-  },
-  "durationUnitMinutes": {
-    "message": "Dk.",
-    "englishSource": "Min"
-  },
-  "durationUnitHours": {
-    "message": "Saat",
-    "englishSource": "Hour"
-  },
-  "durationUnitDays": {
-    "message": "Gün",
-    "englishSource": "Day"
-  },
-  "swapExpiryUnit": {
-    "message": "Son kullanma birimi",
-    "englishSource": "Expiry unit"
-  },
   "moreInfoAbout": {
     "message": "$label$ hakkında daha fazla bilgi",
     "englishSource": "More information about $label$",
@@ -6037,15 +6017,32 @@
       }
     }
   },
-  "swapExpiryRange": {
-    "message": "$min$ ile $max$ arasında bir tam sayı girin.",
-    "englishSource": "Enter a whole number from $min$ to $max$.",
+  "swapExpiryLabel": {
+    "message": "Şu süre içinde doldurulmazsa iptal et",
+    "englishSource": "Cancel if not filled within"
+  },
+  "swapExpiryPreset2Min": {
+    "message": "2 dk",
+    "englishSource": "2 min"
+  },
+  "swapExpiryPreset1Hour": {
+    "message": "1 saat",
+    "englishSource": "1 hour"
+  },
+  "swapExpiryPreset1Day": {
+    "message": "1 gün",
+    "englishSource": "1 day"
+  },
+  "swapExpiryPreset7Days": {
+    "message": "7 gün",
+    "englishSource": "7 days"
+  },
+  "swapExpiryNote": {
+    "message": "O zamana kadar doldurulmadı mı? Takas iptal edilir ve $amount$ tutarınızın doldurulmamış kısmı size geri verilir.",
+    "englishSource": "Not filled by then? The swap is cancelled and whatever is unfilled of your $amount$ comes back.",
     "placeholders": {
-      "min": {
+      "amount": {
         "content": "$1"
-      },
-      "max": {
-        "content": "$2"
       }
     }
   },
@@ -6263,6 +6260,46 @@
   "externalPageLoadFailed": {
     "message": "Bu sayfa açılamadı. Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "advancedOptions": {
+    "message": "Gelişmiş seçenekler",
+    "englishSource": "Advanced options"
+  },
+  "advancedOptionsSummary": {
+    "message": "$transferType$ · $expiration$",
+    "englishSource": "$transferType$ · $expiration$",
+    "placeholders": {
+      "transfertype": {
+        "content": "$1"
+      },
+      "expiration": {
+        "content": "$2"
+      }
+    }
+  },
+  "transferType": {
+    "message": "Transfer türü",
+    "englishSource": "Transfer type"
+  },
+  "publicTransfer": {
+    "message": "Herkese açık transfer",
+    "englishSource": "Public transfer"
+  },
+  "publicTransferNotice": {
+    "message": "Token, tutar ve alıcı adresi Miden üzerinde görünür olacak.",
+    "englishSource": "The token, amount, and recipient address will be visible on Miden."
+  },
+  "publicTransferHelp": {
+    "message": "Bu transferin token'ını, tutarını ve alıcı adresini Miden üzerinde herkes görebilir.",
+    "englishSource": "Anyone can see this transfer's token, amount, and recipient address on Miden."
+  },
+  "senderAddressPublicNote": {
+    "message": "Gönderen adresiniz her iki modda da herkese açıktır.",
+    "englishSource": "Your sender address is public in both modes."
+  },
+  "sendPublicly": {
+    "message": "Herkese açık gönder",
+    "englishSource": "Send publicly"
   },
   "breadCloseError": {
     "message": "Bread’e dönülemedi.",

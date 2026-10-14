@@ -11,6 +11,8 @@ let note;
 let keys;
 let account;
 let faucet;
+let target;
+let other;
 let enrichOwnOutputRequest;
 
 before(async () => {
@@ -76,6 +78,8 @@ before(async () => {
     sdk.NoteType.Public,
     new sdk.NoteAttachment()
   );
+  target = await client.accounts.create({ storage: 'public' });
+  other = await client.accounts.create({ storage: 'public' });
 });
 
 after(async () => {
@@ -163,10 +167,118 @@ for (const [name, decorate] of richerShapes) {
   });
 }
 
+const targetedNote = targetAccount =>
+  sdk.Note.createP2IDNote(
+    accountId,
+    accountId,
+    new sdk.NoteAssets([new sdk.FungibleAsset(faucet.id(), 100n)]),
+    sdk.NoteType.Public,
+    new sdk.NetworkAccountTarget(targetAccount.id()).toAttachment()
+  );
+const publicForeign = (...accounts) =>
+  new sdk.ForeignAccountArray(
+    accounts.map(foreign => sdk.ForeignAccount.public(foreign.id(), new sdk.AccountStorageRequirements()))
+  );
+const ownOutputRequest = (notes, foreign, hasSalt = false) => {
+  let builder = new sdk.TransactionRequestBuilder().withOwnOutputNotes(new sdk.NoteArray(notes));
+  if (foreign) builder = builder.withForeignAccounts(foreign);
+  if (hasSalt) builder = builder.withFeeConversionSalt(salt());
+  return builder.build();
+};
+// SDK 0.17.3 writes the foreign accounts after the MerkleStore and before seven trailing fields; this is the
+// block a request with only `foreign` carries there.
+const foreignBlock = foreign => {
+  const empty = new sdk.TransactionRequestBuilder().build().serialize();
+  const only = new sdk.TransactionRequestBuilder().withForeignAccounts(foreign).build().serialize();
+  return Buffer.from(only.subarray(only.length - 7 - (only.length - empty.length + 1), only.length - 7));
+};
+// The prepared request's fields after the foreign accounts are a few bytes plus Words, never 120 bytes.
+const keepsForeign = (prepared, foreign) =>
+  Buffer.from(prepared.serialize().subarray(-(foreignBlock(foreign).length + 120))).includes(foreignBlock(foreign));
+
+for (const hasSalt of [false, true]) {
+  test(`keeps the foreign account a network-target note needs ${hasSalt ? 'with' : 'without'} a fee salt`, async () => {
+    const input = targetedNote(target);
+    const transported = ownOutputRequest([input], publicForeign(target), hasSalt).serialize();
+    const original = sdk.TransactionRequest.deserialize(transported);
+    const prepared = enrichOwnOutputRequest(original, await feeBuilder(), transported);
+    assert.notEqual(prepared.authArg(), undefined);
+    assert.equal(prepared.expectedOutputOwnNotes().length, 1);
+    assert.deepEqual(prepared.expectedOutputOwnNotes()[0].serialize(), input.serialize());
+    assert.equal(keepsForeign(prepared, publicForeign(target)), true);
+  });
+}
+
+test('enriches a network-target note sent without foreign accounts as before', async () => {
+  const original = ownOutputRequest([targetedNote(target)]);
+  const prepared = enrichOwnOutputRequest(original, await feeBuilder(), original.serialize());
+  assert.notEqual(prepared.authArg(), undefined);
+  assert.equal(keepsForeign(prepared, publicForeign(target)), false);
+});
+
+test('keeps one foreign account for two notes to the same target and for a repeated entry', async () => {
+  const inputs = [targetedNote(target), targetedNote(target)];
+  const original = ownOutputRequest(inputs, publicForeign(target, target));
+  const prepared = enrichOwnOutputRequest(original, await feeBuilder(), original.serialize());
+  assert.equal(prepared.expectedOutputOwnNotes().length, 2);
+  inputs.forEach((input, i) => assert.deepEqual(prepared.expectedOutputOwnNotes()[i].serialize(), input.serialize()));
+  assert.equal(keepsForeign(prepared, publicForeign(target)), true);
+});
+
+test('keeps the foreign account when a note carries a plain attachment before the target one', async () => {
+  const base = targetedNote(target);
+  const mixed = sdk.Note.withAttachments(base.assets(), base.metadata(), base.recipient(), [
+    new sdk.NoteAttachment(),
+    new sdk.NetworkAccountTarget(target.id()).toAttachment()
+  ]);
+  const original = ownOutputRequest([mixed], publicForeign(target));
+  const prepared = enrichOwnOutputRequest(original, await feeBuilder(), original.serialize());
+  assert.deepEqual(prepared.expectedOutputOwnNotes()[0].serialize(), mixed.serialize());
+  assert.equal(keepsForeign(prepared, publicForeign(target)), true);
+});
+
+test('keeps the foreign accounts of notes to two different targets', async () => {
+  const original = ownOutputRequest([targetedNote(target), targetedNote(other)], publicForeign(other, target));
+  const prepared = enrichOwnOutputRequest(original, await feeBuilder(), original.serialize());
+  assert.equal(keepsForeign(prepared, publicForeign(target, other)), true);
+});
+
+const refusedForeign = [
+  ['an account no note targets', () => [[targetedNote(target)], publicForeign(other)]],
+  ['only some of the targets', () => [[targetedNote(target), targetedNote(other)], publicForeign(target)]],
+  ['the target plus another account', () => [[targetedNote(target)], publicForeign(target, other)]],
+  [
+    'the target with storage requirements',
+    () => [
+      [targetedNote(target)],
+      new sdk.ForeignAccountArray([
+        sdk.ForeignAccount.public(
+          target.id(),
+          sdk.AccountStorageRequirements.fromSlotAndKeysArray([
+            new sdk.SlotAndKeys('miden::standards::auth::network_account::allowed_note_scripts', [salt()])
+          ])
+        )
+      ])
+    ]
+  ],
+  ['a target with no network-target note', () => [[note], publicForeign(target)]]
+];
+for (const [name, shape] of refusedForeign) {
+  test(`refuses foreign accounts naming ${name}`, async () => {
+    const [notes, foreign] = shape();
+    const original = ownOutputRequest(notes, foreign);
+    const bytes = original.serialize();
+    assert.throws(
+      () => enrichOwnOutputRequest(original, new sdk.TransactionRequestBuilder().withAuthArg(salt()), bytes),
+      /only own output notes/
+    );
+  });
+}
+
 test('preserves a custom note script and NetworkAccountTarget attachment', async () => {
-  const target = await client.accounts.create({ storage: 'public' });
+  const networkAccount = await client.accounts.create({ storage: 'public' });
   const script = await client.compile.noteScript({ code: '@note_script\npub proc main\n  push.1 drop\nend' });
-  const attachment = new sdk.NetworkAccountTarget(target.id()).toAttachment();
+  const attachment = new sdk.NetworkAccountTarget(networkAccount.id()).toAttachment();
   const custom = sdk.Note.withAttachments(
     note.assets(),
     note.metadata(),
@@ -179,7 +291,7 @@ test('preserves a custom note script and NetworkAccountTarget attachment', async
   assert.deepEqual(restored.serialize(), custom.serialize());
   assert.equal(
     sdk.NetworkAccountTarget.fromAttachment(restored.attachments()[0]).targetId().toString(),
-    target.id().toString()
+    networkAccount.id().toString()
   );
 });
 

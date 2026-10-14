@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useEffect } from 'react';
 
 import { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
@@ -18,16 +18,7 @@ import { SOLVER_MARGIN, SwapEta, SwapToken } from 'lib/miden/swap/tokens';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 
-import {
-  bestUnitForSeconds,
-  draftToExpirySeconds,
-  ExpiryUnit,
-  EXPIRY_UNIT_LABEL_KEYS,
-  EXPIRY_UNITS,
-  expiryBounds,
-  secondsToUnitValue,
-  unitValueToSeconds
-} from './expiry';
+import { EXPIRY_PRESETS, ExpiryPresetId, presetForSeconds } from './expiry';
 
 export interface ReviewSwapProps {
   offerToken: SwapToken;
@@ -143,53 +134,30 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   const rate = parseRate(swapEta?.marketPrice);
   const formatRateValue = rateFormatterFor(rate ?? 0);
 
-  // Seconds stay the value the flow owns (`expirySeconds` in, seconds out). The unit and the
-  // typed digits are this screen's own: without a local draft, a half-typed "1" out of "12"
-  // would be pushed up, clamped to the floor and typed over under the user's fingers.
-  const [unit, setUnit] = useState<ExpiryUnit>(() => bestUnitForSeconds(Number(expirySeconds)));
-  const [expiryDraft, setExpiryDraft] = useState(() =>
-    String(secondsToUnitValue(Number(expirySeconds), bestUnitForSeconds(Number(expirySeconds))))
-  );
-  const bounds = expiryBounds(unit);
-  // An empty or out-of-range draft shows the range message AND blocks Swap: the last valid value
-  // it leaves upstream is no longer on screen, so it must not be what gets submitted.
-  const expiryOutOfRange = draftToExpirySeconds(expiryDraft, unit) === undefined;
+  // Seconds stay the value the flow owns (`expirySeconds` in, seconds out). A value that is not
+  // one of the presets (none today: the flow starts at 2 minutes) snaps to the closest, so the
+  // choice on screen is always the one that is submitted.
+  const preset = presetForSeconds(Number(expirySeconds));
+  useEffect(() => {
+    if (String(preset.seconds) !== expirySeconds) onExpirySecondsChange(String(preset.seconds));
+  }, [preset.seconds, expirySeconds, onExpirySecondsChange]);
 
-  const onExpiryValueChange = useCallback(
-    (next: string) => {
-      setExpiryDraft(next);
-      const seconds = draftToExpirySeconds(next, unit);
-      if (seconds !== undefined) onExpirySecondsChange(String(seconds));
-    },
-    [unit, onExpirySecondsChange]
-  );
-
-  const onExpiryUnitChange = useCallback(
-    (next: ExpiryUnit) => {
-      // The same duration re-expressed, not the same NUMBER: 120 seconds becomes 2 minutes.
-      // `secondsToUnitValue` clamps into the new unit, so switching to a coarser one can only
-      // land on a value that unit can hold.
-      const seconds = Number(expirySeconds);
-      const value = secondsToUnitValue(seconds, next);
-      setUnit(next);
-      setExpiryDraft(String(value));
-      onExpirySecondsChange(String(unitValueToSeconds(value, next)));
-    },
-    [expirySeconds, onExpirySecondsChange]
-  );
-
-  const unitItems = EXPIRY_UNITS.map(candidate => ({
-    id: candidate,
-    label: t(EXPIRY_UNIT_LABEL_KEYS[candidate]),
+  const presetItems = EXPIRY_PRESETS.map(candidate => ({
+    id: candidate.id,
+    label: t(candidate.labelKey),
     disabled: submitting,
-    'data-testid': `swap-expiry-unit-${candidate}`
+    'data-testid': `swap-expiry-preset-${candidate.id}`
   }));
+  const onPresetChange = (id: ExpiryPresetId) => {
+    const next = EXPIRY_PRESETS.find(candidate => candidate.id === id);
+    if (next) onExpirySecondsChange(String(next.seconds));
+  };
 
   // A caption pill identifies which side of the swap each amount belongs to — Hero's own
   // slots are visual + value + a subtitle *below* the value, with no room for a heading
   // above it, so the pill sits beside Hero rather than inside it.
   const hero = (
-    <div className="mt-3 flex w-full flex-col items-center">
+    <div className="mt-1 flex w-full flex-col items-center">
       <Pill tone="neutral">{t('youSend')}</Pill>
       <Hero
         className="mt-2"
@@ -244,7 +212,6 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
       primary={{
         label: t('swap'),
         onPress: onSubmit,
-        disabled: expiryOutOfRange,
         loading: submitting,
         'data-testid': 'swap-submit'
       }}
@@ -252,7 +219,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
     >
       {/* The card is its own block under the hero, not the next line of it: without this the
           receive amount and the first row read as one run of text. */}
-      <DetailCard className="mt-8">
+      <DetailCard surface="outline" face="heading" className="mt-8">
         {/* The solver spread explains the rate figure, but it is a sentence: as a sub-line it
             wrapped over three lines and pushed the rows apart, so it waits behind the (i). */}
         <DetailRow
@@ -290,41 +257,18 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
         <DetailRow label={t('usuallyFillsIn')} data-testid="swap-fills-in-row">
           {formatFillsIn(t, swapEta)}
         </DetailRow>
-        {/* Stacked: a number, a four-way unit picker and a range message do not fit beside a
-            label on a phone. */}
-        <DetailRow label={t('expires')} stacked data-testid="swap-expiry-row">
-          <div className="flex w-full flex-col gap-2">
-            <input
-              data-testid="swap-expiry-seconds"
-              type="number"
-              min={bounds.min}
-              max={bounds.max}
-              step={1}
-              inputMode="numeric"
-              enterKeyHint="done"
-              aria-label={t('expires')}
-              aria-invalid={expiryOutOfRange}
-              aria-describedby={expiryOutOfRange ? 'swap-expiry-range' : undefined}
-              value={expiryDraft}
-              disabled={submitting}
-              onChange={event => onExpiryValueChange(event.target.value)}
-              className="w-24 appearance-none rounded-lg border border-hairline bg-transparent px-2 py-1 text-left font-heading text-[15px] font-bold text-ink outline-none [appearance:textfield] focus:border-accent-swap [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none aria-[invalid=true]:border-negative-ink"
-            />
-            <SegmentedControl
-              items={unitItems}
-              value={unit}
-              onChange={onExpiryUnitChange}
-              size="sm"
-              layout="fill"
-              aria-label={t('swapExpiryUnit')}
-              data-testid="swap-expiry-unit"
-            />
-            {expiryOutOfRange && (
-              <span id="swap-expiry-range" role="alert" className="text-caption text-negative-ink">
-                {t('swapExpiryRange', { min: String(bounds.min), max: String(bounds.max) })}
-              </span>
-            )}
-          </div>
+        {/* Stacked: four choices do not fit beside a label on a phone. */}
+        <DetailRow label={t('swapExpiryLabel')} stacked data-testid="swap-expiry-row">
+          <SegmentedControl
+            items={presetItems}
+            value={preset.id}
+            onChange={onPresetChange}
+            size="sm"
+            layout="fill"
+            aria-label={t('swapExpiryLabel')}
+            data-testid="swap-expiry-preset"
+            className="w-full"
+          />
         </DetailRow>
         <DetailRow label={t('swapAutoConsume')}>
           <Toggle
@@ -338,6 +282,9 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
           />
         </DetailRow>
       </DetailCard>
+      <p className="mt-3 px-4 text-caption face-heading text-muted" data-testid="swap-expiry-note">
+        {t('swapExpiryNote', { amount: `${offerAmount} ${offerLabel}` })}
+      </p>
       {submitError && <p className="select-text pt-2 text-sm font-medium text-status-negative">{submitError}</p>}
     </ReviewLayout>
   );

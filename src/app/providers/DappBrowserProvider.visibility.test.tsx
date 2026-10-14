@@ -19,6 +19,9 @@ import { DappBrowserProvider, useDappBrowser, useHideForegroundDappWhileOpen } f
 import en from '../../../public/_locales/en/en.json';
 
 const mockSetVisible = jest.fn(async (_id: string, _visible: boolean, _revision?: number) => {});
+const mockCaptureSnapshot = jest.fn(
+  async (_id: string, _scale?: number, _quality?: number): Promise<string | null> => null
+);
 const mockSetRect = jest.fn(async (_id: string, _rect: unknown) => {});
 const mockOpen = jest.fn(
   async (_options: { id: string; initiallyVisible?: boolean; managedHostClose?: { token: string } }) => {}
@@ -40,6 +43,7 @@ const nativeListeners = new Map<
     requestId?: string;
     visible?: boolean;
     managedHostCloseToken?: string;
+    visibilitySequence?: number;
   }) => void
 >();
 jest.mock('@miden/dapp-browser', () => ({
@@ -66,11 +70,19 @@ jest.mock('@miden/dapp-browser', () => ({
     forget: jest.fn(),
     open: async (options: { id: string; initiallyVisible?: boolean }) => {
       await mockOpen(options);
+      let visibilitySequence = 0;
       return {
         id: options.id,
+        get currentVisibilitySequence() {
+          return visibilitySequence;
+        },
         setRect: (rect: unknown) => mockSetRect(options.id, rect),
-        setVisible: (visible: boolean, revision?: number) =>
-          revision === undefined ? mockSetVisible(options.id, visible) : mockSetVisible(options.id, visible, revision),
+        setVisible: (visible: boolean, revision?: number) => {
+          visibilitySequence++;
+          return revision === undefined
+            ? mockSetVisible(options.id, visible)
+            : mockSetVisible(options.id, visible, revision);
+        },
         executeScript: async () => {},
         close: () => mockClose(options.id)
       };
@@ -130,7 +142,7 @@ jest.mock('lib/mobile/haptics', () => ({
   hapticSelection: jest.fn()
 }));
 jest.mock('lib/dapp-browser/snapshot-store', () => ({
-  captureSnapshot: async () => null,
+  captureSnapshot: (id: string, scale: number, quality: number) => mockCaptureSnapshot(id, scale, quality),
   clearSnapshot: () => {},
   getSnapshot: () => undefined,
   snapshotStoreInternals: { setRaw: () => {} }
@@ -147,8 +159,10 @@ jest.mock('lib/dapp-browser', () => ({
   toPersisted: (session: unknown) => session,
   fromPersisted: (session: unknown) => session,
   getRecentDapps: async () => [],
+  recordRecentDapp: async () => {},
   getDappDisplayName: () => 'Test app',
-  createDappSession: jest.fn(),
+  createDappSession: jest.requireActual<typeof import('lib/dapp-browser/dapp-session')>('lib/dapp-browser/dapp-session')
+    .createDappSession,
   useDappConfirmation: (...args: unknown[]) => {
     const real = jest.requireActual<typeof import('lib/dapp-browser/use-dapp-confirmation')>(
       'lib/dapp-browser/use-dapp-confirmation'
@@ -181,7 +195,11 @@ jest.mock('app/pages/Browser/CapsuleBar', () => ({
   )
 }));
 jest.mock('app/pages/Browser/DappLauncher', () => ({
-  DappLauncher: () => <div data-testid="retained-launcher">Launcher</div>
+  DappLauncher: ({ onOpen }: { onOpen: (url: string) => void }) => (
+    <div data-testid="retained-launcher">
+      Launcher<button onClick={() => onOpen('https://origin.test')}>Open game</button>
+    </div>
+  )
 }));
 jest.mock('app/pages/Browser/ProgressBar', () => ({ ProgressBar: () => null }));
 jest.mock('app/pages/Browser/NativeWebViewSlot', () => {
@@ -283,7 +301,7 @@ async function openForeground(options: { held?: boolean; actions?: boolean } = {
   );
   await settle();
   if (!options.held) expect(lastVisibility()).toBe(true);
-  mockSetVisible.mockClear();
+  mockSetVisible.mockReset().mockResolvedValue(undefined);
   return currentTree;
 }
 async function closeAlert() {
@@ -319,6 +337,7 @@ beforeEach(async () => {
   mockSetVisible.mockClear();
   mockSetRect.mockClear();
   mockOpen.mockClear();
+  mockCaptureSnapshot.mockReset().mockResolvedValue(null);
   mockClose.mockClear();
   mockCompleteClose.mockClear();
   mockRemoveSession.mockReset().mockResolvedValue(undefined);
@@ -354,6 +373,179 @@ afterEach(async () => {
   browser = undefined;
   confirm = undefined;
   jest.restoreAllMocks();
+});
+
+it('minimizes the native Bread capsule through the standard parked session and reselects retained fullscreen', async () => {
+  await openForeground();
+  currentTree!.rerender(<Tree screen />);
+  await settle();
+  const original = control().sessionStates[0]!;
+  const lifetime = mockOpen.mock.calls[0]![0].managedHostClose!.token;
+  expect(nativeListeners.has('presentationMinimizeRequested')).toBe(true);
+  await act(async () =>
+    nativeListeners.get('presentationMinimizeRequested')?.({
+      id: 'origin',
+      managedHostCloseToken: lifetime,
+      policyRevision: 2,
+      visibilitySequence: control().sessionStates[0]?.instance?.currentVisibilitySequence
+    })
+  );
+  await waitFor(() => expect(control().mode).toBe('launcher'));
+  expect(control().parkedSessions.map(state => state.session.id)).toContain('origin');
+  expect(screen.getByTestId('retained-launcher')).toBeVisible();
+  expect(screen.queryByTestId('dapp-active')).not.toBeInTheDocument();
+  expect(lastVisibility()).toBe(false);
+  expect(mockClose).not.toHaveBeenCalled();
+  expect(mockRemoveSession).not.toHaveBeenCalled();
+  expect(mockRemoveSnapshot).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Open game' }));
+  await waitFor(() => expect(lastVisibility()).toBe(true));
+  expect(control().session?.id).toBe('origin');
+  expect(control().sessionStates[0]?.instance).toBe(original.instance);
+  expect(control().sessionStates[0]?.presentation).toBe('fullscreen');
+  expect(control().sessionStates[0]?.policyRevision).toBe(2);
+  expect(mockOpen).toHaveBeenCalledTimes(1);
+});
+
+it('cancels deferred native minimize when a confirmation takes ownership', async () => {
+  mockRealApproval = true;
+  await openForeground();
+  let finishSnapshot: (value: null) => void = () => undefined;
+  mockCaptureSnapshot.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        finishSnapshot = resolve;
+      })
+  );
+  const event = {
+    id: 'origin',
+    managedHostCloseToken: mockOpen.mock.calls[0]![0].managedHostClose!.token,
+    policyRevision: 2,
+    visibilitySequence: control().sessionStates[0]?.instance?.currentVisibilitySequence
+  };
+  act(() => nativeListeners.get('presentationMinimizeRequested')?.(event));
+  await waitFor(() => expect(mockCaptureSnapshot).toHaveBeenCalled());
+  let answer: Promise<unknown> | undefined;
+  act(() => {
+    answer = dappConfirmationStore.requestConfirmation({
+      ...approval(),
+      type: 'sign',
+      transactionMessages: ['Held ownership']
+    });
+  });
+  await screen.findByText('Held ownership');
+  await act(async () => {
+    finishSnapshot(null);
+    await Promise.resolve();
+  });
+  expect(control().session?.id).toBe('origin');
+  expect(control().mode).toBe('active');
+  await waitFor(() => expect(screen.getByText('Held ownership').closest('[role="dialog"]')).toBeVisible());
+  act(() => dappConfirmationStore.resolveConfirmation('origin', { confirmed: false }));
+  await answer;
+});
+
+it('cancels deferred native minimize after a newer same-game restore', async () => {
+  await openForeground();
+  let finishSnapshot: (value: null) => void = () => undefined;
+  mockCaptureSnapshot.mockImplementationOnce(
+    () =>
+      new Promise(resolve => {
+        finishSnapshot = resolve;
+      })
+  );
+  const event = {
+    id: 'origin',
+    managedHostCloseToken: mockOpen.mock.calls[0]![0].managedHostClose!.token,
+    policyRevision: 2,
+    visibilitySequence: control().sessionStates[0]?.instance?.currentVisibilitySequence
+  };
+  act(() => nativeListeners.get('presentationMinimizeRequested')?.(event));
+  await waitFor(() => expect(mockCaptureSnapshot).toHaveBeenCalled());
+  await act(async () => control().restore('origin'));
+  await act(async () => {
+    finishSnapshot(null);
+    await Promise.resolve();
+  });
+  expect(control().mode).toBe('active');
+  expect(control().session?.id).toBe('origin');
+});
+
+it('supersedes an already-issued deferred minimize hide when the same game is restored', async () => {
+  await openForeground();
+  let finishHide: () => void = () => undefined;
+  mockSetVisible.mockImplementation((_id, visible) =>
+    visible
+      ? Promise.resolve()
+      : new Promise(resolve => {
+          finishHide = resolve;
+        })
+  );
+  const original = control().sessionStates[0]!;
+  const event = {
+    id: 'origin',
+    managedHostCloseToken: mockOpen.mock.calls[0]![0].managedHostClose!.token,
+    policyRevision: 2,
+    visibilitySequence: original.instance?.currentVisibilitySequence
+  };
+  act(() => nativeListeners.get('presentationMinimizeRequested')?.(event));
+  await waitFor(() => expect(lastVisibility()).toBe(false));
+  const hideSequence = original.instance!.currentVisibilitySequence;
+  await act(async () => control().restore('origin'));
+  await act(async () => {
+    finishHide();
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(lastVisibility()).toBe(true));
+  expect(original.instance!.currentVisibilitySequence).toBeGreaterThan(hideSequence);
+  expect(control().sessionStates[0]?.instance).toBe(original.instance);
+  expect(control().session?.id).toBe('origin');
+  expect(control().mode).toBe('active');
+  expect(mockOpen).toHaveBeenCalledTimes(1);
+  expect(mockRemoveSession).not.toHaveBeenCalled();
+  mockSetVisible.mockImplementation(async () => {});
+});
+
+it('rejects a delayed native minimize replay from the prior visible stay', async () => {
+  await openForeground();
+  const event = {
+    id: 'origin',
+    managedHostCloseToken: mockOpen.mock.calls[0]![0].managedHostClose!.token,
+    policyRevision: 2,
+    visibilitySequence: control().sessionStates[0]?.instance?.currentVisibilitySequence
+  };
+  act(() => nativeListeners.get('presentationMinimizeRequested')?.(event));
+  await waitFor(() => expect(control().mode).toBe('launcher'));
+  await act(async () => control().restore('origin'));
+  await waitFor(() => expect(lastVisibility()).toBe(true));
+  expect(control().sessionStates[0]?.instance?.currentVisibilitySequence).toBeGreaterThan(event.visibilitySequence!);
+  await act(async () => nativeListeners.get('presentationMinimizeRequested')?.(event));
+  await settle();
+  expect(control().mode).toBe('active');
+  expect(control().session?.id).toBe('origin');
+});
+
+it('rejects stale or host-blocked native capsule minimize requests', async () => {
+  await openForeground();
+  const lifetime = mockOpen.mock.calls[0]![0].managedHostClose!.token;
+  expect(nativeListeners.has('presentationMinimizeRequested')).toBe(true);
+  for (const event of [
+    { id: 'origin', managedHostCloseToken: 'outgoing', policyRevision: 2 },
+    { id: 'origin', managedHostCloseToken: lifetime, policyRevision: 1 },
+    { id: 'other', managedHostCloseToken: lifetime, policyRevision: 2 }
+  ])
+    await act(async () => nativeListeners.get('presentationMinimizeRequested')?.(event));
+  expect(control().mode).toBe('active');
+  act(() => externalPageFailed());
+  await act(async () =>
+    nativeListeners.get('presentationMinimizeRequested')?.({
+      id: 'origin',
+      managedHostCloseToken: lifetime,
+      policyRevision: 2,
+      visibilitySequence: control().sessionStates[0]?.instance?.currentVisibilitySequence
+    })
+  );
+  expect(control().mode).toBe('active');
 });
 
 it('suspends fullscreen for the production external failure alert outside the dapp provider', async () => {

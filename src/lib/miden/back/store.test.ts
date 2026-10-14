@@ -79,7 +79,7 @@ describe('back/store', () => {
             type: WalletType.Guardian,
             hdIndex: 0,
             authScheme: 'ecdsa',
-            guardianEndpoint: 'https://guardian.openzeppelin.com',
+            guardianEndpoint: 'https://guardian-testnet.openzeppelin.com',
             guardianOperatorCommitment: 'abc123',
             guardianSyncStatus: 'in-sync'
           }

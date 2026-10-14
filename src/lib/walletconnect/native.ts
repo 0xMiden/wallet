@@ -3,6 +3,7 @@ import { registerPlugin } from '@capacitor/core';
 
 import { isAndroid, isIOS } from 'lib/platform';
 
+import { getChain, type EvmChain } from './config';
 import { readNativeFeeFields } from './fees';
 
 export interface ReownConfigureOptions {
@@ -16,6 +17,7 @@ export interface ReownConfigureOptions {
   universalRedirect?: string;
   linkMode?: boolean;
   chainIds: number[];
+  chains?: EvmChain[];
   methods?: string[];
   events?: string[];
 }
@@ -174,18 +176,31 @@ async function rpcRead(rpcUrl: string, method: string, params: unknown): Promise
  * wallet vs. RPC traffic on web.
  */
 export function buildNativeReownProvider({ chainId, address, rpcUrl }: NativeReownProviderOptions) {
+  let selectedChainId = chainId;
+  let selectedRpcUrl = rpcUrl;
   const request = async ({ method, params }: { method: string; params?: unknown }): Promise<unknown> => {
     switch (method) {
       case 'eth_accounts':
       case 'eth_requestAccounts':
         return [address];
       case 'eth_chainId':
-        return `0x${chainId.toString(16)}`;
+        return `0x${selectedChainId.toString(16)}`;
+      case 'wallet_switchEthereumChain': {
+        const target = Array.isArray(params) ? params[0] : undefined;
+        if (!target || typeof target !== 'object') throw new Error('A destination chain is required');
+        const hexId = txField(target, 'chainId');
+        const chain = getChain(Number(hexId));
+        if (!chain) throw new Error('The destination chain is not supported');
+        // Native requests carry their chain ID. Select the same chain for reads and sends.
+        selectedChainId = chain.id;
+        selectedRpcUrl = chain.rpcUrl;
+        return null;
+      }
       case 'eth_sendTransaction': {
         const tx = Array.isArray(params) && typeof params[0] === 'object' && params[0] !== null ? params[0] : undefined;
         if (!tx) throw new Error('eth_sendTransaction requires a transaction object');
         const { hash } = await NativeReown.sendTransaction({
-          chainId,
+          chainId: selectedChainId,
           from: txField(tx, 'from') ?? address,
           to: txField(tx, 'to') ?? '',
           value: txField(tx, 'value'),
@@ -197,16 +212,16 @@ export function buildNativeReownProvider({ chainId, address, rpcUrl }: NativeReo
           // A caller that set any fee field keeps exactly what it set.
           ...(txField(tx, 'gasPrice') || txField(tx, 'maxFeePerGas') || txField(tx, 'maxPriorityFeePerGas')
             ? { maxFeePerGas: txField(tx, 'maxFeePerGas'), maxPriorityFeePerGas: txField(tx, 'maxPriorityFeePerGas') }
-            : await readNativeFeeFields(chainId))
+            : await readNativeFeeFields(selectedChainId))
         });
         return unwrapNativeResult(hash);
       }
       default:
         if (NATIVE_SIGN_METHODS.has(method)) {
-          const { result } = await NativeReown.request({ chainId, method, params });
+          const { result } = await NativeReown.request({ chainId: selectedChainId, method, params });
           return unwrapNativeResult(result);
         }
-        return rpcRead(rpcUrl, method, params);
+        return rpcRead(selectedRpcUrl, method, params);
     }
   };
 

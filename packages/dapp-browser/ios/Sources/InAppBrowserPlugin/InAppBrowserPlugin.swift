@@ -1142,6 +1142,11 @@ public class InAppBrowserPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func showPrivacyScreen() {
+        if let owner = navigationWebViewController?.topViewController as? WKWebViewController,
+           owner.breadPresentation?.preparePrivacyCover() == true {
+            hidePrivacyScreen()
+            return
+        }
         if privacyScreen == nil {
             let newPrivacyScreen = UIImageView()
             self.privacyScreen = newPrivacyScreen

@@ -12,8 +12,14 @@ final class BreadPresentationState {
     private(set) var policyRevision = 0
     private var acknowledgedPolicy: Int?
     private var visibilitySequence = 0
+    private(set) var acknowledgedVisibilitySequence = 0
     var policyResolved: Bool { configured || failed }
     var effectiveVisibility: Bool { desiredVisibility && foreground && policyResolved && acknowledgedPolicy == policyRevision && !closed }
+    // Keep the privacy-covered game authoritative for the system snapshot until its host revokes ownership.
+    var surfaceVisibility: Bool {
+        effectiveVisibility || (desiredVisibility && display == .fullscreen && configured
+            && documentReady && revealed && !failed && !closed && acknowledgedPolicy == policyRevision)
+    }
     private var configured = false
     private var painted = false
     private var failed = false
@@ -66,7 +72,7 @@ final class BreadPresentationState {
     func layoutPrepared(generation: Int) {
         guard accepts(generation), !failed else { return }
         painted = true
-        if phase == .visible { revealed = true }
+        if phase == .visible && effectiveVisibility { revealed = true }
     }
 
     func invalidateLayout() { if !closed { painted = false } }
@@ -81,6 +87,7 @@ final class BreadPresentationState {
             guard policyResolved, policyRevision == self.policyRevision else { return false }
             acknowledgedPolicy = policyRevision
         }
+        if let sequence { acknowledgedVisibilitySequence = sequence }
         desiredVisibility = visible
         return true
     }

@@ -748,6 +748,11 @@ public class InAppBrowserPlugin extends Plugin implements WebViewDialog.Permissi
         //    options.getToolbarItemTypes().add(ToolbarItemType.RELOAD); TODO: fix this
         options.setCallbacks(
             new WebViewCallbacks() {
+                @Override public void presentationMinimizeRequested(long revision, long sequence, String lifetime) {
+                    JSObject event = new JSObject().put("id", callbackInstanceId[0]).put("policyRevision", revision).put("visibilitySequence", sequence);
+                    if (lifetime != null) event.put("managedHostCloseToken", lifetime);
+                    notifyListeners("presentationMinimizeRequested", event);
+                }
                 @Override public void presentationChanged(boolean fullscreen, boolean resolved, long revision, String lifetime) {
                     JSObject event = new JSObject().put("id", callbackInstanceId[0])
                         .put("display", fullscreen ? "fullscreen" : "browser")

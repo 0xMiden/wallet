@@ -556,7 +556,7 @@ const Settings: FC<SettingsProps> = ({ tabSlug, rootScrollTop: savedRootScrollTo
           // pb-22 reserves space at the bottom so the last row can scroll above
           // the React BottomNav. No top padding: the 8px under the rule is
           // TabRootHeader's, the same 8px the other tab roots' filter rows get.
-          <div className="flex w-full flex-col gap-5 px-4 pb-22">
+          <div className="flex w-full flex-col gap-5 px-4 pb-[calc(5.5rem+var(--wallet-control-safe-bottom,0px))]">
             {tabGroups.map(group => (
               <section key={group.titleI18nKey}>
                 {/* h2: the only heading above these is the page title the header

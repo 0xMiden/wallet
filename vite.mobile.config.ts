@@ -12,10 +12,16 @@ import wasm from 'vite-plugin-wasm';
 
 import { copyClassicWorkerWasm } from './src/lib/build-assets/worker-wasm-assets';
 
+import { readWalletBuildIdentity } from './src/lib/build-assets/crash-build-identity';
+import { walletCrashArtifactRegistry } from './src/lib/build-assets/crash-artifact-registry';
+
+const walletBuildIdentity = readWalletBuildIdentity(__dirname);
+
 const pkg = require('./package.json');
 
 export default defineConfig({
   plugins: [
+    walletCrashArtifactRegistry(),
     {
       name: 'miden-sdk-eager-to-lazy',
       enforce: 'pre',
@@ -230,6 +236,9 @@ export default defineConfig({
     'process.env.MIDEN_USE_OFFSCREEN_PROVING': JSON.stringify('false'),
     'process.env.APTABASE_APP_KEY': JSON.stringify(process.env.APTABASE_APP_KEY ?? ''),
     'process.env.APTABASE_HOST': JSON.stringify(process.env.APTABASE_HOST ?? ''),
+    'process.env.WALLET_BUILD_TARGET': JSON.stringify('mobile'),
+    'process.env.WALLET_BUILD_REVISION': JSON.stringify(walletBuildIdentity.revision),
+    'process.env.WALLET_BUILD_DIRTY': JSON.stringify(walletBuildIdentity.dirty),
     'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? ''),
     'process.browser': 'true',
     global: 'globalThis'

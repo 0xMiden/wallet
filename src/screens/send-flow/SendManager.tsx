@@ -36,13 +36,14 @@ import { AccountsListDrawer } from './AccountsList';
 import { AddContactDrawer } from './AddContactDrawer';
 import {
   BRIDGE_NETWORKS,
+  getBridgeNetwork,
   BridgeNetworkId,
   DEFAULT_BRIDGE_NETWORK,
   DEFAULT_USDCX_BRIDGE_NETWORK,
   isEpochBridgeNetwork,
   SendNetworkId,
   sendBridgeNetworks,
-  USDCX_BRIDGE_NETWORKS
+  usdcxBridgeNetworks
 } from './bridge-networks';
 import { ScanQrDrawer } from './ScanQrDrawer';
 import { SelectRecipient } from './SelectRecipient';
@@ -390,7 +391,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const usdcxPayout = useMemo(() => {
     const chainId =
       usdcxAvailable && isBridge
-        ? USDCX_BRIDGE_NETWORKS.find(network => network.id === bridgeNetwork)?.chainId
+        ? usdcxBridgeNetworks().find(network => network.id === bridgeNetwork)?.chainId
         : undefined;
     return chainId === undefined || amountBaseUnits === undefined ? undefined : { chainId, amount: amountBaseUnits };
   }, [usdcxAvailable, isBridge, bridgeNetwork, amountBaseUnits]);
@@ -400,6 +401,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   );
 
   const epochQuote = useEpochQuote({
+    destinationChainId: getBridgeNetwork(bridgeNetwork)?.chainId,
     amount: amountBaseUnits,
     faucetId: token?.id,
     destinationAddress: recipientAddress,
@@ -798,7 +800,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // link or draft carries one this network does not offer.
   useEffect(() => {
     if (!isBridge || !isValidRecipient || offeredNetworks.some(n => n.id === bridgeNetwork)) return;
-    onSelectNetwork(usdcxAvailable ? DEFAULT_USDCX_BRIDGE_NETWORK.id : DEFAULT_BRIDGE_NETWORK.id);
+    const preferred = usdcxAvailable ? DEFAULT_USDCX_BRIDGE_NETWORK : DEFAULT_BRIDGE_NETWORK;
+    const next = offeredNetworks.find(n => n.id === preferred.id) ?? offeredNetworks[0];
+    if (next) onSelectNetwork(next.id);
   }, [isBridge, isValidRecipient, bridgeNetwork, offeredNetworks, onSelectNetwork, usdcxAvailable]);
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
@@ -913,6 +917,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         case SendFlowStep.Route:
           return (
             <SendRoute
+              destinationChainId={getBridgeNetwork(bridgeNetwork)?.chainId}
               usdcxAvailable={usdcxAvailable}
               usdcxPayout={usdcxPayout}
               faucetId={spendableToken?.id ?? ''}
@@ -933,6 +938,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       // first-render cap -- the full balance, before the fee resolved. `token` itself
       // is no longer a dependency: it reaches the render only through this value.
       spendableToken,
+      bridgeNetwork,
       recipientAddress,
       isValidRecipient,
       recents,

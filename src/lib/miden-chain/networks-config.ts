@@ -118,8 +118,8 @@ export const GUARDIAN_OPTIONS: GuardianOption[] = [
     operatedBy: GUARDIAN_BRAND_NAME.openZeppelin,
     location: 'US-EAST',
     endpoint: new Map<MIDEN_NETWORK_NAME, string>([
-      [MIDEN_NETWORK_NAME.TESTNET, 'https://guardian.openzeppelin.com'],
-      [MIDEN_NETWORK_NAME.DEVNET, 'https://guardian-stg.openzeppelin.com'],
+      [MIDEN_NETWORK_NAME.TESTNET, 'https://guardian-testnet.openzeppelin.com'],
+      [MIDEN_NETWORK_NAME.DEVNET, 'https://guardian-devnet.openzeppelin.com'],
       // Localnet dev/E2E: the OpenZeppelin guardian image run locally (HTTP :3000).
       [MIDEN_NETWORK_NAME.LOCALNET, 'http://localhost:3000']
     ])
@@ -150,6 +150,20 @@ export const GUARDIAN_OPTIONS: GuardianOption[] = [
     endpoint: new Map<MIDEN_NETWORK_NAME, string>([[MIDEN_NETWORK_NAME.TESTNET, 'https://guardian-testnet.kodax.com']])
   }
 ];
+
+/**
+ * Built-in operator hosts that were renamed, old name to current name. Each
+ * pair is the SAME server (same registrations, same key), and
+ * `canonicalGuardianEndpoint` treats the two names as one endpoint wherever
+ * endpoints are compared, so an account still bound to the old name, a history
+ * row, a restored backup file or a dev override that carries it is still
+ * recognised as that operator. Never add a pair whose new name is a different
+ * server.
+ */
+export const RENAMED_GUARDIAN_ENDPOINTS: ReadonlyMap<string, string> = new Map([
+  ['https://guardian.openzeppelin.com', 'https://guardian-testnet.openzeppelin.com'],
+  ['https://guardian-stg.openzeppelin.com', 'https://guardian-devnet.openzeppelin.com']
+]);
 
 /**
  * A Guardian provider resolved to its endpoint on a specific network. Shared

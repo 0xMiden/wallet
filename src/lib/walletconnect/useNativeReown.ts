@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
-import { APP_METADATA, DEFAULT_CHAIN_ID, SUPPORTED_CHAINS, WC_PROJECT_ID } from './config';
+import { getBridgeConfigSnapshot, subscribeBridgeConfig } from 'lib/remote-config/runtime';
+
+import { prepareWalletConnectChains, selectWalletConnectChains } from './chains';
+import { APP_METADATA, WC_PROJECT_ID } from './config';
 import { isNativeReownAvailable, NativeReown, ReownState } from './native';
 
 const NATIVE_REDIRECT = 'com.miden.wallet://';
@@ -11,43 +14,43 @@ const defaultState: ReownState = {
   accounts: []
 };
 
-let configurePromise: Promise<void> | null = null;
+let configurePromise: Promise<void> = Promise.resolve();
+let configuredKey = '';
 
-export function configureNativeReown(): Promise<void> {
-  if (!configurePromise) {
-    configurePromise = NativeReown.configure({
-      projectId: WC_PROJECT_ID,
-      appName: APP_METADATA.name,
-      appDescription: APP_METADATA.description,
-      appUrl: APP_METADATA.url,
-      // `APP_METADATA` is also handed to the web @reown/appkit modal
-      // (`createAppKit` in ./appkit), which reactively wraps the object in place —
-      // so `APP_METADATA.icons` is no longer a plain array. Capacitor's iOS bridge
-      // SILENTLY DROPS a native plugin call whose arguments contain such a non-plain
-      // array: `configure` never reaches native and its promise hangs forever,
-      // leaving EVM/bridge connect stuck on "Preparing connection…". Spread into a
-      // fresh plain array so the arguments serialize cleanly across the bridge.
-      icons: [...APP_METADATA.icons],
-      verifyUrl: 'verify.walletconnect.com',
-      nativeRedirect: NATIVE_REDIRECT,
-      linkMode: false,
-      chainIds: SUPPORTED_CHAINS.map(chain => chain.id),
-      methods: ['eth_sendTransaction', 'personal_sign', 'eth_signTypedData'],
-      events: ['chainChanged', 'accountsChanged']
-    }).catch(err => {
-      // Reset the cache on rejection: a rejected promise is truthy and would be
-      // returned by every later call, permanently poisoning EVM/bridge connect
-      // after a single transient boot failure (native plugin not yet ready /
-      // relay offline). Nulling it on failure lets the next call retry cleanly.
-      configurePromise = null;
-      throw err;
+export function configureNativeReown(recoveryChainId?: number): Promise<void> {
+  const next = configurePromise
+    .catch(() => {})
+    .then(async () => {
+      const chains = await prepareWalletConnectChains(recoveryChainId);
+      const key = `${getBridgeConfigSnapshot().network}:${chains.map(chain => chain.id).join(',')}`;
+      if (configuredKey === key) return;
+      await NativeReown.configure({
+        projectId: WC_PROJECT_ID,
+        appName: APP_METADATA.name,
+        appDescription: APP_METADATA.description,
+        appUrl: APP_METADATA.url,
+        // Copy arrays and metadata before the native bridge serializes them.
+        icons: [...APP_METADATA.icons],
+        verifyUrl: 'verify.walletconnect.com',
+        nativeRedirect: NATIVE_REDIRECT,
+        linkMode: false,
+        chainIds: chains.map(chain => chain.id),
+        chains: chains.map(chain => ({ ...chain, nativeCurrency: { ...chain.nativeCurrency } })),
+        methods: ['eth_sendTransaction', 'personal_sign', 'eth_signTypedData'],
+        events: ['chainChanged', 'accountsChanged']
+      });
+      configuredKey = key;
     });
-  }
-  return configurePromise;
+  configurePromise = next;
+  return next;
 }
 
 export function useNativeReown() {
   const available = isNativeReownAvailable();
+  const snapshot = useSyncExternalStore(subscribeBridgeConfig, getBridgeConfigSnapshot, getBridgeConfigSnapshot);
+  const chainKey = `${snapshot.network}:${selectWalletConnectChains(snapshot.config)
+    .map(chain => chain.id)
+    .join(',')}`;
   const [state, setState] = useState<ReownState>(defaultState);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,23 +68,32 @@ export function useNativeReown() {
     let cancelled = false;
     const handles: Array<{ remove: () => Promise<void> }> = [];
 
+    // A handle registered after cleanup ran is removed here: cleanup only saw the handles pushed before it.
+    const keep = (handle: { remove: () => Promise<void> }) => {
+      if (cancelled) {
+        handle.remove();
+        return false;
+      }
+      handles.push(handle);
+      return true;
+    };
+
     const setup = async () => {
       try {
         await configureNativeReown();
         if (cancelled) return;
 
-        handles.push(
-          await NativeReown.addListener('stateChanged', nextState => {
-            setState(nextState);
-          })
-        );
-        handles.push(
-          await NativeReown.addListener('socketStatus', event => {
-            setState(current => ({ ...current, socketStatus: event.status }));
-          })
-        );
+        const stateChanged = await NativeReown.addListener('stateChanged', nextState => {
+          setState(nextState);
+        });
+        if (!keep(stateChanged)) return;
+        const socketStatus = await NativeReown.addListener('socketStatus', event => {
+          setState(current => ({ ...current, socketStatus: event.status }));
+        });
+        if (!keep(socketStatus)) return;
 
         await refresh();
+        if (!cancelled) setError(null);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Failed to initialize native WalletConnect');
@@ -89,30 +101,33 @@ export function useNativeReown() {
       }
     };
 
-    void setup();
+    setup();
 
     return () => {
       cancelled = true;
       handles.forEach(handle => {
-        void handle.remove();
+        handle.remove();
       });
     };
-  }, [available, refresh]);
+  }, [available, refresh, chainKey]);
 
-  const present = useCallback(async () => {
-    setConnecting(true);
-    setError(null);
-    try {
-      await configureNativeReown();
-      await NativeReown.present();
-      await refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to open native WalletConnect');
-      throw err;
-    } finally {
-      setConnecting(false);
-    }
-  }, [refresh]);
+  const present = useCallback(
+    async (recoveryChainId?: number) => {
+      setConnecting(true);
+      setError(null);
+      try {
+        await configureNativeReown(recoveryChainId);
+        await NativeReown.present();
+        await refresh();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to open native WalletConnect');
+        throw err;
+      } finally {
+        setConnecting(false);
+      }
+    },
+    [refresh]
+  );
 
   const disconnect = useCallback(async () => {
     setError(null);
@@ -127,7 +142,8 @@ export function useNativeReown() {
 
   const selectDefaultChain = useCallback(async () => {
     if (!available) return;
-    await NativeReown.selectChain({ chainId: DEFAULT_CHAIN_ID });
+    const [first] = await prepareWalletConnectChains();
+    await NativeReown.selectChain({ chainId: first.id });
   }, [available]);
 
   return {
