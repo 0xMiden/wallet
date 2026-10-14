@@ -3,16 +3,16 @@
  */
 import { getEffectiveFaucetUrl } from 'lib/miden-chain/effective-endpoints';
 
-import { FAUCET_NO_TOP_SAFE_AREA_SCRIPT, isFaucetOrigin } from './faucet-top-inset';
+import { faucetNoTopInsetScript, isFaucetOrigin } from './faucet-top-inset';
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveFaucetUrl: jest.fn() }));
 
 const mockFaucetUrl = jest.mocked(getEffectiveFaucetUrl);
 
-function runInjectedScript(): void {
+function runInjectedScript(faucetOrigin: string): void {
   // Runs the shipped string as the WebView does, so the test exercises the real code.
   // eslint-disable-next-line no-new-func
-  new Function(FAUCET_NO_TOP_SAFE_AREA_SCRIPT)();
+  new Function(faucetNoTopInsetScript(faucetOrigin))();
 }
 
 describe('isFaucetOrigin', () => {
@@ -34,17 +34,23 @@ describe('isFaucetOrigin', () => {
   });
 });
 
-describe('FAUCET_NO_TOP_SAFE_AREA_SCRIPT', () => {
+describe('faucetNoTopInsetScript', () => {
   beforeEach(() => {
     document.head.innerHTML = '';
   });
 
   it('drops the body top padding with one style element, however often it is injected', () => {
-    runInjectedScript();
-    runInjectedScript();
+    runInjectedScript(window.location.origin);
+    runInjectedScript(window.location.origin);
 
     const styles = document.querySelectorAll('#miden-faucet-no-top-inset');
     expect(styles).toHaveLength(1);
     expect(styles[0]!.textContent).toBe('body { padding-top: 0 !important; }');
+  });
+
+  it("adds nothing to a document whose own origin is not the faucet's", () => {
+    runInjectedScript('https://faucet.example.org');
+
+    expect(document.querySelectorAll('#miden-faucet-no-top-inset')).toHaveLength(0);
   });
 });

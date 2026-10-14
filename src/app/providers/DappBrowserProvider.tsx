@@ -92,7 +92,7 @@ import { captureSnapshot, clearSnapshot, getSnapshot, snapshotStoreInternals } f
 import { type WebViewRect } from 'lib/dapp-browser/webview-rect';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
 import { externalPageFailed } from 'lib/mobile/external-page-failed';
-import { FAUCET_NO_TOP_SAFE_AREA_SCRIPT, isFaucetOrigin } from 'lib/mobile/faucet-top-inset';
+import { faucetNoTopInsetScript, isFaucetOrigin } from 'lib/mobile/faucet-top-inset';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
@@ -719,7 +719,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         // origin since. An unconfirmed one is left to that handler.
         const loaded = getSessionStateById(id);
         if (loaded?.instance === state.instance && loaded.originConfirmed && needsFaucetTopInset(loaded.origin)) {
-          await state.instance.executeScript(FAUCET_NO_TOP_SAFE_AREA_SCRIPT).catch(() => undefined);
+          await state.instance.executeScript(faucetNoTopInsetScript(loaded.origin)).catch(() => undefined);
         }
         try {
           // JSON.stringify the id so a non-alphanumeric session id
@@ -759,10 +759,11 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
             originConfirmed: true,
             session: { ...s.session, url: newUrl, origin }
           }));
-          // A confirmation landing after the page loaded, which `browserPageLoaded` skipped.
+          // The script is a no-op in any other document, so no loading check: a later `browserPageLoaded`
+          // for the faucet document injects again.
           const current = getSessionStateById(id);
-          if (current?.instance && !current.isLoading && needsFaucetTopInset(origin)) {
-            void current.instance.executeScript(FAUCET_NO_TOP_SAFE_AREA_SCRIPT).catch(() => undefined);
+          if (current?.instance && needsFaucetTopInset(origin)) {
+            void current.instance.executeScript(faucetNoTopInsetScript(origin)).catch(() => undefined);
           }
         } catch {
           /* ignore */

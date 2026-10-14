@@ -227,7 +227,7 @@ import { dappConfirmationStore, type DAppConfirmationRequest } from 'lib/dapp-br
 import { getCurrentScreen, setRoutePart, __resetScreenKeyForTest } from 'lib/e2e/screen-key';
 import { getEffectiveFaucetUrl } from 'lib/miden-chain/effective-endpoints';
 import { onExternalPageFailed } from 'lib/mobile/external-page-failed';
-import { FAUCET_NO_TOP_SAFE_AREA_SCRIPT } from 'lib/mobile/faucet-top-inset';
+import { faucetNoTopInsetScript } from 'lib/mobile/faucet-top-inset';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { DialogsProvider } from 'lib/ui/dialog';
 
@@ -628,6 +628,7 @@ describe('session origin is derived from the URL being loaded, not a carried-ove
 describe('faucet top inset style', () => {
   const SLOT_RECT = { x: 0, y: 0, width: 375, height: 600 };
   const FAUCET_URL = getEffectiveFaucetUrl();
+  const FAUCET_SCRIPT = faucetNoTopInsetScript(new URL(FAUCET_URL).origin);
 
   function listenerFor(event: string): (e: unknown) => void | Promise<void> {
     const call = mockAddListener.mock.calls.find(c => c[0] === event);
@@ -641,7 +642,7 @@ describe('faucet top inset style', () => {
     });
   }
 
-  const faucetInjections = () => mockExecuteScript.mock.calls.filter(c => c[1] === FAUCET_NO_TOP_SAFE_AREA_SCRIPT);
+  const faucetInjections = () => mockExecuteScript.mock.calls.filter(c => c[1] === FAUCET_SCRIPT);
 
   async function openAt(url: string) {
     const hook = renderHook(() => useDappBrowser(), { wrapper });
@@ -668,12 +669,15 @@ describe('faucet top inset style', () => {
   beforeEach(() => mockIsIOS.mockReturnValue(true));
   afterEach(() => mockIsIOS.mockReturnValue(false));
 
-  it('injects the style once into a confirmed faucet page on iOS', async () => {
+  it('injects the style again once the faucet page has loaded after its origin was confirmed', async () => {
     await openAt(FAUCET_URL);
     await confirmUrl(FAUCET_URL);
     await loadPage();
 
-    expect(faucetInjections()).toEqual([['dapp-a', FAUCET_NO_TOP_SAFE_AREA_SCRIPT]]);
+    expect(faucetInjections()).toEqual([
+      ['dapp-a', FAUCET_SCRIPT],
+      ['dapp-a', FAUCET_SCRIPT]
+    ]);
   });
 
   it('injects nothing into a faucet page whose origin is not confirmed', async () => {
@@ -705,7 +709,7 @@ describe('faucet top inset style', () => {
     await loadPage();
     await confirmUrl(FAUCET_URL);
 
-    expect(faucetInjections()).toEqual([['dapp-a', FAUCET_NO_TOP_SAFE_AREA_SCRIPT]]);
+    expect(faucetInjections()).toEqual([['dapp-a', FAUCET_SCRIPT]]);
   });
 });
 
