@@ -13,6 +13,8 @@ import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { MidenMessageType } from 'lib/miden/types';
+import type * as EffectiveEndpointsModule from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { CARD_COLOR_STORAGE_KEY, NOMINAL_UNQUOTED_PRICE_STORAGE_KEY } from 'lib/settings/constants';
 import { setNominalUnquotedPriceSetting } from 'lib/settings/nominal-price';
@@ -83,6 +85,17 @@ jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual('lib/miden-chain/native-asset'),
   getNativeAssetIdSync: () => mockNativeAssetId
 }));
+
+// The effective network a case moves while a read is out, as a Developer Settings save does.
+let mockEffectiveNetwork: { name: MIDEN_NETWORK_NAME; rpcUrl: string } | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof EffectiveEndpointsModule>('lib/miden-chain/effective-endpoints');
+  return {
+    ...actual,
+    getEffectiveNetworkName: () => mockEffectiveNetwork?.name ?? actual.getEffectiveNetworkName(),
+    getEffectiveRpcUrl: () => mockEffectiveNetwork?.rpcUrl ?? actual.getEffectiveRpcUrl()
+  };
+});
 
 // Mock the intercom module
 const mockRequest = jest.fn();
@@ -2009,6 +2022,75 @@ describe('useWalletStore', () => {
       } finally {
         fetchingAddresses.clear();
       }
+    });
+
+    describe('a read that resolves after the effective network changed', () => {
+      const FAUCET = 'mtst1faucet';
+      const faucetMetadata = { name: 'Faucet Token', symbol: 'FCT', decimals: 8 };
+      const row = (balance: number) => ({
+        tokenId: FAUCET,
+        tokenSlug: 'FCT',
+        metadata: faucetMetadata,
+        balance,
+        fiatPrice: 0,
+        change24h: 0
+      });
+      const earlier = [row(1)];
+      let started: Promise<FetchBalancesModule.FetchBalancesOptions | undefined>;
+      let landRead: (rows: unknown[]) => void = () => {};
+
+      beforeEach(() => {
+        __resetFaucetAssetsMetadataForTest();
+        useWalletStore.setState({
+          balances: { 'addr-1': earlier },
+          balancesLoading: {},
+          balancesLastFetched: {},
+          assetsMetadata: {},
+          tokenMetadataOverrides: {}
+        });
+        let markStarted: (options?: FetchBalancesModule.FetchBalancesOptions) => void = () => {};
+        started = new Promise(resolve => {
+          markStarted = resolve;
+        });
+        mockHeldBalanceRead = options => {
+          markStarted(options);
+          return new Promise(resolve => {
+            landRead = resolve;
+          });
+        };
+      });
+
+      afterEach(() => {
+        mockHeldBalanceRead = null;
+        mockEffectiveNetwork = undefined;
+      });
+
+      it("leaves the address's balances as they were, and keeps the metadata the read wrote", async () => {
+        const read = useWalletStore.getState().fetchBalances('addr-1', {});
+        const options = await started;
+        options?.setAssetsMetadata({ [FAUCET]: faucetMetadata });
+        mockEffectiveNetwork = { name: MIDEN_NETWORK_NAME.DEVNET, rpcUrl: 'https://rpc.devnet.miden.io' };
+        landRead([row(7)]);
+        await read;
+
+        const state = useWalletStore.getState();
+        expect(state.balances['addr-1']).toBe(earlier);
+        expect(state.balancesLoading['addr-1']).toBeUndefined();
+        expect(state.balancesLastFetched['addr-1']).toBeUndefined();
+        expect(state.assetsMetadata[FAUCET]).toEqual(faucetMetadata);
+        expect(fetchingAddresses.has('addr-1')).toBe(false);
+      });
+
+      it('lands a read on an unchanged network', async () => {
+        const read = useWalletStore.getState().fetchBalances('addr-1', {});
+        await started;
+        landRead([row(7)]);
+        await read;
+
+        const state = useWalletStore.getState();
+        expect(state.balances['addr-1']).toEqual([row(7)]);
+        expect(state.balancesLoading['addr-1']).toBe(false);
+      });
     });
   });
 

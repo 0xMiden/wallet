@@ -29,6 +29,7 @@ import {
 } from 'lib/miden/spending-limits/types';
 import { describeHookError, installSwapTestHooks } from 'lib/miden/swap/test-hooks';
 import { MidenMessageType, MidenState } from 'lib/miden/types';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import { setEarnCollateralFaucetOverride } from 'lib/remote-config/e2e-overrides';
 import { subscribeNominalUnquotedPrice } from 'lib/settings/nominal-price';
@@ -865,6 +866,8 @@ export const useWalletStore = create<WalletStore>()(
       fetchingAddresses.add(accountAddress);
 
       try {
+        const effectiveNetwork = () => `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
+        const network = effectiveNetwork();
         const overridden = new Set<string>();
         // The display faucet setting the read built its MIDEN row for. A reader that reports none leaves no row exempt.
         let midenFaucetId: string | null = null;
@@ -881,6 +884,9 @@ export const useWalletStore = create<WalletStore>()(
         // `null` = a refresh found the lock busy or the balance probe is fused; keep any
         // prior balances. Only a landed read ends loading.
         if (balances === null) return;
+        // A Developer Settings save repointed this realm while the read was out: these are the old
+        // node's balances. The metadata it wrote stays, each faucet's own record on any network.
+        if (effectiveNetwork() !== network) return;
         set(state => withLandedBalances(state, accountAddress, balances, midenFaucetId, overridden));
       } finally {
         fetchingAddresses.delete(accountAddress);
