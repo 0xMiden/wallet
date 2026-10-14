@@ -1,5 +1,4 @@
 import { serialize } from 'v8';
-
 import { arc } from 'viem/chains';
 
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
