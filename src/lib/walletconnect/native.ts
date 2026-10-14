@@ -146,13 +146,78 @@ export function assertNativeSessionChain(state: ReownState, chainId: number, net
   }
 }
 
+/** How long `ensureNativeSessionChain` waits for the session update after the wallet added a chain. */
+const NATIVE_SESSION_CHAIN_WAIT_MS = 5000;
+// The iOS plugin sends no `stateChanged` for a session update, so the wait also re-reads the state.
+const NATIVE_SESSION_CHAIN_POLL_MS = 500;
+
+function sessionApproves(state: ReownState, chainId: number): boolean {
+  return Array.isArray(state.chainIds) && state.chainIds.includes(chainId);
+}
+
+async function readNativeState(fallback: ReownState): Promise<ReownState> {
+  try {
+    return await NativeReown.getState();
+  } catch (err) {
+    console.warn('[NativeReown] could not read the state again after the chain request', err);
+    return fallback;
+  }
+}
+
+/**
+ * A wallet can answer the switch before its session update arrives. Resolves with the first state
+ * that approves `chainId`, from a `stateChanged` event or a re-read, or with the last state read
+ * once `NATIVE_SESSION_CHAIN_WAIT_MS` has passed, whichever comes first.
+ */
+async function waitForSessionChain(state: ReownState, chainId: number): Promise<ReownState> {
+  let latest = state;
+  let finish: () => void = () => undefined;
+  const finished = new Promise<void>(resolve => {
+    finish = () => resolve();
+  });
+  const observe = (next: ReownState) => {
+    // A slower re-read that lacks the chain does not replace a state that approved it.
+    if (sessionApproves(latest, chainId)) return;
+    latest = next;
+    if (sessionApproves(next, chainId)) finish();
+  };
+
+  let listener: PluginListenerHandle | undefined;
+  try {
+    listener = await NativeReown.addListener('stateChanged', observe);
+  } catch (err) {
+    console.warn('[NativeReown] could not listen for the session update', err);
+  }
+
+  let polling = true;
+  let poll: ReturnType<typeof setTimeout> | undefined;
+  const reread = async () => {
+    observe(await readNativeState(latest));
+    if (polling) poll = setTimeout(() => void reread(), NATIVE_SESSION_CHAIN_POLL_MS);
+  };
+  const deadline = setTimeout(finish, NATIVE_SESSION_CHAIN_WAIT_MS);
+  try {
+    void reread();
+    await finished;
+    return latest;
+  } finally {
+    polling = false;
+    clearTimeout(poll);
+    clearTimeout(deadline);
+    await listener?.remove().catch((err: unknown) => {
+      console.warn('[NativeReown] could not remove the session update listener', err);
+    });
+  }
+}
+
 /**
  * Best effort: when the session did not approve `chainId`, asks the connected wallet to add the
- * chain (`wallet_addEthereumChain`) and to switch to it (`wallet_switchEthereumChain`), then reads
- * the state again. Both requests go on a chain that the session did approve. A wallet that does not
- * support these methods, or a user who declines, rejects the request: the rejection is not thrown,
- * and the caller's guard then refuses the request with the reconnect message. Each call sends each
- * request once at most and never retries.
+ * chain (`wallet_addEthereumChain`) and to switch to it (`wallet_switchEthereumChain`), then waits
+ * up to `NATIVE_SESSION_CHAIN_WAIT_MS` for the session to approve it. Both requests go on a chain
+ * that the session did approve. A wallet that does not support these methods, or a user who
+ * declines, rejects the request: the rejection is not thrown, the state is read again without
+ * waiting, and the caller's guard then refuses the request with the reconnect message. Each call
+ * sends each request once at most and never retries.
  */
 export async function ensureNativeSessionChain(state: ReownState, chainId: number): Promise<ReownState> {
   const approved = state.chainIds;
@@ -186,14 +251,9 @@ export async function ensureNativeSessionChain(state: ReownState, chainId: numbe
     });
   } catch (err) {
     console.warn(`[NativeReown] could not add or switch to eip155:${chainId}`, err);
+    return readNativeState(state);
   }
-
-  try {
-    return await NativeReown.getState();
-  } catch (err) {
-    console.warn('[NativeReown] could not read the state again after the chain request', err);
-    return state;
-  }
+  return waitForSessionChain(state, chainId);
 }
 
 /**

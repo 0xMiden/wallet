@@ -9,13 +9,20 @@ import {
   ReownState
 } from './native';
 
+const mockStateListeners: Array<(state: ReownState) => void> = [];
+const mockRemoveListener = jest.fn(async () => undefined);
+
 // The plugin object is built inside the factory: `registerPlugin` runs when `./native` loads,
 // before any constant in this file is initialized.
 jest.mock('@capacitor/core', () => ({
   registerPlugin: () => ({
     getState: jest.fn(),
     request: jest.fn(),
-    sendTransaction: jest.fn()
+    sendTransaction: jest.fn(),
+    addListener: jest.fn(async (_eventName: string, listener: (state: ReownState) => void) => {
+      mockStateListeners.push(listener);
+      return { remove: mockRemoveListener };
+    })
   })
 }));
 jest.mock('lib/platform', () => ({ isAndroid: () => false, isIOS: () => true }));
@@ -61,6 +68,7 @@ const send = (tx: Record<string, string>) =>
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockStateListeners.length = 0;
   // The add-and-switch attempt logs a rejection it swallows.
   jest.spyOn(console, 'warn').mockImplementation(() => undefined);
   // The session approved Sepolia, the chain every send below ends up on.
@@ -192,6 +200,93 @@ describe('ensureNativeSessionChain', () => {
 
     expect(NativeReown.request).toHaveBeenCalledTimes(1);
     expect(NativeReown.request).toHaveBeenCalledWith(expect.objectContaining({ method: 'wallet_addEthereumChain' }));
+  });
+});
+
+describe('waiting for the session to approve an added chain', () => {
+  const updateSession = (state: ReownState) => mockStateListeners.forEach(listener => listener(state));
+
+  // Records the outcome without leaving a rejection unhandled while the test moves the clock.
+  const watch = (pending: Promise<void>) => {
+    const watched: { settled: boolean; error?: unknown } = { settled: false };
+    pending.then(
+      () => {
+        watched.settled = true;
+      },
+      (error: unknown) => {
+        watched.settled = true;
+        watched.error = error;
+      }
+    );
+    return watched;
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.mocked(NativeReown.request).mockReset().mockResolvedValue({ result: null });
+    jest
+      .mocked(NativeReown.getState)
+      .mockReset()
+      .mockResolvedValue(sessionState([SEPOLIA]));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('resolves when the session update arrives after the switch answered', async () => {
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(1000);
+    updateSession(sessionState([SEPOLIA, ARC]));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(watched).toEqual({ settled: true, error: undefined });
+    expect(mockRemoveListener).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('resolves when a state re-read approves the chain and no update event arrives', async () => {
+    jest
+      .mocked(NativeReown.getState)
+      .mockResolvedValueOnce(sessionState([SEPOLIA]))
+      .mockResolvedValueOnce(sessionState([SEPOLIA]))
+      .mockResolvedValue(sessionState([SEPOLIA, ARC]));
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+    expect(watched.settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(1000);
+
+    expect(watched).toEqual({ settled: true, error: undefined });
+    expect(mockRemoveListener).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('refuses the chain after 5 s when the session never approves it', async () => {
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(4999);
+    expect(watched.settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+
+    expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect(mockRemoveListener).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('refuses the chain at once when the wallet rejected the switch', async () => {
+    jest
+      .mocked(NativeReown.request)
+      .mockResolvedValueOnce({ result: null })
+      .mockRejectedValueOnce(new Error('User rejected'));
+    const watched = watch(prepareNativeSessionChain(ARC));
+
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(watched.error).toBeInstanceOf(NativeSessionChainNotApprovedError);
+    expect(NativeReown.request).toHaveBeenCalledTimes(2);
+    expect(NativeReown.addListener).not.toHaveBeenCalled();
   });
 });
 
