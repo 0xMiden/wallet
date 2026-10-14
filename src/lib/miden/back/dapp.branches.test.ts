@@ -502,16 +502,37 @@ describe('requestConsumeTransaction — mobile error branches', () => {
       expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
     });
 
-    it('refuses bytes that are neither a NoteFile nor a Note before importing them', async () => {
-      sdk.NoteFile = { deserialize: unparsable('NoteFile') };
-      sdk.Note = { deserialize: unparsable('Note') };
+    describe('bytes that are neither a NoteFile nor a Note', () => {
+      beforeEach(() => {
+        sdk.NoteFile = { deserialize: unparsable('NoteFile') };
+        sdk.Note = { deserialize: unparsable('Note') };
+      });
 
-      await expect(consumeWithBytes()).rejects.toThrow(
-        `${MidenDAppErrorType.InvalidParams}: Error: noteBytes are neither a NoteFile nor a Note`
-      );
-      expect(mockImportNoteBytes).not.toHaveBeenCalled();
-      expect(mockQueueNoteImport).not.toHaveBeenCalled();
-      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+      it('are not imported, and a note the store holds is consumed', async () => {
+        mockInitiateConsumeTransactionFromId.mockResolvedValueOnce('tx-c');
+
+        await expect(consumeWithBytes()).resolves.toEqual(consumed);
+        expect(mockImportNoteBytes).not.toHaveBeenCalled();
+        expect(mockQueueNoteImport).not.toHaveBeenCalled();
+      });
+
+      it('are not imported, and a note the store lacks is refused by the consume itself', async () => {
+        mockInitiateConsumeTransactionFromId.mockRejectedValueOnce(new Error('Input note not found'));
+
+        await expect(consumeWithBytes()).rejects.toThrow(
+          `${MidenDAppErrorType.InvalidParams}: Error: Input note not found`
+        );
+        expect(mockImportNoteBytes).not.toHaveBeenCalled();
+        expect(mockQueueNoteImport).not.toHaveBeenCalled();
+      });
+
+      it('leave a kill during the consume to reach the dApp as the kill', async () => {
+        const kill = new WasmClientPoisonedError('watchdog', new Error('store read parked'));
+        mockInitiateConsumeTransactionFromId.mockRejectedValueOnce(kill);
+
+        await expect(consumeWithBytes()).rejects.toBe(kill);
+        expect(mockImportNoteBytes).not.toHaveBeenCalled();
+      });
     });
 
     it('refuses a carried note another transaction holds rather than answer with that transaction', async () => {

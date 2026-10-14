@@ -1496,17 +1496,41 @@ describe('Full confirmation cycles in extension mode', () => {
       expect(transaction().initiateConsumeTransactionFromId).not.toHaveBeenCalled();
     });
 
-    it('refuses bytes that are neither a NoteFile nor a Note before importing them', async () => {
-      const { queueNoteImport } = jest.requireMock('lib/miden/activity');
-      sdk.NoteFile = { deserialize: unparsable('NoteFile') };
-      sdk.Note = { deserialize: unparsable('Note') };
+    describe('bytes that are neither a NoteFile nor a Note', () => {
+      beforeEach(() => {
+        sdk.NoteFile = { deserialize: unparsable('NoteFile') };
+        sdk.Note = { deserialize: unparsable('Note') };
+      });
 
-      await expect(consumeWithBytes()).rejects.toThrow(
-        `${MidenDAppErrorType.InvalidParams}: Error: noteBytes are neither a NoteFile nor a Note`
-      );
-      expect(_g.__dappExtTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
-      expect(queueNoteImport).not.toHaveBeenCalled();
-      expect(transaction().initiateConsumeTransactionFromId).not.toHaveBeenCalled();
+      it('are not imported, and a note the store holds is consumed', async () => {
+        const { queueNoteImport } = jest.requireMock('lib/miden/activity');
+
+        await expect(consumeWithBytes()).resolves.toEqual({
+          type: MidenDAppMessageType.ConsumeResponse,
+          transactionId: 'tx-c'
+        });
+        expect(_g.__dappExtTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
+        expect(queueNoteImport).not.toHaveBeenCalled();
+      });
+
+      it('are not imported, and a note the store lacks is refused by the consume itself', async () => {
+        const { queueNoteImport } = jest.requireMock('lib/miden/activity');
+        transaction().initiateConsumeTransactionFromId.mockRejectedValueOnce(new Error('Input note not found'));
+
+        await expect(consumeWithBytes()).rejects.toThrow(
+          `${MidenDAppErrorType.InvalidParams}: Error: Input note not found`
+        );
+        expect(_g.__dappExtTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
+        expect(queueNoteImport).not.toHaveBeenCalled();
+      });
+
+      it('leave a kill during the consume to reach the dApp as the kill', async () => {
+        const kill = new WasmClientPoisonedError('watchdog', new Error('store read parked'));
+        transaction().initiateConsumeTransactionFromId.mockRejectedValueOnce(kill);
+
+        await expect(consumeWithBytes()).rejects.toBe(kill);
+        expect(_g.__dappExtTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
+      });
     });
 
     it('refuses a carried note another transaction holds rather than answer with it', async () => {

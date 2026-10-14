@@ -1461,8 +1461,8 @@ const importPrivateNoteFailure = (e: unknown): unknown => (isPipelineKillLink(e)
  *
  * The bytes are checked by the id quarantine derives from them (a NoteFile's note id, else
  * a bare Note's id), never by the import's answer: for raw `Note` bytes that answer is a
- * details commitment, not a note id. Bytes that are neither a NoteFile nor a Note are
- * refused here, as the import would refuse them.
+ * details commitment, not a note id. Bytes that are neither a NoteFile nor a Note are not
+ * imported; the consume then finds the note in the store or refuses it itself.
  */
 async function importConsumeNoteBytes(noteId: string, noteBytes: string): Promise<void> {
   let carriedId: string | null = null;
@@ -1471,9 +1471,9 @@ async function importConsumeNoteBytes(noteId: string, noteBytes: string): Promis
   } catch {
     // Invalid base64 reads as unreadable bytes.
   }
-  if (carriedId === null) {
-    throw new Error('noteBytes are neither a NoteFile nor a Note - refusing to consume it');
-  }
+  // Nothing readable to import: the consume reads the note from the store, as it did before bytes
+  // were carried, and refuses a note the store lacks.
+  if (carriedId === null) return;
   if (carriedId !== noteId) {
     throw new Error('noteBytes describe a different note than noteId - refusing to consume it');
   }
