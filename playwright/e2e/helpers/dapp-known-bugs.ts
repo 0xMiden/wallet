@@ -110,7 +110,7 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
     tracking: '0xMiden/wallet#1389 (open)',
     cells: on(['W5b', 'W5c', 'N4'], BOTH),
     // The consume preview and the private-note list both look the returned details commitment up as a note id
-    // (`src/lib/miden/back/dapp.ts:2680-2687` and `:901, 945`), so a consume is refused before any popup.
+    // (`src/lib/miden/back/dapp.ts:2714-2721` and `:907, 951`), so a consume is refused before any popup.
     signature: ({ cellId, source, evidence }) =>
       source === 'hard' &&
       (cellId === 'N4'
@@ -124,7 +124,7 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
     title: 'A custom request whose transactionRequest cannot be deserialized opens a popup instead of being refused',
     tracking: '0xMiden/wallet#1418 (open)',
     cells: on(['R3-customUndecodable'], BOTH),
-    // The preview swallows the deserialize failure (src/lib/miden/back/dapp.ts:2867-2879) and the popup says it could
+    // The preview swallows the deserialize failure (src/lib/miden/back/dapp.ts:2902-2913) and the popup says it could
     // not decode the request, so the refusal check sees a confirm page open.
     signature: ({ source, evidence }) => source === 'hard' && evidence.popupOpened === true
   }

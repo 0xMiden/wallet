@@ -464,7 +464,7 @@ const handlers: Partial<DappHandlers> = {
     }),
 
   // The declared faucet and amount go to the wallet as given and may differ from the note's on purpose (W4, W5): the
-  // wallet resolves the note itself and shows what it really holds (dapp.ts:2655-2668).
+  // wallet resolves the note itself and shows what it really holds (dapp.ts:2689-2702).
   consume: input =>
     outcome(async () => {
       const bytes = input.noteBytesB64 === undefined ? undefined : b64ToU8(input.noteBytesB64);
@@ -514,7 +514,7 @@ const handlers: Partial<DappHandlers> = {
   },
 
   // Returns the id the wallet reports: the note id for a file with an inclusion proof, the details commitment for a
-  // details-only file or a bare note (dapp.ts:1485-1490). The spike found the wallet then refuses a consume by that
+  // details-only file or a bare note (dapp.ts:1495-1500). The spike found the wallet then refuses a consume by that
   // commitment before any popup, while the same note consumes by its own id: a cell that consumes by the returned id
   // (W5b, W5c) meets that refusal.
   importNote: ({ noteBytesB64 }) =>

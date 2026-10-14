@@ -163,7 +163,7 @@ function writeCells(
     'W3-wire': {
       budget: 'write',
       run: async ctx => {
-        // The same recallable send through the wallet's own requestTransaction routing (spec W3, dapp.ts:1761-1775).
+        // The same recallable send through the wallet's own requestTransaction routing (spec W3, dapp.ts:1781-1795).
         await dappSendToTheEnd(j, dapp, { amount: tst(2.5), noteType: 'public', via: 'wire', recallBlocks: 500 }, ctx);
       }
     },
@@ -212,7 +212,7 @@ function writeCells(
             decision: 'approve',
             origin: dapp.origin,
             whileOpen: async popup => {
-              // The popup shows the resolved note, not the declared 1 TST (dapp.ts:2655-2668).
+              // The popup shows the resolved note, not the declared 1 TST (dapp.ts:2689-2702).
               await expect(popup.getByTestId('confirm-tx-value-amount')).toContainText('7.25');
               await popupBlock(dapp, ctx);
             }

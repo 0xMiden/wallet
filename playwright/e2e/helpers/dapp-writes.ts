@@ -66,7 +66,7 @@ export interface DappSend {
   noteType: NoteTypeName;
   /**
    * `wire` sends `requestTransaction({ type: 'send' })` through the raw provider: the adapter routes send and consume
-   * client-side (adapter.js:118-124), so only this reaches the wallet's own routing (dapp.ts:1761-1775).
+   * client-side (adapter.js:118-124), so only this reaches the wallet's own routing (dapp.ts:1781-1795).
    */
   via: 'requestSend' | 'requestTransaction' | 'wire';
   recallBlocks?: number;
