@@ -3753,6 +3753,14 @@
     "message": "Bu harici hizmet şu anda devre dışıdır. Lütfen daha sonra tekrar deneyin.",
     "englishSource": "This external service is currently down. Please try again later."
   },
+  "swapUnavailableTitle": {
+    "message": "Bu ağda takas (swap) işlemi mevcut değildir",
+    "englishSource": "Swap is not available on this network"
+  },
+  "swapUnavailableBody": {
+    "message": "Bu ağ için henüz hiçbir takas token'ı yapılandırılmamıştır.",
+    "englishSource": "No swap tokens are configured for this network yet."
+  },
   "agglayerCheckingToken": {
     "message": "Bu tokenin Slow rotasını destekleyip desteklemediğini kontrol ediyorum…",
     "englishSource": "Checking whether this token supports the Slow route…"
@@ -6220,5 +6228,25 @@
   "externalPageLoadFailed": {
     "message": "Bu sayfa açılamadı. Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "breadCloseError": {
+    "message": "Bread’e dönülemedi.",
+    "englishSource": "Could not return to Bread."
+  },
+  "breadExitNow": {
+    "message": "Şimdi çık",
+    "englishSource": "Exit now"
+  },
+  "breadPresentationBack": {
+    "message": "Bread’e dön",
+    "englishSource": "Back to Bread"
+  },
+  "breadPresentationHint": {
+    "message": "Dönmek için Bread’e dokunun",
+    "englishSource": "Tap Bread to return"
+  },
+  "breadPresentationError": {
+    "message": "Bu uygulamanın yüklenmesi tamamlanmadı. Tekrar deneyin veya Bread’e dönün.",
+    "englishSource": "This app did not finish loading. Try again or return to Bread."
   }
 }

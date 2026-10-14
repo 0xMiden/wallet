@@ -113,7 +113,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
         helper={fiatValue && <span className="font-heading text-base font-bold text-gray">{fiatValue}</span>}
         showDivider={false}
         data-testid="send-amount-input"
-        onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
+        onValueChange={value => onAmountChange(value || '')}
       />
 
       <div className="mt-8 rounded-2xl border border-hairline bg-page">

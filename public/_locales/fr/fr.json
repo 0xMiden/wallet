@@ -853,6 +853,8 @@
   "unavailable": "Indisponible",
   "bridgeFeatureUnavailableTitle": "Temporairement indisponible",
   "bridgeFeatureUnavailableBody": "Ce service externe est actuellement indisponible. Veuillez réessayer plus tard.",
+  "swapUnavailableTitle": "Le swap n’est pas disponible sur ce réseau",
+  "swapUnavailableBody": "Aucun jeton d’échange n’est encore configuré pour ce réseau.",
   "agglayerCheckingToken": "Vérification de la prise en charge de la « Slow route » par ce jeton…",
   "agglayerTokenUnsupported": "Ce jeton ne prend pas en charge la voie « Slow ».",
   "agglayerTokenCheckFailed": "Impossible de vérifier ce jeton. Revenez en arrière et réessayez.",
@@ -1392,5 +1394,10 @@
   "testIethExecution": "L'échange s'effectue via un contrat intelligent sur le Testnet de Miden.",
   "swapExecutionTitle": "Lieu d’exécution du swap",
   "tokenInfoLabel": "À propos d’$token$",
-  "externalPageLoadFailed": "Impossible d’ouvrir cette page. Vérifiez votre connexion et réessayez."
+  "externalPageLoadFailed": "Impossible d’ouvrir cette page. Vérifiez votre connexion et réessayez.",
+  "breadCloseError": "Impossible de revenir à Bread.",
+  "breadExitNow": "Quitter maintenant",
+  "breadPresentationBack": "Retour à Bread",
+  "breadPresentationHint": "Touchez Bread pour revenir",
+  "breadPresentationError": "Cette application ne s’est pas entièrement chargée. Réessayez ou revenez à Bread."
 }

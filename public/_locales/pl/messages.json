@@ -3753,6 +3753,14 @@
     "message": "Ta usługa zewnętrzna jest obecnie niedostępna. Spróbuj ponownie później.",
     "englishSource": "This external service is currently down. Please try again later."
   },
+  "swapUnavailableTitle": {
+    "message": "Funkcja swap nie jest dostępna w tej sieci",
+    "englishSource": "Swap is not available on this network"
+  },
+  "swapUnavailableBody": {
+    "message": "W tej sieci nie skonfigurowano jeszcze żadnych tokenów typu swap.",
+    "englishSource": "No swap tokens are configured for this network yet."
+  },
   "agglayerCheckingToken": {
     "message": "Sprawdzanie, czy ten token obsługuje trasę Slow…",
     "englishSource": "Checking whether this token supports the Slow route…"
@@ -6220,5 +6228,25 @@
   "externalPageLoadFailed": {
     "message": "Nie udało się otworzyć tej strony. Sprawdź połączenie i spróbuj ponownie.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "breadCloseError": {
+    "message": "Nie udało się wrócić do Bread.",
+    "englishSource": "Could not return to Bread."
+  },
+  "breadExitNow": {
+    "message": "Wyjdź teraz",
+    "englishSource": "Exit now"
+  },
+  "breadPresentationBack": {
+    "message": "Wróć do Bread",
+    "englishSource": "Back to Bread"
+  },
+  "breadPresentationHint": {
+    "message": "Dotknij Bread, aby wrócić",
+    "englishSource": "Tap Bread to return"
+  },
+  "breadPresentationError": {
+    "message": "Ta aplikacja nie została w pełni załadowana. Spróbuj ponownie lub wróć do Bread.",
+    "englishSource": "This app did not finish loading. Try again or return to Bread."
   }
 }

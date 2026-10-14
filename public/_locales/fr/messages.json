@@ -3753,6 +3753,14 @@
     "message": "Ce service externe est actuellement indisponible. Veuillez réessayer plus tard.",
     "englishSource": "This external service is currently down. Please try again later."
   },
+  "swapUnavailableTitle": {
+    "message": "Le swap n’est pas disponible sur ce réseau",
+    "englishSource": "Swap is not available on this network"
+  },
+  "swapUnavailableBody": {
+    "message": "Aucun jeton d’échange n’est encore configuré pour ce réseau.",
+    "englishSource": "No swap tokens are configured for this network yet."
+  },
   "agglayerCheckingToken": {
     "message": "Vérification de la prise en charge de la « Slow route » par ce jeton…",
     "englishSource": "Checking whether this token supports the Slow route…"
@@ -6220,5 +6228,25 @@
   "externalPageLoadFailed": {
     "message": "Impossible d’ouvrir cette page. Vérifiez votre connexion et réessayez.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "breadCloseError": {
+    "message": "Impossible de revenir à Bread.",
+    "englishSource": "Could not return to Bread."
+  },
+  "breadExitNow": {
+    "message": "Quitter maintenant",
+    "englishSource": "Exit now"
+  },
+  "breadPresentationBack": {
+    "message": "Retour à Bread",
+    "englishSource": "Back to Bread"
+  },
+  "breadPresentationHint": {
+    "message": "Touchez Bread pour revenir",
+    "englishSource": "Tap Bread to return"
+  },
+  "breadPresentationError": {
+    "message": "Cette application ne s’est pas entièrement chargée. Réessayez ou revenez à Bread.",
+    "englishSource": "This app did not finish loading. Try again or return to Bread."
   }
 }

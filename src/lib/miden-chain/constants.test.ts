@@ -128,10 +128,13 @@ describe('miden-chain/constants', () => {
     });
 
     it('propagates rejections from MidenClient.ready()', async () => {
-      mockMidenClientReady.mockReturnValueOnce(Promise.reject(new Error('wasm boom')));
+      const failure = new Error('wasm boom');
+      mockMidenClientReady.mockReturnValueOnce(Promise.reject(failure));
       await jest.isolateModulesAsync(async () => {
         const { ensureSdkWasmReady } = require('./constants');
-        await expect(ensureSdkWasmReady()).rejects.toThrow(/wasm boom/);
+        const { snapshotCrashDiagnostics } = require('lib/telemetry/crash-diagnostics');
+        await expect(ensureSdkWasmReady()).rejects.toBe(failure);
+        expect(snapshotCrashDiagnostics(failure)).toEqual({ operation: 'sdk_initialize', stage: 'wasm_ready' });
       });
     });
   });

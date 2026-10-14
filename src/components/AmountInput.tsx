@@ -7,6 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { ClearFieldButton } from 'components/ui/ClearFieldButton';
 import { Skeleton } from 'components/ui/Skeleton';
+import { getCurrentLocale } from 'lib/i18n/core';
 import { clearFieldValue } from 'lib/ui/clear-field';
 
 /**
@@ -140,6 +141,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
       placeholder={placeholder}
       transformRawValue={normalizeDecimalInput}
       disableGroupSeparators
+      intlConfig={{ locale: getCurrentLocale().replace('_', '-'), numberingSystem: 'latn' }}
       // `disableGroupSeparators` only stops grouping in the *display*; the
       // library still derives a group separator from the ambient locale and
       // strips it from the raw input on every keystroke. On a `.`-group

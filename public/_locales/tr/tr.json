@@ -853,6 +853,8 @@
   "unavailable": "Kullanılamıyor",
   "bridgeFeatureUnavailableTitle": "Geçici olarak kullanılamıyor",
   "bridgeFeatureUnavailableBody": "Bu harici hizmet şu anda devre dışıdır. Lütfen daha sonra tekrar deneyin.",
+  "swapUnavailableTitle": "Bu ağda takas (swap) işlemi mevcut değildir",
+  "swapUnavailableBody": "Bu ağ için henüz hiçbir takas token'ı yapılandırılmamıştır.",
   "agglayerCheckingToken": "Bu tokenin Slow rotasını destekleyip desteklemediğini kontrol ediyorum…",
   "agglayerTokenUnsupported": "Bu token, Slow rotasını desteklemez.",
   "agglayerTokenCheckFailed": "Bu jetonu doğrulayamadım. Geri dönün ve tekrar deneyin.",
@@ -1392,5 +1394,10 @@
   "testIethExecution": "Takas, Miden Testnet üzerindeki bir akıllı sözleşme aracılığıyla gerçekleştirilir.",
   "swapExecutionTitle": "Değişimin gerçekleştiği yer",
   "tokenInfoLabel": "$token$ hakkında",
-  "externalPageLoadFailed": "Bu sayfa açılamadı. Bağlantınızı kontrol edin ve tekrar deneyin."
+  "externalPageLoadFailed": "Bu sayfa açılamadı. Bağlantınızı kontrol edin ve tekrar deneyin.",
+  "breadCloseError": "Bread’e dönülemedi.",
+  "breadExitNow": "Şimdi çık",
+  "breadPresentationBack": "Bread’e dön",
+  "breadPresentationHint": "Dönmek için Bread’e dokunun",
+  "breadPresentationError": "Bu uygulamanın yüklenmesi tamamlanmadı. Tekrar deneyin veya Bread’e dönün."
 }

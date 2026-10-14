@@ -853,6 +853,8 @@
   "unavailable": "Недоступно",
   "bridgeFeatureUnavailableTitle": "Временно недоступно",
   "bridgeFeatureUnavailableBody": "Этот внешний сервис в настоящее время недоступен. Пожалуйста, попробуйте позже.",
+  "swapUnavailableTitle": "Функция обмена (Swap) в этой сети недоступна",
+  "swapUnavailableBody": "Для этой сети пока не настроены токены для свопа.",
   "agglayerCheckingToken": "Проверка, поддерживает ли этот токен маршрут Slow…",
   "agglayerTokenUnsupported": "Этот токен не поддерживает маршрут Slow.",
   "agglayerTokenCheckFailed": "Не удалось проверить этот токен. Вернитесь и попробуйте ещё раз.",
@@ -1392,5 +1394,10 @@
   "testIethExecution": "Обмен осуществляется через смарт-контракт в тестовой сети Miden.",
   "swapExecutionTitle": "Где происходит замена",
   "tokenInfoLabel": "О $token$",
-  "externalPageLoadFailed": "Не удалось открыть эту страницу. Проверьте подключение и попробуйте ещё раз."
+  "externalPageLoadFailed": "Не удалось открыть эту страницу. Проверьте подключение и попробуйте ещё раз.",
+  "breadCloseError": "Не удалось вернуться в Bread.",
+  "breadExitNow": "Выйти сейчас",
+  "breadPresentationBack": "Вернуться в Bread",
+  "breadPresentationHint": "Нажмите Bread, чтобы вернуться",
+  "breadPresentationError": "Это приложение не загрузилось полностью. Попробуйте ещё раз или вернитесь в Bread."
 }

@@ -62,7 +62,7 @@ export interface FailureEvidence {
   returnedIdUnlisted?: boolean;
 }
 
-/** A check that failed without stopping the cell, so one run can record a soft and a hard known bug (K4 and K3). */
+/** A check that failed without stopping the cell, so one run can record a soft and a hard known bug. */
 export interface SoftFailure {
   check: string;
   detail: string;

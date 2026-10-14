@@ -29,6 +29,7 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('app/providers/DappBrowserProvider', () => ({
+  useHideForegroundDappWhileOpen: jest.fn(),
   useDappBrowser: () => ({
     session: mockSession,
     isLoading: false,

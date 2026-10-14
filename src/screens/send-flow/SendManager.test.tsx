@@ -3,7 +3,8 @@ import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
 import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
-import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
@@ -12,6 +13,10 @@ import { settleSendFlow } from './send-telemetry';
 import { SendFlow } from './SendManager';
 import { SendFlowStep } from './types';
 import { WalletType } from '../onboarding/types';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 /**
  * SendManager is a Navigator-hosted, react-hook-form-driven multi-step send
@@ -1321,10 +1326,10 @@ describe('token preselection', () => {
   });
 
   it('values a preselected swap token at the asset it stands for', () => {
-    mockSearch = `?tokenId=${TOKEN_IETH.faucetId}`;
+    mockSearch = `?tokenId=${TEST_TOKEN_IETH.faucetId}`;
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     useAllBalancesMock.mockReturnValue({
-      data: [{ tokenId: TOKEN_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 2, fiatPrice: 0 }]
+      data: [{ tokenId: TEST_TOKEN_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 2, fiatPrice: 0 }]
     });
     walletStoreState.tokenPrices = { ETH: { price: 3000 } };
     try {
@@ -1337,7 +1342,7 @@ describe('token preselection', () => {
   });
 
   describe('after the user picks another token', () => {
-    const T2 = TOKEN_IBTC.faucetId;
+    const T2 = TEST_TOKEN_IBTC.faucetId;
     const threeTokens = (t2Balance = 7) => [
       { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 0 },
       { tokenId: T2, metadata: { symbol: 'TK2', decimals: 2 }, balance: t2Balance, fiatPrice: 0 },

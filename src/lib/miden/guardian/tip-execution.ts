@@ -7,6 +7,28 @@ import {
 
 import { syncAndRecordFeeFaucet } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 
+/**
+ * A hand-built proposal request with no multisig auth args binds no block, and the Guardian
+ * refuses a proposal without one only after it was pushed.
+ */
+export class UnboundGuardianRequestError extends Error {
+  constructor(accountId: string, requestKind: string) {
+    super(`Guardian account ${accountId}: the ${requestKind} request carries no multisig auth args`);
+    this.name = 'UnboundGuardianRequestError';
+  }
+}
+
+/** The block a hand-built proposal request binds; read before its summary executes. */
+export const requireRequestBoundBlockNum = (
+  request: TransactionRequest,
+  accountId: string,
+  requestKind: string
+): number => {
+  const boundBlockNum = requestBoundBlockNum(request);
+  if (boundBlockNum === undefined) throw new UnboundGuardianRequestError(accountId, requestKind);
+  return boundBlockNum;
+};
+
 export const prepareGuardianTipExecution = async (
   client: Pick<MidenClient, 'syncChain' | 'getSyncHeight' | 'feeFaucetId'>,
   request: TransactionRequest,

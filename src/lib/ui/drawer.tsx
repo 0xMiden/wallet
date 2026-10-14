@@ -13,6 +13,7 @@ import { useCloseOnBack } from 'lib/mobile/useCloseOnBack';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { isExtension } from 'lib/platform';
 
+import { HOST_MODAL_LAYER, useImperativeModalFocus } from './host-modal';
 import { cn } from './util';
 
 interface DrawerContextValue {
@@ -78,6 +79,7 @@ function Drawer({
       {open && dismissible !== false && closeOnBack && <CloseOnBack close={onClose} />}
       <VaulDrawer.Root
         open={open}
+        autoFocus
         onOpenChange={onOpenChange}
         shouldScaleBackground={isExtension()}
         direction="bottom"
@@ -131,9 +133,12 @@ function DrawerContent({
   forceMount,
   style,
   onPointerDownOutside,
+  onOpenAutoFocus,
+  onCloseAutoFocus,
   ...props
 }: DrawerContentProps) {
   const { open } = useContext(DrawerContext);
+  const focus = useImperativeModalFocus();
   // Radix holds a press outside the sheet until its click, and a closing sheet still holds one: when
   // that click reopens this sheet (the swap's two pills share one picker), the held dismissal closes it
   // again. A press that began while the sheet was closed is never a press outside the open sheet.
@@ -150,13 +155,21 @@ function DrawerContent({
           blur over it only smears whatever is underneath. */}
       <VaulDrawer.Overlay
         style={{ ...sheetMotionVars, ...inertWhileClosing }}
-        className={cn('fixed inset-0 z-50 bg-scrim', overlayClassName)}
+        className={cn('fixed inset-0 bg-scrim', HOST_MODAL_LAYER, overlayClassName)}
       />
       <VaulDrawer.Content
         data-slot="drawer-content"
         aria-describedby={undefined}
         // The tab-bar springs, as the `linear()` curves `main.css` reads off these elements.
         style={{ ...sheetMotionVars, ...style, ...inertWhileClosing }}
+        onOpenAutoFocus={event => {
+          focus.remember();
+          onOpenAutoFocus?.(event);
+        }}
+        onCloseAutoFocus={event => {
+          onCloseAutoFocus?.(event);
+          if (!event.defaultPrevented) focus.restore(event);
+        }}
         onPointerDownOutside={event => {
           onPointerDownOutside?.(event);
           if (event.detail.originalEvent === closingPress.current) event.preventDefault();
@@ -169,8 +182,9 @@ function DrawerContent({
           // (env() and the var are 0 on extension/Android). The padding snaps:
           // only the transform transitions, so main.css's sheet spring, which
           // lands on every transitioned property, never animates the inset.
-          'fixed inset-x-0 bottom-0 z-50 flex max-h-[80vh] flex-col rounded-t-[28px] bg-page text-body-sm outline-none',
+          'fixed inset-x-0 bottom-0 flex max-h-[80vh] flex-col rounded-t-[28px] bg-page text-body-sm outline-none',
           'pb-[max(env(safe-area-inset-bottom),var(--keyboard-height,0px))] transition-transform',
+          HOST_MODAL_LAYER,
           className
         )}
         {...props}

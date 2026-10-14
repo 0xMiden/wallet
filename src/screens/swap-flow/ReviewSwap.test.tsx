@@ -2,7 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import { SwapEta, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { SwapEta } from 'lib/miden/swap/tokens';
 
 import { ReviewSwap, ReviewSwapProps } from './ReviewSwap';
 
@@ -39,8 +40,12 @@ jest.mock('app/hooks/useNetworkFeeEstimate', () => ({
 // mock only needs to supply the runtime `SOLVER_MARGIN` value.
 jest.mock('lib/miden/swap/tokens', () => ({
   SOLVER_MARGIN: 0.05,
-  TOKEN_IETH: jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH,
   normalizedFaucetId: jest.requireActual('lib/miden/swap/tokens').normalizedFaucetId
+}));
+
+// The testnet document, whose swap tokens name the iETH faucet the labels read.
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useBridgeConfigSnapshot: () => jest.requireActual('lib/epoch/testing/bridge-config').TEST_BRIDGE_CONFIG_SNAPSHOT
 }));
 
 // The real ReviewLayout transitively pulls in `components/Button` (framer-motion +
@@ -156,7 +161,7 @@ describe('ReviewSwap', () => {
 
     it('names the registry iETH "Test iETH" in the receive hero and the rate row, keeping the symbol for the logo (#477)', () => {
       renderComponent({
-        requestToken: { ...REQUEST_TOKEN, faucetId: TOKEN_IETH.faucetId },
+        requestToken: { ...REQUEST_TOKEN, faucetId: TEST_TOKEN_IETH.faucetId },
         swapEta: etaWithRate('2')
       });
 
@@ -166,8 +171,8 @@ describe('ReviewSwap', () => {
     });
 
     it.each([
-      ['receive', { requestToken: { ...REQUEST_TOKEN, faucetId: TOKEN_IETH.faucetId } }],
-      ['send', { offerToken: { ...OFFER_TOKEN, faucetId: TOKEN_IETH.faucetId, symbol: 'IETH' } }]
+      ['receive', { requestToken: { ...REQUEST_TOKEN, faucetId: TEST_TOKEN_IETH.faucetId } }],
+      ['send', { offerToken: { ...OFFER_TOKEN, faucetId: TEST_TOKEN_IETH.faucetId, symbol: 'IETH' } }]
     ])('puts one (i) on testnet iETH when it is the %s side (#477)', (_side, overrides) => {
       renderComponent(overrides);
 

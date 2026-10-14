@@ -3753,6 +3753,14 @@
     "message": "この外部サービスは現在利用できません。後ほど再度お試しください。",
     "englishSource": "This external service is currently down. Please try again later."
   },
+  "swapUnavailableTitle": {
+    "message": "このネットワークではスワップは利用できません",
+    "englishSource": "Swap is not available on this network"
+  },
+  "swapUnavailableBody": {
+    "message": "このネットワークでは、現時点ではスワップ用トークンは設定されていません。",
+    "englishSource": "No swap tokens are configured for this network yet."
+  },
   "agglayerCheckingToken": {
     "message": "このトークンが「Slowルート」に対応しているかどうかを確認中…",
     "englishSource": "Checking whether this token supports the Slow route…"
@@ -6220,5 +6228,25 @@
   "externalPageLoadFailed": {
     "message": "このページを開くことができませんでした。接続を確認して、もう一度お試しください。",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "breadCloseError": {
+    "message": "Breadに戻れませんでした。",
+    "englishSource": "Could not return to Bread."
+  },
+  "breadExitNow": {
+    "message": "今すぐ終了",
+    "englishSource": "Exit now"
+  },
+  "breadPresentationBack": {
+    "message": "Breadに戻る",
+    "englishSource": "Back to Bread"
+  },
+  "breadPresentationHint": {
+    "message": "Breadをタップして戻る",
+    "englishSource": "Tap Bread to return"
+  },
+  "breadPresentationError": {
+    "message": "このアプリの読み込みが完了しませんでした。もう一度試すか、Breadに戻ってください。",
+    "englishSource": "This app did not finish loading. Try again or return to Bread."
   }
 }

@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { hapticLight } from 'lib/mobile/haptics';
 import { SendStepLayout } from 'screens/send-flow/SendStepLayout';
 
@@ -119,6 +119,11 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getTestNetworkNameKey: () => 'testnet'
 }));
 
+// The testnet document, whose swap tokens name the iETH faucet the labels read.
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useBridgeConfigSnapshot: () => jest.requireActual('lib/epoch/testing/bridge-config').TEST_BRIDGE_CONFIG_SNAPSHOT
+}));
+
 type SwapToken = SwapAmountsProps['offerToken'];
 
 const offerToken: SwapToken = {
@@ -183,12 +188,12 @@ describe('SwapAmounts', () => {
     });
 
     it('names the registry iETH "Test iETH" on its side and leaves another token on its symbol (#477)', () => {
-      renderComponent({ requestToken: { ...requestToken, faucetId: TOKEN_IETH.faucetId } });
+      renderComponent({ requestToken: { ...requestToken, faucetId: TEST_TOKEN_IETH.faucetId } });
 
       expect(screen.getByTestId('select-amount-youReceive')).toHaveAttribute('data-token-label', 'Test iETH');
       expect(screen.getByTestId('select-amount-youPay')).toHaveAttribute('data-token-label', 'IMIDEN');
 
-      renderComponent({ offerToken: { ...offerToken, symbol: 'IETH', faucetId: TOKEN_IETH.faucetId } });
+      renderComponent({ offerToken: { ...offerToken, symbol: 'IETH', faucetId: TEST_TOKEN_IETH.faucetId } });
       expect(screen.getAllByTestId('select-amount-youPay')[1]).toHaveAttribute('data-token-label', 'Test iETH');
     });
 
@@ -491,7 +496,7 @@ describe('SwapAmounts — CTA', () => {
   it('drops to a 16px cushion while the navbar is hidden (keyboard up), and keeps the step cushion otherwise', () => {
     renderComponent();
     const footer = screen.getAllByTestId('swap-review-submit').at(-1)!.parentElement!;
-    expect(footer.className).toContain('pb-[max(');
+    expect(footer.className).toContain('pb-[calc(max(');
     expect(footer).toHaveAttribute('data-navbar-cushion', 'true');
 
     const css = fs.readFileSync(path.join(__dirname, '../../main.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
@@ -499,7 +504,11 @@ describe('SwapAmounts — CTA', () => {
       selector: selector.trim(),
       body: body.trim()
     })).filter(rule => rule.selector === "body[data-hide-navbar] [data-navbar-cushion='true']");
-    expect(collapse.some(rule => /(^|;)\s*padding-bottom:\s*1rem\s*(;|$)/.test(rule.body))).toBe(true);
+    expect(
+      collapse.some(rule =>
+        /(^|;)\s*padding-bottom:\s*calc\(1rem \+ var\(--wallet-control-safe-bottom, 0px\)\)\s*(;|$)/.test(rule.body)
+      )
+    ).toBe(true);
   });
 
   it('asks for an amount first, waits on the quote, then offers the review', () => {

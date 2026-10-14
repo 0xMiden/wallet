@@ -10,7 +10,8 @@ import {
 } from 'lib/epoch/testing/bridge-config';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
-import { getSwapTokenByFaucetId, TOKEN_IETH, TOKEN_IMIDEN } from 'lib/miden/swap/tokens';
+import { TEST_TOKEN_IETH, TEST_TOKEN_IMIDEN } from 'lib/miden/swap/testing/registry';
+import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
@@ -64,9 +65,7 @@ const UNKNOWN_METADATA = jest.requireActual('lib/miden/metadata').DEFAULT_TOKEN_
 // used here so tests choose between the registry-hit and fallback paths.
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokenByFaucetId: jest.fn(),
-  normalizedFaucetId: (faucetId: string) => faucetId,
-  TOKEN_IETH: jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH,
-  TOKEN_IMIDEN: jest.requireActual('lib/miden/swap/tokens').TOKEN_IMIDEN
+  normalizedFaucetId: (faucetId: string) => faucetId
 }));
 
 // Native-asset resolution instantiates an RpcClient at import time; replace the
@@ -1165,9 +1164,9 @@ describe('labelHistoryEntry', () => {
   it('labels each side of a swap row by its own faucet, so iETH reads "Test iETH" on either side (#477)', () => {
     const swapRow = bridgeEntry({
       txType: 'swap',
-      faucetId: TOKEN_IMIDEN.faucetId,
+      faucetId: TEST_TOKEN_IMIDEN.faucetId,
       token: 'MIDEN',
-      requestedFaucetId: TOKEN_IETH.faucetId,
+      requestedFaucetId: TEST_TOKEN_IETH.faucetId,
       requestedToken: 'IETH'
     });
     expect(labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, swapRow)).toMatchObject({
@@ -1177,9 +1176,9 @@ describe('labelHistoryEntry', () => {
     expect(
       labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, {
         ...swapRow,
-        faucetId: TOKEN_IETH.faucetId,
+        faucetId: TEST_TOKEN_IETH.faucetId,
         token: 'IETH',
-        requestedFaucetId: TOKEN_IMIDEN.faucetId,
+        requestedFaucetId: TEST_TOKEN_IMIDEN.faucetId,
         requestedToken: 'MIDEN'
       })
     ).toMatchObject({ token: 'Test iETH', requestedToken: 'MIDEN' });

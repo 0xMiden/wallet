@@ -15,7 +15,8 @@ import { deserializeInternalError, serializeInternalError } from 'lib/intercom/h
 import { initiateSendTransaction, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { isExtension } from 'lib/platform';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -28,6 +29,10 @@ import { dateTimeToRecallBlocks } from './RecallCalendarDrawer';
 import { ReviewTransaction } from './ReviewTransaction';
 import { clearSendDraft } from './send-draft';
 import { enterSendFlow, settleSendFlow } from './send-telemetry';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 // ---------------------------------------------------------------------------
 // Mutable per-test state read by the hook mocks. All prefixed with `mock` so
@@ -251,10 +256,6 @@ jest.mock('lib/miden/front/client', () => ({
 // Distinct, so an assertion on it fails for any other provider.
 jest.mock('lib/miden/front/guardian-sync', () => ({
   zustandProvider: { provider: 'zustand' }
-}));
-
-jest.mock('lib/miden/types', () => ({
-  NoteTypeEnum: { Public: 'public', Private: 'private' }
 }));
 
 jest.mock('lib/miden/sdk/helpers', () => ({
@@ -667,9 +668,11 @@ describe('ReviewTransaction — rendering', () => {
   });
 
   it('values a swap token at the asset it stands for', async () => {
-    mockSearch = `amount=5&to=0xrecipient&tokenId=${TOKEN_IETH.faucetId}`;
+    // The document lists IETH, which testnet names Test iETH.
+    mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    mockSearch = `amount=5&to=0xrecipient&tokenId=${TEST_TOKEN_IETH.faucetId}`;
     mockBalanceData = [
-      { tokenId: TOKEN_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 10, fiatPrice: 0 }
+      { tokenId: TEST_TOKEN_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 10, fiatPrice: 0 }
     ];
     mockWalletStoreState.tokenPrices = { ETH: { price: 3 } };
     try {

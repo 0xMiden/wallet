@@ -853,6 +853,8 @@
   "unavailable": "不可用",
   "bridgeFeatureUnavailableTitle": "暂时不可用",
   "bridgeFeatureUnavailableBody": "该外部服务目前无法使用。请稍后再试。",
+  "swapUnavailableTitle": "该网络不支持“Swap”功能",
+  "swapUnavailableBody": "目前该网络尚未配置任何可交换代币。",
   "agglayerCheckingToken": "正在检查该代币是否支持慢速路线……",
   "agglayerTokenUnsupported": "该代币不支持“慢速”通道。",
   "agglayerTokenCheckFailed": "无法验证此令牌。请返回并重试。",
@@ -1392,5 +1394,10 @@
   "testIethExecution": "该更换操作通过 Miden 测试网上的智能合约执行。",
   "swapExecutionTitle": "交换操作的执行位置",
   "tokenInfoLabel": "关于 $token$",
-  "externalPageLoadFailed": "无法打开此页面。请检查网络连接并重试。"
+  "externalPageLoadFailed": "无法打开此页面。请检查网络连接并重试。",
+  "breadCloseError": "无法返回 Bread。",
+  "breadExitNow": "立即退出",
+  "breadPresentationBack": "返回 Bread",
+  "breadPresentationHint": "轻点 Bread 即可返回",
+  "breadPresentationError": "此应用未完成加载。请重试或返回 Bread。"
 }

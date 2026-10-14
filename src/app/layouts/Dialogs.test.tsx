@@ -18,11 +18,20 @@ jest.mock('lib/ui/dialog', () => ({
   dispatchConfirmClose: jest.fn()
 }));
 
-// `useMobileBackHandler` is a jest.fn so we can capture the handler/deps the
-// component registers and invoke the handler directly to exercise every
-// branch of the back-button logic.
-jest.mock('lib/mobile/useMobileBackHandler', () => ({
-  useMobileBackHandler: jest.fn()
+const mockBack: { handler: () => boolean | void; active: boolean; options: unknown }[] = [];
+jest.mock('lib/platform', () => ({
+  ...jest.requireActual('lib/platform'),
+  isMobile: () => true,
+  isExtension: () => false
+}));
+jest.mock('lib/mobile/back-handler', () => ({
+  registerMobileBackHandler: (handler: () => boolean | void, options: unknown) => {
+    const entry = { handler, active: true, options };
+    mockBack.push(entry);
+    return () => {
+      entry.active = false;
+    };
+  }
 }));
 
 jest.mock('react-i18next', () => ({
@@ -40,11 +49,6 @@ const dialog = require('lib/ui/dialog') as {
   dispatchConfirmClose: jest.Mock;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { useMobileBackHandler } = require('lib/mobile/useMobileBackHandler') as {
-  useMobileBackHandler: jest.Mock;
-};
-
 type ModalsParams = {
   alertParams: { isOpen: boolean; title?: string; children?: string };
   confirmParams: { isOpen: boolean; title?: string; children?: string; confirmLabel?: string; destructive?: boolean };
@@ -54,20 +58,11 @@ function setParams(params: ModalsParams): void {
   dialog.useModalsParams.mockReturnValue(params);
 }
 
-/** Returns the back-handler callback most recently registered by the component. */
-function getBackHandler(): () => boolean | void {
-  const calls = useMobileBackHandler.mock.calls;
-  return calls[calls.length - 1][0];
-}
-
-/** Returns the deps array passed alongside the back handler. */
-function getBackDeps(): unknown[] {
-  const calls = useMobileBackHandler.mock.calls;
-  return calls[calls.length - 1][1];
-}
+const getBackHandler = () => mockBack.filter(entry => entry.active).at(-1)!.handler;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockBack.length = 0;
   setParams({ alertParams: { isOpen: false }, confirmParams: { isOpen: false } });
 });
 
@@ -168,16 +163,11 @@ describe('Dialogs', () => {
     });
   });
 
-  it('registers the back handler with the dialog-open flags as deps', () => {
+  it('registers only open presentations in the overlay tier', () => {
     setParams({ alertParams: { isOpen: true }, confirmParams: { isOpen: false } });
-
     render(<Dialogs />);
-
-    expect(useMobileBackHandler).toHaveBeenCalledTimes(1);
-    // deps: [confirmParams.isOpen, alertParams.isOpen]
-    expect(getBackDeps()).toEqual([false, true]);
-    // Alert and confirm dialogs float above any page, so they register in the overlay tier.
-    expect(useMobileBackHandler.mock.calls[0][2]).toEqual({ overlay: true });
+    expect(mockBack.filter(entry => entry.active)).toHaveLength(1);
+    expect(mockBack[0]!.options).toEqual({ overlay: true });
   });
 
   describe('mobile back handler', () => {
@@ -193,15 +183,14 @@ describe('Dialogs', () => {
       expect(dialog.dispatchAlertClose).not.toHaveBeenCalled();
     });
 
-    it('prioritizes the confirmation when both dialogs are open', () => {
+    it.each(['alert', 'confirm'] as const)('closes the newest presentation after %s opens first', first => {
+      setParams({ alertParams: { isOpen: first === 'alert' }, confirmParams: { isOpen: first === 'confirm' } });
+      const view = render(<Dialogs />);
       setParams({ alertParams: { isOpen: true }, confirmParams: { isOpen: true } });
-      render(<Dialogs />);
-
-      const handled = getBackHandler()();
-
-      expect(handled).toBe(true);
-      expect(dialog.dispatchConfirmClose).toHaveBeenCalledWith(false);
-      expect(dialog.dispatchAlertClose).not.toHaveBeenCalled();
+      view.rerender(<Dialogs />);
+      expect(getBackHandler()()).toBe(true);
+      expect(first === 'alert' ? dialog.dispatchConfirmClose : dialog.dispatchAlertClose).toHaveBeenCalledTimes(1);
+      expect(first === 'alert' ? dialog.dispatchAlertClose : dialog.dispatchConfirmClose).not.toHaveBeenCalled();
     });
 
     it('closes the alert and consumes the back press when only the alert is open', () => {
@@ -215,13 +204,11 @@ describe('Dialogs', () => {
       expect(dialog.dispatchConfirmClose).not.toHaveBeenCalled();
     });
 
-    it('passes the back press through (returns false) when no dialog is open', () => {
+    it('registers no back handler when no dialog is open', () => {
       setParams({ alertParams: { isOpen: false }, confirmParams: { isOpen: false } });
       render(<Dialogs />);
 
-      const handled = getBackHandler()();
-
-      expect(handled).toBe(false);
+      expect(mockBack.filter(entry => entry.active)).toHaveLength(0);
       expect(dialog.dispatchConfirmClose).not.toHaveBeenCalled();
       expect(dialog.dispatchAlertClose).not.toHaveBeenCalled();
     });

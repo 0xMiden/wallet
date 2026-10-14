@@ -853,6 +853,8 @@
   "unavailable": "Indisponível",
   "bridgeFeatureUnavailableTitle": "Temporariamente indisponível",
   "bridgeFeatureUnavailableBody": "Este serviço externo está indisponível no momento. Tente novamente mais tarde.",
+  "swapUnavailableTitle": "A troca não está disponível nesta rede",
+  "swapUnavailableBody": "Ainda não há tokens de swap configurados para esta rede.",
   "agglayerCheckingToken": "Verificando se este token suporta a rota Slow…",
   "agglayerTokenUnsupported": "Este token não suporta a rota Slow.",
   "agglayerTokenCheckFailed": "Não foi possível verificar este token. Volte e tente novamente.",
@@ -1392,5 +1394,10 @@
   "testIethExecution": "A troca é executada por meio de um contrato inteligente na Miden Testnet.",
   "swapExecutionTitle": "Onde a troca é executada",
   "tokenInfoLabel": "Sobre o $token$",
-  "externalPageLoadFailed": "Não foi possível abrir esta página. Verifique sua conexão e tente novamente."
+  "externalPageLoadFailed": "Não foi possível abrir esta página. Verifique sua conexão e tente novamente.",
+  "breadCloseError": "Não foi possível voltar ao Bread.",
+  "breadExitNow": "Sair agora",
+  "breadPresentationBack": "Voltar ao Bread",
+  "breadPresentationHint": "Toque em Bread para voltar",
+  "breadPresentationError": "Este aplicativo não terminou de carregar. Tente novamente ou volte ao Bread."
 }

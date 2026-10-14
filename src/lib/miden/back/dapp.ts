@@ -2495,13 +2495,16 @@ async function requestConfirm({ id, payload, onDecline, handleIntercomRequest, h
     left = Math.round(screenX + outerWidth / 2 - CONFIRM_WINDOW_WIDTH / 2);
   }
 
+  left = Math.max(left, 20);
+  top = Math.max(top, 20);
+
   const confirmWin = await browser.windows.create({
     type: 'popup',
     url: browser.runtime.getURL(`confirm.html#?id=${id}`),
     width: isWin ? CONFIRM_WINDOW_WIDTH + 16 : CONFIRM_WINDOW_WIDTH,
     height: isWin ? CONFIRM_WINDOW_HEIGHT + 17 : CONFIRM_WINDOW_HEIGHT,
-    top: Math.max(top, 20),
-    left: Math.max(left, 20)
+    top,
+    left
   });
 
   // Firefox currently ignores left/top for create, but it works for update

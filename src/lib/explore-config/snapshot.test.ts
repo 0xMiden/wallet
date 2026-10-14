@@ -8,15 +8,17 @@ import { bundledExploreCatalog } from './source';
 
 const ICON_DIR = path.join(__dirname, '../../app/misc/dapp-icons');
 
-it('bundles the testnet catalog: both faucets, the Faucet featured, both as helper tools', () => {
+it('bundles both testnet faucets and Where Legends Grow in their published sections', () => {
   const catalog = bundledExploreCatalog('testnet');
   expect(catalog?.items.map(item => [item.id, item.url, item.brandColor])).toEqual([
     ['faucet', 'https://faucet.testnet.miden.io/', '#778C72'],
-    ['forkchoice-faucet', 'https://faucets.forkchoice.xyz/', '#2563EB']
+    ['forkchoice-faucet', 'https://faucets.forkchoice.xyz/', '#2563EB'],
+    ['where-legends-grow', 'https://wherelegendsgrow.com/', '#07101F']
   ]);
   expect(catalog?.sections.map(section => [section.id, section.kind, section.itemIds])).toEqual([
     ['featured', 'featured', ['faucet']],
-    ['helper-tools', 'list', ['faucet', 'forkchoice-faucet']]
+    ['helper-tools', 'list', ['faucet', 'forkchoice-faucet']],
+    ['games', 'list', ['where-legends-grow']]
   ]);
 });
 
@@ -35,12 +37,16 @@ it('ships a file for exactly the icon paths the bundled documents name', () => {
   for (const iconPath of named) expect(fs.existsSync(path.join(ICON_DIR, path.basename(iconPath)))).toBe(true);
 });
 
-it('carries the translations the wallet shipped for the section titles and the swap faucet tagline', () => {
+it('carries the published translations for section titles and the swap faucet and game taglines', () => {
   const catalog = bundledExploreCatalog('testnet');
-  expect(catalog?.sections.map(section => section.title.de)).toEqual(['Empfohlen', 'Hilfsprogramme']);
+  expect(catalog?.sections.map(section => section.title.de)).toEqual(['Empfohlen', 'Hilfsprogramme', 'Spiele']);
   expect(catalog?.items[1]?.tagline).toMatchObject({
     en: 'Get testnet tokens for swap',
     ja: 'スワップ用のテストネットトークンを入手'
+  });
+  expect(catalog?.items[2]?.tagline).toMatchObject({
+    en: 'Build a football club, train your squad and play matches',
+    ja: 'サッカークラブを作り、選手を育てて試合に挑む'
   });
 });
 
