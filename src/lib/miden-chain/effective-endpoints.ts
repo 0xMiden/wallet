@@ -285,7 +285,27 @@ export async function clearEndpointOverride(): Promise<void> {
   overrideCache = null;
 }
 
+const OVERRIDE_ENDPOINT_FIELDS = [
+  'rpcUrl',
+  'proverUrl',
+  'noteTransportUrl',
+  'faucetUrl',
+  'faucetApiUrl',
+  'explorerUrl',
+  'guardianUrl'
+] as const;
+
+// What `buildNetworkChoiceOverride` stores: a network, with no endpoint and no developer option of its own.
+const isNetworkChoice = (override: EndpointOverride) =>
+  OVERRIDE_ENDPOINT_FIELDS.every(field => !override[field]) && !override.allowNoGuardian && !override.feeFaucetId;
+
+/**
+ * Whether a developer endpoint override is stored. The network choice onboarding stores is not one, so an
+ * ordinary mainnet wallet shows no developer endpoints; Developer Settings still reads it as the stored choice.
+ */
 export async function isEndpointOverrideActive(): Promise<boolean> {
   const items = await getStorageProvider().get([ENDPOINT_OVERRIDE_STORAGE_KEY]);
-  return items[ENDPOINT_OVERRIDE_STORAGE_KEY] != null;
+  const stored = items[ENDPOINT_OVERRIDE_STORAGE_KEY];
+  if (stored == null) return false;
+  return !isEndpointOverride(stored) || !isNetworkChoice(stored);
 }

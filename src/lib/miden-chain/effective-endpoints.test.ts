@@ -90,6 +90,16 @@ describe('effective-endpoints resolver', () => {
     expect(await m2.isEndpointOverrideActive()).toBe(true);
   });
 
+  it.each([
+    ['the network choice onboarding stores', false, {}],
+    ['a choice with an RPC endpoint', true, { rpcUrl: 'https://custom.example/rpc' }],
+    ['a choice with a developer option', true, { allowNoGuardian: true }]
+  ])('reads %s as a developer override: %s', async (_name, active, fields) => {
+    const m = loadModule();
+    await m.applyEndpointOverride({ ...m.buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET), ...fields });
+    expect(await m.isEndpointOverrideActive()).toBe(active);
+  });
+
   it('clear() removes the override and reverts to defaults', async () => {
     const m = loadModule();
     await m.applyEndpointOverride(m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET));
