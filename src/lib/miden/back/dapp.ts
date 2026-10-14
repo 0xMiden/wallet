@@ -705,12 +705,14 @@ const generatePromisifySign = async (
         reject(new Error(MidenDAppErrorType.NotGranted));
         return;
       }
+      // The entry gate ran before the sheet opened; the user may have switched accounts since (#1419).
+      await assertRequestAccountIsCurrent(dApp.accountId);
       const signature = await withUnlocked(async ({ vault }) =>
         vault.signData(req.sourcePublicKey, req.payload, req.kind, req.sourceAccountId)
       );
       resolve({ type: MidenDAppMessageType.SignResponse, signature });
     } catch (e) {
-      reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+      reject(dappSendFailure(e));
     }
     return;
   }
@@ -752,6 +754,8 @@ const generatePromisifySign = async (
             };
           }
           try {
+            // See the mobile/desktop arm: same post-approval account re-check.
+            await assertRequestAccountIsCurrent(dApp.accountId);
             let signature = await withUnlocked(async ({ vault }) => {
               const signDataResult = await vault.signData(
                 req.sourcePublicKey,

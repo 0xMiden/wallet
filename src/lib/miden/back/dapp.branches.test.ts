@@ -14,10 +14,11 @@ import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/ty
 
 // ── Mocks ──────────────────────────────────────────────────────────
 
+const mockSignData = jest.fn(async () => 'fake-sig-base64');
 const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
   fn({
     vault: {
-      signData: jest.fn(async () => 'fake-sig-base64')
+      signData: mockSignData
     }
   })
 );
@@ -1127,6 +1128,25 @@ describe('requests for an account that is not the current one (#1419)', () => {
     mockGetCurrentAccountPublicKey.mockResolvedValue(ACCOUNT_B);
     await expect(requests[name]!()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
     expectNoPopupNoRead();
+  });
+
+  it('refuses a sign approved after the current account changed, before any key is used', async () => {
+    mockRequestConfirmation.mockImplementationOnce(async () => {
+      // The switch lands while the sheet is open, after the entry gate passed.
+      mockGetCurrentAccountPublicKey.mockResolvedValue(ACCOUNT_B);
+      return { confirmed: true };
+    });
+    await expect(requests.sign!()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+    expect(mockSignData).not.toHaveBeenCalled();
+  });
+
+  it('still signs when the current account is unchanged at approval', async () => {
+    await expect(requests.sign!()).resolves.toEqual({
+      type: MidenDAppMessageType.SignResponse,
+      signature: 'fake-sig-base64'
+    });
+    expect(mockSignData).toHaveBeenCalledTimes(1);
   });
 
   it('still reaches the popup when the session account is the current one', async () => {

@@ -1276,6 +1276,24 @@ describe('Full confirmation cycles in extension mode', () => {
       expect(signData).not.toHaveBeenCalled();
     });
 
+    it('refuses a sign approved after the current account changed, before any key is used', async () => {
+      arrangeSignerAccount();
+      const signData = jest.fn(async () => 'stolen-signature');
+      mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+
+      await expect(
+        driveConfirmation(
+          () => dapp.requestSign('https://miden.xyz', request(SIGNER_COMMITMENT_HEX)),
+          MidenMessageType.DAppSignConfirmationRequest,
+          { confirmed: true },
+          () => {
+            mockGetCurrentAccountPublicKey.mockResolvedValue('miden-account-2');
+          }
+        )
+      ).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+      expect(signData).not.toHaveBeenCalled();
+    });
+
     it('refuses when the account cannot be resolved, rather than signing anyway', async () => {
       _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue(null);
       const signData = jest.fn(async () => 'stolen-signature');
