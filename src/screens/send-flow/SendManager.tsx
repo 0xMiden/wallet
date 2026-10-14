@@ -463,11 +463,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const nativeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   const { loaded: hiddenTokensLoaded, isHidden } = useHiddenTokens(publicKey);
-  const tokenNetwork = `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
-  const tokenScope = `${publicKey}:${tokenNetwork}`;
+  // A Developer Settings save drops every cached balance, so after a network change balances read as loading.
+  const tokenScope = `${publicKey}:${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
   const previousTokenScopeRef = useRef(tokenScope);
-  const previousTokenNetworkRef = useRef(tokenNetwork);
-  const staleNetworkBalancesRef = useRef<typeof balanceData>();
   const automaticTokenIdRef = useRef<string | null>(null);
   const defaultCandidates = useMemo(() => {
     if (isLoading || balancesLoading || !hiddenTokensLoaded || !publicKey || !balanceData) return [];
@@ -498,10 +496,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const appliedPreselectionRef = useRef<string | null>(null);
   useEffect(() => {
     if (previousTokenScopeRef.current !== tokenScope) {
-      // A network switch can briefly expose the previous network's cached rows, for any account.
-      if (previousTokenNetworkRef.current !== tokenNetwork) staleNetworkBalancesRef.current = balanceData;
       previousTokenScopeRef.current = tokenScope;
-      previousTokenNetworkRef.current = tokenNetwork;
       appliedPreselectionRef.current = null;
       automaticTokenIdRef.current = null;
       setValue('token', undefined);
@@ -509,8 +504,6 @@ export const SendManager: React.FC<SendManagerProps> = ({
     }
     if (!preselectedTokenId) appliedPreselectionRef.current = null;
     if (!balanceData) return;
-    if (staleNetworkBalancesRef.current === balanceData) return;
-    staleNetworkBalancesRef.current = undefined;
     if (preselectedTokenId && appliedPreselectionRef.current !== preselectedTokenId) {
       const match = balanceData.find(t => t.tokenId === preselectedTokenId);
       if (match) {
@@ -564,7 +557,6 @@ export const SendManager: React.FC<SendManagerProps> = ({
   }, [
     preselectedTokenId,
     tokenScope,
-    tokenNetwork,
     token,
     isLoading,
     hiddenTokensLoaded,

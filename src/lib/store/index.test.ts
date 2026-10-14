@@ -1930,6 +1930,31 @@ describe('useWalletStore', () => {
       expect(useWalletStore.getState().balancesLoading['addr-1']).toBe(false);
     });
 
+    it("clearBalances drops every address's balances, loading flag and last fetch, and nothing else", () => {
+      const row = { tokenId: 'asset-1', tokenSlug: 'A', metadata: { decimals: 6, symbol: 'A' } as any, balance: 1 };
+      useWalletStore.setState({
+        balances: { 'addr-1': [row as any], 'addr-2': [row as any] },
+        balancesLoading: { 'addr-1': false, 'addr-2': true },
+        balancesLastFetched: { 'addr-1': 1, 'addr-2': 2 },
+        assetsMetadata: { 'asset-1': row.metadata },
+        tokenPrices: { A: { price: 2, change24h: 0, percentageChange24h: 0 } } as any,
+        accounts: [{ publicKey: 'addr-1', name: 'One' } as any]
+      });
+      const { balances, balancesLoading, balancesLastFetched, ...others } = useWalletStore.getState();
+
+      useWalletStore.getState().clearBalances();
+
+      const after = useWalletStore.getState();
+      expect(after.balances).toEqual({});
+      expect(after.balancesLoading).toEqual({});
+      expect(after.balancesLastFetched).toEqual({});
+      const { balances: _b, balancesLoading: _l, balancesLastFetched: _f, ...othersAfter } = after;
+      expect(othersAfter).toEqual(others);
+      expect(othersAfter.assetsMetadata).toBe(others.assetsMetadata);
+      expect(othersAfter.tokenPrices).toBe(others.tokenPrices);
+      expect(othersAfter.accounts).toBe(others.accounts);
+    });
+
     it('setAssetsMetadata merges new metadata', () => {
       useWalletStore.getState().setAssetsMetadata({ 'asset-1': { decimals: 6, symbol: 'A' } as any });
       expect(useWalletStore.getState().assetsMetadata['asset-1']).toBeDefined();

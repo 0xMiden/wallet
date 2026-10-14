@@ -109,17 +109,25 @@ const classifyErrorMock = jest.fn((_error: unknown) => 'unknown');
 
 const closeTransactionModalMock = jest.fn();
 const setLastCompletedTxHashMock = jest.fn();
+// The real store, whose balance maps the real balance hook reads in the cases that run it in place of the mock.
+const realWalletStore = () => jest.requireActual<typeof import('lib/store')>('lib/store').useWalletStore;
 const walletStoreState = {
   tokenPrices: { USDC: { price: 3 } } as Record<string, { price: number }>,
   isTransactionModalOpen: false,
   lastCompletedTxHash: null as string | null,
   closeTransactionModal: closeTransactionModalMock,
   setLastCompletedTxHash: setLastCompletedTxHashMock,
-  // Read only by the real balance hook, which the cases that need its placeholder run in place of the mock.
-  balances: {} as Record<string, object[]>,
-  balancesLoading: {} as Record<string, boolean>,
-  balancesLastFetched: {} as Record<string, number>,
-  fetchBalances: jest.fn(async () => null)
+  get balances() {
+    return realWalletStore().getState().balances;
+  },
+  get balancesLoading() {
+    return realWalletStore().getState().balancesLoading;
+  },
+  get balancesLastFetched() {
+    return realWalletStore().getState().balancesLastFetched;
+  },
+  // A read the real hook starts stores nothing; a case lands its rows itself.
+  fetchBalances: jest.fn(async () => undefined)
 };
 
 // ---------------------------------------------------------------------------
@@ -1726,9 +1734,13 @@ describe('single sendable token default', () => {
     const { rerender } = renderFlow();
     fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
     mockRpcUrl = 'https://devnet.example';
+    // The save that changed the network dropped every cached balance.
+    mockBalancesLoading = true;
+    useAllBalancesMock.mockReturnValue({ data: undefined });
     rerender(<SendFlow isLoading={false} />);
     expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
     expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+    mockBalancesLoading = false;
     useAllBalancesMock.mockReturnValue({ data: [other] });
     rerender(<SendFlow isLoading={false} />);
     expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^OTHER$/);
@@ -1737,12 +1749,14 @@ describe('single sendable token default', () => {
   it('waits for a new snapshot when the account and the network change in the same render', () => {
     useAllBalancesMock.mockReturnValue({ data: [native] });
     const { rerender } = renderFlow();
-    // The new account's row cached on the old network, as the store still holds it in that render.
     useAccountMock.mockReturnValue({ publicKey: 'new-account' });
     mockRpcUrl = 'https://devnet.example';
-    useAllBalancesMock.mockReturnValue({ data: [other] });
+    // The save that changed the network dropped every cached balance, the new account's too.
+    mockBalancesLoading = true;
+    useAllBalancesMock.mockReturnValue({ data: undefined });
     rerender(<SendFlow isLoading={false} />);
     expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    mockBalancesLoading = false;
     useAllBalancesMock.mockReturnValue({ data: [other] });
     rerender(<SendFlow isLoading={false} />);
     expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^OTHER$/);
@@ -1762,13 +1776,19 @@ describe('single sendable token default', () => {
 
   describe('with the real balance hook', () => {
     const { useAllBalances } = jest.requireActual<typeof import('lib/miden/front/balance')>('lib/miden/front/balance');
+    const store = realWalletStore();
     const noMetadata = {};
+    const land = (address: string, rows: any[]) =>
+      store.setState(state => ({
+        balances: { ...state.balances, [address]: rows },
+        balancesLoading: { ...state.balancesLoading, [address]: false },
+        balancesLastFetched: { ...state.balancesLastFetched, [address]: Date.now() }
+      }));
     let consoleErrorSpy: jest.SpyInstance;
 
     beforeEach(() => {
-      walletStoreState.balances = { 'me-pk': [native] };
-      walletStoreState.balancesLoading = {};
-      walletStoreState.balancesLastFetched = { 'me-pk': Date.now() };
+      store.setState({ balances: {}, balancesLoading: {}, balancesLastFetched: {} });
+      land('me-pk', [native]);
       useAllBalancesMock.mockImplementation((address = '') => useAllBalances(address, noMetadata));
       // React only warns about an effect that re-renders forever, and the loop never ends; failing on the warning does.
       const consoleError = console.error;
@@ -1787,6 +1807,39 @@ describe('single sendable token default', () => {
       rerender(<SendFlow isLoading={false} />);
       expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
       expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+    });
+
+    describe('after a network change drops the cached balances', () => {
+      const fresh = { tokenId: 'FRESH', metadata: { symbol: 'FRESH', decimals: 6 }, balance: 3 };
+      // What a Developer Settings save does in this realm.
+      const saveNewNetwork = () => {
+        mockRpcUrl = 'https://devnet.example';
+        store.getState().clearBalances();
+      };
+
+      beforeEach(() => land('other-pk', [other]));
+
+      it('chooses no token for an account whose rows were cached before the change until its new snapshot lands', () => {
+        const { rerender } = renderFlow();
+        expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^MIDEN-ID$/);
+        saveNewNetwork();
+        rerender(<SendFlow isLoading={false} />);
+        useAccountMock.mockReturnValue({ publicKey: 'other-pk' });
+        rerender(<SendFlow isLoading={false} />);
+        expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+        land('other-pk', [fresh]);
+        rerender(<SendFlow isLoading={false} />);
+        expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^FRESH$/);
+      });
+
+      it('chooses no token in a Send screen mounted after the change until a new snapshot lands', () => {
+        saveNewNetwork();
+        const { rerender } = renderFlow();
+        expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+        land('me-pk', [fresh]);
+        rerender(<SendFlow isLoading={false} />);
+        expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^FRESH$/);
+      });
     });
   });
 });

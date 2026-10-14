@@ -123,6 +123,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   // No wallet registered yet, i.e. this screen is reachable but we're still pre-onboarding.
   // `handleSave`'s SW nudge is only safe to send in this state — see its comment.
   const noWalletYet = useWalletStore(selectIsIdle);
+  const clearBalances = useWalletStore(s => s.clearBalances);
 
   const presetItems = useMemo<SegmentedControlItem[]>(
     () => [
@@ -187,6 +188,9 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     setError(null);
     try {
       await applyEndpointOverride(form);
+      // Every cached balance was read from the old node and names no network, so a reader would show it
+      // as this one's; dropped, each reader waits for a read on the new node.
+      clearBalances();
       // Every fuse conclusion was earned against the node this just stopped pointing at.
       // Mobile and desktop are exactly the realms that own the idle loop, so a fused
       // wallet repointed at a working RPC would otherwise probe once per 30 min - and the

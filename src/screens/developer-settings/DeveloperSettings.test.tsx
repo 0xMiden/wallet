@@ -147,7 +147,12 @@ const reloadEndpointOverridesInSW = jest.fn();
 // to idle (no wallet) so the existing extension/non-extension save tests, which predate
 // this gate, keep exercising the "onboarding" case unchanged; a dedicated test below
 // flips it to Ready.
-const mockWalletState: { status: number } = { status: 0 };
+// The save drops every cached balance in this realm; spied, since what the drop does is the store's.
+const mockClearBalances = jest.fn();
+const mockWalletState: { status: number; clearBalances: () => void } = {
+  status: 0,
+  clearBalances: () => mockClearBalances()
+};
 jest.mock('lib/store', () => {
   const { WalletStatus } = jest.requireActual('lib/shared/types');
   return {
@@ -219,6 +224,7 @@ beforeEach(() => {
   mockHealthStatus.value = 'idle';
   mockIsExtension.value = false;
   mockWalletState.status = WalletStatus.Idle;
+  mockClearBalances.mockReset();
   confirm.mockResolvedValue(true);
   mockUseConfirm.mockReturnValue(confirm);
   alert = jest.fn().mockResolvedValue(undefined);
@@ -291,6 +297,31 @@ describe('DeveloperSettings', () => {
 
     await screen.findByRole('alert');
     expect(mockFollowEffectiveNetwork).not.toHaveBeenCalled();
+  });
+
+  it('drops the cached balances once the override is applied, since every one was read from the OLD node', async () => {
+    const order: string[] = [];
+    applyEndpointOverride.mockImplementationOnce(async () => {
+      order.push('apply');
+    });
+    mockClearBalances.mockImplementationOnce(() => {
+      order.push('clear');
+    });
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(mockClearBalances).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['apply', 'clear']);
+  });
+
+  it('keeps the cached balances when the endpoint write fails', async () => {
+    applyEndpointOverride.mockRejectedValueOnce(new Error('quota exceeded'));
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await screen.findByRole('alert');
+    expect(mockClearBalances).not.toHaveBeenCalled();
   });
 
   it('stops the spinner and shows an error when the endpoint write fails, and stays on the screen', async () => {

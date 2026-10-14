@@ -899,6 +899,10 @@ export const useWalletStore = create<WalletStore>()(
       }));
     },
 
+    clearBalances: () => {
+      set({ balances: {}, balancesLoading: {}, balancesLastFetched: {} });
+    },
+
     // Asset actions
     setAssetsMetadata: metadata => {
       // A storage change event gives `undefined` for a removed key.
