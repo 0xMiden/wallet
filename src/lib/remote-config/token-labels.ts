@@ -80,5 +80,8 @@ export function testnetTokenInfo(
  * label whenever the document names an EVM USDC, whether or not the token's Sepolia read has succeeded; else `symbol`.
  */
 export function evmUsdcLabel(snapshot: BridgeConfigSnapshot, symbol: string): string {
-  return getTestNetworkNameKey() === 'testnet' && snapshot.config?.epoch.evmUsdc ? TEST_EPOCH_USDC_LABEL : symbol;
+  return getTestNetworkNameKey() === 'testnet' &&
+    Object.values(snapshot.config?.supportedEvmChains ?? {}).some(chain => chain.bridges.epoch?.tokens.USDC)
+    ? TEST_EPOCH_USDC_LABEL
+    : symbol;
 }

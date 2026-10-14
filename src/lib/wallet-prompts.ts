@@ -232,7 +232,8 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
     const { deposit, complete } = await searchAgglayerExitDeposit(
       inputs.destinationAddress,
       exitTxHash,
-      inputs.agglayerDepositCnt
+      inputs.agglayerDepositCnt,
+      inputs.agglayerRoute
     );
     if (!deposit) {
       // An exit filed before the renumbering is under network 78, which the indexer no longer serves; the bridge's
@@ -274,6 +275,8 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
   const { pollEpochIntentFill } = await import('lib/epoch');
   const fill = await pollEpochIntentFill({
     destinationAddress: inputs.destinationAddress,
+    destinationChainId: inputs.destinationNetwork,
+    allocatorUrl: inputs.epochAllocatorUrl,
     intentNonce: inputs.intentNonce
   });
   if (!fill || (!fill.fillTxHash && fill.status === 'pending')) return;

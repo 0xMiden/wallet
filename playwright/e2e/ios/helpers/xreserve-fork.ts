@@ -9,7 +9,7 @@ import {
 } from 'viem';
 import { sepolia } from 'viem/chains';
 
-import { CIRCLE_USDC_ADDRESS, USDCX_REMOTE_DOMAIN, XRESERVE_ADDRESS } from '../../../../src/lib/usdcx/constant';
+import { CIRCLE_USDC_ADDRESS, USDCX_REMOTE_DOMAIN, XRESERVE_ADDRESS } from '../../helpers/usdcx-config';
 
 /**
  * Prepares a local Anvil FORK of Sepolia for the USDCx bridge-in deposit, so the

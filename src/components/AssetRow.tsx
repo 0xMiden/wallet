@@ -84,7 +84,9 @@ export const AssetRow: FC<AssetRowProps> = ({
   const quote = quotedPrice(tokenPrices, priceSymbol);
   // Only a feed quote has a 24h move. The nominal rate is a dollar figure with no market behind it,
   // so it has no direction to colour anything by, like no quote at all.
-  const feedQuote = quote && !isNominalQuote(quote) && !isFixedQuote(quote) ? quote : undefined;
+  // A fixed quote (USDCX at $1) keeps its row's line and pill: a flat grey line and a grey
+  // +0.00%, since its move is always zero.
+  const feedQuote = quote && !isNominalQuote(quote) ? quote : undefined;
   const direction: 'positive' | 'negative' | 'neutral' | null = feedQuote
     ? Math.abs(feedQuote.percentageChange24h) < FLAT_MOVE_PERCENT
       ? 'neutral'
@@ -126,7 +128,7 @@ export const AssetRow: FC<AssetRowProps> = ({
         scaleIsKnown ? <AnimatedNumber value={balance} format={value => `${formatQuantity(value)} ${unit}`} /> : unit
       }
       chart={
-        sparkline && !isFixedQuote(quote) ? (
+        sparkline ? (
           <Sparkline
             points={sparkPoints}
             color={sparkColor}

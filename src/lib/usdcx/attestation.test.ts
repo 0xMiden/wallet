@@ -12,7 +12,14 @@ import {
   XReserveAttestation
 } from './attestation';
 import vectors from './attestation.vectors.json';
-import { USDCX_REMOTE_DOMAIN, XRESERVE_ATTESTATION_API_TESTNET } from './constant';
+import { getUsdcxRemoteDomain, getUsdcxAttestationUrl } from './constant';
+
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
 
 const fetchMock = jest.fn();
 Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
@@ -41,7 +48,7 @@ describe('fetchXReserveAttestations', () => {
     await fetchXReserveAttestations(TX_HASH);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `${XRESERVE_ATTESTATION_API_TESTNET}/v1/attestations?txHash=${TX_HASH}`,
+      `${getUsdcxAttestationUrl()}/v1/attestations?txHash=${TX_HASH}`,
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
   });
@@ -203,7 +210,7 @@ const oldDeposit = (recipient: string, amount: string): Hex =>
 const PAYLOAD_908904EC = oldDeposit('00000000000000000000000000000000009f2331d6b181dd5170cd318bdcd601', 'f4240');
 const PAYLOAD_B4DCE6EC = oldDeposit('0000000000000000000000000000000088363e3c54d0c6d10031a96e54ceed80', '3b9aca00');
 
-const attestationOf = (payload: Hex, remoteDomain = USDCX_REMOTE_DOMAIN): XReserveAttestation => ({
+const attestationOf = (payload: Hex, remoteDomain = getUsdcxRemoteDomain()): XReserveAttestation => ({
   payload,
   messageHash: `0x${'1'.repeat(64)}`,
   attestation: '0xabcd',

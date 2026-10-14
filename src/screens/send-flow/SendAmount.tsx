@@ -116,7 +116,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
         onValueChange={value => onAmountChange(value || '')}
       />
 
-      <div className="mt-8 rounded-2xl bg-fill">
+      <Card surface="outline" padding="none" className="mt-8">
         <div className="flex items-center gap-3 px-4 py-3">
           <button
             type="button"
@@ -191,7 +191,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
             <NetworkChip kind="miden" label={t('miden')} />
           )}
         </div>
-      </div>
+      </Card>
 
       <AnimatePresence initial={false}>
         {feeShortfall && (

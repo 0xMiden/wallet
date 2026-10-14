@@ -15,16 +15,23 @@ export interface SendRouteProps extends Omit<
   'slowStatus' | 'fastAvailability' | 'slowAvailability'
 > {
   faucetId: string;
+  destinationChainId?: number;
   onBack: () => void;
   onConfirm: () => void;
 }
 
 /** The send flow's cross-chain route step, on the shared step frame. */
-export const SendRoute: React.FC<SendRouteProps> = ({ faucetId, onBack, onConfirm, ...options }) => {
+export const SendRoute: React.FC<SendRouteProps> = ({
+  faucetId,
+  destinationChainId,
+  onBack,
+  onConfirm,
+  ...options
+}) => {
   const { t } = useTranslation();
-  const slowStatus = useAgglayerEligibility(faucetId);
-  const fastAvailability = useFeatureAvailability('fastBridgeOut');
-  const slowAvailability = useFeatureAvailability('bridgeOut');
+  const slowStatus = useAgglayerEligibility(faucetId, destinationChainId);
+  const fastAvailability = useFeatureAvailability('fastBridgeOut', { chainId: destinationChainId });
+  const slowAvailability = useFeatureAvailability('bridgeOut', { chainId: destinationChainId });
   // The USDCx burn reads no remote bridge config, so the Fast and Slow features cannot block it.
   const confirmBlocked = (() => {
     switch (options.route) {

@@ -5,7 +5,7 @@ import * as Repo from 'lib/miden/repo';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getChain } from 'lib/walletconnect/config';
 
-import { CIRCLE_USDC_ADDRESS, ERC20_BALANCE_OF_ABI, minimumUsdcxPayout } from './constant';
+import { usdcxDestinations, ERC20_BALANCE_OF_ABI, minimumUsdcxPayout } from './constant';
 
 export interface UsdcxBalanceSnapshot {
   balance: string;
@@ -21,10 +21,11 @@ const SNAPSHOT_BACKOFF_MS = [1_000, 2_000];
 export async function readUsdcxDestinationBalance(
   chainId: number,
   recipient: string,
-  timeoutMs = DESTINATION_READ_TIMEOUT_MS
+  timeoutMs = DESTINATION_READ_TIMEOUT_MS,
+  savedToken?: `0x${string}`
 ): Promise<UsdcxBalanceSnapshot> {
   const chain = getChain(chainId);
-  const token = CIRCLE_USDC_ADDRESS.get(chainId);
+  const token = savedToken ?? usdcxDestinations().get(chainId)?.usdc;
   if (!chain || !token || !isAddress(recipient)) throw new Error('Invalid USDC destination');
   const client = createPublicClient({ transport: http(chain.rpcUrl, { timeout: timeoutMs, retryCount: 0 }) });
   const blockNumber = await client.getBlockNumber({ cacheTime: 0 });
@@ -67,13 +68,18 @@ async function within<T>(work: Promise<T>, ms: number): Promise<T> {
 export async function readUsdcxDestinationSnapshot(
   chainId: number,
   recipient: string,
-  { read = readUsdcxDestinationBalance, now = Date.now, sleep = wait }: UsdcxSnapshotDeps = {}
+  { read = readUsdcxDestinationBalance, now = Date.now, sleep = wait }: UsdcxSnapshotDeps = {},
+  savedToken?: `0x${string}`
 ): Promise<UsdcxBalanceSnapshot> {
   const deadline = now() + DESTINATION_READ_TIMEOUT_MS;
   const attempt = async (backoffs: readonly number[]): Promise<UsdcxBalanceSnapshot> => {
     try {
       const remaining = deadline - now();
-      return await within(read(chainId, recipient, remaining), remaining);
+      const request =
+        savedToken === undefined
+          ? read(chainId, recipient, remaining)
+          : read(chainId, recipient, remaining, savedToken);
+      return await within(request, remaining);
     } catch (error) {
       const [backoff, ...later] = backoffs;
       if (backoff === undefined || now() + backoff >= deadline) throw error;
@@ -110,10 +116,18 @@ export async function pollUsdcxDestination(tx: ITransaction, readBalance = readU
 
   // Circle deducts its fee from the payout, so the balance rises by less than the sent amount. A burn the fee
   // allowance takes whole has no floor an unrelated credit could not meet, so it stays at Burn confirmed.
-  const minimum = minimumUsdcxPayout(extra.destinationNetwork, tx.amount);
+  const minimum =
+    burn.payoutFeeAllowance === undefined
+      ? minimumUsdcxPayout(extra.destinationNetwork, tx.amount)
+      : tx.amount - BigInt(burn.payoutFeeAllowance);
   if (minimum <= 0n) return;
 
-  const observed = await readBalance(extra.destinationNetwork, extra.destinationAddress);
+  const observed = await readBalance(
+    extra.destinationNetwork,
+    extra.destinationAddress,
+    DESTINATION_READ_TIMEOUT_MS,
+    burn.destinationUsdc
+  );
   if (BigInt(observed.blockNumber) <= BigInt(before.blockNumber)) return;
   if (BigInt(observed.balance) < BigInt(before.balance) + minimum) return;
 

@@ -59,12 +59,6 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
 
     @PluginMethod
     fun configure(call: PluginCall) {
-        if (configured) {
-            notifyStateChanged()
-            call.resolve()
-            return
-        }
-
         val projectId = call.getString("projectId") ?: DEFAULT_PROJECT_ID
         if (projectId.isBlank()) {
             call.reject("Missing WalletConnect projectId")
@@ -77,6 +71,11 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
         val methods = stringArray(call, "methods", listOf("eth_sendTransaction", "personal_sign", "eth_signTypedData"))
         val events = stringArray(call, "events", listOf("chainChanged", "accountsChanged"))
         val chainIds = intArray(call, "chainIds", listOf(DEFAULT_CHAIN_ID))
+        if (configured) {
+            finishConfigure(call, chainIds, methods, events)
+            return
+        }
+
 
         val metadata = Core.Model.AppMetaData(
             name = call.getString("appName") ?: "Bread Wallet",
@@ -371,7 +370,7 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
     }
 
     private fun finishConfigure(call: PluginCall, chainIds: List<Int>, methods: List<String>, events: List<String>) {
-        AppKit.setChains(chainIds.map { chainFor(it, methods, events) })
+        AppKit.setChains(chainIds.map { chainFor(it, methods, events, chainMetadata(call, it)) })
         AppKit.setDelegate(this)
         configured = true
 
@@ -540,21 +539,34 @@ class ReownPlugin : Plugin(), AppKit.ModalDelegate, CoreClient.CoreDelegate {
         return null
     }
 
-    private fun chainFor(chainId: Int, methods: List<String>, events: List<String>): Modal.Model.Chain {
+    private fun chainMetadata(call: PluginCall, chainId: Int): JSONObject? {
+        val chains = call.data.optJSONArray("chains") ?: return null
+        return (0 until chains.length())
+            .mapNotNull { chains.optJSONObject(it) }
+            .firstOrNull { it.optInt("id") == chainId }
+    }
+
+    private fun chainFor(
+        chainId: Int,
+        methods: List<String>,
+        events: List<String>,
+        metadata: JSONObject?,
+    ): Modal.Model.Chain {
+        val currency = metadata?.optJSONObject("nativeCurrency")
         return Modal.Model.Chain(
-            chainName = if (chainId == DEFAULT_CHAIN_ID) "Sepolia" else "EVM $chainId",
+            chainName = metadata?.optString("name") ?: "EVM $chainId",
             chainNamespace = "eip155",
             chainReference = chainId.toString(),
             requiredMethods = methods,
             optionalMethods = methods,
             events = events,
-            token = if (chainId == DEFAULT_CHAIN_ID) {
-                Modal.Model.Token("Sepolia Ether", "SepoliaETH", 18)
-            } else {
-                Modal.Model.Token("Ether", "ETH", 18)
-            },
-            rpcUrl = null,
-            blockExplorerUrl = if (chainId == DEFAULT_CHAIN_ID) "https://sepolia.etherscan.io" else null
+            token = Modal.Model.Token(
+                currency?.optString("name") ?: "Ether",
+                currency?.optString("symbol") ?: "ETH",
+                currency?.optInt("decimals", 18) ?: 18,
+            ),
+            rpcUrl = metadata?.optString("rpcUrl"),
+            blockExplorerUrl = metadata?.optString("explorer"),
         )
     }
 

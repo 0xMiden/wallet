@@ -74,6 +74,7 @@ export interface CreateBridgeP2IDENoteArgs {
    */
   onRowCreated?: (txId: string) => void;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
+  allocatorUrl?: string;
 }
 
 /**
@@ -144,7 +145,11 @@ export async function createBridgeP2IDENote(
         reclaimHeight,
         reclaimNoteId
       },
-      spendingLimitAuthorization
+      spendingLimitAuthorization,
+      undefined,
+      undefined,
+      undefined,
+      args.allocatorUrl
     );
 
     // Row exists now (Queued) — let the caller navigate to the progress screen

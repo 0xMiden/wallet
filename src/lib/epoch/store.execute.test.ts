@@ -19,12 +19,19 @@ jest.mock('./client', () => ({
   getEvmConnection: () => mockConnection(),
   switchWebWalletChain: (...args: unknown[]) => mockSwitchWebWalletChain(...args)
 }));
-jest.mock('./sdk', () => ({ getEpochSdk: async () => ({}) }));
+const mockGetEpochSdk = jest.fn(async (_opts?: { allocatorUrl?: string }) => ({}));
+jest.mock('./sdk', () => ({ getEpochSdk: (opts?: { allocatorUrl?: string }) => mockGetEpochSdk(opts) }));
+let mockDocumentAllocator = 'https://allocator.document';
+jest.mock('lib/remote-config/values', () => ({ getEpochAllocatorUrl: () => mockDocumentAllocator }));
+jest.mock('./intent-status', () => ({ readEpochIntentStatus: async () => [] }));
 jest.mock('lib/miden/activity/bridge-in', () => ({
   registerPendingBridgeIn: (...args: unknown[]) => mockRegister(...args),
   resolveBridgeInNoteId: jest.fn()
 }));
-jest.mock('lib/miden/transaction/complete', () => ({ updateBridgedReceivePhase: jest.fn(async () => undefined) }));
+const mockUpdatePhase = jest.fn(async (..._args: unknown[]) => undefined);
+jest.mock('lib/miden/transaction/complete', () => ({
+  updateBridgedReceivePhase: (...a: unknown[]) => mockUpdatePhase(...a)
+}));
 jest.mock('lib/miden/repo', () => ({ transactions: { get: (...args: unknown[]) => mockGetRow(...args) } }));
 
 const quote: EVMToMidenQuote = {
@@ -48,6 +55,9 @@ beforeEach(() => {
   mockSwitchWebWalletChain.mockReset().mockResolvedValue(undefined);
   mockRegister.mockReset().mockResolvedValue(undefined);
   mockGetRow.mockReset();
+  mockGetEpochSdk.mockClear();
+  mockUpdatePhase.mockClear();
+  mockDocumentAllocator = 'https://allocator.document';
   useEpochStore.getState().reset();
   jest.spyOn(console, 'log').mockImplementation(() => undefined);
 });
@@ -62,7 +72,8 @@ it('records the pending bridge-in with the exact amount and the symbol the track
       phase: 'submitting',
       sourceAddress: '0xowner',
       sourceAmount: '10.012345678901234567',
-      sourceSymbol: 'USDC'
+      sourceSymbol: 'USDC',
+      epochAllocatorUrl: 'https://allocator.saved'
     }
   });
   useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote });
@@ -75,7 +86,8 @@ it('records the pending bridge-in with the exact amount and the symbol the track
     expect.objectContaining({
       sourceAmount: '10.012345678901234567',
       sourceSymbol: 'USDC',
-      bridgeReceiveTxId: 'row-1'
+      bridgeReceiveTxId: 'row-1',
+      epochAllocatorUrl: 'https://allocator.saved'
     })
   );
 });
@@ -103,7 +115,7 @@ it('still refuses when the web wallet stays on another chain', async () => {
   expect(mockSwitchWebWalletChain).toHaveBeenCalledWith(11155111);
   expect(useEpochStore.getState()).toMatchObject({
     status: 'failed',
-    error: expect.stringContaining('did not switch to Sepolia')
+    error: expect.stringContaining('did not switch to the source chain')
   });
   expect(mockRegister).not.toHaveBeenCalled();
 });
@@ -123,4 +135,58 @@ it('refuses without switching when no wallet is connected, and when the wallet d
   expect(mockSwitchWebWalletChain).toHaveBeenCalledTimes(1);
   expect(useEpochStore.getState()).toMatchObject({ status: 'failed', error: 'Connect an EVM wallet first' });
   expect(mockRegister).not.toHaveBeenCalled();
+});
+
+describe('the allocator an intent was submitted to', () => {
+  const trackingRow = (epochAllocatorUrl?: string) => ({
+    id: 'row-1',
+    type: 'bridged-receive',
+    extraInputs: { provider: 'epoch', phase: 'submitting', sourceAddress: '0xowner', epochAllocatorUrl }
+  });
+
+  it('is the one the tracking row saved, for the build and for every later status read', async () => {
+    mockGetRow.mockResolvedValue(trackingRow('https://allocator.saved'));
+    useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote });
+
+    await useEpochStore.getState().executeEVMToMiden('row-1');
+    mockDocumentAllocator = 'https://allocator.moved';
+    await useEpochStore.getState().poll();
+
+    expect(mockGetEpochSdk).toHaveBeenLastCalledWith(
+      expect.objectContaining({ allocatorUrl: 'https://allocator.saved' })
+    );
+  });
+
+  it('is the document allocator at submission when the row saved none, on every sink', async () => {
+    mockGetRow.mockResolvedValue(trackingRow());
+    useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote });
+
+    await useEpochStore.getState().executeEVMToMiden('row-1');
+    mockDocumentAllocator = 'https://allocator.moved';
+    await useEpochStore.getState().poll();
+
+    expect(mockRegister).toHaveBeenCalledWith(
+      '0xowner',
+      'nonce-1',
+      expect.objectContaining({ epochAllocatorUrl: 'https://allocator.document' })
+    );
+    expect(mockUpdatePhase).toHaveBeenCalledWith(
+      'row-1',
+      'delivering',
+      expect.objectContaining({ epochAllocatorUrl: 'https://allocator.document' })
+    );
+    expect(mockGetEpochSdk).toHaveBeenLastCalledWith(
+      expect.objectContaining({ allocatorUrl: 'https://allocator.document' })
+    );
+  });
+
+  it('is forgotten on reset', async () => {
+    mockGetRow.mockResolvedValue(trackingRow('https://allocator.saved'));
+    useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote });
+    await useEpochStore.getState().executeEVMToMiden('row-1');
+
+    useEpochStore.getState().reset();
+
+    expect(useEpochStore.getState().allocatorUrl).toBeNull();
+  });
 });

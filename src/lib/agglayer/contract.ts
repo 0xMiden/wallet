@@ -2,6 +2,7 @@ import { BaseContract, BrowserProvider, ContractTransactionResponse, Overrides }
 import { EIP1193Provider, toHex } from 'viem';
 
 import { accountRefToSdk } from 'lib/miden/sdk/helpers';
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { getAgglayerL1Bridge } from 'lib/remote-config/values';
 import { DEFAULT_CHAIN_ID } from 'lib/walletconnect/config';
 
@@ -44,12 +45,12 @@ const padSmtProof = (proof: string[]): string[] => [...proof, ...Array(32).fill(
 
 // The claim goes to the L1 bridge's address on whatever chain the wallet is on. On a chain where nothing lives at that
 // address (Arc, after a USDCx deposit switched the wallet) it would succeed as a no-op and read as claimed, so the
-// wallet is switched to Sepolia first and the claim is refused while it is anywhere else.
-const ensureL1Chain = async (provider: EIP1193Provider): Promise<void> => {
-  const onL1 = async () => Number(await provider.request({ method: 'eth_chainId' })) === DEFAULT_CHAIN_ID;
+// wallet must use the saved destination chain before it sends the claim.
+const ensureL1Chain = async (provider: EIP1193Provider, chainId = DEFAULT_CHAIN_ID): Promise<void> => {
+  const onL1 = async () => Number(await provider.request({ method: 'eth_chainId' })) === chainId;
   if (await onL1()) return;
-  await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: toHex(DEFAULT_CHAIN_ID) }] });
-  if (!(await onL1())) throw new Error('Switch your EVM wallet to Sepolia to claim.');
+  await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: toHex(chainId) }] });
+  if (!(await onL1())) throw new Error('Switch your EVM wallet to the destination chain to claim.');
 };
 
 // Claim a Miden→EVM (L2→L1) bridge deposit on L1. Mirrors the bridge-service
@@ -58,14 +59,17 @@ const ensureL1Chain = async (provider: EIP1193Provider): Promise<void> => {
 // wallet (which must be the deposit's destination address).
 export const claimAgglayerDeposit = async ({
   deposit,
-  provider
+  provider,
+  route
 }: {
   deposit: AgglayerDeposit;
   provider: EIP1193Provider;
+  route?: AgglayerRecoveryConfig;
 }): Promise<ContractTransactionResponse> => {
-  const l1Bridge = getAgglayerL1Bridge();
-  await ensureL1Chain(provider);
-  const proof = await fetchMerkleProof(deposit.deposit_cnt, deposit.network_id);
+  // A row saved before its route was is from DEFAULT_CHAIN_ID, the chain ensureL1Chain defaults to.
+  const l1Bridge = route?.contractAddress ?? getAgglayerL1Bridge(DEFAULT_CHAIN_ID);
+  await ensureL1Chain(provider, route?.chainId);
+  const proof = await fetchMerkleProof(deposit.deposit_cnt, deposit.network_id, route);
 
   const ethersProvider = new BrowserProvider(provider);
   const signer = await ethersProvider.getSigner();
