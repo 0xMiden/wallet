@@ -184,7 +184,7 @@ export interface DappCommands {
   importNote: { input: { noteBytesB64: string }; output: Outcome<{ noteId: string }> };
   buildCustom: { input: BuildCustomInput; output: BuildCustomOutput };
   submitCustom: {
-    /** `recipientAddress: ''` is no recipient: the wallet reads an empty string as none (dapp.ts:1951). */
+    /** `recipientAddress: ''` is no recipient: the wallet reads an empty string as none (dapp.ts:1985). */
     input: { requestId: string; recipientAddress: string; importNotes: boolean; inputNoteIds?: string[] };
     output: Outcome<{ txId: string }>;
   };
