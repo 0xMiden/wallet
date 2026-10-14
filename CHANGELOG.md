@@ -5,6 +5,7 @@
 ### Fixes
 
 - [FIX][all] A dApp custom request from a Guardian account that declares the network accounts its notes target as public foreign accounts is no longer refused; any other foreign account still is.
+- [FIX][all] OpenZeppelin Guardian endpoints moved to `guardian-testnet.openzeppelin.com` (testnet) and `guardian-devnet.openzeppelin.com` (devnet), replacing `guardian.openzeppelin.com` and `guardian-stg.openzeppelin.com`. Existing accounts keep their saved host, which is still recognised as OpenZeppelin.
 - [FIX][ios] Wallet pages extend to the display bottom beneath the home indicator. Navigation, review actions and pinned controls retain their safe-area clearance while keyboard insets continue to protect focused flows.
 - [FIX][all] Opt-in crash reports retain scrubbed causes, capture source, app/build identity and validated compiled positions, with source-bound request types, approval-id categories and SDK startup stages. Unvalidated frame paths are omitted; diagnostics exclude request payloads, addresses, amounts and device identifiers.
 - [FIX][all] Handled transaction failures reach opt-in Sentry reporting, including failures with the extension popup closed and later bridge, earn and node-verdict failures. Reports retain closed execution and authentication diagnostics without transaction values or user identifiers.

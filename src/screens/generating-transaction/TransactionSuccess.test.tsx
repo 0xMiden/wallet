@@ -442,7 +442,7 @@ describe('TransactionSuccess', () => {
         transaction={baseTransaction({
           type: 'switch-guardian',
           extraInputs: {
-            previousGuardianEndpoint: 'https://guardian.openzeppelin.com',
+            previousGuardianEndpoint: 'https://guardian-testnet.openzeppelin.com',
             newGuardianEndpoint: 'https://guardian-testnet.kodax.com'
           }
         })}
@@ -454,7 +454,7 @@ describe('TransactionSuccess', () => {
     // operators in its previous → new transition line (the mocked display-name
     // helper renders `guardian(<endpoint>)`).
     expect(container.textContent).toContain('guardianSwitchSuccessTitle');
-    expect(container.textContent).toContain('guardian(https://guardian.openzeppelin.com)');
+    expect(container.textContent).toContain('guardian(https://guardian-testnet.openzeppelin.com)');
     expect(container.textContent).toContain('guardian(https://guardian-testnet.kodax.com)');
     // NOT the generic SendSuccess fallback.
     expect(container.textContent).not.toContain('Transaction Complete!');
