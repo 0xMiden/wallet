@@ -496,7 +496,7 @@ describe('the Guardian operators', () => {
     name: 'OpenZeppelin',
     operatedBy: 'OpenZeppelin',
     location: 'US-EAST',
-    endpoint: 'https://guardian.openzeppelin.com'
+    endpoint: 'https://guardian-testnet.openzeppelin.com'
   };
   const KODA = {
     id: 'kodax',
@@ -519,8 +519,8 @@ describe('the Guardian operators', () => {
   });
 
   it('puts an endpoint in the form the wallet compares: lowercase host, no default port, no trailing slash', () => {
-    const parsed = guardians([{ ...OZ, endpoint: 'https://GUARDIAN.openzeppelin.com:443//' }]);
-    expect(parsed?.guardians?.[0]?.endpoint).toBe('https://guardian.openzeppelin.com');
+    const parsed = guardians([{ ...OZ, endpoint: 'https://GUARDIAN-TESTNET.openzeppelin.com:443//' }]);
+    expect(parsed?.guardians?.[0]?.endpoint).toBe('https://guardian-testnet.openzeppelin.com');
   });
 
   it('ignores a field of an entry that it does not know', () => {
@@ -554,10 +554,10 @@ describe('the Guardian operators', () => {
     ['an operator with a C1 control', [{ ...OZ, operatedBy: 'Open\u0085Zeppelin' }]],
     ['a numeric location', [{ ...OZ, location: 7 }]],
     ['a missing endpoint', [{ id: OZ.id, name: OZ.name, operatedBy: OZ.operatedBy, location: OZ.location }]],
-    ['an http endpoint', [{ ...OZ, endpoint: 'http://guardian.openzeppelin.com' }]],
+    ['an http endpoint', [{ ...OZ, endpoint: 'http://guardian-testnet.openzeppelin.com' }]],
     ['a local http endpoint', [{ ...OZ, endpoint: 'http://localhost:3000' }]],
-    ['an endpoint with a query', [{ ...OZ, endpoint: 'https://guardian.openzeppelin.com/?a=1' }]],
-    ['an endpoint with credentials', [{ ...OZ, endpoint: 'https://user:pass@guardian.openzeppelin.com' }]],
+    ['an endpoint with a query', [{ ...OZ, endpoint: 'https://guardian-testnet.openzeppelin.com/?a=1' }]],
+    ['an endpoint with credentials', [{ ...OZ, endpoint: 'https://user:pass@guardian-testnet.openzeppelin.com' }]],
     ['an about that is an object', [{ ...OZ, about: { en: 'A security company.' } }]],
     ['an empty about', [{ ...OZ, about: '' }]],
     ['an about of 161 characters', [{ ...OZ, about: 'a'.repeat(161) }]],
@@ -569,7 +569,7 @@ describe('the Guardian operators', () => {
     ['two entries with one id', [OZ, { ...KODA, id: OZ.id }]],
     [
       'two entries with one endpoint in two spellings',
-      [OZ, { ...KODA, endpoint: 'https://Guardian.OpenZeppelin.com/' }]
+      [OZ, { ...KODA, endpoint: 'https://Guardian-Testnet.OpenZeppelin.com/' }]
     ]
   ])('rejects the document for %s', (_label, list) => {
     expect(guardians(list)).toBeNull();

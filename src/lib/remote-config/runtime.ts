@@ -118,7 +118,7 @@ function publish(state: NetworkState): void {
     lastFetch: state.lastFetch
   };
   // The Guardian operators follow the accepted document. With no document there is nothing to follow, so a list this
-  // realm already took stays (a wipe forgets the document, not the operators it named).
+  // realm already took stays.
   if (state.stored) setDocumentGuardians(state.network, state.stored.config.guardians);
   logUnavailable(state);
   listeners.forEach(listener => listener());

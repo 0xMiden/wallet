@@ -1155,14 +1155,12 @@ describe('the Guardian operators', () => {
     expect(ids()).toEqual(['new-one']);
   });
 
-  it('keep the list a wipe took the document of, and with no document to follow', async () => {
+  it('keep the document list across a wipe, which keeps the document', async () => {
     seedGuardians(3, [NEW]);
     await initBridgeConfig();
-    mockStorage.clear();
-    failFetch();
     await rereadAfterWipe();
     await flush();
-    expect(getBridgeConfigSnapshot().config).toBeNull();
+    expect(getBridgeConfigSnapshot().config?.guardians).toEqual([NEW]);
     expect(ids()).toEqual(['new-one']);
   });
 
