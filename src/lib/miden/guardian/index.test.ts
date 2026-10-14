@@ -119,6 +119,7 @@ let evictDuringClientBuild = false;
 // Runs before a hold begins: the time a caller spends queued for the mutex.
 let beforeWasmHold: (() => void) | undefined;
 const wasmLockOptionsSeen: unknown[] = [];
+const mockRetireWasmClientForCaughtTrap = jest.fn();
 jest.mock('../sdk/miden-client', () => {
   // The real error class, so the code under test's poison classifiers see the
   // same shape production throws.
@@ -138,6 +139,7 @@ jest.mock('../sdk/miden-client', () => {
       if (hold !== null && currentWasmHold === hold) return;
       throw new PoisonError('watchdog', new Error(`operation abandoned ${where}`));
     },
+    retireWasmClientForCaughtTrap: (...a: unknown[]) => mockRetireWasmClientForCaughtTrap(...a),
     withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>, options?: unknown) => {
       wasmLockOptionsSeen.push(options);
       const previous = wasmLockTail;
@@ -2198,6 +2200,22 @@ describe('MultisigService', () => {
 
       expect(error).toBeInstanceOf(WasmClientPoisonedError);
       expect(isProposalChainSyncError(error)).toBe(false);
+      expect(createSwitchGuardianProposal).not.toHaveBeenCalled();
+    });
+
+    // A trap rewrapped before it is retired never reaches the lock as a trap, so its client would stay in the slot.
+    it('retires a trap from the sync and rethrows it raw, never as a chain sync failure', async () => {
+      const { service, createSwitchGuardianProposal } = switchService();
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+      const trap = new WebAssembly.RuntimeError('unreachable');
+      mockSyncChain.mockRejectedValueOnce(trap);
+
+      const error: unknown = await service.createSwitchGuardianProposal('https://new').catch((e: unknown) => e);
+
+      expect(error).toBe(trap);
+      expect(isProposalChainSyncError(error)).toBe(false);
+      expect(syncHoldsSeen[0]).not.toBeNull();
+      expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(syncHoldsSeen[0], trap);
       expect(createSwitchGuardianProposal).not.toHaveBeenCalled();
     });
 

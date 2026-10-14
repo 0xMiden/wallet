@@ -38,6 +38,7 @@ import {
   assertWasmHoldCurrent,
   getCurrentWasmLockHold,
   getMidenClient,
+  retireWasmClientForCaughtTrap,
   withWasmClientLock,
   type WasmClientLockOptions,
   type WasmLockHold
@@ -944,7 +945,12 @@ export class MultisigService {
           () => assertWasmHoldCurrent(hold, `${label}: chain sync`)
         );
       } catch (error) {
-        // A killed pipeline is not the node's answer; only a plain sync failure is tagged. Never body's errors.
+        // A caught trap is retired in its own hold and rethrown raw: neither it nor a killed pipeline is the
+        // node's answer. Only a plain sync failure is tagged, never body's errors.
+        if (error instanceof WebAssembly.RuntimeError) {
+          retireWasmClientForCaughtTrap(hold, error);
+          throw error;
+        }
         if (isPipelineKillLink(error)) throw error;
         throw new ProposalChainSyncError(error);
       }
