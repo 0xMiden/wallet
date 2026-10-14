@@ -162,6 +162,24 @@ describe('DetailRow', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
+  it('renders a disabled action as a disabled pill that fires neither its handler nor the haptic', () => {
+    jest.mocked(hapticLight).mockClear();
+    const onClick = jest.fn();
+    render(
+      <DetailRow label="Expires" action={{ label: 'Edit', onClick, disabled: true }}>
+        In 2 days
+      </DetailRow>
+    );
+
+    const action = screen.getByRole('button', { name: 'Edit' });
+    expect(action).toBeDisabled();
+    expect(action).toHaveClass('h-6', 'bg-accent-tint', 'opacity-50');
+
+    fireEvent.click(action);
+    expect(hapticLight).not.toHaveBeenCalled();
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
   it('forwards data-testid to the row root', () => {
     render(
       <DetailRow label="Address" data-testid="detail-address">
@@ -210,6 +228,23 @@ describe('DetailRow onClick', () => {
       </DetailRow>
     );
     expect(screen.getByTestId('row')).toHaveAttribute('aria-haspopup', 'dialog');
+  });
+
+  it('renders a disabled row as a disabled button that fires neither its handler nor the haptic', () => {
+    const onClick = jest.fn();
+    render(
+      <DetailRow label="Transfer type" onClick={onClick} disabled data-testid="row">
+        Private
+      </DetailRow>
+    );
+    const row = screen.getByTestId('row');
+    expect(row).toBeDisabled();
+    expect(row).toHaveClass('w-full', 'text-left', 'active:bg-fill-pressed', 'disabled:opacity-50');
+    expect(row.querySelector('svg')).not.toBeNull();
+
+    fireEvent.click(row);
+    expect(hapticLight).not.toHaveBeenCalled();
+    expect(onClick).not.toHaveBeenCalled();
   });
 
   it('draws no chevron on a plain row', () => {

@@ -234,23 +234,36 @@ export const ReviewTransaction: React.FC = () => {
     setRecallBlocks(String(dateTimeToRecallBlocks(date)));
   }, [isBridge]);
 
+  // From the press until the send settles, the choices it carries are frozen: the sheets stay
+  // closed and ignore a change, so the page never shows anything but what the send carries.
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   // Recall-height handlers. All mark the choice as user-made so the seeding
   // effect above won't overwrite it. "Never" clears the height entirely → P2ID.
-  const handleRecallDateChange = useCallback((date: Date | undefined) => {
-    recallTouchedRef.current = true;
-    if (date) setRecallNever(false);
-    setRecallDate(date);
-  }, []);
-  const handleRecallBlocksChange = useCallback((blocks: string) => {
-    recallTouchedRef.current = true;
-    setRecallBlocks(blocks);
-  }, []);
+  const handleRecallDateChange = useCallback(
+    (date: Date | undefined) => {
+      if (isSubmitting) return;
+      recallTouchedRef.current = true;
+      if (date) setRecallNever(false);
+      setRecallDate(date);
+    },
+    [isSubmitting]
+  );
+  const handleRecallBlocksChange = useCallback(
+    (blocks: string) => {
+      if (isSubmitting) return;
+      recallTouchedRef.current = true;
+      setRecallBlocks(blocks);
+    },
+    [isSubmitting]
+  );
   const handleRecallNever = useCallback(() => {
+    if (isSubmitting) return;
     recallTouchedRef.current = true;
     setRecallNever(true);
     setRecallDate(undefined);
     setRecallBlocks(undefined);
-  }, []);
+  }, [isSubmitting]);
 
   // Leaving review without submitting ends the `send` flow the form began.
   // Without this the handle would stay open past the send flow entirely and the
@@ -268,7 +281,6 @@ export const ReviewTransaction: React.FC = () => {
     };
   }, []);
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | undefined>(undefined);
   const [spendingLimitChallenge, setSpendingLimitChallenge] =
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
@@ -748,6 +760,7 @@ export const ReviewTransaction: React.FC = () => {
                 label={t('transferType')}
                 onClick={() => setShowTransferType(true)}
                 aria-haspopup="dialog"
+                disabled={isSubmitting}
                 data-testid="review-row-transfer-type"
               >
                 {t(transferType)}
@@ -758,6 +771,7 @@ export const ReviewTransaction: React.FC = () => {
                   label: t('edit'),
                   onClick: () => setShowCalendar(true),
                   'aria-haspopup': 'dialog',
+                  disabled: isSubmitting,
                   'data-testid': 'review-expiration-edit'
                 }}
                 data-testid="review-row-expiration"
@@ -800,15 +814,18 @@ export const ReviewTransaction: React.FC = () => {
 
       {!isBridge && (
         <TransferTypeDrawer
-          open={showTransferType}
+          open={showTransferType && !isSubmitting}
           onOpenChange={setShowTransferType}
           value={transferType}
-          onChange={next => setSharePrivately(next === 'private')}
+          onChange={next => {
+            if (isSubmitting) return;
+            setSharePrivately(next === 'private');
+          }}
         />
       )}
       {!isBridge && (
         <RecallCalendarDrawer
-          open={showCalendar}
+          open={showCalendar && !isSubmitting}
           onOpenChange={setShowCalendar}
           recallDate={recallDate}
           recallTime={recallTime}

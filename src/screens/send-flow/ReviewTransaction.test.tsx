@@ -212,17 +212,31 @@ jest.mock('framer-motion', () => {
 
 jest.mock('components/ui/DetailCard', () => ({
   DetailCard: ({ children }: any) => <div data-testid="rows">{children}</div>,
-  DetailRow: ({ label, children, action, sub, onClick, 'aria-haspopup': hasPopup, 'data-testid': testId }: any) => (
+  DetailRow: ({
+    label,
+    children,
+    action,
+    sub,
+    onClick,
+    disabled,
+    'aria-haspopup': hasPopup,
+    'data-testid': testId
+  }: any) => (
     <div data-testid={testId ?? 'review-row'}>
       <span data-testid="row-label">{label}</span>
       {children !== undefined && <span data-testid="row-children">{children}</span>}
       {action && (
-        <button data-testid={action['data-testid']} aria-haspopup={action['aria-haspopup']} onClick={action.onClick}>
+        <button
+          data-testid={action['data-testid']}
+          aria-haspopup={action['aria-haspopup']}
+          disabled={action.disabled}
+          onClick={action.onClick}
+        >
           {action.label}
         </button>
       )}
       {onClick && (
-        <button data-testid="row-open" aria-haspopup={hasPopup} onClick={onClick}>
+        <button data-testid="row-open" aria-haspopup={hasPopup} disabled={disabled} onClick={onClick}>
           open
         </button>
       )}
@@ -373,7 +387,14 @@ jest.mock('./RecallCalendarDrawer', () => ({
   SECONDS_PER_BLOCK: 3,
   dateTimeToRecallBlocks: jest.fn(() => 999),
   RecallCalendarDrawer: (props: any) => (
-    <div data-testid="recall-drawer" data-open={String(props.open)} data-recall-time={props.recallTime} />
+    <div data-testid="recall-drawer" data-open={String(props.open)} data-recall-time={props.recallTime}>
+      <button data-testid="recall-pick-never" onClick={() => props.onRecallNever()}>
+        recall-never
+      </button>
+      <button data-testid="recall-pick-blocks" onClick={() => props.onRecallBlocksChange('42')}>
+        recall-blocks
+      </button>
+    </div>
   )
 }));
 
@@ -1709,6 +1730,8 @@ describe('ReviewTransaction — transfer type', () => {
     render(<ReviewTransaction />);
     await flush();
     await openAdvancedOptions();
+    // A send that goes through leaves the page; a failed one hands the choices back.
+    initiateMock.mockRejectedValueOnce(new Error('send failed'));
 
     fireEvent.click(screen.getByTestId('transfer-type-pick-public'));
     await flush();
@@ -1722,6 +1745,47 @@ describe('ReviewTransaction — transfer type', () => {
     await flush();
     expect(screen.getByTestId('send-review-submit').textContent).toBe('sendPayment');
     expect(screen.queryByTestId('review-public-notice')).not.toBeInTheDocument();
+  });
+
+  it('freezes the transfer type and the expiration from the press until the send settles', async () => {
+    setValidRoute();
+    const assessment = deferred<undefined>();
+    mockWalletStoreState.assessSpendingLimit.mockReturnValue(assessment.promise);
+    render(<ReviewTransaction />);
+    await flush();
+    await openAdvancedOptions();
+    fireEvent.click(screen.getByTestId('transfer-type-pick-public'));
+    await flush();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+
+    expect(screen.getByTestId('row-open')).toBeDisabled();
+    expect(screen.getByTestId('review-expiration-edit')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('row-open'));
+    fireEvent.click(screen.getByTestId('review-expiration-edit'));
+    await flush();
+    expect(screen.getByTestId('transfer-type-drawer')).toHaveAttribute('data-open', 'false');
+    expect(screen.getByTestId('recall-drawer')).toHaveAttribute('data-open', 'false');
+    // A sheet already on screen, or one closing, can still hand a change back.
+    fireEvent.click(screen.getByTestId('transfer-type-pick-private'));
+    fireEvent.click(screen.getByTestId('recall-pick-never'));
+    fireEvent.click(screen.getByTestId('recall-pick-blocks'));
+    await flush();
+
+    await act(async () => {
+      assessment.resolve(undefined);
+    });
+    await flush();
+
+    // What went out and what the page shows still agree: public, with the 7-day window.
+    expect(initiateMock).toHaveBeenLastCalledWith('pubkey-1', '0xrecipient', 'tok1', 'public', 12345n, 999, false);
+    await openAdvancedOptions();
+    expect(screen.getByTestId('review-advanced-options')).toHaveAttribute('data-open', 'false');
+    expect(screen.getByTestId('review-public-notice')).toBeInTheDocument();
+    expect(screen.getByTestId('review-advanced-options-summary').textContent).toMatch(/^public · In .+/);
+    expect(screen.getByTestId('send-review-submit').textContent).toBe('sendPublicly');
   });
 });
 

@@ -21,6 +21,7 @@ export interface DetailRowAction {
   onClick: () => void;
   /** For an action that opens a sheet or menu. */
   'aria-haspopup'?: 'dialog' | 'menu';
+  disabled?: boolean;
   'data-testid'?: string;
 }
 
@@ -47,6 +48,8 @@ export interface DetailRowProps {
   onClick?: () => void;
   /** With `onClick`, for a row that opens a sheet or menu. */
   'aria-haspopup'?: 'dialog' | 'menu';
+  /** With `onClick`: the row stays drawn but cannot be tapped, like a disabled `ListRow`. */
+  disabled?: boolean;
   className?: string;
   'data-testid'?: string;
 }
@@ -61,6 +64,7 @@ export const DetailRow: React.FC<DetailRowProps> = ({
   stacked = false,
   onClick,
   'aria-haspopup': ariaHasPopup,
+  disabled,
   className,
   'data-testid': dataTestId
 }) => {
@@ -86,6 +90,7 @@ export const DetailRow: React.FC<DetailRowProps> = ({
               tone="selected"
               onClick={action.onClick}
               aria-haspopup={action['aria-haspopup']}
+              disabled={action.disabled}
               data-testid={action['data-testid']}
               className="shrink-0"
             >
@@ -105,6 +110,7 @@ export const DetailRow: React.FC<DetailRowProps> = ({
       <button
         type="button"
         aria-haspopup={ariaHasPopup}
+        disabled={disabled}
         data-testid={dataTestId}
         onClick={() => {
           hapticLight();
@@ -113,7 +119,8 @@ export const DetailRow: React.FC<DetailRowProps> = ({
         className={cn(
           classes,
           'w-full text-left transition-colors active:bg-fill-pressed',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-inset'
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-inset',
+          'disabled:cursor-default disabled:opacity-50 disabled:active:bg-transparent'
         )}
       >
         {content}
