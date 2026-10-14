@@ -10,6 +10,16 @@ import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { Route, RouteOptions } from './Route';
 import { AgglayerEligibility } from './useAgglayerEligibility';
 
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(
+      () =>
+        jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+          .TEST_BRIDGE_CONFIG_SNAPSHOT
+    )
+);
+
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     // A fee label names its asset and a payout row its amount; every other key reads as itself.

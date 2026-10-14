@@ -119,6 +119,10 @@ const toAccountId = (id: string): AccountId =>
   id.startsWith('0x') ? AccountId.fromHex(id) : AccountId.fromBech32(canonical(id));
 const noteTypeOf = (name: NoteTypeName): NoteType => (name === 'public' ? NoteType.Public : NoteType.Private);
 const noteTypeName = (type: NoteType): NoteTypeName => (type === NoteType.Public ? 'public' : 'private');
+const cryptoWord = (): Word => {
+  const values = crypto.getRandomValues(new BigUint64Array(4));
+  return Word.newFromFelts(Array.from(values, value => new Felt(value & 0x7fff_ffff_ffff_ffffn)));
+};
 // By script root, as the wallet's own guardian-history.ts reads a payment note.
 function scriptOf(note: Note): OutputNoteView['script'] {
   const root = note.script().root().toHex();
@@ -519,6 +523,9 @@ const handlers: Partial<DappHandlers> = {
   // Syncs first, so the bound block N is the dApp's own height at build time. A Guardian request takes its auth args
   // from the shape twin (spec section 4); `authArgs: 'none'` and single-sig accounts use a plain builder.
   buildCustom: async input => {
+    if (input.feeSalt === true && input.authArgs !== 'none') {
+      throw new HarnessCheckError('feeSalt requires authArgs: none');
+    }
     const me = requireConnected();
     const ownClient = client();
     await fromNode('syncChain', () => ownClient.syncChain());
@@ -560,7 +567,9 @@ const handlers: Partial<DappHandlers> = {
     const inputNoteIds = inputs.map(note => note.id().toString());
 
     const twin = input.authArgs !== 'none' && me.builder === 'guardian-twin';
-    const builder = twin ? await guardianRequestBuilder(client(), height) : new TransactionRequestBuilder();
+    let builder = twin ? await guardianRequestBuilder(client(), height) : new TransactionRequestBuilder();
+    const feeSalt = input.feeSalt === true ? cryptoWord() : undefined;
+    if (feeSalt !== undefined) builder = builder.withFeeConversionSalt(feeSalt);
     const withOutputs = builder.withOwnOutputNotes(new NoteArray(outputs));
     const request = (
       inputs.length > 0
@@ -585,7 +594,12 @@ const handlers: Partial<DappHandlers> = {
             declaresBoundBlock: request.blockNumbers().includes(height)
           }
         : {}),
-      ...(input.authArgs === 'none' ? { noAuthArg: request.authArg() === undefined } : {})
+      ...(input.authArgs === 'none'
+        ? {
+            noAuthArg: request.authArg() === undefined,
+            feeSaltMatches: request.feeConversionSalt()?.toHex() === feeSalt?.toHex()
+          }
+        : {})
     };
     const failed = Object.entries(checks)
       .filter(([, ok]) => !ok)

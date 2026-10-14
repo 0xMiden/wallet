@@ -18,6 +18,7 @@ import {
 } from 'lib/epoch/testing/earn-prepared';
 import { DEFAULT_TOKEN_METADATA, MIDEN_METADATA } from 'lib/miden/metadata/defaults';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
+import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import {
   REMOTE_PROVER_FAILED_ERROR,
   TRANSACTION_STUCK_ERROR,
@@ -148,7 +149,6 @@ jest.mock('lib/miden/metadata/utils', () => ({
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokenByFaucetId: (...args: unknown[]) => mockGetSwapTokenByFaucetId(...args),
   normalizedFaucetId: (id: string) => id,
-  TOKEN_IETH: jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH,
   tokenQuote: jest.requireActual('lib/miden/swap/tokens').tokenQuote
 }));
 
@@ -762,15 +762,15 @@ describe('HistoryDetails', () => {
     });
 
     it('names the registry iETH requested token "Test iETH" in the swap hero (#477)', async () => {
-      const { TOKEN_IETH } = jest.requireActual('lib/miden/swap/tokens');
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
       mockGetSwapTokenByFaucetId.mockImplementation((id: string) =>
-        id === TOKEN_IETH.faucetId ? { symbol: 'IETH', decimals: 8 } : { symbol: 'MIDEN', decimals: 6 }
+        id === TEST_TOKEN_IETH.faucetId ? { symbol: 'IETH', decimals: 8 } : { symbol: 'MIDEN', decimals: 6 }
       );
       setMockRow({
         ...baseSendTx,
         type: 'swap',
         amount: 500_000n,
-        extraInputs: { orderId: '42', requestedFaucetId: TOKEN_IETH.faucetId, requestedAmount: 100_000_000n }
+        extraInputs: { orderId: '42', requestedFaucetId: TEST_TOKEN_IETH.faucetId, requestedAmount: 100_000_000n }
       });
       await renderAndLoad();
 
@@ -979,7 +979,7 @@ describe('HistoryDetails', () => {
 
   describe('Guardian change details', () => {
     const LAMBDA = 'https://miden-guardian.lambdaclass.com';
-    const OZ = 'https://guardian.openzeppelin.com';
+    const OZ = 'https://guardian-testnet.openzeppelin.com';
 
     it('renders both providers on brand tiles, old to new, with status and no wallet destination rows', async () => {
       setMockRow({
@@ -1327,10 +1327,11 @@ describe('HistoryDetails', () => {
     });
 
     it('estimates IETH at the ETH price, the symbol the feed quotes it under', async () => {
-      const { TOKEN_IETH } = jest.requireActual('lib/miden/swap/tokens');
+      // The document lists IETH, priced at ETH.
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
       mockGetTokenMetadata.mockResolvedValue({ symbol: 'IETH', decimals: 8 });
       mockWalletStore.setState({ tokenPrices: { ETH: { price: 3000 } } });
-      setMockRow({ ...baseSendTx, faucetId: TOKEN_IETH.faucetId, amount: 2n });
+      setMockRow({ ...baseSendTx, faucetId: TEST_TOKEN_IETH.faucetId, amount: 2n });
       await renderAndLoad();
 
       expect(screen.getByText('historyDetailsFiatApprox_$6000.00')).toBeInTheDocument();

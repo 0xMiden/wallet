@@ -8,6 +8,13 @@ import {
   stalledExecuteLeg
 } from './cctp';
 
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
+
 const fetchMock = jest.fn();
 Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
 

@@ -25,7 +25,7 @@ import type { TransactionSuccessLayoutProps } from './TransactionSuccessLayout';
 
 // Real GUARDIAN_OPTIONS testnet endpoints (src/lib/miden-chain/networks-config.ts):
 // these resolve to the canonical provider names "OpenZeppelin" and "Koda".
-const OPENZEPPELIN_ENDPOINT = 'https://guardian.openzeppelin.com';
+const OPENZEPPELIN_ENDPOINT = 'https://guardian-testnet.openzeppelin.com';
 const KODA_ENDPOINT = 'https://guardian-testnet.kodax.com';
 
 jest.mock('react-i18next', () => ({

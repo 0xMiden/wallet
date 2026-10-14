@@ -6,13 +6,14 @@ import { useTranslation } from 'react-i18next';
 import { Button, ButtonVariant } from 'components/Button';
 import { IBridgedReceivePhase, IUsdcxCctpLeg } from 'lib/miden/db/types';
 import { hapticMedium } from 'lib/mobile/haptics';
-import { getUsdcxExecutorSource, isUsdcxExecutorSource } from 'lib/usdcx/constant';
+import { usdcxSourceChains, UsdcxSourceChain } from 'lib/usdcx/constant';
 
 import { useCctpExecute } from './useCctpExecute';
 
 export interface UsdcxExecuteActionProps {
   txId: string;
   sourceChainId?: number;
+  sourceConfig?: UsdcxSourceChain;
   phase: IBridgedReceivePhase;
   cctp?: IUsdcxCctpLeg;
   className?: string;
@@ -30,12 +31,14 @@ function errorMessage(error: unknown): string {
 export const UsdcxExecuteAction: React.FC<UsdcxExecuteActionProps> = ({
   txId,
   sourceChainId,
+  sourceConfig,
   phase,
   cctp,
   className
 }) => {
   const { t } = useTranslation();
   const execute = useCctpExecute();
+  const source = sourceConfig ?? (sourceChainId === undefined ? undefined : usdcxSourceChains().get(sourceChainId));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,10 +57,10 @@ export const UsdcxExecuteAction: React.FC<UsdcxExecuteActionProps> = ({
     }
   }, [busy, cctp, execute, sourceChainId, txId]);
 
-  if (sourceChainId === undefined || !isUsdcxExecutorSource(sourceChainId) || phase !== 'delivering' || !cctp) {
+  if (sourceChainId === undefined || source?.route !== 'cctp-executor' || phase !== 'delivering' || !cctp) {
     return null;
   }
-  const network = getUsdcxExecutorSource(sourceChainId).target.chain.name;
+  const network = source.target.chain.name;
 
   if (cctp.executeTxHash) {
     return (

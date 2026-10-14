@@ -3753,6 +3753,14 @@
     "message": "이 외부 서비스는 현재 이용이 불가능합니다. 잠시 후 다시 시도해 주십시오.",
     "englishSource": "This external service is currently down. Please try again later."
   },
+  "swapUnavailableTitle": {
+    "message": "이 네트워크에서는 스왑 기능을 사용할 수 없습니다.",
+    "englishSource": "Swap is not available on this network"
+  },
+  "swapUnavailableBody": {
+    "message": "아직 이 네트워크에 대해 설정된 스왑 토큰은 없습니다.",
+    "englishSource": "No swap tokens are configured for this network yet."
+  },
   "agglayerCheckingToken": {
     "message": "이 토큰이 Slow 경로를 지원하는지 확인 중…",
     "englishSource": "Checking whether this token supports the Slow route…"
@@ -5936,26 +5944,6 @@
     "message": "내 수익",
     "englishSource": "Your Earnings"
   },
-  "durationUnitSeconds": {
-    "message": "초",
-    "englishSource": "Sec"
-  },
-  "durationUnitMinutes": {
-    "message": "분",
-    "englishSource": "Min"
-  },
-  "durationUnitHours": {
-    "message": "시간",
-    "englishSource": "Hour"
-  },
-  "durationUnitDays": {
-    "message": "일",
-    "englishSource": "Day"
-  },
-  "swapExpiryUnit": {
-    "message": "만료 단위",
-    "englishSource": "Expiry unit"
-  },
   "moreInfoAbout": {
     "message": "$label$ 자세히 보기",
     "englishSource": "More information about $label$",
@@ -5965,15 +5953,32 @@
       }
     }
   },
-  "swapExpiryRange": {
-    "message": "$min$에서 $max$ 사이의 정수를 입력하세요.",
-    "englishSource": "Enter a whole number from $min$ to $max$.",
+  "swapExpiryLabel": {
+    "message": "지정된 시간 내에 체결되지 않으면 취소하십시오.",
+    "englishSource": "Cancel if not filled within"
+  },
+  "swapExpiryPreset2Min": {
+    "message": "2분",
+    "englishSource": "2 min"
+  },
+  "swapExpiryPreset1Hour": {
+    "message": "1시간",
+    "englishSource": "1 hour"
+  },
+  "swapExpiryPreset1Day": {
+    "message": "1일",
+    "englishSource": "1 day"
+  },
+  "swapExpiryPreset7Days": {
+    "message": "7일",
+    "englishSource": "7 days"
+  },
+  "swapExpiryNote": {
+    "message": "그때까지 체결되지 않았나요? 스왑은 취소되며, 미체결된 $amount$는 전액 반환됩니다.",
+    "englishSource": "Not filled by then? The swap is cancelled and whatever is unfilled of your $amount$ comes back.",
     "placeholders": {
-      "min": {
+      "amount": {
         "content": "$1"
-      },
-      "max": {
-        "content": "$2"
       }
     }
   },
@@ -6199,5 +6204,65 @@
   "bridgeDepositAwaitingNextConfirmationDescription": {
     "message": "첫 번째 확인이 완료되었습니다. 지갑에서 한 번 더 확인을 요청할 것입니다. 이 화면을 계속 열어 두십시오.",
     "englishSource": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
+  },
+  "advancedOptions": {
+    "message": "고급 옵션",
+    "englishSource": "Advanced options"
+  },
+  "advancedOptionsSummary": {
+    "message": "$transferType$ · $expiration$",
+    "englishSource": "$transferType$ · $expiration$",
+    "placeholders": {
+      "transfertype": {
+        "content": "$1"
+      },
+      "expiration": {
+        "content": "$2"
+      }
+    }
+  },
+  "transferType": {
+    "message": "전송 유형",
+    "englishSource": "Transfer type"
+  },
+  "publicTransfer": {
+    "message": "공개 전송",
+    "englishSource": "Public transfer"
+  },
+  "publicTransferNotice": {
+    "message": "토큰, 금액, 수신자 주소가 Miden에서 공개됩니다.",
+    "englishSource": "The token, amount, and recipient address will be visible on Miden."
+  },
+  "publicTransferHelp": {
+    "message": "누구나 이 전송의 토큰, 금액, 수신자 주소를 Miden에서 볼 수 있습니다.",
+    "englishSource": "Anyone can see this transfer's token, amount, and recipient address on Miden."
+  },
+  "senderAddressPublicNote": {
+    "message": "발신자 주소는 두 모드 모두에서 공개됩니다.",
+    "englishSource": "Your sender address is public in both modes."
+  },
+  "sendPublicly": {
+    "message": "공개로 보내기",
+    "englishSource": "Send publicly"
+  },
+  "breadCloseError": {
+    "message": "Bread로 돌아갈 수 없습니다.",
+    "englishSource": "Could not return to Bread."
+  },
+  "breadExitNow": {
+    "message": "지금 종료",
+    "englishSource": "Exit now"
+  },
+  "breadPresentationBack": {
+    "message": "Bread로 돌아가기",
+    "englishSource": "Back to Bread"
+  },
+  "breadPresentationHint": {
+    "message": "Bread를 탭하여 돌아가기",
+    "englishSource": "Tap Bread to return"
+  },
+  "breadPresentationError": {
+    "message": "이 앱의 로딩이 완료되지 않았습니다. 다시 시도하거나 Bread로 돌아가세요.",
+    "englishSource": "This app did not finish loading. Try again or return to Bread."
   }
 }

@@ -1,5 +1,22 @@
 import { encodeBurnWithdrawal, isUsdcxWithdrawalNetwork, UsdcxBurnError, validateUsdcxWithdrawal } from './withdrawal';
 
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () => {
+    const snapshot = jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot();
+    const sepoliaRoute = snapshot.config?.supportedEvmChains.sepolia?.bridges.usdcx;
+    if (listsMainnet && snapshot.config && sepoliaRoute) {
+      snapshot.config.supportedEvmChains.ethereum = {
+        chainId: 1,
+        bridges: { usdcx: { ...sepoliaRoute, withdrawalEnabled: true } }
+      };
+    }
+    return network === 'testnet' ? snapshot : { ...snapshot, config: null };
+  }
+}));
+let listsMainnet = false;
+
 const USDCX_FAUCET_ID_BECH32 = 'mtst1native';
 jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetIdSync: () => 'mtst1native' }));
 
@@ -96,5 +113,14 @@ describe('USDCx withdrawal encoding', () => {
     network = 'devnet';
     expect(isUsdcxWithdrawalNetwork()).toBe(false);
     network = 'testnet';
+  });
+
+  it('refuses a document-listed mainnet destination on the testnet network', () => {
+    listsMainnet = true;
+    try {
+      expect(() => validateUsdcxWithdrawal(USDCX_FAUCET_ID_BECH32, 1, 2_000_000n)).toThrow('usdcxInvalidDestination');
+    } finally {
+      listsMainnet = false;
+    }
   });
 });

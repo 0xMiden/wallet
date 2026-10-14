@@ -3753,6 +3753,14 @@
     "message": "Este serviço externo está indisponível no momento. Tente novamente mais tarde.",
     "englishSource": "This external service is currently down. Please try again later."
   },
+  "swapUnavailableTitle": {
+    "message": "A troca não está disponível nesta rede",
+    "englishSource": "Swap is not available on this network"
+  },
+  "swapUnavailableBody": {
+    "message": "Ainda não há tokens de swap configurados para esta rede.",
+    "englishSource": "No swap tokens are configured for this network yet."
+  },
   "agglayerCheckingToken": {
     "message": "Verificando se este token suporta a rota Slow…",
     "englishSource": "Checking whether this token supports the Slow route…"
@@ -5936,26 +5944,6 @@
     "message": "Seus ganhos",
     "englishSource": "Your Earnings"
   },
-  "durationUnitSeconds": {
-    "message": "Seg.",
-    "englishSource": "Sec"
-  },
-  "durationUnitMinutes": {
-    "message": "Min.",
-    "englishSource": "Min"
-  },
-  "durationUnitHours": {
-    "message": "Hora",
-    "englishSource": "Hour"
-  },
-  "durationUnitDays": {
-    "message": "Dia",
-    "englishSource": "Day"
-  },
-  "swapExpiryUnit": {
-    "message": "Unidade de expiração",
-    "englishSource": "Expiry unit"
-  },
   "moreInfoAbout": {
     "message": "Mais informações sobre $label$",
     "englishSource": "More information about $label$",
@@ -5965,15 +5953,32 @@
       }
     }
   },
-  "swapExpiryRange": {
-    "message": "Introduza um número inteiro de $min$ a $max$.",
-    "englishSource": "Enter a whole number from $min$ to $max$.",
+  "swapExpiryLabel": {
+    "message": "Cancelar se não for preenchida dentro de",
+    "englishSource": "Cancel if not filled within"
+  },
+  "swapExpiryPreset2Min": {
+    "message": "2 min",
+    "englishSource": "2 min"
+  },
+  "swapExpiryPreset1Hour": {
+    "message": "1 hora",
+    "englishSource": "1 hour"
+  },
+  "swapExpiryPreset1Day": {
+    "message": "1 dia",
+    "englishSource": "1 day"
+  },
+  "swapExpiryPreset7Days": {
+    "message": "7 dias",
+    "englishSource": "7 days"
+  },
+  "swapExpiryNote": {
+    "message": "Ainda não foi preenchido até então? A troca é cancelada e o que não tiver sido preenchido do seu $amount$ é devolvido.",
+    "englishSource": "Not filled by then? The swap is cancelled and whatever is unfilled of your $amount$ comes back.",
     "placeholders": {
-      "min": {
+      "amount": {
         "content": "$1"
-      },
-      "max": {
-        "content": "$2"
       }
     }
   },
@@ -6199,5 +6204,65 @@
   "bridgeDepositAwaitingNextConfirmationDescription": {
     "message": "A primeira confirmação foi concluída. Sua carteira solicitará que você confirme mais uma vez — mantenha esta tela aberta.",
     "englishSource": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
+  },
+  "advancedOptions": {
+    "message": "Opções avançadas",
+    "englishSource": "Advanced options"
+  },
+  "advancedOptionsSummary": {
+    "message": "$transferType$ · $expiration$",
+    "englishSource": "$transferType$ · $expiration$",
+    "placeholders": {
+      "transfertype": {
+        "content": "$1"
+      },
+      "expiration": {
+        "content": "$2"
+      }
+    }
+  },
+  "transferType": {
+    "message": "Tipo de transferência",
+    "englishSource": "Transfer type"
+  },
+  "publicTransfer": {
+    "message": "Transferência pública",
+    "englishSource": "Public transfer"
+  },
+  "publicTransferNotice": {
+    "message": "O token, o valor e o endereço do destinatário ficarão visíveis na Miden.",
+    "englishSource": "The token, amount, and recipient address will be visible on Miden."
+  },
+  "publicTransferHelp": {
+    "message": "Qualquer pessoa pode ver o token, o valor e o endereço do destinatário desta transferência na Miden.",
+    "englishSource": "Anyone can see this transfer's token, amount, and recipient address on Miden."
+  },
+  "senderAddressPublicNote": {
+    "message": "O seu endereço de remetente é público em ambos os modos.",
+    "englishSource": "Your sender address is public in both modes."
+  },
+  "sendPublicly": {
+    "message": "Enviar publicamente",
+    "englishSource": "Send publicly"
+  },
+  "breadCloseError": {
+    "message": "Não foi possível voltar ao Bread.",
+    "englishSource": "Could not return to Bread."
+  },
+  "breadExitNow": {
+    "message": "Sair agora",
+    "englishSource": "Exit now"
+  },
+  "breadPresentationBack": {
+    "message": "Voltar ao Bread",
+    "englishSource": "Back to Bread"
+  },
+  "breadPresentationHint": {
+    "message": "Toque em Bread para voltar",
+    "englishSource": "Tap Bread to return"
+  },
+  "breadPresentationError": {
+    "message": "Este aplicativo não terminou de carregar. Tente novamente ou volte ao Bread.",
+    "englishSource": "This app did not finish loading. Try again or return to Bread."
   }
 }

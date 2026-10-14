@@ -9,11 +9,16 @@ import {
 } from 'lib/miden/front/sync-fuse';
 import { AssetMetadata, MIDEN_METADATA } from 'lib/miden/metadata';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 import { __resetFaucetAssetsMetadataForTest, useWalletStore } from 'lib/store';
 
 import { __resetUnresolvedFaucetsForTest, fetchBalances } from './fetchBalances';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 let mockNativeAssetId = 'miden-faucet-id';
 let mockNativeMetadata = { symbol: 'MIDEN', decimals: 8 };
@@ -395,7 +400,7 @@ describe('fetchBalances', () => {
   it('prices each row by its price symbol, and leaves a token the feed does not quote unpriced', async () => {
     const { getBech32AddressFromAccountId } = jest.requireMock('lib/miden/sdk/helpers');
     getBech32AddressFromAccountId.mockImplementation((id: string) =>
-      id === 'raw-ieth' ? TOKEN_IETH.faucetId : `bech32-${id}`
+      id === 'raw-ieth' ? TEST_TOKEN_IETH.faucetId : `bech32-${id}`
     );
     mockGetAccount.mockResolvedValueOnce({
       vault: () => ({
@@ -409,7 +414,7 @@ describe('fetchBalances', () => {
     const result = (await fetchBalances(
       'my-address',
       {
-        [TOKEN_IETH.faucetId]: { name: 'IETH', symbol: 'IETH', decimals: 8 },
+        [TEST_TOKEN_IETH.faucetId]: { name: 'IETH', symbol: 'IETH', decimals: 8 },
         'bech32-other-faucet': { name: 'Other Token', symbol: 'OTH', decimals: 6 }
       },
       { tokenPrices: { ETH: { price: 3000, change24h: 40, percentageChange24h: 1.2 } } }

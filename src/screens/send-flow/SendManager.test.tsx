@@ -3,7 +3,8 @@ import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
 import { TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET } from 'lib/epoch/testing/bridge-config';
-import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
@@ -12,6 +13,10 @@ import { settleSendFlow } from './send-telemetry';
 import { SendFlow } from './SendManager';
 import { SendFlowStep } from './types';
 import { WalletType } from '../onboarding/types';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 /**
  * SendManager is a Navigator-hosted, react-hook-form-driven multi-step send
@@ -73,6 +78,16 @@ const scanQRCodeMock = jest.fn();
 const isMobileMock = jest.fn(() => true);
 const clipboardReadMock = jest.fn();
 // The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(
+      () =>
+        jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+          .TEST_BRIDGE_CONFIG_SNAPSHOT
+    )
+);
+
 jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: () => clipboardReadMock() } }));
 // The token prices under test follow the default rule, no price without a quote; pinned here against
@@ -225,6 +240,8 @@ jest.mock('./useRecentRecipients', () => ({
 }));
 
 let mockBridgeNetworks: Array<{ id: string; name: string; chainId: number }> = [];
+// When set, the networks every send offers, one stable array as the real list is while the snapshot holds.
+let mockOfferedNetworks: Array<{ id: string; name: string; chainId: number }> | undefined;
 jest.mock('./bridge-networks', () => {
   const sepolia = { id: 'sepolia', name: 'Sepolia', chainId: 11155111 };
   // The testnet USDCx destinations, in the destination table's order.
@@ -241,11 +258,12 @@ jest.mock('./bridge-networks', () => {
       return mockBridgeNetworks;
     },
     getBridgeNetwork: jest.fn(),
-    USDCX_BRIDGE_NETWORKS: usdcxNetworks,
+    usdcxBridgeNetworks: () => usdcxNetworks,
     DEFAULT_USDCX_BRIDGE_NETWORK: usdcxNetworks[0],
     isUsdcxBridgeNetwork: (id: string | undefined) => usdcxNetworks.some(n => n.id === id),
     isEpochBridgeNetwork: (id: string | undefined) => id === sepolia.id,
-    sendBridgeNetworks: (usdcxWithdrawals: boolean) => (usdcxWithdrawals ? usdcxNetworks : sepoliaOnly)
+    sendBridgeNetworks: (usdcxWithdrawals: boolean) =>
+      mockOfferedNetworks ?? (usdcxWithdrawals ? usdcxNetworks : sepoliaOnly)
   };
 });
 
@@ -816,6 +834,43 @@ describe('recipient address entry', () => {
     }
   });
 
+  it('selects the first offered network once when Sepolia is not offered', () => {
+    mockOfferedNetworks = [
+      { id: 'base-sepolia', name: 'Base Sepolia', chainId: 84532 },
+      { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 }
+    ];
+    mockBridgeNetworks = mockOfferedNetworks;
+    try {
+      mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external' };
+      renderFlow();
+      act(() => {
+        fireEvent.click(screen.getByTestId('ad-select'));
+      });
+
+      expect(screen.getByTestId('sr-network')).toHaveTextContent('base-sepolia');
+    } finally {
+      mockOfferedNetworks = undefined;
+      mockBridgeNetworks = [];
+    }
+  });
+
+  it('selects no network when none is offered', () => {
+    mockOfferedNetworks = [];
+    mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+    try {
+      mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external' };
+      renderFlow();
+      act(() => {
+        fireEvent.click(screen.getByTestId('ad-select'));
+      });
+
+      expect(screen.getByTestId('sr-network')).toBeEmptyDOMElement();
+    } finally {
+      mockOfferedNetworks = undefined;
+      mockBridgeNetworks = [];
+    }
+  });
+
   it("preselects a 0x contact's saved network when it is picked", () => {
     mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external', network: 'sepolia' };
     renderFlow();
@@ -1321,10 +1376,10 @@ describe('token preselection', () => {
   });
 
   it('values a preselected swap token at the asset it stands for', () => {
-    mockSearch = `?tokenId=${TOKEN_IETH.faucetId}`;
+    mockSearch = `?tokenId=${TEST_TOKEN_IETH.faucetId}`;
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     useAllBalancesMock.mockReturnValue({
-      data: [{ tokenId: TOKEN_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 2, fiatPrice: 0 }]
+      data: [{ tokenId: TEST_TOKEN_IETH.faucetId, metadata: { symbol: 'IETH', decimals: 8 }, balance: 2, fiatPrice: 0 }]
     });
     walletStoreState.tokenPrices = { ETH: { price: 3000 } };
     try {
@@ -1337,7 +1392,7 @@ describe('token preselection', () => {
   });
 
   describe('after the user picks another token', () => {
-    const T2 = TOKEN_IBTC.faucetId;
+    const T2 = TEST_TOKEN_IBTC.faucetId;
     const threeTokens = (t2Balance = 7) => [
       { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 0 },
       { tokenId: T2, metadata: { symbol: 'TK2', decimals: 2 }, balance: t2Balance, fiatPrice: 0 },

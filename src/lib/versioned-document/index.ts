@@ -150,8 +150,9 @@ export function versionedDocumentSource<T extends { version: number }>(
         if (document.version < floor) {
           throw new Error(`the ${network} ${spec.label} version ${document.version} is below the accepted ${floor}`);
         }
-        // One version names one document: anything derived from it is bound to it by version. With none stored (a
-        // reset keeps the floor and wipes the document) the version is open again.
+        // One version names one document: anything derived from it is bound to it by version. With none stored the
+        // version is open again: every reset wipes Explore's document, only Developer Settings' reset wipes the bridge
+        // config's, and every reset keeps both floors.
         const entry = readTimestampedEntry(stored[spec.cacheKey(network)]);
         const accepted = entry ? spec.parse(entry.body, network) : null;
         if (entry && accepted?.version === document.version && !isEqual(entry.body, body)) {

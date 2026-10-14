@@ -5,6 +5,7 @@ import { reportGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-p
 import { MIDEN_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { cacheScope } from 'lib/miden-chain/native-asset';
+import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
 import { midenClientProxy } from './miden-client-proxy';
@@ -34,6 +35,9 @@ import { isPipelineKillLink } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 class HistoryInterrupted extends Error {}
+
+const isOwnOperator = (ownOperators: string[], operator: string) =>
+  ownOperators.some(own => sameGuardianEndpoint(own, operator));
 
 // An eviction, an offscreen abort or a terminated client of a summary or local result-commitment decode the pass was
 // not interrupted for. It says the decode did not finish, not that the bytes failed a check, so the source is filed
@@ -294,7 +298,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
         continue;
       }
       if (unsupportedHistorySources.has(id) && checkpoint.failure === 'unsupported') {
-        if (ownOperators.includes(operator)) sourceFailures++;
+        if (isOwnOperator(ownOperators, operator)) sourceFailures++;
         else deferredSources++;
         continue;
       }
@@ -309,7 +313,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
       if (
         deferredFailureHistorySources.has(id) &&
         checkpoint.failure !== undefined &&
-        !ownOperators.includes(operator)
+        !isOwnOperator(ownOperators, operator)
       ) {
         deferredSources++;
         continue;
@@ -349,7 +353,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             // Asked once per session up to MAX_UNSUPPORTED_HISTORY_PASSES: an operator the account may never have
             // used is a deferred source and then completes empty, while one it used is a failed source and then a
             // terminal one, which ends recovery once the pass has read the other operators.
-            const own = ownOperators.includes(operator);
+            const own = isOwnOperator(ownOperators, operator);
             const unsupportedPasses = (checkpoint.unsupportedPasses ?? 0) + 1;
             const exhausted = unsupportedPasses >= MAX_UNSUPPORTED_HISTORY_PASSES;
             checkpoint = { ...checkpoint, failure: 'unsupported', unsupportedPasses, completed: exhausted && !own };
@@ -537,7 +541,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
           return { deferred: false, sourceFailures: sourceFailures + 1, restored, failed: true, deferredSources };
         }
         const failure = error instanceof Error ? classifyHistoryFailure(error) : 'invalid-data';
-        if (failure !== 'invalid-data' && !ownOperators.includes(operator)) {
+        if (failure !== 'invalid-data' && !isOwnOperator(ownOperators, operator)) {
           // Each class spends only its own count, once: a failed request its deferredFailurePasses, in the session its
           // attempt was issued in, and an aborted decode its abortedDecodePasses, only if it began in this session. A
           // failure neither carries, such as a failed fee lookup on the wallet's own node, defers the source uncounted.

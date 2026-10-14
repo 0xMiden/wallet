@@ -4,6 +4,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
 
+import { capNativeScreenshot } from '../../harness/cap-native-screenshot';
+
 const execFileAsync = promisify(execFile);
 
 /**
@@ -341,6 +343,7 @@ export class EmulatorControl {
       timeout: ADB_TIMEOUT_MS
     });
     fs.writeFileSync(outPath, stdout);
+    await capNativeScreenshot(outPath);
   }
 
   /**

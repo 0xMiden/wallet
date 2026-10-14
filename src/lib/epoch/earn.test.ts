@@ -537,7 +537,7 @@ describe('openEarnPosition guards', () => {
 
     await expect(openEarnPosition(args)).rejects.toThrow('stop');
 
-    expect(mockGetSdk).toHaveBeenCalledWith(SPONSOR);
+    expect(mockGetSdk).toHaveBeenCalledWith(SPONSOR, 'https://allocator.test');
   });
 
   it('threads the exact authorization through intent preparation and preserves final rejection', async () => {

@@ -434,6 +434,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeProvider: bridge?.provider,
           bridgeDestinationAddress: bridge?.destinationAddress,
           bridgeDestinationNetwork: bridge?.destinationNetwork,
+          bridgeAgglayerRoute: bridge?.agglayerRoute,
+          bridgeEpochAllocatorUrl: bridge?.epochAllocatorUrl,
           bridgeClaimStatus: bridge?.claimStatus,
           bridgeOutputAmount: bridge?.outputAmount,
           bridgeOutputSymbol: bridge?.outputSymbol,
@@ -451,6 +453,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeInProvider: bridgeReceive?.provider ?? consumedBridge?.provider,
           bridgeInSourceAddress: bridgeReceive?.sourceAddress ?? consumedBridge?.intentOwner,
           bridgeInSourceChainId: bridgeReceive?.sourceChainId,
+          bridgeInSourceConfig: bridgeReceive?.usdcxSource,
           bridgeInSourceAmount: bridgeReceive?.sourceAmount ?? consumedBridge?.sourceAmount,
           bridgeInSourceSymbol: bridgeReceive?.sourceSymbol ?? consumedBridge?.sourceSymbol,
           bridgeInEvmTxHash: bridgeReceive?.evmTxHash ?? consumedBridge?.evmTxHash,
@@ -688,7 +691,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
       {/* Every line of the detail page is Nunito: the body styles that read `--font-sans` (row labels,
           section labels, the ID chips) resolve to the heading face here, and the text that sets no
           face of its own inherits it. */}
-      <div className="flex flex-1 flex-col min-h-0 px-4 face-heading">
+      <div className="flex flex-1 flex-col min-h-0 px-4 pb-[var(--wallet-control-safe-bottom,0px)] face-heading">
         {loadError ? (
           <div className="flex-1 flex flex-col items-center justify-center p-4">
             <p className="text-red-500 text-center mb-2">{t('smthWentWrong')}</p>
@@ -1133,6 +1136,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     <SectionHeader size="md">{t('usdcxProgress')}</SectionHeader>
                     <UsdcxDepositSteps
                       sourceChainId={entry.bridgeInSourceChainId}
+                      sourceConfig={entry.bridgeInSourceConfig}
                       phase={entry.bridgeInPhase}
                       cctp={entry.bridgeInCctp}
                     />
@@ -1173,12 +1177,15 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       only place that offers it once the deposit screen is gone. */}
                   {entry.txId &&
                     entry.bridgeInProvider === 'usdcx' &&
-                    isUsdcxExecutorSource(entry.bridgeInSourceChainId) &&
+                    (entry.bridgeInCctp !== undefined ||
+                      entry.bridgeInSourceConfig?.route === 'cctp-executor' ||
+                      isUsdcxExecutorSource(entry.bridgeInSourceChainId)) &&
                     entry.bridgeInPhase &&
                     !entry.restoredFromBackup && (
                       <UsdcxExecuteAction
                         txId={entry.txId}
                         sourceChainId={entry.bridgeInSourceChainId}
+                        sourceConfig={entry.bridgeInSourceConfig}
                         phase={entry.bridgeInPhase}
                         cctp={entry.bridgeInCctp}
                         className="mt-4"

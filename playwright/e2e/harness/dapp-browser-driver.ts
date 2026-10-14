@@ -17,8 +17,15 @@
  */
 
 import { expect } from '@playwright/test';
+import { mkdir, writeFile } from 'fs/promises';
 
-import { fixtureDapp, GENERATION_COLORS, GENERATION_MARKER_PX, type DappFixtureServer } from './dapp-fixture-server';
+import {
+  fixtureDapp,
+  FIXTURE_DAPPS,
+  GENERATION_COLORS,
+  GENERATION_MARKER_PX,
+  type DappFixtureServer
+} from './dapp-fixture-server';
 import { describeStats, measureVerticalOffsetCss, sampleRegion, type Rect } from './dapp-visual';
 import { resolveWalletNetwork } from './extension-network';
 import devnetCatalog from '../../../src/lib/explore-config/snapshot/devnet.json';
@@ -451,7 +458,35 @@ export class DappBrowserDriver {
       async () => this.server.lastReport(dappId),
       r => !!r && Math.abs(r.width - slot.width) <= tolerancePx && Math.abs(r.height - slot.height) <= tolerancePx,
       15_000
-    ).catch(() => this.server.lastReport(dappId));
+    ).catch(async error => {
+      const selectedReport = this.server.lastReport(dappId);
+      let observedStateTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const diagnostic = {
+          capturedAt: Date.now(),
+          dappId,
+          label,
+          pollingError: String(error),
+          selectedReport: selectedReport ?? null,
+          reports: Object.fromEntries(FIXTURE_DAPPS.map(({ id }) => [id, this.server.reports(id)])),
+          expectedState: state,
+          observedState: await Promise.race([
+            this.state().catch(error => ({ error: String(error) })),
+            new Promise<{ error: string }>(resolve => {
+              observedStateTimer = setTimeout(() => resolve({ error: 'observed state timed out after 1000ms' }), 1000);
+            })
+          ]).finally(() => clearTimeout(observedStateTimer))
+        };
+        await mkdir(this.artifactDir, { recursive: true });
+        await writeFile(
+          `${this.artifactDir}/dapp-${this.label}-${label.replace(/[^a-zA-Z0-9_-]+/g, '-')}-reports.json`,
+          JSON.stringify(diagnostic, null, 2)
+        );
+      } catch {
+        // Diagnostics must not replace the geometry failure.
+      }
+      return selectedReport;
+    });
 
     expect(report, `[${label}] dApp '${dappId}' never reported its layout`).toBeTruthy();
     expect(

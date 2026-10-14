@@ -10,7 +10,8 @@ import {
 } from 'lib/guardian-note-recovery-progress';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { putToStorage } from 'lib/miden/front/storage';
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 
@@ -50,6 +51,10 @@ import {
   useWalletPromptStorage,
   withFaucetFundingMarkerLock
 } from './wallet-prompts';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
 
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
@@ -253,7 +258,7 @@ describe('wallet prompts', () => {
     const ieth = {
       id: 'note-2',
       amount: '200000000',
-      faucetId: TOKEN_IETH.faucetId,
+      faucetId: TEST_TOKEN_IETH.faucetId,
       metadata: { decimals: 8, symbol: 'IETH', name: 'IETH' }
     };
 
@@ -277,7 +282,7 @@ describe('wallet prompts', () => {
       const unsized = {
         id: 'note-4',
         amount: '38000000',
-        faucetId: TOKEN_IETH.faucetId,
+        faucetId: TEST_TOKEN_IETH.faucetId,
         metadata: { decimals: 6, symbol: 'Unknown', name: 'Unknown', scaleIsUnknown: true }
       };
       expect(getPendingNotesUsdTotal([usdc, unsized], prices)).toBeNull();
@@ -2139,7 +2144,7 @@ describe('bridge prompts', () => {
 
       await reconcileBridgedSends();
 
-      expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xexit', undefined);
+      expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xexit', undefined, undefined);
       expect(markUnfiled.mock.calls).toEqual([['agg-before']]);
       expect(await fetchActiveBridgePrompts('acct-1')).toEqual([]);
 
@@ -2159,7 +2164,7 @@ describe('bridge prompts', () => {
 
       await reconcileBridgedSends();
 
-      expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xexit', row.extraInputs.agglayerDepositCnt);
+      expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xexit', row.extraInputs.agglayerDepositCnt, undefined);
       expect(markUnfiled).not.toHaveBeenCalled();
       expect((await fetchActiveBridgePrompts('acct-1')).map(tx => tx.id)).toEqual([row.id]);
     });
@@ -2213,7 +2218,7 @@ describe('bridge prompts', () => {
 
       await withIndexer([...Array.from({ length: 10 }, (_, i) => exitAt(10 + i)), mine], reconcileBridgedSends);
 
-      expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', mine.tx_hash, undefined);
+      expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', mine.tx_hash, undefined, undefined);
       expect(updateClaimStatus).toHaveBeenCalledWith(
         'agg-before-page-2',
         'claimed',
@@ -2322,7 +2327,7 @@ describe('bridge prompts', () => {
     );
     await reconcileBridgedSends();
 
-    expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xexit', 16);
+    expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xexit', 16, undefined);
   });
 
   // The bridge's auto-claimer claims every exit minutes after it is ready, so a claim by anyone settles the row,
@@ -2745,7 +2750,7 @@ describe('bridge prompts', () => {
     bridgeRows.push(unconfirmed);
     await reconcileBridgedSends();
 
-    expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xabc', undefined);
+    expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xabc', undefined, undefined);
     expect(updateClaimStatus).toHaveBeenCalledWith(
       'agg-failed-unconfirmed',
       'ready',
@@ -2773,7 +2778,7 @@ describe('bridge prompts', () => {
     );
     await reconcileBridgedSends();
 
-    expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xexit', undefined);
+    expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xexit', undefined, undefined);
   });
 
   // Without its exit hash a row has nothing to bind a lookup to, and an unbound one could
@@ -2886,8 +2891,8 @@ describe('bridge prompts', () => {
     bridgeRows.push(stale, fresh);
     await reconcileBridgedSends();
 
-    expect(searchExitDeposit).not.toHaveBeenCalledWith('0xdest', '0xstale', undefined);
-    expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xfresh', undefined);
+    expect(searchExitDeposit).not.toHaveBeenCalledWith('0xdest', '0xstale', undefined, undefined);
+    expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xfresh', undefined, undefined);
   });
 
   it('does not fill-poll a Failed Epoch row whose 24-hour unconfirmed window has elapsed, but still polls one inside it', async () => {
@@ -2985,7 +2990,7 @@ describe('bridge prompts', () => {
     bridgeRows.push(aggRecentFailure, epochRecentFailure);
     await reconcileBridgedSends();
 
-    expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xrecent', undefined);
+    expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xrecent', undefined, undefined);
     expect(pollEpochIntentFill).toHaveBeenCalledWith({ destinationAddress: '0xdest', intentNonce: 'n-recent-failure' });
   });
 
@@ -3025,7 +3030,7 @@ describe('bridge prompts', () => {
     bridgeRows.push(aggStaleFailure, epochStaleFailure);
     await reconcileBridgedSends();
 
-    expect(searchExitDeposit).not.toHaveBeenCalledWith('0xdest', '0xstale2', undefined);
+    expect(searchExitDeposit).not.toHaveBeenCalledWith('0xdest', '0xstale2', undefined, undefined);
     expect(pollEpochIntentFill).not.toHaveBeenCalledWith({
       destinationAddress: '0xdest',
       intentNonce: 'n-stale-completedat'
@@ -3070,7 +3075,7 @@ describe('bridge prompts', () => {
     bridgeRows.push(aggFutureFailure, epochFutureFailure);
     await reconcileBridgedSends();
 
-    expect(searchExitDeposit).not.toHaveBeenCalledWith('0xdest', '0xfuture', undefined);
+    expect(searchExitDeposit).not.toHaveBeenCalledWith('0xdest', '0xfuture', undefined, undefined);
     expect(pollEpochIntentFill).not.toHaveBeenCalledWith({
       destinationAddress: '0xdest',
       intentNonce: 'n-future-failure'
@@ -3115,7 +3120,7 @@ describe('bridge prompts', () => {
     try {
       await reconcileBridgedSends();
 
-      expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xfuture', undefined);
+      expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xfuture', undefined, undefined);
       expect(pollEpochIntentFill).toHaveBeenCalledWith({
         destinationAddress: '0xdest',
         intentNonce: 'n-future-failure'
@@ -3157,7 +3162,7 @@ describe('bridge prompts', () => {
     bridgeRows.push(aggCompletedFuture, epochCompletedFuture);
     await reconcileBridgedSends();
 
-    expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xcompleted-future', undefined);
+    expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xcompleted-future', undefined, undefined);
     expect(pollEpochIntentFill).toHaveBeenCalledWith({
       destinationAddress: '0xdest',
       intentNonce: 'n-completed-future'
@@ -3281,7 +3286,7 @@ describe('bridge prompts', () => {
       expect(exitHashFromRowBytes).toHaveBeenCalledWith(row);
       expect(wasmLockOptions).toEqual([{ label: 'agglayer-exit-backfill' }]);
       expect(recordExitHash).toHaveBeenCalledWith('agg-legacy', '0xbackfilled');
-      expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xbackfilled', undefined);
+      expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xbackfilled', undefined, undefined);
       expect(recordExitHash.mock.invocationCallOrder[0]).toBeLessThan(searchExitDeposit.mock.invocationCallOrder[0]!);
       expect(updateClaimStatus).toHaveBeenCalledWith(
         'agg-legacy',
@@ -3352,7 +3357,7 @@ describe('bridge prompts', () => {
 
       expect(recordExitHash).toHaveBeenCalledWith('agg-b', '0xagg-b');
       expect(searchExitDeposit).toHaveBeenCalledTimes(1);
-      expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xagg-b', undefined);
+      expect(searchExitDeposit).toHaveBeenCalledWith('0xdest', '0xagg-b', undefined, undefined);
       expect(warn).toHaveBeenCalledWith(
         '[wallet-prompts] Agglayer exit back-fill write failed',
         'agg-a',

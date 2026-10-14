@@ -78,7 +78,12 @@ function submittedCopyOf(
 ): { statusValue: string; footerDescription?: string } {
   const usdcx = inputs.provider === 'usdcx';
   // An executor-route deposit in flight explains itself through `UsdcxExecuteAction`, step by step.
-  const executorInFlight = usdcx && inputs.phase === 'delivering' && isUsdcxExecutorSource(inputs.sourceChainId);
+  const executorInFlight =
+    usdcx &&
+    inputs.phase === 'delivering' &&
+    (inputs.cctp !== undefined ||
+      inputs.usdcxSource?.route === 'cctp-executor' ||
+      isUsdcxExecutorSource(inputs.sourceChainId));
   switch (inputs.phase) {
     case 'received':
       return usdcx
@@ -194,20 +199,25 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
         {inputs.provider === 'usdcx' && (
           <UsdcxDepositSteps
             sourceChainId={inputs.sourceChainId}
+            sourceConfig={inputs.usdcxSource}
             phase={inputs.phase}
             cctp={inputs.cctp}
             className="mt-4"
           />
         )}
-        {inputs.provider === 'usdcx' && isUsdcxExecutorSource(inputs.sourceChainId) && (
-          <UsdcxExecuteAction
-            txId={row.id}
-            sourceChainId={inputs.sourceChainId}
-            phase={inputs.phase}
-            cctp={inputs.cctp}
-            className="mt-4"
-          />
-        )}
+        {inputs.provider === 'usdcx' &&
+          (inputs.cctp !== undefined ||
+            inputs.usdcxSource?.route === 'cctp-executor' ||
+            isUsdcxExecutorSource(inputs.sourceChainId)) && (
+            <UsdcxExecuteAction
+              txId={row.id}
+              sourceChainId={inputs.sourceChainId}
+              sourceConfig={inputs.usdcxSource}
+              phase={inputs.phase}
+              cctp={inputs.cctp}
+              className="mt-4"
+            />
+          )}
       </TransactionSuccessLayout>
     );
   }

@@ -6,8 +6,7 @@ import {
   CCTP_EXECUTOR_HOOK_NAME,
   CCTP_FORWARD_HOOK_NAME,
   getUsdcxExecutorSource,
-  TOKEN_MESSENGER_V2_ADDRESS,
-  USDCX_REMOTE_DOMAIN,
+  getUsdcxRemoteDomain,
   XRESERVE_ABI
 } from './constant';
 import { isUsdcxDomainNotRegisteredError, UsdcxDomainNotRegisteredError } from './deposit';
@@ -24,6 +23,13 @@ import {
   runUsdcxExecutorDeposit,
   UsdcxExecutorDepositDeps
 } from './executor';
+
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
 
 jest.mock('lib/miden/activity', () => ({
   updateBridgedReceivePhase: jest.fn()
@@ -73,7 +79,7 @@ describe('executor hook data', () => {
   it('asks Arc xReserve to deposit for Miden with a zero amount the handler overwrites', () => {
     const decoded = decodeFunctionData({ abi: XRESERVE_ABI, data: encodeXReserveDepositCalldata(TARGET, RECIPIENT) });
     expect(decoded.functionName).toBe('depositToRemote');
-    expect(decoded.args).toEqual([0n, USDCX_REMOTE_DOMAIN, RECIPIENT, TARGET.usdc, 0n, '0x']);
+    expect(decoded.args).toEqual([0n, getUsdcxRemoteDomain(), RECIPIENT, TARGET.usdc, 0n, '0x']);
   });
 
   // `DepositForHandler.handle` decodes (address, address, bytes, uint256[]) and checks the exact length.
@@ -226,7 +232,7 @@ describe('runUsdcxExecutorDeposit', () => {
       'receipt:burn',
       'phase:delivering'
     ]);
-    expect(deps.isRemoteDomainRegistered).toHaveBeenCalledWith(USDCX_REMOTE_DOMAIN);
+    expect(deps.isRemoteDomainRegistered).toHaveBeenCalledWith(getUsdcxRemoteDomain());
     expect(deps.readAllowance).toHaveBeenCalledWith(SOURCE.tokenMessengerWithFees);
     expect(deps.signer.approve).toHaveBeenCalledWith(
       SOURCE.tokenMessengerWithFees,
@@ -291,8 +297,8 @@ describe('runUsdcxExecutorDeposit', () => {
       'receipt:burn',
       'phase:delivering'
     ]);
-    expect(deps.readAllowance).toHaveBeenCalledWith(TOKEN_MESSENGER_V2_ADDRESS);
-    expect(deps.signer.approve).toHaveBeenCalledWith(TOKEN_MESSENGER_V2_ADDRESS, 1_500_000n);
+    expect(deps.readAllowance).toHaveBeenCalledWith(SOURCE.tokenMessenger);
+    expect(deps.signer.approve).toHaveBeenCalledWith(SOURCE.tokenMessenger, 1_500_000n);
     expect(deps.signer.depositForBurnWithHook).toHaveBeenCalledWith(
       buildDepositForBurnWithHookArgs('1.5', SOURCE, RECIPIENT, DEPOSITOR)
     );
@@ -358,7 +364,7 @@ describe('runUsdcxExecutorDeposit', () => {
     expect(deps.fetchQuote).toHaveBeenCalledTimes(2);
     expect(jest.mocked(deps.signer.approve).mock.calls).toEqual([
       [SOURCE.tokenMessengerWithFees, 1_500_000n + 2n * QUOTE.feeTotalAmount],
-      [TOKEN_MESSENGER_V2_ADDRESS, 1_500_000n]
+      [SOURCE.tokenMessenger, 1_500_000n]
     ]);
     expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
     expect(deps.signer.depositForBurnWithHook).toHaveBeenCalledWith(
@@ -401,7 +407,7 @@ describe('runUsdcxExecutorDeposit', () => {
 
     expect(jest.mocked(deps.signer.approve).mock.calls).toEqual([
       [SOURCE.tokenMessengerWithFees, 1_500_000n + 2n * QUOTE.feeTotalAmount],
-      [TOKEN_MESSENGER_V2_ADDRESS, 1_500_000n]
+      [SOURCE.tokenMessenger, 1_500_000n]
     ]);
     expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
     expect(deps.signer.depositForBurnWithHook).toHaveBeenCalledWith(
@@ -421,7 +427,7 @@ describe('runUsdcxExecutorDeposit', () => {
     await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(BURN_HASH);
 
     expect(deps.fetchQuote).not.toHaveBeenCalled();
-    expect(jest.mocked(deps.signer.approve).mock.calls).toEqual([[TOKEN_MESSENGER_V2_ADDRESS, 1_500_000n]]);
+    expect(jest.mocked(deps.signer.approve).mock.calls).toEqual([[SOURCE.tokenMessenger, 1_500_000n]]);
     expect(deps.signer.depositForBurnWithHook).toHaveBeenCalledWith(
       buildDepositForBurnWithHookArgs('1.5', SOURCE, RECIPIENT, DEPOSITOR)
     );
