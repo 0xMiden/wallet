@@ -276,7 +276,13 @@ type FaucetRead = (faucetId: string) => Promise<TokenMetadata>;
 // The solver's decimals convert typed amounts into the swap note's base units, so a token is kept only at its faucet's
 // on-chain scale. A faucet that is missing or not a fungible faucet costs only its own listing; any other failure fails
 // the read, so the registry last verified stays in use rather than one at an unchecked scale.
-async function verifyOnChain(listed: SwapPairs, readFaucet: FaucetRead): Promise<SwapPairs> {
+// `stop.expired` is set once the caller's deadline has failed the probe: no batch starts after that, while one already
+// started finishes on its own per-read bounds and its result is discarded.
+async function verifyOnChain(
+  listed: SwapPairs,
+  readFaucet: FaucetRead,
+  stop: { expired: boolean }
+): Promise<SwapPairs> {
   const verified = new Set<string>();
   const verify = async (token: SwapPairsToken) => {
     try {
@@ -286,6 +292,7 @@ async function verifyOnChain(listed: SwapPairs, readFaucet: FaucetRead): Promise
     }
   };
   for (let start = 0; start < listed.tokens.length; start += SWAP_FAUCET_READS_AT_ONCE) {
+    if (stop.expired) break;
     await Promise.all(listed.tokens.slice(start, start + SWAP_FAUCET_READS_AT_ONCE).map(verify));
   }
   return {
@@ -310,10 +317,16 @@ function readSwapPairs(fetchFn: JsonFetch, etaUrl: string, readFaucet: FaucetRea
         `${url} lists ${pairs.tokens.length} tokens, more than the ${SWAP_PAIRS_MAX_TOKENS} the wallet verifies`
       );
     }
-    return withRpcTimeout(() => verifyOnChain(pairs, readFaucet), 'swap pairs faucet verification', {
-      timeoutMs: SWAP_PAIRS_VERIFY_TIMEOUT_MS,
-      retries: 0
-    });
+    const stop = { expired: false };
+    try {
+      return await withRpcTimeout(() => verifyOnChain(pairs, readFaucet, stop), 'swap pairs faucet verification', {
+        timeoutMs: SWAP_PAIRS_VERIFY_TIMEOUT_MS,
+        retries: 0
+      });
+    } catch (err) {
+      stop.expired = true;
+      throw err;
+    }
   });
 }
 

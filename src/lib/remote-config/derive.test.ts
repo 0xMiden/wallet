@@ -502,6 +502,32 @@ describe('the swap pairs', () => {
       jest.useRealTimers();
     }
   });
+
+  it('starts no further batch of faucet reads once the 30 s deadline has failed the probe', async () => {
+    jest.useFakeTimers();
+    try {
+      const body = listingOf(12);
+      const listed = new Set(body.tokens.map(token => token.faucetId));
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>(resolve => (release = resolve));
+      const io = deps({
+        fetch: healthFetch({ ...HEALTH, [PAIRS_URL]: body }),
+        readMidenFaucet: jest.fn(async faucetId => {
+          if (listed.has(faucetId)) await gate;
+          return readFixtureFaucet(faucetId);
+        })
+      });
+      const run = deriveBridgeConfig(withSolver, io);
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect((await run).swap?.pairs).toMatchObject({ state: 'error' });
+      release();
+      await jest.advanceTimersByTimeAsync(0);
+      const listedReads = jest.mocked(io.readMidenFaucet!).mock.calls.filter(([faucetId]) => listed.has(faucetId));
+      expect(listedReads).toHaveLength(4);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 describe('the Earn market', () => {
