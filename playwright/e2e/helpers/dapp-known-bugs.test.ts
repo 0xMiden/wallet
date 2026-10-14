@@ -2,8 +2,7 @@
  * @jest-environment node
  */
 import type { FailureEvidence } from './dapp-cells';
-import { KNOWN_BUGS, knownBugRegistry, type KnownBug } from './dapp-known-bugs';
-import pinned from './dapp-pinned.json';
+import { KNOWN_BUGS, type KnownBug } from './dapp-known-bugs';
 
 const bug = (id: string): KnownBug => {
   const found = KNOWN_BUGS.find(candidate => candidate.id === id);
@@ -32,11 +31,6 @@ describe('known-bug registry', () => {
     }
   });
 
-  it('scopes the Guardian-only bugs to the Guardian axis', () => {
-    expect(knownBugRegistry.bugsFor('G2a', 'offchain').map(entry => entry.id)).toEqual([]);
-    expect(knownBugRegistry.bugsFor('G2a', 'guardian').map(entry => entry.id)).toEqual(['K8']);
-  });
-
   it('K1 matches a provider that moved while the adapter kept the old address', () => {
     expect(bug('K1').signature(hard('M1', { providerAddress: 'b', adapterAddress: 'a', previousAddress: 'a' }))).toBe(
       true
@@ -60,29 +54,6 @@ describe('known-bug registry', () => {
   it('K7 matches only its recorded fact', () => {
     expect(bug('K7').signature(hard('M7', { crossOriginWaitServed: true }))).toBe(true);
     expect(bug('K7').signature(hard('M7', { crossOriginWaitServed: false }))).toBe(false);
-  });
-
-  it('K8 matches the opaque keystore miss after approval, and not another refusal', () => {
-    const miss = {
-      name: 'WalletTransactionError',
-      message: `INVALID_PARAMS: Error: ${pinned.texts.G2.guardian.error}`,
-      causeName: 'InvalidParamsMidenWalletError'
-    };
-    expect(bug('K8').signature(hard('G2a', { popupOpened: true, dappError: miss }))).toBe(true);
-    const declined = {
-      name: 'WalletTransactionError',
-      message: 'NOT_GRANTED',
-      causeName: 'NotGrantedMidenWalletError'
-    };
-    expect(bug('K8').signature(hard('G2a', { popupOpened: true, dappError: declined }))).toBe(false);
-    expect(bug('K8').signature(hard('G2a', { popupOpened: false, dappError: miss }))).toBe(false);
-    expect(bug('K8').signature(soft('G2a', { popupOpened: true, dappError: miss }))).toBe(false);
-    for (const dappError of [
-      { ...miss, causeName: 'MidenWalletError' },
-      { ...miss, message: 'INVALID_PARAMS: Error: Wallet is locked' }
-    ]) {
-      expect(bug('K8').signature(hard('G2b', { popupOpened: true, dappError }))).toBe(false);
-    }
   });
 
   it('K10 matches a consume by the returned id refused before any popup, and an N4 miss by that id', () => {

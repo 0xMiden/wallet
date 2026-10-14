@@ -1,5 +1,4 @@
 import type { AxisLabel, FailureEvidence } from './dapp-cells';
-import pinned from './dapp-pinned.json';
 
 /**
  * Known bugs the suite exposes (spec section 7). The assertions encode correct behaviour; a failure counts as a
@@ -30,7 +29,6 @@ export interface KnownBugRegistry {
 }
 
 const BOTH: readonly AxisLabel[] = ['offchain', 'guardian'];
-const GUARDIAN: readonly AxisLabel[] = ['guardian'];
 const on = (ids: readonly string[], axes: readonly AxisLabel[]): Record<string, readonly AxisLabel[]> =>
   Object.fromEntries(ids.map(id => [id, axes]));
 
@@ -64,20 +62,6 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
     tracking: '0xMiden/wallet#1416 (open)',
     cells: on(['M7'], BOTH),
     signature: ({ source, evidence }) => source === 'hard' && evidence.crossOriginWaitServed === true
-  },
-  {
-    id: 'K8',
-    title:
-      'Guardian signBytes(signingInputs) fails after approval with an opaque keystore miss instead of signing with the hot key',
-    tracking: '0xMiden/wallet#1417 (open)',
-    cells: on(['G2a', 'G2b', 'G2c'], GUARDIAN),
-    // Only a `word` reaches the hot key (src/lib/miden/back/vault.ts:2227); signingInputs reads the keystore under the
-    // connect commitment (:2250), which the hot key is not stored under, and the dApp gets the miss as INVALID_PARAMS.
-    signature: ({ source, evidence }) =>
-      source === 'hard' &&
-      evidence.popupOpened === true &&
-      evidence.dappError?.causeName === 'InvalidParamsMidenWalletError' &&
-      (evidence.dappError?.message ?? '').includes(pinned.texts.G2.guardian.error)
   },
   {
     id: 'K10',
