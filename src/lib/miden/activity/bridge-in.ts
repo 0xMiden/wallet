@@ -96,7 +96,7 @@ async function pollIntentNoteId(intent: PendingBridgeInIntent): Promise<string |
   if (!isEvmAddress(intent.userAddress)) return undefined;
   try {
     const { getEpochReadOnlySdk } = await import('lib/epoch/sdk');
-    const sdk = await getEpochReadOnlySdk(intent.userAddress);
+    const sdk = await getEpochReadOnlySdk(intent.userAddress, intent.info.epochAllocatorUrl);
     // Bounded: consume completion awaits this under the transaction loop's lock.
     const results = await readEpochIntentStatus(sdk, intent.userAddress, intent.intentNonce);
     return extractMidenNoteId(results ?? []);
@@ -206,6 +206,40 @@ function sentByFaucet(sender: string, faucet: string): boolean {
 export function isAgglayerBridgeDelivery(sender: string): boolean {
   if (e2eAgglayerSenderOverride) return compareAccountIds(e2eAgglayerSenderOverride.trim(), sender);
   return selectNativeEthFaucets(getBridgeConfigSnapshot()).some(faucet => sentByFaucet(sender, faucet));
+}
+
+// The native-ETH faucet an open AggLayer tracker saved with its route. A restored tracker names nothing: its backup's
+// author wrote the route.
+function savedDeliveryFaucet(tx: ITransaction): string | undefined {
+  const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
+  if (tx.restoredFromBackup || inputs?.provider !== 'agglayer') return undefined;
+  if (inputs.phase === 'received' || inputs.phase === 'failed') return undefined;
+  return inputs.agglayerRoute?.nativeEthFaucetId;
+}
+
+/**
+ * Whether a sender sent an AggLayer delivery, as `isAgglayerBridgeDelivery` decides it plus the native-ETH faucet each
+ * open tracker saved with its route: a deposit made on a chain the document has since dropped still delivers from it.
+ * Never rejects: a failed read of the trackers leaves the live faucets alone.
+ */
+export async function agglayerDeliverySenders(): Promise<(sender: string) => boolean> {
+  const override = e2eAgglayerSenderOverride;
+  if (override) return sender => compareAccountIds(override.trim(), sender);
+  // A claim can start before this realm hydrated the config; from storage, never the network.
+  await initBridgeConfig().catch((error: unknown) => console.warn('[bridge-in] bridge config unavailable', error));
+  let saved: string[] = [];
+  try {
+    const trackers = await Repo.transactions
+      .where('type')
+      .equals('bridged-receive')
+      .filter(tx => savedDeliveryFaucet(tx) !== undefined)
+      .toArray();
+    saved = trackers.flatMap(tx => savedDeliveryFaucet(tx) ?? []);
+  } catch (error) {
+    console.warn('[bridge-in] could not read the saved delivery faucets', error);
+  }
+  const faucets = [...new Set([...selectNativeEthFaucets(getBridgeConfigSnapshot()), ...saved])];
+  return sender => faucets.some(faucet => sentByFaucet(sender, faucet));
 }
 
 /**

@@ -234,7 +234,8 @@ async function submitEarnWithdrawal(
       intentOwner: sponsorAddress,
       intentNonce: nonce,
       earnWithdrawTxId: txId,
-      earnWithdrawAttemptId: attemptId
+      earnWithdrawAttemptId: attemptId,
+      epochAllocatorUrl: apiBaseUrl
     });
     const startRecovery = () => {
       if (!context.isCurrent() || !preparedExecution) return;
@@ -682,7 +683,8 @@ export async function resumeEarnWithdrawal(txId: string, deps: ResumeDeps = {}):
         intentOwner: ei.evmOwner,
         intentNonce: nonce,
         earnWithdrawTxId: txId,
-        earnWithdrawAttemptId: expected.attemptId
+        earnWithdrawAttemptId: expected.attemptId,
+        epochAllocatorUrl: ei.epochAllocatorUrl
       },
       deps
     });
@@ -877,7 +879,8 @@ export async function retryEarnWithdrawal(txId: string, deps: EarnWithdrawalRetr
             intentOwner: expected.owner,
             intentNonce: expected.nonce,
             earnWithdrawTxId: txId,
-            earnWithdrawAttemptId: expected.attemptId
+            earnWithdrawAttemptId: expected.attemptId,
+            epochAllocatorUrl: claimed.extraInputs.epochAllocatorUrl
           },
           deps
         });

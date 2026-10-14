@@ -119,7 +119,8 @@ async function reconcileEpochRow(row: ITransaction, inputs: IBridgedReceiveExtra
     sourceSymbol: inputs.sourceSymbol,
     intentNonce: inputs.intentNonce,
     evmTxHash: inputs.evmTxHash,
-    bridgeReceiveTxId: row.id
+    bridgeReceiveTxId: row.id,
+    epochAllocatorUrl: inputs.epochAllocatorUrl
   });
 
   try {

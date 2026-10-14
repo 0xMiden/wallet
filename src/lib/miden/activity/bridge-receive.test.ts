@@ -164,6 +164,14 @@ describe('reconcileBridgedReceives', () => {
     await reconcileBridgedReceives();
 
     expect(getEpochReadOnlySdk).toHaveBeenCalledWith('0xabc', 'https://allocator-a.test');
+    expect(registerBridgeIn).toHaveBeenCalledWith(
+      '0xabc',
+      '42',
+      expect.objectContaining({
+        bridgeReceiveTxId: 'epoch-saved-allocator',
+        epochAllocatorUrl: 'https://allocator-a.test'
+      })
+    );
   });
 
   it('walks the history once per pass and advances rows of both providers', async () => {

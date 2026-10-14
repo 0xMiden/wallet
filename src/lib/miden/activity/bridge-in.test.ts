@@ -7,6 +7,7 @@ import { selectNativeEthToken } from 'lib/remote-config/values';
 
 import {
   agglayerDeliveredAmount,
+  agglayerDeliverySenders,
   isAgglayerBridgeDelivery,
   findPendingBridgeInByEarnWithdrawTxId,
   registerPendingBridgeIn,
@@ -110,6 +111,15 @@ jest.mock('lib/miden/sdk/helpers', () => ({
     return { toString: () => mockAccountText[ref] ?? `${ref}-account` };
   },
   sameWalletAccountId: (a: string, b: string) => (mockAccountText[a] ?? a) === (mockAccountText[b] ?? b)
+}));
+// The note-id poll's Epoch SDK names the allocator it was built for, so a case can answer per allocator.
+const mockGetEpochReadOnlySdk = jest.fn(async (_address: string, _saved?: string) => ({ allocatorUrl: '' }));
+jest.mock('lib/epoch/sdk', () => ({
+  getEpochReadOnlySdk: (address: string, saved?: string) => mockGetEpochReadOnlySdk(address, saved)
+}));
+const mockReadIntentStatus = jest.fn(async (_sdk: { allocatorUrl: string }): Promise<unknown[]> => []);
+jest.mock('lib/epoch/intent-status', () => ({
+  readEpochIntentStatus: (sdk: { allocatorUrl: string }) => mockReadIntentStatus(sdk)
 }));
 // USDCx is the chain's native asset: the wallet discovers the faucet id, here in hex.
 const mockGetNativeAssetId = jest.fn(async () => '0xusdcx');
@@ -482,6 +492,22 @@ describe('takeAgglayerBridgeInInfo', () => {
       await expect(
         takeAgglayerBridgeInInfo({ accountId: 'miden-account', senderAccountId: 'base-sender', amount: 5n })
       ).resolves.toMatchObject({ bridgeReceiveTxId: 'saved' });
+    });
+
+    it('recognises a delivery from the faucet an open row saved after the document drops its chain', async () => {
+      const saved = { ...BASE_ROUTE, nativeEthFaucetId: '0xbase', nativeEthScale: 8 };
+      const settled = ethRow('settled', saved, 5n);
+      settled.extraInputs.phase = 'received';
+      mockTransactions.push(settled, { ...ethRow('restored', saved, 5n), restoredFromBackup: true });
+      expect((await agglayerDeliverySenders())('base-sender')).toBe(false);
+
+      mockTransactions.push(ethRow('open', saved, 5n));
+      const isDelivery = await agglayerDeliverySenders();
+
+      expect(isAgglayerBridgeDelivery('base-sender')).toBe(false);
+      expect(isDelivery('base-sender')).toBe(true);
+      expect(isDelivery('agg-sender')).toBe(true);
+      expect(isDelivery('usdcx-faucet-bech32')).toBe(false);
     });
   });
 
@@ -869,6 +895,41 @@ describe('applyBridgeInInfoForNotes', () => {
     (mockStore[REGISTRY_KEY] as Array<{ midenNoteId?: string }>)[0]!.midenNoteId = 'note-abc';
 
     expect(await applyBridgeInInfoForNotes(['note-other'], async () => {})).toBe(false);
+  });
+
+  describe('while the document names another allocator than the intent saved', () => {
+    const SAVED_ALLOCATOR = 'https://allocator.saved';
+    beforeEach(() => {
+      mockGetEpochReadOnlySdk.mockImplementation(async (_address, saved) => ({
+        allocatorUrl: saved ?? 'https://allocator.document'
+      }));
+      mockReadIntentStatus.mockImplementation(async sdk =>
+        sdk.allocatorUrl === SAVED_ALLOCATOR ? [{ midenNoteId: 'note-abc' }] : []
+      );
+    });
+    afterEach(() => {
+      mockGetEpochReadOnlySdk.mockImplementation(async () => ({ allocatorUrl: '' }));
+      mockReadIntentStatus.mockImplementation(async () => []);
+    });
+
+    it.each<[string, IBridgeInInfo]>([
+      ['a bridge deposit', { provider: 'epoch', bridgeReceiveTxId: 'TX1', epochAllocatorUrl: SAVED_ALLOCATOR }],
+      [
+        'an Earn withdrawal',
+        { provider: 'epoch', earnWithdrawTxId: 'W1', earnWithdrawAttemptId: 'A1', epochAllocatorUrl: SAVED_ALLOCATOR }
+      ]
+    ])('polls %s through the allocator it saved', async (_kind, info) => {
+      await registerPendingBridgeIn(EVM_OWNER, 'NONCE1', info);
+
+      let result: IBridgeInInfo | undefined;
+      const applied = await applyBridgeInInfoForNotes(['note-abc'], async matched => {
+        result = matched;
+      });
+
+      expect(mockGetEpochReadOnlySdk).toHaveBeenCalledWith(EVM_OWNER, SAVED_ALLOCATOR);
+      expect(applied).toBe(true);
+      expect(result).toMatchObject({ midenNoteId: 'note-abc', epochAllocatorUrl: SAVED_ALLOCATOR });
+    });
   });
 });
 

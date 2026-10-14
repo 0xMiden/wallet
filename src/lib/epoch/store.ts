@@ -271,7 +271,8 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
           sourceSymbol: trackingInputs?.sourceSymbol,
           intentNonce: nonce,
           evmTxHash,
-          bridgeReceiveTxId
+          bridgeReceiveTxId,
+          epochAllocatorUrl: trackingInputs?.epochAllocatorUrl
         }).catch(err => console.warn('[epoch] registerPendingBridgeIn failed', err));
       }
     } catch (err) {

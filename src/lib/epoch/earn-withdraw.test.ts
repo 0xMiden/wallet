@@ -220,6 +220,20 @@ describe('gaslessEarnWithdrawalToMiden', () => {
     );
   });
 
+  it('hands its delivery poll the bridge-in info with the allocator the row saved', async () => {
+    const deps = baseDeps({ sdk: fakeSdk(jest.fn().mockResolvedValue({ nonce: 'NONCE1' })) });
+
+    await gaslessEarnWithdrawalToMiden({ ...validArgs(), allocatorUrl: 'https://allocator.chosen' }, deps);
+
+    const row = await Repo.transactions.where({ id: 'TX1' }).first();
+    expect(row?.extraInputs.epochAllocatorUrl).toBe('https://allocator.chosen');
+    expect(deps.startDeliveryPoll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bridgeInfo: expect.objectContaining({ epochAllocatorUrl: 'https://allocator.chosen' })
+      })
+    );
+  });
+
   it('records the source decimals on the new row', async () => {
     const deps = baseDeps({ sdk: fakeSdk(jest.fn().mockResolvedValue({ nonce: 'NONCE1' })) });
 
@@ -1552,6 +1566,29 @@ describe('withdrawal ownership across independent document factories', () => {
     expect(h.registry[0]?.info.earnWithdrawAttemptId).toBe('CURRENT');
     expect(getIntentStatus).toHaveBeenCalledTimes(1);
     expect(h.registerBridgeIn.mock.invocationCallOrder[0]!).toBeLessThan(getIntentStatus.mock.invocationCallOrder[0]!);
+  });
+
+  it('registers a resumed attempt with the allocator its row saved', async () => {
+    const h = memoryWithdrawals();
+    const d = documents();
+    h.rows.set(
+      'TX1',
+      liveWithdrawal('TX1', { withdrawIntentNonce: 'LIVE', epochAllocatorUrl: 'https://allocator.saved' })
+    );
+    const getIntentStatus = jest.fn().mockResolvedValue([{ chainId: MIDEN_CHAIN_ID, status: 'pending' }]);
+    const deps = {
+      ...h,
+      getSdk: jest.fn().mockResolvedValue({ getIntentStatus }),
+      startPoll: d.pollB.startIntentPoll,
+      tryWithSubmissionLock: d.submissionB.tryWithEarnSubmissionLock
+    };
+    await resumeEarnWithdrawal('TX1', deps);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(h.registerBridgeIn).toHaveBeenCalledWith(
+      EVM_OWNER,
+      'LIVE',
+      expect.objectContaining({ earnWithdrawTxId: 'TX1', epochAllocatorUrl: 'https://allocator.saved' })
+    );
   });
 
   it('backs off failed registration independently while owned status checks continue', async () => {

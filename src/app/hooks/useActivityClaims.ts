@@ -12,7 +12,7 @@ import {
   requeueFailedTransaction,
   startBackgroundTransactionProcessing
 } from 'lib/miden/activity';
-import { isAgglayerBridgeDelivery } from 'lib/miden/activity/bridge-in';
+import { agglayerDeliverySenders } from 'lib/miden/activity/bridge-in';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front';
 import { groupNotesForClaim } from 'lib/miden/front/claim-groups';
@@ -232,7 +232,8 @@ export function useActivityClaims() {
     });
 
     let queued = false;
-    const groups = groupNotesForClaim(accepted, nativeFaucetId, note => isAgglayerBridgeDelivery(note.senderAddress));
+    const isDelivery = await agglayerDeliverySenders();
+    const groups = groupNotesForClaim(accepted, nativeFaucetId, note => isDelivery(note.senderAddress));
     for (const groupNotes of groups) {
       try {
         const { committedId, coveringTxIdByNoteId } = await reportNoteClaim(() =>

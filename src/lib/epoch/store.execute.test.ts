@@ -62,7 +62,8 @@ it('records the pending bridge-in with the exact amount and the symbol the track
       phase: 'submitting',
       sourceAddress: '0xowner',
       sourceAmount: '10.012345678901234567',
-      sourceSymbol: 'USDC'
+      sourceSymbol: 'USDC',
+      epochAllocatorUrl: 'https://allocator.saved'
     }
   });
   useEpochStore.setState({ flow: 'evm-to-miden', status: 'quoted', quote });
@@ -75,7 +76,8 @@ it('records the pending bridge-in with the exact amount and the symbol the track
     expect.objectContaining({
       sourceAmount: '10.012345678901234567',
       sourceSymbol: 'USDC',
-      bridgeReceiveTxId: 'row-1'
+      bridgeReceiveTxId: 'row-1',
+      epochAllocatorUrl: 'https://allocator.saved'
     })
   );
 });
