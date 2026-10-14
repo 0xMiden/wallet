@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- [FIX][all] A dApp custom request from a Guardian account that declares the network accounts its notes target as public foreign accounts is no longer refused; any other foreign account still is.
+- [FIX][all] OpenZeppelin Guardian endpoints moved to `guardian-testnet.openzeppelin.com` (testnet) and `guardian-devnet.openzeppelin.com` (devnet), replacing `guardian.openzeppelin.com` and `guardian-stg.openzeppelin.com`. Existing accounts keep their saved host, which is still recognised as OpenZeppelin.
 - [FIX][ios] Wallet pages extend to the display bottom beneath the home indicator. Navigation, review actions and pinned controls retain their safe-area clearance while keyboard insets continue to protect focused flows.
 - [FIX][all] Opt-in crash reports retain scrubbed causes, capture source, app/build identity and validated compiled positions, with source-bound request types, approval-id categories and SDK startup stages. Unvalidated frame paths are omitted; diagnostics exclude request payloads, addresses, amounts and device identifiers.
 - [FIX][all] Handled transaction failures reach opt-in Sentry reporting, including failures with the extension popup closed and later bridge, earn and node-verdict failures. Reports retain closed execution and authentication diagnostics without transaction values or user identifiers.
@@ -13,6 +15,7 @@
 ### Changes
 
 - [CHANGE][ui] Visual consistency: an unread Activity row or pending transfer marks itself with a 12px dot on its card's top-right corner instead of the dot squeezed into the card's left margin; the passcode screens' instruction line is set in Nunito semibold; the Home Assets heading sits closer to its list and token row amounts use the heading face; the faucet in the dApp browser starts right under the header instead of a status bar's height below it; Send's amount card and the review card are outlined instead of filled; the review card is set in Nunito with semibold labels and address, its Edit is a pill, and its header has an X that abandons the send; the typed amount is one weight heavier; the USDCX row shows its flat line and a grey +0.00% again under its fixed $1 price; and Swap's review card is outlined and set in Nunito with semibold labels, starts 8px higher, and replaces the typed expiry and unit picker with four choices under "Cancel if not filled within" (2 min, 1 hour, 1 day, 7 days) and a note that an unfilled swap is cancelled and only the unfilled part of its tokens comes back.
+- [CHANGE][ci] Use free ARM64 runners for Swap and regular Ubuntu runners for Guardian bridge-out. Keep WarpBuild for linked Guardian bridge-out builds and manual runs.
 
 ## 1.17.3 (2026-10-12)
 
