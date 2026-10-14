@@ -399,6 +399,7 @@
   "swapAutoConsume": "Auto accept",
   "swapSameToken": "Pick two different tokens to swap.",
   "swapInvalidAmounts": "Enter a valid amount to swap.",
+  "swapPairNotListed": "This pair can no longer be swapped. Go back and choose another token.",
   "swapPriceUnavailable": "Price unavailable. Try again shortly.",
   "swapOrderReservedNote": "Your $amount$ stays reserved for this order until it's filled.",
   "swapSuccessSourcingLiquidity": "We're sourcing liquidity for your swap. It usually fills in about 30 seconds.",

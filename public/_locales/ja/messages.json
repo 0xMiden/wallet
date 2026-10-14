@@ -1851,6 +1851,10 @@
     "message": "交換する有効な金額を入力してください。",
     "englishSource": "Enter a valid amount to swap."
   },
+  "swapPairNotListed": {
+    "message": "このペアは交換できなくなりました。戻って別のトークンを選択してください。",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
+  },
   "swapPriceUnavailable": {
     "message": "価格が表示されません。しばらくしてからもう一度お試しください。",
     "englishSource": "Price unavailable. Try again shortly."

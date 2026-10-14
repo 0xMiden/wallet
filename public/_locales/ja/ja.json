@@ -399,6 +399,7 @@
   "swapAutoConsume": "自動で受け取る",
   "swapSameToken": "交換する2つの異なるトークンを選んでください。",
   "swapInvalidAmounts": "交換する有効な金額を入力してください。",
+  "swapPairNotListed": "このペアは交換できなくなりました。戻って別のトークンを選択してください。",
   "swapPriceUnavailable": "価格が表示されません。しばらくしてからもう一度お試しください。",
   "swapOrderReservedNote": "この注文が処理されるまで、お客様の$amount$は予約されたままとなります。",
   "swapSuccessSourcingLiquidity": "お客様のスワップ取引のために流動性を確保しています。通常、約30秒で約定します。",

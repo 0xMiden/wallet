@@ -1851,6 +1851,10 @@
     "message": "Введіть дійсну суму для обміну.",
     "englishSource": "Enter a valid amount to swap."
   },
+  "swapPairNotListed": {
+    "message": "Цю пару більше не можна обміняти. Поверніться назад і виберіть інший токен.",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
+  },
   "swapPriceUnavailable": {
     "message": "Ціна недоступна. Спробуйте ще раз трохи пізніше.",
     "englishSource": "Price unavailable. Try again shortly."

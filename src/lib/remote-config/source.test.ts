@@ -27,7 +27,7 @@ const parsed = (version: number) => ({
   'bridge-providers': { epoch: { allocatorUrl: 'https://allocator.example' }, agglayer: {}, usdcx: {} },
   features: { earn: true },
   mainnetCountdown: { enabled: false },
-  swap: { tokens: [] }
+  swap: {}
 });
 // A document an E2E harness serves, pointing at its local fakes.
 const localDoc = (version: number) =>

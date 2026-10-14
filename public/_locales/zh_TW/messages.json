@@ -1851,6 +1851,10 @@
     "message": "請輸入有效的兌換金額。",
     "englishSource": "Enter a valid amount to swap."
   },
+  "swapPairNotListed": {
+    "message": "這對代幣已無法進行兌換。請返回並選擇另一種代幣。",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
+  },
   "swapPriceUnavailable": {
     "message": "價格暫未提供。請稍後再試。",
     "englishSource": "Price unavailable. Try again shortly."

@@ -399,6 +399,7 @@
   "swapAutoConsume": "Aceptar automáticamente",
   "swapSameToken": "Elige dos fichas diferentes para intercambiarlas.",
   "swapInvalidAmounts": "Introduce un importe válido para el canje.",
+  "swapPairNotListed": "Este par ya no se puede intercambiar. Vuelve atrás y elige otro token.",
   "swapPriceUnavailable": "Precio no disponible. Vuelve a intentarlo dentro de un rato.",
   "swapOrderReservedNote": "Tu «$amount$» permanecerá reservado para este pedido hasta que se haya completado.",
   "swapSuccessSourcingLiquidity": "Estamos buscando liquidez para tu swap. Normalmente se completa en unos 30 segundos.",
