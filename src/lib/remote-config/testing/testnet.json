@@ -40,7 +40,10 @@
     ]
   },
   "features": {
-    "earn": true
+    "earn": true,
+    "fastBridge": true,
+    "bridgeIn": true,
+    "bridgeOut": true
   },
   "bridge-providers": {
     "epoch": {

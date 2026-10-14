@@ -105,7 +105,7 @@ export interface BridgeConfig {
   version: number;
   'bridge-providers': BridgeProviders;
   supportedEvmChains: Record<string, SupportedEvmChainConfig>;
-  features: { earn: boolean };
+  features: { earn: boolean; fastBridge?: boolean; bridgeIn?: boolean; bridgeOut?: boolean };
   mainnetCountdown?: MainnetCountdownConfig;
   swap?: SwapConfig;
 }
@@ -406,7 +406,14 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
       }
     },
     supportedEvmChains,
-    features: { earn: featureSwitch(section(body.features), 'earn') },
+    features: {
+      earn: featureSwitch(section(body.features), 'earn'),
+      ...Object.fromEntries(
+        ['fastBridge', 'bridgeIn', 'bridgeOut']
+          .filter(name => section(body.features)[name] !== undefined)
+          .map(name => [name, featureSwitch(section(body.features), name)])
+      )
+    },
     mainnetCountdown: readCountdown(body.mainnetCountdown),
     swap: { tokens: readSwapTokens(swap.tokens), ...(etaUrl === undefined ? {} : { etaUrl }) }
   };

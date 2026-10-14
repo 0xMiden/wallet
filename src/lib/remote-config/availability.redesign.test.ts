@@ -58,3 +58,18 @@ it('waits for a loading document and refuses a missing document', () => {
 function cloneSnapshot(): import('./runtime').BridgeConfigSnapshot {
   return JSON.parse(JSON.stringify(TEST_BRIDGE_CONFIG_SNAPSHOT));
 }
+
+it('keeps the previous global bridge switches above per-chain switches', () => {
+  const snapshot = cloneSnapshot();
+  if (!snapshot.config) throw new Error('The test document is missing');
+  snapshot.config.features.fastBridge = false;
+  snapshot.config.features.bridgeIn = false;
+  snapshot.config.features.bridgeOut = false;
+  expect(featureAvailability('fastBridgeIn', snapshot)).toMatchObject({ reason: 'off' });
+  expect(featureAvailability('fastBridgeOut', snapshot)).toMatchObject({ reason: 'off' });
+  expect(featureAvailability('bridgeIn', snapshot)).toMatchObject({ reason: 'off' });
+  expect(featureAvailability('bridgeOut', snapshot)).toMatchObject({ reason: 'off' });
+  expect(featureAvailability('earnDeposit', snapshot)).toEqual({ state: 'available' });
+  snapshot.config.features.fastBridge = true;
+  expect(featureAvailability('fastBridgeIn', snapshot)).toEqual({ state: 'available' });
+});

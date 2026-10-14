@@ -54,6 +54,22 @@ function enabled(feature: BridgeFeature, chain: SupportedEvmChainConfig): boolea
   }
 }
 
+function globalEnabled(feature: BridgeFeature, config: BridgeConfig): boolean {
+  switch (feature) {
+    case 'earnDeposit':
+      return config.features.earn;
+    case 'fastBridgeIn':
+    case 'fastBridgeOut':
+      return config.features.fastBridge !== false;
+    case 'bridgeIn':
+      return config.features.bridgeIn !== false;
+    case 'bridgeOut':
+      return config.features.bridgeOut !== false;
+    default:
+      return true;
+  }
+}
+
 function checkProbe<T>(probe: Probe<T> | undefined, name: string): FeatureAvailability | null {
   if (!probe || probe.state === 'skipped') return unavailable('not-configured', name);
   switch (probe.state) {
@@ -140,6 +156,7 @@ export function featureAvailability(
 ): FeatureAvailability {
   if (snapshot.status === 'loading') return { state: 'loading' };
   if (!snapshot.config) return unavailable('not-configured', 'no accepted document');
+  if (!globalEnabled(feature, snapshot.config)) return unavailable('off', 'global feature switch is off');
   const chains = Object.values(snapshot.config.supportedEvmChains).filter(
     chain => chainId === undefined || chain.chainId === chainId
   );

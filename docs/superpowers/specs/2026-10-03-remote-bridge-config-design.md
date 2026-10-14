@@ -4,7 +4,7 @@
 
 This update replaces the document shape and recovery rules below.
 
-- `features` contains only `earn`. It controls new Earn deposits independently of bridge direction switches.
+- `features` keeps `earn`, `fastBridge`, `bridgeIn`, and `bridgeOut`. The Earn switch controls new Earn deposits. The other global switches control Epoch transfers and Agglayer deposits and withdrawals, together with each route's direction switches. Omitted bridge switches leave the per-chain controls in effect.
 - `bridge-providers` contains the shared Epoch, AggLayer, and USDCx service settings. Epoch has `allocatorUrl`, `positionsUrl`, and optional named `outputs`. Only testnet uses `usdc-testnet-output.faucetId`. Earn markets come from the existing Epoch positions response.
 - `supportedEvmChains` is an object keyed by the chain slug. Each entry has `chainId` and `bridges`. Each bridge has separate `depositEnabled` and `withdrawalEnabled` values. A listed chain alone does not enable a bridge.
 - Epoch chain entries contain `tokens.USDC.contractAddress` and optional output names. AggLayer chain entries contain `contractAddress` and `midenBridgeId`. USDCx chain entries contain `domain`, `tokens.USDC.contractAddress`, and optional deposit and executor settings.
@@ -13,7 +13,7 @@ This update replaces the document shape and recovery rules below.
 - New transfers save the values needed for recovery. A disabled direction does not prevent status checks, claims, reclaims, Earn withdrawal, or completion of an active transfer. Existing USDCx payout checks keep the accepted fee allowance and bounded transfer lookup.
 - Swap, onboarding, and the mainnet countdown keep their existing settings. This task updates the testnet document. A mainnet document is a later task.
 
-The previous single `evm.chainId`, top-level bridge settings, and bridge feature switches are not part of the new document.
+The previous single `evm.chainId` and top-level bridge settings are not part of the new document.
 
 **Decision:** The wallet reads a small per-network JSON document from the `main` branch of a dedicated repo, derives every other Epoch and Agglayer value from chain and from the services themselves at runtime, and greys out each affected feature when what it needs is missing, undeployed, or down.
 

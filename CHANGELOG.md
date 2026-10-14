@@ -11,6 +11,7 @@
 - [FIX][all] Handled transaction failures reach opt-in Sentry reporting, including failures with the extension popup closed and later bridge, earn and node-verdict failures. Reports retain closed execution and authentication diagnostics without transaction values or user identifiers.
 - [FIX][all] Amount entry keeps canonical Latin digits on Persian and Arabic devices, preventing lost digits and invalid base-unit conversion in Send and Swap. Incomplete or malformed swap amounts clear the previous quote and wait for valid input.
 - [FIX][mobile] Fullscreen dApps publish the occupied Bread control rectangle and safe-area metrics so headers can share its row, restore retained covered pages before foreground reveal, and minimize into Bread through its logo without reloading the game when reopened. Wallet overlays and fresh paint checks retain ownership.
+
 ### Features
 
 - [FEATURE][all] Read bridge routes, service URLs, and contract addresses from the remote configuration for each EVM chain. Keep Earn under its own switch and read its market from Epoch. Use the listed chains for wallet connections, and keep saved transfer data for recovery after a route is disabled or changed.
