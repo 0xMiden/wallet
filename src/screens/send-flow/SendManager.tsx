@@ -463,9 +463,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const nativeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
   const { loaded: hiddenTokensLoaded, isHidden } = useHiddenTokens(publicKey);
-  const tokenScope = `${publicKey}:${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
+  const tokenNetwork = `${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
+  const tokenScope = `${publicKey}:${tokenNetwork}`;
   const previousTokenScopeRef = useRef(tokenScope);
-  const previousAccountRef = useRef(publicKey);
+  const previousTokenNetworkRef = useRef(tokenNetwork);
   const staleNetworkBalancesRef = useRef<typeof balanceData>();
   const automaticTokenIdRef = useRef<string | null>(null);
   const defaultCandidates = useMemo(() => {
@@ -497,10 +498,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const appliedPreselectionRef = useRef<string | null>(null);
   useEffect(() => {
     if (previousTokenScopeRef.current !== tokenScope) {
-      // A network switch can briefly expose the previous network's cached rows.
-      if (previousAccountRef.current === publicKey) staleNetworkBalancesRef.current = balanceData;
+      // A network switch can briefly expose the previous network's cached rows, for any account.
+      if (previousTokenNetworkRef.current !== tokenNetwork) staleNetworkBalancesRef.current = balanceData;
       previousTokenScopeRef.current = tokenScope;
-      previousAccountRef.current = publicKey;
+      previousTokenNetworkRef.current = tokenNetwork;
       appliedPreselectionRef.current = null;
       automaticTokenIdRef.current = null;
       setValue('token', undefined);
@@ -563,7 +564,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   }, [
     preselectedTokenId,
     tokenScope,
-    publicKey,
+    tokenNetwork,
     token,
     isLoading,
     hiddenTokensLoaded,

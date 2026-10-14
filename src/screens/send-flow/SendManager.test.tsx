@@ -1729,6 +1729,20 @@ describe('single sendable token default', () => {
     expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^OTHER$/);
   });
 
+  it('waits for a new snapshot when the account and the network change in the same render', () => {
+    useAllBalancesMock.mockReturnValue({ data: [native] });
+    const { rerender } = renderFlow();
+    // The new account's row cached on the old network, as the store still holds it in that render.
+    useAccountMock.mockReturnValue({ publicKey: 'new-account' });
+    mockRpcUrl = 'https://devnet.example';
+    useAllBalancesMock.mockReturnValue({ data: [other] });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    useAllBalancesMock.mockReturnValue({ data: [other] });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^OTHER$/);
+  });
+
   it('selects only a destination-compatible token after the network changes', () => {
     mockUsdcxTokenId = 'OTHER';
     mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
