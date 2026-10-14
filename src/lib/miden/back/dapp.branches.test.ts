@@ -406,8 +406,31 @@ describe('requestConsumeTransaction — mobile error branches', () => {
         transaction: { ...validTx, noteBytes }
       } as never);
 
+    // What `notes.import` answers for raw Note bytes, which the wallet stores as a details-only NoteFile.
+    const detailsCommitment = '0x5d1e7a11';
+    const consumed = { type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-c' };
+    const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+    const originalSdk = { Note: sdk.Note, NoteFile: sdk.NoteFile };
+    const sdkNote = (id: string) => ({
+      id: () => ({ toString: () => id }),
+      metadata: () => undefined,
+      assets: () => ({ fungibleAssets: () => [] })
+    });
+    const unparsable = (what: string) => () => {
+      throw new Error(`not a ${what}`);
+    };
+    const carryRawNote = (deserialize: () => unknown) => {
+      sdk.NoteFile = { deserialize: unparsable('NoteFile') };
+      sdk.Note = { deserialize };
+    };
+
     beforeEach(() => {
       mockQueueNoteImport.mockResolvedValue(undefined);
+      mockInitiateConsumeTransactionFromId.mockReset();
+    });
+
+    afterEach(() => {
+      Object.assign(sdk, originalSdk);
     });
 
     it('imports the bytes into the store before it initiates the consume, in one approval', async () => {
@@ -429,13 +452,61 @@ describe('requestConsumeTransaction — mobile error branches', () => {
       expect(mockQueueNoteImport).not.toHaveBeenCalled();
     });
 
-    it('refuses to consume when the imported note is not the note being consumed', async () => {
-      mockImportNoteBytes.mockResolvedValueOnce('note-other');
+    it('consumes raw Note bytes that decode to noteId, whatever id the import answers with', async () => {
+      carryRawNote(() => sdkNote('note-1'));
+      mockImportNoteBytes.mockResolvedValueOnce(detailsCommitment);
+      mockInitiateConsumeTransactionFromId.mockResolvedValueOnce('tx-c');
+
+      await expect(consumeWithBytes()).resolves.toEqual(consumed);
+      expect(mockImportNoteBytes).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses bytes that decode to another note before importing them', async () => {
+      // The sheet refuses these bytes when it decodes them the same way (dapp.extended.test.ts); this
+      // pins the approval's own check, which does not rest on what the sheet decoded.
+      carryRawNote(jest.fn().mockReturnValueOnce(sdkNote('note-1')).mockReturnValue(sdkNote('note-other')));
 
       await expect(consumeWithBytes()).rejects.toThrow(
         `${MidenDAppErrorType.InvalidParams}: Error: noteBytes describe a different note than noteId`
       );
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+      expect(mockImportNoteBytes).not.toHaveBeenCalled();
       expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
+
+    it('imports a details-only NoteFile unchecked and consumes the note the sheet read from the store', async () => {
+      sdk.NoteFile = { deserialize: () => ({ note: () => undefined }) };
+      sdk.Note = { deserialize: unparsable('Note') };
+      mockImportNoteBytes.mockResolvedValueOnce(detailsCommitment);
+      mockInitiateConsumeTransactionFromId.mockResolvedValueOnce('tx-c');
+
+      await expect(consumeWithBytes()).resolves.toEqual(consumed);
+      expect(mockImportNoteBytes).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses bytes that are neither a NoteFile nor a Note without initiating the consume', async () => {
+      sdk.NoteFile = { deserialize: unparsable('NoteFile') };
+      sdk.Note = { deserialize: unparsable('Note') };
+      mockImportNoteBytes.mockRejectedValueOnce(
+        new Error('importNoteBytes: bytes are neither a serialized NoteFile nor a serialized Note')
+      );
+
+      await expect(consumeWithBytes()).rejects.toThrow(
+        `${MidenDAppErrorType.InvalidParams}: Error: importNoteBytes: bytes are neither`
+      );
+      expect(mockQueueNoteImport).not.toHaveBeenCalled();
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
+
+    it('refuses a carried note another transaction holds rather than answer with that transaction', async () => {
+      carryRawNote(() => sdkNote('note-1'));
+      mockImportNoteBytes.mockResolvedValueOnce(detailsCommitment);
+      mockInitiateConsumeTransactionFromId.mockImplementationOnce(async (...args: unknown[]) => {
+        if (args[4] === true) throw new Error('This note is being consumed by another transaction');
+        return 'other-dapp-transaction';
+      });
+
+      await expect(consumeWithBytes()).rejects.toThrow('This note is being consumed by another transaction');
     });
 
     it('queues the bytes and does not consume when the import fails on the network', async () => {

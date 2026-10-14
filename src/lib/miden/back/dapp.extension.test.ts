@@ -1390,6 +1390,107 @@ describe('Full confirmation cycles in extension mode', () => {
     expect(queueNoteImport).not.toHaveBeenCalled();
   });
 
+  describe('requestConsumeTransaction with noteBytes checks them by the note they decode to', () => {
+    // What `notes.import` answers for raw Note bytes, which the wallet stores as a details-only NoteFile.
+    const detailsCommitment = '0x5d1e7a11';
+    const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+    const originalSdk = { Note: sdk.Note, NoteFile: sdk.NoteFile };
+    const sdkNote = (id: string) => ({
+      id: () => ({ toString: () => id }),
+      metadata: () => undefined,
+      assets: () => ({ fungibleAssets: () => [] })
+    });
+    const unparsable = (what: string) => () => {
+      throw new Error(`not a ${what}`);
+    };
+    const carryRawNote = (deserialize: () => unknown) => {
+      sdk.NoteFile = { deserialize: unparsable('NoteFile') };
+      sdk.Note = { deserialize };
+    };
+    const transaction = () => jest.requireMock('lib/miden/transaction');
+    const consumeWithBytes = () =>
+      driveConfirmation(
+        () =>
+          dapp.requestConsumeTransaction('https://miden.xyz', {
+            type: MidenDAppMessageType.ConsumeRequest,
+            sourcePublicKey: 'miden-account-1',
+            transaction: { accountAddress: 'miden-account-1', noteId: 'note-1', noteBytes: 'c29tZWJ5dGVz' }
+          } as never),
+        MidenMessageType.DAppTransactionConfirmationRequest,
+        { confirmed: true, delegate: true }
+      );
+
+    beforeEach(() => {
+      _g.__dappExtTest.midenClient.importNoteBytes = jest.fn().mockResolvedValue(detailsCommitment);
+      _g.__dappExtTest.midenClient.syncState = jest.fn().mockResolvedValue(undefined);
+      transaction().initiateConsumeTransactionFromId.mockReset();
+      transaction().initiateConsumeTransactionFromId.mockResolvedValue('tx-c');
+    });
+
+    afterEach(() => {
+      Object.assign(sdk, originalSdk);
+      transaction().initiateConsumeTransactionFromId.mockReset();
+      transaction().initiateConsumeTransactionFromId.mockResolvedValue('tx-consume-1');
+    });
+
+    it('consumes raw Note bytes that decode to noteId, whatever id the import answers with', async () => {
+      carryRawNote(() => sdkNote('note-1'));
+
+      await expect(consumeWithBytes()).resolves.toEqual({
+        type: MidenDAppMessageType.ConsumeResponse,
+        transactionId: 'tx-c'
+      });
+      expect(_g.__dappExtTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses bytes that decode to another note before importing them', async () => {
+      // As in dapp.branches.test.ts: the sheet decoded note-1, so this pins the approval's own check.
+      carryRawNote(jest.fn().mockReturnValueOnce(sdkNote('note-1')).mockReturnValue(sdkNote('note-other')));
+
+      await expect(consumeWithBytes()).rejects.toThrow(
+        `${MidenDAppErrorType.InvalidParams}: Error: noteBytes describe a different note than noteId`
+      );
+      expect(_g.__dappExtTest.midenClient.importNoteBytes).not.toHaveBeenCalled();
+      expect(transaction().initiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
+
+    it('imports a details-only NoteFile unchecked and consumes the note the sheet read from the store', async () => {
+      sdk.NoteFile = { deserialize: () => ({ note: () => undefined }) };
+      sdk.Note = { deserialize: unparsable('Note') };
+
+      await expect(consumeWithBytes()).resolves.toEqual({
+        type: MidenDAppMessageType.ConsumeResponse,
+        transactionId: 'tx-c'
+      });
+      expect(_g.__dappExtTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses bytes that are neither a NoteFile nor a Note without initiating the consume', async () => {
+      const { queueNoteImport } = jest.requireMock('lib/miden/activity');
+      sdk.NoteFile = { deserialize: unparsable('NoteFile') };
+      sdk.Note = { deserialize: unparsable('Note') };
+      _g.__dappExtTest.midenClient.importNoteBytes = jest
+        .fn()
+        .mockRejectedValue(new Error('importNoteBytes: bytes are neither a serialized NoteFile nor a serialized Note'));
+
+      await expect(consumeWithBytes()).rejects.toThrow(
+        `${MidenDAppErrorType.InvalidParams}: Error: importNoteBytes: bytes are neither`
+      );
+      expect(queueNoteImport).not.toHaveBeenCalled();
+      expect(transaction().initiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
+
+    it('refuses a carried note another transaction holds rather than answer with it', async () => {
+      carryRawNote(() => sdkNote('note-1'));
+      transaction().initiateConsumeTransactionFromId.mockImplementationOnce(async (...args: unknown[]) => {
+        if (args[4] === true) throw new Error('This note is being consumed by another transaction');
+        return 'other-dapp-transaction';
+      });
+
+      await expect(consumeWithBytes()).rejects.toThrow('This note is being consumed by another transaction');
+    });
+  });
+
   it('requestConsumeTransaction rejects with InvalidParams when consume throws', async () => {
     const sdk = require('lib/miden/transaction');
     sdk.initiateConsumeTransactionFromId.mockRejectedValueOnce(new Error('consume failed'));

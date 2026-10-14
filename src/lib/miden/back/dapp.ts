@@ -1457,14 +1457,19 @@ const importPrivateNoteFailure = (e: unknown): unknown => (isPipelineKillLink(e)
  * against `noteId`, so that second approval showed the user nothing new.
  *
  * `importDAppPrivateNote` queues the bytes when the import fails transiently or is killed,
- * so a failed consume does not lose the note. The id check refuses bytes whose imported
- * note is not the note the consume will spend.
+ * so a failed consume does not lose the note.
+ *
+ * The bytes are checked by the id they decode to, as the sheet checked them, never by the
+ * import's answer: for raw `Note` bytes and a details-only `NoteFile` that is a details
+ * commitment, not a note id. Bytes the decoder cannot read (a details-only `NoteFile`) go in
+ * unchecked, since the sheet showed that note from the store.
  */
 async function importConsumeNoteBytes(noteId: string, noteBytes: string): Promise<void> {
-  const importedNoteId = await importDAppPrivateNote(noteBytes);
-  if (importedNoteId !== noteId) {
-    throw new Error('noteBytes describe a different note than noteId — refusing to consume it');
+  const decoded = decodeConsumeNoteBytes(noteBytes);
+  if (decoded && decoded.noteId !== noteId) {
+    throw new Error('noteBytes describe a different note than noteId - refusing to consume it');
   }
+  await importDAppPrivateNote(noteBytes);
 }
 
 export const generatePromisifyImportPrivateNote = async (
