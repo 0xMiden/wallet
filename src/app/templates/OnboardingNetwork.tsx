@@ -9,7 +9,7 @@ import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { request } from 'lib/miden/front';
 import {
   applyEndpointOverride,
-  buildDefaultOverrideFor,
+  buildNetworkChoiceOverride,
   getEffectiveNetworkName
 } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
@@ -22,11 +22,15 @@ import { useWalletStore } from 'lib/store';
 
 let preparing: Promise<void> | undefined;
 
-/** Complete the network change before a code check or recovery can start. */
+/**
+ * Complete the network change before a code check or recovery can start. Already on mainnet, by the
+ * build or by a stored override (a custom one included), there is nothing to change.
+ */
 function prepareMainnet(): Promise<void> {
   if (preparing) return preparing;
   preparing = (async () => {
-    await applyEndpointOverride(buildDefaultOverrideFor(MIDEN_NETWORK_NAME.MAINNET));
+    if (getEffectiveNetworkName() === MIDEN_NETWORK_NAME.MAINNET) return;
+    await applyEndpointOverride(buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET));
     if (isExtension()) {
       await request({ type: WalletMessageType.ReloadEndpointOverridesRequest });
     } else {

@@ -1,3 +1,4 @@
+import type { EndpointOverride } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 import { ResetAndReloadError, resetWalletAndReload } from './reset-and-reload';
@@ -20,10 +21,10 @@ jest.mock('lib/miden/reset', () => ({
   resetStorageDestructive: () => resetStorageDestructive()
 }));
 
-const mockApplyOverride = jest.fn<Promise<void>, [{ networkName: MIDEN_NETWORK_NAME }]>();
+const mockApplyOverride = jest.fn<Promise<void>, [EndpointOverride]>();
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
-  buildDefaultOverrideFor: (networkName: MIDEN_NETWORK_NAME) => ({ networkName }),
-  applyEndpointOverride: (override: { networkName: MIDEN_NETWORK_NAME }) => mockApplyOverride(override)
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  applyEndpointOverride: (override: EndpointOverride) => mockApplyOverride(override)
 }));
 
 describe('resetWalletAndReload', () => {
@@ -59,8 +60,20 @@ describe('resetWalletAndReload', () => {
       steps.push('reload');
     });
     await resetWalletAndReload(onWipeError, MIDEN_NETWORK_NAME.MAINNET);
-    expect(mockApplyOverride).toHaveBeenCalledWith({ networkName: MIDEN_NETWORK_NAME.MAINNET });
     expect(steps).toEqual(['wipe', 'network', 'reload']);
+    // The network choice alone: the build's current mainnet endpoints, never a copy pinned now.
+    expect(mockApplyOverride).toHaveBeenCalledWith({
+      rpcUrl: '',
+      proverUrl: '',
+      noteTransportUrl: '',
+      faucetUrl: '',
+      faucetApiUrl: '',
+      explorerUrl: '',
+      guardianUrl: '',
+      allowNoGuardian: false,
+      networkName: MIDEN_NETWORK_NAME.MAINNET,
+      presetName: MIDEN_NETWORK_NAME.MAINNET
+    });
   });
 
   it('does not change networks when the wipe fails', async () => {

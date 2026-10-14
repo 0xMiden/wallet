@@ -203,6 +203,25 @@ export function buildDefaultOverrideFor(network: MIDEN_NETWORK_NAME): EndpointOv
   };
 }
 
+/**
+ * A network choice with no endpoint of its own: every getter falls back to the build's defaults for
+ * `network`, so a later build's endpoints reach a wallet that only chose the network.
+ */
+export function buildNetworkChoiceOverride(network: MIDEN_NETWORK_NAME): EndpointOverride {
+  return {
+    rpcUrl: '',
+    proverUrl: '',
+    noteTransportUrl: '',
+    faucetUrl: '',
+    faucetApiUrl: '',
+    explorerUrl: '',
+    guardianUrl: '',
+    allowNoGuardian: false,
+    networkName: network,
+    presetName: network
+  };
+}
+
 function isEndpointOverride(value: unknown): value is EndpointOverride {
   if (typeof value !== 'object' || value === null) return false;
   return (

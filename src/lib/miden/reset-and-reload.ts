@@ -1,5 +1,5 @@
 import { resetStorageDestructive } from 'lib/miden/reset';
-import { applyEndpointOverride, buildDefaultOverrideFor } from 'lib/miden-chain/effective-endpoints';
+import { applyEndpointOverride, buildNetworkChoiceOverride } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isExtension } from 'lib/platform';
 
@@ -58,7 +58,7 @@ export async function resetWalletAndReload(
   try {
     try {
       await resetStorageDestructive();
-      if (targetNetwork) await applyEndpointOverride(buildDefaultOverrideFor(targetNetwork));
+      if (targetNetwork) await applyEndpointOverride(buildNetworkChoiceOverride(targetNetwork));
     } catch (error) {
       await onWipeError(error);
     }

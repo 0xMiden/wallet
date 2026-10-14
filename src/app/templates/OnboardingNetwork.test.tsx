@@ -2,6 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import type { EndpointOverride } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { WalletStatus } from 'lib/shared/types';
 import { WelcomeScreen } from 'screens/onboarding/common/Welcome';
@@ -12,7 +13,7 @@ let mockRequired = true;
 let mockStatus = WalletStatus.Idle;
 let mockExtension = true;
 let mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
-const mockApply = jest.fn<Promise<void>, [{ networkName: string }]>(async () => {});
+const mockApply = jest.fn<Promise<void>, [EndpointOverride]>(async () => {});
 const mockRequest = jest.fn(async () => {});
 const mockResetClient = jest.fn(async () => {});
 const mockFollow = jest.fn();
@@ -28,10 +29,24 @@ jest.mock('lib/platform', () => ({ isExtension: () => mockExtension }));
 jest.mock('lib/miden/front', () => ({ request: () => mockRequest() }));
 jest.mock('lib/miden/sdk/miden-client', () => ({ resetMidenClient: () => mockResetClient() }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getEffectiveNetworkName: () => mockNetwork,
-  buildDefaultOverrideFor: (networkName: string) => ({ networkName }),
-  applyEndpointOverride: (override: { networkName: string }) => mockApply(override)
+  applyEndpointOverride: (override: EndpointOverride) => mockApply(override)
 }));
+
+// The network choice alone: every endpoint getter falls back to the build's mainnet defaults.
+const MAINNET_CHOICE: EndpointOverride = {
+  rpcUrl: '',
+  proverUrl: '',
+  noteTransportUrl: '',
+  faucetUrl: '',
+  faucetApiUrl: '',
+  explorerUrl: '',
+  guardianUrl: '',
+  allowNoGuardian: false,
+  networkName: MIDEN_NETWORK_NAME.MAINNET,
+  presetName: MIDEN_NETWORK_NAME.MAINNET
+};
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
   Button: ({ title, onClick }: { title: string; onClick: () => void }) => <button onClick={onClick}>{title}</button>
@@ -65,7 +80,7 @@ it('prepares mainnet and the service worker before onboarding', async () => {
   render(page());
   expect(screen.queryByTestId('flow')).not.toBeInTheDocument();
   await waitFor(() => expect(screen.getByTestId('flow')).toHaveTextContent('true'));
-  expect(mockApply).toHaveBeenCalledWith({ networkName: MIDEN_NETWORK_NAME.MAINNET });
+  expect(mockApply).toHaveBeenCalledWith(MAINNET_CHOICE);
   expect(mockRequest).toHaveBeenCalledTimes(1);
   expect(mockFollow).toHaveBeenCalledTimes(1);
 });
@@ -125,7 +140,35 @@ it('applies the mainnet override when seven logo taps unlock the invite-only Wel
   const logo = screen.getByTestId('onboarding-bread-logo');
   for (let tap = 0; tap < 7; tap++) fireEvent.click(logo);
   fireEvent.click(await screen.findByRole('button', { name: 'iHaveACode' }));
-  expect(mockApply).toHaveBeenCalledWith({ networkName: MIDEN_NETWORK_NAME.MAINNET });
+  expect(mockApply).toHaveBeenCalledWith(MAINNET_CHOICE);
   expect(mockApply.mock.invocationCallOrder[0]).toBeLessThan(onSubmit.mock.invocationCallOrder[0]!);
   expect(onSubmit).toHaveBeenCalledWith('mainnet-access');
+});
+
+it('stores the switch from testnet as the network choice alone, with no endpoint pinned', async () => {
+  render(page());
+  await screen.findByTestId('flow');
+  const [stored] = mockApply.mock.calls[0]!;
+  expect(stored.rpcUrl).toBe('');
+  expect(stored).toEqual(MAINNET_CHOICE);
+});
+
+it('writes nothing when the effective network is already mainnet', async () => {
+  mockNetwork = MIDEN_NETWORK_NAME.MAINNET;
+  render(page());
+  await screen.findByTestId('flow');
+  expect(mockApply).not.toHaveBeenCalled();
+});
+
+it('keeps a stored custom mainnet override through a Welcome mount', async () => {
+  // A stored override names the effective network, so a custom mainnet one reads as mainnet here.
+  mockNetwork = MIDEN_NETWORK_NAME.MAINNET;
+  mockRequired = false;
+  const view = render(page());
+  await screen.findByTestId('flow');
+  view.unmount();
+  render(page());
+  await screen.findByTestId('flow');
+  expect(mockApply).not.toHaveBeenCalled();
+  expect(mockRequest).not.toHaveBeenCalled();
 });
