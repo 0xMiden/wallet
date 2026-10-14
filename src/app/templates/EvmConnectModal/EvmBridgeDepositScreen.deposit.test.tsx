@@ -1536,6 +1536,7 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
 describe('EvmBridgeDepositScreen native session chain', () => {
   const EVM_WALLET = '0x00000000000000000000000000000000000000e1';
   const SEPOLIA = 11155111;
+  const BASE_SEPOLIA = 84532;
 
   /** The native session did not approve Sepolia, and the add-and-switch attempt did not change that. */
   const refuseSepolia = () =>
@@ -1613,6 +1614,36 @@ describe('EvmBridgeDepositScreen native session chain', () => {
     expect(prepareNativeSessionChain).toHaveBeenCalledWith(SEPOLIA);
     expect(epochState.executeEVMToMiden).toHaveBeenCalledWith('bridge-tx');
     expect(updateBridgedReceivePhase).not.toHaveBeenCalledWith('bridge-tx', 'failed', expect.anything());
+  });
+
+  // The remote config names each route's chain, so the check follows it rather than Sepolia.
+  it('checks the AggLayer chain the config names before a Slow deposit', async () => {
+    mockAgglayerChainId = BASE_SEPOLIA;
+    jest
+      .mocked(prepareNativeSessionChain)
+      .mockRejectedValueOnce(new NativeSessionChainNotApprovedError(BASE_SEPOLIA, 'Base Sepolia'));
+    render(depositScreen(undefined, EVM_WALLET));
+
+    await reachReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(prepareNativeSessionChain).toHaveBeenCalledWith(BASE_SEPOLIA);
+    expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', { error: 'evmChainNotApproved' });
+  });
+
+  it('checks the chain the config names for the Fast USDC before a Fast deposit', async () => {
+    mockSnapshot = { ...READY_SNAPSHOT, config: updateMockConfig(READY_SNAPSHOT.config!, { chainId: BASE_SEPOLIA }) };
+    quoteFast();
+    render(depositScreen(undefined, EVM_WALLET));
+
+    await reachFastReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(prepareNativeSessionChain).toHaveBeenCalledWith(BASE_SEPOLIA);
+    expect(epochState.executeEVMToMiden).toHaveBeenCalledWith('bridge-tx');
   });
 });
 
