@@ -46,7 +46,10 @@ const tile = cva(
  */
 export const GuardianLogoTile: React.FC<GuardianLogoTileProps> = ({ guardianId, size = 'md', className }) => {
   // The id comes from the config document, so `constructor` must not read an inherited member.
-  const entry = guardianId && Object.hasOwn(GUARDIAN_LOGOS, guardianId) ? GUARDIAN_LOGOS[guardianId] : undefined;
+  const entry =
+    guardianId && Object.prototype.hasOwnProperty.call(GUARDIAN_LOGOS, guardianId)
+      ? GUARDIAN_LOGOS[guardianId]
+      : undefined;
 
   return (
     <span

@@ -154,6 +154,21 @@ describe('GuardianProviderSheet', () => {
     expect(result.current(option)).toEqual({ about: 'Other Co', kind: 'Other Co' });
   });
 
+  it('resolves bundled words without Object.hasOwn, which Safari before 15.4 lacks', () => {
+    const original = Object.hasOwn;
+    // @ts-expect-error simulating a WebView that predates Object.hasOwn
+    delete Object.hasOwn;
+    try {
+      expect(guardianOperatorCopy('gateway')).toEqual({
+        aboutKey: 'guardianAboutGateway',
+        kindKey: 'guardianKindGateway'
+      });
+      expect(guardianOperatorCopy('constructor')).toBeUndefined();
+    } finally {
+      Object.hasOwn = original;
+    }
+  });
+
   it("shows the config document's kind text in place of the bundled one", () => {
     renderSheet({ options: [{ ...OZ, kind: 'Security audits' }, KODA] });
     expect(card(OZ.endpoint)).toHaveTextContent('Security audits · US-EAST');

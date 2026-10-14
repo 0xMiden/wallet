@@ -415,6 +415,18 @@ describe('guardianProviderFromEndpoint', () => {
     }
   });
 
+  it('maps ids without Object.hasOwn, which Safari before 15.4 lacks', () => {
+    const original = Object.hasOwn;
+    // @ts-expect-error simulating a WebView that predates Object.hasOwn
+    delete Object.hasOwn;
+    try {
+      expect(guardianProviderFromEndpoint('https://miden-guardian.lambdaclass.com')).toBe('lambda-class');
+      expect(guardianProviderFromEndpoint('https://my-own.example.com')).toBe('custom');
+    } finally {
+      Object.hasOwn = original;
+    }
+  });
+
   it('returns null for a null endpoint', () => {
     expect(guardianProviderFromEndpoint(null)).toBeNull();
   });

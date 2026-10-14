@@ -22,7 +22,7 @@ const GUARDIAN_OPERATOR_COPY: Record<string, { aboutKey: string; kindKey: string
 };
 
 export const guardianOperatorCopy = (id: string) =>
-  Object.hasOwn(GUARDIAN_OPERATOR_COPY, id) ? GUARDIAN_OPERATOR_COPY[id] : undefined;
+  Object.prototype.hasOwnProperty.call(GUARDIAN_OPERATOR_COPY, id) ? GUARDIAN_OPERATOR_COPY[id] : undefined;
 
 export interface GuardianOperatorText {
   about: string;
