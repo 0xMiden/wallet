@@ -4729,8 +4729,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Genehmigen Sie die Anfrage in Ihrer Wallet und lassen Sie diesen Bildschirm geöffnet, während das Quellnetzwerk die Anfrage bestätigt.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "message": "Bestätigen Sie die Anfragen in Ihrer Wallet – möglicherweise werden Sie mehrmals dazu aufgefordert – und lassen Sie diesen Bildschirm geöffnet, während das Quellnetzwerk die Anfragen bestätigt.",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "Einzahlung über die Bridge fehlgeschlagen",
@@ -6200,6 +6200,14 @@
   "externalPageLoadFailed": {
     "message": "Diese Seite konnte nicht geöffnet werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "Warten auf die nächste Wallet-Bestätigung",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "Die erste Bestätigung ist erfolgt. Ihre Wallet wird Sie auffordern, erneut zu bestätigen – lassen Sie diesen Bildschirm geöffnet.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
   },
   "advancedOptions": {
     "message": "Erweiterte Optionen",

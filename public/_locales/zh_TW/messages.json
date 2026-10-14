@@ -4729,8 +4729,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "請在您的錢包中批准此請求，並在來源網路確認期間保持此畫面開啟。",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "message": "請在您的錢包中批准這些請求——系統可能會多次提示——並在來源網路確認這些請求期間，保持此畫面開啟。",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "跨鏈存入失敗",
@@ -6200,6 +6200,14 @@
   "externalPageLoadFailed": {
     "message": "無法開啟此頁面。請檢查您的網路連線並重新嘗試。",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "等待下一個錢包的確認",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "首次確認已完成。您的錢包將要求您再次確認——請保持此畫面開啟。",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
   },
   "advancedOptions": {
     "message": "進階選項",

@@ -1,11 +1,11 @@
 import { Endpoint } from '@miden-sdk/miden-sdk/lazy';
 
+import { getNetworkGuardians } from 'lib/miden-chain/guardian-registry';
 import {
   DEFAULT_NETWORK,
   MIDEN_EXPLORER_ENDPOINTS,
   MIDEN_FAUCET_API_ENDPOINTS,
   MIDEN_FAUCET_ENDPOINTS,
-  MIDEN_GUARDIAN_ENDPOINTS,
   MIDEN_NETWORK_ENDPOINTS,
   MIDEN_NETWORK_NAME,
   MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS,
@@ -174,18 +174,19 @@ async function loadFeeFaucetId(): Promise<void> {
 
 /**
  * Effective-network default guardian endpoint (custom override first), or '' if
- * none. Non-throwing (mirrors the old `DEFAULT_GUARDIAN_ENDPOINT` const's
- * semantics — a last-resort fallback — but keyed off the effective network
+ * none. Non-throwing: a last-resort fallback, keyed off the effective network
  * rather than the build's `DEFAULT_NETWORK`, so an endpoint override with no
  * custom guardian URL doesn't silently fall back to the build network's
- * guardian). Use `getDefaultGuardianEndpoint()` (constants.ts) instead at
+ * guardian. The default is the first operator of the network's list
+ * (`getNetworkGuardians`: the config document's, else the bundled one).
+ * Use `getDefaultGuardianEndpoint()` (constants.ts) instead at
  * Guardian create/import entry points, where an unsupported network should
  * fail loudly rather than resolve to ''.
  */
 export function getEffectiveDefaultGuardianEndpoint(): string {
   const custom = getEffectiveGuardianUrl();
   if (custom) return custom;
-  return MIDEN_GUARDIAN_ENDPOINTS.get(getEffectiveNetworkName())?.[0] ?? '';
+  return getNetworkGuardians(getEffectiveNetworkName())[0]?.endpoint ?? '';
 }
 
 /** All fields prefilled from a known network's build defaults. */
@@ -197,7 +198,7 @@ export function buildDefaultOverrideFor(network: MIDEN_NETWORK_NAME): EndpointOv
     faucetUrl: MIDEN_FAUCET_ENDPOINTS.get(network) ?? '',
     faucetApiUrl: MIDEN_FAUCET_API_ENDPOINTS.get(network) ?? '',
     explorerUrl: MIDEN_EXPLORER_ENDPOINTS.get(network) ?? '',
-    guardianUrl: MIDEN_GUARDIAN_ENDPOINTS.get(network)?.[0] ?? '',
+    guardianUrl: getNetworkGuardians(network)[0]?.endpoint ?? '',
     allowNoGuardian: false,
     networkName: network,
     presetName: network

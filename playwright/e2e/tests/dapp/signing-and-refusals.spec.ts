@@ -316,7 +316,7 @@ function refusalCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
         );
         expect(result).toEqual(NOT_GRANTED_WRAPPED);
         await expectNoNewRows(side, baseline);
-        // Only the approve branch releases the dry run's quarantine (dapp.ts:1956-1961): the new note never shows...
+        // Only the approve branch releases the dry run's quarantine (dapp.ts:1990-1995): the new note never shows...
         expect(await noteIdsSeenOver(j, 2, ctx)).not.toContain(normalizeHex(fx.newA1.noteId));
         // ...while the note A already held was never quarantined and stays claimable (simulate-custom-tx.ts:197-205).
         expect((await pendingNoteIds(j.walletA.page)).map(normalizeHex)).toContain(normalizeHex(fx.heldNoteId));
@@ -350,7 +350,7 @@ function refusalCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
       run: async ctx => {
         const side = await sideOf(j, dapp);
         const baseline = await captureBaseline(side, [j.tokenFaucetId], ctx);
-        // Closing the window is a decline (dapp.ts:2512-2516, onRemoved).
+        // Closing the window is a decline (dapp.ts:2564-2568, onRemoved).
         const { result } = await answerPrompt(
           dapp,
           () => callDapp(dapp, 'send', sendInput, ctx.deadline),
@@ -402,7 +402,7 @@ function refusalCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
         'INVALID_PARAMS: Error: INVALID_PARAMS: Invalid CustomTransaction payload'
       )
     ),
-    // K11: the wallet prompts with its could-not-decode sheet instead (dapp.ts:2867-2879).
+    // K11: the wallet prompts with its could-not-decode sheet instead (dapp.ts:2920-2931).
     'R3-customUndecodable': refusedBeforePrompt(
       me => ({
         call: 'requestTransaction',
@@ -465,7 +465,7 @@ function refusalCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
           ctx
         );
         expect(result).toEqual(refusal('InvalidParamsMidenWalletError', /^INVALID_PARAMS: /));
-        // Only a network failure or a pipeline kill queues bytes for a retry (dapp.ts:1410-1414).
+        // Only a network failure or a pipeline kill queues bytes for a retry (dapp.ts:1426-1430).
         expect(await pendingImportQueue(j.walletA.page)).not.toContain(malformed);
         expect((await journeyNoteIdsSeenOver(j, 1, ctx)).sort()).toEqual(before);
       }
@@ -544,7 +544,7 @@ function failureCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
         );
         const { txId } = unwrap(result, 'an overspending custom request is still queued', ctx);
         await expectFailedAfterEnqueue(side, baseline, txId, pinned.texts.R5[j.axis.label], ctx);
-        // The approval released the dry run's quarantine (dapp.ts:1956-1961), so the failure leaves the note claimable.
+        // The approval released the dry run's quarantine (dapp.ts:1990-1995), so the failure leaves the note claimable.
         await pollUntil(
           () => pendingNote(j.walletA.page, fx.carry.noteId),
           note => note !== null,

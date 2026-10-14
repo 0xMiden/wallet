@@ -328,6 +328,30 @@ describe('values this build does not know', () => {
     expect(parsed?.swap).toStrictEqual(published?.swap);
   });
 
+  it('keeps only the declared Epoch output where Object.hasOwn is missing', () => {
+    const sepolia = chains.sepolia;
+    const usdc = sepolia.bridges.epoch.tokens.USDC;
+    const epoch = {
+      ...sepolia.bridges.epoch,
+      tokens: { USDC: { ...usdc, outputs: ['usdc-testnet-output', 'usdc-other'] } }
+    };
+    const body = {
+      ...withProviders({ epoch: providers.epoch }),
+      supportedEvmChains: { ...chains, sepolia: { ...sepolia, bridges: { ...sepolia.bridges, epoch } } }
+    };
+    const saved = Object.hasOwn;
+    // @ts-expect-error simulating Safari before 15.4
+    delete Object.hasOwn;
+    try {
+      const parsed = parseBridgeConfig(body, 'testnet');
+      expect(parsed?.supportedEvmChains.sepolia?.bridges.epoch?.tokens.USDC?.outputs).toStrictEqual([
+        'usdc-testnet-output'
+      ]);
+    } finally {
+      Object.hasOwn = saved;
+    }
+  });
+
   it('reads Epoch outputs off testnet', () => {
     const outputs = { 'usdc-mainnet-output': { faucetId: '0x537c15a622074e91188aa894456c52' } };
     const parsed = parseBridgeConfig(
@@ -453,6 +477,114 @@ it('reads a fraction of any length as the same instant', () => {
     parseBridgeConfig(withSection('mainnetCountdown', { launchAt }), 'testnet')?.mainnetCountdown;
   expect(at('2026-10-26T00:00:00.5Z')).toStrictEqual(at('2026-10-26T00:00:00.500Z'));
   expect(at('2026-10-26T00:00:00.5Z')?.launchAt).toBe(Date.UTC(2026, 9, 26, 0, 0, 0, 500));
+});
+
+describe('the Guardian operators', () => {
+  const OZ = {
+    id: 'open-zeppelin',
+    name: 'OpenZeppelin',
+    operatedBy: 'OpenZeppelin',
+    location: 'US-EAST',
+    endpoint: 'https://guardian-testnet.openzeppelin.com'
+  };
+  const KODA = {
+    id: 'kodax',
+    name: 'Koda',
+    operatedBy: 'Korea Digital Asset (Koda)',
+    location: 'Asia (SK)',
+    endpoint: 'https://guardian-testnet.kodax.com'
+  };
+  const entry = (index: number) => ({ ...OZ, id: `operator-${index}`, endpoint: `https://guardian-${index}.example` });
+  const guardians = (list: unknown) => parseBridgeConfig(doc({ guardians: list }), 'testnet');
+
+  it('reads no list from a document that has none, so the wallet keeps its own', () => {
+    const parsed = parseBridgeConfig(doc(), 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed && 'guardians' in parsed).toBe(false);
+  });
+
+  it('reads the list in document order', () => {
+    expect(guardians([KODA, OZ])?.guardians).toStrictEqual([KODA, OZ]);
+  });
+
+  it('puts an endpoint in the form the wallet compares: lowercase host, no default port, no trailing slash', () => {
+    const parsed = guardians([{ ...OZ, endpoint: 'https://GUARDIAN-TESTNET.openzeppelin.com:443//' }]);
+    expect(parsed?.guardians?.[0]?.endpoint).toBe('https://guardian-testnet.openzeppelin.com');
+  });
+
+  it('ignores a field of an entry that it does not know', () => {
+    expect(guardians([{ ...OZ, logoUrl: 'https://example.com/logo.png' }])?.guardians).toStrictEqual([OZ]);
+  });
+
+  it('accepts 16 operators and refuses 17', () => {
+    expect(guardians(Array.from({ length: 16 }, (_, index) => entry(index)))?.guardians).toHaveLength(16);
+    expect(guardians(Array.from({ length: 17 }, (_, index) => entry(index)))).toBeNull();
+  });
+
+  it.each<[string, unknown]>([
+    ['a list that is an object', {}],
+    ['a list that is null', null],
+    ['an empty list', []],
+    ['an entry that is a URL string', [OZ.endpoint]],
+    ['an entry that is null', [null]],
+    ['an id with an upper-case letter', [{ ...OZ, id: 'OpenZeppelin' }]],
+    ['an id with a double hyphen', [{ ...OZ, id: 'open--zeppelin' }]],
+    ['an id that ends in a hyphen', [{ ...OZ, id: 'open-' }]],
+    ['an empty id', [{ ...OZ, id: '' }]],
+    ['an id of 33 characters', [{ ...OZ, id: 'a'.repeat(33) }]],
+    ['a numeric id', [{ ...OZ, id: 7 }]],
+    ['the id of the custom endpoint', [{ ...OZ, id: 'custom' }]],
+    ['the id of the no-Guardian choice', [{ ...OZ, id: 'no-guardian' }]],
+    ['a missing name', [{ id: OZ.id, operatedBy: OZ.operatedBy, location: OZ.location, endpoint: OZ.endpoint }]],
+    ['an empty name', [{ ...OZ, name: '' }]],
+    ['a name of 49 characters', [{ ...OZ, name: 'n'.repeat(49) }]],
+    ['a name with a space at its start', [{ ...OZ, name: ' OpenZeppelin' }]],
+    ['an operator with a line break', [{ ...OZ, operatedBy: 'Open\nZeppelin' }]],
+    ['an operator with a C1 control', [{ ...OZ, operatedBy: 'Open\u0085Zeppelin' }]],
+    ['a numeric location', [{ ...OZ, location: 7 }]],
+    ['a missing endpoint', [{ id: OZ.id, name: OZ.name, operatedBy: OZ.operatedBy, location: OZ.location }]],
+    ['an http endpoint', [{ ...OZ, endpoint: 'http://guardian-testnet.openzeppelin.com' }]],
+    ['a local http endpoint', [{ ...OZ, endpoint: 'http://localhost:3000' }]],
+    ['an endpoint with a query', [{ ...OZ, endpoint: 'https://guardian-testnet.openzeppelin.com/?a=1' }]],
+    ['an endpoint with credentials', [{ ...OZ, endpoint: 'https://user:pass@guardian-testnet.openzeppelin.com' }]],
+    ['an about that is an object', [{ ...OZ, about: { en: 'A security company.' } }]],
+    ['an empty about', [{ ...OZ, about: '' }]],
+    ['an about of 161 characters', [{ ...OZ, about: 'a'.repeat(161) }]],
+    ['an about with a line break', [{ ...OZ, about: 'A security\ncompany.' }]],
+    ['an about with a space at its end', [{ ...OZ, about: 'A security company. ' }]],
+    ['a kind that is null', [{ ...OZ, kind: null }]],
+    ['a numeric kind', [{ ...OZ, kind: 7 }]],
+    ['a kind of 65 characters', [{ ...OZ, kind: 'k'.repeat(65) }]],
+    ['two entries with one id', [OZ, { ...KODA, id: OZ.id }]],
+    [
+      'two entries with one endpoint in two spellings',
+      [OZ, { ...KODA, endpoint: 'https://Guardian-Testnet.OpenZeppelin.com/' }]
+    ]
+  ])('rejects the document for %s', (_label, list) => {
+    expect(guardians(list)).toBeNull();
+  });
+
+  it('reads the about and kind texts as written', () => {
+    const described = { ...OZ, about: 'A smart contract security company.', kind: 'Smart contract security' };
+    expect(guardians([described, KODA])?.guardians).toStrictEqual([described, KODA]);
+  });
+
+  it('accepts an about and a kind at their length limits', () => {
+    const parsed = guardians([{ ...OZ, about: 'a'.repeat(160), kind: 'k'.repeat(64) }]);
+    expect(parsed?.guardians?.[0]).toMatchObject({ about: 'a'.repeat(160), kind: 'k'.repeat(64) });
+  });
+
+  it('accepts a name and an id at their length limits', () => {
+    const parsed = guardians([{ ...OZ, id: 'a'.repeat(32), name: 'n'.repeat(48) }]);
+    expect(parsed?.guardians?.[0]).toMatchObject({ id: 'a'.repeat(32), name: 'n'.repeat(48) });
+  });
+
+  it('accepts a local http endpoint only under the E2E allowance', () => {
+    const parsed = parseBridgeConfig(doc({ guardians: [{ ...OZ, endpoint: 'http://localhost:3000/' }] }), 'testnet', {
+      allowLocalHttp: true
+    });
+    expect(parsed?.guardians?.[0]?.endpoint).toBe('http://localhost:3000');
+  });
 });
 
 describe('the E2E local http allowance', () => {
