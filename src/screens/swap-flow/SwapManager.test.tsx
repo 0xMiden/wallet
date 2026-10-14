@@ -880,6 +880,31 @@ describe('SwapFlow / SwapManager', () => {
       );
     });
 
+    it('disables Continue when the solver stops listing the open pair, until a listed partner is picked', () => {
+      mockAllBalancesReturn = { data: [{ tokenId: 'bech32-faucet-A', balance: 100 }] };
+      mockSolverPairs = [
+        ['faucet-A', 'faucet-B'],
+        ['faucet-A', 'faucet-C']
+      ];
+      const { rerender } = renderFlow();
+      setOffer('10');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+
+      // Both tokens stay listed, so the draft is kept; only the pair is gone.
+      mockSolverPairs = [['faucet-A', 'faucet-C']];
+      rerender(<SwapFlow />);
+      expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('AAA');
+      expect(screen.getByTestId('sa-request-token')).toHaveTextContent('BBB');
+      expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('10');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+
+      fireEvent.click(screen.getByTestId('sa-select-request'));
+      act(() => mockDrawerProps.onSelect(mockTokenC));
+      setOffer('10');
+      expect(screen.getByTestId('sa-request-token')).toHaveTextContent('CCC');
+      expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+    });
+
     it('preserves the draft when a refresh republishes the same registry content', () => {
       const { rerender } = renderFlow();
       selectThirdOffer();

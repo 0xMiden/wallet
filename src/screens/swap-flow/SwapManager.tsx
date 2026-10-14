@@ -307,6 +307,9 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     !submitting &&
     spendingLimitChallenge === undefined &&
     !sameToken &&
+    // A registry update can delist the open pair while both tokens stay listed, which keeps the draft; no solver
+    // fills a pair it does not list.
+    isSwapPair(offerToken.faucetId, requestToken.faucetId) &&
     hasOfferAmount &&
     !offerAmountExceedsBalance &&
     // The fee is withdrawn from this account's own vault, so with none of the fee
