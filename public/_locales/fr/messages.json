@@ -5944,44 +5944,12 @@
     "message": "Vos gains",
     "englishSource": "Your Earnings"
   },
-  "durationUnitSeconds": {
-    "message": "Sec.",
-    "englishSource": "Sec"
-  },
-  "durationUnitMinutes": {
-    "message": "Min.",
-    "englishSource": "Min"
-  },
-  "durationUnitHours": {
-    "message": "Heure",
-    "englishSource": "Hour"
-  },
-  "durationUnitDays": {
-    "message": "Jour",
-    "englishSource": "Day"
-  },
-  "swapExpiryUnit": {
-    "message": "Unité d'expiration",
-    "englishSource": "Expiry unit"
-  },
   "moreInfoAbout": {
     "message": "Plus d'informations sur $label$",
     "englishSource": "More information about $label$",
     "placeholders": {
       "label": {
         "content": "$1"
-      }
-    }
-  },
-  "swapExpiryRange": {
-    "message": "Saisissez un nombre entier compris entre $min$ et $max$.",
-    "englishSource": "Enter a whole number from $min$ to $max$.",
-    "placeholders": {
-      "min": {
-        "content": "$1"
-      },
-      "max": {
-        "content": "$2"
       }
     }
   },
