@@ -2387,3 +2387,20 @@ it('reads a renamed built-in host once under the spelling the account saved', as
     jest.mocked(resolveGuardianEndpoint).mockReturnValue('https://one');
   }
 });
+
+it('finds a checkpoint written under the old host name when the list spells the new one', async () => {
+  const oldHost = 'https://guardian.openzeppelin.com';
+  const newHost = 'https://guardian-testnet.openzeppelin.com';
+  const builtIn = MIDEN_GUARDIAN_ENDPOINTS.get('testnet');
+  MIDEN_GUARDIAN_ENDPOINTS.set('testnet', [newHost]);
+  try {
+    await saveCheckpoint('https://one', { completed: true });
+    await saveCheckpoint(oldHost, { completed: true });
+    source(oldHost, []);
+    source(newHost, []);
+    expect((await run()).sourceFailures).toBe(0);
+    expect(createClient).not.toHaveBeenCalled();
+  } finally {
+    MIDEN_GUARDIAN_ENDPOINTS.set('testnet', builtIn ?? []);
+  }
+});

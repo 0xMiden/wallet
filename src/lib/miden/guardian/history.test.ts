@@ -1,6 +1,7 @@
 import type { DeltaObject, HistoryEntry, ProposalMetadata } from '@openzeppelin/guardian-client';
 
 import {
+  historyCheckpointId,
   normalizeHistoryOperators,
   reconcileRecoveredSwaps,
   recoveredAction,
@@ -541,4 +542,17 @@ it('keeps a Guardian switch partial when its destination is missing', () => {
     summary
   );
   expect(row.recovery?.completeness).toBe('partial');
+});
+
+it('gives a commitment-less row the same id from either spelling of a renamed host', () => {
+  const unknown: HistoryEntry = { ...entry, newCommitment: '' };
+  const idFrom = (operator: string) =>
+    recoveredHistoryRecord('account', '0x123', 'testnet', operator, unknown, { ...delta(), newCommitment: '' }, summary)
+      .id;
+  const oldId = idFrom('https://guardian.openzeppelin.com');
+  expect(oldId).toBe('guardian-history:testnet:0x123:nonce-12-https_guardian_openzeppelin_com');
+  expect(idFrom('https://guardian-testnet.openzeppelin.com')).toBe(oldId);
+  expect(historyCheckpointId('testnet', '0x123', 'https://guardian-testnet.openzeppelin.com')).toBe(
+    historyCheckpointId('testnet', '0x123', 'https://guardian.openzeppelin.com')
+  );
 });
