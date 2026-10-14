@@ -62,7 +62,7 @@ type StaleRequest = 'send' | 'transaction' | 'consume' | 'consumeBytes' | 'custo
 const STALE: readonly StaleRequest[] = ['send', 'transaction', 'consume', 'consumeBytes', 'custom'];
 const NOT_GRANTED_WRAPPED = refusal('WalletTransactionError', 'NOT_GRANTED', 'NotGrantedMidenWalletError');
 // M9 calls the provider directly, so the refusal reaches the dApp unwrapped: assertRequestAccountIsCurrent throws
-// NOT_GRANTED (dapp.ts:1683-1688) and createError names it (client.ts:300-317). Consume is held to the same answer
+// NOT_GRANTED (dapp.ts:1690-1695) and createError names it (client.ts:300-317). Consume is held to the same answer
 // (Q9). M9 expects it before any popup (Q10).
 const NOT_GRANTED_RAW = refusal('NotGrantedMidenWalletError', 'NOT_GRANTED');
 

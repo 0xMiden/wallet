@@ -127,8 +127,8 @@ export interface RanRow {
 }
 
 /**
- * K6's evidence: something ran, and every row that ran is a consume of the stale account. A row for any other account,
- * of another type or naming no account is not that bug, so the cell stays a new failure.
+ * Whether a stale consume executed: something ran, and every row that ran is a consume of the stale account. A row for
+ * any other account, of another type or naming no account is a different failure.
  */
 export function onlyStaleConsumesRan(ran: readonly RanRow[], staleAccount: string): boolean {
   return (

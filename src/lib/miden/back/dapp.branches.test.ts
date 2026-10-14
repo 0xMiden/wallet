@@ -1025,6 +1025,17 @@ describe('requests for an account that is not the current one (#1419)', () => {
   const ORIGIN = 'https://miden.xyz';
   const ACCOUNT_A = 'miden-account-1';
   const ACCOUNT_B = 'miden-account-2';
+  // Not the account id, so a guard that looks the session up by the signing key instead of the account fails.
+  const SIGN_KEY = 'miden-account-1-signing-key';
+  const SESSION_A = { ...SESSION, publicKey: SIGN_KEY };
+
+  beforeEach(() => {
+    storageState[STORAGE_KEY] = { [ORIGIN]: [SESSION_A] };
+  });
+
+  afterEach(() => {
+    currentAccountPublicKey = ACCOUNT_A;
+  });
 
   const customPayload = { address: ACCOUNT_A, recipientAddress: 'bob', transactionRequest: 'base64req' };
   const consumeTx = { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'Private', amount: '50' };
@@ -1034,7 +1045,7 @@ describe('requests for an account that is not the current one (#1419)', () => {
       dapp.requestSign(ORIGIN, {
         type: MidenDAppMessageType.SignRequest,
         sourceAccountId: ACCOUNT_A,
-        sourcePublicKey: ACCOUNT_A,
+        sourcePublicKey: SIGN_KEY,
         payload: 'AAAA',
         kind: 'word'
       } as never),
@@ -1091,8 +1102,33 @@ describe('requests for an account that is not the current one (#1419)', () => {
 
   const grantPermission = (privateDataPermission: string, allowedPrivateData: number) => {
     storageState[STORAGE_KEY] = {
-      [ORIGIN]: [{ ...SESSION, privateDataPermission, allowedPrivateData }]
+      [ORIGIN]: [{ ...SESSION_A, privateDataPermission, allowedPrivateData }]
     };
+  };
+
+  // A real switch writes both the vault's stored current account and the store's.
+  const switchCurrentAccount = (account: string) => {
+    currentAccountPublicKey = account;
+    mockGetCurrentAccountPublicKey.mockResolvedValue(account);
+  };
+  const revokeSession = () => {
+    storageState[STORAGE_KEY] = { [ORIGIN]: [] };
+  };
+  const approveAfter = (change: () => void) =>
+    mockRequestConfirmation.mockImplementationOnce(async () => {
+      change();
+      return { confirmed: true, delegate: true };
+    });
+
+  // What each prompted handler does once approved, none of which may run after a refused approval. A read answers
+  // with data it already holds, so its rejection is the proof; the note import is that handler's only unlocked call.
+  const approvedActions: Record<string, readonly jest.Mock[]> = {
+    assets: [],
+    privateNotes: [],
+    consumableNotes: [],
+    importPrivateNote: [mockWithUnlocked],
+    consume: [mockInitiateConsumeTransactionFromId],
+    consumeBytes: [mockQueueNoteImport, mockInitiateConsumeTransactionFromId]
   };
 
   const expectNoPopupNoRead = () => {
@@ -1131,14 +1167,28 @@ describe('requests for an account that is not the current one (#1419)', () => {
   });
 
   it('refuses a sign approved after the current account changed, before any key is used', async () => {
-    mockRequestConfirmation.mockImplementationOnce(async () => {
-      // The switch lands while the sheet is open, after the entry gate passed.
-      mockGetCurrentAccountPublicKey.mockResolvedValue(ACCOUNT_B);
-      return { confirmed: true };
-    });
+    // The switch lands while the sheet is open, after the entry gate passed.
+    approveAfter(() => switchCurrentAccount(ACCOUNT_B));
     await expect(requests.sign!()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
     expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
     expect(mockSignData).not.toHaveBeenCalled();
+  });
+
+  it.each(Object.keys(approvedActions))('refuses %s approved after the current account changed', async name => {
+    approveAfter(() => switchCurrentAccount(ACCOUNT_B));
+    await expect(requests[name]!()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+    for (const action of approvedActions[name]!) expect(action).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['sign', mockSignData],
+    ['consume', mockInitiateConsumeTransactionFromId]
+  ] as const)('refuses %s approved after the dApp was disconnected', async (name, action) => {
+    approveAfter(revokeSession);
+    await expect(requests[name]!()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+    expect(action).not.toHaveBeenCalled();
   });
 
   it('still signs when the current account is unchanged at approval', async () => {
@@ -1159,7 +1209,8 @@ describe('requests for an account that is not the current one (#1419)', () => {
     currentAccountPublicKey = undefined as unknown as string;
     try {
       mockGetCurrentAccountPublicKey.mockResolvedValue(ACCOUNT_A);
-      await requests.assets!();
+      // The approval-time re-check reads the store, which holds no current account while locked.
+      await expect(requests.assets!()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
       expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
     } finally {
       currentAccountPublicKey = ACCOUNT_A;

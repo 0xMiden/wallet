@@ -31,13 +31,6 @@ export interface KnownBugRegistry {
 
 const BOTH: readonly AxisLabel[] = ['offchain', 'guardian'];
 const GUARDIAN: readonly AxisLabel[] = ['guardian'];
-// The consume rows of M3: consume skips the post-approval re-check that send and custom run.
-const STALE_CONSUME_CELLS = [
-  'M3-consume-switch',
-  'M3-consume-revoke',
-  'M3-consumeBytes-switch',
-  'M3-consumeBytes-revoke'
-] as const;
 const on = (ids: readonly string[], axes: readonly AxisLabel[]): Record<string, readonly AxisLabel[]> =>
   Object.fromEntries(ids.map(id => [id, axes]));
 
@@ -77,13 +70,6 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
       (evidence.dappError?.message ?? '').includes('Wallet is locked')
   },
   {
-    id: 'K6',
-    title: 'An approved consume executes for an account whose authorization went stale',
-    tracking: '0xMiden/wallet#1415 (open)',
-    cells: on(STALE_CONSUME_CELLS, BOTH),
-    signature: ({ source, evidence }) => source === 'hard' && evidence.staleConsumeExecuted === true
-  },
-  {
     id: 'K7',
     title: 'waitForTransaction has no session or origin gate',
     tracking: '0xMiden/wallet#1416 (open)',
@@ -110,7 +96,7 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
     tracking: '0xMiden/wallet#1389 (open)',
     cells: on(['W5b', 'W5c', 'N4'], BOTH),
     // The consume preview and the private-note list both look the returned details commitment up as a note id
-    // (`src/lib/miden/back/dapp.ts:2714-2721` and `:907, 951`), so a consume is refused before any popup.
+    // (`src/lib/miden/back/dapp.ts:2732-2739` and `:909, 953`), so a consume is refused before any popup.
     signature: ({ cellId, source, evidence }) =>
       source === 'hard' &&
       (cellId === 'N4'
@@ -124,7 +110,7 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
     title: 'A custom request whose transactionRequest cannot be deserialized opens a popup instead of being refused',
     tracking: '0xMiden/wallet#1418 (open)',
     cells: on(['R3-customUndecodable'], BOTH),
-    // The preview swallows the deserialize failure (src/lib/miden/back/dapp.ts:2902-2913) and the popup says it could
+    // The preview swallows the deserialize failure (src/lib/miden/back/dapp.ts:2920-2931) and the popup says it could
     // not decode the request, so the refusal check sees a confirm page open.
     signature: ({ source, evidence }) => source === 'hard' && evidence.popupOpened === true
   }

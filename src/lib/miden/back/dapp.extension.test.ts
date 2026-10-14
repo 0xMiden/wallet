@@ -700,8 +700,16 @@ async function driveConfirmation(
     port
   );
   beforeConfirm?.();
-  await listener({ type: confirmRequestType, id, ...extraConfirmFields }, port);
+  // What the confirm page is answered with; a handler that throws leaves it unset and the dApp unanswered.
+  _g.__dappExtTest.lastConfirmResponse = undefined;
+  _g.__dappExtTest.lastConfirmResponse = await listener({ type: confirmRequestType, id, ...extraConfirmFields }, port);
   return promise;
+}
+
+// A real switch writes both the vault's stored current account and the store's.
+function switchCurrentAccount(account: string) {
+  _g.__dappExtTestCurrentAccount = account;
+  mockGetCurrentAccountPublicKey.mockResolvedValue(account);
 }
 
 describe('Full confirmation cycles in extension mode', () => {
@@ -1286,9 +1294,7 @@ describe('Full confirmation cycles in extension mode', () => {
           () => dapp.requestSign('https://miden.xyz', request(SIGNER_COMMITMENT_HEX)),
           MidenMessageType.DAppSignConfirmationRequest,
           { confirmed: true },
-          () => {
-            mockGetCurrentAccountPublicKey.mockResolvedValue('miden-account-2');
-          }
+          () => switchCurrentAccount('miden-account-2')
         )
       ).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
       expect(signData).not.toHaveBeenCalled();
@@ -1466,6 +1472,96 @@ describe('Full confirmation cycles in extension mode', () => {
     // A failed pubkey fetch must not persist a publicKey: null session.
     expect((_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://err-dapp.xyz']).toBeUndefined();
   });
+});
+
+describe('a prompted request approved after the current account changed (#1419, #1415)', () => {
+  const ORIGIN = 'https://miden.xyz';
+  const consumeTx = { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'Private', amount: '50' };
+  const transaction = () => require('lib/miden/transaction');
+
+  beforeEach(() => {
+    _g.__dappExtTest.midenClient.getAccount = jest
+      .fn()
+      .mockResolvedValue({ vault: () => ({ fungibleAssets: () => [] }) });
+    _g.__dappExtTest.midenClient.importNoteBytes = jest.fn().mockResolvedValue('imported-note-id');
+  });
+
+  // Each handler, its confirm request and response, and what it does once approved, none of which may run here.
+  const cases: ReadonlyArray<
+    readonly [string, () => Promise<unknown>, MidenMessageType, MidenMessageType, () => readonly jest.Mock[]]
+  > = [
+    [
+      'assets',
+      () =>
+        dapp.requestAssets(ORIGIN, {
+          type: MidenDAppMessageType.AssetsRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      MidenMessageType.DAppAssetsConfirmationRequest,
+      MidenMessageType.DAppAssetsConfirmationResponse,
+      () => []
+    ],
+    [
+      'privateNotes',
+      () =>
+        dapp.requestPrivateNotes(ORIGIN, {
+          type: MidenDAppMessageType.PrivateNotesRequest,
+          sourcePublicKey: 'miden-account-1',
+          noteIds: ['note-1']
+        } as never),
+      MidenMessageType.DAppPrivateNotesConfirmationRequest,
+      MidenMessageType.DAppPrivateNotesConfirmationResponse,
+      () => []
+    ],
+    [
+      'consumableNotes',
+      () =>
+        dapp.requestConsumableNotes(ORIGIN, {
+          type: MidenDAppMessageType.ConsumableNotesRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      MidenMessageType.DAppConsumableNotesConfirmationRequest,
+      MidenMessageType.DAppConsumableNotesConfirmationResponse,
+      () => []
+    ],
+    [
+      'importPrivateNote',
+      () =>
+        dapp.requestImportPrivateNote(ORIGIN, {
+          type: MidenDAppMessageType.ImportPrivateNoteRequest,
+          sourcePublicKey: 'miden-account-1',
+          note: 'aGVsbG8='
+        } as never),
+      MidenMessageType.DAppImportPrivateNoteConfirmationRequest,
+      MidenMessageType.DAppImportPrivateNoteConfirmationResponse,
+      () => [_g.__dappExtTest.midenClient.importNoteBytes]
+    ],
+    [
+      'consume',
+      () =>
+        dapp.requestConsumeTransaction(ORIGIN, {
+          type: MidenDAppMessageType.ConsumeRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: { ...consumeTx, noteBytes: 'aGVsbG8=' }
+        } as never),
+      MidenMessageType.DAppTransactionConfirmationRequest,
+      MidenMessageType.DAppTransactionConfirmationResponse,
+      () => [require('lib/miden/activity').queueNoteImport, transaction().initiateConsumeTransactionFromId]
+    ]
+  ];
+
+  it.each(cases)(
+    'refuses %s with NOT_GRANTED and still answers the confirm page',
+    async (_name, start, confirmRequest, confirmResponse, actions) => {
+      await expect(
+        driveConfirmation(start, confirmRequest, { confirmed: true, delegate: true }, () =>
+          switchCurrentAccount('miden-account-2')
+        )
+      ).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+      expect(_g.__dappExtTest.lastConfirmResponse).toEqual({ type: confirmResponse });
+      for (const action of actions()) expect(action).not.toHaveBeenCalled();
+    }
+  );
 });
 
 // ── Watchdog eviction mid-flow (#788 follow-up) ────────────────────

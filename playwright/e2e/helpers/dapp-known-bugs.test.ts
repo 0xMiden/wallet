@@ -60,9 +60,7 @@ describe('known-bug registry', () => {
     expect(bug('K5').signature(hard('S9', { popupOpened: true, dappError: locked }))).toBe(false);
   });
 
-  it('K6 and K7 match only their recorded facts', () => {
-    expect(bug('K6').signature(hard('M3-consume-switch', { staleConsumeExecuted: true }))).toBe(true);
-    expect(bug('K6').signature(hard('M3-consume-switch', {}))).toBe(false);
+  it('K7 matches only its recorded fact', () => {
     expect(bug('K7').signature(hard('M7', { crossOriginWaitServed: true }))).toBe(true);
     expect(bug('K7').signature(hard('M7', { crossOriginWaitServed: false }))).toBe(false);
   });
