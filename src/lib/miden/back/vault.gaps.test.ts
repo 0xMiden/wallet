@@ -370,6 +370,38 @@ describe('Vault instance signData - Guardian account', () => {
     }
   );
 
+  // The sign gate accepts the connect response's base64 verbatim and any-case 0x/0X hex, so the hot-key check
+  // has to read every one of them or it refuses a request the gate let through.
+  describe.each([
+    ['base64 of its 32 bytes', (hex: string) => u8ToB64(new Uint8Array(Buffer.from(hex, 'hex')))],
+    ['uppercase 0X hex', (hex: string) => `0X${hex.toUpperCase()}`]
+  ])('with the commitment as %s', (_encoding, encode) => {
+    it.each(['word', 'signingInputs'] as const)('signs a %s request with the hot key', async kind => {
+      const vault = await seedGuardianVault();
+      const data = u8ToB64(new Uint8Array(32).fill(0x01));
+
+      await expect(vault.signData(encode(HOT_COMMITMENT), data, kind, GUARDIAN_ADDR)).resolves.toBe(
+        u8ToB64(new Uint8Array([0x01, 0xaa, 0xbb, 0xcc]))
+      );
+    });
+
+    it.each(['word', 'signingInputs'] as const)('refuses a %s request for a different commitment', async kind => {
+      const vault = await seedGuardianVault();
+      const data = u8ToB64(new Uint8Array(32).fill(0x01));
+
+      await expect(vault.signData(encode('ab'.repeat(32)), data, kind, GUARDIAN_ADDR)).rejects.toThrow(/reconnect/i);
+      expect(mockWordFromHex).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each(['word', 'signingInputs'] as const)('refuses a %s request whose key is not a commitment', async kind => {
+    const vault = await seedGuardianVault();
+    const data = u8ToB64(new Uint8Array(32).fill(0x01));
+
+    await expect(vault.signData('not a commitment', data, kind, GUARDIAN_ADDR)).rejects.toThrow(/reconnect/i);
+    expect(mockWordFromHex).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['a recovered account awaiting its everyday key', { coldPublicKey: 'coldpub-only', requiresHotKeyRotation: true }],
     ['an account with no key at all', {}]

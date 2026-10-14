@@ -37,7 +37,7 @@ import { clearStorage } from 'lib/miden/reset';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { isDesktop, isMobile } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
-import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
+import { commitmentFromPublicKeyHex, commitmentToHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import {
   AuthScheme,
@@ -2261,7 +2261,9 @@ export class Vault {
     }
     // After a hot-key rotation the session still holds the old commitment; a signature by the new key would not
     // verify against it. The extension refuses this after approval, before signing; mobile and desktop only here.
-    if (!sameCommitment(await commitmentFromPublicKeyHex(account.hotPublicKey), publicKey)) {
+    // Read in every encoding the sign gate accepts (the connect base64 too), or a request it let through fails here.
+    const requested = commitmentToHex(publicKey);
+    if (requested === undefined || !sameCommitment(await commitmentFromPublicKeyHex(account.hotPublicKey), requested)) {
       throw new PublicError(
         "This Guardian account's everyday key changed after this site connected. Reconnect the site, then try again."
       );
