@@ -7,8 +7,8 @@ import {
 } from '@openzeppelin/guardian-client';
 
 import { reportGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
-import { MIDEN_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/constants';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
+import { MIDEN_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/constants';
 import type { WalletAccount } from 'lib/shared/types';
 import { WalletType } from 'screens/onboarding/types';
 
