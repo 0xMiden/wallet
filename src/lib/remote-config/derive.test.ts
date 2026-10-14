@@ -446,6 +446,62 @@ describe('the swap pairs', () => {
     expect(read.mock.calls.filter(([faucetId]) => listed.has(faucetId))).toHaveLength(6);
     expect(most).toBe(4);
   });
+
+  // Distinct valid ids and tickers, each at the decimals the default faucet read gives an unknown faucet.
+  const listingOf = (count: number) => ({
+    tokens: Array.from({ length: count }, (_, index) => ({
+      faucetId: `0x${index.toString(16).padStart(30, '0')}`,
+      ticker: `TOK${String.fromCharCode(65 + Math.floor(index / 26))}${String.fromCharCode(65 + (index % 26))}`,
+      decimals: 6
+    })),
+    pairs: []
+  });
+
+  it.each([
+    { count: 64, probe: { state: 'ok' }, reads: 64 },
+    {
+      count: 65,
+      probe: { state: 'error', message: `${PAIRS_URL} lists 65 tokens, more than the 64 the wallet verifies` },
+      reads: 0
+    }
+  ])(
+    'verifies a listing of up to 64 tokens and reads no faucet of a longer one ($count)',
+    async ({ count, probe, reads }) => {
+      const body = listingOf(count);
+      const io = deps({ fetch: healthFetch({ ...HEALTH, [PAIRS_URL]: body }) });
+      const pairs = (await deriveBridgeConfig(withSolver, io)).swap?.pairs;
+      expect(pairs).toMatchObject(probe);
+      const listed = new Set(body.tokens.map(token => token.faucetId));
+      const listedReads = jest.mocked(io.readMidenFaucet!).mock.calls.filter(([faucetId]) => listed.has(faucetId));
+      expect(listedReads).toHaveLength(reads);
+    }
+  );
+
+  it('fails the read once the on-chain verification passes its 30 s deadline', async () => {
+    jest.useFakeTimers();
+    try {
+      const run = deriveBridgeConfig(
+        withSolver,
+        deps({
+          fetch: healthFetch({ ...HEALTH, [PAIRS_URL]: TEST_SWAP_PAIRS_RESPONSE }),
+          readMidenFaucet: jest.fn(faucetId =>
+            faucetId === IETH.faucetId ? new Promise<never>(() => undefined) : readFixtureFaucet(faucetId)
+          )
+        })
+      );
+      let settled = false;
+      void run.then(() => (settled = true));
+      await jest.advanceTimersByTimeAsync(29_999);
+      expect(settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      expect((await run).swap?.pairs).toEqual({
+        state: 'error',
+        message: 'RPC "swap pairs faucet verification" timed out after 30000ms'
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 describe('the Earn market', () => {

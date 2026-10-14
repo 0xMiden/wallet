@@ -265,6 +265,10 @@ const isIndexerServing = (body: unknown) => isRecord(body) && body.status === 'S
 
 const SWAP_PAIRS_TIMEOUT_MS = 10_000;
 const SWAP_PAIRS_MAX_BYTES = 64 * 1_024;
+// The derivation settles only once every probe has. Each faucet read is bounded, but a long enough list read four at a
+// time is not, so the list is capped and its verification bounded as a whole.
+const SWAP_PAIRS_MAX_TOKENS = 64;
+const SWAP_PAIRS_VERIFY_TIMEOUT_MS = 30_000;
 const SWAP_FAUCET_READS_AT_ONCE = 4;
 
 type FaucetRead = (faucetId: string) => Promise<TokenMetadata>;
@@ -301,7 +305,15 @@ function readSwapPairs(fetchFn: JsonFetch, etaUrl: string, readFaucet: FaucetRea
     });
     const pairs = parseSwapPairs(body);
     if (!pairs) throw new Error(`${url} answered an unexpected body`);
-    return verifyOnChain(pairs, readFaucet);
+    if (pairs.tokens.length > SWAP_PAIRS_MAX_TOKENS) {
+      throw new Error(
+        `${url} lists ${pairs.tokens.length} tokens, more than the ${SWAP_PAIRS_MAX_TOKENS} the wallet verifies`
+      );
+    }
+    return withRpcTimeout(() => verifyOnChain(pairs, readFaucet), 'swap pairs faucet verification', {
+      timeoutMs: SWAP_PAIRS_VERIFY_TIMEOUT_MS,
+      retries: 0
+    });
   });
 }
 
