@@ -12,6 +12,7 @@
 
 ### Features
 
+- [FEATURE][all] Send automatically selects the only visible token with a positive spendable balance and known scale for the selected destination. Explicit token links, restored drafts and manual choices take priority; loading and account or network changes cannot carry an automatic choice across contexts (#1454).
 - [FEATURE][all] Read bridge routes, service URLs, and contract addresses from the remote configuration for each EVM chain. Keep Earn under its own switch and read its market from Epoch. Use the listed chains for wallet connections, and keep saved transfer data for recovery after a route is disabled or changed.
 
 ## 1.17.3 (2026-10-12)

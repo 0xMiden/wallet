@@ -61,6 +61,9 @@ const useAccountMock = jest.fn(() => ({ publicKey: 'me-pk' }) as any);
 const useAllAccountsMock = jest.fn(() => [] as any[]);
 const useAllBalancesMock = jest.fn(() => ({ data: undefined as any }));
 let mockBalancesLoading = false;
+let mockHiddenTokensLoaded = true;
+let mockHiddenTokenIds = new Set<string>();
+let mockRpcUrl = 'https://testnet.example';
 const useAllTokensBaseMetadataMock = jest.fn(() => ({}) as any);
 const useFilteredContactsMock = jest.fn(() => ({ contacts: [] as any[] }));
 const useRecentRecipientsMock = jest.fn((_accountId?: string | null) => [] as any[]);
@@ -300,6 +303,13 @@ jest.mock('lib/miden/front', () => ({
   useAllBalances: () => ({ ...useAllBalancesMock(), isLoading: mockBalancesLoading }),
   useAllTokensBaseMetadata: () => useAllTokensBaseMetadataMock()
 }));
+jest.mock('app/hooks/useHiddenTokens', () => ({
+  useHiddenTokens: () => ({ loaded: mockHiddenTokensLoaded, isHidden: (id: string) => mockHiddenTokenIds.has(id) })
+}));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveRpcUrl: () => mockRpcUrl
+}));
 let mockBaseFee: number | null = 0;
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
   __esModule: true,
@@ -389,6 +399,9 @@ beforeEach(() => {
   useAllAccountsMock.mockReturnValue([]);
   mockBaseFee = 0;
   mockBalancesLoading = false;
+  mockHiddenTokensLoaded = true;
+  mockHiddenTokenIds = new Set();
+  mockRpcUrl = 'https://testnet.example';
   mockNativeId = 'MIDEN-ID';
   useAllBalancesMock.mockReturnValue({ data: undefined });
   useAllTokensBaseMetadataMock.mockReturnValue({});
@@ -1534,12 +1547,158 @@ describe('token preselection', () => {
     expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
   });
 
-  it('does not preselect when there is no tokenId at all', () => {
+  it('selects the only sendable token when there is no tokenId', () => {
     mockSearch = '';
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     useAllBalancesMock.mockReturnValue({ data: balanceData });
     renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+  });
+});
+
+describe('single sendable token default', () => {
+  const native = { tokenId: 'MIDEN-ID', metadata: { symbol: 'MIDEN', decimals: 6 }, balance: 10 };
+  const other = { tokenId: 'OTHER', metadata: { symbol: 'OTHER', decimals: 6 }, balance: 20 };
+
+  beforeEach(() => {
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+  });
+
+  it('fills only the token and leaves amount, navigation and the picker under user control', () => {
+    useAllBalancesMock.mockReturnValue({ data: [native] });
+    renderFlow();
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^MIDEN-ID$/);
+    expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('sa-valid')).toHaveTextContent('false');
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(navigateToMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('sa-selecttoken'));
+    expect(screen.getByTestId('td-open')).toHaveTextContent('true');
+  });
+
+  it.each([{ rows: [] }, { rows: [{ ...native, balance: 0 }] }, { rows: [native, other] }])(
+    'leaves no default for $rows',
+    ({ rows }) => {
+      useAllBalancesMock.mockReturnValue({ data: rows });
+      renderFlow();
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    }
+  );
+
+  it('waits for balance loading and then selects from the resolved snapshot', () => {
+    mockBalancesLoading = true;
+    useAllBalancesMock.mockReturnValue({ data: [native] });
+    const { rerender } = renderFlow();
     expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    mockBalancesLoading = false;
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^MIDEN-ID$/);
+  });
+
+  it('waits for wallet and hidden-token loading, and excludes hidden tokens', () => {
+    mockHiddenTokensLoaded = false;
+    mockHiddenTokenIds = new Set(['OTHER']);
+    useAllBalancesMock.mockReturnValue({ data: [native, other] });
+    const { rerender } = renderFlow(true);
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    mockHiddenTokensLoaded = true;
+    rerender(<SendFlow isLoading={true} />);
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^MIDEN-ID$/);
+  });
+
+  it('does not default an unknown scale, then selects once its metadata resolves', () => {
+    useAllBalancesMock.mockReturnValue({ data: [{ ...other, metadata: { ...other.metadata, scaleIsUnknown: true } }] });
+    const { rerender } = renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    useAllBalancesMock.mockReturnValue({ data: [other] });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^OTHER$/);
+  });
+
+  it('excludes a native balance held entirely by the fee reserve', () => {
+    mockBaseFee = 1_000_000;
+    useAllBalancesMock.mockReturnValue({ data: [native, other] });
+    renderFlow();
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^OTHER$/);
+  });
+
+  it('leaves no default when the account cannot pay the known fee', () => {
+    mockBaseFee = 1_000_000;
+    useAllBalancesMock.mockReturnValue({ data: [{ ...native, balance: 0 }, other] });
+    renderFlow();
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-error')).toHaveTextContent('insufficientFeeAsset');
+  });
+
+  it('keeps a manual choice across later balance and price refreshes', () => {
+    useAllBalancesMock.mockReturnValue({ data: [native] });
+    const { rerender } = renderFlow();
+    mockSelectedToken = { id: 'OTHER', name: 'OTHER', decimals: 6, balance: 20, fiatPrice: 0, scaleIsKnown: true };
+    fireEvent.click(screen.getByTestId('td-select'));
+    useAllBalancesMock.mockReturnValue({ data: [native, other] });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^OTHER$/);
+  });
+
+  it('keeps an existing default when another funded token arrives', () => {
+    useAllBalancesMock.mockReturnValue({ data: [native] });
+    const { rerender } = renderFlow();
+    useAllBalancesMock.mockReturnValue({ data: [native, other] });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^MIDEN-ID$/);
+  });
+
+  it('clears an exhausted automatic token and waits when no candidate remains', () => {
+    useAllBalancesMock.mockReturnValue({ data: [native] });
+    const { rerender } = renderFlow();
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
+    useAllBalancesMock.mockReturnValue({ data: [{ ...native, balance: 0 }] });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+  });
+
+  it('resets token and amount on an account change and waits for its balances', () => {
+    useAllBalancesMock.mockReturnValue({ data: [native] });
+    const { rerender } = renderFlow();
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
+    useAccountMock.mockReturnValue({ publicKey: 'new-account' });
+    mockBalancesLoading = true;
+    useAllBalancesMock.mockReturnValue({ data: undefined });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+    mockBalancesLoading = false;
+    useAllBalancesMock.mockReturnValue({ data: [other] });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^OTHER$/);
+  });
+
+  it('resets on an effective network change and does not reuse the old balance snapshot', () => {
+    useAllBalancesMock.mockReturnValue({ data: [native] });
+    const { rerender } = renderFlow();
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
+    mockRpcUrl = 'https://devnet.example';
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+    useAllBalancesMock.mockReturnValue({ data: [other] });
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^OTHER$/);
+  });
+
+  it('selects only a destination-compatible token after the network changes', () => {
+    mockUsdcxTokenId = 'OTHER';
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
+    useAllBalancesMock.mockReturnValue({ data: [native, other] });
+    const { rerender } = renderFlow();
+    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecip' } });
+    fireEvent.click(screen.getByTestId('sr-network-arc-testnet'));
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^OTHER$/);
   });
 });
 

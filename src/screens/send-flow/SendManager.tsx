@@ -5,6 +5,7 @@ import { yupResolver } from '@hookform/resolvers/yup';
 import { useForm } from 'react-hook-form';
 import * as yup from 'yup';
 
+import { useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import useVerificationBaseFee from 'app/hooks/useVerificationBaseFee';
 import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
@@ -14,7 +15,9 @@ import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
 import { useFilteredContacts } from 'lib/miden/front/use-filtered-contacts.hook';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
+import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
@@ -112,6 +115,7 @@ export interface SendManagerProps {
 }
 
 export const SendManager: React.FC<SendManagerProps> = ({
+  isLoading,
   preselectedTokenId,
   draft,
   preselectedRecipient,
@@ -458,23 +462,86 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   const nativeFaucetId = useNativeFeeFaucetId();
   const verificationBaseFee = useVerificationBaseFee();
+  const { loaded: hiddenTokensLoaded, isHidden } = useHiddenTokens(publicKey);
+  const tokenScope = `${publicKey}:${getEffectiveNetworkName()}:${getEffectiveRpcUrl()}`;
+  const previousTokenScopeRef = useRef(tokenScope);
+  const previousAccountRef = useRef(publicKey);
+  const staleNetworkBalancesRef = useRef<typeof balanceData>();
+  const automaticTokenIdRef = useRef<string | null>(null);
+  const defaultCandidates = useMemo(() => {
+    if (isLoading || balancesLoading || !hiddenTokensLoaded || !publicKey || !balanceData) return [];
+    if (hasNoFeeAsset(balanceData, nativeFaucetId, verificationBaseFee)) return [];
+    return balanceData.filter(row => {
+      if (isHidden(row.tokenId) || !hasKnownScale(row.metadata)) return false;
+      if (usdcxOnly && !isUsdcxWithdrawalAvailable(row.tokenId)) return false;
+      const available =
+        row.tokenId === nativeFaucetId
+          ? maxSendableNative(row.balance, verificationBaseFee, row.metadata.decimals)
+          : row.balance;
+      return Number.isFinite(available) && available > 0;
+    });
+  }, [
+    isLoading,
+    balancesLoading,
+    hiddenTokensLoaded,
+    publicKey,
+    balanceData,
+    nativeFaucetId,
+    verificationBaseFee,
+    isHidden,
+    usdcxOnly
+  ]);
   // Balances and prices refresh on timers, so the preselection is applied once per id and a
   // refresh only rebuilds whichever token is in the form; re-applying it undid the user's pick.
   // Rebuilding the whole token lets a placeholder scale recover once the real metadata lands.
   const appliedPreselectionRef = useRef<string | null>(null);
   useEffect(() => {
+    if (previousTokenScopeRef.current !== tokenScope) {
+      // A network switch can briefly expose the previous network's cached rows.
+      if (previousAccountRef.current === publicKey) staleNetworkBalancesRef.current = balanceData;
+      previousTokenScopeRef.current = tokenScope;
+      previousAccountRef.current = publicKey;
+      appliedPreselectionRef.current = null;
+      automaticTokenIdRef.current = null;
+      setValue('token', undefined);
+      setValue('amount', '');
+    }
     if (!preselectedTokenId) appliedPreselectionRef.current = null;
     if (!balanceData) return;
+    if (staleNetworkBalancesRef.current === balanceData) return;
+    staleNetworkBalancesRef.current = undefined;
     if (preselectedTokenId && appliedPreselectionRef.current !== preselectedTokenId) {
       const match = balanceData.find(t => t.tokenId === preselectedTokenId);
       if (match) {
         appliedPreselectionRef.current = preselectedTokenId;
+        automaticTokenIdRef.current = null;
         setValue('token', uiTokenFromBalance(match, tokenPrices));
         return;
       }
     }
-    const current = getValues('token');
-    if (!current) return;
+    let current = getValues('token');
+    if (
+      current &&
+      automaticTokenIdRef.current === current.id &&
+      !isLoading &&
+      !balancesLoading &&
+      hiddenTokensLoaded &&
+      !defaultCandidates.some(row => row.tokenId === current?.id)
+    ) {
+      automaticTokenIdRef.current = null;
+      setValue('token', undefined);
+      setValue('amount', '');
+      current = undefined;
+    }
+    if (!current) {
+      // Explicit links and restored drafts own preselection, even while their row is absent.
+      const only = defaultCandidates.length === 1 ? defaultCandidates[0] : undefined;
+      if (!preselectedTokenId && only) {
+        automaticTokenIdRef.current = only.tokenId;
+        setValue('token', uiTokenFromBalance(only, tokenPrices));
+      }
+      return;
+    }
     const held = balanceData.find(t => t.tokenId === current.id);
     // A token that left a loaded snapshot has nothing to send; its old balance would still confirm.
     if (!held && balancesLoading) return;
@@ -495,6 +562,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
     setValue('token', refreshed);
   }, [
     preselectedTokenId,
+    tokenScope,
+    publicKey,
+    token,
+    isLoading,
+    hiddenTokensLoaded,
+    defaultCandidates,
     balanceData,
     balancesLoading,
     tokenPrices,
@@ -602,6 +675,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // appears later cannot replace it.
   const onSelectToken = useCallback(
     (selectedToken: UIToken) => {
+      automaticTokenIdRef.current = null;
       appliedPreselectionRef.current = preselectedTokenId ?? null;
       onAction({ id: SendFlowActionId.SetFormValues, payload: { token: selectedToken } });
     },
