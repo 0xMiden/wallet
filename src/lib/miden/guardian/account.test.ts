@@ -9,6 +9,7 @@
  */
 
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
 import { u8ToB64 } from 'lib/shared/helpers';
 
 import {
@@ -395,6 +396,35 @@ describe('guardianProviderFromEndpoint', () => {
     // the map lookup misses, so it falls through to 'custom' rather than
     // returning an invalid provider id.
     expect(guardianProviderFromEndpoint('https://unmapped.guardian.test')).toBe('custom');
+  });
+
+  it('treats an option id naming an inherited Object member as custom', () => {
+    setDocumentGuardians('testnet', [
+      {
+        id: 'constructor',
+        name: 'Inherited',
+        operatedBy: 'Inherited',
+        location: 'EU',
+        endpoint: 'https://inherited.guardian.test'
+      }
+    ]);
+    try {
+      expect(guardianProviderFromEndpoint('https://inherited.guardian.test')).toBe('custom');
+    } finally {
+      setDocumentGuardians('testnet', undefined);
+    }
+  });
+
+  it('maps ids without Object.hasOwn, which Safari before 15.4 lacks', () => {
+    const original = Object.hasOwn;
+    // @ts-expect-error simulating a WebView that predates Object.hasOwn
+    delete Object.hasOwn;
+    try {
+      expect(guardianProviderFromEndpoint('https://miden-guardian.lambdaclass.com')).toBe('lambda-class');
+      expect(guardianProviderFromEndpoint('https://my-own.example.com')).toBe('custom');
+    } finally {
+      Object.hasOwn = original;
+    }
   });
 
   it('returns null for a null endpoint', () => {

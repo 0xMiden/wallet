@@ -5,6 +5,7 @@ import {
   type StorageChangeSubscription
 } from 'lib/miden/front/storage';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
 import { backoffDelay, foregroundThreshold, isCheckDue } from 'lib/versioned-document';
 
 import { BRIDGE_FEATURES, type BridgeFeature, featureAvailability, type UnavailableReason } from './availability';
@@ -116,6 +117,9 @@ function publish(state: NetworkState): void {
     derived: state.derived,
     lastFetch: state.lastFetch
   };
+  // The Guardian operators follow the accepted document. With no document there is nothing to follow, so a list this
+  // realm already took stays.
+  if (state.stored) setDocumentGuardians(state.network, state.stored.config.guardians);
   logUnavailable(state);
   listeners.forEach(listener => listener());
   arm();

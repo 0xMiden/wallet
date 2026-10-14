@@ -80,14 +80,10 @@ jest.mock('lib/miden-chain/constants', () => {
   const actual = jest.requireActual('lib/miden-chain/constants');
   return {
     ...actual,
-    MIDEN_GUARDIAN_ENDPOINTS: new Map(
-      Object.values(actual.MIDEN_NETWORK_NAME).map(network => [
-        network,
-        ['https://builtin.test', 'https://guardian.test']
-      ])
-    )
+    getGuardianEndpointsForNetwork: () => ['https://builtin.test', 'https://guardian.test']
   };
 });
+jest.mock('lib/remote-config/runtime', () => ({ initBridgeConfig: async () => undefined }));
 jest.mock('lib/guardian-note-recovery-progress', () => ({
   reportGuardianNoteRecoveryProgress: jest.fn(),
   clearGuardianNoteRecoveryProgress: jest.fn(),
