@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import type { EndpointOverride } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
@@ -72,8 +72,8 @@ beforeEach(() => {
   mockStatus = WalletStatus.Idle;
   mockExtension = true;
   mockNetwork = MIDEN_NETWORK_NAME.TESTNET;
-  mockApply.mockResolvedValue(undefined);
-  mockRequest.mockResolvedValue(undefined);
+  mockApply.mockReset().mockResolvedValue(undefined);
+  mockRequest.mockReset().mockResolvedValue(undefined);
 });
 
 it('prepares mainnet and the service worker before onboarding', async () => {
@@ -117,14 +117,27 @@ it('keeps the code requirement when the network config changes', async () => {
   expect(mockApply).toHaveBeenCalledTimes(1);
 });
 
-it('blocks onboarding when the worker update fails and allows a retry', async () => {
-  mockRequest.mockRejectedValueOnce(new Error('Worker unavailable'));
+it('blocks onboarding when the worker update fails, and a retry repeats it without rewriting the choice', async () => {
+  // The stored choice takes effect at once, as the real cache does, so the retry finds mainnet already effective.
+  mockApply.mockImplementation(async () => {
+    mockNetwork = MIDEN_NETWORK_NAME.MAINNET;
+  });
+  let finishRefresh!: () => void;
+  mockRequest
+    .mockRejectedValueOnce(new Error('Worker unavailable'))
+    .mockImplementationOnce(() => new Promise<void>(resolve => (finishRefresh = resolve)));
   render(page());
   await screen.findByRole('alert');
   expect(screen.queryByTestId('flow')).not.toBeInTheDocument();
+
   fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+  await waitFor(() => expect(mockRequest).toHaveBeenCalledTimes(2));
+  expect(screen.queryByTestId('flow')).not.toBeInTheDocument();
+  await act(async () => finishRefresh());
+
   await screen.findByTestId('flow');
-  expect(mockApply).toHaveBeenCalledTimes(2);
+  expect(mockApply).toHaveBeenCalledTimes(1);
+  expect(mockFollow).toHaveBeenCalledTimes(1);
 });
 
 it('applies the mainnet override when seven logo taps unlock the invite-only Welcome, before the code step', async () => {
