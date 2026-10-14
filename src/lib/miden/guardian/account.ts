@@ -278,7 +278,7 @@ export function guardianProviderFromEndpoint(endpoint: string | null): GuardianP
   const option = getNetworkGuardians(getEffectiveNetworkName()).find(known =>
     sameGuardianEndpoint(known.endpoint, endpoint)
   );
-  return (option && PROVIDER_ID_MAP[option.id]) ?? 'custom';
+  return (option && Object.hasOwn(PROVIDER_ID_MAP, option.id) ? PROVIDER_ID_MAP[option.id] : undefined) ?? 'custom';
 }
 
 /**

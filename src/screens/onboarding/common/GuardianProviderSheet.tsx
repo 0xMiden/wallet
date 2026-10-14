@@ -21,7 +21,8 @@ const GUARDIAN_OPERATOR_COPY: Record<string, { aboutKey: string; kindKey: string
   kodax: { aboutKey: 'guardianAboutKodax', kindKey: 'guardianKindKodax' }
 };
 
-export const guardianOperatorCopy = (id: string) => GUARDIAN_OPERATOR_COPY[id];
+export const guardianOperatorCopy = (id: string) =>
+  Object.hasOwn(GUARDIAN_OPERATOR_COPY, id) ? GUARDIAN_OPERATOR_COPY[id] : undefined;
 
 export interface GuardianOperatorText {
   about: string;

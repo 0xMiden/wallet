@@ -34,6 +34,11 @@ describe('GuardianLogoTile', () => {
     expect(screen.getByTestId('guardian-avatar')).toBeInTheDocument();
   });
 
+  it('treats an id naming an inherited Object member as unknown', () => {
+    render(<GuardianLogoTile guardianId="constructor" />);
+    expect(screen.getByTestId('guardian-avatar')).toBeInTheDocument();
+  });
+
   it('draws the 88px circle at hero size', () => {
     render(<GuardianLogoTile guardianId="kodax" size="hero" />);
     expect(screen.getByTestId('guardian-logo-tile')).toHaveClass('size-22', 'rounded-full');
