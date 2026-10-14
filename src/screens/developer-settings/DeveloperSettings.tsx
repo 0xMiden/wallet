@@ -17,6 +17,7 @@ import { TextField } from 'components/ui/TextField';
 import { retireGuardianSyncPasses } from 'lib/miden/front/guardian-sync';
 import { clearSyncFuseForEndpointChange } from 'lib/miden/front/sync-fuse';
 import { resetStorageDestructive } from 'lib/miden/reset';
+import { resetMidenClient } from 'lib/miden/sdk/miden-client';
 import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import {
@@ -121,7 +122,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // No wallet registered yet, i.e. this screen is reachable but we're still pre-onboarding.
-  // `handleSave`'s SW nudge is only safe to send in this state — see its comment.
+  // On the extension, `handleSave` sends its SW nudge and drops the balances only in this state - see their comments.
   const noWalletYet = useWalletStore(selectIsIdle);
   const clearBalances = useWalletStore(s => s.clearBalances);
 
@@ -188,9 +189,6 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
     setError(null);
     try {
       await applyEndpointOverride(form);
-      // Every cached balance was read from the old node and names no network, so a reader would show it
-      // as this one's; dropped, each reader waits for a read on the new node.
-      clearBalances();
       // Every fuse conclusion was earned against the node this just stopped pointing at.
       // Mobile and desktop are exactly the realms that own the idle loop, so a fused
       // wallet repointed at a working RPC would otherwise probe once per 30 min - and the
@@ -209,6 +207,17 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       // desktop share one realm, so this is where their backend hears about the repoint. The
       // extension hears it from the service worker's endpoint-override handler instead.
       retireGuardianWritesForEndpointChange();
+      // This realm's client baked in the old endpoints when it was built and never re-reads them. Started,
+      // not awaited: the reset queues on the WASM lock ahead of every read after this save, so each builds
+      // against the new node, while awaiting it would keep the save waiting behind whatever hold is running.
+      if (!isExtension()) {
+        void resetMidenClient().catch(err => console.warn('client reset after endpoint change failed', err));
+      }
+      // Every cached balance was read from the old node and names no network, so a reader would show it
+      // as this one's; dropped, each reader waits for a read on the new node, and a read already out on the
+      // old client is discarded by the store's network guard. Not on the extension once a wallet exists:
+      // its worker keeps the old network until a reload, so those balances are still the ones a send spends.
+      if (!isExtension() || noWalletYet) clearBalances();
       // The native asset and its base fee belong to the node too. The caches drop
       // themselves on the next read (`invalidateOnEndpointChange`), but dropping them
       // notifies nobody - and `useVerificationBaseFee` only re-reads when discovery
@@ -229,7 +238,7 @@ const DeveloperSettings: React.FC<DeveloperSettingsProps> = ({ readOnly = false 
       // module-level override cache and a create-once Miden client singleton, so
       // applyEndpointOverride's write doesn't reach it - nudge it to re-hydrate
       // and rebuild before navigating away. Mobile/desktop share this realm, so
-      // the override above already took effect and this is a no-op.
+      // the client reset above is their rebuild.
       // Only nudge pre-wallet (onboarding): this screen is also reachable read-write
       // from a live, unlocked wallet (it's gated on `!locked`, not `!ready` - see
       // PageRouter), and disposing the SW's Miden client mid-session would tear down
