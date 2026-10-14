@@ -3,6 +3,8 @@ import { isMainnetAccountAdmitted, redeemMainnetAccessCode, type MainnetAccessTa
 const mockReady = jest.fn<Promise<void>, []>();
 const mockAllowed = jest.fn<Promise<boolean>, [string]>();
 const mockRegister = jest.fn<Promise<void>, [string, string]>();
+const mockSync = jest.fn<Promise<void>, []>();
+const mockLockOptions = jest.fn<void, [unknown]>();
 const mockFromHex = jest.fn((id: string) => id);
 const mockFromBech32 = jest.fn((id: string) => id);
 
@@ -16,10 +18,13 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
 }));
 
 jest.mock('lib/miden/sdk/miden-client', () => ({
-  withWasmClientLock: (run: () => Promise<string>) => run(),
+  withWasmClientLock: (run: () => Promise<string>, options: unknown) => {
+    mockLockOptions(options);
+    return run();
+  },
   getMidenClient: async () => ({
     client: {
-      sync: async () => {},
+      sync: () => mockSync(),
       accounts: {
         isAllowed: mockAllowed,
         register: ({ account, invitationCode }: { account: string; invitationCode: string }) =>
@@ -40,6 +45,7 @@ describe('mainnet account registration', () => {
     mockReady.mockResolvedValue();
     mockAllowed.mockResolvedValue(false);
     mockRegister.mockResolvedValue();
+    mockSync.mockResolvedValue();
   });
 
   it('sends the exact code and final account ID to the selected node', async () => {
@@ -97,6 +103,30 @@ describe('mainnet account registration', () => {
     await expect(redeemMainnetAccessCode('12345678', target)).resolves.toBe('granted');
     expect(mockRegister).toHaveBeenCalledTimes(1);
   });
+
+  it('holds the client lock under its own label', async () => {
+    await redeemMainnetAccessCode('12345678', target);
+    expect(mockLockOptions).toHaveBeenCalledWith({ label: 'mainnet-access-redeem' });
+  });
+
+  it.each([
+    ['register', 'mainnet-access-register', () => mockRegister.mockReturnValue(new Promise(() => {}))],
+    ['sync', 'mainnet-access-sync', () => mockSync.mockReturnValue(new Promise(() => {}))],
+    ['access check', 'mainnet-access-allowed', () => mockAllowed.mockReturnValue(new Promise(() => {}))]
+  ])(
+    'rejects with an RPC timeout when the %s never settles, so a same-account retry can follow',
+    async (_call, label, stall) => {
+      jest.useFakeTimers();
+      try {
+        stall();
+        const redeemed = redeemMainnetAccessCode('12345678', target).catch((error: unknown) => error);
+        await jest.advanceTimersByTimeAsync(15_000);
+        expect(await redeemed).toMatchObject({ name: 'RpcTimeoutError', message: expect.stringContaining(label) });
+      } finally {
+        jest.useRealTimers();
+      }
+    }
+  );
 
   it('does not treat a funding failure as a rejected code', async () => {
     const failure = rejected('UNAVAILABLE');

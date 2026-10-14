@@ -34,6 +34,9 @@ export async function checkMainnetAccessCode(code: string): Promise<MainnetAcces
   return valid ? 'granted' : 'rejected';
 }
 
+// One attempt per call: a retry would reach the client while the call that timed out still runs on it.
+const bounded = <T>(call: () => Promise<T>, label: string) => withRpcTimeout(call, label, { retries: 0 });
+
 const toAccountId = (accountId: string) =>
   accountId.startsWith('0x')
     ? AccountId.fromHex(accountId)
@@ -49,7 +52,7 @@ export async function isMainnetAccountAdmitted(accountId: string): Promise<boole
     async () => {
       const id = toAccountId(accountId);
       const { client } = await getMidenClient();
-      return withRpcTimeout(() => client.accounts.isAllowed(id), 'mainnet-access-allowed', { retries: 0 });
+      return bounded(() => client.accounts.isAllowed(id), 'mainnet-access-allowed');
     },
     { label: 'mainnet-access-admitted' }
   );
@@ -58,7 +61,8 @@ export async function isMainnetAccountAdmitted(accountId: string): Promise<boole
 /**
  * Register the final account with the mainnet node. Keep the same account ID for retries.
  * Check access first to keep an unused code when the account is already allowed.
- * Node and transport failures are thrown so the caller can show a retry action.
+ * Node and transport failures, and a node call that outlives the RPC timeout, are thrown so the
+ * caller can show a retry action; the retry finds the account allowed if the register landed.
  */
 export async function redeemMainnetAccessCode(
   code: string,
@@ -67,28 +71,35 @@ export async function redeemMainnetAccessCode(
   if (!code) return 'rejected';
   if (!target) throw new Error('Mainnet registration requires an account ID and RPC URL');
   await MidenClient.ready();
-  return withWasmClientLock(async () => {
-    const accountId = toAccountId(target.accountId);
-    if (getEffectiveRpcUrl() !== target.rpcUrl) throw new Error('Account registration RPC differs from wallet RPC');
-    const { client } = await getMidenClient();
-    if (await client.accounts.isAllowed(accountId)) return 'granted';
-    try {
-      // Sync the backend client to set the genesis metadata required by v17 registration.
-      await client.sync();
-      await client.accounts.register({ account: accountId, invitationCode: code });
-      return 'granted';
-    } catch (error) {
-      switch (extractSdkErrorCode(error)) {
-        case 'INVITATION_NOT_FOUND':
-        case 'INVALID_REGISTRATION_REQUEST':
-          return 'rejected';
-        case 'ALREADY_REGISTERED':
-          // A concurrent request can register the same account after the first check.
-          if (await client.accounts.isAllowed(accountId)) return 'granted';
-          return 'rejected';
-        default:
-          throw error;
+  return withWasmClientLock(
+    async () => {
+      const accountId = toAccountId(target.accountId);
+      if (getEffectiveRpcUrl() !== target.rpcUrl) throw new Error('Account registration RPC differs from wallet RPC');
+      const { client } = await getMidenClient();
+      const isAllowed = () => bounded(() => client.accounts.isAllowed(accountId), 'mainnet-access-allowed');
+      if (await isAllowed()) return 'granted';
+      try {
+        // Sync the backend client to set the genesis metadata required by v17 registration.
+        await bounded(() => client.sync(), 'mainnet-access-sync');
+        await bounded(
+          () => client.accounts.register({ account: accountId, invitationCode: code }),
+          'mainnet-access-register'
+        );
+        return 'granted';
+      } catch (error) {
+        switch (extractSdkErrorCode(error)) {
+          case 'INVITATION_NOT_FOUND':
+          case 'INVALID_REGISTRATION_REQUEST':
+            return 'rejected';
+          case 'ALREADY_REGISTERED':
+            // A concurrent request can register the same account after the first check.
+            if (await isAllowed()) return 'granted';
+            return 'rejected';
+          default:
+            throw error;
+        }
       }
-    }
-  });
+    },
+    { label: 'mainnet-access-redeem' }
+  );
 }
