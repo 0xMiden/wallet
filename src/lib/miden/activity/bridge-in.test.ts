@@ -42,7 +42,11 @@ jest.mock('lib/agglayer/constant', () => ({ AGGLAYER_BRIDGE_NOTE_SOURCE_SYMBOL: 
 // The delivery sender is the registry's native-ETH faucet (hex); the consume reads its sender in bech32. The bridge
 // registers that faucet with scale 10: a deposit of w wei arrives as floor(w / 10^10) (#1326).
 jest.mock('lib/remote-config/runtime', () => ({
-  getBridgeConfigSnapshot: jest.fn(() => ({})),
+  getBridgeConfigSnapshot: jest.fn(() =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+  ),
   initBridgeConfig: jest.fn(async () => ({}))
 }));
 jest.mock('lib/remote-config/values', () => ({

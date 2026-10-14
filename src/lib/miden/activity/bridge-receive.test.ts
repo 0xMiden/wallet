@@ -15,6 +15,15 @@ const fetchAttestations = jest.fn();
 const matchAttestation = jest.fn();
 
 // Only the type index is read: a pass that falls back to walking the table has no `filter` to call here.
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() =>
+      jest
+        .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+        .testBridgeSnapshot()
+    )
+);
 jest.mock('lib/miden/repo', () => ({
   transactions: {
     where: jest.fn((index: string) => ({
@@ -109,7 +118,7 @@ describe('reconcileBridgedReceives', () => {
 
     expect(waitForReceipt).toHaveBeenCalledWith(`0x${'1'.repeat(64)}`);
     expect(updatePhase).toHaveBeenCalledWith('agg-row', 'delivering');
-    expect(fetchDeposits).toHaveBeenCalledWith('evm:miden-account');
+    expect(fetchDeposits).toHaveBeenCalledWith('evm:miden-account', undefined, undefined);
   });
 
   it('walks the history once per pass and advances rows of both providers', async () => {
