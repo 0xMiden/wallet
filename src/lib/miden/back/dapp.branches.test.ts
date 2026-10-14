@@ -1102,6 +1102,8 @@ describe('requests for an account that is not the current one (#1419)', () => {
     expect(mockQueueNoteImport).not.toHaveBeenCalled();
     expect(_g.__dappBranchMockGetAccount).not.toHaveBeenCalled();
     expect(mockGetTokenMetadata).not.toHaveBeenCalled();
+    // The notes reads, which no mock above observes, run inside withUnlocked like every other read.
+    expect(mockWithUnlocked).not.toHaveBeenCalled();
   };
 
   it.each(Object.keys(requests))('refuses %s with NOT_GRANTED before any popup or read', async name => {
