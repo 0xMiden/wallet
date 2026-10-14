@@ -7860,9 +7860,9 @@ describe('generateTransaction — Guardian routing', () => {
 
       expect(createSwitchGuardianProposal).toHaveBeenCalledWith('https://new.guardian', expect.any(Object));
       expect(mockCreateDirectSwitchRequest).toHaveBeenCalled();
-      expect(phases[0].syncing).toBe(false);
+      expect(phases[0]?.syncing).toBe(false);
       // The hold may still be queued for the mutex or building its client, and must push nothing once it gets there.
-      expect(phases[0].abandoned).toBe(true);
+      expect(phases[0]?.abandoned).toBe(true);
     });
 
     // An eviction rejects the holder while its sync never settles, so the record still says syncing.
@@ -7874,7 +7874,7 @@ describe('generateTransaction — Guardian routing', () => {
       expect(row?.error).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
       expect(row?.rawError).not.toContain('chain sync before the proposal failed');
       expect(row?.rawError).toContain(poison.message);
-      expect(phases[0].abandoned).toBe(true);
+      expect(phases[0]?.abandoned).toBe(true);
       expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
       expect(row?.status).toBe(ITransactionStatus.Failed);
     });
