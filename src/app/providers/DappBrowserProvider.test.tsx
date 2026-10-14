@@ -642,7 +642,10 @@ describe('faucet top inset style', () => {
     });
   }
 
-  const faucetInjections = () => mockExecuteScript.mock.calls.filter(c => c[1] === FAUCET_SCRIPT);
+  // Matched by the style id, not the exact script: the script embeds the origin it was built for, so an exact
+  // match never counts one built for another origin and the negative cases could not see it.
+  const faucetInjections = () =>
+    mockExecuteScript.mock.calls.filter(c => typeof c[1] === 'string' && c[1].includes('miden-faucet-no-top-inset'));
 
   async function openAt(url: string) {
     const hook = renderHook(() => useDappBrowser(), { wrapper });
