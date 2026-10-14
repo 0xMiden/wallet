@@ -21,6 +21,7 @@
 
 - [CHANGE][ui] Visual consistency: an unread Activity row or pending transfer marks itself with a 12px dot on its card's top-right corner instead of the dot squeezed into the card's left margin; the passcode screens' instruction line is set in Nunito semibold; the Home Assets heading sits closer to its list and token row amounts use the heading face; the faucet in the dApp browser starts right under the header instead of a status bar's height below it; Send's amount card and the review card are outlined instead of filled; the review card is set in Nunito with semibold labels and address, its Edit is a pill, and its header has an X that abandons the send; the typed amount is one weight heavier; the USDCX row shows its flat line and a grey +0.00% again under its fixed $1 price; and Swap's review card is outlined and set in Nunito with semibold labels, starts 8px higher, and replaces the typed expiry and unit picker with four choices under "Cancel if not filled within" (2 min, 1 hour, 1 day, 7 days) and a note that an unfilled swap is cancelled and only the unfilled part of its tokens comes back.
 - [CHANGE][ci] Use free ARM64 runners for Swap and regular Ubuntu runners for Guardian bridge-out. Keep WarpBuild for linked Guardian bridge-out builds and manual runs.
+- [FIX][all] A dApp custom transaction whose request bytes are malformed is rejected before an approval screen opens, instead of asking the user to approve a transaction the wallet cannot execute (#1418).
 
 ## 1.17.3 (2026-10-12)
 

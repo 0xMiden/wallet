@@ -5,6 +5,7 @@ import {
   NoteType,
   SigningInputs,
   SigningInputsType,
+  TransactionRequest,
   type NoteQuery,
   type TransactionSummary
 } from '@miden-sdk/miden-sdk/lazy';
@@ -21,7 +22,7 @@ import { nanoid } from 'nanoid';
 import type { Runtime } from 'webextension-polyfill';
 
 import {
-  declaredRequestToView,
+  declaredTransactionRequestToView,
   netOutflowByFaucet,
   simulatedBytesToView,
   summaryToView,
@@ -2869,6 +2870,11 @@ async function formatSignPreview(req: MidenDAppSignRequest): Promise<string[]> {
  * downstream checks it.
  */
 async function formatCustomTransactionPreview(payload: MidenCustomTransaction): Promise<string[]> {
+  // Malformed bytes can never execute. Reject them before opening any approval
+  // surface instead of asking the user to approve a transaction that is known
+  // to fail. Failures after this point only mean that a valid request could not
+  // be summarized, for which the existing opaque-request warning still applies.
+  const request = TransactionRequest.deserialize(b64ToU8(payload.transactionRequest));
   const messages = [
     'This dApp is requesting a custom transaction,',
     'please ensure you know the details of the transaction before proceeding.',
@@ -2878,7 +2884,7 @@ async function formatCustomTransactionPreview(payload: MidenCustomTransaction): 
 
   let declared: TxAssetView | undefined;
   try {
-    declared = declaredRequestToView(payload.transactionRequest, payload.importNotes ?? []);
+    declared = declaredTransactionRequestToView(request, payload.importNotes ?? []);
   } catch (e) {
     console.error('[DApp] Could not decode the custom transaction request for the approval sheet:', e);
   }

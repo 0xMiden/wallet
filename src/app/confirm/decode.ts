@@ -233,6 +233,18 @@ export function executedBytesToView(executedB64: string): TxAssetView {
  */
 export function declaredRequestToView(requestB64: string, importNotes: string[] = []): TxAssetView {
   const request = TransactionRequest.deserialize(b64ToU8(requestB64));
+  return declaredTransactionRequestToView(request, importNotes);
+}
+
+/**
+ * Build the unverified asset view after the caller has established that the
+ * serialized request is a valid `TransactionRequest`.
+ *
+ * Keeping deserialization separate lets request entry points reject malformed
+ * bytes while still treating a failure to summarize a valid request as an
+ * opaque transaction that the user may review.
+ */
+export function declaredTransactionRequestToView(request: TransactionRequest, importNotes: string[] = []): TxAssetView {
   const outputNotes = request.expectedOutputOwnNotes();
 
   return {
