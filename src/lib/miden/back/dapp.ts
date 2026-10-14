@@ -1968,7 +1968,8 @@ const generatePromisifyTransaction = async (
           delegateFromConfirmation(result),
           recipientAddress || undefined,
           customLimit.totals,
-          authorizationForDappSend(customLimit.details, result.spendingLimitAuthenticated, customLimit.totals)
+          authorizationForDappSend(customLimit.details, result.spendingLimitAuthenticated, customLimit.totals),
+          origin
         );
       });
       // Same reason as the extension branch below: the dry run above quarantined
@@ -2019,7 +2020,12 @@ const generatePromisifyTransaction = async (
                 confirmReq.delegate,
                 recipientAddress || undefined,
                 customLimit.totals,
-                authorizationForDappSend(customLimit.details, confirmReq.spendingLimitAuthenticated, customLimit.totals)
+                authorizationForDappSend(
+                  customLimit.details,
+                  confirmReq.spendingLimitAuthenticated,
+                  customLimit.totals
+                ),
+                origin
               );
             });
             // The transaction is queued and will consume these notes —
@@ -2201,7 +2207,8 @@ const generatePromisifySendTransaction = async (
           BigInt(amount),
           recallBlocks,
           delegateFromConfirmation(result),
-          spendingLimitAuthorization
+          spendingLimitAuthorization,
+          origin
         );
       });
       startDappBackgroundProcessing();
@@ -2253,7 +2260,8 @@ const generatePromisifySendTransaction = async (
                 BigInt(amount),
                 recallBlocks,
                 confirmReq.delegate,
-                spendingLimitAuthorization
+                spendingLimitAuthorization,
+                origin
               );
             });
             startDappBackgroundProcessing();
@@ -2361,14 +2369,15 @@ const generatePromisifyConsumeTransaction = async (
         // `manualRetry`: the user just approved THIS consume on the sheet, so it
         // must not be dropped by auto-consume's exponential backoff — which
         // would queue nothing and answer the dApp with the previous attempt's
-        // Failed row id. The last `true` refuses a note another transaction holds
-        // rather than answer with that transaction (see the callee).
+        // Failed row id. `origin` refuses a note another transaction holds rather
+        // than answer with that transaction, and lets this origin wait on the
+        // answer (see the callee).
         return await initiateConsumeTransactionFromId(
           req.sourcePublicKey,
           noteId,
           delegateFromConfirmation(result),
           true,
-          true
+          origin
         );
       });
       startDappBackgroundProcessing();
@@ -2412,13 +2421,13 @@ const generatePromisifyConsumeTransaction = async (
               }
               // `manualRetry`: approved on the confirm page — see the
               // non-extension branch above for why the backoff must not apply,
-              // and why the last `true`.
+              // and why `origin`.
               return await initiateConsumeTransactionFromId(
                 req.sourcePublicKey,
                 noteId,
                 confirmReq.delegate,
                 true,
-                true
+                origin
               );
             });
             startDappBackgroundProcessing();

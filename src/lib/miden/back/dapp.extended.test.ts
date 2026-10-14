@@ -940,7 +940,8 @@ describe('requestSendTransaction', () => {
       BigInt(validTx.amount),
       validTx.recallBlocks,
       true,
-      undefined
+      undefined,
+      'https://miden.xyz'
     );
   });
 
@@ -1292,6 +1293,8 @@ describe("a non-extension write carries the resolver's delegate flag", () => {
     // auto-consume's exponential backoff must not swallow it and answer the dApp
     // with a previous attempt's Failed row id.
     expect(mockInitiateConsumeTransactionFromId.mock.calls[0]![3]).toBe(true);
+    // 5th is the requesting origin: it refuses a note another transaction holds and lets this origin wait on the row.
+    expect(mockInitiateConsumeTransactionFromId.mock.calls[0]![4]).toBe('https://miden.xyz');
   });
 
   it('executes a custom transaction without delegating the proof', async () => {
@@ -1312,6 +1315,8 @@ describe("a non-extension write carries the resolver's delegate flag", () => {
 
     // 5th positional arg of requestCustomTransaction is `delegateTransaction`.
     expect(mockRequestCustomTransaction.mock.calls[0]![4]).toBe(false);
+    // 9th is the requesting origin, the only one that may wait on the row.
+    expect(mockRequestCustomTransaction.mock.calls[0]![8]).toBe('https://miden.xyz');
   });
 
   it('falls back to the DEFAULT_DELEGATE_PROOF setting when a resolver supplies no flag', async () => {

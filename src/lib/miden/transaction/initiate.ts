@@ -56,7 +56,9 @@ export const requestCustomTransaction = async (
   recipientAccountId?: string,
   /** Per-faucet value leaving the account, from the approval-time dry run. */
   spentAssetTotals?: IConsumedAssetTotal[],
-  spendingLimitAuthorization?: SpendingLimitAuthorization
+  spendingLimitAuthorization?: SpendingLimitAuthorization,
+  /** The dApp origin asking; see `ITransaction.dappOrigins`. */
+  dappOrigin?: string
 ): Promise<string> => {
   const byteArray = new Uint8Array(Buffer.from(transactionRequestBytes, 'base64'));
   const transaction = new Transaction(
@@ -69,6 +71,7 @@ export const requestCustomTransaction = async (
   );
   // On the row from its insert, before the confirm releases the carried notes' quarantine and a sync lap can list them.
   transaction.heldNoteIds = [...new Set([...(inputNoteIds ?? []), ...importedNoteIds(importNotes)])];
+  if (dappOrigin !== undefined) transaction.dappOrigins = [dappOrigin];
   // A custom request that moves nothing is not a spend, so it keeps the plain insert. One that
   // does goes through the same chokepoint as every other outgoing transaction.
   if (spentAssetTotals !== undefined && spentAssetTotals.length > 0) {
@@ -96,10 +99,11 @@ export const initiateConsumeTransactionFromId = async (
   // `true`: auto-consume's backoff must not swallow a claim the user just
   // approved and answer it with the previous attempt's Failed row.
   manualRetry?: boolean,
-  // A dApp's own consume request. The dedup may answer with the dApp transaction holding the note, and that id would
-  // let this dApp read another transaction's outcome and output notes, private ones included (`waitForTransaction`),
-  // so only a claim may answer it. The wallet's own callers link the user to the holder instead.
-  dappRequest?: boolean
+  // A dApp's own consume request, by its origin. The dedup may answer with the dApp transaction holding the note, and
+  // that id would let this dApp read another transaction's outcome and output notes, private ones included
+  // (`waitForTransaction`), so only a claim may answer it, and the claim then lists the origin so the dApp may wait on
+  // it. The wallet's own callers pass none and link the user to the holder instead.
+  dappOrigin?: string
 ): Promise<string> => {
   // Routed through `midenClientProxy.getInputNoteSummary` (issue #260, slice 7a):
   // flag-ON it reads the OFFSCREEN client that owns the note (the SW client is
@@ -118,15 +122,34 @@ export const initiateConsumeTransactionFromId = async (
     type: summary.noteType !== undefined ? toNoteTypeString(summary.noteType) : 'unknown'
   };
 
-  const id = await initiateConsumeTransaction(accountId, note, delegateTransaction, manualRetry);
-  if (dappRequest) {
-    // A dApp transaction carries `heldNoteIds` whatever its type, since completion can re-type it as a consume.
+  const { committedId } = await queueConsumeRows(
+    accountId,
+    [note],
+    delegateTransaction,
+    manualRetry,
+    undefined,
+    undefined,
+    undefined,
+    dappOrigin
+  );
+  if (dappOrigin !== undefined) await grantDappOrigin(committedId, dappOrigin);
+  return committedId;
+};
+
+// One write, so a row the dedup answered with cannot become another transaction's holder between the check and the
+// grant. A fresh row already lists the origin from its insert.
+const grantDappOrigin = async (id: string, origin: string): Promise<void> => {
+  await Repo.db.transaction('rw', Repo.transactions, async () => {
     const row = await Repo.transactions.where({ id }).first();
+    // A dApp transaction carries `heldNoteIds` whatever its type, since completion can re-type it as a consume.
     if (row?.type !== 'consume' || row.heldNoteIds !== undefined) {
       throw new Error(NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR);
     }
-  }
-  return id;
+    if (row.dappOrigins?.includes(origin)) return;
+    await Repo.transactions.where({ id }).modify((dbTx: ITransaction) => {
+      dbTx.dappOrigins = [...(dbTx.dappOrigins ?? []), origin];
+    });
+  });
 };
 
 // NOTE: this used to take a `background` flag that routed Guardian auto-consume
@@ -309,7 +332,10 @@ const queueConsumeRows = async (
   // earlier failures its backoff counts. An ordinary row's failure (a hot-bound claim, a
   // dApp request) says nothing about whether a recovery-key claim can succeed, and must
   // not park the only way out of the gate.
-  rotationFunding?: boolean
+  rotationFunding?: boolean,
+  // The dApp origin whose consume request this is (`initiateConsumeTransactionFromId`): every row this creates lists it
+  // from its insert. See `ITransaction.dappOrigins`.
+  dappOrigin?: string
 ): Promise<ConsumeNotesQueueResult> => {
   if (notes.length === 0) {
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
@@ -472,6 +498,7 @@ const queueConsumeRows = async (
     const newRow = (rowNotes: ConsumableNote[]): ConsumeTransaction => {
       const row = new ConsumeTransaction(accountId, rowNotes, delegateTransaction);
       if (rotationFunding) row.rotationFunding = true;
+      if (dappOrigin !== undefined) row.dappOrigins = [dappOrigin];
       return row;
     };
     // One row EACH for the isolated notes, then one shared row for the remainder. A
@@ -592,7 +619,9 @@ export const initiateSendTransaction = async (
   amount: bigint,
   recallBlocks?: number,
   delegateTransaction?: boolean,
-  spendingLimitAuthorization?: SpendingLimitAuthorization
+  spendingLimitAuthorization?: SpendingLimitAuthorization,
+  /** The dApp origin asking; absent for the wallet's own sends. See `ITransaction.dappOrigins`. */
+  dappOrigin?: string
 ): Promise<string> => {
   // Every send funnels through here — the wallet's own review screen and the
   // dApp boundary both — so this is where the reclaim window has to be sound.
@@ -619,6 +648,7 @@ export const initiateSendTransaction = async (
     recallBlocks,
     delegateTransaction
   );
+  if (dappOrigin !== undefined) dbTransaction.dappOrigins = [dappOrigin];
   await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
 
   return dbTransaction.id;

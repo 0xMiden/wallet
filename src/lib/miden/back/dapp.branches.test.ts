@@ -539,7 +539,7 @@ describe('requestConsumeTransaction — mobile error branches', () => {
       carryRawNote(() => sdkNote('note-1'));
       mockImportNoteBytes.mockResolvedValueOnce(detailsCommitment);
       mockInitiateConsumeTransactionFromId.mockImplementationOnce(async (...args: unknown[]) => {
-        if (args[4] === true) throw new Error('This note is being consumed by another transaction');
+        if (typeof args[4] === 'string') throw new Error('This note is being consumed by another transaction');
         return 'other-dapp-transaction';
       });
 
@@ -586,7 +586,7 @@ describe('requestConsumeTransaction — mobile error branches', () => {
   it('refuses a note another transaction holds rather than answer with that transaction', async () => {
     // As the real call: a dApp's request is refused, the wallet's own claim is answered with the holding row.
     mockInitiateConsumeTransactionFromId.mockImplementationOnce(async (...args: unknown[]) => {
-      if (args[4] === true) throw new Error('This note is being consumed by another transaction');
+      if (typeof args[4] === 'string') throw new Error('This note is being consumed by another transaction');
       return 'other-dapp-transaction';
     });
     const request: MidenDAppConsumeRequest = {
