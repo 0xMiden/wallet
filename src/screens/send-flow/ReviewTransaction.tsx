@@ -257,6 +257,13 @@ export const ReviewTransaction: React.FC = () => {
     },
     [isSubmitting]
   );
+  const handleRecallTimeChange = useCallback(
+    (time: string) => {
+      if (isSubmitting) return;
+      setRecallTime(time);
+    },
+    [isSubmitting]
+  );
   const handleRecallNever = useCallback(() => {
     if (isSubmitting) return;
     recallTouchedRef.current = true;
@@ -831,7 +838,7 @@ export const ReviewTransaction: React.FC = () => {
           recallTime={recallTime}
           onRecallBlocksChange={handleRecallBlocksChange}
           onRecallDateChange={handleRecallDateChange}
-          onRecallTimeChange={setRecallTime}
+          onRecallTimeChange={handleRecallTimeChange}
           onRecallNever={handleRecallNever}
         />
       )}

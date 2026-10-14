@@ -394,6 +394,12 @@ jest.mock('./RecallCalendarDrawer', () => ({
       <button data-testid="recall-pick-blocks" onClick={() => props.onRecallBlocksChange('42')}>
         recall-blocks
       </button>
+      <button data-testid="recall-pick-time" onClick={() => props.onRecallTimeChange('changed-time')}>
+        recall-time
+      </button>
+      <button data-testid="recall-pick-date" onClick={() => props.onRecallDateChange(new Date(0))}>
+        recall-date
+      </button>
     </div>
   )
 }));
@@ -1757,6 +1763,8 @@ describe('ReviewTransaction — transfer type', () => {
     fireEvent.click(screen.getByTestId('transfer-type-pick-public'));
     await flush();
 
+    const recallTimeBefore = screen.getByTestId('recall-drawer').getAttribute('data-recall-time');
+
     await act(async () => {
       fireEvent.click(screen.getByTestId('send-review-submit'));
     });
@@ -1772,6 +1780,8 @@ describe('ReviewTransaction — transfer type', () => {
     fireEvent.click(screen.getByTestId('transfer-type-pick-private'));
     fireEvent.click(screen.getByTestId('recall-pick-never'));
     fireEvent.click(screen.getByTestId('recall-pick-blocks'));
+    fireEvent.click(screen.getByTestId('recall-pick-time'));
+    fireEvent.click(screen.getByTestId('recall-pick-date'));
     await flush();
 
     await act(async () => {
@@ -1781,6 +1791,7 @@ describe('ReviewTransaction — transfer type', () => {
 
     // What went out and what the page shows still agree: public, with the 7-day window.
     expect(initiateMock).toHaveBeenLastCalledWith('pubkey-1', '0xrecipient', 'tok1', 'public', 12345n, 999, false);
+    expect(screen.getByTestId('recall-drawer').getAttribute('data-recall-time')).toBe(recallTimeBefore);
     await openAdvancedOptions();
     expect(screen.getByTestId('review-advanced-options')).toHaveAttribute('data-open', 'false');
     expect(screen.getByTestId('review-public-notice')).toBeInTheDocument();
