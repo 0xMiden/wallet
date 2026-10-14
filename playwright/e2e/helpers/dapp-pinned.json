@@ -24,11 +24,6 @@
         "stage": "creating-proposal",
         "error": "assertion failed with error code: 9127845879078954504"
       }
-    },
-    "G2": {
-      "guardian": {
-        "error": "Some storage item not found"
-      }
     }
   }
 }

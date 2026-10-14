@@ -97,6 +97,7 @@ import {
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
+import { commitmentToHex } from 'lib/secure-hot-key/commitment';
 import { DEFAULT_DELEGATE_PROOF } from 'lib/settings/constants';
 import { b64ToU8, bytesToHex, u8ToB64 } from 'lib/shared/helpers';
 import { GuardianInfo, WalletStatus } from 'lib/shared/types';
@@ -192,33 +193,6 @@ async function getAccountPublicKeyB64(accountId: string, hold: WasmLockHold): Pr
     throw new Error('Account has no public key commitments');
   }
   return u8ToB64(publicKeyCommitments[0]!.serialize());
-}
-
-/**
- * The 32 bytes a signer-commitment string denotes, whatever form it arrived in,
- * as lowercase hex — or undefined if it denotes none.
- *
- * Both forms are in circulation for the same commitment, and a comparison that
- * knew only one would be worse than none: it would refuse legitimate signing
- * while looking like a working check. `connect` hands the page b64 of
- * `Word.serialize()`; the vault stores its key blobs under `Word.toHex()` with
- * the `0x` dropped, which is the form `signData` looks up by. Those two encode
- * the identical 32 bytes (verified against @miden-sdk/miden-sdk: `toHex()` sans
- * prefix is byte-for-byte `serialize()`), so normalizing to bytes is what makes
- * them comparable rather than merely similar.
- */
-function commitmentToHex(value: string): string | undefined {
-  const unprefixed = value.startsWith('0x') || value.startsWith('0X') ? value.slice(2) : value;
-  if (/^[0-9a-fA-F]{64}$/.test(unprefixed)) {
-    return unprefixed.toLowerCase();
-  }
-  try {
-    const bytes = b64ToU8(value);
-    if (bytes.length !== 32) return undefined;
-    return Buffer.from(bytes).toString('hex');
-  } catch {
-    return undefined;
-  }
 }
 
 /**
