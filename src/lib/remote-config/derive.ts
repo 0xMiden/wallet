@@ -41,24 +41,24 @@ export interface DerivedBridgeConfig {
   network: string;
   version: number; // the document version it was derived from
   derivedAt: number;
-  chains?: Record<number, DerivedChainConfig>;
+  /** Every listed chain's reads, by chain id; a route the chain does not list reads as skipped. */
+  chains: Record<number, DerivedChainConfig>;
+  // The providers every chain shares.
+  agglayer: { indexer: Probe<true> };
+  epoch: {
+    allocator: Probe<true>;
+    market: Probe<EarnMarket>;
+    midenUsdcFaucet: Probe<TokenMetadata>; // existence and metadata in one read
+  };
+}
+
+export interface DerivedChainConfig {
   agglayer: {
     rollupId: Probe<number>;
     tokens: Probe<BridgeToken[]>;
     evmNetworkId: Probe<number>;
     l1BridgeCode: Probe<true>;
-    indexer: Probe<true>;
   };
-  epoch: {
-    allocator: Probe<true>;
-    market?: Probe<EarnMarket>;
-    midenUsdcFaucet: Probe<TokenMetadata>; // existence and metadata in one read
-    evmUsdc: Probe<TokenMetadata>;
-  };
-}
-
-export interface DerivedChainConfig {
-  agglayer: DerivedBridgeConfig['agglayer'];
   epoch: { evmUsdc: Probe<TokenMetadata> };
 }
 
@@ -406,34 +406,18 @@ export async function deriveBridgeConfig(
           rollupId: registry.state === 'ok' ? { state: 'ok', value: registry.value.rollupId } : registry,
           tokens,
           evmNetworkId: l1Bridge.networkId,
-          l1BridgeCode: l1Bridge.code,
-          indexer
+          l1BridgeCode: l1Bridge.code
         },
         epoch: { evmUsdc }
       };
     })
   );
-  const epochChain = Object.values(config.supportedEvmChains).find(chain => chain.bridges.epoch);
-  const aggChain = Object.values(config.supportedEvmChains).find(chain => chain.bridges.agglayer);
-  const skipped: Probe<never> = { state: 'skipped' };
-  const agglayer = aggChain ? chains[aggChain.chainId]?.agglayer : undefined;
   return {
     network: config.network,
     version: config.version,
     derivedAt: io.now(),
     chains,
-    agglayer: agglayer ?? {
-      rollupId: skipped,
-      tokens: skipped,
-      evmNetworkId: skipped,
-      l1BridgeCode: skipped,
-      indexer
-    },
-    epoch: {
-      allocator,
-      market,
-      midenUsdcFaucet,
-      evmUsdc: epochChain ? (chains[epochChain.chainId]?.epoch.evmUsdc ?? skipped) : skipped
-    }
+    agglayer: { indexer },
+    epoch: { allocator, market, midenUsdcFaucet }
   };
 }

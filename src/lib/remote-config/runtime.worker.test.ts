@@ -66,8 +66,9 @@ const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfi
     network: source.network,
     version: source.version,
     derivedAt,
-    agglayer: { rollupId: skipped, tokens: skipped, evmNetworkId: skipped, l1BridgeCode: skipped, indexer: skipped },
-    epoch: { allocator: skipped, midenUsdcFaucet: skipped, evmUsdc: skipped }
+    chains: {},
+    agglayer: { indexer: skipped },
+    epoch: { allocator: skipped, market: skipped, midenUsdcFaucet: skipped }
   };
 };
 const storeEntry = (version: number, fetchedAt = Date.now()): StoredBridgeConfig => {

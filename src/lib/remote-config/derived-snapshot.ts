@@ -71,73 +71,72 @@ function market(value: Parameters<typeof metadata>[0]): EarnMarket | null {
   };
 }
 
-/** The stored snapshot for `network`, or null unless it is whole and was derived from document `version`. */
-export function parseStoredDerived(value: unknown, network: string, version: number): DerivedBridgeConfig | null {
-  if (!isRecord(value) || value.network !== network || value.version !== version) return null;
-  const { derivedAt, agglayer, epoch } = value;
-  if (typeof derivedAt !== 'number' || !Number.isFinite(derivedAt) || !isRecord(agglayer) || !isRecord(epoch)) {
-    return null;
-  }
+function chainReads(value: unknown): DerivedChainConfig | null {
+  if (!isRecord(value) || !isRecord(value.agglayer) || !isRecord(value.epoch)) return null;
+  const { agglayer, epoch } = value;
   const rollupId = probe(agglayer.rollupId, count);
   const tokens = probe(agglayer.tokens, bridgeTokens);
   const evmNetworkId = probe(agglayer.evmNetworkId, count);
   const l1BridgeCode = probe(agglayer.l1BridgeCode, yes);
-  const indexer = probe(agglayer.indexer, yes);
-  const allocator = probe(epoch.allocator, yes);
-  const midenUsdcFaucet = probe(epoch.midenUsdcFaucet, metadata);
   const evmUsdc = probe(epoch.evmUsdc, metadata);
+  if (!rollupId || !tokens || !evmNetworkId || !l1BridgeCode || !evmUsdc) return null;
+  return { agglayer: { rollupId, tokens, evmNetworkId, l1BridgeCode }, epoch: { evmUsdc } };
+}
+
+/**
+ * The stored snapshot for `network`, or null unless it is whole and was derived from document `version`. One an
+ * earlier build stored, with no chains or market, is not whole, so the document is derived again.
+ */
+export function parseStoredDerived(value: unknown, network: string, version: number): DerivedBridgeConfig | null {
+  if (!isRecord(value) || value.network !== network || value.version !== version) return null;
+  const { derivedAt, chains, agglayer, epoch } = value;
   if (
-    !rollupId ||
-    !tokens ||
-    !evmNetworkId ||
-    !l1BridgeCode ||
-    !indexer ||
-    !allocator ||
-    !midenUsdcFaucet ||
-    !evmUsdc
+    typeof derivedAt !== 'number' ||
+    !Number.isFinite(derivedAt) ||
+    !isRecord(chains) ||
+    !isRecord(agglayer) ||
+    !isRecord(epoch)
   ) {
     return null;
   }
-  const chains: Record<number, DerivedChainConfig> = {};
-  if (value.chains !== undefined) {
-    if (!isRecord(value.chains)) return null;
-    for (const [chainId, entry] of Object.entries(value.chains)) {
-      if (!isRecord(entry)) return null;
-      const parsed = parseStoredDerived(
-        {
-          network,
-          version,
-          derivedAt,
-          agglayer: entry.agglayer,
-          epoch: { allocator, midenUsdcFaucet, evmUsdc: isRecord(entry.epoch) ? entry.epoch.evmUsdc : null }
-        },
-        network,
-        version
-      );
-      if (!parsed || !Number.isSafeInteger(Number(chainId))) return null;
-      chains[Number(chainId)] = { agglayer: parsed.agglayer, epoch: { evmUsdc: parsed.epoch.evmUsdc } };
-    }
+  const indexer = probe(agglayer.indexer, yes);
+  const allocator = probe(epoch.allocator, yes);
+  const earnMarket = probe(epoch.market, market);
+  const midenUsdcFaucet = probe(epoch.midenUsdcFaucet, metadata);
+  if (!indexer || !allocator || !earnMarket || !midenUsdcFaucet) return null;
+  const reads: Record<number, DerivedChainConfig> = {};
+  for (const [key, entry] of Object.entries(chains)) {
+    const chainId = Number(key);
+    const parsed = chainReads(entry);
+    if (!parsed || !Number.isSafeInteger(chainId) || chainId <= 0) return null;
+    reads[chainId] = parsed;
   }
-  const earnMarket = epoch.market === undefined ? undefined : probe(epoch.market, market);
-  if (earnMarket === null) return null;
   return {
     network,
     version,
     derivedAt,
-    ...(value.chains === undefined ? {} : { chains }),
-    agglayer: { rollupId, tokens, evmNetworkId, l1BridgeCode, indexer },
-    epoch: { allocator, midenUsdcFaucet, evmUsdc, ...(earnMarket === undefined ? {} : { market: earnMarket }) }
+    chains: reads,
+    agglayer: { indexer },
+    epoch: { allocator, market: earnMarket, midenUsdcFaucet }
   };
 }
 
 /** Every probe failed with `message`: what a derivation that threw reads as, so the features it gates show as down. */
 export function failedDerivation(config: BridgeConfig, message: string, derivedAt: number): DerivedBridgeConfig {
   const error: Probe<never> = { state: 'error', message };
+  const chains: Record<number, DerivedChainConfig> = {};
+  for (const { chainId } of Object.values(config.supportedEvmChains)) {
+    chains[chainId] = {
+      agglayer: { rollupId: error, tokens: error, evmNetworkId: error, l1BridgeCode: error },
+      epoch: { evmUsdc: error }
+    };
+  }
   return {
     network: config.network,
     version: config.version,
     derivedAt,
-    agglayer: { rollupId: error, tokens: error, evmNetworkId: error, l1BridgeCode: error, indexer: error },
-    epoch: { allocator: error, midenUsdcFaucet: error, evmUsdc: error }
+    chains,
+    agglayer: { indexer: error },
+    epoch: { allocator: error, market: error, midenUsdcFaucet: error }
   };
 }

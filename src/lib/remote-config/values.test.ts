@@ -1,4 +1,4 @@
-import type { DerivedBridgeConfig } from './derive';
+import type { DerivedBridgeConfig, DerivedChainConfig } from './derive';
 import { _resetE2eOverridesForTest, setEarnCollateralFaucetOverride } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
 import type { BridgeConfig } from './schema';
@@ -64,10 +64,7 @@ const CONFIG: BridgeConfig = {
   features: { earn: true }
 };
 const ETH_FAUCET = '0x0b372f2735e33e91216d995bf29b91';
-const DERIVED: DerivedBridgeConfig = {
-  network: 'testnet',
-  version: 1,
-  derivedAt: 1_800_000_000_000,
+const SEPOLIA_READS: DerivedChainConfig = {
   agglayer: {
     rollupId: { state: 'ok', value: 86 },
     tokens: {
@@ -88,9 +85,16 @@ const DERIVED: DerivedBridgeConfig = {
       ]
     },
     evmNetworkId: { state: 'ok', value: 0 },
-    l1BridgeCode: { state: 'ok', value: true },
-    indexer: { state: 'ok', value: true }
+    l1BridgeCode: { state: 'ok', value: true }
   },
+  epoch: { evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 18 } } }
+};
+const DERIVED: DerivedBridgeConfig = {
+  network: 'testnet',
+  version: 1,
+  derivedAt: 1_800_000_000_000,
+  chains: { 11155111: SEPOLIA_READS },
+  agglayer: { indexer: { state: 'ok', value: true } },
   epoch: {
     market: {
       state: 'ok',
@@ -102,8 +106,7 @@ const DERIVED: DerivedBridgeConfig = {
       }
     },
     allocator: { state: 'ok', value: true },
-    midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
-    evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 18 } }
+    midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } }
   }
 };
 const RECOVERY = {
@@ -118,25 +121,22 @@ const RECOVERY = {
 };
 const ERROR = { state: 'error' as const, message: 'down' };
 
-const snapshot = (config: BridgeConfig | null = CONFIG, derived: DerivedBridgeConfig | null = DERIVED) =>
-  ({
-    network: 'testnet',
-    status: 'ready',
-    config,
-    derived: derived
-      ? { ...derived, chains: { 11155111: { agglayer: derived.agglayer, epoch: { evmUsdc: derived.epoch.evmUsdc } } } }
-      : null,
-    lastFetch: null
-  }) satisfies BridgeConfigSnapshot;
+const snapshot = (
+  config: BridgeConfig | null = CONFIG,
+  derived: DerivedBridgeConfig | null = DERIVED
+): BridgeConfigSnapshot => ({ network: 'testnet', status: 'ready', config, derived, lastFetch: null });
+// Chain probes patch the Sepolia reads; the rest patch the providers'.
 const withDerived = (patch: {
-  agglayer?: Partial<DerivedBridgeConfig['agglayer']>;
-  epoch?: Partial<DerivedBridgeConfig['epoch']>;
-}) =>
-  snapshot(CONFIG, {
+  agglayer?: Partial<DerivedChainConfig['agglayer']>;
+  epoch?: Partial<DerivedBridgeConfig['epoch'] & DerivedChainConfig['epoch']>;
+}) => {
+  const { evmUsdc = SEPOLIA_READS.epoch.evmUsdc, ...providers } = patch.epoch ?? {};
+  return snapshot(CONFIG, {
     ...DERIVED,
-    agglayer: { ...DERIVED.agglayer, ...patch.agglayer },
-    epoch: { ...DERIVED.epoch, ...patch.epoch }
+    chains: { 11155111: { agglayer: { ...SEPOLIA_READS.agglayer, ...patch.agglayer }, epoch: { evmUsdc } } },
+    epoch: { ...DERIVED.epoch, ...providers }
   });
+};
 const EMPTY = snapshot(null, null);
 
 const savedE2e = process.env.MIDEN_E2E_TEST;
@@ -203,7 +203,7 @@ describe('selectors', () => {
   });
 
   it('finds no native-ETH faucet in a registry that lists none', () => {
-    const tokens = DERIVED.agglayer.tokens.state === 'ok' ? DERIVED.agglayer.tokens.value : [];
+    const tokens = SEPOLIA_READS.agglayer.tokens.state === 'ok' ? SEPOLIA_READS.agglayer.tokens.value : [];
     const withoutEth = tokens.filter(token => token.midenFaucetId !== ETH_FAUCET);
     const onOtherNetwork = tokens.map(token => ({ ...token, originNetwork: 7 }));
     expect(selectNativeEthFaucet(withDerived({ agglayer: { tokens: { state: 'ok', value: withoutEth } } }))).toBeNull();
@@ -323,5 +323,48 @@ describe('getters', () => {
     jest.mocked(getBridgeConfigSnapshot).mockReturnValue(withDerived({ agglayer: { evmNetworkId: ERROR } }));
     expect(() => getAgglayerEvmNetworkId()).toThrow('The bridge config has no usable Agglayer L1 network id.');
     expect(getAgglayerRollupId()).toBe(86);
+  });
+
+  it('read each AggLayer chain from its own reads, and the first listed one when no chain is given', () => {
+    const sepolia = CONFIG.supportedEvmChains.sepolia;
+    if (!sepolia) throw new Error('The test chain is missing');
+    const ETH_ON_BASE = '0x0c372f2735e33e91216d995bf29b91';
+    const base: DerivedChainConfig = {
+      agglayer: {
+        rollupId: { state: 'ok', value: 87 },
+        tokens: {
+          state: 'ok',
+          value: [
+            {
+              midenFaucetId: ETH_ON_BASE,
+              originToken: '0x0000000000000000000000000000000000000000',
+              originNetwork: 0,
+              scale: 9
+            }
+          ]
+        },
+        evmNetworkId: { state: 'ok', value: 6 },
+        l1BridgeCode: { state: 'ok', value: true }
+      },
+      epoch: { evmUsdc: { state: 'skipped' } }
+    };
+    const twoChains = snapshot(
+      {
+        ...CONFIG,
+        supportedEvmChains: {
+          sepolia,
+          'base-sepolia': { chainId: 84532, bridges: { agglayer: sepolia.bridges.agglayer } }
+        }
+      },
+      { ...DERIVED, chains: { 11155111: SEPOLIA_READS, 84532: base } }
+    );
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(twoChains);
+    expect(getAgglayerRollupId(84532)).toBe(87);
+    expect(getAgglayerEvmNetworkId(84532)).toBe(6);
+    expect(selectNativeEthFaucet(twoChains, 84532)).toBe(ETH_ON_BASE);
+    expect(selectNativeEthToken(twoChains, 84532)?.scale).toBe(9);
+    expect(getAgglayerRollupId()).toBe(86);
+    expect(getAgglayerEvmNetworkId()).toBe(0);
+    expect(selectNativeEthFaucet(twoChains)).toBe(ETH_FAUCET);
   });
 });

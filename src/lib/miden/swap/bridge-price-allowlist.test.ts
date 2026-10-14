@@ -1,4 +1,4 @@
-import type { DerivedBridgeConfig } from 'lib/remote-config/derive';
+import type { DerivedBridgeConfig, DerivedChainConfig } from 'lib/remote-config/derive';
 import { _resetE2eOverridesForTest, setEarnCollateralFaucetOverride } from 'lib/remote-config/e2e-overrides';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { BridgeConfig } from 'lib/remote-config/schema';
@@ -33,20 +33,32 @@ const config = (midenUsdcFaucet?: string): BridgeConfig => ({
               outputs: midenUsdcFaucet ? ['usdc-testnet-output'] : []
             }
           }
+        },
+        agglayer: {
+          depositEnabled: true,
+          withdrawalEnabled: true,
+          contractAddress: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f',
+          midenBridgeId: '0x3b66e20b5088f25133b69216484652'
         }
       }
     }
   },
   features: { earn: true }
 });
-const derived = (tokens: DerivedBridgeConfig['agglayer']['tokens']): DerivedBridgeConfig => {
+const derived = (tokens: DerivedChainConfig['agglayer']['tokens']): DerivedBridgeConfig => {
   const skipped = { state: 'skipped' } as const;
   return {
     network: 'testnet',
     version: 1,
     derivedAt: 1,
-    agglayer: { rollupId: skipped, tokens, evmNetworkId: skipped, l1BridgeCode: skipped, indexer: skipped },
-    epoch: { allocator: skipped, midenUsdcFaucet: { state: 'error', message: 'down' }, evmUsdc: skipped }
+    chains: {
+      11155111: {
+        agglayer: { rollupId: skipped, tokens, evmNetworkId: skipped, l1BridgeCode: skipped },
+        epoch: { evmUsdc: skipped }
+      }
+    },
+    agglayer: { indexer: skipped },
+    epoch: { allocator: skipped, market: skipped, midenUsdcFaucet: { state: 'error', message: 'down' } }
   };
 };
 const registry = derived({

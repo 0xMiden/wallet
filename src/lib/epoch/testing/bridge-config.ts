@@ -1,4 +1,5 @@
 import { TEST_SWAP_SECTION } from 'lib/miden/swap/testing/registry';
+import type { DerivedChainConfig } from 'lib/remote-config/derive';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { BridgeConfig } from 'lib/remote-config/schema';
@@ -85,6 +86,10 @@ export const TEST_BRIDGE_CONFIG: BridgeConfig = {
 };
 
 const SKIPPED: { state: 'skipped' } = { state: 'skipped' };
+const UNREAD_CHAIN: DerivedChainConfig = {
+  agglayer: { rollupId: SKIPPED, tokens: SKIPPED, evmNetworkId: SKIPPED, l1BridgeCode: SKIPPED },
+  epoch: { evmUsdc: SKIPPED }
+};
 
 /** That document as this realm holds it once loaded, with both USDC tokens read. */
 export const TEST_BRIDGE_CONFIG_SNAPSHOT: BridgeConfigSnapshot = {
@@ -95,24 +100,18 @@ export const TEST_BRIDGE_CONFIG_SNAPSHOT: BridgeConfigSnapshot = {
     network: 'testnet',
     version: 1,
     derivedAt: 0,
-    agglayer: { rollupId: SKIPPED, tokens: SKIPPED, evmNetworkId: SKIPPED, l1BridgeCode: SKIPPED, indexer: SKIPPED },
     chains: {
+      ...Object.fromEntries(Object.values(TEST_BRIDGE_CONFIG.supportedEvmChains).map(c => [c.chainId, UNREAD_CHAIN])),
       [TEST_EVM_CHAIN_ID]: {
-        agglayer: {
-          rollupId: SKIPPED,
-          tokens: SKIPPED,
-          evmNetworkId: SKIPPED,
-          l1BridgeCode: SKIPPED,
-          indexer: SKIPPED
-        },
+        ...UNREAD_CHAIN,
         epoch: { evmUsdc: { state: 'ok', value: { symbol: TEST_EVM_USDC.symbol, decimals: TEST_EVM_USDC.decimals } } }
       }
     },
+    agglayer: { indexer: SKIPPED },
     epoch: {
       market: { state: 'ok', value: TEST_EARN_MARKET },
       allocator: { state: 'ok', value: true },
-      midenUsdcFaucet: { state: 'ok', value: { symbol: TEST_MIDEN_USDC.symbol, decimals: TEST_MIDEN_USDC.decimals } },
-      evmUsdc: { state: 'ok', value: { symbol: TEST_EVM_USDC.symbol, decimals: TEST_EVM_USDC.decimals } }
+      midenUsdcFaucet: { state: 'ok', value: { symbol: TEST_MIDEN_USDC.symbol, decimals: TEST_MIDEN_USDC.decimals } }
     }
   },
   lastFetch: null

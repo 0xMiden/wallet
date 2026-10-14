@@ -1,7 +1,7 @@
 import { FOREGROUND_STALE_MS, MAX_BACKOFF_MS } from 'lib/versioned-document';
 
 import type { FeatureAvailability, UnavailableReason } from './availability';
-import type { BridgeToken, DerivedBridgeConfig } from './derive';
+import type { BridgeToken, DerivedBridgeConfig, DerivedChainConfig } from './derive';
 import { failedDerivation } from './derived-snapshot';
 import {
   _resetBridgeConfigRuntimeForTest,
@@ -88,24 +88,40 @@ const config = (version: number, network = 'testnet'): BridgeConfig => ({
   network,
   version,
   'bridge-providers': { epoch: { allocatorUrl: 'https://allocator.example' }, agglayer: {}, usdcx: {} },
-  supportedEvmChains: {},
+  supportedEvmChains: {
+    sepolia: {
+      chainId: 11155111,
+      bridges: {
+        agglayer: {
+          depositEnabled: true,
+          withdrawalEnabled: true,
+          contractAddress: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f',
+          midenBridgeId: '0x3b66e20b5088f25133b69216484652'
+        }
+      }
+    }
+  },
   features: { earn: true }
 });
-const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfig => ({
-  network: source.network,
-  version: source.version,
-  derivedAt,
+const SEPOLIA_SKIPPED: DerivedChainConfig = {
   agglayer: {
     rollupId: { state: 'skipped' },
     tokens: { state: 'skipped' },
     evmNetworkId: { state: 'skipped' },
-    l1BridgeCode: { state: 'skipped' },
-    indexer: { state: 'skipped' }
+    l1BridgeCode: { state: 'skipped' }
   },
+  epoch: { evmUsdc: { state: 'skipped' } }
+};
+const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfig => ({
+  network: source.network,
+  version: source.version,
+  derivedAt,
+  chains: { 11155111: SEPOLIA_SKIPPED },
+  agglayer: { indexer: { state: 'skipped' } },
   epoch: {
     allocator: { state: 'ok', value: true },
-    midenUsdcFaucet: { state: 'skipped' },
-    evmUsdc: { state: 'skipped' }
+    market: { state: 'skipped' },
+    midenUsdcFaucet: { state: 'skipped' }
   }
 });
 // What the source stores on a fetch, or another realm leaves behind.
@@ -684,20 +700,32 @@ describe('a re-derivation that cannot read a value', () => {
   const down = { state: 'error', message: 'timeout' } as const;
   const read = (source: BridgeConfig): DerivedBridgeConfig => {
     const base = derivedFor(source, Date.now());
-    return {
-      ...base,
-      agglayer: { ...base.agglayer, tokens: { state: 'ok', value: [ETH] }, l1BridgeCode: { state: 'ok', value: true } },
-      epoch: { ...base.epoch, evmUsdc: { state: 'ok', value: USDC } }
+    const agglayer: DerivedChainConfig['agglayer'] = {
+      ...SEPOLIA_SKIPPED.agglayer,
+      tokens: { state: 'ok', value: [ETH] },
+      l1BridgeCode: { state: 'ok', value: true }
     };
+    return { ...base, chains: { 11155111: { agglayer, epoch: { evmUsdc: { state: 'ok', value: USDC } } } } };
   };
   const unread = (source: BridgeConfig): DerivedBridgeConfig => {
     const base = derivedFor(source, Date.now());
+    const agglayer: DerivedChainConfig['agglayer'] = {
+      ...SEPOLIA_SKIPPED.agglayer,
+      tokens: down,
+      l1BridgeCode: { state: 'absent' }
+    };
     return {
       ...base,
-      agglayer: { ...base.agglayer, tokens: down, l1BridgeCode: { state: 'absent' } },
-      epoch: { ...base.epoch, allocator: down, evmUsdc: down }
+      chains: { 11155111: { agglayer, epoch: { evmUsdc: down } } },
+      epoch: { ...base.epoch, allocator: down }
     };
   };
+  // The Sepolia reads with the shared allocator probe, as one flat object.
+  const sepoliaReads = (derived: DerivedBridgeConfig | null) => ({
+    ...derived?.chains[11155111]?.agglayer,
+    ...derived?.chains[11155111]?.epoch,
+    allocator: derived?.epoch.allocator
+  });
 
   it('keeps value probes a failed re-derivation could not read', async () => {
     serve(1);
@@ -715,14 +743,14 @@ describe('a re-derivation that cannot read a value', () => {
       l1BridgeCode: { state: 'absent' }
     };
     const { derived } = getBridgeConfigSnapshot();
-    expect({ ...derived?.agglayer, ...derived?.epoch }).toMatchObject(kept);
+    expect(sepoliaReads(derived)).toMatchObject(kept);
     const stored = mockStorage.get(DERIVED);
     expect(stored).toEqual(derived);
     serve(2);
     mockDerive.mockImplementationOnce(async source => unread(source));
     await _refreshBridgeConfigForTest();
     expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBeNull();
-    expect(getBridgeConfigSnapshot().derived?.epoch.evmUsdc).toEqual(down);
+    expect(getBridgeConfigSnapshot().derived?.chains[11155111]?.epoch.evmUsdc).toEqual(down);
   });
 
   it('keeps them through a fresher same-version commit from another realm, and not across a version', async () => {
@@ -736,7 +764,7 @@ describe('a re-derivation that cannot read a value', () => {
     expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBe(ETH_FAUCET);
     const { derived } = getBridgeConfigSnapshot();
     expect(derived?.derivedAt).toBe(NOW + 5);
-    expect({ ...derived?.agglayer, ...derived?.epoch }).toMatchObject({
+    expect(sepoliaReads(derived)).toMatchObject({
       tokens: { state: 'ok', value: [ETH] },
       evmUsdc: { state: 'ok', value: USDC },
       allocator: down,
@@ -760,7 +788,7 @@ describe('a re-derivation that cannot read a value', () => {
     await flush();
     expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBe(ETH_FAUCET);
     const { derived } = getBridgeConfigSnapshot();
-    expect(derived?.agglayer.tokens).toEqual({ state: 'ok', value: [ETH] });
+    expect(derived?.chains[11155111]?.agglayer.tokens).toEqual({ state: 'ok', value: [ETH] });
     expect(derived?.epoch.allocator).toEqual(down);
     expect(mockStorage.get(DERIVED)).toEqual(derived);
   });

@@ -7,8 +7,9 @@ import { getChain } from 'lib/walletconnect/config';
 import {
   type BridgeToken,
   type DerivedBridgeConfig,
+  type DerivedChainConfig,
   type DeriveDeps,
-  deriveBridgeConfig as deriveAllBridgeConfig,
+  deriveBridgeConfig,
   type EvmReads,
   NotDeployedError
 } from './derive';
@@ -30,17 +31,6 @@ jest.mock('viem', () => ({
   createPublicClient: jest.fn(() => mockPublicClient),
   http: jest.fn()
 }));
-
-async function deriveBridgeConfig(...args: Parameters<typeof deriveAllBridgeConfig>) {
-  const result = await deriveAllBridgeConfig(...args);
-  const first = Object.values(args[0].supportedEvmChains)[0];
-  if (first) {
-    expect(result.chains?.[first.chainId]?.agglayer).toEqual(result.agglayer);
-    expect(result.chains?.[first.chainId]?.epoch.evmUsdc).toEqual(result.epoch.evmUsdc);
-  }
-  const { chains, ...aggregate } = result;
-  return aggregate;
-}
 
 const NOW = 1_800_000_000_000;
 const RPC = 'https://rpc.testnet.miden.io';
@@ -152,17 +142,22 @@ function deps(overrides: Partial<DeriveDeps> = {}): Partial<DeriveDeps> {
   };
 }
 
-const HEALTHY: DerivedBridgeConfig = {
-  network: 'testnet',
-  version: 1,
-  derivedAt: NOW,
+const SEPOLIA = 11155111;
+const HEALTHY_SEPOLIA: DerivedChainConfig = {
   agglayer: {
     rollupId: { state: 'ok', value: 86 },
     tokens: { state: 'ok', value: [ETH] },
     evmNetworkId: { state: 'ok', value: 0 },
-    l1BridgeCode: { state: 'ok', value: true },
-    indexer: { state: 'ok', value: true }
+    l1BridgeCode: { state: 'ok', value: true }
   },
+  epoch: { evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 18 } } }
+};
+const HEALTHY: DerivedBridgeConfig = {
+  network: 'testnet',
+  version: 1,
+  derivedAt: NOW,
+  chains: { [SEPOLIA]: HEALTHY_SEPOLIA },
+  agglayer: { indexer: { state: 'ok', value: true } },
   epoch: {
     market: {
       state: 'ok',
@@ -174,8 +169,7 @@ const HEALTHY: DerivedBridgeConfig = {
       }
     },
     allocator: { state: 'ok', value: true },
-    midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
-    evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 18 } }
+    midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } }
   }
 };
 
@@ -216,16 +210,17 @@ describe('deriveBridgeConfig', () => {
     };
     await expect(deriveBridgeConfig(bare, io)).resolves.toEqual({
       ...HEALTHY,
-      agglayer: { rollupId: SKIPPED, tokens: SKIPPED, evmNetworkId: SKIPPED, l1BridgeCode: SKIPPED, indexer: SKIPPED },
-      epoch: { market: SKIPPED, allocator: SKIPPED, midenUsdcFaucet: SKIPPED, evmUsdc: SKIPPED }
+      chains: {},
+      agglayer: { indexer: SKIPPED },
+      epoch: { market: SKIPPED, allocator: SKIPPED, midenUsdcFaucet: SKIPPED }
     });
     expect(io.readBridgeRegistry).not.toHaveBeenCalled();
     expect(io.fetch).not.toHaveBeenCalled();
   });
 
   it('skips the EVM probes for a chain the wallet has no RPC for', async () => {
-    const derived = await deriveBridgeConfig(TESTNET, deps({ evm: () => null }));
-    expect([derived.agglayer.l1BridgeCode, derived.agglayer.evmNetworkId, derived.epoch.evmUsdc]).toEqual([
+    const reads = (await deriveBridgeConfig(TESTNET, deps({ evm: () => null }))).chains[SEPOLIA];
+    expect([reads?.agglayer.l1BridgeCode, reads?.agglayer.evmNetworkId, reads?.epoch.evmUsdc]).toEqual([
       SKIPPED,
       SKIPPED,
       SKIPPED
@@ -242,13 +237,14 @@ describe('deriveBridgeConfig', () => {
         readMidenFaucet: jest.fn(async () => Promise.reject(new NotDeployedError('no faucet')))
       })
     );
-    expect(derived.agglayer).toMatchObject({
+    expect(derived.chains[SEPOLIA]?.agglayer).toMatchObject({
       rollupId: { state: 'absent' },
       tokens: { state: 'absent' },
       l1BridgeCode: { state: 'absent' },
       evmNetworkId: { state: 'absent' }
     });
-    expect(derived.epoch).toMatchObject({ midenUsdcFaucet: { state: 'absent' }, evmUsdc: { state: 'absent' } });
+    expect(derived.chains[SEPOLIA]?.epoch.evmUsdc).toEqual({ state: 'absent' });
+    expect(derived.epoch).toMatchObject({ midenUsdcFaucet: { state: 'absent' } });
     expect(reads.networkId).not.toHaveBeenCalled();
     expect(reads.erc20).not.toHaveBeenCalled();
   });
@@ -258,8 +254,8 @@ describe('deriveBridgeConfig', () => {
       TESTNET,
       deps({ readBridgeRegistry: jest.fn(async () => ({ rollupId: 86, tokens: [] })) })
     );
-    expect(derived.agglayer.rollupId).toEqual({ state: 'ok', value: 86 });
-    expect(derived.agglayer.tokens).toEqual({ state: 'absent' });
+    expect(derived.chains[SEPOLIA]?.agglayer.rollupId).toEqual({ state: 'ok', value: 86 });
+    expect(derived.chains[SEPOLIA]?.agglayer.tokens).toEqual({ state: 'absent' });
   });
 
   it('keeps every other probe when some fail', async () => {
@@ -274,11 +270,16 @@ describe('deriveBridgeConfig', () => {
     );
     expect(derived).toEqual({
       ...HEALTHY,
-      agglayer: {
-        ...HEALTHY.agglayer,
-        rollupId: { state: 'error', message: 'RPC "agglayer bridge registry" timed out' },
-        tokens: { state: 'error', message: 'RPC "agglayer bridge registry" timed out' },
-        evmNetworkId: { state: 'error', message: 'execution reverted' }
+      chains: {
+        [SEPOLIA]: {
+          ...HEALTHY_SEPOLIA,
+          agglayer: {
+            ...HEALTHY_SEPOLIA.agglayer,
+            rollupId: { state: 'error', message: 'RPC "agglayer bridge registry" timed out' },
+            tokens: { state: 'error', message: 'RPC "agglayer bridge registry" timed out' },
+            evmNetworkId: { state: 'error', message: 'execution reverted' }
+          }
+        }
       },
       epoch: {
         ...HEALTHY.epoch,
@@ -377,9 +378,11 @@ describe('deriveBridgeConfig default I/O', () => {
     const derived = await deriveBridgeConfig(evmOnly);
     expect(http).toHaveBeenCalledWith(getChain(11155111)?.rpcUrl, { timeout: 10_000, retryCount: 1 });
     expect(createPublicClient).toHaveBeenCalledTimes(1);
-    expect(derived.agglayer.l1BridgeCode).toEqual({ state: 'ok', value: true });
-    expect(derived.agglayer.evmNetworkId).toEqual({ state: 'ok', value: 0 });
-    expect(derived.epoch.evmUsdc).toEqual({ state: 'ok', value: { symbol: 'USDC', decimals: 18 } });
+    expect(derived.chains[SEPOLIA]?.agglayer).toMatchObject({
+      l1BridgeCode: { state: 'ok', value: true },
+      evmNetworkId: { state: 'ok', value: 0 }
+    });
+    expect(derived.chains[SEPOLIA]?.epoch.evmUsdc).toEqual({ state: 'ok', value: { symbol: 'USDC', decimals: 18 } });
   });
 
   it('reads empty code as no contract', async () => {
@@ -389,7 +392,8 @@ describe('deriveBridgeConfig default I/O', () => {
     };
     mockPublicClient.getCode.mockResolvedValueOnce(undefined).mockResolvedValueOnce('0x');
     const derived = await deriveBridgeConfig(evmOnly);
-    expect([derived.agglayer.l1BridgeCode, derived.epoch.evmUsdc]).toEqual([{ state: 'absent' }, { state: 'absent' }]);
+    const reads = derived.chains[SEPOLIA];
+    expect([reads?.agglayer.l1BridgeCode, reads?.epoch.evmUsdc]).toEqual([{ state: 'absent' }, { state: 'absent' }]);
     expect(mockPublicClient.readContract).not.toHaveBeenCalled();
   });
 
@@ -399,7 +403,7 @@ describe('deriveBridgeConfig default I/O', () => {
       supportedEvmChains: { future: { chainId: 999999999, bridges: TESTNET.supportedEvmChains.sepolia!.bridges } },
       'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} }
     });
-    expect(derived.agglayer.l1BridgeCode).toEqual(SKIPPED);
+    expect(derived.chains[999999999]?.agglayer.l1BridgeCode).toEqual(SKIPPED);
     expect(createPublicClient).not.toHaveBeenCalled();
   });
 

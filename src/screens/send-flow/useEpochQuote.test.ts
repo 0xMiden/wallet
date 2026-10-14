@@ -47,8 +47,14 @@ const configFor = ({
     network: 'testnet',
     version: 1,
     derivedAt: 0,
-    agglayer: { rollupId: SKIPPED, tokens: SKIPPED, evmNetworkId: SKIPPED, l1BridgeCode: SKIPPED, indexer: SKIPPED },
-    epoch: { allocator: { state: 'ok', value: true }, midenUsdcFaucet: SKIPPED, evmUsdc: evmUsdcRead }
+    chains: {
+      [chainId]: {
+        agglayer: { rollupId: SKIPPED, tokens: SKIPPED, evmNetworkId: SKIPPED, l1BridgeCode: SKIPPED },
+        epoch: { evmUsdc: evmUsdcRead }
+      }
+    },
+    agglayer: { indexer: SKIPPED },
+    epoch: { allocator: { state: 'ok', value: true }, market: SKIPPED, midenUsdcFaucet: SKIPPED }
   },
   lastFetch: null
 });
@@ -90,7 +96,7 @@ beforeEach(() => {
   jest.mocked(selectEvmUsdc).mockImplementation(({ config, derived }) => {
     const address = config?.supportedEvmChains.sepolia?.bridges.epoch?.tokens.USDC?.contractAddress;
     const chainId = config?.supportedEvmChains.sepolia?.chainId;
-    const read = derived?.epoch.evmUsdc;
+    const read = chainId === undefined ? undefined : derived?.chains[chainId]?.epoch.evmUsdc;
     return address && chainId !== undefined && read?.state === 'ok' ? { address, chainId, ...read.value } : null;
   });
   jest.mocked(quoteEpochSendOutput).mockReset();

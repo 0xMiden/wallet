@@ -235,18 +235,16 @@ const kept = <T>(next: Probe<T>, previous: Probe<T>): Probe<T> =>
   next.state === 'error' && previous.state === 'ok' ? previous : next;
 
 // A read that failed says nothing new about a value of the same document, so a transient failure keeps the value
-// last read (the native-ETH faucet that prices and matches bridged ETH, say). A confirmed absence still clears it,
-// and liveness (allocator, indexer) always reports the latest read.
+// last read on that chain (the native-ETH faucet that prices and matches bridged ETH, say). A confirmed absence still
+// clears it, and liveness (allocator, indexer) always reports the latest read.
 function keepValuesRead(next: DerivedBridgeConfig, previous: DerivedBridgeConfig | null): DerivedBridgeConfig {
   if (!previous || previous.network !== next.network || previous.version !== next.version) return next;
-  const { agglayer, epoch } = next;
   const chains: Record<number, DerivedChainConfig> = {};
-  for (const [id, chain] of Object.entries(next.chains ?? {})) {
-    const before = previous.chains?.[Number(id)];
+  for (const [id, chain] of Object.entries(next.chains)) {
+    const before = previous.chains[Number(id)];
     chains[Number(id)] = before
       ? {
           agglayer: {
-            ...chain.agglayer,
             rollupId: kept(chain.agglayer.rollupId, before.agglayer.rollupId),
             tokens: kept(chain.agglayer.tokens, before.agglayer.tokens),
             evmNetworkId: kept(chain.agglayer.evmNetworkId, before.agglayer.evmNetworkId),
@@ -258,19 +256,11 @@ function keepValuesRead(next: DerivedBridgeConfig, previous: DerivedBridgeConfig
   }
   return {
     ...next,
-    ...(next.chains === undefined ? {} : { chains }),
-    agglayer: {
-      ...agglayer,
-      rollupId: kept(agglayer.rollupId, previous.agglayer.rollupId),
-      tokens: kept(agglayer.tokens, previous.agglayer.tokens),
-      evmNetworkId: kept(agglayer.evmNetworkId, previous.agglayer.evmNetworkId),
-      l1BridgeCode: kept(agglayer.l1BridgeCode, previous.agglayer.l1BridgeCode)
-    },
+    chains,
     epoch: {
-      ...epoch,
-      ...(epoch.market && previous.epoch.market ? { market: kept(epoch.market, previous.epoch.market) } : {}),
-      midenUsdcFaucet: kept(epoch.midenUsdcFaucet, previous.epoch.midenUsdcFaucet),
-      evmUsdc: kept(epoch.evmUsdc, previous.epoch.evmUsdc)
+      ...next.epoch,
+      market: kept(next.epoch.market, previous.epoch.market),
+      midenUsdcFaucet: kept(next.epoch.midenUsdcFaucet, previous.epoch.midenUsdcFaucet)
     }
   };
 }
