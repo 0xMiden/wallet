@@ -191,7 +191,7 @@ export const DappLauncher: FC<DappLauncherProps> = ({ onOpen }) => {
       {/* `pt-2` and nothing more: the first section title sits right under the category row. */}
       <motion.main
         layoutScroll
-        className="grow overflow-y-auto pt-2 pb-24"
+        className="grow overflow-y-auto pt-2 pb-[calc(6rem+var(--wallet-control-safe-bottom,0px))]"
         style={{ overscrollBehavior: 'contain' }}
         data-testid="explore-launcher"
       >

@@ -5,9 +5,9 @@ import {
   ERC20_APPROVE_ABI,
   USDCX_DEPOSIT_HOOK_DATA,
   USDCX_DEPOSIT_MAX_FEE,
-  USDCX_REMOTE_DOMAIN,
   XRESERVE_ABI
-} from '../../../../src/lib/usdcx/constant';
+} from '../../../../src/lib/usdcx/protocol';
+import { USDCX_REMOTE_DOMAIN } from '../../helpers/usdcx-config';
 import { expect, test } from '../fixtures/two-simulators';
 import { AnvilInstance } from '../helpers/anvil';
 import { WcCounterparty, type WcRequestLog } from '../helpers/wc-counterparty';

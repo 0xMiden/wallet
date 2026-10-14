@@ -1,27 +1,32 @@
 import React, { useEffect } from 'react';
 
-import { type AppKitNetwork, arbitrumSepolia, baseSepolia, defineChain, sepolia } from '@reown/appkit/networks';
+import { type AppKitNetwork, defineChain } from '@reown/appkit/networks';
 import { createAppKit } from '@reown/appkit/react';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WagmiProvider } from 'wagmi';
 
+import { initBridgeConfig, subscribeBridgeConfig } from 'lib/remote-config/runtime';
 import { getThemeSetting } from 'lib/settings/helpers';
 import { resolveTheme } from 'lib/settings/theme';
 
-import { APP_METADATA, ARC_TESTNET, WC_PROJECT_ID } from './config';
+import { getWalletConnectChains, prepareWalletConnectChains } from './chains';
+import { APP_METADATA, EVM_CHAIN_DEFINITIONS, getChain, WC_PROJECT_ID } from './config';
 
 export type AppKitInstance = ReturnType<typeof createAppKit>;
 type AppKitThemeMode = 'light' | 'dark';
 
-const arcTestnet = defineChain({
-  ...ARC_TESTNET,
-  chainNamespace: 'eip155',
-  caipNetworkId: `eip155:${ARC_TESTNET.id}`
-});
-// Every chain of `SUPPORTED_CHAINS`: wagmi's `switchChain` reaches only a network listed here. Sepolia stays first
-// and the default, as in `SUPPORTED_CHAINS`: the Fast and Slow routes and the Agglayer claim settle there.
-const networks: [AppKitNetwork, ...AppKitNetwork[]] = [sepolia, arcTestnet, baseSepolia, arbitrumSepolia];
+// Wagmi keeps the registry for saved transfers. AppKit offers only the document's chains.
+const [firstChain, ...otherChains] = EVM_CHAIN_DEFINITIONS;
+function appKitNetwork(chain: (typeof EVM_CHAIN_DEFINITIONS)[number]): AppKitNetwork {
+  return defineChain({
+    ...chain,
+    rpcUrls: { default: { http: [getChain(chain.id)?.rpcUrl ?? chain.rpcUrls.default.http[0] ?? ''] } },
+    chainNamespace: 'eip155',
+    caipNetworkId: `eip155:${chain.id}`
+  });
+}
+const networks: [AppKitNetwork, ...AppKitNetwork[]] = [appKitNetwork(firstChain), ...otherChains.map(appKitNetwork)];
 const appKitThemeVariables = {
   '--apkt-font-family': 'Inter, sans-serif',
   '--apkt-accent': '#E77537',
@@ -57,7 +62,7 @@ const queryClient = new QueryClient();
 export const modal = createAppKit({
   adapters: [wagmiAdapter],
   networks,
-  defaultNetwork: sepolia,
+  defaultNetwork: networks[0],
   projectId: WC_PROJECT_ID,
   metadata: APP_METADATA,
   themeMode: getInitialAppKitThemeMode(),
@@ -69,6 +74,47 @@ export const modal = createAppKit({
   ],
   features: { analytics: false }
 });
+
+let recoveryChainId: number | undefined;
+
+/** Update the next connection proposal without ending an existing session. */
+export async function syncAppKitNetworks(): Promise<void> {
+  await modal.ready();
+  const ids = getWalletConnectChains().map(chain => chain.id);
+  if (recoveryChainId !== undefined && !ids.includes(recoveryChainId)) ids.push(recoveryChainId);
+  const previous = modal.getCaipNetworks('eip155');
+  if (previous.map(network => network.id).join(',') === ids.join(',')) return;
+  const activeId = modal.getCaipNetwork('eip155')?.id;
+  for (const network of previous) modal.removeNetwork('eip155', network.id);
+  for (const id of ids) {
+    const network = networks.find(chain => chain.id === id);
+    if (network) modal.addNetwork('eip155', network);
+  }
+  const offered = modal.getCaipNetworks('eip155');
+  const active = offered.find(network => network.id === activeId) ?? offered[0];
+  if (active) modal.setCaipNetwork(active);
+}
+
+export async function prepareAppKitConnection(savedChainId?: number): Promise<void> {
+  await prepareWalletConnectChains(savedChainId);
+  recoveryChainId = savedChainId;
+  await syncAppKitNetworks();
+}
+
+function AppKitNetworkSync() {
+  useEffect(() => {
+    const sync = () => {
+      syncAppKitNetworks().catch(error => console.warn('[walletconnect] Network update failed', error));
+    };
+    const unsubscribe = subscribeBridgeConfig(sync);
+    initBridgeConfig()
+      .then(sync)
+      .catch(error => console.warn('[walletconnect] Config load failed', error));
+    sync();
+    return unsubscribe;
+  }, []);
+  return null;
+}
 
 function AppKitThemeSync() {
   useEffect(() => {
@@ -94,6 +140,7 @@ export function AppKitProvider({ children }: { children: React.ReactNode }) {
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         <AppKitThemeSync />
+        <AppKitNetworkSync />
         {children}
       </QueryClientProvider>
     </WagmiProvider>

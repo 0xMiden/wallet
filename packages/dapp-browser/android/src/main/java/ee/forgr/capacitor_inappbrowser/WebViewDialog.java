@@ -143,6 +143,10 @@ public class WebViewDialog extends Dialog {
         if (managedClose != null) managedClose.foreground(foreground);
         if (!managedClosing() && presentation != null) presentation.foreground(foreground);
     }
+    void presentationMinimizeRequested(long revision, long sequence) {
+        if (permanentlyClosed || managedClosing()) return;
+        _options.getCallbacks().presentationMinimizeRequested(revision, sequence, managedClose == null ? null : managedClose.token);
+    }
     void presentationChanged(boolean fullscreen, boolean resolved, long revision) {
         _options.getCallbacks().presentationChanged(fullscreen, resolved, revision,
             managedClose == null ? null : managedClose.token);

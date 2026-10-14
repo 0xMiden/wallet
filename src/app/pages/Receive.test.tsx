@@ -169,10 +169,15 @@ jest.mock('lib/platform', () => ({
   isExtension: () => mockIsExtension()
 }));
 
+let mockUsdcxDepositAvailable = false;
 let mockCrossChain: FeatureAvailability = { state: 'available' };
 const mockAnyFeatureAvailability = jest.fn(
   (features: readonly string[], _options?: { hold?: boolean }): FeatureAvailability =>
-    features.join() === 'fastBridgeIn,bridgeIn' ? mockCrossChain : { state: 'loading' }
+    features.join() === 'fastBridgeIn,bridgeIn,usdcxDeposit'
+      ? mockUsdcxDepositAvailable
+        ? { state: 'available' }
+        : mockCrossChain
+      : { state: 'loading' }
 );
 jest.mock('lib/remote-config/use-feature-availability', () => ({
   useAnyFeatureAvailability: (features: readonly string[], options?: { hold?: boolean }) =>
@@ -223,6 +228,7 @@ describe('Receive - Address', () => {
   beforeEach(() => {
     mockReduceMotion = false;
     mockCrossChain = { state: 'available' };
+    mockUsdcxDepositAvailable = false;
     mockNetworkKey = 'testnet';
     mockQRCodeProps.mockClear();
     mockQrBlob = null;
@@ -356,14 +362,17 @@ describe('Receive - Address', () => {
     expect(hapticLight).toHaveBeenCalledTimes(1);
   });
 
-  // The USDCx route reads no bridge config, so on testnet it keeps the tile open and holds no fast poll.
+  // A configured USDCx route keeps the tile open when the other routes are unavailable.
   it('keeps Cross Chain enabled on testnet while the Fast and Slow routes cannot start', async () => {
+    mockUsdcxDepositAvailable = true;
     mockCrossChain = { state: 'unavailable', reason: 'service-down', detail: 'indexer /healthz: timeout' };
     const container = await renderReceive();
 
     expect(container.querySelector('[data-testid="receive-cross-chain"]')).toBeEnabled();
     expect(container.querySelector('[data-testid="feature-unavailable-notice"]')).toBeNull();
-    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn'], { hold: false });
+    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn', 'usdcxDeposit'], {
+      hold: true
+    });
   });
 
   // Off testnet there is no USDCx route, so the Fast and Slow routes alone decide.
@@ -397,7 +406,9 @@ describe('Receive - Address', () => {
 
     expect(container.querySelector('[data-testid="receive-cross-chain"]')).not.toBeNull();
     // The hold applies on every platform.
-    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn'], { hold: true });
+    expect(mockAnyFeatureAvailability).toHaveBeenLastCalledWith(['fastBridgeIn', 'bridgeIn', 'usdcxDeposit'], {
+      hold: true
+    });
   });
 
   it("opens the pane on the code through the frame's visual top, not a page-local pull-up", async () => {

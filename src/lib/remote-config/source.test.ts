@@ -16,22 +16,22 @@ const SERVED_BASE = 'http://127.0.0.1:8550/config';
 const doc = (version: number, overrides: Record<string, unknown> = {}) => ({
   network: 'testnet',
   version,
-  epoch: { allocatorUrl: 'https://allocator.example' },
+  'bridge-providers': { epoch: { allocatorUrl: 'https://allocator.example' }, agglayer: {}, usdcx: {} },
   features: { earn: true },
   ...overrides
 });
 const parsed = (version: number) => ({
   network: 'testnet',
   version,
-  evm: {},
-  agglayer: {},
-  epoch: { allocatorUrl: 'https://allocator.example' },
-  features: { earn: true, fastBridge: false, bridgeIn: false, bridgeOut: false },
+  supportedEvmChains: {},
+  'bridge-providers': { epoch: { allocatorUrl: 'https://allocator.example' }, agglayer: {}, usdcx: {} },
+  features: { earn: true },
   mainnetCountdown: { enabled: false },
   swap: {}
 });
 // A document an E2E harness serves, pointing at its local fakes.
-const localDoc = (version: number) => doc(version, { epoch: { allocatorUrl: 'http://127.0.0.1:8548' } });
+const localDoc = (version: number) =>
+  doc(version, { 'bridge-providers': { epoch: { allocatorUrl: 'http://127.0.0.1:8548' } } });
 
 const memoryStorage = (initial: Record<string, unknown> = {}) => {
   const data: Record<string, unknown> = { ...initial };
@@ -126,7 +126,9 @@ describe('fetchAndStoreBridgeConfig', () => {
     fetchMock.mockResolvedValue(response(doc(3)));
     await fetchAndStoreBridgeConfig('testnet');
     storage.set.mockClear();
-    fetchMock.mockResolvedValue(response(doc(3, { epoch: { allocatorUrl: 'https://other.example' } })));
+    fetchMock.mockResolvedValue(
+      response(doc(3, { 'bridge-providers': { epoch: { allocatorUrl: 'https://other.example' } } }))
+    );
     await expect(fetchAndStoreBridgeConfig('testnet')).rejects.toThrow('differs from the accepted');
     expect(storage.set).not.toHaveBeenCalled();
     expect(storage.data[KEY]).toEqual({ fetchedAt: NOW, body: doc(3) });
@@ -182,7 +184,7 @@ describe('fetchAndStoreBridgeConfig', () => {
     setup();
     fetchMock.mockResolvedValue(response(localDoc(1)));
     await expect(fetchAndStoreBridgeConfig('testnet')).resolves.toMatchObject({
-      config: { epoch: { allocatorUrl: 'http://127.0.0.1:8548' } }
+      config: { 'bridge-providers': { epoch: { allocatorUrl: 'http://127.0.0.1:8548' } } }
     });
     expect(fetchMock).toHaveBeenCalledWith(`${SERVED_BASE}/testnet.json`, expect.anything());
   });
@@ -276,7 +278,7 @@ describe('readStoredBridgeConfig', () => {
     await expect(readStoredBridgeConfig('testnet')).resolves.toBeNull();
     setEnv('true', SERVED_BASE);
     await expect(readStoredBridgeConfig('testnet')).resolves.toMatchObject({
-      config: { epoch: { allocatorUrl: 'http://127.0.0.1:8548' } }
+      config: { 'bridge-providers': { epoch: { allocatorUrl: 'http://127.0.0.1:8548' } } }
     });
   });
 });

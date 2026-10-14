@@ -4,6 +4,13 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { UsdcxExecuteAction } from './UsdcxExecuteAction';
 
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
+
 const execute = jest.fn();
 
 jest.mock('react-i18next', () => ({

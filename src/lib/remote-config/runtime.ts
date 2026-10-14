@@ -2,14 +2,13 @@ import {
   fetchFromStorage,
   onStorageChanged,
   putToStorage,
-  registerStorageReread,
   type StorageChangeSubscription
 } from 'lib/miden/front/storage';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { backoffDelay, foregroundThreshold, isCheckDue } from 'lib/versioned-document';
 
 import { BRIDGE_FEATURES, type BridgeFeature, featureAvailability, type UnavailableReason } from './availability';
-import { deriveBridgeConfig, type DerivedBridgeConfig, type Probe } from './derive';
+import { deriveBridgeConfig, type DerivedBridgeConfig, type DerivedChainConfig, type Probe } from './derive';
 import { bridgeConfigDerivedKey, failedDerivation, parseStoredDerived } from './derived-snapshot';
 import { getE2eOverrides } from './e2e-overrides';
 import type { BridgeConfig } from './schema';
@@ -63,14 +62,14 @@ interface NetworkState {
   snapshot: BridgeConfigSnapshot;
 }
 
-// One entry per network, so a switch never hands one network's document to another. A wipe replaces the entries; a
-// read or refresh still out lands on the forgotten entry, where nothing reads it.
+// One entry per network, so a switch never hands one network's document to another. Every wipe but Developer Settings'
+// reset keeps each network's stored document and its derivation, so a wipe leaves the entries as they are; that reset
+// takes them and its caller reloads, which drops the entries.
 const states = new Map<string, NetworkState>();
 const listeners = new Set<() => void>();
 let holds = 0;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let schedulerInstalled = false;
-let rereadRegistered = false;
 
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -156,20 +155,8 @@ function forgetAll(): void {
   listeners.forEach(listener => listener());
 }
 
-function registerReread(): void {
-  if (rereadRegistered) return;
-  rereadRegistered = true;
-  // A wipe in this realm removed the stored copies, so the in-memory ones go too. A page reads again at once, which
-  // refetches; the service worker waits for its next use. Not awaited: a wipe must not wait on the network.
-  registerStorageReread(async () => {
-    forgetAll();
-    if (schedulerInstalled) void initBridgeConfig();
-  });
-}
-
 function hydrate(state: NetworkState): Promise<void> {
   if (state.hydration) return state.hydration;
-  registerReread();
   const reread = () => void rehydrate(state);
   state.subscriptions = [
     onStorageChanged(bridgeConfigCacheKey(state.network), reread),
@@ -235,24 +222,32 @@ const kept = <T>(next: Probe<T>, previous: Probe<T>): Probe<T> =>
   next.state === 'error' && previous.state === 'ok' ? previous : next;
 
 // A read that failed says nothing new about a value of the same document, so a transient failure keeps the value
-// last read (the native-ETH faucet that prices and matches bridged ETH, say). A confirmed absence still clears it,
-// and liveness (allocator, indexer) always reports the latest read.
+// last read on that chain (the native-ETH faucet that prices and matches bridged ETH, say). A confirmed absence still
+// clears it, and liveness (allocator, indexer) always reports the latest read.
 function keepValuesRead(next: DerivedBridgeConfig, previous: DerivedBridgeConfig | null): DerivedBridgeConfig {
   if (!previous || previous.network !== next.network || previous.version !== next.version) return next;
-  const { agglayer, epoch } = next;
+  const chains: Record<number, DerivedChainConfig> = {};
+  for (const [id, chain] of Object.entries(next.chains)) {
+    const before = previous.chains[Number(id)];
+    chains[Number(id)] = before
+      ? {
+          agglayer: {
+            rollupId: kept(chain.agglayer.rollupId, before.agglayer.rollupId),
+            tokens: kept(chain.agglayer.tokens, before.agglayer.tokens),
+            evmNetworkId: kept(chain.agglayer.evmNetworkId, before.agglayer.evmNetworkId),
+            l1BridgeCode: kept(chain.agglayer.l1BridgeCode, before.agglayer.l1BridgeCode)
+          },
+          epoch: { evmUsdc: kept(chain.epoch.evmUsdc, before.epoch.evmUsdc) }
+        }
+      : chain;
+  }
   return {
     ...next,
-    agglayer: {
-      ...agglayer,
-      rollupId: kept(agglayer.rollupId, previous.agglayer.rollupId),
-      tokens: kept(agglayer.tokens, previous.agglayer.tokens),
-      evmNetworkId: kept(agglayer.evmNetworkId, previous.agglayer.evmNetworkId),
-      l1BridgeCode: kept(agglayer.l1BridgeCode, previous.agglayer.l1BridgeCode)
-    },
+    chains,
     epoch: {
-      ...epoch,
-      midenUsdcFaucet: kept(epoch.midenUsdcFaucet, previous.epoch.midenUsdcFaucet),
-      evmUsdc: kept(epoch.evmUsdc, previous.epoch.evmUsdc)
+      ...next.epoch,
+      market: kept(next.epoch.market, previous.epoch.market),
+      midenUsdcFaucet: kept(next.epoch.midenUsdcFaucet, previous.epoch.midenUsdcFaucet)
     },
     // The swap registry too: a solver that is down for one check must not empty the token pickers.
     ...(next.swap && previous.swap ? { swap: { pairs: kept(next.swap.pairs, previous.swap.pairs) } } : {})
@@ -394,7 +389,7 @@ async function hydrateCurrent(): Promise<NetworkState> {
   for (;;) {
     const state = stateFor(getEffectiveNetworkName());
     await hydrate(state);
-    // The network can change, and a wipe can forget the entry, while the read is out.
+    // The network can change, and a test reset can forget the entry, while the read is out.
     if (state.network === getEffectiveNetworkName() && states.get(state.network) === state) return state;
   }
 }
@@ -410,6 +405,17 @@ export async function initBridgeConfig(): Promise<BridgeConfigSnapshot> {
   if (isDue(state, state.failures > 0 ? backoffDelay(state.failures) : HEALTHY_POLL_MS)) void startRefresh(state);
   ensureScheduler();
   return state.snapshot;
+}
+
+/** Wait for the first document when no document is stored. */
+export async function ensureBridgeConfig(): Promise<BridgeConfigSnapshot> {
+  for (;;) {
+    const state = await hydrateCurrent();
+    if (!state.stored) await startRefresh(state);
+    if (getEffectiveNetworkName() !== state.network) continue;
+    ensureScheduler();
+    return state.snapshot;
+  }
 }
 
 /** Test-only: fetches and re-derives now, awaited. */

@@ -1,56 +1,140 @@
-import { parseBridgeConfig, SUPPORTED_EARN_PROTOCOLS, SUPPORTED_EVM_CHAIN_IDS } from './schema';
+import { parseBridgeConfig, SUPPORTED_EVM_CHAIN_IDS } from './schema';
+import testnet from './testing/testnet.json';
 
-// The spec's testnet document, as the config repo publishes it.
-const doc = (overrides: Record<string, unknown> = {}) => ({
+type ConfigValue = Parameters<typeof parseBridgeConfig>[0];
+const doc = (overrides: Record<string, ConfigValue> = {}) => ({
   network: 'testnet',
   version: 1,
-  evm: { chainId: 11155111 },
-  agglayer: {
-    l1Bridge: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f',
-    midenBridge: '0x3b66e20b5088f25133b69216484652',
-    indexerUrl: 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api'
+  'bridge-providers': {
+    epoch: {
+      allocatorUrl: 'https://testnet-dev.epochprotocol.xyz',
+      positionsUrl: 'https://positions-testnet-dev.epochprotocol.xyz',
+      outputs: { 'usdc-testnet-output': { faucetId: '0x537c15a622074e91188aa894456c52' } }
+    },
+    agglayer: { indexerUrl: 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api' },
+    usdcx: {}
   },
-  epoch: {
-    allocatorUrl: 'https://testnet-dev.epochprotocol.xyz',
-    positionsUrl: 'https://positions-testnet-dev.epochprotocol.xyz',
-    midenUsdcFaucet: '0x537c15a622074e91188aa894456c52',
-    evmUsdc: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
-    earnProtocol: 'dummy-lending'
+  supportedEvmChains: {
+    sepolia: {
+      chainId: 11155111,
+      bridges: {
+        epoch: {
+          depositEnabled: true,
+          withdrawalEnabled: true,
+          tokens: {
+            USDC: { contractAddress: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69', outputs: ['usdc-testnet-output'] }
+          }
+        },
+        agglayer: {
+          depositEnabled: true,
+          withdrawalEnabled: true,
+          contractAddress: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f',
+          midenBridgeId: '0x3b66e20b5088f25133b69216484652'
+        }
+      }
+    }
   },
-  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true },
+  features: { earn: true },
   mainnetCountdown: { enabled: true, launchAt: '2026-10-26T00:00:00Z' },
   ...overrides
 });
 
 type Section = 'evm' | 'agglayer' | 'epoch' | 'features' | 'mainnetCountdown';
-const withSection = (name: Section, fields: Record<string, unknown>) => {
+const withSection = (name: Section, fields: Record<string, ConfigValue>) => {
   const base = doc();
-  return { ...base, [name]: { ...base[name], ...fields } };
+  const providers = base['bridge-providers'];
+  const chain = base.supportedEvmChains.sepolia;
+  switch (name) {
+    case 'evm':
+      return { ...base, supportedEvmChains: { sepolia: { ...chain, ...fields } } };
+    case 'features': {
+      const route = { ...chain.bridges.agglayer };
+      if ('bridgeIn' in fields)
+        return {
+          ...base,
+          supportedEvmChains: {
+            sepolia: {
+              ...chain,
+              bridges: { ...chain.bridges, agglayer: { ...route, depositEnabled: fields.bridgeIn } }
+            }
+          }
+        };
+      if ('bridgeOut' in fields)
+        return {
+          ...base,
+          supportedEvmChains: {
+            sepolia: {
+              ...chain,
+              bridges: { ...chain.bridges, agglayer: { ...route, withdrawalEnabled: fields.bridgeOut } }
+            }
+          }
+        };
+      return { ...base, features: { ...base.features, ...fields } };
+    }
+    case 'mainnetCountdown':
+      return { ...base, mainnetCountdown: { ...base.mainnetCountdown, ...fields } };
+    case 'epoch': {
+      const token = chain.bridges.epoch.tokens.USDC;
+      const faucetId = fields.midenUsdcFaucet ?? providers.epoch.outputs['usdc-testnet-output'].faucetId;
+      return {
+        ...base,
+        'bridge-providers': {
+          ...providers,
+          epoch: { ...providers.epoch, ...fields, outputs: { 'usdc-testnet-output': { faucetId } } }
+        },
+        supportedEvmChains: {
+          sepolia: {
+            ...chain,
+            bridges: {
+              ...chain.bridges,
+              epoch: {
+                ...chain.bridges.epoch,
+                tokens: { USDC: { ...token, contractAddress: fields.evmUsdc ?? token.contractAddress } }
+              }
+            }
+          }
+        }
+      };
+    }
+    case 'agglayer':
+      return {
+        ...base,
+        'bridge-providers': { ...providers, agglayer: { ...providers.agglayer, ...fields } },
+        supportedEvmChains: {
+          sepolia: {
+            ...chain,
+            bridges: {
+              ...chain.bridges,
+              agglayer: {
+                ...chain.bridges.agglayer,
+                contractAddress: 'l1Bridge' in fields ? fields.l1Bridge : chain.bridges.agglayer.contractAddress,
+                midenBridgeId: fields.midenBridge ?? chain.bridges.agglayer.midenBridgeId
+              }
+            }
+          }
+        }
+      };
+  }
 };
 
-const ALL_OFF = { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false };
+const ALL_OFF = { earn: false };
 
-it('parses the published testnet document, lowercasing addresses', () => {
-  expect(parseBridgeConfig(doc(), 'testnet')).toStrictEqual({
-    network: 'testnet',
-    version: 1,
-    evm: { chainId: 11155111 },
-    agglayer: {
-      l1Bridge: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f',
-      midenBridge: '0x3b66e20b5088f25133b69216484652',
-      indexerUrl: 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api'
-    },
-    epoch: {
-      allocatorUrl: 'https://testnet-dev.epochprotocol.xyz',
-      positionsUrl: 'https://positions-testnet-dev.epochprotocol.xyz',
-      midenUsdcFaucet: '0x537c15a622074e91188aa894456c52',
-      evmUsdc: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
-      earnProtocol: 'dummy-lending'
-    },
-    features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true },
-    mainnetCountdown: { enabled: true, launchAt: Date.UTC(2026, 9, 26) },
-    swap: {}
+it('parses the testnet document and normalizes addresses', () => {
+  const parsed = parseBridgeConfig(doc(), 'testnet');
+  expect(parsed).not.toBeNull();
+  expect(parsed?.network).toBe('testnet');
+  expect(parsed?.version).toBe(1);
+  expect(parsed?.['bridge-providers']).toEqual(doc()['bridge-providers']);
+  expect(parsed?.supportedEvmChains.sepolia?.bridges.agglayer).toEqual(
+    doc().supportedEvmChains.sepolia.bridges.agglayer
+  );
+  expect(parsed?.supportedEvmChains.sepolia?.bridges.epoch?.tokens.USDC).toEqual({
+    contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+    outputs: ['usdc-testnet-output']
   });
+  expect(parsed?.features).toEqual({ earn: true });
+  expect(parsed?.mainnetCountdown).toEqual({ enabled: true, launchAt: Date.UTC(2026, 9, 26) });
+  expect(parsed?.swap).toEqual({});
 });
 
 describe('swap section', () => {
@@ -79,7 +163,7 @@ it('lowercases Miden account ids written in upper case', () => {
     withSection('agglayer', { midenBridge: '0x3B66E20B5088F25133B69216484652' }),
     'testnet'
   );
-  expect(parsed?.agglayer.midenBridge).toBe('0x3b66e20b5088f25133b69216484652');
+  expect(parsed?.supportedEvmChains.sepolia?.bridges.agglayer?.midenBridgeId).toBe('0x3b66e20b5088f25133b69216484652');
 });
 
 it.each([
@@ -90,19 +174,18 @@ it.each([
 ])('normalizes the base URL %s to %s in every URL field', (input, expected) => {
   const epoch = parseBridgeConfig(withSection('epoch', { allocatorUrl: input, positionsUrl: input }), 'testnet');
   const agglayer = parseBridgeConfig(withSection('agglayer', { indexerUrl: input }), 'testnet');
-  expect(epoch?.epoch.allocatorUrl).toBe(expected);
-  expect(epoch?.epoch.positionsUrl).toBe(expected);
-  expect(agglayer?.agglayer.indexerUrl).toBe(expected);
+  expect(epoch?.['bridge-providers'].epoch.allocatorUrl).toBe(expected);
+  expect(epoch?.['bridge-providers'].epoch.positionsUrl).toBe(expected);
+  expect(agglayer?.['bridge-providers'].agglayer.indexerUrl).toBe(expected);
 });
 
-it('ignores fields it does not know, at every level', () => {
+it('ignores unknown fields at each level', () => {
   const base = doc();
   const extended = {
     ...base,
     schema: 2,
-    evm: { ...base.evm, rpcUrl: 'https://rpc.example' },
-    agglayer: { ...base.agglayer, gerMap: 'never read' },
-    epoch: { ...base.epoch, solver: 1 },
+    'bridge-providers': { ...base['bridge-providers'], epoch: { ...base['bridge-providers'].epoch, solver: 1 } },
+    supportedEvmChains: { sepolia: { ...base.supportedEvmChains.sepolia, rpcUrl: 'https://rpc.example' } },
     features: { ...base.features, swap: true },
     mainnetCountdown: { ...base.mainnetCountdown, label: 'never read' }
   };
@@ -113,30 +196,25 @@ it('reads absent sections as empty and absent switches as off', () => {
   expect(parseBridgeConfig({ network: 'devnet', version: 3 }, 'devnet')).toStrictEqual({
     network: 'devnet',
     version: 3,
-    evm: {},
-    agglayer: {},
-    epoch: {},
+    'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
+    supportedEvmChains: {},
     features: ALL_OFF,
     mainnetCountdown: { enabled: false },
     swap: {}
   });
 });
 
-it('leaves an absent field out of its section', () => {
+it('leaves absent provider fields out', () => {
   const partial = {
     network: 'testnet',
     version: 2,
-    agglayer: { l1Bridge: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f' },
-    epoch: { allocatorUrl: 'https://allocator.example' },
-    features: { earn: true }
+    'bridge-providers': { epoch: { allocatorUrl: 'https://allocator.example' } },
+    features: { earn: false }
   };
-  expect(parseBridgeConfig(partial, 'testnet')).toStrictEqual({
-    network: 'testnet',
-    version: 2,
-    evm: {},
-    agglayer: { l1Bridge: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f' },
-    epoch: { allocatorUrl: 'https://allocator.example' },
-    features: { ...ALL_OFF, earn: true },
+  expect(parseBridgeConfig(partial, 'testnet')).toEqual({
+    ...partial,
+    'bridge-providers': { epoch: partial['bridge-providers'].epoch, agglayer: {}, usdcx: {} },
+    supportedEvmChains: {},
     mainnetCountdown: { enabled: false },
     swap: {}
   });
@@ -151,31 +229,161 @@ it('reads the countdown switch without its moment, and a moment with fractional 
   ).toStrictEqual({ enabled: false, launchAt: Date.UTC(2026, 9, 26, 0, 0, 0, 500) });
 });
 
-it('drops an unsupported chain id and keeps the rest of the document', () => {
-  const parsed = parseBridgeConfig(withSection('evm', { chainId: 1 }), 'testnet');
-  expect(parsed?.evm).toStrictEqual({});
-  expect(parsed?.epoch.evmUsdc).toBe('0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69');
+it('rejects a chain whose slug and id do not match', () => {
+  expect(parseBridgeConfig(withSection('evm', { chainId: 84532 }), 'testnet')).toBeNull();
+  expect(parseBridgeConfig(doc({ supportedEvmChains: { polygon: { chainId: 11155111 } } }), 'testnet')).toBeNull();
 });
 
-it('drops an unsupported Earn protocol and keeps the rest of the document', () => {
+describe('values this build does not know', () => {
+  const published = parseBridgeConfig(testnet, 'testnet');
+  const chains = testnet.supportedEvmChains;
+  const providers = testnet['bridge-providers'];
+  const withChains = (supportedEvmChains: Record<string, ConfigValue>) => ({ ...testnet, supportedEvmChains });
+  const withProviders = (fields: Record<string, ConfigValue>) => ({
+    ...testnet,
+    'bridge-providers': { ...providers, ...fields }
+  });
+
+  it('skips a chain this build has no name for and keeps the rest', () => {
+    const body = withChains({
+      ...chains,
+      'polygon-amoy': { chainId: 80002, bridges: { usdcx: chains['base-sepolia'].bridges.usdcx } }
+    });
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed).toStrictEqual(published);
+  });
+
+  it('leaves out a USDCx deposit route it does not know and every executor deposit through that chain', () => {
+    const arc = chains['arc-testnet'];
+    const body = withChains({
+      ...chains,
+      'arc-testnet': {
+        ...arc,
+        bridges: {
+          usdcx: { ...arc.bridges.usdcx, deposit: { route: 'cctp-v3', bridge: arc.bridges.usdcx.executor.address } }
+        }
+      }
+    });
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed?.swap).toStrictEqual(published?.swap);
+    expect(parsed?.supportedEvmChains.sepolia?.bridges.epoch).toStrictEqual(
+      published?.supportedEvmChains.sepolia?.bridges.epoch
+    );
+    expect(parsed?.supportedEvmChains.sepolia?.bridges.agglayer).toStrictEqual(
+      published?.supportedEvmChains.sepolia?.bridges.agglayer
+    );
+    const arcRoute = parsed?.supportedEvmChains['arc-testnet']?.bridges.usdcx;
+    expect(arcRoute?.tokens).toStrictEqual(published?.supportedEvmChains['arc-testnet']?.bridges.usdcx?.tokens);
+    expect(arcRoute).not.toHaveProperty('deposit');
+    expect(arcRoute).not.toHaveProperty('executor');
+    for (const slug of ['sepolia', 'base-sepolia', 'arbitrum-sepolia']) {
+      const source = parsed?.supportedEvmChains[slug]?.bridges.usdcx;
+      expect(source?.depositEnabled).toBe(true);
+      expect(source).not.toHaveProperty('deposit');
+    }
+  });
+
+  it('leaves out an Epoch or USDCx route that lists no token it knows', () => {
+    const baseSepolia = chains['base-sepolia'];
+    const tokens = { USDT: { contractAddress: '0x7169D38820dfd117C3FA1f22a697dBA58d90BA06' } };
+    const epoch = { depositEnabled: true, withdrawalEnabled: true, tokens };
+    const body = withChains({
+      ...chains,
+      'base-sepolia': { ...baseSepolia, bridges: { ...baseSepolia.bridges, epoch } }
+    });
+    expect(parseBridgeConfig(body, 'testnet')).not.toBeNull();
+    expect(parseBridgeConfig(body, 'testnet')).toStrictEqual(published);
+    const usdcx = { ...baseSepolia.bridges.usdcx, tokens };
+    const parsed = parseBridgeConfig(
+      withChains({ ...chains, 'base-sepolia': { ...baseSepolia, bridges: { usdcx } } }),
+      'testnet'
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed?.supportedEvmChains['base-sepolia']?.bridges).toStrictEqual({});
+  });
+
+  it('reads an Epoch output under any name and leaves out a token output nothing declares', () => {
+    const sepolia = chains.sepolia;
+    const usdc = sepolia.bridges.epoch.tokens.USDC;
+    const outputs = {
+      ...providers.epoch.outputs,
+      'usdc-mainnet-output': { faucetId: '0x537c15a622074e91188aa894456c52' }
+    };
+    const epoch = {
+      ...sepolia.bridges.epoch,
+      tokens: { USDC: { ...usdc, outputs: ['usdc-mainnet-output', 'usdc-other'] } }
+    };
+    const body = {
+      ...withProviders({ epoch: { ...providers.epoch, outputs } }),
+      supportedEvmChains: { ...chains, sepolia: { ...sepolia, bridges: { ...sepolia.bridges, epoch } } }
+    };
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed?.['bridge-providers'].epoch.outputs).toStrictEqual(outputs);
+    expect(parsed?.supportedEvmChains.sepolia?.bridges.epoch?.tokens.USDC?.outputs).toStrictEqual([
+      'usdc-mainnet-output'
+    ]);
+    expect(parsed?.swap).toStrictEqual(published?.swap);
+  });
+
+  it('reads Epoch outputs off testnet', () => {
+    const outputs = { 'usdc-mainnet-output': { faucetId: '0x537c15a622074e91188aa894456c52' } };
+    const parsed = parseBridgeConfig(
+      { network: 'mainnet', version: 1, 'bridge-providers': { epoch: { outputs } } },
+      'mainnet'
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed?.['bridge-providers'].epoch.outputs).toStrictEqual(outputs);
+  });
+
+  it('still rejects an executor deposit through a listed chain that never had an executor, and a route id not text', () => {
+    const baseSepolia = chains['base-sepolia'];
+    const usdcx = baseSepolia.bridges.usdcx;
+    const through = (deposit: Record<string, ConfigValue>) =>
+      withChains({ ...chains, 'base-sepolia': { ...baseSepolia, bridges: { usdcx: { ...usdcx, deposit } } } });
+    expect(parseBridgeConfig(through({ ...usdcx.deposit, executorChain: 'sepolia' }), 'testnet')).toBeNull();
+    expect(parseBridgeConfig(through({ ...usdcx.deposit, route: 7 }), 'testnet')).toBeNull();
+  });
+
+  it.each([
+    ['indexerUrl', { agglayer: {} }, 'agglayer'],
+    ['positionsUrl', { epoch: { ...providers.epoch, positionsUrl: undefined } }, 'epoch'],
+    ['allocatorUrl', { epoch: { ...providers.epoch, allocatorUrl: undefined } }, 'epoch'],
+    ['irisUrl', { usdcx: { ...providers.usdcx, irisUrl: undefined } }, 'usdcx'],
+    ['attestationUrl', { usdcx: { ...providers.usdcx, attestationUrl: undefined } }, 'usdcx'],
+    ['midenDomain', { usdcx: { ...providers.usdcx, midenDomain: undefined } }, 'usdcx']
+  ])('leaves out every route that needs a missing %s and keeps the rest', (_name, fields, bridge) => {
+    const parsed = parseBridgeConfig(withProviders(fields), 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed?.swap).toStrictEqual(published?.swap);
+    expect(parsed?.features).toStrictEqual(published?.features);
+    expect(parsed?.mainnetCountdown).toStrictEqual(published?.mainnetCountdown);
+    for (const [slug, chain] of Object.entries(published?.supportedEvmChains ?? {})) {
+      const kept = Object.fromEntries(Object.entries(chain.bridges).filter(([name]) => name !== bridge));
+      expect(parsed?.supportedEvmChains[slug]?.bridges).toStrictEqual(kept);
+    }
+  });
+});
+
+it('ignores removed market configuration', () => {
   const parsed = parseBridgeConfig(withSection('epoch', { earnProtocol: 'aave-v3' }), 'testnet');
-  expect(parsed?.epoch).not.toHaveProperty('earnProtocol');
-  expect(parsed?.epoch.allocatorUrl).toBe('https://testnet-dev.epochprotocol.xyz');
+  expect(parsed?.['bridge-providers'].epoch).not.toHaveProperty('earnProtocol');
+  expect(parsed?.['bridge-providers'].epoch.allocatorUrl).toBe('https://testnet-dev.epochprotocol.xyz');
 });
 
-it('supports Sepolia, Arc Testnet, Base Sepolia and Arbitrum Sepolia, and dummy lending only', () => {
-  expect(SUPPORTED_EVM_CHAIN_IDS).toEqual([11155111, 5042002, 84532, 421614]);
-  expect(SUPPORTED_EARN_PROTOCOLS).toEqual(['dummy-lending']);
+it('supports each chain in the wallet registry', () => {
+  expect(SUPPORTED_EVM_CHAIN_IDS).toEqual([11155111, 5042002, 84532, 421614, 1, 8453, 42161, 5042, 10]);
 });
 
-it('takes the supported chains from the wallet chain registry', () => {
+it('takes supported ids from the wallet registry', () => {
   let schema!: typeof import('./schema');
   jest.isolateModules(() => {
     jest.doMock('lib/walletconnect/config', () => ({ SUPPORTED_CHAINS: [{ id: 11155111 }, { id: 84532 }] }));
     schema = require('./schema');
   });
-  const parsed = schema.parseBridgeConfig(withSection('evm', { chainId: 84532 }), 'testnet');
-  expect(parsed?.evm.chainId).toBe(84532);
+  expect(schema.SUPPORTED_EVM_CHAIN_IDS).toEqual([11155111, 84532]);
 });
 
 it.each([
@@ -190,9 +398,9 @@ it.each([
   ['a version written as text', doc({ version: '1' })],
   ['a version past the safe integers', doc({ version: 2 ** 53 })],
   ['no version', doc({ version: undefined })],
-  ['an evm section that is not an object', doc({ evm: 11155111 })],
-  ['a null agglayer section', doc({ agglayer: null })],
-  ['an epoch section that is an array', doc({ epoch: [] })],
+  ['an evm section that is not an object', doc({ supportedEvmChains: 11155111 })],
+  ['a null agglayer section', doc({ 'bridge-providers': { agglayer: null } })],
+  ['an epoch section that is an array', doc({ 'bridge-providers': { epoch: [] } })],
   ['a features section that is not an object', doc({ features: true })],
   ['a chain id written as text', withSection('evm', { chainId: '11155111' })],
   ['chain id 0', withSection('evm', { chainId: 0 })],
@@ -213,7 +421,7 @@ it.each([
   ['a URL with a query', withSection('epoch', { allocatorUrl: 'https://allocator.example/?key=1' })],
   ['a URL with a fragment', withSection('epoch', { allocatorUrl: 'https://allocator.example/#top' })],
   ['a numeric URL', withSection('agglayer', { indexerUrl: 443 })],
-  ['a numeric Earn protocol', withSection('epoch', { earnProtocol: 1 })],
+  ['a numeric output list', doc({ 'bridge-providers': { epoch: { outputs: 1 } } })],
   ['a switch written as text', withSection('features', { earn: 'true' })],
   ['a numeric switch', withSection('features', { bridgeIn: 1 })],
   ['a null switch', withSection('features', { bridgeOut: null })]
@@ -235,9 +443,9 @@ it.each([
   const parsed = parseBridgeConfig(body, 'testnet');
   expect(parsed).not.toBeNull();
   expect(parsed?.mainnetCountdown).toStrictEqual({ enabled: false });
-  expect(parsed?.features).toStrictEqual({ earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true });
-  expect(parsed?.evm).toStrictEqual({ chainId: 11155111 });
-  expect(parsed?.epoch.allocatorUrl).toBe('https://testnet-dev.epochprotocol.xyz');
+  expect(parsed?.features).toStrictEqual({ earn: true });
+  expect(parsed?.supportedEvmChains.sepolia?.chainId).toBe(11155111);
+  expect(parsed?.['bridge-providers'].epoch.allocatorUrl).toBe('https://testnet-dev.epochprotocol.xyz');
 });
 
 it('reads a fraction of any length as the same instant', () => {
@@ -252,7 +460,7 @@ describe('the E2E local http allowance', () => {
     const parsed = parseBridgeConfig(withSection('epoch', { allocatorUrl: input }), 'testnet', {
       allowLocalHttp: true
     });
-    expect(parsed?.epoch.allocatorUrl).toBe(input.replace(/\/$/, ''));
+    expect(parsed?.['bridge-providers'].epoch.allocatorUrl).toBe(input.replace(/\/$/, ''));
   });
 
   it.each(['http://allocator.example', 'http://10.0.2.2:8548'])('still rejects %s', input => {

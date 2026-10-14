@@ -611,6 +611,12 @@ export interface DimensionOptions {
     y?: number;
 }
 export interface InAppBrowserPlugin {
+    addListener(eventName: 'presentationMinimizeRequested', listenerFunc: (event: {
+        id: string;
+        policyRevision: number;
+        visibilitySequence: number;
+        managedHostCloseToken?: string;
+    }) => void): Promise<PluginListenerHandle>;
     addListener(eventName: 'hostCloseRequested', listenerFunc: (event: HostCloseRequest) => void): Promise<PluginListenerHandle>;
     completeManagedClose(options: HostCloseRequest & { hostCommitGeneration: number }): Promise<void>;
     addListener(eventName: 'presentationChanged', listenerFunc: (event: {

@@ -1,7 +1,7 @@
 import type { Hex } from 'viem';
 
-import { matchUsdcxDepositAttestation } from '../../../../src/lib/usdcx/attestation';
-import { CIRCLE_USDC_DECIMALS } from '../../../../src/lib/usdcx/constant';
+import { matchUsdcxDepositAttestation } from '../../../../src/lib/usdcx/attestation-protocol';
+import { CIRCLE_USDC_DECIMALS } from '../../../../src/lib/usdcx/protocol';
 import { midenAccountHexToXReserveRecipient } from '../../../../src/lib/usdcx/recipient';
 import { expect, test, type GuardianAwareWalletPage } from '../../fixtures/two-wallets';
 import {
@@ -316,7 +316,8 @@ async function depositLeg(
     const verdict = matchUsdcxDepositAttestation([attestation], {
       remoteRecipient: recipient,
       remoteToken: opts.xreserve.remoteToken,
-      amount: DEPOSIT_UNITS
+      amount: DEPOSIT_UNITS,
+      remoteDomain: USDCX_REMOTE_DOMAIN
     });
     expect(verdict.kind, "the wallet's own matcher accepts Circle's attestation").toBe('attested');
     opts.evidence.ids.attestationSigner = signer;

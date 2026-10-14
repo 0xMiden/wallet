@@ -6,7 +6,11 @@ import { Buffer } from 'buffer';
 import { syncAndRecordFeeFaucet } from 'lib/miden/sdk/sync-and-record-fee-faucet';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { GUARDIAN_OPTIONS } from 'lib/miden-chain/constants';
-import { getEffectiveDefaultGuardianEndpoint, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import {
+  getEffectiveDefaultGuardianEndpoint,
+  getEffectiveNetworkName,
+  getEffectiveRpcUrl
+} from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
@@ -268,10 +272,11 @@ const PROVIDER_ID_MAP: Record<string, GuardianProvider> = {
  */
 export function guardianProviderFromEndpoint(endpoint: string | null): GuardianProvider | null {
   if (!endpoint) return null;
+  // Only the effective network's endpoint identifies a built-in, as in guardianOptionForEndpoint.
+  const network = getEffectiveNetworkName();
   for (const option of GUARDIAN_OPTIONS) {
-    for (const url of option.endpoint.values()) {
-      if (sameGuardianEndpoint(url, endpoint)) return PROVIDER_ID_MAP[option.id] ?? 'custom';
-    }
+    const url = option.endpoint.get(network);
+    if (url && sameGuardianEndpoint(url, endpoint)) return PROVIDER_ID_MAP[option.id] ?? 'custom';
   }
   return 'custom';
 }

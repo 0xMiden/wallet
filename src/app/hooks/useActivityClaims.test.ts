@@ -78,9 +78,19 @@ jest.mock('lib/dexie-live-query', () => ({
     return unsubscribe;
   }
 }));
+// The open bridge trackers whose saved route names the faucet that delivers them.
+type MockBridgeRow = { type: string; extraInputs: Record<string, unknown> };
+const mockBridgeRows: MockBridgeRow[] = [];
 jest.mock('lib/miden/repo', () => ({
   transactions: {
-    where: (field: string) => ({ anyOf: (ids: string[]) => ({ toArray: () => mockAnyOf(field, ids) }) })
+    where: (field: string) => ({
+      anyOf: (ids: string[]) => ({ toArray: () => mockAnyOf(field, ids) }),
+      equals: (value: string) => ({
+        filter: (predicate: (row: MockBridgeRow) => boolean) => ({
+          toArray: async () => mockBridgeRows.filter(row => field === 'type' && row.type === value && predicate(row))
+        })
+      })
+    })
   }
 }));
 jest.mock('lib/miden/db/types', () => ({
@@ -90,11 +100,15 @@ jest.mock('lib/miden/front', () => ({ useMidenContext: () => ({ signTransaction:
 jest.mock('lib/miden/front/guardian-sync', () => ({ zustandProvider: {} }));
 jest.mock('lib/platform', () => ({ isExtension: () => mockFlags.extension }));
 // The bridge registry names its native-ETH faucet, which sends every Agglayer delivery; the SDK reads an id as itself.
-jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: () => ({}) }));
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () => ({}),
+  initBridgeConfig: async () => ({})
+}));
 jest.mock('lib/remote-config/values', () => ({
-  selectNativeEthFaucet: () =>
+  selectNativeEthFaucets: () => [
     jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
       .TEST_NATIVE_ETH_FAUCET
+  ]
 }));
 jest.mock('lib/miden/sdk/helpers', () => ({ accountRefToSdk: (ref: string) => ({ toString: () => ref }) }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -112,6 +126,13 @@ function settle(rows: MockRow[]) {
   act(() => latestSubscription().observer.next(rows));
 }
 
+// Accept All reads the saved delivery faucets before it groups, so its first queue call follows that read.
+async function settleDeliverySenders() {
+  await act(async () => {
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+}
+
 beforeEach(() => {
   mockQueue.mockReset();
   mockRequeue.mockReset();
@@ -119,6 +140,7 @@ beforeEach(() => {
   mockRequest.mockReset();
   mockQueueMany.mockReset();
   mockAnyOf.mockReset();
+  mockBridgeRows.length = 0;
   mockSubscriptions.length = 0;
   mockReported.length = 0;
   mockFlags.extension = false;
@@ -269,6 +291,7 @@ it('marks every batch note as claiming at once, queues the native faucet group f
     batch = result.current.acceptMany([tokenNote, nativeNote]);
   });
   expect(result.current.items.map(item => item.status)).toEqual(['claiming', 'claiming']);
+  await settleDeliverySenders();
   expect(mockQueueMany).toHaveBeenCalledTimes(1);
   expect(mockQueueMany.mock.calls[0]?.[1]).toEqual([nativeNote]);
   expect(mockSubscriptions).toHaveLength(0);
@@ -463,6 +486,29 @@ it('queues each Agglayer bridge delivery in a consume of its own', async () => {
   expect(mockQueueMany).toHaveBeenNthCalledWith(2, 'account', [second], false, true);
 });
 
+it('queues each delivery from the faucet an open deposit saved alone after the document drops its chain', async () => {
+  const savedFaucet = '0x5a7ed0000000000000000000000000';
+  mockBridgeRows.push({
+    type: 'bridged-receive',
+    extraInputs: {
+      provider: 'agglayer',
+      phase: 'delivering',
+      agglayerRoute: { chainId: 84532, nativeEthFaucetId: savedFaucet }
+    }
+  });
+  const first = { ...note, id: 'saved-1', senderAddress: savedFaucet };
+  const second = { ...note, id: 'saved-2', senderAddress: savedFaucet };
+  mockClaim.safeClaimableNotes = [first, second];
+  const { result } = renderHook(() => useActivityClaims());
+
+  await act(async () => {
+    await result.current.acceptMany([first, second]);
+  });
+  expect(mockQueueMany).toHaveBeenCalledTimes(2);
+  expect(mockQueueMany).toHaveBeenNthCalledWith(1, 'account', [first], false, true);
+  expect(mockQueueMany).toHaveBeenNthCalledWith(2, 'account', [second], false, true);
+});
+
 it('queues only failed notes when a batch also contains unknown and checking notes', async () => {
   const checking = { ...note, id: 'checking' };
   const failed = { ...note, id: 'failed' };
@@ -616,6 +662,7 @@ describe('a claim shared across the Activity views', () => {
       batch = groups.result.current.acceptMany([other]);
       single = list.result.current.accept(other);
     });
+    await settleDeliverySenders();
     await act(async () => {
       releaseBatch('tx-batch');
       await Promise.all([single, batch]);
@@ -719,6 +766,7 @@ describe('note_handle reporting', () => {
     });
     list.unmount();
     renderHook(() => useActivityClaims());
+    await settleDeliverySenders();
     await act(async () => {
       queued('tx-1');
       await accepting;

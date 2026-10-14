@@ -28,17 +28,33 @@ const configFor = ({
   config: {
     network: 'testnet',
     version: 1,
-    evm: { chainId },
-    agglayer: {},
-    epoch: { allocatorUrl, evmUsdc },
-    features: { earn: false, fastBridge: true, bridgeIn: false, bridgeOut: false }
+    'bridge-providers': { epoch: { allocatorUrl }, agglayer: {}, usdcx: {} },
+    supportedEvmChains: {
+      sepolia: {
+        chainId,
+        bridges: {
+          epoch: {
+            depositEnabled: true,
+            withdrawalEnabled: true,
+            tokens: { USDC: { contractAddress: evmUsdc, outputs: [] } }
+          }
+        }
+      }
+    },
+    features: { earn: false }
   },
   derived: {
     network: 'testnet',
     version: 1,
     derivedAt: 0,
-    agglayer: { rollupId: SKIPPED, tokens: SKIPPED, evmNetworkId: SKIPPED, l1BridgeCode: SKIPPED, indexer: SKIPPED },
-    epoch: { allocator: { state: 'ok', value: true }, midenUsdcFaucet: SKIPPED, evmUsdc: evmUsdcRead }
+    chains: {
+      [chainId]: {
+        agglayer: { rollupId: SKIPPED, tokens: SKIPPED, evmNetworkId: SKIPPED, l1BridgeCode: SKIPPED },
+        epoch: { evmUsdc: evmUsdcRead }
+      }
+    },
+    agglayer: { indexer: SKIPPED },
+    epoch: { allocator: { state: 'ok', value: true }, market: SKIPPED, midenUsdcFaucet: SKIPPED }
   },
   lastFetch: null
 });
@@ -78,9 +94,9 @@ beforeEach(() => {
   mockConfigSnapshot = configFor();
   // As the real selector reads it: the document's address and chain, usable only while the token's read is ok.
   jest.mocked(selectEvmUsdc).mockImplementation(({ config, derived }) => {
-    const address = config?.epoch.evmUsdc;
-    const chainId = config?.evm.chainId;
-    const read = derived?.epoch.evmUsdc;
+    const address = config?.supportedEvmChains.sepolia?.bridges.epoch?.tokens.USDC?.contractAddress;
+    const chainId = config?.supportedEvmChains.sepolia?.chainId;
+    const read = chainId === undefined ? undefined : derived?.chains[chainId]?.epoch.evmUsdc;
     return address && chainId !== undefined && read?.state === 'ok' ? { address, chainId, ...read.value } : null;
   });
   jest.mocked(quoteEpochSendOutput).mockReset();

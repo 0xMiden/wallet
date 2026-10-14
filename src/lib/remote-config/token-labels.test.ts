@@ -119,25 +119,17 @@ describe('token labels', () => {
   });
 
   it('keeps the EVM symbol under a document that names no EVM USDC', () => {
-    const { evmUsdc: _evmUsdc, ...epoch } = TEST_BRIDGE_CONFIG.epoch;
-    const noEvmUsdc: BridgeConfigSnapshot = {
-      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
-      config: { ...TEST_BRIDGE_CONFIG, epoch }
-    };
+    const noEvmUsdc = cloneSnapshot();
+    if (!noEvmUsdc.config) throw new Error('The test document is missing');
+    noEvmUsdc.config.supportedEvmChains = {};
     expect(evmUsdcLabel(noEvmUsdc, 'USDC')).toBe('USDC');
   });
 
   it('follows a document that moves the bridge tokens', () => {
-    const moved: BridgeConfigSnapshot = {
-      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
-      config: {
-        ...TEST_BRIDGE_CONFIG,
-        epoch: {
-          ...TEST_BRIDGE_CONFIG.epoch,
-          midenUsdcFaucet: TEST_NATIVE_ETH_FAUCET,
-          evmUsdc: '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238'
-        }
-      }
+    const moved = cloneSnapshot();
+    if (!moved.config) throw new Error('The test document is missing');
+    moved.config['bridge-providers'].epoch.outputs = {
+      'usdc-testnet-output': { faucetId: TEST_NATIVE_ETH_FAUCET }
     };
     expect(midenTokenLabel(moved, TEST_MIDEN_USDC_FAUCET, 'USDC')).toBe('USDC');
     expect(midenTokenLabel(moved, TEST_NATIVE_ETH_FAUCET, 'USDC')).toBe('Test Epoch USDC');
@@ -174,3 +166,7 @@ describe('testnet token info', () => {
     expect(testnetTokenInfo(LOADED, TEST_MIDEN_USDC_FAUCET)).toBeNull();
   });
 });
+
+function cloneSnapshot(): import('./runtime').BridgeConfigSnapshot {
+  return JSON.parse(JSON.stringify(TEST_BRIDGE_CONFIG_SNAPSHOT));
+}

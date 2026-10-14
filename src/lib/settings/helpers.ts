@@ -1,3 +1,4 @@
+import { RENAMED_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/networks-config';
 import { isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 
@@ -286,8 +287,32 @@ export function sameGuardianEndpoint(a: string, b: string): boolean {
   return canonicalGuardianEndpoint(a) === canonicalGuardianEndpoint(b);
 }
 
-/** The one spelling of a Guardian endpoint that `sameGuardianEndpoint` compares, for keying state by endpoint. */
+/**
+ * The one spelling of a Guardian endpoint that `sameGuardianEndpoint` compares, for keying state by endpoint. A
+ * renamed built-in host (`RENAMED_GUARDIAN_ENDPOINTS`) canonicalizes to its current name, so both names are one
+ * endpoint.
+ */
 export function canonicalGuardianEndpoint(raw: string): string {
+  const spelling = canonicalSpelling(raw);
+  const renamed = renamedEndpointsByCanonicalSpelling().get(spelling);
+  return renamed ?? spelling;
+}
+
+let renamedByCanonicalSpelling: Map<string, string> | undefined;
+
+function renamedEndpointsByCanonicalSpelling(): Map<string, string> {
+  if (!renamedByCanonicalSpelling) {
+    renamedByCanonicalSpelling = new Map(
+      [...RENAMED_GUARDIAN_ENDPOINTS].map(([oldName, newName]) => [
+        canonicalSpelling(oldName),
+        canonicalSpelling(newName)
+      ])
+    );
+  }
+  return renamedByCanonicalSpelling;
+}
+
+function canonicalSpelling(raw: string): string {
   const trimmed = sanitizeGuardianUrl(raw);
   try {
     const url = new URL(trimmed);

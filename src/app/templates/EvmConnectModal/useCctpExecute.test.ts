@@ -5,6 +5,15 @@ import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnec
 
 import { useCctpExecute } from './useCctpExecute';
 
+jest.mock('lib/miden/repo', () => ({ transactions: { get: async () => undefined } }));
+
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
+
 const hash = '0x1111111111111111111111111111111111111111111111111111111111111111';
 const mockWrite = jest.fn(async () => hash);
 const mockSwitch = jest.fn();

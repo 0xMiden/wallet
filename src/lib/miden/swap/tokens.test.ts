@@ -66,18 +66,18 @@ const withPairs = (pairs: NonNullable<NonNullable<BridgeConfigSnapshot['derived'
   config: {
     network: 'testnet',
     version: 3,
-    evm: {},
-    agglayer: {},
-    epoch: {},
-    features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
+    'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
+    supportedEvmChains: {},
+    features: { earn: false },
     swap: { etaUrl: 'https://quotes.example' }
   },
   derived: {
     network: 'testnet',
     version: 3,
     derivedAt: 0,
-    agglayer: { rollupId: SKIPPED, tokens: SKIPPED, evmNetworkId: SKIPPED, l1BridgeCode: SKIPPED, indexer: SKIPPED },
-    epoch: { allocator: SKIPPED, midenUsdcFaucet: SKIPPED, evmUsdc: SKIPPED },
+    chains: {},
+    agglayer: { indexer: SKIPPED },
+    epoch: { allocator: SKIPPED, market: SKIPPED, midenUsdcFaucet: SKIPPED },
     swap: { pairs }
   }
 });

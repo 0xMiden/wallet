@@ -41,3 +41,15 @@ it('binds bounds to the same managed lifetime and preserves the legacy signature
   expect(mockRect).toHaveBeenCalledWith({ id: 'managed', managedHostCloseToken: 'lifetime', ...rect });
   expect(mockVisible).toHaveBeenCalledWith({ id: 'legacy', visible: true });
 });
+
+it('exposes the latest issued visibility sequence without a writable getter', async () => {
+  const instance = new DappWebViewInstance('session', 'lifetime');
+  expect(instance.currentVisibilitySequence).toBe(0);
+  await instance.setVisible(true, 3);
+  expect(instance.currentVisibilitySequence).toBe(1);
+  await instance.setVisible(false);
+  expect(instance.currentVisibilitySequence).toBe(2);
+  expect(
+    Object.getOwnPropertyDescriptor(DappWebViewInstance.prototype, 'currentVisibilitySequence')?.set
+  ).toBeUndefined();
+});

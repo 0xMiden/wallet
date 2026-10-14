@@ -71,8 +71,15 @@ jest.mock('lib/telemetry/crash', () => ({
   initCrashReporting: jest.fn()
 }));
 
+// Test the App startup call. The AppKit provider has a separate config subscription.
+jest.mock('lib/walletconnect/appkit', () => ({
+  AppKitProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>
+}));
+
 jest.mock('lib/remote-config/runtime', () => ({
-  initBridgeConfig: jest.fn(() => Promise.resolve())
+  initBridgeConfig: jest.fn(() => Promise.resolve()),
+  subscribeBridgeConfig: () => () => undefined,
+  getBridgeConfigSnapshot: () => ({ network: 'testnet', config: null })
 }));
 
 // `getThemeSetting` is here only because the (unmocked) AppKit provider reads it

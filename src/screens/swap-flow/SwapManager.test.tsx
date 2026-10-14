@@ -51,6 +51,7 @@ let mockDrawerProps: {
 const mockGetSwapTokens = jest.fn(() => [mockTokenA, mockTokenB, mockTokenC]);
 const mockDeriveRequestAmount = jest.fn();
 const mockUseSwapEta = jest.fn();
+const mockGetSwapEta = jest.fn();
 const mockUseAccount = jest.fn(() => mockAccountReturn);
 const mockUseAllBalances = jest.fn((_pk: string, _md: Record<string, unknown>) => mockAllBalancesReturn);
 const mockUseAllTokensBaseMetadata = jest.fn(() => mockMetadata);
@@ -235,6 +236,7 @@ jest.mock('lib/miden/swap/tokens', () => ({
     const [offer, request] = mockGetSwapTokens();
     return offer && request ? { offer, request } : null;
   },
+  getSwapEta: (...args: unknown[]) => mockGetSwapEta(...args),
   deriveRequestAmount: (...args: unknown[]) => mockDeriveRequestAmount(...args)
 }));
 
@@ -606,6 +608,35 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('sa-offer-amount')).toHaveTextContent('10');
       expect(screen.getByTestId('sa-request-amount')).toHaveTextContent('5');
       expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+    });
+
+    it.each(['.', '', '0'])('clears quotes for manually incomplete receive input %s', async input => {
+      jest.useFakeTimers();
+      try {
+        const { useSwapEta } = jest.requireActual<typeof import('./useSwapEta')>('./useSwapEta');
+        const { stringToBigInt } = jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers');
+        mockUseSwapEta.mockImplementation(useSwapEta);
+        mockStringToBigInt.mockImplementation(stringToBigInt);
+        mockDeriveRequestAmount.mockImplementation((offerAmount: string, price?: string) =>
+          Number(offerAmount) > 0 && price !== undefined ? '5' : ''
+        );
+        mockGetSwapEta.mockReset();
+        mockGetSwapEta.mockResolvedValue(mockSwapEtaResult.eta);
+        renderFlow();
+        setOffer('10');
+        await act(async () => jest.advanceTimersByTime(500));
+        await act(async () => jest.advanceTimersByTime(500));
+        expect(screen.getByTestId('rs-market-price')).toHaveTextContent('2');
+        expect(mockGetSwapEta).toHaveBeenCalledTimes(2);
+
+        setRequest(input);
+        expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('false');
+        expect(screen.getByTestId('rs-market-price')).toHaveTextContent('undefined');
+        await act(async () => jest.advanceTimersByTime(500));
+        expect(mockGetSwapEta).toHaveBeenCalledTimes(2);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('pauses the auto-quote once the receive field is edited manually', () => {

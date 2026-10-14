@@ -49,7 +49,7 @@ describe('PasscodeScreen', () => {
     expect(screen.getByTestId('passcode-bottom-space')).toHaveClass('flex-[2]');
     expect(dock).toContainElement(screen.getByTestId('numpad'));
     // Without an action the layout keeps 20px of bottom padding under the flex space.
-    expect(layout).toHaveClass('pb-5');
+    expect(layout).toHaveClass('pb-[calc(1.25rem+var(--wallet-control-safe-bottom,0px))]');
     // The header block holds the title, the message and the dots, above the keypad.
     const header = screen.getByTestId('passcode-header');
     expect(header).toContainElement(screen.getByRole('heading', { name: 'title' }));
@@ -119,7 +119,9 @@ describe('PasscodeScreen', () => {
 
   it('takes the room for the action from the padding under the keypad', () => {
     const { rerender } = renderScreen();
-    expect(screen.getByTestId('passcode-screen-layout')).toHaveClass('pb-5');
+    expect(screen.getByTestId('passcode-screen-layout')).toHaveClass(
+      'pb-[calc(1.25rem+var(--wallet-control-safe-bottom,0px))]'
+    );
 
     rerender(
       <PasscodeScreen
@@ -133,8 +135,8 @@ describe('PasscodeScreen', () => {
       />
     );
     const layout = screen.getByTestId('passcode-screen-layout');
-    expect(layout).toHaveClass('pb-2');
-    expect(layout).not.toHaveClass('pb-5');
+    expect(layout).toHaveClass('pb-[calc(0.5rem+var(--wallet-control-safe-bottom,0px))]');
+    expect(layout).not.toHaveClass('pb-[calc(1.25rem+var(--wallet-control-safe-bottom,0px))]');
     expect(screen.getByTestId('passcode-keypad-dock')).toHaveClass('pt-12');
   });
 

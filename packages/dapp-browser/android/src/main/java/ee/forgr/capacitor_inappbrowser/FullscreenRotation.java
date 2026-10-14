@@ -15,6 +15,11 @@ final class FullscreenRotation {
         final int original;
         final WeakHashMap<FullscreenRotation, Boolean> owners = new WeakHashMap<>();
         Policy(int original) { this.original = original; }
+
+        boolean hasLiveOwners() {
+            // Cleared keys remain counted until their reference-queue notification arrives.
+            return owners.keySet().iterator().hasNext();
+        }
     }
 
     void acquire(Window target) {
@@ -22,7 +27,7 @@ final class FullscreenRotation {
         release();
         if (target == null) return;
         Policy policy = policies.get(target);
-        if (policy == null || policy.owners.isEmpty()) {
+        if (policy == null || !policy.hasLiveOwners()) {
             int original = target.getAttributes().rotationAnimation;
             if (policy != null && original == JUMPCUT) original = policy.original;
             policy = new Policy(original);
@@ -40,7 +45,7 @@ final class FullscreenRotation {
         Policy policy = policies.get(target);
         if (policy == null) return;
         policy.owners.remove(this);
-        if (!policy.owners.isEmpty()) return;
+        if (policy.hasLiveOwners()) return;
         policies.remove(target);
         // A newer external rotation policy must survive our final release.
         if (target.getAttributes().rotationAnimation == JUMPCUT) hint(target, policy.original);

@@ -201,7 +201,14 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
 
   // Single quote for the whole pair from the DEX swap-eta endpoint: the oracle
   // rate seeds the receive field and the fill signals drive the review screen.
-  const swapEta = useSwapEta({ offerToken, requestToken, offerAmount, requestAmount, enabled: !sameToken });
+  const swapEta = useSwapEta({
+    offerToken,
+    requestToken,
+    offerAmount,
+    requestAmount,
+    enabled: !sameToken,
+    allowRequestBootstrap: !requestEdited
+  });
   const marketPrice = swapEta.eta?.marketPrice;
 
   // The market-fair quote for the receive amount (offered * marketPrice, less

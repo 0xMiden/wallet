@@ -19,10 +19,7 @@ jobs:
   swap-e2e:
     name: swap-e2e (chrome)
     if: github.event_name != 'pull_request'
-    # 2 vCPUs: the referenced pr-e2e-earn.yml figures are per-consume LATENCY, not a
-    # suite wall clock, so they do not establish a core count. Kept at 2x because this
-    # suite measured green here; the cold-build ceiling below is NOT derived from it.
-    runs-on: warp-ubuntu-latest-arm64-2x
+    runs-on: ubuntu-24.04-arm
     # Cold-cache runs compile miden-client-cli (~8m) + note-transport (~5m).
     # The suite is real-network and intermittently flaky under CI load, so it runs
     # with `--retries=1`; the partial-fill spec alone sits through a real ~2-min
