@@ -32,8 +32,7 @@ const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
 const mockReleaseNoteIds = jest.fn((..._args: unknown[]) => Promise.resolve(undefined));
 jest.mock('lib/miden/note-quarantine', () => ({
   importedNoteIds: (notes: string[] | undefined) => (notes ?? []).map(n => `id:${n}`),
-  noteIdFromBytes: (bytes: Uint8Array) =>
-    jest.requireActual('lib/miden/note-quarantine').noteIdFromBytes(bytes),
+  noteIdFromBytes: (bytes: Uint8Array) => jest.requireActual('lib/miden/note-quarantine').noteIdFromBytes(bytes),
   quarantineNoteIds: jest.fn(),
   releaseNoteIds: (...args: unknown[]) => mockReleaseNoteIds(...args)
 }));
