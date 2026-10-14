@@ -1572,7 +1572,7 @@ describe('EvmBridgeDepositScreen native session chain', () => {
     expect(prepareNativeSessionChain).toHaveBeenCalledWith(SEPOLIA);
     expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
     expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', { error: 'evmChainNotApproved' });
-    expect(screen.getByTestId('deposit-status')).toBeInTheDocument();
+    expect(await screen.findByTestId('deposit-status')).toBeInTheDocument();
   });
 
   it('fails a Slow USDC deposit with the reconnect message before the approval prompt', async () => {
@@ -1600,7 +1600,7 @@ describe('EvmBridgeDepositScreen native session chain', () => {
     expect(prepareNativeSessionChain).toHaveBeenCalledWith(SEPOLIA);
     expect(epochState.executeEVMToMiden).not.toHaveBeenCalled();
     expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', { error: 'evmChainNotApproved' });
-    expect(screen.getByTestId('deposit-status')).toBeInTheDocument();
+    expect(await screen.findByTestId('deposit-status')).toBeInTheDocument();
   });
 
   it('starts the Fast deposit once the session approved Sepolia', async () => {
