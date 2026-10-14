@@ -18,6 +18,8 @@ import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { isExtension } from 'lib/platform';
+import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
+import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { initiateUsdcxBurn } from 'lib/usdcx/burn';
@@ -85,6 +87,13 @@ const classifyErrorMock = jest.fn((_error: unknown) => 'rpc');
 jest.mock('lib/miden/swap/bridge-price-allowlist');
 // This realm's bridge config: the real, unloaded one, or the loaded testnet one a case sets.
 let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+let mockBridgeAvailability: FeatureAvailability = { state: 'available' };
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  ...jest.requireActual<typeof import('lib/remote-config/use-feature-availability')>(
+    'lib/remote-config/use-feature-availability'
+  ),
+  useFeatureAvailability: jest.fn(() => mockBridgeAvailability)
+}));
 jest.mock('lib/remote-config/runtime', () =>
   jest
     .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
@@ -405,7 +414,10 @@ const breachAssessment = (overrides: Record<string, unknown> = {}) => ({
 const ORIGINAL_ENV = { ...process.env };
 
 beforeEach(() => {
+  mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+  mockBridgeAvailability = { state: 'available' };
   jest.resetAllMocks();
+  jest.mocked(useFeatureAvailability).mockImplementation(() => mockBridgeAvailability);
   mockBurnPreflight = { minimum: 1n, loading: false, error: undefined };
   jest.mocked(initiateUsdcxBurn).mockResolvedValue('burn-tx');
   mockAuthorizationAccountOverride = undefined;
@@ -697,7 +709,7 @@ describe('ReviewTransaction — rendering', () => {
     // Both the amount and its fiat subtitle live inside the review-amount hero —
     // scoping to it is what proves they render together, not just somewhere on the page.
     const hero = within(screen.getByTestId('review-amount'));
-    expect(hero.getByText('5 MDN')).toBeInTheDocument();
+    expect(hero.getByText('5 Test Epoch USDC')).toBeInTheDocument();
     expect(screen.getByTestId('token-logo')).toHaveAttribute('data-faucet-id', MIDEN_USDC_FAUCET);
     // The fiat subtitle renders under the hero value once the token's price is known.
     expect(hero.getByText('approxFiatValue')).toBeInTheDocument();
@@ -708,7 +720,7 @@ describe('ReviewTransaction — rendering', () => {
     // label + reclaim note both present.
     // The reclaim reassurance is one caption under the card, not a note in the expiration row.
     await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
-    expect(screen.getByTestId('review-recall-note').textContent).toBe('recallReturnsNote 5 MDN');
+    expect(screen.getByTestId('review-recall-note').textContent).toBe('recallReturnsNote 5 Test Epoch USDC');
     expect(screen.queryByTestId('row-note')).not.toBeInTheDocument();
     expect(screen.getByText(/^In .+/)).toBeInTheDocument();
     // Relative blocks-until-recall — no block height involved (#308).
@@ -818,10 +830,10 @@ describe('ReviewTransaction — rendering', () => {
     render(<ReviewTransaction />);
     await flush();
 
-    expect(screen.getByText('≈ 10.65 USDC')).toBeInTheDocument();
+    expect(screen.getByText('≈ 10.65 Test Epoch USDC')).toBeInTheDocument();
   });
 
-  it('names the output token the quote names in "you receive"', async () => {
+  it('uses the configured testnet label for the output token in "you receive"', async () => {
     mockDetectedChain = 'ethereum';
     mockEpochQuote = { amount: '2', loading: false, error: null, symbol: 'USDC.e' };
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
@@ -830,7 +842,7 @@ describe('ReviewTransaction — rendering', () => {
     render(<ReviewTransaction />);
     await flush();
 
-    expect(screen.getByText('≈ 2 USDC.e')).toBeInTheDocument();
+    expect(screen.getByText('≈ 2 Test Epoch USDC')).toBeInTheDocument();
   });
 
   // 12.3450 separates the kinds: down reads 12.34 and up 12.35, so only an exact 12.345 is typed.
@@ -1142,6 +1154,24 @@ describe('ReviewTransaction — onSubmit', () => {
     expect(screen.getByTestId('review-error')).toBeInTheDocument();
   });
 
+  it.each<[string, BridgeFeature]>([
+    ['agglayer', 'bridgeOut'],
+    ['epoch', 'fastBridgeOut']
+  ])('blocks a direct review link when the selected %s withdrawal is off', async (route, feature) => {
+    mockDetectedChain = 'ethereum';
+    mockSearch = `amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=${route}`;
+    mockBalanceData = [VALID_TOKEN];
+    mockBridgeAvailability = { state: 'unavailable', reason: 'off', detail: 'route is off' };
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(useFeatureAvailability).toHaveBeenLastCalledWith(feature, { hold: true, chainId: 11155111 });
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    await clickSubmit();
+    expect(initiateB2AggBridgeMock).not.toHaveBeenCalled();
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
+  });
+
   it('bridges over the Slow route with the faucet of the token being sent', async () => {
     mockDetectedChain = 'ethereum';
     mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
@@ -1152,7 +1182,7 @@ describe('ReviewTransaction — onSubmit', () => {
 
     await clickSubmit();
 
-    expect(isAgglayerFaucetAllowed).toHaveBeenCalledWith('tok1', 'https://rpc.review.example');
+    expect(isAgglayerFaucetAllowed).toHaveBeenCalledWith('tok1', 'https://rpc.review.example', 11155111);
     expect(initiateB2AggBridgeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         amount: 12345n,

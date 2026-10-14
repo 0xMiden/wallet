@@ -78,6 +78,16 @@ const scanQRCodeMock = jest.fn();
 const isMobileMock = jest.fn(() => true);
 const clipboardReadMock = jest.fn();
 // The bridged price entries the testnet config names (the manual mock beside the module).
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(
+      () =>
+        jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+          .TEST_BRIDGE_CONFIG_SNAPSHOT
+    )
+);
+
 jest.mock('lib/miden/swap/bridge-price-allowlist');
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: () => clipboardReadMock() } }));
 // The token prices under test follow the default rule, no price without a quote; pinned here against
@@ -246,7 +256,7 @@ jest.mock('./bridge-networks', () => {
       return mockBridgeNetworks;
     },
     getBridgeNetwork: jest.fn(),
-    USDCX_BRIDGE_NETWORKS: usdcxNetworks,
+    usdcxBridgeNetworks: () => usdcxNetworks,
     DEFAULT_USDCX_BRIDGE_NETWORK: usdcxNetworks[0],
     isUsdcxBridgeNetwork: (id: string | undefined) => usdcxNetworks.some(n => n.id === id),
     isEpochBridgeNetwork: (id: string | undefined) => id === sepolia.id,

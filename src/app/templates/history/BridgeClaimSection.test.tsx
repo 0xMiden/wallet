@@ -5,6 +5,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { IHistoryEntry } from './IHistoryEntry';
 
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
+
 // t(key) echoes `t:<key>` so we can assert which label branch rendered.
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => `t:${key}` })
@@ -167,6 +169,21 @@ describe('BridgeClaimSection', () => {
     mockEvm = { provider: null, address: undefined, isConnected: false, connect: jest.fn() };
     mockFindExitDeposit.mockReset().mockImplementation(async () => null);
     mockTrackerPolls.splice(0);
+  });
+
+  it('uses a saved route for lookup and reconnect after the remote route is removed', async () => {
+    const route: AgglayerRecoveryConfig = {
+      chainId: 84532,
+      contractAddress: '0x00000000000000000000000000000000000000b3',
+      midenBridgeId: '0x187cabbc404359d16be94954ca9879',
+      indexerUrl: 'https://saved-indexer.example/api',
+      rollupId: 73,
+      evmNetworkId: 6
+    };
+    renderSection({ entry: agglayer({ bridgeAgglayerRoute: route }) });
+    await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xexit', undefined, route));
+    fireEvent.click(screen.getByText('t:connectEvmWallet'));
+    expect(mockEvm.connect).toHaveBeenCalledWith(84532);
   });
 
   describe('failed Epoch bridge-out reclaim', () => {
@@ -548,7 +565,7 @@ describe('BridgeClaimSection', () => {
         })
       });
 
-      await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xrow-a-exit', 41));
+      await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xrow-a-exit', 41, undefined));
       fireEvent.click(await screen.findByText('t:claimAsset'));
       await waitFor(() =>
         expect(mockClaimAgglayer).toHaveBeenCalledWith(
@@ -564,7 +581,9 @@ describe('BridgeClaimSection', () => {
       );
       renderSection({ entry: agglayer({ bridgeAgglayerExitTxHash: '0xrow-b-exit' }) });
 
-      await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xrow-b-exit', undefined));
+      await waitFor(() =>
+        expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xrow-b-exit', undefined, undefined)
+      );
       // The claim button stays disabled on "Claim Pending" (the same label also
       // renders in the status row) and never offers row A's deposit.
       expect(screen.getByRole('button', { name: 't:claimPending' })).toBeDisabled();
@@ -645,7 +664,7 @@ describe('BridgeClaimSection', () => {
       fireEvent.click(await screen.findByText('t:claimAsset'));
 
       expect(await screen.findByText('t:claimAssetSubmitted')).toBeInTheDocument();
-      expect(mockFindExitDeposit).toHaveBeenLastCalledWith('0xdead', '0xexit', 5);
+      expect(mockFindExitDeposit).toHaveBeenLastCalledWith('0xdead', '0xexit', 5, undefined);
       expect(mockUpdateBridgeClaimStatus).toHaveBeenCalledWith(
         'tx-1',
         'claimed',
@@ -765,7 +784,7 @@ describe('BridgeClaimSection', () => {
     it('polls an Unconfirmed row by its exit hash, with no transaction id (#1081)', async () => {
       renderSection({ entry: agglayer({ status: UNCONFIRMED, isUnconfirmed: true, externalTxId: undefined }) });
       expect(mockTrackerActive).toHaveBeenLastCalledWith(true);
-      await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xexit', undefined));
+      await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xexit', undefined, undefined));
     });
 
     it('never polls a restored Unconfirmed row, though it has an exit hash (#1081)', async () => {
@@ -789,7 +808,9 @@ describe('BridgeClaimSection', () => {
       it('reads Not confirmed and keeps the claim UI open while no deposit has been found', async () => {
         const row = agglayer({ status: FAILED, isUnconfirmed: true, bridgeAgglayerExitTxHash: '0xrow-exit' });
         renderSection({ entry: row });
-        await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xrow-exit', undefined));
+        await waitFor(() =>
+          expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xrow-exit', undefined, undefined)
+        );
         expect(screen.getByText(/t:notConfirmed/)).toBeInTheDocument();
         expect(screen.queryByText(/t:bridgeFailed/)).not.toBeInTheDocument();
         expect(screen.getByText('t:connectEvmWallet')).toBeInTheDocument();
@@ -811,7 +832,7 @@ describe('BridgeClaimSection', () => {
       // The exit hash binds the lookup, so a row whose Miden transaction id was never read still polls.
       it('looks up a row with an exit hash and no transaction id', async () => {
         renderSection({ entry: agglayer({ status: FAILED, isUnconfirmed: true, externalTxId: undefined }) });
-        await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xexit', undefined));
+        await waitFor(() => expect(mockFindExitDeposit).toHaveBeenCalledWith('0xdead', '0xexit', undefined, undefined));
       });
 
       it('reads Not confirmed with no lookup and no claim UI when the row has no exit hash', () => {

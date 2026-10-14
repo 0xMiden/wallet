@@ -1,5 +1,20 @@
 # Remote Epoch and Agglayer config - Design
 
+## Contract update: 2026-10-14
+
+This update replaces the document shape and recovery rules below.
+
+- `features` contains only `earn`. It controls new Earn deposits independently of bridge direction switches.
+- `bridge-providers` contains the shared Epoch, AggLayer, and USDCx service settings. Epoch has `allocatorUrl`, `positionsUrl`, and optional named `outputs`. Only testnet uses `usdc-testnet-output.faucetId`. Earn markets come from the existing Epoch positions response.
+- `supportedEvmChains` is an object keyed by the chain slug. Each entry has `chainId` and `bridges`. Each bridge has separate `depositEnabled` and `withdrawalEnabled` values. A listed chain alone does not enable a bridge.
+- Epoch chain entries contain `tokens.USDC.contractAddress` and optional output names. AggLayer chain entries contain `contractAddress` and `midenBridgeId`. USDCx chain entries contain `domain`, `tokens.USDC.contractAddress`, and optional deposit and executor settings.
+- A USDCx deposit uses either `{ route: "xreserve", xReserve }` or `{ route: "executor", executorChain, tokenMessenger, tokenMessengerWithFees }`. `executorChain` names another listed chain with an xReserve route and `{ address, handler }` executor settings. That target can have both new-transfer directions disabled.
+- WalletConnect, AppKit, and native connections use the remote chain list and the shared compiled chain registry. Recovery can request a known chain saved on a transfer.
+- New transfers save the values needed for recovery. A disabled direction does not prevent status checks, claims, reclaims, Earn withdrawal, or completion of an active transfer. Existing USDCx payout checks keep the accepted fee allowance and bounded transfer lookup.
+- Swap, onboarding, and the mainnet countdown keep their existing settings. This task updates the testnet document. A mainnet document is a later task.
+
+The previous single `evm.chainId`, top-level bridge settings, and bridge feature switches are not part of the new document.
+
 **Decision:** The wallet reads a small per-network JSON document from the `main` branch of a dedicated repo, derives every other Epoch and Agglayer value from chain and from the services themselves at runtime, and greys out each affected feature when what it needs is missing, undeployed, or down.
 
 ## Goal
@@ -67,14 +82,14 @@ Deploying Epoch and Agglayer contracts is the last step of a network deployment,
 
 New module `src/lib/remote-config/`:
 
-| File | Responsibility |
-|---|---|
-| `schema.ts` | Types and hand-written guards for the document, in the style of `src/lib/update/guards.ts` |
-| `source.ts` | URL for the effective network, bounded fetch (32 KB, 10 s, reusing `src/lib/remote-json.ts`), version floor, storage |
-| `derive.ts` | Chain and service reads that turn the document into everything the consumers need |
-| `availability.ts` | Feature states from the document, the derived values and the switches |
-| `runtime.ts` | Poll scheduler, in-memory snapshot and change subscription |
-| `use-feature-availability.ts` | The `useBridgeConfigSnapshot`, `useFeatureAvailability` and `useAnyFeatureAvailability` hooks |
+| File                          | Responsibility                                                                                                       |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `schema.ts`                   | Types and hand-written guards for the document, in the style of `src/lib/update/guards.ts`                           |
+| `source.ts`                   | URL for the effective network, bounded fetch (32 KB, 10 s, reusing `src/lib/remote-json.ts`), version floor, storage |
+| `derive.ts`                   | Chain and service reads that turn the document into everything the consumers need                                    |
+| `availability.ts`             | Feature states from the document, the derived values and the switches                                                |
+| `runtime.ts`                  | Poll scheduler, in-memory snapshot and change subscription                                                           |
+| `use-feature-availability.ts` | The `useBridgeConfigSnapshot`, `useFeatureAvailability` and `useAnyFeatureAvailability` hooks                        |
 
 - **Network:** `getEffectiveNetworkName()`, so the Developer Settings network override is honoured. Localnet and mainnet have no document today; a 404 makes every feature not configured.
 - **Startup load:** each realm hydrates the stored document and derived snapshot into memory when it starts, and every consumer reads them synchronously. The service worker awaits that hydration in `start()` before its handlers run; pages start it at app mount without blocking render, since their entry points stay greyed until the snapshot is ready. A realm with nothing stored starts the first fetch without waiting for it.
@@ -86,29 +101,29 @@ New module `src/lib/remote-config/`:
 
 Only while the wallet is open; a closed wallet needs no config.
 
-| State | When it fetches the document and re-runs the checks |
-|---|---|
-| Every feature available | Every 60 min, and on open or foreground when the copy is older than 15 min |
-| A greyed-out control is on screen | Every 60 s |
-| Some feature unavailable, none on screen | Every 5 min |
-| Fetch errors | Exponential backoff, capped at 15 min |
+| State                                    | When it fetches the document and re-runs the checks                        |
+| ---------------------------------------- | -------------------------------------------------------------------------- |
+| Every feature available                  | Every 60 min, and on open or foreground when the copy is older than 15 min |
+| A greyed-out control is on screen        | Every 60 s                                                                 |
+| Some feature unavailable, none on screen | Every 5 min                                                                |
+| Fetch errors                             | Exponential backoff, capped at 15 min                                      |
 
 "On screen" means the greyed-out control's page reports `usePageActive()`: tab panes and covered slide layers stay mounted while hidden, so mounting alone does not count. The raw CDN caches for about 5 minutes, so a new document reaches a wallet within one poll interval plus that.
 
 ## Derived values
 
-| Value | Read from | Used by |
-|---|---|---|
-| Rollup id (86 on testnet) | Miden bridge account, value slot `agglayer::bridge::network_id` | `bridgeAsset` destination network; indexer `network_id` of Miden exits |
+| Value                                                                     | Read from                                                                                                                | Used by                                                                                     |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| Rollup id (86 on testnet)                                                 | Miden bridge account, value slot `agglayer::bridge::network_id`                                                          | `bridgeAsset` destination network; indexer `network_id` of Miden exits                      |
 | Registered faucets: Miden faucet, origin token address and network, scale | Bridge account maps `agglayer::bridge::faucet_registry_map` and `faucet_metadata_map`, read whole with `getAccountProof` | Bridge out eligibility (as today), the native-ETH faucet for bridge-in matching and pricing |
-| Bridge-in note sender | The registered faucet whose origin is native ETH on network 0, which mints and sends the delivery note (verified live) | Bridge-in matching, which stays ETH-only as today |
-| EVM-side network id (0) | L1 bridge `networkID()` | Bridge out destination network; indexer `dest_net` |
-| Contract existence | `eth_getCode` at `l1Bridge` and `evmUsdc`; Miden account lookup for `midenBridge` and `midenUsdcFaucet` | Not-deployed detection |
-| Symbols and decimals | Miden faucet metadata (`fetchTokenMetadata`); ERC-20 `symbol()` and `decimals()` | Display and amount parsing |
-| Earn market uid | The Epoch SDK's market-uid helper over `evm.chainId` and `evmUsdc` | Earn mandate and positions filter |
-| Epoch collateral recipient and minimum reclaim | Allocator `/miden-recipient`, per intent (unchanged) | Fast bridge, Earn |
-| Service health | Allocator `/health`, positions `/health`, indexer `/healthz` | Service-down detection |
-| Miden virtual chain id (999999999) | Epoch SDK constant | Unchanged |
+| Bridge-in note sender                                                     | The registered faucet whose origin is native ETH on network 0, which mints and sends the delivery note (verified live)   | Bridge-in matching, which stays ETH-only as today                                           |
+| EVM-side network id (0)                                                   | L1 bridge `networkID()`                                                                                                  | Bridge out destination network; indexer `dest_net`                                          |
+| Contract existence                                                        | `eth_getCode` at `l1Bridge` and `evmUsdc`; Miden account lookup for `midenBridge` and `midenUsdcFaucet`                  | Not-deployed detection                                                                      |
+| Symbols and decimals                                                      | Miden faucet metadata (`fetchTokenMetadata`); ERC-20 `symbol()` and `decimals()`                                         | Display and amount parsing                                                                  |
+| Earn market uid                                                           | The Epoch SDK's market-uid helper over `evm.chainId` and `evmUsdc`                                                       | Earn mandate and positions filter                                                           |
+| Epoch collateral recipient and minimum reclaim                            | Allocator `/miden-recipient`, per intent (unchanged)                                                                     | Fast bridge, Earn                                                                           |
+| Service health                                                            | Allocator `/health`, positions `/health`, indexer `/healthz`                                                             | Service-down detection                                                                      |
+| Miden virtual chain id (999999999)                                        | Epoch SDK constant                                                                                                       | Unchanged                                                                                   |
 
 - The derived snapshot is computed after each accepted document and on the poll schedule, and persisted with the document's version.
 - The bridge-out registry check for the faucet being sent stays a fresh single-entry read, as `isAgglayerFaucetAllowed` does today.
@@ -125,13 +140,13 @@ Each feature resolves to `available` or one unavailable reason, in this order:
 3. `not-deployed`: a contract has no code, a Miden account does not exist, or the registry lists no usable token. A confirmed absence, not an error.
 4. `service-down`: an RPC or HTTP call it needs failed or timed out. Retried on the schedule.
 
-| Feature | Needs |
-|---|---|
-| Earn deposit | `earn`; allocator healthy; `midenUsdcFaucet` exists; `evmUsdc` has code |
-| Fast bridge out (Miden to EVM) | `fastBridge`; allocator healthy; `evmUsdc` has code |
-| Fast bridge in (EVM to Miden) | `fastBridge`; allocator healthy; `evmUsdc` has code; `midenUsdcFaucet` exists |
-| Bridge in | `bridgeIn`; `l1Bridge` has code; `midenBridge` exists and its registry lists at least one token; indexer healthy |
-| Bridge out | `bridgeOut`; `midenBridge` exists and its registry lists the faucet being sent; the L1 bridge's `networkID()` was read (the note's destination network) |
+| Feature                        | Needs                                                                                                                                                   |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Earn deposit                   | `earn`; allocator healthy; `midenUsdcFaucet` exists; `evmUsdc` has code                                                                                 |
+| Fast bridge out (Miden to EVM) | `fastBridge`; allocator healthy; `evmUsdc` has code                                                                                                     |
+| Fast bridge in (EVM to Miden)  | `fastBridge`; allocator healthy; `evmUsdc` has code; `midenUsdcFaucet` exists                                                                           |
+| Bridge in                      | `bridgeIn`; `l1Bridge` has code; `midenBridge` exists and its registry lists at least one token; indexer healthy                                        |
+| Bridge out                     | `bridgeOut`; `midenBridge` exists and its registry lists the faucet being sent; the L1 bridge's `networkID()` was read (the note's destination network) |
 
 `useFeatureAvailability(feature)` drives every entry point: the Earn deposit entry, the Fast and Slow route options in Send, Receive "Cross Chain", `/bridge/deposit` and the deposit screen's route options. `isBridgeDepositEnabled()` and `isBridgeableEvmTokenConfigured()` are replaced by it.
 
@@ -157,13 +172,13 @@ Every Earn and bridge suite keeps running exactly where it runs today, with the 
   - `MockUsdc` gains `symbol()` returning `USDC`, and its `decimals()` becomes 18 to match the Sepolia token at `0x2BB4...` (today it returns 6, while the wallet requires 18). The fakes that copy 6 are updated with it.
   - The Chrome fake allocator's `/health` returns the SDK's `HealthCheckResponse` shape. The iOS fake allocator gains `/health` and `/miden-recipient`.
 
-| Suite | Document | Derived from | Overrides kept |
-|---|---|---|---|
-| Earn (`pr-e2e-earn.yml`, local node) | Served: allocator `:8548`, positions `:8549`, chain 11155111, `evmUsdc` at the Anvil mock, no `midenUsdcFaucet` (the hook supplies it), no `agglayer` section, `earn` and `fastBridge` on | Fake allocator, Anvil mock, local node | `__TEST_SET_EARN_FAUCET__` (the collateral faucet is created per test) |
-| Guardian Fast bridge-out (`pr-e2e-bridge-guardian.yml`, local node) | Same as Earn | Same | None |
-| Bridge-out (`e2e-bridge.yml`, testnet) | The published `testnet.json`, no override | Real testnet bridge account, real Sepolia | `__TEST_ALLOW_AGGLAYER_FAUCET__` (the CLI faucet is not in the real registry); it now supplies the faucet's whole registry entry, including origin token and scale |
-| Bridge-in (`e2e-bridge-in.yml`, iOS, testnet plus Anvil) | Served: testnet `midenBridge`, indexer and `midenUsdcFaucet`, `l1Bridge` and `evmUsdc` at the Anvil mocks, allocator `:8548`, all switches on | Live testnet bridge account (rollup id 86, as the spec asserts), Anvil mocks | `__TEST_SET_AGGLAYER_SENDER__` (the delivering faucet is a CLI faucet) |
-| `yarn e2e:real` | The published document | Real services throughout | None. Its preflight reads the document instead of its own address table (`scripts/e2e-real.mjs:35-38`) |
+| Suite                                                               | Document                                                                                                                                                                                  | Derived from                                                                 | Overrides kept                                                                                                                                                     |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Earn (`pr-e2e-earn.yml`, local node)                                | Served: allocator `:8548`, positions `:8549`, chain 11155111, `evmUsdc` at the Anvil mock, no `midenUsdcFaucet` (the hook supplies it), no `agglayer` section, `earn` and `fastBridge` on | Fake allocator, Anvil mock, local node                                       | `__TEST_SET_EARN_FAUCET__` (the collateral faucet is created per test)                                                                                             |
+| Guardian Fast bridge-out (`pr-e2e-bridge-guardian.yml`, local node) | Same as Earn                                                                                                                                                                              | Same                                                                         | None                                                                                                                                                               |
+| Bridge-out (`e2e-bridge.yml`, testnet)                              | The published `testnet.json`, no override                                                                                                                                                 | Real testnet bridge account, real Sepolia                                    | `__TEST_ALLOW_AGGLAYER_FAUCET__` (the CLI faucet is not in the real registry); it now supplies the faucet's whole registry entry, including origin token and scale |
+| Bridge-in (`e2e-bridge-in.yml`, iOS, testnet plus Anvil)            | Served: testnet `midenBridge`, indexer and `midenUsdcFaucet`, `l1Bridge` and `evmUsdc` at the Anvil mocks, allocator `:8548`, all switches on                                             | Live testnet bridge account (rollup id 86, as the spec asserts), Anvil mocks | `__TEST_SET_AGGLAYER_SENDER__` (the delivering faucet is a CLI faucet)                                                                                             |
+| `yarn e2e:real`                                                     | The published document                                                                                                                                                                    | Real services throughout                                                     | None. Its preflight reads the document instead of its own address table (`scripts/e2e-real.mjs:35-38`)                                                             |
 
 - On the local node, the Slow routes show "not configured", which no localnet spec exercises today. The node's genesis does create an Agglayer bridge account, but with a random id, network id 77 and an empty registry, and the harness does not use it.
 - No E2E covers the L1 claim today; that stays with #1325.

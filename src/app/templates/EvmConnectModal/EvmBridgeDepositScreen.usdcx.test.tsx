@@ -1,3 +1,12 @@
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+      .TEST_BRIDGE_CONFIG_SNAPSHOT,
+  subscribeBridgeConfig: () => () => {},
+  initBridgeConfig: async () => {},
+  holdFastPoll: () => () => {}
+}));
+
 import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
@@ -475,9 +484,9 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(mockSwitchChain.mock.calls).toEqual(native ? [] : [[{ chainId: 5042002 }]]);
   });
 
-  it('offers the source-chain picker on the USDCx route only, with the xReserve and executor chains', async () => {
+  it('offers the source-chain picker with the configured routes', async () => {
     renderScreen();
-    expect(screen.queryByTestId('open-network-drawer')).not.toBeInTheDocument();
+    expect(screen.getByTestId('open-network-drawer')).toBeInTheDocument();
     await pickToken('pick-circle-usdc');
     fireEvent.click(screen.getByTestId('open-network-drawer'));
     await settle();

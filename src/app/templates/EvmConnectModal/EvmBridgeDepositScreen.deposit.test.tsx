@@ -13,7 +13,7 @@ import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'li
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { NativeReown } from 'lib/walletconnect/native';
-import { readSepoliaErc20Allowance, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
+import { readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 
@@ -40,37 +40,50 @@ jest.mock('wagmi', () => ({
 
 // The Fast USDC pair and the Slow route's L1 bridge come from the bridge config. As in the runtime, every publish is
 // a new snapshot object, and as the real selectors do, the ones below build new objects from it on every call.
+interface MockConfigFields {
+  chainId: number;
+  allocatorUrl: string;
+  evmUsdc: string;
+  midenUsdcFaucet: string;
+}
+function mockConfigFor({ chainId, allocatorUrl, evmUsdc, midenUsdcFaucet }: MockConfigFields) {
+  return {
+    'bridge-providers': { epoch: { allocatorUrl, outputs: { 'usdc-testnet-output': { faucetId: midenUsdcFaucet } } } },
+    supportedEvmChains: { source: { chainId, bridges: { epoch: { tokens: { USDC: { contractAddress: evmUsdc } } } } } }
+  };
+}
 interface MockSnapshot {
   status: 'loading' | 'ready';
-  config: {
-    evm: { chainId: number };
-    epoch: { allocatorUrl: string; evmUsdc: string; midenUsdcFaucet: string };
-  } | null;
+  config: ReturnType<typeof mockConfigFor> | null;
   lastFetch: { at: number; ok: boolean } | null;
+}
+function updateMockConfig(config: ReturnType<typeof mockConfigFor>, fields: Partial<MockConfigFields>) {
+  return mockConfigFor({
+    chainId: config.supportedEvmChains.source.chainId,
+    allocatorUrl: config['bridge-providers'].epoch.allocatorUrl,
+    evmUsdc: config.supportedEvmChains.source.bridges.epoch.tokens.USDC.contractAddress,
+    midenUsdcFaucet: config['bridge-providers'].epoch.outputs['usdc-testnet-output'].faucetId,
+    ...fields
+  });
 }
 const READY_SNAPSHOT: MockSnapshot = {
   status: 'ready',
-  config: {
-    evm: { chainId: 84532 },
-    epoch: {
-      allocatorUrl: 'https://allocator.test',
-      evmUsdc: '0x00000000000000000000000000000000000000c0',
-      midenUsdcFaucet: '0x00000000000000000000000000e2e0'
-    }
-  },
+  config: mockConfigFor({
+    chainId: 11155111,
+    allocatorUrl: 'https://allocator.test',
+    evmUsdc: '0x00000000000000000000000000000000000000c0',
+    midenUsdcFaucet: '0x00000000000000000000000000e2e0'
+  }),
   lastFetch: null
 };
-/** The screen's own snapshot naming the testnet USDC pair the runtime fixture names. */
 const TESTNET_SNAPSHOT: MockSnapshot = {
   status: 'ready',
-  config: {
-    evm: { chainId: TEST_EVM_CHAIN_ID },
-    epoch: {
-      allocatorUrl: 'https://allocator.test',
-      evmUsdc: TEST_EVM_USDC.address,
-      midenUsdcFaucet: TEST_MIDEN_USDC_FAUCET
-    }
-  },
+  config: mockConfigFor({
+    chainId: TEST_EVM_CHAIN_ID,
+    allocatorUrl: 'https://allocator.test',
+    evmUsdc: TEST_EVM_USDC.address,
+    midenUsdcFaucet: TEST_MIDEN_USDC_FAUCET
+  }),
   lastFetch: null
 };
 let mockSnapshot = READY_SNAPSHOT;
@@ -122,13 +135,42 @@ jest.mock('lib/agglayer', () => ({
 }));
 // The symbol the Sepolia token read gave the configured USDC.
 let mockEvmUsdcSymbol = 'USDC';
+let mockAgglayerChainId = 11155111;
 jest.mock('lib/remote-config/values', () => ({
+  selectAgglayerRecoveryConfig: () => ({
+    chainId: mockAgglayerChainId,
+    contractAddress: '0x00000000000000000000000000000000000000b2',
+    midenBridgeId: '0x3b66e20b5088f25133b69216484652',
+    indexerUrl: 'https://indexer.test',
+    rollupId: 77,
+    evmNetworkId: 0
+  }),
+  selectAgglayerChain: () => ({
+    chainId: mockAgglayerChainId,
+    bridges: {
+      agglayer: {
+        contractAddress: '0x00000000000000000000000000000000000000b2',
+        midenBridgeId: '0x3b66e20b5088f25133b69216484652'
+      }
+    }
+  }),
   selectEvmUsdc: ({ config }: MockSnapshot) =>
     config
-      ? { address: config.epoch.evmUsdc, symbol: mockEvmUsdcSymbol, decimals: 18, chainId: config.evm.chainId }
+      ? {
+          address: config.supportedEvmChains.source.bridges.epoch.tokens.USDC.contractAddress,
+          symbol: mockEvmUsdcSymbol,
+          decimals: 18,
+          chainId: config.supportedEvmChains.source.chainId
+        }
       : null,
   selectMidenUsdc: ({ config }: MockSnapshot) =>
-    config ? { faucetId: config.epoch.midenUsdcFaucet, symbol: 'USDC', decimals: 6 } : null,
+    config
+      ? {
+          faucetId: config['bridge-providers'].epoch.outputs['usdc-testnet-output'].faucetId,
+          symbol: 'USDC',
+          decimals: 6
+        }
+      : null,
   getAgglayerDeposit: () => ({ l1Bridge: '0x00000000000000000000000000000000000000b2', rollupId: 77 })
 }));
 
@@ -198,8 +240,8 @@ jest.mock('lib/walletconnect/native', () => ({
 }));
 
 jest.mock('lib/walletconnect/receipt', () => ({
-  waitForSepoliaReceipt: jest.fn().mockResolvedValue(undefined),
-  readSepoliaErc20Allowance: jest.fn()
+  waitForEvmReceipt: jest.fn().mockResolvedValue(undefined),
+  readEvmErc20Allowance: jest.fn()
 }));
 
 jest.mock('lib/walletconnect/config', () => ({
@@ -448,16 +490,16 @@ const renderScreen = (reportDeposit?: ReportDeposit) => render(depositScreen(rep
 
 type ConfigMove = (config: NonNullable<MockSnapshot['config']>) => MockSnapshot['config'];
 const CONFIG_MOVES: [string, ConfigMove, Record<string, unknown>][] = [
-  ['the allocator', config => ({ ...config, epoch: { ...config.epoch, allocatorUrl: 'https://moved.test' } }), {}],
+  ['the allocator', config => updateMockConfig(config, { allocatorUrl: 'https://moved.test' }), {}],
   [
     'the Miden USDC faucet',
-    config => ({ ...config, epoch: { ...config.epoch, midenUsdcFaucet: '0x00000000000000000000000000e2e1' } }),
+    config => updateMockConfig(config, { midenUsdcFaucet: '0x00000000000000000000000000e2e1' }),
     { midenFaucetId: '0x00000000000000000000000000e2e1' }
   ]
 ];
 const NO_MIDEN_USDC: [string, ConfigMove] = [
   'the Miden USDC faucet, to none',
-  config => ({ ...config, epoch: { ...config.epoch, midenUsdcFaucet: '' } })
+  config => updateMockConfig(config, { midenUsdcFaucet: '' })
 ];
 
 /** Quotes as the store does, quoting then quoted, and renders each landed quote as its subscribers would. */
@@ -473,6 +515,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockAvailability = {};
+    mockAgglayerChainId = 11155111;
     mockSnapshot = READY_SNAPSHOT;
     mockTestNetwork = 'testnet';
     mockEvmUsdcSymbol = 'USDC';
@@ -700,7 +743,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
 
     expect(quoteEVMToMiden).toHaveBeenCalledWith(
       expect.objectContaining({
-        sourceChainId: 84532,
+        sourceChainId: 11155111,
         evmTokenAddress: '0x00000000000000000000000000000000000000c0',
         midenFaucetId: '0x00000000000000000000000000e2e0',
         minTokenOut: '1500000'
@@ -739,7 +782,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(quoteEVMToMiden).toHaveBeenCalledTimes(2);
     expect(quoteEVMToMiden).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        sourceChainId: 84532,
+        sourceChainId: 11155111,
         evmTokenAddress: '0x00000000000000000000000000000000000000c0',
         midenFaucetId: '0x00000000000000000000000000e2e0',
         minTokenOut: '1500000',
@@ -1016,7 +1059,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
       jest.mocked(epochState.reset).mockClear();
 
       const config = READY_SNAPSHOT.config!;
-      const moved = { ...config, epoch: { ...config.epoch, allocatorUrl: 'https://moved.test' } };
+      const moved = updateMockConfig(config, { allocatorUrl: 'https://moved.test' });
       act(() => publishSnapshot({ ...READY_SNAPSHOT, config: moved }));
       await settle();
 
@@ -1186,7 +1229,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(ethReads()).toBe(1);
 
     const config = READY_SNAPSHOT.config!;
-    const moved = { ...config, epoch: { ...config.epoch, evmUsdc: '0x00000000000000000000000000000000000000c1' } };
+    const moved = updateMockConfig(config, { evmUsdc: '0x00000000000000000000000000000000000000c1' });
     act(() => publishSnapshot({ ...READY_SNAPSHOT, config: moved }));
     await settle();
 
@@ -1214,14 +1257,14 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     renderScreen();
 
     await reachReview();
-    expect(lastHold('fastBridgeIn')).toEqual({ hold: true });
-    expect(lastHold('bridgeIn')).toEqual({ hold: true });
+    expect(lastHold('fastBridgeIn')).toEqual({ hold: true, chainId: 11155111 });
+    expect(lastHold('bridgeIn')).toEqual({ hold: true, chainId: 11155111 });
 
     fireEvent.click(screen.getByTestId('confirm-deposit'));
     await settle();
     expect(await screen.findByTestId('deposit-status')).toBeInTheDocument();
-    expect(lastHold('fastBridgeIn')).toEqual({ hold: false });
-    expect(lastHold('bridgeIn')).toEqual({ hold: false });
+    expect(lastHold('fastBridgeIn')).toEqual({ hold: false, chainId: 11155111 });
+    expect(lastHold('bridgeIn')).toEqual({ hold: false, chainId: 11155111 });
   });
 
   it('starts every case from an idle epoch store', () => {
@@ -1241,8 +1284,8 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
   /** The allowance the Sepolia read answers with; a null answer is a failed read. */
   const answerAllowance = (allowance: bigint | null) =>
     allowance === null
-      ? jest.mocked(readSepoliaErc20Allowance).mockRejectedValue(new Error('rpc down'))
-      : jest.mocked(readSepoliaErc20Allowance).mockResolvedValue(allowance);
+      ? jest.mocked(readEvmErc20Allowance).mockRejectedValue(new Error('rpc down'))
+      : jest.mocked(readEvmErc20Allowance).mockResolvedValue(allowance);
 
   const confirmSlowUsdcDeposit = async () => {
     render(depositScreen(undefined, EVM_WALLET));
@@ -1254,6 +1297,7 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockAvailability = {};
+    mockAgglayerChainId = 11155111;
     mockSnapshot = READY_SNAPSHOT;
     mockNativeReown = false;
     jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
@@ -1266,13 +1310,24 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
     mockNativeReown = false;
   });
 
+  it('does not deposit an Epoch USDC token from another chain through AggLayer', async () => {
+    mockAgglayerChainId = 84532;
+    render(depositScreen(undefined, EVM_WALLET));
+    await reachSlowUsdcReview();
+    expect(screen.queryByTestId('confirm-deposit')).not.toBeInTheDocument();
+    expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
+    expect(readEvmErc20Allowance).not.toHaveBeenCalled();
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+    expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
+  });
+
   it('reads the allowance the wallet gave the L1 bridge on the USDC, through the Sepolia RPC', async () => {
     answerAllowance(DEPOSIT);
 
     await confirmSlowUsdcDeposit();
 
-    expect(readSepoliaErc20Allowance).toHaveBeenCalledTimes(1);
-    expect(readSepoliaErc20Allowance).toHaveBeenCalledWith(USDC, EVM_WALLET, L1_BRIDGE);
+    expect(readEvmErc20Allowance).toHaveBeenCalledTimes(1);
+    expect(readEvmErc20Allowance).toHaveBeenCalledWith(USDC, EVM_WALLET, L1_BRIDGE, 11155111);
   });
 
   it.each([
@@ -1288,7 +1343,7 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
       expect.objectContaining({ chainId: 11155111, address: L1_BRIDGE, functionName: 'bridgeAsset', value: 0n })
     );
     // The one receipt is the deposit's.
-    expect(waitForSepoliaReceipt).toHaveBeenCalledTimes(1);
+    expect(waitForEvmReceipt).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -1310,7 +1365,7 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
       })
     );
     expect(mockMutateAsync).toHaveBeenNthCalledWith(2, expect.objectContaining({ functionName: 'bridgeAsset' }));
-    expect(waitForSepoliaReceipt).toHaveBeenCalledTimes(2);
+    expect(waitForEvmReceipt).toHaveBeenCalledTimes(2);
   });
 
   it('sends no approval through native Reown when the allowance covers the deposit', async () => {
@@ -1354,7 +1409,7 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
     fireEvent.click(screen.getByTestId('confirm-deposit'));
     await settle();
 
-    expect(readSepoliaErc20Allowance).not.toHaveBeenCalled();
+    expect(readEvmErc20Allowance).not.toHaveBeenCalled();
     expect(mockMutateAsync).toHaveBeenCalledTimes(1);
     expect(mockMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ functionName: 'bridgeAsset' }));
   });

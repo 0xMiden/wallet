@@ -1,6 +1,6 @@
 import { IBridgedReceivePhase, IUsdcxCctpLeg } from 'lib/miden/db/types';
 import { isCctpForwardFailed } from 'lib/usdcx/cctp';
-import { getUsdcxExecutorSource, getUsdcxSourceChain, isUsdcxExecutorSource } from 'lib/usdcx/constant';
+import { usdcxSourceChains, UsdcxSourceChain } from 'lib/usdcx/constant';
 import type { TransactionStepState } from 'screens/generating-transaction/types';
 
 /** One step of a USDCx deposit, as the status screen and the Activity detail list them. */
@@ -14,6 +14,7 @@ export interface UsdcxDepositStep {
 
 export interface UsdcxDepositStepsInput {
   sourceChainId?: number;
+  sourceConfig?: UsdcxSourceChain;
   phase: IBridgedReceivePhase;
   cctp?: IUsdcxCctpLeg;
 }
@@ -26,11 +27,17 @@ export interface UsdcxDepositStepsInput {
  * attestation of the CCTP burn, and the execute on Arc, which Circle does for a forwarded burn and the
  * user does otherwise. A failed row marks the step it was on as failed and leaves the rest pending.
  */
-export function usdcxDepositSteps({ sourceChainId, phase, cctp }: UsdcxDepositStepsInput): UsdcxDepositStep[] {
+export function usdcxDepositSteps({
+  sourceChainId,
+  sourceConfig,
+  phase,
+  cctp
+}: UsdcxDepositStepsInput): UsdcxDepositStep[] {
   const failed = phase === 'failed';
-  const sourceName = sourceChainId === undefined ? undefined : getUsdcxSourceChain(sourceChainId).chain.name;
-  const executor = sourceChainId !== undefined && isUsdcxExecutorSource(sourceChainId);
-  const targetName = executor ? getUsdcxExecutorSource(sourceChainId).target.chain.name : undefined;
+  const source = sourceConfig ?? (sourceChainId === undefined ? undefined : usdcxSourceChains().get(sourceChainId));
+  const sourceName = source?.chain.name;
+  const executor = source?.route === 'cctp-executor';
+  const targetName = source?.route === 'cctp-executor' ? source.target.chain.name : undefined;
 
   // Each flag is true once the step it names has happened; later phases imply the earlier steps.
   const sourceDone = phase !== 'submitting';

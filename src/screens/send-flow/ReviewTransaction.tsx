@@ -9,6 +9,7 @@ import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
 import { useNetworkFeeEstimate } from 'app/hooks/useNetworkFeeEstimate';
 import { formatMoneyAmount } from 'app/templates/history/transactionUtils';
 import { Button, ButtonVariant } from 'components/Button';
+import { FeatureUnavailableNotice, isFeatureBlocked } from 'components/FeatureUnavailable';
 import { NetworkLogo } from 'components/NetworkChip';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge, SpendingLimitChallengeProps } from 'components/SpendingLimitChallenge';
@@ -38,7 +39,8 @@ import { NoteTypeEnum } from 'lib/miden/types';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { isExtension } from 'lib/platform';
 import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
-import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import type { BridgeFeature } from 'lib/remote-config/availability';
+import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
 import { classifyError } from 'lib/telemetry';
@@ -107,6 +109,21 @@ export const ReviewTransaction: React.FC = () => {
   // A 0x recipient bridges to an EVM chain instead of a same-chain Miden send.
   const isBridge = !!to && detectAddressChain(to) === 'ethereum';
   const bridgeNetworkObj = getBridgeNetwork(network);
+  const bridgeFeature = (): BridgeFeature => {
+    switch (route) {
+      case 'agglayer':
+        return 'bridgeOut';
+      case 'usdcx':
+        return 'usdcxWithdrawal';
+      default:
+        return 'fastBridgeOut';
+    }
+  };
+  const bridgeAvailability = useFeatureAvailability(bridgeFeature(), {
+    hold: isBridge,
+    chainId: bridgeNetworkObj?.chainId
+  });
+  const bridgeBlocked = isBridge && isFeatureBlocked(bridgeAvailability);
 
   // Re-derive the UIToken from balances with SendManager's builder; the URL
   // only carries the token id.
@@ -406,10 +423,11 @@ export const ReviewTransaction: React.FC = () => {
           goToGeneratingTransaction(txId);
         } else if (route === 'agglayer') {
           // This page also opens from its URL, so it re-checks; after the route step that costs no RPC.
-          if (!(await isAgglayerFaucetAllowed(token.id, getEffectiveRpcUrl()))) {
+          if (!(await isAgglayerFaucetAllowed(token.id, getEffectiveRpcUrl(), bridgeNetworkObj?.chainId))) {
             throw new Error(t('agglayerTokenUnsupported'));
           }
           const txId = await initiateB2AggBridge({
+            destinationChainId: bridgeNetworkObj?.chainId,
             amount: amountBaseUnits,
             faucetId: token.id,
             destinationAddress: to as `0x${string}`,
@@ -421,6 +439,7 @@ export const ReviewTransaction: React.FC = () => {
           goToGeneratingTransaction(txId);
         } else {
           await bridgeEpochSend({
+            destinationChainId: bridgeNetworkObj?.chainId,
             amount: amountBaseUnits,
             faucetId: token.id,
             destinationAddress: to as `0x${string}`,
@@ -477,6 +496,7 @@ export const ReviewTransaction: React.FC = () => {
   );
 
   const onSubmit = useCallback(async () => {
+    if (bridgeBlocked) return;
     if (isSubmitting || !token || !publicKey || amountBaseUnits === undefined) return;
     if (!token.scaleIsKnown) {
       setSubmitError(t('unknownTokenScale'));
@@ -519,6 +539,7 @@ export const ReviewTransaction: React.FC = () => {
       setIsSubmitting(false);
     }
   }, [
+    bridgeBlocked,
     amountBaseUnits,
     assessSpendingLimit,
     isBridge,
@@ -652,7 +673,10 @@ export const ReviewTransaction: React.FC = () => {
               // CTA only to be refused reads as a wallet fault rather than a
               // deliberate refusal.
               disabled={
-                isSubmitting || scaleIsUnknown || (isUsdcxBurn && (burnPreflight.loading || !!burnValidationError))
+                bridgeBlocked ||
+                isSubmitting ||
+                scaleIsUnknown ||
+                (isUsdcxBurn && (burnPreflight.loading || !!burnValidationError))
               }
               data-testid="send-review-submit"
               className="w-full max-w-none"
@@ -660,6 +684,7 @@ export const ReviewTransaction: React.FC = () => {
           </div>
         }
       >
+        {isBridge && <FeatureUnavailableNotice availability={bridgeAvailability} />}
         {/* The amount is the page's hero, in the same place as on the amount step. */}
         <Hero
           data-testid="review-amount"

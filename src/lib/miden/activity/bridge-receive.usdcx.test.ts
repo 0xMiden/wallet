@@ -1,3 +1,10 @@
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
+
 import { BridgedReceiveTransaction, IBridgedReceiveExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import vectors from 'lib/usdcx/attestation.vectors.json';

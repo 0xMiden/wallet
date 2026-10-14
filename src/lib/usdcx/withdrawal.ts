@@ -1,10 +1,11 @@
 import { hexToBytes, isAddress, padHex } from 'viem';
 
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { featureAvailability } from 'lib/remote-config/availability';
+import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 
-import { USDCX_DESTINATIONS, usdcxPayoutFeeShortfall } from './constant';
+import { usdcxDestinations, usdcxPayoutFeeShortfall } from './constant';
 
 export class UsdcxBurnError extends Error {
   /** `values` fills the copy's placeholders, such as the fee allowance a burn must exceed. */
@@ -34,7 +35,7 @@ export function isUsdcxFaucet(faucetId: string | undefined): boolean {
 
 /** Whether the effective network offers USDCx withdrawals at all, before any token is chosen: testnet only. */
 export function isUsdcxWithdrawalNetwork(): boolean {
-  return getEffectiveNetworkName() === 'testnet';
+  return featureAvailability('usdcxWithdrawal', getBridgeConfigSnapshot()).state === 'available';
 }
 
 export function isUsdcxWithdrawalAvailable(faucetId: string | undefined): boolean {
@@ -64,11 +65,15 @@ export function encodeBurnWithdrawal(destinationAddress: string, destinationDoma
 
 /**
  * Whether `destinationChainId` is a destination a burn can pay out to on the effective network:
- * a `USDCX_DESTINATIONS` entry whose chain is a testnet while withdrawals are testnet-only.
+ * a `usdcxDestinations` entry whose chain is a testnet while withdrawals are testnet-only.
  */
 export function isUsdcxDestinationChain(destinationChainId: number): boolean {
-  const entry = USDCX_DESTINATIONS.get(destinationChainId);
-  return !!entry && entry.chain.testnet === true;
+  const entry = usdcxDestinations().get(destinationChainId);
+  return (
+    !!entry &&
+    featureAvailability('usdcxWithdrawal', getBridgeConfigSnapshot(), undefined, destinationChainId).state ===
+      'available'
+  );
 }
 
 export function validateUsdcxWithdrawal(faucetId: string, destinationChainId: number, amount: bigint): void {

@@ -103,7 +103,7 @@ it('still refuses when the web wallet stays on another chain', async () => {
   expect(mockSwitchWebWalletChain).toHaveBeenCalledWith(11155111);
   expect(useEpochStore.getState()).toMatchObject({
     status: 'failed',
-    error: expect.stringContaining('did not switch to Sepolia')
+    error: expect.stringContaining('did not switch to the source chain')
   });
   expect(mockRegister).not.toHaveBeenCalled();
 });

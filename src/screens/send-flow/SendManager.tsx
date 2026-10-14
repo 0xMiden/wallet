@@ -36,13 +36,14 @@ import { AccountsListDrawer } from './AccountsList';
 import { AddContactDrawer } from './AddContactDrawer';
 import {
   BRIDGE_NETWORKS,
+  getBridgeNetwork,
   BridgeNetworkId,
   DEFAULT_BRIDGE_NETWORK,
   DEFAULT_USDCX_BRIDGE_NETWORK,
   isEpochBridgeNetwork,
   SendNetworkId,
   sendBridgeNetworks,
-  USDCX_BRIDGE_NETWORKS
+  usdcxBridgeNetworks
 } from './bridge-networks';
 import { ScanQrDrawer } from './ScanQrDrawer';
 import { SelectRecipient } from './SelectRecipient';
@@ -390,7 +391,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const usdcxPayout = useMemo(() => {
     const chainId =
       usdcxAvailable && isBridge
-        ? USDCX_BRIDGE_NETWORKS.find(network => network.id === bridgeNetwork)?.chainId
+        ? usdcxBridgeNetworks().find(network => network.id === bridgeNetwork)?.chainId
         : undefined;
     return chainId === undefined || amountBaseUnits === undefined ? undefined : { chainId, amount: amountBaseUnits };
   }, [usdcxAvailable, isBridge, bridgeNetwork, amountBaseUnits]);
@@ -400,6 +401,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   );
 
   const epochQuote = useEpochQuote({
+    destinationChainId: getBridgeNetwork(bridgeNetwork)?.chainId,
     amount: amountBaseUnits,
     faucetId: token?.id,
     destinationAddress: recipientAddress,
@@ -913,6 +915,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         case SendFlowStep.Route:
           return (
             <SendRoute
+              destinationChainId={getBridgeNetwork(bridgeNetwork)?.chainId}
               usdcxAvailable={usdcxAvailable}
               usdcxPayout={usdcxPayout}
               faucetId={spendableToken?.id ?? ''}

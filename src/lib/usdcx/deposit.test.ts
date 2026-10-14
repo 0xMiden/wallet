@@ -1,6 +1,21 @@
-import { mainnet, sepolia } from 'viem/chains';
+import * as bridgeRuntime from 'lib/remote-config/runtime';
+import { testBridgeSnapshot } from 'lib/remote-config/testing/fixture';
 
-import { USDCX_DEPOSIT_HOOK_DATA, USDCX_DEPOSIT_MAX_FEE, USDCX_REMOTE_DOMAIN, XRESERVE_ADDRESS } from './constant';
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
+
+import { sepolia } from 'viem/chains';
+
+import {
+  USDCX_DEPOSIT_HOOK_DATA,
+  USDCX_DEPOSIT_MAX_FEE,
+  getUsdcxRemoteDomain,
+  getUsdcxXReserveSource
+} from './constant';
 import {
   buildDepositToRemoteArgs,
   isUsdcxDomainNotRegisteredError,
@@ -66,7 +81,9 @@ describe('buildDepositToRemoteArgs', () => {
   });
 
   it('names the USDC of the source chain as the local token', () => {
-    expect(buildDepositToRemoteArgs('1', RECIPIENT, mainnet.id)[3]).toBe('0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48');
+    expect(buildDepositToRemoteArgs('1', RECIPIENT, ARC_TESTNET_ID)[3]).toBe(
+      '0x3600000000000000000000000000000000000000'
+    );
   });
 
   // Sepolia's xReserve has no Miden domain, so outside the e2e build Sepolia deposits through the executor.
@@ -95,7 +112,7 @@ describe('runUsdcxDeposit', () => {
       'receipt:deposit',
       'phase:delivering'
     ]);
-    expect(deps.signer.approve).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(ARC_TESTNET_ID), 1_500_000n);
+    expect(deps.signer.approve).toHaveBeenCalledWith(getUsdcxXReserveSource(ARC_TESTNET_ID).xReserve, 1_500_000n);
     expect(deps.signer.depositToRemote).toHaveBeenCalledWith(
       buildDepositToRemoteArgs('1.5', RECIPIENT, ARC_TESTNET_ID)
     );
@@ -124,16 +141,16 @@ describe('runUsdcxDeposit', () => {
 
     await runUsdcxDeposit('row-1', '1', RECIPIENT, deps);
 
-    expect(deps.readAllowance).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(ARC_TESTNET_ID));
+    expect(deps.readAllowance).toHaveBeenCalledWith(getUsdcxXReserveSource(ARC_TESTNET_ID).xReserve);
   });
 
   it('takes the xReserve and USDC of the chain the deps name', async () => {
-    const { deps } = makeDeps({ sourceChainId: mainnet.id });
+    const { deps } = makeDeps({ sourceChainId: ARC_TESTNET_ID });
 
     await runUsdcxDeposit('row-1', '1', RECIPIENT, deps);
 
-    expect(deps.readAllowance).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(mainnet.id));
-    expect(deps.signer.depositToRemote).toHaveBeenCalledWith(buildDepositToRemoteArgs('1', RECIPIENT, mainnet.id));
+    expect(deps.readAllowance).toHaveBeenCalledWith(getUsdcxXReserveSource(ARC_TESTNET_ID).xReserve);
+    expect(deps.signer.depositToRemote).toHaveBeenCalledWith(buildDepositToRemoteArgs('1', RECIPIENT, ARC_TESTNET_ID));
   });
 
   // 1.5 USDC is 1_500_000 base units: an allowance equal to it, or more than it, covers the deposit.
@@ -157,7 +174,7 @@ describe('runUsdcxDeposit', () => {
 
     await runUsdcxDeposit('row-1', '1.5', RECIPIENT, deps);
 
-    expect(deps.signer.approve).toHaveBeenCalledWith(XRESERVE_ADDRESS.get(ARC_TESTNET_ID), 1_500_000n);
+    expect(deps.signer.approve).toHaveBeenCalledWith(getUsdcxXReserveSource(ARC_TESTNET_ID).xReserve, 1_500_000n);
   });
 
   it('checks the remote domain with the configured value', async () => {
@@ -165,7 +182,7 @@ describe('runUsdcxDeposit', () => {
 
     await runUsdcxDeposit('row-1', '1', RECIPIENT, deps);
 
-    expect(deps.isRemoteDomainRegistered).toHaveBeenCalledWith(USDCX_REMOTE_DOMAIN);
+    expect(deps.isRemoteDomainRegistered).toHaveBeenCalledWith(getUsdcxRemoteDomain());
   });
 
   // xReserve reverts a deposit to an unregistered domain; failing
@@ -177,7 +194,7 @@ describe('runUsdcxDeposit', () => {
 
     expect(error).toBeInstanceOf(UsdcxDomainNotRegisteredError);
     expect(isUsdcxDomainNotRegisteredError(error)).toBe(true);
-    expect(error).toMatchObject({ remoteDomain: USDCX_REMOTE_DOMAIN });
+    expect(error).toMatchObject({ remoteDomain: getUsdcxRemoteDomain() });
     expect(deps.signer.approve).not.toHaveBeenCalled();
     expect(deps.signer.depositToRemote).not.toHaveBeenCalled();
     expect(deps.updatePhase).not.toHaveBeenCalled();
@@ -218,4 +235,34 @@ describe('runUsdcxDeposit', () => {
   it('recognises only its own error class', () => {
     expect(isUsdcxDomainNotRegisteredError(new Error('other'))).toBe(false);
   });
+});
+
+it('uses one captured xReserve route when the configuration changes during the domain read', async () => {
+  const source = getUsdcxXReserveSource(ARC_TESTNET_ID);
+  const changed = testBridgeSnapshot();
+  const deposit = changed.config?.supportedEvmChains['arc-testnet']?.bridges.usdcx?.deposit;
+  if (!deposit || deposit.route !== 'xreserve') throw new Error('The test route is missing');
+  deposit.xReserve = '0x1111111111111111111111111111111111111111';
+  const snapshotRead = jest.spyOn(bridgeRuntime, 'getBridgeConfigSnapshot');
+  const { deps } = makeDeps({
+    source,
+    isRemoteDomainRegistered: jest.fn(async () => {
+      snapshotRead.mockReturnValue(changed);
+      return true;
+    })
+  });
+  try {
+    await runUsdcxDeposit('row-1', '1', RECIPIENT, deps);
+    expect(deps.signer.approve).toHaveBeenCalledWith(source.xReserve, 1_000_000n);
+    expect(deps.signer.depositToRemote).toHaveBeenCalledWith([
+      1_000_000n,
+      source.midenDomain,
+      RECIPIENT,
+      source.usdc,
+      0n,
+      '0x'
+    ]);
+  } finally {
+    snapshotRead.mockRestore();
+  }
 });

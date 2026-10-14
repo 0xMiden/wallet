@@ -1,6 +1,6 @@
 import { Hash, Hex, hexToBigInt, hexToNumber, isHex } from 'viem';
 
-import { USDCX_REMOTE_DOMAIN, XRESERVE_ATTESTATION_API_TESTNET } from './constant';
+import { getUsdcxRemoteDomain, getUsdcxAttestationUrl } from './constant';
 
 // Circle's API can accept the socket and then stay silent. Bound every request
 // so a poll tick fails and retries instead of hanging the status screen.
@@ -54,10 +54,7 @@ function parseAttestation(entry: unknown): XReserveAttestation | undefined {
  */
 export async function fetchXReserveAttestations(
   txHash: Hash,
-  {
-    baseUrl = XRESERVE_ATTESTATION_API_TESTNET,
-    timeoutMs = XRESERVE_FETCH_TIMEOUT_MS
-  }: FetchXReserveAttestationsOptions = {}
+  { baseUrl = getUsdcxAttestationUrl(), timeoutMs = XRESERVE_FETCH_TIMEOUT_MS }: FetchXReserveAttestationsOptions = {}
 ): Promise<XReserveAttestation[]> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -135,7 +132,7 @@ export interface UsdcxDepositExpectation {
   remoteToken: Hex;
   /** The row's amount, in USDC base units: an executor deposit pays its fee on top, so both routes match it. */
   amount: bigint;
-  /** Defaults to USDCX_REMOTE_DOMAIN. */
+  /** Defaults to getUsdcxRemoteDomain(). */
   remoteDomain?: number;
 }
 
@@ -172,7 +169,7 @@ export function matchUsdcxDepositAttestation(
   expected: UsdcxDepositExpectation
 ): UsdcxAttestationMatch {
   if (list.length === 0) return { kind: 'pending' };
-  const remoteDomain = expected.remoteDomain ?? USDCX_REMOTE_DOMAIN;
+  const remoteDomain = expected.remoteDomain ?? getUsdcxRemoteDomain();
   let unreadable = false;
   let mismatch: UsdcxAttestationMismatchField | undefined;
   for (const attestation of list) {

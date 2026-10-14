@@ -89,7 +89,9 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
   const isEpoch = entry.bridgeProvider === 'epoch';
   const isUsdcx = entry.bridgeProvider === 'usdcx';
   const destination = entry.bridgeDestinationAddress ?? '';
-  const destinationChain = getChain(entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID);
+  const destinationChain = getChain(
+    entry.bridgeAgglayerRoute?.chainId ?? entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID
+  );
   const [status, setStatus] = useState<IBridgeClaimStatus>(entry.bridgeClaimStatus ?? 'not-applicable');
   const [claimable, setClaimable] = useState<AgglayerDeposit | null>(null);
   // This panel's own claim, not the row's `claiming`: a page that died mid-claim (the extension popup closes when
@@ -167,7 +169,12 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
     poll: async () => {
       // `active` already requires it; this only narrows the type for the lookup.
       if (!exitTxHash) return true;
-      const deposit = await findAgglayerExitDeposit(destination, exitTxHash, pinnedDepositCnt);
+      const deposit = await findAgglayerExitDeposit(
+        destination,
+        exitTxHash,
+        pinnedDepositCnt,
+        entry.bridgeAgglayerRoute
+      );
       if (!deposit) return false;
       // Every write passes the deposit's own tx_hash, so it can only promote THIS row (#1250).
       if (isAgglayerDepositClaimed(deposit)) {
@@ -217,7 +224,12 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
 
     let cancelled = false;
     const tick = async () => {
-      const fill = await pollEpochIntentFill({ destinationAddress: destination, intentNonce });
+      const fill = await pollEpochIntentFill({
+        destinationAddress: destination,
+        intentNonce,
+        destinationChainId: entry.bridgeDestinationNetwork,
+        allocatorUrl: entry.bridgeEpochAllocatorUrl
+      });
       if (cancelled || !fill) return;
       if (fill.fillTxHash) setFillTxHash(fill.fillTxHash);
       setEpochStatus(fill.status);
@@ -235,7 +247,16 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
       cancelled = true;
       clearInterval(id);
     };
-  }, [isEpoch, restoredFromBackup, epochStatus, intentNonce, destination, txId]);
+  }, [
+    isEpoch,
+    restoredFromBackup,
+    epochStatus,
+    intentNonce,
+    destination,
+    txId,
+    entry.bridgeDestinationNetwork,
+    entry.bridgeEpochAllocatorUrl
+  ]);
 
   const handleClaim = useCallback(async () => {
     if (!claimable || !evmProvider || !entry.txId || !exitTxHash || restoredFromBackup) return;
@@ -247,7 +268,11 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
     try {
       await updateBridgeClaimStatus(entry.txId, 'claiming', pin, claimable.tx_hash);
       try {
-        const tx = await claimAgglayerDeposit({ deposit: claimable, provider: evmProvider });
+        const tx = await claimAgglayerDeposit({
+          deposit: claimable,
+          provider: evmProvider,
+          route: entry.bridgeAgglayerRoute
+        });
         await tx.wait();
         setStatus('claimed');
         await updateBridgeClaimStatus(entry.txId, 'claimed', { ...pin, claimTxHash: tx.hash }, claimable.tx_hash);
@@ -255,7 +280,12 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
       } catch (err) {
         // The bridge's auto-claimer may have claimed the deposit first, and then this claim reverts. The deposit is
         // claimed either way, so the row settles instead of failing. A failed re-check counts as not claimed.
-        const settled = await findAgglayerExitDeposit(destination, exitTxHash, claimable.deposit_cnt).catch(() => null);
+        const settled = await findAgglayerExitDeposit(
+          destination,
+          exitTxHash,
+          claimable.deposit_cnt,
+          entry.bridgeAgglayerRoute
+        ).catch(() => null);
         if (settled && isAgglayerDepositClaimed(settled)) {
           setStatus('claimed');
           setClaimable(null);
@@ -270,7 +300,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
     } finally {
       setClaimInFlight(false);
     }
-  }, [claimable, evmProvider, entry.txId, exitTxHash, destination, restoredFromBackup]);
+  }, [claimable, evmProvider, entry.txId, entry.bridgeAgglayerRoute, exitTxHash, destination, restoredFromBackup]);
 
   // Read the current Miden block once, to know whether the reclaim window has opened.
   useEffect(() => {
@@ -400,7 +430,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
                 </p>
               )}
               {!isConnected ? (
-                <Button size="sm" onClick={connect}>
+                <Button size="sm" onClick={() => connect(destinationChain?.id)}>
                   {t('connectEvmWallet')}
                 </Button>
               ) : !connectedMatchesDestination ? (

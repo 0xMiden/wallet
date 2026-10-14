@@ -8,7 +8,7 @@ import {
   type BridgeToken,
   type DerivedBridgeConfig,
   type DeriveDeps,
-  deriveBridgeConfig,
+  deriveBridgeConfig as deriveAllBridgeConfig,
   type EvmReads,
   NotDeployedError
 } from './derive';
@@ -31,25 +31,52 @@ jest.mock('viem', () => ({
   http: jest.fn()
 }));
 
+async function deriveBridgeConfig(...args: Parameters<typeof deriveAllBridgeConfig>) {
+  const result = await deriveAllBridgeConfig(...args);
+  const first = Object.values(args[0].supportedEvmChains)[0];
+  if (first) {
+    expect(result.chains?.[first.chainId]?.agglayer).toEqual(result.agglayer);
+    expect(result.chains?.[first.chainId]?.epoch.evmUsdc).toEqual(result.epoch.evmUsdc);
+  }
+  const { chains, ...aggregate } = result;
+  return aggregate;
+}
+
 const NOW = 1_800_000_000_000;
 const RPC = 'https://rpc.testnet.miden.io';
 const TESTNET: BridgeConfig = {
   network: 'testnet',
   version: 1,
-  evm: { chainId: 11155111 },
-  agglayer: {
-    l1Bridge: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f',
-    midenBridge: '0x3b66e20b5088f25133b69216484652',
-    indexerUrl: 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api'
+  'bridge-providers': {
+    epoch: {
+      allocatorUrl: 'https://testnet-dev.epochprotocol.xyz',
+      positionsUrl: 'https://positions-testnet-dev.epochprotocol.xyz',
+      outputs: { 'usdc-testnet-output': { faucetId: '0x537c15a622074e91188aa894456c52' } }
+    },
+    agglayer: { indexerUrl: 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api' },
+    usdcx: {}
   },
-  epoch: {
-    allocatorUrl: 'https://testnet-dev.epochprotocol.xyz',
-    positionsUrl: 'https://positions-testnet-dev.epochprotocol.xyz',
-    midenUsdcFaucet: '0x537c15a622074e91188aa894456c52',
-    evmUsdc: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
-    earnProtocol: 'dummy-lending'
+  supportedEvmChains: {
+    sepolia: {
+      chainId: 11155111,
+      bridges: {
+        epoch: {
+          depositEnabled: true,
+          withdrawalEnabled: true,
+          tokens: {
+            USDC: { contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69', outputs: ['usdc-testnet-output'] }
+          }
+        },
+        agglayer: {
+          depositEnabled: true,
+          withdrawalEnabled: true,
+          contractAddress: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f',
+          midenBridgeId: '0x3b66e20b5088f25133b69216484652'
+        }
+      }
+    }
   },
-  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
+  features: { earn: true }
 };
 const ETH: BridgeToken = {
   midenFaucetId: '0x0b372f2735e33e91216d995bf29b91',
@@ -71,6 +98,28 @@ const ALLOCATOR_HEALTH = {
 };
 const HEALTH: Record<string, unknown> = {
   'https://testnet-dev.epochprotocol.xyz/health': ALLOCATOR_HEALTH,
+  'https://positions-testnet-dev.epochprotocol.xyz/positions?account=0x0000000000000000000000000000000000000000&chains=11155111':
+    {
+      success: true,
+      data: {
+        items: [
+          {
+            chainId: '11155111',
+            lenderInfo: { lenderKey: 'dummy-lending' },
+            data: [
+              {
+                positions: [
+                  {
+                    marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+                    underlyingInfo: { asset: { symbol: 'USDC', address: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69' } }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
   'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api/healthz': { status: 'SERVING' }
 };
 
@@ -115,6 +164,15 @@ const HEALTHY: DerivedBridgeConfig = {
     indexer: { state: 'ok', value: true }
   },
   epoch: {
+    market: {
+      state: 'ok',
+      value: {
+        marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+        protocolHash: '0x7a2ccf6fa10307c054284131a341a8d8cbd10ec7d3cc469fbf369c40fd86d0f9',
+        underlying: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
+        chainId: 11155111
+      }
+    },
     allocator: { state: 'ok', value: true },
     midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
     evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 18 } }
@@ -143,18 +201,23 @@ describe('deriveBridgeConfig', () => {
     expect(io.readBridgeRegistry).toHaveBeenCalledWith('0x3b66e20b5088f25133b69216484652', RPC);
     expect(io.readMidenFaucet).toHaveBeenCalledWith('0x537c15a622074e91188aa894456c52', RPC);
     expect(fetch.mock.calls.map(([url]) => url)).toEqual([
-      'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api/healthz',
-      'https://testnet-dev.epochprotocol.xyz/health'
+      'https://positions-testnet-dev.epochprotocol.xyz/positions?account=0x0000000000000000000000000000000000000000&chains=11155111',
+      'https://testnet-dev.epochprotocol.xyz/health',
+      'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api/healthz'
     ]);
   });
 
   it('skips every probe whose root the document leaves out', async () => {
     const io = deps();
-    const bare: BridgeConfig = { ...TESTNET, evm: {}, agglayer: {}, epoch: {} };
+    const bare: BridgeConfig = {
+      ...TESTNET,
+      supportedEvmChains: {},
+      'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} }
+    };
     await expect(deriveBridgeConfig(bare, io)).resolves.toEqual({
       ...HEALTHY,
       agglayer: { rollupId: SKIPPED, tokens: SKIPPED, evmNetworkId: SKIPPED, l1BridgeCode: SKIPPED, indexer: SKIPPED },
-      epoch: { allocator: SKIPPED, midenUsdcFaucet: SKIPPED, evmUsdc: SKIPPED }
+      epoch: { market: SKIPPED, allocator: SKIPPED, midenUsdcFaucet: SKIPPED, evmUsdc: SKIPPED }
     });
     expect(io.readBridgeRegistry).not.toHaveBeenCalled();
     expect(io.fetch).not.toHaveBeenCalled();
@@ -254,7 +317,7 @@ describe('deriveBridgeConfig', () => {
     });
     const pending = deriveBridgeConfig(TESTNET, io);
     await new Promise(resolve => setTimeout(resolve, 0));
-    expect(io.fetch).toHaveBeenCalledTimes(2);
+    expect(io.fetch).toHaveBeenCalledTimes(3);
     expect(io.readMidenFaucet).toHaveBeenCalledTimes(1);
     releaseRegistry({ rollupId: 86, tokens: [ETH] });
     await expect(pending).resolves.toEqual(HEALTHY);
@@ -264,9 +327,12 @@ describe('deriveBridgeConfig', () => {
 describe('deriveBridgeConfig default I/O', () => {
   const faucetOnly: BridgeConfig = {
     ...TESTNET,
-    evm: {},
-    agglayer: {},
-    epoch: { midenUsdcFaucet: '0x537c15a622074e91188aa894456c52' }
+    supportedEvmChains: {},
+    'bridge-providers': {
+      epoch: { outputs: { 'usdc-testnet-output': { faucetId: '0x537c15a622074e91188aa894456c52' } } },
+      agglayer: {},
+      usdcx: {}
+    }
   };
 
   it('reads the Miden USDC faucet over the effective RPC', async () => {
@@ -304,8 +370,7 @@ describe('deriveBridgeConfig default I/O', () => {
     );
     const evmOnly: BridgeConfig = {
       ...TESTNET,
-      agglayer: { l1Bridge: TESTNET.agglayer.l1Bridge },
-      epoch: { evmUsdc: TESTNET.epoch.evmUsdc }
+      'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} }
     };
     const derived = await deriveBridgeConfig(evmOnly);
     expect(http).toHaveBeenCalledWith(getChain(11155111)?.rpcUrl, { timeout: 10_000, retryCount: 1 });
@@ -318,8 +383,7 @@ describe('deriveBridgeConfig default I/O', () => {
   it('reads empty code as no contract', async () => {
     const evmOnly: BridgeConfig = {
       ...TESTNET,
-      agglayer: { l1Bridge: TESTNET.agglayer.l1Bridge },
-      epoch: { evmUsdc: TESTNET.epoch.evmUsdc }
+      'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} }
     };
     mockPublicClient.getCode.mockResolvedValueOnce(undefined).mockResolvedValueOnce('0x');
     const derived = await deriveBridgeConfig(evmOnly);
@@ -330,9 +394,8 @@ describe('deriveBridgeConfig default I/O', () => {
   it('skips the EVM probes for a chain without a wallet RPC', async () => {
     const derived = await deriveBridgeConfig({
       ...TESTNET,
-      evm: { chainId: 1 },
-      agglayer: { l1Bridge: TESTNET.agglayer.l1Bridge },
-      epoch: {}
+      supportedEvmChains: { future: { chainId: 999999999, bridges: TESTNET.supportedEvmChains.sepolia!.bridges } },
+      'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} }
     });
     expect(derived.agglayer.l1BridgeCode).toEqual(SKIPPED);
     expect(createPublicClient).not.toHaveBeenCalled();
@@ -345,9 +408,12 @@ describe('deriveBridgeConfig default I/O', () => {
     try {
       const allocatorOnly: BridgeConfig = {
         ...TESTNET,
-        evm: {},
-        agglayer: {},
-        epoch: { allocatorUrl: TESTNET.epoch.allocatorUrl }
+        supportedEvmChains: {},
+        'bridge-providers': {
+          epoch: { allocatorUrl: TESTNET['bridge-providers'].epoch.allocatorUrl },
+          agglayer: {},
+          usdcx: {}
+        }
       };
       expect((await deriveBridgeConfig(allocatorOnly)).epoch.allocator).toEqual({ state: 'ok', value: true });
       expect(fetchSpy).toHaveBeenCalledWith('https://testnet-dev.epochprotocol.xyz/health', expect.any(Object));

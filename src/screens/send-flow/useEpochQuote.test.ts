@@ -28,10 +28,20 @@ const configFor = ({
   config: {
     network: 'testnet',
     version: 1,
-    evm: { chainId },
-    agglayer: {},
-    epoch: { allocatorUrl, evmUsdc },
-    features: { earn: false, fastBridge: true, bridgeIn: false, bridgeOut: false }
+    'bridge-providers': { epoch: { allocatorUrl }, agglayer: {}, usdcx: {} },
+    supportedEvmChains: {
+      sepolia: {
+        chainId,
+        bridges: {
+          epoch: {
+            depositEnabled: true,
+            withdrawalEnabled: true,
+            tokens: { USDC: { contractAddress: evmUsdc, outputs: [] } }
+          }
+        }
+      }
+    },
+    features: { earn: false }
   },
   derived: {
     network: 'testnet',
@@ -78,8 +88,8 @@ beforeEach(() => {
   mockConfigSnapshot = configFor();
   // As the real selector reads it: the document's address and chain, usable only while the token's read is ok.
   jest.mocked(selectEvmUsdc).mockImplementation(({ config, derived }) => {
-    const address = config?.epoch.evmUsdc;
-    const chainId = config?.evm.chainId;
+    const address = config?.supportedEvmChains.sepolia?.bridges.epoch?.tokens.USDC?.contractAddress;
+    const chainId = config?.supportedEvmChains.sepolia?.chainId;
     const read = derived?.epoch.evmUsdc;
     return address && chainId !== undefined && read?.state === 'ok' ? { address, chainId, ...read.value } : null;
   });

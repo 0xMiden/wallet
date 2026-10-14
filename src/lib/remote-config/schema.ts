@@ -2,9 +2,11 @@ import { KNOWN_SYMBOLS } from 'lib/prices/constant';
 import { isRecord } from 'lib/update/guards';
 import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 
+import { evmChainSlug } from './chains';
+
 /** The per-feature switches a document carries; each stops new starts only. */
-export const BRIDGE_SWITCHES = ['earn', 'fastBridge', 'bridgeIn', 'bridgeOut'] as const;
-export type BridgeSwitch = (typeof BRIDGE_SWITCHES)[number];
+export const BRIDGE_SWITCHES: readonly BridgeSwitch[] = ['earn'];
+export type BridgeSwitch = 'earn';
 
 /** The marks `components/TokenLogo` ships, which a swap token's `logo` names. */
 export const SUPPORTED_SWAP_TOKEN_LOGOS = ['MIDEN', 'ETH', 'USDC', 'BTC'] as const;
@@ -49,23 +51,62 @@ export interface MainnetCountdownConfig {
   launchAt?: number;
 }
 
-export interface BridgeConfig {
-  network: string;
-  version: number;
-  evm: { chainId?: number };
-  agglayer: { l1Bridge?: EvmAddress; midenBridge?: string; indexerUrl?: string };
+export interface RouteSwitches {
+  depositEnabled: boolean;
+  withdrawalEnabled: boolean;
+}
+
+export interface EpochChainConfig extends RouteSwitches {
+  tokens: { USDC?: { contractAddress: EvmAddress; outputs: string[] } };
+}
+
+export interface AgglayerChainConfig extends RouteSwitches {
+  contractAddress: EvmAddress;
+  midenBridgeId: string;
+}
+
+export type UsdcxDepositConfig =
+  | { route: 'xreserve'; xReserve: EvmAddress }
+  | { route: 'executor'; executorChain: string; tokenMessenger: EvmAddress; tokenMessengerWithFees: EvmAddress };
+
+export interface UsdcxChainConfig extends RouteSwitches {
+  domain: number;
+  tokens: { USDC?: { contractAddress: EvmAddress } };
+  deposit?: UsdcxDepositConfig;
+  executor?: { address: EvmAddress; handler: EvmAddress };
+}
+
+export interface SupportedEvmChainConfig {
+  chainId: number;
+  bridges: { epoch?: EpochChainConfig; agglayer?: AgglayerChainConfig; usdcx?: UsdcxChainConfig };
+}
+
+export interface AgglayerRecoveryConfig {
+  chainId: number;
+  contractAddress: EvmAddress;
+  midenBridgeId: string;
+  indexerUrl: string;
+  rollupId: number;
+  evmNetworkId: number;
+}
+
+export interface BridgeProviders {
   epoch: {
     allocatorUrl?: string;
     positionsUrl?: string;
-    /** '0x' + 30 lowercase hex. */
-    midenUsdcFaucet?: string;
-    evmUsdc?: EvmAddress;
-    earnProtocol?: EarnProtocol;
+    outputs?: Record<string, { faucetId: string }>;
   };
-  features: Record<BridgeSwitch, boolean>;
-  /** Always set by the parser; optional in the type so a stand-in config built by a test needs none. */
+  agglayer: { indexerUrl?: string };
+  usdcx: { midenDomain?: number; attestationUrl?: string; irisUrl?: string };
+}
+
+export interface BridgeConfig {
+  network: string;
+  version: number;
+  'bridge-providers': BridgeProviders;
+  supportedEvmChains: Record<string, SupportedEvmChainConfig>;
+  features: { earn: boolean };
   mainnetCountdown?: MainnetCountdownConfig;
-  /** Always set by the parser; optional in the type for the same reason. Absent reads as no swap tokens. */
   swap?: SwapConfig;
 }
 
@@ -120,18 +161,6 @@ function baseUrl(value: unknown, allowLocalHttp: boolean): string {
     return invalid();
   }
   return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
-}
-
-// An unsupported chain or protocol is not an error: a newer document may name one this build lacks, and the
-// features that need it read as not configured.
-function chainId(value: unknown): number | undefined {
-  if (!isPositiveSafeInteger(value)) return invalid();
-  return SUPPORTED_EVM_CHAIN_IDS.includes(value) ? value : undefined;
-}
-
-function earnProtocol(value: unknown): EarnProtocol | undefined {
-  if (typeof value !== 'string') return invalid();
-  return SUPPORTED_EARN_PROTOCOLS.find(protocol => protocol === value);
 }
 
 function featureSwitch(features: Record<string, unknown>, name: string): boolean {
@@ -209,48 +238,175 @@ function readSwapTokens(value: unknown): SwapTokenConfig[] {
   return tokens;
 }
 
+type ConfigValue = Parameters<typeof section>[0];
+
+function requiredBoolean(value: ConfigValue): boolean {
+  return typeof value === 'boolean' ? value : invalid();
+}
+
+function domain(value: ConfigValue): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) return invalid();
+  return value;
+}
+
+function switches(value: Record<string, ConfigValue>): RouteSwitches {
+  return {
+    depositEnabled: requiredBoolean(value.depositEnabled),
+    withdrawalEnabled: requiredBoolean(value.withdrawalEnabled)
+  };
+}
+
+function outputNames(value: ConfigValue): string[] {
+  if (!Array.isArray(value) || !value.every((name: ConfigValue) => typeof name === 'string')) return invalid();
+  const names: string[] = [];
+  for (const name of value) {
+    if (typeof name !== 'string' || name !== 'usdc-testnet-output') return invalid();
+    names.push(name);
+  }
+  if (new Set(names).size !== names.length) return invalid();
+  return names;
+}
+
+function epochChain(value: ConfigValue): EpochChainConfig {
+  const bridge = section(value);
+  const token = section(section(bridge.tokens).USDC);
+  return {
+    ...switches(bridge),
+    tokens: {
+      USDC: {
+        contractAddress: evmAddress(token.contractAddress),
+        outputs: token.outputs === undefined ? [] : outputNames(token.outputs)
+      }
+    }
+  };
+}
+
+function agglayerChain(value: ConfigValue): AgglayerChainConfig {
+  const bridge = section(value);
+  return {
+    ...switches(bridge),
+    contractAddress: evmAddress(bridge.contractAddress),
+    midenBridgeId: midenAccountId(bridge.midenBridgeId)
+  };
+}
+
+function usdcxDeposit(value: ConfigValue): UsdcxDepositConfig {
+  const deposit = section(value);
+  switch (deposit.route) {
+    case 'xreserve':
+      return { route: 'xreserve', xReserve: evmAddress(deposit.xReserve) };
+    case 'executor':
+      if (typeof deposit.executorChain !== 'string' || !deposit.executorChain) return invalid();
+      return {
+        route: 'executor',
+        executorChain: deposit.executorChain,
+        tokenMessenger: evmAddress(deposit.tokenMessenger),
+        tokenMessengerWithFees: evmAddress(deposit.tokenMessengerWithFees)
+      };
+    default:
+      return invalid();
+  }
+}
+
+function usdcxChain(value: ConfigValue): UsdcxChainConfig {
+  const bridge = section(value);
+  const token = section(section(bridge.tokens).USDC);
+  const deposit = read(bridge, 'deposit', usdcxDeposit);
+  const executor = read(bridge, 'executor', value => {
+    const addresses = section(value);
+    return { address: evmAddress(addresses.address), handler: evmAddress(addresses.handler) };
+  });
+  if (bridge.depositEnabled === true && !deposit) return invalid();
+  if (executor && deposit?.route !== 'xreserve') return invalid();
+  return {
+    ...switches(bridge),
+    domain: domain(bridge.domain),
+    tokens: { USDC: { contractAddress: evmAddress(token.contractAddress) } },
+    ...(deposit === undefined ? {} : { deposit }),
+    ...(executor === undefined ? {} : { executor })
+  };
+}
+
+function supportedChains(value: ConfigValue): Record<string, SupportedEvmChainConfig> {
+  const chains: Record<string, SupportedEvmChainConfig> = {};
+  const ids = new Set<number>();
+  for (const [slug, entry] of Object.entries(section(value))) {
+    if (!/^[a-z][a-z0-9-]*$/.test(slug)) return invalid();
+    const item = section(entry);
+    if (!isPositiveSafeInteger(item.chainId) || ids.has(item.chainId) || evmChainSlug(item.chainId) !== slug)
+      return invalid();
+    ids.add(item.chainId);
+    const bridges = section(item.bridges);
+    const epoch = read(bridges, 'epoch', epochChain);
+    const agglayer = read(bridges, 'agglayer', agglayerChain);
+    const usdcx = read(bridges, 'usdcx', usdcxChain);
+    chains[slug] = {
+      chainId: item.chainId,
+      bridges: {
+        ...(epoch === undefined ? {} : { epoch }),
+        ...(agglayer === undefined ? {} : { agglayer }),
+        ...(usdcx === undefined ? {} : { usdcx })
+      }
+    };
+  }
+  for (const chain of Object.values(chains)) {
+    const deposit = chain.bridges.usdcx?.deposit;
+    if (deposit?.route !== 'executor') continue;
+    const target = chains[deposit.executorChain]?.bridges.usdcx;
+    if (!target?.executor || target.deposit?.route !== 'xreserve') return invalid();
+  }
+  return chains;
+}
+
 function readConfig(body: unknown, network: string, allowLocalHttp: boolean): BridgeConfig {
   if (!isRecord(body)) return invalid();
   const { version } = body;
   if (body.network !== network || !isPositiveSafeInteger(version)) return invalid();
-  const url = (value: unknown) => baseUrl(value, allowLocalHttp);
-  const evm = section(body.evm);
-  const agglayer = section(body.agglayer);
-  const epoch = section(body.epoch);
-  const features = section(body.features);
-  const swap = section(body.swap);
-  const etaUrl = read(swap, 'etaUrl', url);
-  const chain = read(evm, 'chainId', chainId);
-  const l1Bridge = read(agglayer, 'l1Bridge', evmAddress);
-  const midenBridge = read(agglayer, 'midenBridge', midenAccountId);
-  const indexerUrl = read(agglayer, 'indexerUrl', url);
+  const url = (value: ConfigValue) => baseUrl(value, allowLocalHttp);
+  const providers = section(body['bridge-providers']);
+  const epoch = section(providers.epoch);
+  const agglayer = section(providers.agglayer);
+  const usdcx = section(providers.usdcx);
+  const outputs: Record<string, { faucetId: string }> = {};
+  for (const [name, output] of Object.entries(section(epoch.outputs))) {
+    if (name !== 'usdc-testnet-output' || network !== 'testnet') return invalid();
+    outputs[name] = { faucetId: midenAccountId(section(output).faucetId) };
+  }
   const allocatorUrl = read(epoch, 'allocatorUrl', url);
   const positionsUrl = read(epoch, 'positionsUrl', url);
-  const midenUsdcFaucet = read(epoch, 'midenUsdcFaucet', midenAccountId);
-  const evmUsdc = read(epoch, 'evmUsdc', evmAddress);
-  const protocol = read(epoch, 'earnProtocol', earnProtocol);
+  const indexerUrl = read(agglayer, 'indexerUrl', url);
+  const midenDomain = read(usdcx, 'midenDomain', domain);
+  const attestationUrl = read(usdcx, 'attestationUrl', url);
+  const irisUrl = read(usdcx, 'irisUrl', url);
+  const swap = section(body.swap);
+  const etaUrl = read(swap, 'etaUrl', url);
+  const supportedEvmChains = supportedChains(body.supportedEvmChains);
+  for (const chain of Object.values(supportedEvmChains)) {
+    if (chain.bridges.epoch && (!allocatorUrl || !positionsUrl)) return invalid();
+    if (chain.bridges.agglayer && !indexerUrl) return invalid();
+    if (chain.bridges.usdcx && (midenDomain === undefined || !attestationUrl || !irisUrl)) return invalid();
+    for (const name of chain.bridges.epoch?.tokens.USDC?.outputs ?? []) {
+      if (!outputs[name]) return invalid();
+    }
+  }
   return {
     network,
     version,
-    evm: chain === undefined ? {} : { chainId: chain },
-    agglayer: {
-      ...(l1Bridge === undefined ? {} : { l1Bridge }),
-      ...(midenBridge === undefined ? {} : { midenBridge }),
-      ...(indexerUrl === undefined ? {} : { indexerUrl })
+    'bridge-providers': {
+      epoch: {
+        ...(allocatorUrl === undefined ? {} : { allocatorUrl }),
+        ...(positionsUrl === undefined ? {} : { positionsUrl }),
+        ...(Object.keys(outputs).length === 0 ? {} : { outputs })
+      },
+      agglayer: { ...(indexerUrl === undefined ? {} : { indexerUrl }) },
+      usdcx: {
+        ...(midenDomain === undefined ? {} : { midenDomain }),
+        ...(attestationUrl === undefined ? {} : { attestationUrl }),
+        ...(irisUrl === undefined ? {} : { irisUrl })
+      }
     },
-    epoch: {
-      ...(allocatorUrl === undefined ? {} : { allocatorUrl }),
-      ...(positionsUrl === undefined ? {} : { positionsUrl }),
-      ...(midenUsdcFaucet === undefined ? {} : { midenUsdcFaucet }),
-      ...(evmUsdc === undefined ? {} : { evmUsdc }),
-      ...(protocol === undefined ? {} : { earnProtocol: protocol })
-    },
-    features: {
-      earn: featureSwitch(features, 'earn'),
-      fastBridge: featureSwitch(features, 'fastBridge'),
-      bridgeIn: featureSwitch(features, 'bridgeIn'),
-      bridgeOut: featureSwitch(features, 'bridgeOut')
-    },
+    supportedEvmChains,
+    features: { earn: featureSwitch(section(body.features), 'earn') },
     mainnetCountdown: readCountdown(body.mainnetCountdown),
     swap: { tokens: readSwapTokens(swap.tokens), ...(etaUrl === undefined ? {} : { etaUrl }) }
   };
