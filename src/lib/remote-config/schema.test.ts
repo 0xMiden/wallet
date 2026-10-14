@@ -363,6 +363,30 @@ describe('values this build does not know', () => {
     expect(parsed?.swap).toStrictEqual(published?.swap);
   });
 
+  it('keeps only the declared Epoch output where Object.hasOwn is missing', () => {
+    const sepolia = chains.sepolia;
+    const usdc = sepolia.bridges.epoch.tokens.USDC;
+    const epoch = {
+      ...sepolia.bridges.epoch,
+      tokens: { USDC: { ...usdc, outputs: ['usdc-testnet-output', 'usdc-other'] } }
+    };
+    const body = {
+      ...withProviders({ epoch: providers.epoch }),
+      supportedEvmChains: { ...chains, sepolia: { ...sepolia, bridges: { ...sepolia.bridges, epoch } } }
+    };
+    const saved = Object.hasOwn;
+    // @ts-expect-error simulating Safari before 15.4
+    delete Object.hasOwn;
+    try {
+      const parsed = parseBridgeConfig(body, 'testnet');
+      expect(parsed?.supportedEvmChains.sepolia?.bridges.epoch?.tokens.USDC?.outputs).toStrictEqual([
+        'usdc-testnet-output'
+      ]);
+    } finally {
+      Object.hasOwn = saved;
+    }
+  });
+
   it('reads Epoch outputs off testnet', () => {
     const outputs = { 'usdc-mainnet-output': { faucetId: '0x537c15a622074e91188aa894456c52' } };
     const parsed = parseBridgeConfig(

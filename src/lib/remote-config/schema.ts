@@ -488,7 +488,8 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
     if (bridges.agglayer && !indexerUrl) delete bridges.agglayer;
     if (bridges.usdcx && (midenDomain === undefined || !attestationUrl || !irisUrl)) delete bridges.usdcx;
     const usdc = bridges.epoch?.tokens.USDC;
-    if (usdc) usdc.outputs = usdc.outputs.filter(name => Object.hasOwn(outputs, name));
+    // Not Object.hasOwn: Safari before 15.4 lacks it and the build ships no polyfill.
+    if (usdc) usdc.outputs = usdc.outputs.filter(name => Object.prototype.hasOwnProperty.call(outputs, name));
   }
   const guardians = readGuardians(body.guardians, url);
   return {
