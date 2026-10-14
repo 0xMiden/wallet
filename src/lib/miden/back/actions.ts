@@ -303,6 +303,11 @@ async function assertMainnetAdmitted(accountId: string) {
   if (!(await isMainnetAccountAdmitted(accountId))) throw new PublicError(getMessage('mainnetAccountNotAdmitted'));
 }
 
+// An access code registers one account, so no other account a wallet adds there would be admitted.
+function refuseSecondMainnetAccount() {
+  if (isInviteOnlyNetwork()) throw new PublicError(getMessage('mainnetSecondAccountRefused'));
+}
+
 export function registerNewWallet(
   walletType: WalletType,
   password?: string,
@@ -530,6 +535,7 @@ export function createHDAccount(walletType: WalletType, name?: string) {
   // Guardian recovery clearing its pending flag — loses one of the two writes.
   return withUnlocked(({ vault }) =>
     getAccountsWriteQueue().add(async () => {
+      refuseSecondMainnetAccount();
       if (name) {
         name = name.trim();
         if (!ACCOUNT_NAME_PATTERN.test(name)) {
@@ -636,6 +642,7 @@ export function importAccount(privateKey: string, name?: string) {
   // the second write would drop the first account.
   return withUnlocked(({ vault }) =>
     getUnlockQueue().add(async () => {
+      refuseSecondMainnetAccount();
       if (name !== undefined) {
         name = name.trim();
         if (name && !ACCOUNT_NAME_PATTERN.test(name)) {

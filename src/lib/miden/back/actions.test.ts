@@ -1,5 +1,7 @@
 import { MidenDAppMessageType } from 'lib/adapter/types';
+import { getMessage } from 'lib/i18n';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
+import { PublicError } from 'lib/miden/back/defaults';
 import { SendTransaction } from 'lib/miden/db/types';
 import { spendingLimits, transactions } from 'lib/miden/repo';
 import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/types';
@@ -1844,6 +1846,30 @@ describe('actions', () => {
 
       expect(mockVault.getCurrentAccount).toHaveBeenCalled();
       expect(result).toEqual(account);
+    });
+  });
+
+  describe('adding an account on an invite-only network', () => {
+    beforeEach(() => {
+      Object.assign(mockStoreState, { vault: mockVault });
+      mockEndpointOverride = { rpcUrl: 'https://rpc.cedar.miden.io', networkName: MIDEN_NETWORK_NAME.MAINNET };
+    });
+
+    it.each([
+      ['createHDAccount', () => createHDAccount(WalletType.Guardian, 'Second')],
+      ['importAccount', () => importAccount('deadbeef', 'Imported')]
+    ] as const)('%s refuses before any vault write', async (_name, add) => {
+      const refusal = await add().then(
+        () => 'added',
+        (error: unknown) => error
+      );
+
+      expect(refusal).toBeInstanceOf(PublicError);
+      expect(refusal).toMatchObject({ message: getMessage('mainnetSecondAccountRefused') });
+      expect(mockVault.createHDAccount).not.toHaveBeenCalled();
+      expect(mockVault.importAccountFromPrivateKey).not.toHaveBeenCalled();
+      expect(mockStorageSet).not.toHaveBeenCalled();
+      expect(mockAccountsUpdated).not.toHaveBeenCalled();
     });
   });
 
