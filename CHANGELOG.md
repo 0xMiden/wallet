@@ -4,6 +4,7 @@
 
 ### Features
 
+- [FEATURE][all] The Guardian operators of each network come from the `guardians` list in `0xMiden/wallet-config`, with each operator's English description, so a new or removed operator reaches every wallet within about an hour with no release; the list the wallet ships with is used only until a document names the operators.
 - [FEATURE][all] The send review page folds the transfer type and the expiration under an "Advanced options" row, closed by default with a one-line summary of both; a "Transfer type" sheet picks Private (the default) or Public, and a public send keeps a notice of what it reveals on the page and a "Send publicly" button whether or not the row is open.
 
 ### Fixes

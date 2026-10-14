@@ -2,9 +2,10 @@ import { GuardianHttpClient, GuardianHttpError, type HistoryPage } from '@openze
 import Dexie from 'dexie';
 
 import { reportGuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
-import { MIDEN_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/constants';
+import { getGuardianEndpointsForNetwork } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { cacheScope } from 'lib/miden-chain/native-asset';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import type { WalletAccount } from 'lib/shared/types';
 
@@ -226,7 +227,10 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
       if (typeof value === 'string') previous.push(value);
     }
   }
-  const operators = normalizeHistoryOperators([current, ...(MIDEN_GUARDIAN_ENDPOINTS.get(network) ?? []), ...previous]);
+  // The network's operators are the config document's list, so the stored document is in memory before the read: a
+  // pass that ran first would ask the bundled list, and an operator the document removed with it.
+  await initBridgeConfig();
+  const operators = normalizeHistoryOperators([current, ...getGuardianEndpointsForNetwork(network), ...previous]);
   const ownOperators = normalizeHistoryOperators([current, ...previous]);
   // Every write of this pass relies on this: reportHistory carries no guard of its own.
   const interrupted = async () => {

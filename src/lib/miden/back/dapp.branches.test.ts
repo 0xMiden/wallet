@@ -216,7 +216,7 @@ jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
 }));
 
-// ��─ Import under test ���────────────────────────────────────────────
+// ─── Import under test ───────────────────────────────────────────────
 
 import * as dapp from './dapp';
 
@@ -259,7 +259,7 @@ beforeEach(() => {
   mockImportNoteBytes.mockResolvedValue('note-1');
 });
 
-// ─�� requestPermission (mobile paths) ─────────────────────��───────
+// ─── requestPermission (mobile paths) ──────────────────────────────
 
 describe('requestPermission — mobile branches', () => {
   it('goes through confirmation store when force=true even if session exists', async () => {
