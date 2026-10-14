@@ -43,6 +43,7 @@ import {
   type WasmLockHold
 } from '../sdk/miden-client';
 import { isGuardianCanonicalizationError } from '../sdk/sdk-error-code';
+import { syncAndRecordFeeFaucet } from '../sdk/sync-and-record-fee-faucet';
 import {
   WASM_LOCK_SYNC_WATCHDOG_MS,
   WasmClientPoisonedError,
@@ -426,10 +427,11 @@ export class MultisigService {
 
   /** Create a proposal that sets `procedure`'s signature threshold to `threshold`. */
   async createUpdateProcedureThresholdProposal(procedure: string, threshold: number): Promise<Proposal> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return withWasmClientLock(() =>
-      (this.multisig as any).createUpdateProcedureThresholdProposal(procedure, threshold)
-    );
+    return withWasmClientLock(async hold => {
+      await this.syncChainForProposal(hold, 'procedure-threshold proposal');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (this.multisig as any).createUpdateProcedureThresholdProposal(procedure, threshold);
+    });
   }
 
   async signAndExecuteProposal(id: string): Promise<void> {
@@ -811,9 +813,10 @@ export class MultisigService {
       });
       // `createSwitchGuardianProposal` already creates and returns the proposal;
       // calling `createProposal` again would duplicate it (nonce collision).
-      const proposal = await withWasmClientLock(() =>
-        this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment)
-      );
+      const proposal = await withWasmClientLock(async hold => {
+        await this.syncChainForProposal(hold, 'switch-guardian proposal');
+        return this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment);
+      });
       return { proposal, newEndpoint: newGuardianEndpoint };
     } catch (error) {
       console.error('Error creating switch-guardian proposal:', error);
@@ -903,6 +906,22 @@ export class MultisigService {
     const proposal = await this.multisig.createProposal(Date.now(), summaryBase64, metadata);
     console.log('Created replace-hot-key proposal:', proposal.id);
     return proposal;
+  }
+
+  /**
+   * A proposal's summary executes at the store's sync height and loads the fee faucet as a foreign
+   * account there; the node serves account state only 50 blocks back, so a height left stale by a
+   * 409 retry loop or a paused WebView fails `before_foreign_load` (#1442). Sync in the caller's
+   * hold, right before the summary runs.
+   */
+  private async syncChainForProposal(hold: WasmLockHold, label: string): Promise<void> {
+    const { client } = await getMidenClient();
+    assertWasmHoldCurrent(hold, `${label}: after the client build`);
+    await syncAndRecordFeeFaucet(
+      client,
+      () => client.syncChain(),
+      () => assertWasmHoldCurrent(hold, `${label}: chain sync`)
+    );
   }
 
   /**

@@ -74,10 +74,29 @@ jest.mock('../sdk/helpers', () => ({
   randomFeeSalt: () => mockFeeSalt
 }));
 
+// Records which hold each chain sync ran under, and drives the raw client's `syncChain`.
+const syncHoldsSeen: Array<object | null> = [];
+const mockSyncAndRecordFeeFaucet = jest.fn(
+  async (_client: unknown, sync: () => Promise<unknown>, assertLive: () => void = () => {}) => {
+    syncHoldsSeen.push(currentWasmHold);
+    const summary = await sync();
+    assertLive();
+    return summary;
+  }
+);
+jest.mock('../sdk/sync-and-record-fee-faucet', () => ({
+  syncAndRecordFeeFaucet: (...args: Parameters<typeof mockSyncAndRecordFeeFaucet>) =>
+    mockSyncAndRecordFeeFaucet(...args)
+}));
+
 const mockGetAccount = jest.fn();
 const mockAccountInspectorFromAccount = jest.fn();
 const mockSyncState = jest.fn(async () => {});
-const mockRawWebClient = { kind: 'raw-web-client' };
+const callOrder: string[] = [];
+const mockSyncChain = jest.fn(async () => {
+  callOrder.push('syncChain');
+});
+const mockRawWebClient = { kind: 'raw-web-client', syncChain: () => mockSyncChain() };
 const mockMidenClient = {
   getAccount: (...args: unknown[]) => mockGetAccount(...args),
   syncState: () => mockSyncState(),
@@ -337,6 +356,8 @@ describe('MultisigService', () => {
     currentWasmHold = null;
     wasmLockTail = Promise.resolve();
     evictDuringClientBuild = false;
+    callOrder.length = 0;
+    syncHoldsSeen.length = 0;
     mockTransactionRequestDeserialize.mockReset();
     mockFetchFromStorage.mockResolvedValue('https://stored.guardian.test');
     // Default: AccountInspector reads an empty signer set unless a test overrides it.
@@ -2058,6 +2079,94 @@ describe('MultisigService', () => {
       } finally {
         restoreTimers();
       }
+    });
+  });
+
+  describe('proposal creation syncs the chain first (#1442)', () => {
+    const NEW_GUARDIAN_COMMITMENT = `0x${'ab'.repeat(32)}`;
+
+    beforeEach(() => {
+      resetMockProbes();
+    });
+
+    const switchService = () => {
+      const createSwitchGuardianProposal = jest.fn(async () => {
+        callOrder.push('createSwitchGuardianProposal');
+        expect(currentWasmHold).not.toBeNull();
+        return { nonce: 7, txSummary: 'txs-b64', metadata: { proposalType: 'switch-guardian' } };
+      });
+      const multisig = makeMultisig({ createSwitchGuardianProposal });
+      return {
+        service: new MultisigService(multisig as never, {} as never, 'https://old'),
+        createSwitchGuardianProposal
+      };
+    };
+
+    it('syncs the chain in the same hold, before the switch proposal executes its summary', async () => {
+      const { service } = switchService();
+      let holdDuringProbe: object | null = {};
+      guardianConfig.getPubkey.mockImplementationOnce(async () => {
+        holdDuringProbe = currentWasmHold;
+        return { commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'new-pubkey' };
+      });
+
+      await service.createSwitchGuardianProposal('https://new');
+
+      expect(callOrder).toEqual(['syncChain', 'createSwitchGuardianProposal']);
+      expect(syncHoldsSeen).toHaveLength(1);
+      expect(syncHoldsSeen[0]).not.toBeNull();
+      // The new Guardian's pubkey probe stays outside the WASM hold.
+      expect(holdDuringProbe).toBeNull();
+    });
+
+    it('syncs again on every call, so a 409 retry builds on a fresh height', async () => {
+      const { service } = switchService();
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+
+      await service.createSwitchGuardianProposal('https://new');
+      await service.createSwitchGuardianProposal('https://new');
+
+      expect(callOrder).toEqual([
+        'syncChain',
+        'createSwitchGuardianProposal',
+        'syncChain',
+        'createSwitchGuardianProposal'
+      ]);
+    });
+
+    it('makes no switch proposal when the sync fails', async () => {
+      const { service, createSwitchGuardianProposal } = switchService();
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+      mockSyncChain.mockRejectedValueOnce(new Error('node unreachable'));
+
+      await expect(service.createSwitchGuardianProposal('https://new')).rejects.toThrow('node unreachable');
+      expect(createSwitchGuardianProposal).not.toHaveBeenCalled();
+    });
+
+    it('refuses as evicted when the hold is lost during the sync', async () => {
+      const { service, createSwitchGuardianProposal } = switchService();
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+      mockSyncChain.mockImplementationOnce(async () => {
+        currentWasmHold = null;
+      });
+
+      await expect(service.createSwitchGuardianProposal('https://new')).rejects.toBeInstanceOf(WasmClientPoisonedError);
+      expect(createSwitchGuardianProposal).not.toHaveBeenCalled();
+    });
+
+    it('syncs the chain in the same hold before the procedure-threshold proposal', async () => {
+      const createUpdateProcedureThresholdProposal = jest.fn(async () => {
+        callOrder.push('createUpdateProcedureThresholdProposal');
+        return { kind: 'threshold' };
+      });
+      const multisig = makeMultisig({ createUpdateProcedureThresholdProposal });
+      const service = new MultisigService(multisig as never, {} as never, 'https://x');
+
+      await service.createUpdateProcedureThresholdProposal('send', 2);
+
+      expect(callOrder).toEqual(['syncChain', 'createUpdateProcedureThresholdProposal']);
+      expect(syncHoldsSeen[0]).not.toBeNull();
     });
   });
 
