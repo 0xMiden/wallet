@@ -98,7 +98,6 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
   const handlePick = (id: string) =>
     onProgressChange(prev => (prev.chosenId === id ? prev : { ...prev, chosenId: id }));
 
-
   return (
     <OnboardingStepLayout
       data-testid="onboarding-meet-guardian"
