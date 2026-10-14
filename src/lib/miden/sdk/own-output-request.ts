@@ -109,8 +109,9 @@ export function enrichOwnOutputRequest(
 ): TransactionRequest {
   if (request.authArg() !== undefined || feeAwareBuilder.build().authArg() === undefined) return request;
 
-  // A note to a network account is priced by its target's `estimate_note_fee` through FPI, and the client never
-  // loads a foreign account itself, so the dApp sends the target; those public accounts are the one field kept.
+  // A dApp may declare the public accounts its network-target notes' fees are quoted from (FPI into
+  // `estimate_note_fee`); with empty storage requirements the declaration only prefetches what the executor would
+  // otherwise load, so those accounts are the one extra field kept.
   const targets = networkTargetIds(request.expectedOutputOwnNotes());
   const candidates: string[][] = targets.length === 0 ? [[]] : [[], targets];
   for (const foreignIds of candidates) {
