@@ -1851,6 +1851,10 @@
     "message": "교환할 유효한 금액을 입력하세요.",
     "englishSource": "Enter a valid amount to swap."
   },
+  "swapPairNotListed": {
+    "message": "이 토큰 쌍은 더 이상 교환할 수 없습니다. 돌아가서 다른 토큰을 선택하십시오.",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
+  },
   "swapPriceUnavailable": {
     "message": "가격을 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.",
     "englishSource": "Price unavailable. Try again shortly."

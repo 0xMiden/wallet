@@ -1851,6 +1851,10 @@
     "message": "Saisissez un montant valide à échanger.",
     "englishSource": "Enter a valid amount to swap."
   },
+  "swapPairNotListed": {
+    "message": "Cette paire ne peut plus être échangée. Revenez en arrière et choisissez un autre jeton.",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
+  },
   "swapPriceUnavailable": {
     "message": "Prix indisponible. Veuillez réessayer dans quelques instants.",
     "englishSource": "Price unavailable. Try again shortly."
