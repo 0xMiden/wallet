@@ -64,6 +64,13 @@ import * as harness from '../playwright/e2e/helpers/usdcx-constants';
 import * as wallet from '../src/lib/usdcx/constant';
 import { ARC_TESTNET } from '../src/lib/walletconnect/config';
 
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
+
 const REPO_ROOT = path.resolve(__dirname, '..');
 
 // The caller's environment without any variable the runner reads or a usdcx child carries: a key, an empty URL
@@ -541,11 +548,37 @@ const PUBLISHED = 'https://raw.githubusercontent.com/0xMiden/wallet-config/main/
 const DOCUMENT = {
   network: 'testnet',
   version: 7,
-  evm: { chainId: 11155111 },
-  agglayer: { l1Bridge: L1_BRIDGE, midenBridge: '0x3b66e20b5088f25133b69216484652', indexerUrl: INDEXER },
-  epoch: { allocatorUrl: ALLOCATOR, positionsUrl: 'https://positions.example', evmUsdc: EVM_USDC },
-  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
+  'bridge-providers': {
+    epoch: { allocatorUrl: ALLOCATOR, positionsUrl: 'https://positions.example' },
+    agglayer: { indexerUrl: INDEXER }
+  },
+  supportedEvmChains: {
+    sepolia: {
+      chainId: 11155111,
+      bridges: {
+        epoch: { depositEnabled: true, withdrawalEnabled: true, tokens: { USDC: { contractAddress: EVM_USDC } } },
+        agglayer: {
+          depositEnabled: true,
+          withdrawalEnabled: true,
+          contractAddress: L1_BRIDGE,
+          midenBridgeId: '0x3b66e20b5088f25133b69216484652'
+        }
+      }
+    }
+  },
+  features: { earn: true }
 };
+
+function epochProvider(fields: object) {
+  return { ...DOCUMENT, 'bridge-providers': { ...DOCUMENT['bridge-providers'], epoch: fields } };
+}
+
+function sepoliaBridges(fields: object) {
+  return {
+    ...DOCUMENT,
+    supportedEvmChains: { sepolia: { ...DOCUMENT.supportedEvmChains.sepolia, bridges: fields } }
+  };
+}
 
 const STUB = pathToFileURL(path.join(__dirname, 'e2e-real.fetch-stub.mjs')).href;
 
@@ -630,10 +663,16 @@ describe('the preflight reads what it probes from the network config document', 
     ['for another network', { ...DOCUMENT, network: 'devnet' }],
     [
       'with an allocator that is not https',
-      { ...DOCUMENT, epoch: { ...DOCUMENT.epoch, allocatorUrl: 'http://a.example' } }
+      epochProvider({ ...DOCUMENT['bridge-providers'].epoch, allocatorUrl: 'http://a.example' })
     ],
-    ['with a malformed USDC address', { ...DOCUMENT, epoch: { ...DOCUMENT.epoch, evmUsdc: '0x1234' } }],
-    ['naming no allocator', { ...DOCUMENT, epoch: { evmUsdc: EVM_USDC } }]
+    [
+      'with a malformed USDC address',
+      sepoliaBridges({
+        ...DOCUMENT.supportedEvmChains.sepolia.bridges,
+        epoch: { ...DOCUMENT.supportedEvmChains.sepolia.bridges.epoch, tokens: { USDC: { contractAddress: '0x1234' } } }
+      })
+    ],
+    ['naming no allocator', epochProvider({ positionsUrl: 'https://positions.example' })]
   ])(
     'fails the preflight on a document %s and probes nothing it would have named',
     (_label, served) => {
@@ -647,8 +686,14 @@ describe('the preflight reads what it probes from the network config document', 
   );
 
   it.each([
-    ['a positions host that is not a URL', { ...DOCUMENT, epoch: { ...DOCUMENT.epoch, positionsUrl: 42 } }],
-    ['a malformed Miden bridge', { ...DOCUMENT, agglayer: { ...DOCUMENT.agglayer, midenBridge: '0x1234' } }],
+    ['a positions host that is not a URL', epochProvider({ ...DOCUMENT['bridge-providers'].epoch, positionsUrl: 42 })],
+    [
+      'a malformed Miden bridge',
+      sepoliaBridges({
+        ...DOCUMENT.supportedEvmChains.sepolia.bridges,
+        agglayer: { ...DOCUMENT.supportedEvmChains.sepolia.bridges.agglayer, midenBridgeId: '0x1234' }
+      })
+    ],
     ['a switch that is not a boolean', { ...DOCUMENT, features: { ...DOCUMENT.features, earn: 'true' } }]
   ])(
     'fails the preflight on a document the wallet refuses for %s, a field no probe reads, and probes nothing',
@@ -664,14 +709,14 @@ describe('the preflight reads what it probes from the network config document', 
   );
 
   it('passes a document that leaves a switch out, which the wallet reads as off', () => {
-    const { bridgeOut: _left, ...features } = DOCUMENT.features;
+    const features = {};
     const res = preflight('bridge-out-epoch', { ...DOCUMENT, features });
     expect(res.status).toBe(0);
     expect(res.requests).toContain(`${ALLOCATOR}/health`);
   }, 35_000);
 
   it('reads the served document the E2E build reads when MIDEN_REMOTE_CONFIG_URL is set', () => {
-    const served = { ...DOCUMENT, epoch: { ...DOCUMENT.epoch, allocatorUrl: 'http://127.0.0.1:8548' } };
+    const served = epochProvider({ ...DOCUMENT['bridge-providers'].epoch, allocatorUrl: 'http://127.0.0.1:8548' });
     const res = preflight('bridge-out-epoch', served, { MIDEN_REMOTE_CONFIG_URL: 'http://127.0.0.1:8550/' });
     expect(res.requests).toContain('http://127.0.0.1:8550/testnet.json');
     expect(res.requests).toContain('http://127.0.0.1:8548/health');
@@ -689,9 +734,12 @@ describe('the preflight reads what it probes from the network config document', 
   }, 35_000);
 
   it('fails the preflight on a document naming no indexer for a Slow suite, and asks no indexer', () => {
-    const res = preflight('bridge-out-agglayer', { ...DOCUMENT, agglayer: { l1Bridge: L1_BRIDGE } });
+    const res = preflight('bridge-out-agglayer', {
+      ...DOCUMENT,
+      'bridge-providers': { ...DOCUMENT['bridge-providers'], agglayer: {} }
+    });
     expect(res.status).toBe(1);
-    expect(res.output).toContain('names no agglayer.indexerUrl');
+    expect(res.output).toContain('document the wallet refuses');
     expect(res.requests).not.toContain('/bridge?');
   }, 35_000);
 
@@ -1424,16 +1472,16 @@ describe('usdcxGrantProblem', () => {
 describe('the usdcx constants are the ones the harness and the wallet use', () => {
   it.each([
     ['ARC_TESTNET_CHAIN_ID', ARC_TESTNET_CHAIN_ID, harness.ARC_CHAIN_ID, ARC_TESTNET.id],
-    ['ARC_XRESERVE', ARC_XRESERVE, harness.ARC_XRESERVE, wallet.XRESERVE_ADDRESS.get(ARC_TESTNET.id)],
-    ['ARC_USDC', ARC_USDC, harness.ARC_USDC, wallet.CIRCLE_USDC_ADDRESS.get(ARC_TESTNET.id)],
-    ['ARC_CIRCLE_DOMAIN', ARC_CIRCLE_DOMAIN, harness.ARC_CIRCLE_DOMAIN, wallet.CIRCLE_DOMAIN.get(ARC_TESTNET.id)],
-    ['USDCX_REMOTE_DOMAIN', USDCX_REMOTE_DOMAIN, harness.USDCX_REMOTE_DOMAIN, wallet.USDCX_REMOTE_DOMAIN],
+    ['ARC_XRESERVE', ARC_XRESERVE, harness.ARC_XRESERVE, wallet.getUsdcxXReserveSource(ARC_TESTNET.id).xReserve],
+    ['ARC_USDC', ARC_USDC, harness.ARC_USDC, wallet.getUsdcxXReserveSource(ARC_TESTNET.id).usdc],
     [
-      'XRESERVE_API_TESTNET',
-      XRESERVE_API_TESTNET,
-      harness.ARC_ATTESTATION_API,
-      wallet.XRESERVE_ATTESTATION_API_TESTNET
+      'ARC_CIRCLE_DOMAIN',
+      ARC_CIRCLE_DOMAIN,
+      harness.ARC_CIRCLE_DOMAIN,
+      wallet.getUsdcxXReserveSource(ARC_TESTNET.id).domain
     ],
+    ['USDCX_REMOTE_DOMAIN', USDCX_REMOTE_DOMAIN, harness.USDCX_REMOTE_DOMAIN, wallet.getUsdcxRemoteDomain()],
+    ['XRESERVE_API_TESTNET', XRESERVE_API_TESTNET, harness.ARC_ATTESTATION_API, wallet.getUsdcxAttestationUrl()],
     ['USDCX_DECIMALS', USDCX_DECIMALS, wallet.USDCX_DECIMALS, wallet.USDCX_DECIMALS],
     ['GATEWAY_MINTER', GATEWAY_MINTER, harness.GATEWAY_MINTER, harness.GATEWAY_MINTER],
     [

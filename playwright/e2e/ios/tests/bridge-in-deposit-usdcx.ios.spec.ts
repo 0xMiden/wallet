@@ -1,4 +1,3 @@
-import { USDCX_REMOTE_DOMAIN } from '../../helpers/usdcx-config';
 import { createPublicClient, decodeFunctionData, http, isHash } from 'viem';
 import { sepolia } from 'viem/chains';
 
@@ -7,7 +6,8 @@ import {
   USDCX_DEPOSIT_HOOK_DATA,
   USDCX_DEPOSIT_MAX_FEE,
   XRESERVE_ABI
-} from '../../../../src/lib/usdcx/constant';
+} from '../../../../src/lib/usdcx/protocol';
+import { USDCX_REMOTE_DOMAIN } from '../../helpers/usdcx-config';
 import { expect, test } from '../fixtures/two-simulators';
 import { AnvilInstance } from '../helpers/anvil';
 import { WcCounterparty, type WcRequestLog } from '../helpers/wc-counterparty';

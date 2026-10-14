@@ -51,3 +51,8 @@ export function getUsdcxXReserveSource(chainId: number): UsdcxXReserveSource {
     attestationApi: provider.attestationUrl
   };
 }
+
+/** The payout floor used by the E2E oracle for its configured destination. */
+export function minimumUsdcxPayout(chainId: number, amount: bigint): bigint {
+  return amount - (USDCX_DESTINATIONS.get(chainId)?.payoutFeeAllowance ?? 0n);
+}
