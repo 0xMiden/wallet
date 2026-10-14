@@ -398,25 +398,21 @@ export class MultisigService {
     amount: bigint,
     noteType: NoteType
   ): Promise<Proposal> {
-    return withWasmClientLock(async hold => {
-      await this.syncChainForProposal(hold, 'send proposal');
-      return this.multisig.createP2idProposal(
+    return this.withChainSyncedHold('send proposal', () =>
+      this.multisig.createP2idProposal(
         accountRefToSdk(recipientId).toString(),
         accountRefToSdk(faucetId).toString(),
         amount,
         { noteType }
-      );
-    });
+      )
+    );
   }
 
   /**
    * Create a consume notes transaction proposal.
    */
   async createConsumeNotesProposal(noteIds: string[]): Promise<Proposal> {
-    return withWasmClientLock(async hold => {
-      await this.syncChainForProposal(hold, 'consume proposal');
-      return this.multisig.createConsumeNotesProposal(noteIds);
-    });
+    return this.withChainSyncedHold('consume proposal', () => this.multisig.createConsumeNotesProposal(noteIds));
   }
 
   /** Current on-chain threshold for `procedure`, or undefined if none is set. */
@@ -449,11 +445,10 @@ export class MultisigService {
 
   /** Create a proposal that sets `procedure`'s signature threshold to `threshold`. */
   async createUpdateProcedureThresholdProposal(procedure: string, threshold: number): Promise<Proposal> {
-    return withWasmClientLock(async hold => {
-      await this.syncChainForProposal(hold, 'procedure-threshold proposal');
+    return this.withChainSyncedHold('procedure-threshold proposal', () =>
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (this.multisig as any).createUpdateProcedureThresholdProposal(procedure, threshold);
-    });
+      (this.multisig as any).createUpdateProcedureThresholdProposal(procedure, threshold)
+    );
   }
 
   async signAndExecuteProposal(id: string): Promise<void> {
@@ -470,10 +465,9 @@ export class MultisigService {
    * with a built-in type — so the default must be snake_case, not `'custom transaction'`.
    */
   async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom_transaction'): Promise<Proposal> {
-    return await withWasmClientLock(async hold => {
-      await this.syncChainForProposal(hold, 'custom proposal');
-      return this.multisig.createCustomProposal(requestBytes, proposalType);
-    });
+    return await this.withChainSyncedHold('custom proposal', () =>
+      this.multisig.createCustomProposal(requestBytes, proposalType)
+    );
   }
 
   /**
@@ -500,10 +494,7 @@ export class MultisigService {
     proposalType: string,
     approvalExpirationDelta?: number
   ): Promise<{ proposal: Proposal; requestBytes: Uint8Array }> {
-    return await withWasmClientLock(async hold => {
-      await this.syncChainForProposal(hold, 'rebased custom proposal');
-      const client = (await getMidenClient()).client;
-      assertWasmHoldCurrent(hold, 'rebased custom proposal: after the client build');
+    return await this.withChainSyncedHold('rebased custom proposal', async (hold, client) => {
       const notes = TransactionRequest.deserialize(requestBytes).expectedOutputOwnNotes();
       const builder = await feeAwareRequestBuilder(client, this.accountId, randomFeeSalt(), approvalExpirationDelta);
       assertWasmHoldCurrent(hold, 'rebased custom proposal: after the fee-aware builder');
@@ -839,10 +830,9 @@ export class MultisigService {
       });
       // `createSwitchGuardianProposal` already creates and returns the proposal;
       // calling `createProposal` again would duplicate it (nonce collision).
-      const proposal = await withWasmClientLock(async hold => {
-        await this.syncChainForProposal(hold, 'switch-guardian proposal');
-        return this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment);
-      });
+      const proposal = await this.withChainSyncedHold('switch-guardian proposal', () =>
+        this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment)
+      );
       return { proposal, newEndpoint: newGuardianEndpoint };
     } catch (error) {
       console.error('Error creating switch-guardian proposal:', error);
@@ -937,23 +927,29 @@ export class MultisigService {
   /**
    * A proposal's summary executes at the store's sync height and loads the fee faucet as a foreign
    * account there; the node serves account state only 50 blocks back, so a height left stale by a
-   * 409 retry loop or a paused WebView fails `before_foreign_load` (#1442). Sync in the caller's
-   * hold, right before the summary runs.
+   * 409 retry loop or a paused WebView fails `before_foreign_load` (#1442). So every proposal takes
+   * its hold here and syncs in it, right before `body` builds on the client it is handed.
    */
-  private async syncChainForProposal(hold: WasmLockHold, label: string): Promise<void> {
-    const { client } = await getMidenClient();
-    assertWasmHoldCurrent(hold, `${label}: before the chain sync`);
-    try {
-      await syncAndRecordFeeFaucet(
-        client,
-        () => client.syncChain(),
-        () => assertWasmHoldCurrent(hold, `${label}: chain sync`)
-      );
-    } catch (error) {
-      // A killed pipeline is not the node's answer; only a plain sync failure is tagged.
-      if (isPipelineKillLink(error)) throw error;
-      throw new ProposalChainSyncError(error);
-    }
+  private withChainSyncedHold<T>(
+    label: string,
+    body: (hold: WasmLockHold, client: MidenClient) => Promise<T>
+  ): Promise<T> {
+    return withWasmClientLock(async hold => {
+      const { client } = await getMidenClient();
+      assertWasmHoldCurrent(hold, `${label}: before the chain sync`);
+      try {
+        await syncAndRecordFeeFaucet(
+          client,
+          () => client.syncChain(),
+          () => assertWasmHoldCurrent(hold, `${label}: chain sync`)
+        );
+      } catch (error) {
+        // A killed pipeline is not the node's answer; only a plain sync failure is tagged. Never body's errors.
+        if (isPipelineKillLink(error)) throw error;
+        throw new ProposalChainSyncError(error);
+      }
+      return body(hold, client);
+    });
   }
 
   /**

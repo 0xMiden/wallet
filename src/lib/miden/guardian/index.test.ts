@@ -2271,6 +2271,38 @@ describe('MultisigService', () => {
       await expect(call(service)).rejects.toThrow('node unreachable');
       expect(multisigCall).not.toHaveBeenCalled();
     });
+
+    // Only the sync is tagged: a 409 the proposal itself answers must reach withGuardianConflictRetry as it is.
+    it.each<[string, string, (s: MultisigService) => Promise<unknown>]>([
+      ...wrapperCases,
+      [
+        'createSwitchGuardianProposal',
+        'createSwitchGuardianProposal',
+        s => {
+          guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+          return s.createSwitchGuardianProposal('https://new');
+        }
+      ]
+    ])('%s passes the multisig call rejection through unwrapped', async (_name, multisigMethod, call) => {
+      const conflict = Object.assign(new Error('GUARDIAN HTTP error 409: Conflict'), {
+        status: 409,
+        code: 'conflict_pending_delta'
+      });
+      const multisigCall = jest.fn(async () => {
+        throw conflict;
+      });
+      const service = new MultisigService(
+        makeMultisig({ [multisigMethod]: multisigCall }) as never,
+        {} as never,
+        'https://x'
+      );
+
+      const error: unknown = await call(service).catch((e: unknown) => e);
+
+      expect(multisigCall).toHaveBeenCalledTimes(1);
+      expect(error).toBe(conflict);
+      expect(isProposalChainSyncError(error)).toBe(false);
+    });
   });
 
   describe('signProposal pass-through', () => {
