@@ -1,6 +1,7 @@
 import type { DeltaObject, HistoryEntry, ProposalMetadata } from '@openzeppelin/guardian-client';
 
-import { isValidGuardianUrl } from 'lib/settings/helpers';
+import { RENAMED_GUARDIAN_ENDPOINTS } from 'lib/miden-chain/networks-config';
+import { canonicalGuardianEndpoint, isValidGuardianUrl, sameGuardianEndpoint } from 'lib/settings/helpers';
 
 import type { IConsumedAssetTotal, ITransaction, ITransactionType } from '../db/types';
 import {
@@ -175,19 +176,22 @@ export function concreteRecoveredTransaction(inputs: RecoveredTransactionInputs)
 }
 
 export function normalizeHistoryOperators(endpoints: string[]): string[] {
-  const operators = new Set<string>();
+  // Keyed canonically so a renamed built-in host and its old name are one operator; the first spelling wins.
+  const operators = new Map<string, string>();
   for (const endpoint of endpoints) {
     if (!isValidGuardianUrl(endpoint)) continue;
     try {
       const url = new URL(endpoint);
       url.hash = '';
       url.search = '';
-      operators.add(url.toString().replace(/\/+$/, ''));
+      const normalized = url.toString().replace(/\/+$/, '');
+      const key = canonicalGuardianEndpoint(normalized);
+      if (!operators.has(key)) operators.set(key, normalized);
     } catch {
       // Ignore an invalid saved endpoint.
     }
   }
-  return [...operators];
+  return [...operators.values()];
 }
 
 export function sumHistoryAssets(notes: GuardianHistoryNote[]): IConsumedAssetTotal[] {
@@ -207,8 +211,16 @@ export function sameNonemptyNotes(left: string[] | undefined, right: string[] | 
   return a.size === b.size && [...a].every(id => b.has(id));
 }
 
+// Ids were first written under the pre-rename host name, so any spelling of a renamed host keys to it.
+function renameStableOperator(operator: string): string {
+  for (const [oldName, newName] of RENAMED_GUARDIAN_ENDPOINTS) {
+    if (sameGuardianEndpoint(operator, newName)) return oldName;
+  }
+  return operator;
+}
+
 export function historyCheckpointId(network: string, accountId: string, operator: string): string {
-  return JSON.stringify([network, accountId, operator, GUARDIAN_HISTORY_VERSION]);
+  return JSON.stringify([network, accountId, renameStableOperator(operator), GUARDIAN_HISTORY_VERSION]);
 }
 
 function transferNotes(
@@ -297,7 +309,8 @@ export function recoveredHistoryRecord(
   const finalCommitment = delta.newCommitment || entry.newCommitment || undefined;
   // The id travels in the route path, and the router does not decode a segment.
   // Keep it to characters no browser encodes in a hash and that never form a `/`.
-  const identity = finalCommitment ?? `nonce-${entry.nonce}-${operator.replace(/[^a-z0-9]+/gi, '_')}`;
+  const identity =
+    finalCommitment ?? `nonce-${entry.nonce}-${renameStableOperator(operator).replace(/[^a-z0-9]+/gi, '_')}`;
   const recipients = new Set(
     selectedNotes.map(note => (type === 'consume' ? note.sender : note.recipient)).filter(value => value !== undefined)
   );

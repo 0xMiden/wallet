@@ -325,7 +325,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 120 || 90 }}
     env:
       E2E_NETWORK: devnet
-      GUARDIAN_URL: https://guardian-stg.openzeppelin.com
+      GUARDIAN_URL: https://guardian-devnet.openzeppelin.com
     steps:
       - uses: actions/checkout@v4
 
@@ -420,7 +420,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 120 || 90 }}
     env:
       E2E_NETWORK: testnet
-      GUARDIAN_URL: https://guardian.openzeppelin.com
+      GUARDIAN_URL: https://guardian-testnet.openzeppelin.com
     steps:
       - uses: actions/checkout@v4
 
@@ -1006,7 +1006,7 @@ jobs:
   # Same iOS harness as mobile-{devnet,testnet} but runs ONLY the guardian spec
   # (playwright.ios.guardian.config.ts). No GUARDIAN_URL: the mobile guardian
   # wallet uses the network DEFAULT guardian endpoint (devnet ->
-  # guardian-stg.openzeppelin.com, testnet -> guardian.openzeppelin.com), which
+  # guardian-devnet.openzeppelin.com, testnet -> guardian-testnet.openzeppelin.com), which
   # in-app onboarding selects automatically. Gated separately (mobile-guardian-
   # gate) so a guardian outage never blocks the standard mobile gate.
   mobile-guardian-devnet:
