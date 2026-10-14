@@ -1,4 +1,4 @@
-import React, { FormEvent, useState } from 'react';
+import React, { FormEvent, useEffect, useRef, useState } from 'react';
 
 import { Clipboard } from '@capacitor/clipboard';
 import { useTranslation } from 'react-i18next';
@@ -35,6 +35,15 @@ export const MainnetAccessScreen: React.FC<MainnetAccessScreenProps> = ({ onSubm
   const [failure, setFailure] = useState<Failure | null>(rejected ? 'rejected' : null);
   const [submitting, setSubmitting] = useState(false);
   const [pasting, setPasting] = useState(false);
+  // A check answers for the code it was asked about, on this screen: Back, or a new code, drops it.
+  const mounted = useRef(true);
+  const codeGeneration = useRef(0);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const complete = isMainnetAccessCodeComplete(code);
 
@@ -53,6 +62,7 @@ export const MainnetAccessScreen: React.FC<MainnetAccessScreenProps> = ({ onSubm
   };
 
   const changeCode = (next: string) => {
+    codeGeneration.current += 1;
     setCode(next);
     setFailure(null);
   };
@@ -76,8 +86,11 @@ export const MainnetAccessScreen: React.FC<MainnetAccessScreenProps> = ({ onSubm
     if (!complete || submitting || pasting) return;
     setSubmitting(true);
     setFailure(null);
+    const generation = codeGeneration.current;
+    const current = () => mounted.current && codeGeneration.current === generation;
     try {
       const outcome = await checkMainnetAccessCode(code);
+      if (!current()) return;
       switch (outcome) {
         case 'granted':
           onSubmit?.(code);
@@ -87,7 +100,7 @@ export const MainnetAccessScreen: React.FC<MainnetAccessScreenProps> = ({ onSubm
           break;
       }
     } catch {
-      setFailure('unchecked');
+      if (current()) setFailure('unchecked');
     } finally {
       setSubmitting(false);
     }

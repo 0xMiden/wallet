@@ -148,4 +148,30 @@ describe('MainnetAccessScreen', () => {
     expect(mockCheck).toHaveBeenCalledTimes(1);
     await act(async () => settle('granted'));
   });
+
+  it('drops a granted check that answers after the screen closed', async () => {
+    let settle: (outcome: 'granted') => void = () => {};
+    mockCheck.mockReturnValue(new Promise(resolve => (settle = resolve)));
+    const onSubmit = jest.fn();
+    const view = render(<MainnetAccessScreen onSubmit={onSubmit} />);
+    type('8gKIgL0O6HcU');
+    await submit();
+    view.unmount();
+    await act(async () => settle('granted'));
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('drops a check whose code changed before it answered', async () => {
+    let settle: (outcome: 'granted') => void = () => {};
+    mockCheck.mockReturnValue(new Promise(resolve => (settle = resolve)));
+    const onSubmit = jest.fn();
+    render(<MainnetAccessScreen onSubmit={onSubmit} />);
+    type('8gKIgL0O6HcU');
+    await submit();
+    type('47291835');
+    await act(async () => settle('granted'));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(code()).toHaveValue('47291835');
+    expect(submitButton()).toBeEnabled();
+  });
 });

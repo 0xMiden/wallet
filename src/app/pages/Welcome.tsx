@@ -674,6 +674,8 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
         navigate('/#mainnet-access');
         break;
       case 'mainnet-access-granted':
+        // A check that answers after Back left the code step starts nothing.
+        if (step !== OnboardingStep.MainnetAccess) break;
         // Keep the code for registration after account setup.
         setAccessCode(action.payload);
         setAccessCodeRejected(false);

@@ -1142,6 +1142,19 @@ describe('Welcome - mainnet access and the network notice (#875)', () => {
     expect(currentStep()).not.toBe(OnboardingStep.MainnetAccess);
   });
 
+  it('ignores a code check that answers after Back left the code step', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'mainnet-access' });
+    await setHash('#mainnet-access');
+    await dispatch({ id: 'back' });
+    await setHash('');
+    mockNavigate.mockClear();
+
+    await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(currentStep()).toBe(OnboardingStep.Welcome);
+  });
+
   it('back from the mainnet access step returns to Welcome', async () => {
     await renderWelcome();
     await dispatch({ id: 'mainnet-access' });
@@ -1739,6 +1752,7 @@ describe('Welcome — confirmation / register', () => {
   it('registers a create with the granted access code as its last argument', async () => {
     await renderWelcome();
     await dispatch({ id: 'mainnet-access' });
+    await setHash('#mainnet-access');
     await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     await dispatch({ id: 'choose-guardian-submit', payload: { guardianId: 'g', guardianEndpoint: 'https://g' } });
@@ -1761,6 +1775,7 @@ describe('Welcome — confirmation / register', () => {
     );
     await renderWelcome();
     await dispatch({ id: 'mainnet-access' });
+    await setHash('#mainnet-access');
     await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
     await dispatch({ id: 'choose-guardian-submit', payload: { guardianId: 'g', guardianEndpoint: 'https://g' } });
@@ -1787,6 +1802,7 @@ describe('Welcome — confirmation / register', () => {
   it('restores a wallet file without the access code a create left held', async () => {
     await renderWelcome();
     await dispatch({ id: 'mainnet-access' });
+    await setHash('#mainnet-access');
     await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
     await dispatch({ id: 'import-from-file' });
     await setHash('#import-from-file');
