@@ -118,7 +118,8 @@ const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const LOCAL_HTTP_HOSTS = ['127.0.0.1', 'localhost'];
 
 // Each check throws on a violation and parseBridgeConfig catches once: one bad known field rejects the document.
-// The one exception is mainnetCountdown, which only drives a banner: a bad countdown turns it off (see readCountdown).
+// What this build does not know or cannot complete (a newer chain, route, token or output) is left out instead, so
+// only its own routes go unavailable. mainnetCountdown, which only drives a banner, is off when malformed.
 const invalid = (): never => {
   throw new Error('invalid bridge config');
 };
@@ -257,21 +258,21 @@ function switches(value: Record<string, ConfigValue>): RouteSwitches {
 }
 
 function outputNames(value: ConfigValue): string[] {
-  if (!Array.isArray(value) || !value.every((name: ConfigValue) => typeof name === 'string')) return invalid();
-  const names: string[] = [];
-  for (const name of value) {
-    if (typeof name !== 'string' || name !== 'usdc-testnet-output') return invalid();
-    names.push(name);
-  }
+  if (!Array.isArray(value)) return invalid();
+  const names = value.map((name: ConfigValue) => (typeof name === 'string' ? name : invalid()));
   if (new Set(names).size !== names.length) return invalid();
   return names;
 }
 
-function epochChain(value: ConfigValue): EpochChainConfig {
+// Undefined for a route that lists no token this build knows.
+function epochChain(value: ConfigValue): EpochChainConfig | undefined {
   const bridge = section(value);
-  const token = section(section(bridge.tokens).USDC);
+  const routeSwitches = switches(bridge);
+  const tokens = section(bridge.tokens);
+  if (tokens.USDC === undefined) return undefined;
+  const token = section(tokens.USDC);
   return {
-    ...switches(bridge),
+    ...routeSwitches,
     tokens: {
       USDC: {
         contractAddress: evmAddress(token.contractAddress),
@@ -290,7 +291,8 @@ function agglayerChain(value: ConfigValue): AgglayerChainConfig {
   };
 }
 
-function usdcxDeposit(value: ConfigValue): UsdcxDepositConfig {
+// Undefined for a route this build does not know.
+function usdcxDeposit(value: ConfigValue): UsdcxDepositConfig | undefined {
   const deposit = section(value);
   switch (deposit.route) {
     case 'xreserve':
@@ -304,42 +306,58 @@ function usdcxDeposit(value: ConfigValue): UsdcxDepositConfig {
         tokenMessengerWithFees: evmAddress(deposit.tokenMessengerWithFees)
       };
     default:
-      return invalid();
+      return typeof deposit.route === 'string' ? undefined : invalid();
   }
 }
 
-function usdcxChain(value: ConfigValue): UsdcxChainConfig {
+// Undefined for a route that lists no token this build knows. A deposit it does not know is left out, and the executor
+// with it, since an executor serves only an xreserve deposit.
+function usdcxChain(value: ConfigValue): UsdcxChainConfig | undefined {
   const bridge = section(value);
-  const token = section(section(bridge.tokens).USDC);
+  const routeSwitches = switches(bridge);
+  const routeDomain = domain(bridge.domain);
   const deposit = read(bridge, 'deposit', usdcxDeposit);
+  const dropped = bridge.deposit !== undefined && deposit === undefined;
   const executor = read(bridge, 'executor', value => {
     const addresses = section(value);
     return { address: evmAddress(addresses.address), handler: evmAddress(addresses.handler) };
   });
-  if (bridge.depositEnabled === true && !deposit) return invalid();
-  if (executor && deposit?.route !== 'xreserve') return invalid();
+  if (bridge.depositEnabled === true && !deposit && !dropped) return invalid();
+  if (executor && !dropped && deposit?.route !== 'xreserve') return invalid();
+  const tokens = section(bridge.tokens);
+  if (tokens.USDC === undefined) return undefined;
+  const token = section(tokens.USDC);
   return {
-    ...switches(bridge),
-    domain: domain(bridge.domain),
+    ...routeSwitches,
+    domain: routeDomain,
     tokens: { USDC: { contractAddress: evmAddress(token.contractAddress) } },
     ...(deposit === undefined ? {} : { deposit }),
-    ...(executor === undefined ? {} : { executor })
+    ...(executor === undefined || dropped ? {} : { executor })
   };
 }
 
 function supportedChains(value: ConfigValue): Record<string, SupportedEvmChainConfig> {
   const chains: Record<string, SupportedEvmChainConfig> = {};
   const ids = new Set<number>();
+  // Chains skipped, or whose xreserve deposit was left out: an executor deposit through one is left out too.
+  const incomplete = new Set<string>();
   for (const [slug, entry] of Object.entries(section(value))) {
     if (!/^[a-z][a-z0-9-]*$/.test(slug)) return invalid();
     const item = section(entry);
-    if (!isPositiveSafeInteger(item.chainId) || ids.has(item.chainId) || evmChainSlug(item.chainId) !== slug)
-      return invalid();
+    if (!isPositiveSafeInteger(item.chainId) || ids.has(item.chainId)) return invalid();
+    // A chain id this build has no name for is a newer build's; one it names under another slug is a mistake.
+    const known = evmChainSlug(item.chainId);
+    if (known === undefined) {
+      incomplete.add(slug);
+      continue;
+    }
+    if (known !== slug) return invalid();
     ids.add(item.chainId);
     const bridges = section(item.bridges);
     const epoch = read(bridges, 'epoch', epochChain);
     const agglayer = read(bridges, 'agglayer', agglayerChain);
     const usdcx = read(bridges, 'usdcx', usdcxChain);
+    if (section(bridges.usdcx).deposit !== undefined && !usdcx?.deposit) incomplete.add(slug);
     chains[slug] = {
       chainId: item.chainId,
       bridges: {
@@ -350,10 +368,12 @@ function supportedChains(value: ConfigValue): Record<string, SupportedEvmChainCo
     };
   }
   for (const chain of Object.values(chains)) {
-    const deposit = chain.bridges.usdcx?.deposit;
-    if (deposit?.route !== 'executor') continue;
-    const target = chains[deposit.executorChain]?.bridges.usdcx;
-    if (!target?.executor || target.deposit?.route !== 'xreserve') return invalid();
+    const route = chain.bridges.usdcx;
+    if (route?.deposit?.route !== 'executor') continue;
+    const target = chains[route.deposit.executorChain]?.bridges.usdcx;
+    if (target?.executor && target.deposit?.route === 'xreserve') continue;
+    if (!incomplete.has(route.deposit.executorChain)) return invalid();
+    delete route.deposit;
   }
   return chains;
 }
@@ -367,11 +387,13 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   const epoch = section(providers.epoch);
   const agglayer = section(providers.agglayer);
   const usdcx = section(providers.usdcx);
-  const outputs: Record<string, { faucetId: string }> = {};
-  for (const [name, output] of Object.entries(section(epoch.outputs))) {
-    if (name !== 'usdc-testnet-output' || network !== 'testnet') return invalid();
-    outputs[name] = { faucetId: midenAccountId(section(output).faucetId) };
-  }
+  // fromEntries, so a name such as __proto__ is an own entry like any other.
+  const outputs: Record<string, { faucetId: string }> = Object.fromEntries(
+    Object.entries(section(epoch.outputs)).map(([name, output]) => [
+      name,
+      { faucetId: midenAccountId(section(output).faucetId) }
+    ])
+  );
   const allocatorUrl = read(epoch, 'allocatorUrl', url);
   const positionsUrl = read(epoch, 'positionsUrl', url);
   const indexerUrl = read(agglayer, 'indexerUrl', url);
@@ -381,13 +403,13 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   const swap = section(body.swap);
   const etaUrl = read(swap, 'etaUrl', url);
   const supportedEvmChains = supportedChains(body.supportedEvmChains);
-  for (const chain of Object.values(supportedEvmChains)) {
-    if (chain.bridges.epoch && (!allocatorUrl || !positionsUrl)) return invalid();
-    if (chain.bridges.agglayer && !indexerUrl) return invalid();
-    if (chain.bridges.usdcx && (midenDomain === undefined || !attestationUrl || !irisUrl)) return invalid();
-    for (const name of chain.bridges.epoch?.tokens.USDC?.outputs ?? []) {
-      if (!outputs[name]) return invalid();
-    }
+  // A route without the provider values it runs on is left out; so is a token output nothing declares.
+  for (const { bridges } of Object.values(supportedEvmChains)) {
+    if (bridges.epoch && (!allocatorUrl || !positionsUrl)) delete bridges.epoch;
+    if (bridges.agglayer && !indexerUrl) delete bridges.agglayer;
+    if (bridges.usdcx && (midenDomain === undefined || !attestationUrl || !irisUrl)) delete bridges.usdcx;
+    const usdc = bridges.epoch?.tokens.USDC;
+    if (usdc) usdc.outputs = usdc.outputs.filter(name => Object.hasOwn(outputs, name));
   }
   return {
     network,
@@ -421,7 +443,8 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
 
 /**
  * The document for `network`, or null when it is malformed or names another network. Strict on known fields,
- * blind to unknown ones. URLs come back without a trailing slash; addresses and ids in lowercase.
+ * blind to unknown ones: a chain, route, token or output this build does not know or cannot complete is left out.
+ * URLs come back without a trailing slash; addresses and ids in lowercase.
  */
 export function parseBridgeConfig(
   body: unknown,

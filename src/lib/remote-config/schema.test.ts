@@ -1,4 +1,5 @@
 import { parseBridgeConfig, SUPPORTED_EVM_CHAIN_IDS } from './schema';
+import testnet from './testing/testnet.json';
 
 type ConfigValue = Parameters<typeof parseBridgeConfig>[0];
 const doc = (overrides: Record<string, ConfigValue> = {}) => ({
@@ -264,7 +265,141 @@ it('reads the countdown switch without its moment, and a moment with fractional 
 });
 
 it('rejects a chain whose slug and id do not match', () => {
-  expect(parseBridgeConfig(withSection('evm', { chainId: 999999 }), 'testnet')).toBeNull();
+  expect(parseBridgeConfig(withSection('evm', { chainId: 84532 }), 'testnet')).toBeNull();
+  expect(parseBridgeConfig(doc({ supportedEvmChains: { polygon: { chainId: 11155111 } } }), 'testnet')).toBeNull();
+});
+
+describe('values this build does not know', () => {
+  const published = parseBridgeConfig(testnet, 'testnet');
+  const chains = testnet.supportedEvmChains;
+  const providers = testnet['bridge-providers'];
+  const withChains = (supportedEvmChains: Record<string, ConfigValue>) => ({ ...testnet, supportedEvmChains });
+  const withProviders = (fields: Record<string, ConfigValue>) => ({
+    ...testnet,
+    'bridge-providers': { ...providers, ...fields }
+  });
+
+  it('skips a chain this build has no name for and keeps the rest', () => {
+    const body = withChains({
+      ...chains,
+      'polygon-amoy': { chainId: 80002, bridges: { usdcx: chains['base-sepolia'].bridges.usdcx } }
+    });
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed).toStrictEqual(published);
+  });
+
+  it('leaves out a USDCx deposit route it does not know and every executor deposit through that chain', () => {
+    const arc = chains['arc-testnet'];
+    const body = withChains({
+      ...chains,
+      'arc-testnet': {
+        ...arc,
+        bridges: {
+          usdcx: { ...arc.bridges.usdcx, deposit: { route: 'cctp-v3', bridge: arc.bridges.usdcx.executor.address } }
+        }
+      }
+    });
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed?.swap).toStrictEqual(published?.swap);
+    expect(parsed?.supportedEvmChains.sepolia?.bridges.epoch).toStrictEqual(
+      published?.supportedEvmChains.sepolia?.bridges.epoch
+    );
+    expect(parsed?.supportedEvmChains.sepolia?.bridges.agglayer).toStrictEqual(
+      published?.supportedEvmChains.sepolia?.bridges.agglayer
+    );
+    const arcRoute = parsed?.supportedEvmChains['arc-testnet']?.bridges.usdcx;
+    expect(arcRoute?.tokens).toStrictEqual(published?.supportedEvmChains['arc-testnet']?.bridges.usdcx?.tokens);
+    expect(arcRoute).not.toHaveProperty('deposit');
+    expect(arcRoute).not.toHaveProperty('executor');
+    for (const slug of ['sepolia', 'base-sepolia', 'arbitrum-sepolia']) {
+      const source = parsed?.supportedEvmChains[slug]?.bridges.usdcx;
+      expect(source?.depositEnabled).toBe(true);
+      expect(source).not.toHaveProperty('deposit');
+    }
+  });
+
+  it('leaves out an Epoch or USDCx route that lists no token it knows', () => {
+    const baseSepolia = chains['base-sepolia'];
+    const tokens = { USDT: { contractAddress: '0x7169D38820dfd117C3FA1f22a697dBA58d90BA06' } };
+    const epoch = { depositEnabled: true, withdrawalEnabled: true, tokens };
+    const body = withChains({
+      ...chains,
+      'base-sepolia': { ...baseSepolia, bridges: { ...baseSepolia.bridges, epoch } }
+    });
+    expect(parseBridgeConfig(body, 'testnet')).not.toBeNull();
+    expect(parseBridgeConfig(body, 'testnet')).toStrictEqual(published);
+    const usdcx = { ...baseSepolia.bridges.usdcx, tokens };
+    const parsed = parseBridgeConfig(
+      withChains({ ...chains, 'base-sepolia': { ...baseSepolia, bridges: { usdcx } } }),
+      'testnet'
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed?.supportedEvmChains['base-sepolia']?.bridges).toStrictEqual({});
+  });
+
+  it('reads an Epoch output under any name and leaves out a token output nothing declares', () => {
+    const sepolia = chains.sepolia;
+    const usdc = sepolia.bridges.epoch.tokens.USDC;
+    const outputs = {
+      ...providers.epoch.outputs,
+      'usdc-mainnet-output': { faucetId: '0x537c15a622074e91188aa894456c52' }
+    };
+    const epoch = {
+      ...sepolia.bridges.epoch,
+      tokens: { USDC: { ...usdc, outputs: ['usdc-mainnet-output', 'usdc-other'] } }
+    };
+    const body = {
+      ...withProviders({ epoch: { ...providers.epoch, outputs } }),
+      supportedEvmChains: { ...chains, sepolia: { ...sepolia, bridges: { ...sepolia.bridges, epoch } } }
+    };
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed?.['bridge-providers'].epoch.outputs).toStrictEqual(outputs);
+    expect(parsed?.supportedEvmChains.sepolia?.bridges.epoch?.tokens.USDC?.outputs).toStrictEqual([
+      'usdc-mainnet-output'
+    ]);
+    expect(parsed?.swap).toStrictEqual(published?.swap);
+  });
+
+  it('reads Epoch outputs off testnet', () => {
+    const outputs = { 'usdc-mainnet-output': { faucetId: '0x537c15a622074e91188aa894456c52' } };
+    const parsed = parseBridgeConfig(
+      { network: 'mainnet', version: 1, 'bridge-providers': { epoch: { outputs } } },
+      'mainnet'
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed?.['bridge-providers'].epoch.outputs).toStrictEqual(outputs);
+  });
+
+  it('still rejects an executor deposit through a listed chain that never had an executor, and a route id not text', () => {
+    const baseSepolia = chains['base-sepolia'];
+    const usdcx = baseSepolia.bridges.usdcx;
+    const through = (deposit: Record<string, ConfigValue>) =>
+      withChains({ ...chains, 'base-sepolia': { ...baseSepolia, bridges: { usdcx: { ...usdcx, deposit } } } });
+    expect(parseBridgeConfig(through({ ...usdcx.deposit, executorChain: 'sepolia' }), 'testnet')).toBeNull();
+    expect(parseBridgeConfig(through({ ...usdcx.deposit, route: 7 }), 'testnet')).toBeNull();
+  });
+
+  it.each([
+    ['indexerUrl', { agglayer: {} }, 'agglayer'],
+    ['positionsUrl', { epoch: { ...providers.epoch, positionsUrl: undefined } }, 'epoch'],
+    ['allocatorUrl', { epoch: { ...providers.epoch, allocatorUrl: undefined } }, 'epoch'],
+    ['irisUrl', { usdcx: { ...providers.usdcx, irisUrl: undefined } }, 'usdcx'],
+    ['attestationUrl', { usdcx: { ...providers.usdcx, attestationUrl: undefined } }, 'usdcx'],
+    ['midenDomain', { usdcx: { ...providers.usdcx, midenDomain: undefined } }, 'usdcx']
+  ])('leaves out every route that needs a missing %s and keeps the rest', (_name, fields, bridge) => {
+    const parsed = parseBridgeConfig(withProviders(fields), 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed?.swap).toStrictEqual(published?.swap);
+    expect(parsed?.features).toStrictEqual(published?.features);
+    expect(parsed?.mainnetCountdown).toStrictEqual(published?.mainnetCountdown);
+    for (const [slug, chain] of Object.entries(published?.supportedEvmChains ?? {})) {
+      const kept = Object.fromEntries(Object.entries(chain.bridges).filter(([name]) => name !== bridge));
+      expect(parsed?.supportedEvmChains[slug]?.bridges).toStrictEqual(kept);
+    }
+  });
 });
 
 it('ignores removed market configuration', () => {
