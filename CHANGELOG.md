@@ -17,6 +17,10 @@
 - [FIX][mobile] Fullscreen dApps publish the occupied Bread control rectangle and safe-area metrics so headers can share its row, restore retained covered pages before foreground reveal, and minimize into Bread through its logo without reloading the game when reopened. Wallet overlays and fresh paint checks retain ownership.
 - [FIX][all] The expiration calendar uses theme colors so dates, the month title and navigation arrows are visible in dark mode.
 
+### Features
+
+- [FEATURE][all] Read bridge routes, service URLs, and contract addresses from the remote configuration for each EVM chain. Keep Earn under its own switch and read its market from Epoch. Use the listed chains for wallet connections, and keep saved transfer data for recovery after a route is disabled or changed.
+
 ### Changes
 
 - [CHANGE][ui] Visual consistency: an unread Activity row or pending transfer marks itself with a 12px dot on its card's top-right corner instead of the dot squeezed into the card's left margin; the passcode screens' instruction line is set in Nunito semibold; the Home Assets heading sits closer to its list and token row amounts use the heading face; the faucet in the dApp browser starts right under the header instead of a status bar's height below it; Send's amount card and the review card are outlined instead of filled; the review card is set in Nunito with semibold labels and address, its Edit is a pill, and its header has an X that abandons the send; the typed amount is one weight heavier; the USDCX row shows its flat line and a grey +0.00% again under its fixed $1 price; and Swap's review card is outlined and set in Nunito with semibold labels, starts 8px higher, and replaces the typed expiry and unit picker with four choices under "Cancel if not filled within" (2 min, 1 hour, 1 day, 7 days) and a note that an unfilled swap is cancelled and only the unfilled part of its tokens comes back.

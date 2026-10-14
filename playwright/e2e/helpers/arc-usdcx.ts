@@ -48,7 +48,7 @@ import {
   USDCX_REMOTE_DOMAIN,
   type ArcClock
 } from './usdcx-constants';
-import { fetchXReserveAttestations, type XReserveAttestation } from '../../../src/lib/usdcx/attestation';
+import { fetchXReserveAttestations, type XReserveAttestation } from '../../../src/lib/usdcx/attestation-protocol';
 import { midenAccountHexToXReserveRecipient } from '../../../src/lib/usdcx/recipient';
 import { ARC_TESTNET } from '../../../src/lib/walletconnect/config';
 

@@ -1,5 +1,12 @@
 import { usdcxExpectedRemoteTokenFor, usdcxRemoteRecipientFor } from './deposit-target';
 
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
+
 // The account and the USDCx faucet Circle named in the captured 0x370bf19a attestation (attestation.vectors.json).
 const ACCOUNT_HEX = '0x8da911727d5b53916f2c221c00c091';
 const FAUCET_HEX = '0x4cbdcaffe75f0a317482224dae6436';

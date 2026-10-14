@@ -52,6 +52,15 @@ jest.mock('../spending-limits/queue', () => ({
   })
 }));
 
+const AGGLAYER_RECOVERY: import('lib/remote-config/schema').AgglayerRecoveryConfig = {
+  chainId: 11155111,
+  contractAddress: '0x528e26b25a34a4a5d0dbda1d57d318153d2ed582',
+  midenBridgeId: '0x187cabbc404359d16be94954ca9879',
+  indexerUrl: 'https://bridge.test/api',
+  rollupId: 86,
+  evmNetworkId: 0
+};
+
 const mockQueueOutgoingTransaction = jest.mocked(queueOutgoingTransaction);
 
 // Only the note-transport predicate is swapped; every other endpoint getter keeps
@@ -619,7 +628,10 @@ describe('transactions utilities', () => {
         undefined,
         undefined,
         undefined,
-        authorization
+        authorization,
+        undefined,
+        undefined,
+        AGGLAYER_RECOVERY
       );
 
       expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
@@ -690,13 +702,19 @@ describe('transactions utilities', () => {
         true,
         undefined,
         undefined,
-        '0xexit'
+        '0xexit',
+        undefined,
+        AGGLAYER_RECOVERY
       );
 
       expect(mockQueueOutgoingTransaction).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'bridged-send',
-          extraInputs: expect.objectContaining({ claimStatus: 'pending', agglayerExitTxHash: '0xexit' })
+          extraInputs: expect.objectContaining({
+            claimStatus: 'pending',
+            agglayerExitTxHash: '0xexit',
+            agglayerRoute: AGGLAYER_RECOVERY
+          })
         }),
         [{ faucetId: 'faucet-a', amount: 10n }],
         undefined

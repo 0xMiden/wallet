@@ -30,21 +30,27 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
 jest.mock('lib/miden-chain/native-asset', () => ({
   getNativeAssetId: async () => '0x4cbdcaffe75f0a317482224dae6436'
 }));
-// The registry names its native-ETH faucet (scale 10), so every note meets the AggLayer matcher before the USDCx one.
+// Sepolia's registry names its native-ETH faucet (scale 10), so every note meets the AggLayer matcher before the USDCx
+// one.
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () => ({
+    config: { supportedEvmChains: { sepolia: { chainId: 11155111, bridges: { agglayer: {} } } } },
     derived: {
-      agglayer: {
-        tokens: {
-          state: 'ok',
-          value: [
-            {
-              midenFaucetId: '0x0b372f2735e33e91216d995bf29b91',
-              originToken: '0x0000000000000000000000000000000000000000',
-              originNetwork: 0,
-              scale: 10
+      chains: {
+        11155111: {
+          agglayer: {
+            tokens: {
+              state: 'ok',
+              value: [
+                {
+                  midenFaucetId: '0x0b372f2735e33e91216d995bf29b91',
+                  originToken: '0x0000000000000000000000000000000000000000',
+                  originNetwork: 0,
+                  scale: 10
+                }
+              ]
             }
-          ]
+          }
         }
       }
     }

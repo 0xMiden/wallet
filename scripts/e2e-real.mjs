@@ -631,10 +631,10 @@ const DOCUMENT_FIELDS = {
   agglayer: ['indexerUrl']
 };
 const FIELD_PATHS = {
-  allocatorUrl: 'epoch.allocatorUrl',
-  evmUsdc: 'epoch.evmUsdc',
-  l1Bridge: 'agglayer.l1Bridge',
-  indexerUrl: 'agglayer.indexerUrl'
+  allocatorUrl: 'bridge-providers.epoch.allocatorUrl',
+  evmUsdc: 'supportedEvmChains.sepolia.bridges.epoch.tokens.USDC.contractAddress',
+  l1Bridge: 'supportedEvmChains.sepolia.bridges.agglayer.contractAddress',
+  indexerUrl: 'bridge-providers.agglayer.indexerUrl'
 };
 const URL_FIELDS = new Set(['allocatorUrl', 'indexerUrl']);
 
@@ -698,14 +698,15 @@ function parseLikeTheWallet(body, network, allowLocalHttp) {
  * them; the parser lowercases them.
  */
 function configTargets(config, needs, getAddress) {
-  if (config.evm.chainId !== SEPOLIA_CHAIN_ID) {
-    throw new Error(`does not name Sepolia (${SEPOLIA_CHAIN_ID}) as evm.chainId`);
+  const sepolia = config.supportedEvmChains.sepolia;
+  if (needs.some(probe => probe === 'epoch' || probe === 'sepolia') && sepolia?.chainId !== SEPOLIA_CHAIN_ID) {
+    throw new Error(`does not name Sepolia (${SEPOLIA_CHAIN_ID}) in supportedEvmChains.sepolia`);
   }
   const read = {
-    allocatorUrl: config.epoch.allocatorUrl,
-    evmUsdc: config.epoch.evmUsdc,
-    l1Bridge: config.agglayer.l1Bridge,
-    indexerUrl: config.agglayer.indexerUrl
+    allocatorUrl: config['bridge-providers'].epoch?.allocatorUrl,
+    evmUsdc: sepolia?.bridges.epoch?.tokens.USDC.contractAddress,
+    l1Bridge: sepolia?.bridges.agglayer?.contractAddress,
+    indexerUrl: config['bridge-providers'].agglayer?.indexerUrl
   };
   const targets = {};
   for (const field of new Set(needs.flatMap(probe => DOCUMENT_FIELDS[probe] ?? []))) {

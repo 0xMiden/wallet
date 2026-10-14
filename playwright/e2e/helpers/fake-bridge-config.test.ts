@@ -35,21 +35,27 @@ describe('served documents', () => {
   // feature "not configured" and each suite timing out on a greyed-out control.
   it('the localnet Epoch document passes the wallet parser with Earn and Fast on', () => {
     const config = parseBridgeConfig(localnetEpochDocument(), 'localnet', { allowLocalHttp: true });
-    expect(config?.features).toEqual({ earn: true, fastBridge: true, bridgeIn: false, bridgeOut: false });
-    expect(config?.epoch.allocatorUrl).toBe('http://127.0.0.1:8548');
-    expect(config?.epoch.positionsUrl).toBe('http://127.0.0.1:8549');
-    expect(config?.epoch.midenUsdcFaucet).toBeUndefined();
-    expect(config?.agglayer).toEqual({});
+    expect(config?.features).toEqual({ earn: true });
+    expect(config?.['bridge-providers'].epoch.allocatorUrl).toBe('http://127.0.0.1:8548');
+    expect(config?.['bridge-providers'].epoch.positionsUrl).toBe('http://127.0.0.1:8549');
+    expect(config?.['bridge-providers'].epoch.outputs?.['usdc-testnet-output']?.faucetId).toBeUndefined();
+    expect(config?.['bridge-providers'].agglayer).toEqual({});
   });
 
   it('the bridge-in document takes the Miden side from the published one and the EVM side from Anvil', () => {
     const document = testnetBridgeInDocument(PUBLISHED_TESTNET);
     const config = parseBridgeConfig(document, 'testnet', { allowLocalHttp: true });
-    expect(config?.agglayer.midenBridge).toBe('0x3b66e20b5088f25133b69216484652');
-    expect(config?.agglayer.indexerUrl).toBe('https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api');
-    expect(config?.epoch.midenUsdcFaucet).toBe('0x537c15a622074e91188aa894456c52');
-    expect(config?.epoch.allocatorUrl).toBe('http://127.0.0.1:8548');
-    expect(config?.features).toEqual({ earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true });
+    expect(config?.supportedEvmChains.sepolia?.bridges.agglayer?.midenBridgeId).toBe(
+      '0x3b66e20b5088f25133b69216484652'
+    );
+    expect(config?.['bridge-providers'].agglayer.indexerUrl).toBe(
+      'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api'
+    );
+    expect(config?.['bridge-providers'].epoch.outputs?.['usdc-testnet-output']?.faucetId).toBe(
+      '0x537c15a622074e91188aa894456c52'
+    );
+    expect(config?.['bridge-providers'].epoch.allocatorUrl).toBe('http://127.0.0.1:8548');
+    expect(config?.features).toEqual({ earn: true });
     expect(document.version).toBe(4);
   });
 
