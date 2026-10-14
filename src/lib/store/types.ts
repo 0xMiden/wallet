@@ -152,7 +152,8 @@ export interface WalletActions {
     password: string | undefined,
     mnemonic: string,
     ownMnemonic: boolean,
-    guardianEndpoint?: string
+    guardianEndpoint?: string,
+    accessCode?: string
   ) => Promise<void>;
   registerWalletFromHotKey: (
     password: string | undefined,

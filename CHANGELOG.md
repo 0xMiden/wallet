@@ -4,6 +4,8 @@
 
 ### Features
 
+- [FEATURE][all] Invite-only onboarding with a mainnet access code. The remote wallet config chooses the Welcome variant with `onboarding.inviteOnly`: true shows the invite-only Welcome directly; false, or a document without the key, shows the general Welcome, where seven logo taps unlock the invite-only one (seven more open Developer Settings). While the config loads, Welcome shows a spinner in place of its actions for at most 3 seconds. "I have a code" asks the node to check a 12-character code (or an existing 8-digit one) before the create flow, the code is kept until the final account exists, and that account is then registered with it; a refused code and a node failure each show their own message with a retry. "I don't have a code" explains the invite and offers account recovery. When the config sets `inviteOnly`, new wallet setup and recovery use mainnet. New wallets require a code; recovery does not. Existing testnet wallets stay usable without a forced reset. An optional Switch to mainnet banner with a larger, underlined link and less vertical padding replaces the countdown when invite-only mode is on; it asks for confirmation with a larger title and smaller body text before clearing the wallet and starting mainnet setup. The code field shows two rows of six characters and has a Paste button. The mainnet countdown banner underlines its early-access link and does not show on mainnet, mainnet has its RPC, prover and note transport endpoints (`rpc.`, `tx-prover.` and `transport.cedar.miden.io`), Developer Settings has a Mainnet preset, and every sheet opens and closes about 25% slower. Web SDK 0.17.3 for the code check.
+- [FEATURE][all] The Guardian operators of each network come from the `guardians` list in `0xMiden/wallet-config`, with each operator's English description, so a new or removed operator reaches every wallet within about an hour with no release; the list the wallet ships with is used only until a document names the operators.
 - [FEATURE][all] The send review page folds the transfer type and the expiration under an "Advanced options" row, closed by default with a one-line summary of both; a "Transfer type" sheet picks Private (the default) or Public, and a public send keeps a notice of what it reveals on the page and a "Send publicly" button whether or not the row is open.
 
 ### Fixes
@@ -12,6 +14,7 @@
 - [FIX][all] A bridge-in amount above the token balance is refused before any wallet prompt: the amount step holds Continue until the balance is read and covers the amount (Fast also checks its quoted deposit), and each route reads the balance again right before its first prompt and fails with a message naming what the wallet holds, instead of approving a deposit the bridge then reverts (#1431).
 - [FIX][all] A dApp request for an account that is not the one currently open in Bread is refused before any approval popup or data read, instead of asking the user to approve a request for another account. A request approved after the open account changed or the dApp was disconnected is refused too.
 - [FIX][all] Every Guardian proposal syncs the chain right before it is built, so one that waits out a busy Guardian or a paused app no longer fails with `before_foreign_load` once the node has pruned the old block.
+- [FIX][all] A dApp consume request that carries the note's bytes now imports the note when the user approves it, so a dApp-supplied private note is claimed in one approval instead of needing a separate import approval first.
 - [FIX][all] A dApp custom request from a Guardian account that declares the network accounts its notes target as public foreign accounts is no longer refused; any other foreign account still is.
 - [FIX][all] OpenZeppelin Guardian endpoints moved to `guardian-testnet.openzeppelin.com` (testnet) and `guardian-devnet.openzeppelin.com` (devnet), replacing `guardian.openzeppelin.com` and `guardian-stg.openzeppelin.com`. Existing accounts keep their saved host, which is still recognised as OpenZeppelin.
 - [FIX][ios] Wallet pages extend to the display bottom beneath the home indicator. Navigation, review actions and pinned controls retain their safe-area clearance while keyboard insets continue to protect focused flows.
@@ -20,6 +23,7 @@
 - [FIX][all] Amount entry keeps canonical Latin digits on Persian and Arabic devices, preventing lost digits and invalid base-unit conversion in Send and Swap. Incomplete or malformed swap amounts clear the previous quote and wait for valid input.
 - [FIX][mobile] Fullscreen dApps publish the occupied Bread control rectangle and safe-area metrics so headers can share its row, restore retained covered pages before foreground reveal, and minimize into Bread through its logo without reloading the game when reopened. Wallet overlays and fresh paint checks retain ownership.
 - [FIX][all] The expiration calendar uses theme colors so dates, the month title and navigation arrows are visible in dark mode.
+- [FIX][mobile] The native WalletConnect plugins report the chains a session approved, and before an EVM deposit or claim signs on a chain the session did not approve, the wallet asks the connected wallet to add and switch to it (`wallet_addEthereumChain`, `wallet_switchEthereumChain`, now proposed as optional methods); if the chain is still missing, the deposit fails before any wallet prompt with "Reconnect the wallet to approve it" instead of the Sign SDK's "Invalid permissions for call.".
 
 ### Features
 
@@ -27,6 +31,7 @@
 
 ### Changes
 
+- [CHANGE][all] The swap tokens come from the DEX solver's Pairs API (`GET /v2/pairs` on the host that `swap.etaUrl` names in `0xMiden/wallet-config`) instead of the document's `swap.tokens`, so the wallet lists each token the solver swaps (USDCx is new) and the swap form opens with the network's native asset (USDCx) on the pay side. The "To" picker lists only the tokens the solver pairs with the "From" token, and a new "From" token moves "To" to a token it pairs with, so the form no longer accepts a pair the solver cannot fill. A solver that does not answer keeps the tokens last read.
 - [CHANGE][ui] Visual consistency: an unread Activity row or pending transfer marks itself with a 12px dot on its card's top-right corner instead of the dot squeezed into the card's left margin; the passcode screens' instruction line is set in Nunito semibold; the Home Assets heading sits closer to its list and token row amounts use the heading face; the faucet in the dApp browser starts right under the header instead of a status bar's height below it; Send's amount card and the review card are outlined instead of filled; the review card is set in Nunito with semibold labels and address, its Edit is a pill, and its header has an X that abandons the send; the typed amount is one weight heavier; the USDCX row shows its flat line and a grey +0.00% again under its fixed $1 price; and Swap's review card is outlined and set in Nunito with semibold labels, starts 8px higher, and replaces the typed expiry and unit picker with four choices under "Cancel if not filled within" (2 min, 1 hour, 1 day, 7 days) and a note that an unfilled swap is cancelled and only the unfilled part of its tokens comes back.
 - [CHANGE][ci] Use free ARM64 runners for Swap and regular Ubuntu runners for Guardian bridge-out. Keep WarpBuild for linked Guardian bridge-out builds and manual runs.
 
@@ -279,6 +284,7 @@
 
 - [FIX][all] Bridge polling reads only bridge rows through a new `type` index instead of walking the whole transaction history every 8 s, runs from one visible wallet window instead of every open one, and an Epoch quote for an earlier amount that answers late no longer replaces the current quote and blocks Fast confirmation.
 - [CHORE][all] `next` is now the 1.17.0 line; the 0.16 line continues on `main` as 1.16.x.
+
 ## 1.16.2 (2026-09-24)
 
 ### Features

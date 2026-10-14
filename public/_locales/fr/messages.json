@@ -1707,6 +1707,10 @@
     "message": "Coller",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "Impossible de lire le presse-papiers. Saisissez votre code ou réessayez.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "Rien à coller. Copiez d'abord une adresse.",
     "englishSource": "Nothing to paste. Copy an address first."
@@ -1850,6 +1854,10 @@
   "swapInvalidAmounts": {
     "message": "Saisissez un montant valide à échanger.",
     "englishSource": "Enter a valid amount to swap."
+  },
+  "swapPairNotListed": {
+    "message": "Cette paire ne peut plus être échangée. Revenez en arrière et choisissez un autre jeton.",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
   "swapPriceUnavailable": {
     "message": "Prix indisponible. Veuillez réessayer dans quelques instants.",
@@ -4644,6 +4652,15 @@
     "message": "Portefeuille EVM connecté",
     "englishSource": "EVM wallet connected"
   },
+  "evmChainNotApproved": {
+    "message": "Le portefeuille connecté n’a pas approuvé $network$. Reconnectez le portefeuille pour l’approuver.",
+    "englishSource": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "connectedWallet": {
     "message": "Portefeuille connecté",
     "englishSource": "Connected wallet"
@@ -5568,6 +5585,62 @@
       }
     }
   },
+  "mainnetAccessCodeLabel": {
+    "message": "Code d’accès",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "Déverrouiller le réseau principal",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "Ce code n'a pas fonctionné. Vérifiez-le et réessayez.",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "Nous n’avons pas pu vérifier ce code. Veuillez réessayer plus tard.",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnetAccountNotAdmitted": {
+    "message": "Ce portefeuille n’est pas autorisé sur le réseau principal Miden. Un nouveau portefeuille nécessite un code d’accès.",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Le réseau principal Miden n’accepte que le compte et le code d’accès enregistrés.",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
+  "mainnet": {
+    "message": "Mainnet",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessTitle": {
+    "message": "Disposez-vous d’un code d’accès au réseau principal ?",
+    "englishSource": "Have a mainnet access code?"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "Le Mainnet est pour l’instant accessible uniquement sur invitation. Saisissez le code à 12 caractères figurant sur votre invitation et votre portefeuille sera activé sur le Mainnet de Miden.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "Le code se trouve dans votre e-mail d'invitation.",
+    "englishSource": "The code is in your invite email."
+  },
+  "iHaveACode": {
+    "message": "J'ai un code",
+    "englishSource": "I have a code"
+  },
+  "iDontHaveACode": {
+    "message": "Je n’ai pas de code",
+    "englishSource": "I don't have a code"
+  },
+  "noCodeTitle": {
+    "message": "Bread est accessible uniquement sur invitation",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "Un nouveau portefeuille nécessite un code d’accès au réseau principal fourni dans votre invitation. Un compte existant peut toujours être récupéré.",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
+  },
   "networkModePillNoValue": {
     "message": "Les jetons n’ont aucune valeur réelle",
     "englishSource": "Tokens have no real value"
@@ -5575,6 +5648,18 @@
   "mainnetCountdownLink": {
     "message": "Inscrivez-vous à la liste d’accès anticipé",
     "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "Passer au réseau principal",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "Réinitialisation et passage au mainnet",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "Vous pouvez continuer à utiliser le testnet. La transition efface ce portefeuille, ses soldes et son historique de cet appareil. Sauvegardez d’abord vos informations de récupération. Les jetons de test ne sont pas transférés vers le mainnet. Vous créerez ensuite un portefeuille mainnet à l’aide d’un code d’invitation ou récupérerez un portefeuille mainnet existant.",
+    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
   },
   "mainnetCountdownLabel": {
     "message": "Temps restant avant le lancement du réseau principal de Bread : $time$",

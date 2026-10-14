@@ -72,7 +72,7 @@ import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getAssetSymbol, getTokenMetadata } from 'lib/miden/metadata/utils';
 import { NETWORKS } from 'lib/miden/networks';
-import { importedNoteIds, releaseNoteIds } from 'lib/miden/note-quarantine';
+import { importedNoteIds, noteIdFromBytes, releaseNoteIds } from 'lib/miden/note-quarantine';
 import { createSpendingLimitAuthorization } from 'lib/miden/spending-limits/authorization';
 import {
   assessOutgoingSpendingLimitDetails,
@@ -1445,6 +1445,41 @@ async function importDAppPrivateNote(note: string): Promise<string> {
  */
 const importPrivateNoteFailure = (e: unknown): unknown => (isPipelineKillLink(e) ? e : dappRequestFailure(e));
 
+/**
+ * Imports the note that an approved consume request carries, before the consume reads it
+ * from the store (issue #1459).
+ *
+ * `initiateConsumeTransactionFromId` refuses a note that is not in the store, and it does
+ * that before it writes a row. Thus a queued import is too late: the transaction loop
+ * imports queued notes only for rows that already exist. A dApp-supplied private note is
+ * not in the store until this import, so the dApp had to get a separate import approval
+ * first. The consume sheet already showed this note, decoded from these bytes and checked
+ * against `noteId`, so that second approval showed the user nothing new.
+ *
+ * `importDAppPrivateNote` queues the bytes when the import fails transiently or is killed,
+ * so a failed consume does not lose the note.
+ *
+ * The bytes are checked by the id quarantine derives from them (a NoteFile's note id, else
+ * a bare Note's id), never by the import's answer: for raw `Note` bytes that answer is a
+ * details commitment, not a note id. Bytes that are neither a NoteFile nor a Note are not
+ * imported; the consume then finds the note in the store or refuses it itself.
+ */
+async function importConsumeNoteBytes(noteId: string, noteBytes: string): Promise<void> {
+  let carriedId: string | null = null;
+  try {
+    carriedId = noteIdFromBytes(b64ToU8(noteBytes));
+  } catch {
+    // Invalid base64 reads as unreadable bytes.
+  }
+  // Nothing readable to import: the consume reads the note from the store, as it did before bytes
+  // were carried, and refuses a note the store lacks.
+  if (carriedId === null) return;
+  if (carriedId !== noteId) {
+    throw new Error('noteBytes describe a different note than noteId - refusing to consume it');
+  }
+  await importDAppPrivateNote(noteBytes);
+}
+
 export const generatePromisifyImportPrivateNote = async (
   resolve: (value: MidenDAppImportPrivateNoteResponse | PromiseLike<MidenDAppImportPrivateNoteResponse>) => void,
   reject: (reason?: any) => void,
@@ -2319,7 +2354,9 @@ const generatePromisifyConsumeTransaction = async (
         await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
         const { noteId, noteBytes } = req.transaction;
         if (noteBytes) {
-          await queueNoteImport(noteBytes);
+          await importConsumeNoteBytes(noteId, noteBytes);
+          // The import can run long; the account or session may have changed under it.
+          await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
         }
         // `manualRetry`: the user just approved THIS consume on the sheet, so it
         // must not be dropped by auto-consume's exponential backoff — which
@@ -2340,7 +2377,8 @@ const generatePromisifyConsumeTransaction = async (
         transactionId
       });
     } catch (e) {
-      reject(dappRequestFailure(e));
+      // A killed note import may have landed and the bytes are queued: not bad params.
+      reject(importPrivateNoteFailure(e));
     }
     return;
   }
@@ -2368,7 +2406,9 @@ const generatePromisifyConsumeTransaction = async (
               await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
               const { noteId, noteBytes } = req.transaction;
               if (noteBytes) {
-                await queueNoteImport(noteBytes);
+                await importConsumeNoteBytes(noteId, noteBytes);
+                // See the mobile/desktop arm: the import can outlast the approval's check.
+                await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
               }
               // `manualRetry`: approved on the confirm page — see the
               // non-extension branch above for why the backoff must not apply,
@@ -2387,7 +2427,8 @@ const generatePromisifyConsumeTransaction = async (
               transactionId
             });
           } catch (e) {
-            reject(dappRequestFailure(e));
+            // Same mapping as the non-extension branch above.
+            reject(importPrivateNoteFailure(e));
           }
         } else {
           decline();

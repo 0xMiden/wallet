@@ -58,7 +58,7 @@ import { b64ToU8 } from 'lib/shared/helpers';
  * leak into the claimable UI). Tries NoteFile first (as the import does), then a
  * bare Note. Returns null if neither parses.
  */
-function noteIdFromBytes(bytes: Uint8Array): string | null {
+export function noteIdFromBytes(bytes: Uint8Array): string | null {
   try {
     const noteFile = NoteFile.deserialize(bytes);
     const id = noteFile.noteId() ?? noteFile.note()?.id();

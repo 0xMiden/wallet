@@ -33,6 +33,11 @@ export type EvmChain = {
   id: number;
   name: string;
   rpcUrl: string;
+  /**
+   * The chain's public RPC endpoint. `wallet_addEthereumChain` sends this one to the external
+   * wallet: `rpcUrl` can be the WalletConnect proxy, which carries our project id.
+   */
+  publicRpcUrl: string;
   explorer: string;
   nativeCurrency: { name: string; symbol: string; decimals: number };
 };
@@ -52,6 +57,7 @@ function walletConnectChain(chain: Chain): EvmChain {
     id: chain.id,
     name: chain.name,
     rpcUrl: RPC(chain.id),
+    publicRpcUrl: chain.rpcUrls.default.http[0] ?? '',
     explorer: chain.blockExplorers?.default.url ?? '',
     nativeCurrency: chain.nativeCurrency
   };

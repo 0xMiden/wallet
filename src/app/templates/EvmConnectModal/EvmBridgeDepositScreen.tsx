@@ -69,8 +69,14 @@ import {
 } from 'lib/usdcx/executor';
 import { DEFAULT_CHAIN_ID, EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
 import { readNativeFeeFields } from 'lib/walletconnect/fees';
-import { isNativeReownAvailable, NativeReown, unwrapNativeResult } from 'lib/walletconnect/native';
+import {
+  isNativeReownAvailable,
+  NativeReown,
+  prepareNativeSessionChain,
+  unwrapNativeResult
+} from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
+import { nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
 import { BridgeNetwork, DEFAULT_BRIDGE_NETWORK, getBridgeNetworkByChainId } from 'screens/send-flow/bridge-networks';
 import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UIToken } from 'screens/send-flow/types';
@@ -701,6 +707,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     [t, tokenLabel]
   );
 
+  // Every other failure keeps the screen's own wording.
+  const depositErrorMessage = useCallback(
+    (err: unknown): string => nativeSigningErrorMessage(err, t, errorMessage),
+    [t]
+  );
+
   const handleSlowBridge = useCallback(
     async (trackingTxId: string) => {
       if (!isValidAmount(amount) || (!nativeReownAvailable && !walletProvider)) {
@@ -748,6 +760,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
             ? readEthBalance(evmAddress, agglayerChainId)
             : readEpochUsdcBalance(evmAddress, tokenAddress, agglayerChainId)
         );
+        // Native Reown signs on the AggLayer chain: a session that did not approve it fails here, before any
+        // wallet prompt, instead of with the Sign SDK's "Invalid permissions for call.". It comes after the
+        // balance check because adding and switching the chain is itself a wallet prompt.
+        if (nativeReownAvailable) await prepareNativeSessionChain(agglayerChainId);
         // An allowance that covers the deposit needs no approval: no second prompt, gas or receipt,
         // and `approve` would replace a larger allowance with this amount.
         // A failed or timed-out read fails the deposit before any wallet prompt: the approve's own
@@ -835,7 +851,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         setSlowStatus('submitted');
       } catch (err) {
         console.error('[EvmBridgeDepositScreen] Agglayer bridge failed', err);
-        const message = errorMessage(err);
+        const message = depositErrorMessage(err);
         setAwaitingNextConfirmation(false);
         setSlowError(message);
         setSlowStatus('failed');
@@ -846,6 +862,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       agglayerRecovery,
       agglayerChainId,
       amount,
+      depositErrorMessage,
       ensureBalanceCovers,
       evmAddress,
       evmUsdc,
@@ -930,6 +947,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           usdcxChain.id,
           () => readCircleUsdcBalance(evmAddress, usdcxSource)
         );
+        // Native Reown signs on the source chain: a session that did not approve it fails here, before the first
+        // wallet prompt, instead of with the Sign SDK's "Invalid permissions for call.".
+        if (nativeReownAvailable) await prepareNativeSessionChain(usdcxChain.id);
         if (!nativeReownAvailable) await switchChainAsync({ chainId: usdcxChain.id });
         const readAllowance = (spender: `0x${string}`) => readCircleUsdcAllowance(evmAddress, spender, usdcxSource);
         const waitForReceipt = (hash: Hash) => waitForEvmReceipt(hash, usdcxChain);
@@ -1040,7 +1060,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return;
         }
         console.error('[EvmBridgeDepositScreen] USDCx bridge failed', err);
-        const message = isUsdcxDomainNotRegisteredError(err) ? t('usdcxDomainNotRegistered') : errorMessage(err);
+        const message = isUsdcxDomainNotRegisteredError(err) ? t('usdcxDomainNotRegistered') : depositErrorMessage(err);
         setSlowError(message);
         setSlowStatus('failed');
         await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message }).catch(() => undefined);
@@ -1048,6 +1068,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     },
     [
       amount,
+      depositErrorMessage,
       ensureBalanceCovers,
       evmAddress,
       midenAccount.publicKey,
@@ -1071,6 +1092,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   }, [epochQuote?.quoteResult.tokenIn]);
 
   // Fast signs inside the store, so its balance is checked here, against the quoted deposit, fee included.
+  // The Epoch SDK then signs on the Fast USDC's chain (the one it was quoted on) through the native Reown
+  // provider. The provider checks the session chain too, but this check runs before the SDK starts, so the
+  // row fails with the localized reconnect message and no wallet prompt opens.
   const handleFastBridge = useCallback(
     async (trackingTxId: string) => {
       try {
@@ -1078,14 +1102,24 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         await ensureBalanceCovers(quotedTokenIn, evmUsdc.decimals, evmUsdc.chainId, () =>
           readEpochUsdcBalance(evmAddress, evmUsdc.address, evmUsdc.chainId)
         );
+        if (nativeReownAvailable) await prepareNativeSessionChain(evmUsdc.chainId);
       } catch (err) {
         console.error('[EvmBridgeDepositScreen] Fast bridge failed', err);
-        await updateBridgedReceivePhase(trackingTxId, 'failed', { error: errorMessage(err) }).catch(() => undefined);
+        const message = depositErrorMessage(err);
+        await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message }).catch(() => undefined);
         return;
       }
       await executeEVMToMiden(trackingTxId);
     },
-    [ensureBalanceCovers, evmAddress, evmUsdc, executeEVMToMiden, quotedTokenIn]
+    [
+      depositErrorMessage,
+      ensureBalanceCovers,
+      evmAddress,
+      evmUsdc,
+      executeEVMToMiden,
+      nativeReownAvailable,
+      quotedTokenIn
+    ]
   );
 
   const setupToken: UIToken = useMemo(() => {

@@ -9,6 +9,7 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { runUsdcxDeposit } from 'lib/usdcx/deposit';
 import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import { buildExecutorBurnIntent, quoteExecutorBurn, runUsdcxExecutorDeposit } from 'lib/usdcx/executor';
+import { NativeSessionChainNotApprovedError, prepareNativeSessionChain } from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
@@ -148,9 +149,14 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
 // The fee read hits the chain; here the wallet estimates, as it does when the read fails.
 jest.mock('lib/walletconnect/fees', () => ({ readNativeFeeFields: async () => ({}) }));
 
+// The session-chain check passes unless a case refuses the chain; the error class is the real one the screen maps.
 jest.mock('lib/walletconnect/native', () => ({
   isNativeReownAvailable: () => mockNativeAvailable,
   NativeReown: { sendTransaction: (options: unknown) => mockNativeSend(options) },
+  NativeSessionChainNotApprovedError:
+    jest.requireActual<typeof import('lib/walletconnect/native')>('lib/walletconnect/native')
+      .NativeSessionChainNotApprovedError,
+  prepareNativeSessionChain: jest.fn().mockResolvedValue(undefined),
   unwrapNativeResult: (value: unknown) => value
 }));
 
@@ -383,6 +389,10 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     // A case that fails mid-flow leaves its queued wallet answers behind; each case starts from the plain ones.
     mockWriteContract.mockReset().mockResolvedValue(`0x${'2'.repeat(64)}`);
     mockNativeSend.mockReset().mockResolvedValue({ hash: `0x${'2'.repeat(64)}` });
+    jest
+      .mocked(runUsdcxDeposit)
+      .mockReset()
+      .mockResolvedValue(`0x${'2'.repeat(64)}`);
     jest.mocked(waitForEvmReceipt).mockReset().mockResolvedValue(undefined);
     jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
     mockBalance = 10n ** 30n;
@@ -542,6 +552,37 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(waitForEvmReceipt).toHaveBeenCalledWith(`0x${'2'.repeat(64)}`, expect.objectContaining({ id: 5042002 }));
     expect(registrationReadUrls('0x008888878f94C0d87defdf0B07f46B93C1934442')).toEqual(['https://rpc.test/5042002']);
     expect(mockSwitchChain.mock.calls).toEqual(native ? [] : [[{ chainId: 5042002 }]]);
+    expect(jest.mocked(prepareNativeSessionChain).mock.calls).toEqual(native ? [[5042002]] : []);
+  });
+
+  it('fails a native deposit with the reconnect message before any prompt when the session did not approve Arc', async () => {
+    mockNativeAvailable = true;
+    jest
+      .mocked(prepareNativeSessionChain)
+      .mockRejectedValueOnce(new NativeSessionChainNotApprovedError(5042002, 'Arc Testnet'));
+    jest.mocked(runUsdcxDeposit).mockImplementationOnce(async (_id, _amount, recipient, deps) => {
+      await deps.signer.approve('0x008888878f94C0d87defdf0B07f46B93C1934442', 1_500_000n);
+      return deps.signer.depositToRemote([
+        1_500_000n,
+        10007,
+        recipient,
+        '0x3600000000000000000000000000000000000000',
+        0n,
+        '0x'
+      ]);
+    });
+    renderScreen();
+    await reachUsdcxRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(mockNativeSend).not.toHaveBeenCalled();
+    expect(prepareNativeSessionChain).toHaveBeenCalledWith(5042002);
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
+      error: `evmChainNotApproved ${JSON.stringify({ network: 'Arc Testnet' })}`
+    });
   });
 
   it('offers the source-chain picker with the configured routes', async () => {
@@ -923,6 +964,8 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       expect(mockNativeSend).not.toHaveBeenCalled();
       expect(mockWriteContract).not.toHaveBeenCalled();
       expect(mockSwitchChain).not.toHaveBeenCalled();
+      // Adding and switching the chain is a wallet prompt too, so the balance is checked first.
+      expect(prepareNativeSessionChain).not.toHaveBeenCalled();
       // The suite's chain stub names every chain but Arc "Sepolia", Base Sepolia included.
       const network = route === 'xreserve' ? 'Arc Testnet' : 'Sepolia';
       expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {

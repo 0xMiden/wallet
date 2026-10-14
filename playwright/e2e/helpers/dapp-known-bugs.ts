@@ -48,17 +48,6 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
       evidence.adapterAddress === evidence.previousAddress
   },
   {
-    id: 'K2',
-    title: 'requestConsume with noteBytes of an unheld note fails after approval',
-    tracking: '0xMiden/wallet#1413 (open)',
-    cells: on(['W6'], BOTH),
-    signature: ({ source, evidence }) =>
-      source === 'hard' &&
-      evidence.popupOpened === true &&
-      (evidence.dappError?.message ?? '').includes('INVALID_PARAMS') &&
-      (evidence.dappError?.message ?? '').includes('not found')
-  },
-  {
     id: 'K5',
     title: 'Send, consume, custom and note or asset reads while locked are refused before any prompt as INVALID_PARAMS',
     tracking: '0xMiden/wallet#1414 (open)',

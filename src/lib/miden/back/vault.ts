@@ -33,7 +33,7 @@ import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { encodePrivateKeyPair, parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import * as Passworder from 'lib/miden/passworder';
 import * as Repo from 'lib/miden/repo';
-import { clearStorage } from 'lib/miden/reset';
+import { clearStorage, SETUP_WIPE_KEPT_KEYS } from 'lib/miden/reset';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { isDesktop, isMobile } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
@@ -833,9 +833,10 @@ export class Vault {
       // Clear storage before any inserts to avoid wiping newly inserted keys later.
       // The picked/probed guardian endpoint arrives explicitly via the
       // `guardianEndpoint` param (stage 1 of #408) and is threaded straight into
-      // the create/recovery branches below.
+      // the create/recovery branches below. A mainnet setup's pending-admission marker
+      // survives it, so a realm that stops inside this spawn leaves it for init.
       console.log('[Vault.spawn] Step 3: clearing storage...');
-      await clearStorage();
+      await clearStorage(true, SETUP_WIPE_KEPT_KEYS);
       console.log('[Vault.spawn] Step 4: storage cleared');
 
       // Determine security model: hardware-only or password-based
@@ -1248,7 +1249,7 @@ export class Vault {
       });
 
       // Same wipe as `spawn` (see the comments there).
-      await clearStorage();
+      await clearStorage(true, SETUP_WIPE_KEPT_KEYS);
 
       // Same security-model branch as `spawn`: hardware-only when the user
       // chose biometrics, password otherwise — and fail loudly rather than
@@ -1424,7 +1425,8 @@ export class Vault {
       // insert-key sink, and the restore below already inserts the derived secrets (#878).
       spawned = new Vault(vaultKey);
 
-      await clearStorage(false);
+      // Keeps a mainnet setup's pending-admission marker, as `spawn`'s wipe does.
+      await clearStorage(false, SETUP_WIPE_KEPT_KEYS);
 
       // Determine security model: hardware-only or password-based
       // If password is provided (user opted out of biometrics), use password protection

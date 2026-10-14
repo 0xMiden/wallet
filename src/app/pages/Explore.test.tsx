@@ -6,14 +6,19 @@ import BigNumber from 'bignumber.js';
 import { resetHiddenTokens, useHiddenTokens } from 'app/hooks/useHiddenTokens';
 import {
   publishMockBridgeSnapshot,
-  TEST_BRIDGE_CONFIG,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
-  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
+  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID,
+  testSnapshotWithSwapPairs
 } from 'lib/epoch/testing/bridge-config';
 import { deferred } from 'lib/epoch/testing/earn-locks';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front/storage';
-import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import {
+  TEST_SWAP_TOKENS,
+  TEST_TOKEN_IBTC,
+  TEST_TOKEN_IETH,
+  testSwapPairsToken
+} from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hapticLight } from 'lib/mobile/haptics';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
@@ -391,28 +396,13 @@ describe('Explore', () => {
         expect(listedIds()).toEqual([TEST_TOKEN_IETH.faucetId, TEST_TOKEN_IBTC.faucetId]);
 
         act(() => {
-          mockBridgeSnapshot = {
-            ...TEST_BRIDGE_CONFIG_SNAPSHOT,
-            config: {
-              ...TEST_BRIDGE_CONFIG,
-              swap: {
-                tokens: [
-                  {
-                    symbol: TEST_TOKEN_IETH.symbol,
-                    faucetId: TEST_TOKEN_IETH.faucetId,
-                    decimals: TEST_TOKEN_IETH.decimals,
-                    priceSymbol: 'BTC'
-                  },
-                  {
-                    symbol: TEST_TOKEN_IBTC.symbol,
-                    faucetId: TEST_TOKEN_IBTC.faucetId,
-                    decimals: TEST_TOKEN_IBTC.decimals,
-                    priceSymbol: 'ETH'
-                  }
-                ]
-              }
-            }
-          };
+          mockBridgeSnapshot = testSnapshotWithSwapPairs({
+            tokens: [
+              testSwapPairsToken({ ...TEST_TOKEN_IETH, priceSymbol: 'BTC' }),
+              testSwapPairsToken({ ...TEST_TOKEN_IBTC, priceSymbol: 'ETH' })
+            ],
+            pairs: []
+          });
           publishMockBridgeSnapshot();
         });
         expect(listedIds()).toEqual([TEST_TOKEN_IBTC.faucetId, TEST_TOKEN_IETH.faucetId]);
@@ -433,21 +423,10 @@ describe('Explore', () => {
         expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^\u2014$/);
 
         act(() => {
-          mockBridgeSnapshot = {
-            ...TEST_BRIDGE_CONFIG_SNAPSHOT,
-            config: {
-              ...TEST_BRIDGE_CONFIG,
-              swap: {
-                tokens: [
-                  {
-                    symbol: TEST_TOKEN_IETH.symbol,
-                    faucetId: TEST_TOKEN_IETH.faucetId,
-                    decimals: TEST_TOKEN_IETH.decimals
-                  }
-                ]
-              }
-            }
-          };
+          mockBridgeSnapshot = testSnapshotWithSwapPairs({
+            tokens: [testSwapPairsToken({ ...TEST_TOKEN_IETH, priceSymbol: undefined })],
+            pairs: []
+          });
           publishMockBridgeSnapshot();
         });
         expect(screen.getByTestId('balance-amount')).toHaveTextContent(/^100$/);

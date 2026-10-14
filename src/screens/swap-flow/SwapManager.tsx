@@ -22,7 +22,14 @@ import {
   SpendingLimitAuthorization,
   spendingLimitAssessmentFromError
 } from 'lib/miden/spending-limits/types';
-import { deriveRequestAmount, getDefaultSwapPair, SwapPair, SwapToken } from 'lib/miden/swap/tokens';
+import {
+  deriveRequestAmount,
+  getDefaultSwapPair,
+  getSwapPartners,
+  isSwapPair,
+  SwapPair,
+  SwapToken
+} from 'lib/miden/swap/tokens';
 import { swapAvailability, useSwapTokens } from 'lib/miden/swap/use-swap-tokens';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
@@ -300,6 +307,9 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     !submitting &&
     spendingLimitChallenge === undefined &&
     !sameToken &&
+    // A registry update can delist the open pair while both tokens stay listed, which keeps the draft; no solver
+    // fills a pair it does not list.
+    isSwapPair(offerToken.faucetId, requestToken.faucetId) &&
     hasOfferAmount &&
     !offerAmountExceedsBalance &&
     // The fee is withdrawn from this account's own vault, so with none of the fee
@@ -344,10 +354,15 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
 
   // Picking the token already on the opposite side flips the two sides rather
   // than landing on an invalid same-token state. The drawer closes itself.
+  // The "To" drawer lists only the partners of the pay token. A new pay token that
+  // the solver does not pair with the receive token moves the receive side to its
+  // first partner, so the form never holds a pair the solver cannot fill.
   const onTokenSelected = useCallback(
     (token: SwapToken) => {
       if (selectingSide === 'offer') {
+        const [firstPartner] = getSwapPartners(token.faucetId);
         if (token.faucetId === requestToken.faucetId) setRequestToken(offerToken);
+        else if (firstPartner && !isSwapPair(token.faucetId, requestToken.faucetId)) setRequestToken(firstPartner);
         setOfferToken(token);
       } else {
         if (token.faucetId === offerToken.faucetId) setOfferToken(requestToken);
@@ -373,6 +388,15 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       }
       if (authorization !== undefined && authorization.accountId !== publicKey) {
         setSpendingLimitChallenge(undefined);
+        releaseSubmission();
+        return;
+      }
+      // The gate holds this manager and its pair while a submission is in flight, so a delist that lands while the
+      // user authorizes reaches here.
+      if (!isSwapPair(offerToken.faucetId, requestToken.faucetId)) {
+        setSubmitError(t('swapPairNotListed'));
+        setSpendingLimitChallenge(undefined);
+        setSubmitting(false);
         releaseSubmission();
         return;
       }
@@ -445,7 +469,8 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       requestAmountBaseUnits,
       requestToken.faucetId,
       releaseSubmission,
-      settleSwap
+      settleSwap,
+      t
     ]
   );
 
@@ -465,6 +490,11 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       // Deliberately not settled: the user is still on the review screen and can
       // fix the amount, so this is one attempt failing inside a flow that is
       // still running, not the end of the flow.
+      return;
+    }
+    // Also in `canProceed`; a registry update can delist the pair after review opens.
+    if (!isSwapPair(offerToken.faucetId, requestToken.faucetId)) {
+      setSubmitError(t('swapPairNotListed'));
       return;
     }
     // Re-checked here as well as in `canProceed`, for the same reason the amounts are:
@@ -526,6 +556,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     sameToken,
     offerAmountExceedsBalance,
     offerToken,
+    requestToken.faucetId,
     hasOfferAmount,
     hasRequestAmount,
     validExpiry,
@@ -655,6 +686,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         open={showTokenDrawer}
         onOpenChange={setShowTokenDrawer}
         currentFaucetId={selectingSide === 'offer' ? offerToken.faucetId : requestToken.faucetId}
+        partnersOf={selectingSide === 'offer' ? undefined : offerToken.faucetId}
         onSelect={onTokenSelected}
       />
       {spendingLimitChallenge !== undefined && (
