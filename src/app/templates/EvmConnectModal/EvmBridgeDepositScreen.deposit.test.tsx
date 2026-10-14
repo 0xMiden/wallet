@@ -465,7 +465,7 @@ const reachFastReview = async (expectReview = true) => {
 };
 
 /** Drive USDC (the default token) + Slow route to Review. The amount is typed on the default Fast route, which quotes it. */
-const reachSlowUsdcReview = async () => {
+const reachSlowUsdcReview = async (expectReview = true) => {
   Object.assign(epochState, { quoteEVMToMiden: jest.fn().mockResolvedValue(undefined) });
   fireEvent.click(screen.getByTestId('set-amount-four-places'));
   await settle();
@@ -474,7 +474,8 @@ const reachSlowUsdcReview = async () => {
   fireEvent.click(await screen.findByTestId('pick-slow'));
   await settle();
   fireEvent.click(screen.getByTestId('confirm-route'));
-  await screen.findByTestId('confirm-deposit');
+  if (expectReview) await screen.findByTestId('confirm-deposit');
+  else await settle();
 };
 
 const connectAnother = jest.fn();
@@ -522,7 +523,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     mockTestNetwork = 'testnet';
     mockEvmUsdcSymbol = 'USDC';
     mockMutateAsync.mockReset();
-    jest.mocked(readSepoliaErc20Allowance).mockResolvedValue(0n);
+    jest.mocked(readEvmErc20Allowance).mockResolvedValue(0n);
     jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
     global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ result: '0x0' }) }) as never;
   });
@@ -1306,7 +1307,7 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
     mockNativeReown = false;
     jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
     mockMutateAsync.mockReset().mockResolvedValue('0xhash');
-    jest.mocked(waitForSepoliaReceipt).mockReset().mockResolvedValue(undefined);
+    jest.mocked(waitForEvmReceipt).mockReset().mockResolvedValue(undefined);
     jest.mocked(NativeReown.sendTransaction).mockReset().mockResolvedValue({ hash: '0xhash' });
   });
 
@@ -1413,7 +1414,7 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
   it('does not deposit an Epoch USDC token from another chain through AggLayer', async () => {
     mockAgglayerChainId = 84532;
     render(depositScreen(undefined, EVM_WALLET));
-    await reachSlowUsdcReview();
+    await reachSlowUsdcReview(false);
     expect(screen.queryByTestId('confirm-deposit')).not.toBeInTheDocument();
     expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
     expect(readEvmErc20Allowance).not.toHaveBeenCalled();
