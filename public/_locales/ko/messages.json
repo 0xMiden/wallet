@@ -6202,8 +6202,8 @@
     "englishSource": "Waiting for the next wallet confirmation"
   },
   "bridgeDepositAwaitingNextConfirmationDescription": {
-    "message": "첫 번째 확인이 완료되었습니다. 지갑에서 한 번 더 확인을 요청할 것입니다. 이 화면을 계속 열어 두십시오.",
-    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
+    "message": "첫 번째 확인이 완료되었습니다. 지갑에서 다시 확인을 요청할 것입니다. 이 화면을 계속 열어 두십시오.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
   },
   "advancedOptions": {
     "message": "고급 옵션",

@@ -6202,8 +6202,8 @@
     "englishSource": "Waiting for the next wallet confirmation"
   },
   "bridgeDepositAwaitingNextConfirmationDescription": {
-    "message": "Pierwsze potwierdzenie zostało wykonane. Portfel poprosi Cię o ponowne potwierdzenie — pozostaw ten ekran otwarty.",
-    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
+    "message": "Pierwsze potwierdzenie zostało wykonane. Twój portfel poprosi Cię o ponowne potwierdzenie – pozostaw ten ekran otwarty.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
   },
   "advancedOptions": {
     "message": "Opcje zaawansowane",

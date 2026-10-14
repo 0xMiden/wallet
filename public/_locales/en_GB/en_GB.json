@@ -1390,6 +1390,7 @@
   "tokenInfoLabel": "About $token$",
   "externalPageLoadFailed": "Couldn't open this page. Check your connection and try again.",
   "bridgeDepositAwaitingNextConfirmation": "Waiting for the next wallet confirmation",
+  "bridgeDepositAwaitingNextConfirmationDescription": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open.",
   "advancedOptions": "Advanced options",
   "advancedOptionsSummary": "$transferType$ · $expiration$",
   "transferType": "Transfer type",

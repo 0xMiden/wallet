@@ -1390,6 +1390,7 @@
   "tokenInfoLabel": "關於 $token$",
   "externalPageLoadFailed": "無法開啟此頁面。請檢查您的網路連線並重新嘗試。",
   "bridgeDepositAwaitingNextConfirmation": "等待下一個錢包的確認",
+  "bridgeDepositAwaitingNextConfirmationDescription": "首次確認已完成。您的錢包將要求您再次確認——請保持此畫面開啟。",
   "advancedOptions": "進階選項",
   "advancedOptionsSummary": "$transferType$ · $expiration$",
   "transferType": "轉帳類型",

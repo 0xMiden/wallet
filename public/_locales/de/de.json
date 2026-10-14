@@ -1390,6 +1390,7 @@
   "tokenInfoLabel": "Über „$token$“",
   "externalPageLoadFailed": "Diese Seite konnte nicht geöffnet werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
   "bridgeDepositAwaitingNextConfirmation": "Warten auf die nächste Wallet-Bestätigung",
+  "bridgeDepositAwaitingNextConfirmationDescription": "Die erste Bestätigung ist erfolgt. Ihre Wallet wird Sie auffordern, erneut zu bestätigen – lassen Sie diesen Bildschirm geöffnet.",
   "advancedOptions": "Erweiterte Optionen",
   "advancedOptionsSummary": "$transferType$ · $expiration$",
   "transferType": "Übertragungsart",

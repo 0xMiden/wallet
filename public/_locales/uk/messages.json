@@ -6203,7 +6203,7 @@
   },
   "bridgeDepositAwaitingNextConfirmationDescription": {
     "message": "Перше підтвердження виконано. Ваш гаманець попросить вас підтвердити ще раз — залиште цей екран відкритим.",
-    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
   },
   "advancedOptions": {
     "message": "Додаткові параметри",

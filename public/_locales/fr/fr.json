@@ -1390,6 +1390,7 @@
   "tokenInfoLabel": "À propos d’$token$",
   "externalPageLoadFailed": "Impossible d’ouvrir cette page. Vérifiez votre connexion et réessayez.",
   "bridgeDepositAwaitingNextConfirmation": "En attente de la prochaine confirmation du portefeuille",
+  "bridgeDepositAwaitingNextConfirmationDescription": "La première confirmation est effectuée. Votre portefeuille vous demandera de confirmer à nouveau – laissez cet écran ouvert.",
   "advancedOptions": "Options avancées",
   "advancedOptionsSummary": "$transferType$ · $expiration$",
   "transferType": "Type de transfert",

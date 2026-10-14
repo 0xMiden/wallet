@@ -1390,6 +1390,7 @@
   "tokenInfoLabel": "O $token$",
   "externalPageLoadFailed": "Nie udało się otworzyć tej strony. Sprawdź połączenie i spróbuj ponownie.",
   "bridgeDepositAwaitingNextConfirmation": "Oczekiwanie na kolejne potwierdzenie portfela",
+  "bridgeDepositAwaitingNextConfirmationDescription": "Pierwsze potwierdzenie zostało wykonane. Twój portfel poprosi Cię o ponowne potwierdzenie – pozostaw ten ekran otwarty.",
   "advancedOptions": "Opcje zaawansowane",
   "advancedOptionsSummary": "$transferType$ · $expiration$",
   "transferType": "Typ transferu",

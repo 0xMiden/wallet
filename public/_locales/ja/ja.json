@@ -1390,6 +1390,7 @@
   "tokenInfoLabel": "$token$について",
   "externalPageLoadFailed": "このページを開くことができませんでした。接続を確認して、もう一度お試しください。",
   "bridgeDepositAwaitingNextConfirmation": "次のウォレットの確認を待っています",
+  "bridgeDepositAwaitingNextConfirmationDescription": "最初の確認が完了しました。ウォレットから再度確認を求められますので、この画面を開いたままにしておいてください。",
   "advancedOptions": "詳細オプション",
   "advancedOptionsSummary": "$transferType$ · $expiration$",
   "transferType": "転送タイプ",

@@ -6202,8 +6202,8 @@
     "englishSource": "Waiting for the next wallet confirmation"
   },
   "bridgeDepositAwaitingNextConfirmationDescription": {
-    "message": "İlk onay işlemi tamamlandı. Cüzdanınız sizden bir kez daha onaylamanızı isteyecektir — bu ekranı açık tutun.",
-    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
+    "message": "İlk onay tamamlandı. Cüzdanınız sizden tekrar onay vermenizi isteyecektir – bu ekranı açık tutun.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
   },
   "advancedOptions": {
     "message": "Gelişmiş seçenekler",

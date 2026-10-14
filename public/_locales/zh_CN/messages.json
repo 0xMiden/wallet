@@ -6203,7 +6203,7 @@
   },
   "bridgeDepositAwaitingNextConfirmationDescription": {
     "message": "首次确认已完成。您的钱包会要求您再次确认——请保持此屏幕打开。",
-    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm once more — keep this screen open."
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
   },
   "advancedOptions": {
     "message": "高级选项",
