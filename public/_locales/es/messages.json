@@ -5944,26 +5944,6 @@
     "message": "Tus ganancias",
     "englishSource": "Your Earnings"
   },
-  "durationUnitSeconds": {
-    "message": "Seg.",
-    "englishSource": "Sec"
-  },
-  "durationUnitMinutes": {
-    "message": "Min.",
-    "englishSource": "Min"
-  },
-  "durationUnitHours": {
-    "message": "Hora",
-    "englishSource": "Hour"
-  },
-  "durationUnitDays": {
-    "message": "Día",
-    "englishSource": "Day"
-  },
-  "swapExpiryUnit": {
-    "message": "Unidad de caducidad",
-    "englishSource": "Expiry unit"
-  },
   "moreInfoAbout": {
     "message": "Más información sobre $label$",
     "englishSource": "More information about $label$",
@@ -5973,15 +5953,32 @@
       }
     }
   },
-  "swapExpiryRange": {
-    "message": "Introduce un número entero de $min$ a $max$.",
-    "englishSource": "Enter a whole number from $min$ to $max$.",
+  "swapExpiryLabel": {
+    "message": "Cancelar si no se ha ejecutado en un plazo de",
+    "englishSource": "Cancel if not filled within"
+  },
+  "swapExpiryPreset2Min": {
+    "message": "2 min",
+    "englishSource": "2 min"
+  },
+  "swapExpiryPreset1Hour": {
+    "message": "1 hora",
+    "englishSource": "1 hour"
+  },
+  "swapExpiryPreset1Day": {
+    "message": "1 día",
+    "englishSource": "1 day"
+  },
+  "swapExpiryPreset7Days": {
+    "message": "7 días",
+    "englishSource": "7 days"
+  },
+  "swapExpiryNote": {
+    "message": "¿Aún no se ha completado para entonces? El intercambio se cancela y se te devuelve la parte no completada de tu $amount$.",
+    "englishSource": "Not filled by then? The swap is cancelled and whatever is unfilled of your $amount$ comes back.",
     "placeholders": {
-      "min": {
+      "amount": {
         "content": "$1"
-      },
-      "max": {
-        "content": "$2"
       }
     }
   },

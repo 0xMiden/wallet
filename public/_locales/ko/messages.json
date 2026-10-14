@@ -5944,26 +5944,6 @@
     "message": "내 수익",
     "englishSource": "Your Earnings"
   },
-  "durationUnitSeconds": {
-    "message": "초",
-    "englishSource": "Sec"
-  },
-  "durationUnitMinutes": {
-    "message": "분",
-    "englishSource": "Min"
-  },
-  "durationUnitHours": {
-    "message": "시간",
-    "englishSource": "Hour"
-  },
-  "durationUnitDays": {
-    "message": "일",
-    "englishSource": "Day"
-  },
-  "swapExpiryUnit": {
-    "message": "만료 단위",
-    "englishSource": "Expiry unit"
-  },
   "moreInfoAbout": {
     "message": "$label$ 자세히 보기",
     "englishSource": "More information about $label$",
@@ -5973,15 +5953,32 @@
       }
     }
   },
-  "swapExpiryRange": {
-    "message": "$min$에서 $max$ 사이의 정수를 입력하세요.",
-    "englishSource": "Enter a whole number from $min$ to $max$.",
+  "swapExpiryLabel": {
+    "message": "지정된 시간 내에 체결되지 않으면 취소하십시오.",
+    "englishSource": "Cancel if not filled within"
+  },
+  "swapExpiryPreset2Min": {
+    "message": "2분",
+    "englishSource": "2 min"
+  },
+  "swapExpiryPreset1Hour": {
+    "message": "1시간",
+    "englishSource": "1 hour"
+  },
+  "swapExpiryPreset1Day": {
+    "message": "1일",
+    "englishSource": "1 day"
+  },
+  "swapExpiryPreset7Days": {
+    "message": "7일",
+    "englishSource": "7 days"
+  },
+  "swapExpiryNote": {
+    "message": "그때까지 체결되지 않았나요? 스왑은 취소되며, 미체결된 $amount$는 전액 반환됩니다.",
+    "englishSource": "Not filled by then? The swap is cancelled and whatever is unfilled of your $amount$ comes back.",
     "placeholders": {
-      "min": {
+      "amount": {
         "content": "$1"
-      },
-      "max": {
-        "content": "$2"
       }
     }
   },
