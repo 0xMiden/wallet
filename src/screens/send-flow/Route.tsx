@@ -49,6 +49,8 @@ export interface RouteCardProps {
   accent: FlowAccent;
   disabled?: boolean;
   loading?: boolean;
+  /** Id of the notice that explains why the card is disabled. */
+  describedBy?: string;
 }
 
 /** One selectable route row. Shared with the USDCx deposit route step. */
@@ -61,7 +63,8 @@ export const RouteCard: React.FC<RouteCardProps> = ({
   testId,
   accent,
   disabled,
-  loading
+  loading,
+  describedBy
 }) => (
   <button
     type="button"
@@ -70,6 +73,7 @@ export const RouteCard: React.FC<RouteCardProps> = ({
     aria-pressed={selected}
     disabled={disabled}
     aria-busy={loading}
+    aria-describedby={describedBy}
     className={clsx(
       'flex w-full items-center rounded-2xl border bg-fill px-4 py-6 transition-colors text-base focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:opacity-50',
       selected ? ACCENT_CLASSES[accent].border : 'border-hairline'
@@ -138,6 +142,10 @@ const UsdcxRouteOption: React.FC<Pick<RouteOptionsProps, 'route' | 'onRouteChang
   );
 };
 
+// Each notice answers for its own route, so the card points at it by id (one RouteOptions per screen).
+const FAST_NOTICE_ID = 'bridge-route-fast-unavailable';
+const SLOW_NOTICE_ID = 'bridge-route-slow-unavailable';
+
 /** The Fast / Slow route cards and their notice, shared by every route step's layout. */
 export const RouteOptions: React.FC<RouteOptionsProps> = ({
   route,
@@ -192,39 +200,53 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
 
   return (
     <div className="mt-6 flex flex-col gap-6">
-      <RouteCard
-        emoji="⚡"
-        label={t('fast')}
-        selected={route === 'epoch'}
-        onSelect={() => select('epoch')}
-        fee={fastFee}
-        eta={t('fastArrival')}
-        disabled={isFeatureBlocked(fastAvailability)}
-        testId="bridge-route-fast"
-        accent={accent}
-      />
-      <RouteCard
-        emoji="🕐"
-        label={t('slow')}
-        selected={route === 'agglayer' && slowAllowed}
-        disabled={!slowAllowed || isFeatureBlocked(slowAvailability)}
-        loading={slowStatus === 'loading'}
-        onSelect={() => select('agglayer')}
-        fee={slowFee}
-        eta={t('slowArrival')}
-        testId="bridge-route-slow"
-        accent={accent}
-      />
+      <div className="flex flex-col gap-2">
+        <RouteCard
+          emoji="⚡"
+          label={t('fast')}
+          selected={route === 'epoch'}
+          onSelect={() => select('epoch')}
+          fee={fastFee}
+          eta={t('fastArrival')}
+          disabled={isFeatureBlocked(fastAvailability)}
+          describedBy={fastAvailability.state === 'unavailable' ? FAST_NOTICE_ID : undefined}
+          testId="bridge-route-fast"
+          accent={accent}
+        />
+        <FeatureUnavailableNotice
+          availability={fastAvailability}
+          variant="inline"
+          id={FAST_NOTICE_ID}
+          data-testid="feature-unavailable-notice-fast"
+        />
+      </div>
+      <div className="flex flex-col gap-2">
+        <RouteCard
+          emoji="🕐"
+          label={t('slow')}
+          selected={route === 'agglayer' && slowAllowed}
+          disabled={!slowAllowed || isFeatureBlocked(slowAvailability)}
+          loading={slowStatus === 'loading'}
+          describedBy={slowAvailability.state === 'unavailable' ? SLOW_NOTICE_ID : undefined}
+          onSelect={() => select('agglayer')}
+          fee={slowFee}
+          eta={t('slowArrival')}
+          testId="bridge-route-slow"
+          accent={accent}
+        />
+        <FeatureUnavailableNotice
+          availability={slowAvailability}
+          variant="inline"
+          id={SLOW_NOTICE_ID}
+          data-testid="feature-unavailable-notice-slow"
+        />
+      </div>
       {slowNotice && (
         <p role="status" className="text-xs text-muted">
           {slowNotice}
         </p>
       )}
       {notice && <p className="text-xs text-muted">{notice}</p>}
-      <FeatureUnavailableNotice
-        availability={fastAvailability.state === 'unavailable' ? fastAvailability : slowAvailability}
-        variant="inline"
-      />
     </div>
   );
 };
