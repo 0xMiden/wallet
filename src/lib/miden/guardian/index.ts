@@ -380,21 +380,25 @@ export class MultisigService {
     amount: bigint,
     noteType: NoteType
   ): Promise<Proposal> {
-    return withWasmClientLock(() =>
-      this.multisig.createP2idProposal(
+    return withWasmClientLock(async hold => {
+      await this.syncChainForProposal(hold, 'send proposal');
+      return this.multisig.createP2idProposal(
         accountRefToSdk(recipientId).toString(),
         accountRefToSdk(faucetId).toString(),
         amount,
         { noteType }
-      )
-    );
+      );
+    });
   }
 
   /**
    * Create a consume notes transaction proposal.
    */
   async createConsumeNotesProposal(noteIds: string[]): Promise<Proposal> {
-    return withWasmClientLock(() => this.multisig.createConsumeNotesProposal(noteIds));
+    return withWasmClientLock(async hold => {
+      await this.syncChainForProposal(hold, 'consume proposal');
+      return this.multisig.createConsumeNotesProposal(noteIds);
+    });
   }
 
   /** Current on-chain threshold for `procedure`, or undefined if none is set. */
@@ -448,7 +452,10 @@ export class MultisigService {
    * with a built-in type — so the default must be snake_case, not `'custom transaction'`.
    */
   async createCustomProposal(requestBytes: Uint8Array, proposalType: string = 'custom_transaction'): Promise<Proposal> {
-    return await withWasmClientLock(() => this.multisig.createCustomProposal(requestBytes, proposalType));
+    return await withWasmClientLock(async hold => {
+      await this.syncChainForProposal(hold, 'custom proposal');
+      return this.multisig.createCustomProposal(requestBytes, proposalType);
+    });
   }
 
   /**
@@ -476,6 +483,7 @@ export class MultisigService {
     approvalExpirationDelta?: number
   ): Promise<{ proposal: Proposal; requestBytes: Uint8Array }> {
     return await withWasmClientLock(async hold => {
+      await this.syncChainForProposal(hold, 'rebased custom proposal');
       const client = (await getMidenClient()).client;
       assertWasmHoldCurrent(hold, 'rebased custom proposal: after the client build');
       const notes = TransactionRequest.deserialize(requestBytes).expectedOutputOwnNotes();

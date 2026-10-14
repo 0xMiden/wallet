@@ -522,6 +522,20 @@ describe('MultisigService', () => {
         expect(result.requestBytes).toBe(rebasedBytes);
       });
 
+      it('syncs the chain in the same hold before rebuilding, so the request binds the fresh height (#1442)', async () => {
+        const { service, builder } = arrange();
+        mockFeeAwareRequestBuilder.mockImplementationOnce(async () => {
+          callOrder.push('feeAwareRequestBuilder');
+          holdsSeen.builder = currentWasmHold;
+          return builder;
+        });
+
+        await service.createRebasedCustomProposal(originalBytes, 'swap');
+
+        expect(callOrder.slice(0, 2)).toEqual(['syncChain', 'feeAwareRequestBuilder']);
+        expect(syncHoldsSeen[0]).toBe(holdsSeen.builder);
+      });
+
       // The rebuild drops the request's own expiration delta, so a Guardian expiration has to be the approval
       // expiration the fee-aware builder binds to the bound block (#1081).
       it('hands the approval expiration it is given to the fee-aware builder', async () => {
@@ -2167,6 +2181,44 @@ describe('MultisigService', () => {
 
       expect(callOrder).toEqual(['syncChain', 'createUpdateProcedureThresholdProposal']);
       expect(syncHoldsSeen[0]).not.toBeNull();
+    });
+    const wrapperCases: Array<[string, string, (s: MultisigService) => Promise<unknown>]> = [
+      ['createSendProposal', 'createP2idProposal', s => s.createSendProposal('rec', 'fauc', 5n, 'Public' as never)],
+      ['createConsumeNotesProposal', 'createConsumeNotesProposal', s => s.createConsumeNotesProposal(['note-a'])],
+      ['createCustomProposal', 'createCustomProposal', s => s.createCustomProposal(new Uint8Array([1]))]
+    ];
+
+    it.each(wrapperCases)(
+      '%s syncs the chain in the same hold before the multisig call',
+      async (_name, multisigMethod, call) => {
+        const multisigCall = jest.fn(async () => {
+          callOrder.push(multisigMethod);
+          return { kind: multisigMethod };
+        });
+        const service = new MultisigService(
+          makeMultisig({ [multisigMethod]: multisigCall }) as never,
+          {} as never,
+          'https://x'
+        );
+
+        await call(service);
+
+        expect(callOrder).toEqual(['syncChain', multisigMethod]);
+        expect(syncHoldsSeen[0]).not.toBeNull();
+      }
+    );
+
+    it.each(wrapperCases)('%s makes no proposal when the sync fails', async (_name, multisigMethod, call) => {
+      const multisigCall = jest.fn(async () => ({ kind: multisigMethod }));
+      const service = new MultisigService(
+        makeMultisig({ [multisigMethod]: multisigCall }) as never,
+        {} as never,
+        'https://x'
+      );
+      mockSyncChain.mockRejectedValueOnce(new Error('node unreachable'));
+
+      await expect(call(service)).rejects.toThrow('node unreachable');
+      expect(multisigCall).not.toHaveBeenCalled();
     });
   });
 
