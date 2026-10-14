@@ -153,8 +153,8 @@ export interface NonCurrentRead {
 }
 
 /**
- * K9's evidence for M4-reads. A read stays on its session's account when it was refused before any popup with
- * NOT_GRANTED (Q10) or, after a popup, served exactly that account's vault (K9). A read served with no popup, an
+ * The evidence for M4-reads. A read stays on its session's account when it was refused before any popup with
+ * NOT_GRANTED (Q10) or, after a popup, served exactly that account's vault. A read served with no popup, an
  * approval that then failed and another account's vault are neither, so the cell stays a new failure.
  */
 export function nonCurrentReadEvidence(reads: readonly NonCurrentRead[]): {

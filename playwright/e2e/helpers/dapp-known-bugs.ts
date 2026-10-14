@@ -31,17 +31,13 @@ export interface KnownBugRegistry {
 
 const BOTH: readonly AxisLabel[] = ['offchain', 'guardian'];
 const GUARDIAN: readonly AxisLabel[] = ['guardian'];
-// The consume rows of M3 and M9: consume skips the post-approval re-check that send and custom run.
+// The consume rows of M3: consume skips the post-approval re-check that send and custom run.
 const STALE_CONSUME_CELLS = [
   'M3-consume-switch',
   'M3-consume-revoke',
   'M3-consumeBytes-switch',
-  'M3-consumeBytes-revoke',
-  'M9-consume',
-  'M9-consumeBytes'
+  'M3-consumeBytes-revoke'
 ] as const;
-// M9 issues each request type from a session bound to an account that is not current.
-const NON_CURRENT_CELLS = ['M9-send', 'M9-transaction', 'M9-consume', 'M9-consumeBytes', 'M9-custom'] as const;
 const on = (ids: readonly string[], axes: readonly AxisLabel[]): Record<string, readonly AxisLabel[]> =>
   Object.fromEntries(ids.map(id => [id, axes]));
 
@@ -107,22 +103,6 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
       evidence.popupOpened === true &&
       evidence.dappError?.causeName === 'InvalidParamsMidenWalletError' &&
       (evidence.dappError?.message ?? '').includes(pinned.texts.G2.guardian.error)
-  },
-  {
-    id: 'K9',
-    title: 'A request from a session bound to a non-current account opens a popup instead of being refused',
-    tracking: '0xMiden/wallet#1419 (open)',
-    cells: on([...NON_CURRENT_CELLS, 'M4-reads'], BOTH),
-    // The cells approve the popup to see what follows: M9 a refusal after approval with nothing run for any account, or
-    // a consume that executes for the stale account (K6); M4-reads each read served the dApp's own vault after its
-    // popup, or refused before one.
-    signature: ({ cellId, source, evidence }) =>
-      source === 'hard' &&
-      evidence.nonCurrentPrompted === true &&
-      (cellId === 'M4-reads'
-        ? evidence.nonCurrentReadsOwnOrRefused === true
-        : (evidence.dappError?.message === 'NOT_GRANTED' && evidence.nonCurrentRowRan === false) ||
-          (cellId.startsWith('M9-consume') && evidence.staleConsumeExecuted === true))
   },
   {
     id: 'K10',
