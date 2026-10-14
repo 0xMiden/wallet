@@ -61,7 +61,7 @@
     "test": "jest",
     "test-debug": "node --inspect-brk node_modules/.bin/jest --runInBand",
     "test:coverage": "jest --coverage",
-    "test:custom-request": "node --test test/guardian-custom-request.node.test.mjs test/dapp-custom-request.node.test.mjs",
+    "test:custom-request": "node --test test/guardian-custom-request.node.test.mjs test/dapp-custom-request.node.test.mjs test/custom-request-diagnostics.node.test.mjs",
     "test:smoke": "jest src/lib/miden/smoke.integration.test.ts",
     "test:store-listing": "jest scripts/store-listing --runInBand",
     "ts": "tsc --pretty",

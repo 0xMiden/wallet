@@ -15,6 +15,7 @@ export interface Rect {
 export declare class DappWebViewInstance {
   readonly id: string;
   readonly managedHostCloseToken?: string;
+  readonly currentVisibilitySequence: number;
   constructor(id: string, managedHostCloseToken?: string);
   /** Move the webview to the given rect (delegates to updateDimensions). */
   setRect(rect: Rect): Promise<void>;

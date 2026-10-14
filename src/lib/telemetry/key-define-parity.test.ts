@@ -23,7 +23,16 @@ const KEYS = [...new Set(listSources('src/lib/telemetry').flatMap(file => envRea
 describe('telemetry and crash-reporting key defines', () => {
   it('finds the usage-data and crash-reporting keys in the telemetry modules', () => {
     // A key read moved out of these modules would otherwise drop out of the cases below unpinned.
-    expect(KEYS).toEqual(expect.arrayContaining(['APTABASE_APP_KEY', 'APTABASE_HOST', 'SENTRY_DSN']));
+    expect(KEYS).toEqual(
+      expect.arrayContaining([
+        'APTABASE_APP_KEY',
+        'APTABASE_HOST',
+        'SENTRY_DSN',
+        'WALLET_BUILD_TARGET',
+        'WALLET_BUILD_REVISION',
+        'WALLET_BUILD_DIRTY'
+      ])
+    );
   });
 
   it('finds the build configs that bundle telemetry', () => {
@@ -38,11 +47,28 @@ describe('telemetry and crash-reporting key defines', () => {
     );
   });
 
+  it.each(CONFIGS)('%s derives identity from its source checkout', config => {
+    expect(readSource(config)).toContain('const walletBuildIdentity = readWalletBuildIdentity(__dirname)');
+  });
+
+  it.each(CONFIGS.filter(config => config !== 'vite.background.config.ts'))(
+    '%s installs the build-proven frame registry',
+    config => {
+      expect(readSource(config)).toContain('walletCrashArtifactRegistry()');
+    }
+  );
+
   // Matched in what reaches `define`, so the extension config's keys count only while its define block
   // spreads sharedDefine.
   it.each(CONFIGS.flatMap(config => KEYS.map(key => [config, key])))('%s defines %s', (config, key) => {
     const defines = defineSource(readSource(config));
-    expect(defines).toMatch(defineEntry(key, `process.env.${key} ?? ''`));
+    const buildTarget = config.match(/^vite\.(background|desktop|extension|mobile)\.config\.ts$/)?.[1];
+    const staticBuildDefines: Record<string, string> = {
+      WALLET_BUILD_TARGET: `'${buildTarget}'`,
+      WALLET_BUILD_REVISION: 'walletBuildIdentity.revision',
+      WALLET_BUILD_DIRTY: 'walletBuildIdentity.dirty'
+    };
+    expect(defines).toMatch(defineEntry(key, staticBuildDefines[key] ?? `process.env.${key} ?? ''`));
     expect(occurrences(defines, `'process.env.${key}':`)).toBe(1);
   });
 });

@@ -70,8 +70,29 @@ export const PRESENTATION_SCRIPT = `
   Object.defineProperty(window, '__breadPresentationUpdate', { value: function(update) {
     if (!update || update.token !== token || (update.display !== 'fullscreen' && update.display !== 'browser')) return;
     if (!Number.isFinite(update.controlInsetTop) || update.controlInsetTop < 0) return;
-    state = Object.freeze({ token, display: update.display });
-    document.documentElement.style.setProperty('--bread-control-inset-top', update.controlInsetTop + 'px');
+    function geometry(value, fields) {
+      if (!value || typeof value !== 'object' ||
+          !fields.every(field => Number.isFinite(value[field]) && value[field] >= 0)) return;
+      return Object.freeze(Object.fromEntries(fields.map(field => [field, value[field]])));
+    }
+    const boundsFields = ['left', 'top', 'width', 'height'];
+    const safeFields = ['top', 'left', 'right', 'bottom'];
+    const fullscreen = update.display === 'fullscreen';
+    const controlBounds = fullscreen ? geometry(update.controlBounds, boundsFields) : undefined;
+    const safeAreaInsets = fullscreen ? geometry(update.safeAreaInsets, safeFields) : undefined;
+    state = Object.freeze({ token, display: update.display, controlInsetTop: update.controlInsetTop,
+      ...(controlBounds ? { controlBounds } : {}), ...(safeAreaInsets ? { safeAreaInsets } : {}) });
+    const root = document.documentElement;
+    root.style.setProperty('--bread-control-inset-top', update.controlInsetTop + 'px');
+    for (const [value, fields, prefix] of [[controlBounds, boundsFields, '--bread-control-'],
+        [safeAreaInsets, safeFields, '--bread-safe-area-']]) {
+      for (const field of fields) {
+        if (value) root.style.setProperty(prefix + field, value[field] + 'px');
+        else root.style.removeProperty(prefix + field);
+      }
+    }
+    if (controlBounds) root.setAttribute('data-bread-control-bounds', 'true');
+    else root.removeAttribute('data-bread-control-bounds');
     document.dispatchEvent(new Event('breadpresentationchange'));
   } });
   const presentation = Object.freeze({ ready: () => request('ready'), close: () => request('close') });

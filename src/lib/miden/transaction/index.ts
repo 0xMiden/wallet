@@ -944,6 +944,7 @@ async function requeueTransactionForRetry(
   await updateTransactionStatus(txId, ITransactionStatus.Queued, {
     processingStartedAt: undefined,
     attemptId: undefined,
+    failureDiagnostics: undefined,
     stage,
     // Reset the per-stage timing stamps: the row re-enters at `stage`, and the
     // stamps are first-entry-wins, so a stale original would make that step span
@@ -1357,12 +1358,14 @@ const generateTransactionWithProvider = async (
   // Mark transaction as in progress
   // Each run is its own attempt, so evidence, ends and acknowledgements name the run they are about (#1081).
   transaction.attemptId = uuid();
+  delete (transaction as ITransaction).failureDiagnostics;
   markStartedInThisRealm(transaction.id);
   await updateTransactionStatus(transaction.id, ITransactionStatus.GeneratingTransaction, {
     processingStartedAt: Math.floor(Date.now() / 1000), // seconds
     stage: 'sending',
     // Running again, so the transaction screen stops saying the Guardian is busy (#312).
     guardianBusy: undefined,
+    failureDiagnostics: undefined,
     attemptId: transaction.attemptId
   });
 
@@ -3573,11 +3576,31 @@ const generateGuardianTransaction = async (
       service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
       await releaseUnabandonedCandidate(transaction, service);
       await assertPriorCandidateSettled(transaction, service);
-      const preparedBytes = await withWasmClientLock(async hold => {
-        const client = await getMidenClient();
-        assertWasmHoldCurrent(hold, 'after the custom request client build');
-        return prepareCustomRequestBytes(client.client, transaction.accountId, requestBytes, hold);
-      });
+      let preparedBytes: Uint8Array;
+      let observedDiagnostics: ITransaction['failureDiagnostics'];
+      const attemptId = transaction.attemptId;
+      try {
+        preparedBytes = await withWasmClientLock(async hold => {
+          const client = await getMidenClient();
+          assertWasmHoldCurrent(hold, 'after the custom request client build');
+          return prepareCustomRequestBytes(client.client, transaction.accountId, requestBytes, hold, diagnostics => {
+            observedDiagnostics = diagnostics;
+            transaction.failureDiagnostics = diagnostics;
+          });
+        });
+      } finally {
+        if (observedDiagnostics !== undefined) {
+          try {
+            await Repo.transactions.where({ id: transaction.id }).modify(t => {
+              if (t.attemptId !== attemptId) return false;
+              t.failureDiagnostics = observedDiagnostics;
+              return undefined;
+            });
+          } catch {
+            // A diagnostic write must not fail a transaction or hide its original error.
+          }
+        }
+      }
       if (preparedBytes !== requestBytes) {
         // Signing and retries must reuse the salt and bound block the proposal executes with.
         await Repo.transactions.where({ id: transaction.id }).modify(t => {

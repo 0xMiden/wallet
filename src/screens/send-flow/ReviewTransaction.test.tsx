@@ -258,10 +258,6 @@ jest.mock('lib/miden/front/guardian-sync', () => ({
   zustandProvider: { provider: 'zustand' }
 }));
 
-jest.mock('lib/miden/types', () => ({
-  NoteTypeEnum: { Public: 'public', Private: 'private' }
-}));
-
 jest.mock('lib/miden/sdk/helpers', () => ({
   sameWalletAccountId: (a: string, b: string) => a === b
 }));

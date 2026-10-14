@@ -777,6 +777,94 @@ public class BreadPresentationControllerTest {
         }
     }
 
+    @Test public void metricsPublishOccupiedBoundsSafeAreaAndCurrentLayoutRevision() throws Exception {
+        open(true, true, "default");
+        fullscreen();
+        controller.visibility(false);
+        webView = spy(webView);
+        doReturn(400).when(webView).getWidth();
+        ReflectionHelpers.setField(controller, "webView", webView);
+        ImageButton back = ReflectionHelpers.getField(controller, "back");
+        back.layout(12, 62, 76, 110);
+        FrameLayout overlay = ReflectionHelpers.getField(controller, "overlay");
+        androidx.core.graphics.Insets safe = androidx.core.graphics.Insets.of(0, 54, 0, 34);
+        overlay.dispatchApplyWindowInsets(new WindowInsetsCompat.Builder()
+            .setInsetsIgnoringVisibility(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout(), safe)
+            .build().toWindowInsets());
+        assertEquals("doc", controller.state.token());
+        assertEquals(400, webView.getWidth());
+        String script = ReflectionHelpers.callInstanceMethod(controller, "metricUpdate");
+        org.json.JSONObject metrics = new org.json.JSONObject(script.substring(script.indexOf("metrics=") + 8, script.indexOf(";if")));
+        assertEquals(400, metrics.getInt("width"));
+        assertEquals(64, metrics.getJSONObject("controlBounds").getInt("width"));
+        assertEquals(48, metrics.getJSONObject("controlBounds").getInt("height"));
+        assertEquals(54, metrics.getJSONObject("safeAreaInsets").getInt("top"));
+        assertEquals(34, metrics.getJSONObject("safeAreaInsets").getInt("bottom"));
+        long revision = metrics.getLong("revision");
+        doReturn(600).when(webView).getWidth();
+        controller.state.layoutChanged();
+        String rotated = ReflectionHelpers.callInstanceMethod(controller, "metricUpdate");
+        org.json.JSONObject current = new org.json.JSONObject(rotated.substring(rotated.indexOf("metrics=") + 8, rotated.indexOf(";if")));
+        assertEquals(600, current.getInt("width"));
+        assertTrue(current.getLong("revision") > revision);
+        controller.state.configure("doc", false, false);
+        controller.render();
+        String browser = ReflectionHelpers.callInstanceMethod(controller, "metricUpdate");
+        assertTrue(browser.contains("\"controlBounds\":null"));
+        assertTrue(browser.contains("\"safeAreaInsets\":null"));
+    }
+
+    @Test public void lateFirstAcknowledgementKeepsNeverShownControllerHiddenInBackground() {
+        open(true, true, "default", false);
+        controller.visibility(true, null, 1);
+        controller.state.configure("doc", true, true);
+        controller.state.ready();
+        assertFalse(controller.state.effectiveVisibility());
+        controller.state.painted(controller.state.generation());
+        controller.foreground(false);
+        controller.visibility(true, (int) controller.state.policyRevision(), 2);
+        assertFalse("A never-shown controller cannot inherit background dialog ownership", dialog.isShowing());
+    }
+
+    @Test public void breadCapsuleRequestsHostMinimizeWithoutClosingTheRetainedDocument() {
+        open(true, true, "default");
+        fullscreen();
+        long navigation = controller.state.navigationGeneration();
+        ImageButton capsule = ReflectionHelpers.getField(controller, "back");
+        capsule.performClick();
+        verify(callbacks).presentationMinimizeRequested(controller.state.policyRevision(), controller.state.acknowledgedVisibilitySequence(), null);
+        verify(callbacks, never()).closeEvent(any());
+        assertEquals(navigation, controller.state.navigationGeneration());
+        assertEquals("doc", controller.state.token());
+        assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
+    }
+
+    @Test public void pausedRetainedFullscreenKeepsCoveredSurfaceAndYieldsToHostOwnership() {
+        open(true, true, "default");
+        fullscreen();
+        controller.state.ready();
+        controller.state.painted(controller.state.generation());
+        controller.render();
+        View cover = ReflectionHelpers.getField(controller, "cover");
+        controller.foreground(false);
+        assertTrue("First return surface must remain the retained game dialog", dialog.isShowing());
+        assertEquals(View.VISIBLE, cover.getVisibility());
+        assertEquals(1f, cover.getAlpha(), 0f);
+        assertFalse(controller.state.canReveal(controller.state.generation()));
+        assertFalse(fits());
+        controller.visibility(false);
+        assertFalse("Wallet host ownership immediately hides the retained dialog", dialog.isShowing());
+        controller.foreground(true);
+        assertFalse(dialog.isShowing());
+        controller.visibility(true);
+        controller.navigate();
+        controller.foreground(false);
+        assertFalse("Replacement documents cannot borrow retained ownership", dialog.isShowing());
+        dialog.forceClose();
+        controller.foreground(true);
+        assertFalse(dialog.isShowing());
+    }
+
     private boolean fits() { return ReflectionHelpers.callInstanceMethod(dialog.getWindow(), "decorFitsSystemWindows"); }
     private WindowInsetsControllerCompat bars() { return WindowCompat.getInsetsController(dialog.getWindow(), dialog.getWindow().getDecorView()); }
     private int acknowledgementSequence;
@@ -873,7 +961,7 @@ public class BreadPresentationControllerTest {
         assertRotationHints(2, 2);
         assertFalse(controller.state.canReveal(oldPaint));
         dialog.presentationForeground(false);
-        assertRotationHints(1, 3);
+        assertRotationHints(2, 2);
         dialog.presentationForeground(true);
         assertRotationHints(2, 2);
         controller.navigate();
@@ -959,7 +1047,7 @@ public class BreadPresentationControllerTest {
         controller.state.painted(paint);
         dialog.hide(); assertRestored(fit, behavior);
         dialog.show(); assertFalse(fits()); assertFalse(controller.state.canReveal(paint));
-        controller.foreground(false); assertRestored(fit, behavior);
+        controller.foreground(false); assertFalse(fits()); assertTrue(dialog.isShowing());
         controller.foreground(true); assertFalse(fits());
         assertEquals(BreadPresentationState.Phase.PREPARING, controller.state.phase());
     }
@@ -1396,9 +1484,18 @@ public class BreadPresentationControllerTest {
         assertFalse(controller.state.canReveal(controller.state.generation()));
         assertEquals(View.VISIBLE, cover.getVisibility());
         assertEquals(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS, webView.getImportantForAccessibility());
-        exit.performClick(); exit.performClick(); dialog.show();
+        acknowledgePolicy();
+        exit.performClick(); exit.performClick();
+        verify(callbacks, times(2)).presentationMinimizeRequested(controller.state.policyRevision(), controller.state.acknowledgedVisibilitySequence(), null);
+        verify(callbacks, never()).closeEvent(any());
+        assertEquals(BreadPresentationState.Phase.ERROR, controller.state.phase());
+        controller.visibility(false);
+        assertFalse(dialog.isShowing());
+        dialog.show();
+        assertEquals(BreadPresentationState.Phase.ERROR, controller.state.phase());
+        dialog.forceClose();
         assertEquals(BreadPresentationState.Phase.CLOSED, controller.state.phase());
-        assertFalse(dialog.isShowing()); verify(callbacks, times(1)).closeEvent(any());
+        verify(callbacks, times(1)).closeEvent(any());
     }
 
     @Test public void noDocumentStartFailsClosedWithoutBridgeOrPublicScript() { unsupported(false, true); }

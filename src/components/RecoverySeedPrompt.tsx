@@ -49,7 +49,7 @@ export const RecoverySeedPrompt: React.FC<Props> = ({ transaction, onClose }) =>
   };
 
   return (
-    <div className="flex flex-1 min-h-0 flex-col overflow-y-auto bg-app-bg text-text-primary-token pb-6">
+    <div className="flex flex-1 min-h-0 flex-col overflow-y-auto bg-app-bg text-text-primary-token pb-[calc(1.5rem+var(--wallet-control-safe-bottom,0px))]">
       <PageHeader className="px-4" onBack={onClose} />
       {transaction.type === 'switch-guardian' && (
         <p className="px-4 break-all">{transaction.extraInputs?.newGuardianEndpoint}</p>
@@ -59,14 +59,16 @@ export const RecoverySeedPrompt: React.FC<Props> = ({ transaction, onClose }) =>
           {error}
         </p>
       )}
-      <ImportSeedPhraseScreen
-        key={inputVersion}
-        wordslist={englishWordlist}
-        titleKey="recoverySeedRequiredTitle"
-        descriptionKey="recoverySeedTemporaryDescription"
-        submitting={submitting}
-        onSubmit={submit}
-      />
+      <div className="flex flex-1 min-h-0 flex-col [--wallet-control-safe-bottom:0px]">
+        <ImportSeedPhraseScreen
+          key={inputVersion}
+          wordslist={englishWordlist}
+          titleKey="recoverySeedRequiredTitle"
+          descriptionKey="recoverySeedTemporaryDescription"
+          submitting={submitting}
+          onSubmit={submit}
+        />
+      </div>
       <div className="px-4 pt-4">
         <Button title={t('close')} variant={ButtonVariant.Secondary} onClick={onClose} />
       </div>
