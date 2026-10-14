@@ -1,6 +1,6 @@
 import { AccountId, Address, MidenClient, RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
-import { getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
 import { getRpcEndpoint } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -53,10 +53,13 @@ const toAccountId = (accountId: string) =>
 export async function isMainnetAccountAdmitted(accountId: string): Promise<boolean> {
   await MidenClient.ready();
   return withWasmClientLock(
-    async () => {
+    async hold => {
       const id = toAccountId(accountId);
       const { client } = await getMidenClient();
-      return client.accounts.isAllowed(id);
+      assertWasmHoldCurrent(hold, 'in the mainnet admission read after the client build');
+      const allowed = await client.accounts.isAllowed(id);
+      assertWasmHoldCurrent(hold, 'in the mainnet admission read after the access check');
+      return allowed;
     },
     { watchdogMs: MAINNET_ACCESS_WATCHDOG_MS, label: 'mainnet-access-admitted' }
   );
@@ -76,15 +79,23 @@ export async function redeemMainnetAccessCode(
   if (!target) throw new Error('Mainnet registration requires an account ID and RPC URL');
   await MidenClient.ready();
   return withWasmClientLock(
-    async () => {
+    async hold => {
       const accountId = toAccountId(target.accountId);
       if (getEffectiveRpcUrl() !== target.rpcUrl) throw new Error('Account registration RPC differs from wallet RPC');
       const { client } = await getMidenClient();
-      const isAllowed = () => client.accounts.isAllowed(accountId);
+      // An evicted callback keeps running after its caller saw the eviction, so each await is
+      // re-checked before the next client call.
+      assertWasmHoldCurrent(hold, 'in the access-code redeem after the client build');
+      const isAllowed = async () => {
+        const allowed = await client.accounts.isAllowed(accountId);
+        assertWasmHoldCurrent(hold, 'in the access-code redeem after the access check');
+        return allowed;
+      };
       if (await isAllowed()) return 'granted';
       try {
         // Sync the backend client to set the genesis metadata required by v17 registration.
         await client.sync();
+        assertWasmHoldCurrent(hold, 'in the access-code redeem after the sync');
         await client.accounts.register({ account: accountId, invitationCode: code });
         return 'granted';
       } catch (error) {
@@ -93,6 +104,7 @@ export async function redeemMainnetAccessCode(
           case 'INVALID_REGISTRATION_REQUEST':
             return 'rejected';
           case 'ALREADY_REGISTERED':
+            assertWasmHoldCurrent(hold, 'in the access-code redeem after the refused registration');
             // A concurrent request can register the same account after the first check.
             if (await isAllowed()) return 'granted';
             return 'rejected';

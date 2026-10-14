@@ -5,6 +5,8 @@ const mockAllowed = jest.fn<Promise<boolean>, [string]>();
 const mockRegister = jest.fn<Promise<void>, [string, string]>();
 const mockSync = jest.fn<Promise<void>, []>();
 const mockLockOptions = jest.fn<void, [unknown]>();
+const mockClientBuild = jest.fn<Promise<void>, []>();
+let mockLiveHold: object | undefined;
 const mockFromHex = jest.fn((id: string) => id);
 const mockFromBech32 = jest.fn((id: string) => id);
 
@@ -18,31 +20,44 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
 }));
 
 jest.mock('lib/miden/sdk/miden-client', () => ({
-  withWasmClientLock: (run: () => Promise<string>, options: unknown) => {
+  withWasmClientLock: <T>(run: (hold: object) => Promise<T>, options: unknown) => {
     mockLockOptions(options);
-    return run();
+    const hold = {};
+    mockLiveHold = hold;
+    return run(hold);
   },
-  getMidenClient: async () => ({
-    client: {
-      sync: () => mockSync(),
-      accounts: {
-        isAllowed: mockAllowed,
-        register: ({ account, invitationCode }: { account: string; invitationCode: string }) =>
-          mockRegister(account, invitationCode)
+  assertWasmHoldCurrent: (hold: object, where: string) => {
+    if (hold !== mockLiveHold) throw new Error(`operation abandoned ${where}`);
+  },
+  getMidenClient: async () => {
+    await mockClientBuild();
+    return {
+      client: {
+        sync: () => mockSync(),
+        accounts: {
+          isAllowed: mockAllowed,
+          register: ({ account, invitationCode }: { account: string; invitationCode: string }) =>
+            mockRegister(account, invitationCode)
+        }
       }
-    }
-  })
+    };
+  }
 }));
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveRpcUrl: () => 'https://mainnet.example/rpc' }));
 
 const target: MainnetAccessTarget = { accountId: '0x1234', rpcUrl: 'https://mainnet.example/rpc' };
 const rejected = (code: string) => Object.assign(new Error('Registration failed'), { code });
+// What the watchdog does to a parked hold: the mutex moves on while the callback keeps running.
+const evictHold = async () => {
+  mockLiveHold = undefined;
+};
 
 describe('mainnet account registration', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockReady.mockResolvedValue();
+    mockClientBuild.mockResolvedValue();
     mockAllowed.mockResolvedValue(false);
     mockRegister.mockResolvedValue();
     mockSync.mockResolvedValue();
@@ -126,6 +141,16 @@ describe('mainnet account registration', () => {
     }
   });
 
+  it('makes no register call once the watchdog evicts the hold during the sync', async () => {
+    mockSync.mockImplementation(evictHold);
+    const outcome = await redeemMainnetAccessCode('12345678', target).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    expect(mockRegister).not.toHaveBeenCalled();
+    expect(outcome).toEqual(expect.objectContaining({ message: expect.stringContaining('abandoned') }));
+  });
+
   it('does not treat a funding failure as a rejected code', async () => {
     const failure = rejected('UNAVAILABLE');
     mockRegister.mockRejectedValue(failure);
@@ -151,6 +176,7 @@ describe('mainnet account admission', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockReady.mockResolvedValue();
+    mockClientBuild.mockResolvedValue();
   });
 
   it.each([true, false])('answers whether the node admits the account (%s), with no code', async allowed => {
@@ -165,6 +191,17 @@ describe('mainnet account admission', () => {
     mockAllowed.mockResolvedValue(true);
     await isMainnetAccountAdmitted('0x1234');
     expect(mockLockOptions).toHaveBeenCalledWith({ watchdogMs: 60_000, label: 'mainnet-access-admitted' });
+  });
+
+  it('makes no access check once the watchdog evicts the hold during the client build', async () => {
+    mockAllowed.mockResolvedValue(true);
+    mockClientBuild.mockImplementation(evictHold);
+    const outcome = await isMainnetAccountAdmitted('0x1234').then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    expect(mockAllowed).not.toHaveBeenCalled();
+    expect(outcome).toEqual(expect.objectContaining({ message: expect.stringContaining('abandoned') }));
   });
 
   it('races no access check inside the hold, which only the watchdog ends', async () => {
