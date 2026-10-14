@@ -8,6 +8,7 @@
 
 ### Fixes
 
+- [FIX][all] A dApp request for an account that is not the one currently open in Bread is refused before any approval popup or data read, instead of asking the user to approve a request for another account. A request approved after the open account changed or the dApp was disconnected is refused too.
 - [FIX][all] Every Guardian proposal syncs the chain right before it is built, so one that waits out a busy Guardian or a paused app no longer fails with `before_foreign_load` once the node has pruned the old block.
 - [FIX][all] A dApp custom request from a Guardian account that declares the network accounts its notes target as public foreign accounts is no longer refused; any other foreign account still is.
 - [FIX][all] OpenZeppelin Guardian endpoints moved to `guardian-testnet.openzeppelin.com` (testnet) and `guardian-devnet.openzeppelin.com` (devnet), replacing `guardian.openzeppelin.com` and `guardian-stg.openzeppelin.com`. Existing accounts keep their saved host, which is still recognised as OpenZeppelin.

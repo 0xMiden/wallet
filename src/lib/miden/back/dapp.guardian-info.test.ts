@@ -93,9 +93,10 @@ jest.mock('lib/miden/back/defaults', () => ({
   intercom: { broadcast: jest.fn() }
 }));
 
+const mockGetCurrentAccountPublicKey = jest.fn();
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {
-    getCurrentAccountPublicKey: jest.fn()
+    getCurrentAccountPublicKey: (...args: unknown[]) => mockGetCurrentAccountPublicKey(...args)
   }
 }));
 
@@ -136,6 +137,7 @@ import * as dapp from './dapp';
 const STORAGE_KEY = 'dapp_sessions';
 
 function seedDApp(origin: string, sourcePublicKey: string, accountId: string) {
+  mockGetCurrentAccountPublicKey.mockResolvedValue(accountId);
   storageState[STORAGE_KEY] = {
     [origin]: [
       {
@@ -189,6 +191,18 @@ describe('requestGuardianInfo', () => {
         sourcePublicKey: 'wrong-key'
       } as never)
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+  });
+
+  it('throws NotGranted for a session whose account is not the current one (#1419)', async () => {
+    seedDApp('https://dapp', 'pk', 'pk');
+    mockGetCurrentAccountPublicKey.mockResolvedValue('other-account');
+    await expect(
+      dapp.requestGuardianInfo('https://dapp', {
+        type: MidenDAppMessageType.GuardianInfoRequest,
+        sourcePublicKey: 'pk'
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    expect(mockWithUnlocked).not.toHaveBeenCalled();
   });
 
   it('returns endpoint + provider + status for a guardian account', async () => {

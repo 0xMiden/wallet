@@ -463,7 +463,7 @@ async function unlessAThirdPartyMovedIt(
 /**
  * M4-reads: a read served after its popup a vault other than its account's own, captured at `since`. A move by a third
  * party's note on that account explains it (`thirdPartyMoveFault`, the read making no row), unless the vault served is
- * the other account's: a leak stays the wallet's. Anything else is left to K9's per-read rule.
+ * the other account's: a leak stays the wallet's. Anything else is left to the per-read rule.
  */
 export async function unlessAThirdPartyMovedARead(
   owner: VaultOwner,
