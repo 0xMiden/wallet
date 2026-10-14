@@ -12,6 +12,7 @@ jest.mock('../sdk/helpers', () => ({
   sameWalletAccountId: (a: string, b: string) => a.split('_')[0] === b.split('_')[0]
 }));
 jest.mock('lib/telemetry/report-operation', () => ({ reportOperation: jest.fn() }));
+jest.mock('lib/telemetry/transaction-failure', () => ({ reportTransactionFailure: jest.fn() }));
 
 const NOW = Math.floor(Date.now() / 1000);
 const hex = (n: number) => `0x${n.toString(16).padStart(64, '0')}`;
@@ -108,6 +109,31 @@ describe('the landed write (#1081)', () => {
     expect(row?.error).toBeUndefined();
     const { reportOperation } = jest.requireMock('lib/telemetry/report-operation');
     expect(reportOperation).toHaveBeenCalledWith({ operation: expect.any(String), result: 'completed' });
+  });
+
+  // The landed write has no result to read a fee or outputs from: the burn keeps the identity its poll reads, and
+  // nothing else is invented for it.
+  it('completes a USDCx burn that landed with its burn identity intact and no fee or outputs', async () => {
+    const usdcxBurn = { noteId: NOTE, destinationDomain: 26, phase: 'pending' };
+    const extraInputs = { provider: 'usdcx', destinationAddress: '0xkey', destinationNetwork: 5042002, usdcxBurn };
+    await Repo.transactions.put(unconfirmed({ type: 'bridged-send', displayIcon: 'SEND', extraInputs }));
+
+    const outcome = await judgeAndWrite(
+      'tx-1',
+      context(node({ blockNum: 150, commitment: OTHER }, { notes: { [NOTE]: 140 } }))
+    );
+
+    expect(outcome.kind).toBe('landed');
+    const row = await read();
+    expect(row).toMatchObject({
+      status: ITransactionStatus.Completed,
+      displayMessage: 'Bridged to EVM',
+      transactionId: hex(2),
+      extraInputs
+    });
+    expect(row?.feeAmount).toBeUndefined();
+    expect(row?.resultBytes).toBeUndefined();
+    expect(row?.resultReleasedAt).toBeUndefined();
   });
 
   it.each<[ITransaction['type'], ITransaction['displayIcon']]>([
@@ -266,11 +292,29 @@ describe('the never-committed write (#1081)', () => {
     expect(row?.submitEvidence?.[0]).toMatchObject({ verdict: 'never-committed', initialSeenAtBlock: 750 });
   });
 
-  it('moves an Unconfirmed row to Failed the same way, with no report', async () => {
+  it('moves an Unconfirmed row to Failed and reports the definitive verdict once', async () => {
     await Repo.transactions.put(unconfirmed());
     await judgeAndWrite('tx-1', context(node({ blockNum: 750, commitment: INITIAL })));
     expect((await read())?.status).toBe(ITransactionStatus.Failed);
     expect(jest.requireMock('lib/telemetry/report-operation').reportOperation).not.toHaveBeenCalled();
+    const report = jest.requireMock('lib/telemetry/transaction-failure').reportTransactionFailure;
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenCalledWith({
+      point: 'node_verdict',
+      type: 'send',
+      stage: undefined,
+      delegateTransaction: undefined,
+      diagnostics: undefined,
+      error: TRANSACTION_NEVER_COMMITTED_ERROR
+    });
+    await judgeAndWrite('tx-1', context(node({ blockNum: 750, commitment: INITIAL })));
+    expect(report).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report an imported backup row as a new failure', async () => {
+    await Repo.transactions.put(unconfirmed({ restoredFromBackup: true }));
+    await judgeAndWrite('tx-1', context(node({ blockNum: 750, commitment: INITIAL })));
+    expect(jest.requireMock('lib/telemetry/transaction-failure').reportTransactionFailure).not.toHaveBeenCalled();
   });
 
   it('a late stamp adding an attempt voids it', async () => {
@@ -286,6 +330,7 @@ describe('the never-committed write (#1081)', () => {
     };
     await judgeAndWrite('tx-1', context(reads));
     expect((await read())?.neverCommittedAt).toBeUndefined();
+    expect(jest.requireMock('lib/telemetry/transaction-failure').reportTransactionFailure).not.toHaveBeenCalled();
   });
 
   it('a header that changes before the write voids it', async () => {

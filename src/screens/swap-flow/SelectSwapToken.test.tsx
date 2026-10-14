@@ -2,7 +2,7 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
-import { TOKEN_IETH as REGISTRY_IETH } from 'lib/miden/swap/tokens';
+import { TEST_TOKEN_IETH as REGISTRY_IETH } from 'lib/miden/swap/testing/registry';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 
 import { SelectSwapTokenDrawer } from './SelectSwapToken';
@@ -35,9 +35,10 @@ type SwapToken = {
 };
 const mockGetSwapTokens = jest.fn<SwapToken[], []>(() => []);
 jest.mock('lib/miden/swap/tokens', () => ({
-  getSwapTokens: () => mockGetSwapTokens(),
-  normalizedFaucetId: jest.requireActual('lib/miden/swap/tokens').normalizedFaucetId,
-  TOKEN_IETH: jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH
+  normalizedFaucetId: jest.requireActual('lib/miden/swap/tokens').normalizedFaucetId
+}));
+jest.mock('lib/miden/swap/use-swap-tokens', () => ({
+  useSwapTokens: () => mockGetSwapTokens()
 }));
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -71,6 +72,11 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState)
+}));
+
+// The testnet document, whose swap tokens name the iETH faucet the labels read.
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useBridgeConfigSnapshot: () => jest.requireActual('lib/epoch/testing/bridge-config').TEST_BRIDGE_CONFIG_SNAPSHOT
 }));
 
 // `components/TokenLogo` renders inline SVG logos; stub it to a probe that

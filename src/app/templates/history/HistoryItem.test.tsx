@@ -89,6 +89,8 @@ jest.mock('./TransactionIcon', () => ({
 jest.mock('./transactionUtils', () => ({
   isFaucetRequest: jest.fn(() => false),
   bridgeRowDisplay: jest.fn(),
+  bridgeBadgeStatusOf: jest.requireActual('./transactionUtils').bridgeBadgeStatusOf,
+  isUsdcxBridgeEntry: jest.requireActual('./transactionUtils').isUsdcxBridgeEntry,
   isReceiveEntry: jest.requireActual('./transactionUtils').isReceiveEntry,
   isBridgeInEntry: jest.fn(() => false),
   isEarnWithdrawEntry: (entry: { txType?: string }) => entry.txType === 'earn-withdraw',

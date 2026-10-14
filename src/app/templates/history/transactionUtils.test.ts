@@ -10,13 +10,15 @@ import {
 } from 'lib/epoch/testing/bridge-config';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
-import { getSwapTokenByFaucetId, TOKEN_IETH, TOKEN_IMIDEN } from 'lib/miden/swap/tokens';
+import { TEST_TOKEN_IETH, TEST_TOKEN_IMIDEN } from 'lib/miden/swap/testing/registry';
+import { getSwapTokenByFaucetId } from 'lib/miden/swap/tokens';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 import {
+  bridgeBadgeStatusOf,
   bridgeInRowDisplay,
   bridgeRowDisplay,
   bridgeStatusOf,
@@ -63,9 +65,7 @@ const UNKNOWN_METADATA = jest.requireActual('lib/miden/metadata').DEFAULT_TOKEN_
 // used here so tests choose between the registry-hit and fallback paths.
 jest.mock('lib/miden/swap/tokens', () => ({
   getSwapTokenByFaucetId: jest.fn(),
-  normalizedFaucetId: (faucetId: string) => faucetId,
-  TOKEN_IETH: jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH,
-  TOKEN_IMIDEN: jest.requireActual('lib/miden/swap/tokens').TOKEN_IMIDEN
+  normalizedFaucetId: (faucetId: string) => faucetId
 }));
 
 // Native-asset resolution instantiates an RpcClient at import time; replace the
@@ -661,6 +661,56 @@ describe('creditedAmount', () => {
   });
 });
 
+describe('bridgeBadgeStatusOf for a USDCx deposit', () => {
+  const deposit = (overrides: Partial<IHistoryEntry>) =>
+    bridgeEntry({ txType: 'bridged-receive', bridgeInProvider: 'usdcx', ...overrides });
+
+  it('reads Pending until Circle attests, Confirmed once it does and Completed once the note is received', () => {
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'delivering' }))).toBe('pending');
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'ready' }))).toBe('confirmed');
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'received' }))).toBe('completed');
+  });
+
+  it('reads Completed on the consume of the minted note', () => {
+    expect(bridgeBadgeStatusOf(deposit({ txType: 'consume' }))).toBe('completed');
+  });
+
+  it('reads Failed for a failed deposit', () => {
+    expect(bridgeBadgeStatusOf(deposit({ bridgeInPhase: 'failed' }))).toBe('failed');
+  });
+
+  it('keeps Confirmed for a received deposit of another route', () => {
+    expect(
+      bridgeBadgeStatusOf(
+        bridgeEntry({ txType: 'bridged-receive', bridgeInProvider: 'epoch', bridgeInPhase: 'received' })
+      )
+    ).toBe('confirmed');
+  });
+});
+
+describe('USDCx withdrawal stages', () => {
+  it('keeps Burn confirmed until the destination balance check confirms arrival', () => {
+    const entry = bridgeEntry({
+      txType: 'bridged-send',
+      bridgeProvider: 'usdcx',
+      usdcxBurn: { noteId: 'note', destinationDomain: 26, phase: 'confirmed' }
+    });
+    expect(bridgeBadgeStatusOf(entry)).toBe('burnConfirmed');
+    expect(bridgeStatusOf(entry)).toBe('pending');
+    const arrived: IHistoryEntry = {
+      ...entry,
+      usdcxBurn: {
+        noteId: 'note',
+        destinationDomain: 26,
+        phase: 'confirmed',
+        destinationBalanceConfirmed: { balance: '1000000', blockNumber: '101' }
+      }
+    };
+    expect(bridgeBadgeStatusOf(arrived)).toBe('confirmed');
+    expect(bridgeStatusOf(arrived)).toBe('confirmed');
+  });
+});
+
 describe('bridgeStatusOf', () => {
   // ITransactionStatus.Failed === 3. A failed Miden tx never created a deposit,
   // so its terminal status must beat the route's own (initially pending) metadata.
@@ -951,6 +1001,31 @@ describe('bridgeInRowDisplay', () => {
       status: 'confirmed'
     });
   });
+
+  it('labels a Circle xReserve deposit and keeps USDC in, USDCx out', () => {
+    expect(
+      bridgeInRowDisplay(
+        UNLOADED,
+        bridgeEntry({
+          txType: 'bridged-receive',
+          bridgeInPhase: 'delivering',
+          bridgeInProvider: 'usdcx',
+          bridgeInSourceSymbol: 'USDC',
+          bridgeInOutputSymbol: 'USDCx',
+          bridgeInOutputAmount: '5'
+        })
+      )
+    ).toEqual({
+      inSymbol: 'USDC',
+      outSymbol: 'USDCx',
+      inLabel: 'USDC',
+      outLabel: 'USDCx',
+      outAmount: '5',
+      providerLabel: 'Circle xReserve',
+      network: 'Miden',
+      status: 'pending'
+    });
+  });
 });
 
 describe('bridge rows testnet bridge USDC label', () => {
@@ -1089,9 +1164,9 @@ describe('labelHistoryEntry', () => {
   it('labels each side of a swap row by its own faucet, so iETH reads "Test iETH" on either side (#477)', () => {
     const swapRow = bridgeEntry({
       txType: 'swap',
-      faucetId: TOKEN_IMIDEN.faucetId,
+      faucetId: TEST_TOKEN_IMIDEN.faucetId,
       token: 'MIDEN',
-      requestedFaucetId: TOKEN_IETH.faucetId,
+      requestedFaucetId: TEST_TOKEN_IETH.faucetId,
       requestedToken: 'IETH'
     });
     expect(labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, swapRow)).toMatchObject({
@@ -1101,9 +1176,9 @@ describe('labelHistoryEntry', () => {
     expect(
       labelHistoryEntry(TEST_BRIDGE_CONFIG_SNAPSHOT, {
         ...swapRow,
-        faucetId: TOKEN_IETH.faucetId,
+        faucetId: TEST_TOKEN_IETH.faucetId,
         token: 'IETH',
-        requestedFaucetId: TOKEN_IMIDEN.faucetId,
+        requestedFaucetId: TEST_TOKEN_IMIDEN.faucetId,
         requestedToken: 'MIDEN'
       })
     ).toMatchObject({ token: 'Test iETH', requestedToken: 'MIDEN' });

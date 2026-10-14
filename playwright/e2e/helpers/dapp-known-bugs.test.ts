@@ -1,0 +1,164 @@
+/**
+ * @jest-environment node
+ */
+import type { FailureEvidence } from './dapp-cells';
+import { nonCurrentReadEvidence, type NonCurrentRead } from './dapp-gates';
+import { KNOWN_BUGS, knownBugRegistry, type KnownBug } from './dapp-known-bugs';
+import pinned from './dapp-pinned.json';
+
+const bug = (id: string): KnownBug => {
+  const found = KNOWN_BUGS.find(candidate => candidate.id === id);
+  if (!found) throw new Error(`no ${id}`);
+  return found;
+};
+const hard = (cellId: string, evidence: FailureEvidence, text = 'failure') => ({
+  cellId,
+  source: 'hard' as const,
+  text,
+  evidence
+});
+const soft = (cellId: string, evidence: FailureEvidence, text = 'preview-verified: declared') => ({
+  cellId,
+  source: 'soft' as const,
+  text,
+  evidence
+});
+
+describe('known-bug registry', () => {
+  it('has unique ids, a tracking issue or pull request and at least one cell each', () => {
+    expect(new Set(KNOWN_BUGS.map(entry => entry.id)).size).toBe(KNOWN_BUGS.length);
+    for (const entry of KNOWN_BUGS) {
+      expect(entry.tracking).toMatch(/^[\w.-]+\/[\w.-]+#\d+ /);
+      expect(Object.keys(entry.cells)).not.toHaveLength(0);
+    }
+  });
+
+  it('scopes the Guardian-only bugs to the Guardian axis', () => {
+    expect(knownBugRegistry.bugsFor('G2a', 'offchain').map(entry => entry.id)).toEqual([]);
+    expect(knownBugRegistry.bugsFor('G2a', 'guardian').map(entry => entry.id)).toEqual(['K8']);
+  });
+
+  it('K1 matches a provider that moved while the adapter kept the old address', () => {
+    expect(bug('K1').signature(hard('M1', { providerAddress: 'b', adapterAddress: 'a', previousAddress: 'a' }))).toBe(
+      true
+    );
+    expect(bug('K1').signature(hard('M1', { providerAddress: 'b', adapterAddress: 'b', previousAddress: 'a' }))).toBe(
+      false
+    );
+  });
+
+  it('K2 matches an approved consume refused as INVALID_PARAMS not found', () => {
+    const refused = { name: 'WalletTransactionError', message: 'INVALID_PARAMS: Error: Note with id 0x12 not found' };
+    expect(bug('K2').signature(hard('W6', { popupOpened: true, dappError: refused }))).toBe(true);
+    expect(
+      bug('K2').signature(hard('W6', { popupOpened: true, dappError: { ...refused, message: 'NOT_GRANTED' } }))
+    ).toBe(false);
+  });
+
+  it('K5 matches a locked-wallet refusal before any popup', () => {
+    const locked = { name: 'WalletTransactionError', message: 'INVALID_PARAMS: Error: Wallet is locked' };
+    expect(bug('K5').signature(hard('S9', { popupOpened: false, dappError: locked }))).toBe(true);
+    expect(bug('K5').signature(hard('S9', { popupOpened: true, dappError: locked }))).toBe(false);
+  });
+
+  it('K6 and K7 match only their recorded facts', () => {
+    expect(bug('K6').signature(hard('M3-consume-switch', { staleConsumeExecuted: true }))).toBe(true);
+    expect(bug('K6').signature(hard('M3-consume-switch', {}))).toBe(false);
+    expect(bug('K7').signature(hard('M7', { crossOriginWaitServed: true }))).toBe(true);
+    expect(bug('K7').signature(hard('M7', { crossOriginWaitServed: false }))).toBe(false);
+  });
+
+  it('K8 matches the opaque keystore miss after approval, and not another refusal', () => {
+    const miss = {
+      name: 'WalletTransactionError',
+      message: `INVALID_PARAMS: Error: ${pinned.texts.G2.guardian.error}`,
+      causeName: 'InvalidParamsMidenWalletError'
+    };
+    expect(bug('K8').signature(hard('G2a', { popupOpened: true, dappError: miss }))).toBe(true);
+    const declined = {
+      name: 'WalletTransactionError',
+      message: 'NOT_GRANTED',
+      causeName: 'NotGrantedMidenWalletError'
+    };
+    expect(bug('K8').signature(hard('G2a', { popupOpened: true, dappError: declined }))).toBe(false);
+    expect(bug('K8').signature(hard('G2a', { popupOpened: false, dappError: miss }))).toBe(false);
+    expect(bug('K8').signature(soft('G2a', { popupOpened: true, dappError: miss }))).toBe(false);
+    for (const dappError of [
+      { ...miss, causeName: 'MidenWalletError' },
+      { ...miss, message: 'INVALID_PARAMS: Error: Wallet is locked' }
+    ]) {
+      expect(bug('K8').signature(hard('G2b', { popupOpened: true, dappError }))).toBe(false);
+    }
+  });
+
+  it('K9 matches a non-current session that prompted, and never a leak', () => {
+    const refused = { name: 'NotGrantedMidenWalletError', message: 'NOT_GRANTED' };
+    const nothingRan = { nonCurrentPrompted: true, dappError: refused, nonCurrentRowRan: false };
+    expect(bug('K9').signature(hard('M9-send', nothingRan))).toBe(true);
+    expect(bug('K9').signature(hard('M9-send', { ...nothingRan, nonCurrentPrompted: false }))).toBe(false);
+    expect(bug('K9').signature(hard('M9-send', { nonCurrentPrompted: true, staleConsumeExecuted: true }))).toBe(false);
+    expect(bug('K9').signature(hard('M9-consume', { nonCurrentPrompted: true, staleConsumeExecuted: true }))).toBe(
+      true
+    );
+    const stayed = { nonCurrentPrompted: true, nonCurrentReadsOwnOrRefused: true };
+    expect(bug('K9').signature(hard('M4-reads', stayed))).toBe(true);
+    expect(bug('K9').signature(hard('M4-reads', { ...stayed, nonCurrentReadsOwnOrRefused: false }))).toBe(false);
+  });
+
+  it('K9 never explains M4-reads when an approved read failed or a read was served with no popup', () => {
+    const own = { '0xtst': '100' };
+    const servedOwn: NonCurrentRead = { prompted: true, result: { ok: true }, served: own, own };
+    const reads = (...seen: NonCurrentRead[]) => bug('K9').signature(hard('M4-reads', nonCurrentReadEvidence(seen)));
+    expect(reads(servedOwn, servedOwn)).toBe(true);
+    expect(
+      reads({ ...servedOwn, result: { ok: false, error: { message: 'INTERNAL_ERROR' } }, served: null }, servedOwn)
+    ).toBe(false);
+    expect(reads(servedOwn, { ...servedOwn, prompted: false })).toBe(false);
+    // Evidence that does not say how each read ended is not K9.
+    const internal = { name: 'MidenWalletError', message: 'INTERNAL_ERROR' };
+    expect(bug('K9').signature(hard('M4-reads', { nonCurrentPrompted: true, dappError: internal }))).toBe(false);
+  });
+
+  it('K9 never explains a refusal after approval when a row ran anyway, or when nothing says whether one did', () => {
+    const refused = { name: 'NotGrantedMidenWalletError', message: 'NOT_GRANTED' };
+    for (const cellId of ['M9-send', 'M9-transaction', 'M9-custom', 'M9-consume', 'M9-consumeBytes']) {
+      expect(
+        bug('K9').signature(hard(cellId, { nonCurrentPrompted: true, dappError: refused, nonCurrentRowRan: true }))
+      ).toBe(false);
+      expect(bug('K9').signature(hard(cellId, { nonCurrentPrompted: true, dappError: refused }))).toBe(false);
+    }
+  });
+
+  it('K10 matches a consume by the returned id refused before any popup, and an N4 miss by that id', () => {
+    expect(bug('K10').tracking).toContain('0xMiden/wallet#1389');
+    expect(bug('K10').cells).toEqual({
+      W5b: ['offchain', 'guardian'],
+      W5c: ['offchain', 'guardian'],
+      N4: ['offchain', 'guardian']
+    });
+    const unresolved = {
+      name: 'WalletTransactionError',
+      message: 'INVALID_PARAMS: Error: Note 0x0e5a could not be resolved'
+    };
+    expect(bug('K10').signature(hard('W5b', { popupOpened: false, dappError: unresolved }))).toBe(true);
+    expect(bug('K10').signature(soft('W5b', { popupOpened: false, dappError: unresolved }))).toBe(false);
+    expect(bug('K10').signature(hard('W5c', { popupOpened: true, dappError: unresolved }))).toBe(false);
+    for (const message of ['INVALID_PARAMS: Error: Wallet is locked', 'Note 0x0e5a could not be resolved']) {
+      expect(bug('K10').signature(hard('W5c', { popupOpened: false, dappError: { ...unresolved, message } }))).toBe(
+        false
+      );
+    }
+    expect(bug('K10').signature(hard('N4', { returnedIdUnlisted: true }))).toBe(true);
+    expect(bug('K10').signature(hard('N4', { returnedIdUnlisted: false }))).toBe(false);
+    expect(bug('K10').signature(hard('N4', { popupOpened: false, dappError: unresolved }))).toBe(false);
+  });
+
+  it('K11 matches an undecodable custom request that opened a popup, and not a refusal or a deadline', () => {
+    expect(bug('K11').cells).toEqual({ 'R3-customUndecodable': ['offchain', 'guardian'] });
+    expect(bug('K11').signature(hard('R3-customUndecodable', { popupOpened: true }))).toBe(true);
+    expect(bug('K11').signature(soft('R3-customUndecodable', { popupOpened: true }))).toBe(false);
+    const refused = { name: 'InvalidParamsMidenWalletError', message: 'INVALID_PARAMS: Error: unexpected end of file' };
+    expect(bug('K11').signature(hard('R3-customUndecodable', { popupOpened: false, dappError: refused }))).toBe(false);
+    expect(bug('K11').signature(hard('R3-customUndecodable', {}, 'CellDeadlineExceeded: dApp one raw'))).toBe(false);
+  });
+});

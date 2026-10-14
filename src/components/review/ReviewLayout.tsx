@@ -57,7 +57,7 @@ export const ReviewLayout: React.FC<ReviewLayoutProps> = ({
   useHideNavbarWhileOpen();
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-app-bg pb-4">
+    <div className="flex flex-col h-full min-h-0 bg-app-bg pb-[calc(1rem+var(--wallet-control-safe-bottom,0px))]">
       <NetworkModeBanner />
       <div className="flex flex-1 min-h-0 flex-col px-4 pt-6">
         <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">

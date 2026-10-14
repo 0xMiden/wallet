@@ -15,6 +15,11 @@ import { nodePolyfills } from 'vite-plugin-node-polyfills';
 // vite-plugin-svgr doesn't work with Vite 8's Rolldown -- use custom plugin
 import wasm from 'vite-plugin-wasm';
 
+import { readWalletBuildIdentity } from './src/lib/build-assets/crash-build-identity';
+import { walletCrashArtifactRegistry } from './src/lib/build-assets/crash-artifact-registry';
+
+const walletBuildIdentity = readWalletBuildIdentity(__dirname);
+
 const pkg = require('./package.json');
 const TARGET_BROWSER = process.env.TARGET_BROWSER ?? 'chrome';
 const MANIFEST_VERSION = process.env.MANIFEST_VERSION ?? '3';
@@ -254,6 +259,7 @@ const sharedDefine = {
   ),
   'process.env.WALLETCONNECT_PROJECT_ID': JSON.stringify(process.env.WALLETCONNECT_PROJECT_ID ?? ''),
   'process.env.E2E_EVM_RPC_URL': JSON.stringify(process.env.E2E_EVM_RPC_URL ?? ''),
+  'process.env.MIDEN_E2E_USDCX_CHAIN': JSON.stringify(process.env.MIDEN_E2E_USDCX_CHAIN ?? ''),
   // dApp-bridge debug logging: `dappDebug` (lib/miden/back/dapp.ts) and `dlog`
   // (lib/dapp-browser/message-handler.ts) both read this. It MUST be defined in
   // every config that bundles either module — an un-defined `process.env.X` read
@@ -268,11 +274,15 @@ const sharedDefine = {
   'process.env.MODE_ENV': JSON.stringify(process.env.MODE_ENV ?? 'development'),
   'process.env.APTABASE_APP_KEY': JSON.stringify(process.env.APTABASE_APP_KEY ?? ''),
   'process.env.APTABASE_HOST': JSON.stringify(process.env.APTABASE_HOST ?? ''),
+  'process.env.WALLET_BUILD_TARGET': JSON.stringify('extension'),
+  'process.env.WALLET_BUILD_REVISION': JSON.stringify(walletBuildIdentity.revision),
+  'process.env.WALLET_BUILD_DIRTY': JSON.stringify(walletBuildIdentity.dirty),
   'process.env.SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN ?? '')
 };
 
 export default defineConfig({
   plugins: [
+    walletCrashArtifactRegistry(),
     tailwindcss(),
     react(),
     // Custom SVG → React component transform (replaces vite-plugin-svgr for Vite 8)

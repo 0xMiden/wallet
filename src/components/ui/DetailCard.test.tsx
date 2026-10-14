@@ -40,6 +40,28 @@ describe('DetailCard', () => {
     const { container } = render(<DetailCard className="mt-6">child</DetailCard>);
     expect(container.firstChild as HTMLElement).toHaveClass('mt-6');
   });
+
+  it('sets a heading-face card in Nunito with semibold row labels', () => {
+    const { container } = render(
+      <DetailCard face="heading">
+        <DetailRow label="Rate">1 ETH</DetailRow>
+      </DetailCard>
+    );
+
+    expect(screen.getByText('Rate')).toHaveClass('text-body-sm', 'font-semibold');
+    expect(container.firstChild as HTMLElement).toHaveClass('face-heading');
+  });
+
+  it('keeps the default card in the sans face with regular labels', () => {
+    const { container } = render(
+      <DetailCard>
+        <DetailRow label="Rate">1 ETH</DetailRow>
+      </DetailCard>
+    );
+
+    expect(screen.getByText('Rate')).not.toHaveClass('font-semibold');
+    expect(container.firstChild as HTMLElement).not.toHaveClass('face-heading');
+  });
 });
 
 describe('DetailRow', () => {
@@ -116,19 +138,24 @@ describe('DetailRow', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
-  it('renders a text action at 4.5:1 on fill and fires its handler with a haptic', () => {
+  it('renders the action as a small selected pill that fires its handler with a haptic', () => {
     const onClick = jest.fn();
     render(
-      <DetailRow label="Address" action={{ label: 'Copy', onClick }}>
-        0xabc...def
+      <DetailRow
+        label="Expires"
+        action={{ label: 'Edit', onClick, 'aria-haspopup': 'dialog', 'data-testid': 'detail-edit' }}
+      >
+        In 2 days
       </DetailRow>
     );
 
-    const action = screen.getByRole('button', { name: 'Copy' });
-    // `text-accent-primary` is 2.64:1 on `fill` — under AA. `accent-tint-ink` is
-    // the accent pair that actually clears 4.5:1 there (5.05:1 light, 7.69:1 dark).
-    expect(action).toHaveClass('text-accent-tint-ink');
+    const action = screen.getByRole('button', { name: 'Edit' });
+    // `text-accent-primary` is 2.64:1 on `fill`, under AA; the selected pill's
+    // `accent-tint-ink` on its own tint clears 4.5:1.
+    expect(action).toHaveClass('h-6', 'rounded-full', 'bg-accent-tint', 'text-accent-tint-ink');
     expect(action).not.toHaveClass('text-accent-primary');
+    expect(action).toHaveAttribute('data-testid', 'detail-edit');
+    expect(action).toHaveAttribute('aria-haspopup', 'dialog');
 
     fireEvent.click(action);
     expect(hapticLight).toHaveBeenCalledTimes(1);
@@ -239,6 +266,21 @@ describe('DetailDisclosure', () => {
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByTestId('advanced-summary')).toBeInTheDocument();
+  });
+
+  it("keeps a heading-face card's semibold labels on the rows it reveals", () => {
+    render(
+      <DetailCard face="heading">
+        <DetailDisclosure title="Advanced options" open onOpenChange={jest.fn()}>
+          <DetailRow label="Transfer type" onClick={jest.fn()}>
+            Private
+          </DetailRow>
+          <DetailRow label="Expires">In 7 days</DetailRow>
+        </DetailDisclosure>
+      </DetailCard>
+    );
+    expect(screen.getByText('Transfer type')).toHaveClass('font-semibold');
+    expect(screen.getByText('Expires')).toHaveClass('font-semibold');
   });
 
   it('draws an emphasised summary in accent-tint-ink, the one accent that reads on fill', () => {

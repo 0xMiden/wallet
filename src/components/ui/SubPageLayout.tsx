@@ -89,8 +89,7 @@ export type SubPageLayoutProps = SubPageLayoutBaseProps & SubPageLayoutBodyProps
  * actions. Only the body scrolls; the header and the footer never do.
  *
  * The footer clears the bottom with the 16px page margin. On mobile the body element already pads
- * the page by the safe-area inset (and the keyboard), so the footer sits above the home indicator
- * without adding its own; these pages open in `FullScreenPage`, which has no tab bar to clear.
+ * the page by the keyboard; controls reserve the remaining safe-area inset themselves; these pages open in `FullScreenPage`, which has no tab bar to clear.
  *
  * Header props passed here win over the ones a `SubPageHeaderProvider` hands down, so a page that
  * owns its header (a multi-step flow) can set its own title and back per step.
@@ -117,7 +116,11 @@ export const SubPageLayout: React.FC<SubPageLayoutProps> = ({
   const focusTitleOnMount = header.focusTitleOnMount ?? inherited.focusTitleOnMount;
   // One class string for both shapes: a form body scrolls, pads and spaces its sections exactly
   // like a div one, so a page gains nothing and loses nothing by needing a form.
-  const bodyClasses = cn('flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 pb-4', bodyClassName);
+  const bodyClasses = cn(
+    'flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4',
+    footer ? 'pb-4' : 'pb-[calc(1rem+var(--wallet-control-safe-bottom,0px))]',
+    bodyClassName
+  );
 
   return (
     <div data-testid={dataTestId} className="flex min-h-0 flex-1 flex-col bg-app-bg">

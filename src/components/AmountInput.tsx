@@ -7,6 +7,7 @@ import { Icon, IconName } from 'app/icons/v2';
 import { ACCENT_CLASSES, FlowAccent } from 'components/flow/accent';
 import { ClearFieldButton } from 'components/ui/ClearFieldButton';
 import { Skeleton } from 'components/ui/Skeleton';
+import { getCurrentLocale } from 'lib/i18n/core';
 import { clearFieldValue } from 'lib/ui/clear-field';
 
 /**
@@ -29,7 +30,7 @@ export function amountTextSize(value?: string): string {
  */
 export const amountCaptionClassName = 'font-heading text-2xl font-bold text-gray leading-none';
 export function amountFigureClassName(value?: string): string {
-  return classNames('font-heading font-bold leading-none', amountTextSize(value));
+  return classNames('font-heading font-extrabold leading-none', amountTextSize(value));
 }
 
 /** The centred input overlays the invisible sizing copy in one grid cell and takes its width. */
@@ -140,6 +141,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
       placeholder={placeholder}
       transformRawValue={normalizeDecimalInput}
       disableGroupSeparators
+      intlConfig={{ locale: getCurrentLocale().replace('_', '-'), numberingSystem: 'latn' }}
       // `disableGroupSeparators` only stops grouping in the *display*; the
       // library still derives a group separator from the ambient locale and
       // strips it from the raw input on every keystroke. On a `.`-group

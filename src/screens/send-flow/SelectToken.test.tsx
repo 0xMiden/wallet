@@ -7,12 +7,20 @@ import {
   TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
-import { TOKEN_IBTC, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { isUsdcxWithdrawalAvailable } from 'lib/usdcx/withdrawal';
 
 import { SelectTokenDrawer } from './SelectToken';
 import { UIToken } from './types';
+
+// The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
+beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
+afterAll(() => _setSwapTokensForTest(undefined));
+
+jest.mock('lib/usdcx/withdrawal', () => ({ isUsdcxWithdrawalAvailable: jest.fn(() => false) }));
 
 // `react-i18next` pulls in the full i18n runtime; stub `useTranslation` so
 // `t(key)` echoes the key back and we can assert against the raw keys.
@@ -131,7 +139,7 @@ type Balance = {
 };
 
 const BTC: Balance = {
-  tokenId: TOKEN_IBTC.faucetId,
+  tokenId: TEST_TOKEN_IBTC.faucetId,
   metadata: { symbol: 'BTC', name: 'Bitcoin', decimals: 8 },
   balance: 1.5,
   fiatPrice: 50000
@@ -160,7 +168,7 @@ const MIDEN: Balance = {
 
 // A swap test token that stands for ETH, held under its registry faucet id.
 const IETH: Balance = {
-  tokenId: TOKEN_IETH.faucetId,
+  tokenId: TEST_TOKEN_IETH.faucetId,
   metadata: { symbol: 'IETH', decimals: 8 },
   balance: 2,
   fiatPrice: 0
@@ -193,6 +201,31 @@ afterEach(() => {
 });
 
 describe('SelectTokenDrawer', () => {
+  it('disables other tokens when the destination requires USDCx', () => {
+    const usdcx = { ...MIDEN, metadata: { ...MIDEN.metadata, symbol: 'USDCx' } };
+    jest.mocked(isUsdcxWithdrawalAvailable).mockImplementation(id => id === usdcx.tokenId);
+    setBalances([BTC, usdcx]);
+    const { onSelect, onOpenChange, rerender } = renderDrawer({ usdcxOnly: true });
+    expect(screen.getByTestId('send-token-BTC')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('send-token-BTC'));
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByTestId('send-token-USDCx')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('send-token-USDCx'));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: usdcx.tokenId }));
+    rerender(<SelectTokenDrawer open onOpenChange={onOpenChange} onSelect={onSelect} usdcxOnly={false} />);
+    expect(screen.getByTestId('send-token-BTC')).toBeEnabled();
+  });
+
+  it('says why the other tokens are disabled when the destination requires USDCx', () => {
+    setBalances([BTC]);
+    const { onOpenChange, onSelect, rerender } = renderDrawer({ usdcxOnly: true });
+    expect(screen.getByText('sendUsdcxOnlyDestination')).toBeInTheDocument();
+
+    rerender(<SelectTokenDrawer open onOpenChange={onOpenChange} onSelect={onSelect} usdcxOnly={false} />);
+    expect(screen.queryByText('sendUsdcxOnlyDestination')).not.toBeInTheDocument();
+  });
+
   it("leaves mobile back to SendManager's handler, which closes the sheet", () => {
     renderDrawer();
     expect(mockDrawerCloseOnBack).toBe(false);
@@ -313,7 +346,7 @@ describe('SelectTokenDrawer', () => {
     fireEvent.click(screen.getByTestId('send-token-BTC'));
 
     const expected: UIToken = {
-      id: TOKEN_IBTC.faucetId,
+      id: TEST_TOKEN_IBTC.faucetId,
       name: 'BTC',
       decimals: 8,
       balance: 1.5,
@@ -401,7 +434,7 @@ describe('SelectTokenDrawer', () => {
     const row = screen.getByTestId('send-token-IETH');
     expect(within(row).getByText('$6.00')).toBeInTheDocument();
     fireEvent.click(row);
-    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: TOKEN_IETH.faucetId, fiatPrice: 3 }));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: TEST_TOKEN_IETH.faucetId, fiatPrice: 3 }));
   });
 
   it('stacks the rows unboxed at 72px, divided by a hairline like the home assets list', () => {

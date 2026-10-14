@@ -37,6 +37,8 @@ public class WebViewRegistry {
     }
 
     public synchronized void register(String id, WebViewDialog dialog) {
+        WebViewDialog existing = instances.get(id);
+        if (existing != null && existing != dialog && existing.managedClose() != null) return;
         instances.put(id, dialog);
     }
 

@@ -25,6 +25,7 @@ import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { b64ToU8 } from 'lib/shared/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useRetryableSWR } from 'lib/swr';
+import { annotateCrash } from 'lib/telemetry/crash-diagnostics';
 import useSafeState from 'lib/ui/useSafeState';
 import { navigate, useLocation } from 'lib/woozie';
 import { truncateAddress, truncateHash } from 'utils/string';
@@ -297,7 +298,9 @@ const PayloadContent: React.FC<PayloadContentProps> = ({ payload, error, account
             return (
               <div className="flex justify-between my-2 text-sm" key={i + 2}>
                 <span className="text-text-muted">{label}</span>
-                <span className="text-ink">{value}</span>
+                <span className="text-ink" data-testid={txRowValueTestId(label)}>
+                  {value}
+                </span>
               </div>
             );
           })}
@@ -434,7 +437,11 @@ const CustomTransactionContent: React.FC<{
     return (
       <>
         <TransactionAssetView view={declaredView} mode="declared" />
-        {simError && <div className="text-xs text-text-muted my-2">{t('couldNotVerifyBySimulation')}</div>}
+        {simError && (
+          <div className="text-xs text-text-muted my-2" data-testid="tx-simulation-failed">
+            {t('couldNotVerifyBySimulation')}
+          </div>
+        )}
         {advanced}
       </>
     );
@@ -470,7 +477,9 @@ const ConfirmDAppForm: FC = () => {
     const usp = new URLSearchParams(loc.search);
     const pageId = usp.get('id');
     if (!pageId) {
-      throw new Error(t('notIdentified'));
+      const error = new Error(t('notIdentified'));
+      annotateCrash(error, { operation: 'confirm_payload', confirmationId: pageId === null ? 'missing' : 'empty' });
+      throw error;
     }
     return pageId;
   }, [loc.search, t]);

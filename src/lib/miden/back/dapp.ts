@@ -2286,11 +2286,13 @@ const generatePromisifyConsumeTransaction = async (
         // `manualRetry`: the user just approved THIS consume on the sheet, so it
         // must not be dropped by auto-consume's exponential backoff — which
         // would queue nothing and answer the dApp with the previous attempt's
-        // Failed row id.
+        // Failed row id. The last `true` refuses a note another transaction holds
+        // rather than answer with that transaction (see the callee).
         return await initiateConsumeTransactionFromId(
           req.sourcePublicKey,
           noteId,
           delegateFromConfirmation(result),
+          true,
           true
         );
       });
@@ -2329,8 +2331,15 @@ const generatePromisifyConsumeTransaction = async (
                 await queueNoteImport(noteBytes);
               }
               // `manualRetry`: approved on the confirm page — see the
-              // non-extension branch above for why the backoff must not apply.
-              return await initiateConsumeTransactionFromId(req.sourcePublicKey, noteId, confirmReq.delegate, true);
+              // non-extension branch above for why the backoff must not apply,
+              // and why the last `true`.
+              return await initiateConsumeTransactionFromId(
+                req.sourcePublicKey,
+                noteId,
+                confirmReq.delegate,
+                true,
+                true
+              );
             });
             startDappBackgroundProcessing();
             resolve({
@@ -2486,13 +2495,16 @@ async function requestConfirm({ id, payload, onDecline, handleIntercomRequest, h
     left = Math.round(screenX + outerWidth / 2 - CONFIRM_WINDOW_WIDTH / 2);
   }
 
+  left = Math.max(left, 20);
+  top = Math.max(top, 20);
+
   const confirmWin = await browser.windows.create({
     type: 'popup',
     url: browser.runtime.getURL(`confirm.html#?id=${id}`),
     width: isWin ? CONFIRM_WINDOW_WIDTH + 16 : CONFIRM_WINDOW_WIDTH,
     height: isWin ? CONFIRM_WINDOW_HEIGHT + 17 : CONFIRM_WINDOW_HEIGHT,
-    top: Math.max(top, 20),
-    left: Math.max(left, 20)
+    top,
+    left
   });
 
   // Firefox currently ignores left/top for create, but it works for update

@@ -208,6 +208,13 @@ async function fetchNotesFromLocalClient(
     throw e;
   }
 
+  // Notes the pre-confirm dry-run imported to simulate a not-yet-approved custom transaction, hidden from the
+  // claimable UI until the user confirms (or forever, if they cancel). See note-quarantine.ts.
+  //
+  // Read BEFORE the holding rows, as the service worker does: a confirm queues the dApp transaction holding the
+  // note and only then releases the quarantine, so in this order a confirm landing between the reads leaves the note
+  // hidden or held. The other order could see it released and not yet held, and auto-consume would count it.
+  const quarantined = await getQuarantinedNoteIds();
   const uncompletedTxs = await getNoteHoldingTransactions(publicAddress);
   const notesBeingClaimed = claimingTxIdByNoteId(uncompletedTxs);
 
@@ -240,16 +247,11 @@ async function fetchNotesFromLocalClient(
   // evidence that hold was accumulating, which is how a fuse becomes unreachable.
   noteSyncSuccess('claimable-notes');
 
-  // Notes the pre-confirm dry-run imported to simulate a not-yet-approved
-  // custom transaction — hidden from the claimable UI until the user
-  // confirms (or forever, if they cancel). See note-quarantine.ts.
-  //
   // NOTE: `parseNotes`'s 2nd arg (`notesBeingClaimed`) only flags matching
   // notes as `isBeingClaimed` — it does NOT remove them from the result, so
   // it cannot be reused to hide quarantined notes. We instead filter the
   // parsed result by id (parseNotes derives ids the same way, via
   // `note.id()?.toString()`, so the ids match exactly).
-  const quarantined = await getQuarantinedNoteIds();
   const parsed = parseNotes(rawNotes, notesBeingClaimed, swapOrders);
   const visible = quarantined.size === 0 ? parsed : parsed.filter(n => !quarantined.has(n.id));
   // Display dates come from block headers, read now that both holds have released the client.

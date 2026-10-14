@@ -1,8 +1,9 @@
-import { Address } from '@miden-sdk/miden-sdk/lazy';
 import { BaseContract, BrowserProvider, ContractTransactionResponse, Overrides } from 'ethers';
-import { EIP1193Provider } from 'viem';
+import { EIP1193Provider, toHex } from 'viem';
 
+import { accountRefToSdk } from 'lib/miden/sdk/helpers';
 import { getAgglayerL1Bridge } from 'lib/remote-config/values';
+import { DEFAULT_CHAIN_ID } from 'lib/walletconnect/config';
 
 import { AGGLAYER_BRIDGE_ABI } from './constant';
 import { AgglayerDeposit, fetchMerkleProof } from './status';
@@ -28,9 +29,9 @@ interface AgglayerBridgeContract extends BaseContract {
 }
 
 const ZERO_BYTE = '00';
-//// @param: address always bech32
+//// @param: address is any account reference accountRefToSdk parses (bech32, composite `<address>_<suffix>` or hex)
 export const midenAddrToEvmAddr = (address: string): `0x${string}` => {
-  const hexAddr = Address.fromBech32(address).accountId().toString();
+  const hexAddr = accountRefToSdk(address).toString();
 
   const strippedHexAddr = hexAddr.startsWith('0x') ? hexAddr.slice(2) : hexAddr;
   return ('0x' + ZERO_BYTE.repeat(4) + strippedHexAddr + ZERO_BYTE) as `0x${string}`;
@@ -40,6 +41,16 @@ const ZERO_BYTES32 = '0x' + '00'.repeat(32);
 
 // SMT proofs are fixed-size bytes32[32]; pad short proofs with zero hashes.
 const padSmtProof = (proof: string[]): string[] => [...proof, ...Array(32).fill(ZERO_BYTES32)].slice(0, 32);
+
+// The claim goes to the L1 bridge's address on whatever chain the wallet is on. On a chain where nothing lives at that
+// address (Arc, after a USDCx deposit switched the wallet) it would succeed as a no-op and read as claimed, so the
+// wallet is switched to Sepolia first and the claim is refused while it is anywhere else.
+const ensureL1Chain = async (provider: EIP1193Provider): Promise<void> => {
+  const onL1 = async () => Number(await provider.request({ method: 'eth_chainId' })) === DEFAULT_CHAIN_ID;
+  if (await onL1()) return;
+  await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: toHex(DEFAULT_CHAIN_ID) }] });
+  if (!(await onL1())) throw new Error('Switch your EVM wallet to Sepolia to claim.');
+};
 
 // Claim a Miden→EVM (L2→L1) bridge deposit on L1. Mirrors the bridge-service
 // `claimAsset` flow: pull the merkle proof for the deposit, build the two
@@ -53,6 +64,7 @@ export const claimAgglayerDeposit = async ({
   provider: EIP1193Provider;
 }): Promise<ContractTransactionResponse> => {
   const l1Bridge = getAgglayerL1Bridge();
+  await ensureL1Chain(provider);
   const proof = await fetchMerkleProof(deposit.deposit_cnt, deposit.network_id);
 
   const ethersProvider = new BrowserProvider(provider);

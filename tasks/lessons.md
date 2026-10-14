@@ -53,3 +53,11 @@
 - Playwright clears its configured output directory at startup. Use distinct nested Playwright output directories for sequential CI stages, and never launch another run that clears the shared parent containing live harness evidence.
 
 - A public faucet acceptance receipt proves queue admission, not chain commitment. Compare the note inclusion timestamp with the failure timestamp, then wait for that specific note before running fixture consumption assertions. Never remint a queued grant to hide a short delivery budget.
+
+- A fullscreen return control must follow the requested standard app minimize lifecycle. Retain the existing session and document, restore through the normal app selector, and leave user closure in the existing minimized-app controls without adding a game-specific close affordance.
+
+- Moving safe-area reservation off the document body requires an exhaustive inventory of pinned controls and scroll endings. Measure real rendered ancestry with compiled CSS; nested forms must consume the physical safe area once, and backgrounds must still reach the viewport edge.
+
+- When a shared footer spacing contract changes, search all consumer tests for the prior class before final full gates. A stale onboarding-wrapper assertion can cost a second crypto-heavy full run even when the rendered geometry is correct.
+
+- A quiet redirected test log does not prove that no suites have run. Use completed summary counts and process evidence; do not label the runner as stuck before its first suite from missing PASS lines.

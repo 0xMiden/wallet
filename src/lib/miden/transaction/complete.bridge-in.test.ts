@@ -1,34 +1,31 @@
 import type { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
-// The registry's native-ETH faucet sends every bridge delivery.
-import { TEST_NATIVE_ETH_FAUCET as DELIVERY_SENDER } from 'lib/epoch/testing/bridge-config';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
 import { completeConsumeTransaction } from './complete';
-import { takeAgglayerBridgeInInfo } from '../activity/bridge-in';
+import { adoptBridgeDeliveries } from '../activity/bridge-in';
 
+// The pairing itself runs against the real matchers in bridge-in.adopt.test.ts; here the consume only hands it over.
 jest.mock('../activity/bridge-in', () => ({
-  applyBridgeInInfoForNotes: async () => false,
-  applyBridgeInToConsumeRow: jest.fn(),
-  takeAgglayerBridgeInInfo: jest.fn(async () => undefined)
+  adoptBridgeDeliveries: jest.fn(async () => undefined)
 }));
 jest.mock('../sdk/helpers', () => ({
   ...jest.requireActual('../sdk/helpers'),
   getBech32AddressFromAccountId: (id: string) => id
 }));
 
-const mockedTake = jest.mocked(takeAgglayerBridgeInInfo);
-
-const bridgeNote = (id: string, amount: bigint) => ({
+const executedNote = (id: string, sender: string, assets: Array<[string, bigint]>) => ({
   note: () => ({
     id: () => ({ toString: () => id }),
-    metadata: () => ({ sender: () => DELIVERY_SENDER, noteType: () => 0 }),
-    assets: () => ({ fungibleAssets: () => [{ faucetId: () => 'eth-faucet', amount: () => amount }] })
+    metadata: () => ({ sender: () => sender, noteType: () => 0 }),
+    assets: () => ({
+      fungibleAssets: () => assets.map(([faucetId, amount]) => ({ faucetId: () => faucetId, amount: () => amount }))
+    })
   })
 });
 
-function consumeOf(notes: ReturnType<typeof bridgeNote>[]): TransactionResult {
+function consumeOf(notes: readonly object[]): TransactionResult {
   const result: TransactionResult = Object.create(null);
   Object.assign(result, {
     executedTransaction: () => ({
@@ -41,7 +38,7 @@ function consumeOf(notes: ReturnType<typeof bridgeNote>[]): TransactionResult {
 }
 
 beforeEach(async () => {
-  mockedTake.mockClear();
+  jest.mocked(adoptBridgeDeliveries).mockClear();
   await Repo.transactions.clear();
   await Repo.transactions.add({
     id: 'consume',
@@ -53,20 +50,54 @@ beforeEach(async () => {
   });
 });
 
-it('never pairs a consume of two bridge deliveries with a tracker by their summed amount', async () => {
-  await completeConsumeTransaction('consume', consumeOf([bridgeNote('note-1', 1n), bridgeNote('note-2', 2n)]));
+// A batch's per-faucet total is no single delivery's amount: each note goes over by its own first asset.
+it('hands the adopter each executed note by its own sender, faucet and amount, once the row is Completed', async () => {
+  let statusAtAdoption: ITransactionStatus | undefined;
+  jest.mocked(adoptBridgeDeliveries).mockImplementationOnce(async id => {
+    statusAtAdoption = (await Repo.transactions.get(id))?.status;
+  });
 
-  expect((await Repo.transactions.get('consume'))?.status).toBe(ITransactionStatus.Completed);
-  expect(takeAgglayerBridgeInInfo).not.toHaveBeenCalled();
+  await completeConsumeTransaction(
+    'consume',
+    consumeOf([
+      executedNote('note-1', 'usdcx-faucet', [['usdcx-faucet', 1n]]),
+      executedNote('note-2', 'wallet', [
+        ['usdcx-faucet', 2n],
+        ['other-faucet', 9n]
+      ])
+    ])
+  );
+
+  expect(adoptBridgeDeliveries).toHaveBeenCalledTimes(1);
+  expect(adoptBridgeDeliveries).toHaveBeenCalledWith('consume', [
+    { id: 'note-1', senderAddress: 'usdcx-faucet', faucetId: 'usdcx-faucet', amount: 1n },
+    { id: 'note-2', senderAddress: 'wallet', faucetId: 'usdcx-faucet', amount: 2n }
+  ]);
+  expect(statusAtAdoption).toBe(ITransactionStatus.Completed);
 });
 
-it("pairs a single-delivery consume by that note's sender and amount", async () => {
-  await completeConsumeTransaction('consume', consumeOf([bridgeNote('note-1', 2n)]));
+it('offers a note with no fungible asset to the registry pass alone', async () => {
+  await completeConsumeTransaction(
+    'consume',
+    consumeOf([executedNote('note-1', 'usdcx-faucet', [['usdcx-faucet', 1n]]), executedNote('note-2', 'wallet', [])])
+  );
 
-  expect(takeAgglayerBridgeInInfo).toHaveBeenCalledTimes(1);
-  expect(takeAgglayerBridgeInInfo).toHaveBeenCalledWith({
-    accountId: 'account',
-    senderAccountId: DELIVERY_SENDER,
-    amount: 2n
-  });
+  expect(adoptBridgeDeliveries).toHaveBeenCalledWith('consume', [
+    { id: 'note-1', senderAddress: 'usdcx-faucet', faucetId: 'usdcx-faucet', amount: 1n },
+    { id: 'note-2', senderAddress: '', faucetId: '' }
+  ]);
+});
+
+it('completes the consume even when a note cannot be read for adoption', async () => {
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  const withoutId = {
+    metadata: () => ({ sender: () => 'usdcx-faucet', noteType: () => 0 }),
+    assets: () => ({ fungibleAssets: () => [{ faucetId: () => 'usdcx-faucet', amount: () => 1n }] })
+  };
+
+  await completeConsumeTransaction('consume', consumeOf([{ note: () => withoutId }]));
+
+  expect((await Repo.transactions.get('consume'))?.status).toBe(ITransactionStatus.Completed);
+  expect(adoptBridgeDeliveries).not.toHaveBeenCalled();
+  warn.mockRestore();
 });

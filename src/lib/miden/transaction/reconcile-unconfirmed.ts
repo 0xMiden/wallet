@@ -9,12 +9,14 @@ import { inVerdictTurn } from 'lib/miden/front/storage';
 import * as Repo from 'lib/miden/repo';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { getStorageProvider, type StorageProvider } from 'lib/platform/storage-adapter';
+import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 
 import { TRANSACTION_NEVER_COMMITTED_ERROR } from './constants';
 import { applyVerifiedLanding, reportVerifiedLanding, verifiedLandingRowFields } from './helper';
 import { accountOthers, deferralHolds, judgeSubmitEvidence, RowJudgement } from './reconcile-judge';
 import { createNodeReads, NodeReads, observedCadenceMs } from './reconcile-reads';
 import { awaitingVerdict, evidenceKey, isCheckable, nowSeconds } from './verdict-rules';
+import { adoptLandedConsume } from '../activity/bridge-in';
 import { ISubmitEvidence, ITransaction, ITransactionStatus } from '../db/types';
 import { sameWalletAccountId } from '../sdk/helpers';
 
@@ -137,17 +139,19 @@ async function writeLanding(rowId: string, judgement: RowJudgement, accountKey: 
   });
   if (landed === undefined) return false;
   reportVerifiedLanding(landed);
+  if (landed.type === 'consume') await adoptLandedConsume(landed.id);
   return true;
 }
 
 /**
  * Every entry provable and dead, or retired before its submit: the row is marked safe to retry. Guarded on the status
- * and the entries' evidence (the seen fields aside), so a late stamp voids it. No report and no notice: Activity shows
- * a verdict that can arrive long after.
+ * and the entries' evidence (the seen fields aside), so a late stamp voids it. Sentry records the definitive failure;
+ * no product event or notice is raised for a verdict that can arrive long after.
  */
 async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSec: number): Promise<boolean> {
   const baseline = evidenceKey(judgement.judgedEntries);
   let wrote = false;
+  let failed: ITransaction | undefined;
   await Repo.transactions.where({ id: rowId }).modify(fresh => {
     if (fresh.status !== ITransactionStatus.Unconfirmed && fresh.status !== ITransactionStatus.Failed) return false;
     if (fresh.neverCommittedAt !== undefined || evidenceKey(fresh.submitEvidence) !== baseline) return false;
@@ -158,9 +162,20 @@ async function writeNeverCommitted(rowId: string, judgement: RowJudgement, nowSe
     fresh.displayMessage = 'Failed';
     fresh.displayIcon = 'FAILED';
     fresh.neverCommittedAt = nowSec;
+    failed = { ...fresh };
     wrote = true;
     return undefined;
   });
+  if (failed !== undefined && !failed.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'node_verdict',
+      type: failed.type,
+      stage: failed.stage,
+      delegateTransaction: failed.delegateTransaction,
+      diagnostics: failed.failureDiagnostics,
+      error: TRANSACTION_NEVER_COMMITTED_ERROR
+    });
+  }
   return wrote;
 }
 

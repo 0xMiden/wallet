@@ -31,20 +31,140 @@ beforeAll(() => {
 });
 
 /** Configs whose testDir the base config ignores. */
-const overridingConfigs = ['playwright.resilience.config.ts', 'playwright.swap.config.ts'];
+const overridingConfigs = [
+  'playwright.resilience.config.ts',
+  'playwright.swap.config.ts',
+  'playwright.usdcx.config.ts'
+];
+
+/** A config's `testIgnore` value: one line, or a whole array literal however prettier wraps it. */
+const testIgnoreOf = (source: string) => /testIgnore:\s*(\[[^\]]*\]|[^\n]+)/.exec(source)?.[1];
 
 describe('dedicated e2e configs override the base testIgnore', () => {
   it.each(overridingConfigs)('%s clears the inherited ignore list', file => {
-    const testIgnore = /testIgnore:\s*(.+)/.exec(configSource(file))?.[1];
-    expect(testIgnore).toMatch(/^undefined,?$/);
+    expect(testIgnoreOf(configSource(file))).toMatch(/^undefined,?$/);
   });
 
   it('the base config is the reason the override is required', () => {
-    const base = configSource('playwright.e2e.config.ts');
-    const testIgnore = /testIgnore:\s*(.+)/.exec(base)?.[1];
+    const testIgnore = testIgnoreOf(configSource('playwright.e2e.config.ts'));
     expect(testIgnore).toMatch(/resilience/);
     expect(testIgnore).toMatch(/swap/);
+    expect(testIgnore).toMatch(/usdcx/);
   });
+});
+
+describe('the USDCx live suites have a config of their own', () => {
+  it('playwright.usdcx.config.ts spreads the base config over tests/usdcx with an hour per test', () => {
+    const source = configSource('playwright.usdcx.config.ts');
+    expect(source).toMatch(/\.\.\.base,/);
+    expect(source).toMatch(/testDir: '\.\/playwright\/e2e\/tests\/usdcx',/);
+    expect(source).toMatch(/timeout: 3_600_000/);
+  });
+});
+
+const USDCX_TESTS_DIR = 'playwright/e2e/tests/usdcx';
+const ROUND_TRIP_TEST =
+  'usdcx-roundtrip.spec.ts › USDCx round trip: burn to the harness Arc key, Circle payout, deposit back › ' +
+  'Guardian wallet: public faucet grant, Send burn, payout and its confirmation, deposit back, receipt';
+const BRIDGE_IN_TEST =
+  'usdcx-roundtrip.spec.ts › USDCx bridge-in from a funded Arc key › ' +
+  'Guardian wallet receives a Node-signed xReserve deposit';
+const BURN_TESTS = [
+  'usdcx-burn.spec.ts › USDCx burn through the Send UI after a public faucet grant › ' +
+    'standard wallet publishes a burn, the faucet consumes it and Circle pays it out',
+  'usdcx-burn.spec.ts › USDCx burn through the Send UI after a public faucet grant › ' +
+    'Guardian wallet publishes a burn, the faucet consumes it and Circle pays it out'
+];
+/** Every test `playwright.usdcx.config.ts` must list, and nothing else. */
+const USDCX_LIVE_TESTS = [ROUND_TRIP_TEST, BRIDGE_IN_TEST, ...BURN_TESTS];
+/** Each runner suite's grep, compiled case-insensitive as scripts/e2e-real.mjs does, and the tests it must select. */
+const USDCX_RUNNER_GREPS: Array<[grep: string, tests: string[]]> = [
+  ['USDCx round trip', [ROUND_TRIP_TEST]],
+  ['funded Arc key', [BRIDGE_IN_TEST]],
+  ['USDCx burn through the Send UI', BURN_TESTS]
+];
+/** Each live spec file and how many describes it guards. */
+const USDCX_LIVE_SPECS: Array<[file: string, describes: number]> = [
+  ['usdcx-roundtrip.spec.ts', 2],
+  ['usdcx-burn.spec.ts', 1]
+];
+/**
+ * R21 and R22: every burn to the shared harness Arc key runs `harnessPayoutLeg` (usdcx-legs.ts, unit-tested in
+ * arc-usdcx.test.ts), which reads the key right before the burn, and the wallet's saved baseline must equal that read;
+ * the test ends only once the leg's delta-mode payout gate has proven Circle paid exactly this burn, so no run leaves a
+ * payout to land in a later run's window. Where each spec calls the leg is live wiring, so its source is pinned here.
+ */
+const USDCX_PAYOUT_WIRING: RegExp[] = [
+  /= await harnessPayoutLeg\(step, \{[\s\S]*'burn_via_ui'[\s\S]*'burn_confirmed'[\s\S]*await waitForPayout\(burn, xreserve\.depositor\);/,
+  /keySnapshot: snapshot,/
+];
+/**
+ * A burn xReserve cannot pay out fails only at the payout gate's deadline and leaves a deferred payout to land in a later
+ * run's window, so each burning test reads the domain and refuses it unregistered or with withdrawals paused before its
+ * faucet grant.
+ */
+const USDCX_PAYOUT_PRECHECK =
+  /step\('arc_state', BUDGET\.arcState, async \(\) => \{\s*const state = await readXReserveDomainState\(arc\);[^;]*\)\.toEqual\(\{ registered: true, paused: false, (?:depositsPaused: false, )?withdrawalsPaused: false \}\);[\s\S]*?'fund'[\s\S]*'burn_via_ui'/;
+/** A live USDCx spec in another config's listing, the burn spec under its old tests/bridge name included. */
+const USDCX_LIVE_SPEC = /usdcx-roundtrip\.spec\.ts|usdcx-burn\.spec\.ts|bridge-out-usdcx\.spec\.ts/;
+
+/** `playwright test --list` lines as `file › describe › test`, without the line and column. */
+const listedTests = (listing: string): string[] =>
+  listing.split('\n').flatMap(line => {
+    const match = /^\s+(\S+\.spec\.ts):\d+:\d+ › (.+)$/.exec(line);
+    return match ? [`${match[1]} › ${match[2]}`] : [];
+  });
+
+describe('the USDCx live suites run under their own config only', () => {
+  let usdcxTests: string[];
+
+  beforeAll(() => {
+    usdcxTests = listedTests(listPlaywrightTests('playwright.usdcx.config.ts'));
+  });
+
+  it('playwright.usdcx.config.ts lists exactly the live USDCx tests', () => {
+    expect([...usdcxTests].sort()).toEqual([...USDCX_LIVE_TESTS].sort());
+  });
+
+  it.each(USDCX_RUNNER_GREPS)('the runner grep "%s" selects only its own tests', (grep, tests) => {
+    expect(usdcxTests.filter(listed => new RegExp(grep, 'i').test(listed))).toEqual(tests);
+  });
+
+  it.each(['playwright.e2e.config.ts', 'playwright.bridge.config.ts'])('%s lists no live USDCx spec', config => {
+    expect(listPlaywrightTests(config)).not.toMatch(USDCX_LIVE_SPEC);
+  });
+
+  it('no live USDCx spec is named into the Guardian or bridge-guardian config', () => {
+    const named = readdirSync(resolve(repoRoot, USDCX_TESTS_DIR)).filter(
+      name => /^guardian-.*\.spec\.ts$/.test(name) || name === 'bridge-out-epoch-guardian.spec.ts'
+    );
+    expect(named).toEqual([]);
+  });
+
+  it.each(USDCX_LIVE_SPECS)('%s throws instead of skipping outside the runner', (file, describes) => {
+    const source = configSource(`${USDCX_TESTS_DIR}/${file}`);
+    expect(source).not.toMatch(/test\.skip\(/);
+    expect(
+      source.match(
+        /test\.beforeAll\(\(\) => \{\s*assertUsdcxLiveRun\(process\.env\);\s*takeRunArcKey\(process\.env\);\s*\}\);/g
+      )
+    ).toHaveLength(describes);
+  });
+
+  it.each(['usdcx-roundtrip.spec.ts', 'usdcx-burn.spec.ts'])(
+    "%s waits for each burn's own payout, proven against the key read right before the burn",
+    file => {
+      const source = configSource(`${USDCX_TESTS_DIR}/${file}`);
+      for (const wiring of USDCX_PAYOUT_WIRING) expect(source).toMatch(wiring);
+    }
+  );
+
+  it.each(['usdcx-roundtrip.spec.ts', 'usdcx-burn.spec.ts'])(
+    '%s refuses to burn, before its faucet grant, while xReserve cannot pay the burn out',
+    file => {
+      expect(configSource(`${USDCX_TESTS_DIR}/${file}`)).toMatch(USDCX_PAYOUT_PRECHECK);
+    }
+  );
 });
 
 function listGuardianTests(suite?: string): string {
@@ -100,8 +220,10 @@ describe('guardian e2e suite split', () => {
 });
 
 describe('PR workflows skip the heavy swap and earn jobs', () => {
-  it('swap-e2e is skipped on pull_request', () => {
-    expect(jobIf('.github/workflows/pr-e2e-swap.yml', 'swap-e2e')).toBe("github.event_name != 'pull_request'");
+  it('swap-e2e is skipped on pull_request and uses free ARM64', () => {
+    const src = configSource('.github/workflows/pr-e2e-swap.yml');
+    expect(jobIf('.github/workflows/pr-e2e-swap.yml', 'swap-e2e', src)).toBe("github.event_name != 'pull_request'");
+    expect(src).toMatch(/runs-on: ubuntu-24.04-arm/);
   });
 
   it('earn-e2e is skipped on pull_request', () => {
@@ -1812,6 +1934,18 @@ describe('PR workflows run the heavy E2E jobs only on a pull request based on ma
         rmSync(dir, { recursive: true, force: true });
       }
     }
+  });
+
+  it('the bridge-guardian runs-on picks WarpBuild on a dispatch or a wallet-body marker only, not the markers the linked web-sdk PR carries', () => {
+    const source = readFileSync(resolve(repoRoot, '.github/workflows/pr-e2e-bridge-guardian.yml'), 'utf8');
+    const runsOn = /^ {4}runs-on: >-\n((?: {6}.*\n)+)/m.exec(source)?.[1];
+    expect(runsOn).toBeDefined();
+    const checked = [
+      ...(runsOn ?? '').matchAll(
+        /github\.event_name == '([^']+)'|contains\(github\.event\.pull_request\.body, '([^']+)'\)/g
+      )
+    ].map(m => m[1] ?? m[2]);
+    expect(checked).toEqual(['workflow_dispatch', 'Web SDK PR:', 'Guardian PR:']);
   });
 
   it('the E2E workflows trigger on exactly their intended events, so no label re-runs a gate', () => {
