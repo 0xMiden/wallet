@@ -30,6 +30,7 @@ import {
   currentAccountUpdated
 } from 'lib/miden/back/store';
 import { Vault, type GuardianBindingPatch } from 'lib/miden/back/vault';
+import { PENDING_ADMISSION_STORAGE_KEY } from 'lib/miden/reset';
 import {
   assertWasmHoldCurrent,
   getMidenClient,
@@ -212,45 +213,50 @@ export async function isDAppEnabled() {
 // Mainnet admits only an account registered with an access code, so a setup there publishes no other.
 const isInviteOnlyNetwork = () => getEffectiveNetworkName() === MIDEN_NETWORK_NAME.MAINNET;
 
-// The account of a setup not yet published, never its code or secrets: its presence at init means the
-// realm stopped before the setup published, perhaps before the node admitted the account.
-const PENDING_ADMISSION_STORAGE_KEY = 'pending_mainnet_admission';
-
-async function readPendingAdmission(): Promise<string | undefined> {
+async function readPendingAdmission(): Promise<string[] | undefined> {
   try {
     const items = await getStorageProvider().get([PENDING_ADMISSION_STORAGE_KEY]);
-    const accountId = items[PENDING_ADMISSION_STORAGE_KEY];
-    return typeof accountId === 'string' ? accountId : undefined;
+    const accountIds: unknown = items[PENDING_ADMISSION_STORAGE_KEY];
+    return Array.isArray(accountIds) && accountIds.every((id): id is string => typeof id === 'string')
+      ? accountIds
+      : undefined;
   } catch {
     // An unreadable marker never wipes a wallet.
     return undefined;
   }
 }
 
-async function markPendingAdmission(vault: Vault) {
-  const { publicKey } = await vault.getCurrentAccount();
-  await getStorageProvider().set({ [PENDING_ADMISSION_STORAGE_KEY]: publicKey });
+async function markPendingAdmission(accountIds: string[]) {
+  await getStorageProvider().set({ [PENDING_ADMISSION_STORAGE_KEY]: accountIds });
 }
 
-// A published setup's account is admitted: a marker a failed removal leaves only makes the next start ask again.
+// A published setup's accounts are admitted: a marker a failed removal leaves only makes the next start ask again.
 async function clearPendingAdmission() {
   await getStorageProvider()
     .remove([PENDING_ADMISSION_STORAGE_KEY])
     .catch(error => console.warn('[Actions] could not clear the pending-admission marker:', error));
 }
 
+async function admitsEveryAccount(accountIds: string[]): Promise<boolean> {
+  for (const accountId of accountIds) if (!(await isMainnetAccountAdmitted(accountId))) return false;
+  return true;
+}
+
 /**
- * Whether init keeps an existing vault. With a setup marked pending it asks the node: an account the node
- * does not admit undoes the setup, and no answer keeps the wallet and the marker so the next start asks again.
+ * Whether init keeps an existing vault. A setup marked pending with no accounts stopped inside its spawn and is
+ * undone. Otherwise init asks the node about each account: one it does not admit undoes the setup, and no answer
+ * keeps the wallet and the marker so the next start asks again.
  */
 async function keepsSetupPendingAdmission(): Promise<boolean> {
-  const accountId = await readPendingAdmission();
-  if (accountId === undefined) return true;
-  let admitted: boolean;
+  const accountIds = await readPendingAdmission();
+  if (accountIds === undefined) return true;
+  let admitted = false;
   try {
-    // The node to ask is the stored network's, and a mobile or desktop realm runs init before its page loads it.
-    await loadEndpointOverrides();
-    admitted = await isMainnetAccountAdmitted(accountId);
+    if (accountIds.length > 0) {
+      // The node to ask is the stored network's, and a mobile or desktop realm runs init before its page loads it.
+      await loadEndpointOverrides();
+      admitted = await admitsEveryAccount(accountIds);
+    }
   } catch (error) {
     console.warn('[Actions.init] could not ask the node about a setup pending admission:', error);
     return true;
@@ -272,17 +278,42 @@ async function discardPendingAccessVault() {
   pendingAccessVault = null;
 }
 
+/**
+ * A setup's spawn. A marked setup writes its marker first, with no accounts: the spawn's wipe keeps it and the spawn
+ * persists the vault before it returns, so a realm that stops inside it leaves the marker for init. Once the spawn
+ * returns, the marker lists every account the vault holds. Any other setup first removes a marker an earlier one left,
+ * which that wipe would otherwise keep and init would read as this setup's.
+ */
+async function spawnSetup(marked: boolean, spawn: () => Promise<Vault>): Promise<Vault> {
+  if (!marked) {
+    // Not swallowed: a marker this cannot read or remove would outlive the wipe.
+    const storage = getStorageProvider();
+    if ((await storage.get([PENDING_ADMISSION_STORAGE_KEY]))[PENDING_ADMISSION_STORAGE_KEY] !== undefined)
+      await storage.remove([PENDING_ADMISSION_STORAGE_KEY]);
+    return spawn();
+  }
+  await markPendingAdmission([]);
+  let vault: Vault;
+  try {
+    vault = await spawn();
+  } catch (error) {
+    // A rejected spawn has undone what it wrote, or wrote nothing, so init has no setup to undo.
+    await clearPendingAdmission();
+    throw error;
+  }
+  try {
+    await markPendingAdmission((await vault.fetchAccounts()).map(({ publicKey }) => publicKey));
+  } catch (error) {
+    await undoFailedSetup(vault, 'Actions.spawnSetup');
+    throw error;
+  }
+  return vault;
+}
+
 async function getAccessSetupVault(inputs: string, accessCode: string | undefined, spawn: () => Promise<Vault>) {
   if (accessCode && pendingAccessVault?.inputs === inputs) return pendingAccessVault.vault;
   await discardPendingAccessVault();
-  const vault = await spawn();
-  if (!accessCode && !isInviteOnlyNetwork()) return vault;
-  try {
-    await markPendingAdmission(vault);
-  } catch (error) {
-    await undoFailedSetup(vault, 'Actions.pendingAccessSetup');
-    throw error;
-  }
+  const vault = await spawnSetup(Boolean(accessCode) || isInviteOnlyNetwork(), spawn);
   if (accessCode) pendingAccessVault = { inputs, vault };
   return vault;
 }
@@ -298,9 +329,13 @@ async function registerSetupAccessCode(accountId: string, code: string) {
   }
 }
 
-/** A setup with no code of its own publishes on mainnet only an account the node already admits. */
-async function assertMainnetAdmitted(accountId: string) {
-  if (!(await isMainnetAccountAdmitted(accountId))) throw new PublicError(getMessage('mainnetAccountNotAdmitted'));
+/**
+ * A setup publishes on mainnet only accounts the node admits. A code registers only the current one, and a seed import,
+ * a hot key or a wallet file can bring several.
+ */
+async function assertEveryMainnetAdmitted(accounts: WalletAccount[]) {
+  if (!(await admitsEveryAccount(accounts.map(({ publicKey }) => publicKey))))
+    throw new PublicError(getMessage('mainnetAccountNotAdmitted'));
 }
 
 // An access code registers one account, so no other account a wallet adds there would be admitted.
@@ -344,7 +379,7 @@ export function registerNewWallet(
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
         if (accessCode) await registerSetupAccessCode(currentAccount.publicKey, accessCode);
-        else if (isInviteOnlyNetwork()) await assertMainnetAdmitted(currentAccount.publicKey);
+        if (isInviteOnlyNetwork()) await assertEveryMainnetAdmitted(accounts);
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({
           vault,
@@ -380,12 +415,11 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
       try {
         if (!keyPairPayload) throw new PublicError(getMessage('importHotKeyInvalid'));
         await discardPendingAccessVault();
-        vault = await Vault.spawnFromHotKey(password, keyPairPayload, guardianEndpoint);
-        if (inviteOnly) await markPendingAdmission(vault);
+        vault = await spawnSetup(inviteOnly, () => Vault.spawnFromHotKey(password, keyPairPayload, guardianEndpoint));
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
-        if (inviteOnly) await assertMainnetAdmitted(currentAccount.publicKey);
+        if (inviteOnly) await assertEveryMainnetAdmitted(accounts);
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({
           vault,
@@ -420,13 +454,13 @@ export function registerImportedWallet(
         await discardPendingAccessVault();
         // Password may be undefined for hardware-only wallets
         // spawnFromMidenClient() returns the vault directly, avoiding a second biometric prompt
-        vault = await Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts, importedAccounts);
-        if (inviteOnly) await markPendingAdmission(vault);
+        vault = await spawnSetup(inviteOnly, () =>
+          Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts, importedAccounts)
+        );
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
-        // A file restores every account it holds, so each one must be admitted, not only the current one.
-        if (inviteOnly) for (const { publicKey } of accounts) await assertMainnetAdmitted(publicKey);
+        if (inviteOnly) await assertEveryMainnetAdmitted(accounts);
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({
           vault,

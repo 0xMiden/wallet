@@ -31,6 +31,14 @@ export const PRESERVED_STORAGE_KEYS: readonly string[] = [
   ...BRIDGE_CONFIG_DOCUMENT_KEYS
 ];
 
+// The accounts of a mainnet setup not yet published, never its code or secrets: its presence at init means the
+// realm stopped before the setup published, perhaps before the node admitted an account.
+export const PENDING_ADMISSION_STORAGE_KEY = 'pending_mainnet_admission';
+
+// A setup spawn's wipe, which runs after the setup wrote its marker: a realm that stops inside the spawn leaves the
+// marker for init. Every other wipe removes it.
+export const SETUP_WIPE_KEPT_KEYS: readonly string[] = [...PRESERVED_STORAGE_KEYS, PENDING_ADMISSION_STORAGE_KEY];
+
 // Developer Settings' reset. A derivation was read from the override's node, so it goes with the override, and its
 // document with it: the wallet re-derives against the default node, and a stored document that differs from the
 // published one at its version can be replaced. The floors stay.

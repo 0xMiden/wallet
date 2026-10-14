@@ -4,10 +4,12 @@ import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { PublicError } from 'lib/miden/back/defaults';
 import { SendTransaction } from 'lib/miden/db/types';
 import { spendingLimits, transactions } from 'lib/miden/repo';
+import { clearStorage, PENDING_ADMISSION_STORAGE_KEY, SETUP_WIPE_KEPT_KEYS } from 'lib/miden/reset';
 import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/types';
 import { resolveSpendsUsd } from 'lib/miden/spending-limits/valuation';
 import { NoteTypeEnum } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { WalletMessageType, WalletStatus } from 'lib/shared/types';
 import { sendEvent } from 'lib/telemetry/sink';
 import { WalletType } from 'screens/onboarding/types';
@@ -697,6 +699,7 @@ describe('actions', () => {
       mockEndpointOverride = { rpcUrl: 'http://127.0.0.1:57291', networkName: MIDEN_NETWORK_NAME.LOCALNET };
       const candidate = {
         ...mockVault,
+        fetchAccounts: jest.fn().mockResolvedValue([{ publicKey: 'final-account' }]),
         getCurrentAccount: jest.fn().mockResolvedValue({ publicKey: 'final-account' })
       };
       Vault.spawn.mockResolvedValueOnce(candidate);
@@ -723,17 +726,121 @@ describe('actions', () => {
       }
     });
 
+    const spawnedFor = (publicKey: string, ...otherAccounts: string[]) => ({
+      ...mockVault,
+      fetchAccounts: jest.fn().mockResolvedValue([publicKey, ...otherAccounts].map(key => ({ publicKey: key }))),
+      getCurrentAccount: jest.fn().mockResolvedValue({ publicKey }),
+      retire: jest.fn()
+    });
+    // The realm's storage in the admission cases: a setup's writes and wipes land in it, and a restart reads it.
+    let stored: Record<string, unknown> = {};
+    const SAVED_VAULT_KEY = 'spawned-vault';
+    const useModelledStorage = () => {
+      const { get } = jest.requireMock('webextension-polyfill').default.storage.local;
+      beforeEach(() => {
+        stored = { DAppEnabled: true };
+        get.mockImplementation(async (keys: string[] | null) =>
+          keys === null
+            ? { ...stored }
+            : Object.fromEntries(keys.filter(key => key in stored).map(key => [key, stored[key]]))
+        );
+        mockStorageSet.mockImplementation(async (items: Record<string, unknown>) => {
+          Object.assign(stored, items);
+        });
+        mockStorageRemove.mockImplementation(async (keys: string[]) => {
+          for (const key of keys) delete stored[key];
+        });
+      });
+      afterEach(() => {
+        get.mockReset().mockResolvedValue({ DAppEnabled: true });
+      });
+    };
+    // A spawn as the real ones run: it wipes through the real clearStorage with the keep list they pass, saves its
+    // vault, and returns it once `returns` settles. One that never settles is a realm that stopped inside the spawn.
+    const wipingSpawn =
+      (vault: unknown, returns: Promise<unknown> = Promise.resolve()) =>
+      async () => {
+        await clearStorage(false, SETUP_WIPE_KEPT_KEYS);
+        await getStorageProvider().set({ [SAVED_VAULT_KEY]: 'vault' });
+        await returns;
+        return vault;
+      };
+    // Stands for a realm that stopped: the test rejects it once it is done, so nothing waiting on it runs before.
+    const stoppedRealm = () => {
+      let stop: (error: Error) => void = () => {};
+      const promise = new Promise<never>((_resolve, reject) => {
+        stop = reject;
+      });
+      return { promise, stop: () => stop(new Error('realm stopped')) };
+    };
+    const until = async (done: () => boolean) => {
+      while (!done()) await new Promise(resolve => setTimeout(resolve, 0));
+    };
+    // A realm restart: a fresh actions module, which holds no pending vault, over the same storage. Returns the keys
+    // the restart removed.
+    const restartOver = async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      mockStorageRemove.mockClear();
+      mockLoadEndpointOverrides.mockClear();
+      Vault.isExist.mockResolvedValueOnce(true);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        // The isolated registry shares these mocks, so the storage they model is the same.
+        await jest.isolateModulesAsync(async () => {
+          const restarted: typeof import('./actions') = jest.requireActual('./actions');
+          await restarted.init();
+        });
+      } finally {
+        warn.mockRestore();
+      }
+      return mockStorageRemove.mock.calls.flatMap(call => call[0] as string[]);
+    };
+
+    describe('off an invite-only network', () => {
+      useModelledStorage();
+
+      beforeEach(() => {
+        mockEndpointOverride = { rpcUrl: 'https://rpc.testnet.miden.io', networkName: MIDEN_NETWORK_NAME.TESTNET };
+      });
+
+      it.each([
+        ['a create', 'spawn', () => registerNewWallet(WalletType.Guardian, 'pw', 'words', false)],
+        ['a seed import', 'spawn', () => registerNewWallet(WalletType.Guardian, 'pw', 'words', true)],
+        ['a hot-key setup', 'spawnFromHotKey', () => registerWalletFromHotKey('pw', 'hot:evm')],
+        ['a wallet-file restore', 'spawnFromMidenClient', () => registerImportedWallet('pw', 'words', [], [])]
+      ] as const)(
+        '%s removes a marker an earlier setup left before its spawn, so the next start keeps its wallet',
+        async (_name, spawnMethod, invoke) => {
+          const { Vault } = jest.requireMock('lib/miden/back/vault');
+          // A mainnet setup whose realm stopped inside its spawn, before the profile moved off mainnet.
+          stored[PENDING_ADMISSION_STORAGE_KEY] = [];
+          let markedAtSpawn: unknown;
+          Vault[spawnMethod].mockImplementationOnce(async () => {
+            markedAtSpawn = stored[PENDING_ADMISSION_STORAGE_KEY];
+            return wipingSpawn(spawnedFor('testnet-account'))();
+          });
+
+          await invoke();
+
+          expect(stored).not.toHaveProperty(PENDING_ADMISSION_STORAGE_KEY);
+          expect(markedAtSpawn).toBeUndefined();
+          expect(mockUnlocked).toHaveBeenCalledTimes(1);
+          const removed = await restartOver();
+          expect(mockInited).toHaveBeenLastCalledWith(true);
+          expect(removed).toEqual([]);
+          expect(mockAdmitted).not.toHaveBeenCalled();
+        }
+      );
+    });
+
     describe('on an invite-only network', () => {
       const MAINNET = { rpcUrl: 'https://rpc.cedar.miden.io', networkName: MIDEN_NETWORK_NAME.MAINNET };
-      const spawnedFor = (publicKey: string, ...otherAccounts: string[]) => ({
-        ...mockVault,
-        fetchAccounts: jest.fn().mockResolvedValue([publicKey, ...otherAccounts].map(key => ({ publicKey: key }))),
-        getCurrentAccount: jest.fn().mockResolvedValue({ publicKey }),
-        retire: jest.fn()
-      });
+      useModelledStorage();
 
       beforeEach(() => {
         mockEndpointOverride = MAINNET;
+        // The node admits every account unless a case says otherwise.
+        mockAdmitted.mockResolvedValue(true);
       });
 
       afterEach(() => {
@@ -771,21 +878,19 @@ describe('actions', () => {
 
       it('marks a create the node has not admitted, without its code, and clears the mark once admitted', async () => {
         const { Vault } = jest.requireMock('lib/miden/back/vault');
-        Vault.spawn.mockResolvedValueOnce(spawnedFor('final-account'));
+        Vault.spawn.mockImplementationOnce(wipingSpawn(spawnedFor('final-account')));
         mockRedeemAccess.mockRejectedValueOnce(new Error('Node unavailable')).mockResolvedValueOnce('granted');
 
         await expect(
           registerNewWallet(WalletType.Guardian, 'pw', 'words', false, undefined, 'secretCode12')
         ).rejects.toThrow('Node unavailable');
-        expect(mockStorageSet).toHaveBeenCalledTimes(1);
-        const [marker] = mockStorageSet.mock.calls[0]!;
-        expect(Object.values(marker)).toEqual(['final-account']);
-        expect(JSON.stringify(marker)).not.toContain('secretCode12');
-        expect(JSON.stringify(marker)).not.toContain('words');
+        expect(stored[PENDING_ADMISSION_STORAGE_KEY]).toEqual(['final-account']);
+        expect(JSON.stringify(mockStorageSet.mock.calls)).not.toContain('secretCode12');
+        expect(JSON.stringify(mockStorageSet.mock.calls)).not.toContain('words');
 
         await registerNewWallet(WalletType.Guardian, 'pw', 'words', false, undefined, 'secretCode12');
         expect(Vault.spawn).toHaveBeenCalledTimes(1);
-        expect(mockStorageRemove).toHaveBeenCalledWith(Object.keys(marker));
+        expect(stored).not.toHaveProperty(PENDING_ADMISSION_STORAGE_KEY);
         expect(mockUnlocked).toHaveBeenCalledTimes(1);
       });
 
@@ -797,43 +902,18 @@ describe('actions', () => {
         'asks the node, on the next start, about a setup its realm stopped in: %s',
         async (_name, password, admitted, kept) => {
           const { Vault } = jest.requireMock('lib/miden/back/vault');
-          Vault.spawn.mockResolvedValueOnce(spawnedFor('final-account'));
+          Vault.spawn.mockImplementationOnce(wipingSpawn(spawnedFor('final-account')));
           mockRedeemAccess.mockRejectedValueOnce(new Error('Node unavailable'));
           // A password per case, so this create spawns instead of reusing the vault an earlier case left pending.
           await expect(
             registerNewWallet(WalletType.Guardian, password, 'words', false, undefined, 'secretCode12')
           ).rejects.toThrow('Node unavailable');
-          const stored: Record<string, unknown> = Object.assign(
-            { DAppEnabled: true },
-            ...mockStorageSet.mock.calls.map(([items]) => items)
-          );
-          const markerKeys = mockStorageSet.mock.calls.flatMap(([items]) =>
-            Object.keys(items).filter(key => items[key] === 'final-account')
-          );
-          expect(markerKeys).toHaveLength(1);
-          mockStorageRemove.mockClear();
-          mockLoadEndpointOverrides.mockClear();
-          Vault.isExist.mockResolvedValueOnce(true);
+          expect(stored[PENDING_ADMISSION_STORAGE_KEY]).toEqual(['final-account']);
+          const storedKeys = Object.keys(stored);
           if (admitted === undefined) mockAdmitted.mockRejectedValueOnce(new Error('Node unavailable'));
           else mockAdmitted.mockResolvedValueOnce(admitted);
-          const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-          // The isolated registry below shares these mocks, so the storage they model is the same.
-          const { get } = jest.requireMock('webextension-polyfill').default.storage.local;
-          get.mockImplementation(async (keys: string[] | null) =>
-            keys === null
-              ? stored
-              : Object.fromEntries(keys.filter(key => key in stored).map(key => [key, stored[key]]))
-          );
-          try {
-            // A realm restart: a fresh actions module, which holds no pending vault, over the same storage.
-            await jest.isolateModulesAsync(async () => {
-              const restarted: typeof import('./actions') = jest.requireActual('./actions');
-              await restarted.init();
-            });
-          } finally {
-            get.mockReset().mockResolvedValue({ DAppEnabled: true });
-            warn.mockRestore();
-          }
+
+          const removed = await restartOver();
 
           expect(mockInited).toHaveBeenLastCalledWith(kept);
           expect(mockAdmitted).toHaveBeenCalledWith('final-account');
@@ -841,11 +921,67 @@ describe('actions', () => {
           expect(mockLoadEndpointOverrides.mock.invocationCallOrder[0]).toBeLessThan(
             mockAdmitted.mock.invocationCallOrder[0]!
           );
-          const removed = mockStorageRemove.mock.calls.flatMap(call => call[0] as string[]);
-          const everyStoredKey = expect.arrayContaining(Object.keys(stored));
-          expect(removed).toEqual(admitted === false ? everyStoredKey : admitted ? markerKeys : []);
+          const everyStoredKey = expect.arrayContaining(storedKeys);
+          expect(removed).toEqual(
+            admitted === false ? everyStoredKey : admitted ? [PENDING_ADMISSION_STORAGE_KEY] : []
+          );
         }
       );
+
+      it.each([
+        [
+          'a create',
+          'spawn',
+          () => registerNewWallet(WalletType.Guardian, 'pw-stopped', 'words', false, undefined, 'secretCode12')
+        ],
+        ['a seed import', 'spawn', () => registerNewWallet(WalletType.Guardian, 'pw', 'words', true)],
+        ['a hot-key setup', 'spawnFromHotKey', () => registerWalletFromHotKey('pw', 'hot:evm')],
+        ['a wallet-file restore', 'spawnFromMidenClient', () => registerImportedWallet('pw', 'words', [], [])]
+      ] as const)(
+        'undoes at the next start %s whose realm stopped inside the spawn',
+        async (_name, spawnMethod, invoke) => {
+          const { Vault } = jest.requireMock('lib/miden/back/vault');
+          const realm = stoppedRealm();
+          Vault[spawnMethod].mockImplementationOnce(wipingSpawn(spawnedFor('stopped-account'), realm.promise));
+          const setup = invoke().catch(() => undefined);
+          try {
+            await until(() => SAVED_VAULT_KEY in stored);
+            expect(stored[PENDING_ADMISSION_STORAGE_KEY]).toEqual([]);
+
+            const removed = await restartOver();
+
+            expect(mockInited).toHaveBeenLastCalledWith(false);
+            expect(removed).toEqual(expect.arrayContaining([SAVED_VAULT_KEY, PENDING_ADMISSION_STORAGE_KEY]));
+            expect(mockAdmitted).not.toHaveBeenCalled();
+          } finally {
+            realm.stop();
+            await setup;
+          }
+        }
+      );
+
+      it('undoes at the next start a wallet file stopped after its spawn whose secondary account is not admitted', async () => {
+        const { Vault } = jest.requireMock('lib/miden/back/vault');
+        Vault.spawnFromMidenClient.mockImplementationOnce(
+          wipingSpawn(spawnedFor('current-account', 'secondary-account'))
+        );
+        const realm = stoppedRealm();
+        mockAdmitted.mockReturnValueOnce(realm.promise);
+        const setup = registerImportedWallet('pw', 'words', [], []).catch(() => undefined);
+        try {
+          await until(() => mockAdmitted.mock.calls.length > 0);
+          mockAdmitted.mockImplementation(async accountId => accountId === 'current-account');
+
+          const removed = await restartOver();
+
+          expect(removed).toEqual(expect.arrayContaining([SAVED_VAULT_KEY, PENDING_ADMISSION_STORAGE_KEY]));
+          expect(mockInited).toHaveBeenLastCalledWith(false);
+          expect(mockAdmitted).toHaveBeenCalledWith('secondary-account');
+        } finally {
+          realm.stop();
+          await setup;
+        }
+      });
 
       it('refuses a create without a code before the spawn, and lets a seed import without one spawn', async () => {
         const { Vault } = jest.requireMock('lib/miden/back/vault');
@@ -862,45 +998,71 @@ describe('actions', () => {
       });
 
       it.each([
+        [
+          'a create',
+          'spawn',
+          () => registerNewWallet(WalletType.Guardian, 'pw-marked', 'words', false, undefined, 'secretCode12')
+        ],
         ['a seed import', 'spawn', () => registerNewWallet(WalletType.Guardian, 'pw', 'words', true)],
         ['a hot-key import', 'spawnFromHotKey', () => registerWalletFromHotKey('pw', 'hot:evm')],
         ['a wallet-file import', 'spawnFromMidenClient', () => registerImportedWallet('pw', 'words', [], [])]
       ] as const)(
-        '%s marks its account right after the spawn and clears the mark once published',
+        '%s marks its setup before the spawn and every account it holds right after it, and clears the mark once published',
         async (_name, spawnMethod, invoke) => {
           const { Vault } = jest.requireMock('lib/miden/back/vault');
-          Vault[spawnMethod].mockResolvedValueOnce(spawnedFor('admitted-account'));
-          mockAdmitted.mockResolvedValue(true);
+          let markedAtSpawn: unknown;
+          let markedAtFirstCheck: unknown;
+          let markedAtPublish: unknown;
+          Vault[spawnMethod].mockImplementationOnce(async () => {
+            markedAtSpawn = stored[PENDING_ADMISSION_STORAGE_KEY];
+            return wipingSpawn(spawnedFor('admitted-account', 'second-account'))();
+          });
+          mockRedeemAccess.mockResolvedValueOnce('granted');
+          mockAdmitted.mockImplementation(async () => {
+            if (markedAtFirstCheck === undefined) markedAtFirstCheck = stored[PENDING_ADMISSION_STORAGE_KEY];
+            return true;
+          });
+          mockUnlocked.mockImplementationOnce(() => {
+            markedAtPublish = stored[PENDING_ADMISSION_STORAGE_KEY];
+          });
 
           await invoke();
 
-          expect(mockStorageSet).toHaveBeenCalledTimes(1);
-          const [marker] = mockStorageSet.mock.calls[0]!;
-          expect(Object.values(marker)).toEqual(['admitted-account']);
-          expect(JSON.stringify(marker)).not.toContain('words');
-          const [setAt] = mockStorageSet.mock.invocationCallOrder;
-          expect(setAt).toBeGreaterThan(Vault[spawnMethod].mock.invocationCallOrder[0]);
-          expect(setAt).toBeLessThan(mockAdmitted.mock.invocationCallOrder[0]!);
+          expect(markedAtSpawn).toEqual([]);
+          expect(markedAtFirstCheck).toEqual(['admitted-account', 'second-account']);
+          expect(mockAdmitted).toHaveBeenCalledWith('second-account');
+          expect(JSON.stringify(mockStorageSet.mock.calls)).not.toContain('words');
           expect(mockUnlocked).toHaveBeenCalledTimes(1);
-          expect(mockStorageRemove).toHaveBeenCalledWith(Object.keys(marker));
-          expect(mockStorageRemove.mock.invocationCallOrder[0]).toBeGreaterThan(
-            mockUnlocked.mock.invocationCallOrder[0]!
-          );
+          expect(markedAtPublish).toEqual(['admitted-account', 'second-account']);
+          expect(stored).not.toHaveProperty(PENDING_ADMISSION_STORAGE_KEY);
         }
       );
 
-      it('publishes no wallet file whose secondary account the node does not admit', async () => {
-        const { Vault } = jest.requireMock('lib/miden/back/vault');
-        const restored = spawnedFor('current-account', 'secondary-account');
-        Vault.spawnFromMidenClient.mockResolvedValueOnce(restored);
-        mockAdmitted.mockImplementation(async accountId => accountId === 'current-account');
+      it.each([
+        ['a seed import', 'spawn', () => registerNewWallet(WalletType.Guardian, 'pw', 'words', true)],
+        ['a hot-key setup', 'spawnFromHotKey', () => registerWalletFromHotKey('pw', 'hot:evm')],
+        ['a wallet-file restore', 'spawnFromMidenClient', () => registerImportedWallet('pw', 'words', [], [])]
+      ] as const)(
+        '%s that brings a second account the node does not admit is refused before publishing and leaves no vault',
+        async (_name, spawnMethod, invoke) => {
+          const { Vault } = jest.requireMock('lib/miden/back/vault');
+          const restored = spawnedFor('current-account', 'secondary-account');
+          Vault[spawnMethod].mockImplementationOnce(wipingSpawn(restored));
+          mockAdmitted.mockImplementation(async accountId => accountId === 'current-account');
 
-        await expect(registerImportedWallet('pw', 'words', [], [])).rejects.toThrow();
+          const outcome = await invoke().then(
+            () => 'published',
+            (error: unknown) => error
+          );
 
-        expect(mockAdmitted).toHaveBeenCalledWith('secondary-account');
-        expect(mockUnlocked).not.toHaveBeenCalled();
-        expect(restored.retire).toHaveBeenCalledTimes(1);
-      });
+          expect(mockUnlocked).not.toHaveBeenCalled();
+          expect(outcome).toBeInstanceOf(PublicError);
+          expect(mockAdmitted).toHaveBeenCalledWith('secondary-account');
+          expect(restored.retire).toHaveBeenCalledTimes(1);
+          expect(stored).not.toHaveProperty(SAVED_VAULT_KEY);
+          expect(stored).not.toHaveProperty(PENDING_ADMISSION_STORAGE_KEY);
+        }
+      );
 
       it.each([
         ['a seed import', 'spawn', () => registerNewWallet(WalletType.Guardian, 'pw', 'words', true)],
