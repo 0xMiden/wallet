@@ -720,12 +720,7 @@ const Welcome: FC<{ inviteOnly: boolean }> = ({ inviteOnly }) => {
         setSeedPhrase(generateMnemonic().split(' '));
         setOnboardingType(OnboardingType.Create);
         setProtectionMethod('biometric');
-        if (accessCode && process.env.MIDEN_ACCESS_RPC_URL) {
-          setWalletType(WalletType.OffChain);
-          navigate('/#confirmation');
-        } else {
-          navigate('/#guardian-intro');
-        }
+        navigate('/#guardian-intro');
         break;
       case 'setup-passcode-submit':
         // Passcode IS the vault password. The 6 digits get stretched through
@@ -743,12 +738,7 @@ const Welcome: FC<{ inviteOnly: boolean }> = ({ inviteOnly }) => {
         setOnboardingType(OnboardingType.Create);
         setPassword(action.payload);
         setProtectionMethod('passcode');
-        if (accessCode && process.env.MIDEN_ACCESS_RPC_URL) {
-          setWalletType(WalletType.OffChain);
-          navigate('/#confirmation');
-        } else {
-          navigate('/#guardian-intro');
-        }
+        navigate('/#guardian-intro');
         break;
       case 'guardian-intro-submit':
         navigate('/#meet-guardian');

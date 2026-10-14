@@ -220,7 +220,6 @@ async function getAccessSetupVault(inputs: string, accessCode: string | undefine
 
 async function registerSetupAccessCode(accountId: string, code?: string) {
   if (!code) return;
-  // The wallet's node, which MIDEN_ACCESS_RPC_URL overrides for local registration tests.
   const rpcUrl = getEffectiveRpcUrl();
   const outcome = await redeemMainnetAccessCode(code, { accountId, rpcUrl });
   if (outcome === 'rejected') throw new PublicError(getMessage('mainnetAccessCodeRejected'));

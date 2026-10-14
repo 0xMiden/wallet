@@ -2,6 +2,7 @@ import { MidenDAppMessageType } from 'lib/adapter/types';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { SendTransaction } from 'lib/miden/db/types';
 import { spendingLimits, transactions } from 'lib/miden/repo';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/types';
 import { resolveSpendsUsd } from 'lib/miden/spending-limits/valuation';
 import { NoteTypeEnum } from 'lib/miden/types';
@@ -68,6 +69,17 @@ jest.mock('lib/mainnet-access', () => ({
   redeemMainnetAccessCode: (code: string, target: { accountId: string; rpcUrl: string }) =>
     mockRedeemAccess(code, target)
 }));
+
+// The endpoint override a case sets; null leaves the build network's defaults.
+let mockEndpointOverride: { rpcUrl: string; networkName: MIDEN_NETWORK_NAME } | null = null;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual('lib/miden-chain/effective-endpoints');
+  return {
+    ...actual,
+    getEffectiveRpcUrl: () => mockEndpointOverride?.rpcUrl ?? actual.getEffectiveRpcUrl(),
+    getEffectiveNetworkName: () => mockEndpointOverride?.networkName ?? actual.getEffectiveNetworkName()
+  };
+});
 
 const mockVault = {
   fetchSeedPhraseStatus: jest.fn().mockResolvedValue('stored'),
@@ -264,6 +276,7 @@ describe('actions', () => {
     // do: an unconsumed one-shot would otherwise run a later test's undo down the
     // failure arm while its name claims the successful one.
     mockStorageRemove.mockReset().mockResolvedValue(undefined);
+    mockEndpointOverride = null;
     mockInited.mockClear();
     mockLocked.mockClear();
     mockUnlocked.mockClear();
@@ -668,8 +681,7 @@ describe('actions', () => {
   describe('registerNewWallet', () => {
     it('registers the final account before publishing and keeps it for a failed-request retry', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
-      const previousRpcUrl = process.env.MIDEN_ACCESS_RPC_URL;
-      process.env.MIDEN_ACCESS_RPC_URL = 'http://127.0.0.1:57291';
+      mockEndpointOverride = { rpcUrl: 'http://127.0.0.1:57291', networkName: MIDEN_NETWORK_NAME.LOCALNET };
       const candidate = {
         ...mockVault,
         getCurrentAccount: jest.fn().mockResolvedValue({ publicKey: 'final-account' })
@@ -694,8 +706,6 @@ describe('actions', () => {
         });
         expect(mockUnlocked).toHaveBeenCalledTimes(1);
       } finally {
-        if (previousRpcUrl === undefined) delete process.env.MIDEN_ACCESS_RPC_URL;
-        else process.env.MIDEN_ACCESS_RPC_URL = previousRpcUrl;
         mockRedeemAccess.mockReset();
       }
     });
