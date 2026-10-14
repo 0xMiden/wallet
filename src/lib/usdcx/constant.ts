@@ -1,6 +1,7 @@
 import { Address, Chain, formatUnits, getAddress } from 'viem';
 import { sepolia } from 'viem/chains';
 
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { SupportedEvmChainConfig } from 'lib/remote-config/schema';
 import { ARC_TESTNET, EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
@@ -102,6 +103,11 @@ function configuredChain(chainId: number): Chain | undefined {
   };
 }
 
+/** A chain is usable only inside the effective network's family: testnet chains on testnet, mainnet chains otherwise. */
+function inEffectiveFamily(chain: Chain): boolean {
+  return (chain.testnet ?? false) === (getEffectiveNetworkName() !== 'mainnet');
+}
+
 function sourceChain(entry: SupportedEvmChainConfig): UsdcxSourceChain | undefined {
   const config = getBridgeConfigSnapshot().config;
   const provider = config?.['bridge-providers'].usdcx;
@@ -111,6 +117,7 @@ function sourceChain(entry: SupportedEvmChainConfig): UsdcxSourceChain | undefin
   const usdc = tokenAddress ? getAddress(tokenAddress) : undefined;
   if (!config || !provider?.attestationUrl || !provider.irisUrl || !route || !chain || !usdc || !route.deposit)
     return undefined;
+  if (!inEffectiveFamily(chain)) return undefined;
   const base = { chain, usdc, domain: route.domain, midenDomain: provider.midenDomain };
   switch (route.deposit.route) {
     case 'xreserve':
@@ -127,6 +134,7 @@ function sourceChain(entry: SupportedEvmChainConfig): UsdcxSourceChain | undefin
       const targetUsdc = targetRoute?.tokens.USDC?.contractAddress;
       if (!targetChain || !targetRoute?.executor || targetRoute.deposit?.route !== 'xreserve' || !targetUsdc)
         return undefined;
+      if (!inEffectiveFamily(targetChain)) return undefined;
       return {
         ...base,
         route: 'cctp-executor',
@@ -154,7 +162,7 @@ function destination(entry: SupportedEvmChainConfig): UsdcxDestination | undefin
   const chain = configuredChain(entry.chainId);
   const tokenAddress = route?.tokens.USDC?.contractAddress;
   const usdc = tokenAddress ? getAddress(tokenAddress) : undefined;
-  if (!route || !chain || !usdc) return undefined;
+  if (!route || !chain || !usdc || !inEffectiveFamily(chain)) return undefined;
   return {
     chain,
     domain: route.domain,
@@ -247,18 +255,14 @@ export function getUsdcxDestination(chainId: number): UsdcxDestination {
   return entry;
 }
 
-/** The source chains offered on one network family: testnet chains on testnet, mainnet chains otherwise. */
-export function listUsdcxSourceChains(testnet: boolean): UsdcxSourceChain[] {
-  return [...usdcxSourceChains().values()].filter(
-    entry => (entry.chain.testnet ?? false) === testnet && isUsdcxRouteEnabled(entry.chain.id, 'deposit')
-  );
+/** The source chains offered on the effective network's family: testnet chains on testnet, mainnet chains otherwise. */
+export function listUsdcxSourceChains(): UsdcxSourceChain[] {
+  return [...usdcxSourceChains().values()].filter(entry => isUsdcxRouteEnabled(entry.chain.id, 'deposit'));
 }
 
-/** The destinations offered on one network family: testnet chains on testnet, mainnet chains otherwise. */
-export function listUsdcxDestinations(testnet: boolean): UsdcxDestination[] {
-  return [...usdcxDestinations().values()].filter(
-    entry => (entry.chain.testnet ?? false) === testnet && isUsdcxRouteEnabled(entry.chain.id, 'withdrawal')
-  );
+/** The destinations offered on the effective network's family: testnet chains on testnet, mainnet chains otherwise. */
+export function listUsdcxDestinations(): UsdcxDestination[] {
+  return [...usdcxDestinations().values()].filter(entry => isUsdcxRouteEnabled(entry.chain.id, 'withdrawal'));
 }
 
 /**

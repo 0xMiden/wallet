@@ -1,4 +1,3 @@
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { featureAvailability } from 'lib/remote-config/availability';
 import { evmChainSlug } from 'lib/remote-config/chains';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -31,7 +30,7 @@ export function getBridgeNetworkByChainId(chainId: number): BridgeNetwork | unde
   return BRIDGE_NETWORKS.find(network => network.chainId === chainId);
 }
 export function usdcxBridgeNetworks(): readonly BridgeNetwork[] {
-  return listUsdcxDestinations(getEffectiveNetworkName() !== 'mainnet').flatMap(entry => {
+  return listUsdcxDestinations().flatMap(entry => {
     const network = getBridgeNetworkByChainId(entry.chain.id);
     return network ? [network] : [];
   });

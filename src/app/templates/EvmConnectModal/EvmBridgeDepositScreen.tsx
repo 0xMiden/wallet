@@ -337,9 +337,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // that chain offers the route, else the first that does.
   const [pickedChainId, setPickedChainId] = useState<number>();
   const bridgeConfig = useBridgeConfigSnapshot();
-  const usdcxSourceNetworks: readonly BridgeNetwork[] = listUsdcxSourceChains(
-    bridgeConfig.network !== 'mainnet'
-  ).flatMap(entry => {
+  const usdcxSourceNetworks: readonly BridgeNetwork[] = listUsdcxSourceChains().flatMap(entry => {
     const network = getBridgeNetworkByChainId(entry.chain.id);
     return network ? [network] : [];
   });
