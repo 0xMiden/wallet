@@ -800,7 +800,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // link or draft carries one this network does not offer.
   useEffect(() => {
     if (!isBridge || !isValidRecipient || offeredNetworks.some(n => n.id === bridgeNetwork)) return;
-    onSelectNetwork(usdcxAvailable ? DEFAULT_USDCX_BRIDGE_NETWORK.id : DEFAULT_BRIDGE_NETWORK.id);
+    const preferred = usdcxAvailable ? DEFAULT_USDCX_BRIDGE_NETWORK : DEFAULT_BRIDGE_NETWORK;
+    const next = offeredNetworks.find(n => n.id === preferred.id) ?? offeredNetworks[0];
+    if (next) onSelectNetwork(next.id);
   }, [isBridge, isValidRecipient, bridgeNetwork, offeredNetworks, onSelectNetwork, usdcxAvailable]);
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
