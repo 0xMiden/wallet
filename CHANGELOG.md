@@ -8,6 +8,7 @@
 
 ### Fixes
 
+- [FIX][all] A bridge-in deposit that needs two wallet confirmations says so: from signing the token approval until answering the bridge request, the progress screen reads "Waiting for the next wallet confirmation" instead of copy that looks finished, and the processing text now says the wallet may ask more than once (#1290).
 - [FIX][all] A dApp request for an account that is not the one currently open in Bread is refused before any approval popup or data read, instead of asking the user to approve a request for another account. A request approved after the open account changed or the dApp was disconnected is refused too.
 - [FIX][all] Every Guardian proposal syncs the chain right before it is built, so one that waits out a busy Guardian or a paused app no longer fails with `before_foreign_load` once the node has pruned the old block.
 - [FIX][all] A dApp consume request that carries the note's bytes now imports the note when the user approves it, so a dApp-supplied private note is claimed in one approval instead of needing a separate import approval first.
