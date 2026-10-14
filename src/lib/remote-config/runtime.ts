@@ -195,7 +195,7 @@ async function rehydrate(state: NetworkState): Promise<void> {
     return;
   }
   state.stored = stored;
-  state.derived = keepValuesRead(derived, state.derived);
+  state.derived = keepValuesRead(derived, state.derived, sameSolver(stored.config, current?.config));
   state.failures = 0;
   state.lastFetch = { at: stored.fetchedAt, ok: true };
   state.checkedAt = Math.max(stored.fetchedAt, derived.derivedAt);
@@ -204,6 +204,9 @@ async function rehydrate(state: NetworkState): Promise<void> {
 
 const newer = (a: StoredBridgeConfig | null, b: StoredBridgeConfig | null) =>
   a && (!b || a.config.version >= b.config.version) ? a : b;
+
+const sameSolver = (next: BridgeConfig, current: BridgeConfig | undefined) =>
+  next.swap?.etaUrl !== undefined && next.swap.etaUrl === current?.swap?.etaUrl;
 
 async function derive(
   config: BridgeConfig,
@@ -223,9 +226,20 @@ const kept = <T>(next: Probe<T>, previous: Probe<T>): Probe<T> =>
 
 // A read that failed says nothing new about a value of the same document, so a transient failure keeps the value
 // last read on that chain (the native-ETH faucet that prices and matches bridged ETH, say). A confirmed absence still
-// clears it, and liveness (allocator, indexer) always reports the latest read.
-function keepValuesRead(next: DerivedBridgeConfig, previous: DerivedBridgeConfig | null): DerivedBridgeConfig {
-  if (!previous || previous.network !== next.network || previous.version !== next.version) return next;
+// clears it, and liveness (allocator, indexer) always reports the latest read. Across a version only the swap
+// registry is kept, and only while the new document names the same solver: it prices IETH and IBTC for the spending
+// cap, and the solver, not the document, decides what it lists.
+function keepValuesRead(
+  next: DerivedBridgeConfig,
+  previous: DerivedBridgeConfig | null,
+  solverUnchanged: boolean
+): DerivedBridgeConfig {
+  if (!previous || previous.network !== next.network) return next;
+  if (previous.version !== next.version) {
+    return solverUnchanged && next.swap && previous.swap
+      ? { ...next, swap: { pairs: kept(next.swap.pairs, previous.swap.pairs) } }
+      : next;
+  }
   const chains: Record<number, DerivedChainConfig> = {};
   for (const [id, chain] of Object.entries(next.chains)) {
     const before = previous.chains[Number(id)];
@@ -283,7 +297,15 @@ async function refresh(state: NetworkState): Promise<void> {
   if (getEffectiveNetworkName() !== state.network) return;
   // A newer document adopted from another realm while this ran stays; the run still counts as a check.
   const superseded = state.stored !== null && target !== null && state.stored.config.version > target.config.version;
-  const derived = result ? keepValuesRead(keepValuesRead(result.derived, storedDerived), state.derived) : null;
+  // storedDerived is the target's own version, so only the outer call can cross a version.
+  const derived =
+    result && target
+      ? keepValuesRead(
+          keepValuesRead(result.derived, storedDerived, true),
+          state.derived,
+          sameSolver(target.config, state.stored?.config)
+        )
+      : null;
   if (!superseded) {
     state.stored = target;
     state.derived = derived;

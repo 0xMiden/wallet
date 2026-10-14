@@ -795,6 +795,51 @@ describe('a re-derivation that cannot read a value', () => {
     expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBeNull();
   });
 
+  const SOLVER = 'https://quotes.example';
+  // A fetch of `version` that names the solver at `etaUrl`.
+  const serveNaming = (version: number, etaUrl: string) =>
+    mockFetch.mockImplementation(async network => {
+      const entry = { config: { ...config(version, network), swap: { etaUrl } }, fetchedAt: Date.now() };
+      mockStorage.set(`bridge_config_v1:${network}`, entry);
+      return entry;
+    });
+
+  it.each([
+    ['keeps', 'the same solver', SOLVER, SWAP_PAIRS],
+    ['does not keep', 'another solver', 'https://quotes.other.example', null]
+  ])(
+    "%s the solver's pairs across a version that names %s when its read fails",
+    async (_keeps, _label, etaUrl, pairs) => {
+      serveNaming(1, SOLVER);
+      mockDerive.mockImplementationOnce(async source => read(source));
+      await initBridgeConfig();
+      await flush();
+      serveNaming(2, etaUrl);
+      mockDerive.mockImplementationOnce(async source => unread(source));
+      await _refreshBridgeConfigForTest();
+      expect(getBridgeConfigSnapshot().config?.version).toBe(2);
+      expect(selectSwapPairs(getBridgeConfigSnapshot())).toEqual(pairs);
+      // Every other value is the new version's own read.
+      expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBeNull();
+      expect(getBridgeConfigSnapshot().derived?.chains[11155111]?.epoch.evmUsdc).toEqual(down);
+    }
+  );
+
+  it('keeps them across a version another realm commits, when it names the same solver', async () => {
+    serveNaming(1, SOLVER);
+    mockDerive.mockImplementationOnce(async source => read(source));
+    await initBridgeConfig();
+    await flush();
+    const next = { ...config(2), swap: { etaUrl: SOLVER } };
+    mockStorage.set(CACHE, { config: next, fetchedAt: NOW + 10 });
+    mockStorage.set(DERIVED, { ...unread(next), derivedAt: NOW + 10 });
+    fireChange(DERIVED);
+    await flush();
+    expect(getBridgeConfigSnapshot().config).toEqual(next);
+    expect(selectSwapPairs(getBridgeConfigSnapshot())).toEqual(SWAP_PAIRS);
+    expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBeNull();
+  });
+
   it('keeps values another realm stored for this version, though this realm never read them', async () => {
     seed(1);
     await initBridgeConfig();

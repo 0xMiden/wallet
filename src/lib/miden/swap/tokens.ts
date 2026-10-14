@@ -14,7 +14,7 @@ import type { SwapPairsToken } from 'lib/remote-config/swap-pairs';
 import { selectSwapPairs } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
 
-import { bridgePriceAllowlist } from './bridge-price-allowlist';
+import { bridgePriceAllowlist, type PricedFaucet } from './bridge-price-allowlist';
 import { canonicalFaucetId, normalizedFaucetId } from './faucet-ids';
 
 export { _resetNormalizedFaucetIdsForTest, canonicalFaucetId, normalizedFaucetId } from './faucet-ids';
@@ -66,13 +66,18 @@ function logoSymbolFor(ticker: string): string {
   return TOKEN_MARKS.includes(bare) ? bare : ticker;
 }
 
-function listedSwapToken(token: SwapPairsToken): SwapToken {
+// A faucet the reviewed document prices (bridged ETH, the Earn USDC) keeps the document's symbol: the solver's
+// assets can be stand-ins, and every reader of a token's price must agree with the spending cap.
+function listedSwapToken(token: SwapPairsToken, allowlist: readonly PricedFaucet[]): SwapToken {
+  const faucetId = normalizedFaucetId(token.faucetId);
+  const priceSymbol =
+    allowlist.find(entry => normalizedFaucetId(entry.faucetId) === faucetId)?.priceSymbol ?? token.binanceAsset;
   return {
     symbol: token.ticker,
-    faucetId: normalizedFaucetId(token.faucetId),
+    faucetId,
     decimals: token.decimals,
     logoSymbol: logoSymbolFor(token.ticker),
-    ...(token.binanceAsset === undefined ? {} : { priceSymbol: token.binanceAsset })
+    ...(priceSymbol === undefined ? {} : { priceSymbol })
   };
 }
 
@@ -80,7 +85,8 @@ function listedSwapToken(token: SwapPairsToken): SwapToken {
 function listedSwapTokens(): SwapToken[] {
   if (_swapTokensOverride) return _swapTokensOverride;
   const tokens = selectSwapPairs(getBridgeConfigSnapshot())?.tokens ?? [];
-  return tokens.map(listedSwapToken);
+  const allowlist = bridgePriceAllowlist();
+  return tokens.map(token => listedSwapToken(token, allowlist));
 }
 
 const sameFaucet = (a: string, b: string): boolean => normalizedFaucetId(a) === normalizedFaucetId(b);
@@ -179,9 +185,10 @@ export const getSwapTokenBySymbol = (symbol: string): SwapToken | undefined =>
 
 /**
  * The faucets the wallet knows stand for a quoted asset, each with the symbol the feed prices it
- * under: the swap registry's priced tokens (IETH at ETH, IBTC at BTC), and the Earn collateral USDC and
- * the Agglayer-bridged ETH the bridge config names. Identity comes from the faucet id, never from the
- * symbol a faucet gives itself, which anyone minting a token can set (#1131).
+ * under: the Earn collateral USDC and the Agglayer-bridged ETH the bridge config names, then the swap
+ * registry's priced tokens (IETH at ETH, IBTC at BTC). The first match wins, so the reviewed document
+ * prices a faucet the solver lists too. Identity comes from the faucet id, never from the symbol a
+ * faucet gives itself, which anyone minting a token can set (#1131).
  */
 function pricedFaucets(): { faucetId: string; priceSymbol: string }[] {
   const nativeId = getNativeAssetIdSync();
@@ -193,10 +200,10 @@ function pricedFaucets(): { faucetId: string; priceSymbol: string }[] {
       : [];
   return [
     ...fixedNative,
+    ...bridgePriceAllowlist(),
     ...getSwapTokens().flatMap(token =>
       token.priceSymbol ? [{ faucetId: token.faucetId, priceSymbol: token.priceSymbol }] : []
-    ),
-    ...bridgePriceAllowlist()
+    )
   ];
 }
 

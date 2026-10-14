@@ -2,8 +2,10 @@ import React from 'react';
 
 import { fireEvent, render, screen, within } from '@testing-library/react';
 
-import { TEST_TOKEN_IETH as REGISTRY_IETH } from 'lib/miden/swap/testing/registry';
+import { TEST_NATIVE_ETH_FAUCET, testSnapshotWithSwapPairs } from 'lib/epoch/testing/bridge-config';
+import { TEST_TOKEN_IETH as REGISTRY_IETH, testSwapPairsToken } from 'lib/miden/swap/testing/registry';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { SelectSwapTokenDrawer } from './SelectSwapToken';
 
@@ -75,6 +77,15 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState)
 }));
+
+// The real registry reads the snapshot a case sets here, and prices the bridged faucets today's testnet config names.
+let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(() => mockBridgeSnapshot)
+);
+jest.mock('lib/miden/swap/bridge-price-allowlist');
 
 // The testnet document, whose swap tokens name the iETH faucet the labels read.
 jest.mock('lib/remote-config/use-feature-availability', () => ({
@@ -174,6 +185,7 @@ beforeEach(() => {
 
 afterEach(() => {
   mockedHasUnquotedDefaultPrice.mockReturnValue(false);
+  mockBridgeSnapshot = undefined;
 });
 
 describe('SelectSwapTokenDrawer', () => {
@@ -274,6 +286,24 @@ describe('SelectSwapTokenDrawer', () => {
       renderDrawer();
 
       expect(within(tokenButton('IETH')).getByText('$2.50')).toBeInTheDocument();
+    });
+
+    it("values a solver token the bridge config prices at the config's asset, not the solver's", () => {
+      const { getSwapTokens } = jest.requireActual<typeof import('lib/miden/swap/tokens')>('lib/miden/swap/tokens');
+      const weth = { faucetId: TEST_NATIVE_ETH_FAUCET, ticker: 'IWETH', decimals: 8, binanceAsset: 'USDC' };
+      const ieth = testSwapPairsToken(REGISTRY_IETH);
+      mockBridgeSnapshot = testSnapshotWithSwapPairs({
+        tokens: [weth, ieth],
+        pairs: [{ faucetIds: [weth.faucetId, ieth.faucetId] }]
+      });
+      setTokens(getSwapTokens());
+      mockStoreState = { tokenPrices: { USDC: { price: 1 }, ETH: { price: 3000 } } };
+      setBalances([
+        { tokenId: `bech32:${TEST_NATIVE_ETH_FAUCET}`, metadata: { symbol: 'IWETH', decimals: 8 }, balance: 2 }
+      ]);
+      renderDrawer();
+
+      expect(within(tokenButton('IWETH')).getByText('$6000.00')).toBeInTheDocument();
     });
 
     it('renders no fiat value for an unpriced DEX token rather than a $1-default figure', () => {

@@ -363,6 +363,31 @@ describe('strictPriceSymbolFor', () => {
     expect(() => strictPriceSymbolFor(spendId, 'IETH')).toThrow(spendParseError);
   });
 
+  it("prices a faucet the bridge config names at the config's symbol, whatever the solver gives it", () => {
+    const solverWeth = { faucetId: MIDEN_AGGLAYER_FAUCET_ID, ticker: 'IWETH', decimals: 8 };
+    mockSnapshot.mockReturnValue(
+      listing({ ...SOLVER_PAIRS, tokens: [...SOLVER_PAIRS.tokens, { ...solverWeth, binanceAsset: 'USDC' }] })
+    );
+    expect(strictPriceSymbolFor(canonicalFaucetId(MIDEN_AGGLAYER_FAUCET_ID), 'IWETH')).toBe('ETH');
+    expect(priceSymbolFor(MIDEN_AGGLAYER_FAUCET_ID, 'IWETH')).toBe('ETH');
+    expect(getSwapTokenByFaucetId(MIDEN_AGGLAYER_FAUCET_ID)?.priceSymbol).toBe('ETH');
+    expect(getSwapTokenBySymbol('IWETH')?.priceSymbol).toBe('ETH');
+    // An asset the solver leaves out does not leave the faucet unpriced either.
+    mockSnapshot.mockReturnValue(listing({ ...SOLVER_PAIRS, tokens: [...SOLVER_PAIRS.tokens, solverWeth] }));
+    expect(getSwapTokenByFaucetId(MIDEN_AGGLAYER_FAUCET_ID)?.priceSymbol).toBe('ETH');
+  });
+
+  it('matches the bridge config before an overriding registry token that names the same faucet', () => {
+    _setSwapTokensForTest([
+      { symbol: 'IWETH', faucetId: MIDEN_AGGLAYER_FAUCET_ID, decimals: 8, logoSymbol: 'ETH', priceSymbol: 'USDC' }
+    ]);
+    try {
+      expect(strictPriceSymbolFor(canonicalFaucetId(MIDEN_AGGLAYER_FAUCET_ID), 'IWETH')).toBe('ETH');
+    } finally {
+      _setSwapTokensForTest(undefined);
+    }
+  });
+
   it('leaves the display match lenient: the same entry failure gives no price instead of throwing', () => {
     usdcEntryFailsToParse();
     const usdc = { price: 1, change24h: 0, percentageChange24h: 0 };
