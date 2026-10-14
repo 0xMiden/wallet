@@ -46,12 +46,9 @@ describe('known-bug registry', () => {
     );
   });
 
-  it('K2 matches an approved consume refused as INVALID_PARAMS not found', () => {
-    const refused = { name: 'WalletTransactionError', message: 'INVALID_PARAMS: Error: Note with id 0x12 not found' };
-    expect(bug('K2').signature(hard('W6', { popupOpened: true, dappError: refused }))).toBe(true);
-    expect(
-      bug('K2').signature(hard('W6', { popupOpened: true, dappError: { ...refused, message: 'NOT_GRANTED' } }))
-    ).toBe(false);
+  it('judges W6 on the fixed consume of carried noteBytes, with K2 (#1413) gone', () => {
+    expect(KNOWN_BUGS.filter(entry => entry.cells.W6 !== undefined).map(entry => entry.id)).toEqual([]);
+    expect(KNOWN_BUGS.map(entry => entry.id)).not.toContain('K2');
   });
 
   it('K5 matches a locked-wallet refusal before any popup', () => {

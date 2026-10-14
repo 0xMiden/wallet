@@ -296,7 +296,7 @@ function writeCells(
     W6: {
       budget: 'write',
       run: async ctx => {
-        // noteBytes of a note the wallet does not hold yet; K2 predicts INVALID_PARAMS ... not found after approval.
+        // noteBytes of a note the wallet does not hold yet: the approval imports it, then consumes it.
         const side = await sideOf(j, dapp);
         const baseline = await captureBaseline(side, [j.tokenFaucetId], ctx);
         const { result } = await answerPrompt(
