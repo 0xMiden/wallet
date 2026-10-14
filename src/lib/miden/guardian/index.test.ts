@@ -119,6 +119,8 @@ let wasmLockTail: Promise<void> = Promise.resolve();
 let evictDuringClientBuild = false;
 // Runs before a hold begins: the time a caller spends queued for the mutex.
 let beforeWasmHold: (() => void) | undefined;
+// Runs inside a hold's client build.
+let duringClientBuild: (() => void) | undefined;
 const wasmLockOptionsSeen: unknown[] = [];
 const mockRetireWasmClientForCaughtTrap = jest.fn();
 jest.mock('../sdk/miden-client', () => {
@@ -128,6 +130,7 @@ jest.mock('../sdk/miden-client', () => {
   return {
     getMidenClient: async () => {
       if (evictDuringClientBuild) currentWasmHold = null;
+      duringClientBuild?.();
       return mockMidenClient;
     },
     // Models hold OWNERSHIP: the code under test re-checks it after the client build, so a
@@ -361,6 +364,7 @@ describe('MultisigService', () => {
     currentWasmHold = null;
     wasmLockTail = Promise.resolve();
     evictDuringClientBuild = false;
+    duringClientBuild = undefined;
     callOrder.length = 0;
     syncHoldsSeen.length = 0;
     mockTransactionRequestDeserialize.mockReset();
@@ -2238,6 +2242,41 @@ describe('MultisigService', () => {
       expect(createSwitchGuardianProposal).not.toHaveBeenCalled();
       expect(syncingSeen).toEqual([true]);
       expect(phase.syncing).toBe(false);
+    });
+
+    it('neither syncs nor proposes once its caller abandoned the hold while it was queued', async () => {
+      const { service, createSwitchGuardianProposal } = switchService();
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+      const phase: ProposalSyncPhase = { syncing: false, abandoned: true };
+      let clientBuilds = 0;
+      duringClientBuild = () => {
+        clientBuilds += 1;
+      };
+
+      await expect(service.createSwitchGuardianProposal('https://new', phase)).rejects.toThrow(
+        'switch-guardian proposal'
+      );
+
+      expect(mockSyncChain).not.toHaveBeenCalled();
+      expect(createSwitchGuardianProposal).not.toHaveBeenCalled();
+      // The after-build check alone would also stop the sync; only the admission check skips the client build.
+      expect(clientBuilds).toBe(0);
+    });
+
+    it('neither syncs nor proposes once its caller abandoned the hold during the client build', async () => {
+      const { service, createSwitchGuardianProposal } = switchService();
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+      const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
+      duringClientBuild = () => {
+        phase.abandoned = true;
+      };
+
+      await expect(service.createSwitchGuardianProposal('https://new', phase)).rejects.toThrow(
+        'switch-guardian proposal'
+      );
+
+      expect(mockSyncChain).not.toHaveBeenCalled();
+      expect(createSwitchGuardianProposal).not.toHaveBeenCalled();
     });
 
     it('clears the syncing flag when the sync fails', async () => {

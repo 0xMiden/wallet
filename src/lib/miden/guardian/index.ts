@@ -86,9 +86,10 @@ export function isProposalChainSyncError(err: unknown): boolean {
 }
 
 /**
- * Where one proposal attempt's hold stands with its chain sync, for a caller whose own deadline can give up on it
- * mid-sync: `syncing` is set while the sync runs, and a caller that gave up then sets `abandoned` so the hold makes
- * no proposal once the sync settles.
+ * Where one proposal attempt's hold stands, for a caller whose own deadline can stop awaiting it: `syncing` is set while
+ * its chain sync runs, so a rejection then (a deadline or an eviction) came from inside the sync. A caller that stops
+ * awaiting the attempt sets `abandoned` in whatever phase it is, and from then on the hold starts no sync and makes no
+ * proposal.
  */
 export type ProposalSyncPhase = { syncing: boolean; abandoned: boolean };
 
@@ -946,9 +947,15 @@ export class MultisigService {
     body: (hold: WasmLockHold, client: MidenClient) => Promise<T>,
     phase?: ProposalSyncPhase
   ): Promise<T> {
+    // Nobody awaits an abandoned attempt, and a delta it pushed would make a later coordinated switch 409 and cancel.
+    const assertNotAbandoned = (when: string) => {
+      if (phase?.abandoned) throw new Error(`${label}: abandoned by its caller ${when}`);
+    };
     return withWasmClientLock(async hold => {
+      assertNotAbandoned('while it waited for the hold');
       const { client } = await getMidenClient();
       assertWasmHoldCurrent(hold, `${label}: before the chain sync`);
+      assertNotAbandoned('during the client build');
       if (phase) phase.syncing = true;
       try {
         await syncAndRecordFeeFaucet(
@@ -968,8 +975,7 @@ export class MultisigService {
       } finally {
         if (phase) phase.syncing = false;
       }
-      // Nobody awaits this hold now, and a delta it pushed would make a later coordinated switch 409 and cancel.
-      if (phase?.abandoned) throw new Error(`${label}: abandoned by its caller during the chain sync`);
+      assertNotAbandoned('during the chain sync');
       return body(hold, client);
     });
   }

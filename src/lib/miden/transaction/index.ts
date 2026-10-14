@@ -3276,9 +3276,12 @@ const generateGuardianTransaction = async (
         });
         proposalResult = proposal;
       } catch (error) {
-        // Only the deadline can reject mid-sync, and then the node is what kept it waiting, not the Guardian.
+        // The arm awaits this attempt no longer, whatever rejected it, so its hold must push nothing in any phase.
+        if (syncPhase) syncPhase.abandoned = true;
+        // A deadline or an eviction can reject mid-sync. A kill is never the node's answer, so it keeps its own name;
+        // anything else there is the node keeping the attempt waiting, not the Guardian.
         if (syncPhase?.syncing) {
-          syncPhase.abandoned = true;
+          if (isKilledPipeline(error)) throw error;
           throw new ProposalChainSyncError(error);
         }
         // The node failed, not the Guardian: a direct switch would replace a coordinated proposal against a

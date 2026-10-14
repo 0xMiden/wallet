@@ -33,7 +33,7 @@ import {
 import { APPLY_RETRY_DELAYS_MS } from 'lib/miden/sdk/apply-after-submit';
 import type { ConsumableNoteDto } from 'lib/miden/sdk/consumable-notes';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
-import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
+import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { ConsumableNote } from 'lib/miden/types';
 import { getEffectiveDefaultGuardianEndpoint } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
@@ -53,6 +53,7 @@ import {
   ROTATION_FUNDING_NOTE_UNAVAILABLE_ERROR,
   ROTATION_PENDING_CONSUME_ERROR,
   SUBMIT_CROSSING_UNRECORDED_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_ERROR,
   TRANSACTION_FEE_CONVERSION_INFO_MISSING_ERROR,
   TRANSACTION_VAULT_SHORTFALL_ERROR,
   USER_CANCELLED_TRANSACTION_REASON
@@ -7778,8 +7779,9 @@ describe('generateTransaction — Guardian routing', () => {
   });
 
   describe('Guardian switch-guardian: the outgoing deadline while the proposal syncs the chain (#1442)', () => {
-    // The proposal push never settles; `markSyncing` says whether the hold is inside its chain sync then.
-    const runSilentSwitch = async (txId: string, markSyncing: boolean) => {
+    // The proposal push never settles unless `rejectWith` is given; `markSyncing` says whether the hold is inside its
+    // chain sync then.
+    const runSilentSwitch = async (txId: string, markSyncing: boolean, rejectWith?: Error) => {
       jest.useFakeTimers();
       txStore.push({
         id: txId,
@@ -7794,7 +7796,7 @@ describe('generateTransaction — Guardian routing', () => {
           phases.push(phase);
           if (markSyncing) phase.syncing = true;
         }
-        return new Promise<never>(() => {});
+        return rejectWith === undefined ? new Promise<never>(() => {}) : Promise.reject(rejectWith);
       });
       mockGetOrCreateMultisigService.mockResolvedValue({ createSwitchGuardianProposal, sync: jest.fn(async () => {}) });
       mockCreateDirectSwitchRequest.mockReset();
@@ -7835,18 +7837,19 @@ describe('generateTransaction — Guardian routing', () => {
       } finally {
         jest.useRealTimers();
       }
-      return { createSwitchGuardianProposal, phases, status: txStore.find(r => r.id === txId)?.status };
+      const row = txStore.find(r => r.id === txId);
+      return { createSwitchGuardianProposal, phases, row };
     };
 
     it('fails the row without the direct switch when the deadline expires during the chain sync', async () => {
-      const { createSwitchGuardianProposal, phases, status } = await runSilentSwitch(
+      const { createSwitchGuardianProposal, phases, row } = await runSilentSwitch(
         'switch-guardian-sync-deadline',
         true
       );
 
       expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
       expect(createSwitchGuardianProposal).toHaveBeenCalledWith('https://new.guardian', expect.any(Object));
-      expect(status).toBe(ITransactionStatus.Failed);
+      expect(row?.status).toBe(ITransactionStatus.Failed);
       // The hold it gave up on must not push the proposal once its sync settles.
       expect(phases).toHaveLength(1);
       expect(phases[0]).toMatchObject({ abandoned: true });
@@ -7857,7 +7860,23 @@ describe('generateTransaction — Guardian routing', () => {
 
       expect(createSwitchGuardianProposal).toHaveBeenCalledWith('https://new.guardian', expect.any(Object));
       expect(mockCreateDirectSwitchRequest).toHaveBeenCalled();
-      expect(phases[0]).toMatchObject({ syncing: false, abandoned: false });
+      expect(phases[0].syncing).toBe(false);
+      // The hold may still be queued for the mutex or building its client, and must push nothing once it gets there.
+      expect(phases[0].abandoned).toBe(true);
+    });
+
+    // An eviction rejects the holder while its sync never settles, so the record still says syncing.
+    it('fails the row on an eviction during the chain sync under its own name, without the direct switch', async () => {
+      const poison = new WasmClientPoisonedError('watchdog');
+      const { phases, row } = await runSilentSwitch('switch-guardian-sync-eviction', true, poison);
+
+      // Any kill down the cause chain gets this display text, wrapped or not; only rawError shows the wrap.
+      expect(row?.error).toBe(TRANSACTION_ENGINE_RECOVERED_ERROR);
+      expect(row?.rawError).not.toContain('chain sync before the proposal failed');
+      expect(row?.rawError).toContain(poison.message);
+      expect(phases[0].abandoned).toBe(true);
+      expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
+      expect(row?.status).toBe(ITransactionStatus.Failed);
     });
   });
 
