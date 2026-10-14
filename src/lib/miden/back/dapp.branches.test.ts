@@ -541,6 +541,25 @@ describe('requestConsumeTransaction — mobile error branches', () => {
       expect(mockQueueNoteImport).toHaveBeenCalledWith(noteBytes);
       expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
     });
+
+    // The import is the one await between the approval's check and the consume, and it can run long.
+    it.each([
+      ['the current account changes', () => (currentAccountPublicKey = 'miden-account-2')],
+      ['the dApp disconnects', () => (storageState[STORAGE_KEY] = { 'https://miden.xyz': [] })]
+    ])('refuses the consume when %s while the import is pending', async (_name, change) => {
+      mockImportNoteBytes.mockImplementationOnce(async () => {
+        change();
+        return 'note-1';
+      });
+
+      try {
+        await expect(consumeWithBytes()).rejects.toThrow(MidenDAppErrorType.NotGranted);
+      } finally {
+        currentAccountPublicKey = 'miden-account-1';
+      }
+      expect(mockImportNoteBytes).toHaveBeenCalledTimes(1);
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
   });
 
   it('refuses a note another transaction holds rather than answer with that transaction', async () => {

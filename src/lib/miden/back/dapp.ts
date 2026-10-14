@@ -2355,6 +2355,8 @@ const generatePromisifyConsumeTransaction = async (
         const { noteId, noteBytes } = req.transaction;
         if (noteBytes) {
           await importConsumeNoteBytes(noteId, noteBytes);
+          // The import can run long; the account or session may have changed under it.
+          await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
         }
         // `manualRetry`: the user just approved THIS consume on the sheet, so it
         // must not be dropped by auto-consume's exponential backoff — which
@@ -2405,6 +2407,8 @@ const generatePromisifyConsumeTransaction = async (
               const { noteId, noteBytes } = req.transaction;
               if (noteBytes) {
                 await importConsumeNoteBytes(noteId, noteBytes);
+                // See the mobile/desktop arm: the import can outlast the approval's check.
+                await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
               }
               // `manualRetry`: approved on the confirm page — see the
               // non-extension branch above for why the backoff must not apply,

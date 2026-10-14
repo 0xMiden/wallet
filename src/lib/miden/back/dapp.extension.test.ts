@@ -1518,6 +1518,22 @@ describe('Full confirmation cycles in extension mode', () => {
 
       await expect(consumeWithBytes()).rejects.toThrow('This note is being consumed by another transaction');
     });
+
+    // The import is the one await between the approval's check and the consume, and it can run long.
+    it.each([
+      ['the current account changes', () => (_g.__dappExtTestCurrentAccount = 'miden-account-2')],
+      ['the dApp disconnects', () => delete _g.__dappExtTest.storage[STORAGE_KEY]['https://miden.xyz']]
+    ])('refuses the consume when %s while the import is pending', async (_name, change) => {
+      carryRawNote(() => sdkNote('note-1'));
+      _g.__dappExtTest.midenClient.importNoteBytes = jest.fn(async () => {
+        change();
+        return detailsCommitment;
+      });
+
+      await expect(consumeWithBytes()).rejects.toThrow(MidenDAppErrorType.NotGranted);
+      expect(_g.__dappExtTest.midenClient.importNoteBytes).toHaveBeenCalledTimes(1);
+      expect(transaction().initiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
   });
 
   it('requestConsumeTransaction rejects with InvalidParams when consume throws', async () => {
