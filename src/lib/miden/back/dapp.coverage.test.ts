@@ -17,6 +17,8 @@
  */
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { ITransactionStatus } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
 
 // ── Mocks ──────────────────────────────────────────────────────────
 
@@ -245,9 +247,22 @@ describe('requestPermission', () => {
 // ── waitForTransaction ─────────────────────────────────────────────
 
 describe('waitForTransaction', () => {
-  it('forwards the txId to waitForTransactionCompletion', async () => {
+  afterEach(async () => {
+    await Repo.transactions.clear();
+  });
+
+  it('forwards the txId of a row the origin created to waitForTransactionCompletion', async () => {
+    await Repo.transactions.put({
+      id: 'tx-abc',
+      type: 'send',
+      accountId: 'miden-account-1',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      displayIcon: 'SEND',
+      dappOrigins: ['https://miden.xyz']
+    });
     mockWaitForTransactionCompletion.mockResolvedValue({ status: 'success' });
-    const res = await dapp.waitForTransaction({ txId: 'tx-abc' } as never);
+    const res = await dapp.waitForTransaction('https://miden.xyz', { txId: 'tx-abc' } as never);
     expect(mockWaitForTransactionCompletion).toHaveBeenCalledWith('tx-abc');
     expect(res.type).toBe(MidenDAppMessageType.WaitForTransactionResponse);
   });

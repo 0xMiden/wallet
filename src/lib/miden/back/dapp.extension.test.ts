@@ -499,7 +499,9 @@ describe('requestSign — extension flow', () => {
 
 describe('waitForTransaction', () => {
   it('throws InvalidParams when txId is missing', async () => {
-    await expect(dapp.waitForTransaction({} as never)).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+    await expect(dapp.waitForTransaction('https://miden.xyz', {} as never)).rejects.toThrow(
+      MidenDAppErrorType.InvalidParams
+    );
   });
 });
 
