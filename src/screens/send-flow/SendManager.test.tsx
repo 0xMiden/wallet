@@ -59,7 +59,7 @@ const navigateMock = jest.fn();
 
 const useAccountMock = jest.fn(() => ({ publicKey: 'me-pk' }) as any);
 const useAllAccountsMock = jest.fn(() => [] as any[]);
-const useAllBalancesMock = jest.fn(() => ({ data: undefined as any }));
+const useAllBalancesMock = jest.fn((_address?: string): { data: any; isLoading?: boolean } => ({ data: undefined }));
 let mockBalancesLoading = false;
 let mockHiddenTokensLoaded = true;
 let mockHiddenTokenIds = new Set<string>();
@@ -114,7 +114,12 @@ const walletStoreState = {
   isTransactionModalOpen: false,
   lastCompletedTxHash: null as string | null,
   closeTransactionModal: closeTransactionModalMock,
-  setLastCompletedTxHash: setLastCompletedTxHashMock
+  setLastCompletedTxHash: setLastCompletedTxHashMock,
+  // Read only by the real balance hook, which the cases that need its placeholder run in place of the mock.
+  balances: {} as Record<string, object[]>,
+  balancesLoading: {} as Record<string, boolean>,
+  balancesLastFetched: {} as Record<string, number>,
+  fetchBalances: jest.fn(async () => null)
 };
 
 // ---------------------------------------------------------------------------
@@ -303,7 +308,7 @@ jest.mock('./SendRoute', () => ({
 jest.mock('lib/miden/front', () => ({
   useAccount: () => useAccountMock(),
   useAllAccounts: () => useAllAccountsMock(),
-  useAllBalances: () => ({ ...useAllBalancesMock(), isLoading: mockBalancesLoading }),
+  useAllBalances: (address: string) => ({ isLoading: mockBalancesLoading, ...useAllBalancesMock(address) }),
   useAllTokensBaseMetadata: () => useAllTokensBaseMetadataMock()
 }));
 jest.mock('app/hooks/useHiddenTokens', () => ({
@@ -1753,6 +1758,36 @@ describe('single sendable token default', () => {
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
     rerender(<SendFlow isLoading={false} />);
     expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^OTHER$/);
+  });
+
+  describe('with the real balance hook', () => {
+    const { useAllBalances } = jest.requireActual<typeof import('lib/miden/front/balance')>('lib/miden/front/balance');
+    const noMetadata = {};
+    let consoleErrorSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      walletStoreState.balances = { 'me-pk': [native] };
+      walletStoreState.balancesLoading = {};
+      walletStoreState.balancesLastFetched = { 'me-pk': Date.now() };
+      useAllBalancesMock.mockImplementation((address = '') => useAllBalances(address, noMetadata));
+      // React only warns about an effect that re-renders forever, and the loop never ends; failing on the warning does.
+      const consoleError = console.error;
+      consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+        if (String(args[0]).includes('Maximum update depth exceeded')) throw new Error(String(args[0]));
+        consoleError(...args);
+      });
+    });
+
+    afterEach(() => consoleErrorSpy.mockRestore());
+
+    it('settles after switching to an account with no cached balances', () => {
+      const { rerender } = renderFlow();
+      expect(screen.getByTestId('sa-token-id')).toHaveTextContent(/^MIDEN-ID$/);
+      useAccountMock.mockReturnValue({ publicKey: 'uncached-pk' });
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+      expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+    });
   });
 });
 
