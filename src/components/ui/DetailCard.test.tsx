@@ -4,9 +4,24 @@ import { fireEvent, render, screen } from '@testing-library/react';
 
 import { hapticLight } from 'lib/mobile/haptics';
 
-import { DetailCard, DetailRow } from './DetailCard';
+import { DetailCard, DetailDisclosure, DetailRow } from './DetailCard';
 
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+// The disclosure's rows slide open on the `reveal` preset; the test reads the DOM, not the motion.
+jest.mock('framer-motion', () => {
+  const React = jest.requireActual('react');
+  return {
+    AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    motion: {
+      div: React.forwardRef(
+        ({ initial: _i, animate: _a, exit: _e, transition: _t, ...props }: any, ref: React.Ref<HTMLDivElement>) => (
+          <div ref={ref} {...props} />
+        )
+      )
+    },
+    useReducedMotion: () => false
+  };
+});
 
 describe('DetailCard', () => {
   it('renders a fill card with 16px radius and hairline dividers between rows', () => {
@@ -147,6 +162,24 @@ describe('DetailRow', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
+  it('renders a disabled action as a disabled pill that fires neither its handler nor the haptic', () => {
+    jest.mocked(hapticLight).mockClear();
+    const onClick = jest.fn();
+    render(
+      <DetailRow label="Expires" action={{ label: 'Edit', onClick, disabled: true }}>
+        In 2 days
+      </DetailRow>
+    );
+
+    const action = screen.getByRole('button', { name: 'Edit' });
+    expect(action).toBeDisabled();
+    expect(action).toHaveClass('h-6', 'bg-accent-tint', 'opacity-50');
+
+    fireEvent.click(action);
+    expect(hapticLight).not.toHaveBeenCalled();
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
   it('forwards data-testid to the row root', () => {
     render(
       <DetailRow label="Address" data-testid="detail-address">
@@ -163,5 +196,140 @@ describe('DetailRow', () => {
       </DetailRow>
     );
     expect(container.firstChild).toHaveClass('mt-2');
+  });
+});
+
+describe('DetailRow onClick', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('renders the whole row as a button with a trailing chevron and fires its handler with a haptic', () => {
+    const onClick = jest.fn();
+    render(
+      <DetailRow label="Transfer type" onClick={onClick} data-testid="row">
+        Private
+      </DetailRow>
+    );
+    const row = screen.getByTestId('row');
+    expect(row.tagName).toBe('BUTTON');
+    expect(row).toHaveClass('w-full', 'text-left');
+    expect(row.querySelector('svg')).not.toBeNull();
+
+    fireEvent.click(row);
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('declares the sheet the row opens with aria-haspopup', () => {
+    render(
+      <DetailRow label="Transfer type" onClick={jest.fn()} aria-haspopup="dialog" data-testid="row">
+        Private
+      </DetailRow>
+    );
+    expect(screen.getByTestId('row')).toHaveAttribute('aria-haspopup', 'dialog');
+  });
+
+  it('renders a disabled row as a disabled button that fires neither its handler nor the haptic', () => {
+    const onClick = jest.fn();
+    render(
+      <DetailRow label="Transfer type" onClick={onClick} disabled data-testid="row">
+        Private
+      </DetailRow>
+    );
+    const row = screen.getByTestId('row');
+    expect(row).toBeDisabled();
+    expect(row).toHaveClass('w-full', 'text-left', 'active:bg-fill-pressed', 'disabled:opacity-50');
+    expect(row.querySelector('svg')).not.toBeNull();
+
+    fireEvent.click(row);
+    expect(hapticLight).not.toHaveBeenCalled();
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('draws no chevron on a plain row', () => {
+    render(
+      <DetailRow label="Network" data-testid="row">
+        Miden
+      </DetailRow>
+    );
+    expect(screen.getByTestId('row').tagName).toBe('DIV');
+    expect(screen.getByTestId('row').querySelector('svg')).toBeNull();
+  });
+});
+
+describe('DetailDisclosure', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const Harness: React.FC<{ initialOpen?: boolean; emphasis?: boolean }> = ({
+    initialOpen = false,
+    emphasis = false
+  }) => {
+    const [open, setOpen] = React.useState(initialOpen);
+    return (
+      <DetailCard>
+        <DetailDisclosure
+          title="Advanced options"
+          summary="Private · In 7 days"
+          summaryEmphasis={emphasis}
+          open={open}
+          onOpenChange={setOpen}
+          data-testid="advanced"
+        >
+          <DetailRow label="Transfer type">Private</DetailRow>
+        </DetailDisclosure>
+      </DetailCard>
+    );
+  };
+
+  it('starts closed with the summary visible and the rows hidden, and exposes the state to assistive tech', () => {
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: /Advanced options/ });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toHaveAttribute('aria-controls');
+    expect(screen.getByTestId('advanced-summary')).toHaveTextContent('Private · In 7 days');
+    expect(screen.getByTestId('advanced-summary')).toHaveClass('text-muted');
+    expect(screen.queryByText('Transfer type')).not.toBeInTheDocument();
+  });
+
+  it('opens on tap with a haptic, hiding the summary and revealing the rows under a hairline', () => {
+    render(<Harness />);
+    const toggle = screen.getByRole('button', { name: /Advanced options/ });
+    fireEvent.click(toggle);
+
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.queryByTestId('advanced-summary')).not.toBeInTheDocument();
+    const region = document.getElementById(toggle.getAttribute('aria-controls') ?? '');
+    expect(region).not.toBeNull();
+    expect(region).toContainElement(screen.getByText('Transfer type'));
+    expect(region?.firstElementChild).toHaveClass('divide-y', 'divide-hairline', 'border-t', 'border-hairline');
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByTestId('advanced-summary')).toBeInTheDocument();
+  });
+
+  it("keeps a heading-face card's semibold labels on the rows it reveals", () => {
+    render(
+      <DetailCard face="heading">
+        <DetailDisclosure title="Advanced options" open onOpenChange={jest.fn()}>
+          <DetailRow label="Transfer type" onClick={jest.fn()}>
+            Private
+          </DetailRow>
+          <DetailRow label="Expires">In 7 days</DetailRow>
+        </DetailDisclosure>
+      </DetailCard>
+    );
+    expect(screen.getByText('Transfer type')).toHaveClass('font-semibold');
+    expect(screen.getByText('Expires')).toHaveClass('font-semibold');
+  });
+
+  it('draws an emphasised summary in accent-tint-ink, the one accent that reads on fill', () => {
+    render(<Harness emphasis />);
+    expect(screen.getByTestId('advanced-summary')).toHaveClass('text-accent-tint-ink');
+    expect(screen.getByTestId('advanced-summary')).not.toHaveClass('text-muted');
   });
 });
