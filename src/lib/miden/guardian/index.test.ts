@@ -22,7 +22,8 @@ import {
   MultisigService,
   POST_COMMIT_GUARDIAN_TIMEOUT_MS,
   PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
-  ProposalChainSyncError
+  ProposalChainSyncError,
+  type ProposalSyncPhase
 } from './index';
 import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { withWasmClientLock, type WasmClientLockOptions } from '../sdk/miden-client';
@@ -2217,6 +2218,37 @@ describe('MultisigService', () => {
       expect(syncHoldsSeen[0]).not.toBeNull();
       expect(mockRetireWasmClientForCaughtTrap).toHaveBeenCalledWith(syncHoldsSeen[0], trap);
       expect(createSwitchGuardianProposal).not.toHaveBeenCalled();
+    });
+
+    // The caller's deadline gave up while the hold synced, so nobody awaits a proposal pushed after the sync.
+    it('pushes no switch proposal once its caller abandoned the hold during the sync', async () => {
+      const { service, createSwitchGuardianProposal } = switchService();
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+      const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
+      const syncingSeen: boolean[] = [];
+      mockSyncChain.mockImplementationOnce(async () => {
+        syncingSeen.push(phase.syncing);
+        phase.abandoned = true;
+      });
+
+      await expect(service.createSwitchGuardianProposal('https://new', phase)).rejects.toThrow(
+        'switch-guardian proposal'
+      );
+
+      expect(createSwitchGuardianProposal).not.toHaveBeenCalled();
+      expect(syncingSeen).toEqual([true]);
+      expect(phase.syncing).toBe(false);
+    });
+
+    it('clears the syncing flag when the sync fails', async () => {
+      const { service } = switchService();
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+      const phase: ProposalSyncPhase = { syncing: false, abandoned: false };
+      mockSyncChain.mockRejectedValueOnce(new Error('node unreachable'));
+
+      await expect(service.createSwitchGuardianProposal('https://new', phase)).rejects.toThrow('node unreachable');
+
+      expect(phase).toEqual({ syncing: false, abandoned: false });
     });
 
     it('syncs the chain in the same hold before the procedure-threshold proposal', async () => {

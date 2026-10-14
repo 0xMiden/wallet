@@ -86,6 +86,13 @@ export function isProposalChainSyncError(err: unknown): boolean {
 }
 
 /**
+ * Where one proposal attempt's hold stands with its chain sync, for a caller whose own deadline can give up on it
+ * mid-sync: `syncing` is set while the sync runs, and a caller that gave up then sets `abandoned` so the hold makes
+ * no proposal once the sync settles.
+ */
+export type ProposalSyncPhase = { syncing: boolean; abandoned: boolean };
+
+/**
  * `reRegisterCurrentStateOnGuardian` refused to push (#1233): this device's copy of the account is
  * not the on-chain state, or either side could not be read. `/configure` overwrites the guardian's
  * state unconditionally, so pushing a copy that is behind the chain moves the guardian backwards
@@ -811,7 +818,8 @@ export class MultisigService {
    * after the on-chain switch commits.
    */
   async createSwitchGuardianProposal(
-    newGuardianEndpoint: string
+    newGuardianEndpoint: string,
+    syncPhase?: ProposalSyncPhase
   ): Promise<{ proposal: Proposal; newEndpoint: string }> {
     try {
       // Not yet known to be a Guardian: on mobile its origin routes through native HTTP only while it is checked.
@@ -831,8 +839,10 @@ export class MultisigService {
       });
       // `createSwitchGuardianProposal` already creates and returns the proposal;
       // calling `createProposal` again would duplicate it (nonce collision).
-      const proposal = await this.withChainSyncedHold('switch-guardian proposal', () =>
-        this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment)
+      const proposal = await this.withChainSyncedHold(
+        'switch-guardian proposal',
+        () => this.multisig.createSwitchGuardianProposal(newGuardianEndpoint, commitment),
+        syncPhase
       );
       return { proposal, newEndpoint: newGuardianEndpoint };
     } catch (error) {
@@ -933,11 +943,13 @@ export class MultisigService {
    */
   private withChainSyncedHold<T>(
     label: string,
-    body: (hold: WasmLockHold, client: MidenClient) => Promise<T>
+    body: (hold: WasmLockHold, client: MidenClient) => Promise<T>,
+    phase?: ProposalSyncPhase
   ): Promise<T> {
     return withWasmClientLock(async hold => {
       const { client } = await getMidenClient();
       assertWasmHoldCurrent(hold, `${label}: before the chain sync`);
+      if (phase) phase.syncing = true;
       try {
         await syncAndRecordFeeFaucet(
           client,
@@ -953,7 +965,11 @@ export class MultisigService {
         }
         if (isPipelineKillLink(error)) throw error;
         throw new ProposalChainSyncError(error);
+      } finally {
+        if (phase) phase.syncing = false;
       }
+      // Nobody awaits this hold now, and a delta it pushed would make a later coordinated switch 409 and cancel.
+      if (phase?.abandoned) throw new Error(`${label}: abandoned by its caller during the chain sync`);
       return body(hold, client);
     });
   }

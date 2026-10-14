@@ -18,7 +18,8 @@ import { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import {
   GUARDIAN_CANDIDATE_HOLD_MS,
   PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
-  ProposalChainSyncError
+  ProposalChainSyncError,
+  type ProposalSyncPhase
 } from 'lib/miden/guardian';
 import { GuardianRegistrationPreflightError } from 'lib/miden/guardian/direct-switch';
 import { OUTGOING_GUARDIAN_DEADLINE_MS } from 'lib/miden/guardian/discover';
@@ -7776,6 +7777,90 @@ describe('generateTransaction — Guardian routing', () => {
     expect((txStore.find(r => r.id === txId) as Record<string, unknown>).status).toBe(ITransactionStatus.Failed);
   });
 
+  describe('Guardian switch-guardian: the outgoing deadline while the proposal syncs the chain (#1442)', () => {
+    // The proposal push never settles; `markSyncing` says whether the hold is inside its chain sync then.
+    const runSilentSwitch = async (txId: string, markSyncing: boolean) => {
+      jest.useFakeTimers();
+      txStore.push({
+        id: txId,
+        type: 'switch-guardian',
+        accountId: 'guardian-acc',
+        status: ITransactionStatus.Queued,
+        extraInputs: { newGuardianEndpoint: 'https://new.guardian' }
+      });
+      const phases: ProposalSyncPhase[] = [];
+      const createSwitchGuardianProposal = jest.fn((_endpoint: string, phase?: ProposalSyncPhase) => {
+        if (phase) {
+          phases.push(phase);
+          if (markSyncing) phase.syncing = true;
+        }
+        return new Promise<never>(() => {});
+      });
+      mockGetOrCreateMultisigService.mockResolvedValue({ createSwitchGuardianProposal, sync: jest.fn(async () => {}) });
+      mockCreateDirectSwitchRequest.mockReset();
+      mockCreateDirectSwitchRequest.mockResolvedValue({
+        serialize: () => new Uint8Array([2]),
+        authArg: () => undefined
+      });
+      mockFinalizeDirectSwitch.mockResolvedValue(undefined);
+      mockIsGuardianAccount.mockResolvedValue(true);
+      mockGetMidenClient.mockResolvedValue({
+        syncState: jest.fn(async () => {}),
+        getAccount: jest.fn(async () => ({ id: () => ({ toString: () => 'guardian-acc' }) })),
+        waitForTransactionCommit: jest.fn(async () => {}),
+        client: makeClientApi(makeResult())
+      });
+      const provider = {
+        getAccounts: async () => [{ publicKey: 'guardian-acc', coldPublicKey: 'cold-pub', hotPublicKey: 'hot-pub' }],
+        getPublicKeyForCommitment: async () => 'pk',
+        signWord: jest.fn(async () => 'sig'),
+        setGuardianEndpoint: jest.fn(async () => {})
+      };
+      jest.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const run = generateTransaction(
+          {
+            id: txId,
+            type: 'switch-guardian',
+            accountId: 'guardian-acc',
+            extraInputs: { newGuardianEndpoint: 'https://new.guardian' },
+            delegateTransaction: false
+          } as never,
+          jest.fn(async () => new Uint8Array([1])),
+          false,
+          provider as never
+        );
+        await jest.advanceTimersByTimeAsync(OUTGOING_GUARDIAN_DEADLINE_MS);
+        await run;
+      } finally {
+        jest.useRealTimers();
+      }
+      return { createSwitchGuardianProposal, phases, status: txStore.find(r => r.id === txId)?.status };
+    };
+
+    it('fails the row without the direct switch when the deadline expires during the chain sync', async () => {
+      const { createSwitchGuardianProposal, phases, status } = await runSilentSwitch(
+        'switch-guardian-sync-deadline',
+        true
+      );
+
+      expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
+      expect(createSwitchGuardianProposal).toHaveBeenCalledWith('https://new.guardian', expect.any(Object));
+      expect(status).toBe(ITransactionStatus.Failed);
+      // The hold it gave up on must not push the proposal once its sync settles.
+      expect(phases).toHaveLength(1);
+      expect(phases[0]).toMatchObject({ abandoned: true });
+    });
+
+    it('still takes the direct switch when the deadline expires outside the chain sync', async () => {
+      const { createSwitchGuardianProposal, phases } = await runSilentSwitch('switch-guardian-push-deadline', false);
+
+      expect(createSwitchGuardianProposal).toHaveBeenCalledWith('https://new.guardian', expect.any(Object));
+      expect(mockCreateDirectSwitchRequest).toHaveBeenCalled();
+      expect(phases[0]).toMatchObject({ syncing: false, abandoned: false });
+    });
+  });
+
   it('Guardian update-procedure-threshold: a still-pending 409 is NOT requeued — it fails (structural op excluded from the gate)', async () => {
     // update-procedure-threshold is a cold-signed structural change; re-running it
     // can register a duplicate delta, so like switch-guardian / replace-hot-key it
@@ -8277,7 +8362,10 @@ describe('generateTransaction — Guardian routing', () => {
     // The switch-guardian path must build the proposal, cold co-signs first
     // (threshold-2 satisfied on-chain), then hot signs + creates the request,
     // then waits for inclusion and finalizes.
-    expect(multisigService.createSwitchGuardianProposal).toHaveBeenCalledWith('https://new.guardian');
+    expect(multisigService.createSwitchGuardianProposal).toHaveBeenCalledWith(
+      'https://new.guardian',
+      expect.any(Object)
+    );
     // Every hold the outgoing guardian can wedge is bounded by the 30 s deadline, so a silent operator is
     // evicted then instead of queueing the direct switch behind the full watchdog.
     expect(mockBuildColdMultisigService).toHaveBeenCalledWith(
@@ -11594,7 +11682,10 @@ describe('generateTransaction — Guardian routing', () => {
 
     // The deliberate switch-guardian flow is exempt from the sync gate — it's a
     // manual recovery path and must not be blocked by the very drift it resolves.
-    expect(multisigService.createSwitchGuardianProposal).toHaveBeenCalledWith('https://new.guardian');
+    expect(multisigService.createSwitchGuardianProposal).toHaveBeenCalledWith(
+      'https://new.guardian',
+      expect.any(Object)
+    );
     expect(multisigService.finalizeGuardianSwitch).toHaveBeenCalledWith('https://new.guardian');
     const row = txStore.find(r => r.id === txId) as Record<string, unknown>;
     expect(row.status).toBe(ITransactionStatus.Completed);
@@ -12632,7 +12723,7 @@ describe('generateTransaction — direct switch audit marker', () => {
 
     // Pin that the coordinated path was actually walked — otherwise an early
     // throw for an unrelated reason would satisfy the assertion below.
-    expect(createSwitchGuardianProposal).toHaveBeenCalledWith('https://new.guardian');
+    expect(createSwitchGuardianProposal).toHaveBeenCalledWith('https://new.guardian', expect.any(Object));
     expect(signProposal).toHaveBeenCalledWith('prop-1', { watchdogMs: 30_000, label: 'switch-guardian cold co-sign' });
     expect(mockCreateDirectSwitchRequest).not.toHaveBeenCalled();
 
