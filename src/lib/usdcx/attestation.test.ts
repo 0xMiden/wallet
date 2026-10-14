@@ -1,10 +1,3 @@
-jest.mock('lib/remote-config/runtime', () => ({
-  getBridgeConfigSnapshot: () =>
-    jest
-      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
-      .testBridgeSnapshot()
-}));
-
 import { createHash } from 'crypto';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -20,6 +13,13 @@ import {
 } from './attestation';
 import vectors from './attestation.vectors.json';
 import { getUsdcxRemoteDomain, getUsdcxAttestationUrl } from './constant';
+
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
 
 const fetchMock = jest.fn();
 Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });

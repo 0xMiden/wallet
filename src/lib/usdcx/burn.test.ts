@@ -1,15 +1,15 @@
+import { initiateBridgedSendTransaction } from 'lib/miden/transaction/initiate';
+import { RpcTimeoutError } from 'lib/miden-chain/rpc-timeout';
+
+import { initiateUsdcxBurn, readUsdcxMinimumBurn } from './burn';
+import { readUsdcxDestinationBalance, readUsdcxDestinationSnapshot } from './destination-status';
+
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () =>
     jest
       .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
       .testBridgeSnapshot()
 }));
-
-import { initiateBridgedSendTransaction } from 'lib/miden/transaction/initiate';
-import { RpcTimeoutError } from 'lib/miden-chain/rpc-timeout';
-
-import { initiateUsdcxBurn, readUsdcxMinimumBurn } from './burn';
-import { readUsdcxDestinationBalance, readUsdcxDestinationSnapshot } from './destination-status';
 
 const mockGetAccountDetails = jest.fn();
 const mockFree = jest.fn();

@@ -1,4 +1,5 @@
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+
 import type { ReownConfigureOptions } from './native';
 
 let snapshot: BridgeConfigSnapshot;

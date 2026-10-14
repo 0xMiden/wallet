@@ -2,8 +2,8 @@ import { createPublicClient, http, isAddress } from 'viem';
 
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus, IUsdcxBurn } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { getChain } from 'lib/walletconnect/config';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { getChain } from 'lib/walletconnect/config';
 
 import { usdcxDestinations, ERC20_BALANCE_OF_ABI, minimumUsdcxPayout } from './constant';
 

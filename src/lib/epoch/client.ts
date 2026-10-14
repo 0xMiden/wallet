@@ -2,8 +2,8 @@ import { getConnection, getWalletClient, switchChain } from '@wagmi/core';
 import { type Chain, type WalletClient, createWalletClient, custom, http } from 'viem';
 import { sepolia } from 'viem/chains';
 
-import { EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
 import { wagmiConfig } from 'lib/walletconnect/appkit';
+import { EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
 import { buildNativeReownProvider, isNativeReownAvailable, NativeReown } from 'lib/walletconnect/native';
 
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';

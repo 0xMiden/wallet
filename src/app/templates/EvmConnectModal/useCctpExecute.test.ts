@@ -1,3 +1,10 @@
+import { renderHook } from '@testing-library/react';
+
+import { updateBridgedReceivePhase } from 'lib/miden/activity';
+import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnect/receipt';
+
+import { useCctpExecute } from './useCctpExecute';
+
 jest.mock('lib/miden/repo', () => ({ transactions: { get: async () => undefined } }));
 
 jest.mock('lib/remote-config/runtime', () => ({
@@ -6,13 +13,6 @@ jest.mock('lib/remote-config/runtime', () => ({
       .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
       .testBridgeSnapshot()
 }));
-
-import { renderHook } from '@testing-library/react';
-
-import { updateBridgedReceivePhase } from 'lib/miden/activity';
-import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnect/receipt';
-
-import { useCctpExecute } from './useCctpExecute';
 
 const hash = '0x1111111111111111111111111111111111111111111111111111111111111111';
 const mockWrite = jest.fn(async () => hash);

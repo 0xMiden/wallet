@@ -1,4 +1,3 @@
-import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import {
   IBridgeClaimStatus,
   IBridgeProvider,
@@ -13,9 +12,10 @@ import {
   IUsdcxBurn,
   ISwitchGuardianExtraInputs
 } from 'lib/miden/db/types';
-import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 import type { RotationVerdictKind } from 'lib/miden/guardian/rotation-verdict';
 import type { NotConfirmedHintKey } from 'lib/miden/transaction/verdict-rules';
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
+import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 
 /** A formatted secondary asset on a batch-consume row. */
 export interface IHistoryExtraAmount {

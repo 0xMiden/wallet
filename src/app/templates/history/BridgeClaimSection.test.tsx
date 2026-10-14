@@ -2,10 +2,10 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
+
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { IHistoryEntry } from './IHistoryEntry';
-
-import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 
 // t(key) echoes `t:<key>` so we can assert which label branch rendered.
 jest.mock('react-i18next', () => ({

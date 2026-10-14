@@ -19,8 +19,8 @@ import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/regist
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { isExtension } from 'lib/platform';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
-import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { initiateUsdcxBurn } from 'lib/usdcx/burn';
 import { UsdcxBurnError } from 'lib/usdcx/withdrawal';

@@ -1,15 +1,15 @@
+import { BridgedReceiveTransaction, IBridgedReceiveExtraInputs } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
+import vectors from 'lib/usdcx/attestation.vectors.json';
+
+import { reconcileBridgedReceives } from './bridge-receive';
+
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () =>
     jest
       .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
       .testBridgeSnapshot()
 }));
-
-import { BridgedReceiveTransaction, IBridgedReceiveExtraInputs } from 'lib/miden/db/types';
-import * as Repo from 'lib/miden/repo';
-import vectors from 'lib/usdcx/attestation.vectors.json';
-
-import { reconcileBridgedReceives } from './bridge-receive';
 
 // Circle attested deposit 0x370bf19a (attestation.vectors.json) to Miden account 0x8da911727d5b53916f2c221c00c091,
 // 2000 USDC as the USDCx faucet 0x4cbdcaffe75f0a317482224dae6436. Real attestation decode and match, real writer and

@@ -92,7 +92,7 @@ export function useEpochQuote({
         if (id !== reqId.current) return;
         setState({ loading: false, error: err instanceof Error ? err.message : 'Quote failed' });
       });
-  }, [debouncedKey, configKey]);
+  }, [debouncedKey, configKey, destinationChainId]);
 
   return { ...state, symbol: state.symbol ?? outputSymbol };
 }
