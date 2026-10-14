@@ -32,20 +32,36 @@ jest.mock('./runtime', () => ({ getBridgeConfigSnapshot: jest.fn() }));
 const CONFIG: BridgeConfig = {
   network: 'testnet',
   version: 1,
-  evm: { chainId: 11155111 },
-  agglayer: {
-    l1Bridge: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f',
-    midenBridge: '0x3b66e20b5088f25133b69216484652',
-    indexerUrl: 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api'
+  'bridge-providers': {
+    epoch: {
+      allocatorUrl: 'https://testnet-dev.epochprotocol.xyz',
+      positionsUrl: 'https://positions-testnet-dev.epochprotocol.xyz',
+      outputs: { 'usdc-testnet-output': { faucetId: '0x537c15a622074e91188aa894456c52' } }
+    },
+    agglayer: { indexerUrl: 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api' },
+    usdcx: {}
   },
-  epoch: {
-    allocatorUrl: 'https://testnet-dev.epochprotocol.xyz',
-    positionsUrl: 'https://positions-testnet-dev.epochprotocol.xyz',
-    midenUsdcFaucet: '0x537c15a622074e91188aa894456c52',
-    evmUsdc: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
-    earnProtocol: 'dummy-lending'
+  supportedEvmChains: {
+    sepolia: {
+      chainId: 11155111,
+      bridges: {
+        epoch: {
+          depositEnabled: true,
+          withdrawalEnabled: true,
+          tokens: {
+            USDC: { contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69', outputs: ['usdc-testnet-output'] }
+          }
+        },
+        agglayer: {
+          depositEnabled: true,
+          withdrawalEnabled: true,
+          contractAddress: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f',
+          midenBridgeId: '0x3b66e20b5088f25133b69216484652'
+        }
+      }
+    }
   },
-  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
+  features: { earn: true }
 };
 const ETH_FAUCET = '0x0b372f2735e33e91216d995bf29b91';
 const DERIVED: DerivedBridgeConfig = {
@@ -76,15 +92,42 @@ const DERIVED: DerivedBridgeConfig = {
     indexer: { state: 'ok', value: true }
   },
   epoch: {
+    market: {
+      state: 'ok',
+      value: {
+        marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+        protocolHash: '0x7a2ccf6fa10307c054284131a341a8d8cbd10ec7d3cc469fbf369c40fd86d0f9',
+        underlying: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
+        chainId: 11155111
+      }
+    },
     allocator: { state: 'ok', value: true },
     midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } },
     evmUsdc: { state: 'ok', value: { symbol: 'USDC', decimals: 18 } }
   }
 };
+const RECOVERY = {
+  chainId: 11155111,
+  contractAddress: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f',
+  midenBridgeId: '0x3b66e20b5088f25133b69216484652',
+  depositEnabled: true,
+  withdrawalEnabled: true,
+  indexerUrl: 'https://miden-testnet-bridge.dev.eu-north-3.gateway.fm/api',
+  rollupId: 86,
+  evmNetworkId: 0
+};
 const ERROR = { state: 'error' as const, message: 'down' };
 
 const snapshot = (config: BridgeConfig | null = CONFIG, derived: DerivedBridgeConfig | null = DERIVED) =>
-  ({ network: 'testnet', status: 'ready', config, derived, lastFetch: null }) satisfies BridgeConfigSnapshot;
+  ({
+    network: 'testnet',
+    status: 'ready',
+    config,
+    derived: derived
+      ? { ...derived, chains: { 11155111: { agglayer: derived.agglayer, epoch: { evmUsdc: derived.epoch.evmUsdc } } } }
+      : null,
+    lastFetch: null
+  }) satisfies BridgeConfigSnapshot;
 const withDerived = (patch: {
   agglayer?: Partial<DerivedBridgeConfig['agglayer']>;
   epoch?: Partial<DerivedBridgeConfig['epoch']>;
@@ -196,7 +239,7 @@ describe('getters', () => {
     [getAgglayerL1Bridge, '0x1348947e282138d8f377b467f7d9c2eb0f335d1f'],
     [getAgglayerRollupId, 86],
     [getAgglayerEvmNetworkId, 0],
-    [getAgglayerBridgeOut, { midenBridge: '0x3b66e20b5088f25133b69216484652', evmNetworkId: 0 }],
+    [getAgglayerBridgeOut, { midenBridge: '0x3b66e20b5088f25133b69216484652', evmNetworkId: 0, recovery: RECOVERY }],
     [getAgglayerDeposit, { l1Bridge: '0x1348947e282138d8f377b467f7d9c2eb0f335d1f', rollupId: 86 }]
   ])('%p returns the current value synchronously', (get, expected) => {
     jest.mocked(getBridgeConfigSnapshot).mockReturnValue(snapshot());
@@ -234,12 +277,10 @@ describe('getters', () => {
     expect(findEvmUsdc()).toBeNull();
   });
 
-  it('need only their own derived read: bridge out the L1 network id, a deposit the rollup id', () => {
+  it('requires a complete recovery snapshot before a new bridge-out and only the rollup for a deposit', () => {
     jest.mocked(getBridgeConfigSnapshot).mockReturnValue(withDerived({ agglayer: { rollupId: ERROR } }));
-    expect(getAgglayerBridgeOut()).toEqual({
-      midenBridge: '0x3b66e20b5088f25133b69216484652',
-      evmNetworkId: 0
-    });
+    // New bridge rows must save the rollup id so claims can continue after route removal.
+    expect(() => getAgglayerBridgeOut()).toThrow(BridgeConfigUnavailableError);
     expect(() => getAgglayerDeposit()).toThrow('The bridge config has no usable Agglayer deposit values.');
     jest.mocked(getBridgeConfigSnapshot).mockReturnValue(withDerived({ agglayer: { evmNetworkId: ERROR } }));
     expect(() => getAgglayerBridgeOut()).toThrow(BridgeConfigUnavailableError);

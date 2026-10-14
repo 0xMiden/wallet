@@ -15,10 +15,13 @@ const ETH_FAUCET = '0x0b372f2735e33e91216d995bf29b91';
 const config = (midenUsdcFaucet?: string): BridgeConfig => ({
   network: 'testnet',
   version: 1,
-  evm: {},
-  agglayer: {},
-  epoch: midenUsdcFaucet ? { midenUsdcFaucet } : {},
-  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true }
+  'bridge-providers': {
+    epoch: midenUsdcFaucet ? { outputs: { 'usdc-testnet-output': { faucetId: midenUsdcFaucet } } } : {},
+    agglayer: {},
+    usdcx: {}
+  },
+  supportedEvmChains: {},
+  features: { earn: true }
 });
 const derived = (tokens: DerivedBridgeConfig['agglayer']['tokens']): DerivedBridgeConfig => {
   const skipped = { state: 'skipped' } as const;

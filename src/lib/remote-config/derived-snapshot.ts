@@ -1,7 +1,8 @@
 import { isRecord } from 'lib/update/guards';
 
-import type { BridgeToken, DerivedBridgeConfig, Probe, TokenMetadata } from './derive';
+import type { BridgeToken, DerivedBridgeConfig, DerivedChainConfig, Probe, TokenMetadata } from './derive';
 import type { BridgeConfig, EvmAddress } from './schema';
+import type { EarnMarket } from './values';
 
 /** `bridge_config_derived_v1:<network>`, holding a DerivedBridgeConfig, which records its document version. */
 export function bridgeConfigDerivedKey(network: string): string {
@@ -57,6 +58,19 @@ function probe<T>(value: unknown, read: (value: unknown) => T | null): Probe<T> 
   return found === null ? null : { state: 'ok', value: found };
 }
 
+function market(value: Parameters<typeof metadata>[0]): EarnMarket | null {
+  if (!isRecord(value) || typeof value.marketUid !== 'string' || !isCount(value.chainId)) return null;
+  const { protocolHash, underlying } = value;
+  if (typeof protocolHash !== 'string' || !/^0x[0-9a-f]{64}$/.test(protocolHash)) return null;
+  if (typeof underlying !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(underlying)) return null;
+  return {
+    marketUid: value.marketUid,
+    underlying: `0x${underlying.slice(2)}`,
+    chainId: value.chainId,
+    protocolHash: `0x${protocolHash.slice(2)}`
+  };
+}
+
 /** The stored snapshot for `network`, or null unless it is whole and was derived from document `version`. */
 export function parseStoredDerived(value: unknown, network: string, version: number): DerivedBridgeConfig | null {
   if (!isRecord(value) || value.network !== network || value.version !== version) return null;
@@ -84,18 +98,41 @@ export function parseStoredDerived(value: unknown, network: string, version: num
   ) {
     return null;
   }
+  const chains: Record<number, DerivedChainConfig> = {};
+  if (value.chains !== undefined) {
+    if (!isRecord(value.chains)) return null;
+    for (const [chainId, entry] of Object.entries(value.chains)) {
+      if (!isRecord(entry)) return null;
+      const parsed = parseStoredDerived(
+        {
+          network,
+          version,
+          derivedAt,
+          agglayer: entry.agglayer,
+          epoch: { allocator, midenUsdcFaucet, evmUsdc: isRecord(entry.epoch) ? entry.epoch.evmUsdc : null }
+        },
+        network,
+        version
+      );
+      if (!parsed || !Number.isSafeInteger(Number(chainId))) return null;
+      chains[Number(chainId)] = { agglayer: parsed.agglayer, epoch: { evmUsdc: parsed.epoch.evmUsdc } };
+    }
+  }
+  const earnMarket = epoch.market === undefined ? undefined : probe(epoch.market, market);
+  if (earnMarket === null) return null;
   return {
     network,
     version,
     derivedAt,
+    ...(value.chains === undefined ? {} : { chains }),
     agglayer: { rollupId, tokens, evmNetworkId, l1BridgeCode, indexer },
-    epoch: { allocator, midenUsdcFaucet, evmUsdc }
+    epoch: { allocator, midenUsdcFaucet, evmUsdc, ...(earnMarket === undefined ? {} : { market: earnMarket }) }
   };
 }
 
 /** Every probe failed with `message`: what a derivation that threw reads as, so the features it gates show as down. */
 export function failedDerivation(config: BridgeConfig, message: string, derivedAt: number): DerivedBridgeConfig {
-  const error = { state: 'error', message } as const;
+  const error: Probe<never> = { state: 'error', message };
   return {
     network: config.network,
     version: config.version,

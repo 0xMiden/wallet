@@ -2,6 +2,7 @@ import { getConnection, getWalletClient, switchChain } from '@wagmi/core';
 import { type Chain, type WalletClient, createWalletClient, custom, http } from 'viem';
 import { sepolia } from 'viem/chains';
 
+import { EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
 import { wagmiConfig } from 'lib/walletconnect/appkit';
 import { buildNativeReownProvider, isNativeReownAvailable, NativeReown } from 'lib/walletconnect/native';
 
@@ -16,8 +17,15 @@ import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 const E2E_EVM_RPC_URL = process.env.MIDEN_E2E_TEST === 'true' ? (process.env.E2E_EVM_RPC_URL ?? '').trim() : '';
 
 function withE2eRpc(chain: Chain): Chain {
-  if (!E2E_EVM_RPC_URL) return chain;
-  return { ...chain, rpcUrls: { ...chain.rpcUrls, default: { http: [E2E_EVM_RPC_URL] } } };
+  const rpcUrl = E2E_EVM_RPC_URL || getChain(chain.id)?.rpcUrl;
+  return rpcUrl ? { ...chain, rpcUrls: { ...chain.rpcUrls, default: { http: [rpcUrl] } } } : chain;
+}
+
+function epochChain(chainId: number = sepolia.id): Chain {
+  if (chainId === MIDEN_DESTINATION_CHAIN_ID) return { ...sepolia, id: chainId };
+  const chain = EVM_CHAIN_DEFINITIONS.find(chain => chain.id === chainId);
+  if (!chain) throw new Error('The Epoch EVM chain is not supported');
+  return chain;
 }
 
 export interface EvmConnection {
@@ -60,10 +68,7 @@ export async function buildEpochWalletClient(
   address: `0x${string}`,
   opts?: { chainOverride?: number }
 ): Promise<WalletClient> {
-  const baseChain: Chain =
-    opts?.chainOverride !== undefined && opts.chainOverride !== sepolia.id
-      ? { ...sepolia, id: opts.chainOverride }
-      : sepolia;
+  const baseChain = epochChain(opts?.chainOverride);
   const chain = withE2eRpc(baseChain);
   // On mobile the EVM session lives in the native Reown plugin (wagmi is never
   // connected), so back the viem walletClient with a native EIP-1193 shim.
@@ -90,10 +95,7 @@ export function buildEpochReadOnlyWalletClient(
   address: `0x${string}`,
   opts?: { chainOverride?: number }
 ): WalletClient {
-  const baseChain: Chain =
-    opts?.chainOverride !== undefined && opts.chainOverride !== sepolia.id
-      ? { ...sepolia, id: opts.chainOverride }
-      : sepolia;
+  const baseChain = epochChain(opts?.chainOverride);
   const chain = withE2eRpc(baseChain);
   const rpcUrl = chain.rpcUrls.default.http[0] ?? '';
   return createWalletClient({

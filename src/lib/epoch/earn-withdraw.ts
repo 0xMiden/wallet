@@ -1,6 +1,6 @@
 import { EpochIntentSDK, TaskType, ActionType } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 } from 'uuid';
-import { type Address, parseUnits } from 'viem';
+import { type Address, getAddress, parseUnits } from 'viem';
 import { sepolia } from 'viem/chains';
 
 import {
@@ -61,6 +61,7 @@ export interface GaslessEarnWithdrawalArgs {
   /** Human-decimal withdrawable amount returned by the positions API. */
   amount: string;
   underlyingDecimals: number;
+  allocatorUrl?: string;
   /** Fired once the tracking `earn-withdraw` row exists (before the intent work),
    * so the caller can navigate to the generating-transaction screen, matching
    * `openEarnPosition`'s callback. */
@@ -149,7 +150,7 @@ export async function gaslessEarnWithdrawalToMiden(
   deps: GaslessEarnWithdrawalDeps = {}
 ): Promise<GaslessEarnWithdrawalResult> {
   const sponsorAddress = asAddress(args.evmAddress, 'Position owner');
-  const underlyingAddress = asAddress(args.underlyingAddress, 'Underlying token');
+  const underlyingAddress = getAddress(asAddress(args.underlyingAddress, 'Underlying token'));
   const midenRecipientHex = normalizeMidenIdToHex(args.midenAccountPublicKey);
   if (!args.midenAccountPublicKey) throw new Error('A Miden destination account is required.');
   if (!args.marketUid) throw new Error('The lending market identifier is missing.');
@@ -157,8 +158,10 @@ export async function gaslessEarnWithdrawalToMiden(
   // are checked when that read is known; otherwise the position's own stand.
   const usdc = findEvmUsdc();
   if (
-    underlyingAddress.toLowerCase() !== getEvmUsdcAddress().toLowerCase() ||
-    (usdc !== null && args.underlyingDecimals !== usdc.decimals)
+    underlyingAddress.toLowerCase() !== args.marketUid.split(':')[2]?.toLowerCase() ||
+    (usdc !== null &&
+      usdc.address.toLowerCase() === underlyingAddress.toLowerCase() &&
+      args.underlyingDecimals !== usdc.decimals)
   ) {
     throw new Error('Gasless withdrawal only supports the configured USDC Earn market.');
   }
@@ -167,7 +170,7 @@ export async function gaslessEarnWithdrawalToMiden(
   const amountAtomic = parseWithdrawAmount(args.amount, args.underlyingDecimals);
   if (amountAtomic <= 0n) throw new Error('Withdraw amount must be greater than zero.');
   // Read before the row exists, so a config that names no allocator refuses without leaving a failed row.
-  const apiBaseUrl = getEpochAllocatorUrl();
+  const apiBaseUrl = args.allocatorUrl ?? getEpochAllocatorUrl();
 
   const initiateRow = deps.initiateRow ?? initiateEarnWithdrawTransaction;
   const startDeliveryPoll = deps.startDeliveryPoll ?? pollEarnWithdrawDelivery;
@@ -194,6 +197,9 @@ export async function gaslessEarnWithdrawalToMiden(
       args.underlyingDecimals
     );
     assertCurrent();
+    await Repo.transactions.where({ id: txId }).modify(row => {
+      row.extraInputs = { ...row.extraInputs, epochAllocatorUrl: apiBaseUrl, underlyingAddress };
+    });
     args.onRowCreated?.(txId);
     const expected: ExpectedEarnWithdrawIntent = { owner: sponsorAddress, attemptId };
     let preparedExecution: IEarnWithdrawPreparedExecution | undefined;
@@ -450,7 +456,7 @@ export function pollEarnWithdrawDelivery(args: {
         }
       };
       if (!execution) {
-        const sdk = await getSdk(sponsorAddress);
+        const sdk = await getSdk(sponsorAddress, row.extraInputs.epochAllocatorUrl);
         if (!context.isCurrent() || !(await liveWithdrawal(txId, expected)) || !context.isCurrent()) return;
         const results = await readEpochIntentStatus(sdk, sponsorAddress, nonce);
         if (!context.isCurrent()) return;
@@ -513,7 +519,7 @@ export function pollEarnWithdrawDelivery(args: {
         void (async () => {
           const repairAttempted = !state.accepted && Date.now() >= state.repairDue;
           try {
-            const sdk = await getSdk(sponsorAddress);
+            const sdk = await getSdk(sponsorAddress, row.extraInputs.epochAllocatorUrl);
             if (!context.isCurrent() || !(await liveWithdrawal(txId, expected)) || !context.isCurrent()) return;
             let results: unknown;
             try {
@@ -699,7 +705,8 @@ export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = 
       midenAccountPublicKey: row.accountId,
       evmAddress: ei.evmOwner,
       marketUid: ei.marketUid,
-      underlyingAddress: getEvmUsdcAddress(),
+      underlyingAddress: ei.underlyingAddress ?? ei.marketUid.split(':')[2] ?? getEvmUsdcAddress(),
+      allocatorUrl: ei.epochAllocatorUrl,
       amount: ei.sourceAmount,
       underlyingDecimals
     },
@@ -789,7 +796,7 @@ export async function retryEarnWithdrawal(txId: string, deps: EarnWithdrawalRetr
     const request = execution.allocationRequests[execution.preparedExecution.delivery.allocationIndex];
     if (!request) return;
     try {
-      const sdk = await (deps.getSdk ?? getEpochReadOnlySdk)(expected.owner);
+      const sdk = await (deps.getSdk ?? getEpochReadOnlySdk)(expected.owner, row.extraInputs.epochAllocatorUrl);
       if (!context.isCurrent()) return;
       const fresh = await liveWithdrawal(txId, expected);
       if (!context.isCurrent() || !fresh || !matchesPreparedExecution(fresh, execution.preparedExecution)) return;

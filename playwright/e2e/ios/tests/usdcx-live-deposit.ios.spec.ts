@@ -1,15 +1,11 @@
+import { USDCX_REMOTE_DOMAIN, getUsdcxXReserveSource } from '../../helpers/usdcx-config';
 import fs from 'fs';
 import path from 'path';
 import { decodeFunctionData, formatUnits, isHash, isHex, parseUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { fetchXReserveAttestations, findAttestationForDomain } from '../../../../src/lib/usdcx/attestation';
-import {
-  CIRCLE_USDC_DECIMALS,
-  getUsdcxXReserveSource,
-  USDCX_REMOTE_DOMAIN,
-  XRESERVE_ABI
-} from '../../../../src/lib/usdcx/constant';
+import { CIRCLE_USDC_DECIMALS, XRESERVE_ABI } from '../../../../src/lib/usdcx/constant';
 import { midenAccountHexToXReserveRecipient } from '../../../../src/lib/usdcx/recipient';
 import { ARC_TESTNET } from '../../../../src/lib/walletconnect/config';
 import { arcEndpoints, arcHost, readArcUsdc, readXReserveDomainState, type ArcReadDeps } from '../../helpers/arc-usdcx';

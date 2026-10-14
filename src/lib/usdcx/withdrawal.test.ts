@@ -1,3 +1,12 @@
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () => {
+    const snapshot = jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot();
+    return network === 'testnet' ? snapshot : { ...snapshot, config: null };
+  }
+}));
+
 import { encodeBurnWithdrawal, isUsdcxWithdrawalNetwork, UsdcxBurnError, validateUsdcxWithdrawal } from './withdrawal';
 
 const USDCX_FAUCET_ID_BECH32 = 'mtst1native';

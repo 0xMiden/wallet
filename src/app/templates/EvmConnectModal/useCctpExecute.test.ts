@@ -1,3 +1,12 @@
+jest.mock('lib/miden/repo', () => ({ transactions: { get: async () => undefined } }));
+
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
+
 import { renderHook } from '@testing-library/react';
 
 import { updateBridgedReceivePhase } from 'lib/miden/activity';

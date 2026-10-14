@@ -1,5 +1,4 @@
 import type { CollateralType, IntentTransactionStatus, SolveIntentParams } from '@epoch-protocol/epoch-intents-sdk';
-import { sepolia } from 'viem/chains';
 import { create } from 'zustand';
 
 import { registerPendingBridgeIn, resolveBridgeInNoteId } from 'lib/miden/activity/bridge-in';
@@ -180,7 +179,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       bridgeReceiveTxId: null
     });
     try {
-      const sdk = await getEpochSdk();
+      const sdk = await getEpochSdk({ chainId: params.sourceChainId });
       if (!sdk) throw new Error('Connect an EVM wallet first');
       const quote = await getEVMToMidenQuote(sdk, params, sponsorAddress);
       const superseded = request !== latestRequest;
@@ -201,11 +200,14 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
 
   async executeEVMToMiden(bridgeReceiveTxId) {
     const { status, flow, quote } = get();
-    if (flow !== 'evm-to-miden' || status !== 'quoted' || !quote) {
+    if (flow !== 'evm-to-miden' || status !== 'quoted' || !quote || !('sourceChainId' in quote.params)) {
       throw new Error('executeEVMToMiden requires a quoted EVM→Miden flow');
     }
+    const sourceChainId = quote.params.sourceChainId;
     set({ status: 'signing', error: null, bridgeReceiveTxId: bridgeReceiveTxId ?? null });
     try {
+      const row = bridgeReceiveTxId ? await Repo.transactions.get(bridgeReceiveTxId) : undefined;
+      const inputs: IBridgedReceiveExtraInputs | undefined = row?.extraInputs;
       // viem's writeContract rejects when walletClient.chain.id (Sepolia)
       // doesn't match the wallet's currently-selected chain. The WC session
       // namespace declares Sepolia but MetaMask's active chain can still be
@@ -215,19 +217,19 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       // id in every signing request, so there is no active-chain to guard.
       let connection = await getEvmConnection();
       // A USDCx deposit switches the web wallet to Arc or Base, so switch it back before the checks below.
-      if (connection.address && !connection.isNative && connection.chainId !== sepolia.id) {
-        await switchWebWalletChain(sepolia.id);
+      if (connection.address && !connection.isNative && connection.chainId !== sourceChainId) {
+        await switchWebWalletChain(sourceChainId);
         connection = await getEvmConnection();
       }
       if (!connection.address) {
         throw new Error('Connect an EVM wallet first');
       }
-      if (!connection.isNative && connection.chainId !== sepolia.id) {
+      if (!connection.isNative && connection.chainId !== sourceChainId) {
         throw new Error(
-          `Wallet did not switch to Sepolia (currently ${connection.chainId}). Please switch the network in your wallet and try again.`
+          `Wallet did not switch to the source chain (currently ${connection.chainId}). Please switch the network in your wallet and try again.`
         );
       }
-      const sdk = await getEpochSdk();
+      const sdk = await getEpochSdk({ chainId: sourceChainId, allocatorUrl: inputs?.epochAllocatorUrl });
       if (!sdk) throw new Error('Connect an EVM wallet first');
       const intent = await buildEVMToMidenIntent(sdk, {
         ...(quote as EVMToMidenQuote).params,

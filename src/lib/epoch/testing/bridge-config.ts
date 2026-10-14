@@ -2,6 +2,7 @@ import { TEST_SWAP_SECTION } from 'lib/miden/swap/testing/registry';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { BridgeConfig } from 'lib/remote-config/schema';
+import { testBridgeSnapshot } from 'lib/remote-config/testing/fixture';
 import type { EarnMarket, EvmUsdc } from 'lib/remote-config/values';
 
 /** Today's testnet Epoch deployment on fixed test hosts: the bridge-config values the Epoch suites run against. */
@@ -48,20 +49,38 @@ export function remoteConfigValuesMock() {
   };
 }
 
+const circleTestConfig = testBridgeSnapshot().config;
+
 /** The testnet document naming the fixtures above, and the swap registry's tokens (`TEST_SWAP_SECTION`). */
 export const TEST_BRIDGE_CONFIG: BridgeConfig = {
   network: 'testnet',
   version: 1,
-  evm: { chainId: TEST_EVM_CHAIN_ID },
-  agglayer: {},
-  epoch: {
-    allocatorUrl: TEST_ALLOCATOR_URL,
-    positionsUrl: TEST_POSITIONS_URL,
-    midenUsdcFaucet: TEST_MIDEN_USDC_FAUCET,
-    evmUsdc: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
-    earnProtocol: 'dummy-lending'
+  'bridge-providers': {
+    epoch: {
+      allocatorUrl: TEST_ALLOCATOR_URL,
+      positionsUrl: TEST_POSITIONS_URL,
+      outputs: { 'usdc-testnet-output': { faucetId: TEST_MIDEN_USDC_FAUCET } }
+    },
+    agglayer: {},
+    usdcx: circleTestConfig?.['bridge-providers'].usdcx ?? {}
   },
-  features: { earn: true, fastBridge: true, bridgeIn: true, bridgeOut: true },
+  supportedEvmChains: {
+    ...circleTestConfig?.supportedEvmChains,
+    sepolia: {
+      chainId: TEST_EVM_CHAIN_ID,
+      bridges: {
+        usdcx: circleTestConfig?.supportedEvmChains.sepolia?.bridges.usdcx,
+        epoch: {
+          depositEnabled: true,
+          withdrawalEnabled: true,
+          tokens: {
+            USDC: { contractAddress: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69', outputs: ['usdc-testnet-output'] }
+          }
+        }
+      }
+    }
+  },
+  features: { earn: true },
   swap: TEST_SWAP_SECTION
 };
 
@@ -77,7 +96,20 @@ export const TEST_BRIDGE_CONFIG_SNAPSHOT: BridgeConfigSnapshot = {
     version: 1,
     derivedAt: 0,
     agglayer: { rollupId: SKIPPED, tokens: SKIPPED, evmNetworkId: SKIPPED, l1BridgeCode: SKIPPED, indexer: SKIPPED },
+    chains: {
+      [TEST_EVM_CHAIN_ID]: {
+        agglayer: {
+          rollupId: SKIPPED,
+          tokens: SKIPPED,
+          evmNetworkId: SKIPPED,
+          l1BridgeCode: SKIPPED,
+          indexer: SKIPPED
+        },
+        epoch: { evmUsdc: { state: 'ok', value: { symbol: TEST_EVM_USDC.symbol, decimals: TEST_EVM_USDC.decimals } } }
+      }
+    },
     epoch: {
+      market: { state: 'ok', value: TEST_EARN_MARKET },
       allocator: { state: 'ok', value: true },
       midenUsdcFaucet: { state: 'ok', value: { symbol: TEST_MIDEN_USDC.symbol, decimals: TEST_MIDEN_USDC.decimals } },
       evmUsdc: { state: 'ok', value: { symbol: TEST_EVM_USDC.symbol, decimals: TEST_EVM_USDC.decimals } }

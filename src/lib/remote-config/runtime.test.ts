@@ -87,10 +87,9 @@ const DERIVED = 'bridge_config_derived_v1:testnet';
 const config = (version: number, network = 'testnet'): BridgeConfig => ({
   network,
   version,
-  evm: { chainId: 11155111 },
-  agglayer: {},
-  epoch: { allocatorUrl: 'https://allocator.example' },
-  features: { earn: true, fastBridge: true, bridgeIn: false, bridgeOut: false }
+  'bridge-providers': { epoch: { allocatorUrl: 'https://allocator.example' }, agglayer: {}, usdcx: {} },
+  supportedEvmChains: {},
+  features: { earn: true }
 });
 const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfig => ({
   network: source.network,

@@ -37,3 +37,16 @@ it.each([
   expect(readNativeFeeFields).not.toHaveBeenCalled();
   expect(mockSendTransaction).toHaveBeenCalledWith(expect.objectContaining(fee));
 });
+
+it('routes reads and sends to the selected chain after a claim switches chains', async () => {
+  const switched = buildNativeReownProvider({ chainId: 5042002, address: '0xowner', rpcUrl: 'https://arc.test' });
+  await switched.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0xaa36a7' }] });
+  expect(await switched.request({ method: 'eth_chainId' })).toBe('0xaa36a7');
+  await switched.request({ method: 'eth_sendTransaction', params: [{ to: '0xto' }] });
+  expect(mockSendTransaction).toHaveBeenCalledWith(expect.objectContaining({ chainId: 11155111 }));
+  expect(readNativeFeeFields).toHaveBeenCalledWith(11155111);
+  await expect(
+    switched.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0xdeadbeef' }] })
+  ).rejects.toThrow();
+  expect(await switched.request({ method: 'eth_chainId' })).toBe('0xaa36a7');
+});

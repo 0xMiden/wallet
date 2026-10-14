@@ -7,7 +7,7 @@ import {
   RpcClient,
   SlotAndKeys
 } from '@miden-sdk/miden-sdk/lazy';
-import { createPublicClient, http, parseAbi } from 'viem';
+import { createPublicClient, getAddress, http, keccak256, parseAbi, toBytes } from 'viem';
 
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -17,6 +17,7 @@ import { isRecord } from 'lib/update/guards';
 import { getChain } from 'lib/walletconnect/config';
 
 import type { BridgeConfig, EvmAddress } from './schema';
+import type { EarnMarket } from './values';
 
 export type Probe<T> =
   | { state: 'ok'; value: T }
@@ -40,6 +41,7 @@ export interface DerivedBridgeConfig {
   network: string;
   version: number; // the document version it was derived from
   derivedAt: number;
+  chains?: Record<number, DerivedChainConfig>;
   agglayer: {
     rollupId: Probe<number>;
     tokens: Probe<BridgeToken[]>;
@@ -49,9 +51,15 @@ export interface DerivedBridgeConfig {
   };
   epoch: {
     allocator: Probe<true>;
+    market?: Probe<EarnMarket>;
     midenUsdcFaucet: Probe<TokenMetadata>; // existence and metadata in one read
     evmUsdc: Probe<TokenMetadata>;
   };
+}
+
+export interface DerivedChainConfig {
+  agglayer: DerivedBridgeConfig['agglayer'];
+  epoch: { evmUsdc: Probe<TokenMetadata> };
 }
 
 /** Reads over one EVM chain's RPC. */
@@ -323,6 +331,47 @@ async function probeErc20(reads: EvmReads | null, token: EvmAddress | undefined)
   return code.state === 'ok' ? attempt(() => reads.erc20(token)) : code;
 }
 
+async function discoverEarnMarket(config: BridgeConfig, io: DeriveDeps): Promise<Probe<EarnMarket>> {
+  const positionsUrl = config['bridge-providers'].epoch.positionsUrl;
+  const chains = Object.values(config.supportedEvmChains);
+  if (!positionsUrl || chains.length === 0) return { state: 'skipped' };
+  return attempt(async () => {
+    const body = await fetchBoundedJson(
+      io.fetch,
+      `${positionsUrl}/positions?account=0x0000000000000000000000000000000000000000&chains=${chains.map(chain => chain.chainId).join(',')}`,
+      { maxBytes: 512 * 1024, timeoutMs: HEALTH_TIMEOUT_MS }
+    );
+    if (!isRecord(body) || body.success !== true || !isRecord(body.data) || !Array.isArray(body.data.items)) {
+      throw new Error('Epoch market response is invalid');
+    }
+    for (const item of body.data.items) {
+      if (!isRecord(item) || !isRecord(item.lenderInfo) || !Array.isArray(item.data)) continue;
+      const protocol = item.lenderInfo.lenderKey;
+      if (typeof protocol !== 'string' || protocol !== 'dummy-lending') continue;
+      for (const group of item.data) {
+        if (!isRecord(group) || !Array.isArray(group.positions)) continue;
+        for (const position of group.positions) {
+          if (!isRecord(position) || typeof position.marketUid !== 'string' || !isRecord(position.underlyingInfo))
+            continue;
+          const asset = position.underlyingInfo.asset;
+          if (!isRecord(asset) || typeof asset.address !== 'string') continue;
+          const chain = chains.find(chain => String(chain.chainId) === item.chainId);
+          const address = asset.address;
+          if (!chain || asset.symbol !== 'USDC' || !/^0x[0-9a-fA-F]{40}$/.test(address)) continue;
+          const underlying: EvmAddress = `0x${address.slice(2)}`;
+          return {
+            marketUid: position.marketUid,
+            protocolHash: keccak256(toBytes(protocol)),
+            underlying: getAddress(underlying),
+            chainId: chain.chainId
+          };
+        }
+      }
+    }
+    throw new NotDeployedError('Epoch has no supported USDC market');
+  });
+}
+
 /** Every value the document leaves to chain and service reads; a probe's failure never stops another. */
 export async function deriveBridgeConfig(
   config: BridgeConfig,
@@ -330,32 +379,61 @@ export async function deriveBridgeConfig(
 ): Promise<DerivedBridgeConfig> {
   const io: DeriveDeps = { ...defaultDeps, ...deps };
   const rpcUrl = io.midenRpcUrl();
-  const { agglayer, epoch, evm } = config;
-  const reads = evm.chainId === undefined ? null : io.evm(evm.chainId);
-  const [registry, l1Bridge, indexer, allocator, midenUsdcFaucet, evmUsdc] = await Promise.all([
-    when(agglayer.midenBridge, bridge => attempt(() => io.readBridgeRegistry(bridge, rpcUrl))),
-    probeL1Bridge(reads, agglayer.l1Bridge),
-    when(agglayer.indexerUrl, url => checkHealth(io.fetch, `${url}/healthz`, isIndexerServing)),
+  const providers = config['bridge-providers'];
+  const epoch = providers.epoch;
+  const faucetId = epoch.outputs?.['usdc-testnet-output']?.faucetId;
+  const [market, allocator, midenUsdcFaucet, indexer] = await Promise.all([
+    discoverEarnMarket(config, io),
     when(epoch.allocatorUrl, url => checkHealth(io.fetch, `${url}/health`, isAllocatorHealthy)),
-    when(epoch.midenUsdcFaucet, faucetId => attempt(() => io.readMidenFaucet(faucetId, rpcUrl))),
-    probeErc20(reads, epoch.evmUsdc)
+    when(faucetId, id => attempt(() => io.readMidenFaucet(id, rpcUrl))),
+    when(providers.agglayer.indexerUrl, url => checkHealth(io.fetch, `${url}/healthz`, isIndexerServing))
   ]);
-
-  let tokens: Probe<BridgeToken[]> = registry.state === 'ok' ? { state: 'ok', value: registry.value.tokens } : registry;
-  // A bridge that registers nothing has nothing to bridge, the same as no bridge.
-  if (tokens.state === 'ok' && tokens.value.length === 0) tokens = { state: 'absent' };
-
+  const chains: Record<number, DerivedChainConfig> = {};
+  await Promise.all(
+    Object.values(config.supportedEvmChains).map(async chain => {
+      const reads = io.evm(chain.chainId);
+      const agglayer = chain.bridges.agglayer;
+      const [registry, l1Bridge, evmUsdc] = await Promise.all([
+        when(agglayer?.midenBridgeId, bridge => attempt(() => io.readBridgeRegistry(bridge, rpcUrl))),
+        probeL1Bridge(reads, agglayer?.contractAddress),
+        probeErc20(reads, chain.bridges.epoch?.tokens.USDC?.contractAddress)
+      ]);
+      let tokens: Probe<BridgeToken[]> =
+        registry.state === 'ok' ? { state: 'ok', value: registry.value.tokens } : registry;
+      if (tokens.state === 'ok' && tokens.value.length === 0) tokens = { state: 'absent' };
+      chains[chain.chainId] = {
+        agglayer: {
+          rollupId: registry.state === 'ok' ? { state: 'ok', value: registry.value.rollupId } : registry,
+          tokens,
+          evmNetworkId: l1Bridge.networkId,
+          l1BridgeCode: l1Bridge.code,
+          indexer
+        },
+        epoch: { evmUsdc }
+      };
+    })
+  );
+  const epochChain = Object.values(config.supportedEvmChains).find(chain => chain.bridges.epoch);
+  const aggChain = Object.values(config.supportedEvmChains).find(chain => chain.bridges.agglayer);
+  const skipped: Probe<never> = { state: 'skipped' };
+  const agglayer = aggChain ? chains[aggChain.chainId]?.agglayer : undefined;
   return {
     network: config.network,
     version: config.version,
     derivedAt: io.now(),
-    agglayer: {
-      rollupId: registry.state === 'ok' ? { state: 'ok', value: registry.value.rollupId } : registry,
-      tokens,
-      evmNetworkId: l1Bridge.networkId,
-      l1BridgeCode: l1Bridge.code,
+    chains,
+    agglayer: agglayer ?? {
+      rollupId: skipped,
+      tokens: skipped,
+      evmNetworkId: skipped,
+      l1BridgeCode: skipped,
       indexer
     },
-    epoch: { allocator, midenUsdcFaucet, evmUsdc }
+    epoch: {
+      allocator,
+      market,
+      midenUsdcFaucet,
+      evmUsdc: epochChain ? (chains[epochChain.chainId]?.epoch.evmUsdc ?? skipped) : skipped
+    }
   };
 }

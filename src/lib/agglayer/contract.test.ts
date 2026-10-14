@@ -1,5 +1,6 @@
 import type { EIP1193Provider } from 'viem';
 
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { getAgglayerL1Bridge } from 'lib/remote-config/values';
 
 import { claimAgglayerDeposit, midenAddrToEvmAddr } from './contract';
@@ -101,6 +102,26 @@ it('switches a wallet on another chain to Sepolia before claiming', async () => 
 it('refuses a claim on another chain without sending it', async () => {
   jest.mocked(getAgglayerL1Bridge).mockReturnValue('0x00000000000000000000000000000000000000b2');
   onChains('0x4cef52');
-  await expect(claimAgglayerDeposit({ deposit: DEPOSIT, provider })).rejects.toThrow('Sepolia');
+  await expect(claimAgglayerDeposit({ deposit: DEPOSIT, provider })).rejects.toThrow('destination chain');
   expect(mockClaimAsset).not.toHaveBeenCalled();
+});
+
+it('claims against the saved chain and contract after the route is removed', async () => {
+  const route: AgglayerRecoveryConfig = {
+    chainId: 84532,
+    contractAddress: '0x00000000000000000000000000000000000000b3',
+    midenBridgeId: '0x187cabbc404359d16be94954ca9879',
+    indexerUrl: 'https://saved-indexer.example/api',
+    rollupId: 73,
+    evmNetworkId: 6
+  };
+  jest.mocked(getAgglayerL1Bridge).mockImplementation(() => {
+    throw new Error('removed route');
+  });
+  onChains('0xaa36a7', '0x14a34');
+  await claimAgglayerDeposit({ deposit: DEPOSIT, provider, route });
+  expect(getAgglayerL1Bridge).not.toHaveBeenCalled();
+  expect(mockRequest).toHaveBeenCalledWith({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x14a34' }] });
+  expect(fetchMerkleProof).toHaveBeenCalledWith(DEPOSIT.deposit_cnt, DEPOSIT.network_id, route);
+  expect(mockFrom).toHaveBeenCalledWith(route.contractAddress, expect.any(Array), 'signer');
 });

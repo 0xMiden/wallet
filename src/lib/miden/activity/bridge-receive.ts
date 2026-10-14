@@ -19,7 +19,7 @@ import {
   stalledExecuteLeg,
   USDCX_EXECUTE_STALL_SEC
 } from 'lib/usdcx/cctp';
-import { USDCX_SOURCE_CHAINS, UsdcxExecutorSource } from 'lib/usdcx/constant';
+import { usdcxSourceChains, UsdcxExecutorSource } from 'lib/usdcx/constant';
 import { usdcxExpectedRemoteTokenFor, usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import { readEvmReceiptOutcome, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
 
@@ -86,7 +86,7 @@ async function reconcileAgglayerRow(row: ITransaction, inputs: IBridgedReceiveEx
   }
 
   try {
-    const deposits = await fetchDeposits(midenAddrToEvmAddr(row.accountId));
+    const deposits = await fetchDeposits(midenAddrToEvmAddr(row.accountId), undefined, inputs.agglayerRoute);
     const deposit = deposits.find(candidate => sameHash(candidate.tx_hash, inputs.evmTxHash!));
     if (deposit && isAgglayerDepositReady(deposit)) {
       await updateBridgedReceivePhase(row.id, 'ready');
@@ -182,7 +182,10 @@ async function matchUsdcxDeposit(
   if (txHash === undefined || !isHash(txHash)) return undefined;
   const expected = usdcxExpectationOf(row, inputs);
   if (expected === undefined) return undefined;
-  return matchUsdcxDepositAttestation(await fetchXReserveAttestations(txHash, { baseUrl: attestationApi }), expected);
+  return matchUsdcxDepositAttestation(await fetchXReserveAttestations(txHash, { baseUrl: attestationApi }), {
+    ...expected,
+    remoteDomain: inputs.usdcxMidenDomain
+  });
 }
 
 /**
@@ -197,7 +200,9 @@ async function reconcileUsdcxRow(row: ITransaction, inputs: IBridgedReceiveExtra
     await updateBridgedReceivePhase(row.id, 'failed', { error: INTERRUPTED_BEFORE_HASH });
     return;
   }
-  const source = inputs.sourceChainId === undefined ? undefined : USDCX_SOURCE_CHAINS.get(inputs.sourceChainId);
+  const source =
+    inputs.usdcxSource ??
+    (inputs.sourceChainId === undefined ? undefined : usdcxSourceChains().get(inputs.sourceChainId));
   try {
     if (source?.route === 'cctp-executor') {
       await reconcileUsdcxExecutorRow(row, inputs, source);

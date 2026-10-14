@@ -1,3 +1,10 @@
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
+
 import { ITransaction, ITransactionStatus, IBridgedSendExtraInputs } from 'lib/miden/db/types';
 import { RpcTimeoutError } from 'lib/miden-chain/rpc-timeout';
 

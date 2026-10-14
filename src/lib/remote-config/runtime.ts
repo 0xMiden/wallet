@@ -9,7 +9,7 @@ import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/eff
 import { backoffDelay, foregroundThreshold, isCheckDue } from 'lib/versioned-document';
 
 import { BRIDGE_FEATURES, type BridgeFeature, featureAvailability, type UnavailableReason } from './availability';
-import { deriveBridgeConfig, type DerivedBridgeConfig, type Probe } from './derive';
+import { deriveBridgeConfig, type DerivedBridgeConfig, type DerivedChainConfig, type Probe } from './derive';
 import { bridgeConfigDerivedKey, failedDerivation, parseStoredDerived } from './derived-snapshot';
 import { getE2eOverrides } from './e2e-overrides';
 import type { BridgeConfig } from './schema';
@@ -240,8 +240,25 @@ const kept = <T>(next: Probe<T>, previous: Probe<T>): Probe<T> =>
 function keepValuesRead(next: DerivedBridgeConfig, previous: DerivedBridgeConfig | null): DerivedBridgeConfig {
   if (!previous || previous.network !== next.network || previous.version !== next.version) return next;
   const { agglayer, epoch } = next;
+  const chains: Record<number, DerivedChainConfig> = {};
+  for (const [id, chain] of Object.entries(next.chains ?? {})) {
+    const before = previous.chains?.[Number(id)];
+    chains[Number(id)] = before
+      ? {
+          agglayer: {
+            ...chain.agglayer,
+            rollupId: kept(chain.agglayer.rollupId, before.agglayer.rollupId),
+            tokens: kept(chain.agglayer.tokens, before.agglayer.tokens),
+            evmNetworkId: kept(chain.agglayer.evmNetworkId, before.agglayer.evmNetworkId),
+            l1BridgeCode: kept(chain.agglayer.l1BridgeCode, before.agglayer.l1BridgeCode)
+          },
+          epoch: { evmUsdc: kept(chain.epoch.evmUsdc, before.epoch.evmUsdc) }
+        }
+      : chain;
+  }
   return {
     ...next,
+    ...(next.chains === undefined ? {} : { chains }),
     agglayer: {
       ...agglayer,
       rollupId: kept(agglayer.rollupId, previous.agglayer.rollupId),
@@ -251,6 +268,7 @@ function keepValuesRead(next: DerivedBridgeConfig, previous: DerivedBridgeConfig
     },
     epoch: {
       ...epoch,
+      ...(epoch.market && previous.epoch.market ? { market: kept(epoch.market, previous.epoch.market) } : {}),
       midenUsdcFaucet: kept(epoch.midenUsdcFaucet, previous.epoch.midenUsdcFaucet),
       evmUsdc: kept(epoch.evmUsdc, previous.epoch.evmUsdc)
     }
@@ -405,6 +423,17 @@ export async function initBridgeConfig(): Promise<BridgeConfigSnapshot> {
   if (isDue(state, state.failures > 0 ? backoffDelay(state.failures) : HEALTHY_POLL_MS)) void startRefresh(state);
   ensureScheduler();
   return state.snapshot;
+}
+
+/** Wait for the first document when no document is stored. */
+export async function ensureBridgeConfig(): Promise<BridgeConfigSnapshot> {
+  for (;;) {
+    const state = await hydrateCurrent();
+    if (!state.stored) await startRefresh(state);
+    if (getEffectiveNetworkName() !== state.network) continue;
+    ensureScheduler();
+    return state.snapshot;
+  }
 }
 
 /** Test-only: fetches and re-derives now, awaited. */

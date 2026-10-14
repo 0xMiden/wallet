@@ -1,4 +1,5 @@
 import type { IBridgedSendExtraInputs } from 'lib/miden/db/types';
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { getAgglayerEvmNetworkId, getAgglayerIndexerUrl, getAgglayerRollupId } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
 
@@ -113,9 +114,13 @@ interface BridgesResponse {
 // Fetch recent deposits routed to `destAddr` (the Miden account in EVM form).
 // We pull a small window rather than just the latest so we can match our own
 // deposit by origin tx hash and not confuse it with an earlier bridge.
-export async function fetchDeposits(destAddr: string, limit = 10): Promise<AgglayerDeposit[]> {
+export async function fetchDeposits(
+  destAddr: string,
+  limit = 10,
+  route?: AgglayerRecoveryConfig
+): Promise<AgglayerDeposit[]> {
   const data = await agglayerJson<BridgesResponse>(
-    `${getAgglayerIndexerUrl()}/bridges/${destAddr}?limit=${limit}&offset=0`,
+    `${route?.indexerUrl ?? getAgglayerIndexerUrl()}/bridges/${destAddr}?limit=${limit}&offset=0`,
     'Agglayer bridge status'
   );
   return data.deposits ?? [];
@@ -126,10 +131,11 @@ const AGGLAYER_DEPOSITS_PAGE_SIZE = 10;
 /** The page of deposits routed to `destAddr` that starts `offset` deposits back, newest first, and their total. */
 export async function fetchDepositsPage(
   destAddr: string,
-  offset: number
+  offset: number,
+  route?: AgglayerRecoveryConfig
 ): Promise<{ deposits: AgglayerDeposit[]; total: number }> {
   const data = await agglayerJson<BridgesResponse>(
-    `${getAgglayerIndexerUrl()}/bridges/${destAddr}?limit=${AGGLAYER_DEPOSITS_PAGE_SIZE}&offset=${offset}`,
+    `${route?.indexerUrl ?? getAgglayerIndexerUrl()}/bridges/${destAddr}?limit=${AGGLAYER_DEPOSITS_PAGE_SIZE}&offset=${offset}`,
     'Agglayer bridge status'
   );
   return { deposits: data.deposits ?? [], total: Number(data.total_cnt) };
@@ -155,8 +161,9 @@ export function sameTxHash(left: string, right: string): boolean {
 }
 
 /** A deposit the indexer filed as a Miden -> EVM exit: from the configured rollup, bound for the L1 network. */
-export const isMidenToEvmDeposit = (deposit: AgglayerDeposit): boolean =>
-  deposit.network_id === getAgglayerRollupId() && deposit.dest_net === getAgglayerEvmNetworkId();
+export const isMidenToEvmDeposit = (deposit: AgglayerDeposit, route?: AgglayerRecoveryConfig): boolean =>
+  deposit.network_id === (route?.rollupId ?? getAgglayerRollupId()) &&
+  deposit.dest_net === (route?.evmNetworkId ?? getAgglayerEvmNetworkId());
 
 /**
  * A Slow bridge-out no lookup can ever find, so it is never polled, prompts nothing and offers no claim. Only its
@@ -175,9 +182,12 @@ interface DepositResponse {
 }
 
 /** Miden -> EVM exit number `depositCnt`. The indexer answers an unknown one with HTTP 500, which rejects. */
-export async function fetchMidenToEvmDeposit(depositCnt: number): Promise<AgglayerDeposit> {
+export async function fetchMidenToEvmDeposit(
+  depositCnt: number,
+  route?: AgglayerRecoveryConfig
+): Promise<AgglayerDeposit> {
   const data = await agglayerJson<DepositResponse>(
-    `${getAgglayerIndexerUrl()}/bridge?net_id=${getAgglayerRollupId()}&deposit_cnt=${depositCnt}`,
+    `${route?.indexerUrl ?? getAgglayerIndexerUrl()}/bridge?net_id=${route?.rollupId ?? getAgglayerRollupId()}&deposit_cnt=${depositCnt}`,
     'Agglayer bridge deposit'
   );
   return data.deposit;
@@ -217,13 +227,14 @@ export interface AgglayerExitSearch {
 export async function searchAgglayerExitDeposit(
   l1Dest: string,
   exitTxHash: string,
-  depositCnt?: number
+  depositCnt?: number,
+  route?: AgglayerRecoveryConfig
 ): Promise<AgglayerExitSearch> {
   const isThisExit = (deposit: AgglayerDeposit) =>
-    isMidenToEvmDeposit(deposit) && sameTxHash(deposit.tx_hash, exitTxHash);
+    isMidenToEvmDeposit(deposit, route) && sameTxHash(deposit.tx_hash, exitTxHash);
   if (depositCnt !== undefined) {
     try {
-      const pinned = await fetchMidenToEvmDeposit(depositCnt);
+      const pinned = await fetchMidenToEvmDeposit(depositCnt, route);
       if (isThisExit(pinned)) return { deposit: pinned, complete: true };
       console.warn('[agglayer] the pinned deposit no longer carries this exit; looking it up by address', {
         depositCnt,
@@ -233,31 +244,41 @@ export async function searchAgglayerExitDeposit(
       // Not found, or the indexer is down; the address history below answers either way.
     }
   }
-  let search = exitHistorySearches.get(exitTxHash);
+  const searchKey = JSON.stringify([
+    route?.indexerUrl ?? getAgglayerIndexerUrl(),
+    route?.rollupId ?? getAgglayerRollupId(),
+    route?.evmNetworkId ?? getAgglayerEvmNetworkId(),
+    l1Dest.toLowerCase(),
+    exitTxHash.toLowerCase()
+  ]);
+  let search = exitHistorySearches.get(searchKey);
   if (search === undefined) {
-    search = searchExitHistory(l1Dest, exitTxHash, isThisExit).finally(() => exitHistorySearches.delete(exitTxHash));
-    exitHistorySearches.set(exitTxHash, search);
+    search = searchExitHistory(l1Dest, searchKey, isThisExit, route).finally(() =>
+      exitHistorySearches.delete(searchKey)
+    );
+    exitHistorySearches.set(searchKey, search);
   }
   return search;
 }
 
 async function searchExitHistory(
   l1Dest: string,
-  exitTxHash: string,
-  isThisExit: (deposit: AgglayerDeposit) => boolean
+  searchKey: string,
+  isThisExit: (deposit: AgglayerDeposit) => boolean,
+  route?: AgglayerRecoveryConfig
 ): Promise<AgglayerExitSearch> {
   let page = 0;
   for (; page < AGGLAYER_EXIT_SEARCH_MAX_PAGES; page++) {
     const offset = page * AGGLAYER_DEPOSITS_PAGE_SIZE;
-    const { deposits, total } = await fetchDepositsPage(l1Dest, offset);
+    const { deposits, total } = await fetchDepositsPage(l1Dest, offset, route);
     const deposit = deposits.find(isThisExit);
     if (deposit) return { deposit, complete: true };
-    if (offset + deposits.length >= total) return exitHistoryMiss(exitTxHash, page, 'missed');
+    if (offset + deposits.length >= total) return exitHistoryMiss(searchKey, page, 'missed');
     if (deposits.length === 0) break;
-    const recorded = page === 0 ? exitHistoryMisses.get(exitTxHash) : undefined;
+    const recorded = page === 0 ? exitHistoryMisses.get(searchKey) : undefined;
     if (recorded !== undefined) return { deposit: null, complete: recorded === 'missed' };
   }
-  return exitHistoryMiss(exitTxHash, page, 'capped');
+  return exitHistoryMiss(searchKey, page, 'capped');
 }
 
 // A miss on the first page alone spends nothing, so only a search that paged back is recorded.
@@ -270,15 +291,20 @@ function exitHistoryMiss(exitTxHash: string, lastPage: number, miss: 'missed' | 
 export async function findAgglayerExitDeposit(
   l1Dest: string,
   exitTxHash: string,
-  depositCnt?: number
+  depositCnt?: number,
+  route?: AgglayerRecoveryConfig
 ): Promise<AgglayerDeposit | null> {
-  return (await searchAgglayerExitDeposit(l1Dest, exitTxHash, depositCnt)).deposit;
+  return (await searchAgglayerExitDeposit(l1Dest, exitTxHash, depositCnt, route)).deposit;
 }
 
 // Fetch the merkle proof for a deposit (net_id is the deposit's `network_id`).
-export async function fetchMerkleProof(depositCnt: number, netId: number): Promise<AgglayerMerkleProof> {
+export async function fetchMerkleProof(
+  depositCnt: number,
+  netId: number,
+  route?: AgglayerRecoveryConfig
+): Promise<AgglayerMerkleProof> {
   const data = await agglayerJson<MerkleProofResponse>(
-    `${getAgglayerIndexerUrl()}/merkle-proof?deposit_cnt=${depositCnt}&net_id=${netId}`,
+    `${route?.indexerUrl ?? getAgglayerIndexerUrl()}/merkle-proof?deposit_cnt=${depositCnt}&net_id=${netId}`,
     'Agglayer merkle-proof status'
   );
   return data.proof;

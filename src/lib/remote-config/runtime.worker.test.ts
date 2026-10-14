@@ -56,10 +56,9 @@ const NOW = 1_800_000_000_000;
 const config = (version: number): BridgeConfig => ({
   network: 'testnet',
   version,
-  evm: {},
-  agglayer: {},
-  epoch: {},
-  features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false }
+  'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
+  supportedEvmChains: {},
+  features: { earn: false }
 });
 const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfig => {
   const skipped = { state: 'skipped' } as const;

@@ -1,3 +1,10 @@
+jest.mock('lib/remote-config/runtime', () => ({
+  getBridgeConfigSnapshot: () =>
+    jest
+      .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
+      .testBridgeSnapshot()
+}));
+
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 
 import { pollUsdcxDestination, readUsdcxDestinationBalance, readUsdcxDestinationSnapshot } from './destination-status';
@@ -209,7 +216,7 @@ describe('readUsdcxDestinationSnapshot', () => {
 
 it('confirms arrival and preserves burn confirmation', async () => {
   await pollUsdcxDestination(stored, read);
-  expect(read).toHaveBeenCalledWith(5042002, recipient);
+  expect(read).toHaveBeenCalledWith(5042002, recipient, 15000, undefined);
   expect(stored.extraInputs.usdcxBurn).toMatchObject({
     phase: 'confirmed',
     destinationBalanceBefore: before,

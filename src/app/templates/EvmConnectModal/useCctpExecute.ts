@@ -4,7 +4,8 @@ import { encodeFunctionData, Hash, isHash, isHex, toHex } from 'viem';
 import { useSwitchChain, useWriteContract } from 'wagmi';
 
 import { updateBridgedReceivePhase } from 'lib/miden/activity';
-import { IUsdcxCctpLeg } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
+import { IBridgedReceiveExtraInputs, IUsdcxCctpLeg } from 'lib/miden/db/types';
 import { revertedExecuteLeg } from 'lib/usdcx/cctp';
 import { GENERIC_EXECUTOR_ABI, getUsdcxExecutorSource } from 'lib/usdcx/constant';
 import { readNativeFeeFields } from 'lib/walletconnect/fees';
@@ -29,7 +30,12 @@ export function useCctpExecute(): CctpExecute {
 
   return useCallback(
     async (txId, sourceChainId, leg) => {
-      const { target } = getUsdcxExecutorSource(sourceChainId);
+      const row = await Repo.transactions.get(txId);
+      const inputs: IBridgedReceiveExtraInputs | undefined = row?.extraInputs;
+      const saved = inputs?.usdcxSource;
+      const source = saved ?? getUsdcxExecutorSource(sourceChainId);
+      if (source.route !== 'cctp-executor') throw new Error('The saved route has no executor');
+      const { target } = source;
       const { message, attestation } = leg;
       if (!isHex(message) || !isHex(attestation)) {
         throw new Error('The CCTP attestation is not available yet.');

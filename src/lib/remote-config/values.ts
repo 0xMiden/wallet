@@ -1,9 +1,9 @@
-import { getAddress, keccak256, toBytes } from 'viem';
+import { getAddress } from 'viem';
 
 import type { BridgeToken, Probe, TokenMetadata } from './derive';
 import { getE2eOverrides, type MidenUsdc } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
-import type { EarnProtocol } from './schema';
+import type { AgglayerRecoveryConfig, SupportedEvmChainConfig } from './schema';
 
 /** Thrown by a `get*` getter while the accepted document or its derivation cannot supply the value. */
 export class BridgeConfigUnavailableError extends Error {
@@ -27,26 +27,37 @@ export interface EarnMarket {
   chainId: number;
 }
 
-// dummyLendingMarketUid in @epoch-protocol/epoch-commons-sdk 0.1.20, which the wallet does not depend on directly
-// and epoch-intents-sdk does not re-export.
-const MARKET_UID_PREFIX: Record<EarnProtocol, string> = { 'dummy-lending': 'DUMMY_LENDING' };
 const NATIVE_ETH = '0x0000000000000000000000000000000000000000';
 
 const okValue = <T>(probe: Probe<T> | undefined): T | null => (probe?.state === 'ok' ? probe.value : null);
 
+export function selectEpochChain(s: BridgeConfigSnapshot, chainId?: number): SupportedEvmChainConfig | null {
+  const chains = Object.values(s.config?.supportedEvmChains ?? {});
+  return chains.find(chain => chain.bridges.epoch && (chainId === undefined || chain.chainId === chainId)) ?? null;
+}
+
+export function selectAgglayerChain(s: BridgeConfigSnapshot, chainId?: number): SupportedEvmChainConfig | null {
+  const chains = Object.values(s.config?.supportedEvmChains ?? {});
+  return chains.find(chain => chain.bridges.agglayer && (chainId === undefined || chain.chainId === chainId)) ?? null;
+}
+
 export function selectEvmChainId(s: BridgeConfigSnapshot): number | null {
-  return s.config?.evm.chainId ?? null;
+  return selectEpochChain(s)?.chainId ?? null;
 }
 
 /** The Earn collateral faucet: the E2E override first, else the document's, whether or not its read succeeded. */
 export function selectMidenUsdcFaucetId(s: BridgeConfigSnapshot): string | null {
-  return getE2eOverrides().earnCollateralFaucet?.faucetId ?? s.config?.epoch.midenUsdcFaucet ?? null;
+  return (
+    getE2eOverrides().earnCollateralFaucet?.faucetId ??
+    s.config?.['bridge-providers'].epoch.outputs?.['usdc-testnet-output']?.faucetId ??
+    null
+  );
 }
 
 export function selectMidenUsdc(s: BridgeConfigSnapshot): MidenUsdc | null {
   const override = getE2eOverrides().earnCollateralFaucet;
   if (override) return override;
-  const faucetId = s.config?.epoch.midenUsdcFaucet;
+  const faucetId = s.config?.['bridge-providers'].epoch.outputs?.['usdc-testnet-output']?.faucetId;
   const metadata = okValue(s.derived?.epoch.midenUsdcFaucet);
   return faucetId && metadata ? { faucetId, ...metadata } : null;
 }
@@ -56,25 +67,16 @@ export function selectSwapTokenFaucetId(s: BridgeConfigSnapshot, symbol: string)
   return s.config?.swap?.tokens.find(token => token.symbol === symbol)?.faucetId ?? null;
 }
 
-export function selectEvmUsdc(s: BridgeConfigSnapshot): EvmUsdc | null {
-  const address = s.config?.epoch.evmUsdc;
-  const chainId = s.config?.evm.chainId;
-  const token = okValue(s.derived?.epoch.evmUsdc);
-  return address && chainId !== undefined && token ? { address: getAddress(address), chainId, ...token } : null;
+export function selectEvmUsdc(s: BridgeConfigSnapshot, chainId?: number): EvmUsdc | null {
+  const chain = selectEpochChain(s, chainId);
+  const address = chain?.bridges.epoch?.tokens.USDC?.contractAddress;
+  const token = okValue(chain ? s.derived?.chains?.[chain.chainId]?.epoch.evmUsdc : undefined);
+  return address && chain && token ? { address: getAddress(address), chainId: chain.chainId, ...token } : null;
 }
 
-/** From the document alone: the market uid and protocol hash are pure functions of its values. */
+/** Read the market returned by the Epoch positions service. */
 export function selectEarnMarket(s: BridgeConfigSnapshot): EarnMarket | null {
-  const protocol = s.config?.epoch.earnProtocol;
-  const underlying = s.config?.epoch.evmUsdc;
-  const chainId = s.config?.evm.chainId;
-  if (!protocol || !underlying || chainId === undefined) return null;
-  return {
-    marketUid: `${MARKET_UID_PREFIX[protocol]}:${chainId}:${underlying}`,
-    protocolHash: keccak256(toBytes(protocol)),
-    underlying: getAddress(underlying),
-    chainId
-  };
+  return okValue(s.derived?.epoch.market);
 }
 
 /**
@@ -100,11 +102,11 @@ function getValue<T>(value: string, select: (s: BridgeConfigSnapshot) => T | nul
 }
 
 export function getEpochAllocatorUrl(): string {
-  return getValue('epoch.allocatorUrl', s => s.config?.epoch.allocatorUrl ?? null);
+  return getValue('epoch.allocatorUrl', s => s.config?.['bridge-providers'].epoch.allocatorUrl ?? null);
 }
 
 export function getEpochPositionsUrl(): string {
-  return getValue('epoch.positionsUrl', s => s.config?.epoch.positionsUrl ?? null);
+  return getValue('epoch.positionsUrl', s => s.config?.['bridge-providers'].epoch.positionsUrl ?? null);
 }
 
 export function getEvmChainId(): number {
@@ -115,14 +117,14 @@ export function getMidenUsdc(): MidenUsdc {
   return getValue('Earn collateral faucet', selectMidenUsdc);
 }
 
-export function getEvmUsdc(): EvmUsdc {
-  return getValue('EVM USDC', selectEvmUsdc);
+export function getEvmUsdc(chainId?: number): EvmUsdc {
+  return getValue('EVM USDC', s => selectEvmUsdc(s, chainId));
 }
 
 /** The EVM USDC address from the document alone, checksummed: a recovery action never waits on the token's read. */
 export function getEvmUsdcAddress(): `0x${string}` {
   return getValue('epoch.evmUsdc', s => {
-    const address = s.config?.epoch.evmUsdc;
+    const address = selectEpochChain(s)?.bridges.epoch?.tokens.USDC?.contractAddress;
     return address ? getAddress(address) : null;
   });
 }
@@ -136,16 +138,19 @@ export function getEarnMarket(): EarnMarket {
   return getValue('Earn market', selectEarnMarket);
 }
 
-export function getAgglayerMidenBridge(): string {
-  return getValue('agglayer.midenBridge', s => s.config?.agglayer.midenBridge ?? null);
+export function getAgglayerMidenBridge(chainId?: number): string {
+  return getValue(
+    'agglayer.midenBridge',
+    s => selectAgglayerChain(s, chainId)?.bridges.agglayer?.midenBridgeId ?? null
+  );
 }
 
 export function getAgglayerIndexerUrl(): string {
-  return getValue('agglayer.indexerUrl', s => s.config?.agglayer.indexerUrl ?? null);
+  return getValue('agglayer.indexerUrl', s => s.config?.['bridge-providers'].agglayer.indexerUrl ?? null);
 }
 
-export function getAgglayerL1Bridge(): `0x${string}` {
-  return getValue('agglayer.l1Bridge', s => s.config?.agglayer.l1Bridge ?? null);
+export function getAgglayerL1Bridge(chainId?: number): `0x${string}` {
+  return getValue('agglayer.l1Bridge', s => selectAgglayerChain(s, chainId)?.bridges.agglayer?.contractAddress ?? null);
 }
 
 /** The Miden rollup id: a deposit's destination network, and the network the indexer files every Miden exit under. */
@@ -159,19 +164,40 @@ export function getAgglayerEvmNetworkId(): number {
 }
 
 /** What a bridge-out note carries: the Miden bridge it targets and the L1 bridge's networkID() as its destination. */
-export function getAgglayerBridgeOut(): { midenBridge: string; evmNetworkId: number } {
+export function getAgglayerBridgeOut(chainId?: number): {
+  midenBridge: string;
+  evmNetworkId: number;
+  recovery: AgglayerRecoveryConfig;
+} {
   return getValue('Agglayer bridge-out values', s => {
-    const midenBridge = s.config?.agglayer.midenBridge;
-    const evmNetworkId = okValue(s.derived?.agglayer.evmNetworkId);
-    return midenBridge && evmNetworkId !== null ? { midenBridge, evmNetworkId } : null;
+    const midenBridge = selectAgglayerChain(s, chainId)?.bridges.agglayer?.midenBridgeId;
+    const chain = selectAgglayerChain(s, chainId);
+    const evmNetworkId = okValue(chain ? s.derived?.chains?.[chain.chainId]?.agglayer.evmNetworkId : undefined);
+    const recovery = selectAgglayerRecoveryConfig(s, chainId);
+    return midenBridge && evmNetworkId !== null && recovery ? { midenBridge, evmNetworkId, recovery } : null;
   });
 }
 
 /** What an L1 deposit calls: the L1 bridge, with the Miden rollup id as the destination network. */
-export function getAgglayerDeposit(): { l1Bridge: `0x${string}`; rollupId: number } {
+export function getAgglayerDeposit(chainId?: number): { l1Bridge: `0x${string}`; rollupId: number } {
   return getValue('Agglayer deposit values', s => {
-    const l1Bridge = s.config?.agglayer.l1Bridge;
-    const rollupId = okValue(s.derived?.agglayer.rollupId);
+    const l1Bridge = selectAgglayerChain(s, chainId)?.bridges.agglayer?.contractAddress;
+    const chain = selectAgglayerChain(s, chainId);
+    const rollupId = okValue(chain ? s.derived?.chains?.[chain.chainId]?.agglayer.rollupId : undefined);
     return l1Bridge && rollupId !== null ? { l1Bridge, rollupId } : null;
   });
+}
+
+export function selectAgglayerRecoveryConfig(
+  s: BridgeConfigSnapshot,
+  chainId?: number
+): AgglayerRecoveryConfig | undefined {
+  const chain = selectAgglayerChain(s, chainId);
+  const route = chain?.bridges.agglayer;
+  const indexerUrl = s.config?.['bridge-providers'].agglayer.indexerUrl;
+  const reads = chain ? s.derived?.chains?.[chain.chainId]?.agglayer : undefined;
+  const rollupId = okValue(reads?.rollupId);
+  const evmNetworkId = okValue(reads?.evmNetworkId);
+  if (!chain || !route || !indexerUrl || rollupId === null || evmNetworkId === null) return undefined;
+  return { chainId: chain.chainId, ...route, indexerUrl, rollupId, evmNetworkId };
 }

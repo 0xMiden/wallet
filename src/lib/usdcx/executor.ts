@@ -24,7 +24,7 @@ import {
   CIRCLE_USDC_DECIMALS,
   USDCX_DEPOSIT_HOOK_DATA,
   USDCX_DEPOSIT_MAX_FEE,
-  USDCX_REMOTE_DOMAIN,
+  getUsdcxRemoteDomain,
   UsdcxExecutorSource,
   UsdcxExecutorTarget,
   XRESERVE_ABI
@@ -63,7 +63,14 @@ export function encodeXReserveDepositCalldata(target: UsdcxExecutorTarget, remot
   return encodeFunctionData({
     abi: XRESERVE_ABI,
     functionName: 'depositToRemote',
-    args: [0n, USDCX_REMOTE_DOMAIN, remoteRecipient, target.usdc, USDCX_DEPOSIT_MAX_FEE, USDCX_DEPOSIT_HOOK_DATA]
+    args: [
+      0n,
+      target.midenDomain ?? getUsdcxRemoteDomain(),
+      remoteRecipient,
+      target.usdc,
+      USDCX_DEPOSIT_MAX_FEE,
+      USDCX_DEPOSIT_HOOK_DATA
+    ]
   });
 }
 
@@ -281,8 +288,9 @@ export async function runUsdcxExecutorDeposit(
 ): Promise<Hash> {
   const intent = buildExecutorBurnIntent(amount, source, remoteRecipient, depositor);
 
-  if (!(await isRemoteDomainRegistered(USDCX_REMOTE_DOMAIN))) {
-    throw new UsdcxDomainNotRegisteredError(USDCX_REMOTE_DOMAIN);
+  const remoteDomain = source.midenDomain ?? getUsdcxRemoteDomain();
+  if (!(await isRemoteDomainRegistered(remoteDomain))) {
+    throw new UsdcxDomainNotRegisteredError(remoteDomain);
   }
 
   const tryQuote = async (): Promise<CctpBurnQuote | undefined> => {

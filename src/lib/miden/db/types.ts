@@ -1,7 +1,9 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import type { TransactionFailureDiagnostics } from 'lib/telemetry/transaction-failure';
+import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 
 import type { GuardianHistoryRecovery } from '../guardian/history';
 import { ConsumableNote, NoteType } from '../types';
@@ -180,9 +182,13 @@ export interface IUsdcxCctpLeg {
 
 /** Metadata persisted on a tracking-only EVM → Miden bridge row. */
 export interface IBridgedReceiveExtraInputs {
+  agglayerRoute?: AgglayerRecoveryConfig;
+  epochAllocatorUrl?: string;
   provider: IBridgeProvider;
   /** EVM source chain; absent on legacy Sepolia rows. */
   sourceChainId?: number;
+  usdcxSource?: UsdcxSourceChain;
+  usdcxMidenDomain?: number;
   /** Connected EVM account that funded the bridge. */
   sourceAddress: string;
   /** Human-readable source-chain input, retained even if the Miden output differs. */
@@ -305,6 +311,8 @@ export type IBridgeClaimStatus = 'not-applicable' | 'pending' | 'ready' | 'claim
 export interface IUsdcxBurn {
   noteId: string;
   destinationDomain: number;
+  destinationUsdc?: `0x${string}`;
+  payoutFeeAllowance?: string;
   phase: 'pending' | 'consuming' | 'confirmed' | 'discarded';
   /** USDC balance saved before the burn is queued, in six-decimal base units. */
   destinationBalanceBefore?: { balance: string; blockNumber: string };
@@ -317,6 +325,8 @@ export interface IUsdcxBurn {
 
 /** `extraInputs` shape for a `BridgedSendTransaction`. */
 export interface IBridgedSendExtraInputs {
+  agglayerRoute?: AgglayerRecoveryConfig;
+  epochAllocatorUrl?: string;
   provider: IBridgeProvider;
   usdcxBurn?: IUsdcxBurn;
   /** 0x EVM recipient. */
@@ -399,6 +409,7 @@ export interface IBridgedSendExtraInputs {
  * address is the position owner / intent sponsor.
  */
 export interface IEarnDepositExtraInputs {
+  epochAllocatorUrl?: string;
   /** 0x EVM address that owns the resulting lending position (intent sponsor). */
   evmRecipient: string;
   /** Epoch market identifier (`PROTOCOL:chainId:token`) the deposit targets. */
@@ -449,6 +460,8 @@ export interface IEarnWithdrawPreparedExecution extends PreparedExecution {
  * prove/submit — the row is a tracking-only record whose lifecycle lives in `phase`.
  */
 export interface IEarnWithdrawExtraInputs {
+  epochAllocatorUrl?: string;
+  underlyingAddress?: string;
   /** 0x EVM address that owned the redeemed lending position (intent sponsor). */
   evmOwner: string;
   /** Epoch market identifier (`PROTOCOL:chainId:token`) the withdrawal redeemed. */

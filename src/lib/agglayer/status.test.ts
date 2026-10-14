@@ -1,3 +1,5 @@
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
+
 import fixture from './b2agg/exit-hash.vectors.json';
 import {
   AGGLAYER_EXIT_SEARCH_MAX_PAGES,
@@ -456,5 +458,48 @@ describe('the configured indexer', () => {
     });
     await expect(fetchDeposits('0xdest')).rejects.toThrow('no indexer');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('saved route recovery', () => {
+  const route: AgglayerRecoveryConfig = {
+    chainId: 84532,
+    contractAddress: '0x00000000000000000000000000000000000000b3',
+    midenBridgeId: '0x187cabbc404359d16be94954ca9879',
+    indexerUrl: 'https://saved-indexer.example/api',
+    rollupId: 73,
+    evmNetworkId: 6
+  };
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('uses the saved indexer and network IDs after the published route changes', async () => {
+    const savedDeposit = { ...LIVE_16, network_id: 73, dest_net: 6 };
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ deposit: savedDeposit }) });
+    expect(await findAgglayerExitDeposit(LIVE_16.dest_addr, EXIT_16, 16, route)).toEqual(savedDeposit);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://saved-indexer.example/api/bridge?net_id=73&deposit_cnt=16',
+      expect.any(Object)
+    );
+    expect(mockIndexerUrl).not.toHaveBeenCalled();
+    expect(mockRollupId).not.toHaveBeenCalled();
+  });
+
+  it('does not share in-flight exit lookups between saved indexers', async () => {
+    const first = { ...LIVE_16, network_id: 73, dest_net: 6, tx_hash: '0xshared-recovery-exit' };
+    const second = { ...first, deposit_cnt: 22 };
+    fetchMock.mockImplementation(async (url: string) => ({
+      ok: true,
+      json: async () => ({ deposits: [url.startsWith(route.indexerUrl) ? first : second], total_cnt: '1' })
+    }));
+    const results = await Promise.all([
+      findAgglayerExitDeposit(first.dest_addr, first.tx_hash, undefined, route),
+      findAgglayerExitDeposit(first.dest_addr, first.tx_hash, undefined, {
+        ...route,
+        indexerUrl: 'https://other-indexer.example/api'
+      })
+    ]);
+    expect(results).toEqual([first, second]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

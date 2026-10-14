@@ -60,10 +60,9 @@ const LOADED: BridgeConfigSnapshot = {
   config: {
     network: 'testnet',
     version: 3,
-    evm: {},
-    agglayer: {},
-    epoch: {},
-    features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
+    'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
+    supportedEvmChains: {},
+    features: { earn: false },
     swap: { tokens: TEST_SWAP_TOKEN_CONFIG, etaUrl: 'https://quotes.example' }
   }
 };

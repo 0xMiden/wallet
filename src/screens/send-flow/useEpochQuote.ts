@@ -26,6 +26,7 @@ export interface UseEpochQuoteOpts {
   senderPublicKey?: string;
   /** Gate: only quote when the Fast route is active + inputs are valid. */
   enabled: boolean;
+  destinationChainId?: number;
 }
 
 type QuoteRequestState = Omit<EpochQuoteState, 'symbol'> & { symbol?: string };
@@ -44,16 +45,17 @@ export function useEpochQuote({
   faucetId,
   destinationAddress,
   senderPublicKey,
-  enabled
+  enabled,
+  destinationChainId
 }: UseEpochQuoteOpts): EpochQuoteState {
   const snapshot = useBridgeConfigSnapshot();
-  const outputToken = selectEvmUsdc(snapshot);
+  const outputToken = selectEvmUsdc(snapshot, destinationChainId);
   const outputSymbol = outputToken?.symbol ?? '';
   // The quote goes through the configured allocator for the output token the document and its read make usable, so
   // they key it too: a read that recovers or moves under the same document quotes anew. A move is no keystroke: it
   // supersedes the quote at once, not after the debounce.
   const configKey = JSON.stringify([
-    snapshot.config?.epoch.allocatorUrl ?? '',
+    snapshot.config?.['bridge-providers'].epoch.allocatorUrl ?? '',
     outputToken ? [outputToken.address, outputToken.chainId, outputToken.symbol, outputToken.decimals] : null
   ]);
   const ready = enabled && !!amount && amount > 0n && !!faucetId && !!destinationAddress && !!senderPublicKey;
@@ -79,7 +81,8 @@ export function useEpochQuote({
       amount: BigInt(a),
       faucetId: f,
       destinationAddress: d as `0x${string}`,
-      senderPublicKey: s
+      senderPublicKey: s,
+      destinationChainId
     })
       .then(res => {
         if (id !== reqId.current) return;
