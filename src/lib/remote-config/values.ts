@@ -147,6 +147,11 @@ export function findEvmUsdc(): EvmUsdc | null {
   return selectEvmUsdc(getBridgeConfigSnapshot());
 }
 
+/** The Epoch USDC contract the document names on `chainId`, whether or not its token read succeeded. */
+export function findEpochUsdcAddress(chainId: number): string | null {
+  return selectEpochChain(getBridgeConfigSnapshot(), chainId)?.bridges.epoch?.tokens.USDC?.contractAddress ?? null;
+}
+
 export function getEarnMarket(): EarnMarket {
   return getValue('Earn market', selectEarnMarket);
 }

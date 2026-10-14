@@ -15,6 +15,7 @@ import {
   getEpochAllocatorUrl,
   getEpochPositionsUrl,
   getEvmChainId,
+  findEpochUsdcAddress,
   findEvmUsdc,
   getEvmUsdc,
   getEvmUsdcAddress,
@@ -254,6 +255,16 @@ describe('selectors', () => {
     expect(selectMidenUsdcFaucetId(EMPTY)).toBe(injected.faucetId);
     delete process.env.MIDEN_E2E_TEST;
     expect(selectMidenUsdc(snapshot())?.faucetId).toBe('0x537c15a622074e91188aa894456c52');
+  });
+});
+
+describe('findEpochUsdcAddress', () => {
+  it('names the document contract of the chain, with no token read, and null elsewhere', () => {
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(snapshot(CONFIG, null));
+    expect(findEpochUsdcAddress(11155111)?.toLowerCase()).toBe('0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69');
+    expect(findEpochUsdcAddress(84532)).toBeNull();
+    jest.mocked(getBridgeConfigSnapshot).mockReturnValue(EMPTY);
+    expect(findEpochUsdcAddress(11155111)).toBeNull();
   });
 });
 

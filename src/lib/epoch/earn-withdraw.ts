@@ -21,7 +21,13 @@ import {
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
-import { findEvmUsdc, getEpochAllocatorUrl, getEvmUsdc, getEvmUsdcAddress } from 'lib/remote-config/values';
+import {
+  findEpochUsdcAddress,
+  findEvmUsdc,
+  getEpochAllocatorUrl,
+  getEvmUsdc,
+  getEvmUsdcAddress
+} from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
@@ -144,10 +150,24 @@ export function buildEarnWithdrawTaskDataParams(args: {
   };
 }
 
-/** Submit one withdrawal attempt while recovery can observe its active ownership. */
-export async function gaslessEarnWithdrawalToMiden(
+const UNSUPPORTED_MARKET = 'Gasless withdrawal only supports the configured USDC Earn market.';
+
+/**
+ * Submit one withdrawal attempt while recovery can observe its active ownership. A new withdrawal proceeds only
+ * for the Epoch USDC market the document configures on the market's own chain.
+ */
+export function gaslessEarnWithdrawalToMiden(
   args: GaslessEarnWithdrawalArgs,
   deps: GaslessEarnWithdrawalDeps = {}
+): Promise<GaslessEarnWithdrawalResult> {
+  return submitEarnWithdrawal(args, deps, true);
+}
+
+/** `verifyMarket` is false for a retry: its row's market and token were checked when the row was created. */
+async function submitEarnWithdrawal(
+  args: GaslessEarnWithdrawalArgs,
+  deps: GaslessEarnWithdrawalDeps,
+  verifyMarket: boolean
 ): Promise<GaslessEarnWithdrawalResult> {
   const sponsorAddress = asAddress(args.evmAddress, 'Position owner');
   const underlyingAddress = getAddress(asAddress(args.underlyingAddress, 'Underlying token'));
@@ -158,15 +178,18 @@ export async function gaslessEarnWithdrawalToMiden(
   // are checked when that read is known; otherwise the position's own stand.
   const usdc = findEvmUsdc();
   if (
-    underlyingAddress.toLowerCase() !== args.marketUid.split(':')[2]?.toLowerCase() ||
+    (verifyMarket && underlyingAddress.toLowerCase() !== args.marketUid.split(':')[2]?.toLowerCase()) ||
     (usdc !== null &&
       usdc.address.toLowerCase() === underlyingAddress.toLowerCase() &&
       args.underlyingDecimals !== usdc.decimals)
   ) {
-    throw new Error('Gasless withdrawal only supports the configured USDC Earn market.');
+    throw new Error(UNSUPPORTED_MARKET);
   }
   const chainId = Number(args.marketUid.split(':')[1]);
   if (chainId !== sepolia.id) throw new Error('Gasless withdrawal currently supports Sepolia only.');
+  if (verifyMarket && findEpochUsdcAddress(chainId)?.toLowerCase() !== underlyingAddress.toLowerCase()) {
+    throw new Error(UNSUPPORTED_MARKET);
+  }
   const amountAtomic = parseWithdrawAmount(args.amount, args.underlyingDecimals);
   if (amountAtomic <= 0n) throw new Error('Withdraw amount must be greater than zero.');
   // Read before the row exists, so a config that names no allocator refuses without leaving a failed row.
@@ -700,7 +723,7 @@ export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = 
   // A retry recovers funds, so it needs the document's token and its decimals, not a live read of them: the row's own
   // decimals stand in while that read fails. A row from before they were recorded refuses through the getter.
   const underlyingDecimals = findEvmUsdc()?.decimals ?? ei.sourceDecimals ?? getEvmUsdc().decimals;
-  await gaslessEarnWithdrawalToMiden(
+  await submitEarnWithdrawal(
     {
       midenAccountPublicKey: row.accountId,
       evmAddress: ei.evmOwner,
@@ -754,7 +777,8 @@ export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = 
         if (!claimed) throw new Error('This withdrawal attempt is no longer available to retry.');
         return txId;
       }
-    }
+    },
+    false
   );
 }
 

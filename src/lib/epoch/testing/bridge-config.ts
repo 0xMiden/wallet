@@ -45,6 +45,7 @@ export function remoteConfigValuesMock() {
     getEvmUsdc: jest.fn(() => TEST_EVM_USDC),
     getEvmUsdcAddress: jest.fn(() => TEST_EVM_USDC.address),
     findEvmUsdc: jest.fn((): EvmUsdc | null => TEST_EVM_USDC),
+    findEpochUsdcAddress: jest.fn((): string | null => TEST_EVM_USDC.address),
     getEarnMarket: jest.fn(() => TEST_EARN_MARKET),
     getMidenUsdc: jest.fn(() => TEST_MIDEN_USDC)
   };

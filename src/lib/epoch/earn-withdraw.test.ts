@@ -10,7 +10,7 @@ import {
   type IEarnWithdrawExtraInputs
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { findEvmUsdc, getEpochAllocatorUrl, getEvmUsdc } from 'lib/remote-config/values';
+import { findEpochUsdcAddress, findEvmUsdc, getEpochAllocatorUrl, getEvmUsdc } from 'lib/remote-config/values';
 
 import { clearEarnSubmissionLocksForTests, createEarnSubmissionLocks } from './earn-submission-lock';
 import {
@@ -245,6 +245,20 @@ describe('gaslessEarnWithdrawalToMiden', () => {
         deps
       )
     ).rejects.toThrow('Gasless withdrawal only supports the configured USDC Earn market.');
+    expect(deps.initiateRow).not.toHaveBeenCalled();
+  });
+
+  it('refuses a market whose token the config does not name on the market chain, even when the position agrees', async () => {
+    const foreign = '0x3333333333333333333333333333333333333333';
+    const deps = baseDeps({ sdk: fakeSdk(jest.fn().mockResolvedValue({ nonce: 'NONCE1' })) });
+
+    await expect(
+      gaslessEarnWithdrawalToMiden(
+        { ...validArgs(), marketUid: `DUMMY_LENDING:11155111:${foreign}`, underlyingAddress: foreign },
+        deps
+      )
+    ).rejects.toThrow('Gasless withdrawal only supports the configured USDC Earn market.');
+    expect(findEpochUsdcAddress).toHaveBeenCalledWith(11155111);
     expect(deps.initiateRow).not.toHaveBeenCalled();
   });
 
@@ -834,6 +848,21 @@ describe('resubmitEarnWithdrawal', () => {
     expect(row.extraInputs.withdrawIntentNonce).toBeUndefined();
     expect(earnWithdrawalRetryKind(row)).toBe('source');
     expect(executeActions).not.toHaveBeenCalled();
+  });
+
+  it('resubmits a saved row after the document moves its chain to another USDC', async () => {
+    jest.mocked(findEpochUsdcAddress).mockReturnValue('0x4444444444444444444444444444444444444444');
+    try {
+      const row = failedRow();
+      mockRow(row);
+      const deps = baseDeps({ sdk: fakeSdk(jest.fn().mockResolvedValue({ nonce: 'FRESH_NONCE' })) });
+
+      await resubmitEarnWithdrawal('TX1', deps);
+
+      expect(row.extraInputs.phase).toBe('redeeming');
+    } finally {
+      jest.mocked(findEpochUsdcAddress).mockReturnValue(TEST_EVM_USDC.address);
+    }
   });
 
   describe('while the token read has not succeeded', () => {
