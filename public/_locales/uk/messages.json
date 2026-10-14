@@ -5601,6 +5601,14 @@
     "message": "Ми не змогли перевірити цей код. Спробуйте ще раз пізніше.",
     "englishSource": "We could not check this code. Try again later."
   },
+  "mainnetAccountNotAdmitted": {
+    "message": "Цей гаманець не підтримується в основній мережі Miden. Для нового гаманця потрібен код доступу.",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Мережа Miden mainnet допускає лише той обліковий запис, для якого зареєстровано код доступу.",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
   "mainnet": {
     "message": "Mainnet",
     "englishSource": "Mainnet"

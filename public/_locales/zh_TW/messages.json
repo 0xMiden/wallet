@@ -5601,6 +5601,14 @@
     "message": "我們無法驗證此程式碼。請稍後再試。",
     "englishSource": "We could not check this code. Try again later."
   },
+  "mainnetAccountNotAdmitted": {
+    "message": "此錢包未獲准在 Miden 主網使用。新錢包需要存取碼。",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Miden 主網僅接受已註冊的帳戶及存取碼。",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
   "mainnet": {
     "message": "主網",
     "englishSource": "Mainnet"

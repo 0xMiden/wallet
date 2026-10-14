@@ -5601,6 +5601,14 @@
     "message": "Nie udało nam się sprawdzić tego kodu. Spróbuj ponownie później.",
     "englishSource": "We could not check this code. Try again later."
   },
+  "mainnetAccountNotAdmitted": {
+    "message": "Ten portfel nie jest dopuszczony do sieci głównej Miden. Nowy portfel wymaga kodu dostępu.",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Sieć główna Miden dopuszcza wyłącznie konto zarejestrowane wraz z kodem dostępu.",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
   "mainnet": {
     "message": "Sieć główna",
     "englishSource": "Mainnet"

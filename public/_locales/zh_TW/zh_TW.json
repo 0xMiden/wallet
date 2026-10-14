@@ -1264,6 +1264,8 @@
   "unlockMainnet": "解鎖主網",
   "mainnetAccessCodeRejected": "此代碼無法運作。請檢查並重新嘗試。",
   "mainnetAccessCheckFailed": "我們無法驗證此程式碼。請稍後再試。",
+  "mainnetAccountNotAdmitted": "此錢包未獲准在 Miden 主網使用。新錢包需要存取碼。",
+  "mainnetSecondAccountRefused": "Miden 主網僅接受已註冊的帳戶及存取碼。",
   "mainnet": "主網",
   "mainnetAccessTitle": "您有主網存取碼嗎？",
   "mainnetAccessOnboardingBody": "主網目前僅限受邀者使用。輸入邀請函中的 12 位元組代碼，您的錢包即會在 Miden 主網啟用。",

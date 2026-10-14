@@ -1264,6 +1264,8 @@
   "unlockMainnet": "Desbloquear la red principal",
   "mainnetAccessCodeRejected": "Este código no ha funcionado. Compruébalo e inténtalo de nuevo.",
   "mainnetAccessCheckFailed": "No hemos podido comprobar este código. Inténtalo de nuevo más tarde.",
+  "mainnetAccountNotAdmitted": "Esta cartera no está admitida en la red principal de Miden. Una nueva cartera necesita un código de acceso.",
+  "mainnetSecondAccountRefused": "La red principal de Miden solo admite la cuenta y el código de acceso registrados.",
   "mainnet": "Red principal",
   "mainnetAccessTitle": "¿Tienes un código de acceso a la red principal?",
   "mainnetAccessOnboardingBody": "Por ahora, la red principal (Mainnet) es de acceso exclusivo por invitación. Introduce el código de 12 caracteres de tu invitación y tu monedero se activará en la red principal de Miden.",

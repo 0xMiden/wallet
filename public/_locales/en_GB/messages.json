@@ -5601,6 +5601,14 @@
     "message": "We could not check this code. Try again later.",
     "englishSource": "We could not check this code. Try again later."
   },
+  "mainnetAccountNotAdmitted": {
+    "message": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code.",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Miden mainnet admits only the account an access code registered.",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
   "mainnet": {
     "message": "Mainnet",
     "englishSource": "Mainnet"

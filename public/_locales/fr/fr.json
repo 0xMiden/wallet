@@ -1264,6 +1264,8 @@
   "unlockMainnet": "Déverrouiller le réseau principal",
   "mainnetAccessCodeRejected": "Ce code n'a pas fonctionné. Vérifiez-le et réessayez.",
   "mainnetAccessCheckFailed": "Nous n’avons pas pu vérifier ce code. Veuillez réessayer plus tard.",
+  "mainnetAccountNotAdmitted": "Ce portefeuille n’est pas autorisé sur le réseau principal Miden. Un nouveau portefeuille nécessite un code d’accès.",
+  "mainnetSecondAccountRefused": "Le réseau principal Miden n’accepte que le compte et le code d’accès enregistrés.",
   "mainnet": "Mainnet",
   "mainnetAccessTitle": "Disposez-vous d’un code d’accès au réseau principal ?",
   "mainnetAccessOnboardingBody": "Le Mainnet est pour l’instant accessible uniquement sur invitation. Saisissez le code à 12 caractères figurant sur votre invitation et votre portefeuille sera activé sur le Mainnet de Miden.",

@@ -1264,6 +1264,8 @@
   "unlockMainnet": "メインネットのロックを解除する",
   "mainnetAccessCodeRejected": "このコードは動作しませんでした。コードを確認して、もう一度試してください。",
   "mainnetAccessCheckFailed": "このコードを確認できませんでした。後ほどもう一度お試しください。",
+  "mainnetAccountNotAdmitted": "このウォレットはMidenメインネットでは利用できません。新しいウォレットにはアクセスコードが必要です。",
+  "mainnetSecondAccountRefused": "Midenメインネットでは、登録済みのアカウントおよびアクセスコードのみが認められます。",
   "mainnet": "メインネット",
   "mainnetAccessTitle": "メインネットへのアクセスコードをお持ちですか？",
   "mainnetAccessOnboardingBody": "メインネットは現時点では招待制となっています。招待状に記載された12文字のコードを入力すると、ウォレットがMidenメインネットで利用開始されます。",

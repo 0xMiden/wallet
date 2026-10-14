@@ -5601,6 +5601,14 @@
     "message": "Não foi possível verificar este código. Tente novamente mais tarde.",
     "englishSource": "We could not check this code. Try again later."
   },
+  "mainnetAccountNotAdmitted": {
+    "message": "Esta carteira não é admitida na rede principal do Miden. Uma nova carteira precisa de um código de acesso.",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "A mainnet da Miden admite apenas a conta e o código de acesso registrados.",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
   "mainnet": {
     "message": "Mainnet",
     "englishSource": "Mainnet"

@@ -1264,6 +1264,8 @@
   "unlockMainnet": "Desbloquear a mainnet",
   "mainnetAccessCodeRejected": "Este código não funcionou. Verifique-o e tente novamente.",
   "mainnetAccessCheckFailed": "Não foi possível verificar este código. Tente novamente mais tarde.",
+  "mainnetAccountNotAdmitted": "Esta carteira não é admitida na rede principal do Miden. Uma nova carteira precisa de um código de acesso.",
+  "mainnetSecondAccountRefused": "A mainnet da Miden admite apenas a conta e o código de acesso registrados.",
   "mainnet": "Mainnet",
   "mainnetAccessTitle": "Você tem um código de acesso à mainnet?",
   "mainnetAccessOnboardingBody": "A Mainnet é, por enquanto, apenas para convidados. Digite o código de 12 caracteres do seu convite e sua carteira será ativada na Mainnet da Miden.",

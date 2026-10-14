@@ -1264,6 +1264,8 @@
   "unlockMainnet": "Розблокувати мейннет",
   "mainnetAccessCodeRejected": "Цей код не спрацював. Перевірте його та спробуйте ще раз.",
   "mainnetAccessCheckFailed": "Ми не змогли перевірити цей код. Спробуйте ще раз пізніше.",
+  "mainnetAccountNotAdmitted": "Цей гаманець не підтримується в основній мережі Miden. Для нового гаманця потрібен код доступу.",
+  "mainnetSecondAccountRefused": "Мережа Miden mainnet допускає лише той обліковий запис, для якого зареєстровано код доступу.",
   "mainnet": "Mainnet",
   "mainnetAccessTitle": "Маєте код доступу до мейннету?",
   "mainnetAccessOnboardingBody": "Наразі доступ до Mainnet надається лише за запрошенням. Введіть 12-символьний код зі свого запрошення, і ваш гаманець запрацює в мережі Miden Mainnet.",

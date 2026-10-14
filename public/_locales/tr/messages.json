@@ -5601,6 +5601,14 @@
     "message": "Bu kodu kontrol edemedik. Daha sonra tekrar deneyin.",
     "englishSource": "We could not check this code. Try again later."
   },
+  "mainnetAccountNotAdmitted": {
+    "message": "Bu cüzdan, Miden ana ağında kabul edilmez. Yeni bir cüzdan için erişim kodu gereklidir.",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Miden ana ağı, yalnızca kayıtlı bir erişim kodu olan hesapları kabul eder.",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
   "mainnet": {
     "message": "Mainnet",
     "englishSource": "Mainnet"

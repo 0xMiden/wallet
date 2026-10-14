@@ -1264,6 +1264,8 @@
   "unlockMainnet": "Mainnet entsperren",
   "mainnetAccessCodeRejected": "Dieser Code hat nicht funktioniert. Überprüfe ihn und versuche es erneut.",
   "mainnetAccessCheckFailed": "Wir konnten diesen Code nicht überprüfen. Versuchen Sie es später erneut.",
+  "mainnetAccountNotAdmitted": "Diese Wallet ist im Miden-Mainnet nicht zugelassen. Für eine neue Wallet ist ein Zugangscode erforderlich.",
+  "mainnetSecondAccountRefused": "Das Miden-Mainnet lässt nur das Konto und den registrierten Zugangscode zu.",
   "mainnet": "Mainnet",
   "mainnetAccessTitle": "Haben Sie einen Mainnet-Zugangscode?",
   "mainnetAccessOnboardingBody": "Das Mainnet ist vorerst nur auf Einladung zugänglich. Geben Sie den 12-stelligen Code aus Ihrer Einladung ein, und Ihre Wallet wird im Miden-Mainnet eingerichtet.",

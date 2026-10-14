@@ -5601,6 +5601,14 @@
     "message": "이 코드를 확인할 수 없습니다. 나중에 다시 시도해 주세요.",
     "englishSource": "We could not check this code. Try again later."
   },
+  "mainnetAccountNotAdmitted": {
+    "message": "이 지갑은 Miden 메인넷에서 허용되지 않습니다. 새 지갑을 사용하려면 액세스 코드가 필요합니다.",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Miden 메인넷은 등록된 계정과 액세스 코드만 허용합니다.",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
   "mainnet": {
     "message": "메인넷",
     "englishSource": "Mainnet"
