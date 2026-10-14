@@ -12,7 +12,7 @@
 
 ### Changes
 
-- [CHANGE][ci] Use free ARM64 runners for Swap and regular Ubuntu runners for Guardian bridge-out. Keep WarpBuild for linked Guardian bridge-out builds and manual runs. Restore Android rotation when a weak owner reference clears before reference-queue cleanup.
+- [CHANGE][ci] Use free ARM64 runners for Swap and regular Ubuntu runners for Guardian bridge-out. Keep WarpBuild for linked Guardian bridge-out builds and manual runs.
 
 ## 1.17.3 (2026-10-12)
 
