@@ -1,11 +1,11 @@
 import { Endpoint } from '@miden-sdk/miden-sdk/lazy';
 
+import { getNetworkGuardians } from 'lib/miden-chain/guardian-registry';
 import {
   DEFAULT_NETWORK,
   MIDEN_EXPLORER_ENDPOINTS,
   MIDEN_FAUCET_API_ENDPOINTS,
   MIDEN_FAUCET_ENDPOINTS,
-  MIDEN_GUARDIAN_ENDPOINTS,
   MIDEN_NETWORK_ENDPOINTS,
   MIDEN_NETWORK_NAME,
   MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS,
@@ -26,7 +26,7 @@ export interface EndpointOverride {
   guardianUrl: string; // '' = no custom guardian
   allowNoGuardian: boolean; // dev-only: expose a "No guardian" card in onboarding
   networkName: MIDEN_NETWORK_NAME; // the "network id": drives NetworkId + endpoint-default seeding
-  presetName: string; // 'testnet'|'devnet'|'localnet'|'custom' — UI dropdown seed only
+  presetName: string; // 'mainnet'|'testnet'|'devnet'|'localnet'|'custom' — UI dropdown seed only
   // 0.17 moved the fee asset out of the block header. A client cannot be created
   // without naming the chain's fee faucet. Optional so a stored 1.16 override still
   // loads; production and E2E must fill it.
@@ -92,10 +92,9 @@ export function getEffectiveNoteTransportUrl(): string | undefined {
  * There is no fallback here, deliberately, and that is what makes this worth
  * asking. Every other endpoint getter can degrade to a default: an absent faucet
  * URL falls back to the build network's, an absent explorer just hides a link.
- * Transport has no equivalent — `MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS` has entries
- * for testnet, devnet and localnet only, so on MAINNET (a selectable network,
- * `MIDEN_NETWORK_NAME.MAINNET`) this resolves to `undefined` and the SDK client is
- * built with no transport at all.
+ * Transport has no equivalent — a network with no entry in
+ * `MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS` and no override resolves to `undefined`, and
+ * the SDK client is built with no transport at all.
  *
  * The consequence is total and silent. With transport unconfigured every relay
  * fails with `NoteTransportError::Disabled`, and no retry can do better: every
@@ -174,18 +173,19 @@ async function loadFeeFaucetId(): Promise<void> {
 
 /**
  * Effective-network default guardian endpoint (custom override first), or '' if
- * none. Non-throwing (mirrors the old `DEFAULT_GUARDIAN_ENDPOINT` const's
- * semantics — a last-resort fallback — but keyed off the effective network
+ * none. Non-throwing: a last-resort fallback, keyed off the effective network
  * rather than the build's `DEFAULT_NETWORK`, so an endpoint override with no
  * custom guardian URL doesn't silently fall back to the build network's
- * guardian). Use `getDefaultGuardianEndpoint()` (constants.ts) instead at
+ * guardian. The default is the first operator of the network's list
+ * (`getNetworkGuardians`: the config document's, else the bundled one).
+ * Use `getDefaultGuardianEndpoint()` (constants.ts) instead at
  * Guardian create/import entry points, where an unsupported network should
  * fail loudly rather than resolve to ''.
  */
 export function getEffectiveDefaultGuardianEndpoint(): string {
   const custom = getEffectiveGuardianUrl();
   if (custom) return custom;
-  return MIDEN_GUARDIAN_ENDPOINTS.get(getEffectiveNetworkName())?.[0] ?? '';
+  return getNetworkGuardians(getEffectiveNetworkName())[0]?.endpoint ?? '';
 }
 
 /** All fields prefilled from a known network's build defaults. */
@@ -197,7 +197,26 @@ export function buildDefaultOverrideFor(network: MIDEN_NETWORK_NAME): EndpointOv
     faucetUrl: MIDEN_FAUCET_ENDPOINTS.get(network) ?? '',
     faucetApiUrl: MIDEN_FAUCET_API_ENDPOINTS.get(network) ?? '',
     explorerUrl: MIDEN_EXPLORER_ENDPOINTS.get(network) ?? '',
-    guardianUrl: MIDEN_GUARDIAN_ENDPOINTS.get(network)?.[0] ?? '',
+    guardianUrl: getNetworkGuardians(network)[0]?.endpoint ?? '',
+    allowNoGuardian: false,
+    networkName: network,
+    presetName: network
+  };
+}
+
+/**
+ * A network choice with no endpoint of its own: every getter falls back to the build's defaults for
+ * `network`, so a later build's endpoints reach a wallet that only chose the network.
+ */
+export function buildNetworkChoiceOverride(network: MIDEN_NETWORK_NAME): EndpointOverride {
+  return {
+    rpcUrl: '',
+    proverUrl: '',
+    noteTransportUrl: '',
+    faucetUrl: '',
+    faucetApiUrl: '',
+    explorerUrl: '',
+    guardianUrl: '',
     allowNoGuardian: false,
     networkName: network,
     presetName: network
@@ -267,7 +286,27 @@ export async function clearEndpointOverride(): Promise<void> {
   overrideCache = null;
 }
 
+const OVERRIDE_ENDPOINT_FIELDS = [
+  'rpcUrl',
+  'proverUrl',
+  'noteTransportUrl',
+  'faucetUrl',
+  'faucetApiUrl',
+  'explorerUrl',
+  'guardianUrl'
+] as const;
+
+// What `buildNetworkChoiceOverride` stores: a network, with no endpoint and no developer option of its own.
+const isNetworkChoice = (override: EndpointOverride) =>
+  OVERRIDE_ENDPOINT_FIELDS.every(field => !override[field]) && !override.allowNoGuardian && !override.feeFaucetId;
+
+/**
+ * Whether a developer endpoint override is stored. The network choice onboarding stores is not one, so an
+ * ordinary mainnet wallet shows no developer endpoints; Developer Settings still reads it as the stored choice.
+ */
 export async function isEndpointOverrideActive(): Promise<boolean> {
   const items = await getStorageProvider().get([ENDPOINT_OVERRIDE_STORAGE_KEY]);
-  return items[ENDPOINT_OVERRIDE_STORAGE_KEY] != null;
+  const stored = items[ENDPOINT_OVERRIDE_STORAGE_KEY];
+  if (stored == null) return false;
+  return !isEndpointOverride(stored) || !isNetworkChoice(stored);
 }

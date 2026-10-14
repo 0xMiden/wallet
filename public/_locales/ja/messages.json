@@ -1707,6 +1707,10 @@
     "message": "貼り付け",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "クリップボードを読み取れませんでした。コードを入力するか、もう一度お試しください。",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "貼り付けるものがありません。先にアドレスをコピーしてください。",
     "englishSource": "Nothing to paste. Copy an address first."
@@ -1850,6 +1854,10 @@
   "swapInvalidAmounts": {
     "message": "交換する有効な金額を入力してください。",
     "englishSource": "Enter a valid amount to swap."
+  },
+  "swapPairNotListed": {
+    "message": "このペアは交換できなくなりました。戻って別のトークンを選択してください。",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
   "swapPriceUnavailable": {
     "message": "価格が表示されません。しばらくしてからもう一度お試しください。",
@@ -4644,6 +4652,15 @@
     "message": "EVMウォレットが接続されました",
     "englishSource": "EVM wallet connected"
   },
+  "evmChainNotApproved": {
+    "message": "接続されたウォレットが$network$を承認しませんでした。ウォレットを再接続して承認してください。",
+    "englishSource": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "connectedWallet": {
     "message": "コネクテッド・ウォレット",
     "englishSource": "Connected wallet"
@@ -4725,8 +4742,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "ウォレット内でリクエストを承認し、送信元ネットワークによる確認が完了するまで、この画面を開いたままにしておいてください。",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "message": "ウォレット内のリクエストを承認してください（複数回求められる場合があります）。送信元ネットワークによる確認が完了するまで、この画面を開いたままにしておいてください。",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "ブリッジへの入金が失敗しました",
@@ -5568,6 +5585,62 @@
       }
     }
   },
+  "mainnetAccessCodeLabel": {
+    "message": "アクセスコード",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "メインネットのロックを解除する",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "このコードは動作しませんでした。コードを確認して、もう一度試してください。",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "このコードを確認できませんでした。後ほどもう一度お試しください。",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnetAccountNotAdmitted": {
+    "message": "このウォレットはMidenメインネットでは利用できません。新しいウォレットにはアクセスコードが必要です。",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Midenメインネットでは、登録済みのアカウントおよびアクセスコードのみが認められます。",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
+  "mainnet": {
+    "message": "メインネット",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessTitle": {
+    "message": "メインネットへのアクセスコードをお持ちですか？",
+    "englishSource": "Have a mainnet access code?"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "メインネットは現時点では招待制となっています。招待状に記載された12文字のコードを入力すると、ウォレットがMidenメインネットで利用開始されます。",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "コードは招待メールに記載されています。",
+    "englishSource": "The code is in your invite email."
+  },
+  "iHaveACode": {
+    "message": "コードがあります",
+    "englishSource": "I have a code"
+  },
+  "iDontHaveACode": {
+    "message": "コードは持っていません",
+    "englishSource": "I don't have a code"
+  },
+  "noCodeTitle": {
+    "message": "Breadは招待制です",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "新しいウォレットには、招待リンクから取得したメインネットアクセスコードが必要です。既存のアカウントは、引き続き復元可能です。",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
+  },
   "networkModePillNoValue": {
     "message": "トークンに実際の価値はありません",
     "englishSource": "Tokens have no real value"
@@ -5575,6 +5648,18 @@
   "mainnetCountdownLink": {
     "message": "早期アクセスリストに登録する",
     "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "メインネットへの移行",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "リセットしてメインネットに切り替える",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "testnetは引き続き使用可能です。切り替えを行うと、このデバイスから当該ウォレット、その残高、および履歴がすべて消去されます。まず、リカバリー情報を保存してください。テストトークンはメインネットには移行されません。その後、招待コードを使用してメインネットウォレットを作成するか、既存のメインネットウォレットを復元することになります。",
+    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
   },
   "mainnetCountdownLabel": {
     "message": "Breadのメインネット移行までの残り時間：$time$",
@@ -6196,6 +6281,14 @@
   "externalPageLoadFailed": {
     "message": "このページを開くことができませんでした。接続を確認して、もう一度お試しください。",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "次のウォレットの確認を待っています",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "最初の確認が完了しました。ウォレットから再度確認を求められますので、この画面を開いたままにしておいてください。",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
   },
   "advancedOptions": {
     "message": "詳細オプション",

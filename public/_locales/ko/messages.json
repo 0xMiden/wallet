@@ -1707,6 +1707,10 @@
     "message": "붙여넣기",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "클립보드 내용을 읽을 수 없습니다. 코드를 입력하거나 다시 시도해 주세요.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "붙여넣을 내용이 없습니다. 먼저 주소를 복사하세요.",
     "englishSource": "Nothing to paste. Copy an address first."
@@ -1850,6 +1854,10 @@
   "swapInvalidAmounts": {
     "message": "교환할 유효한 금액을 입력하세요.",
     "englishSource": "Enter a valid amount to swap."
+  },
+  "swapPairNotListed": {
+    "message": "이 토큰 쌍은 더 이상 교환할 수 없습니다. 돌아가서 다른 토큰을 선택하십시오.",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
   "swapPriceUnavailable": {
     "message": "가격을 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.",
@@ -4644,6 +4652,15 @@
     "message": "EVM 지갑 연결됨",
     "englishSource": "EVM wallet connected"
   },
+  "evmChainNotApproved": {
+    "message": "연결된 지갑이 $network$를 승인하지 않았습니다. 지갑을 다시 연결하여 승인하십시오.",
+    "englishSource": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "connectedWallet": {
     "message": "연동 지갑",
     "englishSource": "Connected wallet"
@@ -4725,8 +4742,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "지갑에서 요청을 승인하고, 소스 네트워크에서 확인이 완료될 때까지 이 화면을 열어 두십시오.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "message": "지갑에서 요청을 승인하십시오 — 여러 번 요청될 수 있습니다 — 그리고 소스 네트워크에서 요청을 확인하는 동안 이 화면을 열어 두십시오.",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "브리지 입금 실패",
@@ -5568,6 +5585,62 @@
       }
     }
   },
+  "mainnetAccessCodeLabel": {
+    "message": "접근 코드",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "메인넷 잠금 해제",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "이 코드가 작동하지 않았습니다. 코드를 확인하고 다시 시도해 주세요.",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "이 코드를 확인할 수 없습니다. 나중에 다시 시도해 주세요.",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnetAccountNotAdmitted": {
+    "message": "이 지갑은 Miden 메인넷에서 허용되지 않습니다. 새 지갑을 사용하려면 액세스 코드가 필요합니다.",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Miden 메인넷은 등록된 계정과 액세스 코드만 허용합니다.",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
+  "mainnet": {
+    "message": "메인넷",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessTitle": {
+    "message": "메인넷 접속 코드가 있으신가요?",
+    "englishSource": "Have a mainnet access code?"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "메인넷은 현재 초대제입니다. 초대장에 기재된 12자리 코드를 입력하면 지갑이 Miden 메인넷에서 활성화됩니다.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "코드는 초대 이메일에 있습니다.",
+    "englishSource": "The code is in your invite email."
+  },
+  "iHaveACode": {
+    "message": "코드가 있습니다",
+    "englishSource": "I have a code"
+  },
+  "iDontHaveACode": {
+    "message": "코드는 없습니다",
+    "englishSource": "I don't have a code"
+  },
+  "noCodeTitle": {
+    "message": "Bread는 초대 전용입니다",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "새로운 지갑을 생성하려면 초대 링크를 통해 받은 메인넷 접속 코드가 필요합니다. 이미 존재하는 계정은 여전히 복구할 수 있습니다.",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
+  },
   "networkModePillNoValue": {
     "message": "토큰에는 실제 가치가 없습니다",
     "englishSource": "Tokens have no real value"
@@ -5575,6 +5648,18 @@
   "mainnetCountdownLink": {
     "message": "얼리 액세스 목록에 가입하세요",
     "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "메인넷으로 전환",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "리셋 및 메인넷으로 전환",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "테스트넷은 계속 사용할 수 있습니다. 전환을 수행하면 이 기기에서 해당 지갑, 잔액 및 내역이 모두 삭제됩니다. 먼저 복구 정보를 저장해 두십시오. 테스트 토큰은 메인넷으로 이전되지 않습니다. 이후 초대 코드를 사용하여 메인넷 지갑을 생성하거나 기존 메인넷 지갑을 복구하게 됩니다.",
+    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
   },
   "mainnetCountdownLabel": {
     "message": "Bread가 메인넷에 출시되기까지 남은 시간: $time$",
@@ -6196,6 +6281,14 @@
   "externalPageLoadFailed": {
     "message": "이 페이지를 열 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "다음 지갑 확인을 기다리는 중",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "첫 번째 확인이 완료되었습니다. 지갑에서 다시 확인을 요청할 것입니다. 이 화면을 계속 열어 두십시오.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
   },
   "advancedOptions": {
     "message": "고급 옵션",

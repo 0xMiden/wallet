@@ -1707,6 +1707,10 @@
     "message": "貼上",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "無法讀取剪貼簿。請輸入您的代碼或重試。",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "沒有可貼上的內容。請先複製地址。",
     "englishSource": "Nothing to paste. Copy an address first."
@@ -1850,6 +1854,10 @@
   "swapInvalidAmounts": {
     "message": "請輸入有效的兌換金額。",
     "englishSource": "Enter a valid amount to swap."
+  },
+  "swapPairNotListed": {
+    "message": "這對代幣已無法進行兌換。請返回並選擇另一種代幣。",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
   "swapPriceUnavailable": {
     "message": "價格暫未提供。請稍後再試。",
@@ -4644,6 +4652,15 @@
     "message": "已連線至 EVM 錢包",
     "englishSource": "EVM wallet connected"
   },
+  "evmChainNotApproved": {
+    "message": "已連線的錢包尚未核准 $network$。請重新連線錢包以進行核准。",
+    "englishSource": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "connectedWallet": {
     "message": "連網錢包",
     "englishSource": "Connected wallet"
@@ -4725,8 +4742,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "請在您的錢包中批准此請求，並在來源網路確認期間保持此畫面開啟。",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "message": "請在您的錢包中批准這些請求——系統可能會多次提示——並在來源網路確認這些請求期間，保持此畫面開啟。",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "跨鏈存入失敗",
@@ -5568,6 +5585,62 @@
       }
     }
   },
+  "mainnetAccessCodeLabel": {
+    "message": "存取碼",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "解鎖主網",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "此代碼無法運作。請檢查並重新嘗試。",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "我們無法驗證此程式碼。請稍後再試。",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnetAccountNotAdmitted": {
+    "message": "此錢包未獲准在 Miden 主網使用。新錢包需要存取碼。",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Miden 主網僅接受已註冊的帳戶及存取碼。",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
+  "mainnet": {
+    "message": "主網",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessTitle": {
+    "message": "您有主網存取碼嗎？",
+    "englishSource": "Have a mainnet access code?"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "主網目前僅限受邀者使用。輸入邀請函中的 12 位元組代碼，您的錢包即會在 Miden 主網啟用。",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "代碼就在您的邀請電子郵件中。",
+    "englishSource": "The code is in your invite email."
+  },
+  "iHaveACode": {
+    "message": "我有一段程式碼",
+    "englishSource": "I have a code"
+  },
+  "iDontHaveACode": {
+    "message": "我沒有代碼",
+    "englishSource": "I don't have a code"
+  },
+  "noCodeTitle": {
+    "message": "Bread 僅限受邀者加入",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "新錢包需要透過您的邀請連結取得主網存取碼。已存在的帳戶仍可進行復原。",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
+  },
   "networkModePillNoValue": {
     "message": "代幣沒有實際價值",
     "englishSource": "Tokens have no real value"
@@ -5575,6 +5648,18 @@
   "mainnetCountdownLink": {
     "message": "加入早期體驗名單",
     "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "切換至主網",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "重置並切換至主網",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "您可以繼續使用測試網。切換操作會將此錢包、其餘額及交易紀錄從本裝置中清除。請先備份您的復原資訊。測試代幣不會轉移至主網。隨後，您將使用邀請碼建立主網錢包，或復原現有的主網錢包。",
+    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
   },
   "mainnetCountdownLabel": {
     "message": "距離 Bread 正式上線還剩：$time$",
@@ -6196,6 +6281,14 @@
   "externalPageLoadFailed": {
     "message": "無法開啟此頁面。請檢查您的網路連線並重新嘗試。",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "等待下一個錢包的確認",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "首次確認已完成。您的錢包將要求您再次確認——請保持此畫面開啟。",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
   },
   "advancedOptions": {
     "message": "進階選項",

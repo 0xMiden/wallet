@@ -1,3 +1,4 @@
+import { _resetGuardianRegistryForTest, getNetworkGuardians } from 'lib/miden-chain/guardian-registry';
 import { FOREGROUND_STALE_MS, MAX_BACKOFF_MS } from 'lib/versioned-document';
 
 import type { FeatureAvailability, UnavailableReason } from './availability';
@@ -16,9 +17,10 @@ import {
   _refreshBridgeConfigForTest,
   subscribeBridgeConfig
 } from './runtime';
-import type { BridgeConfig } from './schema';
+import type { BridgeConfig, GuardianConfig } from './schema';
 import type { StoredBridgeConfig } from './source';
-import { selectNativeEthFaucet } from './values';
+import type { SwapPairs } from './swap-pairs';
+import { selectNativeEthFaucet, selectSwapPairs } from './values';
 
 let mockNetwork = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -122,7 +124,8 @@ const derivedFor = (source: BridgeConfig, derivedAt: number): DerivedBridgeConfi
     allocator: { state: 'ok', value: true },
     market: { state: 'skipped' },
     midenUsdcFaucet: { state: 'skipped' }
-  }
+  },
+  swap: { pairs: { state: 'skipped' } }
 });
 // What the source stores on a fetch, or another realm leaves behind.
 const storeEntry = (network: string, version: number, fetchedAt = Date.now()): StoredBridgeConfig => {
@@ -697,6 +700,13 @@ describe('a re-derivation that cannot read a value', () => {
     scale: 10
   };
   const USDC = { symbol: 'USDC', decimals: 18 };
+  const SWAP_PAIRS: SwapPairs = {
+    tokens: [
+      { faucetId: '0xe33498f1176661512b5ac4ded86ec7', ticker: 'IETH', decimals: 8, binanceAsset: 'ETH' },
+      { faucetId: '0x094698fc4bc531d136db0866f38902', ticker: 'IUSDT', decimals: 8 }
+    ],
+    pairs: [{ faucetIds: ['0xe33498f1176661512b5ac4ded86ec7', '0x094698fc4bc531d136db0866f38902'] }]
+  };
   const down = { state: 'error', message: 'timeout' } as const;
   const read = (source: BridgeConfig): DerivedBridgeConfig => {
     const base = derivedFor(source, Date.now());
@@ -705,7 +715,11 @@ describe('a re-derivation that cannot read a value', () => {
       tokens: { state: 'ok', value: [ETH] },
       l1BridgeCode: { state: 'ok', value: true }
     };
-    return { ...base, chains: { 11155111: { agglayer, epoch: { evmUsdc: { state: 'ok', value: USDC } } } } };
+    return {
+      ...base,
+      chains: { 11155111: { agglayer, epoch: { evmUsdc: { state: 'ok', value: USDC } } } },
+      swap: { pairs: { state: 'ok', value: SWAP_PAIRS } }
+    };
   };
   const unread = (source: BridgeConfig): DerivedBridgeConfig => {
     const base = derivedFor(source, Date.now());
@@ -717,7 +731,8 @@ describe('a re-derivation that cannot read a value', () => {
     return {
       ...base,
       chains: { 11155111: { agglayer, epoch: { evmUsdc: down } } },
-      epoch: { ...base.epoch, allocator: down }
+      epoch: { ...base.epoch, allocator: down },
+      swap: { pairs: down }
     };
   };
   // The Sepolia reads with the shared allocator probe, as one flat object.
@@ -744,12 +759,15 @@ describe('a re-derivation that cannot read a value', () => {
     };
     const { derived } = getBridgeConfigSnapshot();
     expect(sepoliaReads(derived)).toMatchObject(kept);
+    // A solver that is down for one check does not empty the swap registry.
+    expect(selectSwapPairs(getBridgeConfigSnapshot())).toEqual(SWAP_PAIRS);
     const stored = mockStorage.get(DERIVED);
     expect(stored).toEqual(derived);
     serve(2);
     mockDerive.mockImplementationOnce(async source => unread(source));
     await _refreshBridgeConfigForTest();
     expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBeNull();
+    expect(selectSwapPairs(getBridgeConfigSnapshot())).toBeNull();
     expect(getBridgeConfigSnapshot().derived?.chains[11155111]?.epoch.evmUsdc).toEqual(down);
   });
 
@@ -775,6 +793,51 @@ describe('a re-derivation that cannot read a value', () => {
     fireChange(DERIVED);
     await flush();
     expect(getBridgeConfigSnapshot().config).toEqual(config(2));
+    expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBeNull();
+  });
+
+  const SOLVER = 'https://quotes.example';
+  // A fetch of `version` that names the solver at `etaUrl`.
+  const serveNaming = (version: number, etaUrl: string) =>
+    mockFetch.mockImplementation(async network => {
+      const entry = { config: { ...config(version, network), swap: { etaUrl } }, fetchedAt: Date.now() };
+      mockStorage.set(`bridge_config_v1:${network}`, entry);
+      return entry;
+    });
+
+  it.each([
+    ['keeps', 'the same solver', SOLVER, SWAP_PAIRS],
+    ['does not keep', 'another solver', 'https://quotes.other.example', null]
+  ])(
+    "%s the solver's pairs across a version that names %s when its read fails",
+    async (_keeps, _label, etaUrl, pairs) => {
+      serveNaming(1, SOLVER);
+      mockDerive.mockImplementationOnce(async source => read(source));
+      await initBridgeConfig();
+      await flush();
+      serveNaming(2, etaUrl);
+      mockDerive.mockImplementationOnce(async source => unread(source));
+      await _refreshBridgeConfigForTest();
+      expect(getBridgeConfigSnapshot().config?.version).toBe(2);
+      expect(selectSwapPairs(getBridgeConfigSnapshot())).toEqual(pairs);
+      // Every other value is the new version's own read.
+      expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBeNull();
+      expect(getBridgeConfigSnapshot().derived?.chains[11155111]?.epoch.evmUsdc).toEqual(down);
+    }
+  );
+
+  it('keeps them across a version another realm commits, when it names the same solver', async () => {
+    serveNaming(1, SOLVER);
+    mockDerive.mockImplementationOnce(async source => read(source));
+    await initBridgeConfig();
+    await flush();
+    const next = { ...config(2), swap: { etaUrl: SOLVER } };
+    mockStorage.set(CACHE, { config: next, fetchedAt: NOW + 10 });
+    mockStorage.set(DERIVED, { ...unread(next), derivedAt: NOW + 10 });
+    fireChange(DERIVED);
+    await flush();
+    expect(getBridgeConfigSnapshot().config).toEqual(next);
+    expect(selectSwapPairs(getBridgeConfigSnapshot())).toEqual(SWAP_PAIRS);
     expect(selectNativeEthFaucet(getBridgeConfigSnapshot())).toBeNull();
   });
 
@@ -864,6 +927,20 @@ describe('the poll schedule', () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
     }
   );
+
+  it("re-checks every 5 minutes while the read of the solver's swap pairs has failed", async () => {
+    seed(1);
+    mockStorage.set(DERIVED, {
+      ...derivedFor(config(1), NOW),
+      swap: { pairs: { state: 'error', message: 'HTTP 503' } }
+    });
+    serve(1);
+    await initBridgeConfig();
+    await jest.advanceTimersByTimeAsync(DEGRADED_POLL_MS - 1);
+    expect(mockFetch).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
 
   it("re-arms for the network it returns to, on that network's own degraded cadence", async () => {
     mockFeatureAvailability.mockImplementation((_feature, snapshot) =>
@@ -1083,5 +1160,94 @@ describe('the poll schedule', () => {
     await initBridgeConfig();
     await flush();
     expect(mockFeatureAvailability).toHaveBeenCalledWith('earnDeposit', getBridgeConfigSnapshot(), mockOverrides);
+  });
+});
+
+describe('the Guardian operators', () => {
+  const KODA = { id: 'kodax', name: 'Koda', operatedBy: 'Koda', location: 'Asia', endpoint: 'https://koda.example' };
+  const NEW = { id: 'new-one', name: 'New', operatedBy: 'New Co', location: 'EU', endpoint: 'https://new.example' };
+  const BUNDLED_TESTNET = ['open-zeppelin', 'gateway', 'lambda-class', 'kodax'];
+  // A stored document of `version` that lists `guardians`, with its derivation, as a fetch leaves them.
+  const seedGuardians = (version: number, guardians: GuardianConfig[] | undefined, network = 'testnet') => {
+    const document = { ...config(version, network), ...(guardians === undefined ? {} : { guardians }) };
+    mockStorage.set(`bridge_config_v1:${network}`, { config: document, fetchedAt: NOW });
+    mockStorage.set(`bridge_config_derived_v1:${network}`, derivedFor(document, NOW));
+  };
+  const ids = (network = 'testnet') => getNetworkGuardians(network).map(option => option.id);
+
+  beforeEach(() => _resetGuardianRegistryForTest());
+  afterAll(() => _resetGuardianRegistryForTest());
+
+  it('are the bundled list until a document is read', () => {
+    expect(ids()).toEqual(BUNDLED_TESTNET);
+  });
+
+  it('become the stored document list once the realm hydrates, with no fetch', async () => {
+    seedGuardians(3, [KODA, NEW]);
+    await initBridgeConfig();
+    expect(getNetworkGuardians('testnet')).toEqual([KODA, NEW]);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('stay the bundled list under a document that has no guardians section', async () => {
+    seedGuardians(3, undefined);
+    await initBridgeConfig();
+    expect(ids()).toEqual(BUNDLED_TESTNET);
+  });
+
+  it('follow a newer document that a fetch brings', async () => {
+    seedGuardians(3, [KODA]);
+    await initBridgeConfig();
+    mockFetch.mockImplementation(async network => {
+      seedGuardians(4, [NEW, KODA], network);
+      return { config: { ...config(4, network), guardians: [NEW, KODA] }, fetchedAt: Date.now() };
+    });
+    await _refreshBridgeConfigForTest();
+    expect(ids()).toEqual(['new-one', 'kodax']);
+  });
+
+  it('go back to the bundled list when a newer document drops the section', async () => {
+    seedGuardians(3, [NEW]);
+    await initBridgeConfig();
+    mockFetch.mockImplementation(async network => storeEntry(network, 4));
+    await _refreshBridgeConfigForTest();
+    expect(ids()).toEqual(BUNDLED_TESTNET);
+  });
+
+  it('keep the document list when a fetch fails', async () => {
+    seedGuardians(3, [NEW]);
+    await initBridgeConfig();
+    failFetch();
+    await _refreshBridgeConfigForTest();
+    expect(ids()).toEqual(['new-one']);
+  });
+
+  it('follow a newer document another realm committed', async () => {
+    seedGuardians(3, [KODA]);
+    await initBridgeConfig();
+    seedGuardians(4, [NEW]);
+    fireChange(CACHE);
+    await flush();
+    expect(ids()).toEqual(['new-one']);
+  });
+
+  it('keep the document list across a wipe, which keeps the document', async () => {
+    seedGuardians(3, [NEW]);
+    await initBridgeConfig();
+    await rereadAfterWipe();
+    await flush();
+    expect(getBridgeConfigSnapshot().config?.guardians).toEqual([NEW]);
+    expect(ids()).toEqual(['new-one']);
+  });
+
+  it('give each network its own document list', async () => {
+    seedGuardians(3, [NEW]);
+    seedGuardians(5, [KODA], 'devnet');
+    await initBridgeConfig();
+    expect(ids('devnet')).toEqual(['open-zeppelin']);
+    mockNetwork = 'devnet';
+    await initBridgeConfig();
+    expect(ids('devnet')).toEqual(['kodax']);
+    expect(ids('testnet')).toEqual(['new-one']);
   });
 });

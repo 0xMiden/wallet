@@ -1707,6 +1707,10 @@
     "message": "Wklej",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "Nie udało się odczytać zawartości schowka. Wprowadź kod lub spróbuj ponownie.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "Nie ma nic do wklejenia. Najpierw skopiuj adres.",
     "englishSource": "Nothing to paste. Copy an address first."
@@ -1850,6 +1854,10 @@
   "swapInvalidAmounts": {
     "message": "Wprowadź prawidłową kwotę do wymiany.",
     "englishSource": "Enter a valid amount to swap."
+  },
+  "swapPairNotListed": {
+    "message": "Tej pary nie można już wymienić. Wróć i wybierz inny token.",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
   },
   "swapPriceUnavailable": {
     "message": "Cena niedostępna. Spróbuj ponownie za chwilę.",
@@ -4644,6 +4652,15 @@
     "message": "Podłączono portfel EVM",
     "englishSource": "EVM wallet connected"
   },
+  "evmChainNotApproved": {
+    "message": "Podłączony portfel nie zatwierdził $network$. Podłącz ponownie portfel, aby to zatwierdzić.",
+    "englishSource": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "connectedWallet": {
     "message": "Portfel połączony z internetem",
     "englishSource": "Connected wallet"
@@ -4725,8 +4742,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Zatwierdź żądanie w swoim portfelu i pozostaw ten ekran otwarty, dopóki sieć źródłowa nie potwierdzi operacji.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "message": "Zatwierdź żądania w swoim portfelu — może pojawić się prośba więcej niż raz — i pozostaw ten ekran otwarty, dopóki sieć źródłowa ich nie potwierdzi.",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "Niepowodzenie wpłaty na most",
@@ -5568,6 +5585,62 @@
       }
     }
   },
+  "mainnetAccessCodeLabel": {
+    "message": "Kod dostępu",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "Odblokuj sieć główną",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "Ten kod nie zadziałał. Sprawdź go i spróbuj ponownie.",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "Nie udało nam się sprawdzić tego kodu. Spróbuj ponownie później.",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnetAccountNotAdmitted": {
+    "message": "Ten portfel nie jest dopuszczony do sieci głównej Miden. Nowy portfel wymaga kodu dostępu.",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Sieć główna Miden dopuszcza wyłącznie konto zarejestrowane wraz z kodem dostępu.",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
+  "mainnet": {
+    "message": "Sieć główna",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessTitle": {
+    "message": "Masz kod dostępu do sieci głównej?",
+    "englishSource": "Have a mainnet access code?"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "Sieć Mainnet jest na razie dostępna wyłącznie na zaproszenie. Wprowadź 12-znakowy kod z zaproszenia, a Twój portfel zostanie uruchomiony w sieci Miden Mainnet.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "Kod znajduje się w wiadomości e-mail z zaproszeniem.",
+    "englishSource": "The code is in your invite email."
+  },
+  "iHaveACode": {
+    "message": "Mam kod",
+    "englishSource": "I have a code"
+  },
+  "iDontHaveACode": {
+    "message": "Nie mam kodu",
+    "englishSource": "I don't have a code"
+  },
+  "noCodeTitle": {
+    "message": "Bread jest dostępny wyłącznie na zaproszenie",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "Nowy portfel wymaga kodu dostępu do sieci głównej zawartego w zaproszeniu. Istniejące już konto nadal można odzyskać.",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
+  },
   "networkModePillNoValue": {
     "message": "Tokeny nie mają realnej wartości",
     "englishSource": "Tokens have no real value"
@@ -5575,6 +5648,18 @@
   "mainnetCountdownLink": {
     "message": "Dołącz do listy wczesnego dostępu",
     "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "Przejście do sieci głównej",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "Reset i przejście do sieci głównej",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "Możesz nadal korzystać z sieci testowej. Przełączenie spowoduje wyczyszczenie tego portfela, jego sald i historii z tego urządzenia. Najpierw zapisz swoje dane do odzyskiwania. Tokeny testowe nie są przenoszone do sieci głównej. Następnie utworzysz portfel w sieci głównej za pomocą kodu zaproszenia lub odzyskasz istniejący portfel w sieci głównej.",
+    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
   },
   "mainnetCountdownLabel": {
     "message": "Czas pozostały do uruchomienia sieci głównej Bread: $time$",
@@ -6196,6 +6281,14 @@
   "externalPageLoadFailed": {
     "message": "Nie udało się otworzyć tej strony. Sprawdź połączenie i spróbuj ponownie.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "Oczekiwanie na kolejne potwierdzenie portfela",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "Pierwsze potwierdzenie zostało wykonane. Twój portfel poprosi Cię o ponowne potwierdzenie – pozostaw ten ekran otwarty.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
   },
   "advancedOptions": {
     "message": "Opcje zaawansowane",

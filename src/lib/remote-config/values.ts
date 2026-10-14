@@ -4,6 +4,7 @@ import type { BridgeToken, DerivedChainConfig, Probe, TokenMetadata } from './de
 import { getE2eOverrides, type MidenUsdc } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
 import { type AgglayerRecoveryConfig, epochCollateralFaucetId, type SupportedEvmChainConfig } from './schema';
+import type { SwapPairs } from './swap-pairs';
 
 /** Thrown by a `get*` getter while the accepted document or its derivation cannot supply the value. */
 export class BridgeConfigUnavailableError extends Error {
@@ -68,9 +69,14 @@ export function selectMidenUsdc(s: BridgeConfigSnapshot): MidenUsdc | null {
   return faucetId && metadata ? { faucetId, ...metadata } : null;
 }
 
-/** The faucet the document lists a swap token under `symbol` at ('0x' + 30 lowercase hex), or null when it lists none. */
-export function selectSwapTokenFaucetId(s: BridgeConfigSnapshot, symbol: string): string | null {
-  return s.config?.swap?.tokens.find(token => token.symbol === symbol)?.faucetId ?? null;
+/** The solver's tokens and pairs (`GET /v2/pairs` on the document's `swap.etaUrl`), or null while no read has succeeded. */
+export function selectSwapPairs(s: BridgeConfigSnapshot): SwapPairs | null {
+  return okValue(s.derived?.swap?.pairs);
+}
+
+/** The faucet the solver lists a swap token under `ticker` at ('0x' + 30 lowercase hex), or null when it lists none. */
+export function selectSwapTokenFaucetId(s: BridgeConfigSnapshot, ticker: string): string | null {
+  return selectSwapPairs(s)?.tokens.find(token => token.ticker === ticker)?.faucetId ?? null;
 }
 
 export function selectEvmUsdc(s: BridgeConfigSnapshot, chainId?: number): EvmUsdc | null {
@@ -83,6 +89,15 @@ export function selectEvmUsdc(s: BridgeConfigSnapshot, chainId?: number): EvmUsd
 /** Read the market returned by the Epoch positions service. */
 export function selectEarnMarket(s: BridgeConfigSnapshot): EarnMarket | null {
   return okValue(s.derived?.epoch.market);
+}
+
+/**
+ * The Welcome variant the document sets: true for the invite-only way in, false for the create and
+ * recover flows. Null when the document has no `onboarding.inviteOnly`, or no document is accepted
+ * yet. Welcome reads false and null alike: the general variant, with the logo taps as the unlock.
+ */
+export function selectInviteOnlyOnboarding(s: BridgeConfigSnapshot): boolean | null {
+  return s.config?.onboarding?.inviteOnly ?? null;
 }
 
 /**

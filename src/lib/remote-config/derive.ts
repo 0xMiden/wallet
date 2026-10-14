@@ -17,6 +17,7 @@ import { isRecord } from 'lib/update/guards';
 import { getChain } from 'lib/walletconnect/config';
 
 import { type BridgeConfig, epochCollateralFaucetId, type EvmAddress } from './schema';
+import { parseSwapPairs, SWAP_PAIRS_PATH, type SwapPairs, type SwapPairsToken } from './swap-pairs';
 import type { EarnMarket } from './values';
 
 export type Probe<T> =
@@ -50,6 +51,11 @@ export interface DerivedBridgeConfig {
     market: Probe<EarnMarket>;
     midenUsdcFaucet: Probe<TokenMetadata>; // existence and metadata in one read
   };
+  /** Always set by a derivation; optional in the type so a stand-in snapshot built by a test needs none. */
+  swap?: {
+    /** The solver's tokens and pairs, read from `swap.etaUrl`. */
+    pairs: Probe<SwapPairs>;
+  };
 }
 
 export interface DerivedChainConfig {
@@ -79,7 +85,10 @@ export interface DeriveDeps {
   midenRpcUrl(): string;
   /** Rejects with NotDeployedError when the bridge account does not exist or is not a bridge. */
   readBridgeRegistry(midenBridge: string, rpcUrl: string): Promise<{ rollupId: number; tokens: BridgeToken[] }>;
-  /** Rejects with NotDeployedError when the faucet account does not exist. */
+  /**
+   * Rejects with NotDeployedError when the faucet account does not exist, and with NotAFaucetError when it has no
+   * public state or its storage is not a basic fungible faucet's.
+   */
   readMidenFaucet(faucetId: string, rpcUrl: string): Promise<TokenMetadata>;
   /** Reads over the wallet's RPC for the chain, or null when the wallet ships none for it. */
   evm(chainId: number): EvmReads | null;
@@ -89,6 +98,14 @@ export interface DeriveDeps {
 /** A confirmed absence: the node has no such account, or the account at that id is not an AggLayer bridge. */
 export class NotDeployedError extends Error {
   name = 'NotDeployedError';
+}
+
+/**
+ * The account exists but is not a public basic fungible faucet. Not a NotDeployedError, so the Earn probe reads it as
+ * an error, not as absent.
+ */
+export class NotAFaucetError extends Error {
+  name = 'NotAFaucetError';
 }
 
 // The bridge account's layout, the same in miden-agglayer 0.16.1 and 0.17.0
@@ -246,6 +263,73 @@ const ERC20_ABI = parseAbi(['function symbol() view returns (string)', 'function
 const isAllocatorHealthy = (body: unknown) => isRecord(body) && body.status === 'healthy';
 const isIndexerServing = (body: unknown) => isRecord(body) && body.status === 'SERVING';
 
+const SWAP_PAIRS_TIMEOUT_MS = 10_000;
+const SWAP_PAIRS_MAX_BYTES = 64 * 1_024;
+// The derivation settles only once every probe has. Each faucet read is bounded, but a long enough list read four at a
+// time is not, so the list is capped and its verification bounded as a whole.
+const SWAP_PAIRS_MAX_TOKENS = 64;
+const SWAP_PAIRS_VERIFY_TIMEOUT_MS = 30_000;
+const SWAP_FAUCET_READS_AT_ONCE = 4;
+
+type FaucetRead = (faucetId: string) => Promise<TokenMetadata>;
+
+// The solver's decimals convert typed amounts into the swap note's base units, so a token is kept only at its faucet's
+// on-chain scale. A faucet that is missing or not a fungible faucet costs only its own listing; any other failure fails
+// the read, so the registry last verified stays in use rather than one at an unchecked scale.
+// `stop.expired` is set once the caller's deadline has failed the probe: no batch starts after that, while one already
+// started finishes on its own per-read bounds and its result is discarded.
+async function verifyOnChain(
+  listed: SwapPairs,
+  readFaucet: FaucetRead,
+  stop: { expired: boolean }
+): Promise<SwapPairs> {
+  const verified = new Set<string>();
+  const verify = async (token: SwapPairsToken) => {
+    try {
+      if ((await readFaucet(token.faucetId)).decimals === token.decimals) verified.add(token.faucetId);
+    } catch (err) {
+      if (!(err instanceof NotDeployedError || err instanceof NotAFaucetError)) throw err;
+    }
+  };
+  for (let start = 0; start < listed.tokens.length; start += SWAP_FAUCET_READS_AT_ONCE) {
+    if (stop.expired) break;
+    await Promise.all(listed.tokens.slice(start, start + SWAP_FAUCET_READS_AT_ONCE).map(verify));
+  }
+  return {
+    tokens: listed.tokens.filter(token => verified.has(token.faucetId)),
+    pairs: listed.pairs.filter(pair => pair.faucetIds.every(id => verified.has(id)))
+  };
+}
+
+// The solver answers 503 `not_ready` for a moment after it starts. That is an error here, so a registry read before
+// stays in use (see keepValuesRead in runtime.ts).
+function readSwapPairs(fetchFn: JsonFetch, etaUrl: string, readFaucet: FaucetRead): Promise<Probe<SwapPairs>> {
+  return attempt(async () => {
+    const url = `${etaUrl}${SWAP_PAIRS_PATH}`;
+    const body = await fetchBoundedJson(fetchFn, url, {
+      maxBytes: SWAP_PAIRS_MAX_BYTES,
+      timeoutMs: SWAP_PAIRS_TIMEOUT_MS
+    });
+    const pairs = parseSwapPairs(body);
+    if (!pairs) throw new Error(`${url} answered an unexpected body`);
+    if (pairs.tokens.length > SWAP_PAIRS_MAX_TOKENS) {
+      throw new Error(
+        `${url} lists ${pairs.tokens.length} tokens, more than the ${SWAP_PAIRS_MAX_TOKENS} the wallet verifies`
+      );
+    }
+    const stop = { expired: false };
+    try {
+      return await withRpcTimeout(() => verifyOnChain(pairs, readFaucet, stop), 'swap pairs faucet verification', {
+        timeoutMs: SWAP_PAIRS_VERIFY_TIMEOUT_MS,
+        retries: 0
+      });
+    } catch (err) {
+      stop.expired = true;
+      throw err;
+    }
+  });
+}
+
 async function readMidenFaucet(faucetId: string, rpcUrl: string): Promise<TokenMetadata> {
   await ensureSdkWasmReady();
   const rpc = new RpcClient(new Endpoint(rpcUrl));
@@ -253,9 +337,25 @@ async function readMidenFaucet(faucetId: string, rpcUrl: string): Promise<TokenM
     rpc.getAccountDetails(AccountId.fromHex(faucetId))
   );
   const account = fetched.account();
-  if (!account) throw new Error(`${faucetId} has no public state`);
-  const faucet = BasicFungibleFaucetComponent.fromAccountStorage(account.storage());
+  if (!account) throw new NotAFaucetError(`${faucetId} has no public state`);
+  let faucet: BasicFungibleFaucetComponent;
+  try {
+    faucet = BasicFungibleFaucetComponent.fromAccountStorage(account.storage());
+  } catch (err) {
+    if (err instanceof WebAssembly.RuntimeError) throw err;
+    throw new NotAFaucetError(`${faucetId} is not a basic fungible faucet: ${errorMessage(err)}`);
+  }
   return { symbol: faucet.symbol().toString(), decimals: faucet.decimals() };
+}
+
+// One read per faucet per derivation: the Earn probe and the swap registry can name the same faucet.
+function sharedFaucetReads(io: DeriveDeps, rpcUrl: string): FaucetRead {
+  const reads = new Map<string, Promise<TokenMetadata>>();
+  return faucetId => {
+    const read = reads.get(faucetId) ?? io.readMidenFaucet(faucetId, rpcUrl);
+    reads.set(faucetId, read);
+    return read;
+  };
 }
 
 /** Reads over the RPC the wallet's own reads of that chain use (walletconnect/config.ts), E2E override included. */
@@ -392,11 +492,13 @@ export async function deriveBridgeConfig(
   const providers = config['bridge-providers'];
   const epoch = providers.epoch;
   const faucetId = epochCollateralFaucetId(config);
-  const [market, allocator, midenUsdcFaucet, indexer] = await Promise.all([
+  const readFaucet = sharedFaucetReads(io, rpcUrl);
+  const [market, allocator, midenUsdcFaucet, indexer, swapPairs] = await Promise.all([
     discoverEarnMarket(config, io),
     when(epoch.allocatorUrl, url => checkHealth(io.fetch, `${url}/health`, isAllocatorHealthy)),
-    when(faucetId, id => attempt(() => io.readMidenFaucet(id, rpcUrl))),
-    when(providers.agglayer.indexerUrl, url => checkHealth(io.fetch, `${url}/healthz`, isIndexerServing))
+    when(faucetId, id => attempt(() => readFaucet(id))),
+    when(providers.agglayer.indexerUrl, url => checkHealth(io.fetch, `${url}/healthz`, isIndexerServing)),
+    when(config.swap?.etaUrl, url => readSwapPairs(io.fetch, url, readFaucet))
   ]);
   const chains: Record<number, DerivedChainConfig> = {};
   await Promise.all(
@@ -428,6 +530,7 @@ export async function deriveBridgeConfig(
     derivedAt: io.now(),
     chains,
     agglayer: { indexer },
-    epoch: { allocator, market, midenUsdcFaucet }
+    epoch: { allocator, market, midenUsdcFaucet },
+    swap: { pairs: swapPairs }
   };
 }

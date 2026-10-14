@@ -1,6 +1,7 @@
 import { Endpoint } from '@miden-sdk/miden-sdk/lazy';
 import { createPublicClient, http } from 'viem';
 
+import { TEST_SWAP_PAIRS_RESPONSE } from 'lib/miden/swap/testing/registry';
 import type { JsonFetch, JsonResponse } from 'lib/remote-json';
 import { getChain } from 'lib/walletconnect/config';
 
@@ -11,9 +12,11 @@ import {
   type DeriveDeps,
   deriveBridgeConfig,
   type EvmReads,
+  NotAFaucetError,
   NotDeployedError
 } from './derive';
 import type { BridgeConfig } from './schema';
+import { parseSwapPairs } from './swap-pairs';
 
 const mockGetAccountDetails = jest.fn();
 const mockFromAccountStorage = jest.fn();
@@ -129,13 +132,19 @@ function sepoliaReads(overrides: Partial<EvmReads> = {}): EvmReads {
   };
 }
 
+// Each faucet the swap fixtures list reads at the decimals the solver gives it; any other is the Epoch USDC faucet.
+const FIXTURE_FAUCETS = new Map(
+  TEST_SWAP_PAIRS_RESPONSE.tokens.map(token => [token.faucetId, { symbol: token.ticker, decimals: token.decimals }])
+);
+const readFixtureFaucet = async (faucetId: string) => FIXTURE_FAUCETS.get(faucetId) ?? { symbol: 'USDC', decimals: 6 };
+
 function deps(overrides: Partial<DeriveDeps> = {}): Partial<DeriveDeps> {
   const reads = sepoliaReads();
   return {
     now: () => NOW,
     midenRpcUrl: () => RPC,
     readBridgeRegistry: jest.fn(async () => ({ rollupId: 86, tokens: [ETH] })),
-    readMidenFaucet: jest.fn(async () => ({ symbol: 'USDC', decimals: 6 })),
+    readMidenFaucet: jest.fn(readFixtureFaucet),
     evm: () => reads,
     fetch: healthFetch(),
     ...overrides
@@ -170,7 +179,9 @@ const HEALTHY: DerivedBridgeConfig = {
     },
     allocator: { state: 'ok', value: true },
     midenUsdcFaucet: { state: 'ok', value: { symbol: 'USDC', decimals: 6 } }
-  }
+  },
+  // TESTNET names no solver.
+  swap: { pairs: { state: 'skipped' } }
 };
 
 const SKIPPED = { state: 'skipped' };
@@ -325,6 +336,200 @@ describe('deriveBridgeConfig', () => {
   });
 });
 
+describe('the swap pairs', () => {
+  const PAIRS_URL = 'https://quotes.example/v2/pairs';
+  const withSolver: BridgeConfig = { ...TESTNET, swap: { etaUrl: 'https://quotes.example' } };
+  const derivePairs = async (bodies: Record<string, unknown>) =>
+    (await deriveBridgeConfig(withSolver, deps({ fetch: healthFetch({ ...HEALTH, ...bodies }) }))).swap?.pairs;
+
+  it("reads the solver's tokens and pairs under the document's swap.etaUrl", async () => {
+    const fetch = healthFetch({ ...HEALTH, [PAIRS_URL]: TEST_SWAP_PAIRS_RESPONSE });
+    const derived = await deriveBridgeConfig(withSolver, deps({ fetch }));
+    expect(fetch.mock.calls.map(([url]) => url)).toContain(PAIRS_URL);
+    expect(derived.swap?.pairs).toEqual({ state: 'ok', value: parseSwapPairs(TEST_SWAP_PAIRS_RESPONSE) });
+    expect(derived).toEqual({ ...HEALTHY, swap: derived.swap });
+  });
+
+  it('reads a solver that is not ready (503), or that answers another body, as a failed read', async () => {
+    expect(await derivePairs({})).toMatchObject({ state: 'error' });
+    expect(await derivePairs({ [PAIRS_URL]: { tokens: 'none' } })).toEqual({
+      state: 'error',
+      message: `${PAIRS_URL} answered an unexpected body`
+    });
+  });
+
+  const IETH = TEST_SWAP_PAIRS_RESPONSE.tokens[1]!;
+  const SOLVER = parseSwapPairs(TEST_SWAP_PAIRS_RESPONSE)!;
+  // The fixtures without IETH, and without IMIDEN-IETH and IETH-IUSDT with it.
+  const WITHOUT_IETH = {
+    tokens: SOLVER.tokens.filter(token => token.faucetId !== IETH.faucetId),
+    pairs: SOLVER.pairs.filter(pair => !pair.faucetIds.includes(IETH.faucetId))
+  };
+  const derivePairsReading = async (
+    readMidenFaucet: DeriveDeps['readMidenFaucet'],
+    body: unknown = TEST_SWAP_PAIRS_RESPONSE
+  ) => {
+    const io = deps({
+      fetch: healthFetch({ ...HEALTH, [PAIRS_URL]: body }),
+      readMidenFaucet: jest.fn(readMidenFaucet)
+    });
+    return (await deriveBridgeConfig(withSolver, io)).swap?.pairs;
+  };
+
+  it("leaves out a token the solver scales differently from its faucet, with that token's pairs", async () => {
+    const misScaled = {
+      ...TEST_SWAP_PAIRS_RESPONSE,
+      tokens: TEST_SWAP_PAIRS_RESPONSE.tokens.map(token =>
+        token.faucetId === IETH.faucetId ? { ...token, decimals: 6 } : token
+      )
+    };
+    expect(await derivePairsReading(readFixtureFaucet, misScaled)).toEqual({ state: 'ok', value: WITHOUT_IETH });
+  });
+
+  it.each([
+    ['does not exist', () => new NotDeployedError(`${IETH.faucetId} does not exist`)],
+    ['is not a public fungible faucet', () => new NotAFaucetError(`${IETH.faucetId} has no public state`)]
+  ])("leaves out a token whose faucet %s, with that token's pairs", async (_label, failure) => {
+    const pairs = await derivePairsReading(async faucetId =>
+      faucetId === IETH.faucetId ? Promise.reject(failure()) : readFixtureFaucet(faucetId)
+    );
+    expect(pairs).toEqual({ state: 'ok', value: WITHOUT_IETH });
+  });
+
+  it('fails the whole read when a faucet read fails, so no token is kept at an unchecked scale', async () => {
+    const pairs = await derivePairsReading(async faucetId =>
+      faucetId === IETH.faucetId
+        ? Promise.reject(new Error('RPC "bridge config faucet" timed out'))
+        : readFixtureFaucet(faucetId)
+    );
+    expect(pairs).toEqual({ state: 'error', message: 'RPC "bridge config faucet" timed out' });
+  });
+
+  it('reads the Earn USDC faucet once when the solver lists it too', async () => {
+    const earnFaucet = '0x537c15a622074e91188aa894456c52';
+    const body = {
+      tokens: [...TEST_SWAP_PAIRS_RESPONSE.tokens, { faucetId: earnFaucet, ticker: 'USDC', decimals: 6 }],
+      pairs: [...TEST_SWAP_PAIRS_RESPONSE.pairs, { faucetIds: [earnFaucet, IETH.faucetId] }]
+    };
+    const io = deps({ fetch: healthFetch({ ...HEALTH, [PAIRS_URL]: body }) });
+    const derived = await deriveBridgeConfig(withSolver, io);
+    expect(derived.epoch.midenUsdcFaucet).toEqual({ state: 'ok', value: { symbol: 'USDC', decimals: 6 } });
+    expect(derived.swap?.pairs).toMatchObject({
+      state: 'ok',
+      value: { tokens: expect.arrayContaining([{ faucetId: earnFaucet, ticker: 'USDC', decimals: 6 }]) }
+    });
+    expect(jest.mocked(io.readMidenFaucet!).mock.calls.filter(([faucetId]) => faucetId === earnFaucet)).toHaveLength(1);
+  });
+
+  it('reads at most four listed faucets at a time', async () => {
+    const extra = ['0x0000000000000000000000000000ab', '0x0000000000000000000000000000cd'];
+    const body = {
+      tokens: [
+        ...TEST_SWAP_PAIRS_RESPONSE.tokens,
+        ...extra.map((faucetId, index) => ({ faucetId, ticker: `IEXTRA${'AB'[index]}`, decimals: 8 }))
+      ],
+      pairs: TEST_SWAP_PAIRS_RESPONSE.pairs
+    };
+    const listed = new Set(body.tokens.map(token => token.faucetId));
+    let inFlight = 0;
+    let most = 0;
+    const read = jest.fn(async (faucetId: string) => {
+      if (!listed.has(faucetId)) return readFixtureFaucet(faucetId);
+      inFlight += 1;
+      most = Math.max(most, inFlight);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      inFlight -= 1;
+      return FIXTURE_FAUCETS.get(faucetId) ?? { symbol: 'X', decimals: 8 };
+    });
+    const pairs = await derivePairsReading(read, body);
+    expect(pairs).toMatchObject({ state: 'ok' });
+    expect(read.mock.calls.filter(([faucetId]) => listed.has(faucetId))).toHaveLength(6);
+    expect(most).toBe(4);
+  });
+
+  // Distinct valid ids and tickers, each at the decimals the default faucet read gives an unknown faucet.
+  const listingOf = (count: number) => ({
+    tokens: Array.from({ length: count }, (_, index) => ({
+      faucetId: `0x${index.toString(16).padStart(30, '0')}`,
+      ticker: `TOK${String.fromCharCode(65 + Math.floor(index / 26))}${String.fromCharCode(65 + (index % 26))}`,
+      decimals: 6
+    })),
+    pairs: []
+  });
+
+  it.each([
+    { count: 64, probe: { state: 'ok' }, reads: 64 },
+    {
+      count: 65,
+      probe: { state: 'error', message: `${PAIRS_URL} lists 65 tokens, more than the 64 the wallet verifies` },
+      reads: 0
+    }
+  ])(
+    'verifies a listing of up to 64 tokens and reads no faucet of a longer one ($count)',
+    async ({ count, probe, reads }) => {
+      const body = listingOf(count);
+      const io = deps({ fetch: healthFetch({ ...HEALTH, [PAIRS_URL]: body }) });
+      const pairs = (await deriveBridgeConfig(withSolver, io)).swap?.pairs;
+      expect(pairs).toMatchObject(probe);
+      const listed = new Set(body.tokens.map(token => token.faucetId));
+      const listedReads = jest.mocked(io.readMidenFaucet!).mock.calls.filter(([faucetId]) => listed.has(faucetId));
+      expect(listedReads).toHaveLength(reads);
+    }
+  );
+
+  it('fails the read once the on-chain verification passes its 30 s deadline', async () => {
+    jest.useFakeTimers();
+    try {
+      const run = deriveBridgeConfig(
+        withSolver,
+        deps({
+          fetch: healthFetch({ ...HEALTH, [PAIRS_URL]: TEST_SWAP_PAIRS_RESPONSE }),
+          readMidenFaucet: jest.fn(faucetId =>
+            faucetId === IETH.faucetId ? new Promise<never>(() => undefined) : readFixtureFaucet(faucetId)
+          )
+        })
+      );
+      let settled = false;
+      void run.then(() => (settled = true));
+      await jest.advanceTimersByTimeAsync(29_999);
+      expect(settled).toBe(false);
+      await jest.advanceTimersByTimeAsync(1);
+      expect((await run).swap?.pairs).toEqual({
+        state: 'error',
+        message: 'RPC "swap pairs faucet verification" timed out after 30000ms'
+      });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('starts no further batch of faucet reads once the 30 s deadline has failed the probe', async () => {
+    jest.useFakeTimers();
+    try {
+      const body = listingOf(12);
+      const listed = new Set(body.tokens.map(token => token.faucetId));
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>(resolve => (release = resolve));
+      const io = deps({
+        fetch: healthFetch({ ...HEALTH, [PAIRS_URL]: body }),
+        readMidenFaucet: jest.fn(async faucetId => {
+          if (listed.has(faucetId)) await gate;
+          return readFixtureFaucet(faucetId);
+        })
+      });
+      const run = deriveBridgeConfig(withSolver, io);
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect((await run).swap?.pairs).toMatchObject({ state: 'error' });
+      release();
+      await jest.advanceTimersByTimeAsync(0);
+      const listedReads = jest.mocked(io.readMidenFaucet!).mock.calls.filter(([faucetId]) => listed.has(faucetId));
+      expect(listedReads).toHaveLength(4);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
 describe('the Earn market', () => {
   const SEPOLIA_USDC = '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69';
   const SEPOLIA_UID = 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
@@ -424,6 +629,40 @@ describe('deriveBridgeConfig default I/O', () => {
       state: 'error',
       message: '0x537c15a622074e91188aa894456c52 has no public state'
     });
+  });
+
+  it('reads a listed faucet that is private, or whose storage is not a fungible faucet, as no faucet', async () => {
+    const [imiden, ieth] = TEST_SWAP_PAIRS_RESPONSE.tokens;
+    const pairsUrl = 'https://quotes.example/v2/pairs';
+    const solverOnly: BridgeConfig = {
+      ...TESTNET,
+      supportedEvmChains: {},
+      'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
+      swap: { etaUrl: 'https://quotes.example' }
+    };
+    mockGetAccountDetails.mockImplementation(async ({ id }: { id: string }) => ({
+      account: () => (id === imiden!.faucetId ? undefined : { storage: () => id })
+    }));
+    const refusing = (trap: Error) => (storage: string) => {
+      if (storage === ieth!.faucetId) throw trap;
+      return { symbol: () => ({ toString: () => 'X' }), decimals: () => 8 };
+    };
+    mockFromAccountStorage.mockImplementation(refusing(new Error('storage slot not found')));
+    const solver = parseSwapPairs(TEST_SWAP_PAIRS_RESPONSE)!;
+    const kept = new Set([imiden!.faucetId, ieth!.faucetId]);
+    const pairs = async () =>
+      (await deriveBridgeConfig(solverOnly, { fetch: healthFetch({ [pairsUrl]: TEST_SWAP_PAIRS_RESPONSE }) })).swap
+        ?.pairs;
+    expect(await pairs()).toEqual({
+      state: 'ok',
+      value: {
+        tokens: solver.tokens.filter(token => !kept.has(token.faucetId)),
+        pairs: solver.pairs.filter(pair => pair.faucetIds.every(faucetId => !kept.has(faucetId)))
+      }
+    });
+    // A trap is not a refusal: it fails the read rather than costing one listing.
+    mockFromAccountStorage.mockImplementation(refusing(new WebAssembly.RuntimeError('unreachable')));
+    expect(await pairs()).toEqual({ state: 'error', message: 'unreachable' });
   });
 
   it('reads Sepolia over the wallet RPC for the chain', async () => {

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { useGuardianOptions } from 'app/hooks/useGuardianOptions';
 import { Icon, IconName } from 'app/icons/v2';
 import { Button } from 'components/Button';
 import { GuardianLogoTile } from 'components/GuardianLogoTile';
@@ -13,7 +14,7 @@ import { Pill } from 'components/ui/Pill';
 import { Spinner } from 'components/ui/Spinner';
 import { TextAction } from 'components/ui/TextAction';
 import { TextField } from 'components/ui/TextField';
-import { DEFAULT_NETWORK, GUARDIAN_OPTIONS, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
+import { DEFAULT_NETWORK, getGuardianEndpointsForNetwork } from 'lib/miden-chain/constants';
 import { isValidGuardianUrl, sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
@@ -51,7 +52,10 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
   const { t } = useTranslation();
 
   const [selected, setSelected] = useState<WalletType>(WalletType.Guardian);
-  const [endpointInput, setEndpointInput] = useState<string>(GUARDIAN_OPTIONS[0]!.endpoint.get(DEFAULT_NETWORK)!);
+  // The build network's default operator, as the list stood when the screen opened: a document that lands later must
+  // not rewrite a field the user may already have read.
+  const [defaultEndpoint] = useState<string>(() => getGuardianEndpointsForNetwork(DEFAULT_NETWORK)[0] ?? '');
+  const [endpointInput, setEndpointInput] = useState<string>(defaultEndpoint);
   const [isCustomizing, setIsCustomizing] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [escapeHatchVisible, setEscapeHatchVisible] = useState(false);
@@ -129,7 +133,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
 
   // Guardian providers that run on the active network, resolved to their
   // endpoint on it.
-  const guardianPresets = useMemo(() => getGuardianOptionsForNetwork(), []);
+  const guardianPresets = useGuardianOptions();
 
   const detectedName = useMemo(() => {
     if (!detected) return '';
@@ -195,7 +199,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}
-          placeholder={GUARDIAN_OPTIONS[0]!.endpoint.get(DEFAULT_NETWORK)}
+          placeholder={defaultEndpoint}
           onKeyDown={event => {
             if (event.key === 'Enter') {
               event.currentTarget.blur();

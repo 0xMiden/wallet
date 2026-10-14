@@ -131,7 +131,9 @@ describe('MobileIntercomAdapter', () => {
         'test123',
         'word1 word2 word3',
         false,
-        'https://guardian.example'
+        'https://guardian.example',
+        // No mainnet access code in this request.
+        undefined
       );
       expect(response).toEqual({ type: WalletMessageType.NewWalletResponse });
     });
