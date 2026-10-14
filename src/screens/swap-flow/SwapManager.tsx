@@ -391,6 +391,15 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
         releaseSubmission();
         return;
       }
+      // The gate holds this manager and its pair while a submission is in flight, so a delist that lands while the
+      // user authorizes reaches here.
+      if (!isSwapPair(offerToken.faucetId, requestToken.faucetId)) {
+        setSubmitError(t('swapPairNotListed'));
+        setSpendingLimitChallenge(undefined);
+        setSubmitting(false);
+        releaseSubmission();
+        return;
+      }
       submissionPhase.current = 'executing';
       onBusyChange(true);
       setSubmitting(true);
@@ -460,7 +469,8 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       requestAmountBaseUnits,
       requestToken.faucetId,
       releaseSubmission,
-      settleSwap
+      settleSwap,
+      t
     ]
   );
 
@@ -480,6 +490,11 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       // Deliberately not settled: the user is still on the review screen and can
       // fix the amount, so this is one attempt failing inside a flow that is
       // still running, not the end of the flow.
+      return;
+    }
+    // Also in `canProceed`; a registry update can delist the pair after review opens.
+    if (!isSwapPair(offerToken.faucetId, requestToken.faucetId)) {
+      setSubmitError(t('swapPairNotListed'));
       return;
     }
     // Re-checked here as well as in `canProceed`, for the same reason the amounts are:
@@ -541,6 +556,7 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     sameToken,
     offerAmountExceedsBalance,
     offerToken,
+    requestToken.faucetId,
     hasOfferAmount,
     hasRequestAmount,
     validExpiry,

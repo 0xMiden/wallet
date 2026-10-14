@@ -905,6 +905,69 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
     });
 
+    describe('a pair the solver stops listing after review opens', () => {
+      // The solver drops AAA -> BBB while both tokens stay listed, which keeps the draft.
+      const delistOpenPair = (rerender: (ui: React.ReactElement) => void) => {
+        mockSolverPairs = [['faucet-A', 'faucet-C']];
+        rerender(<SwapFlow />);
+      };
+
+      beforeEach(() => {
+        mockAllBalancesReturn = { data: [{ tokenId: 'bech32-faucet-A', balance: 100 }] };
+        mockSolverPairs = [
+          ['faucet-A', 'faucet-B'],
+          ['faucet-A', 'faucet-C']
+        ];
+      });
+
+      const expectRefusedAndRetryable = () => {
+        expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('swapPairNotListed');
+        expect(mockInitiateSwap).not.toHaveBeenCalled();
+        expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'false');
+        expect(screen.getByTestId('rs-offer-amount')).toHaveTextContent('10');
+        expect(swapFlow().complete).not.toHaveBeenCalled();
+        expect(swapFlow().fail).not.toHaveBeenCalled();
+        expect(swapFlow().cancel).not.toHaveBeenCalled();
+      };
+
+      it('refuses the review Swap and starts no spending-limit check or swap', async () => {
+        const { rerender } = renderFlow();
+        act(() => void jest.advanceTimersByTime(ROUTE_DWELL_MS));
+        setOffer('10');
+        delistOpenPair(rerender);
+        await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+        expectRefusedAndRetryable();
+        expect(mockWalletState.assessSpendingLimit).not.toHaveBeenCalled();
+        expect(mockConfirmSensitive).not.toHaveBeenCalled();
+      });
+
+      it('refuses the resubmit when the delist lands while a spending-limit challenge is open', async () => {
+        mockWalletState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+        const { rerender } = renderFlow();
+        act(() => void jest.advanceTimersByTime(ROUTE_DWELL_MS));
+        setOffer('10');
+        await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+        expect(screen.getByTestId('spending-limit-challenge')).toBeInTheDocument();
+        delistOpenPair(rerender);
+        await act(async () => fireEvent.click(screen.getByRole('button', { name: 'authorize-limit' })));
+        expect(screen.queryByTestId('spending-limit-challenge')).not.toBeInTheDocument();
+        expectRefusedAndRetryable();
+      });
+
+      it('refuses the swap when the delist lands while the user confirms', async () => {
+        let confirm: (value: boolean) => void = () => undefined;
+        mockConfirmSensitive.mockReturnValueOnce(new Promise<boolean>(resolve => (confirm = resolve)));
+        const { rerender } = renderFlow();
+        act(() => void jest.advanceTimersByTime(ROUTE_DWELL_MS));
+        setOffer('10');
+        await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+        expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'true');
+        delistOpenPair(rerender);
+        await act(async () => confirm(true));
+        expectRefusedAndRetryable();
+      });
+    });
+
     it('preserves the draft when a refresh republishes the same registry content', () => {
       const { rerender } = renderFlow();
       selectThirdOffer();
@@ -934,8 +997,7 @@ describe('SwapFlow / SwapManager', () => {
 
     it.each([
       { change: 'selected-token removal', tokens: [mockTokenA, mockTokenB] },
-      { change: 'metadata refresh', tokens: [mockTokenA, mockTokenB, { ...mockTokenC, decimals: 0 }] },
-      { change: 'entire-registry removal', tokens: [] }
+      { change: 'metadata refresh', tokens: [mockTokenA, mockTokenB, { ...mockTokenC, decimals: 0 }] }
     ])('holds the busy review and original flow across $change', async ({ tokens }) => {
       let confirm: (value: boolean) => void = () => undefined;
       mockConfirmSensitive.mockReturnValueOnce(new Promise<boolean>(resolve => (confirm = resolve)));
@@ -956,9 +1018,31 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-C', 10n, 'faucet-B', 5n, false, 120, true);
       expect(swapFlow().complete).toHaveBeenCalledTimes(1);
       expect(swapFlow().cancel).not.toHaveBeenCalled();
-      expect(screen.queryByTestId('swap-amounts') !== null).toBe(tokens.length !== 0);
-      expect(screen.queryByTestId('sa-offer-token')?.textContent ?? null).toBe(tokens.length === 0 ? null : 'AAA');
-      expect(screen.queryByTestId('sa-offer-amount')?.textContent ?? null).toBe(tokens.length === 0 ? null : '');
+      expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('AAA');
+      expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
+    });
+
+    it('holds the busy review across entire-registry removal, then refuses the pair the solver no longer lists', async () => {
+      let confirm: (value: boolean) => void = () => undefined;
+      mockConfirmSensitive.mockReturnValueOnce(new Promise<boolean>(resolve => (confirm = resolve)));
+      const { rerender } = renderFlow();
+      selectThirdOffer();
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      mockGetSwapTokens.mockReturnValue([]);
+      rerender(<SwapFlow />);
+      expect(screen.getByTestId('rs-offer-token')).toHaveTextContent('CCC');
+      expect(screen.getByTestId('rs-offer-amount')).toHaveTextContent('10');
+      expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'true');
+      expect(swapFlow().cancel).not.toHaveBeenCalled();
+      await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+      expect(mockWalletState.assessSpendingLimit).toHaveBeenCalledTimes(1);
+      await act(async () => confirm(true));
+      expect(mockInitiateSwap).not.toHaveBeenCalled();
+      expect(swapFlow().complete).not.toHaveBeenCalled();
+      expect(swapFlow().fail).not.toHaveBeenCalled();
+      // Released, the manager gives way to the gate's unavailable pane.
+      expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('review-swap')).not.toBeInTheDocument();
     });
 
     it('owns review presses synchronously before assessment resolves', async () => {
@@ -1007,7 +1091,7 @@ describe('SwapFlow / SwapManager', () => {
       selectThirdOffer();
       await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
       const authorize = mockChallengeResult;
-      mockGetSwapTokens.mockReturnValue([]);
+      mockGetSwapTokens.mockReturnValue([mockTokenA, mockTokenB, { ...mockTokenC, decimals: 0 }]);
       rerender(<SwapFlow />);
       await act(async () => {
         const authorization: SpendingLimitAuthorization = {
@@ -1040,7 +1124,8 @@ describe('SwapFlow / SwapManager', () => {
       await act(async () => finish('tx-held'));
       expect(swapFlow().complete).toHaveBeenCalledTimes(1);
       expect(swapFlow().cancel).not.toHaveBeenCalled();
-      expect(screen.queryByTestId('swap-amounts')).not.toBeInTheDocument();
+      expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('AAA');
+      expect(screen.getByTestId('sa-offer-amount')).toBeEmptyDOMElement();
     });
   });
 
