@@ -8,14 +8,20 @@ import { usdcxSourceChains } from 'lib/usdcx/constant';
 import { BRIDGE_DELIVERY_TIMED_OUT } from './bridge-in';
 import { reconcileBridgedReceives } from './bridge-receive';
 
-// The published testnet document unless a test moved it.
+// The published testnet document unless a test moved it. `mockUnhydrated` is what the realm holds until
+// initBridgeConfig has read its stored copy.
 let mockSnapshot: BridgeConfigSnapshot | undefined;
+let mockUnhydrated: BridgeConfigSnapshot | undefined;
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () =>
+    mockUnhydrated ??
     mockSnapshot ??
     jest
       .requireActual<typeof import('lib/remote-config/testing/fixture')>('lib/remote-config/testing/fixture')
-      .testBridgeSnapshot()
+      .testBridgeSnapshot(),
+  initBridgeConfig: async () => {
+    mockUnhydrated = undefined;
+  }
 }));
 
 // Circle attested deposit 0x370bf19a (attestation.vectors.json) to Miden account 0x8da911727d5b53916f2c221c00c091,
@@ -73,6 +79,7 @@ const phaseOf = async (id: string) => (await Repo.transactions.get(id))?.extraIn
 beforeEach(async () => {
   jest.clearAllMocks();
   mockSnapshot = undefined;
+  mockUnhydrated = undefined;
   await Repo.transactions.clear();
   fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => vectors });
   mockReadOutcome.mockResolvedValue('pending');
@@ -151,6 +158,21 @@ describe('an executor-route USDCx deposit', () => {
       ? { ...published, config: { ...published.config, supportedEvmChains: chains } }
       : undefined;
     expect(usdcxSourceChains().has(84532)).toBe(false);
+
+    await reconcileBridgedReceives();
+
+    const row = await Repo.transactions.get(id);
+    expect(row?.extraInputs).toMatchObject({ phase: 'delivering', cctp });
+    expect(row?.error).not.toBe(BRIDGE_DELIVERY_TIMED_OUT);
+  });
+
+  it('keeps a week-old attested, unexecuted message with no saved route open on a pass before hydration', async () => {
+    // A row from before routes were saved is classified by the document, which the watcher's first pass on a page that
+    // has just opened can reach before this realm read its stored copy.
+    const cctp = { sourceDomain: 6, message: '0x01', attestation: '0x02' };
+    const id = await addDeposit(ATTESTED_ACCOUNT, { sourceChainId: 84532, cctp });
+    await Repo.transactions.update(id, { initiatedAt: Math.floor(Date.now() / 1000) - 8 * 24 * 60 * 60 });
+    mockUnhydrated = { network: 'testnet', status: 'loading', config: null, derived: null, lastFetch: null };
 
     await reconcileBridgedReceives();
 

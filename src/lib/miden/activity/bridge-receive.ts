@@ -5,6 +5,7 @@ import { fetchDeposits, isAgglayerDepositReady } from 'lib/agglayer/status';
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import {
   fetchXReserveAttestations,
   matchUsdcxDepositAttestation,
@@ -465,6 +466,9 @@ export function createBridgeReceiveReconciler({
    * index.
    */
   async function reconcile(): Promise<void> {
+    // The watcher's first pass can run before this realm read its stored copy, and a row with no saved route is
+    // classified (and timed out) by the document; from storage, never the network.
+    await initBridgeConfig();
     const { rows, resumeOrphans } = await readRows();
     const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
 
