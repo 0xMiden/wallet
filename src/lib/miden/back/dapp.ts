@@ -72,7 +72,7 @@ import { MIDEN_METADATA } from 'lib/miden/metadata';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getAssetSymbol, getTokenMetadata } from 'lib/miden/metadata/utils';
 import { NETWORKS } from 'lib/miden/networks';
-import { importedNoteIds, releaseNoteIds } from 'lib/miden/note-quarantine';
+import { importedNoteIds, noteIdFromBytes, releaseNoteIds } from 'lib/miden/note-quarantine';
 import { createSpendingLimitAuthorization } from 'lib/miden/spending-limits/authorization';
 import {
   assessOutgoingSpendingLimitDetails,
@@ -656,6 +656,7 @@ export async function requestSign(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // Bind the signing KEY to the authorized ACCOUNT before anything prompts the
   // user: no approval surface can contradict a swapped key. The extension's
@@ -704,12 +705,14 @@ const generatePromisifySign = async (
         reject(new Error(MidenDAppErrorType.NotGranted));
         return;
       }
+      // The entry gate ran before the sheet opened; the session or the current account may have changed since (#1419).
+      await assertDappSendStillAuthorized(origin, req.sourceAccountId, dApp.accountId);
       const signature = await withUnlocked(async ({ vault }) =>
         vault.signData(req.sourcePublicKey, req.payload, req.kind, req.sourceAccountId)
       );
       resolve({ type: MidenDAppMessageType.SignResponse, signature });
     } catch (e) {
-      reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+      reject(dappSendFailure(e));
     }
     return;
   }
@@ -751,6 +754,8 @@ const generatePromisifySign = async (
             };
           }
           try {
+            // See the mobile/desktop arm: same post-approval re-check.
+            await assertDappSendStillAuthorized(origin, req.sourceAccountId, dApp.accountId);
             let signature = await withUnlocked(async ({ vault }) => {
               const signDataResult = await vault.signData(
                 req.sourcePublicKey,
@@ -798,6 +803,7 @@ export async function requestPrivateNotes(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -854,6 +860,7 @@ const generatePromisifyRequestPrivateNotes = async (
         reject(new Error(MidenDAppErrorType.NotGranted));
         return;
       }
+      await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
       resolve({ type: MidenDAppMessageType.PrivateNotesResponse, privateNotes });
       return;
     }
@@ -876,12 +883,13 @@ const generatePromisifyRequestPrivateNotes = async (
         if (confirmReq?.type === MidenMessageType.DAppPrivateNotesConfirmationRequest && confirmReq?.id === id) {
           if (confirmReq.confirmed) {
             try {
+              await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
               resolve({
                 type: MidenDAppMessageType.PrivateNotesResponse,
                 privateNotes
               } as any);
             } catch (e) {
-              reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+              reject(dappRequestFailure(e));
             }
           } else {
             decline();
@@ -989,6 +997,7 @@ export async function requestConsumableNotes(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -1045,6 +1054,7 @@ export const generatePromisifyRequestConsumableNotes = async (
         reject(new Error(MidenDAppErrorType.NotGranted));
         return;
       }
+      await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
       resolve({ type: MidenDAppMessageType.ConsumableNotesResponse, consumableNotes });
       return;
     }
@@ -1067,12 +1077,13 @@ export const generatePromisifyRequestConsumableNotes = async (
         if (confirmReq?.type === MidenMessageType.DAppConsumableNotesConfirmationRequest && confirmReq?.id === id) {
           if (confirmReq.confirmed) {
             try {
+              await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
               resolve({
                 type: MidenDAppMessageType.ConsumableNotesResponse,
                 consumableNotes
               } as any);
             } catch (e) {
-              reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+              reject(dappRequestFailure(e));
             }
           } else {
             decline();
@@ -1155,6 +1166,7 @@ export async function requestAssets(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -1212,6 +1224,7 @@ export const generatePromisifyRequestAssets = async (
         reject(new Error(MidenDAppErrorType.NotGranted));
         return;
       }
+      await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
       resolve({ type: MidenDAppMessageType.AssetsResponse, assets });
       return;
     }
@@ -1234,12 +1247,13 @@ export const generatePromisifyRequestAssets = async (
         if (confirmReq?.type === MidenMessageType.DAppAssetsConfirmationRequest && confirmReq?.id === id) {
           if (confirmReq.confirmed) {
             try {
+              await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
               resolve({
                 type: MidenDAppMessageType.AssetsResponse,
                 assets
               } as any);
             } catch (e) {
-              reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+              reject(dappRequestFailure(e));
             }
           } else {
             decline();
@@ -1300,6 +1314,7 @@ export async function requestGuardianInfo(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   const guardianInfo = await getGuardianInfoData(dApp.accountId);
   return {
@@ -1353,6 +1368,7 @@ export async function requestImportPrivateNote(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -1427,8 +1443,42 @@ async function importDAppPrivateNote(note: string): Promise<string> {
  * move, and lost the one signal the kill exists to carry. Same rule the connect
  * path follows.
  */
-const importPrivateNoteFailure = (e: unknown): unknown =>
-  isPipelineKillLink(e) ? e : new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+const importPrivateNoteFailure = (e: unknown): unknown => (isPipelineKillLink(e) ? e : dappRequestFailure(e));
+
+/**
+ * Imports the note that an approved consume request carries, before the consume reads it
+ * from the store (issue #1459).
+ *
+ * `initiateConsumeTransactionFromId` refuses a note that is not in the store, and it does
+ * that before it writes a row. Thus a queued import is too late: the transaction loop
+ * imports queued notes only for rows that already exist. A dApp-supplied private note is
+ * not in the store until this import, so the dApp had to get a separate import approval
+ * first. The consume sheet already showed this note, decoded from these bytes and checked
+ * against `noteId`, so that second approval showed the user nothing new.
+ *
+ * `importDAppPrivateNote` queues the bytes when the import fails transiently or is killed,
+ * so a failed consume does not lose the note.
+ *
+ * The bytes are checked by the id quarantine derives from them (a NoteFile's note id, else
+ * a bare Note's id), never by the import's answer: for raw `Note` bytes that answer is a
+ * details commitment, not a note id. Bytes that are neither a NoteFile nor a Note are not
+ * imported; the consume then finds the note in the store or refuses it itself.
+ */
+async function importConsumeNoteBytes(noteId: string, noteBytes: string): Promise<void> {
+  let carriedId: string | null = null;
+  try {
+    carriedId = noteIdFromBytes(b64ToU8(noteBytes));
+  } catch {
+    // Invalid base64 reads as unreadable bytes.
+  }
+  // Nothing readable to import: the consume reads the note from the store, as it did before bytes
+  // were carried, and refuses a note the store lacks.
+  if (carriedId === null) return;
+  if (carriedId !== noteId) {
+    throw new Error('noteBytes describe a different note than noteId - refusing to consume it');
+  }
+  await importDAppPrivateNote(noteBytes);
+}
 
 export const generatePromisifyImportPrivateNote = async (
   resolve: (value: MidenDAppImportPrivateNoteResponse | PromiseLike<MidenDAppImportPrivateNoteResponse>) => void,
@@ -1455,6 +1505,7 @@ export const generatePromisifyImportPrivateNote = async (
         reject(new Error(MidenDAppErrorType.NotGranted));
         return;
       }
+      await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
       const noteId = await importDAppPrivateNote(req.note);
       resolve({ type: MidenDAppMessageType.ImportPrivateNoteResponse, noteId });
     } catch (e) {
@@ -1481,6 +1532,7 @@ export const generatePromisifyImportPrivateNote = async (
       if (confirmReq?.type === MidenMessageType.DAppImportPrivateNoteConfirmationRequest && confirmReq?.id === id) {
         if (confirmReq.confirmed) {
           try {
+            await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
             const noteId = await importDAppPrivateNote(req.note);
             resolve({
               type: MidenDAppMessageType.ImportPrivateNoteResponse,
@@ -1521,6 +1573,7 @@ export async function requestTransaction(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -1667,6 +1720,17 @@ const customSpendingLimitState = async (
   }
 };
 
+// A request names the account it acts for; answering one that is not current would show or act on an account the
+// user is not looking at (#1419). The vault's plain-storage read works while locked, unlike the store.
+const assertRequestAccountIsCurrent = async (accountId: string): Promise<void> => {
+  const current = await Vault.getCurrentAccountPublicKey();
+  if (!current || !sameWalletAccountId(current, accountId)) {
+    throw new Error(MidenDAppErrorType.NotGranted);
+  }
+};
+
+// Every prompted request runs this after approval and before it answers or acts: the sheet may have sat open while
+// the dApp was disconnected or the user switched accounts (#1419, #1415).
 const assertDappSendStillAuthorized = async (
   origin: string,
   sourcePublicKey: string,
@@ -1698,6 +1762,11 @@ const dappSendFailure = (error: unknown): Error => {
   ) {
     return spendingLimitRetryError();
   }
+  return dappRequestFailure(error);
+};
+
+// A refusal reaches the dApp as NOT_GRANTED; any other failure is reported as INVALID_PARAMS.
+const dappRequestFailure = (error: unknown): Error => {
   if (error instanceof Error && error.message === MidenDAppErrorType.NotGranted) return error;
   if (error instanceof Error && error.message.startsWith(`${MidenDAppErrorType.NotGranted}:`)) return error;
   return new Error(`${MidenDAppErrorType.InvalidParams}: ${error}`);
@@ -1995,6 +2064,7 @@ export async function requestSendTransaction(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -2222,6 +2292,7 @@ export async function requestConsumeTransaction(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -2279,9 +2350,13 @@ const generatePromisifyConsumeTransaction = async (
 
     try {
       const transactionId = await withUnlocked(async () => {
+        // The same re-check send and custom perform: a consume approved for a stale session moves value too (#1415).
+        await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
         const { noteId, noteBytes } = req.transaction;
         if (noteBytes) {
-          await queueNoteImport(noteBytes);
+          await importConsumeNoteBytes(noteId, noteBytes);
+          // The import can run long; the account or session may have changed under it.
+          await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
         }
         // `manualRetry`: the user just approved THIS consume on the sheet, so it
         // must not be dropped by auto-consume's exponential backoff — which
@@ -2302,7 +2377,8 @@ const generatePromisifyConsumeTransaction = async (
         transactionId
       });
     } catch (e) {
-      reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+      // A killed note import may have landed and the bytes are queued: not bad params.
+      reject(importPrivateNoteFailure(e));
     }
     return;
   }
@@ -2326,9 +2402,13 @@ const generatePromisifyConsumeTransaction = async (
         if (confirmReq.confirmed) {
           try {
             const transactionId = await withUnlocked(async () => {
+              // See the mobile/desktop arm: same post-approval re-check.
+              await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
               const { noteId, noteBytes } = req.transaction;
               if (noteBytes) {
-                await queueNoteImport(noteBytes);
+                await importConsumeNoteBytes(noteId, noteBytes);
+                // See the mobile/desktop arm: the import can outlast the approval's check.
+                await assertDappSendStillAuthorized(origin, req.sourcePublicKey, dApp.accountId);
               }
               // `manualRetry`: approved on the confirm page — see the
               // non-extension branch above for why the backoff must not apply,
@@ -2347,7 +2427,8 @@ const generatePromisifyConsumeTransaction = async (
               transactionId
             });
           } catch (e) {
-            reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+            // Same mapping as the non-extension branch above.
+            reject(importPrivateNoteFailure(e));
           }
         } else {
           decline();

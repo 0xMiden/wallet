@@ -1,9 +1,10 @@
 import { getAddress } from 'viem';
 
-import type { BridgeToken, Probe, TokenMetadata } from './derive';
+import type { BridgeToken, DerivedChainConfig, Probe, TokenMetadata } from './derive';
 import { getE2eOverrides, type MidenUsdc } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
-import type { AgglayerRecoveryConfig, SupportedEvmChainConfig } from './schema';
+import { type AgglayerRecoveryConfig, epochCollateralFaucetId, type SupportedEvmChainConfig } from './schema';
+import type { SwapPairs } from './swap-pairs';
 
 /** Thrown by a `get*` getter while the accepted document or its derivation cannot supply the value. */
 export class BridgeConfigUnavailableError extends Error {
@@ -41,6 +42,12 @@ export function selectAgglayerChain(s: BridgeConfigSnapshot, chainId?: number): 
   return chains.find(chain => chain.bridges.agglayer && (chainId === undefined || chain.chainId === chainId)) ?? null;
 }
 
+// The reads of the AggLayer chain `chainId`, or of the first one listed when no chain is given.
+function agglayerReads(s: BridgeConfigSnapshot, chainId?: number): DerivedChainConfig['agglayer'] | undefined {
+  const chain = selectAgglayerChain(s, chainId);
+  return chain ? s.derived?.chains[chain.chainId]?.agglayer : undefined;
+}
+
 export function selectEvmChainId(s: BridgeConfigSnapshot): number | null {
   return selectEpochChain(s)?.chainId ?? null;
 }
@@ -49,7 +56,7 @@ export function selectEvmChainId(s: BridgeConfigSnapshot): number | null {
 export function selectMidenUsdcFaucetId(s: BridgeConfigSnapshot): string | null {
   return (
     getE2eOverrides().earnCollateralFaucet?.faucetId ??
-    s.config?.['bridge-providers'].epoch.outputs?.['usdc-testnet-output']?.faucetId ??
+    (s.config ? epochCollateralFaucetId(s.config) : undefined) ??
     null
   );
 }
@@ -57,20 +64,25 @@ export function selectMidenUsdcFaucetId(s: BridgeConfigSnapshot): string | null 
 export function selectMidenUsdc(s: BridgeConfigSnapshot): MidenUsdc | null {
   const override = getE2eOverrides().earnCollateralFaucet;
   if (override) return override;
-  const faucetId = s.config?.['bridge-providers'].epoch.outputs?.['usdc-testnet-output']?.faucetId;
+  const faucetId = s.config ? epochCollateralFaucetId(s.config) : undefined;
   const metadata = okValue(s.derived?.epoch.midenUsdcFaucet);
   return faucetId && metadata ? { faucetId, ...metadata } : null;
 }
 
-/** The faucet the document lists a swap token under `symbol` at ('0x' + 30 lowercase hex), or null when it lists none. */
-export function selectSwapTokenFaucetId(s: BridgeConfigSnapshot, symbol: string): string | null {
-  return s.config?.swap?.tokens.find(token => token.symbol === symbol)?.faucetId ?? null;
+/** The solver's tokens and pairs (`GET /v2/pairs` on the document's `swap.etaUrl`), or null while no read has succeeded. */
+export function selectSwapPairs(s: BridgeConfigSnapshot): SwapPairs | null {
+  return okValue(s.derived?.swap?.pairs);
+}
+
+/** The faucet the solver lists a swap token under `ticker` at ('0x' + 30 lowercase hex), or null when it lists none. */
+export function selectSwapTokenFaucetId(s: BridgeConfigSnapshot, ticker: string): string | null {
+  return selectSwapPairs(s)?.tokens.find(token => token.ticker === ticker)?.faucetId ?? null;
 }
 
 export function selectEvmUsdc(s: BridgeConfigSnapshot, chainId?: number): EvmUsdc | null {
   const chain = selectEpochChain(s, chainId);
   const address = chain?.bridges.epoch?.tokens.USDC?.contractAddress;
-  const token = okValue(chain ? s.derived?.chains?.[chain.chainId]?.epoch.evmUsdc : undefined);
+  const token = okValue(chain ? s.derived?.chains[chain.chainId]?.epoch.evmUsdc : undefined);
   return address && chain && token ? { address: getAddress(address), chainId: chain.chainId, ...token } : null;
 }
 
@@ -83,14 +95,21 @@ export function selectEarnMarket(s: BridgeConfigSnapshot): EarnMarket | null {
  * The registered token whose origin is native ETH on network 0: its faucet mints bridged ETH and sends its deliveries,
  * each a deposit of `w` wei arriving as `floor(w / 10^scale)` of the faucet's units.
  */
-export function selectNativeEthToken(s: BridgeConfigSnapshot): BridgeToken | null {
-  const tokens = okValue(s.derived?.agglayer.tokens) ?? [];
+export function selectNativeEthToken(s: BridgeConfigSnapshot, chainId?: number): BridgeToken | null {
+  const tokens = okValue(agglayerReads(s, chainId)?.tokens) ?? [];
   return tokens.find(token => token.originToken === NATIVE_ETH && token.originNetwork === 0) ?? null;
 }
 
 /** The native-ETH token's faucet: it mints bridged ETH and sends its deliveries. */
-export function selectNativeEthFaucet(s: BridgeConfigSnapshot): string | null {
-  return selectNativeEthToken(s)?.midenFaucetId ?? null;
+export function selectNativeEthFaucet(s: BridgeConfigSnapshot, chainId?: number): string | null {
+  return selectNativeEthToken(s, chainId)?.midenFaucetId ?? null;
+}
+
+/** Every listed AggLayer chain's native-ETH faucet, each once: any of them can send a delivery. */
+export function selectNativeEthFaucets(s: BridgeConfigSnapshot): string[] {
+  const chains = Object.values(s.config?.supportedEvmChains ?? {}).filter(chain => chain.bridges.agglayer);
+  const faucets = chains.flatMap(chain => selectNativeEthFaucet(s, chain.chainId) ?? []);
+  return [...new Set(faucets)];
 }
 
 // Read synchronously: each realm hydrates its snapshot at startup, and an entry point stays greyed until its values are
@@ -129,9 +148,14 @@ export function getEvmUsdcAddress(): `0x${string}` {
   });
 }
 
-/** The EVM USDC with its symbol and decimals, or null while that read has not succeeded. */
-export function findEvmUsdc(): EvmUsdc | null {
-  return selectEvmUsdc(getBridgeConfigSnapshot());
+/** The EVM USDC on `chainId` (else the first Epoch chain) with symbol and decimals, or null until that read works. */
+export function findEvmUsdc(chainId?: number): EvmUsdc | null {
+  return selectEvmUsdc(getBridgeConfigSnapshot(), chainId);
+}
+
+/** The Epoch USDC contract the document names on `chainId`, whether or not its token read succeeded. */
+export function findEpochUsdcAddress(chainId: number): string | null {
+  return selectEpochChain(getBridgeConfigSnapshot(), chainId)?.bridges.epoch?.tokens.USDC?.contractAddress ?? null;
 }
 
 export function getEarnMarket(): EarnMarket {
@@ -145,8 +169,11 @@ export function getAgglayerMidenBridge(chainId?: number): string {
   );
 }
 
-export function getAgglayerIndexerUrl(): string {
-  return getValue('agglayer.indexerUrl', s => s.config?.['bridge-providers'].agglayer.indexerUrl ?? null);
+/** The indexer, while the AggLayer chain `chainId` (or any, when none is given) is listed. */
+export function getAgglayerIndexerUrl(chainId?: number): string {
+  return getValue('agglayer.indexerUrl', s =>
+    selectAgglayerChain(s, chainId) ? (s.config?.['bridge-providers'].agglayer.indexerUrl ?? null) : null
+  );
 }
 
 export function getAgglayerL1Bridge(chainId?: number): `0x${string}` {
@@ -154,13 +181,13 @@ export function getAgglayerL1Bridge(chainId?: number): `0x${string}` {
 }
 
 /** The Miden rollup id: a deposit's destination network, and the network the indexer files every Miden exit under. */
-export function getAgglayerRollupId(): number {
-  return getValue('Agglayer rollup id', s => okValue(s.derived?.agglayer.rollupId));
+export function getAgglayerRollupId(chainId?: number): number {
+  return getValue('Agglayer rollup id', s => okValue(agglayerReads(s, chainId)?.rollupId));
 }
 
 /** The L1 bridge's networkID(): the destination of every bridge-out note, and of the exit the indexer files for it. */
-export function getAgglayerEvmNetworkId(): number {
-  return getValue('Agglayer L1 network id', s => okValue(s.derived?.agglayer.evmNetworkId));
+export function getAgglayerEvmNetworkId(chainId?: number): number {
+  return getValue('Agglayer L1 network id', s => okValue(agglayerReads(s, chainId)?.evmNetworkId));
 }
 
 /** What a bridge-out note carries: the Miden bridge it targets and the L1 bridge's networkID() as its destination. */
@@ -171,8 +198,7 @@ export function getAgglayerBridgeOut(chainId?: number): {
 } {
   return getValue('Agglayer bridge-out values', s => {
     const midenBridge = selectAgglayerChain(s, chainId)?.bridges.agglayer?.midenBridgeId;
-    const chain = selectAgglayerChain(s, chainId);
-    const evmNetworkId = okValue(chain ? s.derived?.chains?.[chain.chainId]?.agglayer.evmNetworkId : undefined);
+    const evmNetworkId = okValue(agglayerReads(s, chainId)?.evmNetworkId);
     const recovery = selectAgglayerRecoveryConfig(s, chainId);
     return midenBridge && evmNetworkId !== null && recovery ? { midenBridge, evmNetworkId, recovery } : null;
   });
@@ -182,8 +208,7 @@ export function getAgglayerBridgeOut(chainId?: number): {
 export function getAgglayerDeposit(chainId?: number): { l1Bridge: `0x${string}`; rollupId: number } {
   return getValue('Agglayer deposit values', s => {
     const l1Bridge = selectAgglayerChain(s, chainId)?.bridges.agglayer?.contractAddress;
-    const chain = selectAgglayerChain(s, chainId);
-    const rollupId = okValue(chain ? s.derived?.chains?.[chain.chainId]?.agglayer.rollupId : undefined);
+    const rollupId = okValue(agglayerReads(s, chainId)?.rollupId);
     return l1Bridge && rollupId !== null ? { l1Bridge, rollupId } : null;
   });
 }
@@ -195,9 +220,18 @@ export function selectAgglayerRecoveryConfig(
   const chain = selectAgglayerChain(s, chainId);
   const route = chain?.bridges.agglayer;
   const indexerUrl = s.config?.['bridge-providers'].agglayer.indexerUrl;
-  const reads = chain ? s.derived?.chains?.[chain.chainId]?.agglayer : undefined;
+  const reads = agglayerReads(s, chainId);
   const rollupId = okValue(reads?.rollupId);
   const evmNetworkId = okValue(reads?.evmNetworkId);
   if (!chain || !route || !indexerUrl || rollupId === null || evmNetworkId === null) return undefined;
-  return { chainId: chain.chainId, ...route, indexerUrl, rollupId, evmNetworkId };
+  // Saved with the row, so its delivery still matches once the document drops the chain.
+  const nativeEth = selectNativeEthToken(s, chain.chainId);
+  return {
+    chainId: chain.chainId,
+    ...route,
+    indexerUrl,
+    rollupId,
+    evmNetworkId,
+    ...(nativeEth ? { nativeEthFaucetId: nativeEth.midenFaucetId, nativeEthScale: nativeEth.scale } : {})
+  };
 }

@@ -1,7 +1,6 @@
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { featureAvailability } from 'lib/remote-config/availability';
 import { evmChainSlug } from 'lib/remote-config/chains';
-import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { DEFAULT_USDCX_DESTINATION_CHAIN_ID, listUsdcxDestinations } from 'lib/usdcx/constant';
 import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 
@@ -31,7 +30,7 @@ export function getBridgeNetworkByChainId(chainId: number): BridgeNetwork | unde
   return BRIDGE_NETWORKS.find(network => network.chainId === chainId);
 }
 export function usdcxBridgeNetworks(): readonly BridgeNetwork[] {
-  return listUsdcxDestinations(getEffectiveNetworkName() !== 'mainnet').flatMap(entry => {
+  return listUsdcxDestinations().flatMap(entry => {
     const network = getBridgeNetworkByChainId(entry.chain.id);
     return network ? [network] : [];
   });
@@ -48,13 +47,20 @@ export function isEpochBridgeNetwork(id: string | undefined): boolean {
   return entry?.bridges.epoch !== undefined || entry?.bridges.agglayer !== undefined;
 }
 
+// A render-time read must be stable: the list is an effect dependency, so a new array per call re-fires the effect.
+const sendNetworksCache = new Map<boolean, { snapshot: BridgeConfigSnapshot; networks: readonly BridgeNetwork[] }>();
+
 export function sendBridgeNetworks(usdcxWithdrawals: boolean): readonly BridgeNetwork[] {
   const snapshot = getBridgeConfigSnapshot();
+  const cached = sendNetworksCache.get(usdcxWithdrawals);
+  if (cached?.snapshot === snapshot) return cached.networks;
   const names = new Set(usdcxWithdrawals ? usdcxBridgeNetworks().map(chain => chain.id) : []);
-  return BRIDGE_NETWORKS.filter(
+  const networks = BRIDGE_NETWORKS.filter(
     chain =>
       names.has(chain.id) ||
       featureAvailability('fastBridgeOut', snapshot, undefined, chain.chainId).state === 'available' ||
       featureAvailability('bridgeOut', snapshot, undefined, chain.chainId).state === 'available'
   );
+  sendNetworksCache.set(usdcxWithdrawals, { snapshot, networks });
+  return networks;
 }

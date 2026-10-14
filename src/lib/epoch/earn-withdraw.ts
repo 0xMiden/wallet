@@ -21,7 +21,13 @@ import {
 } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
-import { findEvmUsdc, getEpochAllocatorUrl, getEvmUsdc, getEvmUsdcAddress } from 'lib/remote-config/values';
+import {
+  type EvmUsdc,
+  findEpochUsdcAddress,
+  findEvmUsdc,
+  getEpochAllocatorUrl,
+  getEvmUsdc
+} from 'lib/remote-config/values';
 
 import { normalizeMidenIdToHex } from './bridge';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
@@ -144,10 +150,24 @@ export function buildEarnWithdrawTaskDataParams(args: {
   };
 }
 
-/** Submit one withdrawal attempt while recovery can observe its active ownership. */
-export async function gaslessEarnWithdrawalToMiden(
+const UNSUPPORTED_MARKET = 'Gasless withdrawal only supports the configured USDC Earn market.';
+
+/**
+ * Submit one withdrawal attempt while recovery can observe its active ownership. A new withdrawal proceeds only
+ * for the Epoch USDC market the document configures on the market's own chain.
+ */
+export function gaslessEarnWithdrawalToMiden(
   args: GaslessEarnWithdrawalArgs,
   deps: GaslessEarnWithdrawalDeps = {}
+): Promise<GaslessEarnWithdrawalResult> {
+  return submitEarnWithdrawal(args, deps, true);
+}
+
+/** `verifyMarket` is false for a retry: its row's market and token were checked when the row was created. */
+async function submitEarnWithdrawal(
+  args: GaslessEarnWithdrawalArgs,
+  deps: GaslessEarnWithdrawalDeps,
+  verifyMarket: boolean
 ): Promise<GaslessEarnWithdrawalResult> {
   const sponsorAddress = asAddress(args.evmAddress, 'Position owner');
   const underlyingAddress = getAddress(asAddress(args.underlyingAddress, 'Underlying token'));
@@ -155,18 +175,21 @@ export async function gaslessEarnWithdrawalToMiden(
   if (!args.midenAccountPublicKey) throw new Error('A Miden destination account is required.');
   if (!args.marketUid) throw new Error('The lending market identifier is missing.');
   // Withdraw is a recovery action: it needs the document's token, not a successful read of it. The token's decimals
-  // are checked when that read is known; otherwise the position's own stand.
-  const usdc = findEvmUsdc();
+  // are checked against the market chain's USDC when that read is known; otherwise the position's own stand.
+  const chainId = Number(args.marketUid.split(':')[1]);
+  const usdc = findEvmUsdc(chainId);
   if (
-    underlyingAddress.toLowerCase() !== args.marketUid.split(':')[2]?.toLowerCase() ||
+    (verifyMarket && underlyingAddress.toLowerCase() !== args.marketUid.split(':')[2]?.toLowerCase()) ||
     (usdc !== null &&
       usdc.address.toLowerCase() === underlyingAddress.toLowerCase() &&
       args.underlyingDecimals !== usdc.decimals)
   ) {
-    throw new Error('Gasless withdrawal only supports the configured USDC Earn market.');
+    throw new Error(UNSUPPORTED_MARKET);
   }
-  const chainId = Number(args.marketUid.split(':')[1]);
   if (chainId !== sepolia.id) throw new Error('Gasless withdrawal currently supports Sepolia only.');
+  if (verifyMarket && findEpochUsdcAddress(chainId)?.toLowerCase() !== underlyingAddress.toLowerCase()) {
+    throw new Error(UNSUPPORTED_MARKET);
+  }
   const amountAtomic = parseWithdrawAmount(args.amount, args.underlyingDecimals);
   if (amountAtomic <= 0n) throw new Error('Withdraw amount must be greater than zero.');
   // Read before the row exists, so a config that names no allocator refuses without leaving a failed row.
@@ -211,7 +234,8 @@ export async function gaslessEarnWithdrawalToMiden(
       intentOwner: sponsorAddress,
       intentNonce: nonce,
       earnWithdrawTxId: txId,
-      earnWithdrawAttemptId: attemptId
+      earnWithdrawAttemptId: attemptId,
+      epochAllocatorUrl: apiBaseUrl
     });
     const startRecovery = () => {
       if (!context.isCurrent() || !preparedExecution) return;
@@ -659,7 +683,8 @@ export async function resumeEarnWithdrawal(txId: string, deps: ResumeDeps = {}):
         intentOwner: ei.evmOwner,
         intentNonce: nonce,
         earnWithdrawTxId: txId,
-        earnWithdrawAttemptId: expected.attemptId
+        earnWithdrawAttemptId: expected.attemptId,
+        epochAllocatorUrl: ei.epochAllocatorUrl
       },
       deps
     });
@@ -679,6 +704,24 @@ export async function reconcileEarnWithdrawals(deps: ResumeDeps = {}): Promise<v
 
 type ResubmitDeps = Omit<GaslessEarnWithdrawalDeps, 'initiateRow'>;
 
+const MISSING_RETRY_DETAILS = 'This withdrawal is missing the market details needed to retry - start a new withdrawal.';
+
+/**
+ * A retry recovers funds, so it needs the document's token and its decimals, not a live read of them: the row's own
+ * decimals stand in while that read fails or the market's chain now names another token. A row from before they were
+ * recorded refuses, through the getter while the read fails.
+ */
+function retryDecimals(chainId: number, underlying: string, sourceDecimals: number | undefined): number {
+  const isRowToken = (token: EvmUsdc | null): token is EvmUsdc =>
+    token?.address.toLowerCase() === underlying.toLowerCase();
+  const live = findEvmUsdc(chainId);
+  if (isRowToken(live)) return live.decimals;
+  if (sourceDecimals !== undefined) return sourceDecimals;
+  const usdc = getEvmUsdc(chainId);
+  if (isRowToken(usdc)) return usdc.decimals;
+  throw new Error(MISSING_RETRY_DETAILS);
+}
+
 /** Retry with a new intent and attempt identity while keeping the existing history row. */
 export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = {}): Promise<void> {
   const row = await Repo.transactions.where({ id: txId }).first();
@@ -689,26 +732,25 @@ export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = 
   if (!isEvmAddress(ei.evmOwner)) {
     throw new Error('This withdrawal has no valid position owner recorded - start a new withdrawal.');
   }
-  if (!ei.marketUid || !ei.sourceAmount) {
-    throw new Error('This withdrawal is missing the market details needed to retry - start a new withdrawal.');
-  }
+  if (!ei.marketUid || !ei.sourceAmount) throw new Error(MISSING_RETRY_DETAILS);
   const previous: ExpectedEarnWithdrawIntent = {
     owner: ei.evmOwner,
     nonce: ei.withdrawIntentNonce,
     attemptId: effectiveWithdrawAttemptId(txId, ei.submissionAttemptId)
   };
-  // A retry recovers funds, so it needs the document's token and its decimals, not a live read of them: the row's own
-  // decimals stand in while that read fails. A row from before they were recorded refuses through the getter.
-  const underlyingDecimals = findEvmUsdc()?.decimals ?? ei.sourceDecimals ?? getEvmUsdc().decimals;
-  await gaslessEarnWithdrawalToMiden(
+  const [, marketChain, marketUnderlying] = ei.marketUid.split(':');
+  const marketChainId = Number(marketChain);
+  const underlyingAddress = ei.underlyingAddress ?? marketUnderlying ?? findEpochUsdcAddress(marketChainId);
+  if (!underlyingAddress) throw new Error(MISSING_RETRY_DETAILS);
+  await submitEarnWithdrawal(
     {
       midenAccountPublicKey: row.accountId,
       evmAddress: ei.evmOwner,
       marketUid: ei.marketUid,
-      underlyingAddress: ei.underlyingAddress ?? ei.marketUid.split(':')[2] ?? getEvmUsdcAddress(),
+      underlyingAddress,
       allocatorUrl: ei.epochAllocatorUrl,
       amount: ei.sourceAmount,
-      underlyingDecimals
+      underlyingDecimals: retryDecimals(marketChainId, underlyingAddress, ei.sourceDecimals)
     },
     {
       ...deps,
@@ -754,7 +796,8 @@ export async function resubmitEarnWithdrawal(txId: string, deps: ResubmitDeps = 
         if (!claimed) throw new Error('This withdrawal attempt is no longer available to retry.');
         return txId;
       }
-    }
+    },
+    false
   );
 }
 
@@ -836,7 +879,8 @@ export async function retryEarnWithdrawal(txId: string, deps: EarnWithdrawalRetr
             intentOwner: expected.owner,
             intentNonce: expected.nonce,
             earnWithdrawTxId: txId,
-            earnWithdrawAttemptId: expected.attemptId
+            earnWithdrawAttemptId: expected.attemptId,
+            epochAllocatorUrl: claimed.extraInputs.epochAllocatorUrl
           },
           deps
         });

@@ -93,9 +93,10 @@ jest.mock('lib/miden/back/defaults', () => ({
   intercom: { broadcast: jest.fn() }
 }));
 
+const mockGetCurrentAccountPublicKey = jest.fn();
 jest.mock('lib/miden/back/vault', () => ({
   Vault: {
-    getCurrentAccountPublicKey: jest.fn()
+    getCurrentAccountPublicKey: (...args: unknown[]) => mockGetCurrentAccountPublicKey(...args)
   }
 }));
 
@@ -136,6 +137,7 @@ import * as dapp from './dapp';
 const STORAGE_KEY = 'dapp_sessions';
 
 function seedDApp(origin: string, sourcePublicKey: string, accountId: string) {
+  mockGetCurrentAccountPublicKey.mockResolvedValue(accountId);
   storageState[STORAGE_KEY] = {
     [origin]: [
       {
@@ -157,7 +159,7 @@ beforeEach(() => {
     fn({ vault: { fetchAccounts: mockFetchAccounts } })
   );
   mockGuardianProviderFromEndpoint.mockImplementation((endpoint: string | null) =>
-    endpoint === 'https://guardian.openzeppelin.com' ? 'open-zeppelin' : endpoint ? 'custom' : null
+    endpoint === 'https://guardian-testnet.openzeppelin.com' ? 'open-zeppelin' : endpoint ? 'custom' : null
   );
 });
 
@@ -191,17 +193,29 @@ describe('requestGuardianInfo', () => {
     ).rejects.toThrow(MidenDAppErrorType.NotGranted);
   });
 
+  it('throws NotGranted for a session whose account is not the current one (#1419)', async () => {
+    seedDApp('https://dapp', 'pk', 'pk');
+    mockGetCurrentAccountPublicKey.mockResolvedValue('other-account');
+    await expect(
+      dapp.requestGuardianInfo('https://dapp', {
+        type: MidenDAppMessageType.GuardianInfoRequest,
+        sourcePublicKey: 'pk'
+      } as never)
+    ).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    expect(mockWithUnlocked).not.toHaveBeenCalled();
+  });
+
   it('returns endpoint + provider + status for a guardian account', async () => {
     seedDApp('https://dapp', 'pk', 'pk');
     mockFetchAccounts.mockResolvedValue([
       {
         publicKey: 'pk',
         type: WalletType.Guardian,
-        guardianEndpoint: 'https://guardian.openzeppelin.com',
+        guardianEndpoint: 'https://guardian-testnet.openzeppelin.com',
         guardianSyncStatus: 'in-sync'
       }
     ]);
-    mockResolveGuardianEndpoint.mockReturnValue('https://guardian.openzeppelin.com');
+    mockResolveGuardianEndpoint.mockReturnValue('https://guardian-testnet.openzeppelin.com');
 
     const res = await dapp.requestGuardianInfo('https://dapp', {
       type: MidenDAppMessageType.GuardianInfoRequest,
@@ -211,7 +225,7 @@ describe('requestGuardianInfo', () => {
     expect(res.type).toBe(MidenDAppMessageType.GuardianInfoResponse);
     expect(res.guardianInfo).toEqual({
       isGuardianAccount: true,
-      guardianEndpoint: 'https://guardian.openzeppelin.com',
+      guardianEndpoint: 'https://guardian-testnet.openzeppelin.com',
       guardianProvider: 'open-zeppelin',
       guardianSyncStatus: 'in-sync'
     });
@@ -300,11 +314,11 @@ describe('requestGuardianInfo', () => {
       {
         publicKey: 'pk6',
         type: WalletType.Guardian,
-        guardianEndpoint: 'https://guardian.openzeppelin.com',
+        guardianEndpoint: 'https://guardian-testnet.openzeppelin.com',
         guardianSyncStatus: 'needs-user-input'
       }
     ]);
-    mockResolveGuardianEndpoint.mockReturnValue('https://guardian.openzeppelin.com');
+    mockResolveGuardianEndpoint.mockReturnValue('https://guardian-testnet.openzeppelin.com');
 
     const res = await dapp.requestGuardianInfo('https://dapp', {
       type: MidenDAppMessageType.GuardianInfoRequest,

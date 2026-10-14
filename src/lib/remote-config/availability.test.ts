@@ -7,7 +7,8 @@ import {
   featureAvailability,
   type FeatureAvailability
 } from './availability';
-import type { DerivedBridgeConfig, Probe } from './derive';
+import type { DerivedBridgeConfig, DerivedChainConfig, Probe } from './derive';
+import { failedDerivation } from './derived-snapshot';
 import { _resetE2eOverridesForTest, type E2eOverrides, setEarnCollateralFaucetOverride } from './e2e-overrides';
 import type { BridgeConfigSnapshot } from './runtime';
 
@@ -23,7 +24,7 @@ function ready(): BridgeConfigSnapshot {
   const config = snapshot.config;
   const derived = snapshot.derived;
   const chain = config?.supportedEvmChains.sepolia;
-  const reads = derived?.chains?.[11155111];
+  const reads = derived?.chains[11155111];
   if (!config || !chain || !derived || !reads) throw new Error('The test snapshot is missing');
   config['bridge-providers'].agglayer.indexerUrl = 'https://indexer.test/api';
   chain.bridges.agglayer = {
@@ -46,10 +47,9 @@ function ready(): BridgeConfigSnapshot {
       ]
     },
     evmNetworkId: { state: 'ok', value: 0 },
-    l1BridgeCode: { state: 'ok', value: true },
-    indexer: { state: 'ok', value: true }
+    l1BridgeCode: { state: 'ok', value: true }
   };
-  derived.agglayer = reads.agglayer;
+  derived.agglayer = { indexer: { state: 'ok', value: true } };
   return snapshot;
 }
 function states(snapshot: AvailabilityInput, overrides: E2eOverrides = NO_OVERRIDES) {
@@ -64,19 +64,22 @@ function expectOnly(snapshot: AvailabilityInput, affected: BridgeFeature[], expe
     );
   }
 }
+// Provider probes patch the derivation, chain probes the Sepolia reads.
 interface DerivedPatch {
-  agglayer?: Partial<DerivedBridgeConfig['agglayer']>;
-  epoch?: Partial<DerivedBridgeConfig['epoch']>;
+  agglayer?: Partial<DerivedBridgeConfig['agglayer'] & DerivedChainConfig['agglayer']>;
+  epoch?: Partial<DerivedBridgeConfig['epoch'] & DerivedChainConfig['epoch']>;
 }
-function withProbes(patch: DerivedPatch): BridgeConfigSnapshot {
+function withProbes({ agglayer = {}, epoch = {} }: DerivedPatch): BridgeConfigSnapshot {
   const snapshot = ready();
   if (!snapshot.derived) throw new Error('The test derivation is missing');
-  const chain = snapshot.derived.chains?.[11155111];
+  const chain = snapshot.derived.chains[11155111];
   if (!chain) throw new Error('The test chain is missing');
-  snapshot.derived.agglayer = { ...snapshot.derived.agglayer, ...patch.agglayer };
-  snapshot.derived.epoch = { ...snapshot.derived.epoch, ...patch.epoch };
-  chain.agglayer = { ...chain.agglayer, ...patch.agglayer };
-  if (patch.epoch?.evmUsdc) chain.epoch.evmUsdc = patch.epoch.evmUsdc;
+  const { indexer, ...chainAgglayer } = agglayer;
+  const { evmUsdc, ...providerEpoch } = epoch;
+  if (indexer) snapshot.derived.agglayer.indexer = indexer;
+  snapshot.derived.epoch = { ...snapshot.derived.epoch, ...providerEpoch };
+  chain.agglayer = { ...chain.agglayer, ...chainAgglayer };
+  if (evmUsdc) chain.epoch.evmUsdc = evmUsdc;
   return snapshot;
 }
 
@@ -175,6 +178,19 @@ it.each<[Probe<number>, string]>([
     featureAvailability('bridgeOut', withProbes({ agglayer: { evmNetworkId } }), NO_OVERRIDES, 11155111)
   ).toMatchObject({ state: 'unavailable', reason });
 });
+
+it.each<BridgeFeature>(['bridgeIn', 'fastBridgeIn', 'earnDeposit'])(
+  'reads a derivation that threw as service down for %s, so the five-minute poll retries it',
+  feature => {
+    const snapshot = ready();
+    if (!snapshot.config) throw new Error('The test document is missing');
+    const failed = { ...snapshot, derived: failedDerivation(snapshot.config, 'wasm init failed', 0) };
+    expect(featureAvailability(feature, failed, NO_OVERRIDES, 11155111)).toMatchObject({
+      state: 'unavailable',
+      reason: 'service-down'
+    });
+  }
+);
 
 it('reports an absent dependency before a failed call', () => {
   const snapshot = withProbes({ epoch: { allocator: ERROR, midenUsdcFaucet: ABSENT } });

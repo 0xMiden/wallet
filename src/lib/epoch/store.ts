@@ -5,6 +5,7 @@ import { registerPendingBridgeIn, resolveBridgeInNoteId } from 'lib/miden/activi
 import type { IBridgedReceiveExtraInputs } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { updateBridgedReceivePhase } from 'lib/miden/transaction/complete';
+import { getEpochAllocatorUrl } from 'lib/remote-config/values';
 
 import {
   type CrossChainQuote,
@@ -42,6 +43,8 @@ interface EpochState {
   pollStartedAt: number | null;
   error: string | null;
   bridgeReceiveTxId: string | null;
+  /** The allocator the current intent was submitted to; its status is read from there, not the document's current one. */
+  allocatorUrl: string | null;
 }
 
 interface MidenExecuteOpts {
@@ -70,7 +73,8 @@ const INITIAL_STATE: EpochState = {
   midenNoteId: null,
   pollStartedAt: null,
   error: null,
-  bridgeReceiveTxId: null
+  bridgeReceiveTxId: null,
+  allocatorUrl: null
 };
 
 function firstString(source: unknown, keys: string[]): string | undefined {
@@ -176,7 +180,8 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       intent: null,
       pollResults: null,
       midenNoteId: null,
-      bridgeReceiveTxId: null
+      bridgeReceiveTxId: null,
+      allocatorUrl: null
     });
     try {
       const sdk = await getEpochSdk({ chainId: params.sourceChainId });
@@ -229,7 +234,8 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
           `Wallet did not switch to the source chain (currently ${connection.chainId}). Please switch the network in your wallet and try again.`
         );
       }
-      const sdk = await getEpochSdk({ chainId: sourceChainId, allocatorUrl: inputs?.epochAllocatorUrl });
+      const allocatorUrl = inputs?.epochAllocatorUrl ?? getEpochAllocatorUrl();
+      const sdk = await getEpochSdk({ chainId: sourceChainId, allocatorUrl });
       if (!sdk) throw new Error('Connect an EVM wallet first');
       const intent = await buildEVMToMidenIntent(sdk, {
         ...(quote as EVMToMidenQuote).params,
@@ -243,7 +249,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         }
         return;
       }
-      set({ status: 'pending', intent, pollStartedAt: Date.now() });
+      set({ status: 'pending', intent, pollStartedAt: Date.now(), allocatorUrl });
 
       // Park the intent metadata in storage NOW — if the user closes the
       // deposit screen before its polling loop ever reports the Miden note id,
@@ -254,7 +260,8 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       if (bridgeReceiveTxId) {
         await updateBridgedReceivePhase(bridgeReceiveTxId, 'delivering', {
           intentNonce: nonce,
-          evmTxHash
+          evmTxHash,
+          ...(inputs?.epochAllocatorUrl ? {} : { epochAllocatorUrl: allocatorUrl })
         });
       }
       if (nonce) {
@@ -271,7 +278,8 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
           sourceSymbol: trackingInputs?.sourceSymbol,
           intentNonce: nonce,
           evmTxHash,
-          bridgeReceiveTxId
+          bridgeReceiveTxId,
+          epochAllocatorUrl: allocatorUrl
         }).catch(err => console.warn('[epoch] registerPendingBridgeIn failed', err));
       }
     } catch (err) {
@@ -286,7 +294,15 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
 
   async quoteMidenToEVM(params, sponsorAddress) {
     const request = ++latestRequest;
-    set({ status: 'quoting', flow: 'miden-to-evm', error: null, intent: null, pollResults: null, midenNoteId: null });
+    set({
+      status: 'quoting',
+      flow: 'miden-to-evm',
+      error: null,
+      intent: null,
+      pollResults: null,
+      midenNoteId: null,
+      allocatorUrl: null
+    });
     try {
       const sdk = await getEpochSdk({ forMidenFlow: true });
       if (!sdk) throw new Error('Connect an EVM wallet first');
@@ -310,7 +326,8 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
     }
     set({ status: 'signing', error: null });
     try {
-      const sdk = await getEpochSdk({ forMidenFlow: true });
+      const allocatorUrl = getEpochAllocatorUrl();
+      const sdk = await getEpochSdk({ forMidenFlow: true, allocatorUrl });
       if (!sdk) throw new Error('Connect an EVM wallet first');
       const intent = await buildCrossChainIntent(sdk, {
         ...(quote as CrossChainQuote).params,
@@ -324,7 +341,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         set({ status: 'failed', intent, error: intent.error });
         return;
       }
-      set({ status: 'pending', intent, pollStartedAt: Date.now() });
+      set({ status: 'pending', intent, pollStartedAt: Date.now(), allocatorUrl });
     } catch (err) {
       console.error('[epoch] executeMidenToEVM failed', err);
       set({ status: 'failed', error: errorMessage(err) });
@@ -334,13 +351,13 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
   async poll() {
     const request = latestRequest;
     if (pollInFlight === request) return;
-    const { intent, flow, pollStartedAt } = get();
+    const { intent, flow, pollStartedAt, allocatorUrl } = get();
     const pastPollLimit = () => pollStartedAt != null && Date.now() - pollStartedAt > MAX_POLL_MS;
     const { address } = await getEvmConnection();
     const nonce = intent?.intentNonce ?? intent?.solveResult?.nonce;
     if (!address || !nonce) return;
     try {
-      const sdk = await getEpochSdk();
+      const sdk = await getEpochSdk({ allocatorUrl: allocatorUrl ?? undefined });
       if (!sdk) return;
       // Held only across the bounded read, so a connection or SDK setup that never settles cannot hold it. A
       // poll that a reset or a quote replaced while it set up neither reads nor takes the slot.

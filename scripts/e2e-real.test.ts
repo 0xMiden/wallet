@@ -733,13 +733,14 @@ describe('the preflight reads what it probes from the network config document', 
     expect(res.status).toBe(0);
   }, 35_000);
 
-  it('fails the preflight on a document naming no indexer for a Slow suite, and asks no indexer', () => {
+  // An AggLayer provider with no values drops the route rather than the document, so the preflight names the field.
+  it('fails the preflight on a document whose AggLayer provider names no values, and asks no indexer', () => {
     const res = preflight('bridge-out-agglayer', {
       ...DOCUMENT,
       'bridge-providers': { ...DOCUMENT['bridge-providers'], agglayer: {} }
     });
     expect(res.status).toBe(1);
-    expect(res.output).toContain('document the wallet refuses');
+    expect(res.output).toContain('names no supportedEvmChains.sepolia.bridges.agglayer');
     expect(res.requests).not.toContain('/bridge?');
   }, 35_000);
 
@@ -1566,8 +1567,8 @@ describe('the usdcx preflight', () => {
         ...Object.values(XRESERVE_CALLS),
         `eth_getCode ["${GATEWAY_MINTER}","latest"]`,
         `${XRESERVE_API_TESTNET}/v1/info`,
-        'https://guardian.openzeppelin.com/status',
-        'https://guardian.openzeppelin.com/pubkey?scheme=ecdsa',
+        'https://guardian-testnet.openzeppelin.com/status',
+        'https://guardian-testnet.openzeppelin.com/pubkey?scheme=ecdsa',
         'https://faucet-api.testnet.miden.io/get_metadata',
         'native asset https://rpc.testnet.miden.io'
       ])

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { toFunctionSelector } from 'viem';
 
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
@@ -73,7 +73,7 @@ const epochState = {
   flow: null,
   quote: null,
   error: null,
-  quoteEVMToMiden: jest.fn(),
+  quoteEVMToMiden: jest.fn().mockResolvedValue(undefined),
   executeEVMToMiden: jest.fn(),
   poll: jest.fn(),
   reset: jest.fn()
@@ -148,8 +148,7 @@ jest.mock('lib/walletconnect/native', () => ({
 
 jest.mock('lib/walletconnect/receipt', () => ({
   ...jest.requireActual<typeof import('lib/walletconnect/receipt')>('lib/walletconnect/receipt'),
-  waitForEvmReceipt: jest.fn().mockResolvedValue(undefined),
-  waitForSepoliaReceipt: jest.fn().mockResolvedValue(undefined)
+  waitForEvmReceipt: jest.fn().mockResolvedValue(undefined)
 }));
 
 jest.mock('lib/walletconnect/config', () => ({
@@ -163,14 +162,17 @@ jest.mock('./EvmBridgeDepositForm', () => ({
     onAmountChange,
     onContinue,
     onSelectToken,
-    onSelectNetwork
+    onSelectNetwork,
+    network
   }: {
+    network: { chainId: number };
     onAmountChange: (value?: string) => void;
     onContinue: () => void;
     onSelectToken: () => void;
     onSelectNetwork?: () => void;
   }) => (
     <div>
+      <span data-testid="form-network">{String(network.chainId)}</span>
       <button data-testid="set-amount" onClick={() => onAmountChange('1.5')}>
         amount
       </button>
@@ -222,7 +224,9 @@ jest.mock('./EvmBridgeDepositReview', () => {
 });
 
 jest.mock('./EvmBridgeDepositStatus', () => ({
-  EvmBridgeDepositStatus: () => <div data-testid="deposit-status" />
+  EvmBridgeDepositStatus: ({ awaitingNextConfirmation }: { awaitingNextConfirmation?: boolean }) => (
+    <div data-testid="deposit-status" data-awaiting={String(awaitingNextConfirmation ?? false)} />
+  )
 }));
 
 jest.mock('./EvmBridgeTokenDrawer', () => ({
@@ -234,6 +238,9 @@ jest.mock('./EvmBridgeTokenDrawer', () => ({
         </button>
         <button data-testid="pick-circle-usdc" onClick={() => onSelect('CIRCLE_USDC')}>
           USDC
+        </button>
+        <button data-testid="pick-usdc" onClick={() => onSelect('USDC')}>
+          bridge USDC
         </button>
       </div>
     ) : null
@@ -290,10 +297,13 @@ jest.mock('./EvmBridgeUsdcxRoute', () => ({
 }));
 
 jest.mock('screens/send-flow/Route', () => ({
-  Route: ({ onConfirm }: { onConfirm: () => void }) => (
-    <button data-testid="fast-slow-route-confirm" onClick={onConfirm}>
-      fast/slow
-    </button>
+  Route: ({ onConfirm, fastAvailability }: { onConfirm: () => void; fastAvailability: { state: string } }) => (
+    <div>
+      <span data-testid="fast-availability">{fastAvailability.state}</span>
+      <button data-testid="fast-slow-route-confirm" onClick={onConfirm}>
+        fast/slow
+      </button>
+    </div>
   )
 }));
 
@@ -315,7 +325,7 @@ const renderScreen = () =>
   );
 
 /** USDC is the default token: amount, continue, and the route step is up. */
-const pickToken = async (testId: 'pick-eth' | 'pick-circle-usdc') => {
+const pickToken = async (testId: 'pick-eth' | 'pick-circle-usdc' | 'pick-usdc') => {
   fireEvent.click(screen.getByTestId('open-token-drawer'));
   await settle();
   fireEvent.click(screen.getByTestId(testId));
@@ -342,6 +352,10 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     jest.mocked(usdcxRemoteRecipientFor).mockImplementation(actualUsdcxRemoteRecipientFor);
     jest.mocked(quoteExecutorBurn).mockRejectedValue(new Error('no quote in tests'));
     mockNativeAvailable = false;
+    // A case that fails mid-flow leaves its queued wallet answers behind; each case starts from the plain ones.
+    mockWriteContract.mockReset().mockResolvedValue(`0x${'2'.repeat(64)}`);
+    mockNativeSend.mockReset().mockResolvedValue({ hash: `0x${'2'.repeat(64)}` });
+    jest.mocked(waitForEvmReceipt).mockReset().mockResolvedValue(undefined);
     jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
     // balanceOf and isRemoteDomainRegistered reads; a zero word is fine for both.
     global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ result: `0x${'0'.repeat(64)}` }) }) as never;
@@ -727,4 +741,106 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     await settle();
     expect(screen.getByTestId('review-source')).toHaveTextContent('84532');
   });
+
+  // One picked chain; each route resolves its own from it, so a USDCx-only chain does not strand the Fast route.
+  it('keeps the Fast route on its own chain after a USDCx-only pick', async () => {
+    renderScreen();
+    await pickToken('pick-circle-usdc');
+    fireEvent.click(screen.getByTestId('open-network-drawer'));
+    await settle();
+    fireEvent.click(screen.getByTestId('pick-network-base-sepolia'));
+    await settle();
+    await pickToken('pick-usdc');
+    expect(screen.getByTestId('form-network')).toHaveTextContent('11155111');
+    await reachRouteStep();
+
+    expect(screen.getByTestId('fast-availability')).toHaveTextContent('available');
+    expect(epochState.quoteEVMToMiden).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceChainId: 11155111 }),
+      expect.any(String)
+    );
+  });
+
+  const deferred = <T,>() => {
+    let resolve!: (value: T) => void;
+    let reject!: (reason: Error) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+
+  // The executor's manual route approves the fee entry point and then the plain messenger before its burn.
+  it.each(
+    (['xreserve', 'cctp-executor'] as const).flatMap(route =>
+      [false, true].flatMap(native =>
+        (['answered', 'rejected'] as const).map(outcome => [route, native, outcome] as const)
+      )
+    )
+  )(
+    'shows the second-confirmation wait on a %s deposit until its last prompt is answered (native=%s, %s)',
+    async (route, native, outcome) => {
+      mockNativeAvailable = native;
+      const signed = `0x${'2'.repeat(64)}` as const;
+      const approvals = route === 'xreserve' ? 1 : 2;
+      const receipt = deferred<void>();
+      const prompt = deferred<`0x${string}`>();
+      jest.mocked(waitForEvmReceipt).mockReturnValueOnce(receipt.promise);
+      const walletPrompt = native ? mockNativeSend : mockWriteContract;
+      for (let i = 0; i < approvals; i++) walletPrompt.mockResolvedValueOnce(native ? { hash: signed } : signed);
+      if (native) mockNativeSend.mockImplementationOnce(async () => ({ hash: await prompt.promise }));
+      else mockWriteContract.mockReturnValueOnce(prompt.promise);
+      if (route === 'xreserve') {
+        jest.mocked(runUsdcxDeposit).mockImplementationOnce(async (_id, _amount, recipient, deps) => {
+          await deps.waitForReceipt(
+            await deps.signer.approve('0x008888878f94C0d87defdf0B07f46B93C1934442', 1_500_000n)
+          );
+          return deps.signer.depositToRemote([
+            1_500_000n,
+            10007,
+            recipient,
+            '0x3600000000000000000000000000000000000000',
+            0n,
+            '0x'
+          ]);
+        });
+      } else {
+        jest.mocked(runUsdcxExecutorDeposit).mockImplementationOnce(async (_id, _amount, recipient, deps) => {
+          await deps.waitForReceipt(await deps.signer.approve(deps.source.tokenMessengerWithFees, 1_600_000n));
+          await deps.waitForReceipt(await deps.signer.approve(deps.source.tokenMessenger, 1_500_000n));
+          return deps.signer.depositForBurnWithHook([
+            1_500_000n,
+            26,
+            `0x${'0'.repeat(24)}edc81040756accff070c21d37b265b9d0b5ba45e`,
+            '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+            `0x${'0'.repeat(24)}edc81040756accff070c21d37b265b9d0b5ba45e`,
+            0n,
+            2000,
+            `0x${recipient.slice(2)}`
+          ]);
+        });
+      }
+      renderScreen();
+      if (route === 'xreserve') await reachUsdcxRoute();
+      else await reachBaseSepoliaRoute();
+      fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+      await settle();
+      fireEvent.click(screen.getByTestId('confirm-deposit'));
+      await settle();
+
+      const status = await screen.findByTestId('deposit-status');
+      await waitFor(() => expect(status).toHaveAttribute('data-awaiting', 'true'));
+      expect(walletPrompt).toHaveBeenCalledTimes(1);
+      await act(async () => receipt.resolve(undefined));
+      await waitFor(() => expect(walletPrompt).toHaveBeenCalledTimes(approvals + 1));
+      expect(status).toHaveAttribute('data-awaiting', 'true');
+      await act(async () =>
+        outcome === 'answered' ? prompt.resolve(signed) : prompt.reject(new Error('User rejected'))
+      );
+      await waitFor(() => expect(status).toHaveAttribute('data-awaiting', 'false'));
+      const failedWrites = jest.mocked(updateBridgedReceivePhase).mock.calls.filter(([, phase]) => phase === 'failed');
+      expect(failedWrites).toEqual(outcome === 'rejected' ? [['bridge-tx', 'failed', { error: 'User rejected' }]] : []);
+    }
+  );
 });

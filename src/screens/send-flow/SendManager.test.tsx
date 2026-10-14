@@ -243,6 +243,8 @@ jest.mock('./useRecentRecipients', () => ({
 }));
 
 let mockBridgeNetworks: Array<{ id: string; name: string; chainId: number }> = [];
+// When set, the networks every send offers, one stable array as the real list is while the snapshot holds.
+let mockOfferedNetworks: Array<{ id: string; name: string; chainId: number }> | undefined;
 jest.mock('./bridge-networks', () => {
   const sepolia = { id: 'sepolia', name: 'Sepolia', chainId: 11155111 };
   // The testnet USDCx destinations, in the destination table's order.
@@ -263,7 +265,8 @@ jest.mock('./bridge-networks', () => {
     DEFAULT_USDCX_BRIDGE_NETWORK: usdcxNetworks[0],
     isUsdcxBridgeNetwork: (id: string | undefined) => usdcxNetworks.some(n => n.id === id),
     isEpochBridgeNetwork: (id: string | undefined) => id === sepolia.id,
-    sendBridgeNetworks: (usdcxWithdrawals: boolean) => (usdcxWithdrawals ? usdcxNetworks : sepoliaOnly)
+    sendBridgeNetworks: (usdcxWithdrawals: boolean) =>
+      mockOfferedNetworks ?? (usdcxWithdrawals ? usdcxNetworks : sepoliaOnly)
   };
 });
 
@@ -840,6 +843,43 @@ describe('recipient address entry', () => {
 
       expect(screen.getByTestId('sr-network')).toHaveTextContent('sepolia');
     } finally {
+      mockBridgeNetworks = [];
+    }
+  });
+
+  it('selects the first offered network once when Sepolia is not offered', () => {
+    mockOfferedNetworks = [
+      { id: 'base-sepolia', name: 'Base Sepolia', chainId: 84532 },
+      { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 }
+    ];
+    mockBridgeNetworks = mockOfferedNetworks;
+    try {
+      mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external' };
+      renderFlow();
+      act(() => {
+        fireEvent.click(screen.getByTestId('ad-select'));
+      });
+
+      expect(screen.getByTestId('sr-network')).toHaveTextContent('base-sepolia');
+    } finally {
+      mockOfferedNetworks = undefined;
+      mockBridgeNetworks = [];
+    }
+  });
+
+  it('selects no network when none is offered', () => {
+    mockOfferedNetworks = [];
+    mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+    try {
+      mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external' };
+      renderFlow();
+      act(() => {
+        fireEvent.click(screen.getByTestId('ad-select'));
+      });
+
+      expect(screen.getByTestId('sr-network')).toBeEmptyDOMElement();
+    } finally {
+      mockOfferedNetworks = undefined;
       mockBridgeNetworks = [];
     }
   });

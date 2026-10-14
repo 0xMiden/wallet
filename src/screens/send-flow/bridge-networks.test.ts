@@ -4,15 +4,22 @@ import { BRIDGE_NETWORKS, isEpochBridgeNetwork, sendBridgeNetworks, usdcxBridgeN
 
 let mockEpochChains = new Set([11155111]);
 const mockUsdcxChainIds = [5042002, 11155111, 84532, 421614];
+const snapshotOf = (chains: Set<number>) => ({
+  config: {
+    supportedEvmChains: Object.fromEntries(
+      [...chains].map(chainId => [String(chainId), { chainId, bridges: { epoch: {} } }])
+    )
+  }
+});
+// One stable object until the chains change, as the runtime publishes it.
+let mockSnapshot = snapshotOf(mockEpochChains);
+const setChains = (chains: Set<number>) => {
+  mockEpochChains = chains;
+  mockSnapshot = snapshotOf(chains);
+};
 jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
 jest.mock('lib/remote-config/runtime', () => ({
-  getBridgeConfigSnapshot: () => ({
-    config: {
-      supportedEvmChains: Object.fromEntries(
-        [...mockEpochChains].map(chainId => [String(chainId), { chainId, bridges: { epoch: {} } }])
-      )
-    }
-  })
+  getBridgeConfigSnapshot: () => mockSnapshot
 }));
 jest.mock('lib/remote-config/availability', () => ({
   featureAvailability: (_feature: string, _snapshot: object, _options: undefined, chainId: number) => ({
@@ -25,7 +32,7 @@ jest.mock('lib/usdcx/constant', () => ({
 }));
 
 beforeEach(() => {
-  mockEpochChains = new Set([11155111]);
+  setChains(new Set([11155111]));
 });
 
 describe('send destinations', () => {
@@ -53,12 +60,22 @@ describe('send destinations', () => {
     expect(sendBridgeNetworks(false)).toEqual(sendBridgeNetworks(false));
   });
 
+  it('returns the same array while the snapshot and the USDCx flag are unchanged', () => {
+    const offered = sendBridgeNetworks(false);
+    expect(sendBridgeNetworks(false)).toBe(offered);
+    expect(sendBridgeNetworks(true)).toBe(sendBridgeNetworks(true));
+    expect(sendBridgeNetworks(true)).not.toBe(offered);
+    setChains(new Set([84532]));
+    expect(sendBridgeNetworks(false)).not.toBe(offered);
+    expect(sendBridgeNetworks(false)).toBe(sendBridgeNetworks(false));
+  });
+
   it('uses current route availability for each read', () => {
-    mockEpochChains = new Set([84532]);
+    setChains(new Set([84532]));
     expect(sendBridgeNetworks(false).map(network => network.id)).toEqual(['base-sepolia']);
     expect(isEpochBridgeNetwork('sepolia')).toBe(false);
     expect(isEpochBridgeNetwork('base-sepolia')).toBe(true);
-    mockEpochChains.clear();
+    setChains(new Set());
     expect(sendBridgeNetworks(false)).toEqual([]);
   });
 });

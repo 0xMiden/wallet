@@ -1851,6 +1851,10 @@
     "message": "Saisissez un montant valide à échanger.",
     "englishSource": "Enter a valid amount to swap."
   },
+  "swapPairNotListed": {
+    "message": "Cette paire ne peut plus être échangée. Revenez en arrière et choisissez un autre jeton.",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
+  },
   "swapPriceUnavailable": {
     "message": "Prix indisponible. Veuillez réessayer dans quelques instants.",
     "englishSource": "Price unavailable. Try again shortly."
@@ -4725,8 +4729,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Validez la demande dans votre portefeuille et laissez cet écran ouvert pendant que le réseau source la confirme.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "message": "Validez les demandes dans votre portefeuille — il se peut qu’il vous le demande plusieurs fois — et laissez cet écran ouvert pendant que le réseau source les confirme.",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "Échec du dépôt via le pont",
@@ -5944,26 +5948,6 @@
     "message": "Vos gains",
     "englishSource": "Your Earnings"
   },
-  "durationUnitSeconds": {
-    "message": "Sec.",
-    "englishSource": "Sec"
-  },
-  "durationUnitMinutes": {
-    "message": "Min.",
-    "englishSource": "Min"
-  },
-  "durationUnitHours": {
-    "message": "Heure",
-    "englishSource": "Hour"
-  },
-  "durationUnitDays": {
-    "message": "Jour",
-    "englishSource": "Day"
-  },
-  "swapExpiryUnit": {
-    "message": "Unité d'expiration",
-    "englishSource": "Expiry unit"
-  },
   "moreInfoAbout": {
     "message": "Plus d'informations sur $label$",
     "englishSource": "More information about $label$",
@@ -5973,15 +5957,32 @@
       }
     }
   },
-  "swapExpiryRange": {
-    "message": "Saisissez un nombre entier compris entre $min$ et $max$.",
-    "englishSource": "Enter a whole number from $min$ to $max$.",
+  "swapExpiryLabel": {
+    "message": "Annuler si non exécuté dans un délai de",
+    "englishSource": "Cancel if not filled within"
+  },
+  "swapExpiryPreset2Min": {
+    "message": "2 min",
+    "englishSource": "2 min"
+  },
+  "swapExpiryPreset1Hour": {
+    "message": "1 heure",
+    "englishSource": "1 hour"
+  },
+  "swapExpiryPreset1Day": {
+    "message": "1 jour",
+    "englishSource": "1 day"
+  },
+  "swapExpiryPreset7Days": {
+    "message": "7 jours",
+    "englishSource": "7 days"
+  },
+  "swapExpiryNote": {
+    "message": "Pas exécuté à ce moment-là ? Le swap est annulé et la partie non exécutée de votre $amount$ vous est restituée.",
+    "englishSource": "Not filled by then? The swap is cancelled and whatever is unfilled of your $amount$ comes back.",
     "placeholders": {
-      "min": {
+      "amount": {
         "content": "$1"
-      },
-      "max": {
-        "content": "$2"
       }
     }
   },
@@ -6199,6 +6200,54 @@
   "externalPageLoadFailed": {
     "message": "Impossible d’ouvrir cette page. Vérifiez votre connexion et réessayez.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "En attente de la prochaine confirmation du portefeuille",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "La première confirmation est effectuée. Votre portefeuille vous demandera de confirmer à nouveau – laissez cet écran ouvert.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
+  },
+  "advancedOptions": {
+    "message": "Options avancées",
+    "englishSource": "Advanced options"
+  },
+  "advancedOptionsSummary": {
+    "message": "$transferType$ · $expiration$",
+    "englishSource": "$transferType$ · $expiration$",
+    "placeholders": {
+      "transfertype": {
+        "content": "$1"
+      },
+      "expiration": {
+        "content": "$2"
+      }
+    }
+  },
+  "transferType": {
+    "message": "Type de transfert",
+    "englishSource": "Transfer type"
+  },
+  "publicTransfer": {
+    "message": "Transfert public",
+    "englishSource": "Public transfer"
+  },
+  "publicTransferNotice": {
+    "message": "Le jeton, le montant et l'adresse du destinataire seront visibles sur Miden.",
+    "englishSource": "The token, amount, and recipient address will be visible on Miden."
+  },
+  "publicTransferHelp": {
+    "message": "Tout le monde peut voir le jeton, le montant et l'adresse du destinataire de ce transfert sur Miden.",
+    "englishSource": "Anyone can see this transfer's token, amount, and recipient address on Miden."
+  },
+  "senderAddressPublicNote": {
+    "message": "Votre adresse d'expéditeur est publique dans les deux modes.",
+    "englishSource": "Your sender address is public in both modes."
+  },
+  "sendPublicly": {
+    "message": "Envoyer publiquement",
+    "englishSource": "Send publicly"
   },
   "breadCloseError": {
     "message": "Impossible de revenir à Bread.",

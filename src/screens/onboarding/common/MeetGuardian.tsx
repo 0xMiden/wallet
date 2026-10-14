@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useGuardianPings } from 'app/hooks/useGuardianAvailability';
+import { useGuardianOptions } from 'app/hooks/useGuardianOptions';
 import { Button } from 'components/Button';
 import { GuardianLogoTile } from 'components/GuardianLogoTile';
 import { Notice } from 'components/ui/Notice';
@@ -10,12 +11,11 @@ import { Pill } from 'components/ui/Pill';
 import { Skeleton } from 'components/ui/Skeleton';
 import { StatusBadge } from 'components/ui/StatusBadge';
 import { TextAction } from 'components/ui/TextAction';
-import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
 import { MeetGuardianProgress, NO_GUARDIAN_ID } from 'screens/onboarding/types';
 
 import { GuardianProviderDetailsSheet } from './GuardianProviderDetailsSheet';
-import { GuardianProviderSheet, guardianOperatorCopy } from './GuardianProviderSheet';
+import { GuardianProviderSheet, useGuardianOperatorText } from './GuardianProviderSheet';
 import { OnboardingStepLayout } from './OnboardingStepLayout';
 
 export interface MeetGuardianScreenProps {
@@ -44,12 +44,13 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
   showNoGuardianOption = false
 }) => {
   const { t } = useTranslation();
+  const operatorText = useGuardianOperatorText();
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const { chosenId, fastestId } = progress;
 
   // Providers that run a Guardian on the active network, resolved to their endpoint on it.
-  const options = useMemo(() => getGuardianOptionsForNetwork(), []);
+  const options = useGuardianOptions();
   const endpoints = useMemo(() => options.map(option => option.endpoint), [options]);
   const verdicts = useGuardianPings(endpoints);
 
@@ -96,8 +97,6 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
   // A pick from the sheet replaces the chosen operator; like the lock-in, a later probe round never swaps it.
   const handlePick = (id: string) =>
     onProgressChange(prev => (prev.chosenId === id ? prev : { ...prev, chosenId: id }));
-
-  const copy = chosen ? guardianOperatorCopy(chosen.id) : undefined;
 
   return (
     <OnboardingStepLayout
@@ -180,7 +179,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
               className="mt-2 max-w-80 text-body font-semibold text-balance text-muted face-heading"
               data-testid="meet-guardian-summary"
             >
-              {copy ? t(copy.aboutKey) : chosen.operatedBy}
+              {operatorText(chosen).about}
             </p>
           ) : (
             <div className="mt-2 flex w-full flex-col items-center gap-1.5" aria-hidden>

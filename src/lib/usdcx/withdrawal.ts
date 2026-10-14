@@ -65,7 +65,8 @@ export function encodeBurnWithdrawal(destinationAddress: string, destinationDoma
 
 /**
  * Whether `destinationChainId` is a destination a burn can pay out to on the effective network:
- * a `usdcxDestinations` entry whose chain is a testnet while withdrawals are testnet-only.
+ * a `usdcxDestinations` entry, which holds only chains of the effective network's family (testnet chains on
+ * testnet), whose withdrawal is available.
  */
 export function isUsdcxDestinationChain(destinationChainId: number): boolean {
   const entry = usdcxDestinations().get(destinationChainId);

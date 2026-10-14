@@ -54,7 +54,7 @@ jest.mock('lib/usdcx/cctp', () => ({
 }));
 const readOutcome = jest.fn();
 jest.mock('lib/walletconnect/receipt', () => ({
-  waitForSepoliaReceipt: (...args: unknown[]) => waitForReceipt(...args),
+  waitForEvmReceipt: (...args: unknown[]) => waitForReceipt(...args),
   readEvmReceiptOutcome: (...args: unknown[]) => readOutcome(...args)
 }));
 jest.mock('lib/agglayer/contract', () => ({
@@ -116,9 +116,62 @@ describe('reconcileBridgedReceives', () => {
 
     await reconcileBridgedReceives();
 
-    expect(waitForReceipt).toHaveBeenCalledWith(`0x${'1'.repeat(64)}`);
+    expect(waitForReceipt).toHaveBeenCalledWith(`0x${'1'.repeat(64)}`, expect.objectContaining({ id: 11155111 }));
     expect(updatePhase).toHaveBeenCalledWith('agg-row', 'delivering');
     expect(fetchDeposits).toHaveBeenCalledWith('evm:miden-account', undefined, undefined);
+  });
+
+  it('waits for an AggLayer receipt on the chain the row saved', async () => {
+    const hash = `0x${'5'.repeat(64)}`;
+    const agglayerRoute = {
+      chainId: 84532,
+      contractAddress: '0x528e26b25a34a4a5d0dbda1d57d318153d2ed582',
+      midenBridgeId: '0x187cabbc404359d16be94954ca9879',
+      indexerUrl: 'https://indexer.test/api',
+      rollupId: 86,
+      evmNetworkId: 6
+    };
+    rows.push({
+      id: 'agg-base',
+      type: 'bridged-receive',
+      accountId: 'miden-account',
+      initiatedAt: Math.floor(Date.now() / 1000),
+      extraInputs: { provider: 'agglayer', phase: 'submitting', evmTxHash: hash, agglayerRoute }
+    });
+
+    await reconcileBridgedReceives();
+
+    expect(waitForReceipt).toHaveBeenCalledWith(hash, expect.objectContaining({ id: 84532 }));
+    expect(fetchDeposits).toHaveBeenCalledWith('evm:miden-account', undefined, agglayerRoute);
+  });
+
+  it("reads an Epoch row's intent through the allocator the row saved", async () => {
+    rows.push({
+      id: 'epoch-saved-allocator',
+      type: 'bridged-receive',
+      initiatedAt: Math.floor(Date.now() / 1000),
+      extraInputs: {
+        provider: 'epoch',
+        phase: 'delivering',
+        sourceAddress: '0xabc',
+        sourceAmount: '1',
+        sourceSymbol: 'USDC',
+        intentNonce: '42',
+        epochAllocatorUrl: 'https://allocator-a.test'
+      }
+    });
+
+    await reconcileBridgedReceives();
+
+    expect(getEpochReadOnlySdk).toHaveBeenCalledWith('0xabc', 'https://allocator-a.test');
+    expect(registerBridgeIn).toHaveBeenCalledWith(
+      '0xabc',
+      '42',
+      expect.objectContaining({
+        bridgeReceiveTxId: 'epoch-saved-allocator',
+        epochAllocatorUrl: 'https://allocator-a.test'
+      })
+    );
   });
 
   it('walks the history once per pass and advances rows of both providers', async () => {

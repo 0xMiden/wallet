@@ -2,18 +2,36 @@
 
 ## 1.17.4 (TBD)
 
+### Features
+
+- [FEATURE][all] The Guardian operators of each network come from the `guardians` list in `0xMiden/wallet-config`, with each operator's English description, so a new or removed operator reaches every wallet within about an hour with no release; the list the wallet ships with is used only until a document names the operators.
+- [FEATURE][all] The send review page folds the transfer type and the expiration under an "Advanced options" row, closed by default with a one-line summary of both; a "Transfer type" sheet picks Private (the default) or Public, and a public send keeps a notice of what it reveals on the page and a "Send publicly" button whether or not the row is open.
+
 ### Fixes
 
+- [FIX][all] A bridge-in deposit that needs two wallet confirmations says so: from signing the token approval until answering the bridge request, the progress screen reads "Waiting for the next wallet confirmation" instead of copy that looks finished, and the processing text now says the wallet may ask more than once (#1290).
+- [FIX][all] A dApp request for an account that is not the one currently open in Bread is refused before any approval popup or data read, instead of asking the user to approve a request for another account. A request approved after the open account changed or the dApp was disconnected is refused too.
+- [FIX][all] Every Guardian proposal syncs the chain right before it is built, so one that waits out a busy Guardian or a paused app no longer fails with `before_foreign_load` once the node has pruned the old block.
+- [FIX][all] A dApp consume request that carries the note's bytes now imports the note when the user approves it, so a dApp-supplied private note is claimed in one approval instead of needing a separate import approval first.
+- [FIX][all] A dApp custom request from a Guardian account that declares the network accounts its notes target as public foreign accounts is no longer refused; any other foreign account still is.
+- [FIX][all] OpenZeppelin Guardian endpoints moved to `guardian-testnet.openzeppelin.com` (testnet) and `guardian-devnet.openzeppelin.com` (devnet), replacing `guardian.openzeppelin.com` and `guardian-stg.openzeppelin.com`. Existing accounts keep their saved host, which is still recognised as OpenZeppelin.
 - [FIX][ios] Wallet pages extend to the display bottom beneath the home indicator. Navigation, review actions and pinned controls retain their safe-area clearance while keyboard insets continue to protect focused flows.
 - [FIX][all] Opt-in crash reports retain scrubbed causes, capture source, app/build identity and validated compiled positions, with source-bound request types, approval-id categories and SDK startup stages. Unvalidated frame paths are omitted; diagnostics exclude request payloads, addresses, amounts and device identifiers.
 - [FIX][all] Handled transaction failures reach opt-in Sentry reporting, including failures with the extension popup closed and later bridge, earn and node-verdict failures. Reports retain closed execution and authentication diagnostics without transaction values or user identifiers.
 - [FIX][all] Amount entry keeps canonical Latin digits on Persian and Arabic devices, preventing lost digits and invalid base-unit conversion in Send and Swap. Incomplete or malformed swap amounts clear the previous quote and wait for valid input.
 - [FIX][mobile] Fullscreen dApps publish the occupied Bread control rectangle and safe-area metrics so headers can share its row, restore retained covered pages before foreground reveal, and minimize into Bread through its logo without reloading the game when reopened. Wallet overlays and fresh paint checks retain ownership.
+- [FIX][all] The expiration calendar uses theme colors so dates, the month title and navigation arrows are visible in dark mode.
 
 ### Features
 
 - [FEATURE][all] Send automatically selects the only visible token with a positive spendable balance and known scale for the selected destination. Explicit token links, restored drafts and manual choices take priority; loading and account or network changes cannot carry an automatic choice across contexts (#1454).
 - [FEATURE][all] Read bridge routes, service URLs, and contract addresses from the remote configuration for each EVM chain. Keep Earn under its own switch and read its market from Epoch. Use the listed chains for wallet connections, and keep saved transfer data for recovery after a route is disabled or changed.
+
+### Changes
+
+- [CHANGE][all] The swap tokens come from the DEX solver's Pairs API (`GET /v2/pairs` on the host that `swap.etaUrl` names in `0xMiden/wallet-config`) instead of the document's `swap.tokens`, so the wallet lists each token the solver swaps (USDCx is new) and the swap form opens with the network's native asset (USDCx) on the pay side. The "To" picker lists only the tokens the solver pairs with the "From" token, and a new "From" token moves "To" to a token it pairs with, so the form no longer accepts a pair the solver cannot fill. A solver that does not answer keeps the tokens last read.
+- [CHANGE][ui] Visual consistency: an unread Activity row or pending transfer marks itself with a 12px dot on its card's top-right corner instead of the dot squeezed into the card's left margin; the passcode screens' instruction line is set in Nunito semibold; the Home Assets heading sits closer to its list and token row amounts use the heading face; the faucet in the dApp browser starts right under the header instead of a status bar's height below it; Send's amount card and the review card are outlined instead of filled; the review card is set in Nunito with semibold labels and address, its Edit is a pill, and its header has an X that abandons the send; the typed amount is one weight heavier; the USDCX row shows its flat line and a grey +0.00% again under its fixed $1 price; and Swap's review card is outlined and set in Nunito with semibold labels, starts 8px higher, and replaces the typed expiry and unit picker with four choices under "Cancel if not filled within" (2 min, 1 hour, 1 day, 7 days) and a note that an unfilled swap is cancelled and only the unfilled part of its tokens comes back.
+- [CHANGE][ci] Use free ARM64 runners for Swap and regular Ubuntu runners for Guardian bridge-out. Keep WarpBuild for linked Guardian bridge-out builds and manual runs.
 
 ## 1.17.3 (2026-10-12)
 

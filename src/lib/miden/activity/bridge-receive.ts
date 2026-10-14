@@ -5,6 +5,7 @@ import { fetchDeposits, isAgglayerDepositReady } from 'lib/agglayer/status';
 import { MIDEN_DESTINATION_CHAIN_ID } from 'lib/epoch/config';
 import { readEpochIntentStatus } from 'lib/epoch/intent-status';
 import * as Repo from 'lib/miden/repo';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import {
   fetchXReserveAttestations,
   matchUsdcxDepositAttestation,
@@ -21,7 +22,8 @@ import {
 } from 'lib/usdcx/cctp';
 import { usdcxSourceChains, UsdcxExecutorSource } from 'lib/usdcx/constant';
 import { usdcxExpectedRemoteTokenFor, usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
-import { readEvmReceiptOutcome, waitForSepoliaReceipt } from 'lib/walletconnect/receipt';
+import { DEFAULT_CHAIN_ID, EVM_CHAIN_DEFINITIONS } from 'lib/walletconnect/config';
+import { readEvmReceiptOutcome, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
 import {
   BRIDGE_DELIVERY_TIMED_OUT,
@@ -75,7 +77,11 @@ async function reconcileAgglayerRow(row: ITransaction, inputs: IBridgedReceiveEx
 
   if (inputs.phase === 'submitting') {
     try {
-      await waitForSepoliaReceipt(inputs.evmTxHash as `0x${string}`);
+      // A row saved before its route was is from DEFAULT_CHAIN_ID.
+      const chainId = inputs.agglayerRoute?.chainId ?? inputs.sourceChainId ?? DEFAULT_CHAIN_ID;
+      const chain = EVM_CHAIN_DEFINITIONS.find(candidate => candidate.id === chainId);
+      if (!chain) throw new Error(`EVM chain ${chainId} is not configured`);
+      await waitForEvmReceipt(inputs.evmTxHash as `0x${string}`, chain);
       await updateBridgedReceivePhase(row.id, 'delivering');
     } catch (error) {
       await updateBridgedReceivePhase(row.id, 'failed', {
@@ -114,12 +120,13 @@ async function reconcileEpochRow(row: ITransaction, inputs: IBridgedReceiveExtra
     sourceSymbol: inputs.sourceSymbol,
     intentNonce: inputs.intentNonce,
     evmTxHash: inputs.evmTxHash,
-    bridgeReceiveTxId: row.id
+    bridgeReceiveTxId: row.id,
+    epochAllocatorUrl: inputs.epochAllocatorUrl
   });
 
   try {
     const { getEpochReadOnlySdk } = await import('lib/epoch/sdk');
-    const sdk = await getEpochReadOnlySdk(inputs.sourceAddress as `0x${string}`);
+    const sdk = await getEpochReadOnlySdk(inputs.sourceAddress as `0x${string}`, inputs.epochAllocatorUrl);
     const results = await readEpochIntentStatus(sdk, inputs.sourceAddress, inputs.intentNonce);
     const noteId = results.map(result => firstString(result, 'midenNoteId')).find(Boolean);
     if (noteId) await resolveBridgeInNoteId(inputs.sourceAddress, inputs.intentNonce, noteId);
@@ -459,6 +466,9 @@ export function createBridgeReceiveReconciler({
    * index.
    */
   async function reconcile(): Promise<void> {
+    // The watcher's first pass can run before this realm read its stored copy, and a row with no saved route is
+    // classified (and timed out) by the document; from storage, never the network.
+    await initBridgeConfig();
     const { rows, resumeOrphans } = await readRows();
     const cutoffSec = Math.floor((Date.now() - BRIDGE_RECEIVE_MAX_AGE_MS) / 1000);
 

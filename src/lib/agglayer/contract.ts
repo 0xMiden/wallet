@@ -66,7 +66,8 @@ export const claimAgglayerDeposit = async ({
   provider: EIP1193Provider;
   route?: AgglayerRecoveryConfig;
 }): Promise<ContractTransactionResponse> => {
-  const l1Bridge = route?.contractAddress ?? getAgglayerL1Bridge();
+  // A row saved before its route was is from DEFAULT_CHAIN_ID, the chain ensureL1Chain defaults to.
+  const l1Bridge = route?.contractAddress ?? getAgglayerL1Bridge(DEFAULT_CHAIN_ID);
   await ensureL1Chain(provider, route?.chainId);
   const proof = await fetchMerkleProof(deposit.deposit_cnt, deposit.network_id, route);
 

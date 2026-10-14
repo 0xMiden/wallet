@@ -1,4 +1,5 @@
 import { serialize } from 'v8';
+import { arc } from 'viem/chains';
 
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { testBridgeSnapshot } from 'lib/remote-config/testing/fixture';
@@ -13,6 +14,7 @@ import {
 } from './constant';
 
 jest.mock('lib/remote-config/runtime', () => ({ getBridgeConfigSnapshot: jest.fn() }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
 beforeEach(() => jest.mocked(getBridgeConfigSnapshot).mockReturnValue(testBridgeSnapshot()));
 
 it('builds source routes and executor targets from the remote document', () => {
@@ -30,9 +32,22 @@ it('lists only the enabled direction while retaining recovery values', () => {
   if (!route) throw new Error('The test route is missing');
   route.depositEnabled = false;
   jest.mocked(getBridgeConfigSnapshot).mockReturnValue(snapshot);
-  expect(listUsdcxSourceChains(true).map(source => source.chain.id)).not.toContain(84532);
-  expect(listUsdcxDestinations(true).map(source => source.chain.id)).toContain(84532);
+  expect(listUsdcxSourceChains().map(source => source.chain.id)).not.toContain(84532);
+  expect(listUsdcxDestinations().map(source => source.chain.id)).toContain(84532);
   expect(getUsdcxExecutorSource(84532).target.chain.id).toBe(5042002);
+});
+
+it('offers no executor source whose target is a mainnet chain on the testnet network', () => {
+  const snapshot = testBridgeSnapshot();
+  const chains = snapshot.config?.supportedEvmChains;
+  const arcRoute = chains?.['arc-testnet']?.bridges.usdcx;
+  const deposit = chains?.['base-sepolia']?.bridges.usdcx?.deposit;
+  if (!chains || !arcRoute || deposit?.route !== 'executor') throw new Error('The test route is missing');
+  chains.arc = { chainId: arc.id, bridges: { usdcx: { ...arcRoute } } };
+  deposit.executorChain = 'arc';
+  jest.mocked(getBridgeConfigSnapshot).mockReturnValue(snapshot);
+  expect(usdcxSourceChains().has(84532)).toBe(false);
+  expect(usdcxSourceChains().has(arc.id)).toBe(false);
 });
 
 it('has no compiled fallback when the remote document is missing', () => {

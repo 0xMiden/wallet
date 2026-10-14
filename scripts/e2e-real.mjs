@@ -55,8 +55,8 @@ const MIDEN_RPC = {
  * itself reads - this copy exists because the probe runs before Playwright does.
  */
 const GUARDIAN_URL = {
-  testnet: 'https://guardian.openzeppelin.com',
-  devnet: 'https://guardian-stg.openzeppelin.com'
+  testnet: 'https://guardian-testnet.openzeppelin.com',
+  devnet: 'https://guardian-devnet.openzeppelin.com'
 };
 const MIDEN_FAUCET_API = {
   testnet: 'https://faucet-api.testnet.miden.io',

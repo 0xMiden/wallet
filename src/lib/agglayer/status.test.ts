@@ -16,13 +16,14 @@ import {
 
 const fetchMock = jest.fn();
 Object.defineProperty(globalThis, 'fetch', { value: fetchMock, writable: true, configurable: true });
-const mockIndexerUrl = jest.fn(() => 'https://indexer.one.example/api');
+const mockIndexerUrl = jest.fn((_chainId?: number) => 'https://indexer.one.example/api');
 // The testnet's derived networks: rollup 86 files every Miden exit, bound for L1 network 0.
-const mockRollupId = jest.fn(() => 86);
+const mockRollupId = jest.fn((_chainId?: number) => 86);
+const mockEvmNetworkId = jest.fn((_chainId?: number) => 0);
 jest.mock('lib/remote-config/values', () => ({
-  getAgglayerIndexerUrl: () => mockIndexerUrl(),
-  getAgglayerRollupId: () => mockRollupId(),
-  getAgglayerEvmNetworkId: () => 0
+  getAgglayerIndexerUrl: (chainId?: number) => mockIndexerUrl(chainId),
+  getAgglayerRollupId: (chainId?: number) => mockRollupId(chainId),
+  getAgglayerEvmNetworkId: (chainId?: number) => mockEvmNetworkId(chainId)
 }));
 
 const deposit = (overrides: Record<string, unknown>) =>
@@ -450,6 +451,15 @@ describe('the configured indexer', () => {
       'https://indexer.one.example/api/bridges/0xdest?limit=10&offset=0',
       'https://indexer.one.example/api/merkle-proof?deposit_cnt=16&net_id=86'
     ]);
+  });
+
+  it('reads a row saved before its route on Sepolia, the chain every such row was made on', async () => {
+    await fetchDeposits('0xdest');
+    await searchAgglayerExitDeposit('0xdest', EXIT_16);
+    expect(mockIndexerUrl).toHaveBeenCalledWith(11155111);
+    expect(mockIndexerUrl.mock.calls.every(([chainId]) => chainId === 11155111)).toBe(true);
+    expect(mockRollupId).toHaveBeenCalledWith(11155111);
+    expect(mockEvmNetworkId).toHaveBeenCalledWith(11155111);
   });
 
   it('sends nothing while the config names no indexer', async () => {

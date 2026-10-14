@@ -5,11 +5,15 @@ import BigNumber from 'bignumber.js';
 
 import {
   publishMockBridgeSnapshot,
-  TEST_BRIDGE_CONFIG,
-  TEST_BRIDGE_CONFIG_SNAPSHOT,
-  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID
+  TEST_NATIVE_ETH_FAUCET as MIDEN_AGGLAYER_FAUCET_ID,
+  testSnapshotWithSwapPairs
 } from 'lib/epoch/testing/bridge-config';
-import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import {
+  TEST_SWAP_TOKENS,
+  TEST_TOKEN_IBTC,
+  TEST_TOKEN_IETH,
+  testSwapPairsToken
+} from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
@@ -122,22 +126,11 @@ beforeEach(() => {
 describe('Balance', () => {
   it('revalues a stable portfolio when the configured price symbol changes or is removed', () => {
     _setSwapTokensForTest(undefined);
-    const snapshotFor = (priceSymbol?: string): BridgeConfigSnapshot => ({
-      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
-      config: {
-        ...TEST_BRIDGE_CONFIG,
-        swap: {
-          tokens: [
-            {
-              symbol: TEST_TOKEN_IETH.symbol,
-              faucetId: TEST_TOKEN_IETH.faucetId,
-              decimals: TEST_TOKEN_IETH.decimals,
-              ...(priceSymbol === undefined ? {} : { priceSymbol })
-            }
-          ]
-        }
-      }
-    });
+    const snapshotFor = (priceSymbol?: string): BridgeConfigSnapshot =>
+      testSnapshotWithSwapPairs({
+        tokens: [testSwapPairsToken({ ...TEST_TOKEN_IETH, priceSymbol })],
+        pairs: []
+      });
     mockBridgeSnapshot = snapshotFor('ETH');
     const balances: TokenBalance[] = [
       { tokenId: TEST_TOKEN_IETH.faucetId, balance: 1, metadata: { symbol: TEST_TOKEN_IETH.symbol, decimals: 8 } }

@@ -31,17 +31,6 @@ export interface KnownBugRegistry {
 
 const BOTH: readonly AxisLabel[] = ['offchain', 'guardian'];
 const GUARDIAN: readonly AxisLabel[] = ['guardian'];
-// The consume rows of M3 and M9: consume skips the post-approval re-check that send and custom run.
-const STALE_CONSUME_CELLS = [
-  'M3-consume-switch',
-  'M3-consume-revoke',
-  'M3-consumeBytes-switch',
-  'M3-consumeBytes-revoke',
-  'M9-consume',
-  'M9-consumeBytes'
-] as const;
-// M9 issues each request type from a session bound to an account that is not current.
-const NON_CURRENT_CELLS = ['M9-send', 'M9-transaction', 'M9-consume', 'M9-consumeBytes', 'M9-custom'] as const;
 const on = (ids: readonly string[], axes: readonly AxisLabel[]): Record<string, readonly AxisLabel[]> =>
   Object.fromEntries(ids.map(id => [id, axes]));
 
@@ -59,17 +48,6 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
       evidence.adapterAddress === evidence.previousAddress
   },
   {
-    id: 'K2',
-    title: 'requestConsume with noteBytes of an unheld note fails after approval',
-    tracking: '0xMiden/wallet#1413 (open)',
-    cells: on(['W6'], BOTH),
-    signature: ({ source, evidence }) =>
-      source === 'hard' &&
-      evidence.popupOpened === true &&
-      (evidence.dappError?.message ?? '').includes('INVALID_PARAMS') &&
-      (evidence.dappError?.message ?? '').includes('not found')
-  },
-  {
     id: 'K5',
     title: 'Send, consume, custom and note or asset reads while locked are refused before any prompt as INVALID_PARAMS',
     tracking: '0xMiden/wallet#1414 (open)',
@@ -79,13 +57,6 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
       evidence.popupOpened === false &&
       (evidence.dappError?.message ?? '').includes('INVALID_PARAMS') &&
       (evidence.dappError?.message ?? '').includes('Wallet is locked')
-  },
-  {
-    id: 'K6',
-    title: 'An approved consume executes for an account whose authorization went stale',
-    tracking: '0xMiden/wallet#1415 (open)',
-    cells: on(STALE_CONSUME_CELLS, BOTH),
-    signature: ({ source, evidence }) => source === 'hard' && evidence.staleConsumeExecuted === true
   },
   {
     id: 'K7',
@@ -109,28 +80,12 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
       (evidence.dappError?.message ?? '').includes(pinned.texts.G2.guardian.error)
   },
   {
-    id: 'K9',
-    title: 'A request from a session bound to a non-current account opens a popup instead of being refused',
-    tracking: '0xMiden/wallet#1419 (open)',
-    cells: on([...NON_CURRENT_CELLS, 'M4-reads'], BOTH),
-    // The cells approve the popup to see what follows: M9 a refusal after approval with nothing run for any account, or
-    // a consume that executes for the stale account (K6); M4-reads each read served the dApp's own vault after its
-    // popup, or refused before one.
-    signature: ({ cellId, source, evidence }) =>
-      source === 'hard' &&
-      evidence.nonCurrentPrompted === true &&
-      (cellId === 'M4-reads'
-        ? evidence.nonCurrentReadsOwnOrRefused === true
-        : (evidence.dappError?.message === 'NOT_GRANTED' && evidence.nonCurrentRowRan === false) ||
-          (cellId.startsWith('M9-consume') && evidence.staleConsumeExecuted === true))
-  },
-  {
     id: 'K10',
     title: 'A note imported details-only or bare cannot be consumed or listed by the id its import returned',
     tracking: '0xMiden/wallet#1389 (open)',
     cells: on(['W5b', 'W5c', 'N4'], BOTH),
     // The consume preview and the private-note list both look the returned details commitment up as a note id
-    // (`src/lib/miden/back/dapp.ts:2680-2687` and `:901, 945`), so a consume is refused before any popup.
+    // (`src/lib/miden/back/dapp.ts:2732-2739` and `:909, 953`), so a consume is refused before any popup.
     signature: ({ cellId, source, evidence }) =>
       source === 'hard' &&
       (cellId === 'N4'
@@ -144,7 +99,7 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
     title: 'A custom request whose transactionRequest cannot be deserialized opens a popup instead of being refused',
     tracking: '0xMiden/wallet#1418 (open)',
     cells: on(['R3-customUndecodable'], BOTH),
-    // The preview swallows the deserialize failure (src/lib/miden/back/dapp.ts:2867-2879) and the popup says it could
+    // The preview swallows the deserialize failure (src/lib/miden/back/dapp.ts:2920-2931) and the popup says it could
     // not decode the request, so the refusal check sees a confirm page open.
     signature: ({ source, evidence }) => source === 'hard' && evidence.popupOpened === true
   }

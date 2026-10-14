@@ -1851,6 +1851,10 @@
     "message": "Введіть дійсну суму для обміну.",
     "englishSource": "Enter a valid amount to swap."
   },
+  "swapPairNotListed": {
+    "message": "Цю пару більше не можна обміняти. Поверніться назад і виберіть інший токен.",
+    "englishSource": "This pair can no longer be swapped. Go back and choose another token."
+  },
   "swapPriceUnavailable": {
     "message": "Ціна недоступна. Спробуйте ще раз трохи пізніше.",
     "englishSource": "Price unavailable. Try again shortly."
@@ -4725,8 +4729,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Схвалити запит у своєму гаманці та залишити цей екран відкритим, поки вихідна мережа його підтверджує.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "message": "Схвалити запити у своєму гаманці — система може запитувати про це кілька разів — і залишити цей екран відкритим, поки вихідна мережа їх підтверджує.",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "Помилка під час депозиту через міст",
@@ -5944,26 +5948,6 @@
     "message": "Ваш дохід",
     "englishSource": "Your Earnings"
   },
-  "durationUnitSeconds": {
-    "message": "Сек.",
-    "englishSource": "Sec"
-  },
-  "durationUnitMinutes": {
-    "message": "Хв.",
-    "englishSource": "Min"
-  },
-  "durationUnitHours": {
-    "message": "Год.",
-    "englishSource": "Hour"
-  },
-  "durationUnitDays": {
-    "message": "День",
-    "englishSource": "Day"
-  },
-  "swapExpiryUnit": {
-    "message": "Одиниця терміну дії",
-    "englishSource": "Expiry unit"
-  },
   "moreInfoAbout": {
     "message": "Докладніше про $label$",
     "englishSource": "More information about $label$",
@@ -5973,15 +5957,32 @@
       }
     }
   },
-  "swapExpiryRange": {
-    "message": "Введіть ціле число від $min$ до $max$.",
-    "englishSource": "Enter a whole number from $min$ to $max$.",
+  "swapExpiryLabel": {
+    "message": "Скасувати, якщо не виконано протягом",
+    "englishSource": "Cancel if not filled within"
+  },
+  "swapExpiryPreset2Min": {
+    "message": "2 хв",
+    "englishSource": "2 min"
+  },
+  "swapExpiryPreset1Hour": {
+    "message": "1 година",
+    "englishSource": "1 hour"
+  },
+  "swapExpiryPreset1Day": {
+    "message": "1 день",
+    "englishSource": "1 day"
+  },
+  "swapExpiryPreset7Days": {
+    "message": "7 днів",
+    "englishSource": "7 days"
+  },
+  "swapExpiryNote": {
+    "message": "Не виконано до того часу? Своп скасовується, і все, що залишилося невиконаним із вашої суми $amount$, повертається.",
+    "englishSource": "Not filled by then? The swap is cancelled and whatever is unfilled of your $amount$ comes back.",
     "placeholders": {
-      "min": {
+      "amount": {
         "content": "$1"
-      },
-      "max": {
-        "content": "$2"
       }
     }
   },
@@ -6199,6 +6200,54 @@
   "externalPageLoadFailed": {
     "message": "Не вдалося відкрити цю сторінку. Перевірте з’єднання та спробуйте ще раз.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "Очікування наступного підтвердження гаманця",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "Перше підтвердження виконано. Ваш гаманець попросить вас підтвердити ще раз — залиште цей екран відкритим.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
+  },
+  "advancedOptions": {
+    "message": "Додаткові параметри",
+    "englishSource": "Advanced options"
+  },
+  "advancedOptionsSummary": {
+    "message": "$transferType$ · $expiration$",
+    "englishSource": "$transferType$ · $expiration$",
+    "placeholders": {
+      "transfertype": {
+        "content": "$1"
+      },
+      "expiration": {
+        "content": "$2"
+      }
+    }
+  },
+  "transferType": {
+    "message": "Тип переказу",
+    "englishSource": "Transfer type"
+  },
+  "publicTransfer": {
+    "message": "Публічний переказ",
+    "englishSource": "Public transfer"
+  },
+  "publicTransferNotice": {
+    "message": "Токен, сума та адреса отримувача будуть видимі в мережі Miden.",
+    "englishSource": "The token, amount, and recipient address will be visible on Miden."
+  },
+  "publicTransferHelp": {
+    "message": "Будь-хто може побачити токен, суму та адресу отримувача цього переказу в мережі Miden.",
+    "englishSource": "Anyone can see this transfer's token, amount, and recipient address on Miden."
+  },
+  "senderAddressPublicNote": {
+    "message": "Ваша адреса відправника є публічною в обох режимах.",
+    "englishSource": "Your sender address is public in both modes."
+  },
+  "sendPublicly": {
+    "message": "Надіслати публічно",
+    "englishSource": "Send publicly"
   },
   "breadCloseError": {
     "message": "Не вдалося повернутися до Bread.",

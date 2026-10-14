@@ -1539,6 +1539,7 @@ export const updateBridgedReceivePhase = async (
       | 'cctp'
       | 'error'
       | 'usdcxRemoteRecipient'
+      | 'epochAllocatorUrl'
     >
   >,
   received?: { amount: bigint; faucetId: string; transactionId?: string },

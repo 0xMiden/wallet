@@ -68,23 +68,32 @@ export function useNativeReown() {
     let cancelled = false;
     const handles: Array<{ remove: () => Promise<void> }> = [];
 
+    // A handle registered after cleanup ran is removed here: cleanup only saw the handles pushed before it.
+    const keep = (handle: { remove: () => Promise<void> }) => {
+      if (cancelled) {
+        handle.remove();
+        return false;
+      }
+      handles.push(handle);
+      return true;
+    };
+
     const setup = async () => {
       try {
         await configureNativeReown();
         if (cancelled) return;
 
-        handles.push(
-          await NativeReown.addListener('stateChanged', nextState => {
-            setState(nextState);
-          })
-        );
-        handles.push(
-          await NativeReown.addListener('socketStatus', event => {
-            setState(current => ({ ...current, socketStatus: event.status }));
-          })
-        );
+        const stateChanged = await NativeReown.addListener('stateChanged', nextState => {
+          setState(nextState);
+        });
+        if (!keep(stateChanged)) return;
+        const socketStatus = await NativeReown.addListener('socketStatus', event => {
+          setState(current => ({ ...current, socketStatus: event.status }));
+        });
+        if (!keep(socketStatus)) return;
 
         await refresh();
+        if (!cancelled) setError(null);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Failed to initialize native WalletConnect');

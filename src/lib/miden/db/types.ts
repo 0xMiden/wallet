@@ -511,6 +511,8 @@ export interface IBridgeInInfo {
   intentNonce?: string;
   intentOwner?: string;
   earnWithdrawAttemptId?: string;
+  /** epoch: the allocator the intent's row saved, which its note-id poll asks; absent on an older registration. */
+  epochAllocatorUrl?: string;
   /** EVM-side deposit/fill tx hash, when known. */
   evmTxHash?: string;
   /** Miden-side note id the bridge-in resolved to, copied on by `applyBridgeInInfoForNotes`. */

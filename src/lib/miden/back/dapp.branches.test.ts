@@ -14,10 +14,11 @@ import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/ty
 
 // ── Mocks ──────────────────────────────────────────────────────────
 
+const mockSignData = jest.fn(async () => 'fake-sig-base64');
 const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
   fn({
     vault: {
-      signData: jest.fn(async () => 'fake-sig-base64')
+      signData: mockSignData
     }
   })
 );
@@ -31,6 +32,7 @@ const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
 const mockReleaseNoteIds = jest.fn((..._args: unknown[]) => Promise.resolve(undefined));
 jest.mock('lib/miden/note-quarantine', () => ({
   importedNoteIds: (notes: string[] | undefined) => (notes ?? []).map(n => `id:${n}`),
+  noteIdFromBytes: (bytes: Uint8Array) => jest.requireActual('lib/miden/note-quarantine').noteIdFromBytes(bytes),
   quarantineNoteIds: jest.fn(),
   releaseNoteIds: (...args: unknown[]) => mockReleaseNoteIds(...args)
 }));
@@ -163,6 +165,7 @@ jest.mock('lib/miden/sdk/miden-client', () => jest.requireMock('../sdk/miden-cli
 // The assert re-implements the real comparison against this mock's hold so it is
 // never a vacuous no-op.
 let currentWasmHold: object | null = null;
+const mockImportNoteBytes = jest.fn();
 jest.mock('../sdk/miden-client', () => ({
   getMidenClient: async () => ({
     getAccount: (id: string) => (globalThis as any).__dappBranchMockGetAccount(id),
@@ -181,7 +184,7 @@ jest.mock('../sdk/miden-client', () => ({
     getConsumableNotes: jest.fn(async () => []),
     getConsumableNoteDtos: jest.fn(async () => []),
     syncState: jest.fn(async () => {}),
-    importNoteBytes: jest.fn(async () => ({ toString: () => 'note-123' })),
+    importNoteBytes: (...args: unknown[]) => mockImportNoteBytes(...args),
     on: jest.fn()
   }),
   withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
@@ -214,7 +217,7 @@ jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
   AllowedPrivateData: { None: 0, Assets: 1, Notes: 2, Storage: 4, All: 65535 }
 }));
 
-// ��─ Import under test ���────────────────────────────────────────────
+// ─── Import under test ───────────────────────────────────────────────
 
 import * as dapp from './dapp';
 
@@ -253,9 +256,11 @@ beforeEach(() => {
   });
   mockGetTokenMetadata.mockResolvedValue({ decimals: 6, symbol: 'TOK' });
   mockStartTransactionProcessing.mockReturnValue(Promise.resolve());
+  mockImportNoteBytes.mockReset();
+  mockImportNoteBytes.mockResolvedValue('note-1');
 });
 
-// ─�� requestPermission (mobile paths) ─────────────────────��───────
+// ─── requestPermission (mobile paths) ──────────────────────────────
 
 describe('requestPermission — mobile branches', () => {
   it('goes through confirmation store when force=true even if session exists', async () => {
@@ -391,15 +396,191 @@ describe('requestConsumeTransaction — mobile error branches', () => {
     ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
   });
 
-  it('queues noteBytes import when noteBytes present', async () => {
-    mockInitiateConsumeTransactionFromId.mockResolvedValue('tx-c');
-    const res = await dapp.requestConsumeTransaction('https://miden.xyz', {
-      type: MidenDAppMessageType.ConsumeRequest,
-      sourcePublicKey: 'miden-account-1',
-      transaction: { ...validTx, noteBytes: 'c29tZW5vdGVieXRlcw==' }
-    } as never);
-    expect(res.type).toBe(MidenDAppMessageType.ConsumeResponse);
-    expect(mockQueueNoteImport).toHaveBeenCalledWith('c29tZW5vdGVieXRlcw==');
+  // Issue #1459: the consume reads the note from the store before it writes a row, so
+  // queued bytes arrived too late and a dApp-supplied note needed a second approval.
+  describe('carried noteBytes', () => {
+    const noteBytes = 'c29tZW5vdGVieXRlcw==';
+    const consumeWithBytes = () =>
+      dapp.requestConsumeTransaction('https://miden.xyz', {
+        type: MidenDAppMessageType.ConsumeRequest,
+        sourcePublicKey: 'miden-account-1',
+        transaction: { ...validTx, noteBytes }
+      } as never);
+
+    // What `notes.import` answers for raw Note bytes, which the wallet stores as a details-only NoteFile.
+    const detailsCommitment = '0x5d1e7a11';
+    const consumed = { type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-c' };
+    const sdk: Record<string, unknown> = require('@miden-sdk/miden-sdk/lazy');
+    const originalSdk = { Note: sdk.Note, NoteFile: sdk.NoteFile };
+    const sdkNote = (id: string) => ({
+      id: () => ({ toString: () => id }),
+      metadata: () => undefined,
+      assets: () => ({ fungibleAssets: () => [] })
+    });
+    const unparsable = (what: string) => () => {
+      throw new Error(`not a ${what}`);
+    };
+    const carryRawNote = (deserialize: () => unknown) => {
+      sdk.NoteFile = { deserialize: unparsable('NoteFile') };
+      sdk.Note = { deserialize };
+    };
+
+    beforeEach(() => {
+      carryRawNote(() => sdkNote('note-1'));
+      mockQueueNoteImport.mockResolvedValue(undefined);
+      mockInitiateConsumeTransactionFromId.mockReset();
+    });
+
+    afterEach(() => {
+      Object.assign(sdk, originalSdk);
+    });
+
+    it('imports the bytes into the store before it initiates the consume, in one approval', async () => {
+      const order: string[] = [];
+      mockImportNoteBytes.mockImplementationOnce(async (bytes: Uint8Array) => {
+        order.push(`import:${Buffer.from(bytes).toString('base64')}`);
+        return 'note-1';
+      });
+      mockInitiateConsumeTransactionFromId.mockImplementationOnce(async (_account: string, noteId: string) => {
+        order.push(`consume:${noteId}`);
+        return 'tx-c';
+      });
+
+      const res = await consumeWithBytes();
+
+      expect(res).toEqual({ type: MidenDAppMessageType.ConsumeResponse, transactionId: 'tx-c' });
+      expect(order).toEqual([`import:${noteBytes}`, 'consume:note-1']);
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+      expect(mockQueueNoteImport).not.toHaveBeenCalled();
+    });
+
+    it('consumes raw Note bytes that decode to noteId, whatever id the import answers with', async () => {
+      carryRawNote(() => sdkNote('note-1'));
+      mockImportNoteBytes.mockResolvedValueOnce(detailsCommitment);
+      mockInitiateConsumeTransactionFromId.mockResolvedValueOnce('tx-c');
+
+      await expect(consumeWithBytes()).resolves.toEqual(consumed);
+      expect(mockImportNoteBytes).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses bytes that decode to another note before importing them', async () => {
+      // The sheet refuses these bytes when it decodes them the same way (dapp.extended.test.ts); this
+      // pins the approval's own check, which does not rest on what the sheet decoded.
+      carryRawNote(jest.fn().mockReturnValueOnce(sdkNote('note-1')).mockReturnValue(sdkNote('note-other')));
+
+      await expect(consumeWithBytes()).rejects.toThrow(
+        `${MidenDAppErrorType.InvalidParams}: Error: noteBytes describe a different note than noteId`
+      );
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+      expect(mockImportNoteBytes).not.toHaveBeenCalled();
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
+
+    const detailsOnlyFile = (id: string) => ({
+      note: () => undefined,
+      noteId: () => ({ toString: () => id })
+    });
+
+    it('imports a details-only NoteFile whose noteId is the requested note and consumes it', async () => {
+      sdk.NoteFile = { deserialize: () => detailsOnlyFile('note-1') };
+      sdk.Note = { deserialize: unparsable('Note') };
+      mockImportNoteBytes.mockResolvedValueOnce(detailsCommitment);
+      mockInitiateConsumeTransactionFromId.mockResolvedValueOnce('tx-c');
+
+      await expect(consumeWithBytes()).resolves.toEqual(consumed);
+      expect(mockImportNoteBytes).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses a details-only NoteFile whose noteId is another note before importing it', async () => {
+      sdk.NoteFile = { deserialize: () => detailsOnlyFile('note-other') };
+      sdk.Note = { deserialize: unparsable('Note') };
+
+      await expect(consumeWithBytes()).rejects.toThrow(
+        `${MidenDAppErrorType.InvalidParams}: Error: noteBytes describe a different note than noteId`
+      );
+      expect(mockImportNoteBytes).not.toHaveBeenCalled();
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
+
+    describe('bytes that are neither a NoteFile nor a Note', () => {
+      beforeEach(() => {
+        sdk.NoteFile = { deserialize: unparsable('NoteFile') };
+        sdk.Note = { deserialize: unparsable('Note') };
+      });
+
+      it('are not imported, and a note the store holds is consumed', async () => {
+        mockInitiateConsumeTransactionFromId.mockResolvedValueOnce('tx-c');
+
+        await expect(consumeWithBytes()).resolves.toEqual(consumed);
+        expect(mockImportNoteBytes).not.toHaveBeenCalled();
+        expect(mockQueueNoteImport).not.toHaveBeenCalled();
+      });
+
+      it('are not imported, and a note the store lacks is refused by the consume itself', async () => {
+        mockInitiateConsumeTransactionFromId.mockRejectedValueOnce(new Error('Input note not found'));
+
+        await expect(consumeWithBytes()).rejects.toThrow(
+          `${MidenDAppErrorType.InvalidParams}: Error: Input note not found`
+        );
+        expect(mockImportNoteBytes).not.toHaveBeenCalled();
+        expect(mockQueueNoteImport).not.toHaveBeenCalled();
+      });
+
+      it('leave a kill during the consume to reach the dApp as the kill', async () => {
+        const kill = new WasmClientPoisonedError('watchdog', new Error('store read parked'));
+        mockInitiateConsumeTransactionFromId.mockRejectedValueOnce(kill);
+
+        await expect(consumeWithBytes()).rejects.toBe(kill);
+        expect(mockImportNoteBytes).not.toHaveBeenCalled();
+      });
+    });
+
+    it('refuses a carried note another transaction holds rather than answer with that transaction', async () => {
+      carryRawNote(() => sdkNote('note-1'));
+      mockImportNoteBytes.mockResolvedValueOnce(detailsCommitment);
+      mockInitiateConsumeTransactionFromId.mockImplementationOnce(async (...args: unknown[]) => {
+        if (args[4] === true) throw new Error('This note is being consumed by another transaction');
+        return 'other-dapp-transaction';
+      });
+
+      await expect(consumeWithBytes()).rejects.toThrow('This note is being consumed by another transaction');
+    });
+
+    it('queues the bytes and does not consume when the import fails on the network', async () => {
+      mockImportNoteBytes.mockRejectedValueOnce(new Error('Failed to fetch'));
+
+      await expect(consumeWithBytes()).rejects.toThrow(`${MidenDAppErrorType.InvalidParams}: Error: Failed to fetch`);
+      expect(mockQueueNoteImport).toHaveBeenCalledWith(noteBytes);
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
+
+    it('rejects with the kill itself, not InvalidParams, when the import is evicted', async () => {
+      const kill = new WasmClientPoisonedError('watchdog', new Error('import parked'));
+      mockImportNoteBytes.mockRejectedValueOnce(kill);
+
+      await expect(consumeWithBytes()).rejects.toBe(kill);
+      expect(mockQueueNoteImport).toHaveBeenCalledWith(noteBytes);
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
+
+    // The import is the one await between the approval's check and the consume, and it can run long.
+    it.each([
+      ['the current account changes', () => (currentAccountPublicKey = 'miden-account-2')],
+      ['the dApp disconnects', () => (storageState[STORAGE_KEY] = { 'https://miden.xyz': [] })]
+    ])('refuses the consume when %s while the import is pending', async (_name, change) => {
+      mockImportNoteBytes.mockImplementationOnce(async () => {
+        change();
+        return 'note-1';
+      });
+
+      try {
+        await expect(consumeWithBytes()).rejects.toThrow(MidenDAppErrorType.NotGranted);
+      } finally {
+        currentAccountPublicKey = 'miden-account-1';
+      }
+      expect(mockImportNoteBytes).toHaveBeenCalledTimes(1);
+      expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    });
   });
 
   it('refuses a note another transaction holds rather than answer with that transaction', async () => {
@@ -1015,5 +1196,218 @@ describe('requestTransaction - custom spending-limit gate', () => {
     } finally {
       currentAccountPublicKey = 'miden-account-1';
     }
+  });
+});
+
+// ── requests for an account that is not the current one (#1419) ──
+
+describe('requests for an account that is not the current one (#1419)', () => {
+  const ORIGIN = 'https://miden.xyz';
+  const ACCOUNT_A = 'miden-account-1';
+  const ACCOUNT_B = 'miden-account-2';
+  // Not the account id, so a guard that looks the session up by the signing key instead of the account fails.
+  const SIGN_KEY = 'miden-account-1-signing-key';
+  const SESSION_A = { ...SESSION, publicKey: SIGN_KEY };
+
+  beforeEach(() => {
+    storageState[STORAGE_KEY] = { [ORIGIN]: [SESSION_A] };
+  });
+
+  afterEach(() => {
+    currentAccountPublicKey = ACCOUNT_A;
+  });
+
+  const customPayload = { address: ACCOUNT_A, recipientAddress: 'bob', transactionRequest: 'base64req' };
+  const consumeTx = { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'Private', amount: '50' };
+
+  const requests: Record<string, (permission?: string) => Promise<unknown>> = {
+    sign: () =>
+      dapp.requestSign(ORIGIN, {
+        type: MidenDAppMessageType.SignRequest,
+        sourceAccountId: ACCOUNT_A,
+        sourcePublicKey: SIGN_KEY,
+        payload: 'AAAA',
+        kind: 'word'
+      } as never),
+    privateNotes: () =>
+      dapp.requestPrivateNotes(ORIGIN, {
+        type: MidenDAppMessageType.PrivateNotesRequest,
+        sourcePublicKey: ACCOUNT_A,
+        noteIds: ['n1']
+      } as never),
+    consumableNotes: () =>
+      dapp.requestConsumableNotes(ORIGIN, {
+        type: MidenDAppMessageType.ConsumableNotesRequest,
+        sourcePublicKey: ACCOUNT_A
+      } as never),
+    assets: () =>
+      dapp.requestAssets(ORIGIN, { type: MidenDAppMessageType.AssetsRequest, sourcePublicKey: ACCOUNT_A } as never),
+    importPrivateNote: () =>
+      dapp.requestImportPrivateNote(ORIGIN, {
+        type: MidenDAppMessageType.ImportPrivateNoteRequest,
+        sourcePublicKey: ACCOUNT_A,
+        note: 'c29tZW5vdGVieXRlcw=='
+      } as never),
+    transactionCustom: () =>
+      dapp.requestTransaction(ORIGIN, {
+        type: MidenDAppMessageType.TransactionRequest,
+        sourcePublicKey: ACCOUNT_A,
+        transaction: { payload: customPayload }
+      } as never),
+    send: () =>
+      dapp.requestSendTransaction(ORIGIN, {
+        type: MidenDAppMessageType.SendTransactionRequest,
+        sourcePublicKey: ACCOUNT_A,
+        transaction: {
+          senderAddress: ACCOUNT_A,
+          recipientAddress: 'bob',
+          faucetId: 'faucet-1',
+          noteType: 'Private',
+          amount: '100'
+        }
+      } as never),
+    consume: () =>
+      dapp.requestConsumeTransaction(ORIGIN, {
+        type: MidenDAppMessageType.ConsumeRequest,
+        sourcePublicKey: ACCOUNT_A,
+        transaction: consumeTx
+      } as never),
+    consumeBytes: () =>
+      dapp.requestConsumeTransaction(ORIGIN, {
+        type: MidenDAppMessageType.ConsumeRequest,
+        sourcePublicKey: ACCOUNT_A,
+        transaction: { ...consumeTx, noteBytes: 'c29tZW5vdGVieXRlcw==' }
+      } as never)
+  };
+
+  const grantPermission = (privateDataPermission: string, allowedPrivateData: number) => {
+    storageState[STORAGE_KEY] = {
+      [ORIGIN]: [{ ...SESSION_A, privateDataPermission, allowedPrivateData }]
+    };
+  };
+
+  // A real switch writes both the vault's stored current account and the store's.
+  const switchCurrentAccount = (account: string) => {
+    currentAccountPublicKey = account;
+    mockGetCurrentAccountPublicKey.mockResolvedValue(account);
+  };
+  const revokeSession = () => {
+    storageState[STORAGE_KEY] = { [ORIGIN]: [] };
+  };
+  const approveAfter = (change: () => void) =>
+    mockRequestConfirmation.mockImplementationOnce(async () => {
+      change();
+      return { confirmed: true, delegate: true };
+    });
+
+  // What each prompted handler does once approved, none of which may run after a refused approval. A read answers
+  // with data it already holds, so its rejection is the proof; the note import is that handler's only unlocked call.
+  const approvedActions: Record<string, readonly jest.Mock[]> = {
+    assets: [],
+    privateNotes: [],
+    consumableNotes: [],
+    importPrivateNote: [mockWithUnlocked],
+    consume: [mockInitiateConsumeTransactionFromId],
+    consumeBytes: [mockQueueNoteImport, mockInitiateConsumeTransactionFromId]
+  };
+
+  const expectNoPopupNoRead = () => {
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+    expect(mockQueueNoteImport).not.toHaveBeenCalled();
+    expect(_g.__dappBranchMockGetAccount).not.toHaveBeenCalled();
+    expect(mockGetTokenMetadata).not.toHaveBeenCalled();
+    // The notes reads, which no mock above observes, run inside withUnlocked like every other read.
+    expect(mockWithUnlocked).not.toHaveBeenCalled();
+  };
+
+  it.each(Object.keys(requests))('refuses %s with NOT_GRANTED before any popup or read', async name => {
+    mockGetCurrentAccountPublicKey.mockResolvedValue(ACCOUNT_B);
+    await expect(requests[name]!()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+    expectNoPopupNoRead();
+  });
+
+  it('refuses privateNotes under the Auto permission before reading', async () => {
+    grantPermission('AUTO', 2);
+    mockGetCurrentAccountPublicKey.mockResolvedValue(ACCOUNT_B);
+    await expect(requests.privateNotes!()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+    expectNoPopupNoRead();
+  });
+
+  it.each([
+    ['consumableNotes', 2],
+    ['assets', 1]
+  ] as const)('refuses %s under the Auto permission before reading', async (name, allowed) => {
+    grantPermission('AUTO', allowed);
+    mockGetCurrentAccountPublicKey.mockResolvedValue(ACCOUNT_B);
+    await expect(requests[name]!()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+    expectNoPopupNoRead();
+  });
+
+  it('refuses a sign approved after the current account changed, before any key is used', async () => {
+    // The switch lands while the sheet is open, after the entry gate passed.
+    approveAfter(() => switchCurrentAccount(ACCOUNT_B));
+    await expect(requests.sign!()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+    expect(mockSignData).not.toHaveBeenCalled();
+  });
+
+  it.each(Object.keys(approvedActions))('refuses %s approved after the current account changed', async name => {
+    approveAfter(() => switchCurrentAccount(ACCOUNT_B));
+    await expect(requests[name]!()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+    for (const action of approvedActions[name]!) expect(action).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['sign', mockSignData],
+    ['consume', mockInitiateConsumeTransactionFromId]
+  ] as const)('refuses %s approved after the dApp was disconnected', async (name, action) => {
+    approveAfter(revokeSession);
+    await expect(requests[name]!()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it('still signs when the current account is unchanged at approval', async () => {
+    await expect(requests.sign!()).resolves.toEqual({
+      type: MidenDAppMessageType.SignResponse,
+      signature: 'fake-sig-base64'
+    });
+    expect(mockSignData).toHaveBeenCalledTimes(1);
+  });
+
+  it('still reaches the popup when the session account is the current one', async () => {
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, accountPublicKey: ACCOUNT_A, delegate: true });
+    await requests.assets!();
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+  });
+
+  it('reaches the popup while the wallet is locked when the stored current account matches', async () => {
+    currentAccountPublicKey = undefined as unknown as string;
+    try {
+      mockGetCurrentAccountPublicKey.mockResolvedValue(ACCOUNT_A);
+      // The approval-time re-check reads the store, which holds no current account while locked.
+      await expect(requests.assets!()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+    } finally {
+      currentAccountPublicKey = ACCOUNT_A;
+    }
+  });
+
+  it('accepts a composite session id when the current account is its bare form', async () => {
+    const composite = `${ACCOUNT_A}_suffix`;
+    storageState[STORAGE_KEY] = { [ORIGIN]: [{ ...SESSION, accountId: composite, publicKey: composite }] };
+    mockGetCurrentAccountPublicKey.mockResolvedValue(ACCOUNT_A);
+    await dapp.requestAssets(ORIGIN, { type: MidenDAppMessageType.AssetsRequest, sourcePublicKey: composite } as never);
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses when no current account is stored', async () => {
+    mockGetCurrentAccountPublicKey.mockResolvedValue(undefined);
+    await expect(requests.assets!()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+    expectNoPopupNoRead();
   });
 });

@@ -67,9 +67,10 @@ beforeEach(() => {
   });
 });
 
-it('claims on the L1 bridge the config names', async () => {
+it('claims a row saved before its route on the L1 bridge the config names for Sepolia', async () => {
   jest.mocked(getAgglayerL1Bridge).mockReturnValue('0x00000000000000000000000000000000000000b2');
   await claimAgglayerDeposit({ deposit: DEPOSIT, provider });
+  expect(getAgglayerL1Bridge).toHaveBeenCalledWith(11155111);
   expect(mockFrom).toHaveBeenCalledWith('0x00000000000000000000000000000000000000b2', expect.any(Array), 'signer');
   expect(mockClaimAsset).toHaveBeenCalledTimes(1);
 });

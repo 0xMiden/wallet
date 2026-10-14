@@ -63,17 +63,11 @@ const READY: BridgeConfigSnapshot = {
     network: 'testnet',
     version: 1,
     derivedAt: 0,
-    agglayer: {
-      rollupId: { state: 'skipped' },
-      tokens: { state: 'skipped' },
-      evmNetworkId: { state: 'skipped' },
-      l1BridgeCode: { state: 'skipped' },
-      indexer: { state: 'skipped' }
-    },
+    chains: {},
+    agglayer: { indexer: { state: 'skipped' } },
     epoch: {
       allocator: { state: 'skipped' },
       midenUsdcFaucet: { state: 'skipped' },
-      evmUsdc: { state: 'skipped' },
       market: {
         state: 'ok',
         value: {

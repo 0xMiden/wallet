@@ -4,12 +4,12 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 
 import {
   publishMockBridgeSnapshot,
-  TEST_BRIDGE_CONFIG,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
-  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET
+  TEST_MIDEN_USDC_FAUCET as MIDEN_USDC_FAUCET,
+  testSnapshotWithSwapPairs
 } from 'lib/epoch/testing/bridge-config';
 import type { GuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
-import { TEST_TOKEN_IUSDT } from 'lib/miden/swap/testing/registry';
+import { TEST_TOKEN_IUSDT, testSwapPairsToken } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { resetActivityReadState } from 'lib/settings/activity-read';
@@ -195,22 +195,11 @@ function expandCard(noteId: string): HTMLElement {
 
 it('revalues an unchanged pending list on config-only price changes and removes an unavailable total', () => {
   _setSwapTokensForTest(undefined);
-  const snapshotFor = (priceSymbol?: string): BridgeConfigSnapshot => ({
-    ...TEST_BRIDGE_CONFIG_SNAPSHOT,
-    config: {
-      ...TEST_BRIDGE_CONFIG,
-      swap: {
-        tokens: [
-          {
-            symbol: TEST_TOKEN_IUSDT.symbol,
-            faucetId: TEST_TOKEN_IUSDT.faucetId,
-            decimals: TEST_TOKEN_IUSDT.decimals,
-            ...(priceSymbol === undefined ? {} : { priceSymbol })
-          }
-        ]
-      }
-    }
-  });
+  const snapshotFor = (priceSymbol?: string): BridgeConfigSnapshot =>
+    testSnapshotWithSwapPairs({
+      tokens: [testSwapPairsToken({ ...TEST_TOKEN_IUSDT, priceSymbol })],
+      pairs: []
+    });
   mockBridgeSnapshot = snapshotFor('USDC');
   mockState.items = [
     {

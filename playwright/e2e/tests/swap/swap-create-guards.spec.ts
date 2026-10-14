@@ -22,8 +22,17 @@ test.describe('swap: create-side guards', () => {
           network: 'localnet',
           version: 1,
           features: { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false },
-          swap: { tokens: [], etaUrl }
+          swap: { etaUrl }
         })
+      })
+    );
+    // The solver lists nothing: fundSwapPair sets the registry through `__TEST_SET_SWAP_TOKENS__`.
+    await page.route(`${etaUrl}/v2/pairs`, route =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'access-control-allow-origin': '*', 'cross-origin-resource-policy': 'cross-origin' },
+        body: JSON.stringify({ tokens: [], pairs: [] })
       })
     );
     await page.route(`${etaUrl}/v1/swap-eta?**`, route =>

@@ -92,7 +92,7 @@ function chainAvailability(
   if (!config) return unavailable('not-configured', 'no accepted document');
   if (!enabled(feature, chain)) return unavailable('off', 'route is off');
   const providers = config['bridge-providers'];
-  const reads = derived?.chains?.[chain.chainId];
+  const reads = derived?.chains[chain.chainId];
   const checks: Array<FeatureAvailability | null> = [];
   switch (feature) {
     case 'usdcxDeposit':
@@ -136,7 +136,7 @@ function chainAvailability(
       checks.push(checkProbe(reads?.agglayer.evmNetworkId, 'AggLayer EVM network'));
       if (feature === 'bridgeIn') {
         checks.push(checkProbe(reads?.agglayer.l1BridgeCode, 'AggLayer contract'));
-        checks.push(checkProbe(reads?.agglayer.indexer, 'AggLayer indexer'));
+        checks.push(checkProbe(derived.agglayer.indexer, 'AggLayer indexer'));
       }
       break;
   }

@@ -30,7 +30,7 @@ export function amountTextSize(value?: string): string {
  */
 export const amountCaptionClassName = 'font-heading text-2xl font-bold text-gray leading-none';
 export function amountFigureClassName(value?: string): string {
-  return classNames('font-heading font-bold leading-none', amountTextSize(value));
+  return classNames('font-heading font-extrabold leading-none', amountTextSize(value));
 }
 
 /** The centred input overlays the invisible sizing copy in one grid cell and takes its width. */
