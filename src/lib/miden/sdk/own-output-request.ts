@@ -1,4 +1,8 @@
 import {
+  AccountId,
+  AccountStorageRequirements,
+  ForeignAccount,
+  ForeignAccountArray,
   NetworkAccountTarget,
   type Note,
   NoteArray,
@@ -22,13 +26,28 @@ function sortedMerkleEntries(bytes: Uint8Array, offset: number): string[] {
   ).sort();
 }
 
+// Built per call: a by-value argument consumes its handles in the browser build.
+function withForeignAccounts(builder: TransactionRequestBuilder, ids: string[]): TransactionRequestBuilder {
+  if (ids.length === 0) return builder;
+  return builder.withForeignAccounts(
+    new ForeignAccountArray(
+      ids.map(id => ForeignAccount.public(AccountId.fromHex(id), new AccountStorageRequirements()))
+    )
+  );
+}
+
 /** Compare all fields, allowing only the default MerkleStore's unordered-map serialization. */
-function sameOwnOutputRequest(original: Uint8Array, rebuilt: Uint8Array, hasSalt: boolean): boolean {
+function sameOwnOutputRequest(
+  original: Uint8Array,
+  rebuilt: Uint8Array,
+  hasSalt: boolean,
+  foreignIds: string[]
+): boolean {
   if (sameBytes(original, rebuilt)) return true;
   if (original.length !== rebuilt.length) return false;
 
-  // SDK 0.17.3: eight empty fields precede the store, then u64 count and (key, left, right) words.
-  // Eight empty fields follow it; the optional salt adds one Word. Validate this layout at runtime.
+  // SDK 0.17.3: eight empty fields precede the store, then u64 count and (key, left, right) words. The foreign
+  // accounts and seven more fields follow it; the optional salt adds one Word. Validate this layout at runtime.
   const empty = new TransactionRequestBuilder().build().serialize();
   const countBytes = 8;
   const storeBytes = countBytes + EMPTY_TREE_NODES * MERKLE_ENTRY_BYTES;
@@ -41,7 +60,11 @@ function sameOwnOutputRequest(original: Uint8Array, rebuilt: Uint8Array, hasSalt
   ) {
     return false;
   }
-  const tailBytes = EMPTY_REQUEST_SUFFIX.length + (hasSalt ? WORD_BYTES : 0);
+  const foreignBytes =
+    foreignIds.length === 0
+      ? 0
+      : withForeignAccounts(new TransactionRequestBuilder(), foreignIds).build().serialize().length - empty.length;
+  const tailBytes = EMPTY_REQUEST_SUFFIX.length + (hasSalt ? WORD_BYTES : 0) + foreignBytes;
   const storeOffset = rebuilt.length - tailBytes - storeBytes;
   if (storeOffset < 0) return false;
   const entriesOffset = storeOffset + countBytes;
@@ -86,15 +109,24 @@ export function enrichOwnOutputRequest(
 ): TransactionRequest {
   if (request.authArg() !== undefined || feeAwareBuilder.build().authArg() === undefined) return request;
 
-  let plainBuilder = new TransactionRequestBuilder().withOwnOutputNotes(
-    new NoteArray(request.expectedOutputOwnNotes())
-  );
-  const salt = request.feeConversionSalt();
-  if (salt !== undefined) plainBuilder = plainBuilder.withFeeConversionSalt(salt);
-  const roundTrip = plainBuilder.build().serialize();
-  // Compare transport bytes: SDK deserialization can silently discard an unrecognized suffix.
-  if (!sameOwnOutputRequest(transported, roundTrip, salt !== undefined)) {
-    throw new Error('Custom requests without authentication currently support only own output notes.');
+  // A note to a network account is priced by its target's `estimate_note_fee` through FPI, and the client never
+  // loads a foreign account itself, so the dApp sends the target; those public accounts are the one field kept.
+  const targets = networkTargetIds(request.expectedOutputOwnNotes());
+  const candidates: string[][] = targets.length === 0 ? [[]] : [[], targets];
+  for (const foreignIds of candidates) {
+    let plainBuilder = withForeignAccounts(
+      new TransactionRequestBuilder().withOwnOutputNotes(new NoteArray(request.expectedOutputOwnNotes())),
+      foreignIds
+    );
+    const salt = request.feeConversionSalt();
+    if (salt !== undefined) plainBuilder = plainBuilder.withFeeConversionSalt(salt);
+    // Compare transport bytes: SDK deserialization can silently discard an unrecognized suffix.
+    if (sameOwnOutputRequest(transported, plainBuilder.build().serialize(), salt !== undefined, foreignIds)) {
+      return withForeignAccounts(
+        feeAwareBuilder.withOwnOutputNotes(new NoteArray(request.expectedOutputOwnNotes())),
+        foreignIds
+      ).build();
+    }
   }
-  return feeAwareBuilder.withOwnOutputNotes(new NoteArray(request.expectedOutputOwnNotes())).build();
+  throw new Error('Custom requests without authentication currently support only own output notes.');
 }
