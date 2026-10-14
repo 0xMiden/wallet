@@ -1,4 +1,10 @@
-import { NoteArray, TransactionRequest, TransactionRequestBuilder } from '@miden-sdk/miden-sdk/lazy';
+import {
+  NetworkAccountTarget,
+  type Note,
+  NoteArray,
+  TransactionRequest,
+  TransactionRequestBuilder
+} from '@miden-sdk/miden-sdk/lazy';
 
 const WORD_BYTES = 32;
 const MERKLE_ENTRY_BYTES = 3 * WORD_BYTES;
@@ -54,6 +60,22 @@ function sameOwnOutputRequest(original: Uint8Array, rebuilt: Uint8Array, hasSalt
   const before = sortedMerkleEntries(original, entriesOffset);
   const after = sortedMerkleEntries(rebuilt, entriesOffset);
   return expected.every((entry, index) => entry === before[index] && entry === after[index]);
+}
+
+/** The accounts the notes target through a `NetworkAccountTarget` attachment, as distinct hex ids. */
+export function networkTargetIds(notes: Note[]): string[] {
+  const ids = new Set<string>();
+  for (const note of notes) {
+    for (const attachment of note.attachments()) {
+      try {
+        ids.add(NetworkAccountTarget.fromAttachment(attachment).targetId().toString());
+      } catch (error) {
+        // Another attachment scheme fails to decode and targets nothing; a trap is not that.
+        if (error instanceof WebAssembly.RuntimeError) throw error;
+      }
+    }
+  }
+  return [...ids];
 }
 
 /** Adds wallet-resolved auth only when the complete request can be preserved. */
