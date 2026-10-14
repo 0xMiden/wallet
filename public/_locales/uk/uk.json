@@ -1390,7 +1390,6 @@
   "tokenInfoLabel": "Про $token$",
   "externalPageLoadFailed": "Не вдалося відкрити цю сторінку. Перевірте з’єднання та спробуйте ще раз.",
   "bridgeDepositAwaitingNextConfirmation": "Очікування наступного підтвердження гаманця",
-  "bridgeDepositAwaitingNextConfirmationDescription": "Перше підтвердження виконано. Ваш гаманець попросить вас підтвердити ще раз — залиште цей екран відкритим.",
   "advancedOptions": "Додаткові параметри",
   "advancedOptionsSummary": "$transferType$ · $expiration$",
   "transferType": "Тип переказу",

@@ -1390,7 +1390,6 @@
   "tokenInfoLabel": "О $token$",
   "externalPageLoadFailed": "Не удалось открыть эту страницу. Проверьте подключение и попробуйте ещё раз.",
   "bridgeDepositAwaitingNextConfirmation": "Ожидание следующего подтверждения кошелька",
-  "bridgeDepositAwaitingNextConfirmationDescription": "Первое подтверждение выполнено. Ваш кошелек попросит вас подтвердить ещё раз — оставьте этот экран открытым.",
   "advancedOptions": "Дополнительные параметры",
   "advancedOptionsSummary": "$transferType$ · $expiration$",
   "transferType": "Тип перевода",

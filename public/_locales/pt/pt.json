@@ -1390,7 +1390,6 @@
   "tokenInfoLabel": "Sobre o $token$",
   "externalPageLoadFailed": "Não foi possível abrir esta página. Verifique sua conexão e tente novamente.",
   "bridgeDepositAwaitingNextConfirmation": "Aguardando a próxima confirmação da carteira",
-  "bridgeDepositAwaitingNextConfirmationDescription": "A primeira confirmação foi concluída. Sua carteira solicitará que você confirme mais uma vez — mantenha esta tela aberta.",
   "advancedOptions": "Opções avançadas",
   "advancedOptionsSummary": "$transferType$ · $expiration$",
   "transferType": "Tipo de transferência",

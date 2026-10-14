@@ -32,11 +32,12 @@ interface EvmBridgeDepositStatusProps {
   txId: string;
   onDone: () => void;
   /**
-   * The deposit has taken one wallet confirmation and is about to ask for the next. Only the Slow
-   * (AggLayer) route can say this: it raises the approve and the bridge prompts itself, so it knows
-   * the approval was signed. The Fast (Epoch) route hands the whole sequence to the Epoch SDK, which
-   * reports nothing back on the deposit path, so there it stays false and the processing copy — which
-   * warns that the wallet may ask more than once — is what covers the gap.
+   * The deposit has taken one wallet confirmation and is about to ask for the next. The Slow (AggLayer)
+   * and USDCx routes can say this: the screen raises their approve and their bridge, deposit or burn
+   * prompts itself, so it knows when an approval was signed. Only the Fast (Epoch) route cannot: it
+   * hands the whole sequence to the Epoch SDK, which reports nothing back on the deposit path, so there
+   * it stays false and the processing copy, which warns that the wallet may ask more than once, covers
+   * the gap.
    */
   awaitingNextConfirmation?: boolean;
 }

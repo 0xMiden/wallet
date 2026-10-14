@@ -1390,7 +1390,6 @@
   "tokenInfoLabel": "$token$ hakkında",
   "externalPageLoadFailed": "Bu sayfa açılamadı. Bağlantınızı kontrol edin ve tekrar deneyin.",
   "bridgeDepositAwaitingNextConfirmation": "Bir sonraki cüzdan onayı bekleniyor",
-  "bridgeDepositAwaitingNextConfirmationDescription": "İlk onay işlemi tamamlandı. Cüzdanınız sizden bir kez daha onaylamanızı isteyecektir — bu ekranı açık tutun.",
   "advancedOptions": "Gelişmiş seçenekler",
   "advancedOptionsSummary": "$transferType$ · $expiration$",
   "transferType": "Transfer türü",

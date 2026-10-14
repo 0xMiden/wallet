@@ -1390,7 +1390,6 @@
   "tokenInfoLabel": "$token$에 관하여",
   "externalPageLoadFailed": "이 페이지를 열 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
   "bridgeDepositAwaitingNextConfirmation": "다음 지갑 확인을 기다리는 중",
-  "bridgeDepositAwaitingNextConfirmationDescription": "첫 번째 확인이 완료되었습니다. 지갑에서 한 번 더 확인을 요청할 것입니다. 이 화면을 계속 열어 두십시오.",
   "advancedOptions": "고급 옵션",
   "advancedOptionsSummary": "$transferType$ · $expiration$",
   "transferType": "전송 유형",
