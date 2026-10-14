@@ -204,6 +204,26 @@ it('reads absent sections as empty and absent switches as off', () => {
   });
 });
 
+describe('onboarding.inviteOnly', () => {
+  it.each([true, false])('reads inviteOnly %s', inviteOnly => {
+    expect(parseBridgeConfig(doc({ onboarding: { inviteOnly } }), 'testnet')?.onboarding).toStrictEqual({ inviteOnly });
+  });
+
+  it.each([
+    ['no onboarding section', doc()],
+    ['an empty onboarding section', doc({ onboarding: {} })]
+  ])('leaves onboarding out for %s', (_label, body) => {
+    const parsed = parseBridgeConfig(body, 'testnet');
+    expect(parsed).not.toBeNull();
+    expect(parsed).not.toHaveProperty('onboarding');
+  });
+
+  it('ignores unknown onboarding fields', () => {
+    const parsed = parseBridgeConfig(doc({ onboarding: { inviteOnly: true, waitlistUrl: 'x' } }), 'testnet');
+    expect(parsed?.onboarding).toStrictEqual({ inviteOnly: true });
+  });
+});
+
 it('leaves absent provider fields out', () => {
   const partial = {
     network: 'testnet',
@@ -448,7 +468,11 @@ it.each([
   ['a numeric output list', doc({ 'bridge-providers': { epoch: { outputs: 1 } } })],
   ['a switch written as text', withSection('features', { earn: 'true' })],
   ['a numeric switch', withSection('features', { bridgeIn: 1 })],
-  ['a null switch', withSection('features', { bridgeOut: null })]
+  ['a null switch', withSection('features', { bridgeOut: null })],
+  ['an onboarding section that is not an object', doc({ onboarding: true })],
+  ['a null onboarding section', doc({ onboarding: null })],
+  ['an invite-only flag written as text', doc({ onboarding: { inviteOnly: 'true' } })],
+  ['a null invite-only flag', doc({ onboarding: { inviteOnly: null } })]
 ])('rejects a document with %s', (_label, body) => {
   expect(parseBridgeConfig(body, 'testnet')).toBeNull();
 });

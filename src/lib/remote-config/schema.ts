@@ -115,6 +115,12 @@ export interface BridgeConfig {
   'bridge-providers': BridgeProviders;
   supportedEvmChains: Record<string, SupportedEvmChainConfig>;
   features: { earn: boolean; fastBridge?: boolean; bridgeIn?: boolean; bridgeOut?: boolean };
+  /**
+   * Only there when the document sets `onboarding.inviteOnly`. True: Welcome shows the invite-only
+   * way in directly. False or absent: Welcome shows the create and recover flows, and the logo taps
+   * unlock the invite-only way in.
+   */
+  onboarding?: { inviteOnly: boolean };
   mainnetCountdown?: MainnetCountdownConfig;
   swap?: SwapConfig;
   /**
@@ -402,6 +408,7 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
       { faucetId: midenAccountId(section(output).faucetId) }
     ])
   );
+  const inviteOnly = read(section(body.onboarding), 'inviteOnly', requiredBoolean);
   const allocatorUrl = read(epoch, 'allocatorUrl', url);
   const positionsUrl = read(epoch, 'positionsUrl', url);
   const indexerUrl = read(agglayer, 'indexerUrl', url);
@@ -448,7 +455,8 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
     },
     mainnetCountdown: readCountdown(body.mainnetCountdown),
     swap: etaUrl === undefined ? {} : { etaUrl },
-    ...(guardians === undefined ? {} : { guardians })
+    ...(guardians === undefined ? {} : { guardians }),
+    ...(inviteOnly === undefined ? {} : { onboarding: { inviteOnly } })
   };
 }
 

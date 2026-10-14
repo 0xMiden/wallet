@@ -1707,6 +1707,10 @@
     "message": "Einfügen",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "Die Zwischenablage konnte nicht gelesen werden. Geben Sie Ihren Code ein oder versuchen Sie es erneut.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "Nichts zum Einfügen. Kopieren Sie zuerst eine Adresse.",
     "englishSource": "Nothing to paste. Copy an address first."
@@ -4648,6 +4652,15 @@
     "message": "EVM-Wallet verbunden",
     "englishSource": "EVM wallet connected"
   },
+  "evmChainNotApproved": {
+    "message": "Die verbundene Wallet hat $network$ nicht genehmigt. Verbinden Sie die Wallet erneut, um dies zu genehmigen.",
+    "englishSource": "The connected wallet did not approve $network$. Reconnect the wallet to approve it.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
   "connectedWallet": {
     "message": "Vernetzte Geldbörse",
     "englishSource": "Connected wallet"
@@ -5572,6 +5585,62 @@
       }
     }
   },
+  "mainnetAccessCodeLabel": {
+    "message": "Zugangscode",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "Mainnet entsperren",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "Dieser Code hat nicht funktioniert. Überprüfe ihn und versuche es erneut.",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "Wir konnten diesen Code nicht überprüfen. Versuchen Sie es später erneut.",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnetAccountNotAdmitted": {
+    "message": "Diese Wallet ist im Miden-Mainnet nicht zugelassen. Für eine neue Wallet ist ein Zugangscode erforderlich.",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Das Miden-Mainnet lässt nur das Konto und den registrierten Zugangscode zu.",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
+  "mainnet": {
+    "message": "Mainnet",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessTitle": {
+    "message": "Haben Sie einen Mainnet-Zugangscode?",
+    "englishSource": "Have a mainnet access code?"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "Das Mainnet ist vorerst nur auf Einladung zugänglich. Geben Sie den 12-stelligen Code aus Ihrer Einladung ein, und Ihre Wallet wird im Miden-Mainnet eingerichtet.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "Der Code befindet sich in Ihrer Einladungs-E-Mail.",
+    "englishSource": "The code is in your invite email."
+  },
+  "iHaveACode": {
+    "message": "Ich habe einen Code",
+    "englishSource": "I have a code"
+  },
+  "iDontHaveACode": {
+    "message": "Ich habe keinen Code",
+    "englishSource": "I don't have a code"
+  },
+  "noCodeTitle": {
+    "message": "Bread ist nur auf Einladung zugänglich",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "Eine neue Wallet benötigt einen Mainnet-Zugangscode aus Ihrer Einladung. Ein bereits bestehendes Konto kann weiterhin wiederhergestellt werden.",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
+  },
   "networkModePillNoValue": {
     "message": "Token haben keinen echten Wert",
     "englishSource": "Tokens have no real value"
@@ -5579,6 +5648,18 @@
   "mainnetCountdownLink": {
     "message": "Tragen Sie sich in die Early-Access-Liste ein",
     "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "Wechseln Sie zum Mainnet",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "Zurücksetzen und Wechsel zum Mainnet",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "Sie können das Testnetz weiterhin nutzen. Durch das Umschalten werden diese Wallet, ihre Guthaben und ihr Verlauf von diesem Gerät gelöscht. Speichern Sie zunächst Ihre Wiederherstellungsdaten. Test-Token werden nicht ins Mainnet übertragen. Anschließend erstellen Sie eine Mainnet-Wallet mit einem Einladungscode oder stellen eine bestehende Mainnet-Wallet wieder her.",
+    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
   },
   "mainnetCountdownLabel": {
     "message": "Verbleibende Zeit bis zum Mainnet-Start von Bread: $time$",

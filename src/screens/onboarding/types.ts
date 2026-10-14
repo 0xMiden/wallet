@@ -34,6 +34,7 @@ export enum ImportType {
 
 export enum OnboardingStep {
   Welcome = 'welcome',
+  MainnetAccess = 'mainnet-access',
   NetworkNotice = 'network-notice',
   SelectWalletType = 'select-wallet-type',
   ChooseProtection = 'choose-protection',
@@ -105,6 +106,17 @@ export type SelectImportTypeAction = {
 
 export type NetworkNoticeAcknowledgeAction = {
   id: 'network-notice-acknowledge';
+};
+
+/** Welcome's "I have a code": the mainnet access step, which starts the create flow. */
+export type MainnetAccessAction = {
+  id: 'mainnet-access';
+};
+
+/** The node accepted the code. It is held until account setup, and the create flow starts. */
+export type MainnetAccessGrantedAction = {
+  id: 'mainnet-access-granted';
+  payload: string;
 };
 
 export type ImportFromSeedAction = {
@@ -218,6 +230,8 @@ export type OnboardingAction =
   | BackupSeedPhraseAction
   | SelectImportTypeAction
   | NetworkNoticeAcknowledgeAction
+  | MainnetAccessAction
+  | MainnetAccessGrantedAction
   | VerifySeedPhraseAction
   | CreatePasswordAction
   | CreatePasswordSubmitAction

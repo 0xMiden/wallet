@@ -7,6 +7,7 @@ import { Button, ButtonVariant } from 'components/Button';
 import { IBridgedReceivePhase, IUsdcxCctpLeg } from 'lib/miden/db/types';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { usdcxSourceChains, UsdcxSourceChain } from 'lib/usdcx/constant';
+import { nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
 
 import { useCctpExecute } from './useCctpExecute';
 
@@ -17,10 +18,6 @@ export interface UsdcxExecuteActionProps {
   phase: IBridgedReceivePhase;
   cctp?: IUsdcxCctpLeg;
   className?: string;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /**
@@ -51,11 +48,11 @@ export const UsdcxExecuteAction: React.FC<UsdcxExecuteActionProps> = ({
       await execute(txId, sourceChainId, cctp);
     } catch (cause) {
       console.error('[UsdcxExecuteAction] execute failed', cause);
-      setError(errorMessage(cause));
+      setError(nativeSigningErrorMessage(cause, t));
     } finally {
       setBusy(false);
     }
-  }, [busy, cctp, execute, sourceChainId, txId]);
+  }, [busy, cctp, execute, sourceChainId, t, txId]);
 
   if (sourceChainId === undefined || source?.route !== 'cctp-executor' || phase !== 'delivering' || !cctp) {
     return null;
