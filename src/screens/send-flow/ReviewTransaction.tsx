@@ -747,6 +747,7 @@ export const ReviewTransaction: React.FC = () => {
               <DetailRow
                 label={t('transferType')}
                 onClick={() => setShowTransferType(true)}
+                aria-haspopup="dialog"
                 data-testid="review-row-transfer-type"
               >
                 {t(transferType)}

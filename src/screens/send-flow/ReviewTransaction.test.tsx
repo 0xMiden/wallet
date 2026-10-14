@@ -212,7 +212,7 @@ jest.mock('framer-motion', () => {
 
 jest.mock('components/ui/DetailCard', () => ({
   DetailCard: ({ children }: any) => <div data-testid="rows">{children}</div>,
-  DetailRow: ({ label, children, action, sub, onClick, 'data-testid': testId }: any) => (
+  DetailRow: ({ label, children, action, sub, onClick, 'aria-haspopup': hasPopup, 'data-testid': testId }: any) => (
     <div data-testid={testId ?? 'review-row'}>
       <span data-testid="row-label">{label}</span>
       {children !== undefined && <span data-testid="row-children">{children}</span>}
@@ -222,7 +222,7 @@ jest.mock('components/ui/DetailCard', () => ({
         </button>
       )}
       {onClick && (
-        <button data-testid="row-open" onClick={onClick}>
+        <button data-testid="row-open" aria-haspopup={hasPopup} onClick={onClick}>
           open
         </button>
       )}
@@ -1664,6 +1664,7 @@ describe('ReviewTransaction — transfer type', () => {
     expect(screen.getByTestId('transfer-type-drawer')).toHaveAttribute('data-value', 'private');
     await openAdvancedOptions();
     expect(screen.getByTestId('review-row-transfer-type')).toBeInTheDocument();
+    expect(screen.getByTestId('row-open')).toHaveAttribute('aria-haspopup', 'dialog');
     fireEvent.click(screen.getByTestId('row-open'));
     await flush();
     expect(screen.getByTestId('transfer-type-drawer')).toHaveAttribute('data-open', 'true');

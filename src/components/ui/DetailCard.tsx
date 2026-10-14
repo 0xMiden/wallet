@@ -45,6 +45,8 @@ export interface DetailRowProps {
    * with the tap haptic and a trailing chevron, like a `ListRow` that navigates. Never with `action`.
    */
   onClick?: () => void;
+  /** With `onClick`, for a row that opens a sheet or menu. */
+  'aria-haspopup'?: 'dialog' | 'menu';
   className?: string;
   'data-testid'?: string;
 }
@@ -58,6 +60,7 @@ export const DetailRow: React.FC<DetailRowProps> = ({
   action,
   stacked = false,
   onClick,
+  'aria-haspopup': ariaHasPopup,
   className,
   'data-testid': dataTestId
 }) => {
@@ -101,6 +104,7 @@ export const DetailRow: React.FC<DetailRowProps> = ({
     return (
       <button
         type="button"
+        aria-haspopup={ariaHasPopup}
         data-testid={dataTestId}
         onClick={() => {
           hapticLight();

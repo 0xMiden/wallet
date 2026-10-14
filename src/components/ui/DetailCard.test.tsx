@@ -203,6 +203,15 @@ describe('DetailRow onClick', () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
+  it('declares the sheet the row opens with aria-haspopup', () => {
+    render(
+      <DetailRow label="Transfer type" onClick={jest.fn()} aria-haspopup="dialog" data-testid="row">
+        Private
+      </DetailRow>
+    );
+    expect(screen.getByTestId('row')).toHaveAttribute('aria-haspopup', 'dialog');
+  });
+
   it('draws no chevron on a plain row', () => {
     render(
       <DetailRow label="Network" data-testid="row">
