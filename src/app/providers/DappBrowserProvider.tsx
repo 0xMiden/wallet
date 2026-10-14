@@ -92,10 +92,11 @@ import { captureSnapshot, clearSnapshot, getSnapshot, snapshotStoreInternals } f
 import { type WebViewRect } from 'lib/dapp-browser/webview-rect';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
 import { externalPageFailed } from 'lib/mobile/external-page-failed';
+import { faucetNoTopInsetScript, isFaucetOrigin } from 'lib/mobile/faucet-top-inset';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
-import { isMobile } from 'lib/platform';
+import { isIOS, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { selectIsReady, useWalletStore } from 'lib/store';
 import { useModalsParams } from 'lib/ui/dialog';
@@ -291,6 +292,9 @@ async function sendResponseToInstance(instance: DappWebViewInstance, response: u
     }
   }
 }
+
+/** Only iOS reports the phone's top inset to the faucet under our header (`faucet-top-inset.ts`). */
+const needsFaucetTopInset = (origin: string): boolean => isIOS() && isFaucetOrigin(origin);
 
 /**
  * The provider — mounted at the TabLayout level (above the route switcher).
@@ -711,6 +715,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         } catch (e) {
           console.error('[DappBrowserProvider] Error injecting bridge:', e);
         }
+        // Re-read: the snapshot above predates the await, and `urlChangeEvent` may have confirmed the
+        // origin since. An unconfirmed one is left to that handler.
+        const loaded = getSessionStateById(id);
+        if (loaded?.instance === state.instance && loaded.originConfirmed && needsFaucetTopInset(loaded.origin)) {
+          await state.instance.executeScript(faucetNoTopInsetScript(loaded.origin)).catch(() => undefined);
+        }
         try {
           // JSON.stringify the id so a non-alphanumeric session id
           // (future-proofing; today it's dapp-<ts>-<rand>) cannot
@@ -749,6 +759,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
             originConfirmed: true,
             session: { ...s.session, url: newUrl, origin }
           }));
+          // The script is a no-op in any other document, so no loading check: a later `browserPageLoaded`
+          // for the faucet document injects again.
+          const current = getSessionStateById(id);
+          if (current?.instance && needsFaucetTopInset(origin)) {
+            void current.instance.executeScript(faucetNoTopInsetScript(origin)).catch(() => undefined);
+          }
         } catch {
           /* ignore */
         }

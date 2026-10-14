@@ -5944,26 +5944,6 @@
     "message": "您的收益",
     "englishSource": "Your Earnings"
   },
-  "durationUnitSeconds": {
-    "message": "秒",
-    "englishSource": "Sec"
-  },
-  "durationUnitMinutes": {
-    "message": "分钟",
-    "englishSource": "Min"
-  },
-  "durationUnitHours": {
-    "message": "小时",
-    "englishSource": "Hour"
-  },
-  "durationUnitDays": {
-    "message": "天",
-    "englishSource": "Day"
-  },
-  "swapExpiryUnit": {
-    "message": "到期单位",
-    "englishSource": "Expiry unit"
-  },
   "moreInfoAbout": {
     "message": "关于$label$的更多信息",
     "englishSource": "More information about $label$",
@@ -5973,15 +5953,32 @@
       }
     }
   },
-  "swapExpiryRange": {
-    "message": "请输入 $min$ 到 $max$ 之间的整数。",
-    "englishSource": "Enter a whole number from $min$ to $max$.",
+  "swapExpiryLabel": {
+    "message": "若未在……内成交则取消",
+    "englishSource": "Cancel if not filled within"
+  },
+  "swapExpiryPreset2Min": {
+    "message": "2 分钟",
+    "englishSource": "2 min"
+  },
+  "swapExpiryPreset1Hour": {
+    "message": "1 小时",
+    "englishSource": "1 hour"
+  },
+  "swapExpiryPreset1Day": {
+    "message": "1天",
+    "englishSource": "1 day"
+  },
+  "swapExpiryPreset7Days": {
+    "message": "7天",
+    "englishSource": "7 days"
+  },
+  "swapExpiryNote": {
+    "message": "到那时仍未成交？则该互换交易将被取消，您$amount$中未成交的部分将退还。",
+    "englishSource": "Not filled by then? The swap is cancelled and whatever is unfilled of your $amount$ comes back.",
     "placeholders": {
-      "min": {
+      "amount": {
         "content": "$1"
-      },
-      "max": {
-        "content": "$2"
       }
     }
   },

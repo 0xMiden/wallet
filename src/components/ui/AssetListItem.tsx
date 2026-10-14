@@ -96,7 +96,7 @@ export const AssetListItem: FC<AssetListItemProps> = ({
             <div className="text-row-title text-ink truncate">{name}</div>
             {badge && <div className="shrink-0">{badge}</div>}
           </div>
-          <div className="text-caption text-muted truncate">{amount}</div>
+          <div className="text-caption-heading text-muted truncate">{amount}</div>
         </div>
       </div>
 

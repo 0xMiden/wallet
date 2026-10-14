@@ -5944,26 +5944,6 @@
     "message": "Twoje zarobki",
     "englishSource": "Your Earnings"
   },
-  "durationUnitSeconds": {
-    "message": "Sek.",
-    "englishSource": "Sec"
-  },
-  "durationUnitMinutes": {
-    "message": "Min.",
-    "englishSource": "Min"
-  },
-  "durationUnitHours": {
-    "message": "Godz.",
-    "englishSource": "Hour"
-  },
-  "durationUnitDays": {
-    "message": "Dzień",
-    "englishSource": "Day"
-  },
-  "swapExpiryUnit": {
-    "message": "Jednostka wygaśnięcia",
-    "englishSource": "Expiry unit"
-  },
   "moreInfoAbout": {
     "message": "Więcej informacji o $label$",
     "englishSource": "More information about $label$",
@@ -5973,15 +5953,32 @@
       }
     }
   },
-  "swapExpiryRange": {
-    "message": "Wprowadź liczbę całkowitą od $min$ do $max$.",
-    "englishSource": "Enter a whole number from $min$ to $max$.",
+  "swapExpiryLabel": {
+    "message": "Anuluj, jeśli nie zostanie zrealizowane w ciągu",
+    "englishSource": "Cancel if not filled within"
+  },
+  "swapExpiryPreset2Min": {
+    "message": "2 min",
+    "englishSource": "2 min"
+  },
+  "swapExpiryPreset1Hour": {
+    "message": "1 godzina",
+    "englishSource": "1 hour"
+  },
+  "swapExpiryPreset1Day": {
+    "message": "1 dzień",
+    "englishSource": "1 day"
+  },
+  "swapExpiryPreset7Days": {
+    "message": "7 dni",
+    "englishSource": "7 days"
+  },
+  "swapExpiryNote": {
+    "message": "Nie zrealizowano do tego momentu? Transakcja swapowa zostaje anulowana, a wszelkie niezrealizowane środki z kwoty $amount$ zostają zwrócone.",
+    "englishSource": "Not filled by then? The swap is cancelled and whatever is unfilled of your $amount$ comes back.",
     "placeholders": {
-      "min": {
+      "amount": {
         "content": "$1"
-      },
-      "max": {
-        "content": "$2"
       }
     }
   },

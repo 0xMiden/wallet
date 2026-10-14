@@ -5944,26 +5944,6 @@
     "message": "Ваш доход",
     "englishSource": "Your Earnings"
   },
-  "durationUnitSeconds": {
-    "message": "Сек.",
-    "englishSource": "Sec"
-  },
-  "durationUnitMinutes": {
-    "message": "Мин.",
-    "englishSource": "Min"
-  },
-  "durationUnitHours": {
-    "message": "Час",
-    "englishSource": "Hour"
-  },
-  "durationUnitDays": {
-    "message": "День",
-    "englishSource": "Day"
-  },
-  "swapExpiryUnit": {
-    "message": "Единица срока действия",
-    "englishSource": "Expiry unit"
-  },
   "moreInfoAbout": {
     "message": "Подробнее о $label$",
     "englishSource": "More information about $label$",
@@ -5973,15 +5953,32 @@
       }
     }
   },
-  "swapExpiryRange": {
-    "message": "Введите целое число от $min$ до $max$.",
-    "englishSource": "Enter a whole number from $min$ to $max$.",
+  "swapExpiryLabel": {
+    "message": "Отменить, если не исполнено в течение",
+    "englishSource": "Cancel if not filled within"
+  },
+  "swapExpiryPreset2Min": {
+    "message": "2 мин",
+    "englishSource": "2 min"
+  },
+  "swapExpiryPreset1Hour": {
+    "message": "1 час",
+    "englishSource": "1 hour"
+  },
+  "swapExpiryPreset1Day": {
+    "message": "1 день",
+    "englishSource": "1 day"
+  },
+  "swapExpiryPreset7Days": {
+    "message": "7 дней",
+    "englishSource": "7 days"
+  },
+  "swapExpiryNote": {
+    "message": "Не выполнено к этому моменту? Своп отменяется, и всё, что осталось неисполненным из вашей суммы $amount$, возвращается.",
+    "englishSource": "Not filled by then? The swap is cancelled and whatever is unfilled of your $amount$ comes back.",
     "placeholders": {
-      "min": {
+      "amount": {
         "content": "$1"
-      },
-      "max": {
-        "content": "$2"
       }
     }
   },
