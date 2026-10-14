@@ -1,4 +1,3 @@
-export { USDCX_DESTINATIONS, USDCX_REMOTE_DOMAIN } from './usdcx-config';
 /**
  * The fixed numbers of the USDCx live suites (spec section 5) and the Arc Testnet addresses, read from the product's
  * own tables so the harness and the wallet cannot drift apart. Nothing here reads the environment.
@@ -9,13 +8,16 @@ import type { Address, Hex } from 'viem';
 
 import { getUsdcxXReserveSource } from './usdcx-config';
 import { ARC_TESTNET } from '../../../src/lib/walletconnect/config';
+export { USDCX_DESTINATIONS, USDCX_REMOTE_DOMAIN } from './usdcx-config';
+
+export { minimumUsdcxPayout } from './usdcx-config';
 
 export {
-  minimumUsdcxPayout,
   USDCX_BURN_TAG,
   USDCX_BURN_WITHDRAWAL_ATTACHMENT_SCHEME,
   USDCX_DECIMALS
-} from '../../../src/lib/usdcx/constant';
+} from '../../../src/lib/usdcx/protocol';
+
 export { CLAIM_COST_FEE_MULTIPLE, FEE_RESERVE_MULTIPLE, isWorthClaiming } from '../../../src/lib/miden/fees/spendable';
 
 /** The UI burn: 1 USDCx, the USDCx faucet's on-chain min_burn_amount; the review refuses anything less. */
