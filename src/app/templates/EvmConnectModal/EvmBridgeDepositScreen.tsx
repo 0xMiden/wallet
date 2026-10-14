@@ -333,8 +333,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const [networkDrawerOpen, setNetworkDrawerOpen] = useState(false);
   const [switchDrawerOpen, setSwitchDrawerOpen] = useState(false);
   const [route, setRoute] = useState<BridgeRoute>('epoch');
-  // The chain a USDCx deposit starts from, picked in the network drawer; the default until then.
-  const [usdcxSourceChainId, setUsdcxSourceChainId] = useState(DEFAULT_USDCX_SOURCE_CHAIN_ID);
+  // The one chain picked in the network drawer. Each route resolves its own chain from it: the picked chain when
+  // that chain offers the route, else the first that does.
+  const [pickedChainId, setPickedChainId] = useState<number>();
   const bridgeConfig = useBridgeConfigSnapshot();
   const usdcxSourceNetworks: readonly BridgeNetwork[] = listUsdcxSourceChains(
     bridgeConfig.network !== 'mainnet'
@@ -342,11 +343,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     const network = getBridgeNetworkByChainId(entry.chain.id);
     return network ? [network] : [];
   });
-  const usdcxSource = useMemo(
-    () =>
-      usdcxSourceChains(bridgeConfig).get(usdcxSourceChainId) ?? usdcxSourceChains(bridgeConfig).values().next().value,
-    [usdcxSourceChainId, bridgeConfig]
-  );
+  const usdcxSource = useMemo(() => {
+    const sources = usdcxSourceChains(bridgeConfig);
+    return (
+      (pickedChainId === undefined ? undefined : sources.get(pickedChainId)) ??
+      sources.get(DEFAULT_USDCX_SOURCE_CHAIN_ID) ??
+      sources.values().next().value
+    );
+  }, [pickedChainId, bridgeConfig]);
   // Circle's fee for a forwarded executor-route burn, shown on the route card. A display quote only: the
   // burn fetches its own right before signing, since a quote lives about two minutes. Kept with the amount it
   // was quoted for, so a fee for an earlier amount is never shown.
@@ -365,9 +369,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const allocatorUrl = bridgeConfig.config?.['bridge-providers'].epoch.allocatorUrl;
   // The selectors build new objects on every snapshot publish. Rebuilt from their fields, these keep their identity
   // until a value moves, so the balance read and the quote keyed on them run again only then.
-  const [bridgeChainId, setBridgeChainId] = useState<number>();
-  const agglayerChain = selectAgglayerChain(bridgeConfig, bridgeChainId);
-  const selectedEvmUsdc = selectEvmUsdc(bridgeConfig, route === 'agglayer' ? agglayerChain?.chainId : bridgeChainId);
+  const agglayerChain = selectAgglayerChain(bridgeConfig, pickedChainId) ?? selectAgglayerChain(bridgeConfig);
+  const selectedEvmUsdc =
+    route === 'agglayer'
+      ? selectEvmUsdc(bridgeConfig, agglayerChain?.chainId)
+      : (selectEvmUsdc(bridgeConfig, pickedChainId) ?? selectEvmUsdc(bridgeConfig));
   const agglayerChainId = agglayerChain?.chainId;
   const agglayerRecovery = selectAgglayerRecoveryConfig(bridgeConfig, agglayerChainId);
   const evmUsdcAddress = selectedEvmUsdc?.address;
@@ -647,8 +653,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     if (confirming.current) return;
     hapticLight();
     setNetworkDrawerOpen(false);
-    setUsdcxSourceChainId(next.chainId);
-    setBridgeChainId(next.chainId);
+    setPickedChainId(next.chainId);
   }, []);
 
   // The drawer may have been open since before the tap.

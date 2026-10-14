@@ -73,7 +73,7 @@ const epochState = {
   flow: null,
   quote: null,
   error: null,
-  quoteEVMToMiden: jest.fn(),
+  quoteEVMToMiden: jest.fn().mockResolvedValue(undefined),
   executeEVMToMiden: jest.fn(),
   poll: jest.fn(),
   reset: jest.fn()
@@ -162,14 +162,17 @@ jest.mock('./EvmBridgeDepositForm', () => ({
     onAmountChange,
     onContinue,
     onSelectToken,
-    onSelectNetwork
+    onSelectNetwork,
+    network
   }: {
+    network: { chainId: number };
     onAmountChange: (value?: string) => void;
     onContinue: () => void;
     onSelectToken: () => void;
     onSelectNetwork?: () => void;
   }) => (
     <div>
+      <span data-testid="form-network">{String(network.chainId)}</span>
       <button data-testid="set-amount" onClick={() => onAmountChange('1.5')}>
         amount
       </button>
@@ -234,6 +237,9 @@ jest.mock('./EvmBridgeTokenDrawer', () => ({
         <button data-testid="pick-circle-usdc" onClick={() => onSelect('CIRCLE_USDC')}>
           USDC
         </button>
+        <button data-testid="pick-usdc" onClick={() => onSelect('USDC')}>
+          bridge USDC
+        </button>
       </div>
     ) : null
 }));
@@ -289,10 +295,13 @@ jest.mock('./EvmBridgeUsdcxRoute', () => ({
 }));
 
 jest.mock('screens/send-flow/Route', () => ({
-  Route: ({ onConfirm }: { onConfirm: () => void }) => (
-    <button data-testid="fast-slow-route-confirm" onClick={onConfirm}>
-      fast/slow
-    </button>
+  Route: ({ onConfirm, fastAvailability }: { onConfirm: () => void; fastAvailability: { state: string } }) => (
+    <div>
+      <span data-testid="fast-availability">{fastAvailability.state}</span>
+      <button data-testid="fast-slow-route-confirm" onClick={onConfirm}>
+        fast/slow
+      </button>
+    </div>
   )
 }));
 
@@ -314,7 +323,7 @@ const renderScreen = () =>
   );
 
 /** USDC is the default token: amount, continue, and the route step is up. */
-const pickToken = async (testId: 'pick-eth' | 'pick-circle-usdc') => {
+const pickToken = async (testId: 'pick-eth' | 'pick-circle-usdc' | 'pick-usdc') => {
   fireEvent.click(screen.getByTestId('open-token-drawer'));
   await settle();
   fireEvent.click(screen.getByTestId(testId));
@@ -725,5 +734,24 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
     await settle();
     expect(screen.getByTestId('review-source')).toHaveTextContent('84532');
+  });
+
+  // One picked chain; each route resolves its own from it, so a USDCx-only chain does not strand the Fast route.
+  it('keeps the Fast route on its own chain after a USDCx-only pick', async () => {
+    renderScreen();
+    await pickToken('pick-circle-usdc');
+    fireEvent.click(screen.getByTestId('open-network-drawer'));
+    await settle();
+    fireEvent.click(screen.getByTestId('pick-network-base-sepolia'));
+    await settle();
+    await pickToken('pick-usdc');
+    expect(screen.getByTestId('form-network')).toHaveTextContent('11155111');
+    await reachRouteStep();
+
+    expect(screen.getByTestId('fast-availability')).toHaveTextContent('available');
+    expect(epochState.quoteEVMToMiden).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceChainId: 11155111 }),
+      expect.any(String)
+    );
   });
 });
