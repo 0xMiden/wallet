@@ -4725,8 +4725,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "지갑에서 요청을 승인하고, 소스 네트워크에서 확인이 완료될 때까지 이 화면을 열어 두십시오.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "message": "지갑에서 요청을 승인하십시오 — 여러 번 요청될 수 있습니다 — 그리고 소스 네트워크에서 요청을 확인하는 동안 이 화면을 열어 두십시오.",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "브리지 입금 실패",
@@ -6196,6 +6196,14 @@
   "externalPageLoadFailed": {
     "message": "이 페이지를 열 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "다음 지갑 확인을 기다리는 중",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "첫 번째 확인이 완료되었습니다. 지갑에서 다시 확인을 요청할 것입니다. 이 화면을 계속 열어 두십시오.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
   },
   "advancedOptions": {
     "message": "고급 옵션",

@@ -4725,8 +4725,8 @@
     "englishSource": "Confirming bridge deposit"
   },
   "bridgeDepositProcessingDescription": {
-    "message": "Cüzdanınızda talebi onaylayın ve kaynak ağ bunu onaylarken bu ekranı açık tutun.",
-    "englishSource": "Approve the request in your wallet and keep this screen open while the source network confirms it."
+    "message": "Cüzdanınızdaki istekleri onaylayın — birden fazla kez sorulabilir — ve kaynak ağ bunları onaylarken bu ekranı açık tutun.",
+    "englishSource": "Approve the requests in your wallet — it may ask more than once — and keep this screen open while the source network confirms them."
   },
   "bridgeDepositFailed": {
     "message": "Köprü yatırımı başarısız oldu",
@@ -6196,6 +6196,14 @@
   "externalPageLoadFailed": {
     "message": "Bu sayfa açılamadı. Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Couldn't open this page. Check your connection and try again."
+  },
+  "bridgeDepositAwaitingNextConfirmation": {
+    "message": "Bir sonraki cüzdan onayı bekleniyor",
+    "englishSource": "Waiting for the next wallet confirmation"
+  },
+  "bridgeDepositAwaitingNextConfirmationDescription": {
+    "message": "İlk onay tamamlandı. Cüzdanınız sizden tekrar onay vermenizi isteyecektir – bu ekranı açık tutun.",
+    "englishSource": "The first confirmation is done. Your wallet will ask you to confirm again - keep this screen open."
   },
   "advancedOptions": {
     "message": "Gelişmiş seçenekler",
