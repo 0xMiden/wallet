@@ -1017,3 +1017,144 @@ describe('requestTransaction - custom spending-limit gate', () => {
     }
   });
 });
+
+// ── requests for an account that is not the current one (#1419) ──
+
+describe('requests for an account that is not the current one (#1419)', () => {
+  const ORIGIN = 'https://miden.xyz';
+  const ACCOUNT_A = 'miden-account-1';
+  const ACCOUNT_B = 'miden-account-2';
+
+  const customPayload = { address: ACCOUNT_A, recipientAddress: 'bob', transactionRequest: 'base64req' };
+  const consumeTx = { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'Private', amount: '50' };
+
+  const requests: Record<string, (permission?: string) => Promise<unknown>> = {
+    sign: () =>
+      dapp.requestSign(ORIGIN, {
+        type: MidenDAppMessageType.SignRequest,
+        sourceAccountId: ACCOUNT_A,
+        sourcePublicKey: ACCOUNT_A,
+        payload: 'AAAA',
+        kind: 'word'
+      } as never),
+    privateNotes: () =>
+      dapp.requestPrivateNotes(ORIGIN, {
+        type: MidenDAppMessageType.PrivateNotesRequest,
+        sourcePublicKey: ACCOUNT_A,
+        noteIds: ['n1']
+      } as never),
+    consumableNotes: () =>
+      dapp.requestConsumableNotes(ORIGIN, {
+        type: MidenDAppMessageType.ConsumableNotesRequest,
+        sourcePublicKey: ACCOUNT_A
+      } as never),
+    assets: () =>
+      dapp.requestAssets(ORIGIN, { type: MidenDAppMessageType.AssetsRequest, sourcePublicKey: ACCOUNT_A } as never),
+    importPrivateNote: () =>
+      dapp.requestImportPrivateNote(ORIGIN, {
+        type: MidenDAppMessageType.ImportPrivateNoteRequest,
+        sourcePublicKey: ACCOUNT_A,
+        note: 'c29tZW5vdGVieXRlcw=='
+      } as never),
+    transactionCustom: () =>
+      dapp.requestTransaction(ORIGIN, {
+        type: MidenDAppMessageType.TransactionRequest,
+        sourcePublicKey: ACCOUNT_A,
+        transaction: { payload: customPayload }
+      } as never),
+    send: () =>
+      dapp.requestSendTransaction(ORIGIN, {
+        type: MidenDAppMessageType.SendTransactionRequest,
+        sourcePublicKey: ACCOUNT_A,
+        transaction: {
+          senderAddress: ACCOUNT_A,
+          recipientAddress: 'bob',
+          faucetId: 'faucet-1',
+          noteType: 'Private',
+          amount: '100'
+        }
+      } as never),
+    consume: () =>
+      dapp.requestConsumeTransaction(ORIGIN, {
+        type: MidenDAppMessageType.ConsumeRequest,
+        sourcePublicKey: ACCOUNT_A,
+        transaction: consumeTx
+      } as never),
+    consumeBytes: () =>
+      dapp.requestConsumeTransaction(ORIGIN, {
+        type: MidenDAppMessageType.ConsumeRequest,
+        sourcePublicKey: ACCOUNT_A,
+        transaction: { ...consumeTx, noteBytes: 'c29tZW5vdGVieXRlcw==' }
+      } as never)
+  };
+
+  const grantPermission = (privateDataPermission: string, allowedPrivateData: number) => {
+    storageState[STORAGE_KEY] = {
+      [ORIGIN]: [{ ...SESSION, privateDataPermission, allowedPrivateData }]
+    };
+  };
+
+  const expectNoPopupNoRead = () => {
+    expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    expect(mockInitiateSendTransaction).not.toHaveBeenCalled();
+    expect(mockInitiateConsumeTransactionFromId).not.toHaveBeenCalled();
+    expect(mockRequestCustomTransaction).not.toHaveBeenCalled();
+    expect(mockQueueNoteImport).not.toHaveBeenCalled();
+    expect(_g.__dappBranchMockGetAccount).not.toHaveBeenCalled();
+    expect(mockGetTokenMetadata).not.toHaveBeenCalled();
+  };
+
+  it.each(Object.keys(requests))('refuses %s with NOT_GRANTED before any popup or read', async name => {
+    mockGetCurrentAccountPublicKey.mockResolvedValue(ACCOUNT_B);
+    await expect(requests[name]!()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+    expectNoPopupNoRead();
+  });
+
+  it('refuses privateNotes under the Auto permission before reading', async () => {
+    grantPermission('AUTO', 2);
+    mockGetCurrentAccountPublicKey.mockResolvedValue(ACCOUNT_B);
+    await expect(requests.privateNotes!()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+    expectNoPopupNoRead();
+  });
+
+  it.each([
+    ['consumableNotes', 2],
+    ['assets', 1]
+  ] as const)('refuses %s under the Auto permission before reading', async (name, allowed) => {
+    grantPermission('AUTO', allowed);
+    mockGetCurrentAccountPublicKey.mockResolvedValue(ACCOUNT_B);
+    await expect(requests[name]!()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+    expectNoPopupNoRead();
+  });
+
+  it('still reaches the popup when the session account is the current one', async () => {
+    mockRequestConfirmation.mockResolvedValue({ confirmed: true, accountPublicKey: ACCOUNT_A, delegate: true });
+    await requests.assets!();
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+  });
+
+  it('reaches the popup while the wallet is locked when the stored current account matches', async () => {
+    currentAccountPublicKey = undefined as unknown as string;
+    try {
+      mockGetCurrentAccountPublicKey.mockResolvedValue(ACCOUNT_A);
+      await requests.assets!();
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+    } finally {
+      currentAccountPublicKey = ACCOUNT_A;
+    }
+  });
+
+  it('accepts a composite session id when the current account is its bare form', async () => {
+    const composite = `${ACCOUNT_A}_suffix`;
+    storageState[STORAGE_KEY] = { [ORIGIN]: [{ ...SESSION, accountId: composite, publicKey: composite }] };
+    mockGetCurrentAccountPublicKey.mockResolvedValue(ACCOUNT_A);
+    await dapp.requestAssets(ORIGIN, { type: MidenDAppMessageType.AssetsRequest, sourcePublicKey: composite } as never);
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses when no current account is stored', async () => {
+    mockGetCurrentAccountPublicKey.mockResolvedValue(undefined);
+    await expect(requests.assets!()).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+    expectNoPopupNoRead();
+  });
+});

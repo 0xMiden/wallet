@@ -656,6 +656,7 @@ export async function requestSign(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // Bind the signing KEY to the authorized ACCOUNT before anything prompts the
   // user: no approval surface can contradict a swapped key. The extension's
@@ -798,6 +799,7 @@ export async function requestPrivateNotes(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -989,6 +991,7 @@ export async function requestConsumableNotes(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -1155,6 +1158,7 @@ export async function requestAssets(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -1300,6 +1304,7 @@ export async function requestGuardianInfo(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   const guardianInfo = await getGuardianInfoData(dApp.accountId);
   return {
@@ -1353,6 +1358,7 @@ export async function requestImportPrivateNote(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -1521,6 +1527,7 @@ export async function requestTransaction(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -1664,6 +1671,15 @@ const customSpendingLimitState = async (
     // send path's own mapping of the same condition.
     if (isSpendingLimitPriceUnavailable(error)) throw spendingLimitRetryError();
     throw error;
+  }
+};
+
+// A request names the account it acts for; answering one that is not current would show or act on an account the
+// user is not looking at (#1419). The vault's plain-storage read works while locked, unlike the store.
+const assertRequestAccountIsCurrent = async (accountId: string): Promise<void> => {
+  const current = await Vault.getCurrentAccountPublicKey();
+  if (!current || !sameWalletAccountId(current, accountId)) {
+    throw new Error(MidenDAppErrorType.NotGranted);
   }
 };
 
@@ -1995,6 +2011,7 @@ export async function requestSendTransaction(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
@@ -2222,6 +2239,7 @@ export async function requestConsumeTransaction(
   if (!dApp) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  await assertRequestAccountIsCurrent(dApp.accountId);
 
   // `.catch(reject)`: each `generatePromisify*` is an async function invoked
   // inside this executor, so a throw of its own would otherwise become an
