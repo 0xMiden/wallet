@@ -21,6 +21,7 @@
 - [FIX][all] Amount entry keeps canonical Latin digits on Persian and Arabic devices, preventing lost digits and invalid base-unit conversion in Send and Swap. Incomplete or malformed swap amounts clear the previous quote and wait for valid input.
 - [FIX][mobile] Fullscreen dApps publish the occupied Bread control rectangle and safe-area metrics so headers can share its row, restore retained covered pages before foreground reveal, and minimize into Bread through its logo without reloading the game when reopened. Wallet overlays and fresh paint checks retain ownership.
 - [FIX][all] The expiration calendar uses theme colors so dates, the month title and navigation arrows are visible in dark mode.
+- [FIX][all] A Guardian account signs a dApp's signBytes signing inputs (arbitrary, summary and blind) with its everyday key instead of failing after approval with "Some storage item not found" (#1417).
 
 ### Features
 
