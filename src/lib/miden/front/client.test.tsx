@@ -163,7 +163,7 @@ it('passes versioned imported secrets through the React restore action', async (
       );
     });
 
-    expect(importWalletFromClient).toHaveBeenCalledWith('password', 'mnemonic', [], importedAccounts, undefined);
+    expect(importWalletFromClient).toHaveBeenCalledWith('password', 'mnemonic', [], importedAccounts);
     expect(onComplete).toHaveBeenCalledTimes(1);
   } finally {
     await act(async () => root.unmount());

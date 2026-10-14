@@ -612,7 +612,7 @@ describe('processRequest', () => {
       walletAccounts: [],
       importedAccounts
     });
-    expect(Actions.registerImportedWallet).toHaveBeenCalledWith('pw', 'm', [], importedAccounts, undefined);
+    expect(Actions.registerImportedWallet).toHaveBeenCalledWith('pw', 'm', [], importedAccounts);
     expect(res.type).toBe(WalletMessageType.ImportFromClientResponse);
   });
 

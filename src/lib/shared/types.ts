@@ -565,8 +565,6 @@ export interface NewWalletFromHotKeyRequest extends WalletMessageBase {
   keyPairPayload: string;
   /** Operator picked/probed in onboarding; the network default when absent. */
   guardianEndpoint?: string;
-  /** Bind the final account before wallet setup completes. */
-  accessCode?: string;
 }
 
 export interface NewWalletFromHotKeyResponse extends WalletMessageBase {
@@ -1206,8 +1204,6 @@ export interface ImportFromClientRequest extends WalletMessageBase {
   mnemonic: string;
   walletAccounts: WalletAccount[];
   importedAccounts: ImportedAccountBackup[];
-  /** Bind the final account before wallet setup completes. */
-  accessCode?: string;
 }
 
 export interface ImportFromClientResponse extends WalletMessageBase {

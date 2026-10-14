@@ -1440,7 +1440,8 @@ describe('Welcome — choose-guardian-submit', () => {
       '111111',
       expect.any(String),
       false,
-      'https://g'
+      'https://g',
+      undefined
     );
   });
 
@@ -1483,6 +1484,7 @@ describe('Welcome — choose-guardian-submit', () => {
       '111111',
       expect.any(String),
       false,
+      undefined,
       undefined
     );
   });
@@ -1620,7 +1622,14 @@ describe('Welcome — import-select-recovery-method', () => {
     expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
     await dispatch({ id: 'confirmation' });
-    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, 'pw', expect.any(String), true, 'https://g');
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'pw',
+      expect.any(String),
+      true,
+      'https://g',
+      undefined
+    );
   });
 
   it('threads no endpoint for non-guardian wallets', async () => {
@@ -1636,7 +1645,14 @@ describe('Welcome — import-select-recovery-method', () => {
     expect(mockPutToStorage).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/#confirmation');
     await dispatch({ id: 'confirmation' });
-    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.OffChain, 'pw', expect.any(String), true, undefined);
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.OffChain,
+      'pw',
+      expect.any(String),
+      true,
+      undefined,
+      undefined
+    );
   });
 });
 
@@ -1656,6 +1672,7 @@ describe('Welcome — confirmation / register', () => {
       '123456',
       expect.any(String),
       false,
+      undefined,
       undefined
     );
     // Create flow triggers the verify-seed prompt.
@@ -1678,7 +1695,8 @@ describe('Welcome — confirmation / register', () => {
       undefined,
       expect.any(String),
       false,
-      'https://g'
+      'https://g',
+      undefined
     );
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
@@ -1701,6 +1719,45 @@ describe('Welcome — confirmation / register', () => {
     expect(mockRegisterWallet).not.toHaveBeenCalled();
     expect(mockProbeStart).not.toHaveBeenCalled();
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('registers a create with the granted access code as its last argument', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'mainnet-access' });
+    await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'choose-guardian-submit', payload: { guardianId: 'g', guardianEndpoint: 'https://g' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      'pw',
+      expect.any(String),
+      false,
+      'https://g',
+      '8gKIgL0O6HcU'
+    );
+  });
+
+  it('restores a wallet file without the access code a create left held', async () => {
+    await renderWelcome();
+    await dispatch({ id: 'mainnet-access' });
+    await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+    await dispatch({ id: 'import-from-file' });
+    await setHash('#import-from-file');
+    await dispatch({ id: 'import-wallet-file-submit', payload: VERSION_TWO_PAYLOAD });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'new-password' } });
+    await setHash('#confirmation');
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockImportWalletFromClient).toHaveBeenCalledTimes(1);
+    expect(mockImportWalletFromClient).toHaveBeenCalledWith(
+      'new-password',
+      'alpha beta gamma delta',
+      VERSION_TWO_PAYLOAD.accounts,
+      VERSION_TWO_PAYLOAD.importedAccounts
+    );
   });
 
   it('retries a failed file restore on Confirmation without routing to Guardian recovery', async () => {
@@ -1900,7 +1957,14 @@ describe('Welcome — confirmation / register', () => {
     mockNavigate.mockClear();
     await setHash('#confirmation');
     await dispatch({ id: 'confirmation' });
-    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.Guardian, undefined, 'aa bb cc dd', true, 'https://g');
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.Guardian,
+      undefined,
+      'aa bb cc dd',
+      true,
+      'https://g',
+      undefined
+    );
     expect(mockNavigate).toHaveBeenCalledWith('/#import-select-recovery-method');
     // The failure belongs to the recovery method; counting it would walk the user towards the password fallback.
     expect(mockFlowProps.current.biometricAttempts).toBe(0);
@@ -2093,7 +2157,8 @@ describe('Welcome — confirmation / register', () => {
       '123456',
       expect.any(String),
       false,
-      'https://g1'
+      'https://g1',
+      undefined
     );
   });
 
@@ -2179,7 +2244,8 @@ describe('Welcome — confirmation / register', () => {
       'pw',
       expect.any(String),
       false,
-      'https://g1'
+      'https://g1',
+      undefined
     );
   });
 
@@ -2430,7 +2496,8 @@ describe('Welcome — confirmation / register', () => {
       'first-password',
       expect.any(String),
       false,
-      'https://g1'
+      'https://g1',
+      undefined
     );
   });
 
@@ -2474,7 +2541,8 @@ describe('Welcome — confirmation / register', () => {
       'first-password',
       expect.any(String),
       false,
-      'https://g1'
+      'https://g1',
+      undefined
     );
     expect(mockNavigate).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/');
@@ -2817,7 +2885,8 @@ describe('Welcome — waitForReadyState resilience', () => {
         'second-password',
         expect.any(String),
         false,
-        'https://g1'
+        'https://g1',
+        undefined
       );
     } finally {
       jest.useRealTimers();
@@ -2859,7 +2928,8 @@ describe('Welcome — waitForReadyState resilience', () => {
         'first-password',
         expect.any(String),
         false,
-        'https://g1'
+        'https://g1',
+        undefined
       );
     } finally {
       jest.useRealTimers();
@@ -3543,7 +3613,14 @@ describe('Welcome — side-panel handoff', () => {
     });
 
     expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
-    expect(mockRegisterWallet).toHaveBeenCalledWith(WalletType.OnChain, 'pw', 'aa bb cc dd', true, undefined);
+    expect(mockRegisterWallet).toHaveBeenCalledWith(
+      WalletType.OnChain,
+      'pw',
+      'aa bb cc dd',
+      true,
+      undefined,
+      undefined
+    );
     expect(mockNavigate).toHaveBeenCalledWith('/finish-side-panel');
     expect(ONBOARDING_HANDOFF_ROUTES.has(mockNavigate.mock.calls.at(-1)?.[0])).toBe(true);
     // A holder that regresses to a plain navigate never calls through navigateOnFromOnboarding.
@@ -3942,7 +4019,8 @@ describe('Welcome — E2E onboarding bypass', () => {
       'pw',
       expect.any(String),
       false, // not an import
-      'http://localhost:3001' // the threaded override
+      'http://localhost:3001', // the threaded override
+      undefined
     );
     // The bypass threads the endpoint and writes nothing to storage.
     expect(mockPutToStorage).not.toHaveBeenCalled();
@@ -3968,7 +4046,8 @@ describe('Welcome — E2E onboarding bypass', () => {
       'pw',
       expect.any(String),
       true, // import → ownMnemonic drives Vault.spawn's recovery branch
-      'http://localhost:3001'
+      'http://localhost:3001',
+      undefined
     );
   });
 });

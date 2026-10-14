@@ -150,13 +150,7 @@ describe('MobileIntercomAdapter', () => {
         importedAccounts
       });
 
-      expect(Actions.registerImportedWallet).toHaveBeenCalledWith(
-        'test123',
-        'word1 word2 word3',
-        [],
-        importedAccounts,
-        undefined
-      );
+      expect(Actions.registerImportedWallet).toHaveBeenCalledWith('test123', 'word1 word2 word3', [], importedAccounts);
       expect(response).toEqual({ type: WalletMessageType.ImportFromClientResponse });
     });
 
@@ -392,8 +386,7 @@ describe('MobileIntercomAdapter', () => {
       expect(Actions.registerWalletFromHotKey).toHaveBeenCalledWith(
         'pw',
         keyPairPayload,
-        'https://guardian.example.com',
-        undefined
+        'https://guardian.example.com'
       );
       expect(response).toEqual({ type: WalletMessageType.NewWalletFromHotKeyResponse });
     });

@@ -469,11 +469,7 @@ const Welcome: FC<{ inviteOnly: boolean }> = ({ inviteOnly }) => {
     if (password && keyPairPayload) {
       // The pair stays in this onboarding component, never in wallet state.
       const actualPassword = password === '__HARDWARE_ONLY__' ? undefined : password;
-      if (accessCode) {
-        await registerWalletFromHotKey(actualPassword, keyPairPayload, guardianEndpoint, accessCode);
-      } else {
-        await registerWalletFromHotKey(actualPassword, keyPairPayload, guardianEndpoint);
-      }
+      await registerWalletFromHotKey(actualPassword, keyPairPayload, guardianEndpoint);
       return;
     }
     if (password && seedPhrase) {
@@ -482,7 +478,7 @@ const Welcome: FC<{ inviteOnly: boolean }> = ({ inviteOnly }) => {
       const actualPassword = password === '__HARDWARE_ONLY__' ? undefined : password;
       const isImport = onboardingType === OnboardingType.Import;
       const inputs = walletFilePayload
-        ? JSON.stringify([actualPassword, seedPhraseFormatted, fileRegistrationBinding(walletFilePayload), accessCode])
+        ? JSON.stringify([actualPassword, seedPhraseFormatted, fileRegistrationBinding(walletFilePayload)])
         : JSON.stringify([walletType, actualPassword, seedPhraseFormatted, isImport, guardianEndpoint, accessCode]);
       let registration = registrationRef.current;
       if (!registration || registration.inputs !== inputs) {
@@ -490,35 +486,21 @@ const Welcome: FC<{ inviteOnly: boolean }> = ({ inviteOnly }) => {
           inputs,
           done: (async () => {
             if (walletFilePayload) {
-              if (accessCode) {
-                await importWalletFromClient(
-                  actualPassword,
-                  seedPhraseFormatted,
-                  walletFilePayload.accounts,
-                  walletFilePayload.importedAccounts,
-                  accessCode
-                );
-              } else {
-                await importWalletFromClient(
-                  actualPassword,
-                  seedPhraseFormatted,
-                  walletFilePayload.accounts,
-                  walletFilePayload.importedAccounts
-                );
-              }
+              await importWalletFromClient(
+                actualPassword,
+                seedPhraseFormatted,
+                walletFilePayload.accounts,
+                walletFilePayload.importedAccounts
+              );
             } else {
-              if (accessCode) {
-                await registerWallet(
-                  walletType,
-                  actualPassword,
-                  seedPhraseFormatted,
-                  isImport,
-                  guardianEndpoint,
-                  accessCode
-                );
-              } else {
-                await registerWallet(walletType, actualPassword, seedPhraseFormatted, isImport, guardianEndpoint);
-              }
+              await registerWallet(
+                walletType,
+                actualPassword,
+                seedPhraseFormatted,
+                isImport,
+                guardianEndpoint,
+                accessCode
+              );
             }
           })()
         };

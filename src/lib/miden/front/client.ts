@@ -128,8 +128,8 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   );
 
   const registerWalletFromHotKey = useCallback(
-    async (password: string | undefined, keyPairPayload: string, guardianEndpoint?: string, accessCode?: string) => {
-      await storeRegisterWalletFromHotKey(password, keyPairPayload, guardianEndpoint, accessCode);
+    async (password: string | undefined, keyPairPayload: string, guardianEndpoint?: string) => {
+      await storeRegisterWalletFromHotKey(password, keyPairPayload, guardianEndpoint);
     },
     [storeRegisterWalletFromHotKey]
   );
@@ -139,10 +139,9 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       password: string | undefined,
       mnemonic: string,
       walletAccounts: WalletAccount[],
-      importedAccounts: ImportedAccountBackup[],
-      accessCode?: string
+      importedAccounts: ImportedAccountBackup[]
     ) => {
-      await storeImportWalletFromClient(password, mnemonic, walletAccounts, importedAccounts, accessCode);
+      await storeImportWalletFromClient(password, mnemonic, walletAccounts, importedAccounts);
     },
     [storeImportWalletFromClient]
   );

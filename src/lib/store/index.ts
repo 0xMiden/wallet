@@ -341,26 +341,24 @@ export const useWalletStore = create<WalletStore>()(
       // State will be synced via StateUpdated notification
     },
 
-    registerWalletFromHotKey: async (password, keyPairPayload, guardianEndpoint, accessCode) => {
+    registerWalletFromHotKey: async (password, keyPairPayload, guardianEndpoint) => {
       const res = await request({
         type: WalletMessageType.NewWalletFromHotKeyRequest,
         password,
         keyPairPayload,
-        guardianEndpoint,
-        accessCode
+        guardianEndpoint
       });
       assertResponse(res.type === WalletMessageType.NewWalletFromHotKeyResponse);
       // State will be synced via StateUpdated notification
     },
 
-    importWalletFromClient: async (password, mnemonic, walletAccounts, importedAccounts, accessCode) => {
+    importWalletFromClient: async (password, mnemonic, walletAccounts, importedAccounts) => {
       const res = await request({
         type: WalletMessageType.ImportFromClientRequest,
         password,
         mnemonic,
         walletAccounts,
-        importedAccounts,
-        accessCode
+        importedAccounts
       });
       assertResponse(res.type === WalletMessageType.ImportFromClientResponse);
     },

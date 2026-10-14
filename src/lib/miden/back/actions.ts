@@ -207,12 +207,15 @@ export async function isDAppEnabled() {
 // Keep the account ID after a failed admission request so a retry uses the same account.
 let pendingAccessVault: { inputs: string; vault: Vault } | null = null;
 
+async function discardPendingAccessVault() {
+  if (!pendingAccessVault) return;
+  await undoFailedSetup(pendingAccessVault.vault, 'Actions.pendingAccessSetup');
+  pendingAccessVault = null;
+}
+
 async function getAccessSetupVault(inputs: string, accessCode: string | undefined, spawn: () => Promise<Vault>) {
   if (accessCode && pendingAccessVault?.inputs === inputs) return pendingAccessVault.vault;
-  if (pendingAccessVault) {
-    await undoFailedSetup(pendingAccessVault.vault, 'Actions.pendingAccessSetup');
-    pendingAccessVault = null;
-  }
+  await discardPendingAccessVault();
   const vault = await spawn();
   if (accessCode) pendingAccessVault = { inputs, vault };
   return vault;
@@ -284,27 +287,18 @@ export function registerNewWallet(
 }
 
 /** Seed-less Guardian import: spawn from the existing hot:EVM key pair. */
-export function registerWalletFromHotKey(
-  password?: string,
-  keyPairPayload?: string,
-  guardianEndpoint?: string,
-  accessCode?: string
-) {
+export function registerWalletFromHotKey(password?: string, keyPairPayload?: string, guardianEndpoint?: string) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
       let vault: Vault | undefined;
       let published = false;
       try {
         if (!keyPairPayload) throw new PublicError(getMessage('importHotKeyInvalid'));
-        vault = await getAccessSetupVault(
-          JSON.stringify(['key', password, keyPairPayload, guardianEndpoint]),
-          accessCode,
-          () => Vault.spawnFromHotKey(password, keyPairPayload, guardianEndpoint)
-        );
+        await discardPendingAccessVault();
+        vault = await Vault.spawnFromHotKey(password, keyPairPayload, guardianEndpoint);
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
-        if (accessCode) await registerSetupAccessCode(currentAccount.publicKey, accessCode);
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({
           vault,
@@ -315,10 +309,8 @@ export function registerWalletFromHotKey(
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
         published = true;
-        pendingAccessVault = null;
       } finally {
-        if (!published && vault && pendingAccessVault?.vault !== vault)
-          await undoFailedSetup(vault, 'Actions.registerWalletFromHotKey');
+        if (!published && vault) await undoFailedSetup(vault, 'Actions.registerWalletFromHotKey');
         syncRealmInsertKeySink();
       }
     })
@@ -329,25 +321,20 @@ export function registerImportedWallet(
   password: string | undefined,
   mnemonic: string | undefined,
   walletAccounts: WalletAccount[],
-  importedAccounts: ImportedAccountBackup[],
-  accessCode?: string
+  importedAccounts: ImportedAccountBackup[]
 ) {
   return withInited(() =>
     getUnlockQueue().add(async () => {
       let vault: Vault | undefined;
       let published = false;
       try {
+        await discardPendingAccessVault();
         // Password may be undefined for hardware-only wallets
         // spawnFromMidenClient() returns the vault directly, avoiding a second biometric prompt
-        vault = await getAccessSetupVault(
-          JSON.stringify(['file', password, mnemonic, walletAccounts, importedAccounts]),
-          accessCode,
-          () => Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts, importedAccounts)
-        );
+        vault = await Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts, importedAccounts);
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
-        if (accessCode) await registerSetupAccessCode(currentAccount.publicKey, accessCode);
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({
           vault,
@@ -358,10 +345,8 @@ export function registerImportedWallet(
           seedPhraseStatus: await vault.fetchSeedPhraseStatus()
         });
         published = true;
-        pendingAccessVault = null;
       } finally {
-        if (!published && vault && pendingAccessVault?.vault !== vault)
-          await undoFailedSetup(vault, 'Actions.registerImportedWallet');
+        if (!published && vault) await undoFailedSetup(vault, 'Actions.registerImportedWallet');
         syncRealmInsertKeySink();
       }
     })

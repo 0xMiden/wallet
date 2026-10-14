@@ -47,17 +47,11 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
       return { type: WalletMessageType.NewWalletResponse };
 
     case WalletMessageType.NewWalletFromHotKeyRequest:
-      await Actions.registerWalletFromHotKey(req.password, req.keyPairPayload, req.guardianEndpoint, req.accessCode);
+      await Actions.registerWalletFromHotKey(req.password, req.keyPairPayload, req.guardianEndpoint);
       return { type: WalletMessageType.NewWalletFromHotKeyResponse };
 
     case WalletMessageType.ImportFromClientRequest:
-      await Actions.registerImportedWallet(
-        req.password,
-        req.mnemonic,
-        req.walletAccounts,
-        req.importedAccounts,
-        req.accessCode
-      );
+      await Actions.registerImportedWallet(req.password, req.mnemonic, req.walletAccounts, req.importedAccounts);
       return { type: WalletMessageType.ImportFromClientResponse };
 
     case WalletMessageType.UnlockRequest:
