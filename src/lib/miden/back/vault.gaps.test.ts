@@ -133,7 +133,10 @@ const mockWordFromHex = jest.fn((_hex: string) => ({ __wordMarker: 'word' }));
 const mockSigningInputsDeserialize = jest.fn((bytes: Uint8Array) => ({
   // The discriminant byte stands in for the variant: each variant's commitment differs, so the test can tell
   // which input was reduced.
-  toCommitment: () => ({ toHex: () => `0x${bytes[0].toString(16).padStart(2, '0').repeat(32)}`, free: jest.fn() }),
+  toCommitment: () => ({
+    toHex: () => `0x${(bytes[0] ?? 0).toString(16).padStart(2, '0').repeat(32)}`,
+    free: jest.fn()
+  }),
   free: jest.fn()
 }));
 const HOT_COMMITMENT = 'deadbeef'.repeat(8);
