@@ -42,7 +42,7 @@ import {
   type WasmClientLockOptions,
   type WasmLockHold
 } from '../sdk/miden-client';
-import { isGuardianCanonicalizationError } from '../sdk/sdk-error-code';
+import { isGuardianCanonicalizationError, isPipelineKillLink, someInCauseChain } from '../sdk/sdk-error-code';
 import { syncAndRecordFeeFaucet } from '../sdk/sync-and-record-fee-faucet';
 import {
   WASM_LOCK_SYNC_WATCHDOG_MS,
@@ -72,6 +72,24 @@ export const isGuardianAuthRejection = (err: unknown): boolean => {
  * state unconditionally, so pushing a copy that is behind the chain moves the guardian backwards
  * and discards its in-flight update. Nothing was written.
  */
+/**
+ * The chain sync a proposal runs right before it is built failed. That is the node's answer, never
+ * evidence about the Guardian, so callers must not route it to the direct on-chain switch. The message
+ * carries the cause's, so message-based outage classifiers still read it as an outage.
+ */
+export class ProposalChainSyncError extends Error {
+  constructor(cause: unknown) {
+    super(`chain sync before the proposal failed: ${cause instanceof Error ? cause.message : String(cause)}`, {
+      cause
+    });
+    this.name = 'ProposalChainSyncError';
+  }
+}
+
+export function isProposalChainSyncError(err: unknown): boolean {
+  return someInCauseChain(err, link => link instanceof ProposalChainSyncError);
+}
+
 export class GuardianReRegisterRefusedError extends Error {
   constructor(accountId: string, cause: unknown) {
     super(`Not re-registering account ${accountId} on its guardian: its local state is not the on-chain state`, {
@@ -924,12 +942,18 @@ export class MultisigService {
    */
   private async syncChainForProposal(hold: WasmLockHold, label: string): Promise<void> {
     const { client } = await getMidenClient();
-    assertWasmHoldCurrent(hold, `${label}: after the client build`);
-    await syncAndRecordFeeFaucet(
-      client,
-      () => client.syncChain(),
-      () => assertWasmHoldCurrent(hold, `${label}: chain sync`)
-    );
+    assertWasmHoldCurrent(hold, `${label}: before the chain sync`);
+    try {
+      await syncAndRecordFeeFaucet(
+        client,
+        () => client.syncChain(),
+        () => assertWasmHoldCurrent(hold, `${label}: chain sync`)
+      );
+    } catch (error) {
+      // A killed pipeline is not the node's answer; only a plain sync failure is tagged.
+      if (isPipelineKillLink(error)) throw error;
+      throw new ProposalChainSyncError(error);
+    }
   }
 
   /**

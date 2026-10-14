@@ -18,9 +18,11 @@ import { OUTGOING_GUARDIAN_DEADLINE_MS } from './discover';
 import {
   GuardianReRegisterRefusedError,
   isGuardianAuthRejection,
+  isProposalChainSyncError,
   MultisigService,
   POST_COMMIT_GUARDIAN_TIMEOUT_MS,
-  PRIOR_CANDIDATE_CHECK_TIMEOUT_MS
+  PRIOR_CANDIDATE_CHECK_TIMEOUT_MS,
+  ProposalChainSyncError
 } from './index';
 import { GUARDIAN_REGISTER_RETRY_MAX_DELAY_MS, NEW_GUARDIAN_PUBKEY_TIMEOUT_MS } from './serialize';
 import { withWasmClientLock, type WasmClientLockOptions } from '../sdk/miden-client';
@@ -534,6 +536,16 @@ describe('MultisigService', () => {
 
         expect(callOrder.slice(0, 2)).toEqual(['syncChain', 'feeAwareRequestBuilder']);
         expect(syncHoldsSeen[0]).toBe(holdsSeen.builder);
+      });
+
+      it('rebuilds and proposes nothing when the chain sync fails (#1442)', async () => {
+        const { service, createCustomFn } = arrange();
+        mockSyncChain.mockRejectedValueOnce(new Error('node unreachable'));
+
+        await expect(service.createRebasedCustomProposal(originalBytes, 'swap')).rejects.toThrow('node unreachable');
+
+        expect(mockFeeAwareRequestBuilder).not.toHaveBeenCalled();
+        expect(createCustomFn).not.toHaveBeenCalled();
       });
 
       // The rebuild drops the request's own expiration delta, so a Guardian expiration has to be the approval
@@ -2103,9 +2115,12 @@ describe('MultisigService', () => {
       resetMockProbes();
     });
 
+    let multisigHold: object | null = null;
+
     const switchService = () => {
       const createSwitchGuardianProposal = jest.fn(async () => {
         callOrder.push('createSwitchGuardianProposal');
+        multisigHold = currentWasmHold;
         expect(currentWasmHold).not.toBeNull();
         return { nonce: 7, txSummary: 'txs-b64', metadata: { proposalType: 'switch-guardian' } };
       });
@@ -2129,6 +2144,7 @@ describe('MultisigService', () => {
       expect(callOrder).toEqual(['syncChain', 'createSwitchGuardianProposal']);
       expect(syncHoldsSeen).toHaveLength(1);
       expect(syncHoldsSeen[0]).not.toBeNull();
+      expect(syncHoldsSeen[0]).toBe(multisigHold);
       // The new Guardian's pubkey probe stays outside the WASM hold.
       expect(holdDuringProbe).toBeNull();
     });
@@ -2158,6 +2174,19 @@ describe('MultisigService', () => {
       expect(createSwitchGuardianProposal).not.toHaveBeenCalled();
     });
 
+    it('wraps a sync failure in ProposalChainSyncError, keeping the cause and its message', async () => {
+      const { service } = switchService();
+      guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
+      const cause = new Error('node unreachable');
+      mockSyncChain.mockRejectedValueOnce(cause);
+
+      const error: unknown = await service.createSwitchGuardianProposal('https://new').catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(ProposalChainSyncError);
+      expect(isProposalChainSyncError(error)).toBe(true);
+      expect(error).toMatchObject({ message: expect.stringContaining('node unreachable'), cause });
+    });
+
     it('refuses as evicted when the hold is lost during the sync', async () => {
       const { service, createSwitchGuardianProposal } = switchService();
       guardianConfig.getPubkey.mockResolvedValueOnce({ commitment: NEW_GUARDIAN_COMMITMENT, pubkey: 'p' });
@@ -2165,13 +2194,18 @@ describe('MultisigService', () => {
         currentWasmHold = null;
       });
 
-      await expect(service.createSwitchGuardianProposal('https://new')).rejects.toBeInstanceOf(WasmClientPoisonedError);
+      const error: unknown = await service.createSwitchGuardianProposal('https://new').catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(WasmClientPoisonedError);
+      expect(isProposalChainSyncError(error)).toBe(false);
       expect(createSwitchGuardianProposal).not.toHaveBeenCalled();
     });
 
     it('syncs the chain in the same hold before the procedure-threshold proposal', async () => {
+      let multisigHold: object | null = null;
       const createUpdateProcedureThresholdProposal = jest.fn(async () => {
         callOrder.push('createUpdateProcedureThresholdProposal');
+        multisigHold = currentWasmHold;
         return { kind: 'threshold' };
       });
       const multisig = makeMultisig({ createUpdateProcedureThresholdProposal });
@@ -2181,6 +2215,20 @@ describe('MultisigService', () => {
 
       expect(callOrder).toEqual(['syncChain', 'createUpdateProcedureThresholdProposal']);
       expect(syncHoldsSeen[0]).not.toBeNull();
+      expect(syncHoldsSeen[0]).toBe(multisigHold);
+    });
+
+    it('makes no procedure-threshold proposal when the sync fails', async () => {
+      const createUpdateProcedureThresholdProposal = jest.fn(async () => ({ kind: 'threshold' }));
+      const service = new MultisigService(
+        makeMultisig({ createUpdateProcedureThresholdProposal }) as never,
+        {} as never,
+        'https://x'
+      );
+      mockSyncChain.mockRejectedValueOnce(new Error('node unreachable'));
+
+      await expect(service.createUpdateProcedureThresholdProposal('send', 2)).rejects.toThrow('node unreachable');
+      expect(createUpdateProcedureThresholdProposal).not.toHaveBeenCalled();
     });
     const wrapperCases: Array<[string, string, (s: MultisigService) => Promise<unknown>]> = [
       ['createSendProposal', 'createP2idProposal', s => s.createSendProposal('rec', 'fauc', 5n, 'Public' as never)],
@@ -2191,8 +2239,10 @@ describe('MultisigService', () => {
     it.each(wrapperCases)(
       '%s syncs the chain in the same hold before the multisig call',
       async (_name, multisigMethod, call) => {
+        let multisigHold: object | null = null;
         const multisigCall = jest.fn(async () => {
           callOrder.push(multisigMethod);
+          multisigHold = currentWasmHold;
           return { kind: multisigMethod };
         });
         const service = new MultisigService(
@@ -2205,6 +2255,7 @@ describe('MultisigService', () => {
 
         expect(callOrder).toEqual(['syncChain', multisigMethod]);
         expect(syncHoldsSeen[0]).not.toBeNull();
+        expect(syncHoldsSeen[0]).toBe(multisigHold);
       }
     );
 
