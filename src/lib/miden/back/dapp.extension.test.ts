@@ -12,8 +12,9 @@
  */
 
 import { WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
+import extensionBrowser from 'webextension-polyfill';
 
-import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { MidenDAppConsumeRequest, MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MidenMessageType } from 'lib/miden/types';
 
@@ -275,6 +276,61 @@ beforeEach(() => {
 // @ts-ignore — kept for reference
 
 describe('requestConfirm window-position fallback', () => {
+  it('keeps a confirmation onscreen when the focused window has no dimensions', async () => {
+    const focused = jest.mocked(extensionBrowser.windows.getLastFocused);
+    const create = jest.mocked(extensionBrowser.windows.create);
+    const update = jest.mocked(extensionBrowser.windows.update);
+    const originalUpdate = update.getMockImplementation();
+    focused.mockResolvedValueOnce({
+      id: 1,
+      focused: true,
+      incognito: false,
+      alwaysOnTop: false,
+      left: 0,
+      top: 0,
+      width: 0,
+      height: 0
+    });
+    create.mockResolvedValueOnce({ id: 999, focused: true, incognito: false, alwaysOnTop: false, left: 20, top: 20 });
+    update.mockImplementationOnce(async (_id, bounds) => {
+      const left = bounds.left ?? 0;
+      const top = bounds.top ?? 0;
+      const width = create.mock.calls.at(-1)?.[0]?.width ?? 0;
+      const height = create.mock.calls.at(-1)?.[0]?.height ?? 0;
+      const visibleWidth = Math.max(0, Math.min(1600, left + width) - Math.max(0, left));
+      const visibleHeight = Math.max(0, Math.min(1200, top + height) - Math.max(0, top));
+      if (visibleWidth * visibleHeight < (width * height) / 2) {
+        throw new Error('Invalid value for bounds. Bounds must be at least 50% within visible screen space.');
+      }
+      return { id: 999, focused: true, incognito: false, alwaysOnTop: false, left, top };
+    });
+    try {
+      const result = await driveConfirmation(
+        () =>
+          dapp
+            .requestSign('https://miden.xyz', {
+              type: MidenDAppMessageType.SignRequest,
+              sourcePublicKey: 'miden-account-1',
+              sourceAccountId: 'miden-account-1',
+              payload: 'aGVsbG8=',
+              kind: 'word'
+            })
+            .then(
+              () => 'approved',
+              (error: unknown) => (error instanceof Error ? error.message : String(error))
+            ),
+        MidenMessageType.DAppSignConfirmationRequest,
+        { confirmed: false }
+      );
+      expect(create).toHaveBeenCalledWith(expect.objectContaining({ left: 20, top: 20 }));
+      expect(result).toBe(MidenDAppErrorType.NotGranted);
+      expect(update).not.toHaveBeenCalled();
+    } finally {
+      update.mockReset();
+      if (originalUpdate) update.mockImplementation(originalUpdate);
+    }
+  });
+
   it('uses screen coordinates when getLastFocused throws', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     browser.windows.getLastFocused.mockRejectedValueOnce(new Error('no focused window'));
@@ -644,8 +700,16 @@ async function driveConfirmation(
     port
   );
   beforeConfirm?.();
-  await listener({ type: confirmRequestType, id, ...extraConfirmFields }, port);
+  // What the confirm page is answered with; a handler that throws leaves it unset and the dApp unanswered.
+  _g.__dappExtTest.lastConfirmResponse = undefined;
+  _g.__dappExtTest.lastConfirmResponse = await listener({ type: confirmRequestType, id, ...extraConfirmFields }, port);
   return promise;
+}
+
+// A real switch writes both the vault's stored current account and the store's.
+function switchCurrentAccount(account: string) {
+  _g.__dappExtTestCurrentAccount = account;
+  mockGetCurrentAccountPublicKey.mockResolvedValue(account);
 }
 
 describe('Full confirmation cycles in extension mode', () => {
@@ -951,6 +1015,27 @@ describe('Full confirmation cycles in extension mode', () => {
     expect(sdk.initiateConsumeTransactionFromId.mock.calls[0][3]).toBe(true);
   });
 
+  it('requestConsumeTransaction refuses a note another transaction holds rather than answer with it', async () => {
+    // As the real call: a dApp's request is refused, the wallet's own claim is answered with the holding row.
+    const sdk = require('lib/miden/transaction');
+    sdk.initiateConsumeTransactionFromId.mockImplementationOnce(async (...args: unknown[]) => {
+      if (args[4] === true) throw new Error('This note is being consumed by another transaction');
+      return 'other-dapp-transaction';
+    });
+    const request: MidenDAppConsumeRequest = {
+      type: MidenDAppMessageType.ConsumeRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'private', amount: 50 }
+    };
+    await expect(
+      driveConfirmation(
+        () => dapp.requestConsumeTransaction('https://miden.xyz', request),
+        MidenMessageType.DAppTransactionConfirmationRequest,
+        { confirmed: true, delegate: true }
+      )
+    ).rejects.toThrow('This note is being consumed by another transaction');
+  });
+
   it('requestPrivateNotes rejects when user declines (covers onDecline at L641)', async () => {
     _g.__dappExtTest.midenClient.getInputNoteDetails = jest.fn().mockResolvedValue([]);
     await expect(
@@ -1199,6 +1284,22 @@ describe('Full confirmation cycles in extension mode', () => {
       expect(signData).not.toHaveBeenCalled();
     });
 
+    it('refuses a sign approved after the current account changed, before any key is used', async () => {
+      arrangeSignerAccount();
+      const signData = jest.fn(async () => 'stolen-signature');
+      mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn({ vault: { signData } }));
+
+      await expect(
+        driveConfirmation(
+          () => dapp.requestSign('https://miden.xyz', request(SIGNER_COMMITMENT_HEX)),
+          MidenMessageType.DAppSignConfirmationRequest,
+          { confirmed: true },
+          () => switchCurrentAccount('miden-account-2')
+        )
+      ).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+      expect(signData).not.toHaveBeenCalled();
+    });
+
     it('refuses when the account cannot be resolved, rather than signing anyway', async () => {
       _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue(null);
       const signData = jest.fn(async () => 'stolen-signature');
@@ -1371,6 +1472,96 @@ describe('Full confirmation cycles in extension mode', () => {
     // A failed pubkey fetch must not persist a publicKey: null session.
     expect((_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://err-dapp.xyz']).toBeUndefined();
   });
+});
+
+describe('a prompted request approved after the current account changed (#1419, #1415)', () => {
+  const ORIGIN = 'https://miden.xyz';
+  const consumeTx = { noteId: 'note-1', faucetId: 'faucet-1', noteType: 'Private', amount: '50' };
+  const transaction = () => require('lib/miden/transaction');
+
+  beforeEach(() => {
+    _g.__dappExtTest.midenClient.getAccount = jest
+      .fn()
+      .mockResolvedValue({ vault: () => ({ fungibleAssets: () => [] }) });
+    _g.__dappExtTest.midenClient.importNoteBytes = jest.fn().mockResolvedValue('imported-note-id');
+  });
+
+  // Each handler, its confirm request and response, and what it does once approved, none of which may run here.
+  const cases: ReadonlyArray<
+    readonly [string, () => Promise<unknown>, MidenMessageType, MidenMessageType, () => readonly jest.Mock[]]
+  > = [
+    [
+      'assets',
+      () =>
+        dapp.requestAssets(ORIGIN, {
+          type: MidenDAppMessageType.AssetsRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      MidenMessageType.DAppAssetsConfirmationRequest,
+      MidenMessageType.DAppAssetsConfirmationResponse,
+      () => []
+    ],
+    [
+      'privateNotes',
+      () =>
+        dapp.requestPrivateNotes(ORIGIN, {
+          type: MidenDAppMessageType.PrivateNotesRequest,
+          sourcePublicKey: 'miden-account-1',
+          noteIds: ['note-1']
+        } as never),
+      MidenMessageType.DAppPrivateNotesConfirmationRequest,
+      MidenMessageType.DAppPrivateNotesConfirmationResponse,
+      () => []
+    ],
+    [
+      'consumableNotes',
+      () =>
+        dapp.requestConsumableNotes(ORIGIN, {
+          type: MidenDAppMessageType.ConsumableNotesRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      MidenMessageType.DAppConsumableNotesConfirmationRequest,
+      MidenMessageType.DAppConsumableNotesConfirmationResponse,
+      () => []
+    ],
+    [
+      'importPrivateNote',
+      () =>
+        dapp.requestImportPrivateNote(ORIGIN, {
+          type: MidenDAppMessageType.ImportPrivateNoteRequest,
+          sourcePublicKey: 'miden-account-1',
+          note: 'aGVsbG8='
+        } as never),
+      MidenMessageType.DAppImportPrivateNoteConfirmationRequest,
+      MidenMessageType.DAppImportPrivateNoteConfirmationResponse,
+      () => [_g.__dappExtTest.midenClient.importNoteBytes]
+    ],
+    [
+      'consume',
+      () =>
+        dapp.requestConsumeTransaction(ORIGIN, {
+          type: MidenDAppMessageType.ConsumeRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: { ...consumeTx, noteBytes: 'aGVsbG8=' }
+        } as never),
+      MidenMessageType.DAppTransactionConfirmationRequest,
+      MidenMessageType.DAppTransactionConfirmationResponse,
+      () => [require('lib/miden/activity').queueNoteImport, transaction().initiateConsumeTransactionFromId]
+    ]
+  ];
+
+  it.each(cases)(
+    'refuses %s with NOT_GRANTED and still answers the confirm page',
+    async (_name, start, confirmRequest, confirmResponse, actions) => {
+      await expect(
+        driveConfirmation(start, confirmRequest, { confirmed: true, delegate: true }, () =>
+          switchCurrentAccount('miden-account-2')
+        )
+      ).rejects.toThrow(new Error(MidenDAppErrorType.NotGranted));
+      expect(_g.__dappExtTest.lastConfirmResponse).toEqual({ type: confirmResponse });
+      for (const action of actions()) expect(action).not.toHaveBeenCalled();
+    }
+  );
 });
 
 // ── Watchdog eviction mid-flow (#788 follow-up) ────────────────────

@@ -1,3 +1,4 @@
+import { type NativeFeeFields, readNativeFeeFields } from './fees';
 import {
   assertNativeSessionChain,
   buildNativeReownProvider,
@@ -17,36 +18,29 @@ jest.mock('@capacitor/core', () => ({
     sendTransaction: jest.fn()
   })
 }));
-
-jest.mock('lib/platform', () => ({
-  isIOS: () => true,
-  isAndroid: () => false
-}));
+jest.mock('lib/platform', () => ({ isAndroid: () => false, isIOS: () => true }));
+jest.mock('./fees', () => ({ readNativeFeeFields: jest.fn() }));
 
 const SEPOLIA = 11155111;
 const ARC = 5042002;
 
-jest.mock('./config', () => ({
-  getChain: (id: number) =>
-    id === 5042002
-      ? {
-          id: 5042002,
-          name: 'Arc Testnet',
-          rpcUrl: 'https://rpc.walletconnect.org/v1?chainId=eip155:5042002&projectId=secret',
-          publicRpcUrl: 'https://rpc.testnet.arc.network',
-          explorer: 'https://testnet.arcscan.app',
-          nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 }
-        }
-      : undefined
-}));
-
-// The add-and-switch attempt logs a rejection it swallows.
-beforeEach(() => {
-  jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-});
-
-afterEach(() => {
-  jest.restoreAllMocks();
+// Arc Testnet with a public RPC that differs from its `rpcUrl`; every other chain is the registry's own.
+jest.mock('./config', () => {
+  const actual = jest.requireActual<typeof import('./config')>('./config');
+  return {
+    ...actual,
+    getChain: (id: number) =>
+      id === 5042002
+        ? {
+            id: 5042002,
+            name: 'Arc Testnet',
+            rpcUrl: 'https://rpc.walletconnect.org/v1?chainId=eip155:5042002&projectId=secret',
+            publicRpcUrl: 'https://rpc.testnet.arc.network',
+            explorer: 'https://testnet.arcscan.app',
+            nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 }
+          }
+        : actual.getChain(id)
+  };
 });
 
 const sessionState = (chainIds?: number[]): ReownState => ({
@@ -57,6 +51,58 @@ const sessionState = (chainIds?: number[]): ReownState => ({
   accounts: ['0x00000000000000000000000000000000000000e1'],
   chainId: SEPOLIA,
   chainIds
+});
+
+const mockSendTransaction = jest.mocked(NativeReown.sendTransaction);
+const ESTIMATE: NativeFeeFields = { maxFeePerGas: '0x64', maxPriorityFeePerGas: '0x2' };
+const provider = buildNativeReownProvider({ chainId: 11155111, address: '0xowner', rpcUrl: 'https://rpc.test' });
+const send = (tx: Record<string, string>) =>
+  provider.request({ method: 'eth_sendTransaction', params: [{ to: '0xto', data: '0x', ...tx }] });
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  // The add-and-switch attempt logs a rejection it swallows.
+  jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  // The session approved Sepolia, the chain every send below ends up on.
+  jest.mocked(NativeReown.getState).mockResolvedValue(sessionState([SEPOLIA]));
+  mockSendTransaction.mockResolvedValue({ hash: '0xhash' });
+  jest.mocked(readNativeFeeFields).mockResolvedValue(ESTIMATE);
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
+// A caller that set no fee gets fields with headroom; one that set any fee field keeps what it set.
+it('sends the fee estimate when the caller set no fee', async () => {
+  await send({});
+
+  expect(readNativeFeeFields).toHaveBeenCalledWith(11155111);
+  expect(mockSendTransaction).toHaveBeenCalledWith(expect.objectContaining(ESTIMATE));
+});
+
+it.each([
+  ['gasPrice', { gasPrice: '0x9' }],
+  ['maxFeePerGas', { maxFeePerGas: '0x50', maxPriorityFeePerGas: '0x3' }],
+  ['only maxPriorityFeePerGas', { maxPriorityFeePerGas: '0x3' }]
+])('keeps the fee the caller set with %s and reads no estimate', async (_label, fee) => {
+  await send(fee);
+
+  expect(readNativeFeeFields).not.toHaveBeenCalled();
+  expect(mockSendTransaction).toHaveBeenCalledWith(expect.objectContaining(fee));
+});
+
+it('routes reads and sends to the selected chain after a claim switches chains', async () => {
+  const switched = buildNativeReownProvider({ chainId: 5042002, address: '0xowner', rpcUrl: 'https://arc.test' });
+  await switched.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0xaa36a7' }] });
+  expect(await switched.request({ method: 'eth_chainId' })).toBe('0xaa36a7');
+  await switched.request({ method: 'eth_sendTransaction', params: [{ to: '0xto' }] });
+  expect(mockSendTransaction).toHaveBeenCalledWith(expect.objectContaining({ chainId: 11155111 }));
+  expect(readNativeFeeFields).toHaveBeenCalledWith(11155111);
+  await expect(
+    switched.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0xdeadbeef' }] })
+  ).rejects.toThrow();
+  expect(await switched.request({ method: 'eth_chainId' })).toBe('0xaa36a7');
 });
 
 describe('assertNativeSessionChain', () => {

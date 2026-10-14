@@ -64,19 +64,25 @@ jest.mock('app/icons/v2', () => ({
   IconName: {}
 }));
 
-jest.mock('components/SpendingLimitChallenge', () => ({
-  SpendingLimitChallenge: (props: any) => (
-    <div data-testid="spending-limit-challenge">
-      <span>{props.assessment.revision}</span>
-      <button type="button" onClick={() => props.onResult({ id: 'ui-only-authorization' })}>
-        authenticate-limit
-      </button>
-      <button type="button" onClick={() => props.onResult(undefined)}>
-        cancel-limit
-      </button>
-    </div>
-  )
-}));
+jest.mock('components/SpendingLimitChallenge', () => {
+  const { Drawer, DrawerContent, DrawerTitle } = jest.requireActual('lib/ui/drawer');
+  return {
+    SpendingLimitChallenge: (props: any) => (
+      <Drawer open onOpenChange={(open: boolean) => !open && props.onResult(undefined)}>
+        <DrawerContent data-testid="spending-limit-challenge">
+          <DrawerTitle>Challenge</DrawerTitle>
+          <span>{props.assessment.revision}</span>
+          <button type="button" onClick={() => props.onResult({ id: 'ui-only-authorization' })}>
+            authenticate-limit
+          </button>
+          <button type="button" onClick={() => props.onResult(undefined)}>
+            cancel-limit
+          </button>
+        </DrawerContent>
+      </Drawer>
+    )
+  };
+});
 
 const FULL_ACCOUNT_ID = 'mtst1apsnkg6x57mhxyrq09aavyq08yu5dy4p_qr7qqq9wr6w';
 
@@ -769,9 +775,7 @@ describe('DappConfirmationModal origin', () => {
     const domain = within(shown).getByTestId('dapp-origin-domain');
     expect(domain).toHaveTextContent(/^example\.co\.uk$/);
     expect(within(shown).getByTestId('dapp-origin-lead')).toHaveClass('truncate');
-    // The row directly wrapping DappOrigin, not the modal card: the card's own
-    // overflow-hidden is an unrelated rounded-corner clip (no fixed height, so it
-    // never clips text) and would otherwise make this guard fail on every render.
+    // Check the title row: the card's rounded-corner clip also contains the scrollable request body.
     expectDomainNeverClipped(domain, shown.parentElement!);
   });
 

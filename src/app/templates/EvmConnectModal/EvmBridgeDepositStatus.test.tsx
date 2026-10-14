@@ -6,6 +6,7 @@ import { TEST_BRIDGE_CONFIG_SNAPSHOT, TEST_MIDEN_USDC_FAUCET } from 'lib/epoch/t
 import type { IBridgedReceiveExtraInputs, IBridgedReceivePhase, ITransaction } from 'lib/miden/db/types';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
+import { openExternalUrl } from 'lib/mobile/external-browser';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
@@ -59,6 +60,26 @@ jest.mock('components/ui/Spinner', () => ({
   Spinner: () => <div data-testid="spinner" />
 }));
 
+jest.mock('lib/mobile/external-browser', () => ({ openExternalUrl: jest.fn() }));
+
+// The step list animates with framer; here only its inputs matter.
+jest.mock('./UsdcxDepositSteps', () => ({
+  UsdcxDepositSteps: ({ sourceChainId, phase }: Record<string, unknown>) => (
+    <div data-testid="usdcx-deposit-steps" data-source-chain={String(sourceChainId)}>
+      {String(phase)}
+    </div>
+  )
+}));
+
+// The Arc leg's own component signs through wagmi; here only its placement and inputs matter.
+jest.mock('./UsdcxExecuteAction', () => ({
+  UsdcxExecuteAction: ({ txId, sourceChainId, phase, cctp }: Record<string, unknown>) => (
+    <div data-testid="usdcx-execute-action" data-tx-id={String(txId)} data-source-chain={String(sourceChainId)}>
+      {String(phase)}:{cctp ? 'leg' : 'no-leg'}
+    </div>
+  )
+}));
+
 jest.mock('components/PageHeader', () => ({
   PageHeader: ({ title, onClose }: { title: string; onClose?: () => void }) => (
     <header>
@@ -109,13 +130,34 @@ jest.mock('screens/generating-transaction/TransactionSummaryBadge', () => ({
 
 // Children rendered, so the submitted branch's own badge is reachable from this suite.
 jest.mock('screens/generating-transaction/success/TransactionSuccessLayout', () => ({
-  TransactionSuccessLayout: ({ title, children }: { title: string; children?: React.ReactNode }) => (
+  TransactionSuccessLayout: ({
+    title,
+    footerDescription,
+    secondaryAction,
+    children
+  }: {
+    title: string;
+    footerDescription?: string;
+    secondaryAction?: { label: string; onClick: () => void };
+    children?: React.ReactNode;
+  }) => (
     <div data-testid="success-layout">
       {title}
+      <p data-testid="success-footer">{footerDescription}</p>
+      {secondaryAction && <button onClick={secondaryAction.onClick}>{secondaryAction.label}</button>}
       {children}
     </div>
   ),
-  ReceiptRows: () => null
+  ReceiptRows: ({ rows }: { rows: { label: string; value: string }[] }) => (
+    <dl data-testid="receipt-rows">
+      {rows.map(row => (
+        <div key={row.label}>
+          <dt>{row.label}</dt>
+          <dd>{row.value}</dd>
+        </div>
+      ))}
+    </dl>
+  )
 }));
 
 const makeRow = (extraInputs: IBridgedReceiveExtraInputs, overrides: Partial<ITransaction> = {}): ITransaction => ({
@@ -172,6 +214,35 @@ describe('EvmBridgeDepositStatus', () => {
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 
+  it('names the pending wallet confirmation while the deposit waits for the next prompt', () => {
+    // #1290: between the approve landing and the bridge prompt opening the wallet is silent for
+    // several seconds, and the generic processing copy reads as "done" — users left mid-flow.
+    mockRowState = { row: makeRow(makeInputs()), loaded: true };
+    render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} awaitingNextConfirmation />);
+
+    expect(screen.getByText('bridgeDepositAwaitingNextConfirmation')).toBeInTheDocument();
+    expect(screen.getByText('bridgeDepositAwaitingNextConfirmationDescription')).toBeInTheDocument();
+    expect(screen.queryByText('bridgeDepositProcessingDescription')).not.toBeInTheDocument();
+    // The wait appears while the user is looking at their wallet, so it is announced.
+    expect(screen.getByTestId('bridge-deposit-processing-description')).toHaveAttribute('role', 'status');
+    // Still in flight: the spinner state and the Hide affordance are unchanged.
+    expect(screen.getByTestId('hero-state')).toHaveTextContent('processing');
+    expect(screen.getByRole('button', { name: 'hide' })).toBeInTheDocument();
+  });
+
+  it('keeps the failure message when a confirmation was pending as the deposit failed', () => {
+    // A rejected prompt sets the row to failed; the stale "waiting" copy must not outrank the error.
+    mockRowState = {
+      row: makeRow(makeInputs({ phase: 'failed', error: 'user rejected the bridge request' })),
+      loaded: true
+    };
+    render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} awaitingNextConfirmation />);
+
+    expect(screen.getByText('bridgeDepositFailed')).toBeInTheDocument();
+    expect(screen.getByText('user rejected the bridge request')).toBeInTheDocument();
+    expect(screen.queryByText('bridgeDepositAwaitingNextConfirmation')).not.toBeInTheDocument();
+  });
+
   it('shows the failed title and its recorded error', () => {
     mockRowState = {
       row: makeRow(makeInputs({ phase: 'failed', error: 'solver rejected the deposit' })),
@@ -201,6 +272,88 @@ describe('EvmBridgeDepositStatus', () => {
     expect(screen.getByTestId('success-layout')).toHaveTextContent('bridgeDepositSubmitted');
     // The same slate as the processing body: one bridge, one colour, either side of submission.
     expect(screen.getByTestId('summary-badge')).toHaveAttribute('data-arrow-fill', '#777487');
+    expect(screen.getByTestId('success-footer')).toHaveTextContent('bridgeDepositDeliveryDescription');
+  });
+
+  describe('USDCx (Circle xReserve) route', () => {
+    const DEPOSIT_HASH = `0x${'c'.repeat(64)}`;
+    const usdcxInputs = (overrides: Partial<IBridgedReceiveExtraInputs> = {}) =>
+      makeInputs({
+        provider: 'usdcx',
+        outputAmount: '12.5',
+        outputSymbol: 'USDCx',
+        phase: 'delivering',
+        evmTxHash: DEPOSIT_HASH,
+        ...overrides
+      });
+
+    it('labels the route USDCx', () => {
+      mockRowState = { row: makeRow(usdcxInputs()), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('receipt-rows')).toHaveTextContent('usdcxRouteName · Sepolia → Miden');
+    });
+
+    it('uses the recorded Arc source chain for the route and explorer', () => {
+      mockRowState = { row: makeRow(usdcxInputs({ sourceChainId: 5042002 })), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+      expect(screen.getByTestId('receipt-rows')).toHaveTextContent('usdcxRouteName · Arc Testnet → Miden');
+      fireEvent.click(screen.getByText('viewOnBlockExplorer'));
+      expect(openExternalUrl).toHaveBeenCalledWith({
+        url: `https://explorer.testnet.arc.io/tx/${DEPOSIT_HASH}`,
+        title: 'Arc Testnet'
+      });
+    });
+
+    // The app-root watcher writes the phase; the screen reads the row and polls nothing.
+    it('waits for the attestation while the row is delivering', () => {
+      mockRowState = { row: makeRow(usdcxInputs()), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('receipt-rows')).toHaveTextContent('delivering');
+      expect(screen.getByTestId('success-footer')).toHaveTextContent('usdcxAwaitingAttestation');
+    });
+
+    // An executor-route row (Base Sepolia) hands its in-flight copy to the Arc-leg component, which
+    // explains each step and offers the execute; the layout's own footer stands down.
+    it('shows the Arc leg for an executor-route row while it is delivering', () => {
+      mockRowState = {
+        row: makeRow(
+          usdcxInputs({ sourceChainId: 84532, cctp: { sourceDomain: 6, message: '0x12', attestation: '0xab' } })
+        ),
+        loaded: true
+      };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('receipt-rows')).toHaveTextContent('usdcxRouteName · Base Sepolia → Miden');
+      expect(screen.getByTestId('success-footer')).toHaveTextContent('');
+      const action = screen.getByTestId('usdcx-execute-action');
+      expect(action).toHaveAttribute('data-source-chain', '84532');
+      expect(action).toHaveTextContent('delivering:leg');
+    });
+
+    it('keeps the direct route copy for an Arc row', () => {
+      mockRowState = { row: makeRow(usdcxInputs({ sourceChainId: 5042002 })), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('success-footer')).toHaveTextContent('usdcxAwaitingAttestation');
+    });
+
+    it('reads Confirmed once the attestation moved the row to ready', () => {
+      mockRowState = { row: makeRow(usdcxInputs({ phase: 'ready' })), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('receipt-rows')).toHaveTextContent('confirmed');
+      expect(screen.getByTestId('success-footer')).toHaveTextContent('usdcxAttested');
+    });
+
+    it('reads Completed once the minted note is received', () => {
+      mockRowState = { row: makeRow(usdcxInputs({ phase: 'received' })), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('receipt-rows')).toHaveTextContent('completed');
+      expect(screen.getByTestId('success-footer')).toHaveTextContent('usdcxReceived');
+    });
   });
 
   const submittedPhases: IBridgedReceivePhase[] = ['submitting', 'failed', 'delivering', 'received'];

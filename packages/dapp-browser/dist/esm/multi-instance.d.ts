@@ -14,11 +14,13 @@ export interface Rect {
 
 export declare class DappWebViewInstance {
   readonly id: string;
-  constructor(id: string);
+  readonly managedHostCloseToken?: string;
+  readonly currentVisibilitySequence: number;
+  constructor(id: string, managedHostCloseToken?: string);
   /** Move the webview to the given rect (delegates to updateDimensions). */
   setRect(rect: Rect): Promise<void>;
   /** Toggle this instance's visibility. The WebView's JS context survives. */
-  setVisible(visible: boolean): Promise<void>;
+  setVisible(visible: boolean, policyRevision?: number): Promise<void>;
   /** Take a JPEG snapshot of the current page as a base64 data URL. */
   snapshot(scale?: number, quality?: number): Promise<{ data: string }>;
   /** Inject JS into this instance's webview. */
@@ -28,6 +30,8 @@ export declare class DappWebViewInstance {
 }
 
 export interface DappWebViewManager {
+  reserveClose(id: string, token: string): void;
+  forget(id: string, token?: string): void;
   /**
    * Open a new dApp webview. If `id` is omitted, a UUID is generated.
    * If an instance with the given id already exists, the existing one is

@@ -8,8 +8,9 @@ import { DetailCard, DetailRow } from 'components/ui/DetailCard';
 import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
 import { Skeleton } from 'components/ui/Skeleton';
+import { IBridgeProvider } from 'lib/miden/db/types';
+import { USDCX_SYMBOL, usdcxArrivalKey } from 'lib/usdcx/constant';
 import { approxFiatAmount } from 'screens/send-flow/amount-format';
-import { BridgeRoute } from 'screens/send-flow/types';
 
 export interface EvmBridgeDepositReviewProps {
   /** Deposit input amount (human string). */
@@ -21,11 +22,15 @@ export interface EvmBridgeDepositReviewProps {
   /** Optional ≈USD value under the hero amount. Omit when there's no reliable price (e.g. testnet ETH). */
   fiat?: number;
   /** Selected bridge route — drives the route label + arrival ETA. */
-  route: BridgeRoute;
-  /** Output the recipient receives on Miden, as typed on either route. undefined while quoting. */
+  route: IBridgeProvider;
+  /** Output the recipient receives on Miden, as typed on every route. undefined while quoting. */
   outputAmount?: string;
+  /** Circle's quoted fee for an executor-route burn (human string), paid in the source token on top of the amount. */
+  fee?: string;
   /** Source network name (e.g. Sepolia). */
   networkName: string;
+  /** Source chain id; on the USDCx route it picks the arrival estimate (`usdcxArrivalKey`). */
+  sourceChainId?: number;
   /** Show a skeleton on the "You receive" row while the Fast quote is still loading. */
   youReceiveLoading?: boolean;
   /** Drives the confirm-button spinner while the bridge submit is in flight. */
@@ -42,10 +47,19 @@ export interface EvmBridgeDepositReviewProps {
 
 /**
  * What a deposit arrives on Miden as: only the Epoch route mints the bridge's Miden faucet the label names, so the Slow
- * route delivers the plain symbol. The amount step and the Review both name the arriving token through it.
+ * route delivers the plain symbol and Circle xReserve mints USDCx. The amount step and the Review both name the
+ * arriving token through it.
  */
-export function arrivingTokenName(route: BridgeRoute, symbol: string, label: string): string {
-  return route === 'agglayer' ? symbol : label;
+export function arrivingTokenName(route: IBridgeProvider, symbol: string, label: string): string {
+  switch (route) {
+    case 'agglayer':
+      return symbol;
+    case 'usdcx':
+      return USDCX_SYMBOL;
+    case 'epoch':
+    default:
+      return label;
+  }
 }
 
 /**
@@ -62,7 +76,9 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   fiat,
   route,
   outputAmount,
+  fee,
   networkName,
+  sourceChainId,
   youReceiveLoading = false,
   isSubmitting = false,
   canConfirm = false,
@@ -73,8 +89,20 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  const routeLabel = route === 'agglayer' ? t('slow') : t('fast');
-  const arrivalLabel = route === 'agglayer' ? t('slowArrival') : t('fastArrival');
+  const { routeLabel, arrivalLabel } = (() => {
+    switch (route) {
+      case 'agglayer':
+        return { routeLabel: t('slow'), arrivalLabel: t('slowArrival') };
+      case 'usdcx':
+        return {
+          routeLabel: t('usdcxRouteName'),
+          arrivalLabel: t(sourceChainId === undefined ? 'usdcxArrival' : usdcxArrivalKey(sourceChainId))
+        };
+      case 'epoch':
+      default:
+        return { routeLabel: t('fast'), arrivalLabel: t('fastArrival') };
+    }
+  })();
   const name = label ?? symbol;
   const receiveName = arrivingTokenName(route, symbol, name);
   const youReceiveLabel = outputAmount != null ? `≈ ${outputAmount} ${receiveName}`.trim() : receiveName;
@@ -118,6 +146,8 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
         </DetailRow>
 
         <DetailRow label={t('route')}>{`${routeLabel} ${arrivalLabel}`}</DetailRow>
+
+        {fee !== undefined && <DetailRow label={t('usdcxCircleFee')}>{`${fee} ${name}`}</DetailRow>}
 
         <DetailRow label={t('youReceive')}>
           {youReceiveLoading ? <Skeleton className="h-6 w-28" /> : youReceiveLabel}

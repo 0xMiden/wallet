@@ -2,7 +2,8 @@ import React from 'react';
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
-import { SwapEta, TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
+import { SwapEta } from 'lib/miden/swap/tokens';
 
 import { ReviewSwap, ReviewSwapProps } from './ReviewSwap';
 
@@ -39,8 +40,12 @@ jest.mock('app/hooks/useNetworkFeeEstimate', () => ({
 // mock only needs to supply the runtime `SOLVER_MARGIN` value.
 jest.mock('lib/miden/swap/tokens', () => ({
   SOLVER_MARGIN: 0.05,
-  TOKEN_IETH: jest.requireActual('lib/miden/swap/tokens').TOKEN_IETH,
   normalizedFaucetId: jest.requireActual('lib/miden/swap/tokens').normalizedFaucetId
+}));
+
+// The testnet document, whose swap tokens name the iETH faucet the labels read.
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useBridgeConfigSnapshot: () => jest.requireActual('lib/epoch/testing/bridge-config').TEST_BRIDGE_CONFIG_SNAPSHOT
 }));
 
 // The real ReviewLayout transitively pulls in `components/Button` (framer-motion +
@@ -156,7 +161,7 @@ describe('ReviewSwap', () => {
 
     it('names the registry iETH "Test iETH" in the receive hero and the rate row, keeping the symbol for the logo (#477)', () => {
       renderComponent({
-        requestToken: { ...REQUEST_TOKEN, faucetId: TOKEN_IETH.faucetId },
+        requestToken: { ...REQUEST_TOKEN, faucetId: TEST_TOKEN_IETH.faucetId },
         swapEta: etaWithRate('2')
       });
 
@@ -166,8 +171,8 @@ describe('ReviewSwap', () => {
     });
 
     it.each([
-      ['receive', { requestToken: { ...REQUEST_TOKEN, faucetId: TOKEN_IETH.faucetId } }],
-      ['send', { offerToken: { ...OFFER_TOKEN, faucetId: TOKEN_IETH.faucetId, symbol: 'IETH' } }]
+      ['receive', { requestToken: { ...REQUEST_TOKEN, faucetId: TEST_TOKEN_IETH.faucetId } }],
+      ['send', { offerToken: { ...OFFER_TOKEN, faucetId: TEST_TOKEN_IETH.faucetId, symbol: 'IETH' } }]
     ])('puts one (i) on testnet iETH when it is the %s side (#477)', (_side, overrides) => {
       renderComponent(overrides);
 
@@ -351,61 +356,41 @@ describe('ReviewSwap', () => {
   });
 
   describe('settlement controls', () => {
-    const expiryInput = () => screen.getByTestId('swap-expiry-seconds');
+    const preset = (id: string) => screen.getByTestId(`swap-expiry-preset-${id}`);
 
-    it('reopens the stored seconds in the coarsest unit that holds them', () => {
+    it('shows the stored seconds as their preset, under a label that says what happens', () => {
       renderComponent();
 
-      // 120 stored seconds reads back as 2 Minutes, not 120 Seconds.
-      expect(expiryInput()).toHaveValue(2);
-      expect(screen.getByTestId('swap-expiry-unit-minutes')).toHaveAttribute('aria-checked', 'true');
-      expect(screen.getByText('expires')).toBeInTheDocument();
+      expect(preset('2m')).toHaveAttribute('aria-checked', 'true');
+      expect(screen.getByText('swapExpiryLabel')).toBeInTheDocument();
+      // The note names the offer, since only the unfilled part of that amount comes back.
+      expect(screen.getByTestId('swap-expiry-note')).toHaveTextContent(/^swapExpiryNote_1\.5 IMIDEN$/);
     });
 
-    it('keeps seconds for a stored value no coarser unit divides', () => {
-      renderComponent({ expirySeconds: '90' });
+    it('snaps a stored value that is not a preset to the closest one, and pushes it up', () => {
+      const { props } = renderComponent({ expirySeconds: '90' });
 
-      expect(expiryInput()).toHaveValue(90);
-      expect(screen.getByTestId('swap-expiry-unit-seconds')).toHaveAttribute('aria-checked', 'true');
+      expect(preset('2m')).toHaveAttribute('aria-checked', 'true');
+      expect(props.onExpirySecondsChange).toHaveBeenCalledWith('120');
     });
 
     it('renders auto-consume enabled by default', () => {
       renderComponent();
       const toggle = screen.getByTestId('swap-auto-consume');
 
-      expect(expiryInput()).toHaveClass('[appearance:textfield]');
       expect(toggle).toHaveAttribute('data-value', 'true');
       expect(toggle).toHaveClass('!h-8', '!w-16');
       expect(screen.getByText('swapAutoConsume')).toBeInTheDocument();
     });
 
-    it('never submits while the draft is out of range or empty: the expiry shown is the one that goes', () => {
-      const onSubmit = jest.fn();
-      renderComponent({ onSubmit });
-
-      // 99999 minutes is past the 7-day cap; the last valid value (2 minutes) is no longer on screen.
-      fireEvent.change(expiryInput(), { target: { value: '99999' } });
-      expect(screen.getByTestId('swap-submit')).toBeDisabled();
-      fireEvent.click(screen.getByTestId('swap-submit'));
-
-      fireEvent.change(expiryInput(), { target: { value: '' } });
-      expect(screen.getByTestId('swap-submit')).toBeDisabled();
-      fireEvent.click(screen.getByTestId('swap-submit'));
-      expect(onSubmit).not.toHaveBeenCalled();
-
-      fireEvent.change(expiryInput(), { target: { value: '5' } });
-      expect(screen.getByTestId('swap-submit')).toBeEnabled();
-    });
-
     it('holds the expiry still while a submission is in flight', () => {
       renderComponent({ submitting: true });
 
-      expect(expiryInput()).toBeDisabled();
-      for (const unit of ['seconds', 'minutes', 'hours', 'days']) {
-        expect(screen.getByTestId(`swap-expiry-unit-${unit}`)).toBeDisabled();
+      for (const id of ['2m', '1h', '1d', '7d']) {
+        expect(preset(id)).toBeDisabled();
       }
-      // Every unit is disabled mid-submit, and the chosen one still shows (#1086).
-      expect(screen.getByTestId('swap-expiry-unit-minutes')).toHaveAttribute('aria-checked', 'true');
+      // Every choice is disabled mid-submit, and the chosen one still shows (#1086).
+      expect(preset('2m')).toHaveAttribute('aria-checked', 'true');
       expect(screen.getByTestId('swap-submit')).toHaveAttribute('data-loading', 'true');
     });
 
@@ -427,67 +412,16 @@ describe('ReviewSwap', () => {
       expect(onGoBack).toHaveBeenCalledTimes(1);
     });
 
-    it('forwards an edit as SECONDS, whatever unit is showing', () => {
+    it.each([
+      ['1h', '3600'],
+      ['1d', '86400'],
+      ['7d', '604800']
+    ])('forwards the %s preset as seconds', (id, seconds) => {
       const { props } = renderComponent();
 
-      fireEvent.change(expiryInput(), { target: { value: '5' } });
+      fireEvent.click(preset(id));
 
-      expect(props.onExpirySecondsChange).toHaveBeenCalledWith('300');
-    });
-
-    it('re-expresses the same duration when the unit changes, and pushes the seconds up', () => {
-      const { props } = renderComponent();
-
-      fireEvent.click(screen.getByTestId('swap-expiry-unit-hours'));
-
-      // 120s cannot be held in whole hours, so it clamps to this unit's floor.
-      expect(expiryInput()).toHaveValue(1);
-      expect(props.onExpirySecondsChange).toHaveBeenLastCalledWith('3600');
-    });
-
-    it('converts a round value across units without changing the duration', () => {
-      const { props } = renderComponent({ expirySeconds: '7200' });
-
-      expect(expiryInput()).toHaveValue(2);
-      fireEvent.click(screen.getByTestId('swap-expiry-unit-minutes'));
-
-      expect(expiryInput()).toHaveValue(120);
-      expect(props.onExpirySecondsChange).toHaveBeenLastCalledWith('7200');
-    });
-
-    it('refuses a value under the unit floor, with the range named', () => {
-      const { props } = renderComponent({ expirySeconds: '90' });
-
-      fireEvent.change(expiryInput(), { target: { value: '5' } });
-
-      expect(props.onExpirySecondsChange).not.toHaveBeenCalled();
-      expect(expiryInput()).toHaveAttribute('aria-invalid', 'true');
-      expect(screen.getByRole('alert')).toHaveTextContent('swapExpiryRange_30_604800');
-    });
-
-    it('refuses a value over the unit ceiling', () => {
-      const { props } = renderComponent();
-
-      fireEvent.change(expiryInput(), { target: { value: '99999' } });
-
-      expect(props.onExpirySecondsChange).not.toHaveBeenCalled();
-      expect(screen.getByRole('alert')).toHaveTextContent('swapExpiryRange_1_10080');
-    });
-
-    it('refuses an emptied field rather than submitting zero', () => {
-      const { props } = renderComponent();
-
-      fireEvent.change(expiryInput(), { target: { value: '' } });
-
-      expect(props.onExpirySecondsChange).not.toHaveBeenCalled();
-      expect(expiryInput()).toHaveAttribute('aria-invalid', 'true');
-    });
-
-    it('bounds the native input to the unit it is showing', () => {
-      renderComponent();
-
-      expect(expiryInput()).toHaveAttribute('min', '1');
-      expect(expiryInput()).toHaveAttribute('max', '10080');
+      expect(props.onExpirySecondsChange).toHaveBeenLastCalledWith(seconds);
     });
 
     it('forwards auto-consume toggles', () => {

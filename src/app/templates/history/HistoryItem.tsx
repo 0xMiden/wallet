@@ -18,6 +18,8 @@ import TransactionIcon from './TransactionIcon';
 import {
   bridgeInRowDisplay,
   bridgeRowDisplay,
+  bridgeBadgeStatusOf,
+  isUsdcxBridgeEntry,
   earnDepositSettlementOf,
   isBridgeInEntry,
   isEarnWithdrawEntry,
@@ -178,7 +180,9 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
 
       <div className="flex flex-col grow min-w-0">
         <span className="text-ink font-medium truncate text-sm leading-none">
-          {t('bridgeRowTitle', { from: inLabel, to: outLabel })}
+          {entry.bridgeProvider === 'usdcx'
+            ? t('usdcxBurnTitle')
+            : t('bridgeRowTitle', { from: inLabel, to: outLabel })}
         </span>
         <span className="text-xs text-grey-500 truncate mt-1">
           {t('bridgeRowVia', { provider: providerLabel, network })}
@@ -191,7 +195,7 @@ const BridgeRowContent: FC<Pick<HistoryItemProps, 'entry' | 'fullHistory' | 'las
             {outAmount} {outLabel}
           </span>
         )}
-        <StatusBadge status={status} />
+        <StatusBadge status={isUsdcxBridgeEntry(entry) ? bridgeBadgeStatusOf(entry) : status} />
       </div>
     </div>
   );

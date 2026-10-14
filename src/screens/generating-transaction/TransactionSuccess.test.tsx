@@ -362,6 +362,42 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
+  it('labels a USDCx receipt as submitted until the faucet confirms consumption', async () => {
+    const transaction = baseTransaction({
+      type: 'bridged-send',
+      status: 2,
+      amount: 1_000_000n,
+      extraInputs: {
+        provider: 'usdcx',
+        destinationAddress: '0x1111111111111111111111111111111111111111',
+        destinationNetwork: 11155111,
+        usdcxBurn: { noteId: 'burn-note', destinationDomain: 0, phase: 'pending' }
+      }
+    });
+    const { container, root } = await renderInto(
+      <TransactionSuccess transaction={transaction} onDoneClick={() => {}} />
+    );
+    try {
+      expect(container.textContent).toContain('usdcxBurnSubmitted');
+      expect(container.textContent).toContain('usdcxWithdrawalNotice');
+      expect(container.textContent).not.toContain('Payment Sent!');
+      transaction.extraInputs.usdcxBurn.phase = 'confirmed';
+      await act(async () => {
+        root.render(<TransactionSuccess transaction={transaction} onDoneClick={() => {}} />);
+      });
+      expect(container.textContent).toContain('usdcxBurnConfirmed');
+      expect(container.textContent).not.toContain('usdcxBurnSubmitted');
+      transaction.extraInputs.usdcxBurn.destinationBalanceConfirmed = { balance: '1000000', blockNumber: '101' };
+      await act(async () => {
+        root.render(<TransactionSuccess transaction={transaction} onDoneClick={() => {}} />);
+      });
+      expect(container.textContent).toContain('confirmed');
+      expect(container.textContent).not.toContain('usdcxBurnConfirmed');
+    } finally {
+      act(() => root.unmount());
+    }
+  });
+
   it('renders a Fast route row for an epoch bridged send', async () => {
     mockNativeAssetId = 'faucet-native';
     const { container, root } = await renderInto(
@@ -406,7 +442,7 @@ describe('TransactionSuccess', () => {
         transaction={baseTransaction({
           type: 'switch-guardian',
           extraInputs: {
-            previousGuardianEndpoint: 'https://guardian.openzeppelin.com',
+            previousGuardianEndpoint: 'https://guardian-testnet.openzeppelin.com',
             newGuardianEndpoint: 'https://guardian-testnet.kodax.com'
           }
         })}
@@ -418,7 +454,7 @@ describe('TransactionSuccess', () => {
     // operators in its previous → new transition line (the mocked display-name
     // helper renders `guardian(<endpoint>)`).
     expect(container.textContent).toContain('guardianSwitchSuccessTitle');
-    expect(container.textContent).toContain('guardian(https://guardian.openzeppelin.com)');
+    expect(container.textContent).toContain('guardian(https://guardian-testnet.openzeppelin.com)');
     expect(container.textContent).toContain('guardian(https://guardian-testnet.kodax.com)');
     // NOT the generic SendSuccess fallback.
     expect(container.textContent).not.toContain('Transaction Complete!');

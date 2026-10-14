@@ -44,6 +44,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState
@@ -52,7 +53,14 @@ import React, {
 import { AnimatePresence } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
-import { DappWebViewInstance, InAppBrowser, ToolBarType, dappWebViewManager } from '@miden/dapp-browser';
+import {
+  DappWebViewInstance,
+  type HostCloseRequest,
+  InAppBrowser,
+  ToolBarType,
+  dappWebViewManager
+} from '@miden/dapp-browser';
+import breadLogoSvg from 'app/icons/brand/new-bread.svg?raw';
 import { DappConfirmationModal } from 'app/pages/Browser/DappConfirmationModal';
 import { DappPeekTray } from 'app/pages/Browser/DappPeekTray';
 import { DappSwitcher } from 'app/pages/Browser/DappSwitcher';
@@ -79,15 +87,19 @@ import {
 // through the native plugin.
 import { dappConfirmationStore } from 'lib/dapp-browser/confirmation-store';
 import { getDappDisplayName } from 'lib/dapp-browser/dapp-session';
-import { captureSnapshot, clearSnapshot, snapshotStoreInternals } from 'lib/dapp-browser/snapshot-store';
+import { PRESENTATION_SCRIPT } from 'lib/dapp-browser/presentation-script';
+import { captureSnapshot, clearSnapshot, getSnapshot, snapshotStoreInternals } from 'lib/dapp-browser/snapshot-store';
 import { type WebViewRect } from 'lib/dapp-browser/webview-rect';
 import { useOverlayScreenKey } from 'lib/e2e/useOverlayScreenKey';
+import { externalPageFailed } from 'lib/mobile/external-page-failed';
+import { faucetNoTopInsetScript, isFaucetOrigin } from 'lib/mobile/faucet-top-inset';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { resetViewportAfterWebview } from 'lib/mobile/viewport-reset';
 import { markReturningFromWebview } from 'lib/mobile/webview-state';
-import { isMobile } from 'lib/platform';
+import { isIOS, isMobile } from 'lib/platform';
 import { PropsWithChildren } from 'lib/props-with-children';
 import { selectIsReady, useWalletStore } from 'lib/store';
+import { useModalsParams } from 'lib/ui/dialog';
 import { navigate, useLocation } from 'lib/woozie';
 
 /**
@@ -157,9 +169,33 @@ export interface DappSessionState {
    * or explicit reload.
    */
   error: string | null;
+  /** Native-confirmed display policy, independent of wallet permissions. */
+  presentation: 'browser' | 'fullscreen';
+  policyResolved?: boolean;
+  policyRevision?: number;
+  policyLifetime?: string;
+}
+
+interface ManagedCloseRecord {
+  request: HostCloseRequest;
+  ready: boolean;
+  needsDestination: boolean;
+  finalized: Promise<void>;
+  terminal: Promise<void>;
+  settle: () => void;
+}
+
+interface SessionFinalization {
+  finalized: Promise<void>;
+  viewportReady: Promise<void>;
 }
 
 interface DappBrowserContextValue {
+  policyPending: boolean;
+  presentation: 'browser' | 'fullscreen';
+  reportPresentationLayout: (id: string, lifetime: string, revision: number, rect: WebViewRect) => void;
+  reportLauncherCommit: (active: boolean) => void;
+
   /** The foregrounded session, or null if the launcher is showing. */
   session: DappSession | null;
   /** Convenience — 'active' if a session is foregrounded, 'launcher' otherwise. */
@@ -196,6 +232,8 @@ interface DappBrowserContextValue {
    */
   holdHostOverlay: () => () => void;
 }
+
+type ParkGuard = (afterHide: boolean) => boolean;
 
 const DappBrowserContext = createContext<DappBrowserContextValue | null>(null);
 
@@ -255,6 +293,9 @@ async function sendResponseToInstance(instance: DappWebViewInstance, response: u
   }
 }
 
+/** Only iOS reports the phone's top inset to the faucet under our header (`faucet-top-inset.ts`). */
+const needsFaucetTopInset = (origin: string): boolean => isIOS() && isFaucetOrigin(origin);
+
 /**
  * The provider — mounted at the TabLayout level (above the route switcher).
  */
@@ -295,21 +336,31 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     };
   }, []);
 
-  // One decision for every path that can show the foreground window (the slot
-  // effect, the switcher close, the visibility effect): a pending confirmation,
-  // the open switcher or a held host overlay keeps it hidden. Mirrored into a
-  // ref during render so effects in this commit read the current value.
-  const foregroundBlocked = !!request || switcherOpen || hostOverlays > 0;
+  // Readiness and hydration gate native visibility even before routing removes the reported slot.
+  const location = useLocation();
+  const isWalletReady = useWalletStore(selectIsReady);
+  const isHydrated = useWalletStore(s => s.isInitialized);
+
+  const walletShellActive = useMemo(() => {
+    if (!isWalletReady || !isHydrated) return false;
+    const path = location.pathname;
+    if (path === '/welcome') return false;
+    if (path.startsWith('/onboarding')) return false;
+    if (path === '/forgot-password') return false;
+    if (path === '/forgot-password-info') return false;
+    if (path === '/reset-required') return false;
+    if (path === '/reset-wallet') return false;
+    return true;
+  }, [location.pathname, isWalletReady, isHydrated]);
+
+  const { alertParams, confirmParams } = useModalsParams();
+  const foregroundBlocked =
+    !walletShellActive || !!request || switcherOpen || hostOverlays > 0 || alertParams.isOpen || confirmParams.isOpen;
   const foregroundBlockedRef = useRef(foregroundBlocked);
+  const foregroundOwnershipRevision = useRef(0);
+  if (foregroundBlocked && !foregroundBlockedRef.current) foregroundOwnershipRevision.current++;
   foregroundBlockedRef.current = foregroundBlocked;
-  // Snapshot taken at the moment the switcher opens — restored when it
-  // closes (unless the user picked a card, in which case the picked
-  // session takes the foreground via restore()).
-  const switcherForegroundBeforeRef = useRef<string | null>(null);
-  const openSwitcher = useCallback(() => {
-    switcherForegroundBeforeRef.current = foregroundIdRef.current;
-    setSwitcherOpen(true);
-  }, []);
+  const openSwitcher = useCallback(() => setSwitcherOpen(true), []);
   const closeSwitcher = useCallback(() => setSwitcherOpen(false), []);
 
   const sessionStatesRef = useRef<DappSessionState[]>(sessionStates);
@@ -327,6 +378,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // a circular useCallback dependency. Populated after `restore` is
   // defined below.
   const restoreRef = useRef<((sessionId: string) => Promise<void>) | null>(null);
+  const parkRef = useRef<((sessionId: string, guard?: ParkGuard) => Promise<void>) | null>(null);
+  const nativeMinimizations = useRef(new Set<string>());
 
   useEffect(() => {
     sessionStatesRef.current = sessionStates;
@@ -354,11 +407,149 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   }, []);
 
   const removeSession = useCallback((id: string) => {
+    sessionStatesRef.current = sessionStatesRef.current.filter(s => s.session.id !== id);
     setSessionStates(prev => prev.filter(s => s.session.id !== id));
   }, []);
 
   const getSessionStateById = useCallback((id: string): DappSessionState | undefined => {
     return sessionStatesRef.current.find(s => s.session.id === id);
+  }, []);
+
+  // Native handles can materialize later; lifetime identity changes only on removal and a new session.
+  const sessionLifetimes = useRef(new Map<string, symbol>());
+  const openingSessions = useRef(new Map<string, symbol>());
+  const listenerSetup = useRef<Promise<void>>(Promise.resolve());
+  const finalizations = useRef(new Map<string, SessionFinalization>());
+  const managedTokens = useRef(new Map<string, string>());
+  const managedClosings = useRef(new Map<string, ManagedCloseRecord>());
+  const providerAlive = useRef(true);
+  const providerEpoch = useRef(Symbol());
+  const [launcherCommitted, setLauncherCommitted] = useState(false);
+  const hostCommitGeneration = useRef(0);
+  const [closeRevision, setCloseRevision] = useState(0);
+  const [presentationLayout, setPresentationLayout] = useState<{
+    id: string;
+    lifetime: string;
+    revision: number;
+    rect: WebViewRect;
+  } | null>(null);
+  const reportPresentationLayout = useCallback((id: string, lifetime: string, revision: number, rect: WebViewRect) => {
+    if (managedTokens.current.get(id) !== lifetime || rect.width <= 0 || rect.height <= 0) return;
+    setPresentationLayout(previous =>
+      previous?.id === id &&
+      previous.lifetime === lifetime &&
+      previous.revision === revision &&
+      previous.rect.x === rect.x &&
+      previous.rect.y === rect.y &&
+      previous.rect.width === rect.width &&
+      previous.rect.height === rect.height
+        ? previous
+        : { id, lifetime, revision, rect }
+    );
+  }, []);
+  const reportLauncherCommit = useCallback((active: boolean) => {
+    setLauncherCommitted(active);
+  }, []);
+  const finalizeSession = useCallback(
+    (id: string, resetViewport = true): Promise<void> => {
+      const existing = finalizations.current.get(id);
+      if (existing) return existing.finalized;
+      if (!getSessionStateById(id)) return Promise.resolve();
+      // Remove the session before notifying confirmation subscribers so it cannot auto-restore.
+      sessionLifetimes.current.delete(id);
+      const token = managedTokens.current.get(id);
+      if (token) dappWebViewManager.reserveClose(id, token);
+      removeSession(id);
+      if (foregroundIdRef.current === id) {
+        foregroundIdRef.current = null;
+        setForegroundId(null);
+        setActiveDappSession(null);
+      }
+      dappConfirmationStore.resolveConfirmation(id, { confirmed: false });
+      clearSnapshot(id);
+      if (resetViewport) markReturningFromWebview();
+      const viewportReady = resetViewport ? resetViewportAfterWebview() : Promise.resolve();
+      const finalized = Promise.all([
+        removePersistedSession(id).catch(error => console.warn('[DappBrowserProvider] remove session failed:', error)),
+        removeSnapshotFromDisk(id).catch(error => console.warn('[DappBrowserProvider] remove snapshot failed:', error)),
+        viewportReady
+      ]).then(() => undefined);
+      finalizations.current.set(id, { finalized, viewportReady });
+      return finalized;
+    },
+    [getSessionStateById, removeSession, setActiveDappSession]
+  );
+
+  const requestManagedClose = useCallback(
+    (event: HostCloseRequest) => {
+      if (!providerAlive.current || managedTokens.current.get(event.id) !== event.token) return;
+      const existing = managedClosings.current.get(event.token);
+      if (existing) {
+        if (existing.request.requestId !== event.requestId) {
+          existing.request = event;
+          setCloseRevision(n => n + 1);
+        }
+        return;
+      }
+      const needsDestination = event.visible === true;
+      const resetViewport = needsDestination && foregroundIdRef.current === event.id && !foregroundBlockedRef.current;
+      let settle = () => {};
+      const terminal = new Promise<void>(resolve => {
+        settle = resolve;
+      });
+      const record: ManagedCloseRecord = {
+        request: event,
+        ready: false,
+        needsDestination,
+        finalized: Promise.resolve(),
+        terminal,
+        settle
+      };
+      managedClosings.current.set(event.token, record);
+      record.finalized = finalizeSession(event.id, resetViewport);
+      void (finalizations.current.get(event.id)?.viewportReady ?? Promise.resolve()).finally(() => {
+        if (!providerAlive.current || managedClosings.current.get(event.token) !== record) return;
+        record.ready = true;
+        setCloseRevision(n => n + 1);
+      });
+      setCloseRevision(n => n + 1);
+    },
+    [finalizeSession]
+  );
+
+  // A child layout receipt certifies the retained launcher. Other host destinations commit here.
+  useLayoutEffect(() => {
+    const generation = ++hostCommitGeneration.current;
+    for (const record of managedClosings.current.values()) {
+      if (!record.ready) continue;
+      const needsLauncher =
+        record.needsDestination && location.pathname === '/browser' && !foregroundBlocked && !foregroundId;
+      if (needsLauncher && (!launcherCommitted || slotRect)) continue;
+      void InAppBrowser.completeManagedClose({ ...record.request, hostCommitGeneration: generation }).catch(() => {
+        // Native retains the surface and offers Retry/Exit now after a failed fence.
+      });
+    }
+  }, [closeRevision, location.pathname, foregroundBlocked, foregroundId, slotRect, launcherCommitted]);
+
+  useEffect(() => {
+    providerAlive.current = true;
+    const openings = openingSessions.current;
+    const tokens = managedTokens.current;
+    const closings = managedClosings.current;
+    return () => {
+      providerAlive.current = false;
+      providerEpoch.current = Symbol();
+      openings.clear();
+      for (const [id, token] of tokens) {
+        dappWebViewManager.reserveClose(id, token);
+        void InAppBrowser.close({ id, managedHostCloseToken: token, force: true })
+          .catch(() => {})
+          .finally(() => dappWebViewManager.forget(id, token));
+      }
+      tokens.clear();
+      for (const record of closings.values()) record.settle();
+      closings.clear();
+    };
   }, []);
 
   // ─── Plugin event listeners ─────────────────────────────────────────────
@@ -374,6 +565,77 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     let mounted = true;
 
     const wire = async () => {
+      const managedL = await InAppBrowser.addListener('hostCloseRequested', requestManagedClose);
+      listenerRemovers.push(() => managedL.remove());
+      const presentationL = await InAppBrowser.addListener('presentationChanged', event => {
+        if (
+          event.managedHostCloseToken !== managedTokens.current.get(event.id) ||
+          !Number.isSafeInteger(event.policyRevision) ||
+          typeof event.policyResolved !== 'boolean'
+        )
+          return;
+        updateSession(event.id, s => {
+          if (s.policyLifetime === event.managedHostCloseToken && (s.policyRevision ?? -1) >= event.policyRevision!)
+            return s;
+          return {
+            ...s,
+            presentation: event.display,
+            policyResolved: event.policyResolved,
+            policyRevision: event.policyRevision,
+            policyLifetime: event.managedHostCloseToken
+          };
+        });
+      });
+      listenerRemovers.push(() => presentationL.remove());
+      const minimizeL = await InAppBrowser.addListener('presentationMinimizeRequested', event => {
+        const state = getSessionStateById(event.id);
+        const lifetime = event.managedHostCloseToken;
+        const instance = state?.instance;
+        const park = parkRef.current;
+        if (
+          !mounted ||
+          !lifetime ||
+          !instance ||
+          !park ||
+          foregroundBlockedRef.current ||
+          foregroundIdRef.current !== event.id ||
+          managedTokens.current.get(event.id) !== lifetime ||
+          managedClosings.current.has(lifetime) ||
+          state.status !== 'active' ||
+          !state.policyResolved ||
+          state.policyRevision !== event.policyRevision ||
+          nativeMinimizations.current.has(lifetime) ||
+          !Number.isSafeInteger(event.visibilitySequence) ||
+          event.visibilitySequence !== instance.currentVisibilitySequence
+        )
+          return;
+        const ownership = foregroundOwnershipRevision.current;
+        const owns: ParkGuard = afterHide => {
+          const current = getSessionStateById(event.id);
+          return (
+            mounted &&
+            foregroundOwnershipRevision.current === ownership &&
+            !foregroundBlockedRef.current &&
+            !dappConfirmationStore.getPendingRequest(event.id) &&
+            foregroundIdRef.current === event.id &&
+            managedTokens.current.get(event.id) === lifetime &&
+            !managedClosings.current.has(lifetime) &&
+            current?.instance === instance &&
+            current.policyResolved === true &&
+            current.policyRevision === event.policyRevision &&
+            (afterHide ||
+              (current.status === 'active' && instance.currentVisibilitySequence === event.visibilitySequence))
+          );
+        };
+        nativeMinimizations.current.add(lifetime);
+        void park(event.id, owns)
+          .catch(error => {
+            console.warn('[DappBrowserProvider] native minimize failed:', error);
+          })
+          .finally(() => nativeMinimizations.current.delete(lifetime));
+      });
+      listenerRemovers.push(() => minimizeL.remove());
+
       const messageL = await InAppBrowser.addListener('messageFromWebview', async event => {
         const id = (event as { id?: string })?.id ?? 'default';
         const state = getSessionStateById(id);
@@ -453,6 +715,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         } catch (e) {
           console.error('[DappBrowserProvider] Error injecting bridge:', e);
         }
+        // Re-read: the snapshot above predates the await, and `urlChangeEvent` may have confirmed the
+        // origin since. An unconfirmed one is left to that handler.
+        const loaded = getSessionStateById(id);
+        if (loaded?.instance === state.instance && loaded.originConfirmed && needsFaucetTopInset(loaded.origin)) {
+          await state.instance.executeScript(faucetNoTopInsetScript(loaded.origin)).catch(() => undefined);
+        }
         try {
           // JSON.stringify the id so a non-alphanumeric session id
           // (future-proofing; today it's dapp-<ts>-<rand>) cannot
@@ -491,6 +759,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
             originConfirmed: true,
             session: { ...s.session, url: newUrl, origin }
           }));
+          // The script is a no-op in any other document, so no loading check: a later `browserPageLoaded`
+          // for the faucet document injects again.
+          const current = getSessionStateById(id);
+          if (current?.instance && needsFaucetTopInset(origin)) {
+            void current.instance.executeScript(faucetNoTopInsetScript(origin)).catch(() => undefined);
+          }
         } catch {
           /* ignore */
         }
@@ -509,18 +783,19 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
       const closeL = await InAppBrowser.addListener('closeEvent', async event => {
         const id = (event as { id?: string })?.id ?? 'default';
-        const state = getSessionStateById(id);
-        if (!state) return;
-        // Native plugin closed itself (e.g. user backed out, or our own
-        // close() triggered this event as part of its teardown). Remove
-        // the session from state.
-        clearSnapshot(id);
-        removeSession(id);
-        if (foregroundIdRef.current === id) {
-          setForegroundId(null);
+        const token = event.managedHostCloseToken;
+        if (token) {
+          const record = managedClosings.current.get(token);
+          const current = managedTokens.current.get(id) === token;
+          if (!current && !record) return;
+          await (record?.finalized ?? (current ? finalizeSession(id, false) : Promise.resolve()));
+          if (managedClosings.current.get(token) === record) managedClosings.current.delete(token);
+          if (managedTokens.current.get(id) === token) managedTokens.current.delete(id);
+          dappWebViewManager.forget(id, token);
+          record?.settle();
+        } else if (!managedTokens.current.has(id)) {
+          await finalizeSession(id);
         }
-        markReturningFromWebview();
-        await resetViewportAfterWebview();
       });
       listenerRemovers.push(() => closeL.remove());
 
@@ -530,7 +805,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       }
     };
 
-    void wire();
+    listenerSetup.current = wire();
 
     return () => {
       mounted = false;
@@ -589,12 +864,18 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           isLoading: false,
           isCold: true,
           originConfirmed: false,
-          error: null
+          error: null,
+          presentation: 'browser',
+          policyResolved: !isMobile()
         }));
 
       // Merge into state — this path assumes there are no live sessions
       // yet (which is correct on first mount), so we can just set.
-      setSessionStates(prev => (prev.length === 0 ? coldStates : prev));
+      setSessionStates(prev => {
+        if (prev.length > 0) return prev;
+        for (const state of coldStates) sessionLifetimes.current.set(state.session.id, Symbol());
+        return coldStates;
+      });
     };
 
     void rehydrate();
@@ -607,7 +888,20 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
   const openInternal = useCallback(
     async (session: DappSession, rect: WebViewRect) => {
+      const lifetime = sessionLifetimes.current.get(session.id);
+      if (!lifetime || openingSessions.current.get(session.id) === lifetime) return;
+      openingSessions.current.set(session.id, lifetime);
+      const epoch = providerEpoch.current;
+      const token = crypto.randomUUID();
+      managedTokens.current.set(session.id, token);
       try {
+        await listenerSetup.current;
+        if (
+          !providerAlive.current ||
+          providerEpoch.current !== epoch ||
+          sessionLifetimes.current.get(session.id) !== lifetime
+        )
+          return;
         const instance = await dappWebViewManager.open({
           id: session.id,
           url: session.url,
@@ -623,8 +917,42 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           // this so users can't poke at the runtime. The flag is plumbed
           // through to WKWebViewConfiguration.isInspectable in the iOS
           // plugin (Capacitor inappbrowser openWebView option).
+          ...(isMobile()
+            ? {
+                initiallyVisible: false,
+                managedHostClose: {
+                  token,
+                  errorLabel: t('breadCloseError'),
+                  retryLabel: t('retry'),
+                  exitLabel: t('breadExitNow')
+                },
+                breadPresentation: {
+                  script: PRESENTATION_SCRIPT,
+                  logoSvg: breadLogoSvg,
+                  backLabel: t('breadPresentationBack'),
+                  hintLabel: t('breadPresentationHint'),
+                  retryLabel: t('retry'),
+                  errorLabel: t('breadPresentationError'),
+                  readinessTimeoutMs: 30000
+                }
+              }
+            : {}),
           isInspectable: process.env.NODE_ENV !== 'production'
         });
+        // An early native close can arrive while openWebView is still pending.
+        if (
+          !providerAlive.current ||
+          providerEpoch.current !== epoch ||
+          sessionLifetimes.current.get(session.id) !== lifetime
+        ) {
+          if (!managedClosings.current.has(token)) {
+            await InAppBrowser.close({ id: session.id, managedHostCloseToken: token, force: true });
+            if (managedTokens.current.get(session.id) === token) await finalizations.current.get(session.id)?.finalized;
+            if (managedTokens.current.get(session.id) === token) managedTokens.current.delete(session.id);
+            dappWebViewManager.forget(session.id, token);
+          }
+          return;
+        }
         updateSession(session.id, s => ({
           ...s,
           instance,
@@ -638,17 +966,31 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           originConfirmed: false
         }));
       } catch (error) {
+        if (managedClosings.current.has(token)) return;
+        if (
+          !providerAlive.current ||
+          providerEpoch.current !== epoch ||
+          sessionLifetimes.current.get(session.id) !== lifetime
+        ) {
+          if (managedTokens.current.get(session.id) === token) await finalizations.current.get(session.id)?.finalized;
+          if (managedTokens.current.get(session.id) === token) managedTokens.current.delete(session.id);
+          dappWebViewManager.forget(session.id, token);
+          return;
+        }
+        if (managedTokens.current.get(session.id) === token) managedTokens.current.delete(session.id);
         console.error('[DappBrowserProvider] Error opening webview:', error);
         updateSession(session.id, s => ({ ...s, isLoading: false, status: 'closing' }));
+      } finally {
+        if (openingSessions.current.get(session.id) === lifetime) openingSessions.current.delete(session.id);
       }
     },
     [t, updateSession]
   );
 
   const parkInternal = useCallback(
-    async (id: string) => {
+    async (id: string, guard?: ParkGuard) => {
       const state = getSessionStateById(id);
-      if (!state?.instance) return;
+      if (!state?.instance || (guard && !guard(false))) return;
       // Clear the "was visible" watermark so the auto-park effect
       // below doesn't treat a subsequent restore() as a stale-foreground
       // → auto-park trigger. Without this, parking session A then
@@ -659,7 +1001,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       //   4. fires parkInternal(A) again → session flashes then re-parks
       // (User-visible: "dApp opens and closes immediately on first tap,
       // works on second tap once the ref was cleared by step 4.")
-      if (slotRectShownForRef.current === id) {
+      if (!guard && slotRectShownForRef.current === id) {
         slotRectShownForRef.current = null;
       }
       // Snapshot first so the bubble has a frozen preview to render.
@@ -669,11 +1011,24 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       } catch (e) {
         console.warn('[DappBrowserProvider] snapshot capture failed:', e);
       }
+      if (
+        finalizations.current.has(id) ||
+        getSessionStateById(id)?.instance !== state.instance ||
+        (guard && !guard(false))
+      )
+        return;
       try {
         await state.instance.setVisible(false);
       } catch (e) {
         console.warn('[DappBrowserProvider] setVisible(false) failed:', e);
       }
+      if (
+        finalizations.current.has(id) ||
+        getSessionStateById(id)?.instance !== state.instance ||
+        (guard && !guard(true))
+      )
+        return;
+      if (guard && slotRectShownForRef.current === id) slotRectShownForRef.current = null;
       updateSession(id, s => ({ ...s, status: 'parked' }));
 
       // PR-6 cold-bubble persistence: write both the session metadata and
@@ -690,12 +1045,14 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       if (snapshotDataUrl) {
         void writeSnapshotToDisk(id, snapshotDataUrl);
       }
+      return true;
     },
     [getSessionStateById, updateSession]
   );
 
   const open = useCallback(
     (next: DappSession) => {
+      foregroundOwnershipRevision.current++;
       // Dedup by id first, then by URL — tapping the same dApp tile or a
       // "recents" entry for an already-open session should restore the
       // existing session instead of spawning a duplicate. Without this,
@@ -706,6 +1063,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         void restoreRef.current?.(next.id);
         return;
       }
+      if (managedTokens.current.has(next.id)) return;
       const existingByUrl = sessionStatesRef.current.find(s => s.session.url === next.url && s.status !== 'closing');
       if (existingByUrl) {
         void restoreRef.current?.(existingByUrl.session.id);
@@ -718,6 +1076,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       if (currentForeground) {
         void parkInternal(currentForeground);
       }
+
+      finalizations.current.delete(next.id);
+      sessionLifetimes.current.set(next.id, Symbol());
 
       // Add the new session to state in the 'loading' phase. The effect
       // below will pick up foregroundId + slotRect and call openInternal
@@ -732,7 +1093,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           isLoading: true,
           isCold: false,
           originConfirmed: false,
-          error: null
+          error: null,
+          presentation: 'browser',
+          policyResolved: !isMobile()
         }
       ]);
       setForegroundId(next.id);
@@ -745,43 +1108,38 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     async (sessionId?: string) => {
       const id = sessionId ?? foregroundIdRef.current;
       if (!id) return;
+      if (foregroundIdRef.current === id) foregroundOwnershipRevision.current++;
+      const token = managedTokens.current.get(id);
+      const closing = token ? managedClosings.current.get(token) : undefined;
+      if (closing) {
+        await Promise.all([closing.terminal, closing.finalized]);
+        return;
+      }
       const state = getSessionStateById(id);
       if (!state) return;
-      // Resolve any pending confirmation for this session BEFORE tearing
-      // down state. Without this the dapp.ts promise chain is leaked,
-      // the confirmationStore Map entry lives forever, and the
-      // auto-restore effect below re-fires on every store notification
-      // trying to restore a session that no longer exists. Treated as
-      // implicit rejection — the user closed the dApp so they clearly
-      // aren't confirming.
-      dappConfirmationStore.resolveConfirmation(id, { confirmed: false });
-      updateSession(id, s => ({ ...s, status: 'closing' }));
+      if (state.instance?.managedHostCloseToken) {
+        await state.instance.close();
+        await finalizations.current.get(id)?.finalized;
+        return;
+      }
+      const finalized = finalizeSession(id);
       try {
         await state.instance?.close();
       } catch (e) {
         console.warn('[DappBrowserProvider] instance.close() failed:', e);
       }
-      clearSnapshot(id);
-      removeSession(id);
-      if (foregroundIdRef.current === id) {
-        setForegroundId(null);
-        setActiveDappSession(null);
-      }
-      // PR-6: drop the persisted session + snapshot so it doesn't reappear
-      // as a cold bubble on the next app launch.
-      void removePersistedSession(id);
-      void removeSnapshotFromDisk(id);
-      markReturningFromWebview();
-      await resetViewportAfterWebview();
+      await finalized;
     },
-    [getSessionStateById, removeSession, setActiveDappSession, updateSession]
+    [finalizeSession, getSessionStateById]
   );
 
   const park = useCallback(
-    async (sessionId?: string) => {
+    async (sessionId?: string, guard?: ParkGuard) => {
       const id = sessionId ?? foregroundIdRef.current;
       if (!id) return;
-      await parkInternal(id);
+      if (!guard && foregroundIdRef.current === id) foregroundOwnershipRevision.current++;
+      const committed = await parkInternal(id, guard);
+      if (!committed || (guard && !guard(true))) return;
       // If parking the foreground, clear the foregroundId so the launcher
       // shows again (with the bubble overlay).
       if (foregroundIdRef.current === id) {
@@ -794,13 +1152,25 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const restore = useCallback(
     async (sessionId: string) => {
       const state = getSessionStateById(sessionId);
-      if (!state) return;
+      const lifetime = sessionLifetimes.current.get(sessionId);
+      if (!state || !lifetime) return;
+      foregroundOwnershipRevision.current++;
       // Park the current foreground (if any and different from the restore
       // target) so its bubble appears while the restored session takes the
       // active slot.
       const currentForeground = foregroundIdRef.current;
+      let parkedForeground = false;
       if (currentForeground && currentForeground !== sessionId) {
-        await parkInternal(currentForeground);
+        parkedForeground = (await parkInternal(currentForeground)) === true;
+      }
+      const target = getSessionStateById(sessionId);
+      if (!target || finalizations.current.has(sessionId) || sessionLifetimes.current.get(sessionId) !== lifetime) {
+        if (parkedForeground && foregroundIdRef.current === currentForeground) {
+          foregroundIdRef.current = null;
+          setForegroundId(null);
+          setActiveDappSession(null);
+        }
+        return;
       }
       // PR-6 cold-bubble lifecycle: if this session has no live native
       // instance yet (rehydrated from persistence at app launch), mark
@@ -808,7 +1178,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       // once the slot rect is reported. The bubble's cached snapshot
       // stays visible under the loading state until browserPageLoaded
       // fires — see DappActive for the crossfade.
-      if (!state.instance || state.isCold) {
+      if (!target.instance || target.isCold) {
         updateSession(sessionId, s => ({
           ...s,
           status: 'loading',
@@ -841,13 +1211,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // circular useCallback deps.
   useEffect(() => {
     restoreRef.current = restore;
-  }, [restore]);
+    parkRef.current = park;
+  }, [park, restore]);
 
   // ─── Effects that drive the native side ─────────────────────────────────
 
-  // When a session becomes foreground AND a slot rect is reported, either
-  // open it for the first time (status === 'loading') or setVisible(true)
-  // + setRect on a previously parked instance (status === 'active').
+  // Opening needs a reported slot; warm foreground changes refresh the injection without reloading.
   useEffect(() => {
     if (!foregroundId || !slotRect) return;
     const state = getSessionStateById(foregroundId);
@@ -858,20 +1227,6 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       return;
     }
     if (state.instance) {
-      // Order matters: position the webview BEFORE making it visible.
-      // The instance remembers its last native rect from the previous
-      // foregrounding, and if that rect differs from the new slot
-      // (even by a few pt), calling `setVisible(true)` first shows
-      // the webview at the OLD position for one frame, then
-      // `setRect(new)` moves it — producing a visible jump at the
-      // end of the expand animation. Calling setRect first ensures
-      // the webview is already at the target before it appears.
-      void state.instance.setRect(slotRect).catch(e => console.warn('[DappBrowserProvider] setRect failed:', e));
-      // Blocked: stay hidden; the visibility effect shows it once nothing blocks.
-      if (!foregroundBlockedRef.current)
-        void state.instance
-          .setVisible(true)
-          .catch(e => console.warn('[DappBrowserProvider] setVisible(true) failed:', e));
       // Re-run the injection script on restore so any CSS the wallet
       // wants to layer onto the dApp (currently the navbar bottom
       // padding) reaches sessions that were parked before the most
@@ -976,43 +1331,6 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     return dappConfirmationStore.subscribe(tryAutoRestore);
   }, [restore]);
 
-  // PR-5: when the switcher opens, hide every active native dApp window
-  // so the React-rendered switcher can be the topmost visible layer.
-  // Otherwise the native UIWindows (which sit above the Capacitor host
-  // window in iOS architecture A) bleed through. When the switcher
-  // closes WITHOUT a restore(), put the previously-foreground session
-  // back into view.
-  useEffect(() => {
-    if (switcherOpen) {
-      // Hide all active instances. Parked ones are already hidden.
-      sessionStatesRef.current.forEach(s => {
-        if (s.status === 'active' && s.instance) {
-          void s.instance
-            .setVisible(false)
-            .catch(e => console.warn('[DappBrowserProvider] setVisible(false) failed:', e));
-        }
-      });
-    } else {
-      // Switcher closed. If a foreground session is set, ensure it's
-      // visible at the slot rect (in case the user closed without
-      // picking a different card). The slot-rect-driven effect will
-      // call setVisible(true) + setRect once it runs, but we don't
-      // need to do anything explicit here — the dependency on
-      // switcherOpen is enough to trigger a re-run.
-      if (foregroundIdRef.current && slotRectRef.current && !foregroundBlockedRef.current) {
-        const state = sessionStatesRef.current.find(s => s.session.id === foregroundIdRef.current);
-        if (state?.instance) {
-          void state.instance
-            .setVisible(true)
-            .catch(e => console.warn('[DappBrowserProvider] setVisible(true) failed:', e));
-          void state.instance
-            .setRect(slotRectRef.current)
-            .catch(e => console.warn('[DappBrowserProvider] setRect failed:', e));
-        }
-      }
-    }
-  }, [switcherOpen]);
-
   // ─── Derived backwards-compat fields ────────────────────────────────────
   //
   // IMPORTANT: read from `sessionStates` (state) here, NOT from
@@ -1026,6 +1344,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const session = foregroundState?.session ?? null;
   const mode: DappMode = foregroundState ? 'active' : 'launcher';
   const isLoading = foregroundState?.isLoading ?? false;
+  const policyPending = foregroundState?.policyResolved === false;
+  const presentation = foregroundState?.presentation ?? 'browser';
 
   const parkedSessions = useMemo(() => sessionStates.filter(s => s.status === 'parked'), [sessionStates]);
 
@@ -1052,24 +1372,6 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       : '';
   useOverlayScreenKey(Boolean(dappScreenKeyPart), dappScreenKeyPart);
 
-  // The React-only wallet shell is active once the user is past
-  // onboarding / unlock. Parked dApp trays use this gate so persistent
-  // dApp chrome never appears over welcome, lock, reset, or import flows.
-  const location = useLocation();
-  const isWalletReady = useWalletStore(selectIsReady);
-
-  const walletShellActive = useMemo(() => {
-    if (!isWalletReady) return false;
-    const path = location.pathname;
-    if (path === '/welcome') return false;
-    if (path.startsWith('/onboarding')) return false;
-    if (path === '/forgot-password') return false;
-    if (path === '/forgot-password-info') return false;
-    if (path === '/reset-required') return false;
-    if (path === '/reset-wallet') return false;
-    return true;
-  }, [location.pathname, isWalletReady]);
-
   const contextValue = useMemo<DappBrowserContextValue>(
     () => ({
       session,
@@ -1086,7 +1388,11 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       closeSwitcher,
       setSlotRect,
       slotRect,
-      holdHostOverlay
+      holdHostOverlay,
+      reportLauncherCommit,
+      policyPending,
+      presentation,
+      reportPresentationLayout
     }),
     [
       session,
@@ -1102,51 +1408,129 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       openSwitcher,
       closeSwitcher,
       slotRect,
-      holdHostOverlay
+      holdHostOverlay,
+      reportLauncherCommit,
+      policyPending,
+      presentation,
+      reportPresentationLayout
     ]
   );
 
-  // CRITICAL: when a confirmation is pending, hide the foreground dApp's
-  // native UIWindow. The confirmation modal is rendered inside the
-  // Capacitor host WebView (a UIWindow at .normal level), but every
-  // active dApp WKWebView lives in its OWN UIWindow (also at .normal,
-  // but inserted ABOVE the host window so the slot rect reads taps).
-  // When a dApp is foregrounded, its window covers the host window —
-  // including the modal. The modal therefore becomes invisible AND
-  // untappable: the user taps "Approve", the tap goes into the dApp's
-  // web content (not the React button), and the confirmation sits
-  // stuck forever.
-  //
-  // Fix: toggle the dApp's visibility in lockstep with the request
-  // state. Hiding the dApp UIWindow exposes the host window (where
-  // the modal renders). Showing it again after resolve restores the
-  // dApp at its last-known slot rect — the native plugin remembers
-  // the rect per instance, so no resize is needed here.
-  //
-  // This matches the existing switcher-open effect's pattern, just
-  // scoped to the single foreground session instead of every active
-  // instance.
-  //
-  // foregroundBlocked (above) decides: a held host overlay or the open switcher
-  // hides it the same way, and it is shown again only when nothing blocks.
-  // Keyed on the foreground instance too, so a window created while blocked
-  // (openInternal opens it visible) is hidden as soon as it arrives.
-  const foregroundInstance = sessionStates.find(s => s.session.id === foregroundId)?.instance ?? null;
+  const visibilityTargets = sessionStates.map(state => ({
+    id: state.session.id,
+    instance: state.instance,
+    active: state.status === 'active',
+    policyRevision: state.policyRevision,
+    policyResolved: state.policyResolved,
+    policyLifetime: state.policyLifetime,
+    lifetime: sessionLifetimes.current.get(state.session.id)
+  }));
+  const visibilityTargetsRef = useRef(visibilityTargets);
+  if (
+    visibilityTargets.length !== visibilityTargetsRef.current.length ||
+    visibilityTargets.some((target, i) => {
+      const previous = visibilityTargetsRef.current[i];
+      return (
+        target.id !== previous?.id ||
+        target.instance !== previous.instance ||
+        target.active !== previous.active ||
+        target.policyRevision !== previous.policyRevision ||
+        target.policyResolved !== previous.policyResolved ||
+        target.policyLifetime !== previous.policyLifetime ||
+        target.lifetime !== previous.lifetime
+      );
+    })
+  )
+    visibilityTargetsRef.current = visibilityTargets;
+  const stableVisibilityTargets = visibilityTargetsRef.current;
+
+  const foregroundVisibilityTarget = stableVisibilityTargets.find(target => target.id === foregroundId);
+  const foregroundInstance = foregroundVisibilityTarget?.instance;
+  const foregroundActive = foregroundVisibilityTarget?.active;
+  const foregroundLifetime = foregroundVisibilityTarget?.lifetime;
+  const foregroundPolicyRevision = foregroundVisibilityTarget?.policyRevision;
+  const foregroundPolicyResolved = foregroundVisibilityTarget?.policyResolved;
+  const foregroundPolicyLifetime = foregroundVisibilityTarget?.policyLifetime;
+  const foregroundOwnership = foregroundOwnershipRevision.current;
+
+  // Generic dialogs are outside this provider. All native windows remain hidden while the host owns visibility.
   useEffect(() => {
     if (!isMobile()) return;
-    if (!foregroundId) return;
-    const state = sessionStatesRef.current.find(s => s.session.id === foregroundId);
-    if (!state?.instance) return;
-    if (foregroundBlocked) {
-      void state.instance
-        .setVisible(false)
-        .catch(e => console.warn('[DappBrowserProvider] setVisible(false) failed:', e));
-    } else {
-      void state.instance
-        .setVisible(true)
-        .catch(e => console.warn('[DappBrowserProvider] setVisible(true) failed:', e));
+    const reveal = !foregroundBlocked && !!slotRectRef.current && foregroundActive;
+    for (const target of stableVisibilityTargets) {
+      if (target.instance && (target.id !== foregroundId || !reveal)) {
+        void target.instance
+          .setVisible(false)
+          .catch(e => console.warn('[DappBrowserProvider] setVisible(false) failed:', e));
+      }
     }
-  }, [foregroundBlocked, foregroundId, foregroundInstance]);
+  }, [foregroundId, foregroundBlocked, foregroundActive, stableVisibilityTargets, slotRect]);
+
+  // Only foreground identity, eligibility or geometry can restart positioning and the native paint fence.
+  useEffect(() => {
+    if (!isMobile()) return;
+    const rect = slotRectRef.current;
+    const instance = foregroundInstance;
+    const id = foregroundId;
+    if (!instance || !id || !rect) return;
+    const reveal = !foregroundBlocked && foregroundActive;
+    let cancelled = false;
+    const position = async () => {
+      try {
+        await instance.setRect(rect);
+      } catch (e) {
+        console.warn('[DappBrowserProvider] setRect failed:', e);
+        return;
+      }
+      if (
+        !reveal ||
+        cancelled ||
+        foregroundOwnershipRevision.current !== foregroundOwnership ||
+        foregroundBlockedRef.current ||
+        foregroundIdRef.current !== id ||
+        sessionLifetimes.current.get(id) !== foregroundLifetime ||
+        getSessionStateById(id)?.instance !== instance ||
+        getSessionStateById(id)?.policyRevision !== foregroundPolicyRevision ||
+        !slotRectRef.current
+      )
+        return;
+      try {
+        const acknowledged =
+          foregroundPolicyResolved &&
+          presentationLayout?.id === id &&
+          presentationLayout.lifetime === foregroundPolicyLifetime &&
+          presentationLayout.revision === foregroundPolicyRevision &&
+          presentationLayout.rect.x === rect.x &&
+          presentationLayout.rect.y === rect.y &&
+          presentationLayout.rect.width === rect.width &&
+          presentationLayout.rect.height === rect.height;
+        if (acknowledged) await instance.setVisible(true, foregroundPolicyRevision);
+        else await instance.setVisible(true);
+      } catch (e) {
+        console.warn('[DappBrowserProvider] setVisible(true) failed:', e);
+      }
+    };
+    void position();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    foregroundId,
+    foregroundOwnership,
+    foregroundBlocked,
+    foregroundInstance,
+    foregroundActive,
+    foregroundLifetime,
+    foregroundPolicyRevision,
+    foregroundPolicyResolved,
+    foregroundPolicyLifetime,
+    presentationLayout,
+    slotRect?.x,
+    slotRect?.y,
+    slotRect?.width,
+    slotRect?.height,
+    getSessionStateById
+  ]);
 
   // Read account info for the modal — kept here to avoid prop-drilling
   const currentAccount = useWalletStore(s => s.currentAccount);
@@ -1166,14 +1550,18 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // which is how a "resized the frame but never re-laid-out the content"
   // regression is caught.
   //
-  // Strictly READ-ONLY: the suite drives every transition through real taps on
-  // real elements. Exposing actions here would let the tests bypass the UI and
-  // silently stop covering it. Mirrors the __TEST_STORE__ gate; zero
-  // production impact.
+  // Observations contain no approval or snapshot payloads. The failure trigger
+  // exercises the production notification tree, not native touch reachability.
   useEffect(() => {
     if (process.env.MIDEN_E2E_TEST !== 'true') return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (globalThis as any).__TEST_DAPP_BROWSER__ = {
+      get pendingConfirmationCount() {
+        return dappConfirmationStore.getAllPendingRequests().length;
+      },
+      hasPendingConfirmation: (id: string) => dappConfirmationStore.hasPendingRequest(id),
+      hasSnapshot: (id: string) => getSnapshot(id) !== undefined,
+      notifyExternalPageFailed: externalPageFailed,
       foregroundId,
       mode: foregroundId ? 'active' : 'launcher',
       switcherOpen,
@@ -1209,7 +1597,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       {/* Confirmation modal — visible whenever the store has a pending request,
           regardless of which tab the user is on. */}
       <AnimatePresence>
-        {request && <DappConfirmationModal request={request} accountId={accountId} onResolve={resolve} />}
+        {request && (
+          <DappConfirmationModal key={request.id} request={request} accountId={accountId} onResolve={resolve} />
+        )}
       </AnimatePresence>
     </DappBrowserContext.Provider>
   );

@@ -9,6 +9,7 @@ import { useMidenContext, useAccount } from 'lib/miden/front';
 import { getNetworkId } from 'lib/miden-chain/constants';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useRetryableSWR } from 'lib/swr';
+import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 import { useLocation } from 'lib/woozie';
 
 import { declaredRequestToView, summaryBytesToView } from './confirm/decode';
@@ -368,6 +369,23 @@ describe('ConfirmPage gate', () => {
 // ---------------------------------------------------------------------------
 
 describe('ConfirmDAppForm id derivation', () => {
+  it.each([
+    ['?foo=bar', 'missing'],
+    ['?id=', 'empty']
+  ])('annotates %s without retaining the route or id', (search, confirmationId) => {
+    mockUseLocation.mockReturnValue({ search });
+    setPayload({ type: 'assets', ...baseFields() });
+    const spy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    let failure: unknown;
+    try {
+      render(<ConfirmPage />);
+    } catch (error) {
+      failure = error;
+    }
+    expect(snapshotCrashDiagnostics(failure)).toEqual({ operation: 'confirm_payload', confirmationId });
+    spy.mockRestore();
+  });
+
   it('throws when the location has no id query param', () => {
     mockUseLocation.mockReturnValue({ search: '?foo=bar' });
     setPayload({ type: 'assets', ...baseFields() });
@@ -703,6 +721,14 @@ describe('consume payload', () => {
     });
 
     await waitFor(() => expect(ctx.confirmDAppTransaction).toHaveBeenCalledWith('req-1', true, false));
+  });
+
+  it('marks each consume row value for E2E, as the transaction rows are', () => {
+    setPayload({ ...consumePayload(), transactionMessages: ['Consuming note', 'Amount, 7.25', 'Note Type, Public'] });
+    render(<ConfirmPage />);
+
+    expect(screen.getByTestId('confirm-tx-value-amount')).toHaveTextContent('7.25');
+    expect(screen.getByTestId('confirm-tx-value-note-type')).toHaveTextContent('Public');
   });
 });
 
@@ -1172,6 +1198,16 @@ describe('ConfirmPage custom transaction', () => {
 
     await waitFor(() => expect(screen.getByText('couldNotVerifyBySimulation')).toBeInTheDocument());
     expect(screen.getByTestId('asset-view')).toHaveAttribute('data-mode', 'declared');
+  });
+
+  it('marks the could-not-simulate line for E2E', async () => {
+    (ctx as any).simulateCustomTransaction.mockResolvedValue({ error: 'boom' });
+    setPayload(customPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('tx-simulation-failed')).toHaveTextContent('couldNotVerifyBySimulation')
+    );
   });
 });
 

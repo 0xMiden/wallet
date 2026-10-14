@@ -19,7 +19,10 @@ jest.mock('./bridge', () => ({
   getCrossChainQuote: (...args: unknown[]) => mockGetCrossChainQuote(...args),
   buildCrossChainIntent: (...args: unknown[]) => mockBuildCrossChainIntent(...args)
 }));
-jest.mock('lib/remote-config/values', () => ({ getEvmUsdc: () => mockGetEvmUsdc() }));
+jest.mock('lib/remote-config/values', () => ({
+  getEvmUsdc: () => mockGetEvmUsdc(),
+  getEpochAllocatorUrl: () => 'https://allocator.test'
+}));
 jest.mock('./chain', () => ({
   getCurrentMidenBlock: () => mockGetCurrentMidenBlock(),
   MIDEN_MIN_RECLAIM_BLOCKS: 1000,

@@ -1,4 +1,5 @@
 import * as Repo from 'lib/miden/repo';
+import { ensureBridgeConfig } from 'lib/remote-config/runtime';
 
 import { setAgglayerSenderForE2E } from './bridge-in';
 import { startBridgeReceiveSubmission } from './bridge-receive';
@@ -25,6 +26,8 @@ interface CreateBridgeReceiveArgs {
   amount: string; // base units (bigint as string across the evaluate boundary)
   faucetId: string;
   provider: IBridgeProvider;
+  /** Type only: the hook hands its args to `initiateBridgedReceiveTransaction`, which stores it. */
+  sourceChainId?: number;
   sourceAddress: string;
   sourceAmount: string;
   sourceSymbol: string;
@@ -34,7 +37,18 @@ interface CreateBridgeReceiveArgs {
   evmTxHash: string;
 }
 
-interface BridgeReceiveState {
+/** The deposit facts a spec checks a bridged-receive row against. */
+interface BridgeReceiveDepositFields {
+  evmTxHash?: string;
+  error?: string;
+  midenNoteId?: string;
+  sourceChainId?: number;
+  usdcxRemoteRecipient?: string;
+  /** Unix seconds the row first reached `ready`. */
+  readyAt?: number;
+}
+
+interface BridgeReceiveState extends BridgeReceiveDepositFields {
   found: boolean;
   phase?: IBridgedReceiveExtraInputs['phase'];
   displayMessage?: string;
@@ -58,7 +72,7 @@ declare global {
   var __TEST_LATEST_BRIDGE_RECEIVE__: (provider?: IBridgeProvider) => Promise<LatestBridgeReceive | null>;
 }
 
-interface LatestBridgeReceive {
+interface LatestBridgeReceive extends BridgeReceiveDepositFields {
   id: string;
   amount?: string;
   faucetId: string;
@@ -66,10 +80,24 @@ interface LatestBridgeReceive {
   displayMessage?: string;
 }
 
+function depositFields(inputs: IBridgedReceiveExtraInputs | undefined): BridgeReceiveDepositFields {
+  return {
+    evmTxHash: inputs?.evmTxHash,
+    error: inputs?.error,
+    midenNoteId: inputs?.midenNoteId,
+    sourceChainId: inputs?.sourceChainId,
+    usdcxRemoteRecipient: inputs?.usdcxRemoteRecipient,
+    readyAt: inputs?.readyAt
+  };
+}
+
 export function installBridgeInTestHooks(): void {
   // Created and advanced inside the submission lock, as the deposit screen does: a `submitting` row with no hash and
   // no live submission is failed as an orphan by the app-root reconciler.
   globalThis.__TEST_CREATE_BRIDGE_RECEIVE__ = async ({ evmTxHash, ...args }: CreateBridgeReceiveArgs) => {
+    // A USDCx row reads the document's source route and Miden domain. A profile that never stored a document has
+    // nothing to hydrate, and initBridgeConfig never waits for the network, so this waits for the first document.
+    await ensureBridgeConfig();
     let advanced: Promise<void> | undefined;
     const txId = await startBridgeReceiveSubmission(
       () => initiateBridgedReceiveTransaction({ ...args, amount: BigInt(args.amount) }),
@@ -96,7 +124,8 @@ export function installBridgeInTestHooks(): void {
       displayMessage: row.displayMessage,
       status: row.status,
       amount: row.amount != null ? row.amount.toString() : undefined,
-      faucetId: row.faucetId
+      faucetId: row.faucetId,
+      ...depositFields(inputs)
     };
   };
 
@@ -146,7 +175,8 @@ export function installBridgeInTestHooks(): void {
       amount: row.amount != null ? row.amount.toString() : undefined,
       faucetId: row.faucetId ?? '',
       phase: inputs?.phase,
-      displayMessage: row.displayMessage
+      displayMessage: row.displayMessage,
+      ...depositFields(inputs)
     };
   };
 

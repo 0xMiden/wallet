@@ -42,6 +42,7 @@ const mockSetVisible: jest.Mock = jest.fn(() => Promise.resolve());
 const mockSetRect: jest.Mock = jest.fn(() => Promise.resolve());
 const mockExecuteScript: jest.Mock = jest.fn(() => Promise.resolve());
 const mockInstanceClose: jest.Mock = jest.fn(() => Promise.resolve());
+const mockNativeClose = jest.fn(async (_options: unknown) => {});
 
 function makeInstance(id: string) {
   return {
@@ -53,14 +54,20 @@ function makeInstance(id: string) {
   };
 }
 
+jest.mock('app/icons/brand/new-bread.svg?raw', () => '<svg />', { virtual: true });
+
 jest.mock('@miden/dapp-browser', () => ({
   InAppBrowser: {
+    close: (options: unknown) => mockNativeClose(options),
+    completeManagedClose: jest.fn(async () => {}),
     addListener: (...args: unknown[]) => mockAddListener(...args)
   },
   ToolBarType: { BLANK: 'BLANK' },
   dappWebViewManager: {
+    reserveClose: jest.fn(),
+    forget: jest.fn(),
     open: async (opts: { id: string }) => {
-      mockPluginOpen(opts);
+      await mockPluginOpen(opts);
       return makeInstance(opts.id);
     }
   }
@@ -68,12 +75,13 @@ jest.mock('@miden/dapp-browser', () => ({
 
 // ── isMobile must be true so the provider runs its full lifecycle ──
 const mockIsMobile = jest.fn(() => true);
+const mockIsIOS = jest.fn(() => false);
 jest.mock('lib/platform', () => ({
   isMobile: () => mockIsMobile(),
   isExtension: () => false,
   isDesktop: () => false,
-  isIOS: () => false,
-  isAndroid: () => true
+  isIOS: () => mockIsIOS(),
+  isAndroid: () => !mockIsIOS()
 }));
 
 // ── framer-motion: AnimatePresence is a passthrough in tests ───────
@@ -109,7 +117,8 @@ jest.mock('lib/store', () => {
     selector({
       setActiveDappSession: mockSetActiveDappSession,
       activeDappSessionId: null,
-      isReady: true
+      isReady: true,
+      isInitialized: true
     });
   return {
     useWalletStore: useWalletStoreImpl,
@@ -137,10 +146,12 @@ jest.mock('lib/mobile/webview-state', () => ({
 // ── snapshot-store: in-memory implementations we can assert against ─
 const mockCaptureSnapshot: jest.Mock = jest.fn(() => Promise.resolve('data:image/jpeg;base64,AAAA'));
 const mockClearSnapshot: jest.Mock = jest.fn();
+const mockGetSnapshot = jest.fn();
 const mockSnapshotSetRaw: jest.Mock = jest.fn();
 jest.mock('lib/dapp-browser/snapshot-store', () => ({
   captureSnapshot: (...args: unknown[]) => mockCaptureSnapshot(...args),
   clearSnapshot: (...args: unknown[]) => mockClearSnapshot(...args),
+  getSnapshot: (id: string) => mockGetSnapshot(id),
   snapshotStoreInternals: {
     setRaw: (...args: unknown[]) => mockSnapshotSetRaw(...args)
   }
@@ -214,14 +225,18 @@ jest.mock('lib/dapp-browser', () => ({
 import { dappConfirmationStore, type DAppConfirmationRequest } from 'lib/dapp-browser/confirmation-store';
 // ── screen-key: REAL module — the E2E signal under test below ──────
 import { getCurrentScreen, setRoutePart, __resetScreenKeyForTest } from 'lib/e2e/screen-key';
+import { getEffectiveFaucetUrl } from 'lib/miden-chain/effective-endpoints';
+import { onExternalPageFailed } from 'lib/mobile/external-page-failed';
+import { faucetNoTopInsetScript } from 'lib/mobile/faucet-top-inset';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
+import { DialogsProvider } from 'lib/ui/dialog';
 
 // Imports under test come LAST, after all mocks.
 import { DappBrowserProvider, useDappBrowser, useHideForegroundDappWhileOpen } from './DappBrowserProvider';
 
 // Harness for exercising the provider via its context.
 function wrapper({ children }: { children: React.ReactNode }) {
-  return React.createElement(DappBrowserProvider, null, children);
+  return React.createElement(DialogsProvider, null, React.createElement(DappBrowserProvider, null, children));
 }
 
 function makeSession(id: string, url = `https://${id}.test/`) {
@@ -608,6 +623,99 @@ describe('session origin is derived from the URL being loaded, not a carried-ove
   });
 });
 
+// ── The faucet's top inset style ──────────────────────────────────
+
+describe('faucet top inset style', () => {
+  const SLOT_RECT = { x: 0, y: 0, width: 375, height: 600 };
+  const FAUCET_URL = getEffectiveFaucetUrl();
+  const FAUCET_SCRIPT = faucetNoTopInsetScript(new URL(FAUCET_URL).origin);
+
+  function listenerFor(event: string): (e: unknown) => void | Promise<void> {
+    const call = mockAddListener.mock.calls.find(c => c[0] === event);
+    if (!call) throw new Error(`no listener registered for ${event}`);
+    return call[1] as (e: unknown) => void | Promise<void>;
+  }
+
+  async function settle() {
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+  }
+
+  // Matched by the style id, not the exact script: the script embeds the origin it was built for, so an exact
+  // match never counts one built for another origin and the negative cases could not see it.
+  const faucetInjections = () =>
+    mockExecuteScript.mock.calls.filter(c => typeof c[1] === 'string' && c[1].includes('miden-faucet-no-top-inset'));
+
+  async function openAt(url: string) {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', url)));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+    return hook;
+  }
+
+  async function confirmUrl(url: string) {
+    act(() => {
+      void listenerFor('urlChangeEvent')({ id: 'dapp-a', url });
+    });
+    await settle();
+  }
+
+  async function loadPage() {
+    await act(async () => {
+      await listenerFor('browserPageLoaded')({ id: 'dapp-a' });
+    });
+    await settle();
+  }
+
+  beforeEach(() => mockIsIOS.mockReturnValue(true));
+  afterEach(() => mockIsIOS.mockReturnValue(false));
+
+  it('injects the style again once the faucet page has loaded after its origin was confirmed', async () => {
+    await openAt(FAUCET_URL);
+    await confirmUrl(FAUCET_URL);
+    await loadPage();
+
+    expect(faucetInjections()).toEqual([
+      ['dapp-a', FAUCET_SCRIPT],
+      ['dapp-a', FAUCET_SCRIPT]
+    ]);
+  });
+
+  it('injects nothing into a faucet page whose origin is not confirmed', async () => {
+    await openAt(FAUCET_URL);
+    await loadPage();
+
+    expect(faucetInjections()).toHaveLength(0);
+  });
+
+  it('injects nothing into another origin', async () => {
+    await openAt('https://dapp-a.test/');
+    await confirmUrl('https://dapp-a.test/');
+    await loadPage();
+
+    expect(faucetInjections()).toHaveLength(0);
+  });
+
+  it('injects nothing into the faucet on Android', async () => {
+    mockIsIOS.mockReturnValue(false);
+    await openAt(FAUCET_URL);
+    await confirmUrl(FAUCET_URL);
+    await loadPage();
+
+    expect(faucetInjections()).toHaveLength(0);
+  });
+
+  it('injects the style once when the faucet is confirmed after its page loaded', async () => {
+    await openAt(FAUCET_URL);
+    await loadPage();
+    await confirmUrl(FAUCET_URL);
+
+    expect(faucetInjections()).toEqual([['dapp-a', FAUCET_SCRIPT]]);
+  });
+});
+
 // ── Switcher ───────────────────────────────────────────────────────
 
 describe('switcher', () => {
@@ -676,6 +784,33 @@ describe('E2E screen-key publishing', () => {
     await firePageLoaded(session.id);
   }
 
+  it('publishes live sanitized cleanup observations and the real failure-notice trigger', async () => {
+    renderHook(() => useDappBrowser(), { wrapper });
+    const probe: {
+      pendingConfirmationCount: number;
+      hasPendingConfirmation: (id: string) => boolean;
+      hasSnapshot: (id: string) => boolean;
+      notifyExternalPageFailed: () => void;
+    } = Object.getOwnPropertyDescriptor(globalThis, '__TEST_DAPP_BROWSER__')?.value;
+    expect(probe.pendingConfirmationCount).toBe(0);
+    const pending = dappConfirmationStore.requestConfirmation(makeConfirmationRequest('probe'));
+    expect(probe.pendingConfirmationCount).toBe(1);
+    expect(probe.hasPendingConfirmation('probe')).toBe(true);
+    expect(probe.hasPendingConfirmation('unrelated')).toBe(false);
+    mockGetSnapshot.mockReturnValueOnce('private snapshot');
+    expect(probe.hasSnapshot('probe')).toBe(true);
+    expect(probe.hasSnapshot('gone')).toBe(false);
+    const notice = jest.fn();
+    const unsubscribe = onExternalPageFailed(notice);
+    probe.notifyExternalPageFailed();
+    expect(notice).toHaveBeenCalledTimes(1);
+    unsubscribe();
+    dappConfirmationStore.resolveConfirmation('probe', { confirmed: false });
+    await pending;
+    expect(probe.pendingConfirmationCount).toBe(0);
+    expect(probe.hasPendingConfirmation('probe')).toBe(false);
+  });
+
   it('stays on the bare route while the dApp is still loading', async () => {
     const hook = renderHook(() => useDappBrowser(), { wrapper });
     act(() => hook.result.current.open(makeSession('dapp-a')));
@@ -740,6 +875,16 @@ describe('E2E screen-key publishing', () => {
 
     expect(getCurrentScreen()).toEqual({ key: '', seq: 0 });
   });
+
+  it.each([undefined, 'false', 'TRUE'])('does not install browser test hooks in ordinary mode %s', flag => {
+    Reflect.deleteProperty(globalThis, '__TEST_DAPP_BROWSER__');
+    if (flag === undefined) delete process.env.MIDEN_E2E_TEST;
+    else process.env.MIDEN_E2E_TEST = flag;
+
+    renderHook(() => useDappBrowser(), { wrapper });
+
+    expect(Object.getOwnPropertyDescriptor(globalThis, '__TEST_DAPP_BROWSER__')).toBeUndefined();
+  });
 });
 
 // ── useDappBrowser error when outside provider ─────────────────────
@@ -800,7 +945,7 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
     hook.rerender({ overlay: true });
     expect(lastVisibility('dapp-a')).toBe(false);
 
-    hook.rerender({ overlay: false });
+    await act(async () => hook.rerender({ overlay: false }));
     expect(lastVisibility('dapp-a')).toBe(true);
   });
 
@@ -842,7 +987,7 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
     expect(mockSetVisible).not.toHaveBeenCalledWith('dapp-a', true);
 
     mockConfirmationRequest = null;
-    hook.rerender({ overlay: false });
+    await act(async () => hook.rerender({ overlay: false }));
     expect(lastVisibility('dapp-a')).toBe(true);
   });
 
@@ -877,7 +1022,7 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
 
     expect(lastVisibility('dapp-a')).toBe(false);
 
-    act(() => hook.result.current.closeSwitcher());
+    await act(async () => hook.result.current.closeSwitcher());
     expect(lastVisibility('dapp-a')).toBe(true);
   });
 
@@ -913,11 +1058,13 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
       const hook = renderHarness();
       await openForeground(hook);
       failNative();
+      mockSetVisible.mockClear();
 
       act(() => hook.result.current.setSlotRect(LANDSCAPE));
       await settle();
 
-      expect([warned('setRect'), warned('setVisible(true)'), warned('executeScript')]).toEqual([1, 1, 1]);
+      expect([warned('setRect'), warned('setVisible(true)'), warned('executeScript')]).toEqual([1, 0, 1]);
+      expect(mockSetVisible).not.toHaveBeenCalledWith('dapp-a', true);
     });
 
     it('when the switcher opens', async () => {
@@ -928,8 +1075,7 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
       act(() => hook.result.current.openSwitcher());
       await settle();
 
-      // The switcher effect hides every active window; the visibility effect the foreground one.
-      expect(warned('setVisible(false)')).toBe(2);
+      expect(warned('setVisible(false)')).toBe(1);
     });
 
     it('when the switcher closes', async () => {
@@ -942,7 +1088,7 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
       act(() => hook.result.current.closeSwitcher());
       await settle();
 
-      expect([warned('setVisible(true)'), warned('setRect')]).toEqual([2, 1]);
+      expect([warned('setVisible(true)'), warned('setRect')]).toEqual([0, 1]);
     });
 
     it('when an overlay is held', async () => {
@@ -960,6 +1106,7 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
       const hook = renderHarness(true);
       await openForeground(hook);
       failNative();
+      mockSetRect.mockImplementation(() => Promise.resolve());
 
       hook.rerender({ overlay: false });
       await settle();
@@ -998,5 +1145,383 @@ describe('host overlays (useHideForegroundDappWhileOpen)', () => {
     expect(document.body.hasAttribute('data-drawer-open')).toBe(true);
     sheet2.rerender({ overlay: false });
     expect(document.body.hasAttribute('data-drawer-open')).toBe(false);
+  });
+});
+
+describe('native presentation lifecycle', () => {
+  function listenerFor(event: string): (value: unknown) => Promise<void> {
+    const call = mockAddListener.mock.calls.find(c => c[0] === event);
+    if (!call) throw new Error(`Missing listener: ${event}`);
+    return call[1];
+  }
+
+  it('native close rejects its approval, clears all session storage, and preserves an unrelated approval', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('closeEvent', expect.any(Function)));
+    act(() => hook.result.current.open(makeSession('dapp-b')));
+    act(() => hook.result.current.open(makeSession('dapp-a')));
+    const other = dappConfirmationStore.requestConfirmation(makeConfirmationRequest('dapp-b'));
+    const pending = dappConfirmationStore.requestConfirmation(makeConfirmationRequest('dapp-a'));
+    await act(async () => {
+      await listenerFor('closeEvent')({
+        id: 'dapp-a',
+        managedHostCloseToken: mockPluginOpen.mock.calls.find(call => call[0].id === 'dapp-a')?.[0].managedHostClose
+          ?.token
+      });
+    });
+    expect(dappConfirmationStore.getPendingRequest('dapp-a')).toBeNull();
+    await expect(pending).resolves.toEqual({ confirmed: false });
+    expect(dappConfirmationStore.getPendingRequest('dapp-b')).not.toBeNull();
+    expect(hook.result.current.sessionStates.map(s => s.session.id)).toEqual(['dapp-b']);
+    expect(mockClearSnapshot).toHaveBeenCalledWith('dapp-a');
+    expect(mockRemovePersistedSession).toHaveBeenCalledWith('dapp-a');
+    expect(mockRemoveSnapshotFromDisk).toHaveBeenCalledWith('dapp-a');
+    expect(mockSetActiveDappSession).toHaveBeenCalledWith(null);
+    dappConfirmationStore.resolveConfirmation('dapp-b', { confirmed: false });
+    await other;
+  });
+
+  it('finalizes once when explicit close triggers native closeEvent', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('closeEvent', expect.any(Function)));
+    act(() => {
+      hook.result.current.open(makeSession('dapp-a'));
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    await waitFor(() => expect(mockPluginOpen).toHaveBeenCalled());
+    mockInstanceClose.mockImplementationOnce(() =>
+      listenerFor('closeEvent')({
+        id: 'dapp-a',
+        managedHostCloseToken: mockPluginOpen.mock.calls.find(call => call[0].id === 'dapp-a')?.[0].managedHostClose
+          ?.token
+      })
+    );
+    await act(async () => {
+      await hook.result.current.close('dapp-a');
+    });
+    expect(hook.result.current.sessionStates).toHaveLength(0);
+    expect(mockClearSnapshot).toHaveBeenCalledTimes(1);
+    expect(mockRemovePersistedSession).toHaveBeenCalledTimes(1);
+    expect(mockRemoveSnapshotFromDisk).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for presentation listener registration before opening the page', async () => {
+    let register: (() => void) | undefined;
+    mockAddListener.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          register = () => resolve({ remove: jest.fn() });
+        })
+    );
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => {
+      hook.result.current.open(makeSession('dapp-a'));
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    expect(mockPluginOpen).not.toHaveBeenCalled();
+    await act(async () => {
+      register?.();
+    });
+    await waitFor(() => expect(mockPluginOpen).toHaveBeenCalled());
+  });
+
+  it('closes an instance returned after its session has already been finalized', async () => {
+    let finishOpen: (() => void) | undefined;
+    mockPluginOpen.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          finishOpen = resolve;
+        })
+    );
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('closeEvent', expect.any(Function)));
+    act(() => {
+      hook.result.current.open(makeSession('dapp-a'));
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    await waitFor(() => expect(mockPluginOpen).toHaveBeenCalled());
+    await act(async () => {
+      await hook.result.current.close('dapp-a');
+    });
+    await act(async () => {
+      finishOpen?.();
+    });
+    expect(mockNativeClose).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'dapp-a', force: true, managedHostCloseToken: expect.any(String) })
+    );
+    expect(hook.result.current.sessionStates).toHaveLength(0);
+    expect(mockClearSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores a rejected old open after terminal cleanup and same-id replacement', async () => {
+    let rejectOpen: (error: Error) => void = () => {};
+    mockPluginOpen.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectOpen = reject;
+        })
+    );
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('closeEvent', expect.any(Function)));
+    act(() => {
+      hook.result.current.open(makeSession('dapp-a'));
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    await waitFor(() => expect(mockPluginOpen).toHaveBeenCalledTimes(1));
+    const token = mockPluginOpen.mock.calls[0][0].managedHostClose?.token;
+    await act(async () => {
+      await listenerFor('closeEvent')({ id: 'dapp-a', managedHostCloseToken: token });
+    });
+    act(() => hook.result.current.open(makeSession('dapp-a')));
+    await waitFor(() => expect(hook.result.current.sessionStates[0]?.status).toBe('active'));
+    const errors = jest.spyOn(console, 'error').mockImplementation(() => {});
+    await act(async () => rejectOpen(new Error('retired open rejected')));
+    expect(hook.result.current.sessionStates[0]?.status).toBe('active');
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
+  });
+
+  it('does not persist a parked snapshot that finishes after native close', async () => {
+    let finishSnapshot: ((value: string) => void) | undefined;
+    mockCaptureSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          finishSnapshot = resolve;
+        })
+    );
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('closeEvent', expect.any(Function)));
+    act(() => {
+      hook.result.current.open(makeSession('dapp-a'));
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    await waitFor(() => expect(mockPluginOpen).toHaveBeenCalled());
+    let parking: Promise<void> | undefined;
+    act(() => {
+      parking = hook.result.current.park('dapp-a');
+    });
+    await act(async () => {
+      await listenerFor('closeEvent')({
+        id: 'dapp-a',
+        managedHostCloseToken: mockPluginOpen.mock.calls.find(call => call[0].id === 'dapp-a')?.[0].managedHostClose
+          ?.token
+      });
+    });
+    await act(async () => {
+      finishSnapshot?.('data:image/jpeg;base64,AAAA');
+      await parking;
+    });
+    expect(mockUpsertPersistedSession).not.toHaveBeenCalled();
+    expect(mockWriteSnapshotToDisk).not.toHaveBeenCalled();
+    expect(hook.result.current.sessionStates).toHaveLength(0);
+  });
+
+  it('opens a loading session once when its slot changes before native opening finishes', async () => {
+    let finishOpen: (() => void) | undefined;
+    mockPluginOpen.mockImplementation(
+      () =>
+        new Promise<void>(resolve => {
+          finishOpen = resolve;
+        })
+    );
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('closeEvent', expect.any(Function)));
+    act(() => {
+      hook.result.current.open(makeSession('dapp-a'));
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    await waitFor(() => expect(mockPluginOpen).toHaveBeenCalled());
+    await act(async () => {
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 600, height: 375 });
+    });
+    const opens = mockPluginOpen.mock.calls.length;
+    await act(async () => {
+      finishOpen?.();
+    });
+    mockPluginOpen.mockReset();
+    expect(opens).toBe(1);
+  });
+
+  it('does not select a restore target that closes while another session is parking', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('closeEvent', expect.any(Function)));
+    act(() => {
+      hook.result.current.open(makeSession('target'));
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    await waitFor(() => expect(mockPluginOpen).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await hook.result.current.park('target');
+    });
+    act(() => {
+      hook.result.current.open(makeSession('keep'));
+    });
+    await waitFor(() => expect(mockPluginOpen).toHaveBeenCalledTimes(2));
+    let finish: (value: string) => void = () => {
+      throw new Error('capture has not started');
+    };
+    mockCaptureSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          finish = resolve;
+        })
+    );
+    let restoring: Promise<void> | undefined;
+    act(() => {
+      restoring = hook.result.current.restore('target');
+    });
+    await act(async () => {
+      await listenerFor('closeEvent')({
+        id: 'target',
+        managedHostCloseToken: mockPluginOpen.mock.calls.find(call => call[0].id === 'target')?.[0].managedHostClose
+          ?.token
+      });
+    });
+    mockSetActiveDappSession.mockClear();
+    await act(async () => {
+      finish('data:image/jpeg;base64,AAAA');
+      await restoring;
+    });
+    expect(hook.result.current.sessionStates.map(s => s.session.id)).toEqual(['keep']);
+    expect(mockSetActiveDappSession).not.toHaveBeenCalledWith('target');
+    expect(hook.result.current.mode).toBe('launcher');
+  });
+
+  it('restores a live target whose native opening completes while another session is parking', async () => {
+    let finishOpen: () => void = () => {
+      throw new Error('open has not started');
+    };
+    mockPluginOpen.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          finishOpen = resolve;
+        })
+    );
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('closeEvent', expect.any(Function)));
+    act(() => {
+      hook.result.current.open(makeSession('target'));
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    await waitFor(() => expect(mockPluginOpen).toHaveBeenCalledTimes(1));
+    expect(hook.result.current.sessionStates.find(s => s.session.id === 'target')?.instance).toBeNull();
+    act(() => {
+      hook.result.current.open(makeSession('keep'));
+    });
+    await waitFor(() =>
+      expect(hook.result.current.sessionStates.find(s => s.session.id === 'keep')?.instance).not.toBeNull()
+    );
+    let finishSnapshot: (value: string) => void = () => {
+      throw new Error('capture has not started');
+    };
+    mockCaptureSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          finishSnapshot = resolve;
+        })
+    );
+    let restoring: Promise<void> | undefined;
+    act(() => {
+      restoring = hook.result.current.restore('target');
+    });
+    await act(async () => {
+      finishOpen();
+    });
+    const instance = hook.result.current.sessionStates.find(s => s.session.id === 'target')?.instance;
+    expect(instance).not.toBeNull();
+    mockSetActiveDappSession.mockClear();
+    await act(async () => {
+      finishSnapshot('data:image/jpeg;base64,AAAA');
+      await restoring;
+    });
+    expect(hook.result.current.session?.id).toBe('target');
+    expect(mockSetActiveDappSession).toHaveBeenCalledWith('target');
+    expect(hook.result.current.sessionStates.find(s => s.session.id === 'target')?.instance).toBe(instance);
+    expect(hook.result.current.sessionStates.find(s => s.session.id === 'keep')?.status).toBe('parked');
+  });
+
+  it('rejects an earlier restore when a target ID and timestamp are reused for a replacement session', async () => {
+    let finishOpen: () => void = () => {
+      throw new Error('open has not started');
+    };
+    mockPluginOpen.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          finishOpen = resolve;
+        })
+    );
+    const target = makeSession('target');
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('closeEvent', expect.any(Function)));
+    act(() => {
+      hook.result.current.open(target);
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    await waitFor(() => expect(mockPluginOpen).toHaveBeenCalledTimes(1));
+    act(() => {
+      hook.result.current.open(makeSession('keep'));
+    });
+    await waitFor(() =>
+      expect(hook.result.current.sessionStates.find(s => s.session.id === 'keep')?.instance).not.toBeNull()
+    );
+    let finishSnapshot: (value: string) => void = () => {
+      throw new Error('capture has not started');
+    };
+    mockCaptureSnapshot.mockImplementationOnce(
+      () =>
+        new Promise<string>(resolve => {
+          finishSnapshot = resolve;
+        })
+    );
+    let restoring: Promise<void> | undefined;
+    act(() => {
+      restoring = hook.result.current.restore('target');
+    });
+    await act(async () => {
+      await hook.result.current.close('target');
+    });
+    act(() => {
+      hook.result.current.open(target);
+    });
+    mockSetActiveDappSession.mockClear();
+    await act(async () => {
+      finishSnapshot('data:image/jpeg;base64,AAAA');
+      await restoring;
+    });
+    const selectedAgain = mockSetActiveDappSession.mock.calls.some(call => call[0] === 'target');
+    await act(async () => {
+      await hook.result.current.close('target');
+      finishOpen();
+    });
+    expect(selectedAgain).toBe(false);
+    expect(hook.result.current.sessionStates.map(s => s.session.id)).toEqual(['keep']);
+  });
+
+  it('passes the native contract and captures presentation events before opening returns', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    await waitFor(() => expect(mockAddListener).toHaveBeenCalledWith('presentationChanged', expect.any(Function)));
+    mockPluginOpen.mockImplementationOnce((options: { id: string; managedHostClose: { token: string } }) => {
+      void listenerFor('presentationChanged')({
+        id: options.id,
+        display: 'fullscreen',
+        policyResolved: true,
+        policyRevision: 2,
+        managedHostCloseToken: options.managedHostClose.token
+      });
+    });
+    act(() => {
+      hook.result.current.open(makeSession('dapp-a'));
+      hook.result.current.setSlotRect({ x: 0, y: 0, width: 375, height: 600 });
+    });
+    await waitFor(() => expect(hook.result.current.sessionStates[0]).toMatchObject({ presentation: 'fullscreen' }));
+    expect(mockPluginOpen.mock.calls[0]![0].breadPresentation).toMatchObject({
+      script: expect.any(String),
+      logoSvg: expect.any(String),
+      backLabel: 'breadPresentationBack',
+      hintLabel: 'breadPresentationHint',
+      retryLabel: 'retry',
+      errorLabel: 'breadPresentationError',
+      readinessTimeoutMs: 30000
+    });
   });
 });

@@ -31,6 +31,7 @@ export interface CreateEarnP2IDENoteArgs {
   /** Fired the instant the `earn-deposit` row is created (before proving/submit). */
   onRowCreated?: (txId: string) => void;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
+  allocatorUrl?: string;
 }
 
 /**
@@ -93,7 +94,8 @@ export async function createEarnP2IDENote(
       // OOMs the service worker / WebView and restarts the wallet mid-submit.
       true,
       requestBytes,
-      spendingLimitAuthorization
+      spendingLimitAuthorization,
+      args.allocatorUrl
     );
 
     // Row exists now (Queued) — let the caller navigate before we block on proving.

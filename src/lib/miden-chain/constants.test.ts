@@ -61,7 +61,7 @@ describe('miden-chain/constants', () => {
         // More than one provider runs on testnet; opts[0] is the default (OpenZeppelin),
         // resolved to its TESTNET endpoint (pins provider identity + per-network endpoint).
         expect(opts.length).toBeGreaterThan(1);
-        expect(opts[0]).toMatchObject({ id: 'open-zeppelin', endpoint: 'https://guardian.openzeppelin.com' });
+        expect(opts[0]).toMatchObject({ id: 'open-zeppelin', endpoint: 'https://guardian-testnet.openzeppelin.com' });
       });
     });
 
@@ -75,7 +75,7 @@ describe('miden-chain/constants', () => {
             name: 'OpenZeppelin',
             operatedBy: 'OpenZeppelin',
             location: 'US-EAST',
-            endpoint: 'https://guardian-stg.openzeppelin.com'
+            endpoint: 'https://guardian-devnet.openzeppelin.com'
           }
         ]);
       });
@@ -128,10 +128,13 @@ describe('miden-chain/constants', () => {
     });
 
     it('propagates rejections from MidenClient.ready()', async () => {
-      mockMidenClientReady.mockReturnValueOnce(Promise.reject(new Error('wasm boom')));
+      const failure = new Error('wasm boom');
+      mockMidenClientReady.mockReturnValueOnce(Promise.reject(failure));
       await jest.isolateModulesAsync(async () => {
         const { ensureSdkWasmReady } = require('./constants');
-        await expect(ensureSdkWasmReady()).rejects.toThrow(/wasm boom/);
+        const { snapshotCrashDiagnostics } = require('lib/telemetry/crash-diagnostics');
+        await expect(ensureSdkWasmReady()).rejects.toBe(failure);
+        expect(snapshotCrashDiagnostics(failure)).toEqual({ operation: 'sdk_initialize', stage: 'wasm_ready' });
       });
     });
   });
@@ -237,32 +240,12 @@ describe('miden-chain/constants', () => {
     });
   });
 
-  describe('DEFAULT_GUARDIAN_ENDPOINT', () => {
-    it('uses the network-specific endpoint when present', () => {
-      process.env.MIDEN_NETWORK = 'testnet';
-      jest.isolateModules(() => {
-        const { DEFAULT_GUARDIAN_ENDPOINT, IS_GUARDIAN_SUPPORTED } = require('./constants');
-        expect(DEFAULT_GUARDIAN_ENDPOINT).toBe('https://guardian.openzeppelin.com');
-        expect(IS_GUARDIAN_SUPPORTED).toBe(true);
-      });
-    });
-
-    it('does NOT fall back to staging on networks with no mapping (mainnet safety)', () => {
-      process.env.MIDEN_NETWORK = 'mainnet';
-      jest.isolateModules(() => {
-        const { DEFAULT_GUARDIAN_ENDPOINT, IS_GUARDIAN_SUPPORTED } = require('./constants');
-        expect(DEFAULT_GUARDIAN_ENDPOINT).toBe('');
-        expect(IS_GUARDIAN_SUPPORTED).toBe(false);
-      });
-    });
-  });
-
   describe('getDefaultGuardianEndpoint', () => {
     it('returns the endpoint for a supported network', () => {
       process.env.MIDEN_NETWORK = 'testnet';
       jest.isolateModules(() => {
         const { getDefaultGuardianEndpoint } = require('./constants');
-        expect(getDefaultGuardianEndpoint()).toBe('https://guardian.openzeppelin.com');
+        expect(getDefaultGuardianEndpoint()).toBe('https://guardian-testnet.openzeppelin.com');
       });
     });
 
@@ -298,27 +281,57 @@ describe('miden-chain/constants', () => {
       jest.isolateModules(() => {
         const { GUARDIAN_OPTIONS } = require('./constants');
         const oz = GUARDIAN_OPTIONS.find((o: { id: string }) => o.id === 'open-zeppelin');
-        expect(oz?.endpoint.get('testnet')).toBe('https://guardian.openzeppelin.com');
-        expect(oz?.endpoint.get('devnet')).toBe('https://guardian-stg.openzeppelin.com');
+        expect(oz?.endpoint.get('testnet')).toBe('https://guardian-testnet.openzeppelin.com');
+        expect(oz?.endpoint.get('devnet')).toBe('https://guardian-devnet.openzeppelin.com');
       });
     });
   });
 
-  describe('MIDEN_GUARDIAN_ENDPOINTS', () => {
-    it('collects every provider endpoint per network, OpenZeppelin first', () => {
+  describe('getGuardianEndpointsForNetwork', () => {
+    it('collects every bundled provider endpoint per network, OpenZeppelin first, with no config document', () => {
       process.env.MIDEN_NETWORK = 'testnet';
       jest.isolateModules(() => {
-        const { MIDEN_GUARDIAN_ENDPOINTS } = require('./constants');
-        expect(MIDEN_GUARDIAN_ENDPOINTS.get('testnet')).toEqual([
-          'https://guardian.openzeppelin.com',
+        const { getGuardianEndpointsForNetwork } = require('./constants');
+        expect(getGuardianEndpointsForNetwork('testnet')).toEqual([
+          'https://guardian-testnet.openzeppelin.com',
           'https://miden-guardian.dev.eu-north-3.gateway.fm',
           'https://miden-guardian.lambdaclass.com',
           'https://guardian-testnet.kodax.com'
         ]);
         // Only OpenZeppelin runs a devnet Guardian.
-        expect(MIDEN_GUARDIAN_ENDPOINTS.get('devnet')).toEqual(['https://guardian-stg.openzeppelin.com']);
+        expect(getGuardianEndpointsForNetwork('devnet')).toEqual(['https://guardian-devnet.openzeppelin.com']);
         // OpenZeppelin also exposes a localnet endpoint (the local guardian image).
-        expect(MIDEN_GUARDIAN_ENDPOINTS.get('localnet')).toEqual(['http://localhost:3000']);
+        expect(getGuardianEndpointsForNetwork('localnet')).toEqual(['http://localhost:3000']);
+        // Mainnet has no operator, and never borrows another network's (a mainnet build must not sign against staging).
+        expect(getGuardianEndpointsForNetwork('mainnet')).toEqual([]);
+        // The default is the effective network.
+        expect(getGuardianEndpointsForNetwork()).toEqual(getGuardianEndpointsForNetwork('testnet'));
+      });
+    });
+
+    it('reads the config document list in place of the bundled one, in every getter', () => {
+      process.env.MIDEN_NETWORK = 'testnet';
+      jest.isolateModules(() => {
+        const { setDocumentGuardians } = require('./guardian-registry');
+        const {
+          getBuiltInGuardianOptionsForNetwork,
+          getDefaultGuardianEndpoint,
+          getGuardianEndpointsForNetwork,
+          getGuardianOptionsForNetwork
+        } = require('./constants');
+        const listed = [
+          { id: 'kodax', name: 'Koda', operatedBy: 'Koda', location: 'Asia', endpoint: 'https://koda.example' },
+          { id: 'new-one', name: 'New', operatedBy: 'New Co', location: 'EU', endpoint: 'https://new.example' }
+        ];
+        setDocumentGuardians('testnet', listed);
+
+        expect(getGuardianEndpointsForNetwork('testnet')).toEqual(['https://koda.example', 'https://new.example']);
+        expect(getBuiltInGuardianOptionsForNetwork('testnet')).toEqual(listed);
+        expect(getGuardianOptionsForNetwork('testnet')).toEqual(listed);
+        // The first listed operator is the default; OpenZeppelin, which the document does not list, is gone.
+        expect(getDefaultGuardianEndpoint()).toBe('https://koda.example');
+        // Another network keeps its own list.
+        expect(getGuardianEndpointsForNetwork('devnet')).toEqual(['https://guardian-devnet.openzeppelin.com']);
       });
     });
   });

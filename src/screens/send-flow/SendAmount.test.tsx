@@ -13,7 +13,9 @@ import { SendAmount, SendAmountProps } from './SendAmount';
 
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, params?: Record<string, string>) => (params?.value ? `${key}:${params.value}` : key)
+    // A fiat line names its value and a USDCx amount refusal its amount and network; other keys read as themselves.
+    t: (key: string, params?: Record<string, string>) =>
+      params?.value ? `${key}:${params.value}` : params?.network ? `${key}:${params.amount}:${params.network}` : key
   })
 }));
 jest.mock('lib/platform', () => ({
@@ -61,6 +63,11 @@ jest.mock('components/AmountInput', () => ({
         value={props.value}
         onChange={e => props.onValueChange(e.target.value)}
       />
+      <button
+        data-testid="change-localized-amount"
+        onClick={() => props.onValueChange('1.5', undefined, { value: '1.5', float: 1.5, formatted: '۱.۵' })}
+      />
+      <button data-testid="clear-amount" onClick={() => props.onValueChange(undefined)} />
       {props.error && <span data-testid="amount-error">{props.error}</span>}
       {props.helper}
     </div>
@@ -91,6 +98,18 @@ function renderAmount(overrides: Partial<SendAmountProps> = {}) {
 }
 
 describe('SendAmount', () => {
+  it('stores the canonical amount when the formatted callback uses Persian digits', () => {
+    const props = renderAmount();
+    fireEvent.click(screen.getByTestId('change-localized-amount'));
+    expect(props.onAmountChange).toHaveBeenCalledWith('1.5');
+  });
+
+  it('stores an empty amount when the input is cleared', () => {
+    const props = renderAmount({ amount: '1.5' });
+    fireEvent.click(screen.getByTestId('clear-amount'));
+    expect(props.onAmountChange).toHaveBeenCalledWith('');
+  });
+
   it('names the testnet bridge faucet by its label on the token row, keeping its logo', () => {
     mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
     renderAmount({ token: { ...TOKEN, id: TEST_MIDEN_USDC_FAUCET, name: 'USDC' } });
@@ -189,6 +208,18 @@ describe('SendAmount', () => {
     renderAmount({ amount: '99', error: 'amountMustBeLessThanBalance' });
 
     expect(screen.getByTestId('amount-error')).toHaveTextContent('amountMustBeLessThanBalance');
+    expect(screen.getByTestId('send-amount-input')).toHaveAttribute('data-invalid', 'true');
+  });
+
+  it('fills the error copy with the values the send form hands it', () => {
+    renderAmount({
+      amount: '1.5',
+      network: 'sepolia',
+      error: 'usdcxSendMoreThanPayoutFee',
+      errorValues: { amount: '1.5', network: 'Sepolia' }
+    });
+
+    expect(screen.getByTestId('amount-error')).toHaveTextContent('usdcxSendMoreThanPayoutFee:1.5:Sepolia');
     expect(screen.getByTestId('send-amount-input')).toHaveAttribute('data-invalid', 'true');
   });
 

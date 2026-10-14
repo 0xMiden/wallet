@@ -1,6 +1,10 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
+import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
+import type { TransactionFailureDiagnostics } from 'lib/telemetry/transaction-failure';
+import type { UsdcxSourceChain } from 'lib/usdcx/constant';
+
 import type { GuardianHistoryRecovery } from '../guardian/history';
 import { ConsumableNote, NoteType } from '../types';
 
@@ -123,8 +127,11 @@ export const STRUCTURAL_GUARDIAN_TYPES: readonly ITransactionType[] = [
   'update-procedure-threshold'
 ];
 
-/** Which cross-chain bridge route a `bridged-send` used. */
-export type IBridgeProvider = 'epoch' | 'agglayer';
+/**
+ * Which cross-chain bridge route a bridge row used. `usdcx` is Circle xReserve
+ * (Sepolia USDC ↔ USDCx on Miden).
+ */
+export type IBridgeProvider = 'epoch' | 'agglayer' | 'usdcx';
 
 /** Lifecycle of a tracking-only EVM → Miden bridge row. */
 export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
@@ -135,9 +142,53 @@ export interface IConsumedAssetTotal {
   amount: bigint;
 }
 
+/** One note a consume claimed, as it was queued. */
+export interface IConsumedNote {
+  id: string;
+  senderAddress: string;
+  faucetId: string;
+  /** Base units of the note's first fungible asset; absent when the claimable note carried no amount. */
+  amount?: bigint;
+}
+
+/**
+ * The CCTP leg of a USDCx deposit from a chain with no xReserve (Base, Arbitrum): the burn on the source
+ * chain mints to Circle's executor on Arc, which deposits into Arc's xReserve. Circle's forwarder does not
+ * execute such messages yet, so the wallet keeps the attested message until the user executes it on Arc.
+ */
+export interface IUsdcxCctpLeg {
+  /** Circle's domain of the source chain, the key of its Iris messages. */
+  sourceDomain: number;
+  /** The attested CCTP message and Circle's signature, kept once Iris reports them. */
+  message?: string;
+  attestation?: string;
+  /** The Arc transaction that executed the message, which is the xReserve deposit Circle attests. */
+  executeTxHash?: string;
+  /** Unix seconds the current `executeTxHash` was saved, from either side. */
+  executeSavedAt?: number;
+  /** An Arc execute that stayed unmined past the stall window: never adopted again, still asked about. */
+  stalledExecuteTxHash?: string;
+  /** An Arc execute, the wallet's or Circle's forward, that reverted; never adopted again as the execute. */
+  revertedExecuteTxHash?: string;
+  /** Unix seconds the last revert reopened the leg, stamped by its writer: the leg's week runs from here. */
+  revertedAt?: number;
+  /** Whether the burn paid Circle's forward fee, so Circle executes on Arc; absent on rows before the fee flow. */
+  forwarded?: boolean;
+  /** The quoted fee the burn paid on top of the amount, in source USDC base units. */
+  forwardFee?: string;
+  /** The forwarding service's last reported state for the message. */
+  forwardState?: string;
+}
+
 /** Metadata persisted on a tracking-only EVM → Miden bridge row. */
 export interface IBridgedReceiveExtraInputs {
+  agglayerRoute?: AgglayerRecoveryConfig;
+  epochAllocatorUrl?: string;
   provider: IBridgeProvider;
+  /** EVM source chain; absent on legacy Sepolia rows. */
+  sourceChainId?: number;
+  usdcxSource?: UsdcxSourceChain;
+  usdcxMidenDomain?: number;
   /** Connected EVM account that funded the bridge. */
   sourceAddress: string;
   /** Human-readable source-chain input, retained even if the Miden output differs. */
@@ -153,7 +204,16 @@ export interface IBridgedReceiveExtraInputs {
   evmTxHash?: string;
   intentNonce?: string;
   midenNoteId?: string;
+  /** usdcx: the CCTP leg of an executor-route deposit; absent on a direct xReserve deposit. */
+  cctp?: IUsdcxCctpLeg;
   error?: string;
+  /**
+   * usdcx: the xReserve `remoteRecipient` bytes32 the wallet signed (0x + 64 lowercase hex), written at the deposit's
+   * first phase write. Absent on rows written before this field and on E2E hook rows.
+   */
+  usdcxRemoteRecipient?: string;
+  /** Unix seconds at which the row first reached `ready`. Written once, never cleared, and kept through `failed`. */
+  readyAt?: number;
 }
 
 /** Audit metadata for a Guardian operator switch. `previousGuardianEndpoint`
@@ -247,9 +307,28 @@ export interface ISwitchGuardianExtraInputs {
  */
 export type IBridgeClaimStatus = 'not-applicable' | 'pending' | 'ready' | 'claiming' | 'claimed' | 'failed';
 
+/** Faucet-side lifecycle, independent of the sender's transaction status. */
+export interface IUsdcxBurn {
+  noteId: string;
+  destinationDomain: number;
+  destinationUsdc?: `0x${string}`;
+  payoutFeeAllowance?: string;
+  phase: 'pending' | 'consuming' | 'confirmed' | 'discarded';
+  /** USDC balance saved before the burn is queued, in six-decimal base units. */
+  destinationBalanceBefore?: { balance: string; blockNumber: string };
+  /** Destination balance that met the expected increase after burn confirmation. */
+  destinationBalanceConfirmed?: { balance: string; blockNumber: string };
+  attemptCount?: number;
+  lastAttemptBlockNum?: number;
+  lastError?: string;
+}
+
 /** `extraInputs` shape for a `BridgedSendTransaction`. */
 export interface IBridgedSendExtraInputs {
+  agglayerRoute?: AgglayerRecoveryConfig;
+  epochAllocatorUrl?: string;
   provider: IBridgeProvider;
+  usdcxBurn?: IUsdcxBurn;
   /** 0x EVM recipient. */
   destinationAddress: string;
   /** EVM destination network: the L1 bridge's `networkID()` at creation (agglayer) or chain id (epoch). */
@@ -330,6 +409,7 @@ export interface IBridgedSendExtraInputs {
  * address is the position owner / intent sponsor.
  */
 export interface IEarnDepositExtraInputs {
+  epochAllocatorUrl?: string;
   /** 0x EVM address that owns the resulting lending position (intent sponsor). */
   evmRecipient: string;
   /** Epoch market identifier (`PROTOCOL:chainId:token`) the deposit targets. */
@@ -380,6 +460,8 @@ export interface IEarnWithdrawPreparedExecution extends PreparedExecution {
  * prove/submit — the row is a tracking-only record whose lifecycle lives in `phase`.
  */
 export interface IEarnWithdrawExtraInputs {
+  epochAllocatorUrl?: string;
+  underlyingAddress?: string;
   /** 0x EVM address that owned the redeemed lending position (intent sponsor). */
   evmOwner: string;
   /** Epoch market identifier (`PROTOCOL:chainId:token`) the withdrawal redeemed. */
@@ -429,6 +511,8 @@ export interface IBridgeInInfo {
   intentNonce?: string;
   intentOwner?: string;
   earnWithdrawAttemptId?: string;
+  /** epoch: the allocator the intent's row saved, which its note-id poll asks; absent on an older registration. */
+  epochAllocatorUrl?: string;
   /** EVM-side deposit/fill tx hash, when known. */
   evmTxHash?: string;
   /** Miden-side note id the bridge-in resolved to, copied on by `applyBridgeInInfoForNotes`. */
@@ -589,6 +673,8 @@ export interface ITransaction {
   noteType?: NoteType;
   /** Consume only: per-faucet totals of a batch claim (see `ConsumeTransaction`). */
   assetTotals?: IConsumedAssetTotal[];
+  /** Consume only: each claimed note's facts, as queued (see `ConsumeTransaction`). Not indexed. */
+  consumedNotes?: IConsumedNote[];
   /**
    * Consume only: queued by the everyday-key rotation gate to fund the rotation's fee
    * (#805). Generation signs such a row with the recovery key after proving every note
@@ -652,6 +738,15 @@ export interface ITransaction {
   displayMessage?: string;
   displayIcon: ITransactionIcon;
   inputNoteIds?: string[];
+  /**
+   * Written on a dApp custom (`execute`) row only, which completion may re-type: every note the transaction will
+   * consume, recorded when it is queued, the notes it carries (`importNotes`) included. While the row is live or
+   * awaiting its verdict, and for a grace window after it completes, these are held out of auto-consume and refused by
+   * the claim dedup (`isNoteHoldingRow`). Kept apart from `inputNoteIds`, the dApp's own list, which completion
+   * overwrites with the executed inputs and history recovery matches rows on. Absent on rows queued before it existed,
+   * which hold nothing.
+   */
+  heldNoteIds?: string[];
   outputNoteIds?: string[];
   /** The private output notes a custom row owes the relay, all of which its `noteDelivery` covers; see `relayNoteIdsOf`. */
   relayNoteIds?: string[];
@@ -695,6 +790,8 @@ export interface ITransaction {
    * `status`, and is stale once `status` reaches `Completed`/`Failed`.
    */
   stage?: ITransactionStage;
+  /** Closed authentication categories only; request values never enter a report. */
+  failureDiagnostics?: TransactionFailureDiagnostics;
   /**
    * Wall-clock (ms since epoch) of the first time each processing stage was
    * entered, recorded by `setTransactionStage` (plus a synthetic `complete`
@@ -913,6 +1010,8 @@ export class Transaction implements ITransaction {
   transactionId?: string;
   requestBytes?: Uint8Array;
   inputNoteIds?: string[];
+  /** See `ITransaction.heldNoteIds`. */
+  heldNoteIds?: string[];
   outputNoteIds?: string[];
   /** Per-faucet value leaving the account. See `ITransaction.spentAssetTotals`. */
   spentAssetTotals?: IConsumedAssetTotal[];
@@ -1025,6 +1124,12 @@ export class ConsumeTransaction implements ITransaction {
    * to recompute from.
    */
   assetTotals?: IConsumedAssetTotal[];
+  /**
+   * Each claimed note's sender, faucet and amount, as queued. A consume that completes without a transaction result,
+   * through a landing the node proved, has nothing else to adopt its bridge deliveries by. Absent on rows queued
+   * before it.
+   */
+  consumedNotes?: IConsumedNote[];
   /** See `ITransaction.rotationFunding`. */
   rotationFunding?: true;
   transactionId?: string;
@@ -1077,6 +1182,12 @@ export class ConsumeTransaction implements ITransaction {
       total => total.faucetId !== ''
     );
     this.assetTotals = identifiedTotals.length > 0 ? identifiedTotals : undefined;
+    this.consumedNotes = list.map(note => ({
+      id: note.id,
+      senderAddress: note.senderAddress,
+      faucetId: note.faucetId,
+      ...(note.amount === '' ? {} : { amount: BigInt(note.amount) })
+    }));
     this.status = ITransactionStatus.Queued;
     this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
     this.queuedSeq = nextQueuedSeq();

@@ -29,7 +29,7 @@ import {
   type GuardianProbeMatch
 } from './discover';
 
-const OZ = 'https://guardian.openzeppelin.com';
+const OZ = 'https://guardian-testnet.openzeppelin.com';
 const GATEWAY = 'https://miden-guardian.dev.eu-north-3.gateway.fm';
 const LAMBDA = 'https://miden-guardian.lambdaclass.com';
 
@@ -429,7 +429,7 @@ describe('discoverGuardianForSeed', () => {
   it('probes only the single configured operator on devnet', async () => {
     const result = await discoverGuardianForSeed(fakeDeriveSeed, { network: MIDEN_NETWORK_NAME.DEVNET });
 
-    expect(result.probedEndpoints).toEqual(['https://guardian-stg.openzeppelin.com']);
+    expect(result.probedEndpoints).toEqual(['https://guardian-devnet.openzeppelin.com']);
   });
 
   it('resolves a custom endpoint to its built-in operator when it is one', async () => {

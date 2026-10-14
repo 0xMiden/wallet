@@ -7,6 +7,7 @@ import { hiddenSecondsSince } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
+import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import {
@@ -33,6 +34,7 @@ import {
   updateTransactionStatus
 } from './helper';
 import { canAwaitVerdict, upsertEvidenceEntry } from './verdict-rules';
+import { adoptLandedConsume } from '../activity/bridge-in';
 import {
   notifyBackgroundTransactionFailed,
   notifyBackgroundTransactionNotConfirmed
@@ -183,6 +185,17 @@ export const cancelTransaction = async (
     return false;
   }
 
+  if (committed !== undefined && !committed.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'pipeline',
+      type: committed.type,
+      stage: committed.stage,
+      delegateTransaction: committed.delegateTransaction,
+      diagnostics: committed.failureDiagnostics,
+      error
+    });
+  }
+
   // Gap 6: a transaction that terminally failed while the user wasn't watching
   // used to be silent - the row went to Failed and nothing told them. Notify the
   // row the modify above committed, worded by the same rule every reader of a
@@ -261,6 +274,7 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
   const transactionId = indefiniteSubmitTransactionId(error);
   const nowSec = Math.floor(Date.now() / 1000);
   let entered = false;
+  let committed: ITransaction | undefined;
   await Repo.transactions.where({ id: tx.id }).modify(row => {
     const attemptId = row.attemptId ?? tx.attemptId;
     const windowOpen = row.cancelledInFlightAt !== undefined;
@@ -288,9 +302,21 @@ export const markTransactionUnconfirmed = async (tx: ITransaction, error: unknow
     row.error = displayError;
     if (displayError !== rawError) row.rawError = rawError;
     entered = true;
+    committed = { ...row };
     return undefined;
   });
   if (!entered) return;
+  if (committed !== undefined && !committed.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'pipeline',
+      type: committed.type,
+      stage: committed.stage,
+      delegateTransaction: committed.delegateTransaction,
+      diagnostics: committed.failureDiagnostics,
+      error,
+      outcome: 'unconfirmed'
+    });
+  }
   notifyBackgroundTransactionNotConfirmed();
   reportOperation({
     operation: operationOfType(tx.type),
@@ -976,6 +1002,7 @@ const verifyStuckTransactions = async (): Promise<number> => {
           completedAt: Math.floor(Date.now() / 1000)
         });
         resolvedCount++;
+        await adoptLandedConsume(tx.id);
       } catch (e) {
         // Deliberately not diagnosed as "no longer in progress": the throw is
         // also what a deleted row ('No transaction found to update') and a real

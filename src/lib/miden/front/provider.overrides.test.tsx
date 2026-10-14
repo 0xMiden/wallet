@@ -30,7 +30,10 @@ jest.mock('@miden-sdk/react/lazy', () => ({
 }));
 jest.mock('../sdk/miden-client', () => ({ getMidenClient: jest.fn().mockResolvedValue({}) }));
 jest.mock('lib/miden-chain/native-asset', () => ({ primeNativeAssetId: jest.fn() }));
-jest.mock('lib/remote-config/runtime', () => ({ followEffectiveNetwork: jest.fn() }));
+jest.mock('lib/remote-config/runtime', () => ({
+  followEffectiveNetwork: jest.fn(),
+  initBridgeConfig: jest.fn().mockResolvedValue(undefined)
+}));
 jest.mock('lib/settings/helpers', () => ({ mirrorBackgroundSettings: jest.fn() }));
 jest.mock('./useSyncTrigger', () => ({ useSyncTrigger: jest.fn() }));
 jest.mock('./assets', () => ({

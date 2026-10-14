@@ -101,7 +101,7 @@ export function useEarnPositions(): {
   const onScreen = usePageActive();
   const { cache } = useSWRConfig();
   const config = useBridgeConfigSnapshot();
-  const positionsUrl = config.config?.epoch.positionsUrl;
+  const positionsUrl = config.config?.['bridge-providers'].epoch.positionsUrl;
   const marketUid = selectEarnMarket(config)?.marketUid;
   // Only a loading snapshot is a wait: a loaded one that names neither settles at once, as the read would have failed.
   const unconfigured = config.status === 'ready' ? unconfiguredError(positionsUrl, marketUid) : undefined;

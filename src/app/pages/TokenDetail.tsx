@@ -406,8 +406,9 @@ function tokenDetailsValues(metadata: AssetMetadata | undefined): TokenDetailsVa
 const TokenInfo: FC<TokenInfoProps> = ({ tokenId, address, metadata }) => {
   const { t } = useTranslation();
   const network = useNetwork();
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
   // Testnet iETH is a test asset, not ETH: the wallet says so itself instead of trusting its faucet's words.
-  const info = testnetTokenInfo(tokenId);
+  const info = testnetTokenInfo(bridgeConfig, tokenId);
   const description = info ? t(info.descriptionKey) : metadata?.description;
   const nativeFaucetId = useMidenFaucetId();
   // The native token's chain metadata is authoritative. Until its id is known, no token can be edited.

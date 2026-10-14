@@ -10,17 +10,16 @@ import {
   useCurrentGuardianEndpoint
 } from './useCurrentGuardianEndpoint';
 
-jest.mock('lib/miden-chain/constants', () => ({
-  GUARDIAN_OPTIONS: [
-    {
-      name: 'Guardian One',
-      endpoint: new Map([
-        ['testnet', 'https://test.guardian.example'],
-        ['devnet', 'https://dev.guardian.example']
-      ])
-    }
-  ]
-}));
+jest.mock('lib/miden-chain/guardian-registry', () => {
+  const endpoints: Record<string, string> = {
+    testnet: 'https://test.guardian.example',
+    devnet: 'https://dev.guardian.example'
+  };
+  return {
+    getNetworkGuardians: (network: string) =>
+      endpoints[network] === undefined ? [] : [{ name: 'Guardian One', endpoint: endpoints[network] }]
+  };
+});
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getEffectiveDefaultGuardianEndpoint: () => 'https://default.guardian.example',

@@ -30,6 +30,8 @@ export interface SendAmountProps {
   isValidAmount: boolean;
   /** Untranslated error key from the send form. */
   error?: string;
+  /** The values of the error copy's placeholders. */
+  errorValues?: Record<string, string>;
   recipientAddress: string;
   /** Saved contact name for the recipient, shown instead of the address. */
   recipientName?: string;
@@ -52,6 +54,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   amount,
   isValidAmount,
   error,
+  errorValues,
   recipientAddress,
   recipientName,
   network,
@@ -77,7 +80,8 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   // gets a notice with a way out instead of turning the amount red. An empty
   // field isn't an invalid amount yet.
   const feeShortfall = error === 'insufficientFeeAsset';
-  const amountError = error && !feeShortfall && (amount || error !== 'invalidAmount') ? t(error) : undefined;
+  const amountError =
+    error && !feeShortfall && (amount || error !== 'invalidAmount') ? t(error, errorValues) : undefined;
 
   const fiatValue =
     token && scaleIsKnown && token.fiatPrice > 0 && amount
@@ -109,10 +113,10 @@ export const SendAmount: React.FC<SendAmountProps> = ({
         helper={fiatValue && <span className="font-heading text-base font-bold text-gray">{fiatValue}</span>}
         showDivider={false}
         data-testid="send-amount-input"
-        onValueChange={(value, _name, values) => onAmountChange(values?.formatted || value || '')}
+        onValueChange={value => onAmountChange(value || '')}
       />
 
-      <div className="mt-8 rounded-2xl bg-fill">
+      <Card surface="outline" padding="none" className="mt-8">
         <div className="flex items-center gap-3 px-4 py-3">
           <button
             type="button"
@@ -187,7 +191,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
             <NetworkChip kind="miden" label={t('miden')} />
           )}
         </div>
-      </div>
+      </Card>
 
       <AnimatePresence initial={false}>
         {feeShortfall && (

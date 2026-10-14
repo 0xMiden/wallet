@@ -20,6 +20,7 @@ on:
 permissions:
   contents: write # needed to attach assets to a GitHub Release
   actions: write # needed for artifact cleanup
+  pull-requests: read # the linked-PR injections read a dispatched branch's pull request
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -59,8 +60,25 @@ jobs:
         with:
           node-version: 22
 
+      # On a dispatch from a pull request's branch these build against that pull request's linked
+      # web-sdk and Guardian PRs, as its own CI does. Dispatch only, so a release build never runs
+      # them and installs the published packages exactly as before.
+      - name: Inject linked web-sdk PR
+        id: inject-web-sdk
+        if: github.event_name == 'workflow_dispatch'
+        uses: ./.github/actions/inject-linked-web-sdk-pr
+      - name: Inject linked guardian PR
+        id: inject-guardian
+        if: github.event_name == 'workflow_dispatch'
+        uses: ./.github/actions/inject-linked-guardian-pr
+
       - name: Install dependencies
+        if: steps.inject-web-sdk.outputs.patched != 'true' && steps.inject-guardian.outputs.patched != 'true'
         run: yarn install --frozen-lockfile
+      # Not frozen: an injection rewrites package.json to `file:` deps the committed lockfile cannot match.
+      - name: Install dependencies (linked PRs injected)
+        if: steps.inject-web-sdk.outputs.patched == 'true' || steps.inject-guardian.outputs.patched == 'true'
+        uses: ./.github/actions/yarn-install
 
       - name: Build Chrome extension
         env:

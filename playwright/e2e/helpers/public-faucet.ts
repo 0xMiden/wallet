@@ -18,6 +18,8 @@
  * wallet itself uses in production; that module is not imported here because it pulls
  * the WASM SDK in through `effective-endpoints`. Getting the proof-of-work wrong cannot
  * pass silently — the faucet rejects a bad nonce — so the two can only diverge loudly.
+ * What to ask for is not mirrored: the amount and the cap a refusal names are read by
+ * `faucet-protocol.ts`, which imports nothing, so the helper asks for what the wallet does.
  */
 
 import type { Page } from '@playwright/test';
@@ -26,6 +28,11 @@ import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
+import {
+  faucetCapFromRefusal,
+  faucetGrantAmount,
+  faucetRateLimitSeconds
+} from '../../../src/lib/miden-chain/faucet-protocol';
 import type { SerializedInputNoteDetail } from '../../../src/lib/shared/types';
 
 /** Public faucet API per network. Absent = no public funding source for that network. */
@@ -42,6 +49,28 @@ const POW_HASHES_PER_SLICE = 20_000;
 
 export function publicFaucetApiUrl(network: string): string | undefined {
   return FAUCET_API_BY_NETWORK[network];
+}
+
+/**
+ * How every public-faucet helper rejects: the message begins "Public faucet" and the original failure is the cause.
+ * A timeout, undici's "fetch failed" or a malformed answer does not name the faucet on its own, and the dApp journeys
+ * tell a faucet outage from a wallet failure by that name (`isInfrastructureFailure`, dapp-cells.ts).
+ */
+export class PublicFaucetError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'PublicFaucetError';
+  }
+}
+
+/** `error` as a PublicFaucetError, keeping a message that already names the faucet. */
+export function publicFaucetFailure(error: unknown, what: string): PublicFaucetError {
+  if (error instanceof PublicFaucetError) return error;
+  if (error instanceof Error && error.message.startsWith('Public faucet')) {
+    return new PublicFaucetError(error.message, { cause: error });
+  }
+  const text = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return new PublicFaucetError(`Public faucet ${what} failed: ${text}`, { cause: error });
 }
 
 /**
@@ -115,8 +144,8 @@ export async function solvePow(
 const GRANT_ATTEMPTS = 3;
 const GRANT_RETRY_DELAY_MS = 5_000;
 /**
- * Total time a grant may spend waiting out 429s. The faucet rate-limits a SHARED cooldown, not the
- * target account: on the first run of the devnet suites on next, four parallel jobs each had their
+ * Total time a grant may spend waiting out 429s. The faucet keys its cooldown per account (and
+ * API-key domain). Observed once on the devnet suites on next: four parallel jobs each had their
  * first grant for a brand-new account refused with "Account is rate limited for 25 more seconds".
  */
 const RATE_LIMIT_BUDGET_MS = 180_000;
@@ -136,22 +165,31 @@ class FaucetRateLimitedError extends Error {
   }
 }
 
+/** The faucet refused an amount over its cap before minting anything, and named the cap in base units. */
+class FaucetAmountOverCapError extends Error {
+  constructor(
+    message: string,
+    readonly cap: bigint
+  ) {
+    super(message);
+  }
+}
+
 async function failedResponse(label: string, response: Response): Promise<Error> {
   // The status decides whether a retry can help; a body that fails or stalls only loses the explanation.
-  const message = `${label} (${response.status}): ${await response.text().catch(() => '')}`;
+  const detail = await response.text().catch(() => '');
+  const message = `${label} (${response.status}): ${detail}`;
   if (response.status === 429) {
     // "Account is rate limited for 25 more seconds." A second over, so the retry lands after it.
-    const seconds = message.match(/(\d+)\s+more\s+seconds?/i)?.[1];
-    return new FaucetRateLimitedError(message, seconds ? (Number(seconds) + 1) * 1000 : RATE_LIMIT_FALLBACK_MS);
+    const seconds = faucetRateLimitSeconds(detail);
+    return new FaucetRateLimitedError(message, seconds !== null ? (seconds + 1) * 1000 : RATE_LIMIT_FALLBACK_MS);
   }
+  const cap = response.status === 400 ? faucetCapFromRefusal(detail) : null;
+  if (cap !== null) return new FaucetAmountOverCapError(message, cap);
   return response.status >= 500 ? new FaucetServerError(message) : new Error(message);
 }
 
-async function requestGrant(
-  baseUrl: string,
-  accountId: string,
-  amount: bigint
-): Promise<{ txId?: string; noteId: string }> {
+async function requestGrant(baseUrl: string, accountId: string, amount: bigint): Promise<{ noteId: string }> {
   const { challenge, target } = await faucetFetch(
     `${baseUrl}/pow?${new URLSearchParams({ account_id: accountId, amount: amount.toString() })}`,
     async response => {
@@ -166,7 +204,6 @@ async function requestGrant(
 
   const params = new URLSearchParams({
     account_id: accountId,
-    is_private_note: 'false',
     asset_amount: amount.toString(),
     challenge,
     nonce: nonce.toString()
@@ -180,8 +217,7 @@ async function requestGrant(
     if (typeof noteId !== 'string' || !/^0x[0-9a-f]{64}$/i.test(noteId)) {
       throw new Error('Public faucet returned an invalid note ID');
     }
-    const txId = Reflect.get(json as object, 'tx_id');
-    return { txId: typeof txId === 'string' ? txId : undefined, noteId };
+    return { noteId };
   });
 }
 
@@ -189,25 +225,51 @@ async function advertisedGrantAmount(baseUrl: string): Promise<bigint> {
   return faucetFetch(`${baseUrl}/get_metadata`, async response => {
     if (!response.ok) throw await failedResponse('Public faucet metadata request failed', response);
     const metadata: unknown = await response.json();
-    const baseAmount = metadata && typeof metadata === 'object' ? Reflect.get(metadata, 'base_amount') : undefined;
-    if (typeof baseAmount !== 'number' || !Number.isSafeInteger(baseAmount) || baseAmount <= 0) {
-      throw new Error('Faucet metadata base_amount must be a positive safe integer');
-    }
-    return BigInt(baseAmount);
+    return faucetGrantAmount(metadata);
   });
 }
 
 /**
+ * The account the faucet sends its grants from, as its own metadata names it (`id`). A dApp journey counts a note from
+ * it as its own funding, so only a note from anyone else is a third party's. A 5xx is asked again, as for a grant.
+ */
+export async function publicFaucetAccountId(
+  baseUrl: string,
+  retryDelayMs: number = GRANT_RETRY_DELAY_MS,
+  sleep: (ms: number) => Promise<void> = ms => new Promise(resolve => setTimeout(resolve, ms))
+): Promise<string> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await faucetFetch(`${baseUrl}/get_metadata`, async response => {
+        if (!response.ok) throw await failedResponse('Public faucet metadata request failed', response);
+        const metadata: unknown = await response.json();
+        const id = metadata && typeof metadata === 'object' ? Reflect.get(metadata, 'id') : undefined;
+        if (typeof id !== 'string' || id === '') throw new Error('Public faucet metadata names no account id');
+        return id;
+      });
+    } catch (error) {
+      if (!(error instanceof FaucetServerError) || attempt >= GRANT_ATTEMPTS) {
+        throw publicFaucetFailure(error, 'metadata request');
+      }
+      await sleep(retryDelayMs * attempt);
+    }
+  }
+}
+
+/**
  * Requests `amount` base units of the native asset for `accountId` (bech32).
- * When omitted, resolves the faucet's advertised base grant once and retains it across retries.
+ * When omitted, asks for what the wallet's Fund button asks for (`faucetGrantAmount`), resolved
+ * once and retained across retries.
  * Resolves once the faucet has SUBMITTED the note; the caller still has to wait for it
  * to commit and then consume it.
  *
  * A 5xx is the faucet's own failure (testnet answered `500 Internal error` and `502 Bad Gateway`
  * during incidents), so the grant is retried from a new challenge, which also avoids replaying one
  * that may have expired. A 429 is waited out for as long as the faucet asks, within
- * `RATE_LIMIT_BUDGET_MS`, and does not count against the 5xx attempts. Any other 4xx answers this
- * request and fails at once.
+ * `RATE_LIMIT_BUDGET_MS`, and does not count against the 5xx attempts. A 400 naming a cap below an
+ * amount the helper chose is asked once more at that cap, as the wallet does; it was refused before
+ * anything was minted, so the ask spends neither the 5xx attempts nor the 429 budget. Any other 4xx
+ * answers this request and fails at once. Every rejection is a `PublicFaucetError`.
  */
 export async function mintFromPublicFaucet(
   baseUrl: string,
@@ -215,10 +277,11 @@ export async function mintFromPublicFaucet(
   amount?: bigint,
   retryDelayMs: number = GRANT_RETRY_DELAY_MS,
   sleep: (ms: number) => Promise<void> = ms => new Promise(resolve => setTimeout(resolve, ms))
-): Promise<{ txId?: string; noteId: string }> {
+): Promise<{ noteId: string }> {
   let resolvedAmount = amount;
   let serverFailures = 0;
   let rateLimitedMs = 0;
+  let mayAskAtCap = amount === undefined;
   for (;;) {
     try {
       resolvedAmount ??= await advertisedGrantAmount(baseUrl);
@@ -229,7 +292,21 @@ export async function mintFromPublicFaucet(
         await sleep(error.retryAfterMs);
         continue;
       }
-      if (!(error instanceof FaucetServerError) || ++serverFailures >= GRANT_ATTEMPTS) throw error;
+      if (
+        mayAskAtCap &&
+        error instanceof FaucetAmountOverCapError &&
+        // Also skips a metadata 400 that names a cap (failedResponse builds the /get_metadata refusal too).
+        resolvedAmount !== undefined &&
+        error.cap > 0n &&
+        error.cap < resolvedAmount
+      ) {
+        mayAskAtCap = false;
+        resolvedAmount = error.cap;
+        continue;
+      }
+      if (!(error instanceof FaucetServerError) || ++serverFailures >= GRANT_ATTEMPTS) {
+        throw publicFaucetFailure(error, 'grant');
+      }
       await sleep(retryDelayMs * serverFailures);
     }
   }

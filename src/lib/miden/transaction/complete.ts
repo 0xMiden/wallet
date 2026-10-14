@@ -27,6 +27,7 @@ import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import * as Repo from 'lib/miden/repo';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
+import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import {
@@ -40,7 +41,7 @@ import {
   updateTransactionStatus
 } from './helper';
 import { ensureGuardianProcedureThresholds } from './initiate';
-import { applyBridgeInInfoForNotes, applyBridgeInToConsumeRow, takeAgglayerBridgeInInfo } from '../activity/bridge-in';
+import { adoptBridgeDeliveries } from '../activity/bridge-in';
 import { feeFieldsFromResult, splitExecutedOutputNotes } from '../activity/fee';
 import { interpretTransactionResult } from '../activity/helpers';
 import { compareAccountIds } from '../activity/utils';
@@ -310,24 +311,25 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     resultBytes: result.serialize()
   });
 
-  // Best-effort bridge-in tagging: if this consume claimed a note parked by an
-  // EVM→Miden intent (plain bridge deposit OR a Smart Withdraw delivery), tag the
-  // row as "Bridged from EVM". A bridge-in with a `bridgeReceiveTxId` also flips
-  // that tracking row to `received`; one with an `earnWithdrawTxId` flips the
-  // linked Smart Withdraw row instead, with the actual consumed amount. Must never
+  // A note parked by an EVM→Miden intent, or minted for a tracked deposit, settles its bridge row. Each executed
+  // note goes over by its own first asset: the per-faucet totals above are no single delivery's amount. Must never
   // fail the consume itself.
   try {
-    const consumedNoteIds = inputNotes.map(inputNote => inputNote.note().id().toString());
-    const applied = await applyBridgeInInfoForNotes(consumedNoteIds, info => applyBridgeInToConsumeRow(id, info));
-    // A batch's per-faucet total is no single delivery's amount, so only a one-note consume is paired by amount.
-    if (!applied && inputNotes.length === 1) {
-      const info = await takeAgglayerBridgeInInfo({
-        accountId: dbTransaction?.accountId ?? '',
-        senderAccountId: sender,
-        amount
-      });
-      if (info) await applyBridgeInToConsumeRow(id, { ...info, midenNoteId: consumedNoteIds[0] });
-    }
+    await adoptBridgeDeliveries(
+      id,
+      inputNotes.map(inputNote => {
+        const executed = inputNote.note();
+        const noteAsset = executed.assets().fungibleAssets()[0];
+        // A note with no fungible asset can only be a registry delivery, which pairs by id alone.
+        if (!noteAsset) return { id: executed.id().toString(), senderAddress: '', faucetId: '' };
+        return {
+          id: executed.id().toString(),
+          senderAddress: getBech32AddressFromAccountId(executed.metadata().sender()),
+          faucetId: getBech32AddressFromAccountId(noteAsset.faucetId()),
+          amount: noteAsset.amount()
+        };
+      })
+    );
   } catch (err) {
     console.warn('[bridge-in] consume tagging failed (non-fatal)', err);
   }
@@ -1180,13 +1182,15 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
 
 export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction, result: TransactionResult) => {
   const executedTx = result.executedTransaction();
-  const note = extractFullNote(result);
-  const noteId = note?.id().toString();
+  // Network-note sponsorship adds another output. The persisted burn id identifies
+  // the user's note regardless of where the SDK puts the sponsorship/fee outputs.
+  const burnId = tx.extraInputs?.usdcxBurn?.noteId;
+  const noteId = burnId ?? extractFullNote(result)?.id().toString();
   const outputNoteIds = noteId ? [noteId] : [];
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
     ...feeFieldsFromResult(result),
-    displayMessage: 'Bridged to EVM',
+    displayMessage: tx.extraInputs?.provider === 'usdcx' ? 'USDCx burn submitted' : 'Bridged to EVM',
     transactionId: executedTx.id().toHex(),
     outputNoteIds,
     completedAt: Math.floor(Date.now() / 1000), // seconds
@@ -1471,6 +1475,17 @@ export const updateEarnWithdrawPhase = async (
     return undefined;
   });
 
+  if (settled !== undefined && phase === 'failed' && !settled.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'earn_settlement',
+      type: settled.type,
+      stage: settled.stage,
+      delegateTransaction: settled.delegateTransaction,
+      diagnostics: settled.failureDiagnostics,
+      error: extra?.error ?? settled.rawError ?? settled.error
+    });
+  }
+
   // Reported from here because there is nowhere else it could be. This row is
   // `Completed` in the database from birth and its real outcome lives in
   // `extraInputs.phase`, so it never makes a terminal write through
@@ -1516,28 +1531,67 @@ export const updateBridgedReceivePhase = async (
   extra?: Partial<
     Pick<
       IBridgedReceiveExtraInputs,
-      'evmTxHash' | 'intentNonce' | 'midenNoteId' | 'outputAmount' | 'outputSymbol' | 'error'
+      | 'evmTxHash'
+      | 'intentNonce'
+      | 'midenNoteId'
+      | 'outputAmount'
+      | 'outputSymbol'
+      | 'cctp'
+      | 'error'
+      | 'usdcxRemoteRecipient'
+      | 'epochAllocatorUrl'
     >
   >,
-  received?: { amount: bigint; faucetId: string; transactionId?: string }
+  received?: { amount: bigint; faucetId: string; transactionId?: string },
+  // The reconciler's adoption of Circle's forward lands only on a leg with no execute hash, so it never replaces a
+  // manual execute; the wallet's own execute always lands, and the reconciler reopens on whichever held hash reverts.
+  { onlyIfNoExecuteHash = false }: { onlyIfNoExecuteHash?: boolean } = {}
 ) => {
   let settled: ITransaction | undefined;
+  let failed: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
     const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
     if (!canMoveBridgedReceivePhase(inputs?.phase, phase)) return;
+    // A reopen clears only the Arc execute it saw revert or stall: a newer execute saved meanwhile, with its proof,
+    // stands.
+    const reopened = extra?.cctp?.revertedExecuteTxHash ?? extra?.cctp?.stalledExecuteTxHash;
+    if (reopened !== undefined && inputs?.cctp?.executeTxHash !== reopened) return;
+    if (onlyIfNoExecuteHash && inputs?.cctp?.executeTxHash !== undefined) return;
+    const nowSec = Math.floor(Date.now() / 1000);
+    // The CCTP leg is written a field at a time (the burn's domain, then the attestation, then the
+    // execute hash), so a write merges into what the row holds instead of replacing it.
+    const merged = extra?.cctp ? { ...inputs?.cctp, ...extra.cctp } : inputs?.cctp;
+    const savedHash = extra?.cctp?.executeTxHash;
+    const cctp = merged && {
+      ...merged,
+      // The stall window runs from when the current hash was saved.
+      ...(savedHash !== undefined && savedHash !== inputs?.cctp?.executeTxHash ? { executeSavedAt: nowSec } : {}),
+      // A revert drops the message that kept the leg from timing out, so its week runs from here.
+      ...(extra?.cctp?.revertedExecuteTxHash === undefined ? {} : { revertedAt: nowSec })
+    };
     // Unlike the earn-withdraw writer there is no monotonic guard here, so the
     // only thing keeping one bridge from reporting twice is comparing against
     // the phase already on the row. `ready` and `received` are both terminal —
     // the note exists and is claimable, then it is claimed — so a row can pass
     // through both and must report on the first.
     const fromPhase = inputs?.phase;
+    if (phase === 'failed' && fromPhase !== 'failed') failed = tx;
     if (
       (fromPhase === undefined || !BRIDGED_RECEIVE_SETTLED_PHASES.has(fromPhase)) &&
       BRIDGED_RECEIVE_SETTLED_PHASES.has(phase)
     ) {
       settled = tx;
     }
-    tx.extraInputs = { ...inputs, phase, ...(extra ?? {}) };
+    // Once, so a row that later times out still says Circle attested it: only such a row takes a late mint. A row that
+    // was ready before the stamp existed takes it as it moves on.
+    const readyAt = inputs?.readyAt ?? (phase === 'ready' || fromPhase === 'ready' ? nowSec : undefined);
+    tx.extraInputs = {
+      ...inputs,
+      phase,
+      ...(extra ?? {}),
+      ...(cctp ? { cctp } : {}),
+      ...(readyAt === undefined ? {} : { readyAt })
+    };
     if (received) {
       tx.amount = received.amount;
       tx.faucetId = received.faucetId;
@@ -1546,6 +1600,17 @@ export const updateBridgedReceivePhase = async (
     }
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
   });
+
+  if (failed !== undefined && !failed.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'bridge_receive_settlement',
+      type: failed.type,
+      stage: failed.stage,
+      delegateTransaction: failed.delegateTransaction,
+      diagnostics: failed.failureDiagnostics,
+      error: extra?.error ?? failed.rawError ?? failed.error
+    });
+  }
 
   // Same reason as the earn-withdraw writer above: this row is `Completed` from
   // birth and carries its real outcome in `extraInputs.phase`, so it never makes
@@ -1721,7 +1786,9 @@ export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Pro
     });
     return;
   }
+  let failed: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
+    if (rotationVerdict(tx)?.kind !== 'submitted-unconfirmed') return false;
     tx.status = ITransactionStatus.Failed;
     tx.displayMessage = 'Guardian switch discarded';
     // Plain prose, like every other `tx.error` (the field carries thrown-error
@@ -1738,7 +1805,19 @@ export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Pro
     // "completed with no evidence either way", and the node has now answered.
     // The row's terminal status carries the outcome from here.
     tx.extraInputs = { ...tx.extraInputs, commitUnconfirmed: false };
+    failed = { ...tx };
+    return undefined;
   });
+  if (failed !== undefined && !failed.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'guardian_node_verdict',
+      type: failed.type,
+      stage: failed.stage,
+      delegateTransaction: failed.delegateTransaction,
+      diagnostics: failed.failureDiagnostics,
+      error: failed.error
+    });
+  }
 };
 
 /**
@@ -1817,6 +1896,16 @@ export const markBridgedSendFailed = async (id: string, error: string) => {
     return undefined;
   });
   if (demoted === undefined) return;
+  if (!demoted.restoredFromBackup) {
+    reportTransactionFailure({
+      point: 'bridge_send_settlement',
+      type: demoted.type,
+      stage: demoted.stage,
+      delegateTransaction: demoted.delegateTransaction,
+      diagnostics: demoted.failureDiagnostics,
+      error
+    });
+  }
 
   console.error(
     committed

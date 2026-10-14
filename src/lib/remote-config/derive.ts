@@ -7,7 +7,7 @@ import {
   RpcClient,
   SlotAndKeys
 } from '@miden-sdk/miden-sdk/lazy';
-import { createPublicClient, http, parseAbi } from 'viem';
+import { createPublicClient, getAddress, http, keccak256, parseAbi, toBytes } from 'viem';
 
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
@@ -16,7 +16,8 @@ import { fetchBoundedJson, type JsonFetch } from 'lib/remote-json';
 import { isRecord } from 'lib/update/guards';
 import { getChain } from 'lib/walletconnect/config';
 
-import type { BridgeConfig, EvmAddress } from './schema';
+import { type BridgeConfig, epochCollateralFaucetId, type EvmAddress } from './schema';
+import type { EarnMarket } from './values';
 
 export type Probe<T> =
   | { state: 'ok'; value: T }
@@ -40,18 +41,25 @@ export interface DerivedBridgeConfig {
   network: string;
   version: number; // the document version it was derived from
   derivedAt: number;
+  /** Every listed chain's reads, by chain id; a route the chain does not list reads as skipped. */
+  chains: Record<number, DerivedChainConfig>;
+  // The providers every chain shares.
+  agglayer: { indexer: Probe<true> };
+  epoch: {
+    allocator: Probe<true>;
+    market: Probe<EarnMarket>;
+    midenUsdcFaucet: Probe<TokenMetadata>; // existence and metadata in one read
+  };
+}
+
+export interface DerivedChainConfig {
   agglayer: {
     rollupId: Probe<number>;
     tokens: Probe<BridgeToken[]>;
     evmNetworkId: Probe<number>;
     l1BridgeCode: Probe<true>;
-    indexer: Probe<true>;
   };
-  epoch: {
-    allocator: Probe<true>;
-    midenUsdcFaucet: Probe<TokenMetadata>; // existence and metadata in one read
-    evmUsdc: Probe<TokenMetadata>;
-  };
+  epoch: { evmUsdc: Probe<TokenMetadata> };
 }
 
 /** Reads over one EVM chain's RPC. */
@@ -323,6 +331,57 @@ async function probeErc20(reads: EvmReads | null, token: EvmAddress | undefined)
   return code.state === 'ok' ? attempt(() => reads.erc20(token)) : code;
 }
 
+// The checksummed form of a 20-byte hex address, or null for anything else.
+const checksummed = (value: string | undefined): EvmAddress | null =>
+  value !== undefined && /^0x[0-9a-fA-F]{40}$/.test(value) ? getAddress(`0x${value.slice(2)}`) : null;
+
+// A deposit mandates the market's chain and token, so only an Epoch route's own USDC can be the market: the position's
+// chain, its underlying and the chain and token its uid names must all be that route's.
+async function discoverEarnMarket(config: BridgeConfig, io: DeriveDeps): Promise<Probe<EarnMarket>> {
+  const positionsUrl = config['bridge-providers'].epoch.positionsUrl;
+  const routes = Object.values(config.supportedEvmChains).flatMap(chain => {
+    const usdc = chain.bridges.epoch?.tokens.USDC?.contractAddress;
+    return usdc ? [{ chainId: chain.chainId, usdc: getAddress(usdc) }] : [];
+  });
+  if (!positionsUrl || routes.length === 0) return { state: 'skipped' };
+  return attempt(async () => {
+    const body = await fetchBoundedJson(
+      io.fetch,
+      `${positionsUrl}/positions?account=0x0000000000000000000000000000000000000000&chains=${routes.map(route => route.chainId).join(',')}`,
+      { maxBytes: 512 * 1024, timeoutMs: HEALTH_TIMEOUT_MS }
+    );
+    if (!isRecord(body) || body.success !== true || !isRecord(body.data) || !Array.isArray(body.data.items)) {
+      throw new Error('Epoch market response is invalid');
+    }
+    for (const item of body.data.items) {
+      if (!isRecord(item) || !isRecord(item.lenderInfo) || !Array.isArray(item.data)) continue;
+      const protocol = item.lenderInfo.lenderKey;
+      if (typeof protocol !== 'string' || protocol !== 'dummy-lending') continue;
+      const route = routes.find(route => String(route.chainId) === item.chainId);
+      if (!route) continue;
+      for (const group of item.data) {
+        if (!isRecord(group) || !Array.isArray(group.positions)) continue;
+        for (const position of group.positions) {
+          if (!isRecord(position) || typeof position.marketUid !== 'string' || !isRecord(position.underlyingInfo))
+            continue;
+          const asset = position.underlyingInfo.asset;
+          if (!isRecord(asset) || asset.symbol !== 'USDC' || typeof asset.address !== 'string') continue;
+          const [, uidChain, uidToken] = position.marketUid.split(':');
+          if (checksummed(asset.address) !== route.usdc || checksummed(uidToken) !== route.usdc) continue;
+          if (uidChain !== String(route.chainId)) continue;
+          return {
+            marketUid: position.marketUid,
+            protocolHash: keccak256(toBytes(protocol)),
+            underlying: route.usdc,
+            chainId: route.chainId
+          };
+        }
+      }
+    }
+    throw new NotDeployedError('Epoch has no supported USDC market');
+  });
+}
+
 /** Every value the document leaves to chain and service reads; a probe's failure never stops another. */
 export async function deriveBridgeConfig(
   config: BridgeConfig,
@@ -330,32 +389,45 @@ export async function deriveBridgeConfig(
 ): Promise<DerivedBridgeConfig> {
   const io: DeriveDeps = { ...defaultDeps, ...deps };
   const rpcUrl = io.midenRpcUrl();
-  const { agglayer, epoch, evm } = config;
-  const reads = evm.chainId === undefined ? null : io.evm(evm.chainId);
-  const [registry, l1Bridge, indexer, allocator, midenUsdcFaucet, evmUsdc] = await Promise.all([
-    when(agglayer.midenBridge, bridge => attempt(() => io.readBridgeRegistry(bridge, rpcUrl))),
-    probeL1Bridge(reads, agglayer.l1Bridge),
-    when(agglayer.indexerUrl, url => checkHealth(io.fetch, `${url}/healthz`, isIndexerServing)),
+  const providers = config['bridge-providers'];
+  const epoch = providers.epoch;
+  const faucetId = epochCollateralFaucetId(config);
+  const [market, allocator, midenUsdcFaucet, indexer] = await Promise.all([
+    discoverEarnMarket(config, io),
     when(epoch.allocatorUrl, url => checkHealth(io.fetch, `${url}/health`, isAllocatorHealthy)),
-    when(epoch.midenUsdcFaucet, faucetId => attempt(() => io.readMidenFaucet(faucetId, rpcUrl))),
-    probeErc20(reads, epoch.evmUsdc)
+    when(faucetId, id => attempt(() => io.readMidenFaucet(id, rpcUrl))),
+    when(providers.agglayer.indexerUrl, url => checkHealth(io.fetch, `${url}/healthz`, isIndexerServing))
   ]);
-
-  let tokens: Probe<BridgeToken[]> = registry.state === 'ok' ? { state: 'ok', value: registry.value.tokens } : registry;
-  // A bridge that registers nothing has nothing to bridge, the same as no bridge.
-  if (tokens.state === 'ok' && tokens.value.length === 0) tokens = { state: 'absent' };
-
+  const chains: Record<number, DerivedChainConfig> = {};
+  await Promise.all(
+    Object.values(config.supportedEvmChains).map(async chain => {
+      const reads = io.evm(chain.chainId);
+      const agglayer = chain.bridges.agglayer;
+      const [registry, l1Bridge, evmUsdc] = await Promise.all([
+        when(agglayer?.midenBridgeId, bridge => attempt(() => io.readBridgeRegistry(bridge, rpcUrl))),
+        probeL1Bridge(reads, agglayer?.contractAddress),
+        probeErc20(reads, chain.bridges.epoch?.tokens.USDC?.contractAddress)
+      ]);
+      let tokens: Probe<BridgeToken[]> =
+        registry.state === 'ok' ? { state: 'ok', value: registry.value.tokens } : registry;
+      if (tokens.state === 'ok' && tokens.value.length === 0) tokens = { state: 'absent' };
+      chains[chain.chainId] = {
+        agglayer: {
+          rollupId: registry.state === 'ok' ? { state: 'ok', value: registry.value.rollupId } : registry,
+          tokens,
+          evmNetworkId: l1Bridge.networkId,
+          l1BridgeCode: l1Bridge.code
+        },
+        epoch: { evmUsdc }
+      };
+    })
+  );
   return {
     network: config.network,
     version: config.version,
     derivedAt: io.now(),
-    agglayer: {
-      rollupId: registry.state === 'ok' ? { state: 'ok', value: registry.value.rollupId } : registry,
-      tokens,
-      evmNetworkId: l1Bridge.networkId,
-      l1BridgeCode: l1Bridge.code,
-      indexer
-    },
-    epoch: { allocator, midenUsdcFaucet, evmUsdc }
+    chains,
+    agglayer: { indexer },
+    epoch: { allocator, market, midenUsdcFaucet }
   };
 }

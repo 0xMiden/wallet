@@ -200,14 +200,6 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        if ReownPlugin.appKitConfigured {
-            configured = true
-            subscribeIfNeeded()
-            notifyStateChanged()
-            call.resolve()
-            return
-        }
-
         let appName = call.getString("appName") ?? "Bread Wallet"
         let appDescription = call.getString("appDescription") ?? "Bread wallet"
         let appUrl = call.getString("appUrl") ?? "https://miden.io"
@@ -261,6 +253,16 @@ public class ReownPlugin: CAPPlugin, CAPBridgedPlugin {
             )
         ]
         self.proposalNamespaces = namespaces
+
+        if ReownPlugin.appKitConfigured {
+            AppKit.set(sessionParams: SessionParams(namespaces: namespaces, sessionProperties: nil))
+            configured = true
+            subscribeIfNeeded()
+            notifyStateChanged()
+            call.resolve()
+            return
+        }
+
 
         // Reown persists its relay client-id in a keychain access group AND a
         // UserDefaults suite named by `groupIdentifier` (RelayClientFactory /

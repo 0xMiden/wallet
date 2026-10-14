@@ -1,6 +1,6 @@
 import SignClient from '@walletconnect/sign-client';
 import { buildApprovedNamespaces } from '@walletconnect/utils';
-import { createWalletClient, defineChain, http, numberToHex, type WalletClient } from 'viem';
+import { type Chain, createWalletClient, defineChain, http, numberToHex, type WalletClient } from 'viem';
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 
 import { resolveCounterpartyEnv } from './wc-counterparty-env';
@@ -30,6 +30,10 @@ import { resolveCounterpartyEnv } from './wc-counterparty-env';
 // wc-counterparty-env.ts.
 const { relayUrl: RELAY_URL, projectId: PROJECT_ID, anvilRpc: ANVIL_RPC } = resolveCounterpartyEnv();
 const CHAIN_ID = 11155111;
+// The app proposes every chain in SUPPORTED_CHAINS (src/lib/walletconnect/config.ts), so the session
+// approves Arc Testnet too. Every request is still signed for and broadcast to the one local Anvil.
+const ARC_TESTNET_CHAIN_ID = 5042002;
+const SESSION_CHAIN_IDS = [CHAIN_ID, ARC_TESTNET_CHAIN_ID];
 // Anvil's first deterministic dev account (pre-funded with 10000 ETH).
 const DEFAULT_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 
@@ -47,10 +51,22 @@ export interface WcRequestLog {
   error?: string;
 }
 
+export interface WcCounterpartyOptions {
+  privateKey?: `0x${string}`;
+  rpcUrl?: string;
+  /**
+   * The chain id of the node at `rpcUrl`, which every transaction is signed for.
+   * Defaults to the local Anvil's (Sepolia's id). A live run against Arc Testnet
+   * passes Arc's id with Arc's RPC URL.
+   */
+  chainId?: number;
+}
+
 export class WcCounterparty {
   readonly account: PrivateKeyAccount;
   private client!: Awaited<ReturnType<typeof SignClient.init>>;
   private wallet: WalletClient;
+  private readonly chain: Chain;
   private topic?: string;
   private connectedResolve!: () => void;
   /** Resolves once a session is approved (the app reports connected). */
@@ -58,12 +74,22 @@ export class WcCounterparty {
   /** Every session_request handled, for assertions. */
   readonly requests: WcRequestLog[] = [];
 
-  constructor(opts: { privateKey?: `0x${string}`; rpcUrl?: string } = {}) {
+  constructor(opts: WcCounterpartyOptions = {}) {
     this.account = privateKeyToAccount(opts.privateKey ?? (DEFAULT_KEY as `0x${string}`));
+    const rpcUrl = opts.rpcUrl ?? ANVIL_RPC;
+    this.chain =
+      opts.chainId === undefined
+        ? anvilChain
+        : defineChain({
+            id: opts.chainId,
+            name: `counterparty-${opts.chainId}`,
+            nativeCurrency: { name: 'Native', symbol: 'NATIVE', decimals: 18 },
+            rpcUrls: { default: { http: [rpcUrl] } }
+          });
     this.wallet = createWalletClient({
       account: this.account,
-      chain: anvilChain,
-      transport: http(opts.rpcUrl ?? ANVIL_RPC)
+      chain: this.chain,
+      transport: http(rpcUrl)
     });
     this.connected = new Promise<void>(res => {
       this.connectedResolve = res;
@@ -93,7 +119,7 @@ export class WcCounterparty {
           proposal: proposal.params,
           supportedNamespaces: {
             eip155: {
-              chains: [`eip155:${CHAIN_ID}`],
+              chains: SESSION_CHAIN_IDS.map(id => `eip155:${id}`),
               methods: [
                 'eth_sendTransaction',
                 'personal_sign',
@@ -102,7 +128,7 @@ export class WcCounterparty {
                 'eth_signTypedData_v4'
               ],
               events: ['chainChanged', 'accountsChanged'],
-              accounts: [`eip155:${CHAIN_ID}:${this.account.address}`]
+              accounts: SESSION_CHAIN_IDS.map(id => `eip155:${id}:${this.account.address}`)
             }
           }
         });
@@ -196,7 +222,7 @@ export class WcCounterparty {
         if (!tx) throw new Error('eth_sendTransaction: missing tx params');
         result = await this.wallet.sendTransaction({
           account: this.account,
-          chain: anvilChain,
+          chain: this.chain,
           to: tx.to as `0x${string}`,
           data: (tx.data as `0x${string}`) ?? undefined,
           value: tx.value ? BigInt(tx.value) : undefined,

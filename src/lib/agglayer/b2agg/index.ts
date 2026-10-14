@@ -88,11 +88,12 @@ export async function initiateB2AggBridge(args: {
   senderPublicKey: string;
   guardianProvider: GuardianAccountProvider;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
+  destinationChainId?: number;
 }): Promise<string> {
   const { amount, faucetId, destinationAddress, senderPublicKey, guardianProvider, spendingLimitAuthorization } = args;
   // Read before the lock: the note addresses the configured bridge, with the L1 bridge's networkID() as its
   // destination, which the row records too.
-  const { midenBridge, evmNetworkId } = getAgglayerBridgeOut();
+  const { midenBridge, evmNetworkId, recovery } = getAgglayerBridgeOut(args.destinationChainId);
 
   // Build the note + TransactionRequest under the WASM lock; the queue stores
   // the serialized request and the processor submits it.
@@ -175,7 +176,9 @@ export async function initiateB2AggBridge(args: {
     true,
     undefined,
     spendingLimitAuthorization,
-    exitTxHash
+    exitTxHash,
+    undefined,
+    recovery
   );
 }
 

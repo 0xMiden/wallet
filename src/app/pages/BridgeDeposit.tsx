@@ -12,8 +12,8 @@ import { PageHeader } from 'components/PageHeader';
 import { Button } from 'components/ui/Button';
 import { Notice } from 'components/ui/Notice';
 import { hapticMedium } from 'lib/mobile/haptics';
-import { useAnyFeatureAvailability } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
+import { useBridgeInAvailability } from 'lib/usdcx/use-bridge-in-availability';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { navigate } from 'lib/woozie';
 
@@ -33,7 +33,7 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   const reportDeposit = useFundTelemetry();
   const walletReady = connected && address && currentMidenAccount;
   // A ready wallet hands the page to the deposit screen, which holds for the route cards it greys out.
-  const bridgeIn = useAnyFeatureAvailability(['fastBridgeIn', 'bridgeIn'], { hold: !walletReady });
+  const bridgeIn = useBridgeInAvailability({ hold: !walletReady });
 
   const handleClose = useCallback(() => {
     if (onClose) {
@@ -50,6 +50,8 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
         await nativeReown.present();
         return;
       }
+      const appkit = await import('lib/walletconnect/appkit');
+      await appkit.prepareAppKitConnection();
       await connect({ view: 'Connect', namespace: 'eip155' });
     } catch (err) {
       console.error('[BridgeDeposit] connect failed', err);
@@ -67,6 +69,8 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
         return;
       }
       await disconnect();
+      const appkit = await import('lib/walletconnect/appkit');
+      await appkit.prepareAppKitConnection();
       await connect({ view: 'Connect', namespace: 'eip155' });
     } catch (err) {
       console.error('[BridgeDeposit] switch wallet failed', err);

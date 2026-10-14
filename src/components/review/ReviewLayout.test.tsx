@@ -61,6 +61,11 @@ describe('ReviewLayout', () => {
     jest.clearAllMocks();
   });
 
+  it('reserves remaining iOS gesture clearance around its pinned actions', () => {
+    const { container } = render(<ReviewLayout {...makeProps()} />);
+    expect(container.firstElementChild?.className).toContain('--wallet-control-safe-bottom,0px');
+  });
+
   it('hides the bottom navbar while mounted', () => {
     render(<ReviewLayout {...makeProps()} />);
     expect(useHideNavbarWhileOpenMock).toHaveBeenCalledTimes(1);

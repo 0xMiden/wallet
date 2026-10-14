@@ -1,5 +1,3 @@
-import { sepolia } from 'viem/chains';
-
 /**
  * WalletConnect (dApp side) configuration.
  *
@@ -7,6 +5,18 @@ import { sepolia } from 'viem/chains';
  * (MetaMask, Rainbow, etc.) so the bridge flow can sign EVM-side transactions.
  * We're the dApp here; the user's EVM funds live in the external wallet.
  */
+
+import { Chain, defineChain } from 'viem';
+import { arbitrum, arbitrumSepolia, arc, base, baseSepolia, mainnet, optimism, sepolia } from 'viem/chains';
+
+export const ARC_TESTNET = defineChain({
+  id: 5042002,
+  name: 'Arc Testnet',
+  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+  rpcUrls: { default: { http: ['https://rpc.testnet.arc.io'] } },
+  blockExplorers: { default: { name: 'Arc Explorer', url: 'https://explorer.testnet.arc.io' } },
+  testnet: true
+});
 
 /** The Reown project id every bundle uses unless `WALLETCONNECT_PROJECT_ID` is set at build time. */
 const DEFAULT_WC_PROJECT_ID = 'd18d112eb50cbe764f03e51a90210611';
@@ -25,7 +35,7 @@ export type EvmChain = {
   rpcUrl: string;
   /**
    * The chain's public RPC endpoint. `wallet_addEthereumChain` sends this one to the external
-   * wallet: `rpcUrl` is the WalletConnect proxy and carries our project id.
+   * wallet: `rpcUrl` can be the WalletConnect proxy, which carries our project id.
    */
   publicRpcUrl: string;
   explorer: string;
@@ -41,16 +51,44 @@ const E2E_EVM_RPC_URL = process.env.MIDEN_E2E_TEST === 'true' ? (process.env.E2E
 const RPC = (id: number) =>
   E2E_EVM_RPC_URL || `https://rpc.walletconnect.org/v1?chainId=eip155:${id}&projectId=${WC_PROJECT_ID}`;
 
-export const SUPPORTED_CHAINS: EvmChain[] = [
-  {
-    id: 11155111,
-    name: 'Sepolia',
-    rpcUrl: RPC(11155111),
-    publicRpcUrl: sepolia.rpcUrls.default.http[0],
-    explorer: 'https://sepolia.etherscan.io',
-    nativeCurrency: { name: 'Sepolia Ether', symbol: 'SepoliaETH', decimals: 18 }
-  }
+/** A viem chain read through the WalletConnect RPC, with its own explorer and native currency. */
+function walletConnectChain(chain: Chain): EvmChain {
+  return {
+    id: chain.id,
+    name: chain.name,
+    rpcUrl: RPC(chain.id),
+    publicRpcUrl: chain.rpcUrls.default.http[0] ?? '',
+    explorer: chain.blockExplorers?.default.url ?? '',
+    nativeCurrency: chain.nativeCurrency
+  };
+}
+
+/** Chain definitions available to the parser, RPC reads, and connection adapters. */
+export const EVM_CHAIN_DEFINITIONS: [Chain, ...Chain[]] = [
+  sepolia,
+  ARC_TESTNET,
+  baseSepolia,
+  arbitrumSepolia,
+  mainnet,
+  base,
+  arbitrum,
+  arc,
+  optimism
 ];
+
+/** This registry does not enable connections. The remote document selects those chains. */
+export const SUPPORTED_CHAINS: EvmChain[] = EVM_CHAIN_DEFINITIONS.map(chain => {
+  switch (chain.id) {
+    case ARC_TESTNET.id:
+    case arc.id:
+      return {
+        ...walletConnectChain(chain),
+        rpcUrl: chain.rpcUrls.default.http[0] ?? RPC(chain.id)
+      };
+    default:
+      return walletConnectChain(chain);
+  }
+});
 
 export const DEFAULT_CHAIN_ID = 11155111;
 

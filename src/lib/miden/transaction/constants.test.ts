@@ -1,4 +1,5 @@
 import { OperationAbortedError } from 'lib/miden/back/offscreen-codec';
+import { ProposalChainSyncError } from 'lib/miden/guardian';
 import { GUARDIAN_REQUEST_TIMEOUT_MS, GuardianRequestTimeoutError } from 'lib/miden/guardian/native-http';
 import { ApplyAfterSubmitError, SubmitCrossingUnrecordedError } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
@@ -519,6 +520,12 @@ describe('RotationGateConsumeRefusal', () => {
   it('is never read as a guardian outage, whatever its text (#779)', () => {
     // The requeue arm would retry a refusal until it expired, holding back the gate's claim or rotation meanwhile.
     expect(isGuardianOutage(new RotationGateConsumeRefusal('connection timed out'))).toBe(false);
+  });
+});
+
+describe('a failed proposal chain sync as an outage (#1442)', () => {
+  it('reads as an outage, so a value-moving row requeues', () => {
+    expect(isGuardianOutage(new ProposalChainSyncError(new TypeError('Failed to fetch')))).toBe(true);
   });
 });
 

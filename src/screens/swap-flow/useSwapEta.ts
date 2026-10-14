@@ -4,6 +4,7 @@ import { useDebounce } from 'use-debounce';
 
 import { stringToBigInt } from 'lib/i18n/numbers';
 import { getSwapEta, SwapEta, SwapToken } from 'lib/miden/swap/tokens';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 
 export interface SwapEtaState {
   loading: boolean;
@@ -18,6 +19,8 @@ export interface UseSwapEtaOpts {
   /** Human display amounts, as typed. */
   offerAmount: string;
   requestAmount: string;
+  /** Permit oracle-rate bootstrap before the receive amount has been user-edited. Defaults to true. */
+  allowRequestBootstrap?: boolean;
   /** Gate: only quote when the pair is swappable (e.g. two different tokens). */
   enabled: boolean;
 }
@@ -25,10 +28,19 @@ export interface UseSwapEtaOpts {
 const IDLE: SwapEtaState = { loading: false };
 const PENDING: SwapEtaState = { loading: true };
 
-/** Every non-idle state records the pair it was fetched for, as `offer|request` faucet ids. */
+/** Quotes belong to both the faucet pair and the configured service. */
 type PairedState = SwapEtaState & { pair?: string };
 
-const pairOf = (offerFaucetId: string, requestFaucetId: string) => `${offerFaucetId}|${requestFaucetId}`;
+const pairOf = (offerFaucetId: string, requestFaucetId: string, etaUrl: string | undefined) =>
+  JSON.stringify([offerFaucetId, requestFaucetId, etaUrl]);
+
+function quoteAmount(amount: string, decimals: number): bigint | undefined {
+  try {
+    return stringToBigInt(amount || '0', decimals);
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Debounced quote for the current swap pair via the DEX `swap-eta` endpoint.
@@ -52,14 +64,24 @@ export function useSwapEta({
   requestToken,
   offerAmount,
   requestAmount,
+  allowRequestBootstrap = true,
   enabled
 }: UseSwapEtaOpts): SwapEtaState {
-  const offerRaw = stringToBigInt(offerAmount || '0', offerToken.decimals);
-  const requestRaw = stringToBigInt(requestAmount || '0', requestToken.decimals);
+  const etaUrl = useBridgeConfigSnapshot({ load: false }).config?.swap?.etaUrl;
+  const parsedOffer = quoteAmount(offerAmount, offerToken.decimals);
+  const parsedRequest = quoteAmount(requestAmount, requestToken.decimals);
+  const offerRaw = parsedOffer ?? 0n;
+  const requestRaw = parsedRequest ?? 0n;
   // The endpoint requires requested_amount > 0; before the field is seeded fall
   // back to the offered amount (marketPrice is amount-independent).
   const requestRawForApi = requestRaw > 0n ? requestRaw : offerRaw;
-  const ready = enabled && offerRaw > 0n && offerToken.faucetId !== requestToken.faucetId;
+  const ready =
+    enabled &&
+    parsedOffer !== undefined &&
+    parsedRequest !== undefined &&
+    (requestRaw > 0n || allowRequestBootstrap) &&
+    offerRaw > 0n &&
+    offerToken.faucetId !== requestToken.faucetId;
 
   // Debounce the whole input set so keystrokes on either amount don't spam the
   // quote endpoint.
@@ -68,28 +90,39 @@ export function useSwapEta({
         of: offerToken.faucetId,
         oa: offerRaw.toString(),
         rf: requestToken.faucetId,
-        ra: requestRawForApi.toString()
+        ra: requestRawForApi.toString(),
+        etaUrl
       })
     : '';
-  const [debouncedKey] = useDebounce(key, 500);
+  // Keep each settled delivery observable, even if a skipped key is delivered again.
+  const [debouncedInput, debounceControl] = useDebounce({ key }, 500, {
+    equalityFn: (previous, current) => previous.key === current.key
+  });
+  const debouncedKey = debouncedInput.key;
   const [state, setState] = useState<PairedState>(IDLE);
   const reqId = useRef(0);
-  const livePair = pairOf(offerToken.faucetId, requestToken.faucetId);
+  const livePair = pairOf(offerToken.faucetId, requestToken.faucetId, etaUrl);
 
   useEffect(() => {
-    if (!debouncedKey) {
+    if (!ready || !debouncedKey) {
       reqId.current++; // supersede any in-flight request
       setState(IDLE);
       return;
     }
-    const { of, oa, rf, ra }: { of: string; oa: string; rf: string; ra: string } = JSON.parse(debouncedKey);
-    const pair = pairOf(of, rf);
+    const {
+      of,
+      oa,
+      rf,
+      ra,
+      etaUrl: quoteUrl
+    }: { of: string; oa: string; rf: string; ra: string; etaUrl?: string } = JSON.parse(debouncedKey);
+    const pair = pairOf(of, rf, quoteUrl);
     const id = ++reqId.current;
     // Only a same-pair amount change keeps the previous quote on screen while it reloads.
     setState(prev => ({ loading: true, pair, eta: prev.pair === pair ? prev.eta : undefined }));
     // The debounce delivers the live key 500 ms late, so a flip in this render would build the request from the
-    // other pair's tokens; wait for it instead. livePair re-runs this when the flip is undone inside the window.
-    if (pair !== livePair) return;
+    // other pair's tokens; wait for it instead. A readiness change must also wait for the current amount key.
+    if (pair !== livePair || debouncedKey !== key || debounceControl.isPending()) return;
     getSwapEta(offerToken, BigInt(oa), requestToken, BigInt(ra))
       .then(eta => {
         if (id !== reqId.current) return;
@@ -99,9 +132,12 @@ export function useSwapEta({
         if (id !== reqId.current) return;
         setState({ loading: false, pair, error: err instanceof Error ? err.message : 'Quote failed' });
       });
-    // `debouncedKey` captures the faucet ids and amounts, not the token objects, which only match it when livePair does.
+    // Debounce owns amount changes; livePair and ready invalidate stale tokens or input before it expires.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedKey, livePair]);
+  }, [debouncedInput, livePair, ready]);
+
+  // Invalid entry hides the last valid quote before the debounce catches up.
+  if (!ready) return IDLE;
 
   // The debounce lags the pair by 500 ms plus the fetch, so compare against the live tokens.
   if (state.pair === undefined) return state;

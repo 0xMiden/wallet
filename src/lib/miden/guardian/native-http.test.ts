@@ -17,8 +17,15 @@ jest.mock('@capacitor/core', () => ({
   CapacitorHttp: { request: (...args: unknown[]) => mockNativeRequest(...args) }
 }));
 
-jest.mock('lib/miden-chain/constants', () => ({
-  GUARDIAN_OPTIONS: [{ endpoint: new Map([['testnet', 'https://builtin.guardian.test']]) }]
+// The operators the wallet's configuration names. A test adds one and tells the listeners, as a config document does.
+const mockKnownGuardians = [{ endpoint: 'https://builtin.guardian.test' }];
+const mockGuardianListeners = new Set<() => void>();
+jest.mock('lib/miden-chain/guardian-registry', () => ({
+  getKnownGuardians: () => mockKnownGuardians,
+  subscribeGuardians: (listener: () => void) => {
+    mockGuardianListeners.add(listener);
+    return () => mockGuardianListeners.delete(listener);
+  }
 }));
 
 let mockRpcUrl = 'https://rpc.test';
@@ -73,6 +80,7 @@ beforeEach(() => {
   mockWebFetch.mockResolvedValue('web answer');
   mockNativeRequest.mockResolvedValue({ status: 200, headers: {}, data: '{}' });
   globalThis.fetch = mockWebFetch;
+  mockGuardianListeners.clear();
   nativeHttp = loadNativeHttp();
   nativeHttp.installGuardianFetchBoundary();
 });
@@ -209,6 +217,20 @@ describe('probeGuardianOrigin', () => {
     nativeHttp.probeGuardianOrigin(BUILTIN)(false);
 
     expect(await transportFor(`${BUILTIN}/pubkey`)).toBe('native');
+  });
+
+  it('routes an operator a config document adds after the boundary was installed', async () => {
+    const ADDED = 'https://added.guardian.test';
+    expect(await transportFor(`${ADDED}/pubkey`)).toBe('web');
+
+    mockKnownGuardians.push({ endpoint: ADDED });
+    try {
+      mockGuardianListeners.forEach(listener => listener());
+
+      expect(await transportFor(`${ADDED}/pubkey`)).toBe('native');
+    } finally {
+      mockKnownGuardians.pop();
+    }
   });
 
   it('never removes a registered origin when a probe of it fails', async () => {

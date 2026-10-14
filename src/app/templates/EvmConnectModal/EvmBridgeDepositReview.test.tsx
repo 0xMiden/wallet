@@ -133,6 +133,39 @@ describe('EvmBridgeDepositReview', () => {
       render(<EvmBridgeDepositReview {...baseProps({ route: 'agglayer' })} />);
       expect(screen.getByText('slow slowArrival')).toBeInTheDocument();
     });
+
+    it('labels the Circle xReserve route "USDCx" with its arrival estimate', () => {
+      render(<EvmBridgeDepositReview {...baseProps({ route: 'usdcx' })} />);
+      expect(screen.getByText('usdcxRouteName usdcxArrival')).toBeInTheDocument();
+    });
+
+    it('reads about a minute for a USDCx deposit from Arc Testnet', () => {
+      render(<EvmBridgeDepositReview {...baseProps({ route: 'usdcx', sourceChainId: 5042002 })} />);
+      expect(screen.getByText('usdcxRouteName usdcxArrivalArc')).toBeInTheDocument();
+    });
+
+    it.each([11155111, 84532, 421614])('reads ~20 min for a USDCx deposit from chain %i', sourceChainId => {
+      render(<EvmBridgeDepositReview {...baseProps({ route: 'usdcx', sourceChainId })} />);
+      expect(screen.getByText('usdcxRouteName usdcxArrival')).toBeInTheDocument();
+    });
+
+    it('keeps the Fast estimate whatever the source chain', () => {
+      render(<EvmBridgeDepositReview {...baseProps({ route: 'epoch', sourceChainId: 5042002 })} />);
+      expect(screen.getByText('fast fastArrival')).toBeInTheDocument();
+    });
+  });
+
+  describe('Circle fee row', () => {
+    it('shows the quoted fee in the source token for an executor-route deposit', () => {
+      render(<EvmBridgeDepositReview {...baseProps({ symbol: 'USDC', route: 'usdcx', fee: '0.0134' })} />);
+      expect(screen.getByText('usdcxCircleFee')).toBeInTheDocument();
+      expect(screen.getByText('0.0134 USDC')).toBeInTheDocument();
+    });
+
+    it('draws no fee row when there is no quote', () => {
+      render(<EvmBridgeDepositReview {...baseProps({ symbol: 'USDC', route: 'usdcx' })} />);
+      expect(screen.queryByText('usdcxCircleFee')).not.toBeInTheDocument();
+    });
   });
 
   describe('you receive row', () => {
@@ -145,6 +178,14 @@ describe('EvmBridgeDepositReview', () => {
     it('shows the quoted "≈ {amount} {symbol}" label once an output amount is known', () => {
       render(<EvmBridgeDepositReview {...baseProps({ symbol: 'USDC', outputAmount: '9.98' })} />);
       expect(screen.getByText('≈ 9.98 USDC')).toBeInTheDocument();
+    });
+
+    // A USDC deposit through xReserve arrives as USDCx: the hero keeps the source
+    // symbol and only the You Receive row shows the Miden-side one.
+    it('shows the output symbol on the You Receive row when it differs from the source', () => {
+      render(<EvmBridgeDepositReview {...baseProps({ symbol: 'USDC', outputAmount: '10', route: 'usdcx' })} />);
+      expect(screen.getByText('≈ 10 USDCx')).toBeInTheDocument();
+      expect(screen.getAllByText('10 USDC')).toHaveLength(2);
     });
 
     it('falls back to the bare symbol when no output amount has been quoted yet', () => {

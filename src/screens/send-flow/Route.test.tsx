@@ -1,16 +1,44 @@
 import React from 'react';
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { useSlideOnReflow } from 'components/flow/useSlideOnReflow';
+import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 
 import { Route, RouteOptions } from './Route';
 import { AgglayerEligibility } from './useAgglayerEligibility';
 
-jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+jest.mock('lib/remote-config/runtime', () =>
+  jest
+    .requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+    .remoteConfigRuntimeMock(
+      () =>
+        jest.requireActual<typeof import('lib/epoch/testing/bridge-config')>('lib/epoch/testing/bridge-config')
+          .TEST_BRIDGE_CONFIG_SNAPSHOT
+    )
+);
+
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    // A fee label names its asset and a payout row its amount; every other key reads as itself.
+    t: (key: string, params?: { symbol?: string; amount?: string }) => {
+      const value = params?.symbol ?? params?.amount;
+      return value === undefined ? key : `${key}|${value}`;
+    }
+  })
+}));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
+// The USDCx card names the native fee asset as the wallet resolves it; on testnet that is USDCx.
+jest.mock('app/hooks/useNativeFeeFaucetId', () => ({ __esModule: true, default: () => 'mtst1usdcxnative' }));
+jest.mock('lib/store', () => ({
+  useWalletStore: (selector: (state: { assetsMetadata: Record<string, never> }) => unknown) =>
+    selector({ assetsMetadata: {} })
+}));
+jest.mock('lib/miden/metadata/resolve', () => ({
+  resolveDisplayMetadata: jest.fn(() => ({ symbol: 'USDCx', name: 'USDCx', decimals: 6 }))
+}));
 jest.mock('lib/platform', () => ({ isMobile: () => true }));
 jest.mock('components/flow/useSlideOnReflow', () => ({ useSlideOnReflow: jest.fn() }));
 
@@ -138,5 +166,98 @@ describe('RouteOptions', () => {
     expect(screen.getByTestId('bridge-route-fast')).toBeDisabled();
     expect(screen.getByTestId('bridge-route-slow')).toBeDisabled();
     expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
+  });
+
+  it('names the native fee asset under the USDCx route, never MIDEN', () => {
+    render(
+      <RouteOptions
+        usdcxAvailable
+        route="usdcx"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        {...UP}
+      />
+    );
+
+    expect(screen.getByTestId('bridge-route-usdcx')).toHaveTextContent('usdcxMidenFees|USDCx');
+    expect(resolveDisplayMetadata).toHaveBeenCalledWith('mtst1usdcxnative', {}, 'mtst1usdcxnative');
+  });
+
+  it('marks the withdrawal notice under the USDCx route for the e2e harness', () => {
+    render(
+      <RouteOptions
+        usdcxAvailable
+        route="usdcx"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        {...UP}
+      />
+    );
+
+    expect(screen.getByTestId('usdcx-burn-notice')).toHaveTextContent('usdcxWithdrawalNotice');
+  });
+
+  // Circle charges a flat ~1,003,500 (about 1.0035 USDC) to pay a burn out on Ethereum; the allowance is 1.5 USDC.
+  it.each([
+    [11155111, 10_000_000n, '1.5', '8.5'],
+    [5042002, 1_000_001n, '0.1', '0.900001']
+  ])('shows Circle fee and the least payout for a burn to chain %i', (chainId, amount, fee, payout) => {
+    render(
+      <RouteOptions
+        usdcxAvailable
+        route="usdcx"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        usdcxPayout={{ chainId, amount }}
+        {...UP}
+      />
+    );
+
+    const feeRow = within(screen.getByTestId('usdcx-payout-fee'));
+    expect(feeRow.getByText('usdcxCircleFee')).toBeInTheDocument();
+    expect(feeRow.getByText(`usdcxPayoutFeeUpTo|${fee}`)).toBeInTheDocument();
+    const payoutRow = within(screen.getByTestId('usdcx-payout-net'));
+    expect(payoutRow.getByText('youReceive')).toBeInTheDocument();
+    expect(payoutRow.getByText(`usdcxPayoutAtLeast|${payout}`)).toBeInTheDocument();
+  });
+
+  it('leaves out the payout while the fee allowance takes the whole amount', () => {
+    render(
+      <RouteOptions
+        usdcxAvailable
+        route="usdcx"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        usdcxPayout={{ chainId: 11155111, amount: 1_500_000n }}
+        {...UP}
+      />
+    );
+
+    expect(screen.getByTestId('usdcx-payout-fee')).toBeInTheDocument();
+    expect(screen.queryByTestId('usdcx-payout-net')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['before the send has a destination and an amount', undefined],
+    ['for a chain that is not a USDCx destination', { chainId: 999, amount: 10_000_000n }]
+  ])('shows no payout figures %s', (_case, usdcxPayout) => {
+    render(
+      <RouteOptions
+        usdcxAvailable
+        route="usdcx"
+        onRouteChange={jest.fn()}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        usdcxPayout={usdcxPayout}
+        {...UP}
+      />
+    );
+
+    expect(screen.queryByTestId('usdcx-payout-fee')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('usdcx-payout-net')).not.toBeInTheDocument();
   });
 });

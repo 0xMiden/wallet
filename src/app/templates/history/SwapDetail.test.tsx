@@ -4,7 +4,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 
 import type { SwapSettlementTransaction } from 'lib/miden/activity';
 import { ITransactionStatus } from 'lib/miden/db/types';
-import { TOKEN_IETH } from 'lib/miden/swap/tokens';
+import { TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 
 import type { IHistoryEntry } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
@@ -111,6 +111,10 @@ jest.mock('./transactionUtils', () => ({
 }));
 
 // iETH's (i) is a testnet thing; pin the network rather than lean on the build default.
+// The testnet document, whose swap tokens name the iETH faucet the labels and the (i) read.
+jest.mock('lib/remote-config/use-feature-availability', () => ({
+  useBridgeConfigSnapshot: () => jest.requireActual('lib/epoch/testing/bridge-config').TEST_BRIDGE_CONFIG_SNAPSHOT
+}));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
   getTestNetworkNameKey: () => 'testnet'
@@ -211,8 +215,8 @@ describe('SwapDetail faucet ids', () => {
 
 describe('SwapDetail token info', () => {
   it.each([
-    ['requested', { requestedFaucetId: TOKEN_IETH.faucetId, requestedSymbol: 'Test iETH' }],
-    ['offered', { entry: { ...entry, faucetId: TOKEN_IETH.faucetId, token: 'Test iETH' } }]
+    ['requested', { requestedFaucetId: TEST_TOKEN_IETH.faucetId, requestedSymbol: 'Test iETH' }],
+    ['offered', { entry: { ...entry, faucetId: TEST_TOKEN_IETH.faucetId, token: 'Test iETH' } }]
   ])('puts one (i) in the hero beside testnet iETH as the %s token (#477)', (_side, over) => {
     renderDetail(over);
 
@@ -228,8 +232,8 @@ describe('SwapDetail token info', () => {
   });
 
   it.each([
-    ['requested', { requestedFaucetId: TOKEN_IETH.faucetId, requestedSymbol: 'Test iETH' }, '1000@8Test iETH'],
-    ['offered', { entry: { ...entry, faucetId: TOKEN_IETH.faucetId, token: 'Test iETH' } }, '500Test iETH']
+    ['requested', { requestedFaucetId: TEST_TOKEN_IETH.faucetId, requestedSymbol: 'Test iETH' }, '1000@8Test iETH'],
+    ['offered', { entry: { ...entry, faucetId: TEST_TOKEN_IETH.faucetId, token: 'Test iETH' } }, '500Test iETH']
   ])("keeps the %s side's amount, name and (i) in one unit the hero wraps between (#477)", (_side, over, unitText) => {
     renderDetail(over);
 

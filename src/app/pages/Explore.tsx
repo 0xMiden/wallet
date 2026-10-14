@@ -78,6 +78,7 @@ const Explore: FC = () => {
     mutate: mutateBalances
   } = useAllBalances(account.publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
+  const bridgeConfig = useBridgeConfigSnapshot({ load: false });
 
   const {
     data: claimableNotes,
@@ -195,6 +196,8 @@ const Explore: FC = () => {
   }, [address]);
 
   const { sortedTokens, hiddenTokens } = useMemo(() => {
+    // Pricing helpers read the runtime singleton; its snapshot invalidates cached values.
+    void bridgeConfig;
     // A token with no price, or whose balance was scaled by guessed decimals, ranks as worth
     // nothing, never as its token count at $1 a unit.
     const fiatValues = new Map(
@@ -217,17 +220,16 @@ const Explore: FC = () => {
       sortedTokens: sorted.filter(token => !isHidden(token.tokenId)),
       hiddenTokens: sorted.filter(token => isHidden(token.tokenId))
     };
-  }, [allTokenBalances, isHidden, midenFaucetId, tokenPrices]);
+  }, [allTokenBalances, isHidden, midenFaucetId, tokenPrices, bridgeConfig]);
 
   // The price symbols of the tokens the Balance total sums, so the card waits on the feed only
   // while one of them is a symbol the feed lists (`pricesLoaded`).
-  const totalPriceSymbols = useMemo(
-    () =>
-      allTokenBalances
-        .filter(token => token.balance > 0 && !isHidden(token.tokenId) && hasKnownScale(token.metadata))
-        .map(token => priceSymbolFor(token.tokenId, token.metadata.symbol)),
-    [allTokenBalances, isHidden]
-  );
+  const totalPriceSymbols = useMemo(() => {
+    void bridgeConfig;
+    return allTokenBalances
+      .filter(token => token.balance > 0 && !isHidden(token.tokenId) && hasKnownScale(token.metadata))
+      .map(token => priceSymbolFor(token.tokenId, token.metadata.symbol));
+  }, [allTokenBalances, isHidden, bridgeConfig]);
 
   const refreshExplore = useCallback(async () => {
     if (isRefreshing) return;
@@ -438,7 +440,7 @@ const HomeOverview: FC<HomeOverviewProps> = ({
         tokenPrices={tokenPrices}
       />
 
-      <div className="flex items-center justify-between pt-2">
+      <div className="-mb-1.5 flex items-center justify-between pt-2">
         <span id={assetsHeadingId} className="font-heading text-2xl font-extrabold text-text-primary-token">
           {t('assets')}
         </span>

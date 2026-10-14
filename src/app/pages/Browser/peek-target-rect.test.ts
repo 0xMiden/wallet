@@ -49,6 +49,15 @@ describe('resolveTargetRect', () => {
     });
   });
 
+  it('lands the fallback right under the capsule: safe area, content row, hairline and progress bar, no drag strip', () => {
+    const IPHONE_SAFE_AREA_TOP = 62;
+    const CAPSULE_ROW = 56;
+    const CAPSULE_HAIRLINE = 1;
+    const PROGRESS_BAR = 2;
+
+    expect(FALLBACK_CAPSULE_HEIGHT).toBe(IPHONE_SAFE_AREA_TOP + CAPSULE_ROW + CAPSULE_HAIRLINE + PROGRESS_BAR);
+  });
+
   it('ignores rects with no size and falls back', () => {
     expect(resolveTargetRect(unmeasured, unmeasured).y).toBe(FALLBACK_CAPSULE_HEIGHT);
   });

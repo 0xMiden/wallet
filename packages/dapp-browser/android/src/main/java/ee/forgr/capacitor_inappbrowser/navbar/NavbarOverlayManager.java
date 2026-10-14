@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.util.Log;
 import android.view.ViewGroup;
+import android.view.View;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -211,7 +212,14 @@ public final class NavbarOverlayManager {
         // the first one whose Dialog is currently showing.
         for (int i = dialogStack.size() - 1; i >= 0; i--) {
             DialogEntry entry = dialogStack.get(i);
-            if (entry.dialog.isShowing()) {
+            if (entry.dialog.isShowing() && entry.dialog.getWindow() != null
+                && entry.dialog.getWindow().getDecorView().getVisibility() == View.VISIBLE) {
+                if (entry.dialog instanceof ee.forgr.capacitor_inappbrowser.WebViewDialog
+                    && ((ee.forgr.capacitor_inappbrowser.WebViewDialog) entry.dialog).isPresentationFullscreen()) {
+                    for (DialogEntry hidden : dialogStack) hidden.view.setFloatingVisible(false);
+                    if (activityView != null) activityView.setFloatingVisible(false);
+                    return;
+                }
                 top = entry.view;
                 break;
             }

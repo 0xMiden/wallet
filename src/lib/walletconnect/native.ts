@@ -3,7 +3,8 @@ import { registerPlugin } from '@capacitor/core';
 
 import { isAndroid, isIOS } from 'lib/platform';
 
-import { getChain } from './config';
+import { getChain, type EvmChain } from './config';
+import { readNativeFeeFields } from './fees';
 
 export interface ReownConfigureOptions {
   projectId: string;
@@ -16,6 +17,7 @@ export interface ReownConfigureOptions {
   universalRedirect?: string;
   linkMode?: boolean;
   chainIds: number[];
+  chains?: EvmChain[];
   methods?: string[];
   /** Methods the proposal offers as optional only. A wallet that does not support them still pairs. */
   optionalMethods?: string[];
@@ -169,7 +171,7 @@ export async function ensureNativeSessionChain(state: ReownState, chainId: numbe
         {
           chainId: hexChainId,
           chainName: chain.name,
-          // The public RPC: `rpcUrl` is the WalletConnect proxy and carries our project id.
+          // The public RPC: `rpcUrl` can be the WalletConnect proxy, which carries our project id.
           rpcUrls: [chain.publicRpcUrl],
           nativeCurrency: chain.nativeCurrency,
           blockExplorerUrls: [chain.explorer]
@@ -277,13 +279,26 @@ async function rpcRead(rpcUrl: string, method: string, params: unknown): Promise
  * wallet vs. RPC traffic on web.
  */
 export function buildNativeReownProvider({ chainId, address, rpcUrl }: NativeReownProviderOptions) {
+  let selectedChainId = chainId;
+  let selectedRpcUrl = rpcUrl;
   const request = async ({ method, params }: { method: string; params?: unknown }): Promise<unknown> => {
     switch (method) {
       case 'eth_accounts':
       case 'eth_requestAccounts':
         return [address];
       case 'eth_chainId':
-        return `0x${chainId.toString(16)}`;
+        return `0x${selectedChainId.toString(16)}`;
+      case 'wallet_switchEthereumChain': {
+        const target = Array.isArray(params) ? params[0] : undefined;
+        if (!target || typeof target !== 'object') throw new Error('A destination chain is required');
+        const hexId = txField(target, 'chainId');
+        const chain = getChain(Number(hexId));
+        if (!chain) throw new Error('The destination chain is not supported');
+        // Native requests carry their chain ID. Select the same chain for reads and sends.
+        selectedChainId = chain.id;
+        selectedRpcUrl = chain.rpcUrl;
+        return null;
+      }
       case 'eth_sendTransaction': {
         const tx = Array.isArray(params) && typeof params[0] === 'object' && params[0] !== null ? params[0] : undefined;
         if (!tx) throw new Error('eth_sendTransaction requires a transaction object');
@@ -293,27 +308,31 @@ export function buildNativeReownProvider({ chainId, address, rpcUrl }: NativeReo
         // `useEvmWalletProvider`) gets the same check before its wallet prompt. The deposit screen
         // also checks before it starts the Fast deposit, so that it can show the localized message
         // before the Epoch SDK starts; this check is the backstop for every provider caller.
-        await prepareNativeSessionChain(chainId);
+        await prepareNativeSessionChain(selectedChainId);
         const { hash } = await NativeReown.sendTransaction({
-          chainId,
+          chainId: selectedChainId,
           from: txField(tx, 'from') ?? address,
           to: txField(tx, 'to') ?? '',
           value: txField(tx, 'value'),
           data: txField(tx, 'data'),
           gas: txField(tx, 'gas'),
           gasPrice: txField(tx, 'gasPrice'),
-          maxFeePerGas: txField(tx, 'maxFeePerGas'),
-          maxPriorityFeePerGas: txField(tx, 'maxPriorityFeePerGas')
+          // A caller that set no fee gets fields with headroom (`readNativeFeeFields`): the wallet's own
+          // estimate can fall under a base fee that rose during the prompt, and the node then rejects it.
+          // A caller that set any fee field keeps exactly what it set.
+          ...(txField(tx, 'gasPrice') || txField(tx, 'maxFeePerGas') || txField(tx, 'maxPriorityFeePerGas')
+            ? { maxFeePerGas: txField(tx, 'maxFeePerGas'), maxPriorityFeePerGas: txField(tx, 'maxPriorityFeePerGas') }
+            : await readNativeFeeFields(selectedChainId))
         });
         return unwrapNativeResult(hash);
       }
       default:
         if (NATIVE_SIGN_METHODS.has(method)) {
-          await prepareNativeSessionChain(chainId);
-          const { result } = await NativeReown.request({ chainId, method, params });
+          await prepareNativeSessionChain(selectedChainId);
+          const { result } = await NativeReown.request({ chainId: selectedChainId, method, params });
           return unwrapNativeResult(result);
         }
-        return rpcRead(rpcUrl, method, params);
+        return rpcRead(selectedRpcUrl, method, params);
     }
   };
 
