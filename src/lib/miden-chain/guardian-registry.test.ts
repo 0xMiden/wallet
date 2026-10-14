@@ -124,6 +124,21 @@ describe('a document list', () => {
     expect(getNetworkGuardianEndpoints('testnet')).toEqual(['https://new.example', 'https://koda-2.example']);
   });
 
+  it('counts a new, changed or removed about or kind text as a change, and an equal one as none', () => {
+    const listener = jest.fn();
+    setDocumentGuardians('testnet', [KODA]);
+    subscribeGuardians(listener);
+
+    setDocumentGuardians('testnet', [{ ...KODA, about: 'A custodian.' }]);
+    setDocumentGuardians('testnet', [{ ...KODA, about: 'A custodian.' }]);
+    setDocumentGuardians('testnet', [{ ...KODA, about: 'A digital asset custodian.' }]);
+    setDocumentGuardians('testnet', [{ ...KODA, about: 'A digital asset custodian.', kind: 'Custody' }]);
+    setDocumentGuardians('testnet', [KODA]);
+
+    expect(listener).toHaveBeenCalledTimes(4);
+    expect(getNetworkGuardians('testnet')[0]?.about).toBeUndefined();
+  });
+
   it('does nothing when a network with no document list is told it has none', () => {
     const listener = jest.fn();
     subscribeGuardians(listener);

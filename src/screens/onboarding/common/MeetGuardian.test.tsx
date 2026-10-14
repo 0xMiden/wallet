@@ -163,6 +163,17 @@ describe('MeetGuardianScreen', () => {
     expect(screen.getByTestId('meet-guardian-summary')).toHaveTextContent('Unlisted Ltd');
   });
 
+  it("shows the config document's about text in place of the bundled one", () => {
+    mockGetGuardianOptions.mockReturnValue([{ ...GATEWAY, about: 'An infrastructure provider.' }]);
+    const view = renderScreen();
+    view.setVerdicts({ [GATEWAY.endpoint]: { status: 'online', latencyMs: 10 } });
+    expect(screen.getByTestId('meet-guardian-summary')).toHaveTextContent('An infrastructure provider.');
+    expect(screen.getByTestId('meet-guardian-summary')).not.toHaveTextContent('guardianAboutGateway');
+
+    fireEvent.click(screen.getByTestId('meet-guardian-learn-more'));
+    expect(screen.getByTestId('meet-guardian-provider-details')).toHaveTextContent('An infrastructure provider.');
+  });
+
   it('keeps the chosen operator when a later round changes the order, but closes Continue when it goes offline', () => {
     const view = renderScreen();
     view.setVerdicts(BOTH_ONLINE);

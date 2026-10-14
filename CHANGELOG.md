@@ -4,7 +4,7 @@
 
 ### Features
 
-- [FEATURE][all] The Guardian operators of each network come from the `guardians` list in `0xMiden/wallet-config`, so a new or removed operator reaches every wallet within about an hour with no release; the list the wallet ships with is used only until a document names the operators.
+- [FEATURE][all] The Guardian operators of each network come from the `guardians` list in `0xMiden/wallet-config`, with each operator's English description, so a new or removed operator reaches every wallet within about an hour with no release; the list the wallet ships with is used only until a document names the operators.
 
 ### Fixes
 

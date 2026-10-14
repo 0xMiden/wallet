@@ -38,6 +38,9 @@ export const MAX_GUARDIANS = 16;
 export const MAX_GUARDIAN_ID_LENGTH = 32;
 /** The longest name, operator or location the wallet shows. */
 export const MAX_GUARDIAN_LABEL_LENGTH = 48;
+/** The longest `about` sentence and `kind` line the wallet shows. */
+export const MAX_GUARDIAN_ABOUT_LENGTH = 160;
+export const MAX_GUARDIAN_KIND_LENGTH = 64;
 /** Ids the wallet gives its own entries: the developer's custom endpoint and the no-Guardian choice. */
 export const RESERVED_GUARDIAN_IDS: readonly string[] = ['custom', 'no-guardian'];
 
@@ -50,6 +53,10 @@ export interface GuardianConfig {
   location: string;
   /** The Guardian base URL, without a trailing slash; unique in the list. */
   endpoint: string;
+  /** Who runs the operator, in one English sentence: the guardian step shows it under the operator's name. */
+  about?: string;
+  /** What kind of company runs the operator, in a short English line: the Change provider sheet shows it. */
+  kind?: string;
 }
 
 /** EVM chains the wallet ships RPC and explorer definitions for: the WalletConnect chain registry (Sepolia). */
@@ -243,20 +250,26 @@ function guardianId(value: unknown): string {
   return RESERVED_GUARDIAN_IDS.includes(value) ? invalid() : value;
 }
 
-// A line of text the wallet shows as written: 1 to 48 characters, no control character, no space at either end.
-function guardianLabel(value: unknown): string {
-  if (typeof value !== 'string' || value.length === 0 || value.length > MAX_GUARDIAN_LABEL_LENGTH) return invalid();
+// A line of text the wallet shows as written: 1 to `maxLength` characters, no control character, no space at either
+// end.
+function guardianLabel(value: unknown, maxLength = MAX_GUARDIAN_LABEL_LENGTH): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > maxLength) return invalid();
   return value !== value.trim() || CONTROL_CHARACTER.test(value) ? invalid() : value;
 }
 
 function readGuardian(value: unknown, url: (value: unknown) => string): GuardianConfig {
   if (!isRecord(value)) return invalid();
+  // Optional: without them the wallet shows its bundled words for the id, else `operatedBy`.
+  const about = value.about === undefined ? undefined : guardianLabel(value.about, MAX_GUARDIAN_ABOUT_LENGTH);
+  const kind = value.kind === undefined ? undefined : guardianLabel(value.kind, MAX_GUARDIAN_KIND_LENGTH);
   return {
     id: guardianId(value.id),
     name: guardianLabel(value.name),
     operatedBy: guardianLabel(value.operatedBy),
     location: guardianLabel(value.location),
-    endpoint: url(value.endpoint)
+    endpoint: url(value.endpoint),
+    ...(about === undefined ? {} : { about }),
+    ...(kind === undefined ? {} : { kind })
   };
 }
 

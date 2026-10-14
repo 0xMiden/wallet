@@ -47,7 +47,9 @@ const sameOption = (a: ResolvedGuardianOption, b: ResolvedGuardianOption): boole
   a.name === b.name &&
   a.operatedBy === b.operatedBy &&
   a.location === b.location &&
-  a.endpoint === b.endpoint;
+  a.endpoint === b.endpoint &&
+  a.about === b.about &&
+  a.kind === b.kind;
 
 const sameList = (a: readonly ResolvedGuardianOption[], b: readonly ResolvedGuardianOption[]): boolean =>
   a.length === b.length && a.every((option, index) => sameOption(option, b[index]!));

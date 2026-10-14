@@ -350,6 +350,14 @@ describe('the Guardian operators', () => {
     ['a local http endpoint', [{ ...OZ, endpoint: 'http://localhost:3000' }]],
     ['an endpoint with a query', [{ ...OZ, endpoint: 'https://guardian.openzeppelin.com/?a=1' }]],
     ['an endpoint with credentials', [{ ...OZ, endpoint: 'https://user:pass@guardian.openzeppelin.com' }]],
+    ['an about that is an object', [{ ...OZ, about: { en: 'A security company.' } }]],
+    ['an empty about', [{ ...OZ, about: '' }]],
+    ['an about of 161 characters', [{ ...OZ, about: 'a'.repeat(161) }]],
+    ['an about with a line break', [{ ...OZ, about: 'A security\ncompany.' }]],
+    ['an about with a space at its end', [{ ...OZ, about: 'A security company. ' }]],
+    ['a kind that is null', [{ ...OZ, kind: null }]],
+    ['a numeric kind', [{ ...OZ, kind: 7 }]],
+    ['a kind of 65 characters', [{ ...OZ, kind: 'k'.repeat(65) }]],
     ['two entries with one id', [OZ, { ...KODA, id: OZ.id }]],
     [
       'two entries with one endpoint in two spellings',
@@ -357,6 +365,16 @@ describe('the Guardian operators', () => {
     ]
   ])('rejects the document for %s', (_label, list) => {
     expect(guardians(list)).toBeNull();
+  });
+
+  it('reads the about and kind texts as written', () => {
+    const described = { ...OZ, about: 'A smart contract security company.', kind: 'Smart contract security' };
+    expect(guardians([described, KODA])?.guardians).toStrictEqual([described, KODA]);
+  });
+
+  it('accepts an about and a kind at their length limits', () => {
+    const parsed = guardians([{ ...OZ, about: 'a'.repeat(160), kind: 'k'.repeat(64) }]);
+    expect(parsed?.guardians?.[0]).toMatchObject({ about: 'a'.repeat(160), kind: 'k'.repeat(64) });
   });
 
   it('accepts a name and an id at their length limits', () => {

@@ -147,6 +147,12 @@ describe('GuardianProviderSheet', () => {
     expect(card(OTHER.endpoint)).toHaveTextContent('Other Co · EU-WEST');
   });
 
+  it("shows the config document's kind text in place of the bundled one", () => {
+    renderSheet({ options: [{ ...OZ, kind: 'Security audits' }, KODA] });
+    expect(card(OZ.endpoint)).toHaveTextContent('Security audits · US-EAST');
+    expect(card(KODA.endpoint)).toHaveTextContent('guardianKindKodax · Asia (SK)');
+  });
+
   it('has words for every operator the wallet ships', () => {
     const { GUARDIAN_OPTIONS } = jest.requireActual('lib/miden-chain/networks-config');
     for (const option of GUARDIAN_OPTIONS as { id: string }[]) expect(guardianOperatorCopy(option.id)).toBeDefined();

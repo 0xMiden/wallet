@@ -179,4 +179,15 @@ export interface ResolvedGuardianOption {
   operatedBy: string;
   location: string;
   endpoint: string;
+  /**
+   * Who runs the operator, in one English sentence: the guardian step shows it under the operator's name. Only a
+   * config document gives it; without it the wallet shows its bundled sentence for `id`, else `operatedBy`.
+   */
+  about?: string;
+  /**
+   * What kind of company runs the operator, in a short English line: the Change provider sheet shows it on the
+   * operator's card. Only a config document gives it; without it the wallet shows its bundled line for `id`, else
+   * `operatedBy`.
+   */
+  kind?: string;
 }

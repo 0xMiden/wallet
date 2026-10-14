@@ -15,7 +15,7 @@ import type { ResolvedGuardianOption } from 'lib/miden-chain/networks-config';
 import { MeetGuardianProgress, NO_GUARDIAN_ID } from 'screens/onboarding/types';
 
 import { GuardianProviderDetailsSheet } from './GuardianProviderDetailsSheet';
-import { GuardianProviderSheet, guardianOperatorCopy } from './GuardianProviderSheet';
+import { GuardianProviderSheet, useGuardianOperatorText } from './GuardianProviderSheet';
 import { OnboardingStepLayout } from './OnboardingStepLayout';
 
 export interface MeetGuardianScreenProps {
@@ -44,6 +44,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
   showNoGuardianOption = false
 }) => {
   const { t } = useTranslation();
+  const operatorText = useGuardianOperatorText();
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const { chosenId, fastestId } = progress;
@@ -97,7 +98,6 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
   const handlePick = (id: string) =>
     onProgressChange(prev => (prev.chosenId === id ? prev : { ...prev, chosenId: id }));
 
-  const copy = chosen ? guardianOperatorCopy(chosen.id) : undefined;
 
   return (
     <OnboardingStepLayout
@@ -180,7 +180,7 @@ export const MeetGuardianScreen: React.FC<MeetGuardianScreenProps> = ({
               className="mt-2 max-w-80 text-body font-semibold text-balance text-muted face-heading"
               data-testid="meet-guardian-summary"
             >
-              {copy ? t(copy.aboutKey) : chosen.operatedBy}
+              {operatorText(chosen).about}
             </p>
           ) : (
             <div className="mt-2 flex w-full flex-col items-center gap-1.5" aria-hidden>
