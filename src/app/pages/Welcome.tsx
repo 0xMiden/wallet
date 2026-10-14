@@ -169,7 +169,7 @@ function requiresCreateCode(hash: string, type: OnboardingType | null): boolean 
   }
 }
 
-const Welcome: FC<{ inviteOnly: boolean }> = ({ inviteOnly }) => {
+const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ inviteOnly, onUnlockInviteOnly }) => {
   const { t } = useTranslation();
   const { hash } = useLocation();
   const [step, setStep] = useState(OnboardingStep.Welcome);
@@ -669,13 +669,6 @@ const Welcome: FC<{ inviteOnly: boolean }> = ({ inviteOnly }) => {
         startCreateFlow();
         break;
       case 'choose-protection':
-        if (inviteOnly) {
-          beginOnboardingFlow('create');
-          resetFlowState();
-          setOnboardingType(OnboardingType.Create);
-          navigate('/#mainnet-access');
-          break;
-        }
         beginOnboardingFlow('create');
         resetFlowState();
         // On a test network the chosen flow waits behind the network notice (#875); acknowledging
@@ -1216,6 +1209,7 @@ const Welcome: FC<{ inviteOnly: boolean }> = ({ inviteOnly }) => {
       <div data-onboarding-root="true" className="h-full w-full bg-app-bg">
         <OnboardingFlow
           inviteOnly={inviteOnly}
+          onUnlockInviteOnly={onUnlockInviteOnly}
           wordslist={wordslist}
           seedPhrase={seedPhrase}
           onboardingType={onboardingType}
@@ -1242,7 +1236,9 @@ const Welcome: FC<{ inviteOnly: boolean }> = ({ inviteOnly }) => {
 };
 
 const WelcomePage: FC = () => (
-  <OnboardingNetwork>{inviteOnly => <Welcome inviteOnly={inviteOnly} />}</OnboardingNetwork>
+  <OnboardingNetwork>
+    {(inviteOnly, onUnlockInviteOnly) => <Welcome inviteOnly={inviteOnly} onUnlockInviteOnly={onUnlockInviteOnly} />}
+  </OnboardingNetwork>
 );
 
 export default WelcomePage;

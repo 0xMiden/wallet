@@ -1,4 +1,4 @@
-import React, { FC, ReactNode, useEffect, useState } from 'react';
+import React, { FC, ReactNode, useCallback, useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
@@ -40,8 +40,15 @@ function prepareMainnet(): Promise<void> {
   return preparing;
 }
 
-/** Only wallets that have not been set up can change networks here. */
-export const OnboardingNetwork: FC<{ children: (inviteOnly: boolean) => ReactNode }> = ({ children }) => {
+/**
+ * The one owner of the invite-only decision: the document's `onboarding.inviteOnly`, mainnet, or the
+ * Welcome's seven-tap unlock. Each moves a wallet that has not been set up to mainnet before its
+ * children render, so the code check and the create run there. Only wallets that have not been set
+ * up can change networks here.
+ */
+export const OnboardingNetwork: FC<{
+  children: (inviteOnly: boolean, onUnlockInviteOnly: () => void) => ReactNode;
+}> = ({ children }) => {
   const { t } = useTranslation();
   const snapshot = useBridgeConfigSnapshot();
   const status = useWalletStore(s => s.status);
@@ -51,6 +58,7 @@ export const OnboardingNetwork: FC<{ children: (inviteOnly: boolean) => ReactNod
   const [state, setState] = useState<'idle' | 'pending' | 'ready' | 'failed'>('idle');
   const [attempt, setAttempt] = useState(0);
   const mustPrepare = status === WalletStatus.Idle && (required || inviteOnly);
+  const unlockInviteOnly = useCallback(() => setInviteOnly(true), []);
 
   const ready = state === 'ready';
 
@@ -87,5 +95,5 @@ export const OnboardingNetwork: FC<{ children: (inviteOnly: boolean) => ReactNod
     );
   }
 
-  return <>{children(required || inviteOnly)}</>;
+  return <>{children(required || inviteOnly, unlockInviteOnly)}</>;
 };

@@ -10,8 +10,12 @@ import { useMidenContext } from 'lib/miden/front';
 import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
 import { GUARDIAN_PROBE_WAIT_DEADLINE_MS, useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { clearClientStorage } from 'lib/miden/reset';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { selectInviteOnlyOnboarding } from 'lib/remote-config/values';
 import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { navigate } from 'lib/woozie';
 import { errorToMessage } from 'screens/onboarding/error-message';
@@ -37,6 +41,11 @@ const ForgotPassword: FC = () => {
   const [password, setPassword] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  // A new wallet on an invite-only network needs a code, which this page does not take: its
+  // Welcome offers recovery only.
+  const snapshot = useBridgeConfigSnapshot();
+  const recoverOnly =
+    selectInviteOnlyOnboarding(snapshot) === true || getEffectiveNetworkName() === MIDEN_NETWORK_NAME.MAINNET;
 
   const { registerWallet } = useMidenContext();
   // Guardian auto-detection (issue #418). The probe runs unseen from seed submit;
@@ -309,6 +318,7 @@ const ForgotPassword: FC = () => {
 
   return (
     <OnboardingFlow
+      recoverOnly={recoverOnly}
       wordslist={wordsList}
       seedPhrase={seedPhrase}
       onboardingType={onboardingType}

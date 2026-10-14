@@ -236,6 +236,12 @@ describe('OnboardingFlow — action wiring per screen', () => {
     expect(onAction).not.toHaveBeenCalled();
   });
 
+  it("Welcome: hands the host's variant, unlock and recover-only choice to the screen", () => {
+    const onUnlockInviteOnly = jest.fn();
+    renderFlow({ step: OnboardingStep.Welcome, inviteOnly: true, onUnlockInviteOnly, recoverOnly: true });
+    expect(mockCaptured.welcome).toMatchObject({ inviteOnly: true, onUnlockInviteOnly, recoverOnly: true });
+  });
+
   it('MainnetAccess: an accepted code dispatches mainnet-access-granted', () => {
     const onAction = jest.fn();
     renderFlow({ step: OnboardingStep.MainnetAccess, onAction });

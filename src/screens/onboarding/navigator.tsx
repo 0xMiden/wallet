@@ -42,6 +42,9 @@ import {
 
 export interface OnboardingFlowProps {
   inviteOnly?: boolean;
+  onUnlockInviteOnly?: () => void;
+  /** Welcome offers recovery only (ForgotPassword on an invite-only network). */
+  recoverOnly?: boolean;
   wordslist: readonly string[];
   seedPhrase: string[] | null;
   onboardingType: OnboardingType | null;
@@ -133,6 +136,8 @@ const Header: React.FC<{
 
 export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   inviteOnly,
+  onUnlockInviteOnly,
+  recoverOnly,
   wordslist,
   seedPhrase,
   onboardingType,
@@ -281,7 +286,14 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
 
     switch (step) {
       case OnboardingStep.Welcome:
-        return <WelcomeScreen inviteOnly={inviteOnly} onSubmit={onWelcomeAction} />;
+        return (
+          <WelcomeScreen
+            inviteOnly={inviteOnly}
+            onUnlockInviteOnly={onUnlockInviteOnly}
+            recoverOnly={recoverOnly}
+            onSubmit={onWelcomeAction}
+          />
+        );
       case OnboardingStep.MainnetAccess:
         return <MainnetAccessScreen onSubmit={onMainnetAccessGranted} />;
       case OnboardingStep.NetworkNotice:
@@ -375,6 +387,8 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     }
   }, [
     inviteOnly,
+    onUnlockInviteOnly,
+    recoverOnly,
     step,
     meetGuardianProgress,
     isLoading,

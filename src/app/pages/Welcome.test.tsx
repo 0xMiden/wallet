@@ -55,8 +55,13 @@ const finishWarns = (warn: jest.SpyInstance) =>
 // ---------------------------------------------------------------------------
 
 let mockInviteOnly = false;
+const mockUnlockInviteOnly = jest.fn();
 jest.mock('app/templates/OnboardingNetwork', () => ({
-  OnboardingNetwork: ({ children }: { children: (inviteOnly: boolean) => React.ReactNode }) => children(mockInviteOnly)
+  OnboardingNetwork: ({
+    children
+  }: {
+    children: (inviteOnly: boolean, onUnlockInviteOnly: () => void) => React.ReactNode;
+  }) => children(mockInviteOnly, mockUnlockInviteOnly)
 }));
 
 // Latest props handed to the stubbed OnboardingFlow (re-read after every render
@@ -1038,11 +1043,21 @@ describe('Welcome - mainnet access and the network notice (#875)', () => {
     }
   );
 
-  it('requires a code when the general create action is used in invite-only mode', async () => {
+  it('sends a general create action in invite-only mode back to Welcome: no create screen without a code', async () => {
     mockInviteOnly = true;
     await renderWelcome();
     await dispatch({ id: 'choose-protection' });
-    expect(mockNavigate).toHaveBeenLastCalledWith('/#mainnet-access');
+    await setHash('#network-notice');
+    expect(mockNavigate).toHaveBeenLastCalledWith('/');
+    expect(currentStep()).toBe(OnboardingStep.Welcome);
+  });
+
+  it('hands the host its invite-only variant and unlock', async () => {
+    mockInviteOnly = true;
+    await renderWelcome();
+    expect(mockFlowProps.current.inviteOnly).toBe(true);
+    mockFlowProps.current.onUnlockInviteOnly();
+    expect(mockUnlockInviteOnly).toHaveBeenCalledTimes(1);
   });
 
   it('allows mainnet recovery without a code in invite-only mode', async () => {

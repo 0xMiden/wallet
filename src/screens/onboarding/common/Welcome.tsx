@@ -7,10 +7,8 @@ import { Button, ButtonVariant } from 'components/Button';
 import { Spinner } from 'components/ui/Spinner';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { TextAction } from 'components/ui/TextAction';
-import { isInviteOnboardingUnlocked, setInviteOnboardingUnlocked, welcomeOnboarding } from 'lib/invite-onboarding';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
-import { selectInviteOnlyOnboarding } from 'lib/remote-config/values';
 import { cn } from 'lib/ui/util';
 import { navigate } from 'lib/woozie';
 
@@ -18,7 +16,12 @@ import { NoCodeSheet } from './NoCodeSheet';
 
 export interface WelcomeScreenProps extends Omit<React.ButtonHTMLAttributes<HTMLDivElement>, 'onSubmit'> {
   onSubmit?: (action: Actions) => void;
+  /** The invite-only way in, as the host decided it (OnboardingNetwork). */
   inviteOnly?: boolean;
+  /** Seven logo taps call it while the general Welcome shows; without it they open Developer Settings. */
+  onUnlockInviteOnly?: () => void;
+  /** Recovery is the only way in: a new wallet needs a code the host cannot take. */
+  recoverOnly?: boolean;
 }
 
 /**
@@ -48,24 +51,21 @@ function useConfigSettled(loading: boolean): boolean {
   return !loading || waitEnded;
 }
 
-export const WelcomeScreen = ({ onSubmit, inviteOnly: required = false }: WelcomeScreenProps) => {
+export const WelcomeScreen = ({
+  onSubmit,
+  inviteOnly = false,
+  onUnlockInviteOnly,
+  recoverOnly = false
+}: WelcomeScreenProps) => {
   const { t } = useTranslation();
   const tapCount = useRef(0);
   const lastTap = useRef(0);
   const snapshot = useBridgeConfigSnapshot();
   const settled = useConfigSettled(snapshot.status === 'loading');
-  const [unlocked, setUnlocked] = useState(isInviteOnboardingUnlocked);
   const [noCodeOpen, setNoCodeOpen] = useState(false);
-  const { inviteOnly, tapsUnlockInviteOnly } = welcomeOnboarding(
-    required || selectInviteOnlyOnboarding(snapshot),
-    unlocked
-  );
   // Hidden, not removed, so the hero does not move when the actions show.
   const actionClassName = cn('max-w-none', !settled && 'invisible');
 
-  // Unless the remote config sets the invite-only variant, seven taps unlock the invite-only
-  // Welcome and seven more open Developer Settings. When the config sets it, seven taps open
-  // Developer Settings.
   const handleLogoTap = (e: React.MouseEvent) => {
     e.preventDefault();
     window.getSelection()?.removeAllRanges();
@@ -76,12 +76,11 @@ export const WelcomeScreen = ({ onSubmit, inviteOnly: required = false }: Welcom
     if (tapCount.current < UNLOCK_TAPS) return;
     tapCount.current = 0;
     hapticMedium();
-    if (!tapsUnlockInviteOnly) {
+    if (inviteOnly || !onUnlockInviteOnly) {
       navigate('/developer-settings');
       return;
     }
-    setInviteOnboardingUnlocked(true);
-    setUnlocked(true);
+    onUnlockInviteOnly();
   };
 
   const actions = inviteOnly ? (
@@ -104,18 +103,20 @@ export const WelcomeScreen = ({ onSubmit, inviteOnly: required = false }: Welcom
     </>
   ) : (
     <>
-      <Button
-        tabIndex={0}
-        className={actionClassName}
-        data-testid="onboarding-get-started"
-        title={t('getStarted')}
-        onClick={() => onSubmit?.('select-wallet-type')}
-      />
-      {/* The second way in, as the secondary action under the primary one (Button brings the haptic). */}
+      {!recoverOnly && (
+        <Button
+          tabIndex={0}
+          className={actionClassName}
+          data-testid="onboarding-get-started"
+          title={t('getStarted')}
+          onClick={() => onSubmit?.('select-wallet-type')}
+        />
+      )}
+      {/* Recover: secondary under Get started, or the primary when it is alone (Button brings the haptic). */}
       <Button
         id="import-link"
         className={actionClassName}
-        variant={ButtonVariant.Secondary}
+        variant={recoverOnly ? ButtonVariant.Primary : ButtonVariant.Secondary}
         data-testid="onboarding-recover-account"
         title={t('recoverYourAccount')}
         onClick={() => onSubmit?.('select-import-type')}

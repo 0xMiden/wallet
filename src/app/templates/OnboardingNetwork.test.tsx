@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { WalletStatus } from 'lib/shared/types';
+import { WelcomeScreen } from 'screens/onboarding/common/Welcome';
 
 import { OnboardingNetwork } from './OnboardingNetwork';
 
@@ -32,8 +33,12 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   applyEndpointOverride: (override: { networkName: string }) => mockApply(override)
 }));
 jest.mock('components/Button', () => ({
+  ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
   Button: ({ title, onClick }: { title: string; onClick: () => void }) => <button onClick={onClick}>{title}</button>
 }));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticMedium: jest.fn() }));
+jest.mock('lib/woozie', () => ({ navigate: jest.fn() }));
+jest.mock('screens/onboarding/common/NoCodeSheet', () => ({ NoCodeSheet: () => null }));
 jest.mock('components/ui/SubPageLayout', () => ({
   SubPageLayout: ({ children, footer }: { children: React.ReactNode; footer: React.ReactNode }) => (
     <div>
@@ -105,4 +110,22 @@ it('blocks onboarding when the worker update fails and allows a retry', async ()
   fireEvent.click(screen.getByRole('button', { name: 'retry' }));
   await screen.findByTestId('flow');
   expect(mockApply).toHaveBeenCalledTimes(2);
+});
+
+it('applies the mainnet override when seven logo taps unlock the invite-only Welcome, before the code step', async () => {
+  mockRequired = false;
+  const onSubmit = jest.fn();
+  render(
+    <OnboardingNetwork>
+      {(inviteOnly, onUnlockInviteOnly) => (
+        <WelcomeScreen inviteOnly={inviteOnly} onUnlockInviteOnly={onUnlockInviteOnly} onSubmit={onSubmit} />
+      )}
+    </OnboardingNetwork>
+  );
+  const logo = screen.getByTestId('onboarding-bread-logo');
+  for (let tap = 0; tap < 7; tap++) fireEvent.click(logo);
+  fireEvent.click(await screen.findByRole('button', { name: 'iHaveACode' }));
+  expect(mockApply).toHaveBeenCalledWith({ networkName: MIDEN_NETWORK_NAME.MAINNET });
+  expect(mockApply.mock.invocationCallOrder[0]).toBeLessThan(onSubmit.mock.invocationCallOrder[0]!);
+  expect(onSubmit).toHaveBeenCalledWith('mainnet-access');
 });

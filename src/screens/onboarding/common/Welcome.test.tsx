@@ -2,7 +2,6 @@ import React from 'react';
 
 import { act, render, screen, fireEvent } from '@testing-library/react';
 
-import { setInviteOnboardingUnlocked } from 'lib/invite-onboarding';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { WelcomeScreen } from './Welcome';
@@ -39,8 +38,8 @@ jest.mock('lib/woozie', () => ({
   navigate: (to: string) => mockNavigate(to)
 }));
 
-// The remote config snapshot Welcome reads its variant from. The runtime itself reads storage and
-// the network, so the hook returns this mutable snapshot instead.
+// The remote config snapshot Welcome waits on before it shows its actions. The runtime itself reads
+// storage and the network, so the hook returns this mutable snapshot instead.
 const ALL_OFF = { earn: false, fastBridge: false, bridgeIn: false, bridgeOut: false };
 const snapshotWith = (
   onboarding: { inviteOnly: boolean } | undefined,
@@ -139,7 +138,6 @@ const tapLogo = (times: number) => {
 beforeEach(() => {
   mockPlatform.isMobile = false;
   mockSnapshot = snapshotWith(undefined);
-  setInviteOnboardingUnlocked(false);
   hapticLight.mockClear();
   hapticMedium.mockClear();
   mockNavigate.mockClear();
@@ -226,17 +224,51 @@ describe('WelcomeScreen', () => {
   });
 });
 
-describe('WelcomeScreen invite-only unlock, when the config sets no onboarding.inviteOnly', () => {
-  it('turns the invite-only Welcome on after 7 taps on the logo: I have a code replaces the test-network ways in', () => {
-    const onSubmit = jest.fn();
-    renderComponent({ onSubmit });
+describe('WelcomeScreen logo taps', () => {
+  it('ask the host to unlock the invite-only Welcome after 7 taps on the general one', () => {
+    const onUnlockInviteOnly = jest.fn();
+    renderComponent({ onUnlockInviteOnly });
     tapLogo(6);
-    expect(screen.queryByTestId('btn-iHaveACode')).not.toBeInTheDocument();
+    expect(onUnlockInviteOnly).not.toHaveBeenCalled();
     expect(hapticMedium).not.toHaveBeenCalled();
 
     tapLogo(1);
+    expect(onUnlockInviteOnly).toHaveBeenCalledTimes(1);
     expect(hapticMedium).toHaveBeenCalledTimes(1);
     expect(mockNavigate).not.toHaveBeenCalled();
+    // The host decides the variant: the taps alone change nothing on screen.
+    expect(screen.getByTestId('btn-getStarted')).toBeInTheDocument();
+  });
+
+  it('open developer settings after 7 taps when the invite-only Welcome already shows', () => {
+    const onUnlockInviteOnly = jest.fn();
+    renderComponent({ inviteOnly: true, onUnlockInviteOnly });
+    tapLogo(6);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    tapLogo(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/developer-settings');
+    expect(onUnlockInviteOnly).not.toHaveBeenCalled();
+    expect(hapticMedium).toHaveBeenCalledTimes(1);
+  });
+
+  it('open developer settings after 7 taps when the host has no unlock', () => {
+    renderComponent();
+    tapLogo(7);
+    expect(mockNavigate).toHaveBeenCalledWith('/developer-settings');
+    expect(screen.queryByTestId('btn-iHaveACode')).not.toBeInTheDocument();
+  });
+
+  it('prevents text selection on the logo tap target', () => {
+    renderComponent();
+    const logo = screen.getByTestId('onboarding-bread-logo');
+    expect(logo).toHaveClass('select-none');
+  });
+});
+
+describe('WelcomeScreen invite-only variant', () => {
+  it('replaces the test-network ways in with I have a code', () => {
+    const onSubmit = jest.fn();
+    renderComponent({ inviteOnly: true, onSubmit });
     expect(screen.getByTestId('onboarding-bread-logo')).toHaveAttribute('data-invite-onboarding', 'true');
     expect(screen.queryByTestId('btn-getStarted')).not.toBeInTheDocument();
     expect(document.getElementById('import-link')).toBeNull();
@@ -251,8 +283,7 @@ describe('WelcomeScreen invite-only unlock, when the config sets no onboarding.i
 
   it("opens the no-code sheet from I don't have a code, closes it, and recovers through it", () => {
     const onSubmit = jest.fn();
-    renderComponent({ onSubmit });
-    tapLogo(7);
+    renderComponent({ inviteOnly: true, onSubmit });
     expect(screen.queryByTestId('no-code-sheet')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('onboarding-no-code'));
@@ -270,103 +301,35 @@ describe('WelcomeScreen invite-only unlock, when the config sets no onboarding.i
   });
 
   it('does not throw when I have a code is clicked without an onSubmit handler', () => {
-    renderComponent();
-    tapLogo(7);
+    renderComponent({ inviteOnly: true });
     expect(() => fireEvent.click(screen.getByTestId('btn-iHaveACode'))).not.toThrow();
   });
 
-  it('stays on for the page: a remount keeps the invite-only Welcome', () => {
-    const first = renderComponent();
-    tapLogo(7);
-    first.unmount();
+  it.each([{ inviteOnly: true }, { inviteOnly: false }, undefined])(
+    'takes the variant from its host, not from the document (onboarding %j)',
+    onboarding => {
+      mockSnapshot = snapshotWith(onboarding);
+      const view = renderComponent();
+      expect(screen.getByTestId('btn-getStarted')).toBeInTheDocument();
+      expect(screen.queryByTestId('btn-iHaveACode')).not.toBeInTheDocument();
 
-    renderComponent();
-    expect(screen.getByTestId('btn-iHaveACode')).toBeInTheDocument();
-  });
-
-  it('navigates to developer settings after 7 more taps', () => {
-    renderComponent();
-    tapLogo(7);
-    expect(mockNavigate).not.toHaveBeenCalled();
-    tapLogo(6);
-    expect(mockNavigate).not.toHaveBeenCalled();
-    tapLogo(1);
-    expect(mockNavigate).toHaveBeenCalledWith('/developer-settings');
-    expect(hapticMedium).toHaveBeenCalledTimes(2);
-  });
-
-  it('prevents text selection on the logo tap target', () => {
-    renderComponent();
-    const logo = screen.getByTestId('onboarding-bread-logo');
-    expect(logo).toHaveClass('select-none');
-  });
+      view.rerender(<WelcomeScreen inviteOnly />);
+      expect(screen.getByTestId('btn-iHaveACode')).toBeInTheDocument();
+      expect(screen.queryByTestId('btn-getStarted')).not.toBeInTheDocument();
+    }
+  );
 });
 
-describe('WelcomeScreen variant from the remote config', () => {
-  it('shows the general Welcome for a document with no onboarding section', () => {
-    mockSnapshot = snapshotWith(undefined);
-    renderComponent();
-    expect(screen.getByTestId('btn-getStarted')).toBeInTheDocument();
-    expect(screen.queryByTestId('btn-iHaveACode')).not.toBeInTheDocument();
-  });
-
-  it('shows the invite-only Welcome when the config sets inviteOnly true', () => {
-    mockSnapshot = snapshotWith({ inviteOnly: true });
+describe('WelcomeScreen recover-only variant', () => {
+  it('offers recovery alone, as the primary action', () => {
     const onSubmit = jest.fn();
-    renderComponent({ onSubmit });
-    expect(screen.getByTestId('onboarding-bread-logo')).toHaveAttribute('data-invite-onboarding', 'true');
+    renderComponent({ recoverOnly: true, onSubmit });
     expect(screen.queryByTestId('btn-getStarted')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('btn-iHaveACode'));
-    expect(onSubmit).toHaveBeenCalledWith('mainnet-access');
-  });
-
-  it('opens developer settings after 7 taps when the config sets inviteOnly true, with no variant switch', () => {
-    mockSnapshot = snapshotWith({ inviteOnly: true });
-    renderComponent();
-    tapLogo(7);
-    expect(mockNavigate).toHaveBeenCalledWith('/developer-settings');
-    expect(hapticMedium).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('btn-iHaveACode')).toBeInTheDocument();
-    expect(screen.queryByTestId('btn-getStarted')).not.toBeInTheDocument();
-  });
-
-  it('shows the general Welcome when the config sets inviteOnly false', () => {
-    mockSnapshot = snapshotWith({ inviteOnly: false });
-    renderComponent();
-    expect(screen.getByTestId('onboarding-bread-logo')).not.toHaveAttribute('data-invite-onboarding');
-    expect(screen.getByTestId('btn-getStarted')).toBeInTheDocument();
     expect(screen.queryByTestId('btn-iHaveACode')).not.toBeInTheDocument();
-  });
-
-  it('keeps the invite-only Welcome of an earlier unlock when the config sets inviteOnly false', () => {
-    setInviteOnboardingUnlocked(true);
-    mockSnapshot = snapshotWith({ inviteOnly: false });
-    renderComponent();
-    expect(screen.getByTestId('btn-iHaveACode')).toBeInTheDocument();
-    expect(screen.queryByTestId('btn-getStarted')).not.toBeInTheDocument();
-  });
-
-  it('unlocks the invite-only Welcome after 7 taps when the config sets inviteOnly false, then opens developer settings', () => {
-    mockSnapshot = snapshotWith({ inviteOnly: false });
-    renderComponent();
-    tapLogo(7);
-    expect(mockNavigate).not.toHaveBeenCalled();
-    expect(hapticMedium).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('btn-iHaveACode')).toBeInTheDocument();
-    expect(screen.queryByTestId('btn-getStarted')).not.toBeInTheDocument();
-
-    tapLogo(7);
-    expect(mockNavigate).toHaveBeenCalledWith('/developer-settings');
-  });
-
-  it('follows the config when it lands after the first render', () => {
-    mockSnapshot = snapshotWith(undefined);
-    const view = renderComponent();
-    expect(screen.getByTestId('btn-getStarted')).toBeInTheDocument();
-
-    mockSnapshot = snapshotWith({ inviteOnly: true });
-    view.rerender(<WelcomeScreen />);
-    expect(screen.getByTestId('btn-iHaveACode')).toBeInTheDocument();
+    const recover = document.getElementById('import-link');
+    expect(recover).toHaveAttribute('data-variant', 'primary');
+    fireEvent.click(recover!);
+    expect(onSubmit).toHaveBeenCalledWith('select-import-type');
   });
 });
 
@@ -374,7 +337,7 @@ describe('WelcomeScreen while the remote config loads', () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
 
-  it('hides the actions while the config loads, and shows the variant it sets once it lands', () => {
+  it('hides the actions while the config loads, and shows the variant its host sets once it lands', () => {
     mockSnapshot = LOADING;
     const view = renderComponent();
     expect(screen.getByTestId('btn-getStarted')).toHaveClass('invisible');
@@ -382,7 +345,7 @@ describe('WelcomeScreen while the remote config loads', () => {
     expect(screen.getByRole('status')).toHaveAccessibleName('loading');
 
     mockSnapshot = snapshotWith({ inviteOnly: true });
-    view.rerender(<WelcomeScreen />);
+    view.rerender(<WelcomeScreen inviteOnly />);
     expect(screen.queryByTestId('onboarding-config-loading')).not.toBeInTheDocument();
     expect(screen.getByTestId('btn-iHaveACode')).not.toHaveClass('invisible');
     expect(screen.getByTestId('onboarding-no-code')).not.toHaveClass('invisible');
