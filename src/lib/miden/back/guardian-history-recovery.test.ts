@@ -2404,3 +2404,45 @@ it('finds a checkpoint written under the old host name when the list spells the 
     MIDEN_GUARDIAN_ENDPOINTS.set('testnet', builtIn ?? []);
   }
 });
+
+describe('own operator across a renamed host', () => {
+  const oldHost = 'https://guardian.openzeppelin.com';
+  const newHost = 'https://guardian-testnet.openzeppelin.com';
+  const builtIn = MIDEN_GUARDIAN_ENDPOINTS.get('testnet');
+  const hostCheckpoint = async () => operatorCheckpoint(newHost);
+
+  // The list keeps the built-in new spelling while the wallet's own switch row recorded the old one.
+  beforeEach(async () => {
+    MIDEN_GUARDIAN_ENDPOINTS.set('testnet', [newHost]);
+    await switchRow(ITransactionStatus.Completed, oldHost, 'https://one');
+  });
+  afterEach(() => {
+    MIDEN_GUARDIAN_ENDPOINTS.set('testnet', builtIn ?? []);
+  });
+
+  it('counts an unsupported answer as an own failure and leaves its checkpoint open', async () => {
+    servesNoHistory(newHost);
+    const result = await run();
+    expect(result.sourceFailures).toBeGreaterThanOrEqual(1);
+    expect(result.deferredSources).toBe(0);
+    expect((await hostCheckpoint())?.completed).toBe(false);
+  });
+
+  it('fails the pass on a network error instead of deferring it', async () => {
+    const client = source(newHost, []);
+    jest.spyOn(client, 'getDeltaHistory').mockReset().mockRejectedValue(new Error('offline'));
+    const result = await run();
+    expect(result.sourceFailures).toBeGreaterThanOrEqual(1);
+    expect(result.deferredSources).toBe(0);
+  });
+
+  it('keeps counting an unsupported answer remembered by the session as an own failure', async () => {
+    servesNoHistory(newHost);
+    await run();
+    createClient.mockClear();
+    const result = await run();
+    expect(createClient.mock.calls.map(call => call[1])).not.toContain(newHost);
+    expect(result.sourceFailures).toBeGreaterThanOrEqual(1);
+    expect(result.deferredSources).toBe(0);
+  });
+});
