@@ -5954,8 +5954,8 @@
     }
   },
   "swapExpiryLabel": {
-    "message": "Doldurulmamışsa silin",
-    "englishSource": "Cancel if not filled in"
+    "message": "Şu süre içinde doldurulmazsa iptal et",
+    "englishSource": "Cancel if not filled within"
   },
   "swapExpiryPreset2Min": {
     "message": "2 dk",
@@ -5974,8 +5974,8 @@
     "englishSource": "7 days"
   },
   "swapExpiryNote": {
-    "message": "O zamana kadar doldurulmadı mı? Takas iptal edilir ve $amount$ tutarınız geri gelir.",
-    "englishSource": "Not filled by then? The swap is cancelled and your $amount$ comes back.",
+    "message": "O zamana kadar doldurulmadı mı? Takas iptal edilir ve $amount$ tutarınızın doldurulmamış kısmı size geri verilir.",
+    "englishSource": "Not filled by then? The swap is cancelled and whatever is unfilled of your $amount$ comes back.",
     "placeholders": {
       "amount": {
         "content": "$1"

@@ -5954,8 +5954,8 @@
     }
   },
   "swapExpiryLabel": {
-    "message": "若未填寫，請取消",
-    "englishSource": "Cancel if not filled in"
+    "message": "若未在...內成交，則取消",
+    "englishSource": "Cancel if not filled within"
   },
   "swapExpiryPreset2Min": {
     "message": "2 分鐘",
@@ -5974,8 +5974,8 @@
     "englishSource": "7 days"
   },
   "swapExpiryNote": {
-    "message": "若屆時仍未完成？則該兌換將被取消，您的 $amount$ 將退還。",
-    "englishSource": "Not filled by then? The swap is cancelled and your $amount$ comes back.",
+    "message": "若屆時仍未成交？該掉期交易將被取消，您未成交的 $amount$ 將全數退回。",
+    "englishSource": "Not filled by then? The swap is cancelled and whatever is unfilled of your $amount$ comes back.",
     "placeholders": {
       "amount": {
         "content": "$1"

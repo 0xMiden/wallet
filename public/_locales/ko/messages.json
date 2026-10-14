@@ -5954,8 +5954,8 @@
     }
   },
   "swapExpiryLabel": {
-    "message": "기입되지 않은 경우 취소하십시오",
-    "englishSource": "Cancel if not filled in"
+    "message": "지정된 시간 내에 체결되지 않으면 취소하십시오.",
+    "englishSource": "Cancel if not filled within"
   },
   "swapExpiryPreset2Min": {
     "message": "2분",
@@ -5974,8 +5974,8 @@
     "englishSource": "7 days"
   },
   "swapExpiryNote": {
-    "message": "그때까지 매칭되지 않았나요? 스왑은 취소되며 귀하의 $amount$가 반환됩니다.",
-    "englishSource": "Not filled by then? The swap is cancelled and your $amount$ comes back.",
+    "message": "그때까지 체결되지 않았나요? 스왑은 취소되며, 미체결된 $amount$는 전액 반환됩니다.",
+    "englishSource": "Not filled by then? The swap is cancelled and whatever is unfilled of your $amount$ comes back.",
     "placeholders": {
       "amount": {
         "content": "$1"

@@ -5954,8 +5954,8 @@
     }
   },
   "swapExpiryLabel": {
-    "message": "記入されていない場合はキャンセルしてください",
-    "englishSource": "Cancel if not filled in"
+    "message": "指定時間内に約定しなかった場合はキャンセルする",
+    "englishSource": "Cancel if not filled within"
   },
   "swapExpiryPreset2Min": {
     "message": "2分",
@@ -5974,8 +5974,8 @@
     "englishSource": "7 days"
   },
   "swapExpiryNote": {
-    "message": "その時点で約定していない場合、スワップはキャンセルされ、$amount$が返還されます。",
-    "englishSource": "Not filled by then? The swap is cancelled and your $amount$ comes back.",
+    "message": "その時点で約定していない場合は、スワップはキャンセルされ、$amount$のうち未約定分は返還されます。",
+    "englishSource": "Not filled by then? The swap is cancelled and whatever is unfilled of your $amount$ comes back.",
     "placeholders": {
       "amount": {
         "content": "$1"

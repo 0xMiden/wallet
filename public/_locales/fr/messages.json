@@ -5954,8 +5954,8 @@
     }
   },
   "swapExpiryLabel": {
-    "message": "À effacer si non renseigné",
-    "englishSource": "Cancel if not filled in"
+    "message": "Annuler si non exécuté dans un délai de",
+    "englishSource": "Cancel if not filled within"
   },
   "swapExpiryPreset2Min": {
     "message": "2 min",
@@ -5974,8 +5974,8 @@
     "englishSource": "7 days"
   },
   "swapExpiryNote": {
-    "message": "Pas encore exécuté à ce moment-là ? L'échange est annulé et votre $amount$ vous est restitué.",
-    "englishSource": "Not filled by then? The swap is cancelled and your $amount$ comes back.",
+    "message": "Pas exécuté à ce moment-là ? Le swap est annulé et la partie non exécutée de votre $amount$ vous est restituée.",
+    "englishSource": "Not filled by then? The swap is cancelled and whatever is unfilled of your $amount$ comes back.",
     "placeholders": {
       "amount": {
         "content": "$1"

@@ -5954,8 +5954,8 @@
     }
   },
   "swapExpiryLabel": {
-    "message": "Скасувати, якщо не заповнено",
-    "englishSource": "Cancel if not filled in"
+    "message": "Скасувати, якщо не виконано протягом",
+    "englishSource": "Cancel if not filled within"
   },
   "swapExpiryPreset2Min": {
     "message": "2 хв",
@@ -5974,8 +5974,8 @@
     "englishSource": "7 days"
   },
   "swapExpiryNote": {
-    "message": "Не виконано до того часу? Обмін скасовується, і ваші $amount$ повертаються.",
-    "englishSource": "Not filled by then? The swap is cancelled and your $amount$ comes back.",
+    "message": "Не виконано до того часу? Своп скасовується, і все, що залишилося невиконаним із вашої суми $amount$, повертається.",
+    "englishSource": "Not filled by then? The swap is cancelled and whatever is unfilled of your $amount$ comes back.",
     "placeholders": {
       "amount": {
         "content": "$1"
