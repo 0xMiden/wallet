@@ -1,9 +1,18 @@
+import { renderHook, waitFor } from '@testing-library/react';
+
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import type { ReownConfigureOptions } from './native';
+import { useNativeReown } from './useNativeReown';
 
 let snapshot: BridgeConfigSnapshot;
 const configureNative = jest.fn(async (_options: ReownConfigureOptions) => {});
+interface ListenerHandle {
+  remove: jest.Mock<Promise<void>, []>;
+}
+const addListener = jest.fn<Promise<ListenerHandle>, [string, unknown]>();
+const getNativeState = jest.fn(async () => ({ configured: true, connected: false, accounts: [] }));
+const newHandle = (): ListenerHandle => ({ remove: jest.fn(async () => {}) });
 
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () => snapshot,
@@ -15,7 +24,11 @@ jest.mock('lib/remote-config/values', () => ({
   BridgeConfigUnavailableError: class extends Error {}
 }));
 jest.mock('./native', () => ({
-  NativeReown: { configure: (options: ReownConfigureOptions) => configureNative(options) },
+  NativeReown: {
+    configure: (options: ReownConfigureOptions) => configureNative(options),
+    addListener: (event: string, handler: unknown) => addListener(event, handler),
+    getState: () => getNativeState()
+  },
   isNativeReownAvailable: () => true
 }));
 
@@ -37,7 +50,10 @@ function setChains(ids: number[]) {
 
 beforeEach(() => {
   jest.resetModules();
-  configureNative.mockClear();
+  configureNative.mockReset();
+  configureNative.mockResolvedValue(undefined);
+  addListener.mockReset();
+  addListener.mockImplementation(async () => newHandle());
   setChains([8453, 1]);
 });
 
@@ -95,4 +111,37 @@ it('adds a saved recovery chain to AppKit only until the next ordinary connectio
   expect(modal.getCaipNetworks('eip155').map(chain => chain.id)).toEqual([8453, 1]);
   await prepareAppKitConnection();
   expect(modal.getCaipNetworks('eip155').map(chain => chain.id)).toEqual([8453]);
+});
+
+// Static imports: the hook needs the same React copy as the renderer, which the resets above would split.
+describe('native listener setup', () => {
+  it('removes a listener that registers after a chain-list change cleaned its setup up', async () => {
+    const late = newHandle();
+    let register: (handle: ListenerHandle) => void = () => {};
+    addListener.mockImplementationOnce(() => new Promise(resolve => (register = resolve)));
+    const { rerender, unmount } = renderHook(() => useNativeReown());
+    await waitFor(() => expect(addListener).toHaveBeenCalledTimes(1));
+
+    setChains([42161]);
+    rerender();
+    await waitFor(() => expect(addListener).toHaveBeenCalledTimes(3));
+    register(late);
+    await waitFor(() => expect(late.remove).toHaveBeenCalledTimes(1));
+
+    unmount();
+    const live = await Promise.all(addListener.mock.results.slice(1).map(result => result.value));
+    live.forEach(handle => expect(handle.remove).toHaveBeenCalledTimes(1));
+  });
+
+  it('clears the error of a failed setup once a later one completes', async () => {
+    configureNative.mockRejectedValueOnce(new Error('relay unavailable'));
+    setChains([10]);
+    const { result, rerender } = renderHook(() => useNativeReown());
+    await waitFor(() => expect(result.current.error).toBe('relay unavailable'));
+
+    setChains([8453]);
+    rerender();
+    await waitFor(() => expect(getNativeState).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.error).toBeNull());
+  });
 });
