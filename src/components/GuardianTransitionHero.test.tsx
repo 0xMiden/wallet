@@ -52,7 +52,7 @@ it('emphasizes the destination and keeps review labels readable in dark mode', (
   render(
     <GuardianTransitionHero
       previousEndpoint="https://miden-guardian.lambdaclass.com"
-      newEndpoint="https://guardian.openzeppelin.com"
+      newEndpoint="https://guardian-testnet.openzeppelin.com"
       previousLabel="Current"
       newLabel="New"
     />

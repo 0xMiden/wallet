@@ -40,8 +40,8 @@ jest.mock('lib/miden-chain/constants', () => ({
     {
       id: 'open-zeppelin',
       endpoint: new Map([
-        ['testnet', 'https://guardian.openzeppelin.com'],
-        ['devnet', 'https://guardian-stg.openzeppelin.com']
+        ['testnet', 'https://guardian-testnet.openzeppelin.com'],
+        ['devnet', 'https://guardian-devnet.openzeppelin.com']
       ])
     },
     {
@@ -67,7 +67,9 @@ jest.mock('lib/miden-chain/constants', () => ({
 // assertions below are unambiguously about the fallback branch, not a
 // coincidental match with a real provider URL. `getEffectiveRpcUrl` isn't
 // asserted on anywhere in this file — any stable string is fine.
+let mockEffectiveNetwork = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: () => mockEffectiveNetwork,
   getEffectiveRpcUrl: () => 'https://rpc.testnet.miden.io',
   getEffectiveDefaultGuardianEndpoint: () => 'https://default.guardian.test'
 }));
@@ -367,8 +369,12 @@ describe('assertGuardianKeyCommitment', () => {
 });
 
 describe('guardianProviderFromEndpoint', () => {
+  beforeEach(() => {
+    mockEffectiveNetwork = 'testnet';
+  });
+
   it('maps a known OpenZeppelin endpoint to its provider id', () => {
-    expect(guardianProviderFromEndpoint('https://guardian.openzeppelin.com')).toBe('open-zeppelin');
+    expect(guardianProviderFromEndpoint('https://guardian-testnet.openzeppelin.com')).toBe('open-zeppelin');
   });
 
   it('maps a known Gateway endpoint to its provider id', () => {
@@ -399,7 +405,19 @@ describe('guardianProviderFromEndpoint', () => {
   // or default-port spelling of a built-in must still map to it rather than falling
   // through to 'custom'.
   it('maps a host-case spelling of a known endpoint to its provider id', () => {
-    expect(guardianProviderFromEndpoint('https://Guardian.OpenZeppelin.com')).toBe('open-zeppelin');
+    expect(guardianProviderFromEndpoint('https://Guardian-Testnet.OpenZeppelin.com')).toBe('open-zeppelin');
+  });
+
+  // An account created before the rename still has the old host saved, under its own network.
+  it('maps a renamed OpenZeppelin host to its provider id on its own network', () => {
+    expect(guardianProviderFromEndpoint('https://guardian.openzeppelin.com')).toBe('open-zeppelin');
+    mockEffectiveNetwork = 'devnet';
+    expect(guardianProviderFromEndpoint('https://guardian-stg.openzeppelin.com')).toBe('open-zeppelin');
+  });
+
+  it('treats another network built-in host as custom', () => {
+    expect(guardianProviderFromEndpoint('https://guardian-devnet.openzeppelin.com')).toBe('custom');
+    expect(guardianProviderFromEndpoint('https://guardian-stg.openzeppelin.com')).toBe('custom');
   });
 });
 

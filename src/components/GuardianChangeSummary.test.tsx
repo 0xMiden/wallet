@@ -22,7 +22,7 @@ describe('GuardianChangeSummary', () => {
       <GuardianChangeSummary
         kind="switch"
         previousEndpoint="https://miden-guardian.lambdaclass.com"
-        newEndpoint="https://guardian.openzeppelin.com"
+        newEndpoint="https://guardian-testnet.openzeppelin.com"
         className="mt-2"
       />
     );
@@ -62,7 +62,7 @@ describe('GuardianChangeSummary', () => {
   });
 
   it('draws the guardian once for a device-key rotation, with no arrow', () => {
-    render(<GuardianChangeSummary kind="single" endpoint="https://guardian.openzeppelin.com" />);
+    render(<GuardianChangeSummary kind="single" endpoint="https://guardian-testnet.openzeppelin.com" />);
 
     expect(screen.getByTestId('guardian-change-summary')).toHaveAttribute('data-kind', 'single');
     expect(screen.getAllByTestId('guardian-change-side')).toHaveLength(1);

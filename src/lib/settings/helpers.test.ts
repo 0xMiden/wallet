@@ -124,6 +124,23 @@ describe('settings helpers', () => {
       expect(sameGuardianEndpoint('https://guardian.example.com#', 'https://guardian.example.com')).toBe(false);
       expect(sameGuardianEndpoint('https://guardian.example.com?', 'https://guardian.example.com')).toBe(false);
     });
+
+    it('treats a renamed built-in host as its current name', () => {
+      expect(
+        sameGuardianEndpoint('https://guardian.openzeppelin.com', 'https://guardian-testnet.openzeppelin.com')
+      ).toBe(true);
+      expect(
+        sameGuardianEndpoint('https://Guardian-Stg.OpenZeppelin.com/', 'https://guardian-devnet.openzeppelin.com')
+      ).toBe(true);
+      // The rename is per network: the old testnet name is not the devnet operator.
+      expect(
+        sameGuardianEndpoint('https://guardian.openzeppelin.com', 'https://guardian-devnet.openzeppelin.com')
+      ).toBe(false);
+      // Only the host is renamed: a path on the old host is not the new host's root.
+      expect(
+        sameGuardianEndpoint('https://guardian.openzeppelin.com/v1', 'https://guardian-testnet.openzeppelin.com')
+      ).toBe(false);
+    });
   });
 
   describe('delegate proof setting', () => {
