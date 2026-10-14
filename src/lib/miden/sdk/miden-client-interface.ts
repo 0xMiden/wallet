@@ -49,6 +49,7 @@ import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { frozenMs, setRunningTimeout } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import type { AuthScheme } from 'lib/shared/types';
+import { annotateCrash, type CrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
 import { reportProve } from 'lib/telemetry/report-operation';
 // Deep path, not the `lib/telemetry` barrel: the barrel re-exports
 // `report-flow`, which imports `lib/miden/front` and drags React into the
@@ -547,71 +548,80 @@ export class MidenClientInterface {
     const network = getEffectiveNetworkName();
     const scope = cacheScope();
 
-    if (process.env.MIDEN_USE_MOCK_CLIENT === 'true') {
-      const sdk = await import('@miden-sdk/miden-sdk/lazy');
-      const mockClient = await sdk.MidenClient.createMock({ seed: options.seed });
-      return new MidenClientInterface(mockClient, 'mock', { disposed: false }, scope);
+    const mock = process.env.MIDEN_USE_MOCK_CLIENT === 'true';
+    const useWorker = mock ? false : (options.useWorker ?? !isMobile());
+    let stage: CrashDiagnostics['stage'] = mock ? 'mock_import' : 'client_create';
+    try {
+      if (mock) {
+        const sdk = await import('@miden-sdk/miden-sdk/lazy');
+        stage = 'mock_create';
+        const mockClient = await sdk.MidenClient.createMock({ seed: options.seed });
+        return new MidenClientInterface(mockClient, 'mock', { disposed: false }, scope);
+      }
+
+      const hasKeystore = !!(options.getKeyCallback || options.insertKeyCallback || options.signCallback);
+      // Shared with the instance below so `free()` can switch the sign wrapper's
+      // watchdog pause off - see wrapSignWithWatchdogPause.
+      const liveness: ClientLiveness = { disposed: false };
+
+      const midenClient = await MidenClient.create({
+        rpcUrl: getEffectiveRpcUrl(),
+        noteTransportUrl: getEffectiveNoteTransportUrl(),
+        noteTransportMaxRetries: NOTE_TRANSPORT_MAX_RETRIES,
+        seed: options.seed,
+        keystore: hasKeystore
+          ? {
+              getKey: options.getKeyCallback ?? refuseKeystoreMember('getKey'),
+              insertKey: options.insertKeyCallback ?? refuseKeystoreMember('insertKey'),
+              // A sign round-trip can block indefinitely on the user (Face ID,
+              // an unlock prompt) while the WASM lock is held - pause the lock
+              // watchdog for its duration so a slow sign is never mistaken for
+              // a wedge (issue #775; mirrors the offscreen write deadline's
+              // sign pause in miden-client-proxy.ts).
+              sign: options.signCallback
+                ? wrapSignWithWatchdogPause(options.signCallback, liveness)
+                : refuseKeystoreMember('sign')
+            }
+          : undefined,
+        feeFaucetId: getEffectiveFeeFaucetId(),
+        proverUrl: getEffectiveProverUrl(),
+        // On mobile (Capacitor / WKWebView / Android WebView) we MUST opt out
+        // of the SDK's Web-Worker shim. Two independent reasons:
+        //
+        // 1. The shim spawns a worker that owns its own WASM instance and
+        //    runs every client method (including `syncState()`) inside the
+        //    worker - and WKWebView Workers cannot do gRPC-web fetch
+        //    (documented in `mobile-wasm-main-thread.md` memory). The shim
+        //    hangs sync, `lastSyncedAt` freezes, no consumable notes ever
+        //    surface. Empirically: run 25779923813 saw `isSyncing: true`
+        //    with `msSinceLastSync: 184s` at failure time. See PR #240.
+        //
+        // 2. We hand the SDK a `CallbackProver` that routes prove calls
+        //    through the native Rust prover via a Capacitor plugin. The
+        //    shim serializes the prover via `.serialize()` - a format with
+        //    no encoding for the callback variant - and silently downgrades
+        //    it to `"local"`, running an in-worker WASM ST prover and
+        //    bypassing the native bridge. Opt out so the callback survives.
+        //
+        // The `useWorker` option lands in `@miden-sdk/miden-sdk@0.14.9`
+        // (web-sdk PR #149). Default `!isMobile()`; the offscreen document
+        // overrides to `false` (issue #260, slice 5, design §5.2 - see
+        // MidenClientCreateOptions.useWorker).
+        useWorker,
+        // One observation per client operation, naming the method and its
+        // duration. Registration is process-wide inside the SDK, so a second
+        // client replaces the first one's sink - harmless here, since the
+        // observer is stateless and every client registers the same behavior.
+        // The high-fidelity channel is opt-in at construction and is not asked
+        // for; see the module comment on `lib/telemetry/sdk-observer`.
+        observer: createWalletSdkObserver()
+      });
+
+      return new MidenClientInterface(midenClient, network, liveness, scope);
+    } catch (error) {
+      annotateCrash(error, { operation: 'sdk_initialize', stage, workerMode: useWorker ? 'enabled' : 'disabled' });
+      throw error;
     }
-
-    const hasKeystore = !!(options.getKeyCallback || options.insertKeyCallback || options.signCallback);
-    // Shared with the instance below so `free()` can switch the sign wrapper's
-    // watchdog pause off — see wrapSignWithWatchdogPause.
-    const liveness: ClientLiveness = { disposed: false };
-
-    const midenClient = await MidenClient.create({
-      rpcUrl: getEffectiveRpcUrl(),
-      noteTransportUrl: getEffectiveNoteTransportUrl(),
-      noteTransportMaxRetries: NOTE_TRANSPORT_MAX_RETRIES,
-      seed: options.seed,
-      keystore: hasKeystore
-        ? {
-            getKey: options.getKeyCallback ?? refuseKeystoreMember('getKey'),
-            insertKey: options.insertKeyCallback ?? refuseKeystoreMember('insertKey'),
-            // A sign round-trip can block indefinitely on the user (Face ID,
-            // an unlock prompt) while the WASM lock is held — pause the lock
-            // watchdog for its duration so a slow sign is never mistaken for
-            // a wedge (issue #775; mirrors the offscreen write deadline's
-            // sign pause in miden-client-proxy.ts).
-            sign: options.signCallback
-              ? wrapSignWithWatchdogPause(options.signCallback, liveness)
-              : refuseKeystoreMember('sign')
-          }
-        : undefined,
-      feeFaucetId: getEffectiveFeeFaucetId(),
-      proverUrl: getEffectiveProverUrl(),
-      // On mobile (Capacitor / WKWebView / Android WebView) we MUST opt out
-      // of the SDK's Web-Worker shim. Two independent reasons:
-      //
-      // 1. The shim spawns a worker that owns its own WASM instance and
-      //    runs every client method (including `syncState()`) inside the
-      //    worker — and WKWebView Workers cannot do gRPC-web fetch
-      //    (documented in `mobile-wasm-main-thread.md` memory). The shim
-      //    hangs sync, `lastSyncedAt` freezes, no consumable notes ever
-      //    surface. Empirically: run 25779923813 saw `isSyncing: true`
-      //    with `msSinceLastSync: 184s` at failure time. See PR #240.
-      //
-      // 2. We hand the SDK a `CallbackProver` that routes prove calls
-      //    through the native Rust prover via a Capacitor plugin. The
-      //    shim serializes the prover via `.serialize()` — a format with
-      //    no encoding for the callback variant — and silently downgrades
-      //    it to `"local"`, running an in-worker WASM ST prover and
-      //    bypassing the native bridge. Opt out so the callback survives.
-      //
-      // The `useWorker` option lands in `@miden-sdk/miden-sdk@0.14.9`
-      // (web-sdk PR #149). Default `!isMobile()`; the offscreen document
-      // overrides to `false` (issue #260, slice 5, design §5.2 — see
-      // MidenClientCreateOptions.useWorker).
-      useWorker: options.useWorker ?? !isMobile(),
-      // One observation per client operation, naming the method and its
-      // duration. Registration is process-wide inside the SDK, so a second
-      // client replaces the first one's sink — harmless here, since the
-      // observer is stateless and every client registers the same behavior.
-      // The high-fidelity channel is opt-in at construction and is not asked
-      // for; see the module comment on `lib/telemetry/sdk-observer`.
-      observer: createWalletSdkObserver()
-    });
-
-    return new MidenClientInterface(midenClient, network, liveness, scope);
   }
 
   static fromClient(client: MidenClient, network: string) {

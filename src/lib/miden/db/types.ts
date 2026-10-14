@@ -1,6 +1,8 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
+import type { TransactionFailureDiagnostics } from 'lib/telemetry/transaction-failure';
+
 import type { GuardianHistoryRecovery } from '../guardian/history';
 import { ConsumableNote, NoteType } from '../types';
 
@@ -773,6 +775,8 @@ export interface ITransaction {
    * `status`, and is stale once `status` reaches `Completed`/`Failed`.
    */
   stage?: ITransactionStage;
+  /** Closed authentication categories only; request values never enter a report. */
+  failureDiagnostics?: TransactionFailureDiagnostics;
   /**
    * Wall-clock (ms since epoch) of the first time each processing stage was
    * entered, recorded by `setTransactionStage` (plus a synthetic `complete`

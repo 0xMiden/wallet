@@ -9,7 +9,7 @@ import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
+import java.util.WeakHashMap;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -17,6 +17,7 @@ import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.annotation.Config;
+import org.robolectric.util.ReflectionHelpers;
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -196,39 +197,39 @@ public class FullscreenRotationTest {
         assertEquals(3, window.getAttributes().rotationAnimation);
     }
 
-    private void clearOwnerBeforeQueueCleanup(FullscreenRotation owner) throws Exception {
-        Field policiesField = FullscreenRotation.class.getDeclaredField("policies");
-        policiesField.setAccessible(true);
-        Object policy = ((Map<?, ?>) policiesField.get(null)).get(window);
-        Field ownersField = policy.getClass().getDeclaredField("owners");
-        ownersField.setAccessible(true);
-        Map<?, ?> retainedOwners = (Map<?, ?>) ownersField.get(policy);
-        for (Map.Entry<?, ?> entry : retainedOwners.entrySet()) {
-            if (entry.getKey() == owner) {
-                // Clear the weak key without adding it to the reference queue.
-                ((Reference<?>) entry).clear();
-                return;
-            }
-        }
-        fail("Rotation owner not found");
+    private void clearOwnerWithoutEnqueueing() {
+        WeakHashMap<Window, ?> policies = ReflectionHelpers.getStaticField(FullscreenRotation.class, "policies");
+        Object policy = policies.get(window);
+        assertNotNull(policy);
+        WeakHashMap<FullscreenRotation, Boolean> registered = ReflectionHelpers.getField(policy, "owners");
+        Reference<?> entry = (Reference<?>) registered.entrySet().iterator().next();
+        // Model a cleared weak key before its reference-queue notification arrives.
+        entry.clear();
+        assertNull(entry.get());
+        assertEquals("WeakHashMap still counts the unenqueued cleared entry", 1, registered.size());
+        assertFalse("There is no live rotation owner", registered.keySet().iterator().hasNext());
     }
 
-    @Test public void clearedOwnerDoesNotLoseTheOriginalPolicyBeforeQueueCleanup() throws Exception {
+    @Test public void clearedOwnerWithoutQueueNotificationCannotBlockOriginalRestore() {
         hint(window, 3);
-        FullscreenRotation temporary = owner();
-        temporary.acquire(window);
-        clearOwnerBeforeQueueCleanup(temporary);
+        owner().acquire(window);
+        clearOwnerWithoutEnqueueing();
         FullscreenRotation replacement = owner();
-        replacement.acquire(window); replacement.release();
+        replacement.acquire(window);
+        assertEquals(2, window.getAttributes().rotationAnimation);
+        replacement.release();
         assertEquals(3, window.getAttributes().rotationAnimation);
     }
 
-    @Test public void clearedOwnerDoesNotPreventFinalReleaseBeforeQueueCleanup() throws Exception {
+    @Test public void clearedOwnerWithoutQueueNotificationPermitsNewExternalPolicyOnTakeover() {
         hint(window, 3);
-        FullscreenRotation temporary = owner(), retained = owner();
-        temporary.acquire(window); retained.acquire(window);
-        clearOwnerBeforeQueueCleanup(temporary);
-        retained.release();
-        assertEquals(3, window.getAttributes().rotationAnimation);
+        owner().acquire(window);
+        clearOwnerWithoutEnqueueing();
+        hint(window, 1);
+        FullscreenRotation replacement = owner();
+        replacement.acquire(window);
+        assertEquals(2, window.getAttributes().rotationAnimation);
+        replacement.release();
+        assertEquals(1, window.getAttributes().rotationAnimation);
     }
 }

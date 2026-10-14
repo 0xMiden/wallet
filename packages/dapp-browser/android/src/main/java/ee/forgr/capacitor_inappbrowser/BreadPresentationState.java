@@ -13,6 +13,7 @@ final class BreadPresentationState {
     private long policyRevision;
     private long acknowledgedPolicy = -1;
     private long visibilitySequence;
+    private long acknowledgedVisibilitySequence;
     private boolean configured;
     private boolean ready;
     private boolean painted;
@@ -31,9 +32,14 @@ final class BreadPresentationState {
     boolean fullscreen() { return fullscreen; }
     boolean isReady() { return ready; }
     String token() { return token; }
+    long acknowledgedVisibilitySequence() { return acknowledgedVisibilitySequence; }
     long policyRevision() { return policyRevision; }
     boolean policyResolved() { return configured || failed; }
     boolean effectiveVisibility() { return active() && policyResolved() && acknowledgedPolicy == policyRevision; }
+    boolean surfaceVisibility() {
+        return effectiveVisibility() || (visible && !closed && fullscreen && configured && ready && revealed
+            && !failed && acknowledgedPolicy == policyRevision);
+    }
     boolean active() { return visible && foreground && !closed; }
 
     Phase phase() {
@@ -81,6 +87,7 @@ final class BreadPresentationState {
             if (!policyResolved() || revision != policyRevision) return false;
             acknowledgedPolicy = revision;
         }
+        if (sequence != null) acknowledgedVisibilitySequence = sequence;
         visibility(value, now);
         return true;
     }
@@ -97,7 +104,7 @@ final class BreadPresentationState {
         return request == generation && active() && configured && ready && !failed;
     }
     void painted(long request) {
-        if (canReveal(request)) { painted = true; revealed = true; }
+        if (canReveal(request)) { painted = true; if (effectiveVisibility()) revealed = true; }
     }
 
     void visibility(boolean value, long now) {

@@ -9,6 +9,7 @@ public class BreadPresentationStateTest {
         state.navigate(0);
         state.configure("doc", true, true);
         state.ready();
+        state.requestVisibility(true, (int) state.policyRevision(), 1, 0);
         return state;
     }
 
@@ -188,6 +189,44 @@ public class BreadPresentationStateTest {
         assertTrue(state.policyResolved());
         assertFalse(state.tick(999999));
         assertFalse(state.effectiveVisibility());
+    }
+
+    @Test public void retainedSurfaceRequiresPriorRevealCurrentDocumentAndHostAcknowledgement() {
+        BreadPresentationState state = ready();
+        state.foreground(false, 1);
+        assertFalse(state.surfaceVisibility());
+        state.foreground(true, 2);
+        state.requestVisibility(true, (int) state.policyRevision(), 1, 2);
+        state.painted(state.generation());
+        state.foreground(false, 3);
+        assertTrue(state.surfaceVisibility());
+        assertFalse(state.canReveal(state.generation()));
+        state.visibility(false, 4);
+        assertFalse(state.surfaceVisibility());
+        state.visibility(true, 5);
+        assertTrue(state.surfaceVisibility());
+        state.navigate(6);
+        assertFalse(state.surfaceVisibility());
+        state.configure("replacement", true, true);
+        state.ready();
+        state.requestVisibility(true, (int) state.policyRevision(), 2, 6);
+        assertFalse(state.surfaceVisibility());
+        state.close();
+        state.foreground(true, 7);
+        assertFalse(state.surfaceVisibility());
+    }
+
+    @Test public void lateFirstPolicyAcknowledgementCannotRetainNeverShownDocument() {
+        BreadPresentationState state = new BreadPresentationState(30000);
+        state.navigate(0);
+        state.requestVisibility(true, null, 1, 1);
+        state.configure("doc", true, true);
+        state.ready();
+        assertFalse(state.effectiveVisibility());
+        state.painted(state.generation());
+        state.foreground(false, 2);
+        state.requestVisibility(true, (int) state.policyRevision(), 2, 3);
+        assertFalse("Late first acknowledgement cannot grant background dialog ownership", state.surfaceVisibility());
     }
 
 }

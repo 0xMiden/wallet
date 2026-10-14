@@ -762,7 +762,7 @@ describe('TabLayout - the root declares the tab bar cushion for its own subtree'
 
   it('still collapses the cushion to 1rem while the bar is hidden', () => {
     expect(readCss()).toMatch(
-      /body\[data-hide-navbar\] \[data-navbar-cushion='true'\]\s*\{\s*padding-bottom:\s*1rem;\s*\}/
+      /body\[data-hide-navbar\] \[data-navbar-cushion='true'\]\s*\{\s*padding-bottom:\s*calc\(1rem \+ var\(--wallet-control-safe-bottom, 0px\)\);\s*\}/
     );
   });
 });

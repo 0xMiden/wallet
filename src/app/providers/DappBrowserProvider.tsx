@@ -232,6 +232,8 @@ interface DappBrowserContextValue {
   holdHostOverlay: () => () => void;
 }
 
+type ParkGuard = (afterHide: boolean) => boolean;
+
 const DappBrowserContext = createContext<DappBrowserContextValue | null>(null);
 
 export function useDappBrowser(): DappBrowserContextValue {
@@ -351,6 +353,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const foregroundBlocked =
     !walletShellActive || !!request || switcherOpen || hostOverlays > 0 || alertParams.isOpen || confirmParams.isOpen;
   const foregroundBlockedRef = useRef(foregroundBlocked);
+  const foregroundOwnershipRevision = useRef(0);
+  if (foregroundBlocked && !foregroundBlockedRef.current) foregroundOwnershipRevision.current++;
   foregroundBlockedRef.current = foregroundBlocked;
   const openSwitcher = useCallback(() => setSwitcherOpen(true), []);
   const closeSwitcher = useCallback(() => setSwitcherOpen(false), []);
@@ -370,6 +374,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // a circular useCallback dependency. Populated after `restore` is
   // defined below.
   const restoreRef = useRef<((sessionId: string) => Promise<void>) | null>(null);
+  const parkRef = useRef<((sessionId: string, guard?: ParkGuard) => Promise<void>) | null>(null);
+  const nativeMinimizations = useRef(new Set<string>());
 
   useEffect(() => {
     sessionStatesRef.current = sessionStates;
@@ -577,6 +583,54 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
         });
       });
       listenerRemovers.push(() => presentationL.remove());
+      const minimizeL = await InAppBrowser.addListener('presentationMinimizeRequested', event => {
+        const state = getSessionStateById(event.id);
+        const lifetime = event.managedHostCloseToken;
+        const instance = state?.instance;
+        const park = parkRef.current;
+        if (
+          !mounted ||
+          !lifetime ||
+          !instance ||
+          !park ||
+          foregroundBlockedRef.current ||
+          foregroundIdRef.current !== event.id ||
+          managedTokens.current.get(event.id) !== lifetime ||
+          managedClosings.current.has(lifetime) ||
+          state.status !== 'active' ||
+          !state.policyResolved ||
+          state.policyRevision !== event.policyRevision ||
+          nativeMinimizations.current.has(lifetime) ||
+          !Number.isSafeInteger(event.visibilitySequence) ||
+          event.visibilitySequence !== instance.currentVisibilitySequence
+        )
+          return;
+        const ownership = foregroundOwnershipRevision.current;
+        const owns: ParkGuard = afterHide => {
+          const current = getSessionStateById(event.id);
+          return (
+            mounted &&
+            foregroundOwnershipRevision.current === ownership &&
+            !foregroundBlockedRef.current &&
+            !dappConfirmationStore.getPendingRequest(event.id) &&
+            foregroundIdRef.current === event.id &&
+            managedTokens.current.get(event.id) === lifetime &&
+            !managedClosings.current.has(lifetime) &&
+            current?.instance === instance &&
+            current.policyResolved === true &&
+            current.policyRevision === event.policyRevision &&
+            (afterHide ||
+              (current.status === 'active' && instance.currentVisibilitySequence === event.visibilitySequence))
+          );
+        };
+        nativeMinimizations.current.add(lifetime);
+        void park(event.id, owns)
+          .catch(error => {
+            console.warn('[DappBrowserProvider] native minimize failed:', error);
+          })
+          .finally(() => nativeMinimizations.current.delete(lifetime));
+      });
+      listenerRemovers.push(() => minimizeL.remove());
 
       const messageL = await InAppBrowser.addListener('messageFromWebview', async event => {
         const id = (event as { id?: string })?.id ?? 'default';
@@ -918,9 +972,9 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   );
 
   const parkInternal = useCallback(
-    async (id: string) => {
+    async (id: string, guard?: ParkGuard) => {
       const state = getSessionStateById(id);
-      if (!state?.instance) return;
+      if (!state?.instance || (guard && !guard(false))) return;
       // Clear the "was visible" watermark so the auto-park effect
       // below doesn't treat a subsequent restore() as a stale-foreground
       // → auto-park trigger. Without this, parking session A then
@@ -931,7 +985,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       //   4. fires parkInternal(A) again → session flashes then re-parks
       // (User-visible: "dApp opens and closes immediately on first tap,
       // works on second tap once the ref was cleared by step 4.")
-      if (slotRectShownForRef.current === id) {
+      if (!guard && slotRectShownForRef.current === id) {
         slotRectShownForRef.current = null;
       }
       // Snapshot first so the bubble has a frozen preview to render.
@@ -941,13 +995,24 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       } catch (e) {
         console.warn('[DappBrowserProvider] snapshot capture failed:', e);
       }
-      if (finalizations.current.has(id) || getSessionStateById(id)?.instance !== state.instance) return;
+      if (
+        finalizations.current.has(id) ||
+        getSessionStateById(id)?.instance !== state.instance ||
+        (guard && !guard(false))
+      )
+        return;
       try {
         await state.instance.setVisible(false);
       } catch (e) {
         console.warn('[DappBrowserProvider] setVisible(false) failed:', e);
       }
-      if (finalizations.current.has(id) || getSessionStateById(id)?.instance !== state.instance) return;
+      if (
+        finalizations.current.has(id) ||
+        getSessionStateById(id)?.instance !== state.instance ||
+        (guard && !guard(true))
+      )
+        return;
+      if (guard && slotRectShownForRef.current === id) slotRectShownForRef.current = null;
       updateSession(id, s => ({ ...s, status: 'parked' }));
 
       // PR-6 cold-bubble persistence: write both the session metadata and
@@ -971,6 +1036,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
 
   const open = useCallback(
     (next: DappSession) => {
+      foregroundOwnershipRevision.current++;
       // Dedup by id first, then by URL — tapping the same dApp tile or a
       // "recents" entry for an already-open session should restore the
       // existing session instead of spawning a duplicate. Without this,
@@ -1026,6 +1092,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     async (sessionId?: string) => {
       const id = sessionId ?? foregroundIdRef.current;
       if (!id) return;
+      if (foregroundIdRef.current === id) foregroundOwnershipRevision.current++;
       const token = managedTokens.current.get(id);
       const closing = token ? managedClosings.current.get(token) : undefined;
       if (closing) {
@@ -1051,10 +1118,12 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   );
 
   const park = useCallback(
-    async (sessionId?: string) => {
+    async (sessionId?: string, guard?: ParkGuard) => {
       const id = sessionId ?? foregroundIdRef.current;
       if (!id) return;
-      await parkInternal(id);
+      if (!guard && foregroundIdRef.current === id) foregroundOwnershipRevision.current++;
+      const committed = await parkInternal(id, guard);
+      if (!committed || (guard && !guard(true))) return;
       // If parking the foreground, clear the foregroundId so the launcher
       // shows again (with the bubble overlay).
       if (foregroundIdRef.current === id) {
@@ -1069,6 +1138,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       const state = getSessionStateById(sessionId);
       const lifetime = sessionLifetimes.current.get(sessionId);
       if (!state || !lifetime) return;
+      foregroundOwnershipRevision.current++;
       // Park the current foreground (if any and different from the restore
       // target) so its bubble appears while the restored session takes the
       // active slot.
@@ -1125,7 +1195,8 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   // circular useCallback deps.
   useEffect(() => {
     restoreRef.current = restore;
-  }, [restore]);
+    parkRef.current = park;
+  }, [park, restore]);
 
   // ─── Effects that drive the native side ─────────────────────────────────
 
@@ -1364,6 +1435,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
   const foregroundPolicyRevision = foregroundVisibilityTarget?.policyRevision;
   const foregroundPolicyResolved = foregroundVisibilityTarget?.policyResolved;
   const foregroundPolicyLifetime = foregroundVisibilityTarget?.policyLifetime;
+  const foregroundOwnership = foregroundOwnershipRevision.current;
 
   // Generic dialogs are outside this provider. All native windows remain hidden while the host owns visibility.
   useEffect(() => {
@@ -1397,6 +1469,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
       if (
         !reveal ||
         cancelled ||
+        foregroundOwnershipRevision.current !== foregroundOwnership ||
         foregroundBlockedRef.current ||
         foregroundIdRef.current !== id ||
         sessionLifetimes.current.get(id) !== foregroundLifetime ||
@@ -1427,6 +1500,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
     };
   }, [
     foregroundId,
+    foregroundOwnership,
     foregroundBlocked,
     foregroundInstance,
     foregroundActive,

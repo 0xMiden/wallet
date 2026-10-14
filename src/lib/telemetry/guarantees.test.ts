@@ -1083,9 +1083,8 @@ describe('the background service worker never imports the telemetry barrel', () 
   });
 
   it('reaches only the telemetry modules a worker can load, and no more', () => {
-    // Widen this list only on purpose. `crash.ts`, `redact.ts` and
-    // `report-flow.ts` are frontend code: the worker has no window, and
-    // `report-flow` is the module the barrel pulls React in through.
+    // Handled transaction failures need crash reporting while the popup is closed.
+    // The crash client and redactor use worker-safe globals; report-flow still pulls React in.
     //
     // `sdk-observer.ts` is here deliberately: the Miden client is constructed
     // in the worker, so the module that binds its observation sink has to be
@@ -1110,11 +1109,19 @@ describe('the background service worker never imports the telemetry barrel', () 
       'src/lib/telemetry/aptabase.ts',
       'src/lib/telemetry/classify.ts',
       'src/lib/telemetry/context.ts',
+      'src/lib/telemetry/crash-artifacts.ts',
+      'src/lib/telemetry/crash-build.ts',
+      'src/lib/telemetry/crash-diagnostics.ts',
+      'src/lib/telemetry/crash-frames.ts',
+      'src/lib/telemetry/crash.ts',
+      'src/lib/telemetry/protocol-assertions.json',
+      'src/lib/telemetry/redact.ts',
       'src/lib/telemetry/report-operation.ts',
       'src/lib/telemetry/run.ts',
       'src/lib/telemetry/sdk-observer.ts',
       'src/lib/telemetry/serialize.ts',
       'src/lib/telemetry/sink.ts',
+      'src/lib/telemetry/transaction-failure.ts',
       'src/lib/telemetry/transaction-operation.ts',
       'src/lib/telemetry/types.ts'
     ]);
@@ -1127,6 +1134,7 @@ describe('the background service worker never imports the telemetry barrel', () 
 // ---------------------------------------------------------------------------
 
 const SINK = 'src/lib/telemetry/sink.ts';
+const CRASH_SINK = 'src/lib/telemetry/crash.ts';
 const APTABASE = 'src/lib/telemetry/aptabase.ts';
 
 const EGRESS_APIS: readonly Api[] = [
@@ -1166,22 +1174,22 @@ const DOCUMENT_URL = /(?:src|href)\s*=\s*"([^"]+)"/g;
 const isThirdParty = (url: string): boolean => /^(https?:)?\/\//.test(url);
 
 describe('no stray egress', () => {
-  it('makes every network call in the telemetry module from the sink', () => {
+  it('confines network calls to the consent-gated product and crash sinks', () => {
     expect(
       EGRESS_APIS.flatMap(({ label, pattern }) =>
         matches(telemetryFiles(), pattern)
-          .filter(hit => !(hit.file === SINK && label === 'fetch()'))
-          .map(
-            hit =>
-              `${at(hit)} reaches the network with ${label}. The telemetry module has exactly one egress point, ${SINK}, because that is what makes the consent gate a single auditable check instead of a discipline applied at every call site.`
-          )
+          .filter(hit => !([SINK, CRASH_SINK].includes(hit.file) && label === 'fetch()'))
+          .map(hit => `${at(hit)} reaches the network with ${label} outside the consent-gated product and crash sinks.`)
       )
     ).toEqual([]);
   });
 
-  it('holds exactly one fetch call in the sink, so a second endpoint cannot hide beside the first', () => {
-    // A one-element array asserts the count and the location at once.
-    expect(matches(telemetryFiles(), /\bfetch\s*\(/).map(hit => hit.file)).toEqual([SINK]);
+  it('holds exactly one fetch call per sink, so another endpoint cannot hide beside them', () => {
+    expect(
+      matches(telemetryFiles(), /\bfetch\s*\(/)
+        .map(hit => hit.file)
+        .sort()
+    ).toEqual([CRASH_SINK, SINK]);
   });
 
   it.each([
