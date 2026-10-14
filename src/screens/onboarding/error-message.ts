@@ -1,3 +1,4 @@
+import { MAINNET_ACCESS_CODE_REJECTED } from 'lib/miden/back/defaults';
 import { GUARDIAN_ACCOUNT_NOT_FOUND } from 'lib/miden/sdk/guardian-recovery-errors';
 
 /**
@@ -33,4 +34,9 @@ export function errorToMessage(error: unknown): string | undefined {
  */
 export function isGuardianNotFound(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === GUARDIAN_ACCOUNT_NOT_FOUND;
+}
+
+/** Whether a wallet setup failed because the mainnet node refused its access code, by the same `code` route. */
+export function isMainnetAccessCodeRejected(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === MAINNET_ACCESS_CODE_REJECTED;
 }

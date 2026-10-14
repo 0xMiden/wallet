@@ -4,6 +4,7 @@
 
 ### Features
 
+- [FEATURE][all] Invite-only onboarding with a mainnet access code. The remote wallet config chooses the Welcome variant with `onboarding.inviteOnly`: true shows the invite-only Welcome directly; false, or a document without the key, shows the general Welcome, where seven logo taps unlock the invite-only one (seven more open Developer Settings). While the config loads, Welcome shows a spinner in place of its actions for at most 3 seconds. "I have a code" asks the node to check a 12-character code (or an existing 8-digit one) before the create flow, the code is kept until the final account exists, and that account is then registered with it; a refused code and a node failure each show their own message with a retry. "I don't have a code" explains the invite and offers account recovery. When the config sets `inviteOnly`, new wallet setup and recovery use mainnet. New wallets require a code; recovery does not. Existing testnet wallets stay usable without a forced reset. An optional Switch to mainnet banner with a larger, underlined link and less vertical padding replaces the countdown when invite-only mode is on; it asks for confirmation with a larger title and smaller body text before clearing the wallet and starting mainnet setup. The code field shows two rows of six characters and has a Paste button. The mainnet countdown banner underlines its early-access link and does not show on mainnet, mainnet has its RPC, prover and note transport endpoints (`rpc.`, `tx-prover.` and `transport.cedar.miden.io`), Developer Settings has a Mainnet preset, and every sheet opens and closes about 25% slower. Web SDK 0.17.3 for the code check.
 - [FEATURE][all] The Guardian operators of each network come from the `guardians` list in `0xMiden/wallet-config`, with each operator's English description, so a new or removed operator reaches every wallet within about an hour with no release; the list the wallet ships with is used only until a document names the operators.
 - [FEATURE][all] The send review page folds the transfer type and the expiration under an "Advanced options" row, closed by default with a one-line summary of both; a "Transfer type" sheet picks Private (the default) or Public, and a public send keeps a notice of what it reveals on the page and a "Send publicly" button whether or not the row is open.
 
@@ -282,6 +283,7 @@
 
 - [FIX][all] Bridge polling reads only bridge rows through a new `type` index instead of walking the whole transaction history every 8 s, runs from one visible wallet window instead of every open one, and an Epoch quote for an earlier amount that answers late no longer replaces the current quote and blocks Fast confirmation.
 - [CHORE][all] `next` is now the 1.17.0 line; the 0.16 line continues on `main` as 1.16.x.
+
 ## 1.16.2 (2026-09-24)
 
 ### Features
