@@ -429,6 +429,36 @@ describe('requestConfirm — DAppSimulateTransactionRequest branch', () => {
   });
 });
 
+describe('a custom request made while locked (#1414)', () => {
+  it("answers the sheet's simulate request from the dry run built after the unlock", async () => {
+    const { withUnlocked } = jest.requireMock('lib/miden/back/store');
+    const simulate = jest.requireMock('./simulate-custom-tx').simulateCustomTransaction;
+    withUnlocked.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('Wallet is locked'), { reason: 'locked' });
+    });
+    const p = dapp.requestTransaction('https://test.xyz', {
+      type: MidenDAppMessageType.TransactionRequest,
+      sourcePublicKey: 'a1',
+      transaction: { payload: { address: 'a1', recipientAddress: 'bob', transactionRequest: 'b64req' } }
+    } as never);
+    p.catch(() => {});
+    await jest.advanceTimersByTimeAsync(0);
+    expect(simulate).not.toHaveBeenCalled();
+
+    const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
+    const id = (browser.windows.create.mock.calls.at(-1)?.[0]?.url || '').match(/id=([^&]+)/)?.[1];
+    const listener = _g.__dappConfInternals.intercomListeners.at(-1);
+    const port = { id: 'locked-sim-port' };
+    await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, port);
+    expect(simulate).toHaveBeenCalledTimes(1);
+
+    const result = await listener({ type: MidenMessageType.DAppSimulateTransactionRequest, id }, port);
+    expect(result).toEqual(expect.objectContaining({ summaryBytes: 'confirm-sim-sum' }));
+    expect(simulate).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(121_000);
+  });
+});
+
 describe('requestConfirm — custom tx quarantine release', () => {
   it('releases the simulation quarantine after a successful confirm', async () => {
     const p = dapp.requestTransaction('https://test.xyz', {
