@@ -31,20 +31,10 @@ function dependencies(): Partial<DeriveDeps> {
             data: {
               items: [
                 {
+                  lender: 'DUMMY_LENDING',
                   chainId: '11155111',
-                  lenderInfo: { lenderKey: 'dummy-lending' },
-                  data: [
-                    {
-                      positions: [
-                        {
-                          marketUid: 'FROM_EPOCH:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
-                          underlyingInfo: {
-                            asset: { symbol: 'USDC', address: '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69' }
-                          }
-                        }
-                      ]
-                    }
-                  ]
+                  data: [{ positions: [] }],
+                  lenderInfo: { lenderKey: 'DUMMY_LENDING', name: 'Dummy Lending', logoUri: '' }
                 }
               ]
             }
@@ -65,7 +55,11 @@ it('reads each bridge from its listed chain and discovers the Earn market from E
   expect(result.chains?.[84532]?.epoch.evmUsdc).toEqual({ state: 'skipped' });
   expect(result.epoch.market).toMatchObject({
     state: 'ok',
-    value: { marketUid: 'FROM_EPOCH:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69', chainId: 11155111 }
+    value: {
+      marketUid: 'DUMMY_LENDING:11155111:0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69',
+      underlying: '0x2BB4FfD7E2c6D432b697554Efd77fA13bdbefd69',
+      chainId: 11155111
+    }
   });
   expect(evm).toHaveBeenCalledWith(11155111);
 });

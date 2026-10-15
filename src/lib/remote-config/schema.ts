@@ -47,6 +47,8 @@ export const SUPPORTED_EVM_CHAIN_IDS: readonly number[] = SUPPORTED_CHAINS.map(c
 /** Earn protocols the Earn code supports. */
 export const SUPPORTED_EARN_PROTOCOLS = ['dummy-lending'] as const;
 export type EarnProtocol = (typeof SUPPORTED_EARN_PROTOCOLS)[number];
+/** The lender key Epoch's positions service names each protocol by; it also leads the protocol's market uids. */
+export const EARN_LENDER_KEYS: Readonly<Record<EarnProtocol, string>> = { 'dummy-lending': 'DUMMY_LENDING' };
 
 /** A 20-byte EVM address, lowercase. */
 export type EvmAddress = `0x${string}`;

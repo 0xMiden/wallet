@@ -76,6 +76,20 @@ export const EVM_CHAIN_DEFINITIONS: [Chain, ...Chain[]] = [
   optimism
 ];
 
+/**
+ * `value` with every plain object and array copied, at any depth; functions and other values stay shared. Take one
+ * before handing a shared chain above to code that keeps it: AppKit's valtio state proxies nested objects in place,
+ * and IndexedDB cannot store a Proxy.
+ */
+export function copyPlainData<T>(value: T): T;
+export function copyPlainData(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((entry: unknown) => copyPlainData(entry));
+  if (typeof value !== 'object' || value === null) return value;
+  const prototype: unknown = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return value;
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, copyPlainData(entry)]));
+}
+
 /** This registry does not enable connections. The remote document selects those chains. */
 export const SUPPORTED_CHAINS: EvmChain[] = EVM_CHAIN_DEFINITIONS.map(chain => {
   switch (chain.id) {

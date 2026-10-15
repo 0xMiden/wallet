@@ -4,7 +4,7 @@ import { sepolia } from 'viem/chains';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { SupportedEvmChainConfig } from 'lib/remote-config/schema';
-import { ARC_TESTNET, EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
+import { ARC_TESTNET, copyPlainData, EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
 
 import { USDCX_DECIMALS } from './protocol';
 
@@ -93,12 +93,13 @@ function configuredChain(chainId: number): Chain | undefined {
   const chain = EVM_CHAIN_DEFINITIONS.find(chain => chain.id === chainId);
   const rpcUrl = getChain(chainId)?.rpcUrl;
   if (!chain || !rpcUrl) return undefined;
+  // A route is stored on its bridge row, so it shares no object with the chain definition other code holds.
   return {
     id: chain.id,
     name: chain.name,
-    nativeCurrency: chain.nativeCurrency,
+    nativeCurrency: copyPlainData(chain.nativeCurrency),
     rpcUrls: { default: { http: [rpcUrl] } },
-    blockExplorers: chain.blockExplorers,
+    blockExplorers: copyPlainData(chain.blockExplorers),
     testnet: chain.testnet
   };
 }
