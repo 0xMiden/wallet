@@ -19,6 +19,8 @@ export interface MainnetCodeEntryOptions {
   onGranted?: (code: string) => void | Promise<void>;
   /** The node refused the code a registration carried: the entry opens with the refusal. */
   rejected?: boolean;
+  /** False once the entry is closed while still mounted (a sheet's exit): it takes no code and drops any check. */
+  active?: boolean;
 }
 
 export interface MainnetCodeEntry {
@@ -38,20 +40,26 @@ export interface MainnetCodeEntry {
  * The mainnet access code entry: the invite-only onboarding step and the switch of a test-network
  * wallet to mainnet share it, each with its own node to ask and its own next step.
  */
-export function useMainnetCodeEntry({ check, onGranted, rejected = false }: MainnetCodeEntryOptions): MainnetCodeEntry {
+export function useMainnetCodeEntry({
+  check,
+  onGranted,
+  rejected = false,
+  active = true
+}: MainnetCodeEntryOptions): MainnetCodeEntry {
   const [code, setCode] = useState('');
   const [failure, setFailure] = useState<MainnetCodeFailure | null>(rejected ? 'rejected' : null);
   const [submitting, setSubmitting] = useState(false);
   const [pasting, setPasting] = useState(false);
-  // A check answers for the code it was asked about, here: closing the entry, or a new code, drops it.
-  const mounted = useRef(true);
+  // A check answers for the code it was asked about, here: closing the entry (a sheet keeps it mounted through its
+  // exit), unmounting it, or a new code drops it, and a reopened entry does not take it back.
+  const closings = useRef(0);
   const codeGeneration = useRef(0);
   useEffect(() => {
-    mounted.current = true;
+    if (!active) return undefined;
     return () => {
-      mounted.current = false;
+      closings.current += 1;
     };
-  }, []);
+  }, [active]);
 
   const complete = isMainnetAccessCodeComplete(code);
 
@@ -81,11 +89,12 @@ export function useMainnetCodeEntry({ check, onGranted, rejected = false }: Main
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!complete || submitting || pasting) return;
+    if (!active || !complete || submitting || pasting) return;
     setSubmitting(true);
     setFailure(null);
     const generation = codeGeneration.current;
-    const current = () => mounted.current && codeGeneration.current === generation;
+    const opening = closings.current;
+    const current = () => closings.current === opening && codeGeneration.current === generation;
     try {
       let outcome: MainnetAccessOutcome;
       try {

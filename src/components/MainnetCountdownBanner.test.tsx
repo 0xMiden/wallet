@@ -16,7 +16,9 @@ jest.mock('react-i18next', () => ({
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
 
 // Vaul renders through a portal that jsdom cannot drive. A flat stand-in that renders its children
-// only while open is sufficient for the open and close wiring.
+// only while open is sufficient for the open and close wiring; with mockKeepContentAfterClose it keeps
+// them mounted once opened, as the real sheet does through its exit animation.
+let mockKeepContentAfterClose = false;
 jest.mock('lib/ui/drawer', () => ({
   Drawer: ({
     open,
@@ -26,13 +28,16 @@ jest.mock('lib/ui/drawer', () => ({
     open: boolean;
     onOpenChange: (open: boolean) => void;
     children: React.ReactNode;
-  }) =>
-    open ? (
+  }) => {
+    const opened = jest.requireActual<typeof import('react')>('react').useRef(false);
+    opened.current ||= open;
+    return open || (mockKeepContentAfterClose && opened.current) ? (
       <div>
         <button type="button" data-testid="sheet-dismiss" onClick={() => onOpenChange(false)} />
         {children}
       </div>
-    ) : null,
+    ) : null;
+  },
   DrawerContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DrawerHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DrawerTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
@@ -147,6 +152,7 @@ describe('MainnetCountdownBanner', () => {
     mockReset.mockResolvedValue(undefined);
     mockCheck.mockResolvedValue('granted');
     mockSteps.length = 0;
+    mockKeepContentAfterClose = false;
   });
 
   afterEach(() => {
@@ -214,17 +220,40 @@ describe('MainnetCountdownBanner', () => {
     expect(mockReset).toHaveBeenCalledWith(MIDEN_NETWORK_NAME.MAINNET, CODE);
   });
 
-  it('asks nothing more and wipes nothing when the sheet is closed before the node answers', async () => {
+  it.each<[string, boolean]>([
+    ['unmounts the entry', false],
+    ['keeps the entry mounted through its exit', true]
+  ])(
+    'asks nothing more and wipes nothing when the sheet is closed before the node answers and %s',
+    async (_label, keepContent) => {
+      mockInviteOnly = true;
+      mockKeepContentAfterClose = keepContent;
+      mockConfirm.mockResolvedValue(true);
+      let settle: (outcome: 'granted') => void = () => {};
+      mockCheck.mockReturnValue(new Promise(resolve => (settle = resolve)));
+      render(<MainnetCountdownBanner />);
+      await submitCode();
+      fireEvent.click(screen.getByTestId('sheet-dismiss'));
+      await act(async () => settle('granted'));
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(mockSteps).toEqual(['check']);
+      expect(mockReset).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('mainnet-switch-submit') !== null).toBe(keepContent);
+    }
+  );
+
+  it('checks no code submitted while the closed sheet is still mounted', async () => {
     mockInviteOnly = true;
-    mockConfirm.mockResolvedValue(true);
-    let settle: (outcome: 'granted') => void = () => {};
-    mockCheck.mockReturnValue(new Promise(resolve => (settle = resolve)));
+    mockKeepContentAfterClose = true;
     render(<MainnetCountdownBanner />);
-    await submitCode();
+    fireEvent.click(screen.getByTestId('mainnet-switch-link'));
+    fireEvent.change(screen.getByTestId('mainnet-switch-code'), { target: { value: CODE } });
     fireEvent.click(screen.getByTestId('sheet-dismiss'));
-    await act(async () => settle('granted'));
-    expect(mockSteps).toEqual(['check']);
-    expect(mockReset).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mainnet-switch-submit'));
+    });
+    expect(mockCheck).not.toHaveBeenCalled();
+    expect(mockSteps).toEqual([]);
   });
 
   it('reports a failed reset and permits a retry', async () => {

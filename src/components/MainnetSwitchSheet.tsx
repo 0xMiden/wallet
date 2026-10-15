@@ -15,7 +15,7 @@ export interface MainnetSwitchSheetProps {
   onOpenChange: (open: boolean) => void;
 }
 
-const SheetBody: FC = () => {
+const SheetBody: FC<{ open: boolean }> = ({ open }) => {
   const { t } = useTranslation();
   const confirm = useConfirm();
   const alert = useAlert();
@@ -42,7 +42,11 @@ const SheetBody: FC = () => {
     }
   };
 
-  const entry = useMainnetCodeEntry({ check: checkMainnetAccessCodeBeforeSwitch, onGranted: switchToMainnet });
+  const entry = useMainnetCodeEntry({
+    check: checkMainnetAccessCodeBeforeSwitch,
+    onGranted: switchToMainnet,
+    active: open
+  });
 
   return (
     <form className="flex flex-col gap-5 px-4 pb-4" noValidate onSubmit={entry.submit}>
@@ -76,7 +80,7 @@ export const MainnetSwitchSheet: FC<MainnetSwitchSheetProps> = ({ open, onOpenCh
         </DrawerHeader>
         <DrawerDescription>{t('mainnetSwitchCodeBody')}</DrawerDescription>
         <div className="flex min-h-0 flex-col overflow-y-auto no-scrollbar">
-          <SheetBody />
+          <SheetBody open={open} />
         </div>
       </DrawerContent>
     </Drawer>
