@@ -18,7 +18,7 @@ import {
   SendTransaction
 } from '@miden-sdk/miden-wallet-adapter-base';
 import { nanoid } from 'nanoid';
-import type { Runtime } from 'webextension-polyfill';
+import type { Runtime, Windows } from 'webextension-polyfill';
 
 import {
   declaredRequestToView,
@@ -461,10 +461,12 @@ export async function generatePromisifyRequestPermission(
     };
   }
 
-  return new Promise(async (resolve, reject) => {
+  // `.catch(reject)`, as in every other handler: a popup that cannot be opened answers the dApp instead of becoming an
+  // unhandled rejection in the worker.
+  return new Promise((resolve, reject) => {
     const id = nanoid();
 
-    await requestConfirm({
+    requestConfirm({
       id,
       payload: {
         type: 'connect',
@@ -541,7 +543,7 @@ export async function generatePromisifyRequestPermission(
         }
         return undefined;
       }
-    });
+    }).catch(reject);
   });
 }
 
@@ -2871,40 +2873,18 @@ async function requestConfirm({
 
   const isWin = (await browser.runtime.getPlatformInfo()).os === 'win';
 
-  let left = 0;
-  let top = 0;
-  try {
-    const lastFocused = await browser.windows.getLastFocused();
-    // Position window in top right corner of lastFocused window.
+  const { confirmWin, position } = await createConfirmWindow(
+    browser,
+    {
+      type: 'popup',
+      url: browser.runtime.getURL(`confirm.html#?id=${id}`),
+      width: isWin ? CONFIRM_WINDOW_WIDTH + 16 : CONFIRM_WINDOW_WIDTH,
+      height: isWin ? CONFIRM_WINDOW_HEIGHT + 17 : CONFIRM_WINDOW_HEIGHT
+    },
+    await confirmWindowPosition(browser)
+  );
 
-    top = Math.round(lastFocused.top! + lastFocused.height! / 2 - CONFIRM_WINDOW_HEIGHT / 2);
-    left = Math.round(lastFocused.left! + lastFocused.width! / 2 - CONFIRM_WINDOW_WIDTH / 2);
-  } catch {
-    // The following properties are more than likely 0, due to being
-    // opened from the background chrome process for the extension that
-    // has no physical dimensions
-    const { screenX, screenY, outerWidth, outerHeight } = window;
-    top = Math.round(screenY + outerHeight / 2 - CONFIRM_WINDOW_HEIGHT / 2);
-    left = Math.round(screenX + outerWidth / 2 - CONFIRM_WINDOW_WIDTH / 2);
-  }
-
-  left = Math.max(left, 20);
-  top = Math.max(top, 20);
-
-  const confirmWin = await browser.windows.create({
-    type: 'popup',
-    url: browser.runtime.getURL(`confirm.html#?id=${id}`),
-    width: isWin ? CONFIRM_WINDOW_WIDTH + 16 : CONFIRM_WINDOW_WIDTH,
-    height: isWin ? CONFIRM_WINDOW_HEIGHT + 17 : CONFIRM_WINDOW_HEIGHT,
-    top,
-    left
-  });
-
-  // Firefox currently ignores left/top for create, but it works for update
-  if (confirmWin.id && confirmWin.left !== left && confirmWin.state !== 'fullscreen') {
-    await browser.windows.update(confirmWin.id, { left, top });
-  }
-
+  // Ready before any later await: a decline, a close or the autodecline must be able to remove a window that exists.
   const closeWindow = async () => {
     if (confirmWin.id) {
       const win = await browser.windows.get(confirmWin.id);
@@ -2922,8 +2902,54 @@ async function requestConfirm({
   browser.windows.onRemoved.addListener(handleWinRemoved);
   const stopWinRemovedListening = () => browser.windows.onRemoved.removeListener(handleWinRemoved);
 
+  // Firefox currently ignores left/top for create, but it works for update
+  if (position && confirmWin.id && confirmWin.left !== position.left && confirmWin.state !== 'fullscreen') {
+    try {
+      await browser.windows.update(confirmWin.id, position);
+    } catch {
+      // Chrome checks a move at the window's current size and refuses one that leaves it mostly off-screen; the popup
+      // then stays where the browser put it.
+    }
+  }
+
   // Decline after timeout, unless a payload request already armed the cap while the window was being created.
   if (!closing && timeout === undefined) restartTimeout(AUTODECLINE_AFTER);
+}
+
+type ConfirmWindowPosition = { left: number; top: number };
+
+// Centred on the last-focused browser window. Unfiltered, that can be another approval popup that is closing or that
+// something resized, and a popup centred on it lands off to one side. The request does not say which window the dApp
+// runs in, so a dApp in its own app or popup window gets its confirm on the browser window, and on its own window only
+// when no browser window is open.
+async function confirmWindowPosition(browser: Browser): Promise<ConfirmWindowPosition | undefined> {
+  const anchor =
+    (await browser.windows.getLastFocused({ windowTypes: ['normal'] }).catch(() => undefined)) ??
+    (await browser.windows.getLastFocused().catch(() => undefined));
+  // The service worker has no `window` to measure instead: with no anchor, the browser places the popup.
+  if (!anchor) return undefined;
+  const { left, top, width, height } = anchor;
+  if (left === undefined || top === undefined || width === undefined || height === undefined) return undefined;
+  return {
+    left: Math.max(Math.round(left + width / 2 - CONFIRM_WINDOW_WIDTH / 2), 20),
+    top: Math.max(Math.round(top + height / 2 - CONFIRM_WINDOW_HEIGHT / 2), 20)
+  };
+}
+
+// Chrome refuses to create a window mostly off-screen, as one centred on a window dragged away or left on an unplugged
+// display would be; given no position, it places the window itself.
+async function createConfirmWindow(
+  browser: Browser,
+  popup: Windows.CreateCreateDataType,
+  position: ConfirmWindowPosition | undefined
+): Promise<{ confirmWin: Windows.Window; position: ConfirmWindowPosition | undefined }> {
+  if (!position) return { confirmWin: await browser.windows.create(popup), position };
+  try {
+    return { confirmWin: await browser.windows.create({ ...popup, ...position }), position };
+  } catch (error) {
+    if (!(error instanceof Error && /\bbounds\b/i.test(error.message))) throw error;
+    return { confirmWin: await browser.windows.create(popup), position: undefined };
+  }
 }
 
 export async function getNetworkRPC(net: string | undefined) {

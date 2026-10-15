@@ -12,7 +12,7 @@
  */
 
 import { WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
-import extensionBrowser from 'webextension-polyfill';
+import extensionBrowser, { type Windows } from 'webextension-polyfill';
 
 import { MidenDAppConsumeRequest, MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
@@ -355,21 +355,6 @@ describe('requestConfirm window-position fallback', () => {
     }
   });
 
-  it('uses screen coordinates when getLastFocused throws', async () => {
-    const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
-    browser.windows.getLastFocused.mockRejectedValueOnce(new Error('no focused window'));
-    const p = dapp.requestSign('https://miden.xyz', {
-      type: MidenDAppMessageType.SignRequest,
-      sourcePublicKey: 'miden-account-1',
-      sourceAccountId: 'miden-account-1',
-      payload: 'aGVsbG8=',
-      kind: 'word'
-    } as never);
-    await new Promise(r => setTimeout(r, 0));
-    expect(browser.windows.create).toHaveBeenCalled();
-    p.catch(() => {});
-  });
-
   it('updates the window position when create returns the wrong left coordinate', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     browser.windows.create.mockResolvedValueOnce({ id: 999, left: 99999, state: 'normal' });
@@ -412,6 +397,205 @@ describe('requestConfirm window-position fallback', () => {
       browser.windows.onRemoved.addListener = addListener;
       browser.windows.onRemoved.removeListener = removeListener;
     }
+  });
+});
+
+describe('requestConfirm placement Chrome refuses', () => {
+  const BOUNDS_REFUSAL = 'Invalid value for bounds. Bounds must be at least 50% within visible screen space.';
+  const create = jest.mocked(extensionBrowser.windows.create);
+  const update = jest.mocked(extensionBrowser.windows.update);
+  const get = jest.mocked(extensionBrowser.windows.get);
+  const remove = jest.mocked(extensionBrowser.windows.remove);
+  const focused = jest.mocked(extensionBrowser.windows.getLastFocused);
+  const defaults = {
+    create: create.getMockImplementation(),
+    update: update.getMockImplementation(),
+    get: get.getMockImplementation(),
+    focused: focused.getMockImplementation()
+  };
+
+  afterEach(() => {
+    // clearAllMocks keeps a one-off answer a test left unused, and it would answer a later test's call.
+    create.mockReset();
+    update.mockReset();
+    get.mockReset();
+    focused.mockReset();
+    if (defaults.create) create.mockImplementation(defaults.create);
+    if (defaults.update) update.mockImplementation(defaults.update);
+    if (defaults.get) get.mockImplementation(defaults.get);
+    if (defaults.focused) focused.mockImplementation(defaults.focused);
+  });
+
+  const windowAt = (fields: Partial<Windows.Window>): Windows.Window => ({
+    focused: true,
+    incognito: false,
+    alwaysOnTop: false,
+    ...fields
+  });
+  const settle = (request: Promise<unknown>) =>
+    request.then(
+      () => 'answered',
+      (error: unknown) => (error instanceof Error ? error.message : String(error))
+    );
+  const sign = () =>
+    dapp.requestSign('https://miden.xyz', {
+      type: MidenDAppMessageType.SignRequest,
+      sourcePublicKey: 'miden-account-1',
+      sourceAccountId: 'miden-account-1',
+      payload: 'aGVsbG8=',
+      kind: 'word'
+    });
+  const connect = (origin: string) =>
+    dapp.requestPermission(origin, {
+      type: MidenDAppMessageType.PermissionRequest,
+      appMeta: { name: 'New Dapp', url: origin },
+      force: false,
+      network: 'testnet',
+      privateDataPermission: 'UPON_REQUEST',
+      allowedPrivateData: 0
+    } as never);
+  const declineSign = () =>
+    driveConfirmation(() => settle(sign()), MidenMessageType.DAppSignConfirmationRequest, { confirmed: false });
+  const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+  // The MV3 service worker has no `window`, so reading its geometry there throws.
+  const WINDOW_GEOMETRY = ['screenX', 'screenY', 'outerWidth', 'outerHeight'];
+  async function withoutWindowGeometry<T>(run: () => Promise<T>): Promise<T> {
+    const saved = WINDOW_GEOMETRY.map((key): [string, PropertyDescriptor | undefined] => [
+      key,
+      Object.getOwnPropertyDescriptor(window, key)
+    ]);
+    for (const key of WINDOW_GEOMETRY) {
+      Object.defineProperty(window, key, {
+        configurable: true,
+        get: () => {
+          throw new ReferenceError('window is not defined');
+        }
+      });
+    }
+    try {
+      return await run();
+    } finally {
+      for (const [key, descriptor] of saved) if (descriptor) Object.defineProperty(window, key, descriptor);
+    }
+  }
+
+  type RefusedMove = {
+    request: string;
+    start: () => Promise<unknown>;
+    confirmation: MidenMessageType;
+    decline: Record<string, unknown>;
+  };
+  it.each<RefusedMove>([
+    {
+      request: 'sign',
+      start: sign,
+      confirmation: MidenMessageType.DAppSignConfirmationRequest,
+      decline: { confirmed: false }
+    },
+    {
+      request: 'connect',
+      start: () => connect('https://moved-dapp.xyz'),
+      confirmation: MidenMessageType.DAppPermConfirmationRequest,
+      decline: { confirmed: false, accountPublicKey: '' }
+    }
+  ])('a $request decline closes a popup Chrome refused to move', async ({ start, confirmation, decline }) => {
+    // Chrome placed the window elsewhere, then refuses the move because the window is mostly off-screen at its size.
+    create.mockResolvedValueOnce(windowAt({ id: 4321, left: 900, top: 186, state: 'normal' }));
+    update.mockRejectedValueOnce(new Error(BOUNDS_REFUSAL));
+    get.mockImplementationOnce(async id => windowAt({ id }));
+
+    const answer = await driveConfirmation(() => settle(start()), confirmation, decline);
+    await flush();
+
+    expect(update).toHaveBeenCalledWith(4321, { left: 322, top: 46 });
+    expect(answer).toBe(MidenDAppErrorType.NotGranted);
+    expect(remove).toHaveBeenCalledWith(4321);
+    expect(_g.__dappExtRemovedListeners).toHaveLength(0);
+  });
+
+  it('a decline while Chrome is still moving the popup closes it', async () => {
+    let finishMove: () => void = () => undefined;
+    create.mockResolvedValueOnce(windowAt({ id: 4321, left: 900, top: 186, state: 'normal' }));
+    update.mockImplementationOnce(
+      () => new Promise<Windows.Window>(resolve => (finishMove = () => resolve(windowAt({ id: 4321 }))))
+    );
+    get.mockImplementationOnce(async id => windowAt({ id }));
+
+    const answer = await declineSign();
+    await flush();
+    finishMove();
+
+    expect(answer).toBe(MidenDAppErrorType.NotGranted);
+    expect(remove).toHaveBeenCalledWith(4321);
+  });
+
+  it('answers a connect whose popup cannot be opened instead of leaving it pending', async () => {
+    create.mockRejectedValueOnce(new Error('Extension context invalidated.'));
+    const pending = new Promise<string>(resolve => setTimeout(() => resolve('pending'), 50));
+
+    const answer = await Promise.race([settle(connect('https://unopened-dapp.xyz')), pending]);
+
+    expect(answer).toBe('Extension context invalidated.');
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it('centres the popup on the last-focused browser window, not on another popup', async () => {
+    focused.mockImplementationOnce(async getInfo =>
+      getInfo?.windowTypes?.includes('normal')
+        ? windowAt({ id: 1, type: 'normal', left: 100, top: 50, width: 1200, height: 900 })
+        : windowAt({ id: 2, type: 'popup', left: 918, top: 186, width: 1288, height: 851 })
+    );
+
+    const answer = await declineSign();
+
+    expect(focused).toHaveBeenCalledWith({ windowTypes: ['normal'] });
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ left: 510, top: 162 }));
+    expect(answer).toBe(MidenDAppErrorType.NotGranted);
+  });
+
+  it('centres on the last-focused window of any type when no browser window is open', async () => {
+    focused.mockRejectedValueOnce(new Error('No last-focused window'));
+    focused.mockResolvedValueOnce(windowAt({ id: 3, type: 'app', left: 300, top: 200, width: 600, height: 800 }));
+
+    const answer = await withoutWindowGeometry(declineSign);
+
+    expect(focused.mock.calls).toEqual([[{ windowTypes: ['normal'] }], []]);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ left: 410, top: 262 }));
+    expect(answer).toBe(MidenDAppErrorType.NotGranted);
+  });
+
+  it('lets the browser place the popup when no window can be read', async () => {
+    focused.mockRejectedValueOnce(new Error('No last-focused window'));
+    focused.mockRejectedValueOnce(new Error('No last-focused window'));
+
+    const answer = await withoutWindowGeometry(declineSign);
+
+    const options = create.mock.calls[0]?.[0];
+    expect(options).toEqual(expect.objectContaining({ type: 'popup', width: 380, height: 676 }));
+    expect(options).not.toHaveProperty('left');
+    expect(options).not.toHaveProperty('top');
+    expect(update).not.toHaveBeenCalled();
+    expect(answer).toBe(MidenDAppErrorType.NotGranted);
+  });
+
+  it('retries a create Chrome refused for bounds without a position', async () => {
+    create.mockRejectedValueOnce(new Error(BOUNDS_REFUSAL));
+    create.mockResolvedValueOnce(windowAt({ id: 5678, left: 64, top: 48, state: 'normal' }));
+    get.mockImplementationOnce(async id => windowAt({ id }));
+
+    const answer = await declineSign();
+    await flush();
+
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ left: 322, top: 46 }));
+    const retry = create.mock.calls[1]?.[0];
+    expect(retry).toEqual(expect.objectContaining({ type: 'popup', width: 380, height: 676 }));
+    expect(retry).not.toHaveProperty('left');
+    expect(retry).not.toHaveProperty('top');
+    expect(update).not.toHaveBeenCalled();
+    expect(answer).toBe(MidenDAppErrorType.NotGranted);
+    expect(remove).toHaveBeenCalledWith(5678);
   });
 });
 
