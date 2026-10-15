@@ -18,6 +18,15 @@ jest.mock('lib/walletconnect/useEvmWalletConnection', () => ({
 
 jest.mock('lib/mobile/haptics', () => ({ hapticMedium: jest.fn() }));
 
+// The effective network: a test network unless a case switches to mainnet.
+let mockTestNetworkKey: 'testnet' | null = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getTestNetworkNameKey: () => mockTestNetworkKey
+}));
+afterEach(() => {
+  mockTestNetworkKey = 'testnet';
+});
+
 jest.mock('components/ui/Button', () => ({
   Button: ({
     children,
@@ -84,6 +93,14 @@ describe('EvmConnectModal (#875)', () => {
     expect(warning).toHaveAttribute('data-tone', 'warning');
     expect(warning.querySelector('[data-slot="title"]')?.textContent).toBe('evmConnectTestWalletTitle');
     expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('evmConnectTestWalletBody');
+  });
+
+  it('shows no test-wallet warning on mainnet, where the funds are real', () => {
+    mockTestNetworkKey = null;
+    render(<EvmConnectModal open onOpenChange={jest.fn()} />);
+
+    expect(screen.getByTestId('evm-connect-body')).toBeInTheDocument();
+    expect(screen.queryByTestId('evm-connect-test-wallet-warning')).not.toBeInTheDocument();
   });
 
   it('keeps the warning in the scroll region and "Open wallet" in the pinned footer', () => {
