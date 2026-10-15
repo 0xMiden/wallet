@@ -2528,6 +2528,10 @@
     "message": "Korea Digital Asset, a digital asset custody company based in South Korea.",
     "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
   },
+  "guardianAboutPara": {
+    "message": "Para, an embedded wallet infrastructure provider.",
+    "englishSource": "Para, an embedded wallet infrastructure provider."
+  },
   "guardianKindOpenZeppelin": {
     "message": "Smart contract security and audits",
     "englishSource": "Smart contract security and audits"
@@ -2543,6 +2547,10 @@
   "guardianKindKodax": {
     "message": "Digital asset custodian",
     "englishSource": "Digital asset custodian"
+  },
+  "guardianKindPara": {
+    "message": "Embedded wallet infrastructure",
+    "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
     "message": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody.",

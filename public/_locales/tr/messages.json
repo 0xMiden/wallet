@@ -2528,6 +2528,10 @@
     "message": "Korea Digital Asset, Güney Kore merkezli bir dijital varlık saklama şirketidir.",
     "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
   },
+  "guardianAboutPara": {
+    "message": "Para, gömülü cüzdan altyapısı sağlayıcısıdır.",
+    "englishSource": "Para, an embedded wallet infrastructure provider."
+  },
   "guardianKindOpenZeppelin": {
     "message": "Akıllı sözleşme güvenliği ve denetimleri",
     "englishSource": "Smart contract security and audits"
@@ -2543,6 +2547,10 @@
   "guardianKindKodax": {
     "message": "Dijital varlık saklayıcısı",
     "englishSource": "Digital asset custodian"
+  },
+  "guardianKindPara": {
+    "message": "Gömülü cüzdan altyapısı",
+    "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
     "message": "Guardian, cüzdanınızdan yapılan her işlemi <b>ortak olarak onaylayan</b> bağımsız bir hizmettir ve kendi varlıklarınızı kendiniz saklamaktan vazgeçmeden bir güvenlik ağı sağlar.",

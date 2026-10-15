@@ -2528,6 +2528,10 @@
     "message": "Korea Digital Asset — компанія з зберігання цифрових активів, що базується в Південній Кореї.",
     "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
   },
+  "guardianAboutPara": {
+    "message": "Para — постачальник інфраструктури вбудованих гаманців.",
+    "englishSource": "Para, an embedded wallet infrastructure provider."
+  },
   "guardianKindOpenZeppelin": {
     "message": "Безпека та аудит смарт-контрактів",
     "englishSource": "Smart contract security and audits"
@@ -2543,6 +2547,10 @@
   "guardianKindKodax": {
     "message": "Зберігач цифрових активів",
     "englishSource": "Digital asset custodian"
+  },
+  "guardianKindPara": {
+    "message": "Інфраструктура вбудованих гаманців",
+    "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
     "message": "Guardian — це незалежна служба, яка <b>підписує кожну транзакцію</b> з вашого гаманця, додаючи захисний механізм без відмови від самостійного зберігання активів.",

@@ -2528,6 +2528,10 @@
     "message": "한국에 본사를 둔 디지털 자산 수탁 기업인 코리아 디지털 애셋(Korea Digital Asset).",
     "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
   },
+  "guardianAboutPara": {
+    "message": "임베디드 지갑 인프라 제공업체인 Para.",
+    "englishSource": "Para, an embedded wallet infrastructure provider."
+  },
   "guardianKindOpenZeppelin": {
     "message": "스마트 계약 보안 및 감사",
     "englishSource": "Smart contract security and audits"
@@ -2543,6 +2547,10 @@
   "guardianKindKodax": {
     "message": "디지털 자산 수탁자",
     "englishSource": "Digital asset custodian"
+  },
+  "guardianKindPara": {
+    "message": "내장형 지갑 인프라",
+    "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
     "message": "Guardian는 <b>사용자의 지갑에서 발생하는 모든 거래</b>에 공동 서명하여, 자가 관리 권한을 포기하지 않으면서도 안전망을 제공하는 독립적인 서비스입니다.",

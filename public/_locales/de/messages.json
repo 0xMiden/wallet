@@ -2528,6 +2528,10 @@
     "message": "Korea Digital Asset, ein in Südkorea ansässiges Unternehmen für die Verwahrung digitaler Vermögenswerte.",
     "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
   },
+  "guardianAboutPara": {
+    "message": "Para, ein Anbieter von integrierten Wallet-Infrastrukturen.",
+    "englishSource": "Para, an embedded wallet infrastructure provider."
+  },
   "guardianKindOpenZeppelin": {
     "message": "Sicherheit und Audits von Smart Contracts",
     "englishSource": "Smart contract security and audits"
@@ -2543,6 +2547,10 @@
   "guardianKindKodax": {
     "message": "Verwahrer digitaler Vermögenswerte",
     "englishSource": "Digital asset custodian"
+  },
+  "guardianKindPara": {
+    "message": "Integrierte Wallet-Infrastruktur",
+    "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
     "message": "Ein „Guardian“ ist ein unabhängiger Dienst, der <b>jede Transaktion</b> aus Ihrer Wallet mitunterzeichnet und so ein Sicherheitsnetz bietet, ohne dass Sie die Selbstverwahrung aufgeben müssen.",
