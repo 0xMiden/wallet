@@ -1,7 +1,6 @@
 /**
  * @jest-environment node
  */
-import { MOCK_USDC_ADDRESS } from './evm-doubles';
 import { FakeEpochAllocator } from './fake-epoch-allocator';
 
 describe('iOS FakeEpochAllocator', () => {
@@ -28,8 +27,8 @@ describe('iOS FakeEpochAllocator', () => {
     });
   });
 
-  it('quotes the EVM USDC at 18 decimals', async () => {
+  it('quotes the deposit amount in EVM USDC base units at 18 decimals', async () => {
     const res = await fetch(`${allocator.baseUrl}/checkIfDepositNeeded`, { method: 'POST', body: '{}' });
-    await expect(res.json()).resolves.toMatchObject({ tokenIn: MOCK_USDC_ADDRESS, tokenInDecimals: 18 });
+    await expect(res.json()).resolves.toMatchObject({ tokenIn: '1010000000000000000', tokenInDecimals: 18 });
   });
 });

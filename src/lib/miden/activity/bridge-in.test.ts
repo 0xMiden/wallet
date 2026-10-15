@@ -215,6 +215,17 @@ describe('resolveBridgeInNoteId', () => {
     expect(mockModify).not.toHaveBeenCalled();
     expect(mockStore[REGISTRY_KEY]).toHaveLength(1);
   });
+
+  // A batch row is no single delivery's receipt: tagged, it would hide itself and the other notes it claimed.
+  it('drops a resolved intent without tagging or relabelling the batch row it names', async () => {
+    mockNoteIdRows.push(consumeRow({ noteIds: [NOTE_ID, 'note-other'] }));
+    await registerPendingBridgeIn(EVM_OWNER, 'N1', info);
+
+    await resolveBridgeInNoteId(EVM_OWNER, 'N1', NOTE_ID);
+
+    expect(mockModify).not.toHaveBeenCalled();
+    expect(mockStore[REGISTRY_KEY]).toEqual([]);
+  });
 });
 
 // The registry scale the mock above names for the native-ETH faucet.

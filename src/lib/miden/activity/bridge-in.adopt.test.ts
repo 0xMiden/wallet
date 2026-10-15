@@ -1,7 +1,22 @@
 import * as Repo from 'lib/miden/repo';
 
-import { adoptableNotesOf, adoptBridgeDeliveries, adoptLandedConsume, AdoptableNote } from './bridge-in';
-import { IBridgedReceiveExtraInputs, IBridgedReceivePhase, ITransaction, ITransactionStatus } from '../db/types';
+import {
+  adoptableNotesOf,
+  adoptBridgeDeliveries,
+  adoptLandedConsume,
+  AdoptableNote,
+  type PendingBridgeInIntent,
+  resolveBridgeInNoteId,
+  suppressedLinkedConsumeIds
+} from './bridge-in';
+import {
+  IBridgedReceiveExtraInputs,
+  IBridgedReceivePhase,
+  IBridgeInInfo,
+  IEarnWithdrawExtraInputs,
+  ITransaction,
+  ITransactionStatus
+} from '../db/types';
 // Loaded with the suite: the adopter reaches the real writer through a dynamic import, which on a cold module cache
 // under load outlasts the first test's timeout.
 import '../transaction/complete';
@@ -57,13 +72,15 @@ jest.mock('lib/remote-config/runtime', () => ({
   }),
   initBridgeConfig: async () => ({})
 }));
-// The intent registry is empty unless a test names one.
+// The intent registry is empty unless a test names one; its writes are recorded, so a removal can be seen.
 const mockFetchFromStorage = jest.fn();
+const mockPutToStorage = jest.fn(async (_key: string, _value: unknown) => undefined);
 jest.mock('../front/storage', () => ({
   inStorageTurn: jest.requireActual('../front/storage').inStorageTurn,
   fetchFromStorage: (key: string) => mockFetchFromStorage(key),
-  putToStorage: async () => undefined
+  putToStorage: (key: string, value: unknown) => mockPutToStorage(key, value)
 }));
+const REGISTRY_KEY = 'epoch_bridge_in_intents';
 
 const DEPOSIT = 1_000_000n;
 
@@ -152,6 +169,7 @@ const phaseOf = async (id: string) => (await Repo.transactions.get(id))?.extraIn
 
 beforeEach(async () => {
   mockFetchFromStorage.mockReset();
+  mockPutToStorage.mockClear();
   await Repo.transactions.clear();
 });
 
@@ -402,4 +420,322 @@ describe('adoptLandedConsume', () => {
     expect(await phaseOf('deposit-a')).toMatchObject({ phase: 'ready' });
     expect(await phaseOf('deposit-b')).toMatchObject({ phase: 'ready' });
   });
+});
+
+// Epoch and Earn deliver through the intent registry, which pairs by note id alone, and native auto-consume claims such
+// a delivery together with every other native note.
+describe('a registry delivery claimed in a batch', () => {
+  const EVM_OWNER = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const EPOCH_LINK: Partial<IBridgeInInfo> = { bridgeReceiveTxId: 'epoch-deposit' };
+  const EARN_LINK: Partial<IBridgeInInfo> = { earnWithdrawTxId: 'withdraw', earnWithdrawAttemptId: 'attempt-1' };
+
+  const registryHolds = (midenNoteId: string, link: Partial<IBridgeInInfo>) => {
+    const intent: PendingBridgeInIntent = {
+      userAddress: EVM_OWNER,
+      intentNonce: '7',
+      info: { provider: 'epoch', sourceAmount: '2', sourceSymbol: 'USDC', ...link },
+      midenNoteId,
+      registeredAt: Date.now()
+    };
+    mockFetchFromStorage.mockResolvedValue([intent]);
+  };
+
+  const addEpochDeposit = async () => {
+    const extraInputs: IBridgedReceiveExtraInputs = {
+      provider: 'epoch',
+      phase: 'delivering',
+      sourceAddress: EVM_OWNER,
+      sourceAmount: '2',
+      sourceSymbol: 'USDC',
+      intentNonce: '7'
+    };
+    await Repo.transactions.add({
+      id: 'epoch-deposit',
+      type: 'bridged-receive',
+      accountId: ACCOUNT,
+      status: ITransactionStatus.Completed,
+      displayIcon: 'RECEIVE',
+      initiatedAt: Math.floor(Date.now() / 1000),
+      extraInputs
+    });
+  };
+
+  const addWithdrawal = async () => {
+    const extraInputs: IEarnWithdrawExtraInputs = {
+      evmOwner: EVM_OWNER,
+      marketUid: 'market',
+      destinationFaucetId: USDCX_FAUCET,
+      sourceAmount: '10',
+      sourceSymbol: 'USDC',
+      phase: 'delivering',
+      submissionAttemptId: 'attempt-1',
+      withdrawIntentNonce: '7'
+    };
+    await Repo.transactions.add({
+      id: 'withdraw',
+      type: 'earn-withdraw',
+      accountId: ACCOUNT,
+      amount: 10n,
+      faucetId: USDCX_FAUCET,
+      status: ITransactionStatus.Completed,
+      displayIcon: 'DEFAULT',
+      initiatedAt: Math.floor(Date.now() / 1000),
+      extraInputs
+    });
+  };
+
+  // Epoch's solver sends the delivery, so only the registry pairs it. `amount` is absent for a note with no readable
+  // amount.
+  const solverDelivery = (amount?: bigint): AdoptableNote => ({
+    id: 'note-b',
+    senderAddress: 'epoch-solver',
+    faucetId: USDCX_FAUCET,
+    ...(amount === undefined ? {} : { amount })
+  });
+  // A note with no fungible asset, as completeConsumeTransaction hands it over.
+  const assetless = (id: string): AdoptableNote => ({ id, senderAddress: '', faucetId: '' });
+
+  it('records an Epoch delivery claimed with another token at its own amount and token', async () => {
+    await addEpochDeposit();
+    registryHolds('0xNOTE-B', EPOCH_LINK);
+    await addConsume({
+      noteIds: ['note-a', 'note-b'],
+      secondaryAccountId: ETH_FAUCET,
+      faucetId: ETH_FAUCET,
+      amount: 1n
+    });
+
+    await adoptBridgeDeliveries('consume', [
+      { id: 'note-a', senderAddress: ETH_FAUCET, faucetId: ETH_FAUCET, amount: 1n },
+      solverDelivery(2n)
+    ]);
+
+    expect(await Repo.transactions.get('epoch-deposit')).toMatchObject({
+      amount: 2n,
+      faucetId: USDCX_FAUCET,
+      transactionId: 'chain-tx',
+      extraInputs: expect.objectContaining({ phase: 'received', midenNoteId: '0xNOTE-B' })
+    });
+    expect(mockPutToStorage).toHaveBeenCalledWith(REGISTRY_KEY, []);
+  });
+
+  it('records an Earn withdrawal delivered in a native batch at its own amount, never the batch total', async () => {
+    await addWithdrawal();
+    registryHolds('note-b', EARN_LINK);
+    await addConsume({ noteIds: ['note-a', 'note-b'], amount: 3n });
+
+    await adoptBridgeDeliveries('consume', [mint('note-a', 1n), solverDelivery(2n)]);
+
+    expect(await Repo.transactions.get('withdraw')).toMatchObject({
+      amount: 2n,
+      faucetId: USDCX_FAUCET,
+      extraInputs: expect.objectContaining({ phase: 'received', midenNoteId: 'note-b', outputSymbol: 'USDC' })
+    });
+    expect(mockPutToStorage).toHaveBeenCalledWith(REGISTRY_KEY, []);
+  });
+
+  it.each<[string, Partial<IBridgeInInfo>]>([
+    ['an Epoch deposit', EPOCH_LINK],
+    ['an Earn withdrawal', EARN_LINK]
+  ])("leaves the batch row's label, tag and Activity visibility as they were for %s", async (_label, link) => {
+    await addEpochDeposit();
+    await addWithdrawal();
+    registryHolds('note-b', link);
+    await addConsume({ noteIds: ['note-a', 'note-b'], amount: 3n });
+
+    await adoptBridgeDeliveries('consume', [mint('note-a', 1n), solverDelivery(2n)]);
+
+    const consume = await Repo.transactions.get('consume');
+    if (!consume) throw new Error('missing consume');
+    expect(consume.displayMessage).toBe('Received');
+    expect(consume.extraInputs?.bridgeIn).toBeUndefined();
+    expect(await suppressedLinkedConsumeIds([consume])).toEqual(new Set());
+  });
+
+  // The stored row keeps the same facts, so no retry could ever settle it.
+  it('releases the intent and moves no tracker when the batch note carried no asset', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await addEpochDeposit();
+    registryHolds('note-b', EPOCH_LINK);
+    await addConsume({ noteIds: ['note-a', 'note-b'], amount: 3n });
+
+    await adoptBridgeDeliveries('consume', [mint('note-a', 1n), assetless('note-b')]);
+
+    expect(await phaseOf('epoch-deposit')).toMatchObject({ phase: 'delivering' });
+    expect(mockPutToStorage).toHaveBeenCalledWith(REGISTRY_KEY, []);
+    const consume = await Repo.transactions.get('consume');
+    expect(consume?.displayMessage).toBe('Received');
+    expect(consume?.extraInputs?.bridgeIn).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('released'), 'consume', 'epoch-deposit');
+    warn.mockRestore();
+  });
+
+  it('lands an Earn withdrawal whose batch note carried no amount at its requested amount', async () => {
+    await addWithdrawal();
+    registryHolds('note-b', EARN_LINK);
+    await addConsume({ noteIds: ['note-a', 'note-b'], amount: 3n });
+
+    await adoptBridgeDeliveries('consume', [mint('note-a', 1n), solverDelivery()]);
+
+    expect(await Repo.transactions.get('withdraw')).toMatchObject({
+      amount: 10n,
+      extraInputs: expect.objectContaining({ phase: 'received', midenNoteId: 'note-b' })
+    });
+    expect(mockPutToStorage).toHaveBeenCalledWith(REGISTRY_KEY, []);
+  });
+
+  it('still pairs every other note of the batch when the registry delivery cannot be settled', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await addDeposit('deposit-a', 'ready');
+    await addEpochDeposit();
+    registryHolds('note-2', EPOCH_LINK);
+    await addConsume({ noteIds: ['note-1', 'note-2'] });
+
+    await adoptBridgeDeliveries('consume', [mint('note-1'), assetless('note-2')]);
+
+    expect(await phaseOf('deposit-a')).toMatchObject({ phase: 'received', midenNoteId: 'note-1' });
+    expect(await phaseOf('epoch-deposit')).toMatchObject({ phase: 'delivering' });
+    warn.mockRestore();
+  });
+
+  it("lands a batch's registry delivery from the facts a landed consume kept", async () => {
+    await addEpochDeposit();
+    registryHolds('note-b', EPOCH_LINK);
+    await addConsume({
+      noteIds: ['note-a', 'note-b'],
+      amount: 3n,
+      consumedNotes: [mint('note-a', 1n), solverDelivery(2n)]
+    });
+
+    await adoptLandedConsume('consume');
+
+    expect(await Repo.transactions.get('epoch-deposit')).toMatchObject({
+      amount: 2n,
+      faucetId: USDCX_FAUCET,
+      extraInputs: expect.objectContaining({ phase: 'received', midenNoteId: 'note-b' })
+    });
+    expect((await Repo.transactions.get('consume'))?.extraInputs?.bridgeIn).toBeUndefined();
+  });
+
+  // Six landing paths call the adopter, and a batch row is never tagged, so nothing short-circuits a second call.
+  it('takes no other deposit when a landing path adopts the batch again', async () => {
+    await addDeposit('deposit-a', 'ready');
+    await addDeposit('deposit-b', 'ready');
+    await addWithdrawal();
+    registryHolds('note-b', EARN_LINK);
+    await addConsume({ noteIds: ['note-a', 'note-b'], amount: DEPOSIT + 2n });
+    const notes = [mint('note-a'), solverDelivery(2n)];
+
+    await adoptBridgeDeliveries('consume', notes);
+    // The first call removed the intent; this stand-in does not keep removals.
+    mockFetchFromStorage.mockReset();
+    await adoptBridgeDeliveries('consume', notes);
+
+    const phases = await Promise.all(['deposit-a', 'deposit-b'].map(phaseOf));
+    expect(phases.filter(inputs => inputs?.phase === 'received')).toHaveLength(1);
+    expect(await Repo.transactions.get('withdraw')).toMatchObject({
+      amount: 2n,
+      extraInputs: expect.objectContaining({ phase: 'received' })
+    });
+  });
+
+  it("never pairs a batch's registry note by sender when its settlement fails", async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    await addDeposit('deposit-a', 'ready');
+    await addDeposit('deposit-b', 'ready');
+    await addEpochDeposit();
+    registryHolds('note-2', EPOCH_LINK);
+    await addConsume({ noteIds: ['note-1', 'note-2'] });
+    const failTracker = (_changes: object, key: unknown) => {
+      if (key === 'epoch-deposit') throw new Error('database unavailable');
+    };
+    Repo.transactions.hook('updating', failTracker);
+    try {
+      await adoptBridgeDeliveries('consume', [mint('note-1'), mint('note-2')]);
+    } finally {
+      Repo.transactions.hook('updating').unsubscribe(failTracker);
+      warn.mockRestore();
+    }
+
+    const phases = await Promise.all(['deposit-a', 'deposit-b'].map(phaseOf));
+    expect(phases.map(inputs => inputs?.phase).sort()).toEqual(['ready', 'received']);
+    expect(await phaseOf('epoch-deposit')).toMatchObject({ phase: 'delivering' });
+    expect(mockPutToStorage).not.toHaveBeenCalledWith(REGISTRY_KEY, expect.anything());
+  });
+
+  describe('for a batch that kept no per-note facts', () => {
+    // Queued before the per-note facts, the row names its notes and nothing else about them.
+    const addLegacyBatch = () => addConsume({ noteIds: ['note-a', 'note-b'], amount: 3n });
+
+    it.each<[string, () => Promise<unknown>]>([
+      ['a landed consume', () => adoptLandedConsume('consume')],
+      ['a late note id', () => resolveBridgeInNoteId(EVM_OWNER, '7', 'note-b')]
+    ])('releases an Epoch delivery it cannot settle, through %s', async (_label, settle) => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      await addEpochDeposit();
+      registryHolds('note-b', EPOCH_LINK);
+      await addLegacyBatch();
+
+      await expect(settle()).resolves.toBeUndefined();
+
+      expect(mockPutToStorage).toHaveBeenCalledWith(REGISTRY_KEY, []);
+      expect(await phaseOf('epoch-deposit')).toMatchObject({ phase: 'delivering' });
+      expect((await Repo.transactions.get('epoch-deposit'))?.amount).toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('released'), 'consume', 'epoch-deposit');
+      warn.mockRestore();
+    });
+
+    it.each<[string, () => Promise<unknown>]>([
+      ['a landed consume', () => adoptLandedConsume('consume')],
+      ['a late note id', () => resolveBridgeInNoteId(EVM_OWNER, '7', 'note-b')]
+    ])('settles an Earn withdrawal at its requested amount, through %s', async (_label, settle) => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      await addWithdrawal();
+      registryHolds('note-b', EARN_LINK);
+      await addLegacyBatch();
+
+      await expect(settle()).resolves.toBeUndefined();
+
+      expect(mockPutToStorage).toHaveBeenCalledWith(REGISTRY_KEY, []);
+      expect(await Repo.transactions.get('withdraw')).toMatchObject({
+        amount: 10n,
+        extraInputs: expect.objectContaining({ phase: 'received', midenNoteId: 'note-b' })
+      });
+      warn.mockRestore();
+    });
+  });
+
+  // A failure the note's facts do not explain may pass on a retry.
+  it.each<[string, () => Promise<unknown>]>([
+    ['a landed consume', () => adoptLandedConsume('consume')],
+    [
+      'a late note id',
+      () => expect(resolveBridgeInNoteId(EVM_OWNER, '7', 'note-b')).rejects.toThrow('database unavailable')
+    ]
+  ])(
+    'keeps the intent of a batch delivery with its facts whose settlement fails, through %s',
+    async (_label, settle) => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      await addEpochDeposit();
+      registryHolds('note-b', EPOCH_LINK);
+      await addConsume({
+        noteIds: ['note-a', 'note-b'],
+        amount: 3n,
+        consumedNotes: [mint('note-a', 1n), solverDelivery(2n)]
+      });
+      const failTracker = (_changes: object, key: unknown) => {
+        if (key === 'epoch-deposit') throw new Error('database unavailable');
+      };
+      Repo.transactions.hook('updating', failTracker);
+      try {
+        await settle();
+      } finally {
+        Repo.transactions.hook('updating').unsubscribe(failTracker);
+        warn.mockRestore();
+      }
+
+      expect(mockPutToStorage).not.toHaveBeenCalledWith(REGISTRY_KEY, expect.anything());
+      expect(await phaseOf('epoch-deposit')).toMatchObject({ phase: 'delivering' });
+    }
+  );
 });
