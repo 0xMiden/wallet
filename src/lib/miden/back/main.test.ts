@@ -143,7 +143,8 @@ jest.mock('../sdk/miden-client', () => ({
 }));
 
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
-  loadEndpointOverrides: async () => (globalThis as any).__mainTest.loadEndpointOverrides()
+  loadEndpointOverrides: async () => (globalThis as any).__mainTest.loadEndpointOverrides(),
+  readStoredEndpointSettings: jest.fn(async () => ({ override: undefined, feeFaucetId: undefined }))
 }));
 
 jest.mock('lib/remote-config/runtime', () => ({
@@ -1454,5 +1455,36 @@ describe('scoped offscreen native identity relay', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(reply).toHaveBeenCalledWith({ ok: false });
     warn.mockRestore();
+  });
+});
+
+// The offscreen document has no storage API, so it hydrates its endpoints from this answer.
+describe('offscreen endpoint settings request', () => {
+  const read = () => jest.requireMock('lib/miden-chain/effective-endpoints').readStoredEndpointSettings;
+  const invoke = (message: unknown, sender = ownSender, reply = jest.fn()) =>
+    capturedRuntimeListeners[0]?.(message, sender, reply);
+  const request = { target: 'sw', type: 'OFFSCREEN_ENDPOINT_SETTINGS_REQUEST' };
+
+  it('answers with the stored override and fee faucet id', async () => {
+    const override = { networkName: 'mainnet', presetName: 'mainnet' };
+    read().mockResolvedValueOnce({ override, feeFaucetId: '0xfee' });
+    const reply = jest.fn();
+    expect(invoke(request, ownSender, reply)).toBe(true);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(reply).toHaveBeenCalledWith({ ok: true, override, feeFaucetId: '0xfee' });
+  });
+
+  it('answers with a failure when storage cannot be read', async () => {
+    read().mockRejectedValueOnce(new Error('storage unavailable'));
+    const reply = jest.fn();
+    invoke(request, ownSender, reply);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(reply).toHaveBeenCalledWith({ ok: false, error: 'Error: storage unavailable' });
+  });
+
+  it('refuses a request from another extension', () => {
+    read().mockClear();
+    expect(invoke(request, { id: 'other-extension' })).toBe(false);
+    expect(read()).not.toHaveBeenCalled();
   });
 });

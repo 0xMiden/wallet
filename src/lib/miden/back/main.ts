@@ -19,6 +19,7 @@ import {
 } from 'lib/miden/back/miden-client-proxy';
 import {
   OFFSCREEN_CONNECTIVITY_EVENT,
+  OFFSCREEN_ENDPOINT_SETTINGS_REQUEST,
   OFFSCREEN_OP_STARTED,
   OFFSCREEN_NATIVE_ASSET_EVENT,
   OFFSCREEN_PROVE_MARKER,
@@ -26,6 +27,7 @@ import {
   OFFSCREEN_STAGE_EVENT,
   OFFSCREEN_TELEMETRY_EVENT,
   SW_TARGET,
+  type OffscreenEndpointSettingsResponse,
   type OffscreenSignRequest,
   type OffscreenTelemetryEvent
 } from 'lib/miden/back/offscreen-codec';
@@ -37,7 +39,7 @@ import { isPipelineKillLink } from 'lib/miden/sdk/sdk-error-code';
 import { parseSubmitEvidence } from 'lib/miden/sdk/submit-evidence';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { retireGuardianWritesForEndpointChange } from 'lib/miden/sync-backoff';
-import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
+import { loadEndpointOverrides, readStoredEndpointSettings } from 'lib/miden-chain/effective-endpoints';
 import {
   cacheScope,
   captureNativeAssetSnapshot,
@@ -280,6 +282,21 @@ function registerOffscreenSignHandler(): void {
     // whose default is to allow is one that stops working the moment something
     // upstream changes shape.
     if (sender.id !== chrome.runtime.id) return false;
+    // The offscreen document cannot read storage, so it hydrates its endpoints from this read. Storage,
+    // not this realm's cache: a reload request follows a save, and storage is what the save wrote.
+    if (m.type === OFFSCREEN_ENDPOINT_SETTINGS_REQUEST) {
+      readStoredEndpointSettings().then(
+        ({ override, feeFaucetId }) => {
+          const response: OffscreenEndpointSettingsResponse = { ok: true, override, feeFaucetId };
+          sendResponse(response);
+        },
+        error => {
+          const response: OffscreenEndpointSettingsResponse = { ok: false, error: String(error) };
+          sendResponse(response);
+        }
+      );
+      return true;
+    }
     if (m.type === OFFSCREEN_NATIVE_ASSET_EVENT) {
       if (typeof m.id !== 'string' || !/^0x[0-9a-fA-F]{30}$/.test(m.id) || typeof m.scope !== 'string') return false;
       const id = m.id;

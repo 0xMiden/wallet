@@ -49,6 +49,7 @@ import {
 import {
   OFFSCREEN_CALL,
   OFFSCREEN_CONNECTIVITY_EVENT,
+  OFFSCREEN_ENDPOINT_SETTINGS_REQUEST,
   OFFSCREEN_OP_STARTED,
   OFFSCREEN_NATIVE_ASSET_EVENT,
   OFFSCREEN_RELOAD_ENDPOINTS,
@@ -63,6 +64,7 @@ import {
   errorNameOf,
   type OffscreenCallRequest,
   type OffscreenConnectivityEvent,
+  type OffscreenEndpointSettingsRequest,
   type OffscreenOpStarted,
   type OffscreenReloadEndpointsResponse,
   type OffscreenSignResponse,
@@ -110,7 +112,7 @@ import {
   wasmClientGeneration,
   WasmClientPoisonedError
 } from 'lib/miden/sdk/wasm-client-poison';
-import { loadEndpointOverrides } from 'lib/miden-chain/effective-endpoints';
+import { loadEndpointOverrides, setStoredEndpointSettingsReader } from 'lib/miden-chain/effective-endpoints';
 import { setNativeAssetPublisher } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import { reportProve, setOperationTransport } from 'lib/telemetry/report-operation';
@@ -251,7 +253,32 @@ setNativeAssetPublisher(async (id, scope) => {
 //      the `mlcl` HRP), so ids encoded here would carry a different prefix than the
 //      ids the SW encodes, and SW-side comparisons between the two could never match.
 //
-// Memoized so the storage read happens once per realm. The memo is deliberately a
+// This document has no storage API: Chrome gives an offscreen document `chrome.runtime`
+// only. A direct storage read throws here, and the load swallowed that throw, so every
+// wallet whose network came from the stored override (the invite-code mainnet switch,
+// Developer Settings) synced and read its notes on the build's network. The reader
+// below asks the service worker, which reads storage for this realm.
+setStoredEndpointSettingsReader(async () => {
+  const request: OffscreenEndpointSettingsRequest = { target: SW_TARGET, type: OFFSCREEN_ENDPOINT_SETTINGS_REQUEST };
+  const response: unknown = await withRpcTimeout(
+    () => chrome.runtime.sendMessage(request),
+    'offscreen-endpoint-settings',
+    { retries: 2 }
+  );
+  if (
+    !response ||
+    typeof response !== 'object' ||
+    !('ok' in response) ||
+    response.ok !== true ||
+    !('override' in response) ||
+    !('feeFaucetId' in response)
+  ) {
+    throw new Error('service worker did not answer with the stored endpoint settings');
+  }
+  return { override: response.override, feeFaucetId: response.feeFaucetId };
+});
+
+// Memoized so the settings read happens once per realm. The memo is deliberately a
 // NEVER-REJECTING shadow of the load: it is awaited on the client-creation path, and
 // a permanently-rejected slot there would fail every later `getOrCreateClient()`.
 // (`loadEndpointOverrides` already swallows its own storage errors, so the catch only covers

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.5 (TBD)
+
+### Fixes
+
+- [FIX][extension] The offscreen document reads the stored network from the service worker. It has no storage API, so a wallet whose network came from the stored override (the invite-code switch to mainnet, Developer Settings) synced and read its notes on the build's network: received notes never showed, were never auto-claimed, and a USDCx deposit stayed at "minted" after its note arrived.
+
 ## 1.17.4 (2026-10-15)
 
 ### Features

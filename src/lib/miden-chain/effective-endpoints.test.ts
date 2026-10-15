@@ -331,6 +331,46 @@ describe('effective-endpoints resolver', () => {
     });
   });
 
+  // The offscreen document has no storage API, so it loads through a reader that asks the service worker.
+  describe('an installed stored-settings reader', () => {
+    it('loads the override and the fee faucet id through the reader, not storage', async () => {
+      mockThrows = true;
+      const m = loadModule();
+      const stored = buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET);
+      m.setStoredEndpointSettingsReader(async () => ({ override: stored, feeFaucetId: '0xfee' }));
+      await m.loadEndpointOverrides();
+      expect(m.getActiveOverride()).toEqual(stored);
+      expect(m.getEffectiveNetworkName()).toBe(MIDEN_NETWORK_NAME.MAINNET);
+      expect(m.getEffectiveRpcUrl()).toBe(MIDEN_NETWORK_ENDPOINTS.get(MIDEN_NETWORK_NAME.MAINNET));
+      expect(m.getEffectiveFeeFaucetId()).toBe('0xfee');
+    });
+
+    it('keeps the loaded override and warns when the reader fails', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const m = loadModule();
+      const saved = m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);
+      await m.applyEndpointOverride(saved);
+      m.setStoredEndpointSettingsReader(async () => {
+        throw new Error('no answer');
+      });
+      await m.loadEndpointOverrides();
+      expect(m.getActiveOverride()).toBe(saved);
+      expect(warn).toHaveBeenCalledWith(
+        '[effective-endpoints] stored endpoint settings could not be read',
+        expect.any(Error)
+      );
+      warn.mockRestore();
+    });
+
+    it('reads both keys from storage by default', async () => {
+      const m = loadModule();
+      const stored = buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET);
+      mockKvStore[ENDPOINT_OVERRIDE_STORAGE_KEY] = stored;
+      mockKvStore[m.FEE_FAUCET_STORAGE_KEY] = '0xfee';
+      await expect(m.readStoredEndpointSettings()).resolves.toEqual({ override: stored, feeFaucetId: '0xfee' });
+    });
+  });
+
   // Developer Settings tells the user a rejected write was not saved, so the session must not
   // switch to endpoints that a restart would drop.
   describe('a rejected storage write', () => {

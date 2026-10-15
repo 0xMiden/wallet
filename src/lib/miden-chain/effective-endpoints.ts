@@ -159,14 +159,27 @@ export function getEffectiveFeeFaucetId(): string | undefined {
   return undefined;
 }
 
-async function loadFeeFaucetId(): Promise<void> {
-  try {
-    const items = await getStorageProvider().get([FEE_FAUCET_STORAGE_KEY]);
-    const raw = items[FEE_FAUCET_STORAGE_KEY];
-    feeFaucetCache = typeof raw === 'string' && raw ? raw : feeFaucetCache;
-  } catch {
-    // Keep whatever the in-memory cache already holds.
-  }
+/** The stored values `loadEndpointOverrides` hydrates a realm from, as storage holds them. */
+export interface StoredEndpointSettings {
+  override: unknown;
+  feeFaucetId: unknown;
+}
+
+/** Read the stored override and fee faucet id from this realm's storage. */
+export async function readStoredEndpointSettings(): Promise<StoredEndpointSettings> {
+  const items = await getStorageProvider().get([ENDPOINT_OVERRIDE_STORAGE_KEY, FEE_FAUCET_STORAGE_KEY]);
+  return { override: items[ENDPOINT_OVERRIDE_STORAGE_KEY], feeFaucetId: items[FEE_FAUCET_STORAGE_KEY] };
+}
+
+let storedSettingsReader: () => Promise<StoredEndpointSettings> = readStoredEndpointSettings;
+
+/**
+ * Replace how `loadEndpointOverrides` reads the stored settings. The offscreen document has no storage API
+ * (Chrome gives it `chrome.runtime` only), so it asks the service worker instead. Without this its read
+ * failed, the override stayed unloaded, and the document ran every sync and note read on the build's network.
+ */
+export function setStoredEndpointSettingsReader(reader: () => Promise<StoredEndpointSettings>): void {
+  storedSettingsReader = reader;
 }
 
 /**
@@ -251,19 +264,21 @@ function isEndpointOverride(value: unknown): value is EndpointOverride {
  * (every production build) it has no effect.
  */
 export async function loadEndpointOverrides(): Promise<void> {
-  await loadFeeFaucetId();
-  if (process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES === 'true') {
-    overrideCache = null;
+  const overridesDisabled = process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES === 'true';
+  if (overridesDisabled) overrideCache = null;
+  let stored: StoredEndpointSettings;
+  try {
+    stored = await storedSettingsReader();
+  } catch (error) {
+    // Deliberate: see the comment above applyEndpointOverride. Logged, because this realm keeps the
+    // endpoints it had loaded (the build's network on a first load) whatever the wallet stored.
+    console.warn('[effective-endpoints] stored endpoint settings could not be read', error);
     return;
   }
-  try {
-    const storage = getStorageProvider();
-    const items = await storage.get([ENDPOINT_OVERRIDE_STORAGE_KEY]);
-    const raw = items[ENDPOINT_OVERRIDE_STORAGE_KEY];
-    overrideCache = isEndpointOverride(raw) ? raw : null;
-  } catch {
-    // Deliberate: see the comment above applyEndpointOverride.
-  }
+  const { feeFaucetId } = stored;
+  feeFaucetCache = typeof feeFaucetId === 'string' && feeFaucetId ? feeFaucetId : feeFaucetCache;
+  if (overridesDisabled) return;
+  overrideCache = isEndpointOverride(stored.override) ? stored.override : null;
 }
 
 // No rejected storage call moves the cache. Both writes store before they touch it, so a rejected

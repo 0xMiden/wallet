@@ -120,6 +120,9 @@ Wrap platform-specific fixes with `isIOS()`/`isAndroid()`/`isMobile()` from `lib
 ### Haptics on tappable components
 Add `hapticLight()` (taps), `hapticMedium()` (toggles), `hapticSelection()` (tabs) from `lib/mobile/haptics`. Auto-checks `isMobile()` and user setting.
 
+### The offscreen document has no storage API
+Chrome gives an offscreen document `chrome.runtime` only, so `getStorageProvider()` throws there (`reading 'local'`). A value the offscreen realm needs from storage comes from the service worker over `chrome.runtime.sendMessage`: the endpoint override and the fee faucet id through `setStoredEndpointSettingsReader` (`OFFSCREEN_ENDPOINT_SETTINGS_REQUEST`), the fee identity the other way through `setNativeAssetPublisher`. A swallowed storage read there is a silent wrong-network bug: before the reader, every wallet whose network came from the stored override synced testnet in the offscreen client and read no notes.
+
 ### Storage hooks' cache
 Write a key a storage hook reads (`useStorage`, `usePassiveStorage` in `lib/miden/front/storage.ts`) only through `putToStorage` or the hook's setter, which settle the value into the hooks' SWR cache. A direct `getStorageProvider()` write or removal of such a key leaves the cache stale on mobile and desktop, where no change event exists. A new wipe or bulk removal of such keys awaits `rereadStorageCache()` in a `finally`, as `lib/miden/reset.ts` does. A module store that keeps storage values outside the hooks' cache registers its re-read with `registerStorageReread`, as `lib/miden/front/stored-id-set.ts` does.
 

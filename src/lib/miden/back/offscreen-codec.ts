@@ -464,6 +464,20 @@ export function isOperationAbortedError(error: unknown): error is OperationAbort
   );
 }
 
+/**
+ * offscreen → SW request for the stored endpoint settings (the override and the fee faucet id). The
+ * offscreen document has no storage API, so it cannot read them itself; the SW reads storage and answers
+ * through `sendResponse` with an {@link OffscreenEndpointSettingsResponse}.
+ */
+export const OFFSCREEN_ENDPOINT_SETTINGS_REQUEST = 'OFFSCREEN_ENDPOINT_SETTINGS_REQUEST' as const;
+export type OffscreenEndpointSettingsRequest = {
+  target: typeof SW_TARGET;
+  type: typeof OFFSCREEN_ENDPOINT_SETTINGS_REQUEST;
+};
+export type OffscreenEndpointSettingsResponse =
+  | { ok: true; override: unknown; feeFaucetId: unknown }
+  | { ok: false; error: string };
+
 export const OFFSCREEN_NATIVE_ASSET_EVENT = 'OFFSCREEN_NATIVE_ASSET_EVENT';
 export type OffscreenNativeAssetEvent = {
   target: typeof SW_TARGET;

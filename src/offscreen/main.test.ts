@@ -253,7 +253,12 @@ jest.mock('../lib/miden/sdk/miden-client', () => jest.requireMock('lib/miden/sdk
 // test — hold the load open with a deferred promise.
 jest.mock('lib/miden-chain/effective-endpoints', () => {
   const g = globalThis as any;
-  return { loadEndpointOverrides: (...a: any[]) => g.__off.loadEndpointOverrides(...a) };
+  return {
+    loadEndpointOverrides: (...a: any[]) => g.__off.loadEndpointOverrides(...a),
+    setStoredEndpointSettingsReader: (reader: () => Promise<unknown>) => {
+      g.__off.storedSettingsReader = reader;
+    }
+  };
 });
 
 // Slice 5: the offscreen doc creates its client via `MidenClientInterface.create`
@@ -694,6 +699,28 @@ describe('offscreen/main — startup / init()', () => {
     expect(G.__off.order[0]).toBe('loadEndpointOverrides');
     expect(G.__off.order).toContain('getWasmOrThrow');
     expect(G.__off.order.indexOf('loadEndpointOverrides')).toBeLessThan(G.__off.order.indexOf('getWasmOrThrow'));
+  });
+
+  // This document has no storage API, so its override load asks the service worker.
+  it('installs a stored-settings reader that asks the service worker', async () => {
+    await loadModule();
+    const override = { networkName: 'mainnet' };
+    G.chrome.runtime.sendMessage = jest.fn(() => Promise.resolve({ ok: true, override, feeFaucetId: '0xfee' }));
+
+    await expect(G.__off.storedSettingsReader()).resolves.toEqual({ override, feeFaucetId: '0xfee' });
+    expect(G.chrome.runtime.sendMessage).toHaveBeenCalledWith({
+      target: 'sw',
+      type: 'OFFSCREEN_ENDPOINT_SETTINGS_REQUEST'
+    });
+  });
+
+  it('rejects the stored-settings read when the service worker gives no answer', async () => {
+    await loadModule();
+    G.chrome.runtime.sendMessage = jest.fn(() => Promise.resolve({ ok: false, error: 'storage unavailable' }));
+
+    await expect(G.__off.storedSettingsReader()).rejects.toThrow(
+      'service worker did not answer with the stored endpoint settings'
+    );
   });
 
   it('warns when crossOriginIsolated is false (SAB unavailable)', async () => {
