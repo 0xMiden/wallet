@@ -581,4 +581,162 @@ describe('a registry delivery claimed in a batch', () => {
     expect((await Repo.transactions.get('consume'))?.extraInputs?.bridgeIn).toBeUndefined();
     expect(mockRegistry.records).toEqual([]);
   });
+  it.each<[string, Partial<IBridgeInInfo>, string, Partial<ITransaction>]>([
+    ['an Earn withdrawal', {}, KEY, { amount: 2n }],
+    [
+      'a bridge receive',
+      { earnWithdrawTxId: undefined, bridgeReceiveTxId: 'bridge-receive' },
+      'bridge-receive',
+      { amount: 2n, faucetId: 'faucet', transactionId: 'chain-tx' }
+    ]
+  ])(
+    "resolves a late note id into a batch at the note's own amount for %s and leaves the batch row untagged",
+    async (_label, link, linkedId, landed) => {
+      await Repo.transactions.bulkAdd([
+        withdrawal({ withdrawIntentNonce: undefined }),
+        bridgeReceive(),
+        batchConsume()
+      ]);
+      await registerPendingBridgeIn(OWNER, '7', info(link));
+      await resolveBridgeInNoteId(OWNER, '7', 'abcd');
+      expect(await Repo.transactions.get(linkedId)).toMatchObject({
+        ...landed,
+        extraInputs: expect.objectContaining({ phase: 'received', midenNoteId: 'abcd' })
+      });
+      const batch = await Repo.transactions.get('consume');
+      expect(batch?.displayMessage).toBe('Received');
+      expect(batch?.extraInputs?.bridgeIn).toBeUndefined();
+      expect(mockRegistry.records).toEqual([]);
+    }
+  );
+
+  it("keeps a bridge receive's intent for a legacy batch that kept no per-note facts", async () => {
+    await Repo.transactions.bulkAdd([bridgeReceive(), batchConsume({ consumedNotes: undefined, amount: 12n })]);
+    await registerPendingBridgeIn(
+      OWNER,
+      '7',
+      info({ earnWithdrawTxId: undefined, bridgeReceiveTxId: 'bridge-receive' })
+    );
+    await expect(resolveBridgeInNoteId(OWNER, '7', 'abcd')).rejects.toThrow(
+      'Bridge consume is missing delivered asset data'
+    );
+    expect(mockRegistry.records).toHaveLength(1);
+    expect(mockRegistry.records[0]?.midenNoteId).toBe('abcd');
+    expect((await Repo.transactions.get('bridge-receive'))?.extraInputs.phase).toBe('delivering');
+  });
+
+  it('lands an Earn withdrawal in a legacy batch at its requested amount', async () => {
+    await Repo.transactions.bulkAdd([
+      withdrawal({ withdrawIntentNonce: undefined }),
+      batchConsume({ consumedNotes: undefined, amount: 12n })
+    ]);
+    await registerPendingBridgeIn(OWNER, '7', info());
+    await resolveBridgeInNoteId(OWNER, '7', 'abcd');
+    expect(await Repo.transactions.get(KEY)).toMatchObject({
+      amount: 10n,
+      extraInputs: expect.objectContaining({ phase: 'received', midenNoteId: 'abcd' })
+    });
+    expect(mockRegistry.records).toEqual([]);
+  });
+
+  it.each(['withdraw', 'bridge-receive', 'registry'])(
+    "retains a replayable anchor when a batch's %s write fails",
+    async failing => {
+      await Repo.transactions.bulkAdd([
+        withdrawal({ withdrawIntentNonce: undefined }),
+        batchConsume(),
+        bridgeReceive()
+      ]);
+      await registerPendingBridgeIn(OWNER, '7', info({ bridgeReceiveTxId: 'bridge-receive' }));
+      let fail = true;
+      const hook = (_changes: object, key: unknown) => {
+        if (fail && key === failing) {
+          fail = false;
+          throw new Error('database unavailable');
+        }
+      };
+      Repo.transactions.hook('updating', hook);
+      mockFailRemoval = failing === 'registry';
+      try {
+        await expect(resolveBridgeInNoteId(OWNER, '7', 'abcd')).rejects.toThrow();
+        expect(mockRegistry.records).toHaveLength(1);
+        expect(mockRegistry.records[0]?.midenNoteId).toBe('abcd');
+      } finally {
+        Repo.transactions.hook('updating').unsubscribe(hook);
+      }
+      await resolveBridgeInNoteId(OWNER, '7', 'abcd');
+      expect(await Repo.transactions.get(KEY)).toMatchObject({
+        amount: 2n,
+        extraInputs: expect.objectContaining({ phase: 'received' })
+      });
+      expect(await Repo.transactions.get('bridge-receive')).toMatchObject({
+        amount: 2n,
+        faucetId: 'faucet',
+        extraInputs: expect.objectContaining({ phase: 'received' })
+      });
+      expect((await Repo.transactions.get('consume'))?.extraInputs?.bridgeIn).toBeUndefined();
+      expect(mockRegistry.records).toEqual([]);
+    }
+  );
+
+  it('settles two registry deliveries claimed in one batch, each at its own amount', async () => {
+    const deliveries: IConsumedNote[] = [
+      { id: '0xAAAA', senderAddress: 'solver', faucetId: 'faucet', amount: 1n },
+      { id: '0xAbCd', senderAddress: 'solver', faucetId: 'faucet', amount: 2n }
+    ];
+    const queued = batchConsume({
+      status: ITransactionStatus.GeneratingTransaction,
+      amount: 3n,
+      faucetId: 'faucet',
+      consumedNotes: deliveries
+    });
+    await Repo.transactions.bulkAdd([withdrawal({ withdrawIntentNonce: undefined }), bridgeReceive(), queued]);
+    await registerPendingBridgeIn(OWNER, '7', info());
+    await registerPendingBridgeIn(
+      OTHER,
+      '8',
+      info({ earnWithdrawTxId: undefined, bridgeReceiveTxId: 'bridge-receive' })
+    );
+    await resolveBridgeInNoteId(OWNER, '7', 'aaaa');
+    await resolveBridgeInNoteId(OTHER, '8', 'abcd');
+    await Repo.transactions.update('consume', { status: ITransactionStatus.Completed });
+
+    // The completing consume settles one intent; the next poll of the other settles the second.
+    await adoptBridgeDeliveries('consume', deliveries);
+    await resolveBridgeInNoteId(OWNER, '7', 'aaaa');
+    await resolveBridgeInNoteId(OTHER, '8', 'abcd');
+
+    expect(await Repo.transactions.get(KEY)).toMatchObject({
+      amount: 1n,
+      extraInputs: expect.objectContaining({ phase: 'received', midenNoteId: 'aaaa' })
+    });
+    expect(await Repo.transactions.get('bridge-receive')).toMatchObject({
+      amount: 2n,
+      faucetId: 'faucet',
+      extraInputs: expect.objectContaining({ phase: 'received', midenNoteId: 'abcd' })
+    });
+    const batch = await Repo.transactions.get('consume');
+    expect(batch?.displayMessage).toBe('Received');
+    expect(batch?.extraInputs?.bridgeIn).toBeUndefined();
+    expect(mockRegistry.records).toEqual([]);
+  });
+
+  it("leaves the current attempt alone when a batch claims a predecessor attempt's delivery", async () => {
+    await Repo.transactions.bulkAdd([
+      withdrawal({ submissionAttemptId: 'attempt-2', withdrawIntentNonce: undefined }),
+      batchConsume({ amount: 3n })
+    ]);
+    await registerPendingBridgeIn(OWNER, '7', info());
+
+    await resolveBridgeInNoteId(OWNER, '7', 'abcd');
+
+    expect(await Repo.transactions.get(KEY)).toMatchObject({
+      amount: 10n,
+      extraInputs: expect.objectContaining({ phase: 'redeeming' })
+    });
+    const batch = await Repo.transactions.get('consume');
+    if (!batch) throw new Error('missing batch');
+    expect(batch.extraInputs?.bridgeIn).toBeUndefined();
+    expect(await suppressedLinkedConsumeIds([batch])).toEqual(new Set());
+  });
 });

@@ -185,7 +185,16 @@ async function tagConsumeRow(noteId: string, info: IBridgeInInfo): Promise<boole
     .filter(tx => tx.type === 'consume' && tx.status === ITransactionStatus.Completed && !tx.restoredFromBackup)
     .first();
   if (!row) return false;
-  await applyBridgeInToConsumeRow(row.id, info);
+  const notes = adoptableNotesOf(row);
+  if (claimedSeveral(row.noteIds, notes)) {
+    await applyBridgeInToBatchNote(
+      row.id,
+      info,
+      notes?.find(note => noteIdKey(note.id) === key)
+    );
+  } else {
+    await applyBridgeInToConsumeRow(row.id, info);
+  }
   return true;
 }
 
