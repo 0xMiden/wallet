@@ -16,7 +16,13 @@ import { fetchBoundedJson, type JsonFetch } from 'lib/remote-json';
 import { isRecord } from 'lib/update/guards';
 import { getChain } from 'lib/walletconnect/config';
 
-import { type BridgeConfig, epochCollateralFaucetId, type EvmAddress } from './schema';
+import {
+  type BridgeConfig,
+  EARN_LENDER_KEYS,
+  epochCollateralFaucetId,
+  type EvmAddress,
+  SUPPORTED_EARN_PROTOCOLS
+} from './schema';
 import { parseSwapPairs, SWAP_PAIRS_PATH, type SwapPairs, type SwapPairsToken } from './swap-pairs';
 import type { EarnMarket } from './values';
 
@@ -435,8 +441,26 @@ async function probeErc20(reads: EvmReads | null, token: EvmAddress | undefined)
 const checksummed = (value: string | undefined): EvmAddress | null =>
   value !== undefined && /^0x[0-9a-fA-F]{40}$/.test(value) ? getAddress(`0x${value.slice(2)}`) : null;
 
-// A deposit mandates the market's chain and token, so only an Epoch route's own USDC can be the market: the position's
-// chain, its underlying and the chain and token its uid names must all be that route's.
+// The uid of a listed USDC position whose chain, underlying and the chain and token its uid names are all the route's.
+function listedMarketUid(groups: unknown, route: { chainId: number; usdc: EvmAddress }): string | undefined {
+  if (!Array.isArray(groups)) return undefined;
+  for (const group of groups) {
+    if (!isRecord(group) || !Array.isArray(group.positions)) continue;
+    for (const position of group.positions) {
+      if (!isRecord(position) || typeof position.marketUid !== 'string' || !isRecord(position.underlyingInfo)) continue;
+      const asset = position.underlyingInfo.asset;
+      if (!isRecord(asset) || asset.symbol !== 'USDC' || typeof asset.address !== 'string') continue;
+      const [, uidChain, uidToken] = position.marketUid.split(':');
+      if (checksummed(asset.address) !== route.usdc || checksummed(uidToken) !== route.usdc) continue;
+      if (uidChain === String(route.chainId)) return position.marketUid;
+    }
+  }
+  return undefined;
+}
+
+// A deposit mandates the market's chain and token, so only an Epoch route's own USDC can be the market. The zero
+// account holds no position, so a supported lender listed on a route's chain is the market; a position it does list
+// lends its uid only when that uid names the route's chain and token.
 async function discoverEarnMarket(config: BridgeConfig, io: DeriveDeps): Promise<Probe<EarnMarket>> {
   const positionsUrl = config['bridge-providers'].epoch.positionsUrl;
   const routes = Object.values(config.supportedEvmChains).flatMap(chain => {
@@ -454,29 +478,21 @@ async function discoverEarnMarket(config: BridgeConfig, io: DeriveDeps): Promise
       throw new Error('Epoch market response is invalid');
     }
     for (const item of body.data.items) {
-      if (!isRecord(item) || !isRecord(item.lenderInfo) || !Array.isArray(item.data)) continue;
-      const protocol = item.lenderInfo.lenderKey;
-      if (typeof protocol !== 'string' || protocol !== 'dummy-lending') continue;
+      if (!isRecord(item) || !isRecord(item.lenderInfo)) continue;
+      const lenderKey = item.lenderInfo.lenderKey;
+      const protocol = SUPPORTED_EARN_PROTOCOLS.find(candidate => EARN_LENDER_KEYS[candidate] === lenderKey);
       const route = routes.find(route => String(route.chainId) === item.chainId);
-      if (!route) continue;
-      for (const group of item.data) {
-        if (!isRecord(group) || !Array.isArray(group.positions)) continue;
-        for (const position of group.positions) {
-          if (!isRecord(position) || typeof position.marketUid !== 'string' || !isRecord(position.underlyingInfo))
-            continue;
-          const asset = position.underlyingInfo.asset;
-          if (!isRecord(asset) || asset.symbol !== 'USDC' || typeof asset.address !== 'string') continue;
-          const [, uidChain, uidToken] = position.marketUid.split(':');
-          if (checksummed(asset.address) !== route.usdc || checksummed(uidToken) !== route.usdc) continue;
-          if (uidChain !== String(route.chainId)) continue;
-          return {
-            marketUid: position.marketUid,
-            protocolHash: keccak256(toBytes(protocol)),
-            underlying: route.usdc,
-            chainId: route.chainId
-          };
-        }
-      }
+      if (!protocol || !route) continue;
+      return {
+        // Lowercase when built: the form earlier deposits sent to Epoch and stored.
+        marketUid:
+          listedMarketUid(item.data, route) ??
+          `${EARN_LENDER_KEYS[protocol]}:${route.chainId}:${route.usdc.toLowerCase()}`,
+        // The protocol's name, never its lender key.
+        protocolHash: keccak256(toBytes(protocol)),
+        underlying: route.usdc,
+        chainId: route.chainId
+      };
     }
     throw new NotDeployedError('Epoch has no supported USDC market');
   });
