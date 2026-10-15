@@ -4546,7 +4546,7 @@ describe('offscreen/main - the network comes from the service worker (#1482)', (
 // override cache and the client singleton are module-scoped: the SW's own
 // loadEndpointOverrides() + resetMidenClient() reach only the SW realm, while flag-on it is
 // the client HERE that talks to the node.
-describe('offscreen/main — OFFSCREEN_RELOAD_ENDPOINTS (endpoint overrides)', () => {
+describe('offscreen/main - OFFSCREEN_RELOAD_ENDPOINTS (endpoint overrides)', () => {
   const callReq = (extra: Record<string, unknown>) => ({
     target: 'offscreen',
     type: 'OFFSCREEN_CALL',

@@ -1358,7 +1358,7 @@ function getOrCreateClient(): Promise<MidenClientInterface> {
  * Adopt the SW's endpoint state and, when it differs from the adopted one, drop the
  * client singleton, so the NEXT `getOrCreateClient()` rebuilds against the new
  * endpoints. Driven by the state every OFFSCREEN_CALL carries and by the SW's
- * `OFFSCREEN_RELOAD_ENDPOINTS` — the SW's own `resetMidenClient()` reaches only the
+ * `OFFSCREEN_RELOAD_ENDPOINTS`; the SW's own `resetMidenClient()` reaches only the
  * SW realm.
  *
  * It deliberately touches NOTHING in flight, which is what makes it safe to run at
