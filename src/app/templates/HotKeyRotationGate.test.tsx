@@ -3,6 +3,7 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { markOnboardingFinishing, ONBOARDING_FINISH_BUDGET_MS } from 'app/onboarding-finish';
+import type { GuardianNoteRecoveryProgress } from 'lib/guardian-note-recovery-progress';
 import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { MIDEN_METADATA } from 'lib/miden/metadata';
@@ -132,6 +133,7 @@ jest.mock('lib/dexie-live-query', () => ({
 jest.mock('lib/i18n/numbers', () => jest.requireActual('lib/i18n/numbers'));
 
 jest.mock('lib/miden/activity', () => ({
+  enqueueRotationFundingClaim: (...args: unknown[]) => mockEnqueue(...args),
   initiateReplaceHotKeyTransaction: (...args: unknown[]) => mockInitiate(...args),
   requestSWTransactionProcessing: () => mockRequestSW(),
   safeGenerateTransactionsLoop: (...args: unknown[]) => mockLoop(...args)
@@ -145,11 +147,6 @@ jest.mock('lib/miden/front', () => ({
 
 jest.mock('lib/miden/front/claimable-notes', () => ({
   useClaimableNotes: () => mockClaimable
-}));
-
-jest.mock('lib/miden/transaction/rotation-funding', () => ({
-  ...jest.requireActual('lib/miden/transaction/rotation-funding'),
-  enqueueRotationFundingClaim: (...args: unknown[]) => mockEnqueue(...args)
 }));
 
 jest.mock('lib/miden/front/guardian-sync', () => ({
@@ -190,6 +187,14 @@ jest.mock('lib/settings/helpers', () => ({
 
 jest.mock('lib/store', () => ({
   useWalletStore: (selector: (s: unknown) => unknown) => selector(storeState)
+}));
+
+// The pending-note scan's progress record, as the gate reads it for a recovered account.
+let mockNoteRecoveryProgress: GuardianNoteRecoveryProgress | null = null;
+jest.mock('lib/wallet-prompts', () => ({
+  ...jest.requireActual('lib/wallet-prompts'),
+  useGuardianNoteRecoveryProgress: (_accountId: string | null, pending: boolean) =>
+    pending ? mockNoteRecoveryProgress : null
 }));
 
 jest.mock('screens/generating-transaction/useTransactionRow', () => ({
@@ -675,6 +680,43 @@ describe('HotKeyRotationGate', () => {
       expect(screen.getByText('hotKeyRotationFundingMinimum:0.6')).toBeInTheDocument();
       expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'waiting');
       expect(screen.queryByTestId('hot-key-rotation-failed')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('hot-key-rotation-funding-note-scan')).not.toBeInTheDocument();
+    });
+
+    // Transfers sent before the recovery reach the list only through the pending-note scan, so the panel says it runs.
+    it('shows the pending-note scan while it runs for a recovered account', async () => {
+      trackShortfall();
+      mockBalances = [nativeBalance(0)];
+      storeState = { currentAccount: { ...flaggedAccount, guardianNoteRecoveryPending: true } };
+      mockNoteRecoveryProgress = { accountId: 'account-1', step: 'public', syncedToBlock: 1200, latestBlock: 34000 };
+
+      try {
+        render(<HotKeyRotationGate />);
+
+        await screen.findByTestId('hot-key-rotation-funding');
+        expect(screen.getByTestId('hot-key-rotation-funding-note-scan').textContent).toContain(
+          'guardianNoteRecoveryPublicStep'
+        );
+        expect(screen.getByTestId('hot-key-rotation-funding-status')).toHaveAttribute('data-state', 'waiting');
+      } finally {
+        mockNoteRecoveryProgress = null;
+      }
+    });
+
+    it('hides the scan line once only history is left', async () => {
+      trackShortfall();
+      mockBalances = [nativeBalance(0)];
+      storeState = { currentAccount: { ...flaggedAccount, guardianNoteRecoveryPending: true } };
+      mockNoteRecoveryProgress = { accountId: 'account-1', step: 'history', sourcesClean: true };
+
+      try {
+        render(<HotKeyRotationGate />);
+
+        await screen.findByTestId('hot-key-rotation-funding');
+        expect(screen.queryByTestId('hot-key-rotation-funding-note-scan')).not.toBeInTheDocument();
+      } finally {
+        mockNoteRecoveryProgress = null;
+      }
     });
 
     it('shows the panel for a balance below one fee while the first rotation runs', async () => {

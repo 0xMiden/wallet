@@ -1,8 +1,8 @@
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import * as Repo from 'lib/miden/repo';
 
-import { initiateRotationFundingClaim, type RotationFundingClaimOptions } from './initiate';
-import { isLiveTransaction, ITransaction } from '../db/types';
+import { isVaultShortfallRow } from './constants';
+import { isLiveTransaction, ITransaction, ITransactionStatus } from '../db/types';
 import { ConsumableNote } from '../types';
 
 /**
@@ -24,6 +24,38 @@ export const isLiveRotationRow = (row: GateRowShape, accountPublicKey: string): 
 
 export const isLiveRotationFundingRow = (row: GateRowShape, accountPublicKey: string): boolean =>
   isRotationFundingRow(row, accountPublicKey) && isLiveTransaction(row);
+
+type QueuedRowShape = Pick<ITransaction, 'initiatedAt' | 'queuedSeq'>;
+
+const queuedLater = (a: QueuedRowShape, b: QueuedRowShape): boolean =>
+  a.initiatedAt > b.initiatedAt || (a.initiatedAt === b.initiatedAt && (a.queuedSeq ?? 0) > (b.queuedSeq ?? 0));
+
+/** The most recently queued of `rows`. */
+export const newestRow = <T extends QueuedRowShape>(rows: readonly T[]): T | undefined =>
+  rows.reduce<T | undefined>(
+    (newest, row) => (newest === undefined || queuedLater(row, newest) ? row : newest),
+    undefined
+  );
+
+/**
+ * The account's newest everyday-key rotation when it failed for want of its fee and no
+ * funding claim completed after that failure (#805), else `undefined`. The gate adopts it
+ * on mount, showing the funding panel again instead of queueing a rotation that must
+ * fail, minting a hot key it never uses. After a completed claim the gate queues the
+ * rotation next, so there is then nothing to adopt.
+ */
+export async function findAdoptableShortfallRow(accountPublicKey: string): Promise<ITransaction | undefined> {
+  const rows = await Repo.transactions
+    .filter(row => isRotationRow(row, accountPublicKey) || isRotationFundingRow(row, accountPublicKey))
+    .toArray();
+  const rotation = newestRow(rows.filter(row => row.type === 'replace-hot-key'));
+  if (rotation === undefined || !isVaultShortfallRow(rotation)) return undefined;
+  const failedAt = rotation.completedAt ?? rotation.initiatedAt;
+  const claimedSince = rows.some(
+    row => row.type === 'consume' && row.status === ITransactionStatus.Completed && (row.completedAt ?? 0) > failedAt
+  );
+  return claimedSince ? undefined : rotation;
+}
 
 /** The part of a claimable-notes read the selection needs: the list, and whether it is only the cache. */
 export interface ClaimableNotesSnapshot<T> {
@@ -68,23 +100,4 @@ export function selectRotationFundingNotes<T extends FundingNoteShape>(
   if (unclaimed.length === 0) return { native, batch: [], tooSmall: false };
   const worthIt = isWorthClaiming(totalClaimableAmount(unclaimed.map(note => note.amount)), baseFee);
   return { native, batch: worthIt ? unclaimed : [], tooSmall: !worthIt };
-}
-
-/**
- * Queue the gate's funding claim unless the rotation is live, under the rotation's own
- * lock. Resolves to the id `initiateRotationFundingClaim` returns, or `null` when a
- * rotation row blocked it.
- */
-export async function enqueueRotationFundingClaim(
-  accountPublicKey: string,
-  notes: ConsumableNote[],
-  opts: RotationFundingClaimOptions
-): Promise<string | null> {
-  let txId: string | null = null;
-  await navigator.locks.request(hotKeyRotationLockName(accountPublicKey), async () => {
-    const rotation = await Repo.transactions.filter(row => isLiveRotationRow(row, accountPublicKey)).first();
-    if (rotation) return;
-    txId = await initiateRotationFundingClaim(accountPublicKey, notes, opts);
-  });
-  return txId;
 }

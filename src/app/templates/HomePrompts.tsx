@@ -51,6 +51,7 @@ import {
   FaucetRequestUnresolvedError,
   getInFlightFaucetRequest,
   getPendingNotesUsdTotal,
+  guardianNoteScanText,
   isFaucetFundingMarkerLive,
   type PendingNoteValue,
   setFaucetFundingMarker,
@@ -387,19 +388,9 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       case 'history-partial':
         return t('guardianHistoryPartial', { count: noteRecoveryProgress.restored ?? 0 });
       case 'transport':
-        return t('guardianNoteRecoveryTransportStep');
       case 'proposals':
-        return t('guardianNoteRecoveryProposalsStep');
-      case 'public': {
-        const { syncedToBlock, latestBlock } = noteRecoveryProgress;
-        if (syncedToBlock === undefined || latestBlock === undefined) {
-          return t('guardianNoteRecoveryPublicPreparingStep');
-        }
-        return t('guardianNoteRecoveryPublicStep', {
-          current: syncedToBlock.toLocaleString(),
-          latest: latestBlock.toLocaleString()
-        });
-      }
+      case 'public':
+        return guardianNoteScanText(noteRecoveryProgress, t) ?? undefined;
     }
   }, [noteRecoveryProgress, t]);
 

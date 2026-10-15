@@ -842,9 +842,9 @@ export function setGuardianSyncStatus(accountPublicKey: string, guardianSyncStat
 
 /**
  * Frontend-triggered kickoff for the detached Guardian pending-note recovery.
- * Fired by GuardianRecoveryProvider once the hot-key rotation has landed and
- * no transaction is in flight; returns false (so the provider retries) while
- * the account is still ineligible or busy.
+ * Fired by GuardianRecoveryProvider for every flagged account; returns false
+ * (so the provider retries) while the account is still ineligible or busy.
+ * `maybeStartGuardianRecovery` holds the rules.
  */
 export function startGuardianRecovery(accountPublicKey: string) {
   return withUnlocked(async ({ vault }) => {
