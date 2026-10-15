@@ -679,16 +679,17 @@ describe('a registry delivery claimed in a batch', () => {
     }
   );
 
-  it('settles two registry deliveries claimed in one batch, each at its own amount', async () => {
-    const deliveries: IConsumedNote[] = [
-      { id: '0xAAAA', senderAddress: 'solver', faucetId: 'faucet', amount: 1n },
-      { id: '0xAbCd', senderAddress: 'solver', faucetId: 'faucet', amount: 2n }
-    ];
+  const TWO_DELIVERIES: IConsumedNote[] = [
+    { id: '0xAAAA', senderAddress: 'solver', faucetId: 'faucet', amount: 1n },
+    { id: '0xAbCd', senderAddress: 'solver', faucetId: 'faucet', amount: 2n }
+  ];
+  // Both note ids are known before the batch completes, so only its own adoption can settle them.
+  const completeWithTwoDeliveries = async () => {
     const queued = batchConsume({
       status: ITransactionStatus.GeneratingTransaction,
       amount: 3n,
       faucetId: 'faucet',
-      consumedNotes: deliveries
+      consumedNotes: TWO_DELIVERIES
     });
     await Repo.transactions.bulkAdd([withdrawal({ withdrawIntentNonce: undefined }), bridgeReceive(), queued]);
     await registerPendingBridgeIn(OWNER, '7', info());
@@ -700,11 +701,12 @@ describe('a registry delivery claimed in a batch', () => {
     await resolveBridgeInNoteId(OWNER, '7', 'aaaa');
     await resolveBridgeInNoteId(OTHER, '8', 'abcd');
     await Repo.transactions.update('consume', { status: ITransactionStatus.Completed });
+  };
 
-    // The completing consume settles one intent; the next poll of the other settles the second.
-    await adoptBridgeDeliveries('consume', deliveries);
-    await resolveBridgeInNoteId(OWNER, '7', 'aaaa');
-    await resolveBridgeInNoteId(OTHER, '8', 'abcd');
+  it('settles two registry deliveries claimed in one batch in one adoption, each at its own amount', async () => {
+    await completeWithTwoDeliveries();
+
+    await adoptBridgeDeliveries('consume', TWO_DELIVERIES);
 
     expect(await Repo.transactions.get(KEY)).toMatchObject({
       amount: 1n,
@@ -718,6 +720,36 @@ describe('a registry delivery claimed in a batch', () => {
     const batch = await Repo.transactions.get('consume');
     expect(batch?.displayMessage).toBe('Received');
     expect(batch?.extraInputs?.bridgeIn).toBeUndefined();
+    expect(mockRegistry.records).toEqual([]);
+  });
+
+  it('settles the other registry delivery of a batch when the first fails, and keeps the failed one', async () => {
+    await completeWithTwoDeliveries();
+    const failWithdrawal = (_changes: object, key: unknown) => {
+      if (key === KEY) throw new Error('database unavailable');
+    };
+    Repo.transactions.hook('updating', failWithdrawal);
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await adoptBridgeDeliveries('consume', TWO_DELIVERIES);
+    } finally {
+      Repo.transactions.hook('updating').unsubscribe(failWithdrawal);
+      warning.mockRestore();
+    }
+
+    expect(await Repo.transactions.get('bridge-receive')).toMatchObject({
+      amount: 2n,
+      faucetId: 'faucet',
+      extraInputs: expect.objectContaining({ phase: 'received', midenNoteId: 'abcd' })
+    });
+    expect(mockRegistry.records.map(record => [record.userAddress, record.midenNoteId])).toEqual([[OWNER, 'aaaa']]);
+    expect((await Repo.transactions.get(KEY))?.extraInputs.phase).toBe('redeeming');
+
+    await resolveBridgeInNoteId(OWNER, '7', 'aaaa');
+    expect(await Repo.transactions.get(KEY)).toMatchObject({
+      amount: 1n,
+      extraInputs: expect.objectContaining({ phase: 'received', midenNoteId: 'aaaa' })
+    });
     expect(mockRegistry.records).toEqual([]);
   });
 

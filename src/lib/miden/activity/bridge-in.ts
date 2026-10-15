@@ -482,6 +482,41 @@ async function adoptedNoteKeys(notes: readonly AdoptableNote[]): Promise<Set<str
 }
 
 /**
+ * Settle every registry delivery a batch claimed, each at its own note's facts (`notes` is undefined for a batch that
+ * kept none), one intent per registry call until a call settles nothing: nothing re-runs this pass for a note the
+ * batch claimed. A delivery that fails stays registered for a replay and is not tried again here, so it holds up no
+ * other. Returns the keys of the notes tried.
+ */
+async function settleBatchRegistry(
+  consumeId: string,
+  noteIds: readonly string[],
+  notes: readonly AdoptableNote[] | undefined
+): Promise<Set<string>> {
+  const tried = new Set<string>();
+  let settled = true;
+  while (settled) {
+    const triedBefore = tried.size;
+    settled = await applyBridgeInInfoForNotes(
+      noteIds.filter(id => !tried.has(noteIdKey(id))),
+      info => {
+        const key = info.midenNoteId === undefined ? undefined : noteIdKey(info.midenNoteId);
+        if (key !== undefined) tried.add(key);
+        return applyBridgeInToBatchNote(
+          consumeId,
+          info,
+          notes?.find(note => noteIdKey(note.id) === key)
+        );
+      }
+    ).catch((err: unknown) => {
+      console.warn('[bridge-in] registry delivery of a batch not settled (kept for retry)', consumeId, err);
+      // A failure before any delivery was tried is the registry's own, which another call would meet again.
+      return tried.size > triedBefore;
+    });
+  }
+  return tried;
+}
+
+/**
  * Settle the bridge deliveries a completed consume claimed: the intent registry first, then a single note by its own
  * sender and amount, which makes the consume the deposit's receipt, then each note of a batch by its own sender,
  * faucet and amount, one at a time so two same-amount mints take two rows (only the tracking rows move). Six landing
@@ -495,36 +530,27 @@ export async function adoptBridgeDeliveries(consumeId: string, notes: readonly A
     const adopted = await adoptedNoteKeys(notes);
     const open = notes.filter(note => !adopted.has(noteIdKey(note.id)));
     if (open.length === 0) return;
-    const batch = claimedSeveral(consume.noteIds, notes);
-    // The registry takes at most one note; the batch below pairs every other one, by the registry's canonical id.
-    let registryNoteKey: string | undefined;
-    const registry = applyBridgeInInfoForNotes(
-      open.map(note => note.id),
-      info => {
-        if (info.midenNoteId) registryNoteKey = noteIdKey(info.midenNoteId);
-        if (!batch) return applyBridgeInToConsumeRow(consumeId, info);
-        return applyBridgeInToBatchNote(
-          consumeId,
-          info,
-          open.find(note => noteIdKey(note.id) === registryNoteKey)
-        );
-      }
-    );
     const [single] = open;
-    if (!batch) {
-      if ((await registry) || !single) return;
+    if (!claimedSeveral(consume.noteIds, notes)) {
+      const registry = await applyBridgeInInfoForNotes(
+        open.map(note => note.id),
+        info => applyBridgeInToConsumeRow(consumeId, info)
+      );
+      if (registry || !single) return;
       // A note the USDCx faucet minted for an xReserve deposit is otherwise an ordinary faucet receive.
       const info = await takeDeliveryInfo(consume.accountId, single);
       if (info) await applyBridgeInToConsumeRow(consumeId, { ...info, midenNoteId: single.id });
       return;
     }
-    // An unsettled registry delivery stays registered for a replay, but nothing re-runs this pass for the other notes.
-    await registry.catch((err: unknown) =>
-      console.warn('[bridge-in] registry delivery of a batch not settled (kept for retry)', consumeId, err)
+    // The registry pairs by canonical id, so a note it tried is never paired by sender as well, settled or not.
+    const tried = await settleBatchRegistry(
+      consumeId,
+      open.map(note => note.id),
+      open
     );
     // A batch's per-faucet total is no single delivery's amount, and native USDCx mints are auto-claimed together.
     for (const note of open) {
-      if (registryNoteKey !== undefined && noteIdKey(note.id) === registryNoteKey) continue;
+      if (tried.has(noteIdKey(note.id))) continue;
       const info = await takeDeliveryInfo(consume.accountId, note);
       if (!info?.bridgeReceiveTxId || note.amount === undefined) continue;
       const { updateBridgedReceivePhase } = await import('../transaction/complete');
