@@ -5724,8 +5724,12 @@
     "englishSource": "Reset and switch to mainnet"
   },
   "switchToMainnetConfirm": {
-    "message": "Vous pouvez continuer à utiliser le testnet. La transition efface ce portefeuille, ses soldes et son historique de cet appareil. Sauvegardez d’abord vos informations de récupération. Les jetons de test ne sont pas transférés vers le mainnet. Vous créerez ensuite un portefeuille mainnet à l’aide d’un code d’invitation ou récupérerez un portefeuille mainnet existant.",
-    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
+    "message": "Votre code d’accès a été accepté. Le changement d’appareil efface ce portefeuille, ses soldes et son historique de cet appareil. Enregistrez d’abord vos informations de récupération. Les jetons de test ne sont pas transférés vers le réseau principal. Vous allez ensuite créer un portefeuille sur le réseau principal à l’aide de ce code ou récupérer un portefeuille existant sur le réseau principal.",
+    "englishSource": "Your access code was accepted. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with this code or recover an existing mainnet wallet."
+  },
+  "mainnetSwitchCodeBody": {
+    "message": "Saisissez le code figurant sur votre invitation. Rien n’est validé tant que le réseau principal ne l’a pas accepté.",
+    "englishSource": "Enter the code from your invite. Nothing is cleared until mainnet accepts it."
   },
   "mainnetCountdownLabel": {
     "message": "Temps restant avant le lancement du réseau principal de Bread : $time$",

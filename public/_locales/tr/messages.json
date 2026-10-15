@@ -5724,8 +5724,12 @@
     "englishSource": "Reset and switch to mainnet"
   },
   "switchToMainnetConfirm": {
-    "message": "Testnet'i kullanmaya devam edebilirsiniz. Anahtarı değiştirme işlemi, bu cüzdanı, bakiyelerini ve geçmişini bu cihazdan siler. Önce kurtarma bilgilerinizi kaydedin. Test token'ları mainnet'e aktarılmaz. Ardından bir davet kodu ile bir mainnet cüzdanı oluşturacak veya mevcut bir mainnet cüzdanını kurtaracaksınız.",
-    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
+    "message": "Erişim kodunuz kabul edildi. Cihaz değiştirme işlemi, bu cüzdanı, bakiyelerini ve geçmişini bu cihazdan siler. Öncelikle kurtarma bilgilerinizi kaydedin. Test tokenleri ana ağa aktarılmaz. Ardından bu kodla bir ana ağ cüzdanı oluşturacak veya mevcut bir ana ağ cüzdanını kurtaracaksınız.",
+    "englishSource": "Your access code was accepted. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with this code or recover an existing mainnet wallet."
+  },
+  "mainnetSwitchCodeBody": {
+    "message": "Davetinizdeki kodu girin. Mainnet bunu kabul edene kadar hiçbir şey silinmez.",
+    "englishSource": "Enter the code from your invite. Nothing is cleared until mainnet accepts it."
   },
   "mainnetCountdownLabel": {
     "message": "Bread'in ana ağa geçmesine kalan süre: $time$",

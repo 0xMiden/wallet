@@ -5724,8 +5724,12 @@
     "englishSource": "Reset and switch to mainnet"
   },
   "switchToMainnetConfirm": {
-    "message": "您可以继续使用测试网。切换操作会将该钱包、其余额及其历史记录从本设备中清除。请先保存您的恢复信息。测试代币不会转移到主网。随后，您将使用邀请码创建一个主网钱包，或恢复现有的主网钱包。",
-    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
+    "message": "您的访问码已通过验证。切换操作将从本设备中清除该钱包及其余额和交易记录。请先保存您的恢复信息。测试代币不会转移至主网。随后，您将使用此代码创建一个主网钱包，或恢复现有的主网钱包。",
+    "englishSource": "Your access code was accepted. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with this code or recover an existing mainnet wallet."
+  },
+  "mainnetSwitchCodeBody": {
+    "message": "请输入邀请码。在主网接受该代码之前，任何内容都不会被清除。",
+    "englishSource": "Enter the code from your invite. Nothing is cleared until mainnet accepts it."
   },
   "mainnetCountdownLabel": {
     "message": "距离Bread主网上线还剩：$time$",
