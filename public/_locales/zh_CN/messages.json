@@ -579,6 +579,10 @@
     "message": "无法加载您的持仓。请检查网络连接并重试。",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnUnavailableOnNetwork": {
+    "message": "该网络不支持“赚取”功能",
+    "englishSource": "Earn is not available on this network"
+  },
   "earnVaultLoadError": {
     "message": "无法加载此保险库。请检查网络连接并重试。",
     "englishSource": "Couldn't load this vault. Check your connection and try again."
@@ -3254,6 +3258,10 @@
     "message": "此钱包文件由较新版本的 Bread 创建。请更新 Bread 后重试。",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
   },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "此钱包文件属于另一个网络，无法在此网络上恢复。",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
+  },
   "encryptedWalletFileRestoreFailed": {
     "message": "无法恢复钱包。请检查存储空间后重试。",
     "englishSource": "The wallet could not be restored. Check your storage and try again."
@@ -3580,6 +3588,10 @@
   "guardianAccountNotFound": {
     "message": "我们在 guardian 上找不到您的账户。请检查网址，或改用公共账户进行导入。",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "guardianOtherNetwork": {
+    "message": "该“guardian”运行在另一个 Miden 网络上，因此无法在此处恢复账户。",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
   },
   "useCustomGuardianUrl": {
     "message": "请使用自定义的 Guardian 链接",
@@ -4158,6 +4170,18 @@
   "dappConnectionRequest": {
     "message": "该应用希望连接到您的钱包",
     "englishSource": "This app wants to connect to your wallet"
+  },
+  "dappNetworkMismatch": {
+    "message": "该应用请求的是Miden $dappNetwork$，但您的钱包位于Miden $walletNetwork$。",
+    "englishSource": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "placeholders": {
+      "dappnetwork": {
+        "content": "$1"
+      },
+      "walletnetwork": {
+        "content": "$2"
+      }
+    }
   },
   "dappTransactionRequest": {
     "message": "该应用正在请求一笔交易",

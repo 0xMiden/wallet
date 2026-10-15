@@ -579,6 +579,10 @@
     "message": "ポジションを読み込めませんでした。接続状態を確認して、もう一度お試しください。",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnUnavailableOnNetwork": {
+    "message": "このネットワークでは「Earn」機能は利用できません",
+    "englishSource": "Earn is not available on this network"
+  },
   "earnVaultLoadError": {
     "message": "このVaultを読み込めませんでした。接続状態を確認し、もう一度お試しください。",
     "englishSource": "Couldn't load this vault. Check your connection and try again."
@@ -3254,6 +3258,10 @@
     "message": "このウォレットファイルは新しいバージョンのBreadで作成されています。Breadを更新してもう一度お試しください。",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
   },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "このウォレットファイルは別のネットワークのものであり、このネットワーク上では復元できません。",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
+  },
   "encryptedWalletFileRestoreFailed": {
     "message": "ウォレットを復元できませんでした。ストレージを確認してもう一度お試しください。",
     "englishSource": "The wallet could not be restored. Check your storage and try again."
@@ -3580,6 +3588,10 @@
   "guardianAccountNotFound": {
     "message": "guardian では、お客様のアカウントが見つかりませんでした。URL を確認するか、代わりにパブリックアカウントとしてインポートしてください。",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "guardianOtherNetwork": {
+    "message": "このguardianは別のMidenネットワーク上で稼働しているため、こちらのアカウントを復旧することはできません。",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
   },
   "useCustomGuardianUrl": {
     "message": "GuardianのカスタムURLを使用してください",
@@ -4158,6 +4170,18 @@
   "dappConnectionRequest": {
     "message": "このアプリは、あなたのウォレットに接続しようとしています",
     "englishSource": "This app wants to connect to your wallet"
+  },
+  "dappNetworkMismatch": {
+    "message": "このアプリはMiden $dappNetwork$を要求しましたが、お使いのウォレットはMiden $walletNetwork$上にあります。",
+    "englishSource": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "placeholders": {
+      "dappnetwork": {
+        "content": "$1"
+      },
+      "walletnetwork": {
+        "content": "$2"
+      }
+    }
   },
   "dappTransactionRequest": {
     "message": "このアプリがトランザクションをリクエストしています",

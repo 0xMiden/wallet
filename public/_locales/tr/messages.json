@@ -579,6 +579,10 @@
     "message": "Pozisyonlarınız yüklenemedi. Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnUnavailableOnNetwork": {
+    "message": "Bu ağda \"Earn\" özelliği mevcut değildir",
+    "englishSource": "Earn is not available on this network"
+  },
   "earnVaultLoadError": {
     "message": "Bu kasayı yükleyemedik. Bağlantınızı kontrol edin ve tekrar deneyin.",
     "englishSource": "Couldn't load this vault. Check your connection and try again."
@@ -3254,6 +3258,10 @@
     "message": "Bu cüzdan dosyası daha yeni bir Bread sürümüyle oluşturuldu. Bread'i güncelleyip tekrar deneyin.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
   },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "Bu cüzdan dosyası başka bir ağa aittir ve bu ağda geri yüklenemez.",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
+  },
   "encryptedWalletFileRestoreFailed": {
     "message": "Cüzdan geri yüklenemedi. Depolama alanınızı kontrol edip tekrar deneyin.",
     "englishSource": "The wallet could not be restored. Check your storage and try again."
@@ -3580,6 +3588,10 @@
   "guardianAccountNotFound": {
     "message": "guardian adresinde hesabınızı bulamadık. URL'yi kontrol edin veya bunun yerine genel hesap olarak içe aktarın.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "guardianOtherNetwork": {
+    "message": "Bu guardian, başka bir Miden ağında çalışır; bu nedenle buradaki bir hesabı kurtaramaz.",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
   },
   "useCustomGuardianUrl": {
     "message": "Guardian'da özel bir URL kullanın",
@@ -4158,6 +4170,18 @@
   "dappConnectionRequest": {
     "message": "Bu uygulama cüzdanınıza bağlanmak istiyor",
     "englishSource": "This app wants to connect to your wallet"
+  },
+  "dappNetworkMismatch": {
+    "message": "Bu uygulama Miden $dappNetwork$'yi istedi, ancak cüzdanınız Miden $walletNetwork$ üzerinde.",
+    "englishSource": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "placeholders": {
+      "dappnetwork": {
+        "content": "$1"
+      },
+      "walletnetwork": {
+        "content": "$2"
+      }
+    }
   },
   "dappTransactionRequest": {
     "message": "Bu uygulama bir işlem talep ediyor",

@@ -579,6 +579,10 @@
     "message": "포지션을 불러올 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnUnavailableOnNetwork": {
+    "message": "이 네트워크에서는 'Earn' 기능을 이용할 수 없습니다.",
+    "englishSource": "Earn is not available on this network"
+  },
   "earnVaultLoadError": {
     "message": "이 볼트를 불러올 수 없습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
     "englishSource": "Couldn't load this vault. Check your connection and try again."
@@ -3254,6 +3258,10 @@
     "message": "이 지갑 파일은 최신 버전의 Bread에서 생성되었습니다. Bread를 업데이트한 후 다시 시도하세요.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
   },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "이 지갑 파일은 다른 네트워크에 속해 있으므로 이 네트워크에서는 복원할 수 없습니다.",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
+  },
   "encryptedWalletFileRestoreFailed": {
     "message": "지갑을 복원할 수 없습니다. 저장 공간을 확인한 후 다시 시도하세요.",
     "englishSource": "The wallet could not be restored. Check your storage and try again."
@@ -3580,6 +3588,10 @@
   "guardianAccountNotFound": {
     "message": "guardian에서 귀하의 계정을 찾을 수 없습니다. URL을 확인하거나 대신 공개 계정으로 가져오시기 바랍니다.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "guardianOtherNetwork": {
+    "message": "이 guardian는 다른 Miden 네트워크에서 운영되므로, 이곳의 계정을 복구할 수 없습니다.",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
   },
   "useCustomGuardianUrl": {
     "message": "Guardian 맞춤 URL을 사용하세요",
@@ -4158,6 +4170,18 @@
   "dappConnectionRequest": {
     "message": "이 앱이 사용자의 지갑에 연결하려고 합니다",
     "englishSource": "This app wants to connect to your wallet"
+  },
+  "dappNetworkMismatch": {
+    "message": "이 앱은 Miden $dappNetwork$를 요청했으나, 귀하의 지갑은 Miden $walletNetwork$에 있습니다.",
+    "englishSource": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "placeholders": {
+      "dappnetwork": {
+        "content": "$1"
+      },
+      "walletnetwork": {
+        "content": "$2"
+      }
+    }
   },
   "dappTransactionRequest": {
     "message": "이 앱에서 거래를 요청하고 있습니다.",

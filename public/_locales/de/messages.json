@@ -579,6 +579,10 @@
     "message": "Ihre Positionen konnten nicht geladen werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnUnavailableOnNetwork": {
+    "message": "„Earn“ ist in diesem Netzwerk nicht verfügbar",
+    "englishSource": "Earn is not available on this network"
+  },
   "earnVaultLoadError": {
     "message": "Dieser Tresor konnte nicht geladen werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
     "englishSource": "Couldn't load this vault. Check your connection and try again."
@@ -3254,6 +3258,10 @@
     "message": "Diese Wallet-Datei wurde mit einer neueren Version von Bread erstellt. Aktualisiere Bread und versuche es erneut.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
   },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "Diese Wallet-Datei gehört zu einem anderen Netzwerk und kann in diesem hier nicht wiederhergestellt werden.",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
+  },
   "encryptedWalletFileRestoreFailed": {
     "message": "Die Wallet konnte nicht wiederhergestellt werden. Überprüfe deinen Speicher und versuche es erneut.",
     "englishSource": "The wallet could not be restored. Check your storage and try again."
@@ -3580,6 +3588,10 @@
   "guardianAccountNotFound": {
     "message": "Wir konnten Ihr Konto unter dieser URL guardian nicht finden. Bitte überprüfen Sie die URL oder importieren Sie es stattdessen als öffentliches Konto.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "guardianOtherNetwork": {
+    "message": "Dieser „guardian“ läuft in einem anderen Miden-Netzwerk, daher kann er hier kein Konto wiederherstellen.",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
   },
   "useCustomGuardianUrl": {
     "message": "Verwenden Sie eine benutzerdefinierte URL: Guardian",
@@ -4158,6 +4170,18 @@
   "dappConnectionRequest": {
     "message": "Diese App möchte eine Verbindung zu deiner Wallet herstellen",
     "englishSource": "This app wants to connect to your wallet"
+  },
+  "dappNetworkMismatch": {
+    "message": "Diese App hat nach „Miden $dappNetwork$“ gefragt, aber Ihre Wallet befindet sich auf „Miden $walletNetwork$“.",
+    "englishSource": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "placeholders": {
+      "dappnetwork": {
+        "content": "$1"
+      },
+      "walletnetwork": {
+        "content": "$2"
+      }
+    }
   },
   "dappTransactionRequest": {
     "message": "Diese App fordert eine Transaktion an.",

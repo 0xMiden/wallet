@@ -579,6 +579,10 @@
     "message": "無法載入您的持倉。請檢查網路連線並重新嘗試。",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnUnavailableOnNetwork": {
+    "message": "此網路不提供「賺取」功能",
+    "englishSource": "Earn is not available on this network"
+  },
   "earnVaultLoadError": {
     "message": "無法載入此金庫。請檢查您的連線並重試。",
     "englishSource": "Couldn't load this vault. Check your connection and try again."
@@ -3254,6 +3258,10 @@
     "message": "此錢包檔案由較新版本的 Bread 建立。請更新 Bread 後再試一次。",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
   },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "此錢包檔案屬於另一個網路，無法在此網路中還原。",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
+  },
   "encryptedWalletFileRestoreFailed": {
     "message": "無法還原錢包。請檢查儲存空間後再試一次。",
     "englishSource": "The wallet could not be restored. Check your storage and try again."
@@ -3580,6 +3588,10 @@
   "guardianAccountNotFound": {
     "message": "我們無法在 guardian 上找到您的帳戶。請檢查網址，或改為以公開帳戶形式匯入。",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "guardianOtherNetwork": {
+    "message": "此位「guardian」運行於另一個 Miden 網路，因此無法在此處恢復該帳戶。",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
   },
   "useCustomGuardianUrl": {
     "message": "請使用自訂的 Guardian 網址",
@@ -4158,6 +4170,18 @@
   "dappConnectionRequest": {
     "message": "此應用程式想要連線至您的錢包",
     "englishSource": "This app wants to connect to your wallet"
+  },
+  "dappNetworkMismatch": {
+    "message": "此應用程式要求使用 Miden $dappNetwork$，但您的錢包位於 Miden $walletNetwork$。",
+    "englishSource": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "placeholders": {
+      "dappnetwork": {
+        "content": "$1"
+      },
+      "walletnetwork": {
+        "content": "$2"
+      }
+    }
   },
   "dappTransactionRequest": {
     "message": "此應用程式正在請求一筆交易",
