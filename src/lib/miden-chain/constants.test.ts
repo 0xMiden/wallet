@@ -88,6 +88,28 @@ describe('miden-chain/constants', () => {
       });
     });
 
+    it('offers a custom Guardian URL only on the network it was set on', async () => {
+      process.env.MIDEN_NETWORK = 'testnet';
+      let constants!: typeof import('./constants');
+      let endpoints!: typeof import('./effective-endpoints');
+      jest.isolateModules(() => {
+        constants = require('./constants');
+        endpoints = require('./effective-endpoints');
+      });
+      const { getGuardianOptionsForNetwork, MIDEN_NETWORK_NAME } = constants;
+      const override = endpoints.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.TESTNET);
+      override.guardianUrl = 'https://custom.guardian.example';
+      // The override lives in this test's module registry only: the storage stub keeps nothing.
+      await endpoints.applyEndpointOverride(override);
+
+      expect(getGuardianOptionsForNetwork(MIDEN_NETWORK_NAME.TESTNET)).toContainEqual(
+        expect.objectContaining({ id: 'custom', endpoint: 'https://custom.guardian.example' })
+      );
+      // A recovery into mainnet from this testnet wallet must never probe or register the testnet override.
+      expect(getGuardianOptionsForNetwork(MIDEN_NETWORK_NAME.MAINNET).map(option => option.id)).not.toContain('custom');
+      expect(getGuardianOptionsForNetwork(MIDEN_NETWORK_NAME.DEVNET).map(option => option.id)).not.toContain('custom');
+    });
+
     describe('localnet second guardian (E2E only)', () => {
       const prev = process.env.MIDEN_E2E_TEST;
       afterEach(() => {

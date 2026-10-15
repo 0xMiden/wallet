@@ -97,7 +97,8 @@ export function getBuiltInGuardianOptionsForNetwork(
 /**
  * The providers that run a Guardian on `network`, each with its endpoint on
  * that network (in the order of {@link getBuiltInGuardianOptionsForNetwork}),
- * PLUS the developer guardian-URL override as an extra selectable option.
+ * PLUS, when `network` is the effective network the override was set on, the
+ * developer guardian-URL override as an extra selectable option.
  * Single source of truth so the create picker and import presets can't drift —
  * both of them legitimately want to offer that override, which is why anything
  * that treats the operator list as evidence rather than as a menu reads
@@ -108,8 +109,9 @@ export function getGuardianOptionsForNetwork(
 ): ResolvedGuardianOption[] {
   const options = getBuiltInGuardianOptionsForNetwork(network);
 
-  // Developer override: a custom guardian URL is offered as an extra selectable option.
-  const customGuardian = getEffectiveGuardianUrl();
+  // Developer override: a custom guardian URL is offered as an extra selectable option, only on its own network, so a
+  // recovery into another network (Forgot password's mainnet path) never probes or registers it.
+  const customGuardian = network === getEffectiveNetworkName() ? getEffectiveGuardianUrl() : '';
   if (customGuardian && !options.some(o => sameGuardianEndpoint(o.endpoint, customGuardian))) {
     options.push({
       id: 'custom',
