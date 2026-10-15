@@ -3390,6 +3390,62 @@ describe('MidenClientProxy — slice-6a dispatchGuardianPipeline (guardian leaf 
 // The override cache and the client singleton are BOTH module-scoped, so the SW's
 // loadEndpointOverrides() + resetMidenClient() reach only the SW realm. Flag-on it
 // is the OFFSCREEN client that talks to the node, so it needs its own nudge.
+// The offscreen document has no extension storage, so the network it runs on is the one these messages carry (#1482).
+describe('MidenClientProxy - the endpoint state on every offscreen message (#1482)', () => {
+  const customOverride = async () => {
+    const { buildDefaultOverrideFor } = await import('lib/miden-chain/effective-endpoints');
+    const { MIDEN_NETWORK_NAME } = await import('lib/miden-chain/networks-config');
+    return {
+      ...buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET),
+      rpcUrl: 'https://custom.example/rpc',
+      feeFaucetId: '0xfee'
+    };
+  };
+
+  it('attaches the state as it is when the message is sent, to a read and to a write', async () => {
+    const { midenClientProxy, __test } = await loadProxy(true);
+    const { applyEndpointOverride } = await import('lib/miden-chain/effective-endpoints');
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+
+    const read = midenClientProxy.getAccount('acc');
+    await flush();
+    // Saved while the document was still opening: the read goes out on the saved network.
+    const override = await customOverride();
+    await applyEndpointOverride(override);
+    fireReady();
+    await read;
+    const { promise } = __test.dispatchCritical('sendTransaction', [{}], __test.writeDeadlineMs());
+    await promise;
+
+    const envelopes = fakeChrome.runtime.sendMessage.mock.calls.map(([env]: [any]) => env);
+    expect(envelopes.map((env: any) => env.method)).toEqual(['getAccount', 'sendTransaction']);
+    for (const env of envelopes) {
+      expect(env.endpoints).toEqual({ override, feeFaucetId: '0xfee' });
+    }
+  });
+
+  it('sends the state with the reload, so a live document switches without reading storage', async () => {
+    docExists = true;
+    const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
+    const { applyEndpointOverride } = await import('lib/miden-chain/effective-endpoints');
+    const override = await customOverride();
+    await applyEndpointOverride(override);
+    fakeChrome.runtime.sendMessage.mockImplementation(async () => ({ ok: true }));
+
+    await expect(reloadOffscreenEndpointOverrides()).resolves.toBe(true);
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith({
+      target: 'offscreen',
+      type: 'OFFSCREEN_RELOAD_ENDPOINTS',
+      endpoints: { override, feeFaucetId: '0xfee' }
+    });
+  });
+});
+
 describe('MidenClientProxy — reloadOffscreenEndpointOverrides', () => {
   it('flag OFF → no-op even with a document open (the SW client is the one that talks to the node)', async () => {
     // A doc CAN exist flag-off (the offscreen prover uses one), so the flag is the
@@ -3408,7 +3464,7 @@ describe('MidenClientProxy — reloadOffscreenEndpointOverrides', () => {
     expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('flag ON but NO document open → no-op, and does NOT create one (a fresh doc hydrates the override itself)', async () => {
+  it('flag ON but NO document open → no-op, and does NOT create one (a later doc gets the state with its first call)', async () => {
     const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
     await expect(reloadOffscreenEndpointOverrides()).resolves.toBe(false);
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
@@ -3425,7 +3481,8 @@ describe('MidenClientProxy — reloadOffscreenEndpointOverrides', () => {
     expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledTimes(1);
     expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith({
       target: 'offscreen',
-      type: 'OFFSCREEN_RELOAD_ENDPOINTS'
+      type: 'OFFSCREEN_RELOAD_ENDPOINTS',
+      endpoints: { override: null, feeFaucetId: undefined }
     });
     // Reuses the document it found — never respawns the realm.
     expect(fakeChrome.offscreen.createDocument).not.toHaveBeenCalled();
@@ -3443,7 +3500,7 @@ describe('MidenClientProxy — reloadOffscreenEndpointOverrides', () => {
     docExists = true;
     const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
     fakeChrome.runtime.sendMessage.mockRejectedValue(new Error('message port closed'));
-    // Must not reject: the replacement document loads the override at its own init,
+    // Must not reject: the replacement document gets the state with its first call,
     // so the caller (the RELOAD_ENDPOINT_OVERRIDES handler) has nothing to recover.
     await expect(reloadOffscreenEndpointOverrides()).resolves.toBe(false);
   });
