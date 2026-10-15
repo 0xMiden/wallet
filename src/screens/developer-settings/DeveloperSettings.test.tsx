@@ -355,6 +355,7 @@ describe('DeveloperSettings', () => {
     expect(mockRetireGuardianWrites).toHaveBeenCalledTimes(1);
     expect(fusedWhenResetStarted).toBe(false);
     const [resetAt] = mockResetMidenClient.mock.invocationCallOrder;
+    if (resetAt === undefined) throw new Error('the save never started the client reset');
     expect(applyEndpointOverride.mock.invocationCallOrder[0]).toBeLessThan(resetAt);
     expect(mockRetireGuardianSyncPasses.mock.invocationCallOrder[0]).toBeLessThan(resetAt);
     expect(mockRetireGuardianWrites.mock.invocationCallOrder[0]).toBeLessThan(resetAt);

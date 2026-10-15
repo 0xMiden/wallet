@@ -2093,7 +2093,8 @@ describe('useWalletStore', () => {
       it("leaves the address's balances as they were, and keeps the metadata the read wrote", async () => {
         const read = useWalletStore.getState().fetchBalances('addr-1', {});
         const options = await started;
-        options?.setAssetsMetadata({ [FAUCET]: faucetMetadata });
+        if (!options?.setAssetsMetadata) throw new Error('the read never handed over its options');
+        options.setAssetsMetadata({ [FAUCET]: faucetMetadata });
         mockEffectiveNetwork = { name: MIDEN_NETWORK_NAME.DEVNET, rpcUrl: 'https://rpc.devnet.miden.io' };
         landRead([row(7)]);
         await read;
