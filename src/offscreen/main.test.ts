@@ -4497,6 +4497,29 @@ describe('offscreen/main - the network comes from the service worker (#1482)', (
     });
   });
 
+  // Adopted on receipt, so the service worker's latest message wins in send order even on a cold document.
+  it('a reload sent after a call wins when the call arrived while init was still pending', async () => {
+    let finishInit!: () => void;
+    G.__off.getWasmOrThrow = jest.fn(
+      () =>
+        new Promise<void>(resolve => {
+          finishInit = resolve;
+        })
+    );
+    await loadModule();
+    const reply = jest.fn();
+    capturedListener!(callReq(mainnet()), {}, reply);
+    await flush();
+    expect(await reload(custom())).toEqual({ ok: true });
+
+    finishInit();
+    await flush();
+    expect(reply.mock.calls[0]?.[0]?.ok).toBe(true);
+    expect(G.__off.createEndpoints).toEqual([
+      expect.objectContaining({ rpcUrl: 'https://custom.example/rpc', feeFaucetId: '0xcustomfee' })
+    ]);
+  });
+
   it('a reload with state adopts it and drops the client', async () => {
     await loadModule();
     expect((await call(mainnet())).ok).toBe(true);

@@ -1394,7 +1394,8 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
   // dispatch-time backstop is a flat 5 minutes either way.
   recordProveTiming(`call '${msg?.method}' op=${msg?.op_id} entered`);
   try {
-    await stepBeforeSubmit(ensureInit);
+    // On receipt, before any await: a reload that arrives while this call waits on a cold
+    // init is newer, and adopting after the await would let this older state win.
     if (!msg.endpoints) {
       sendResponse({
         ok: false,
@@ -1405,6 +1406,7 @@ async function handleCall(msg: OffscreenCallRequest, sendResponse: (r?: unknown)
       return;
     }
     adoptEndpoints(msg.endpoints);
+    await stepBeforeSubmit(ensureInit);
     const dispatch = DISPATCH[msg.method];
     if (!dispatch) {
       sendResponse({
