@@ -68,7 +68,8 @@ export function useFeatureAvailability(
 
 /**
  * One control that opens a choice of features, such as Receive's Cross Chain (Fast or Slow bridge-in): available
- * while any is; else loading while any is; else the first one's reason.
+ * while any is; else loading while any is; else the first reason other than not configured; else not configured, so
+ * the control reads as not configured only on a network that configures none of its features.
  */
 export function useAnyFeatureAvailability(
   features: readonly [BridgeFeature, ...BridgeFeature[]],
@@ -79,7 +80,11 @@ export function useAnyFeatureAvailability(
   const head = featureAvailability(first, snapshot, overrides, chainId);
   const all = [head, ...rest.map(feature => featureAvailability(feature, snapshot, overrides, chainId))];
   const available = all.some(candidate => candidate.state === 'available');
-  const availability = available ? AVAILABLE : (all.find(candidate => candidate.state === 'loading') ?? head);
+  const availability = available
+    ? AVAILABLE
+    : (all.find(candidate => candidate.state === 'loading') ??
+      all.find(candidate => candidate.state === 'unavailable' && candidate.reason !== 'not-configured') ??
+      head);
   useFastPollWhileUnavailable(availability, hold);
   return availability;
 }

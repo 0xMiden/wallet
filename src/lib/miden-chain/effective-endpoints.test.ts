@@ -130,6 +130,21 @@ describe('effective-endpoints resolver', () => {
     expect(helpers.getExplorerAccountUrl('mtst1acc')).toBe('https://my-explorer.example/account/mtst1acc');
   });
 
+  // The network choice onboarding stores has no explorer URL of its own, so a mainnet wallet's links
+  // come from the build's mainnet entry: transactions, accounts, and tokens (a faucet is an account).
+  it('links a mainnet wallet to the mainnet explorer', async () => {
+    let eff!: typeof import('./effective-endpoints');
+    let helpers!: typeof import('./constants');
+    jest.isolateModules(() => {
+      eff = require('./effective-endpoints');
+      helpers = require('./constants');
+    });
+    await eff.applyEndpointOverride(eff.buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET));
+
+    expect(helpers.getExplorerTxUrl('0xa84b')).toBe('https://explorer.cedar.miden.io/tx/0xa84b');
+    expect(helpers.getExplorerAccountUrl('mm1azc87wvsq')).toBe('https://explorer.cedar.miden.io/account/mm1azc87wvsq');
+  });
+
   it('loadEndpointOverrides is a no-op under MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES', async () => {
     mockKvStore['endpoint_overrides'] = { rpcUrl: 'https://should.ignore/rpc' };
     process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES = 'true';

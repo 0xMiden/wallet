@@ -73,6 +73,7 @@ export const MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS = new Map<string, string>([
 ]);
 
 export const MIDEN_EXPLORER_ENDPOINTS = new Map<string, string>([
+  [MIDEN_NETWORK_NAME.MAINNET, 'https://explorer.cedar.miden.io'],
   [MIDEN_NETWORK_NAME.TESTNET, 'https://testnet.midenscan.com'],
   [MIDEN_NETWORK_NAME.DEVNET, 'https://devnet.midenscan.com']
 ]);

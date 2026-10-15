@@ -12,13 +12,14 @@ describe('preset helper', () => {
     ]);
   });
 
-  it('the Mainnet preset prefills the mainnet RPC, prover, transport and network id, and no faucet', () => {
+  it('the Mainnet preset prefills the mainnet RPC, prover, transport, explorer and network id, and no faucet', () => {
     const o = presetToOverride(MIDEN_NETWORK_NAME.MAINNET);
     expect(o.networkName).toBe(MIDEN_NETWORK_NAME.MAINNET);
     expect(o.presetName).toBe(MIDEN_NETWORK_NAME.MAINNET);
     expect(o.rpcUrl).toBe('https://rpc.cedar.miden.io');
     expect(o.proverUrl).toBe('https://tx-prover.cedar.miden.io');
     expect(o.noteTransportUrl).toBe('https://transport.cedar.miden.io');
+    expect(o.explorerUrl).toBe('https://explorer.cedar.miden.io');
     expect(o.faucetUrl).toBe('');
     expect(o.faucetApiUrl).toBe('');
   });

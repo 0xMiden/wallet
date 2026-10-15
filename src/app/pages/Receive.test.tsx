@@ -393,6 +393,17 @@ describe('Receive - Address', () => {
     expect(hapticLight).not.toHaveBeenCalled();
   });
 
+  // Mainnet configures no bridge-in route: no tile at all, rather than a greyed one blaming a service.
+  it('draws no Cross Chain and no notice on a network that configures no bridge-in route', async () => {
+    mockNetworkKey = null;
+    mockCrossChain = { state: 'unavailable', reason: 'not-configured', detail: 'no accepted document' };
+    const container = await renderReceive();
+
+    expect(container.querySelector('[data-testid="receive-cross-chain"]')).toBeNull();
+    expect(container.querySelector('[data-testid="feature-unavailable-notice"]')).toBeNull();
+    expect(container.querySelector('[data-testid="receive-share"]')).not.toBeNull();
+  });
+
   // Every platform draws Cross Chain, the extension included (its relay socket closed only because
   // the page's placeholder Buffer broke the relay token), so each one holds the fast poll.
   it.each([

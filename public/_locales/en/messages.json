@@ -579,6 +579,10 @@
     "message": "Couldn't load your positions. Check your connection and try again.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnUnavailableOnNetwork": {
+    "message": "Earn is not available on this network",
+    "englishSource": "Earn is not available on this network"
+  },
   "earnVaultLoadError": {
     "message": "Couldn't load this vault. Check your connection and try again.",
     "englishSource": "Couldn't load this vault. Check your connection and try again."

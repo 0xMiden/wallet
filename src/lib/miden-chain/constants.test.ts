@@ -147,6 +147,13 @@ describe('miden-chain/constants', () => {
       });
     });
 
+    it('returns the mainnet explorer URL for mainnet', () => {
+      jest.isolateModules(() => {
+        const { getExplorerTxUrl, MIDEN_NETWORK_NAME } = require('./constants');
+        expect(getExplorerTxUrl('0xabc', MIDEN_NETWORK_NAME.MAINNET)).toBe('https://explorer.cedar.miden.io/tx/0xabc');
+      });
+    });
+
     it('returns undefined when the network has no explorer mapping', () => {
       jest.isolateModules(() => {
         const { getExplorerTxUrl, MIDEN_NETWORK_NAME } = require('./constants');
@@ -169,6 +176,15 @@ describe('miden-chain/constants', () => {
         const { getExplorerAccountUrl, MIDEN_NETWORK_NAME } = require('./constants');
         expect(getExplorerAccountUrl('mtst1acc', MIDEN_NETWORK_NAME.TESTNET)).toBe(
           'https://testnet.midenscan.com/account/mtst1acc'
+        );
+      });
+    });
+
+    it('returns the mainnet account explorer URL for mainnet', () => {
+      jest.isolateModules(() => {
+        const { getExplorerAccountUrl, MIDEN_NETWORK_NAME } = require('./constants');
+        expect(getExplorerAccountUrl('mm1acc', MIDEN_NETWORK_NAME.MAINNET)).toBe(
+          'https://explorer.cedar.miden.io/account/mm1acc'
         );
       });
     });
