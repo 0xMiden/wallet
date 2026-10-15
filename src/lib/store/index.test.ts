@@ -1511,6 +1511,20 @@ describe('useWalletStore', () => {
       });
     });
 
+    it('confirmDAppUnlock sends correct request', async () => {
+      mockRequest.mockResolvedValueOnce({
+        type: MidenMessageType.DAppUnlockConfirmationResponse
+      });
+
+      const { confirmDAppUnlock } = useWalletStore.getState();
+      await confirmDAppUnlock('req-id');
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: MidenMessageType.DAppUnlockConfirmationRequest,
+        id: 'req-id'
+      });
+    });
+
     it('confirmDAppImportPrivateNote sends correct request', async () => {
       mockRequest.mockResolvedValueOnce({
         type: MidenMessageType.DAppImportPrivateNoteConfirmationResponse

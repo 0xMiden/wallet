@@ -1084,8 +1084,8 @@ async function getAssets(accountId: string): Promise<Asset[]> {
   }
 }
 
-// Direct-return handler (mirrors getCurrentPermission) — guardian info is
-// non-sensitive, so it skips the requestConfirm popup that gated Assets.
+// Answers directly while unlocked (mirrors getCurrentPermission): guardian info is non-sensitive. Locked, it needs the
+// unlock all the same, since the account records it reads are encrypted (#1414).
 export async function requestGuardianInfo(
   origin: string,
   req: MidenDAppGuardianInfoRequest
@@ -1100,12 +1100,22 @@ export async function requestGuardianInfo(
   }
   await assertRequestAccountIsCurrent(dApp.accountId);
 
-  const prepared = await runPrepare(() => getGuardianInfoData(dApp.accountId));
-  if (prepared.locked) throw lockedRefusal();
-  return {
-    type: MidenDAppMessageType.GuardianInfoResponse,
-    guardianInfo: prepared.value
-  };
+  const prepare = () => getGuardianInfoData(dApp.accountId);
+  const prepared = await runPrepare(prepare);
+  if (!prepared.locked) {
+    return { type: MidenDAppMessageType.GuardianInfoResponse, guardianInfo: prepared.value };
+  }
+  if (!isExtension()) throw lockedRefusal();
+  return new Promise<MidenDAppGuardianInfoResponse>((resolve, reject) => {
+    requestUnlockOnly(
+      origin,
+      dApp,
+      req.sourcePublicKey,
+      prepare,
+      guardianInfo => resolve({ type: MidenDAppMessageType.GuardianInfoResponse, guardianInfo }),
+      reject
+    ).catch(reject);
+  });
 }
 
 const NOT_GUARDIAN_INFO: GuardianInfo = {
@@ -1700,11 +1710,13 @@ async function servePrivateDataRead<T, R>(
   if (dApp.privateDataPermission === PrivateDataPermission.Auto && (dApp.allowedPrivateData & read.allowed) !== 0) {
     const prepared = await prepareOrReject(prepare, reject);
     if (prepared === undefined) return;
-    if (prepared.locked) {
+    if (!prepared.locked) {
+      resolve(read.respond(prepared.value));
+    } else if (isExtension()) {
+      await requestUnlockOnly(origin, dApp, sourcePublicKey, prepare, data => resolve(read.respond(data)), reject);
+    } else {
       reject(lockedRefusal());
-      return;
     }
-    resolve(read.respond(prepared.value));
     return;
   }
 
@@ -1749,6 +1761,39 @@ async function servePrivateDataRead<T, R>(
         decline();
       }
       return { type: read.confirmationResponse };
+    }
+  });
+}
+
+/**
+ * A request that never prompts while unlocked (an Auto read, guardianInfo) met a locked wallet: its popup only
+ * unlocks. ConfirmPage answers it on its own once unlocked; the request then runs its unlocked path after the same
+ * re-check a prompted request runs, since the session may have changed while the popup sat on Unlock.
+ */
+async function requestUnlockOnly<T>(
+  origin: string,
+  dApp: MidenDAppSession,
+  sourcePublicKey: string,
+  prepare: () => Promise<T>,
+  resolve: (value: T) => void,
+  reject: (reason: unknown) => void
+): Promise<void> {
+  const id = nanoid();
+  const networkRpc = await getNetworkRPC(dApp.network);
+  const sheet = sheetFor<T>({ locked: true }, origin, sourcePublicKey, dApp.accountId, prepare);
+  await requestConfirmFor(origin, sheet, reject, {
+    id,
+    payload: { type: 'unlock', origin, networkRpc, appMeta: dApp.appMeta },
+    handleIntercomRequest: async confirmReq => {
+      if (confirmReq?.type !== MidenMessageType.DAppUnlockConfirmationRequest || confirmReq.id !== id) {
+        return undefined;
+      }
+      try {
+        resolve(await sheet.data());
+      } catch (e) {
+        reject(e);
+      }
+      return { type: MidenMessageType.DAppUnlockConfirmationResponse };
     }
   });
 }

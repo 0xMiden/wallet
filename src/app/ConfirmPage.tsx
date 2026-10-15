@@ -467,7 +467,8 @@ const ConfirmDAppForm: FC = () => {
     confirmDAppSign,
     confirmDAppAssets,
     confirmDAppImportPrivateNote,
-    confirmDAppConsumableNotes
+    confirmDAppConsumableNotes,
+    confirmDAppUnlock
   } = useMidenContext();
   const account = useAccount();
   const isPublicAccount = account.isPublic;
@@ -550,6 +551,8 @@ const ConfirmDAppForm: FC = () => {
           return confirmDAppImportPrivateNote(id, confirmed);
         case 'consumableNotes':
           return confirmDAppConsumableNotes(id, confirmed);
+        case 'unlock':
+          return confirmDAppUnlock(id);
       }
     },
     [
@@ -564,6 +567,7 @@ const ConfirmDAppForm: FC = () => {
       confirmDAppAssets,
       confirmDAppImportPrivateNote,
       confirmDAppConsumableNotes,
+      confirmDAppUnlock,
       delegate
     ]
   );
@@ -578,7 +582,8 @@ const ConfirmDAppForm: FC = () => {
   // Suppressed for the auto-approved reconnect handled above, where the user is
   // shown nothing and asked nothing: that path never reaches `confirm`, so a
   // flow begun for it would never be settled.
-  const autoApproved = payload.type === 'connect' && Boolean(payload.existingPermission);
+  // An unlock-only request (#1414) asks nothing either.
+  const autoApproved = payload.type === 'unlock' || (payload.type === 'connect' && Boolean(payload.existingPermission));
   const settleApproval = useApprovalPrompt(payload.type, !autoApproved);
 
   const confirm = useCallback(
@@ -603,6 +608,14 @@ const ConfirmDAppForm: FC = () => {
     },
     [onConfirm, setError, requirePrivateDataCheckbox, isPrivateDataChecked, settleApproval, t]
   );
+
+  // An unlock-only request has nothing to approve: once the user has unlocked, answer it.
+  const unlockAnsweredRef = useRef(false);
+  useEffect(() => {
+    if (payload.type !== 'unlock' || unlockAnsweredRef.current) return;
+    unlockAnsweredRef.current = true;
+    void confirm(true);
+  }, [payload.type, confirm]);
 
   const handleConfirmClick = useCallback(async () => {
     if (confirming || declining || confirmationInFlightRef.current) return;
@@ -738,8 +751,18 @@ const ConfirmDAppForm: FC = () => {
             </RequestOriginBanner>
           )
         };
+      case 'unlock':
+        return null;
     }
   }, [error, payload, privateDataPermission, isPublicAccount, t]);
+
+  if (content === null) {
+    return (
+      <div className="flex flex-1 items-center justify-center bg-app-bg">
+        <Spinner />
+      </div>
+    );
+  }
 
   return (
     <div

@@ -145,6 +145,20 @@ jest.mock('components/Button', () => ({
   )
 }));
 
+// A recorder in front of the real telemetry: the real `useApprovalPrompt` runs, so the test sees whether the page
+// begins an approval flow, not which arguments it passed to a stand-in.
+const mockBeginFlow = jest.fn();
+jest.mock('lib/telemetry', () => {
+  const actual = jest.requireActual('lib/telemetry');
+  return {
+    ...actual,
+    beginFlow: (...args: unknown[]) => {
+      mockBeginFlow(...args);
+      return actual.beginFlow(...args);
+    }
+  };
+});
+
 // `TransactionAssetView` owns its own pixel-level rendering (asset rows, note
 // counts, storage warning) and is unit-tested in TransactionAssetView.test.tsx.
 // Here we only need to assert ConfirmPage routes the sign->TransactionSummary
@@ -263,6 +277,7 @@ const ctx = {
   confirmDAppAssets: jest.fn(),
   confirmDAppImportPrivateNote: jest.fn(),
   confirmDAppConsumableNotes: jest.fn(),
+  confirmDAppUnlock: jest.fn(),
   simulateCustomTransaction: jest.fn()
 };
 
@@ -1078,6 +1093,30 @@ describe('consumableNotes payload', () => {
     });
 
     await waitFor(() => expect(ctx.confirmDAppConsumableNotes).toHaveBeenCalledWith('req-1', true));
+  });
+});
+
+describe('unlock payload', () => {
+  const unlockPayload = () => ({ type: 'unlock', ...baseFields() });
+
+  it('answers once on its own after the unlock, with nothing to approve', async () => {
+    ctx.confirmDAppUnlock.mockResolvedValue(undefined);
+    setPayload(unlockPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(ctx.confirmDAppUnlock).toHaveBeenCalledWith('req-1'));
+    expect(ctx.confirmDAppUnlock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.getByTestId('spinner')).toBeInTheDocument();
+  });
+
+  it('begins no approval telemetry, since the user is asked nothing', async () => {
+    ctx.confirmDAppUnlock.mockResolvedValue(undefined);
+    setPayload(unlockPayload());
+    render(<ConfirmPage />);
+
+    await waitFor(() => expect(ctx.confirmDAppUnlock).toHaveBeenCalled());
+    expect(mockBeginFlow).not.toHaveBeenCalled();
   });
 });
 

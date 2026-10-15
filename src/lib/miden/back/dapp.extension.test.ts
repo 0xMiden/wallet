@@ -2168,3 +2168,110 @@ describe('a request that prompts, made while the wallet is locked (#1414)', () =
     expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
   });
 });
+
+describe('a request that never prompts while unlocked, made while the wallet is locked (#1414)', () => {
+  const autoSession = (allowedPrivateData: number) => {
+    _g.__dappExtTest.storage[STORAGE_KEY] = {
+      [LOCKED_ORIGIN]: [{ ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData }]
+    };
+  };
+
+  beforeEach(() => {
+    _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue(undefined);
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn(async () => []);
+    _g.__dappExtTest.midenClient.syncState = jest.fn(async () => undefined);
+  });
+
+  const kinds = [
+    {
+      name: 'assets',
+      allowed: 1,
+      start: startAssets,
+      reads: () => _g.__dappExtTest.midenClient.getAccount.mock.calls.length,
+      answer: MidenDAppMessageType.AssetsResponse
+    },
+    {
+      name: 'privateNotes',
+      allowed: 2,
+      start: () =>
+        dapp.requestPrivateNotes(LOCKED_ORIGIN, {
+          type: MidenDAppMessageType.PrivateNotesRequest,
+          sourcePublicKey: 'miden-account-1',
+          noteIds: ['note-1']
+        } as never),
+      reads: () => _g.__dappExtTest.midenClient.getInputNoteDetails.mock.calls.length,
+      answer: MidenDAppMessageType.PrivateNotesResponse
+    },
+    {
+      name: 'consumableNotes',
+      allowed: 2,
+      start: () =>
+        dapp.requestConsumableNotes(LOCKED_ORIGIN, {
+          type: MidenDAppMessageType.ConsumableNotesRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      reads: () => _g.__dappExtTest.midenClient.getConsumableNoteDtos.mock.calls.length,
+      answer: MidenDAppMessageType.ConsumableNotesResponse
+    },
+    {
+      name: 'guardianInfo',
+      allowed: 0,
+      start: () =>
+        dapp.requestGuardianInfo(LOCKED_ORIGIN, {
+          type: MidenDAppMessageType.GuardianInfoRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      reads: () => mockFetchAccounts.mock.calls.length,
+      answer: MidenDAppMessageType.GuardianInfoResponse
+    }
+  ];
+
+  it.each(kinds)('$name: opens an unlock-only popup, reads nothing until the unlock, then answers', async kind => {
+    autoSession(kind.allowed);
+    lockWallet();
+    const popup = await openPopup(kind.start);
+    expect(kind.reads()).toBe(0);
+
+    unlockWallet();
+    await expect(popup.getPayload()).resolves.toEqual(
+      expect.objectContaining({ payload: expect.objectContaining({ type: 'unlock', origin: LOCKED_ORIGIN }) })
+    );
+    await expect(popup.decide(MidenMessageType.DAppUnlockConfirmationRequest, {})).resolves.toEqual({
+      type: MidenMessageType.DAppUnlockConfirmationResponse
+    });
+    await expect(popup.outcome).resolves.toEqual({ ok: true, value: expect.objectContaining({ type: kind.answer }) });
+    expect(kind.reads()).toBeGreaterThan(0);
+  });
+
+  it.each(kinds)(
+    '$name: answers NOT_GRANTED: Wallet is locked and reads nothing when the popup closes still locked',
+    async kind => {
+      autoSession(kind.allowed);
+      lockWallet();
+      const popup = await openPopup(kind.start);
+      closeConfirmWindow();
+      await expect(popup.outcome).resolves.toEqual({ ok: false, message: 'NOT_GRANTED: Wallet is locked' });
+      expect(kind.reads()).toBe(0);
+    }
+  );
+
+  it('refuses with NOT_GRANTED and reads nothing when the dApp was disconnected before the unlock', async () => {
+    autoSession(1);
+    lockWallet();
+    const popup = await openPopup(startAssets);
+    _g.__dappExtTest.storage[STORAGE_KEY] = { [LOCKED_ORIGIN]: [] };
+    unlockWallet();
+    await popup.getPayload();
+    await popup.decide(MidenMessageType.DAppUnlockConfirmationRequest, {});
+    await expect(popup.outcome).resolves.toEqual({ ok: false, message: MidenDAppErrorType.NotGranted });
+    expect(_g.__dappExtTest.midenClient.getAccount).not.toHaveBeenCalled();
+  });
+
+  it('still answers an unlocked Auto read with no popup', async () => {
+    autoSession(1);
+    await expect(startAssets()).resolves.toEqual(
+      expect.objectContaining({ type: MidenDAppMessageType.AssetsResponse })
+    );
+    expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
+  });
+});
