@@ -1844,7 +1844,10 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
     expect(screen.getByTestId('confirm-route')).toBeDisabled();
   });
 
-  it('drops the balance notice while the balance is unknown', async () => {
+  it.each<[string, () => void, string]>([
+    ['is pending', () => (global.fetch = jest.fn(() => new Promise(() => undefined)) as never), 'loading'],
+    ['failed', () => answerBalance(null), 'rpc down']
+  ])('says on the Fast route step why Confirm is held while the USDC balance read %s', async (_case, read, notice) => {
     quoteFast();
     answerBalance(FAST_DEPOSIT - 1n);
     const { rerender } = render(depositScreen(undefined, EVM_WALLET));
@@ -1852,12 +1855,12 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
     await reachFastRoute();
     expect(screen.getByTestId('route-notice').textContent).toBe(ABOVE_BALANCE);
 
-    // Another wallet, whose balance read never lands.
-    global.fetch = jest.fn(() => new Promise(() => undefined)) as never;
+    // Another wallet, whose balance read has not landed or failed.
+    read();
     rerender(depositScreen(undefined, '0x00000000000000000000000000000000000000e2'));
     await settle();
 
-    expect(screen.getByTestId('route-notice')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('route-notice').textContent).toBe(notice);
     expect(screen.getByTestId('confirm-route')).toBeDisabled();
   });
 

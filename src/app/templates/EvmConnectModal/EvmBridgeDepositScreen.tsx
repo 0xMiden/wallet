@@ -1290,13 +1290,18 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   // Route-screen hint below the cards: ETH on Fast wraps to WETH, which isn't available yet. A typed amount the balance
   // covers can still quote a Fast deposit, fee included, above it; fastReady then holds Confirm, and this says why.
-  // Picking Slow can re-read the balance slowReady holds Confirm on, so while that read is pending, failed or short of
-  // the typed amount, this says so as the amount step would.
+  // Picking Slow can re-read the balance slowReady holds Confirm on, and another wallet or chain re-reads the USDC
+  // balance fastReady holds it on, so while either read is pending or failed, or Slow's is short of the typed amount,
+  // this says so as the amount step would.
   const routeNotice = (() => {
     if (token === 'ETH' && route === 'epoch') return t('fastEthWrapNotice');
     if (route === 'agglayer') {
       if (selectedBalance.loading) return t('loading');
       return selectedBalance.error ?? (amountExceedsBalance ? t('amountMustBeLessThanBalance') : undefined);
+    }
+    if (route === 'epoch' && token === 'USDC') {
+      if (usdcBalance.loading) return t('loading');
+      if (usdcBalance.error) return usdcBalance.error;
     }
     const balance = usdcBalance.value;
     const quoteForAmount =
