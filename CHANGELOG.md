@@ -39,6 +39,7 @@
 - [FIX][all] An encrypted wallet file from another network is refused before anything is restored, so restoring a testnet file on mainnet can no longer leave the wallet unable to reach the node; new files record their network.
 - [FIX][all] dApp approvals, Authorized dApps and token details name the wallet's own network, and a dApp whose network differs is flagged on connect; a dApp that asks for mainnet connects only to a mainnet wallet. The Fund card no longer appears on mainnet, which has no faucet.
 - [FIX][extension] A dApp approval popup that Chrome refuses to move or place no longer stays open for good; popups open centred on a browser window, and a connect whose popup cannot open answers the dApp.
+- [FIX][extension] On a mainnet wallet opened with an invite code, received notes never showed and were never auto-claimed, and a USDCx deposit stayed at "USDCx minted on Miden": the offscreen document now takes its network from the service worker instead of syncing the build's (#1482).
 
 ### Changes
 
