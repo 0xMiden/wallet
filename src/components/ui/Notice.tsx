@@ -38,6 +38,8 @@ export interface NoticeProps {
   role?: 'note' | 'status' | 'alert';
   /** Layout only (margins, width). */
   className?: string;
+  /** Lets a control point at the notice with `aria-describedby`. */
+  id?: string;
   'data-testid'?: string;
 }
 
@@ -109,9 +111,11 @@ export const Notice: React.FC<NoticeProps> = ({
   variant = 'block',
   role = 'note',
   className,
+  id,
   'data-testid': dataTestId
 }) => (
   <div
+    id={id}
     role={role}
     data-tone={tone}
     data-variant={variant}

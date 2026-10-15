@@ -5,10 +5,12 @@ import { useCloseOnBack } from 'lib/mobile/useCloseOnBack';
 import { useHideDappBubblesWhileOpen } from 'lib/mobile/useHideDappBubblesWhileOpen';
 import { Drawer, DrawerContent, DrawerTitle } from 'lib/ui/drawer';
 import { useImperativeModalFocus } from 'lib/ui/host-modal';
+import { cn } from 'lib/ui/util';
 
 export interface AlertSheetProps {
   open: boolean;
   title: ReactNode;
+  variant?: 'default' | 'explanation';
   /** The one sentence under the title. It becomes the sheet's accessible description. */
   children?: ReactNode;
   actionLabel: ReactNode;
@@ -44,6 +46,7 @@ function AlertBack({ dismiss }: { dismiss: () => void }) {
 export function AlertSheet({
   open,
   title,
+  variant = 'default',
   children,
   actionLabel,
   actionVariant = ButtonVariant.Primary,
@@ -92,9 +95,12 @@ export function AlertSheet({
         }}
       >
         <div className="px-4 pt-6 pb-4">
-          <DrawerTitle>{title}</DrawerTitle>
+          <DrawerTitle className={variant === 'explanation' ? 'text-title-tab' : undefined}>{title}</DrawerTitle>
           {hasDescription && (
-            <div id={descriptionId} className="mt-2 text-body text-muted">
+            <div
+              id={descriptionId}
+              className={cn('mt-2 text-muted', variant === 'explanation' ? 'text-body-sm' : 'text-body')}
+            >
               {children}
             </div>
           )}

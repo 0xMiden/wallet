@@ -1707,6 +1707,10 @@
     "message": "Colar",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "Não foi possível ler a área de transferência. Digite seu código ou tente novamente.",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "Nada para colar. Copie um endereço primeiro.",
     "englishSource": "Nothing to paste. Copy an address first."
@@ -5581,6 +5585,62 @@
       }
     }
   },
+  "mainnetAccessCodeLabel": {
+    "message": "Código de acesso",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "Desbloquear a mainnet",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "Este código não funcionou. Verifique-o e tente novamente.",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "Não foi possível verificar este código. Tente novamente mais tarde.",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnetAccountNotAdmitted": {
+    "message": "Esta carteira não é admitida na rede principal do Miden. Uma nova carteira precisa de um código de acesso.",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "A mainnet da Miden admite apenas a conta e o código de acesso registrados.",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
+  "mainnet": {
+    "message": "Mainnet",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessTitle": {
+    "message": "Você tem um código de acesso à mainnet?",
+    "englishSource": "Have a mainnet access code?"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "A Mainnet é, por enquanto, apenas para convidados. Digite o código de 12 caracteres do seu convite e sua carteira será ativada na Mainnet da Miden.",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "O código está no seu e-mail de convite.",
+    "englishSource": "The code is in your invite email."
+  },
+  "iHaveACode": {
+    "message": "Tenho um código",
+    "englishSource": "I have a code"
+  },
+  "iDontHaveACode": {
+    "message": "Não tenho um código",
+    "englishSource": "I don't have a code"
+  },
+  "noCodeTitle": {
+    "message": "O Bread é apenas para convidados",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "Uma nova carteira precisa de um código de acesso à mainnet fornecido no seu convite. Uma conta que já exista ainda pode ser recuperada.",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
+  },
   "networkModePillNoValue": {
     "message": "Os tokens não têm valor real",
     "englishSource": "Tokens have no real value"
@@ -5588,6 +5648,18 @@
   "mainnetCountdownLink": {
     "message": "Inscreva-se na lista de acesso antecipado",
     "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "Mudar para a mainnet",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "Reiniciar e mudar para a mainnet",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "Você pode continuar usando a testnet. A troca apaga esta carteira, seus saldos e seu histórico deste dispositivo. Salve primeiro seus dados de recuperação. Os tokens de teste não são transferidos para a mainnet. Em seguida, você criará uma carteira da mainnet com um código de convite ou recuperará uma carteira da mainnet já existente.",
+    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
   },
   "mainnetCountdownLabel": {
     "message": "Tempo restante até o Bread entrar na mainnet: $time$",

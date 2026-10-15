@@ -14,6 +14,7 @@ import { ChooseProtectionScreen } from './common/ChooseProtection';
 import { ConfirmationScreen } from './common/Confirmation';
 import { CreatePasswordScreen } from './common/CreatePassword';
 import { GuardianIntroScreen } from './common/GuardianIntro';
+import { MainnetAccessScreen } from './common/MainnetAccess';
 import { MeetGuardianScreen } from './common/MeetGuardian';
 import { NetworkNoticeScreen } from './common/NetworkNotice';
 import { OnboardingStepLayer } from './common/OnboardingStepLayer';
@@ -40,6 +41,12 @@ import {
 } from './types';
 
 export interface OnboardingFlowProps {
+  inviteOnly?: boolean;
+  onUnlockInviteOnly?: () => void;
+  /** Welcome offers recovery only (ForgotPassword on an invite-only network). */
+  recoverOnly?: boolean;
+  /** The node refused the access code a registration carried; the code step says so. */
+  mainnetAccessRejected?: boolean;
   wordslist: readonly string[];
   seedPhrase: string[] | null;
   onboardingType: OnboardingType | null;
@@ -130,6 +137,10 @@ const Header: React.FC<{
 );
 
 export const OnboardingFlow: FC<OnboardingFlowProps> = ({
+  inviteOnly,
+  onUnlockInviteOnly,
+  recoverOnly,
+  mainnetAccessRejected = false,
   wordslist,
   seedPhrase,
   onboardingType,
@@ -205,8 +216,13 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   }, [onAction]);
 
   const renderStep = useCallback(() => {
-    const onWelcomeAction = (action: 'select-wallet-type' | 'select-import-type') => {
+    const onWelcomeAction = (action: 'mainnet-access' | 'select-wallet-type' | 'select-import-type') => {
       switch (action) {
+        case 'mainnet-access':
+          onForwardAction?.({
+            id: 'mainnet-access'
+          });
+          break;
         case 'select-wallet-type':
           onForwardAction?.({
             id: 'choose-protection'
@@ -223,6 +239,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     };
 
     const onNetworkNoticeSubmit = () => onForwardAction?.({ id: 'network-notice-acknowledge' });
+    const onMainnetAccessGranted = (code: string) => onForwardAction?.({ id: 'mainnet-access-granted', payload: code });
 
     const onSelectImportTypeSubmit = (payload: ImportType) => {
       if (payload === ImportType.SeedPhrase) {
@@ -272,7 +289,16 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
 
     switch (step) {
       case OnboardingStep.Welcome:
-        return <WelcomeScreen onSubmit={onWelcomeAction} />;
+        return (
+          <WelcomeScreen
+            inviteOnly={inviteOnly}
+            onUnlockInviteOnly={onUnlockInviteOnly}
+            recoverOnly={recoverOnly}
+            onSubmit={onWelcomeAction}
+          />
+        );
+      case OnboardingStep.MainnetAccess:
+        return <MainnetAccessScreen rejected={mainnetAccessRejected} onSubmit={onMainnetAccessGranted} />;
       case OnboardingStep.NetworkNotice:
         return <NetworkNoticeScreen onSubmit={onNetworkNoticeSubmit} />;
       case OnboardingStep.ChooseProtection:
@@ -363,6 +389,10 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
         return <></>;
     }
   }, [
+    inviteOnly,
+    onUnlockInviteOnly,
+    recoverOnly,
+    mainnetAccessRejected,
     step,
     meetGuardianProgress,
     isLoading,

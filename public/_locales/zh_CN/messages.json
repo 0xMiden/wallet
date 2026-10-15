@@ -1707,6 +1707,10 @@
     "message": "粘贴",
     "englishSource": "Paste"
   },
+  "mainnetAccessPasteFailed": {
+    "message": "无法读取剪贴板内容。请输入您的代码或重试。",
+    "englishSource": "Could not read the clipboard. Enter your code or try again."
+  },
   "nothingToPaste": {
     "message": "没有可粘贴的内容。请先复制地址。",
     "englishSource": "Nothing to paste. Copy an address first."
@@ -5581,6 +5585,62 @@
       }
     }
   },
+  "mainnetAccessCodeLabel": {
+    "message": "访问码",
+    "englishSource": "Access code"
+  },
+  "unlockMainnet": {
+    "message": "解锁主网",
+    "englishSource": "Unlock mainnet"
+  },
+  "mainnetAccessCodeRejected": {
+    "message": "此代码无法正常运行。请检查并重试。",
+    "englishSource": "This code did not work. Check it and try again."
+  },
+  "mainnetAccessCheckFailed": {
+    "message": "我们无法验证此代码。请稍后再试。",
+    "englishSource": "We could not check this code. Try again later."
+  },
+  "mainnetAccountNotAdmitted": {
+    "message": "该钱包不被 Miden 主网接受。新钱包需要访问码。",
+    "englishSource": "This wallet is not admitted on Miden mainnet. A new wallet needs an access code."
+  },
+  "mainnetSecondAccountRefused": {
+    "message": "Miden 主网仅允许已注册访问码的账户登录。",
+    "englishSource": "Miden mainnet admits only the account an access code registered."
+  },
+  "mainnet": {
+    "message": "主网",
+    "englishSource": "Mainnet"
+  },
+  "mainnetAccessTitle": {
+    "message": "你有主网访问码吗？",
+    "englishSource": "Have a mainnet access code?"
+  },
+  "mainnetAccessOnboardingBody": {
+    "message": "主网目前仅限受邀用户使用。输入邀请函中的12位代码，您的钱包即可在Miden主网上启动。",
+    "englishSource": "Mainnet is invite-only for now. Enter the 12-character code from your invite and your wallet starts on Miden Mainnet."
+  },
+  "mainnetAccessHint": {
+    "message": "代码在您的邀请邮件中。",
+    "englishSource": "The code is in your invite email."
+  },
+  "iHaveACode": {
+    "message": "我有一段代码",
+    "englishSource": "I have a code"
+  },
+  "iDontHaveACode": {
+    "message": "我没有代码",
+    "englishSource": "I don't have a code"
+  },
+  "noCodeTitle": {
+    "message": "Bread 仅限受邀用户加入",
+    "englishSource": "Bread is invite-only"
+  },
+  "noCodeBody": {
+    "message": "新钱包需要您邀请链接中的主网访问码。已存在的账户仍可恢复。",
+    "englishSource": "A new wallet needs a mainnet access code from your invite. An account that already exists can still be recovered."
+  },
   "networkModePillNoValue": {
     "message": "代币没有实际价值",
     "englishSource": "Tokens have no real value"
@@ -5588,6 +5648,18 @@
   "mainnetCountdownLink": {
     "message": "加入早期体验名单",
     "englishSource": "Join the early access list"
+  },
+  "switchToMainnet": {
+    "message": "切换至主网",
+    "englishSource": "Switch to mainnet"
+  },
+  "resetAndSwitchToMainnet": {
+    "message": "重置并切换至主网",
+    "englishSource": "Reset and switch to mainnet"
+  },
+  "switchToMainnetConfirm": {
+    "message": "您可以继续使用测试网。切换操作会将该钱包、其余额及其历史记录从本设备中清除。请先保存您的恢复信息。测试代币不会转移到主网。随后，您将使用邀请码创建一个主网钱包，或恢复现有的主网钱包。",
+    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
   },
   "mainnetCountdownLabel": {
     "message": "距离Bread主网上线还剩：$time$",

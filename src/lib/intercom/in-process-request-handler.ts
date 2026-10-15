@@ -41,7 +41,8 @@ export async function processInProcessRequest(req: WalletRequest, label: string)
         req.password,
         req.mnemonic,
         req.ownMnemonic,
-        req.guardianEndpoint
+        req.guardianEndpoint,
+        req.accessCode
       );
       return { type: WalletMessageType.NewWalletResponse };
 

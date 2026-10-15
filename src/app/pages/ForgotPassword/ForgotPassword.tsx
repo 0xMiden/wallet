@@ -9,9 +9,14 @@ import { postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext } from 'lib/miden/front';
 import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
 import { GUARDIAN_PROBE_WAIT_DEADLINE_MS, useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
+import { prepareMainnet } from 'lib/miden/prepare-mainnet';
 import { clearClientStorage } from 'lib/miden/reset';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isMobile } from 'lib/platform';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { selectInviteOnlyOnboarding } from 'lib/remote-config/values';
 import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { navigate } from 'lib/woozie';
 import { errorToMessage } from 'screens/onboarding/error-message';
@@ -37,6 +42,11 @@ const ForgotPassword: FC = () => {
   const [password, setPassword] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  // A new wallet on an invite-only network needs a code, which this page does not take: its
+  // Welcome offers recovery only.
+  const snapshot = useBridgeConfigSnapshot();
+  const recoverOnly =
+    selectInviteOnlyOnboarding(snapshot) === true || getEffectiveNetworkName() === MIDEN_NETWORK_NAME.MAINNET;
 
   const { registerWallet } = useMidenContext();
   // Guardian auto-detection (issue #418). The probe runs unseen from seed submit;
@@ -110,9 +120,12 @@ const ForgotPassword: FC = () => {
   // nothing was destroyed.
   const register = useCallback(async (): Promise<'ok' | 'failed' | 'skipped'> => {
     if (password && seedPhrase) {
-      // The page's wipe keeps the wallet-setup keys itself (lib/miden/reset), so nothing here
-      // reads or rewrites the endpoint override.
+      // The page's wipe keeps the wallet-setup keys itself (lib/miden/reset), so the wipe neither
+      // reads nor rewrites the endpoint override.
       try {
+        // An invite-only config recovers on mainnet: the network choice is stored and the realm refreshed
+        // before anything is wiped, so a failed switch shows here with nothing wiped and Retry repeats it.
+        if (recoverOnly) await prepareMainnet();
         await clearClientStorage();
         // Resolve the probed guardian endpoint (import path only) and thread it
         // explicitly into registerWallet. The probe result is held in memory, so
@@ -157,6 +170,7 @@ const ForgotPassword: FC = () => {
   }, [
     password,
     seedPhrase,
+    recoverOnly,
     registerWallet,
     onboardingType,
     detectGuardianEndpoint,
@@ -309,6 +323,7 @@ const ForgotPassword: FC = () => {
 
   return (
     <OnboardingFlow
+      recoverOnly={recoverOnly}
       wordslist={wordsList}
       seedPhrase={seedPhrase}
       onboardingType={onboardingType}

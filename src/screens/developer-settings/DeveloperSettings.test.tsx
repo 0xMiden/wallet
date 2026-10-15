@@ -564,13 +564,25 @@ describe('DeveloperSettings', () => {
     expect(within(presetPicker).getByTestId('dev-endpoint-preset-custom')).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('offers Mainnet on the Network ID picker but not on the preset/URL-prefill picker', () => {
+  it('offers Mainnet on the Network ID picker and as the first preset tab', () => {
     render(<DeveloperSettings />);
     const presetPicker = screen.getByTestId('dev-endpoint-preset');
     const networkPicker = screen.getByTestId('dev-endpoint-network-id');
 
     expect(within(networkPicker).getByTestId('dev-endpoint-network-mainnet')).toBeInTheDocument();
-    expect(within(presetPicker).queryByTestId('dev-endpoint-preset-mainnet')).not.toBeInTheDocument();
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-mainnet')).toHaveTextContent('Mainnet');
+    expect(within(presetPicker).getAllByRole('radio')[0]).toHaveAttribute('data-testid', 'dev-endpoint-preset-mainnet');
+  });
+
+  it('the Mainnet preset selects the mainnet network id', () => {
+    render(<DeveloperSettings />);
+    const presetPicker = screen.getByTestId('dev-endpoint-preset');
+    const networkPicker = screen.getByTestId('dev-endpoint-network-id');
+
+    fireEvent.click(within(presetPicker).getByTestId('dev-endpoint-preset-mainnet'));
+
+    expect(within(presetPicker).getByTestId('dev-endpoint-preset-mainnet')).toHaveAttribute('aria-checked', 'true');
+    expect(within(networkPicker).getByTestId('dev-endpoint-network-mainnet')).toHaveAttribute('aria-checked', 'true');
   });
 
   it('capitalizes the preset and network-id tab labels for display, keeping the raw id for logic', () => {

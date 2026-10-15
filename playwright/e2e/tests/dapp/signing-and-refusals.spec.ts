@@ -97,7 +97,7 @@ function signingCells(j: Journey): Record<string, DappCellImpl> {
         { kind: 'sign', decision: 'approve', origin: dapp.origin, whileOpen: popupShows },
         ctx
       );
-      // Q2: a Guardian account signs with its hot key, so both kinds expect the same verifiable signature (K8 today).
+      // Q2: a Guardian account signs with its hot key, so both kinds expect the same verifiable signature.
       const signed = unwrap(result, `signBytes(signingInputs, ${variant})`, ctx);
       expect(
         await callDapp(
