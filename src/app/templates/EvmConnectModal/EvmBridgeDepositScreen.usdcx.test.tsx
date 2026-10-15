@@ -192,7 +192,7 @@ jest.mock('./EvmBridgeDepositForm', () => ({
     isValidAmount,
     error
   }: {
-    network: { chainId: number };
+    network?: { chainId: number };
     isValidAmount: boolean;
     error?: string;
     onAmountChange: (value?: string) => void;
@@ -201,7 +201,7 @@ jest.mock('./EvmBridgeDepositForm', () => ({
     onSelectNetwork?: () => void;
   }) => (
     <div>
-      <span data-testid="form-network">{String(network.chainId)}</span>
+      <span data-testid="form-network">{String(network?.chainId)}</span>
       <span data-testid="form-ready">{String(isValidAmount)}</span>
       <span data-testid="form-error">{error}</span>
       <button data-testid="set-amount" onClick={() => onAmountChange('1.5')}>
@@ -425,6 +425,66 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
 
     expect(screen.getByTestId('usdcx-route-confirm')).toBeEnabled();
     expect(screen.queryByTestId('fast-slow-route-confirm')).not.toBeInTheDocument();
+  });
+
+  /** The suite's document with no Epoch USDC on any chain, as a mainnet document that names only USDCx routes. */
+  const withoutEpochUsdc = (): BridgeConfigSnapshot => {
+    const config = TEST_BRIDGE_CONFIG_SNAPSHOT.config!;
+    return {
+      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+      config: {
+        ...config,
+        supportedEvmChains: Object.fromEntries(
+          Object.entries(config.supportedEvmChains).map(([slug, chain]) => {
+            const { epoch: _epoch, ...bridges } = chain.bridges;
+            return [slug, { ...chain, bridges }];
+          })
+        )
+      }
+    };
+  };
+
+  // A mainnet document names no Epoch USDC, only USDCx sources: the screen opens on Circle USDC and the first source
+  // the document lists, not on a token it does not name over a compiled Sepolia label.
+  it('opens on Circle USDC and a listed source when the document names no Epoch USDC', async () => {
+    mockBridgeSnapshot = withoutEpochUsdc();
+    renderScreen();
+    await settle();
+
+    expect(screen.getByTestId('form-network')).toHaveTextContent(/^5042002$/);
+    expect(screen.getByTestId('form-error')).toHaveTextContent(/^$/);
+    await reachRouteStep();
+    expect(screen.getByTestId('usdcx-route-confirm')).toBeInTheDocument();
+  });
+
+  it('keeps the token the user picked over the document opening token', async () => {
+    mockBridgeSnapshot = withoutEpochUsdc();
+    renderScreen();
+    await settle();
+
+    await pickToken('pick-usdc');
+
+    expect(screen.getByTestId('form-error')).toHaveTextContent(/^The bridge config names no USDC token\.$/);
+  });
+
+  it('asks for a network instead of naming Sepolia when no route has a chain', async () => {
+    const snapshot = withoutEpochUsdc();
+    mockBridgeSnapshot = {
+      ...snapshot,
+      config: {
+        ...snapshot.config!,
+        supportedEvmChains: Object.fromEntries(
+          Object.entries(snapshot.config!.supportedEvmChains).map(([slug, chain]) => {
+            const { usdcx: _usdcx, ...bridges } = chain.bridges;
+            return [slug, { ...chain, bridges }];
+          })
+        )
+      }
+    };
+    renderScreen();
+    await settle();
+
+    expect(screen.getByTestId('form-network')).toHaveTextContent(/^undefined$/);
   });
 
   it('shows the Fast/Slow picker again once ETH is chosen', async () => {

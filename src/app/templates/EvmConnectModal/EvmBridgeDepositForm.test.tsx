@@ -29,9 +29,16 @@ jest.mock('screens/send-flow/SelectAmount', () => ({
   )
 }));
 
-jest.mock('screens/send-flow/bridge-networks', () => ({
-  DEFAULT_BRIDGE_NETWORK: { id: 'sepolia', name: 'Sepolia', chainId: 11155111 }
+jest.mock('screens/send-flow/bridge-networks', () => ({}));
+
+// The effective network: a test network unless a case switches to mainnet.
+let mockTestNetworkKey: 'testnet' | null = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getTestNetworkNameKey: () => mockTestNetworkKey
 }));
+afterEach(() => {
+  mockTestNetworkKey = 'testnet';
+});
 
 jest.mock('./EvmWalletHeader', () => ({
   EvmWalletHeader: () => null
@@ -67,6 +74,26 @@ describe('EvmBridgeDepositForm (#875)', () => {
     expect(warning).toHaveAttribute('data-tone', 'warning');
     expect(warning.querySelector('[data-slot="title"]')?.textContent).toBe('bridgeTestFundsTitle');
     expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('bridgeTestFundsBody');
+  });
+
+  it('shows no test-funds warning on mainnet, where the funds are real', () => {
+    mockTestNetworkKey = null;
+    render(
+      <EvmBridgeDepositForm
+        token={TOKEN}
+        tokenLabel="ETH"
+        arrivingName="ETH"
+        amount=""
+        isValidAmount={false}
+        evmAddress="0xabc"
+        onAmountChange={jest.fn()}
+        onSelectToken={jest.fn()}
+        onSwitch={jest.fn()}
+        onContinue={jest.fn()}
+      />
+    );
+
+    expect(screen.queryByTestId('bridge-test-funds-warning')).not.toBeInTheDocument();
   });
 
   it('says an ETH deposit arrives as ETH', () => {

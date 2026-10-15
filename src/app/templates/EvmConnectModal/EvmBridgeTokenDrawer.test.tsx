@@ -45,4 +45,25 @@ describe('EvmBridgeTokenDrawer', () => {
     expect(within(row).getByText('ETH')).toBeInTheDocument();
     expect(within(row).getByText('0.5 ETH')).toBeInTheDocument();
   });
+
+  // A mainnet document names no AggLayer chain and no Epoch test USDC: Circle's USDC is the one token, and the
+  // Epoch USDC is not a token there at all.
+  it('lists only Circle USDC when the host offers no ETH and no Epoch USDC', () => {
+    render(
+      <EvmBridgeTokenDrawer
+        open
+        onOpenChange={jest.fn()}
+        selected="CIRCLE_USDC"
+        usdcLabel="USDC"
+        circleUsdcBalance="3"
+        circleUsdcLabel="USDC"
+        onSelect={jest.fn()}
+      />
+    );
+
+    expect(screen.queryByTestId('bridge-token-ETH')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('bridge-token-USDC')).not.toBeInTheDocument();
+    const row = screen.getByTestId('bridge-token-CIRCLE_USDC');
+    expect(within(row).getByText('3 USDC')).toBeInTheDocument();
+  });
 });

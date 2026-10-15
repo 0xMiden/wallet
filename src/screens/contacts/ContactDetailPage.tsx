@@ -95,7 +95,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
 
   const trimmedName = name.trim();
   // Compare against the RESOLVED network, not the raw stored one: `contactNetwork` falls back to
-  // DEFAULT_BRIDGE_NETWORK, so a `0x` contact saved without a network seeds `network` to that
+  // `defaultBridgeNetwork()`, so a `0x` contact saved without a network seeds `network` to that
   // default while `contact.network` stays undefined - which read as "changed" the moment edit mode
   // opened, enabling Save with nothing edited and writing a network the user never picked.
   const changed = trimmedName !== contact.name || (kind === 'ethereum' && network !== bridgeNetwork?.id);

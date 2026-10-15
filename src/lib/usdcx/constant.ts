@@ -1,7 +1,8 @@
 import { Address, Chain, formatUnits, getAddress } from 'viem';
-import { sepolia } from 'viem/chains';
+import { arc, mainnet, sepolia } from 'viem/chains';
 
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { SupportedEvmChainConfig } from 'lib/remote-config/schema';
 import { ARC_TESTNET, copyPlainData, EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
@@ -210,17 +211,33 @@ export function usdcxPayoutFeeShortfall(
 }
 
 /**
- * The i18n key of a USDCx deposit's arrival time for its source chain: Arc Testnet reads ~1 min, every other source
- * ~20 min. On Arc, Circle attests the deposit in seconds and the relayer mints within a minute.
+ * The i18n key of a USDCx deposit's arrival time for its source chain: Arc (testnet or mainnet) reads ~1 min, every
+ * other source ~20 min. On Arc, Circle attests the deposit in seconds and the relayer mints within a minute.
  */
 export function usdcxArrivalKey(sourceChainId: number): 'usdcxArrivalArc' | 'usdcxArrival' {
-  return sourceChainId === ARC_TESTNET.id ? 'usdcxArrivalArc' : 'usdcxArrival';
+  return sourceChainId === ARC_TESTNET.id || sourceChainId === arc.id ? 'usdcxArrivalArc' : 'usdcxArrival';
 }
 
-/** The source chain a bridge-in starts from until the screen offers a picker. */
-export const DEFAULT_USDCX_SOURCE_CHAIN_ID: number = E2E_USDCX_CHAIN === 'sepolia' ? sepolia.id : ARC_TESTNET.id;
-/** The destination pre-selected for a USDCx withdrawal. */
-export const DEFAULT_USDCX_DESTINATION_CHAIN_ID: number = ARC_TESTNET.id;
+/**
+ * The EVM chain the USDCx surfaces open on, per Miden network, keyed as `MIDEN_NETWORK_ENDPOINTS` keys the RPCs:
+ * Ethereum on mainnet, Arc Testnet on the test networks.
+ */
+export const DEFAULT_USDCX_CHAIN_IDS = new Map<string, number>([
+  [MIDEN_NETWORK_NAME.MAINNET, mainnet.id],
+  [MIDEN_NETWORK_NAME.TESTNET, ARC_TESTNET.id],
+  [MIDEN_NETWORK_NAME.DEVNET, ARC_TESTNET.id],
+  [MIDEN_NETWORK_NAME.LOCALNET, ARC_TESTNET.id]
+]);
+
+/**
+ * The chain a USDCx bridge-in opens on and a withdrawal pre-selects, for the effective network: the E2E harness's
+ * Sepolia fork when it asks for it, else the network's entry above. A caller falls through to the document's first
+ * chain when the document does not list this one.
+ */
+export function defaultUsdcxChainId(): number {
+  if (E2E_USDCX_CHAIN === 'sepolia') return sepolia.id;
+  return DEFAULT_USDCX_CHAIN_IDS.get(getEffectiveNetworkName()) ?? ARC_TESTNET.id;
+}
 
 export function getUsdcxSourceChain(chainId: number): UsdcxSourceChain {
   const source = usdcxSourceChains().get(chainId);
