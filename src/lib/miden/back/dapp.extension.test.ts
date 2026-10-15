@@ -499,7 +499,9 @@ describe('requestSign — extension flow', () => {
 
 describe('waitForTransaction', () => {
   it('throws InvalidParams when txId is missing', async () => {
-    await expect(dapp.waitForTransaction({} as never)).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+    await expect(dapp.waitForTransaction('https://miden.xyz', {} as never)).rejects.toThrow(
+      MidenDAppErrorType.InvalidParams
+    );
   });
 });
 
@@ -929,6 +931,7 @@ describe('Full confirmation cycles in extension mode', () => {
       usdAmount: 100n,
       revision: 'revision-1'
     });
+    expect(transaction.initiateSendTransaction.mock.calls[0]![8]).toBe('https://miden.xyz');
   });
 
   it('denies an approved send when the origin disconnected while confirmation was open', async () => {
@@ -1013,13 +1016,14 @@ describe('Full confirmation cycles in extension mode', () => {
     // and answer the dApp with a previous attempt's Failed row id.
     const sdk = require('lib/miden/transaction');
     expect(sdk.initiateConsumeTransactionFromId.mock.calls[0][3]).toBe(true);
+    expect(sdk.initiateConsumeTransactionFromId.mock.calls[0][4]).toBe('https://miden.xyz');
   });
 
   it('requestConsumeTransaction refuses a note another transaction holds rather than answer with it', async () => {
     // As the real call: a dApp's request is refused, the wallet's own claim is answered with the holding row.
     const sdk = require('lib/miden/transaction');
     sdk.initiateConsumeTransactionFromId.mockImplementationOnce(async (...args: unknown[]) => {
-      if (args[4] === true) throw new Error('This note is being consumed by another transaction');
+      if (typeof args[4] === 'string') throw new Error('This note is being consumed by another transaction');
       return 'other-dapp-transaction';
     });
     const request: MidenDAppConsumeRequest = {
@@ -1148,6 +1152,23 @@ describe('Full confirmation cycles in extension mode', () => {
         { confirmed: true, delegate: false }
       )
     ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+  });
+
+  it('requestTransaction hands the requesting origin to requestCustomTransaction', async () => {
+    const sdk = require('lib/miden/transaction');
+    await driveConfirmation(
+      () =>
+        dapp.requestTransaction('https://miden.xyz', {
+          type: MidenDAppMessageType.TransactionRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: {
+            payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'b64req' }
+          }
+        } as never),
+      MidenMessageType.DAppTransactionConfirmationRequest,
+      { confirmed: true, delegate: false }
+    );
+    expect(sdk.requestCustomTransaction.mock.calls[0]![8]).toBe('https://miden.xyz');
   });
 
   it('requestTransaction rejects with InvalidParams when requestCustomTransaction throws inside the confirmed branch', async () => {
@@ -1536,7 +1557,7 @@ describe('Full confirmation cycles in extension mode', () => {
     it('refuses a carried note another transaction holds rather than answer with it', async () => {
       carryRawNote(() => sdkNote('note-1'));
       transaction().initiateConsumeTransactionFromId.mockImplementationOnce(async (...args: unknown[]) => {
-        if (args[4] === true) throw new Error('This note is being consumed by another transaction');
+        if (typeof args[4] === 'string') throw new Error('This note is being consumed by another transaction');
         return 'other-dapp-transaction';
       });
 

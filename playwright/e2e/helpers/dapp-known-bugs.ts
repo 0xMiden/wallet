@@ -57,13 +57,6 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
       (evidence.dappError?.message ?? '').includes('Wallet is locked')
   },
   {
-    id: 'K7',
-    title: 'waitForTransaction has no session or origin gate',
-    tracking: '0xMiden/wallet#1416 (open)',
-    cells: on(['M7'], BOTH),
-    signature: ({ source, evidence }) => source === 'hard' && evidence.crossOriginWaitServed === true
-  },
-  {
     id: 'K10',
     title: 'A note imported details-only or bare cannot be consumed or listed by the id its import returned',
     tracking: '0xMiden/wallet#1389 (open)',

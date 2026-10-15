@@ -49,6 +49,10 @@
 
   // Pending requests waiting for responses
   const pendingRequests = new Map();
+  // Random per document: the wallet can answer after a same-origin reload, and the next document's requests must not
+  // match an answer meant for the one before it (#1416).
+  const requestPrefix =
+    'req_' + Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('') + '_';
   let requestId = 0;
 
   // Store original hash to restore after signaling
@@ -109,7 +113,7 @@
   // Send a request to the wallet
   function request(payload) {
     return new Promise((resolve, reject) => {
-      const reqId = 'req_' + ++requestId;
+      const reqId = requestPrefix + ++requestId;
       pendingRequests.set(reqId, { resolve, reject });
 
       const message = {

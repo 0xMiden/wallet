@@ -747,6 +747,14 @@ export interface ITransaction {
    * which hold nothing.
    */
   heldNoteIds?: string[];
+  /**
+   * The dApp origins this wallet answered with this row's id, exactly as `processDApp` received them: the origin that
+   * created it, and any origin whose consume request the dedup answered with it. Only these may wait on the row's
+   * result, and only while they hold a session on its account (`waitForTransaction`, #1416). Absent on every row the
+   * wallet made itself and on rows written before it existed, which no dApp may wait on. Not indexed; backups neither
+   * carry nor restore it.
+   */
+  dappOrigins?: string[];
   outputNoteIds?: string[];
   /** The private output notes a custom row owes the relay, all of which its `noteDelivery` covers; see `relayNoteIdsOf`. */
   relayNoteIds?: string[];
@@ -1012,6 +1020,8 @@ export class Transaction implements ITransaction {
   inputNoteIds?: string[];
   /** See `ITransaction.heldNoteIds`. */
   heldNoteIds?: string[];
+  /** See `ITransaction.dappOrigins`. */
+  dappOrigins?: string[];
   outputNoteIds?: string[];
   /** Per-faucet value leaving the account. See `ITransaction.spentAssetTotals`. */
   spentAssetTotals?: IConsumedAssetTotal[];
@@ -1068,6 +1078,8 @@ export class SendTransaction implements ITransaction {
   displayMessage?: string;
   displayIcon: ITransactionIcon;
   delegateTransaction?: boolean;
+  /** See `ITransaction.dappOrigins`. */
+  dappOrigins?: string[];
   extraInputs: { recallBlocks?: number } = {
     recallBlocks: undefined
   };
@@ -1132,6 +1144,8 @@ export class ConsumeTransaction implements ITransaction {
   consumedNotes?: IConsumedNote[];
   /** See `ITransaction.rotationFunding`. */
   rotationFunding?: true;
+  /** See `ITransaction.dappOrigins`. */
+  dappOrigins?: string[];
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;

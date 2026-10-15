@@ -1050,7 +1050,9 @@ export async function processDApp(
       return withInited(() => getDappQueue().add(() => requestConsumableNotes(origin, req, sessionId)));
 
     case MidenDAppMessageType.WaitForTransactionRequest:
-      return withInited(() => waitForTransaction(req));
+      // Off the dApp queue, which runs one request at a time: a wait lasts up to five minutes. Under `withInited` only,
+      // so a dApp's wait on its own transaction survives an auto-lock (#1416).
+      return withInited(() => waitForTransaction(origin, req));
   }
 }
 

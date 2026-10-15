@@ -112,7 +112,7 @@ describe('useDesktopDappHandler', () => {
       'https://dapp.example'
     );
     // The backend response is sent straight back to the dApp window.
-    expect(mockSendDappWalletResponse).toHaveBeenCalledWith(backendResponse);
+    expect(mockSendDappWalletResponse).toHaveBeenCalledWith(backendResponse, 'https://dapp.example');
   });
 
   it('sends an error response with the Error message when the backend throws an Error', async () => {
@@ -126,11 +126,14 @@ describe('useDesktopDappHandler', () => {
       await callback(sampleRequest, 'https://dapp.example');
     });
 
-    expect(mockSendDappWalletResponse).toHaveBeenCalledWith({
-      type: 'MIDEN_PAGE_ERROR_RESPONSE',
-      reqId: 'req-123',
-      error: 'backend boom'
-    });
+    expect(mockSendDappWalletResponse).toHaveBeenCalledWith(
+      {
+        type: 'MIDEN_PAGE_ERROR_RESPONSE',
+        reqId: 'req-123',
+        error: 'backend boom'
+      },
+      'https://dapp.example'
+    );
   });
 
   it('sends an "Unknown error" response when the backend throws a non-Error', async () => {
@@ -145,11 +148,14 @@ describe('useDesktopDappHandler', () => {
       await callback(sampleRequest, 'https://dapp.example');
     });
 
-    expect(mockSendDappWalletResponse).toHaveBeenCalledWith({
-      type: 'MIDEN_PAGE_ERROR_RESPONSE',
-      reqId: 'req-123',
-      error: 'Unknown error'
-    });
+    expect(mockSendDappWalletResponse).toHaveBeenCalledWith(
+      {
+        type: 'MIDEN_PAGE_ERROR_RESPONSE',
+        reqId: 'req-123',
+        error: 'Unknown error'
+      },
+      'https://dapp.example'
+    );
   });
 
   it('fails silently when listener setup rejects and cleans up without an unsubscribe', async () => {

@@ -2243,7 +2243,7 @@ describe('actions', () => {
       const req = { type: MidenDAppMessageType.WaitForTransactionRequest, txId: 'tx-123' };
       const result = await processDApp('https://example.com', req as any);
 
-      expect(waitForTransaction).toHaveBeenCalledWith(req);
+      expect(waitForTransaction).toHaveBeenCalledWith('https://example.com', req);
       expect(result).toEqual({ status: 'completed' });
     });
 
