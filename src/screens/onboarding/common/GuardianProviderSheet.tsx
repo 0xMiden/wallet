@@ -18,7 +18,8 @@ const GUARDIAN_OPERATOR_COPY: Record<string, { aboutKey: string; kindKey: string
   'open-zeppelin': { aboutKey: 'guardianAboutOpenZeppelin', kindKey: 'guardianKindOpenZeppelin' },
   gateway: { aboutKey: 'guardianAboutGateway', kindKey: 'guardianKindGateway' },
   'lambda-class': { aboutKey: 'guardianAboutLambdaClass', kindKey: 'guardianKindLambdaClass' },
-  kodax: { aboutKey: 'guardianAboutKodax', kindKey: 'guardianKindKodax' }
+  kodax: { aboutKey: 'guardianAboutKodax', kindKey: 'guardianKindKodax' },
+  para: { aboutKey: 'guardianAboutPara', kindKey: 'guardianKindPara' }
 };
 
 export const guardianOperatorCopy = (id: string) =>

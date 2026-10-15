@@ -175,11 +175,8 @@ describe('GuardianProviderSheet', () => {
     expect(card(KODA.endpoint)).toHaveTextContent('guardianKindKodax · Asia (SK)');
   });
 
-  it('has words for every operator the wallet ships but Para', () => {
+  it('has words for every operator the wallet ships', () => {
     const { GUARDIAN_OPTIONS } = jest.requireActual('lib/miden-chain/networks-config');
-    // Para's words come only from its config document; without one the sheet shows its operatedBy.
-    const withCopy = (GUARDIAN_OPTIONS as { id: string }[]).filter(option => option.id !== 'para');
-    for (const option of withCopy) expect(guardianOperatorCopy(option.id)).toBeDefined();
-    expect(guardianOperatorCopy('para')).toBeUndefined();
+    for (const option of GUARDIAN_OPTIONS as { id: string }[]) expect(guardianOperatorCopy(option.id)).toBeDefined();
   });
 });
