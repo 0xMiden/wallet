@@ -14,7 +14,7 @@ import { Pill } from 'components/ui/Pill';
 import { Spinner } from 'components/ui/Spinner';
 import { TextAction } from 'components/ui/TextAction';
 import { TextField } from 'components/ui/TextField';
-import { getGuardianEndpointsForNetwork } from 'lib/miden-chain/constants';
+import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { isValidGuardianUrl, sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
 
@@ -58,9 +58,10 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
 }) => {
   const { t } = useTranslation();
 
-  // The network's default operator, as the list stood when the screen opened: a document that lands later must
-  // not rewrite a field the user may already have read. A network with none starts on the public account.
-  const [defaultEndpoint] = useState<string>(() => getGuardianEndpointsForNetwork(network)[0] ?? '');
+  // The first entry of the list discovery probes (the network's operators, then its own custom Guardian), as it stood
+  // when the screen opened: a document that lands later must not rewrite a field the user may already have read. A
+  // network with none starts on the public account.
+  const [defaultEndpoint] = useState<string>(() => getGuardianOptionsForNetwork(network)[0]?.endpoint ?? '');
   const guardianIsDefault = defaultEndpoint !== '';
   const [selected, setSelected] = useState<WalletType>(
     guardianIsDefault || guardianOnly ? WalletType.Guardian : WalletType.OnChain

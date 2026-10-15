@@ -21,9 +21,12 @@ jest.mock('react-i18next', () => ({
 // below. The mainnet cases set it, as a stored network choice does.
 const DEFAULT_NETWORK = MIDEN_NETWORK_NAME.TESTNET;
 let mockEffectiveNetwork: MIDEN_NETWORK_NAME = MIDEN_NETWORK_NAME.TESTNET;
+// The developer's custom Guardian, set while the effective network is the one it belongs to.
+let mockCustomGuardian = '';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getEffectiveNetworkName: () => mockEffectiveNetwork
+  getEffectiveNetworkName: () => mockEffectiveNetwork,
+  getEffectiveGuardianUrl: () => mockCustomGuardian
 }));
 
 // Leaf UI components pull in framer-motion / Capacitor haptics /
@@ -84,6 +87,7 @@ const selectOnChain = () => fireEvent.click(screen.getByText('importPublicAccoun
 beforeEach(() => {
   jest.clearAllMocks();
   mockEffectiveNetwork = MIDEN_NETWORK_NAME.TESTNET;
+  mockCustomGuardian = '';
 });
 
 afterEach(() => {
@@ -649,6 +653,32 @@ describe('on a network that lists no Guardian operator', () => {
     expect(screen.getByRole('radio', { name: 'importViaGuardian' })).toHaveAttribute('aria-checked', 'true');
     expect(document.body.textContent).not.toContain(DEFAULT_ENDPOINT);
     expect(continueButton()).toBeDisabled();
+  });
+
+  it('starts on the custom Guardian set on mainnet, and Continue submits it', () => {
+    mockEffectiveNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    mockCustomGuardian = 'https://custom.guardian.example';
+    const { onSubmit } = renderScreen({ probe: { status: 'idle' } });
+
+    expect(screen.getByRole('radio', { name: 'importViaGuardian' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /Custom/ })).toHaveAttribute('aria-checked', 'true');
+
+    fireEvent.click(continueButton());
+    expect(onSubmit).toHaveBeenCalledWith({
+      walletType: WalletType.Guardian,
+      guardianEndpoint: 'https://custom.guardian.example'
+    });
+  });
+
+  it('leaves a recovery the host names as mainnet on the public account when the custom Guardian is on testnet', () => {
+    mockCustomGuardian = 'https://custom.guardian.example';
+    const { onSubmit } = renderScreen({ probe: { status: 'idle' }, network: MIDEN_NETWORK_NAME.MAINNET });
+
+    expect(screen.getByRole('radio', { name: 'importPublicAccount' })).toHaveAttribute('aria-checked', 'true');
+    expect(document.body.textContent).not.toContain('https://custom.guardian.example');
+
+    fireEvent.click(continueButton());
+    expect(onSubmit).toHaveBeenCalledWith({ walletType: WalletType.OnChain });
   });
 
   it('defaults to the operator mainnet lists, once it lists one', () => {

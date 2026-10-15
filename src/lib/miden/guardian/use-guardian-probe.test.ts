@@ -28,9 +28,12 @@ jest.mock('lib/miden/sdk/derive-seed', () => ({
 
 // A release build's own network is testnet or devnet; mainnet is a stored choice.
 let mockEffectiveNetwork: MIDEN_NETWORK_NAME = MIDEN_NETWORK_NAME.TESTNET;
+// The developer's custom Guardian, set while the effective network is the one it belongs to.
+let mockCustomGuardian = '';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getEffectiveNetworkName: () => mockEffectiveNetwork
+  getEffectiveNetworkName: () => mockEffectiveNetwork,
+  getEffectiveGuardianUrl: () => mockCustomGuardian
 }));
 
 const WORDS = ['abandon', 'abandon', 'about'];
@@ -45,6 +48,7 @@ const result = (endpoint?: string): GuardianDiscoveryResult => ({
 beforeEach(() => {
   jest.clearAllMocks();
   mockEffectiveNetwork = MIDEN_NETWORK_NAME.TESTNET;
+  mockCustomGuardian = '';
   jest.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
@@ -354,6 +358,38 @@ describe('useGuardianProbe network', () => {
       expect.objectContaining({ network: MIDEN_NETWORK_NAME.MAINNET })
     );
   });
+
+  it.each(starters)(
+    'probes for %s at the custom Guardian set on a mainnet that lists no operator',
+    async (_flow, begin, discover) => {
+      mockEffectiveNetwork = MIDEN_NETWORK_NAME.MAINNET;
+      mockCustomGuardian = 'https://custom.guardian.example';
+      setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, []);
+      const { result: hook } = renderHook(() => useGuardianProbe());
+
+      await act(async () => begin(hook.current));
+
+      expect(discover).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ network: MIDEN_NETWORK_NAME.MAINNET })
+      );
+    }
+  );
+
+  it.each(starters)(
+    'starts no probe for %s at a testnet custom Guardian when the host names mainnet',
+    async (_flow, begin, discover) => {
+      mockCustomGuardian = 'https://custom.guardian.example';
+      setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, []);
+      const { result: hook } = renderHook(() => useGuardianProbe(MIDEN_NETWORK_NAME.MAINNET));
+
+      const returned = await act(async () => begin(hook.current));
+
+      expect(returned).toBeUndefined();
+      expect(discover).not.toHaveBeenCalled();
+      expect(hook.current.state).toEqual({ status: 'idle' });
+    }
+  );
 
   it.each(starters)('probes for %s at the testnet operators on testnet', async (_flow, begin, discover) => {
     const { result: hook } = renderHook(() => useGuardianProbe());

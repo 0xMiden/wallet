@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
-import { getGuardianEndpointsForNetwork } from 'lib/miden-chain/constants';
+import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
 import type { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import type { GuardianProbeState } from 'screens/onboarding/types';
@@ -90,8 +90,9 @@ export function useGuardianProbe(network?: MIDEN_NETWORK_NAME): GuardianProbeCon
 
       abortController.current?.abort();
       const probeNetwork = network ?? getEffectiveNetworkName();
-      // A network that lists no operator has nothing to detect, and the recovery screen offers no Guardian default.
-      if (getGuardianEndpointsForNetwork(probeNetwork).length === 0) {
+      // The gate reads the list discovery probes (the network's operators and its own custom Guardian): with none,
+      // there is nothing to detect.
+      if (getGuardianOptionsForNetwork(probeNetwork).length === 0) {
         abortController.current = null;
         setState({ status: 'idle' });
         return undefined;
