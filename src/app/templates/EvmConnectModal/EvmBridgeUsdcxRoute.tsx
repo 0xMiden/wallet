@@ -12,7 +12,10 @@ export interface EvmBridgeUsdcxRouteProps {
   confirmDisabled?: boolean;
   /** Padding classes for the confirm-button footer. Same default as the Fast/Slow route step. */
   footerClassName?: string;
-  /** The hint under the card; the executor route replaces the xReserve one with its own. */
+  /**
+   * The hint under the card: why the balance holds Confirm when it does, else the executor route's own in place of
+   * the xReserve one.
+   */
   notice?: string;
   /** The card's fee line, already formatted; the executor route shows Circle's quoted fee. Defaults to no fee. */
   fee?: string;

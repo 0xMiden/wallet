@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
@@ -30,10 +30,12 @@ const DEDUPING_INTERVAL = 10_000;
  * loading state drive a skeleton. This avoids flashing a row with the wrong
  * tokenId while discovery is in flight on first install.
  */
-function buildDefaultZeroBalance(tokenPrices: TokenPrices): TokenBalanceData[] {
-  const midenFaucetId = getNativeAssetIdSync();
+function buildDefaultZeroBalance(
+  tokenPrices: TokenPrices,
+  midenFaucetId: string | null,
+  nativeMetadata: AssetMetadata
+): TokenBalanceData[] {
   if (!midenFaucetId) return [];
-  const nativeMetadata = getNativeDisplayMetadataSync();
   return [
     {
       tokenId: midenFaucetId,
@@ -62,7 +64,15 @@ export function useAllBalances(address: string, tokenMetadatas: Record<string, A
   // Derive values with stable defaults
   // Show 0 MIDEN immediately before any async lookup completes — only once
   // the native asset ID has been learned, otherwise show `[]` (skeleton).
-  const balances = balancesMap[address] ?? buildDefaultZeroBalance(tokenPrices);
+  const midenFaucetId = getNativeAssetIdSync();
+  const { symbol, name, decimals, scaleIsUnknown } = getNativeDisplayMetadataSync();
+  // The same array while its inputs hold: Send's amount check sets state in an effect on the rows,
+  // so a new array per render loops it until a read lands.
+  const defaultZeroBalance = useMemo(
+    () => buildDefaultZeroBalance(tokenPrices, midenFaucetId, { symbol, name, decimals, scaleIsUnknown }),
+    [tokenPrices, midenFaucetId, symbol, name, decimals, scaleIsUnknown]
+  );
+  const balances = balancesMap[address] ?? defaultZeroBalance;
   const balancesLastFetched = balancesLastFetchedMap[address] ?? 0;
   // Consider loading if: explicitly loading OR never fetched yet
   const balancesLoading = balancesLoadingMap[address] ?? balancesLastFetched === 0;

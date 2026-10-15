@@ -261,6 +261,8 @@ export interface WalletActions {
 export interface BalanceActions {
   fetchBalances: (accountAddress: string, tokenMetadatas: Record<string, AssetMetadata>) => Promise<void>;
   setBalancesLoading: (accountAddress: string, isLoading: boolean) => void;
+  /** Drops every address's balances, loading flag and last fetch, so each reader waits for a new read. */
+  clearBalances: () => void;
 }
 
 export interface AssetActions {

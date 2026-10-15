@@ -129,6 +129,18 @@ const mockRetireGuardianSyncPasses = jest.fn();
 jest.mock('lib/miden/front/guardian-sync', () => ({
   retireGuardianSyncPasses: () => mockRetireGuardianSyncPasses()
 }));
+// The durable-write half of the same retirement; spied so the save's order can be read off the calls.
+const mockRetireGuardianWrites = jest.fn();
+jest.mock('lib/miden/sync-backoff', () => ({
+  ...jest.requireActual<typeof import('lib/miden/sync-backoff')>('lib/miden/sync-backoff'),
+  retireGuardianWritesForEndpointChange: () => mockRetireGuardianWrites()
+}));
+
+// The save rebuilds this realm's client on mobile and desktop; spied, since the rebuild is the client module's.
+const mockResetMidenClient = jest.fn();
+jest.mock('lib/miden/sdk/miden-client', () => ({
+  resetMidenClient: () => mockResetMidenClient()
+}));
 
 // The save has the bridge config follow the new network in this realm; spied, since the load itself is the runtime's.
 const mockFollowEffectiveNetwork = jest.fn();
@@ -147,7 +159,12 @@ const reloadEndpointOverridesInSW = jest.fn();
 // to idle (no wallet) so the existing extension/non-extension save tests, which predate
 // this gate, keep exercising the "onboarding" case unchanged; a dedicated test below
 // flips it to Ready.
-const mockWalletState: { status: number } = { status: 0 };
+// The save drops every cached balance in this realm; spied, since what the drop does is the store's.
+const mockClearBalances = jest.fn();
+const mockWalletState: { status: number; clearBalances: () => void } = {
+  status: 0,
+  clearBalances: () => mockClearBalances()
+};
 jest.mock('lib/store', () => {
   const { WalletStatus } = jest.requireActual('lib/shared/types');
   return {
@@ -211,7 +228,8 @@ beforeEach(() => {
     applyEndpointOverride,
     clearEndpointOverride,
     resetStorageDestructive,
-    reloadEndpointOverridesInSW
+    reloadEndpointOverridesInSW,
+    mockResetMidenClient
   ]) {
     service.mockReset().mockResolvedValue(undefined);
   }
@@ -219,6 +237,7 @@ beforeEach(() => {
   mockHealthStatus.value = 'idle';
   mockIsExtension.value = false;
   mockWalletState.status = WalletStatus.Idle;
+  mockClearBalances.mockReset();
   confirm.mockResolvedValue(true);
   mockUseConfirm.mockReturnValue(confirm);
   alert = jest.fn().mockResolvedValue(undefined);
@@ -291,6 +310,91 @@ describe('DeveloperSettings', () => {
 
     await screen.findByRole('alert');
     expect(mockFollowEffectiveNetwork).not.toHaveBeenCalled();
+  });
+
+  it('drops the cached balances once the override is applied, since every one was read from the OLD node', async () => {
+    const order: string[] = [];
+    applyEndpointOverride.mockImplementationOnce(async () => {
+      order.push('apply');
+    });
+    mockClearBalances.mockImplementationOnce(() => {
+      order.push('clear');
+    });
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(mockClearBalances).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['apply', 'clear']);
+  });
+
+  it('keeps the cached balances and the client when the endpoint write fails', async () => {
+    applyEndpointOverride.mockRejectedValueOnce(new Error('quota exceeded'));
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await screen.findByRole('alert');
+    expect(mockClearBalances).not.toHaveBeenCalled();
+    expect(mockResetMidenClient).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds the client once the old node is retired and before the balances drop, without waiting for it', async () => {
+    // Never settles: a reset queued behind a long hold must not keep the save from navigating.
+    armIdleSyncFuse();
+    let fusedWhenResetStarted: boolean | undefined;
+    mockResetMidenClient.mockImplementation(() => {
+      fusedWhenResetStarted = isSyncFused('idle-sync');
+      return new Promise<void>(() => undefined);
+    });
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(mockResetMidenClient).toHaveBeenCalledTimes(1);
+    expect(mockRetireGuardianSyncPasses).toHaveBeenCalledTimes(1);
+    expect(mockRetireGuardianWrites).toHaveBeenCalledTimes(1);
+    expect(fusedWhenResetStarted).toBe(false);
+    const [resetAt] = mockResetMidenClient.mock.invocationCallOrder;
+    if (resetAt === undefined) throw new Error('the save never started the client reset');
+    expect(applyEndpointOverride.mock.invocationCallOrder[0]).toBeLessThan(resetAt);
+    expect(mockRetireGuardianSyncPasses.mock.invocationCallOrder[0]).toBeLessThan(resetAt);
+    expect(mockRetireGuardianWrites.mock.invocationCallOrder[0]).toBeLessThan(resetAt);
+    expect(mockClearBalances.mock.invocationCallOrder[0]).toBeGreaterThan(resetAt);
+  });
+
+  it('logs a client rebuild that fails, and still saves', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation();
+    const failure = new Error('dispose failed');
+    mockResetMidenClient.mockRejectedValueOnce(failure);
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(warn).toHaveBeenCalledWith(expect.any(String), failure));
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('neither rebuilds the client nor drops the balances on the extension once a wallet exists', async () => {
+    // The worker keeps the old network until a reload, and its balances are the ones a send spends.
+    mockIsExtension.value = true;
+    mockWalletState.status = WalletStatus.Ready;
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(mockClearBalances).not.toHaveBeenCalled();
+    expect(mockResetMidenClient).not.toHaveBeenCalled();
+  });
+
+  it('drops the balances but leaves the client to the worker on the extension before a wallet exists', async () => {
+    mockIsExtension.value = true;
+    mockWalletState.status = WalletStatus.Idle;
+    render(<DeveloperSettings />);
+    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(mockClearBalances).toHaveBeenCalledTimes(1);
+    expect(mockResetMidenClient).not.toHaveBeenCalled();
   });
 
   it('stops the spinner and shows an error when the endpoint write fails, and stays on the screen', async () => {

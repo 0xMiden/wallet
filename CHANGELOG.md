@@ -12,6 +12,7 @@
 
 - [FIX][all] The bridge route screen shows a service-down notice under the route it belongs to, so a working Slow route no longer looks unavailable when Fast is down (#1428).
 - [FIX][all] A bridge-in deposit that needs two wallet confirmations says so: from signing the token approval until answering the bridge request, the progress screen reads "Waiting for the next wallet confirmation" instead of copy that looks finished, and the processing text now says the wallet may ask more than once (#1290).
+- [FIX][all] A bridge-in amount above the token balance is refused before any wallet prompt: the amount step holds Continue until the balance is read and covers the amount (Fast also checks its quoted deposit), and each route reads the balance again right before its first prompt and fails with a message naming what the wallet holds, instead of approving a deposit the bridge then reverts (#1431).
 - [FIX][all] A dApp request for an account that is not the one currently open in Bread is refused before any approval popup or data read, instead of asking the user to approve a request for another account. A request approved after the open account changed or the dApp was disconnected is refused too.
 - [FIX][all] Every Guardian proposal syncs the chain right before it is built, so one that waits out a busy Guardian or a paused app no longer fails with `before_foreign_load` once the node has pruned the old block.
 - [FIX][all] A dApp consume request that carries the note's bytes now imports the note when the user approves it, so a dApp-supplied private note is claimed in one approval instead of needing a separate import approval first.
@@ -29,6 +30,7 @@
 
 ### Features
 
+- [FEATURE][all] Send automatically selects the only visible token with a positive spendable balance and known scale for the selected destination. Explicit token links, restored drafts and manual choices take priority; loading and account or network changes cannot carry an automatic choice across contexts (#1454).
 - [FEATURE][all] Read bridge routes, service URLs, and contract addresses from the remote configuration for each EVM chain. Keep Earn under its own switch and read its market from Epoch. Use the listed chains for wallet connections, and keep saved transfer data for recovery after a route is disabled or changed.
 
 ### Changes

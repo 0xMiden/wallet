@@ -6,12 +6,12 @@ import { Icon, IconName } from 'app/icons/v2';
 import { Notice } from 'components/ui/Notice';
 import { BridgeNetwork, DEFAULT_BRIDGE_NETWORK } from 'screens/send-flow/bridge-networks';
 import { SelectAmount } from 'screens/send-flow/SelectAmount';
-import { UIToken } from 'screens/send-flow/types';
+import { UITokenWithPendingBalance } from 'screens/send-flow/types';
 
 import { EvmWalletHeader } from './EvmWalletHeader';
 
 interface EvmBridgeDepositFormProps {
-  token: UIToken;
+  token: UITokenWithPendingBalance;
   /** The source network. Defaults to Sepolia; the USDCx route passes the chosen source chain. */
   network?: BridgeNetwork;
   /** The token's name, such as the testnet label (`evmUsdcLabel`). */
