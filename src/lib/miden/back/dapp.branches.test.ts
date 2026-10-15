@@ -68,9 +68,17 @@ jest.mock('lib/miden/spending-limits/queue', () => ({
 let currentAccountPublicKey = 'miden-account-1';
 // Steerable for the Idle case; `'Ready'` is the string every other suite in this family uses.
 let mockWalletStatus: unknown = 'Ready';
+const mockStoreListeners = new Set<(state: unknown) => void>();
 jest.mock('lib/miden/back/store', () => ({
   store: {
-    getState: () => ({ currentAccount: { publicKey: currentAccountPublicKey }, status: mockWalletStatus })
+    getState: () => ({ currentAccount: { publicKey: currentAccountPublicKey }, status: mockWalletStatus }),
+    // Drives `waitForUnlock`: `unlockWallet()` notifies these the way the real store's updates do.
+    updates: {
+      watch: (listener: (state: unknown) => void) => {
+        mockStoreListeners.add(listener);
+        return () => mockStoreListeners.delete(listener);
+      }
+    }
   },
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
 }));
@@ -223,6 +231,22 @@ jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
 // ─── Import under test ───────────────────────────────────────────────
 
 import * as dapp from './dapp';
+import { WALLET_LOCKED_REFUSAL } from './dapp-locked';
+
+const UNLOCKED_CONTEXT = { vault: { signData: mockSignData } };
+
+const lockWallet = () => {
+  mockWalletStatus = WalletStatus.Locked;
+  mockWithUnlocked.mockImplementation(async () => {
+    throw Object.assign(new Error('Wallet is locked'), { reason: 'locked' });
+  });
+};
+
+const unlockWallet = () => {
+  mockWalletStatus = WalletStatus.Ready;
+  mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn(UNLOCKED_CONTEXT));
+  for (const listener of [...mockStoreListeners]) listener({ status: WalletStatus.Ready });
+};
 
 const STORAGE_KEY = 'dapp_sessions';
 
@@ -237,6 +261,9 @@ const SESSION = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockWalletStatus = 'Ready';
+  mockStoreListeners.clear();
+  mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn(UNLOCKED_CONTEXT));
   for (const k of Object.keys(storageState)) delete storageState[k];
   storageState[STORAGE_KEY] = { 'https://miden.xyz': [SESSION] };
   mockGetCurrentAccountPublicKey.mockResolvedValue('miden-account-1');
@@ -1405,7 +1432,7 @@ describe('requests for an account that is not the current one (#1419)', () => {
     expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
   });
 
-  it('reaches the popup while the wallet is locked when the stored current account matches', async () => {
+  it('refuses an approval when the store holds no current account, though the stored one matches', async () => {
     currentAccountPublicKey = undefined as unknown as string;
     try {
       mockGetCurrentAccountPublicKey.mockResolvedValue(ACCOUNT_A);
@@ -1444,9 +1471,6 @@ describe('a locked wallet (#1414)', () => {
 
   afterEach(() => {
     mockWalletStatus = 'Ready';
-    mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) =>
-      fn({ vault: { signData: mockSignData } })
-    );
   });
 
   const writes: Record<string, () => Promise<unknown>> = {
@@ -1484,10 +1508,68 @@ describe('a locked wallet (#1414)', () => {
       } as never)
   };
 
-  it.each(['send', 'custom', 'consume'])('refuses %s NOT_GRANTED: Wallet is locked, with no sheet', async name => {
-    lockGate();
-    await expect(writes[name]!()).rejects.toThrow(new Error('NOT_GRANTED: Wallet is locked'));
+  it.each(['send', 'custom', 'consume'])('%s waits for the unlock, then posts its sheet', async name => {
+    mockInitiateSendTransaction.mockResolvedValue('tx-s');
+    mockRequestCustomTransaction.mockResolvedValue('tx-c');
+    mockInitiateConsumeTransactionFromId.mockResolvedValue('tx-n');
+    lockWallet();
+    const call = writes[name]!();
+    await new Promise(r => setTimeout(r, 0));
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    unlockWallet();
+    await expect(call).resolves.toEqual(expect.objectContaining({ transactionId: expect.any(String) }));
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['send', 'custom', 'consume'])(
+    '%s refuses NOT_GRANTED: Wallet is locked when the wait runs out, with no sheet',
+    async name => {
+      jest.useFakeTimers();
+      try {
+        lockWallet();
+        const outcome = writes[name]!().then(
+          () => 'resolved',
+          (err: Error) => err.message
+        );
+        await jest.advanceTimersByTimeAsync(120_000);
+        await expect(outcome).resolves.toBe(WALLET_LOCKED_REFUSAL);
+        expect(mockRequestConfirmation).not.toHaveBeenCalled();
+      } finally {
+        jest.useRealTimers();
+      }
+    }
+  );
+
+  it.each(['connect', 'send', 'custom', 'consume'])('bounds a %s sheet no renderer answers', async name => {
+    jest.useFakeTimers();
+    try {
+      mockRequestConfirmation.mockImplementation(() => new Promise(() => {}));
+      const start =
+        name === 'connect'
+          ? () =>
+              dapp.requestPermission(ORIGIN, {
+                type: MidenDAppMessageType.PermissionRequest,
+                appMeta: { name: 'Miden Test', url: ORIGIN },
+                force: true,
+                network: 'testnet',
+                privateDataPermission: 'UPON_REQUEST',
+                allowedPrivateData: 0
+              } as never)
+          : writes[name]!;
+      const outcome = start().then(
+        () => 'resolved',
+        (err: Error) => err.message
+      );
+      // The preview may use timers of its own (the consume fee lookup); the watchdog starts when the sheet is posted.
+      for (let i = 0; i < 60 && mockRequestConfirmation.mock.calls.length === 0; i++) {
+        await jest.advanceTimersByTimeAsync(1_000);
+      }
+      expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+      await jest.advanceTimersByTimeAsync(120_000);
+      await expect(outcome).resolves.toContain(MidenDAppErrorType.NotGranted);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it.each(Object.keys(writes))(
