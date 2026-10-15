@@ -306,7 +306,9 @@ export async function requestPermission(
   // PR-4 chunk 8: optional multi-instance session id, threaded into the
   // confirmation store so the React modal can route the prompt to the
   // matching foreground session.
-  sessionId?: string
+  sessionId?: string,
+  // Internal, never from the dApp: the re-entry after an unlock keeps the request's one deadline.
+  waits: UnlockWaits = {}
 ): Promise<MidenDAppPermissionResponse> {
   dappDebug('[requestPermission] Called with origin:', origin);
   dappDebug('[requestPermission] Request:', JSON.stringify(req));
@@ -333,8 +335,8 @@ export async function requestPermission(
     if (store.getState().status === WalletStatus.Locked) {
       if (!isExtension()) {
         // The app's own lock screen is the Unlock step here; once unlocked, the request runs as it would have.
-        if (!(await waitForUnlockOnNonExtension(origin))) throw lockedRefusal();
-        return requestPermission(origin, req, sessionId);
+        if (!(await waitForUnlockOnNonExtension(origin, waits))) throw lockedRefusal();
+        return requestPermission(origin, req, sessionId, waits);
       }
       dappLog('[requestPermission] PATH: existing permission but wallet LOCKED, going through confirmation');
       return generatePromisifyRequestPermission(
@@ -369,7 +371,8 @@ export async function requestPermission(
     !!dApp,
     req.privateDataPermission,
     req.allowedPrivateData,
-    sessionId
+    sessionId,
+    waits
   );
 }
 
@@ -382,12 +385,13 @@ export async function generatePromisifyRequestPermission(
   privateDataPermission?: PrivateDataPermission,
   allowedPrivateData?: AllowedPrivateData,
   // PR-4 chunk 8: optional multi-instance session id.
-  sessionId?: string
+  sessionId?: string,
+  waits: UnlockWaits = {}
 ): Promise<MidenDAppPermissionResponse> {
   dappDebug('[generatePromisifyRequestPermission] Called, isExtension:', isExtension());
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
-    if (isStoreLocked() && !(await waitForUnlockOnNonExtension(origin))) {
+    if (isStoreLocked() && !(await waitForUnlockOnNonExtension(origin, waits))) {
       throw lockedRefusal();
     }
     const id = nanoid();
@@ -396,7 +400,7 @@ export async function generatePromisifyRequestPermission(
 
     // Request confirmation from the user via the confirmation store
     dappLog(`[DApp] About to call requestConfirmation, store instance: ${dappConfirmationStore.getInstanceId()}`);
-    const result = await requestConfirmationWithWatchdog({
+    const result = await requestConfirmationWithWatchdog(waits.deadline, {
       id,
       sessionId,
       type: 'connect',
@@ -538,10 +542,14 @@ export async function generatePromisifyRequestPermission(
 }
 
 /**
- * Posts a confirmation on mobile or desktop and waits for the user's answer, bounded like the extension popup.
+ * Posts a confirmation on mobile or desktop and waits for the user's answer, bounded like the extension popup: a full
+ * AUTODECLINE_AFTER, within what `deadline` leaves when the request waited for an unlock first.
  * Every non-extension sheet goes through here (#1414).
  */
-async function requestConfirmationWithWatchdog(request: DAppConfirmationRequest): Promise<DAppConfirmationResult> {
+async function requestConfirmationWithWatchdog(
+  deadline: number | undefined,
+  request: DAppConfirmationRequest
+): Promise<DAppConfirmationResult> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -560,7 +568,7 @@ async function requestConfirmationWithWatchdog(request: DAppConfirmationRequest)
             dappConfirmationStore.resolveConfirmation(request.sessionId, { confirmed: false });
           }
           resolve({ confirmed: false });
-        }, AUTODECLINE_AFTER);
+        }, timeLeftWithin(deadline));
       })
     ]);
   } finally {
@@ -586,9 +594,10 @@ async function confirmOnNonExtension(
   dApp: MidenDAppSession,
   networkRpc: string,
   detailMessages: string[],
-  sessionId?: string
+  sessionId: string | undefined,
+  deadline: number | undefined
 ): Promise<boolean> {
-  const result = await requestConfirmationWithWatchdog({
+  const result = await requestConfirmationWithWatchdog(deadline, {
     id: nanoid(),
     sessionId,
     type,
@@ -697,7 +706,8 @@ const generatePromisifySign = async (
   if (!isExtension()) {
     try {
       // The sheet cannot unlock, and posted while locked it would sit over the lock screen.
-      if (isStoreLocked() && !(await waitForUnlockOnNonExtension(origin))) {
+      const waits: UnlockWaits = {};
+      if (isStoreLocked() && !(await waitForUnlockOnNonExtension(origin, waits))) {
         reject(lockedRefusal());
         return;
       }
@@ -707,7 +717,8 @@ const generatePromisifySign = async (
         dApp,
         networkRpc,
         await formatSignPreview(req),
-        sessionId
+        sessionId,
+        waits.deadline
       );
       if (!confirmed) {
         reject(new Error(MidenDAppErrorType.NotGranted));
@@ -1320,7 +1331,8 @@ export const generatePromisifyImportPrivateNote = async (
   if (!isExtension()) {
     try {
       // The sheet cannot unlock, and posted while locked it would sit over the lock screen.
-      if (isStoreLocked() && !(await waitForUnlockOnNonExtension(origin))) {
+      const waits: UnlockWaits = {};
+      if (isStoreLocked() && !(await waitForUnlockOnNonExtension(origin, waits))) {
         reject(lockedRefusal());
         return;
       }
@@ -1330,7 +1342,8 @@ export const generatePromisifyImportPrivateNote = async (
         dApp,
         networkRpc,
         [`Account, ${truncateAddress(dApp.accountId)}`],
-        sessionId
+        sessionId,
+        waits.deadline
       );
       if (!confirmed) {
         reject(new Error(MidenDAppErrorType.NotGranted));
@@ -1775,9 +1788,26 @@ async function servePrivateDataRead<T, R>(
   if (prepared === undefined) return;
 
   if (!isExtension()) {
-    const data = await sheetDataOnNonExtension(origin, sourcePublicKey, dApp.accountId, prepared, prepare, reject);
+    const waits: UnlockWaits = {};
+    const data = await sheetDataOnNonExtension(
+      origin,
+      sourcePublicKey,
+      dApp.accountId,
+      prepared,
+      prepare,
+      reject,
+      waits
+    );
     if (data === undefined) return;
-    const confirmed = await confirmOnNonExtension('privateData', origin, dApp, networkRpc, read.lines(data), sessionId);
+    const confirmed = await confirmOnNonExtension(
+      'privateData',
+      origin,
+      dApp,
+      networkRpc,
+      read.lines(data),
+      sessionId,
+      waits.deadline
+    );
     if (!confirmed) {
       reject(new Error(MidenDAppErrorType.NotGranted));
       return;
@@ -1844,13 +1874,25 @@ async function requestUnlockOnly<T>(
   });
 }
 
+// One mobile or desktop request's unlock waits, and the sheet that follows them, share one deadline set by its first
+// wait: LOCKED_PROMPT_CAP_MS, the extension popup's cap over its whole life, so a wallet that locks again after each
+// unlock cannot hold the dApp queue past it. Unset while the request has never waited.
+type UnlockWaits = { deadline?: number };
+
+// A full AUTODECLINE_AFTER, within what the request's deadline leaves.
+function timeLeftWithin(deadline: number | undefined): number {
+  if (deadline === undefined) return AUTODECLINE_AFTER;
+  return Math.max(0, Math.min(AUTODECLINE_AFTER, deadline - Date.now()));
+}
+
 // Mobile and desktop have no Unlock step in their sheet, so the app's own lock screen is that step: a request that met
-// a locked wallet waits for the unlock, bounded like a sheet because the dApp queue is held meanwhile.
-async function waitForUnlockOnNonExtension(origin: string): Promise<boolean> {
+// a locked wallet waits for the unlock, bounded because the dApp queue is held meanwhile.
+async function waitForUnlockOnNonExtension(origin: string, waits: UnlockWaits): Promise<boolean> {
   if (!mayPromptToUnlock(origin)) return false;
+  waits.deadline ??= Date.now() + LOCKED_PROMPT_CAP_MS;
   // The desktop wallet window sits behind the dApp's own, and nothing else raises it while locked.
   if (isDesktop()) void raiseWalletWindow();
-  const isUnlocked = await waitForUnlock(AUTODECLINE_AFTER);
+  const isUnlocked = await waitForUnlock(timeLeftWithin(waits.deadline));
   if (!isUnlocked) noteLockedPromptEnded(origin);
   return isUnlocked;
 }
@@ -1869,11 +1911,12 @@ async function prepareAfterUnlock<T>(
   origin: string,
   sourcePublicKey: string,
   accountId: string,
-  prepare: () => Promise<T>
+  prepare: () => Promise<T>,
+  waits: UnlockWaits = {}
 ): Promise<T> {
   const build = recheckedPrepare(origin, sourcePublicKey, accountId, prepare);
   for (;;) {
-    if (!(await waitForUnlockOnNonExtension(origin))) throw lockedRefusal();
+    if (!(await waitForUnlockOnNonExtension(origin, waits))) throw lockedRefusal();
     const prepared = await runPrepare(build);
     if (!prepared.locked) return prepared.value;
   }
@@ -1887,11 +1930,12 @@ async function sheetDataOnNonExtension<T>(
   accountId: string,
   prepared: Prepared<T>,
   prepare: () => Promise<T>,
-  reject: (reason: unknown) => void
+  reject: (reason: unknown) => void,
+  waits: UnlockWaits
 ): Promise<T | undefined> {
   if (!prepared.locked) return prepared.value;
   try {
-    return await prepareAfterUnlock(origin, sourcePublicKey, accountId, prepare);
+    return await prepareAfterUnlock(origin, sourcePublicKey, accountId, prepare, waits);
   } catch (error) {
     reject(error);
     return undefined;
@@ -2058,18 +2102,20 @@ const generatePromisifyTransaction = async (
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
     dappDebug('[DApp] Non-extension requesting transaction confirmation');
+    const waits: UnlockWaits = {};
     const sheetData = await sheetDataOnNonExtension(
       origin,
       req.sourcePublicKey,
       customTransaction.address,
       prepared,
       prepare,
-      reject
+      reject,
+      waits
     );
     if (sheetData === undefined) return;
     const { transactionMessages, customLimit } = sheetData;
 
-    const result = await requestConfirmationWithWatchdog({
+    const result = await requestConfirmationWithWatchdog(waits.deadline, {
       id,
       sessionId,
       type: 'transaction',
@@ -2308,18 +2354,20 @@ const generatePromisifySendTransaction = async (
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
     dappDebug('[DApp] Non-extension requesting send transaction confirmation');
+    const waits: UnlockWaits = {};
     const sheetData = await sheetDataOnNonExtension(
       origin,
       req.sourcePublicKey,
       senderAddress,
       prepared,
       prepare,
-      reject
+      reject,
+      waits
     );
     if (sheetData === undefined) return;
     const { transactionMessages, spendingLimitDetails } = sheetData;
 
-    const result = await requestConfirmationWithWatchdog({
+    const result = await requestConfirmationWithWatchdog(waits.deadline, {
       id,
       sessionId,
       type: 'transaction',
@@ -2497,18 +2545,20 @@ const generatePromisifyConsumeTransaction = async (
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
     dappDebug('[DApp] Non-extension requesting consume transaction confirmation');
+    const waits: UnlockWaits = {};
     const sheetData = await sheetDataOnNonExtension(
       origin,
       req.sourcePublicKey,
       dApp.accountId,
       prepared,
       prepare,
-      reject
+      reject,
+      waits
     );
     if (sheetData === undefined) return;
     const transactionMessages = sheetData;
 
-    const result = await requestConfirmationWithWatchdog({
+    const result = await requestConfirmationWithWatchdog(waits.deadline, {
       id,
       sessionId,
       type: 'consume',

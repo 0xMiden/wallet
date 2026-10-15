@@ -13,6 +13,7 @@
 
 import { NoteFilterTypes } from '@miden-sdk/miden-sdk/lazy';
 import { WalletAdapterNetwork } from '@miden-sdk/miden-wallet-adapter-base';
+import PQueue from 'p-queue';
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
@@ -556,6 +557,140 @@ describe('mobile and desktop sheets wait for the app to unlock (#1414)', () => {
       expect.objectContaining({ type: MidenDAppMessageType.PermissionResponse, accountId: 'miden-account-1' })
     );
     expect(mockRequestConfirmation).not.toHaveBeenCalled();
+  });
+});
+
+describe("one mobile request's unlock waits and sheet share one 240 s bound (#1414)", () => {
+  const ORIGIN = 'https://miden.xyz';
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    lockWallet();
+    mockGetAccount.mockResolvedValue({
+      getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([1, 2, 3]) }],
+      vault: () => ({ fungibleAssets: () => [] })
+    });
+    mockInitiateSendTransaction.mockResolvedValue('tx-send-1');
+  });
+  afterEach(() => jest.useRealTimers());
+
+  type Outcome = { settled: boolean; message: string };
+  const track = (call: Promise<unknown>): Outcome => {
+    const outcome: Outcome = { settled: false, message: '' };
+    call.then(
+      () => {
+        outcome.settled = true;
+      },
+      (err: Error) => {
+        outcome.settled = true;
+        outcome.message = err.message;
+      }
+    );
+    return outcome;
+  };
+
+  // The rebuild after the unlock meets the lock once more, as when the wallet locks again straight after unlocking.
+  const unlockThenRelock = () => {
+    unlockWallet();
+    lockWallet();
+  };
+
+  // An unlocked send reads its spending-limit policy from Dexie, which settles on real macrotasks the fake clock does
+  // not drive: yield until the sheet is posted, without moving the clock.
+  const untilSheetPosted = async () => {
+    for (let i = 0; i < 50 && mockRequestConfirmation.mock.calls.length === 0; i++) {
+      await jest.advanceTimersByTimeAsync(0);
+    }
+    expect(mockRequestConfirmation).toHaveBeenCalledTimes(1);
+  };
+
+  const read = (): Promise<unknown> =>
+    dapp.requestAssets(ORIGIN, {
+      type: MidenDAppMessageType.AssetsRequest,
+      sourcePublicKey: 'miden-account-1'
+    } as never);
+  const send = (): Promise<unknown> =>
+    dapp.requestSendTransaction(ORIGIN, {
+      type: MidenDAppMessageType.SendTransactionRequest,
+      sourcePublicKey: 'miden-account-1',
+      transaction: {
+        senderAddress: 'miden-account-1',
+        recipientAddress: 'bob',
+        faucetId: 'faucet-1',
+        noteType: 'Private',
+        amount: '100'
+      }
+    } as never);
+  const reconnect = (): Promise<unknown> =>
+    dapp.requestPermission(ORIGIN, {
+      type: MidenDAppMessageType.PermissionRequest,
+      appMeta: { name: 'Miden Test', url: ORIGIN },
+      network: 'testnet'
+    } as never);
+  const sign = (): Promise<unknown> =>
+    dapp.requestSign(ORIGIN, {
+      type: MidenDAppMessageType.SignRequest,
+      sourcePublicKey: 'miden-account-1',
+      sourceAccountId: 'miden-account-1',
+      payload: 'deadbeef',
+      kind: 'word'
+    } as never);
+
+  it.each<[string, () => Promise<unknown>]>([
+    ['an UponRequest read', read],
+    ['a send', send],
+    ['a reconnect', reconnect]
+  ])(
+    'refuses %s that meets the lock after each unlock by 240 s from its first wait, and the queue moves on',
+    async (_name, start) => {
+      const queue = new PQueue({ concurrency: 1 });
+      const outcome = track(queue.add(start));
+      const next = jest.fn(async () => 'next');
+      void queue.add(next);
+
+      await jest.advanceTimersByTimeAsync(100_000);
+      unlockThenRelock();
+      await jest.advanceTimersByTimeAsync(100_000);
+      unlockThenRelock();
+      await jest.advanceTimersByTimeAsync(40_000);
+
+      expect(outcome).toEqual({ settled: true, message: WALLET_LOCKED_REFUSAL });
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(mockRequestConfirmation).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each<[string, () => Promise<unknown>]>([
+    ['an UponRequest read', read],
+    ['a send', send]
+  ])('auto-declines the sheet of %s that waited 200 s for the unlock at 240 s', async (_name, start) => {
+    mockRequestConfirmation.mockImplementation(() => new Promise(() => {}));
+    const outcome = track(start());
+
+    await jest.advanceTimersByTimeAsync(100_000);
+    unlockThenRelock();
+    await jest.advanceTimersByTimeAsync(100_000);
+    unlockWallet();
+    await untilSheetPosted();
+
+    await jest.advanceTimersByTimeAsync(40_000);
+    expect(outcome).toEqual({ settled: true, message: MidenDAppErrorType.NotGranted });
+  });
+
+  it.each<[string, () => Promise<unknown>]>([
+    ['an UponRequest read', read],
+    ['a send', send],
+    ['a sign', sign]
+  ])('keeps a 120 s sheet for %s that never waited', async (_name, start) => {
+    unlockWallet();
+    mockRequestConfirmation.mockImplementation(() => new Promise(() => {}));
+    const outcome = track(start());
+
+    await untilSheetPosted();
+    await jest.advanceTimersByTimeAsync(119_999);
+    expect(outcome.settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(outcome).toEqual({ settled: true, message: MidenDAppErrorType.NotGranted });
   });
 });
 
