@@ -143,7 +143,7 @@ jest.mock('lib/miden/guardian/account', () => ({
 // ── Import under test ─────────────────────────────────────────────
 
 import * as dapp from './dapp';
-import { WALLET_LOCKED_REFUSAL } from './dapp-locked';
+import { _resetLockedPromptCooldownsForTest, WALLET_LOCKED_REFUSAL } from './dapp-locked';
 
 const UNLOCKED_CONTEXT = { vault: { fetchAccounts: mockFetchAccounts } };
 
@@ -179,6 +179,7 @@ function seedDApp(origin: string, sourcePublicKey: string, accountId: string) {
 }
 
 beforeEach(() => {
+  _resetLockedPromptCooldownsForTest();
   jest.clearAllMocks();
   mockWalletStatus = 'Ready';
   mockStoreListeners.clear();

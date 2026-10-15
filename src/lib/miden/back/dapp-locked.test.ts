@@ -5,8 +5,12 @@ import { MidenDAppErrorType } from 'lib/adapter/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import {
+  _resetLockedPromptCooldownsForTest,
   isWalletLockedError,
+  LOCKED_PROMPT_COOLDOWN_MS,
   lockedRefusal,
+  mayPromptToUnlock,
+  noteLockedPromptEnded,
   onceAfterUnlock,
   WALLET_LOCKED_REFUSAL,
   waitForUnlock
@@ -146,5 +150,30 @@ describe('onceAfterUnlock', () => {
     const settled = result.catch((error: Error) => error.message);
     await jest.advanceTimersByTimeAsync(1_000);
     await expect(settled).resolves.toBe('NOT_GRANTED: Wallet is locked');
+  });
+});
+
+describe('the lock prompt cooldown', () => {
+  let now = 1_000_000;
+  let clock: jest.SpyInstance;
+  beforeEach(() => {
+    _resetLockedPromptCooldownsForTest();
+    now = 1_000_000;
+    clock = jest.spyOn(Date, 'now').mockImplementation(() => now);
+  });
+  afterEach(() => clock.mockRestore());
+
+  it('holds an origin back for 30 s after its lock prompt ended still locked', () => {
+    expect(mayPromptToUnlock('https://a.xyz')).toBe(true);
+    noteLockedPromptEnded('https://a.xyz');
+    now += LOCKED_PROMPT_COOLDOWN_MS - 1;
+    expect(mayPromptToUnlock('https://a.xyz')).toBe(false);
+    now += 1;
+    expect(mayPromptToUnlock('https://a.xyz')).toBe(true);
+  });
+
+  it('holds back only the origin whose prompt ended', () => {
+    noteLockedPromptEnded('https://a.xyz');
+    expect(mayPromptToUnlock('https://b.xyz')).toBe(true);
   });
 });

@@ -230,7 +230,7 @@ jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
 // ── Imports under test ─────────────────────────────────────────────
 
 import * as dapp from './dapp';
-import { WALLET_LOCKED_REFUSAL } from './dapp-locked';
+import { _resetLockedPromptCooldownsForTest, WALLET_LOCKED_REFUSAL } from './dapp-locked';
 
 const UNLOCKED_CONTEXT = { vault: { signData: jest.fn(async () => 'fake-sig-base64') } };
 
@@ -259,6 +259,7 @@ const SESSION = {
 };
 
 beforeEach(() => {
+  _resetLockedPromptCooldownsForTest();
   jest.clearAllMocks();
   mockWalletStatus = 'Ready';
   mockStoreListeners.clear();
@@ -422,6 +423,52 @@ describe('a locked wallet serves no private data to a connected dApp', () => {
     expect(mockFocusMainWindow).toHaveBeenCalledTimes(1);
     unlockWallet();
     await call;
+  });
+
+  it('refuses at once, with no wait, for 30 s after a wait for this origin ran out', async () => {
+    jest.useFakeTimers();
+    const track = (call: Promise<unknown>) => {
+      const state = { settled: false, message: '' };
+      call.then(
+        () => {
+          state.settled = true;
+        },
+        (err: Error) => {
+          state.settled = true;
+          state.message = err.message;
+        }
+      );
+      return state;
+    };
+    const first = track(reads.requestAssets!.call());
+    await jest.advanceTimersByTimeAsync(120_000);
+    expect(first).toEqual({ settled: true, message: WALLET_LOCKED_REFUSAL });
+
+    const second = track(reads.requestAssets!.call());
+    await jest.advanceTimersByTimeAsync(0);
+    expect(second).toEqual({ settled: true, message: WALLET_LOCKED_REFUSAL });
+
+    await jest.advanceTimersByTimeAsync(30_000);
+    const third = track(reads.requestAssets!.call());
+    await jest.advanceTimersByTimeAsync(0);
+    // Waiting again: the cooldown is over.
+    expect(third.settled).toBe(false);
+    unlockWallet();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(third.settled).toBe(true);
+  });
+
+  it('starts no cooldown when the app unlocked during the wait', async () => {
+    const first = reads.requestAssets!.call();
+    await new Promise(r => setTimeout(r, 0));
+    unlockWallet();
+    await first;
+
+    lockWallet();
+    const second = reads.requestAssets!.call();
+    await new Promise(r => setTimeout(r, 0));
+    unlockWallet();
+    await expect(second).resolves.toEqual(expect.objectContaining({ type: MidenDAppMessageType.AssetsResponse }));
   });
 });
 

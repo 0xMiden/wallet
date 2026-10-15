@@ -81,3 +81,29 @@ export function onceAfterUnlock<T>(build: () => Promise<T>, timeoutMs: number, c
     return kept;
   };
 }
+
+export const LOCKED_PROMPT_COOLDOWN_MS = 30_000;
+
+const lockedPromptEndedAt = new Map<string, number>();
+
+/** Records that a lock prompt for `origin` ended with the wallet still locked. */
+export function noteLockedPromptEnded(origin: string): void {
+  lockedPromptEndedAt.set(origin, Date.now());
+}
+
+/**
+ * Whether a request from `origin` that met a locked wallet may prompt to unlock. It may not for
+ * LOCKED_PROMPT_COOLDOWN_MS after a lock prompt from that origin ended still locked, so a dApp that polls while the
+ * user is away gets one prompt, not one per poll.
+ */
+export function mayPromptToUnlock(origin: string): boolean {
+  const endedAt = lockedPromptEndedAt.get(origin);
+  if (endedAt === undefined) return true;
+  if (Date.now() - endedAt < LOCKED_PROMPT_COOLDOWN_MS) return false;
+  lockedPromptEndedAt.delete(origin);
+  return true;
+}
+
+export function _resetLockedPromptCooldownsForTest(): void {
+  lockedPromptEndedAt.clear();
+}

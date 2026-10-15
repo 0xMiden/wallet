@@ -256,6 +256,7 @@ jest.mock('webextension-polyfill', () => {
 });
 
 import * as dapp from './dapp';
+import { _resetLockedPromptCooldownsForTest } from './dapp-locked';
 
 const STORAGE_KEY = 'dapp_sessions';
 const SESSION = {
@@ -268,6 +269,7 @@ const SESSION = {
 };
 
 beforeEach(() => {
+  _resetLockedPromptCooldownsForTest();
   jest.clearAllMocks();
   // The consume approval preview is derived from the note the wallet resolves, not
   // from the dApp's declared faucet/amount/type, so consume tests need the note to
@@ -2273,5 +2275,64 @@ describe('a request that never prompts while unlocked, made while the wallet is 
       expect.objectContaining({ type: MidenDAppMessageType.AssetsResponse })
     );
     expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('the lock prompt cooldown (#1414)', () => {
+  let now = 1_000_000;
+  let clock: jest.SpyInstance;
+  beforeEach(() => {
+    now = 1_000_000;
+    clock = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue(undefined);
+    _g.__dappExtTest.storage[STORAGE_KEY] = {
+      [LOCKED_ORIGIN]: [{ ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 1 }],
+      'https://other.xyz': [{ ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 1 }]
+    };
+  });
+  afterEach(() => clock.mockRestore());
+
+  it('refuses a polling Auto read at once for 30 s after its unlock popup closed still locked', async () => {
+    lockWallet();
+    const first = await openPopup(startAssets);
+    closeConfirmWindow();
+    await expect(first.outcome).resolves.toEqual({ ok: false, message: 'NOT_GRANTED: Wallet is locked' });
+
+    const create = jest.mocked(extensionBrowser.windows.create);
+    const opened = create.mock.calls.length;
+    now += 29_999;
+    await expect(startAssets()).rejects.toThrow(new Error('NOT_GRANTED: Wallet is locked'));
+    expect(create).toHaveBeenCalledTimes(opened);
+    expect(_g.__dappExtTest.midenClient.getAccount).not.toHaveBeenCalled();
+
+    now += 1;
+    await openPopup(startAssets);
+  });
+
+  it('refuses the same origin at once for 30 s, and no other', async () => {
+    lockWallet();
+    const first = await openPopup(startAssets);
+    closeConfirmWindow();
+    await first.outcome;
+    await expect(startAssets()).rejects.toThrow(new Error('NOT_GRANTED: Wallet is locked'));
+    await openPopup(() =>
+      dapp.requestAssets('https://other.xyz', {
+        type: MidenDAppMessageType.AssetsRequest,
+        sourcePublicKey: 'miden-account-1'
+      } as never)
+    );
+  });
+
+  it('starts no cooldown when the user unlocked and then declined', async () => {
+    _g.__dappExtTest.storage[STORAGE_KEY] = { [LOCKED_ORIGIN]: [SESSION] };
+    lockWallet();
+    const first = await openPopup(startAssets);
+    unlockWallet();
+    await first.getPayload();
+    await first.decide(MidenMessageType.DAppAssetsConfirmationRequest, { confirmed: false });
+    await expect(first.outcome).resolves.toEqual({ ok: false, message: MidenDAppErrorType.NotGranted });
+
+    lockWallet();
+    await openPopup(startAssets);
   });
 });

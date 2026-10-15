@@ -110,7 +110,15 @@ import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 import { queueNoteImport } from '../activity';
 import { isLikelyNetworkError } from '../activity/connectivity-classify';
 import { assertValidRecallBlocks, toNoteTypeString, toPersistedNoteType } from '../helpers';
-import { isStoreLocked, isWalletLockedError, lockedRefusal, onceAfterUnlock, waitForUnlock } from './dapp-locked';
+import {
+  isStoreLocked,
+  isWalletLockedError,
+  lockedRefusal,
+  mayPromptToUnlock,
+  noteLockedPromptEnded,
+  onceAfterUnlock,
+  waitForUnlock
+} from './dapp-locked';
 import { midenClientProxy } from './miden-client-proxy';
 import { getCurrentMidenNetwork } from './safe-network';
 import { simulateCustomTransaction, type SimulateCustomTxResult } from './simulate-custom-tx';
@@ -1674,13 +1682,22 @@ async function requestConfirmFor(
   reject: (reason: unknown) => void,
   params: Omit<RequestConfirmParams, 'onDecline' | 'onPayloadError' | 'onClose'>
 ): Promise<void> {
-  if (sheet.locked) dappLog(`[DApp] Opening the confirm popup on Unlock for ${origin}`);
+  if (sheet.locked && !mayPromptToUnlock(origin)) {
+    reject(lockedRefusal());
+    return;
+  }
   await requestConfirm({
     ...params,
     onClose: sheet.cancel,
     onPayloadError: reject,
-    onDecline: () =>
-      reject(sheet.locked && isStoreLocked() ? lockedRefusal() : new Error(MidenDAppErrorType.NotGranted))
+    onDecline: () => {
+      if (sheet.locked && isStoreLocked()) {
+        noteLockedPromptEnded(origin);
+        reject(lockedRefusal());
+      } else {
+        reject(new Error(MidenDAppErrorType.NotGranted));
+      }
+    }
   });
 }
 
@@ -1830,10 +1847,12 @@ async function requestUnlockOnly<T>(
 // Mobile and desktop have no Unlock step in their sheet, so the app's own lock screen is that step: a request that met
 // a locked wallet waits for the unlock, bounded like a sheet because the dApp queue is held meanwhile.
 async function waitForUnlockOnNonExtension(origin: string): Promise<boolean> {
-  dappLog(`[DApp] Waiting for the wallet to unlock for ${origin}`);
+  if (!mayPromptToUnlock(origin)) return false;
   // The desktop wallet window sits behind the dApp's own, and nothing else raises it while locked.
   if (isDesktop()) void raiseWalletWindow();
-  return waitForUnlock(AUTODECLINE_AFTER);
+  const isUnlocked = await waitForUnlock(AUTODECLINE_AFTER);
+  if (!isUnlocked) noteLockedPromptEnded(origin);
+  return isUnlocked;
 }
 
 async function raiseWalletWindow(): Promise<void> {
@@ -2683,6 +2702,15 @@ async function requestConfirm({
   const browser = await getBrowser();
 
   let closing = false;
+  const openedAt = Date.now();
+  let payloadServed = false;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const stopTimeout = () => clearTimeout(timeout);
+  const restartTimeout = (ms: number) => {
+    stopTimeout();
+    timeout = setTimeout(declineAndClose, ms);
+  };
+  const capLeft = () => LOCKED_PROMPT_CAP_MS - (Date.now() - openedAt);
   const close = async () => {
     /* c8 ignore start */ if (closing) return; /* c8 ignore stop */
     closing = true;
@@ -2707,6 +2735,9 @@ async function requestConfirm({
   const stopRequestListening = intercom.onRequest(async (req: MidenRequest, port) => {
     if (req?.type === MidenMessageType.DAppGetPayloadRequest && req.id[0] === id) {
       knownPort = port;
+      // The first ask can wait out an unlock and a build, which the first window may not cover: until the payload is
+      // served only the cap bounds the popup.
+      if (!payloadServed && !closing) restartTimeout(capLeft());
       let served: MidenDAppPayload;
       try {
         served = typeof payload === 'function' ? await payload() : payload;
@@ -2715,6 +2746,11 @@ async function requestConfirm({
         else onDecline();
         close();
         throw error;
+      }
+      if (!payloadServed && !closing) {
+        payloadServed = true;
+        // The review gets a full window from the serve, within what the dApp queue can be held.
+        restartTimeout(Math.min(AUTODECLINE_AFTER, capLeft()));
       }
       return {
         type: MidenMessageType.DAppGetPayloadResponse,
@@ -2791,9 +2827,8 @@ async function requestConfirm({
   browser.windows.onRemoved.addListener(handleWinRemoved);
   const stopWinRemovedListening = () => browser.windows.onRemoved.removeListener(handleWinRemoved);
 
-  // Decline after timeout
-  const t = setTimeout(declineAndClose, AUTODECLINE_AFTER);
-  const stopTimeout = () => clearTimeout(t);
+  // Decline after timeout, unless a payload request already armed the cap while the window was being created.
+  if (!closing && timeout === undefined) restartTimeout(AUTODECLINE_AFTER);
 }
 
 export async function getNetworkRPC(net: string | undefined) {
