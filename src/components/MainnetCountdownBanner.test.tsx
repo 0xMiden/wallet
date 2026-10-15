@@ -13,7 +13,45 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
-jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
+
+// Vaul renders through a portal that jsdom cannot drive. A flat stand-in that renders its children
+// only while open is sufficient for the open and close wiring.
+jest.mock('lib/ui/drawer', () => ({
+  Drawer: ({
+    open,
+    onOpenChange,
+    children
+  }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    children: React.ReactNode;
+  }) =>
+    open ? (
+      <div>
+        <button type="button" data-testid="sheet-dismiss" onClick={() => onOpenChange(false)} />
+        {children}
+      </div>
+    ) : null,
+  DrawerContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DrawerHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DrawerTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
+  DrawerDescription: ({ children }: { children: React.ReactNode }) => <p>{children}</p>
+}));
+
+jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: jest.fn() } }));
+
+// The mainnet node's answer before the switch; the order log shows what ran before what.
+const mockSteps: string[] = [];
+const mockCheck = jest.fn<Promise<'granted' | 'rejected'>, [string]>();
+jest.mock('lib/mainnet-access', () => ({
+  MAINNET_ACCESS_CODE_LENGTH: 12,
+  isMainnetAccessCodeComplete: (code: string) => /^(?:[0-9]{8}|[A-Za-z0-9]{12})$/.test(code),
+  checkMainnetAccessCodeBeforeSwitch: (code: string) => {
+    mockSteps.push('check');
+    return mockCheck(code);
+  }
+}));
 
 const mockOpenExternalUrl = jest.fn((_options: { url: string; title: string }) => Promise.resolve());
 jest.mock('lib/mobile/external-browser', () => ({
@@ -45,14 +83,34 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
 let mockInviteOnly = false;
 const mockConfirm = jest.fn<Promise<boolean>, [object]>();
 const mockAlert = jest.fn<Promise<void>, [object]>();
-const mockReset = jest.fn<Promise<void>, [MIDEN_NETWORK_NAME]>();
+const mockReset = jest.fn<Promise<void>, [MIDEN_NETWORK_NAME, string | undefined]>();
 jest.mock('lib/remote-config/values', () => ({ selectInviteOnlyOnboarding: () => mockInviteOnly }));
-jest.mock('lib/ui/dialog', () => ({ useConfirm: () => mockConfirm, useAlert: () => mockAlert }));
+jest.mock('lib/ui/dialog', () => ({
+  useConfirm: () => (options: object) => {
+    mockSteps.push('confirm');
+    return mockConfirm(options);
+  },
+  useAlert: () => mockAlert
+}));
 jest.mock('lib/miden/reset-and-reload', () => ({
-  resetWalletAndReload: (_onError: () => Promise<void>, network: MIDEN_NETWORK_NAME) => mockReset(network)
+  resetWalletAndReload: (_onError: () => Promise<void>, network: MIDEN_NETWORK_NAME, code?: string) => {
+    mockSteps.push('reset');
+    return mockReset(network, code);
+  }
 }));
 
 const LAUNCH_AT = Date.parse('2026-10-26T00:00:00Z');
+
+const CODE = '8gKIgL0O6HcU';
+
+// Opens the switch from the banner, enters a code and asks for it to be checked.
+const submitCode = async (code: string = CODE) => {
+  fireEvent.click(screen.getByTestId('mainnet-switch-link'));
+  fireEvent.change(screen.getByTestId('mainnet-switch-code'), { target: { value: code } });
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('mainnet-switch-submit'));
+  });
+};
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -87,40 +145,86 @@ describe('MainnetCountdownBanner', () => {
     mockConfirm.mockResolvedValue(false);
     mockAlert.mockResolvedValue(undefined);
     mockReset.mockResolvedValue(undefined);
+    mockCheck.mockResolvedValue('granted');
+    mockSteps.length = 0;
   });
 
   afterEach(() => {
     jest.useRealTimers();
   });
 
-  it('shows an optional mainnet switch when invite-only mode starts, even without a countdown', () => {
+  it('asks for a mainnet access code when invite-only mode starts, even without a countdown', () => {
     mockInviteOnly = true;
     mockCountdown = null;
     render(<MainnetCountdownBanner />);
-    expect(screen.getByRole('button', { name: 'switchToMainnet' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'mainnetAccessTitle' })).toBeInTheDocument();
     expect(screen.queryByTestId('mainnet-countdown')).not.toBeInTheDocument();
     expect(mockReset).not.toHaveBeenCalled();
+  });
+
+  it('opens the code entry first, asking nothing and wiping nothing', () => {
+    mockInviteOnly = true;
+    render(<MainnetCountdownBanner />);
+    fireEvent.click(screen.getByTestId('mainnet-switch-link'));
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('switchToMainnet');
+    expect(screen.getByText('mainnetSwitchCodeBody')).toBeInTheDocument();
+    expect(screen.getByTestId('mainnet-switch-submit')).toBeDisabled();
+    expect(mockSteps).toEqual([]);
+  });
+
+  it('wipes nothing for a code the mainnet node refuses, and says so', async () => {
+    mockInviteOnly = true;
+    mockCheck.mockResolvedValue('rejected');
+    render(<MainnetCountdownBanner />);
+    await submitCode('47291835');
+    expect(mockCheck).toHaveBeenCalledWith('47291835');
+    expect(mockSteps).toEqual(['check']);
+    expect(mockReset).not.toHaveBeenCalled();
+    expect(screen.getByTestId('mainnet-switch-error')).toHaveTextContent('mainnetAccessCodeRejected');
+  });
+
+  it('wipes nothing when the code cannot be checked, and says so', async () => {
+    mockInviteOnly = true;
+    mockCheck.mockRejectedValue(new Error('Failed to fetch'));
+    render(<MainnetCountdownBanner />);
+    await submitCode();
+    expect(mockSteps).toEqual(['check']);
+    expect(mockReset).not.toHaveBeenCalled();
+    expect(screen.getByTestId('mainnet-switch-error')).toHaveTextContent('mainnetAccessCheckFailed');
+    expect(screen.getByTestId('mainnet-switch-submit')).toBeEnabled();
   });
 
   it('keeps the wallet when the switch confirmation is cancelled', async () => {
     mockInviteOnly = true;
     render(<MainnetCountdownBanner />);
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('mainnet-switch-link'));
-    });
-    expect(mockConfirm).toHaveBeenCalledWith(expect.objectContaining({ destructive: true }));
+    await submitCode();
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ children: 'switchToMainnetConfirm', destructive: true })
+    );
     expect(mockReset).not.toHaveBeenCalled();
-    expect(screen.getByTestId('mainnet-switch-link')).toBeEnabled();
+    expect(screen.getByTestId('mainnet-switch-submit')).toBeEnabled();
   });
 
-  it('resets for mainnet only after confirmation', async () => {
+  it('resets for mainnet, carrying the code, only after the node accepted it and the user confirmed', async () => {
     mockInviteOnly = true;
     mockConfirm.mockResolvedValue(true);
     render(<MainnetCountdownBanner />);
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('mainnet-switch-link'));
-    });
-    expect(mockReset).toHaveBeenCalledWith(MIDEN_NETWORK_NAME.MAINNET);
+    await submitCode();
+    expect(mockSteps).toEqual(['check', 'confirm', 'reset']);
+    expect(mockReset).toHaveBeenCalledWith(MIDEN_NETWORK_NAME.MAINNET, CODE);
+  });
+
+  it('asks nothing more and wipes nothing when the sheet is closed before the node answers', async () => {
+    mockInviteOnly = true;
+    mockConfirm.mockResolvedValue(true);
+    let settle: (outcome: 'granted') => void = () => {};
+    mockCheck.mockReturnValue(new Promise(resolve => (settle = resolve)));
+    render(<MainnetCountdownBanner />);
+    await submitCode();
+    fireEvent.click(screen.getByTestId('sheet-dismiss'));
+    await act(async () => settle('granted'));
+    expect(mockSteps).toEqual(['check']);
+    expect(mockReset).not.toHaveBeenCalled();
   });
 
   it('reports a failed reset and permits a retry', async () => {
@@ -128,11 +232,9 @@ describe('MainnetCountdownBanner', () => {
     mockConfirm.mockResolvedValue(true);
     mockReset.mockRejectedValueOnce(new Error('Reset failed'));
     render(<MainnetCountdownBanner />);
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('mainnet-switch-link'));
-    });
+    await submitCode();
     expect(mockAlert).toHaveBeenCalledWith({ title: 'error', children: 'resetDidNotFinish' });
-    expect(screen.getByTestId('mainnet-switch-link')).toBeEnabled();
+    expect(screen.getByTestId('mainnet-switch-submit')).toBeEnabled();
   });
 
   it('does not offer the switch on mainnet', () => {

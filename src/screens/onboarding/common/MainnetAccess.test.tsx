@@ -18,6 +18,8 @@ jest.mock('lib/mainnet-access', () => ({
   isMainnetAccessCodeComplete: (code: string) => /^(?:[0-9]{8}|[A-Za-z0-9]{12})$/.test(code),
   checkMainnetAccessCode: (code: string) => mockCheck(code)
 }));
+const mockReadCarried = jest.fn<Promise<string | undefined>, []>();
+jest.mock('lib/carried-mainnet-code', () => ({ readCarriedMainnetAccessCode: () => mockReadCarried() }));
 
 const code = () => screen.getByTestId('onboarding-mainnet-access-code');
 const submitButton = () => screen.getByTestId('onboarding-mainnet-access-submit');
@@ -32,6 +34,7 @@ describe('MainnetAccessScreen', () => {
   beforeEach(() => {
     mockCheck.mockReset();
     mockRead.mockReset().mockResolvedValue({ value: '8gKI-gL0O 6HcUextra', type: 'text/plain' });
+    mockReadCarried.mockReset().mockResolvedValue(undefined);
   });
 
   it('asks for the code on the step layout, with its own title and no way on without a code', () => {
@@ -174,5 +177,28 @@ describe('MainnetAccessScreen', () => {
     expect(onSubmit).not.toHaveBeenCalled();
     expect(code()).toHaveValue('47291835');
     expect(submitButton()).toBeEnabled();
+  });
+
+  it('offers the code a switch to mainnet carried here, and asks the node about it before handing it on', async () => {
+    mockReadCarried.mockResolvedValue('8gKIgL0O6HcU');
+    mockCheck.mockResolvedValue('granted');
+    const onSubmit = jest.fn();
+    render(<MainnetAccessScreen onSubmit={onSubmit} />);
+    await act(async () => {});
+    expect(code()).toHaveValue('8gKIgL0O6HcU');
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await submit();
+    expect(mockCheck).toHaveBeenCalledWith('8gKIgL0O6HcU');
+    expect(onSubmit).toHaveBeenCalledWith('8gKIgL0O6HcU');
+  });
+
+  it('keeps a code the user typed before the carried one was read', async () => {
+    let settle: (carried: string) => void = () => {};
+    mockReadCarried.mockReturnValue(new Promise(resolve => (settle = resolve)));
+    render(<MainnetAccessScreen />);
+    type('47291835');
+    await act(async () => settle('8gKIgL0O6HcU'));
+    expect(code()).toHaveValue('47291835');
   });
 });

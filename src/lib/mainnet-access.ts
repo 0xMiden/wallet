@@ -1,9 +1,9 @@
-import { AccountId, Address, MidenClient, RpcClient } from '@miden-sdk/miden-sdk/lazy';
+import { AccountId, Address, Endpoint, MidenClient, RpcClient } from '@miden-sdk/miden-sdk/lazy';
 
 import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
 import { extractSdkErrorCode } from 'lib/miden/sdk/sdk-error-code';
-import { getRpcEndpoint } from 'lib/miden-chain/constants';
 import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_ENDPOINTS, MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 
 /** The number of characters in a node-generated access code. */
@@ -24,14 +24,29 @@ export interface MainnetAccessTarget {
  * Ask the node whether the code can register an account, before any account exists. A one-shot
  * `RpcClient` read, bounded by the RPC timeout, with no wallet client and no lock. The check does
  * not use the code: `redeemMainnetAccessCode` registers the final account with it after setup.
- * Node and transport failures are thrown so the caller can show a retry action.
+ * Node and transport failures are thrown so the caller can show a retry action. `rpcUrl` is the
+ * node to ask, the wallet's own by default.
  */
-export async function checkMainnetAccessCode(code: string): Promise<MainnetAccessOutcome> {
+export async function checkMainnetAccessCode(
+  code: string,
+  rpcUrl: string = getEffectiveRpcUrl()
+): Promise<MainnetAccessOutcome> {
   if (!code) return 'rejected';
   await MidenClient.ready();
-  const rpc = new RpcClient(getRpcEndpoint());
+  const rpc = new RpcClient(new Endpoint(rpcUrl));
   const valid = await withRpcTimeout(() => rpc.isInvitationCodeValid(code), 'mainnet-access-check');
   return valid ? 'granted' : 'rejected';
+}
+
+/**
+ * The same check for a wallet still on a test network, before a switch to mainnet wipes it: asked of
+ * the mainnet node that the switch's network choice resolves to. Never the wallet's own node, since a
+ * node that enforces no allowlist accepts every code.
+ */
+export async function checkMainnetAccessCodeBeforeSwitch(code: string): Promise<MainnetAccessOutcome> {
+  const rpcUrl = MIDEN_NETWORK_ENDPOINTS.get(MIDEN_NETWORK_NAME.MAINNET);
+  if (!rpcUrl) throw new Error('This build has no mainnet node');
+  return checkMainnetAccessCode(code, rpcUrl);
 }
 
 /**

@@ -475,6 +475,14 @@ describe('app/PageRouter — pre-ready / special routes', () => {
     expect(screen.getByTestId('unlock')).toBeInTheDocument();
     expect(screen.queryByTestId('developer-settings')).not.toBeInTheDocument();
   });
+
+  // Before the backend answers, the status is the initial Idle even when a wallet exists, and the
+  // screen would open its no-wallet edit mode for that wallet.
+  it('/developer-settings waits on the loading spinner until the backend state has arrived', () => {
+    renderAt('/developer-settings', { locked: false, ready: false, hydrated: false });
+    expect(screen.getByTestId('root-suspense-fallback')).toBeInTheDocument();
+    expect(screen.queryByTestId('developer-settings')).not.toBeInTheDocument();
+  });
 });
 
 describe('app/PageRouter — the `*` catch-all (resolveRootView)', () => {
