@@ -26,6 +26,7 @@
 - [FIX][all] The expiration calendar uses theme colors so dates, the month title and navigation arrows are visible in dark mode.
 - [FIX][all] A Guardian account signs a dApp's signBytes signing inputs (arbitrary, summary and blind) with its everyday key instead of failing after approval with "Some storage item not found" (#1417).
 - [FIX][mobile] The native WalletConnect plugins report the chains a session approved, and before an EVM deposit or claim signs on a chain the session did not approve, the wallet asks the connected wallet to add and switch to it (`wallet_addEthereumChain`, `wallet_switchEthereumChain`, now proposed as optional methods); if the chain is still missing, the deposit fails before any wallet prompt with "Reconnect the wallet to approve it" instead of the Sign SDK's "Invalid permissions for call.".
+- [FIX][all] An Epoch deposit or Earn withdrawal claimed together with other notes (as native auto-consume does) is recorded at its own amount and token instead of the claim's total, and the claim keeps its own label and stays in Activity instead of turning into a hidden "Bridged from EVM" row (#1396).
 
 ### Features
 
