@@ -4749,6 +4749,33 @@
     "message": "브리지 입금 실패",
     "englishSource": "Bridge deposit failed"
   },
+  "bridgeDepositBalanceTooLow": {
+    "message": "연결된 지갑에는 $network$에서 $balance$의 $token$가 보관되어 있으나, 이는 입금에 필요한 금액보다 적습니다. 아무것도 전송되지 않았습니다.",
+    "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceReadFailed": {
+    "message": "$network$에서 $token$ 잔액을 확인할 수 없습니다. 전송된 내역이 없습니다.",
+    "englishSource": "Could not check your $token$ balance on $network$. Nothing was sent.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "브릿지 시작되었습니다!",
     "englishSource": "Bridge initiated!"
@@ -4768,6 +4795,21 @@
   "fastEthWrapNotice": {
     "message": "Fast 경로를 통해 ETH를 브리징할 경우, 먼저 ETH를 WETH로 래핑한 후 WETH를 브리징합니다. 이 경로는 아직 이용 불가능합니다.",
     "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
+  "fastQuoteAboveBalanceNotice": {
+    "message": "Fast를 이용하려면 수수료 포함 $deposit$ $token$의 예치금이 필요하지만, 연결된 지갑에는 $balance$ $token$만 있습니다. 금액을 줄이거나 Slow를 선택하십시오.",
+    "englishSource": "Fast needs a deposit of $deposit$ $token$, fee included, but your connected wallet holds $balance$ $token$. Lower the amount or choose Slow.",
+    "placeholders": {
+      "deposit": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$4"
+      },
+      "balance": {
+        "content": "$3"
+      }
+    }
   },
   "destinationNetwork": {
     "message": "목적지 네트워크",

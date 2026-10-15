@@ -1,6 +1,5 @@
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
 
-import { MOCK_USDC_ADDRESS } from './evm-doubles';
 import { allocatorHealthResponse } from '../../helpers/fake-epoch-allocator';
 
 /**
@@ -113,13 +112,15 @@ export class FakeEpochAllocator {
 
       // POST /checkIfDepositNeeded — resourceLockRequired:true routes the on-chain
       // deposit branch; tokenIn/tokenInDecimals present so no path-parsing runs.
+      // A reverse quote's tokenIn is the deposit in base units, which the SDK signs
+      // and the wallet holds to the balance: 1.01 USDC for the spec's 1, fee included.
       if (method === 'POST' && path === '/checkIfDepositNeeded') {
         this.send(res, 200, {
           success: true,
           resourceLockRequired: true,
           transactions: [],
           path: [],
-          tokenIn: MOCK_USDC_ADDRESS,
+          tokenIn: '1010000000000000000',
           tokenOut: '1000000',
           tokenInDecimals: 18,
           tokenInSymbol: 'USDC'

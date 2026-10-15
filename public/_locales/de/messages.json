@@ -4749,6 +4749,33 @@
     "message": "Einzahlung über die Bridge fehlgeschlagen",
     "englishSource": "Bridge deposit failed"
   },
+  "bridgeDepositBalanceTooLow": {
+    "message": "Ihre verbundene Wallet enthält $balance$ $token$ auf $network$, was weniger ist, als für diese Einzahlung erforderlich ist. Es wurde nichts gesendet.",
+    "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceReadFailed": {
+    "message": "Ihr $token$-Guthaben auf $network$ konnte nicht überprüft werden. Es wurde nichts gesendet.",
+    "englishSource": "Could not check your $token$ balance on $network$. Nothing was sent.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "Brücke initiiert!",
     "englishSource": "Bridge initiated!"
@@ -4768,6 +4795,21 @@
   "fastEthWrapNotice": {
     "message": "Beim Bridgen von ETH über den „Fast“-Weg wird ETH zunächst in WETH umgewandelt und anschließend das WETH über die Bridge übertragen. Dieser Weg ist noch nicht verfügbar.",
     "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
+  "fastQuoteAboveBalanceNotice": {
+    "message": "„Fast“ erfordert eine Einzahlung von $deposit$ $token$, inklusive Gebühr, aber Ihre verbundene Wallet enthält $balance$ $token$. Verringern Sie den Betrag oder wählen Sie „Slow“.",
+    "englishSource": "Fast needs a deposit of $deposit$ $token$, fee included, but your connected wallet holds $balance$ $token$. Lower the amount or choose Slow.",
+    "placeholders": {
+      "deposit": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$4"
+      },
+      "balance": {
+        "content": "$3"
+      }
+    }
   },
   "destinationNetwork": {
     "message": "Zielnetzwerk",

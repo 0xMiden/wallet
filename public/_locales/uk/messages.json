@@ -4749,6 +4749,33 @@
     "message": "Помилка під час депозиту через міст",
     "englishSource": "Bridge deposit failed"
   },
+  "bridgeDepositBalanceTooLow": {
+    "message": "У вашому підключеному гаманці на $network$ зберігається $balance$ $token$, що менше, ніж потрібно для цього депозиту. Нічого не було надіслано.",
+    "englishSource": "Your connected wallet holds $balance$ $token$ on $network$, less than this deposit needs. Nothing was sent.",
+    "placeholders": {
+      "balance": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      }
+    }
+  },
+  "bridgeDepositBalanceReadFailed": {
+    "message": "Не вдалося перевірити ваш баланс $token$ у мережі $network$. Нічого не було надіслано.",
+    "englishSource": "Could not check your $token$ balance on $network$. Nothing was sent.",
+    "placeholders": {
+      "token": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
   "bridgeDepositSubmitted": {
     "message": "Міст ініційовано!",
     "englishSource": "Bridge initiated!"
@@ -4768,6 +4795,21 @@
   "fastEthWrapNotice": {
     "message": "Перенесення ETH за швидким маршрутом спочатку перетворює його на WETH, а потім здійснює перенесення WETH. Цей маршрут поки що недоступний.",
     "englishSource": "Bridging ETH on the Fast route wraps it to WETH first, then bridges the WETH. This route isn't available yet."
+  },
+  "fastQuoteAboveBalanceNotice": {
+    "message": "Для опції «Fast» потрібен депозит у розмірі $deposit$ $token$, включаючи комісію, але у вашому підключеному гаманці є $balance$ $token$. Зменшіть суму або виберіть опцію «Slow».",
+    "englishSource": "Fast needs a deposit of $deposit$ $token$, fee included, but your connected wallet holds $balance$ $token$. Lower the amount or choose Slow.",
+    "placeholders": {
+      "deposit": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$4"
+      },
+      "balance": {
+        "content": "$3"
+      }
+    }
   },
   "destinationNetwork": {
     "message": "Мережа пунктів призначення",
