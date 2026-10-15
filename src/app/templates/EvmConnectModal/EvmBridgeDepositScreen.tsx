@@ -53,7 +53,6 @@ import {
   DEFAULT_USDCX_SOURCE_CHAIN_ID,
   usdcxSourceChains,
   listUsdcxSourceChains,
-  TOKEN_MESSENGER_V2_ABI,
   TOKEN_MESSENGER_WITH_FEES_ABI,
   USDCX_DECIMALS,
   type UsdcxSourceChain,
@@ -64,6 +63,7 @@ import { isUsdcxDomainNotRegisteredError, runUsdcxDeposit, UsdcxSigner } from 'l
 import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import {
   buildExecutorBurnIntent,
+  isUsdcxForwardQuoteUnavailableError,
   quoteExecutorBurn,
   runUsdcxExecutorDeposit,
   UsdcxExecutorSigner
@@ -736,6 +736,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     (err: unknown): string => nativeSigningErrorMessage(err, t, errorMessage),
     [t]
   );
+  // The two USDCx refusals that stop a deposit before any wallet prompt get their own words.
+  const usdcxDepositErrorMessage = useCallback(
+    (err: unknown): string => {
+      if (isUsdcxDomainNotRegisteredError(err)) return t('usdcxDomainNotRegistered');
+      if (isUsdcxForwardQuoteUnavailableError(err)) return t('usdcxForwardQuoteUnavailable');
+      return depositErrorMessage(err);
+    },
+    [t, depositErrorMessage]
+  );
 
   const handleSlowBridge = useCallback(
     async (trackingTxId: string) => {
@@ -1017,28 +1026,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           case 'cctp-executor': {
             // The burn mints to Circle's executor on Arc, which deposits into Arc's xReserve; the registration
             // check therefore reads Arc's xReserve, where the deposit lands.
-            const { tokenMessenger, tokenMessengerWithFees, target } = usdcxSource;
+            const { tokenMessengerWithFees, target } = usdcxSource;
             const signer: UsdcxExecutorSigner = {
               approve,
-              depositForBurnWithHook: args =>
-                lastPrompt(
-                  nativeReownAvailable
-                    ? sendNative(
-                        tokenMessenger,
-                        encodeFunctionData({
-                          abi: TOKEN_MESSENGER_V2_ABI,
-                          functionName: 'depositForBurnWithHook',
-                          args
-                        })
-                      )
-                    : writeContract.mutateAsync({
-                        chainId: usdcxChain.id,
-                        abi: TOKEN_MESSENGER_V2_ABI,
-                        address: tokenMessenger,
-                        functionName: 'depositForBurnWithHook',
-                        args
-                      })
-                ),
               depositForBurnWithHookAndFees: args =>
                 lastPrompt(
                   nativeReownAvailable
@@ -1084,7 +1074,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return;
         }
         console.error('[EvmBridgeDepositScreen] USDCx bridge failed', err);
-        const message = isUsdcxDomainNotRegisteredError(err) ? t('usdcxDomainNotRegistered') : depositErrorMessage(err);
+        const message = usdcxDepositErrorMessage(err);
         setSlowError(message);
         setSlowStatus('failed');
         await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message }).catch(() => undefined);
@@ -1092,13 +1082,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     },
     [
       amount,
-      depositErrorMessage,
       ensureBalanceCovers,
       evmAddress,
       midenAccount.publicKey,
       nativeReownAvailable,
       switchChainAsync,
-      t,
+      usdcxDepositErrorMessage,
       usdcxSource,
       walletProvider,
       writeContract

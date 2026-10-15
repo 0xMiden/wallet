@@ -52,14 +52,12 @@ export interface UsdcxExecutorTarget {
 
 /**
  * A source with CCTP only (Base, Arbitrum): the deposit is a CCTP burn to the executor on Arc carrying the
- * xReserve deposit as hook data. With a signed fee quote the burn goes through the fee entry point and
- * Circle's forwarder executes it on Arc; without one it goes through the plain token messenger and the
- * wallet asks the connected EVM wallet to execute the attested message on Arc itself.
+ * xReserve deposit as hook data. The burn goes through the fee entry point with a signed fee quote and
+ * Circle's forwarder executes it on Arc; without a quote the deposit is refused, since a burn through the
+ * plain token messenger is not forwarded and would stop at the executor.
  */
 export interface UsdcxExecutorSource extends UsdcxSourceChainBase {
   route: 'cctp-executor';
-  /** The plain `TokenMessengerV2`, for a burn the wallet executes itself. */
-  tokenMessenger: Address;
   /** `TokenMessengerWithFees`, for a burn with a signed quote that Circle forwards and executes. */
   tokenMessengerWithFees: Address;
   /** Circle's Iris API for this network family, which attests the CCTP leg. */
@@ -139,7 +137,6 @@ function sourceChain(entry: SupportedEvmChainConfig): UsdcxSourceChain | undefin
       return {
         ...base,
         route: 'cctp-executor',
-        tokenMessenger: getAddress(route.deposit.tokenMessenger),
         tokenMessengerWithFees: getAddress(route.deposit.tokenMessengerWithFees),
         irisApi: provider.irisUrl,
         target: {

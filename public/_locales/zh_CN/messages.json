@@ -4900,16 +4900,20 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "USDC在$source$上被销毁，并在$target$上铸造给Circle的执行人，后者将其存入Miden的xReserve中。Circle除收取金额外还会收取手续费，并由Circle在$target$上执行转账。如果Circle无法为转账定价，则需您在$target$上通过额外一个签名来执行转账。",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "USDC 在 $source$ 上被销毁，并在 $target$ 上铸造给 Circle 的执行方，后者将其存入 Miden 的 xReserve 中。Circle 除收取相应金额外还会收取手续费，并由 Circle 在 $target$ 上执行转账。",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$.",
     "placeholders": {
       "source": {
         "content": "$1"
       },
       "target": {
-        "content": "$4"
+        "content": "$3"
       }
     }
+  },
+  "usdcxForwardQuoteUnavailable": {
+    "message": "Circle 目前无法为此次转账报价。未发送任何资金。请稍后再试。",
+    "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
   },
   "usdcxCctpAwaitingAttestation": {
     "message": "销毁已确认。正在等待 Circle 对转账进行认证，之后才能在 $network$ 上执行。",

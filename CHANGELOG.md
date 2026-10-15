@@ -12,6 +12,7 @@
 
 ### Fixes
 
+- [FIX][all] A USDCx bridge-in on the executor route only burns through Circle's fee entry point with a signed quote, so Circle always forwards and executes it on Arc. The fallback burn through the plain token messenger, which Circle does not forward and left the user to execute on Arc, is removed: when Circle does not quote, the deposit stops before any wallet prompt with a message to try again. The `tokenMessenger` address is no longer read from the remote bridge config.
 - [FIX][all] The bridge route screen shows a service-down notice under the route it belongs to, so a working Slow route no longer looks unavailable when Fast is down (#1428).
 - [FIX][all] A bridge-in deposit that needs two wallet confirmations says so: from signing the token approval until answering the bridge request, the progress screen reads "Waiting for the next wallet confirmation" instead of copy that looks finished, and the processing text now says the wallet may ask more than once (#1290).
 - [FIX][all] A bridge-in amount above the token balance is refused before any wallet prompt: the amount step holds Continue until the balance is read and covers the amount (Fast also checks its quoted deposit), and each route reads the balance again right before its first prompt and fails with a message naming what the wallet holds, instead of approving a deposit the bridge then reverts (#1431).
