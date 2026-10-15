@@ -170,6 +170,35 @@ async function loadFeeFaucetId(): Promise<void> {
 }
 
 /**
+ * What a realm without extension storage (the offscreen document) needs from the realm that read it: the
+ * override object itself, never a re-derived URL or scope, and the fee faucet as that realm resolves it, so
+ * the stored id and the E2E injector reach it too (#1482).
+ */
+export interface EndpointState {
+  override: EndpointOverride | null;
+  feeFaucetId: string | undefined;
+}
+
+export function getEndpointState(): EndpointState {
+  return { override: overrideCache, feeFaucetId: getEffectiveFeeFaucetId() };
+}
+
+// Only a realm that cannot read extension storage calls this; every other realm loads its own.
+export function adoptEndpointState(state: EndpointState): void {
+  overrideCache = state.override;
+  feeFaucetCache = state.feeFaucetId;
+}
+
+const sameOverride = (a: EndpointOverride, b: EndpointOverride) =>
+  [...new Set([...Object.keys(a), ...Object.keys(b)])].every(key => Reflect.get(a, key) === Reflect.get(b, key));
+
+export function sameEndpointState(a: EndpointState, b: EndpointState): boolean {
+  if (a.feeFaucetId !== b.feeFaucetId) return false;
+  if (a.override === null || b.override === null) return a.override === b.override;
+  return sameOverride(a.override, b.override);
+}
+
+/**
  * Effective-network default guardian endpoint (custom override first), or '' if
  * none. Non-throwing: a last-resort fallback, keyed off the effective network
  * rather than the build's `DEFAULT_NETWORK`, so an endpoint override with no
