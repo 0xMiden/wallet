@@ -139,29 +139,41 @@ jest.mock('lib/agglayer', () => ({
 }));
 // The symbol the Sepolia token read gave the configured USDC.
 let mockEvmUsdcSymbol = 'USDC';
-let mockAgglayerChainId = 11155111;
+// Null: the config names no AggLayer chain.
+let mockAgglayerChainId: number | null = 11155111;
+// A USDC of the AggLayer chain's own, which picking Slow moves to; unset, it is the Fast one.
+let mockAgglayerUsdc: string | undefined;
 jest.mock('lib/remote-config/values', () => ({
-  selectAgglayerRecoveryConfig: () => ({
-    chainId: mockAgglayerChainId,
-    contractAddress: '0x00000000000000000000000000000000000000b2',
-    midenBridgeId: '0x3b66e20b5088f25133b69216484652',
-    indexerUrl: 'https://indexer.test',
-    rollupId: 77,
-    evmNetworkId: 0
-  }),
-  selectAgglayerChain: () => ({
-    chainId: mockAgglayerChainId,
-    bridges: {
-      agglayer: {
-        contractAddress: '0x00000000000000000000000000000000000000b2',
-        midenBridgeId: '0x3b66e20b5088f25133b69216484652'
-      }
-    }
-  }),
-  selectEvmUsdc: ({ config }: MockSnapshot) =>
+  selectAgglayerRecoveryConfig: () =>
+    mockAgglayerChainId === null
+      ? null
+      : {
+          chainId: mockAgglayerChainId,
+          contractAddress: '0x00000000000000000000000000000000000000b2',
+          midenBridgeId: '0x3b66e20b5088f25133b69216484652',
+          indexerUrl: 'https://indexer.test',
+          rollupId: 77,
+          evmNetworkId: 0
+        },
+  selectAgglayerChain: () =>
+    mockAgglayerChainId === null
+      ? null
+      : {
+          chainId: mockAgglayerChainId,
+          bridges: {
+            agglayer: {
+              contractAddress: '0x00000000000000000000000000000000000000b2',
+              midenBridgeId: '0x3b66e20b5088f25133b69216484652'
+            }
+          }
+        },
+  selectEvmUsdc: ({ config }: MockSnapshot, chainId?: number) =>
     config
       ? {
-          address: config.supportedEvmChains.source.bridges.epoch.tokens.USDC.contractAddress,
+          address:
+            mockAgglayerUsdc && chainId === mockAgglayerChainId
+              ? mockAgglayerUsdc
+              : config.supportedEvmChains.source.bridges.epoch.tokens.USDC.contractAddress,
           symbol: mockEvmUsdcSymbol,
           decimals: 18,
           chainId: config.supportedEvmChains.source.chainId
@@ -1604,6 +1616,7 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
   afterEach(() => {
     Object.assign(epochState, idleEpoch);
     mockNativeReown = false;
+    mockAgglayerUsdc = undefined;
   });
 
   const renderWallet = async () => {
@@ -1670,6 +1683,35 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
     await typeAmount('USDC');
 
     expect(screen.getByTestId('form-error')).toHaveTextContent(/^rpc down$/);
+    await expectContinueHeld();
+  });
+
+  it('shows the ETH read error, not a loading balance, once the loaded config names no AggLayer chain', async () => {
+    mockAgglayerChainId = null;
+    await renderWallet();
+
+    await typeAmount('ETH');
+
+    expect(screen.getByTestId('form-balance')).not.toHaveTextContent('loading');
+    expect(screen.getByTestId('form-error')).toHaveTextContent(/^The bridge config names no AggLayer chain\.$/);
+    await expectContinueHeld();
+  });
+
+  it("shows Circle's USDC read error, not a loading balance, once USDCx settles as unavailable", async () => {
+    mockSnapshot = { ...READY_SNAPSHOT, status: 'loading' };
+    mockAvailability = { usdcxDeposit: { state: 'loading' } };
+    await renderWallet();
+    act(() => mockLastTokenSelect('CIRCLE_USDC'));
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+    expect(screen.getByTestId('form-balance')).toHaveTextContent(/^loading$/);
+
+    mockAvailability = { usdcxDeposit: { state: 'unavailable', reason: 'not-configured', detail: 'no USDCx' } };
+    act(() => publishSnapshot({ ...READY_SNAPSHOT }));
+    await settle();
+
+    expect(screen.getByTestId('form-balance')).not.toHaveTextContent('loading');
+    expect(screen.getByTestId('form-error')).toHaveTextContent(/^The bridge config names no USDCx source\.$/);
     await expectContinueHeld();
   });
 
@@ -1835,6 +1877,41 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
     expect(screen.getByTestId('confirm-route')).toBeDisabled();
   });
 
+  // The amount step read the Fast USDC; picking Slow moves to this one and reads it for the first time.
+  const AGGLAYER_USDC = '0x00000000000000000000000000000000000000c2';
+  /** Every read answers FUNDED but the AggLayer chain's USDC, which answers `balance` or, stalled, only its abort. */
+  const answerAgglayerUsdc = (balance: bigint | 'stalled') => {
+    mockAgglayerUsdc = AGGLAYER_USDC;
+    global.fetch = jest.fn((_url: string, init?: { body?: string; signal?: AbortSignal }) => {
+      const [call] = JSON.parse(String(init?.body)).params;
+      if (call?.to !== AGGLAYER_USDC) return Promise.resolve({ json: async () => ({ result: word(FUNDED) }) });
+      if (balance !== 'stalled') return Promise.resolve({ json: async () => ({ result: word(balance) }) });
+      return new Promise((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal) signal.addEventListener('abort', () => reject(signal.reason));
+      });
+    }) as never;
+  };
+
+  const reachSlowRoute = async () => {
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+    fireEvent.click(screen.getByTestId('continue'));
+    await screen.findByTestId('pick-slow');
+  };
+
+  it('says why Confirm is held while the typed amount is above the Slow USDC balance', async () => {
+    answerAgglayerUsdc(TYPED - 1n);
+    await renderWallet();
+    await reachSlowRoute();
+
+    fireEvent.click(screen.getByTestId('pick-slow'));
+    await settle();
+
+    expect(screen.getByTestId('route-notice')).toHaveTextContent(/^amountMustBeLessThanBalance$/);
+    expect(screen.getByTestId('confirm-route')).toBeDisabled();
+  });
+
   it.each([false, true])(
     'starts no Fast deposit and fails the row when the balance falls under its quote before Confirm (native=%s)',
     async native => {
@@ -1968,6 +2045,30 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
         expect(epochState.executeEVMToMiden).not.toHaveBeenCalled();
       }
     );
+
+    it('says on the Slow route step that its USDC balance is loading, then its read error, and holds Confirm', async () => {
+      answerAgglayerUsdc('stalled');
+      await renderWallet();
+      await reachSlowRoute();
+      jest.useFakeTimers();
+
+      fireEvent.click(screen.getByTestId('pick-slow'));
+      await advance(0);
+
+      const expectHeldSaying = (notice: RegExp | string) => {
+        expect(screen.getByTestId('route-notice')).toHaveTextContent(notice);
+        expect(screen.getByTestId('confirm-route')).toBeDisabled();
+      };
+      expectHeldSaying(/^loading$/);
+      // Its getBalance times out, then the balanceOf it falls back to.
+      await advance(READ_BOUND_MS);
+      expectHeldSaying(/^loading$/);
+      await advance(READ_BOUND_MS - 1);
+      expectHeldSaying(/^loading$/);
+
+      await advance(1);
+      expectHeldSaying(new RegExp(`^${TIMED_OUT}$`));
+    });
   });
 });
 

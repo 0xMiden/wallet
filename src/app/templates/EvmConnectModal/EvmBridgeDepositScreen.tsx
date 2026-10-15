@@ -388,6 +388,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // Circle's Arc USDC is a source token only where its one route, xReserve, can start.
   const usdcxAvailability = useFeatureAvailability('usdcxDeposit', { chainId: usdcxSource?.chain.id });
   const usdcxAvailable = usdcxAvailability.state === 'available';
+  const usdcxPending = usdcxAvailability.state === 'loading';
   const [ethBalance, setEthBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
   const [bridgeTxId, setBridgeTxId] = useState<string | null>(null);
   const [creatingBridgeRow, setCreatingBridgeRow] = useState(false);
@@ -442,8 +443,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       midenUsdcFaucetId ? { faucetId: midenUsdcFaucetId, symbol: midenUsdcSymbol, decimals: midenUsdcDecimals } : null,
     [midenUsdcFaucetId, midenUsdcSymbol, midenUsdcDecimals]
   );
-  // A token not named yet while the snapshot loads is a wait, not a failure.
+  // A token or chain not named yet while the snapshot loads is a wait, not a failure.
   const usdcPending = evmUsdc === null && bridgeConfig.status === 'loading';
+  const agglayerPending = agglayerChainId === undefined && bridgeConfig.status === 'loading';
   // The status page is the one step that leads to no route card these grey out.
   const routesAhead = activeRoute?.name !== ReceiveStep.ShowBridgePageStatus;
   const fastAvailability = useFeatureAvailability('fastBridgeIn', { hold: routesAhead, chainId: evmUsdcChainId });
@@ -527,10 +529,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // Circle's USDC on the source chain, the token xReserve takes; the config's Fast USDC pair is not it.
   useEffect(() => {
     setCircleUsdcBalance(EMPTY_BALANCE);
-    if (!usdcxAvailable || !usdcxSource) return;
+    if (usdcxPending) return;
     let cancelled = false;
 
-    readCircleUsdcBalance(evmAddress, usdcxSource)
+    const circleRead =
+      usdcxAvailable && usdcxSource
+        ? readCircleUsdcBalance(evmAddress, usdcxSource)
+        : Promise.reject(new Error('The bridge config names no USDCx source.'));
+    circleRead
       .then(value => {
         if (cancelled) return;
         setCircleUsdcBalance({
@@ -548,14 +554,18 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [evmAddress, usdcxAvailable, usdcxSource]);
+  }, [evmAddress, usdcxAvailable, usdcxPending, usdcxSource]);
 
   useEffect(() => {
     let cancelled = false;
     setEthBalance(EMPTY_BALANCE);
+    if (agglayerPending) return;
 
-    if (agglayerChainId === undefined) return;
-    readEthBalance(evmAddress, agglayerChainId)
+    const ethRead =
+      agglayerChainId === undefined
+        ? Promise.reject(new Error('The bridge config names no AggLayer chain.'))
+        : readEthBalance(evmAddress, agglayerChainId);
+    ethRead
       .then(value => {
         if (cancelled) return;
         setEthBalance({ value, formatted: formatBalance(value, 18), loading: false, error: null });
@@ -568,7 +578,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [evmAddress, agglayerChainId]);
+  }, [evmAddress, agglayerChainId, agglayerPending]);
 
   // A fresh EVM→Miden reverse-quote for the current amount. The typed amount is
   // the Miden-side output (`minTokenOut`, faucet base units); the allocator
@@ -1280,8 +1290,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   // Route-screen hint below the cards: ETH on Fast wraps to WETH, which isn't available yet. A typed amount the balance
   // covers can still quote a Fast deposit, fee included, above it; fastReady then holds Confirm, and this says why.
+  // Picking Slow can re-read the balance slowReady holds Confirm on, so while that read is pending, failed or short of
+  // the typed amount, this says so as the amount step would.
   const routeNotice = (() => {
     if (token === 'ETH' && route === 'epoch') return t('fastEthWrapNotice');
+    if (route === 'agglayer') {
+      if (selectedBalance.loading) return t('loading');
+      return selectedBalance.error ?? (amountExceedsBalance ? t('amountMustBeLessThanBalance') : undefined);
+    }
     const balance = usdcBalance.value;
     const quoteForAmount =
       route === 'epoch' &&
