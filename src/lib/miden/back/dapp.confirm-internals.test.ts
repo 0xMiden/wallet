@@ -10,12 +10,14 @@
 
 import { MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { MidenMessageType } from 'lib/miden/types';
+import { WalletStatus } from 'lib/shared/types';
 
 const _g = globalThis as any;
 _g.__dappConfInternals = {
   intercomListeners: [] as Array<(req: any, port?: any) => Promise<any> | any>,
   storage: {} as Record<string, any>,
   onRemovedListeners: [] as Array<(winId: number) => void>,
+  storeListeners: new Set<(state: unknown) => void>(),
   midenClient: {
     getAccount: jest.fn(async () => ({
       getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([1]) }]
@@ -42,7 +44,19 @@ _g.__dappConfInternals = {
 };
 
 jest.mock('lib/miden/back/store', () => ({
-  store: { getState: () => ({ currentAccount: { publicKey: 'a1' }, status: 'Ready' }) },
+  store: {
+    getState: () => ({
+      currentAccount: { publicKey: 'a1' },
+      status: (globalThis as any).__dappConfInternals.status ?? 'Ready'
+    }),
+    // Drives `waitForUnlock`: the lock tests below notify these the way the real store's updates do.
+    updates: {
+      watch: (listener: (state: unknown) => void) => {
+        (globalThis as any).__dappConfInternals.storeListeners.add(listener);
+        return () => (globalThis as any).__dappConfInternals.storeListeners.delete(listener);
+      }
+    }
+  },
   withUnlocked: jest.fn(async (fn: any) => fn({ vault: { signData: jest.fn(async () => 'sig') } }))
 }));
 
@@ -179,6 +193,7 @@ jest.mock('webextension-polyfill', () => {
 });
 
 import * as dapp from './dapp';
+import { _resetLockedPromptCooldownsForTest } from './dapp-locked';
 
 const STORAGE_KEY = 'dapp_sessions';
 const SESSION = {
@@ -191,6 +206,9 @@ const SESSION = {
 };
 
 beforeEach(() => {
+  _resetLockedPromptCooldownsForTest();
+  delete _g.__dappConfInternals.status;
+  _g.__dappConfInternals.storeListeners.clear();
   jest.clearAllMocks();
   delete _g.__dappConfInternals.os;
   _g.__dappConfInternals.intercomListeners.length = 0;
@@ -429,6 +447,36 @@ describe('requestConfirm — DAppSimulateTransactionRequest branch', () => {
   });
 });
 
+describe('a custom request made while locked (#1414)', () => {
+  it("answers the sheet's simulate request from the dry run built after the unlock", async () => {
+    const { withUnlocked } = jest.requireMock('lib/miden/back/store');
+    const simulate = jest.requireMock('./simulate-custom-tx').simulateCustomTransaction;
+    withUnlocked.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('Wallet is locked'), { reason: 'locked' });
+    });
+    const p = dapp.requestTransaction('https://test.xyz', {
+      type: MidenDAppMessageType.TransactionRequest,
+      sourcePublicKey: 'a1',
+      transaction: { payload: { address: 'a1', recipientAddress: 'bob', transactionRequest: 'b64req' } }
+    } as never);
+    p.catch(() => {});
+    await jest.advanceTimersByTimeAsync(0);
+    expect(simulate).not.toHaveBeenCalled();
+
+    const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
+    const id = (browser.windows.create.mock.calls.at(-1)?.[0]?.url || '').match(/id=([^&]+)/)?.[1];
+    const listener = _g.__dappConfInternals.intercomListeners.at(-1);
+    const port = { id: 'locked-sim-port' };
+    await listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, port);
+    expect(simulate).toHaveBeenCalledTimes(1);
+
+    const result = await listener({ type: MidenMessageType.DAppSimulateTransactionRequest, id }, port);
+    expect(result).toEqual(expect.objectContaining({ summaryBytes: 'confirm-sim-sum' }));
+    expect(simulate).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(121_000);
+  });
+});
+
 describe('requestConfirm — custom tx quarantine release', () => {
   it('releases the simulation quarantine after a successful confirm', async () => {
     const p = dapp.requestTransaction('https://test.xyz', {
@@ -499,5 +547,140 @@ describe('requestConfirm — custom tx quarantine release', () => {
     await expect(p).rejects.toThrow(MidenDAppErrorType.NotGranted);
     // Declined: the imported notes must stay hidden from the claimable UI.
     expect(mockReleaseNoteIds).not.toHaveBeenCalled();
+  });
+});
+
+describe('requestConfirm stops its auto-decline on the first payload request and restarts it on the serve (#1414)', () => {
+  const track = (call: Promise<unknown>) => {
+    const state = { settled: false, message: '' };
+    call.then(
+      () => {
+        state.settled = true;
+      },
+      (err: Error) => {
+        state.settled = true;
+        state.message = err.message;
+      }
+    );
+    return state;
+  };
+  // The popup's own payload request for the window opened last.
+  const payloadRequester = () => {
+    const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
+    const id = (browser.windows.create.mock.calls.at(-1)?.[0]?.url || '').match(/id=([^&]+)/)?.[1];
+    const listener = _g.__dappConfInternals.intercomListeners.at(-1);
+    return (): Promise<unknown> => listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, { id: 'p' });
+  };
+
+  const { withUnlocked } = jest.requireMock('lib/miden/back/store');
+  const lock = () => {
+    _g.__dappConfInternals.status = WalletStatus.Locked;
+    withUnlocked.mockImplementation(async () => {
+      throw Object.assign(new Error('Wallet is locked'), { reason: 'locked' });
+    });
+  };
+  const unlock = () => {
+    _g.__dappConfInternals.status = WalletStatus.Ready;
+    withUnlocked.mockImplementation(async (fn: any) => fn({ vault: { signData: jest.fn(async () => 'sig') } }));
+    for (const listener of [..._g.__dappConfInternals.storeListeners]) listener({ status: WalletStatus.Ready });
+  };
+  // `clearAllMocks` keeps implementations, so a locked gate would leak into the next test.
+  afterEach(unlock);
+
+  const openSign = async () => {
+    const state = track(
+      dapp.requestSign('https://test.xyz', {
+        type: MidenDAppMessageType.SignRequest,
+        sourcePublicKey: 'a1',
+        sourceAccountId: 'a1',
+        payload: 'aA==',
+        kind: 'word'
+      } as never)
+    );
+    await jest.advanceTimersByTimeAsync(0);
+    return { state, serve: payloadRequester() };
+  };
+
+  // A custom request made while locked: its popup opens on Unlock and builds its payload after the unlock.
+  const openLockedCustom = async () => {
+    lock();
+    const state = track(
+      dapp.requestTransaction('https://test.xyz', {
+        type: MidenDAppMessageType.TransactionRequest,
+        sourcePublicKey: 'a1',
+        transaction: { payload: { address: 'a1', recipientAddress: 'bob', transactionRequest: 'b64req' } }
+      } as never)
+    );
+    await jest.advanceTimersByTimeAsync(0);
+    return { state, requestPayload: payloadRequester() };
+  };
+
+  it('gives the review its full 120 s from the first serve', async () => {
+    const popup = await openSign();
+    await jest.advanceTimersByTimeAsync(100_000);
+    await popup.serve();
+    await jest.advanceTimersByTimeAsync(119_000);
+    expect(popup.state.settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(popup.state).toEqual({ settled: true, message: MidenDAppErrorType.NotGranted });
+  });
+
+  it('restarts on the first serve only', async () => {
+    const popup = await openSign();
+    await jest.advanceTimersByTimeAsync(100_000);
+    await popup.serve();
+    await jest.advanceTimersByTimeAsync(100_000);
+    await popup.serve();
+    await jest.advanceTimersByTimeAsync(20_000);
+    expect(popup.state.settled).toBe(true);
+  });
+
+  it('declines at 240 s from opening when the payload was asked for locked at 100 s and the unlock came at 200 s', async () => {
+    const popup = await openLockedCustom();
+    await jest.advanceTimersByTimeAsync(100_000);
+    const served = popup.requestPayload();
+    await jest.advanceTimersByTimeAsync(100_000);
+    // Past the first 120 s window: asking for the payload stopped it, and only the cap bounds the wait.
+    expect(popup.state.settled).toBe(false);
+
+    unlock();
+    await expect(served).resolves.toEqual(expect.objectContaining({ type: MidenMessageType.DAppGetPayloadResponse }));
+    await jest.advanceTimersByTimeAsync(39_999);
+    expect(popup.state.settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(popup.state).toEqual({ settled: true, message: MidenDAppErrorType.NotGranted });
+  });
+
+  it('never declines while the build that follows the unlock runs', async () => {
+    jest
+      .requireMock('./simulate-custom-tx')
+      .simulateCustomTransaction.mockImplementationOnce(
+        () => new Promise(resolve => setTimeout(() => resolve({ summaryBytes: 'confirm-sim-sum' }), 15_000))
+      );
+    const popup = await openLockedCustom();
+    await jest.advanceTimersByTimeAsync(110_000);
+    unlock();
+    // The popup asks for its payload once unlocked; this 15 s build runs past the first window's 120 s.
+    const served = popup.requestPayload();
+    await jest.advanceTimersByTimeAsync(14_999);
+    expect(popup.state.settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    await expect(served).resolves.toEqual(expect.objectContaining({ type: MidenMessageType.DAppGetPayloadResponse }));
+
+    // The review's window runs from the serve at 125 s to the cap at 240 s.
+    await jest.advanceTimersByTimeAsync(114_999);
+    expect(popup.state.settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(popup.state).toEqual({ settled: true, message: MidenDAppErrorType.NotGranted });
+  });
+
+  it('declines at 240 s from opening when no unlock follows a locked payload request', async () => {
+    const popup = await openLockedCustom();
+    await jest.advanceTimersByTimeAsync(100_000);
+    popup.requestPayload().catch(() => undefined);
+    await jest.advanceTimersByTimeAsync(139_999);
+    expect(popup.state.settled).toBe(false);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(popup.state).toEqual({ settled: true, message: 'NOT_GRANTED: Wallet is locked' });
   });
 });

@@ -46,17 +46,6 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
       evidence.adapterAddress === evidence.previousAddress
   },
   {
-    id: 'K5',
-    title: 'Send, consume, custom and note or asset reads while locked are refused before any prompt as INVALID_PARAMS',
-    tracking: '0xMiden/wallet#1414 (open)',
-    cells: on(['S9'], BOTH),
-    signature: ({ source, evidence }) =>
-      source === 'hard' &&
-      evidence.popupOpened === false &&
-      (evidence.dappError?.message ?? '').includes('INVALID_PARAMS') &&
-      (evidence.dappError?.message ?? '').includes('Wallet is locked')
-  },
-  {
     id: 'K10',
     title: 'A note imported details-only or bare cannot be consumed or listed by the id its import returned',
     tracking: '0xMiden/wallet#1389 (open)',

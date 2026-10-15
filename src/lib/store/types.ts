@@ -239,6 +239,7 @@ export interface WalletActions {
   confirmDAppAssets: (id: string, confirmed: boolean) => Promise<void>;
   confirmDAppImportPrivateNote: (id: string, confirmed: boolean) => Promise<void>;
   confirmDAppConsumableNotes: (id: string, confirmed: boolean) => Promise<void>;
+  confirmDAppUnlock: (id: string) => Promise<void>;
   confirmDAppTransaction: (
     id: string,
     confirmed: boolean,

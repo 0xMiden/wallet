@@ -17,6 +17,7 @@ import extensionBrowser from 'webextension-polyfill';
 import { MidenDAppConsumeRequest, MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { MidenMessageType } from 'lib/miden/types';
+import { WalletStatus } from 'lib/shared/types';
 
 // ── Capture intercom listeners via the mock ────────────────────────
 const _g = globalThis as any;
@@ -36,6 +37,7 @@ _g.__dappExtTest = {
     on: jest.fn()
   }
 };
+_g.__dappExtTestStoreListeners = new Set<(state: unknown) => void>();
 
 const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
   fn({
@@ -44,13 +46,28 @@ const mockWithUnlocked = jest.fn(async (fn: (ctx: unknown) => unknown) =>
     }
   })
 );
+const mockFetchAccounts = jest.fn(async () => [] as unknown[]);
+// What an unlocked store hands `withUnlocked`'s callback here.
+const unlockedContext = () => ({
+  vault: {
+    signData: jest.fn(async () => 'fake-signature-base64'),
+    fetchAccounts: mockFetchAccounts
+  }
+});
 
 jest.mock('lib/miden/back/store', () => ({
   store: {
     getState: () => ({
       currentAccount: { publicKey: (globalThis as any).__dappExtTestCurrentAccount ?? 'miden-account-1' },
-      status: 'Ready'
-    })
+      status: (globalThis as any).__dappExtTestStatus ?? 'Ready'
+    }),
+    // Drives `waitForUnlock`: `unlockWallet()` below notifies these the way the real store's updates do.
+    updates: {
+      watch: (listener: (state: unknown) => void) => {
+        (globalThis as any).__dappExtTestStoreListeners.add(listener);
+        return () => (globalThis as any).__dappExtTestStoreListeners.delete(listener);
+      }
+    }
   },
   withUnlocked: (fn: (ctx: unknown) => unknown) => mockWithUnlocked(fn)
 }));
@@ -191,7 +208,8 @@ jest.mock('@miden-sdk/miden-wallet-adapter-base', () => ({
 
 // Provide a richer browser stub than the default __mocks__/webextension-polyfill.
 jest.mock('webextension-polyfill', () => {
-  const removedListeners: any[] = [];
+  // Exposed so a test can close the confirm window the way the user does.
+  const removedListeners: any[] = ((globalThis as any).__dappExtRemovedListeners = []);
   const noopEvt = { addListener: jest.fn(), removeListener: jest.fn() };
   const browser = {
     runtime: {
@@ -238,6 +256,7 @@ jest.mock('webextension-polyfill', () => {
 });
 
 import * as dapp from './dapp';
+import { _resetLockedPromptCooldownsForTest } from './dapp-locked';
 
 const STORAGE_KEY = 'dapp_sessions';
 const SESSION = {
@@ -250,6 +269,7 @@ const SESSION = {
 };
 
 beforeEach(() => {
+  _resetLockedPromptCooldownsForTest();
   jest.clearAllMocks();
   // The consume approval preview is derived from the note the wallet resolves, not
   // from the dApp's declared faucet/amount/type, so consume tests need the note to
@@ -270,6 +290,10 @@ beforeEach(() => {
   mockGetCurrentAccountPublicKey.mockResolvedValue('miden-account-1');
   mockAssessOutgoingSpendingLimitDetails.mockResolvedValue(undefined);
   _g.__dappExtTestCurrentAccount = 'miden-account-1';
+  delete _g.__dappExtTestStatus;
+  _g.__dappExtTestStoreListeners.clear();
+  _g.__dappExtRemovedListeners.length = 0;
+  mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn(unlockedContext()));
 });
 
 /** Drive the most recently registered intercom listener with a synthetic confirmation. */
@@ -364,23 +388,30 @@ describe('requestConfirm window-position fallback', () => {
   it('triggers decline when the user closes the confirm window manually', async () => {
     const browser = (require('webextension-polyfill').default || require('webextension-polyfill')) as any;
     browser.windows.create.mockResolvedValueOnce({ id: 1234, left: 0, state: 'normal' });
+    // Restored below: later tests close their windows through the suite's own listeners.
+    const { addListener, removeListener } = browser.windows.onRemoved;
     let listener: ((winId: number) => void) | null = null;
     browser.windows.onRemoved.addListener = (cb: any) => {
       listener = cb;
     };
     browser.windows.onRemoved.removeListener = jest.fn();
-    const p = dapp.requestSign('https://miden.xyz', {
-      type: MidenDAppMessageType.SignRequest,
-      sourcePublicKey: 'miden-account-1',
-      sourceAccountId: 'miden-account-1',
-      payload: 'aGVsbG8=',
-      kind: 'word'
-    } as never);
-    await new Promise(r => setTimeout(r, 0));
-    expect(listener).not.toBeNull();
-    // Trigger the window-removed handler
-    listener!(1234);
-    await expect(p).rejects.toThrow();
+    try {
+      const p = dapp.requestSign('https://miden.xyz', {
+        type: MidenDAppMessageType.SignRequest,
+        sourcePublicKey: 'miden-account-1',
+        sourceAccountId: 'miden-account-1',
+        payload: 'aGVsbG8=',
+        kind: 'word'
+      } as never);
+      await new Promise(r => setTimeout(r, 0));
+      expect(listener).not.toBeNull();
+      // Trigger the window-removed handler
+      listener!(1234);
+      await expect(p).rejects.toThrow();
+    } finally {
+      browser.windows.onRemoved.addListener = addListener;
+      browser.windows.onRemoved.removeListener = removeListener;
+    }
   });
 });
 
@@ -1875,5 +1906,471 @@ describe('a watchdog eviction mid-read abandons the extension flow instead of do
       )
     ).rejects.toBe(terminated);
     expect(signData).not.toHaveBeenCalled();
+  });
+});
+
+// ── a locked wallet: the popup opens on Unlock and builds its payload after the unlock (#1414) ──
+
+const lockedGateError = () => Object.assign(new Error('Wallet is locked'), { reason: 'locked' as const });
+
+function lockWallet() {
+  _g.__dappExtTestStatus = WalletStatus.Locked;
+  mockWithUnlocked.mockImplementation(async () => {
+    throw lockedGateError();
+  });
+}
+
+function unlockWallet() {
+  _g.__dappExtTestStatus = WalletStatus.Ready;
+  mockWithUnlocked.mockImplementation(async (fn: (ctx: unknown) => unknown) => fn(unlockedContext()));
+  for (const listener of [..._g.__dappExtTestStoreListeners]) listener({ status: WalletStatus.Ready });
+}
+
+// The window id `windows.create` answers with in this suite.
+const closeConfirmWindow = () => {
+  for (const listener of [..._g.__dappExtRemovedListeners]) listener(999);
+};
+
+type Outcome = { ok: true; value: unknown } | { ok: false; message: string };
+const settle = (call: Promise<unknown>): Promise<Outcome> =>
+  call.then(
+    (value): Outcome => ({ ok: true, value }),
+    (error: Error): Outcome => ({ ok: false, message: error.message })
+  );
+
+async function openPopup(start: () => Promise<unknown>) {
+  const create = jest.mocked(extensionBrowser.windows.create);
+  const opened = create.mock.calls.length;
+  const outcome = settle(start());
+  for (let i = 0; i < 5 && create.mock.calls.length === opened; i++) await new Promise(r => setTimeout(r, 0));
+  expect(create).toHaveBeenCalledTimes(opened + 1);
+  const id = String(create.mock.calls.at(-1)?.[0]?.url ?? '').match(/[?&]id=([^&]+)/)?.[1];
+  const listener = _g.__dappExtTest.intercomListeners.at(-1);
+  const port = { id: 'confirm-port' };
+  return {
+    outcome,
+    getPayload: () => listener({ type: MidenMessageType.DAppGetPayloadRequest, id: [id] }, port),
+    decide: (type: MidenMessageType, fields: Record<string, unknown> = { confirmed: true }) =>
+      listener({ type, id, ...fields }, port)
+  };
+}
+
+const LOCKED_ORIGIN = 'https://miden.xyz';
+const startAssets = () =>
+  dapp.requestAssets(LOCKED_ORIGIN, {
+    type: MidenDAppMessageType.AssetsRequest,
+    sourcePublicKey: 'miden-account-1'
+  } as never);
+
+describe('a request that prompts, made while the wallet is locked (#1414)', () => {
+  beforeEach(() => {
+    _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue(undefined);
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn(async () => []);
+    _g.__dappExtTest.midenClient.syncState = jest.fn(async () => undefined);
+  });
+
+  const kinds = [
+    {
+      name: 'assets',
+      start: startAssets,
+      reads: () => _g.__dappExtTest.midenClient.getAccount.mock.calls.length,
+      confirm: MidenMessageType.DAppAssetsConfirmationRequest,
+      fields: { confirmed: true },
+      answer: MidenDAppMessageType.AssetsResponse
+    },
+    {
+      name: 'privateNotes',
+      start: () =>
+        dapp.requestPrivateNotes(LOCKED_ORIGIN, {
+          type: MidenDAppMessageType.PrivateNotesRequest,
+          sourcePublicKey: 'miden-account-1',
+          noteIds: ['note-1']
+        } as never),
+      reads: () => _g.__dappExtTest.midenClient.getInputNoteDetails.mock.calls.length,
+      confirm: MidenMessageType.DAppPrivateNotesConfirmationRequest,
+      fields: { confirmed: true },
+      answer: MidenDAppMessageType.PrivateNotesResponse
+    },
+    {
+      name: 'consumableNotes',
+      start: () =>
+        dapp.requestConsumableNotes(LOCKED_ORIGIN, {
+          type: MidenDAppMessageType.ConsumableNotesRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      reads: () => _g.__dappExtTest.midenClient.getConsumableNoteDtos.mock.calls.length,
+      confirm: MidenMessageType.DAppConsumableNotesConfirmationRequest,
+      fields: { confirmed: true },
+      answer: MidenDAppMessageType.ConsumableNotesResponse
+    },
+    {
+      name: 'send',
+      start: () =>
+        dapp.requestSendTransaction(LOCKED_ORIGIN, {
+          type: MidenDAppMessageType.SendTransactionRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: {
+            senderAddress: 'miden-account-1',
+            recipientAddress: 'bob',
+            faucetId: 'faucet-1',
+            noteType: 'Private',
+            amount: '100'
+          }
+        } as never),
+      reads: () => mockAssessOutgoingSpendingLimitDetails.mock.calls.length,
+      confirm: MidenMessageType.DAppTransactionConfirmationRequest,
+      fields: { confirmed: true, delegate: false },
+      answer: MidenDAppMessageType.SendTransactionResponse
+    },
+    {
+      name: 'custom',
+      start: () =>
+        dapp.requestTransaction(LOCKED_ORIGIN, {
+          type: MidenDAppMessageType.TransactionRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: {
+            payload: { address: 'miden-account-1', recipientAddress: 'bob', transactionRequest: 'b64req' }
+          }
+        } as never),
+      // The custom build ends in the spending-limit state, which reads one of these two.
+      reads: () => mockHasSpendingLimits.mock.calls.length + mockAssessOutgoingSpendingLimitDetails.mock.calls.length,
+      confirm: MidenMessageType.DAppTransactionConfirmationRequest,
+      fields: { confirmed: true, delegate: false },
+      answer: MidenDAppMessageType.TransactionResponse
+    },
+    {
+      name: 'consume',
+      start: () =>
+        dapp.requestConsumeTransaction(LOCKED_ORIGIN, {
+          type: MidenDAppMessageType.ConsumeRequest,
+          sourcePublicKey: 'miden-account-1',
+          transaction: {
+            accountAddress: 'miden-account-1',
+            noteId: 'note-1',
+            faucetId: 'faucet-1',
+            noteType: 'Private',
+            amount: '50'
+          }
+        } as never),
+      reads: () => _g.__dappExtTest.midenClient.getInputNoteDetails.mock.calls.length,
+      confirm: MidenMessageType.DAppTransactionConfirmationRequest,
+      fields: { confirmed: true, delegate: false },
+      answer: MidenDAppMessageType.ConsumeResponse
+    }
+  ];
+
+  it.each(kinds)('$name: opens the popup with no read, reads only for the payload after the unlock', async kind => {
+    lockWallet();
+    const popup = await openPopup(kind.start);
+    expect(kind.reads()).toBe(0);
+
+    unlockWallet();
+    await expect(popup.getPayload()).resolves.toEqual(
+      expect.objectContaining({ type: MidenMessageType.DAppGetPayloadResponse })
+    );
+    expect(kind.reads()).toBeGreaterThan(0);
+
+    await popup.decide(kind.confirm, kind.fields);
+    await expect(popup.outcome).resolves.toEqual({
+      ok: true,
+      value: expect.objectContaining({ type: kind.answer })
+    });
+  });
+
+  it.each(kinds)('$name: answers NOT_GRANTED: Wallet is locked when the popup closes before the unlock', async kind => {
+    lockWallet();
+    const popup = await openPopup(kind.start);
+    closeConfirmWindow();
+    await expect(popup.outcome).resolves.toEqual({ ok: false, message: 'NOT_GRANTED: Wallet is locked' });
+    expect(kind.reads()).toBe(0);
+  });
+
+  it('builds again after a lock that lands as the popup asks for its payload, and serves one build', async () => {
+    lockWallet();
+    const popup = await openPopup(startAssets);
+    // Still locked when the payload is asked for: the build waits for the next unlock.
+    const served = popup.getPayload();
+    await new Promise(r => setTimeout(r, 0));
+    expect(_g.__dappExtTest.midenClient.getAccount).not.toHaveBeenCalled();
+
+    unlockWallet();
+    await expect(served).resolves.toEqual(expect.objectContaining({ type: MidenMessageType.DAppGetPayloadResponse }));
+    await popup.getPayload();
+    expect(_g.__dappExtTest.midenClient.getAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs no re-check and no read for a popup closed while its payload waited for the unlock', async () => {
+    lockWallet();
+    const popup = await openPopup(startAssets);
+    const served = popup.getPayload();
+    served.catch(() => undefined);
+    await new Promise(r => setTimeout(r, 0));
+    const gateCalls = mockWithUnlocked.mock.calls.length;
+
+    closeConfirmWindow();
+    await expect(popup.outcome).resolves.toEqual({ ok: false, message: 'NOT_GRANTED: Wallet is locked' });
+    unlockWallet();
+    await new Promise(r => setTimeout(r, 0));
+
+    // The close cancelled the waiting build, so the unlock ran neither the re-check nor the read.
+    expect(mockWithUnlocked).toHaveBeenCalledTimes(gateCalls);
+    expect(_g.__dappExtTest.midenClient.getAccount).not.toHaveBeenCalled();
+  });
+
+  it("answers a build failure with the unlocked path's text and closes the popup", async () => {
+    lockWallet();
+    const popup = await openPopup(startAssets);
+    unlockWallet();
+    _g.__dappExtTest.midenClient.getAccount.mockRejectedValueOnce(new Error('node down'));
+    await expect(popup.getPayload()).rejects.toThrow('node down');
+    await expect(popup.outcome).resolves.toEqual({ ok: false, message: 'INVALID_PARAMS: Error: node down' });
+    await new Promise(r => setTimeout(r, 0));
+    expect(extensionBrowser.windows.remove).toHaveBeenCalled();
+  });
+
+  it("answers a send build's policy failure with the send path's own refusal", async () => {
+    lockWallet();
+    const popup = await openPopup(kinds[3]!.start);
+    unlockWallet();
+    mockAssessOutgoingSpendingLimitDetails.mockRejectedValueOnce(
+      Object.assign(new Error('policy unreadable'), { code: 'SPENDING_LIMIT_POLICY_UNAVAILABLE' })
+    );
+    await expect(popup.getPayload()).rejects.toThrow();
+    await expect(popup.outcome).resolves.toEqual({
+      ok: false,
+      message: 'NOT_GRANTED: Spending limit changed. Review and retry the transaction.'
+    });
+  });
+
+  it('refuses with NOT_GRANTED and reads nothing when the dApp was disconnected before the unlock', async () => {
+    lockWallet();
+    const popup = await openPopup(startAssets);
+    _g.__dappExtTest.storage[STORAGE_KEY] = { [LOCKED_ORIGIN]: [] };
+    unlockWallet();
+    await expect(popup.getPayload()).rejects.toThrow(MidenDAppErrorType.NotGranted);
+    await expect(popup.outcome).resolves.toEqual({ ok: false, message: MidenDAppErrorType.NotGranted });
+    expect(_g.__dappExtTest.midenClient.getAccount).not.toHaveBeenCalled();
+  });
+
+  it('runs the next request on its unlocked path once the user unlocked in the first popup', async () => {
+    lockWallet();
+    const first = await openPopup(startAssets);
+    unlockWallet();
+    await first.getPayload();
+    await first.decide(MidenMessageType.DAppAssetsConfirmationRequest);
+    await first.outcome;
+    _g.__dappExtTest.midenClient.getAccount.mockClear();
+
+    await openPopup(startAssets);
+    // Read before its popup opened, with no Unlock step: today's unlocked order.
+    expect(_g.__dappExtTest.midenClient.getAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it('still reads before the popup opens while unlocked', async () => {
+    await openPopup(startAssets);
+    const create = jest.mocked(extensionBrowser.windows.create);
+    const readAt = _g.__dappExtTest.midenClient.getAccount.mock.invocationCallOrder[0] ?? Infinity;
+    expect(readAt).toBeLessThan(create.mock.invocationCallOrder.at(-1) ?? 0);
+  });
+
+  it.each([kinds[0]!, kinds[5]!])(
+    '$name: serves an unlocked popup the data read before it opened, reading once',
+    async kind => {
+      const popup = await openPopup(kind.start);
+      await expect(popup.getPayload()).resolves.toEqual(
+        expect.objectContaining({ type: MidenMessageType.DAppGetPayloadResponse })
+      );
+      // One read, before the popup: serving the payload builds nothing again.
+      expect(kind.reads()).toBe(1);
+    }
+  );
+
+  it('still refuses an unlocked consume of a note it cannot resolve before any popup', async () => {
+    _g.__dappExtTest.midenClient.getInputNoteDetails = jest.fn().mockResolvedValue([]);
+    await expect(kinds[5]!.start()).rejects.toThrow('could not be resolved');
+    expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('a request that never prompts while unlocked, made while the wallet is locked (#1414)', () => {
+  const autoSession = (allowedPrivateData: number) => {
+    _g.__dappExtTest.storage[STORAGE_KEY] = {
+      [LOCKED_ORIGIN]: [{ ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData }]
+    };
+  };
+
+  beforeEach(() => {
+    _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue(undefined);
+    _g.__dappExtTest.midenClient.getConsumableNoteDtos = jest.fn(async () => []);
+    _g.__dappExtTest.midenClient.syncState = jest.fn(async () => undefined);
+  });
+
+  const kinds = [
+    {
+      name: 'assets',
+      allowed: 1,
+      start: startAssets,
+      reads: () => _g.__dappExtTest.midenClient.getAccount.mock.calls.length,
+      answer: MidenDAppMessageType.AssetsResponse
+    },
+    {
+      name: 'privateNotes',
+      allowed: 2,
+      start: () =>
+        dapp.requestPrivateNotes(LOCKED_ORIGIN, {
+          type: MidenDAppMessageType.PrivateNotesRequest,
+          sourcePublicKey: 'miden-account-1',
+          noteIds: ['note-1']
+        } as never),
+      reads: () => _g.__dappExtTest.midenClient.getInputNoteDetails.mock.calls.length,
+      answer: MidenDAppMessageType.PrivateNotesResponse
+    },
+    {
+      name: 'consumableNotes',
+      allowed: 2,
+      start: () =>
+        dapp.requestConsumableNotes(LOCKED_ORIGIN, {
+          type: MidenDAppMessageType.ConsumableNotesRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      reads: () => _g.__dappExtTest.midenClient.getConsumableNoteDtos.mock.calls.length,
+      answer: MidenDAppMessageType.ConsumableNotesResponse
+    },
+    {
+      name: 'guardianInfo',
+      allowed: 0,
+      start: () =>
+        dapp.requestGuardianInfo(LOCKED_ORIGIN, {
+          type: MidenDAppMessageType.GuardianInfoRequest,
+          sourcePublicKey: 'miden-account-1'
+        } as never),
+      reads: () => mockFetchAccounts.mock.calls.length,
+      answer: MidenDAppMessageType.GuardianInfoResponse
+    }
+  ];
+
+  it.each(kinds)('$name: opens an unlock-only popup, reads nothing until the unlock, then answers', async kind => {
+    autoSession(kind.allowed);
+    lockWallet();
+    const popup = await openPopup(kind.start);
+    expect(kind.reads()).toBe(0);
+
+    unlockWallet();
+    await expect(popup.getPayload()).resolves.toEqual(
+      expect.objectContaining({ payload: expect.objectContaining({ type: 'unlock', origin: LOCKED_ORIGIN }) })
+    );
+    await expect(popup.decide(MidenMessageType.DAppUnlockConfirmationRequest, {})).resolves.toEqual({
+      type: MidenMessageType.DAppUnlockConfirmationResponse
+    });
+    await expect(popup.outcome).resolves.toEqual({ ok: true, value: expect.objectContaining({ type: kind.answer }) });
+    expect(kind.reads()).toBeGreaterThan(0);
+  });
+
+  it.each(kinds)(
+    '$name: answers NOT_GRANTED: Wallet is locked and reads nothing when the popup closes still locked',
+    async kind => {
+      autoSession(kind.allowed);
+      lockWallet();
+      const popup = await openPopup(kind.start);
+      closeConfirmWindow();
+      await expect(popup.outcome).resolves.toEqual({ ok: false, message: 'NOT_GRANTED: Wallet is locked' });
+      expect(kind.reads()).toBe(0);
+    }
+  );
+
+  it('refuses with NOT_GRANTED and reads nothing when the dApp was disconnected before the unlock', async () => {
+    autoSession(1);
+    lockWallet();
+    const popup = await openPopup(startAssets);
+    _g.__dappExtTest.storage[STORAGE_KEY] = { [LOCKED_ORIGIN]: [] };
+    unlockWallet();
+    await popup.getPayload();
+    await popup.decide(MidenMessageType.DAppUnlockConfirmationRequest, {});
+    await expect(popup.outcome).resolves.toEqual({ ok: false, message: MidenDAppErrorType.NotGranted });
+    expect(_g.__dappExtTest.midenClient.getAccount).not.toHaveBeenCalled();
+  });
+
+  it('still answers an unlocked Auto read with no popup', async () => {
+    autoSession(1);
+    await expect(startAssets()).resolves.toEqual(
+      expect.objectContaining({ type: MidenDAppMessageType.AssetsResponse })
+    );
+    expect(extensionBrowser.windows.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('the lock prompt cooldown (#1414)', () => {
+  let now = 1_000_000;
+  let clock: jest.SpyInstance;
+  beforeEach(() => {
+    now = 1_000_000;
+    clock = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue(undefined);
+    _g.__dappExtTest.storage[STORAGE_KEY] = {
+      [LOCKED_ORIGIN]: [{ ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 1 }],
+      'https://other.xyz': [{ ...SESSION, privateDataPermission: 'AUTO', allowedPrivateData: 1 }]
+    };
+  });
+  afterEach(() => clock.mockRestore());
+
+  it('refuses a polling Auto read at once for 30 s after its unlock popup closed still locked', async () => {
+    lockWallet();
+    const first = await openPopup(startAssets);
+    closeConfirmWindow();
+    await expect(first.outcome).resolves.toEqual({ ok: false, message: 'NOT_GRANTED: Wallet is locked' });
+
+    const create = jest.mocked(extensionBrowser.windows.create);
+    const opened = create.mock.calls.length;
+    now += 29_999;
+    await expect(startAssets()).rejects.toThrow(new Error('NOT_GRANTED: Wallet is locked'));
+    expect(create).toHaveBeenCalledTimes(opened);
+    expect(_g.__dappExtTest.midenClient.getAccount).not.toHaveBeenCalled();
+
+    now += 1;
+    await openPopup(startAssets);
+  });
+
+  it('refuses the same origin at once for 30 s, and no other', async () => {
+    lockWallet();
+    const first = await openPopup(startAssets);
+    closeConfirmWindow();
+    await first.outcome;
+    await expect(startAssets()).rejects.toThrow(new Error('NOT_GRANTED: Wallet is locked'));
+    await openPopup(() =>
+      dapp.requestAssets('https://other.xyz', {
+        type: MidenDAppMessageType.AssetsRequest,
+        sourcePublicKey: 'miden-account-1'
+      } as never)
+    );
+  });
+
+  it('starts no cooldown when the user unlocked and then declined', async () => {
+    _g.__dappExtTest.storage[STORAGE_KEY] = { [LOCKED_ORIGIN]: [SESSION] };
+    lockWallet();
+    const first = await openPopup(startAssets);
+    unlockWallet();
+    await first.getPayload();
+    await first.decide(MidenMessageType.DAppAssetsConfirmationRequest, { confirmed: false });
+    await expect(first.outcome).resolves.toEqual({ ok: false, message: MidenDAppErrorType.NotGranted });
+
+    lockWallet();
+    await openPopup(startAssets);
+  });
+
+  it('still prompts an unlocked request from an origin that is cooling down', async () => {
+    _g.__dappExtTest.storage[STORAGE_KEY] = { [LOCKED_ORIGIN]: [SESSION] };
+    lockWallet();
+    const first = await openPopup(startAssets);
+    closeConfirmWindow();
+    await expect(first.outcome).resolves.toEqual({ ok: false, message: 'NOT_GRANTED: Wallet is locked' });
+
+    unlockWallet();
+    const second = await openPopup(startAssets);
+    await second.getPayload();
+    await second.decide(MidenMessageType.DAppAssetsConfirmationRequest);
+    await expect(second.outcome).resolves.toEqual({
+      ok: true,
+      value: expect.objectContaining({ type: MidenDAppMessageType.AssetsResponse })
+    });
   });
 });

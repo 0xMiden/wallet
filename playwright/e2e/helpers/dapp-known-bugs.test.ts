@@ -45,10 +45,9 @@ describe('known-bug registry', () => {
     expect(KNOWN_BUGS.map(entry => entry.id)).not.toContain('K2');
   });
 
-  it('K5 matches a locked-wallet refusal before any popup', () => {
-    const locked = { name: 'WalletTransactionError', message: 'INVALID_PARAMS: Error: Wallet is locked' };
-    expect(bug('K5').signature(hard('S9', { popupOpened: false, dappError: locked }))).toBe(true);
-    expect(bug('K5').signature(hard('S9', { popupOpened: true, dappError: locked }))).toBe(false);
+  it('judges S9 on the fixed locked-wallet prompt, with K5 (#1414) gone', () => {
+    expect(KNOWN_BUGS.filter(entry => entry.cells.S9 !== undefined).map(entry => entry.id)).toEqual([]);
+    expect(KNOWN_BUGS.map(entry => entry.id)).not.toContain('K5');
   });
 
   it('judges M7 on the origin gate, with K7 (#1416) gone', () => {
