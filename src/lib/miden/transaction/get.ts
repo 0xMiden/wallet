@@ -2,6 +2,7 @@ import { PswapLineageState } from '@miden-sdk/miden-sdk/lazy';
 
 import * as Repo from 'lib/miden/repo';
 
+import { isVaultShortfallRow } from './constants';
 import { isNoteHoldingRow } from './verdict-rules';
 import { compareAccountIds } from '../activity/utils';
 import { midenClientProxy } from '../back/miden-client-proxy';
@@ -66,6 +67,37 @@ export const getAllUncompletedTransactions = async () => {
     .toArray();
   txs.sort((tx1, tx2) => tx1.initiatedAt - tx2.initiatedAt);
   return txs;
+};
+
+/**
+ * True when the account's everyday-key rotation waits for funds (#805): its newest `replace-hot-key` row failed
+ * because the vault could not pay the fee, and no rotation-funding claim completed after that failure. The rotation
+ * gate shows its funding panel in this state and adopts that row instead of queueing a new rotation
+ * (`adoptableShortfallRow` in `HotKeyRotationGate.tsx` applies the same rule). After a completed claim the gate
+ * queues the rotation next, so this then returns false.
+ */
+export const isRotationAwaitingFunding = async (accountPublicKey: string): Promise<boolean> => {
+  const rows = await Repo.transactions
+    .filter(
+      row =>
+        row.accountId === accountPublicKey &&
+        (row.type === 'replace-hot-key' || (row.type === 'consume' && row.rotationFunding === true))
+    )
+    .toArray();
+  let rotation: ITransaction | undefined;
+  for (const row of rows) {
+    if (row.type !== 'replace-hot-key') continue;
+    const later =
+      rotation === undefined ||
+      row.initiatedAt > rotation.initiatedAt ||
+      (row.initiatedAt === rotation.initiatedAt && (row.queuedSeq ?? 0) > (rotation.queuedSeq ?? 0));
+    if (later) rotation = row;
+  }
+  if (rotation === undefined || !isVaultShortfallRow(rotation)) return false;
+  const failedAt = rotation.completedAt ?? rotation.initiatedAt;
+  return !rows.some(
+    row => row.type === 'consume' && row.status === ITransactionStatus.Completed && (row.completedAt ?? 0) > failedAt
+  );
 };
 
 export const getFailedTransactions = async () => {
