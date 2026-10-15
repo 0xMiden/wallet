@@ -293,6 +293,16 @@ describe('SelectAmount', () => {
       });
     });
 
+    it.each([true, false])(
+      'shows a balance whose read is still pending as loading, with no figure or fiat estimate (scale known: %s)',
+      scaleIsKnown => {
+        renderComponent({ token: { ...baseToken({ scaleIsKnown }), balance: null } });
+        const helper = screen.getByTestId('ai-helper');
+        expect(helper).toHaveTextContent(/^loading$/);
+        expect(helper).not.toHaveTextContent('approxFiatValue');
+      }
+    );
+
     it('hides the balance helper when showBalanceHelper is false', () => {
       renderComponent({ showBalanceHelper: false });
       expect(screen.getByTestId('ai-helper')).not.toHaveTextContent('available');

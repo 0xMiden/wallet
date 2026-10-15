@@ -42,6 +42,7 @@ import {
   selectEvmUsdc,
   selectMidenUsdc
 } from 'lib/remote-config/values';
+import { withRequestTimeout } from 'lib/remote-json';
 import { WalletAccount } from 'lib/shared/types';
 import {
   CIRCLE_USDC_DECIMALS,
@@ -79,7 +80,7 @@ import { EvmTransactionRevertedError, readEvmErc20Allowance, waitForEvmReceipt }
 import { nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
 import { BridgeNetwork, DEFAULT_BRIDGE_NETWORK, getBridgeNetworkByChainId } from 'screens/send-flow/bridge-networks';
 import { Route as RouteStep } from 'screens/send-flow/Route';
-import { BridgeRoute, UIToken } from 'screens/send-flow/types';
+import { BridgeRoute, UITokenWithPendingBalance } from 'screens/send-flow/types';
 
 import { EvmBridgeDepositForm } from './EvmBridgeDepositForm';
 import { arrivingTokenName, EvmBridgeDepositReview } from './EvmBridgeDepositReview';
@@ -134,18 +135,25 @@ interface RpcResponse {
 
 const EMPTY_BALANCE: BridgeBalance = { value: null, formatted: '0', loading: true, error: null };
 
+// Continue and the check before the first wallet prompt wait on these reads, so an RPC that never answers has to fail
+// them rather than hold the step or the row forever.
+const RPC_TIMEOUT_MS = 15_000;
+
 async function rpcRequest(method: string, params: unknown[], chainId = DEFAULT_CHAIN_ID): Promise<unknown> {
   const chain = getChain(chainId);
   if (!chain) {
     throw new Error(`RPC is not configured for chain ${chainId}`);
   }
 
-  const response = await fetch(chain.rpcUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params })
+  const payload = await withRequestTimeout(RPC_TIMEOUT_MS, async (signal): Promise<RpcResponse> => {
+    const response = await fetch(chain.rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      signal
+    });
+    return response.json();
   });
-  const payload = (await response.json()) as RpcResponse;
   if (payload.error) {
     throw new Error(payload.error.message ?? `RPC ${method} failed`);
   }
@@ -156,6 +164,12 @@ function formatBalance(value: bigint, decimals: number): string {
   const [whole = '0', rawFraction = ''] = formatUnits(value, decimals).split('.');
   const fraction = rawFraction.slice(0, 4).replace(/0+$/, '');
   return fraction ? `${whole}.${fraction}` : whole;
+}
+
+/** The balance the amount step shows: null while its read is pending, 0 once a failed read shows its error instead. */
+function shownBalance({ value, loading }: BridgeBalance, decimals: number): number | null {
+  if (loading) return null;
+  return value === null ? 0 : Number(formatUnits(value, decimals));
 }
 
 /** Read the source chain's USDC through its 6-decimal ERC-20 interface. */
@@ -1122,14 +1136,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     ]
   );
 
-  const setupToken: UIToken = useMemo(() => {
+  const setupToken: UITokenWithPendingBalance = useMemo(() => {
     switch (token) {
       case 'ETH':
         return {
           id: ETH_SYMBOL,
           name: ETH_SYMBOL,
           decimals: ETH_DECIMALS,
-          balance: ethBalance.value === null ? 0 : Number(formatUnits(ethBalance.value, ETH_DECIMALS)),
+          balance: shownBalance(ethBalance, ETH_DECIMALS),
           // No reliable testnet ETH price; fiatPrice 0 keeps the review from showing a bogus ≈USD.
           fiatPrice: 0,
           // A compile-time constant for a fixed token, not a guess about an
@@ -1141,8 +1155,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           id: usdcxSource?.usdc ?? '',
           name: CIRCLE_USDC_SYMBOL,
           decimals: CIRCLE_USDC_DECIMALS,
-          balance:
-            circleUsdcBalance.value === null ? 0 : Number(formatUnits(circleUsdcBalance.value, CIRCLE_USDC_DECIMALS)),
+          balance: shownBalance(circleUsdcBalance, CIRCLE_USDC_DECIMALS),
           fiatPrice: 1,
           scaleIsKnown: true
         };
@@ -1152,21 +1165,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           id: evmUsdc?.address ?? '',
           name: usdcSymbol,
           decimals: usdcDecimals,
-          balance: usdcBalance.value === null ? 0 : Number(formatUnits(usdcBalance.value, usdcDecimals)),
+          balance: shownBalance(usdcBalance, usdcDecimals),
           fiatPrice: 1,
           scaleIsKnown: evmUsdc !== null
         };
     }
-  }, [
-    token,
-    ethBalance.value,
-    usdcBalance.value,
-    circleUsdcBalance.value,
-    evmUsdc,
-    usdcSymbol,
-    usdcDecimals,
-    usdcxSource?.usdc
-  ]);
+  }, [token, ethBalance, usdcBalance, circleUsdcBalance, evmUsdc, usdcSymbol, usdcDecimals, usdcxSource?.usdc]);
 
   // Compared in base units: a float can round an amount at the balance either way.
   const typedUnits = isValidAmount(amount) ? toBaseUnits(amount, setupToken.decimals) : null;

@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import type { ReportDeposit } from 'app/hooks/useFundTelemetry';
 import {
+  TEST_BRIDGE_CONFIG,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
   TEST_EVM_CHAIN_ID,
   TEST_EVM_USDC,
@@ -267,6 +268,7 @@ let mockLastConnectAnother: () => void = () => undefined;
 // Step components stubbed down to the affordances the deposit path needs.
 jest.mock('./EvmBridgeDepositForm', () => ({
   EvmBridgeDepositForm: ({
+    token,
     tokenLabel,
     arrivingName,
     amount,
@@ -277,6 +279,7 @@ jest.mock('./EvmBridgeDepositForm', () => ({
     onSelectToken,
     onSwitch
   }: {
+    token: { balance: number | null };
     tokenLabel: string;
     arrivingName: string;
     amount: string;
@@ -292,6 +295,7 @@ jest.mock('./EvmBridgeDepositForm', () => ({
       <div>
         <span data-testid="form-ready">{String(isValidAmount)}</span>
         <span data-testid="form-error">{error}</span>
+        <span data-testid="form-balance">{token.balance === null ? 'loading' : token.balance}</span>
         <span data-testid="form-amount">{amount}</span>
         <span data-testid="form-token">{tokenLabel}</span>
         <span data-testid="form-arriving">{`arrives as ${arrivingName}`}</span>
@@ -1861,6 +1865,109 @@ describe('EvmBridgeDepositScreen holds a deposit to the wallet balance', () => {
     await settle();
 
     expect(epochState.executeEVMToMiden).toHaveBeenCalledWith('bridge-tx');
+  });
+
+  // Every request is accepted and never answered: a fetch settles only when its signal aborts, as a real one does.
+  describe('over an RPC that never answers', () => {
+    const READ_BOUND_MS = 15_000;
+    const TIMED_OUT = `Request timed out after ${READ_BOUND_MS} ms`;
+
+    const stallRpc = () => {
+      global.fetch = jest.fn(
+        (_url: string, init?: { signal?: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            const signal = init?.signal;
+            if (signal) signal.addEventListener('abort', () => reject(signal.reason));
+          })
+      ) as never;
+    };
+    const advance = (ms: number) =>
+      act(async () => {
+        await jest.advanceTimersByTimeAsync(ms);
+      });
+
+    // Circle's USDC is offered only where the config names a USDCx deposit route; the Fast pair stays as it was.
+    const offerCircleUsdc = () => {
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      const config = READY_SNAPSHOT.config;
+      mockSnapshot = {
+        ...READY_SNAPSHOT,
+        config: config && {
+          ...config,
+          supportedEvmChains: { ...TEST_BRIDGE_CONFIG.supportedEvmChains, ...config.supportedEvmChains }
+        }
+      };
+    };
+
+    afterEach(() => {
+      jest.useRealTimers();
+      mockBridgeSnapshot = undefined;
+    });
+
+    it.each([
+      { token: 'ETH', setup: () => undefined, pick: 'ETH', reads: 1 },
+      { token: "Circle's USDC", setup: offerCircleUsdc, pick: 'CIRCLE_USDC', reads: 1 },
+      // Its getBalance, then the balanceOf it falls back to.
+      { token: "the bridge's USDC", setup: () => undefined, pick: null, reads: 2 }
+    ])(
+      'shows $token as loading, then its read error, and holds Continue throughout',
+      async ({ setup, pick, reads }) => {
+        jest.useFakeTimers();
+        stallRpc();
+        setup();
+        render(depositScreen(undefined, EVM_WALLET));
+        await advance(0);
+        if (pick) act(() => mockLastTokenSelect(pick));
+        fireEvent.click(screen.getByTestId('set-amount'));
+        await advance(0);
+
+        const expectHeld = async () => {
+          expect(screen.getByTestId('form-ready')).toHaveTextContent(/^false$/);
+          fireEvent.click(screen.getByTestId('continue'));
+          await advance(0);
+          expect(screen.queryByTestId('confirm-route')).not.toBeInTheDocument();
+          expect(screen.queryByTestId('usdcx-confirm-route')).not.toBeInTheDocument();
+        };
+        expect(screen.getByTestId('form-balance')).toHaveTextContent(/^loading$/);
+        expect(screen.getByTestId('form-error')).toBeEmptyDOMElement();
+        await expectHeld();
+
+        await advance(reads * READ_BOUND_MS - 1);
+        expect(screen.getByTestId('form-balance')).toHaveTextContent(/^loading$/);
+        expect(screen.getByTestId('form-error')).toBeEmptyDOMElement();
+
+        await advance(1);
+        expect(screen.getByTestId('form-error')).toHaveTextContent(TIMED_OUT);
+        expect(screen.getByTestId('form-balance')).not.toHaveTextContent('loading');
+        await expectHeld();
+      }
+    );
+
+    it.each([
+      { route: 'Fast', token: 'USDC' as const, setup: quoteFast, reach: () => reachFastReview(), reads: 2 },
+      { route: 'Slow', token: 'ETH' as const, setup: () => undefined, reach: () => reachReview(), reads: 1 },
+      { route: 'Slow', token: 'USDC' as const, setup: () => undefined, reach: () => reachSlowUsdcReview(), reads: 2 }
+    ])(
+      'fails a $route $token row once the re-read at Confirm times out, and opens no prompt',
+      async ({ token, setup, reach, reads }) => {
+        setup();
+        await renderWallet();
+        await reach();
+        jest.useFakeTimers();
+        stallRpc();
+
+        fireEvent.click(screen.getByTestId('confirm-deposit'));
+        await advance(reads * READ_BOUND_MS - 1);
+        expect(updateBridgedReceivePhase).not.toHaveBeenCalledWith('bridge-tx', 'failed', expect.anything());
+
+        await advance(1);
+        expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
+          error: `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: LABEL[token], network: 'Sepolia' })}`
+        });
+        expectNoPrompt();
+        expect(epochState.executeEVMToMiden).not.toHaveBeenCalled();
+      }
+    );
   });
 });
 
