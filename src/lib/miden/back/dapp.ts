@@ -98,7 +98,9 @@ import {
   MidenMessageType,
   MidenRequest
 } from 'lib/miden/types';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDesktop, isExtension } from 'lib/platform';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import { commitmentToHex } from 'lib/secure-hot-key/commitment';
@@ -2934,6 +2936,11 @@ export async function getNetworkRPC(net: string | undefined) {
       throw new Error(MidenDAppErrorType.NetworkNotGranted);
     }
     return current.rpcBaseURL;
+  }
+  // Only a mainnet wallet takes a mainnet claim. A test-network claim still reaches a mainnet wallet, whose
+  // connect sheet warns, because the adapter cannot name mainnet yet.
+  if (net === MIDEN_NETWORK_NAME.MAINNET && getEffectiveNetworkName() !== MIDEN_NETWORK_NAME.MAINNET) {
+    throw new Error(MidenDAppErrorType.NetworkNotGranted);
   }
   const found = NETWORKS.find(n => n.id === net);
   if (!found) {
