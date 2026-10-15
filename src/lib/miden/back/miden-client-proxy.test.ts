@@ -3467,6 +3467,28 @@ describe('MidenClientProxy - the endpoint state on every offscreen message (#148
     expect(calls()[0].endpoints.override).toEqual(stored);
   });
 
+  it('sends no reload until the realm has loaded its own override, then sends the loaded state', async () => {
+    docExists = true;
+    const { reloadOffscreenEndpointOverrides } = await loadProxy(true, { overridesLoaded: false });
+    const endpoints = await import('lib/miden-chain/effective-endpoints');
+    const { getStorageProvider } = await import('lib/platform/storage-adapter');
+    const stored = await customOverride();
+    await getStorageProvider().set({ [endpoints.ENDPOINT_OVERRIDE_STORAGE_KEY]: stored });
+    fakeChrome.runtime.sendMessage.mockImplementation(async () => ({ ok: true }));
+
+    const reload = reloadOffscreenEndpointOverrides();
+    await flush();
+    expect(fakeChrome.runtime.sendMessage).not.toHaveBeenCalled();
+
+    await endpoints.loadEndpointOverrides();
+    await expect(reload).resolves.toBe(true);
+    expect(fakeChrome.runtime.sendMessage).toHaveBeenCalledWith({
+      target: 'offscreen',
+      type: 'OFFSCREEN_RELOAD_ENDPOINTS',
+      endpoints: { override: stored, feeFaucetId: '0xfee' }
+    });
+  });
+
   it('sends the state with the reload, so a live document switches without reading storage', async () => {
     docExists = true;
     const { reloadOffscreenEndpointOverrides } = await loadProxy(true);
