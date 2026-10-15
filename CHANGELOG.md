@@ -25,6 +25,7 @@
 - [FIX][all] The expiration calendar uses theme colors so dates, the month title and navigation arrows are visible in dark mode.
 - [FIX][all] A Guardian account signs a dApp's signBytes signing inputs (arbitrary, summary and blind) with its everyday key instead of failing after approval with "Some storage item not found" (#1417).
 - [FIX][mobile] The native WalletConnect plugins report the chains a session approved, and before an EVM deposit or claim signs on a chain the session did not approve, the wallet asks the connected wallet to add and switch to it (`wallet_addEthereumChain`, `wallet_switchEthereumChain`, now proposed as optional methods); if the chain is still missing, the deposit fails before any wallet prompt with "Reconnect the wallet to approve it" instead of the Sign SDK's "Invalid permissions for call.".
+- [FIX][all] A dApp request made while the wallet is locked asks the user to unlock and then continues, instead of failing at once with `INVALID_PARAMS: Error: Wallet is locked`: on the extension the approval popup opens on the Unlock screen (a read the site may make without asking gets a popup that only unlocks), and on mobile and desktop the wallet's own lock screen is the Unlock step for up to two minutes. Closing it or letting it time out answers `NOT_GRANTED: Wallet is locked`, and a site whose unlock prompt ended still locked gets that answer with no prompt for 30 seconds (#1414).
 
 ### Features
 
