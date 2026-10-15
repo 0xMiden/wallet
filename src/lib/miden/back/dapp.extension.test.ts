@@ -2335,4 +2335,21 @@ describe('the lock prompt cooldown (#1414)', () => {
     lockWallet();
     await openPopup(startAssets);
   });
+
+  it('still prompts an unlocked request from an origin that is cooling down', async () => {
+    _g.__dappExtTest.storage[STORAGE_KEY] = { [LOCKED_ORIGIN]: [SESSION] };
+    lockWallet();
+    const first = await openPopup(startAssets);
+    closeConfirmWindow();
+    await expect(first.outcome).resolves.toEqual({ ok: false, message: 'NOT_GRANTED: Wallet is locked' });
+
+    unlockWallet();
+    const second = await openPopup(startAssets);
+    await second.getPayload();
+    await second.decide(MidenMessageType.DAppAssetsConfirmationRequest);
+    await expect(second.outcome).resolves.toEqual({
+      ok: true,
+      value: expect.objectContaining({ type: MidenDAppMessageType.AssetsResponse })
+    });
+  });
 });
