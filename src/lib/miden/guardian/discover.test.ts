@@ -16,6 +16,7 @@
  * close over.
  */
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import { _resetGuardianRegistryForTest, setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
 
 import {
   classifyProbeError,
@@ -26,6 +27,7 @@ import {
   GuardianProbeTimeoutError,
   selectBest,
   withTimeout,
+  type GuardianDiscoveryResult,
   type GuardianProbeMatch
 } from './discover';
 
@@ -66,6 +68,13 @@ const mockSigners: object[] = [];
 const mockSeedsRequested: number[] = [];
 const mockDeserialize = jest.fn();
 const mockAuthDeserialize = jest.fn();
+
+// A release build's own network is testnet or devnet; mainnet is a stored choice.
+let mockEffectiveNetwork: MIDEN_NETWORK_NAME = MIDEN_NETWORK_NAME.TESTNET;
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => mockEffectiveNetwork
+}));
 
 // The shared native-HTTP double records the probe each endpoint takes and its verdict.
 jest.mock('lib/miden/guardian/native-http');
@@ -171,11 +180,13 @@ beforeEach(() => {
   resetMockProbes();
   jest.clearAllMocks();
   scriptNonces();
+  mockEffectiveNetwork = MIDEN_NETWORK_NAME.TESTNET;
   jest.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
 afterEach(() => {
   jest.restoreAllMocks();
+  _resetGuardianRegistryForTest();
 });
 
 describe('discoverGuardianForSeed', () => {
@@ -657,5 +668,64 @@ describe('discoverGuardianForHotKey', () => {
     for (const key of mockSecretKeys) {
       expect((key as { free: jest.Mock }).free).toHaveBeenCalled();
     }
+  });
+});
+
+/**
+ * A release build's own network is testnet or devnet, and mainnet is a stored choice: with no network named,
+ * discovery asks the operators of the network the wallet is on, never the build's.
+ */
+describe('the operators discovery asks when no network is named', () => {
+  const HOT_KEY_HEX = `01${'ab'.repeat(32)}`;
+  const MAINNET_OPERATOR = {
+    id: 'mainnet-operator',
+    name: 'Mainnet Operator',
+    operatedBy: 'Operator Co',
+    location: 'EU',
+    endpoint: 'https://guardian-mainnet.example'
+  };
+  const flows: Array<[string, () => Promise<GuardianDiscoveryResult>]> = [
+    ['a seed', () => discoverGuardianForSeed(fakeDeriveSeed)],
+    ['a hot key', () => discoverGuardianForHotKey(HOT_KEY_HEX)]
+  ];
+
+  beforeEach(() => {
+    mockAuthDeserialize.mockImplementation(() => {
+      const key = { commitmentHex: 'commitment-0', free: jest.fn() };
+      mockSecretKeys.push(key);
+      return key;
+    });
+    // Holds an account for every key, so a probe that reached it would detect it.
+    mockBackend.set(OZ, { accounts: ['acct-testnet'], nonces: { 'acct-testnet': 2n } });
+  });
+
+  it.each(flows)('asks no operator for %s on mainnet, which lists none', async (_flow, discover) => {
+    mockEffectiveNetwork = MIDEN_NETWORK_NAME.MAINNET;
+
+    const result = await discover();
+
+    expect(result.probedEndpoints).toEqual([]);
+    expect(result.best).toBeUndefined();
+    expect(mockProbedEndpoints).toEqual([]);
+    expect(mockBackend.get(OZ)?.lookupCalls).toBeUndefined();
+  });
+
+  it.each(flows)('asks only the mainnet operator for %s once mainnet lists one', async (_flow, discover) => {
+    mockEffectiveNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, [MAINNET_OPERATOR]);
+    mockBackend.set(MAINNET_OPERATOR.endpoint, { accounts: ['acct-mainnet'], nonces: { 'acct-mainnet': 1n } });
+
+    const result = await discover();
+
+    expect(result.probedEndpoints).toEqual([MAINNET_OPERATOR.endpoint]);
+    expect(result.best?.option?.id).toBe(MAINNET_OPERATOR.id);
+    expect(mockBackend.get(OZ)?.lookupCalls).toBeUndefined();
+  });
+
+  it.each(flows)('asks the testnet operators for %s on testnet', async (_flow, discover) => {
+    const result = await discover();
+
+    expect(result.probedEndpoints).toContain(OZ);
+    expect(result.best?.endpoint).toBe(OZ);
   });
 });

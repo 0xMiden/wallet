@@ -167,9 +167,15 @@ jest.mock('@miden/hd-key', () => ({
 // Stub it with a controllable start() so tests can steer what the probe found.
 const mockProbeStart = jest.fn<Promise<unknown>, unknown[]>();
 const mockProbeReset = jest.fn();
+// Records the network each render asks the probe for.
+const mockUseGuardianProbe = jest.fn((_network?: MIDEN_NETWORK_NAME) => ({
+  state: { status: 'idle' },
+  start: mockProbeStart,
+  reset: mockProbeReset
+}));
 jest.mock('lib/miden/guardian/use-guardian-probe', () => ({
   GUARDIAN_PROBE_WAIT_DEADLINE_MS: 50,
-  useGuardianProbe: () => ({ state: { status: 'idle' }, start: mockProbeStart, reset: mockProbeReset })
+  useGuardianProbe: (network?: MIDEN_NETWORK_NAME) => mockUseGuardianProbe(network)
 }));
 
 const mockPutToStorage = jest.fn<Promise<void>, unknown[]>();
@@ -1100,5 +1106,63 @@ describe('ForgotPassword recovery on an invite-only config', () => {
     expect(mockApply).not.toHaveBeenCalled();
     expect(mockRequest).not.toHaveBeenCalled();
     expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * A recover-only reset restores into mainnet, but switches there only when Confirm registers (so a back-out leaves
+ * the old wallet's network alone). Until then the wallet is still on its own network, so the probe and the
+ * recovery-method step are told which network the recovery restores into.
+ */
+describe('ForgotPassword probes the network it recovers into', () => {
+  const cases: Array<
+    [string, { inviteOnly: boolean } | undefined, MIDEN_NETWORK_NAME, MIDEN_NETWORK_NAME | undefined]
+  > = [
+    [
+      'an invite-only config on a testnet wallet',
+      { inviteOnly: true },
+      MIDEN_NETWORK_NAME.TESTNET,
+      MIDEN_NETWORK_NAME.MAINNET
+    ],
+    ['a mainnet wallet', undefined, MIDEN_NETWORK_NAME.MAINNET, MIDEN_NETWORK_NAME.MAINNET],
+    ['a testnet wallet that is not invite-only', undefined, MIDEN_NETWORK_NAME.TESTNET, undefined]
+  ];
+
+  it.each(cases)('names the recovery network for %s', (_case, onboarding, effective, expected) => {
+    mockSnapshot = readySnapshot(onboarding);
+    mockNetwork = effective;
+    renderPage();
+
+    expect(mockUseGuardianProbe).toHaveBeenLastCalledWith(expected);
+    expect(captured.props?.guardianNetwork).toBe(expected);
+  });
+
+  it('starts the probe before the switch, which still waits for Confirm', async () => {
+    mockSnapshot = readySnapshot({ inviteOnly: true });
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+
+    expect(mockProbeStart).toHaveBeenCalledWith(['seed', 'words', 'here']);
+    expect(mockUseGuardianProbe).toHaveBeenLastCalledWith(MIDEN_NETWORK_NAME.MAINNET);
+    expect(mockApply).not.toHaveBeenCalled();
+    expect(mockClearClientStorage).not.toHaveBeenCalled();
+  });
+
+  it('offers no testnet operator on the recovery-method step of an invite-only reset', async () => {
+    mockSnapshot = readySnapshot({ inviteOnly: true });
+    const { rerender } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    // The real flow only for the step under test: the seed step validates against a word list the stub lacks.
+    mockRealFlow = true;
+    rerender(<ForgotPassword />);
+
+    expect(screen.getByTestId('import-recovery-method')).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'importPublicAccount' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.queryByRole('radio', { name: 'OpenZeppelin' })).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('guardian-testnet.openzeppelin.com');
   });
 });

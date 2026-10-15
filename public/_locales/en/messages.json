@@ -3581,6 +3581,10 @@
     "message": "We couldn't find your account on this guardian. Check the URL or import as a public account instead.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
   },
+  "guardianOtherNetwork": {
+    "message": "This guardian runs on another Miden network, so it cannot recover an account here.",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
+  },
   "useCustomGuardianUrl": {
     "message": "Use a custom Guardian URL",
     "englishSource": "Use a custom Guardian URL"

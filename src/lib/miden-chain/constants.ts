@@ -134,6 +134,22 @@ export function getGuardianEndpointsForNetwork(network: string = getEffectiveNet
 }
 
 /**
+ * Whether `endpoint` is a Guardian operator another public network lists and `network` does not. The accounts it
+ * holds live on that network's chain, so a recovery must not ask it for keys or adopt its state into `network`'s
+ * store. An endpoint no network lists (a self-hosted operator, a local one) says nothing about its network.
+ */
+export function isOtherNetworkGuardian(endpoint: string, network: string): boolean {
+  const lists = (name: string) =>
+    getNetworkGuardians(name).some(option => sameGuardianEndpoint(option.endpoint, endpoint));
+  return (
+    !lists(network) &&
+    [MIDEN_NETWORK_NAME.MAINNET, MIDEN_NETWORK_NAME.TESTNET, MIDEN_NETWORK_NAME.DEVNET].some(
+      other => other !== network && lists(other)
+    )
+  );
+}
+
+/**
  * Resolve the default Guardian endpoint for the active network, throwing a
  * descriptive error on networks without a configured Guardian. Use this at
  * Guardian account create/import entry points so the feature refuses to operate

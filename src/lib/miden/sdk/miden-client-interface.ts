@@ -37,6 +37,7 @@ import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activit
 import { PublicError } from 'lib/miden/back/defaults';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
 import { computeSyncBackoffMs, monotonicNowMs } from 'lib/miden/sync-backoff';
+import { isOtherNetworkGuardian } from 'lib/miden-chain/constants';
 import {
   getEffectiveFeeFaucetId,
   getEffectiveNetworkName,
@@ -892,6 +893,11 @@ export class MidenClientInterface {
     guardianEndpoint: string,
     verifyAccount?: (acc: Account) => Promise<void>
   ): Promise<string[]> {
+    // Refused before the lookup, which would show that operator the recovery's key.
+    if (isOtherNetworkGuardian(guardianEndpoint, this.network)) {
+      const { getMessage } = await import('lib/i18n');
+      throw new Error(getMessage('guardianOtherNetwork'));
+    }
     const [{ assertWasmHoldCurrent, withWasmClientLock }, { MultisigClient, EcdsaSigner }] = await Promise.all([
       import('../sdk/miden-client'),
       import('@openzeppelin/miden-multisig-client')

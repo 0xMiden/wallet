@@ -13,6 +13,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
+import { getGuardianEndpointsForNetwork } from 'lib/miden-chain/constants';
+import type { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import type { GuardianProbeState } from 'screens/onboarding/types';
 
 /**
@@ -49,7 +52,11 @@ export interface GuardianProbeController {
   reset: () => void;
 }
 
-export function useGuardianProbe(): GuardianProbeController {
+/**
+ * @param network - The network the recovery restores into, whose operators are probed. Defaults to the effective
+ *   network at each start; a host that switches network only when it registers (ForgotPassword) names it.
+ */
+export function useGuardianProbe(network?: MIDEN_NETWORK_NAME): GuardianProbeController {
   const [state, setState] = useState<GuardianProbeState>({ status: 'idle' });
   // Monotonic token: only the newest run may publish. A stale probe finishing
   // late must not clobber the result of the seed the user actually entered.
@@ -76,19 +83,26 @@ export function useGuardianProbe(): GuardianProbeController {
   // differ only in the loader that produces the discovery result.
   const run = useCallback(
     async (
-      loader: (signal: AbortSignal) => Promise<GuardianDiscoveryResult>
+      loader: (signal: AbortSignal, network: MIDEN_NETWORK_NAME) => Promise<GuardianDiscoveryResult>
     ): Promise<GuardianDiscoveryResult | undefined> => {
       runToken.current += 1;
       const token = runToken.current;
 
       abortController.current?.abort();
+      const probeNetwork = network ?? getEffectiveNetworkName();
+      // A network that lists no operator has nothing to detect, and the recovery screen offers no Guardian default.
+      if (getGuardianEndpointsForNetwork(probeNetwork).length === 0) {
+        abortController.current = null;
+        setState({ status: 'idle' });
+        return undefined;
+      }
       const controller = new AbortController();
       abortController.current = controller;
 
       setState({ status: 'probing' });
 
       try {
-        const result = await loader(controller.signal);
+        const result = await loader(controller.signal, probeNetwork);
 
         if (token !== runToken.current) return undefined;
         if (mounted.current) setState({ status: 'done', result });
@@ -102,27 +116,27 @@ export function useGuardianProbe(): GuardianProbeController {
         return undefined;
       }
     },
-    []
+    [network]
   );
 
   const start = useCallback(
     (words: readonly string[]) =>
-      run(async signal => {
+      run(async (signal, probeNetwork) => {
         const [{ discoverGuardianForSeed }, { makeColdSeedDeriver }] = await Promise.all([
           import('lib/miden/guardian/discover'),
           import('lib/miden/sdk/derive-seed')
         ]);
-        return discoverGuardianForSeed(makeColdSeedDeriver(toMnemonic(words)), { signal });
+        return discoverGuardianForSeed(makeColdSeedDeriver(toMnemonic(words)), { signal, network: probeNetwork });
       }),
     [run]
   );
 
   const startWithKey = useCallback(
     (hotKeyHex: string) =>
-      run(async signal => {
+      run(async (signal, probeNetwork) => {
         // No derive-seed import: a pasted key needs no PBKDF2.
         const { discoverGuardianForHotKey } = await import('lib/miden/guardian/discover');
-        return discoverGuardianForHotKey(hotKeyHex, { signal });
+        return discoverGuardianForHotKey(hotKeyHex, { signal, network: probeNetwork });
       }),
     [run]
   );

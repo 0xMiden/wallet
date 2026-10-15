@@ -336,6 +336,55 @@ describe('miden-chain/constants', () => {
     });
   });
 
+  describe('isOtherNetworkGuardian', () => {
+    const cases: Array<[string, string, string, boolean]> = [
+      ['a testnet operator on mainnet', 'https://guardian-testnet.openzeppelin.com', 'mainnet', true],
+      ['a testnet operator under its old name on mainnet', 'https://guardian.openzeppelin.com/', 'mainnet', true],
+      ['a devnet operator on testnet', 'https://guardian-devnet.openzeppelin.com', 'testnet', true],
+      ['a testnet operator on testnet', 'https://guardian-testnet.openzeppelin.com', 'testnet', false],
+      ['an operator no network lists', 'https://guardian.example', 'mainnet', false],
+      ['a local operator on testnet', 'http://localhost:3000', 'testnet', false]
+    ];
+
+    it.each(cases)('answers for %s', (_case, endpoint, network, expected) => {
+      jest.isolateModules(() => {
+        const { isOtherNetworkGuardian } = require('./constants');
+        expect(isOtherNetworkGuardian(endpoint, network)).toBe(expected);
+      });
+    });
+
+    it('reads each network from its config document list', () => {
+      jest.isolateModules(() => {
+        const { setDocumentGuardians } = require('./guardian-registry');
+        const { isOtherNetworkGuardian } = require('./constants');
+        const mainnetOperator = {
+          id: 'mainnet-operator',
+          name: 'Mainnet Operator',
+          operatedBy: 'Operator Co',
+          location: 'EU',
+          endpoint: 'https://guardian-mainnet.example'
+        };
+        setDocumentGuardians('mainnet', [mainnetOperator]);
+
+        expect(isOtherNetworkGuardian(mainnetOperator.endpoint, 'mainnet')).toBe(false);
+        expect(isOtherNetworkGuardian(mainnetOperator.endpoint, 'testnet')).toBe(true);
+      });
+    });
+
+    it('counts an operator both networks list as belonging to this one', () => {
+      jest.isolateModules(() => {
+        const { setDocumentGuardians } = require('./guardian-registry');
+        const { isOtherNetworkGuardian } = require('./constants');
+        const shared = 'https://guardian-testnet.openzeppelin.com';
+        setDocumentGuardians('mainnet', [
+          { id: 'open-zeppelin', name: 'OpenZeppelin', operatedBy: 'OpenZeppelin', location: 'US', endpoint: shared }
+        ]);
+
+        expect(isOtherNetworkGuardian(shared, 'mainnet')).toBe(false);
+      });
+    });
+  });
+
   describe('getNetworkId', () => {
     it('returns testnet for TESTNET network', () => {
       process.env.MIDEN_NETWORK = 'testnet';

@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 
 import { _resetGuardianRegistryForTest, setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
 import { useGuardianOptions } from './useGuardianOptions';
 
@@ -59,4 +60,15 @@ it('adds the developer endpoint after the document list', () => {
   const { result } = renderHook(() => useGuardianOptions());
 
   expect(result.current.map(option => option.id)).toEqual(['new-one', 'custom']);
+});
+
+it('gives the operators of a network the caller names, not the effective one', () => {
+  const { result, rerender } = renderHook(() => useGuardianOptions(MIDEN_NETWORK_NAME.MAINNET));
+
+  expect(result.current).toEqual([]);
+
+  act(() => setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, [NEW]));
+  rerender();
+
+  expect(result.current).toEqual([NEW]);
 });

@@ -7,6 +7,9 @@
  */
 import { act, renderHook, waitFor } from '@testing-library/react';
 
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
+import { _resetGuardianRegistryForTest, setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
+
 import type { GuardianDiscoveryResult } from './discover';
 import { useGuardianProbe } from './use-guardian-probe';
 
@@ -23,6 +26,13 @@ jest.mock('lib/miden/sdk/derive-seed', () => ({
   makeColdSeedDeriver: (mnemonic: string) => mockMakeColdSeedDeriver(mnemonic)
 }));
 
+// A release build's own network is testnet or devnet; mainnet is a stored choice.
+let mockEffectiveNetwork: MIDEN_NETWORK_NAME = MIDEN_NETWORK_NAME.TESTNET;
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => mockEffectiveNetwork
+}));
+
 const WORDS = ['abandon', 'abandon', 'about'];
 
 const result = (endpoint?: string): GuardianDiscoveryResult => ({
@@ -34,11 +44,13 @@ const result = (endpoint?: string): GuardianDiscoveryResult => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockEffectiveNetwork = MIDEN_NETWORK_NAME.TESTNET;
   jest.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
 afterEach(() => {
   jest.restoreAllMocks();
+  _resetGuardianRegistryForTest();
 });
 
 describe('useGuardianProbe', () => {
@@ -273,5 +285,101 @@ describe('useGuardianProbe.startWithKey', () => {
 
     expect(hook.current.state).toEqual({ status: 'idle' });
     expect(capturedSignal?.aborted).toBe(true);
+  });
+});
+
+/**
+ * The probe asks the operators of the network the recovery restores into: the effective one, or the one the host
+ * names (ForgotPassword recovers on mainnet before it switches). A network that lists no operator has nothing to
+ * detect, so the probe never starts.
+ */
+describe('useGuardianProbe network', () => {
+  const HOT_KEY_HEX = 'ab'.repeat(32);
+  const MAINNET_OPERATOR = {
+    id: 'mainnet-operator',
+    name: 'Mainnet Operator',
+    operatedBy: 'Operator Co',
+    location: 'EU',
+    endpoint: 'https://guardian-mainnet.example'
+  };
+  type Starter = (probe: ReturnType<typeof useGuardianProbe>) => Promise<GuardianDiscoveryResult | undefined>;
+  const starters: Array<[string, Starter, jest.Mock]> = [
+    ['a seed', probe => probe.start(WORDS), mockDiscover],
+    ['a hot key', probe => probe.startWithKey(HOT_KEY_HEX), mockDiscoverByHotKey]
+  ];
+
+  beforeEach(() => {
+    mockDiscover.mockResolvedValue(result());
+    mockDiscoverByHotKey.mockResolvedValue(result());
+  });
+
+  it.each(starters)('starts no probe for %s on mainnet, which lists no operator', async (_flow, begin, discover) => {
+    mockEffectiveNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    const { result: hook } = renderHook(() => useGuardianProbe());
+
+    const returned = await act(async () => begin(hook.current));
+
+    expect(returned).toBeUndefined();
+    expect(hook.current.state).toEqual({ status: 'idle' });
+    expect(discover).not.toHaveBeenCalled();
+    expect(mockMakeColdSeedDeriver).not.toHaveBeenCalled();
+  });
+
+  it.each(starters)('probes for %s at the operators mainnet lists', async (_flow, begin, discover) => {
+    mockEffectiveNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, [MAINNET_OPERATOR]);
+    const { result: hook } = renderHook(() => useGuardianProbe());
+
+    await act(async () => begin(hook.current));
+
+    expect(discover).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ network: MIDEN_NETWORK_NAME.MAINNET })
+    );
+  });
+
+  it.each(starters)('probes for %s at the operators of the network the host names', async (_flow, begin, discover) => {
+    const { result: hook } = renderHook(() => useGuardianProbe(MIDEN_NETWORK_NAME.MAINNET));
+
+    await act(async () => begin(hook.current));
+    expect(discover).not.toHaveBeenCalled();
+    expect(hook.current.state).toEqual({ status: 'idle' });
+
+    setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, [MAINNET_OPERATOR]);
+    await act(async () => begin(hook.current));
+    expect(discover).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ network: MIDEN_NETWORK_NAME.MAINNET })
+    );
+  });
+
+  it.each(starters)('probes for %s at the testnet operators on testnet', async (_flow, begin, discover) => {
+    const { result: hook } = renderHook(() => useGuardianProbe());
+
+    await act(async () => begin(hook.current));
+
+    expect(discover).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ network: MIDEN_NETWORK_NAME.TESTNET })
+    );
+  });
+
+  it('ends a running probe when a later start finds no operator', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    mockDiscover.mockImplementation((_derive: unknown, options: { signal?: AbortSignal }) => {
+      capturedSignal = options.signal;
+      return new Promise<GuardianDiscoveryResult>(() => {});
+    });
+    const { result: hook } = renderHook(() => useGuardianProbe());
+    act(() => {
+      void hook.current.start(WORDS);
+    });
+    await waitFor(() => expect(capturedSignal).toBeDefined());
+
+    mockEffectiveNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    await act(async () => hook.current.start(WORDS));
+
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(hook.current.state).toEqual({ status: 'idle' });
   });
 });

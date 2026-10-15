@@ -47,13 +47,16 @@ const ForgotPassword: FC = () => {
   const snapshot = useBridgeConfigSnapshot();
   const recoverOnly =
     selectInviteOnlyOnboarding(snapshot) === true || getEffectiveNetworkName() === MIDEN_NETWORK_NAME.MAINNET;
+  // A recover-only reset restores into mainnet but switches there only at Confirm, so until then the wallet is still
+  // on its old network: the probe and the recovery-method step are told which network the recovery restores into.
+  const recoveryNetwork = recoverOnly ? MIDEN_NETWORK_NAME.MAINNET : undefined;
 
   const { registerWallet } = useMidenContext();
   // Guardian auto-detection (issue #418). The probe runs unseen from seed submit;
   // its winner is passed to registerWallet unless the user picked an endpoint on
   // the recovery-method step. When the probe finds nothing (or is still running
   // at the deadline) the backend falls back to the network default.
-  const guardianProbe = useGuardianProbe();
+  const guardianProbe = useGuardianProbe(recoveryNetwork);
   const startGuardianProbe = guardianProbe.start;
   const resetGuardianProbe = guardianProbe.reset;
   const probeResult = useRef<Promise<GuardianDiscoveryResult | undefined> | null>(null);
@@ -331,6 +334,7 @@ const ForgotPassword: FC = () => {
       isLoading={isLoading}
       recoveryError={recoveryError}
       guardianProbe={guardianProbe.state}
+      guardianNetwork={recoveryNetwork}
       // Confirmation restores the wallet; there is no step to go back to from it.
       canGoBack={step !== OnboardingStep.Confirmation}
       onAction={onAction}

@@ -810,6 +810,7 @@
   "guardianProbePartialFailure": "$count$ guardian(s) couldn't be reached, so detection may be incomplete.",
   "retryGuardianDetection": "Try detecting again",
   "guardianAccountNotFound": "We couldn't find your account on this guardian. Check the URL or import as a public account instead.",
+  "guardianOtherNetwork": "This guardian runs on another Miden network, so it cannot recover an account here.",
   "useCustomGuardianUrl": "Use a custom Guardian URL",
   "default": "Default",
   "home": "Home",

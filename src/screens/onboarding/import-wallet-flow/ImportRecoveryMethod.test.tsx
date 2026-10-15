@@ -3,7 +3,8 @@ import React from 'react';
 import { act, render, screen, fireEvent } from '@testing-library/react';
 
 import type { GuardianDiscoveryResult, GuardianProbeMatch } from 'lib/miden/guardian/discover';
-import { DEFAULT_NETWORK, GUARDIAN_OPTIONS, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
+import { GUARDIAN_OPTIONS, MIDEN_NETWORK_NAME, getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
+import { _resetGuardianRegistryForTest, setDocumentGuardians } from 'lib/miden-chain/guardian-registry';
 
 import { ImportRecoveryMethodScreen } from './ImportRecoveryMethod';
 import { GuardianProbeState, WalletType } from '../types';
@@ -14,18 +15,16 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// Pin the network to testnet: jest loads dotenv (`setupFiles`), so a developer
-// `.env` with MIDEN_NETWORK=devnet would otherwise shrink the preset grid to
-// the single devnet operator and break the multi-preset assertions below.
-jest.mock('lib/miden-chain/constants', () => {
-  const actual = jest.requireActual<typeof import('lib/miden-chain/constants')>('lib/miden-chain/constants');
-  return {
-    ...actual,
-    DEFAULT_NETWORK: actual.MIDEN_NETWORK_NAME.TESTNET,
-    getGuardianOptionsForNetwork: (network = actual.MIDEN_NETWORK_NAME.TESTNET) =>
-      actual.getGuardianOptionsForNetwork(network)
-  };
-});
+// Pin the effective network to testnet: jest loads dotenv (`setupFiles`), so a
+// developer `.env` with MIDEN_NETWORK=devnet would otherwise shrink the preset
+// grid to the single devnet operator and break the multi-preset assertions
+// below. The mainnet cases set it, as a stored network choice does.
+const DEFAULT_NETWORK = MIDEN_NETWORK_NAME.TESTNET;
+let mockEffectiveNetwork: MIDEN_NETWORK_NAME = MIDEN_NETWORK_NAME.TESTNET;
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => mockEffectiveNetwork
+}));
 
 // Leaf UI components pull in framer-motion / Capacitor haptics /
 // react-currency-input-field / radix-slot which are irrelevant to this
@@ -84,6 +83,11 @@ const selectOnChain = () => fireEvent.click(screen.getByText('importPublicAccoun
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockEffectiveNetwork = MIDEN_NETWORK_NAME.TESTNET;
+});
+
+afterEach(() => {
+  _resetGuardianRegistryForTest();
 });
 
 describe('ImportRecoveryMethodScreen', () => {
@@ -583,5 +587,81 @@ describe('guardianOnly (hot-key import)', () => {
 
     expect(screen.getByText('importViaGuardian')).toBeInTheDocument();
     expect(screen.getByText('importPublicAccount')).toBeInTheDocument();
+  });
+});
+
+/**
+ * A release build is a testnet or devnet build, and mainnet is a stored choice. The screen offers the operators of the
+ * network the recovery restores into (the effective one, or the one the host names), so on mainnet, which lists none
+ * today, nothing points at a testnet operator.
+ */
+describe('on a network that lists no Guardian operator', () => {
+  const MAINNET_OPERATOR = {
+    id: 'mainnet-operator',
+    name: 'Mainnet Operator',
+    operatedBy: 'Operator Co',
+    location: 'EU',
+    endpoint: 'https://guardian-mainnet.example'
+  };
+  const mainnetScreens: Array<[string, () => ReturnType<typeof renderScreen>]> = [
+    [
+      'the effective network',
+      () => {
+        mockEffectiveNetwork = MIDEN_NETWORK_NAME.MAINNET;
+        return renderScreen({ probe: { status: 'idle' } });
+      }
+    ],
+    [
+      'the network the host names',
+      () => renderScreen({ probe: { status: 'idle' }, network: MIDEN_NETWORK_NAME.MAINNET })
+    ]
+  ];
+
+  it.each(mainnetScreens)('selects the public account on mainnet as %s, with no endpoint', (_case, render) => {
+    const { onSubmit } = render();
+
+    expect(screen.getByRole('radio', { name: 'importPublicAccount' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: 'importViaGuardian' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.queryByTestId('default-badge')).not.toBeInTheDocument();
+    expect(screen.queryByText('guardianEndpoint')).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(DEFAULT_ENDPOINT);
+
+    fireEvent.click(continueButton());
+    expect(onSubmit).toHaveBeenCalledWith({ walletType: WalletType.OnChain });
+  });
+
+  it.each(mainnetScreens)('offers no testnet operator on mainnet as %s once Guardian is chosen', (_case, render) => {
+    render();
+    selectGuardian();
+
+    expect(screen.queryByRole('radio', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('guardianEndpoint')).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(DEFAULT_ENDPOINT);
+    expect(continueButton()).toBeDisabled();
+  });
+
+  it('pins Guardian with no endpoint for a hot key on mainnet', () => {
+    mockEffectiveNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    renderScreen({ guardianOnly: true, probe: { status: 'idle' } });
+
+    expect(screen.getByRole('radio', { name: 'importViaGuardian' })).toHaveAttribute('aria-checked', 'true');
+    expect(document.body.textContent).not.toContain(DEFAULT_ENDPOINT);
+    expect(continueButton()).toBeDisabled();
+  });
+
+  it('defaults to the operator mainnet lists, once it lists one', () => {
+    mockEffectiveNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, [MAINNET_OPERATOR]);
+    const { onSubmit } = renderScreen({ probe: { status: 'idle' } });
+
+    expect(screen.getByRole('radio', { name: 'importViaGuardian' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /Mainnet Operator/ })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.queryByRole('radio', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
+
+    fireEvent.click(continueButton());
+    expect(onSubmit).toHaveBeenCalledWith({
+      walletType: WalletType.Guardian,
+      guardianEndpoint: MAINNET_OPERATOR.endpoint
+    });
   });
 });
