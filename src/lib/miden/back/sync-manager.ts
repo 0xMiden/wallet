@@ -13,7 +13,7 @@ import {
   monotonicNowMs
 } from 'lib/miden/sync-backoff';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
-import { getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveRpcUrl, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import {
   areBackgroundSettingsMirrored,
@@ -202,6 +202,9 @@ export function doSync(force = false): Promise<void> {
 
 async function runSync(force: boolean): Promise<void> {
   try {
+    // The `miden-sync` alarm can fire before start() has loaded the override; until then the note scope below and
+    // the state sent to the offscreen document would be the build's network (#1482).
+    await whenEndpointOverridesLoaded();
     // Skip if wallet not set up
     const vault = await getVault();
     const exists = await vault.isExist();

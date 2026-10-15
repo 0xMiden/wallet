@@ -173,6 +173,9 @@ jest.mock('lib/miden-chain/block-timestamps', () => ({
 let mockRpcUrl: string | undefined;
 jest.mock('lib/miden-chain/effective-endpoints', () => {
   const actual = jest.requireActual('lib/miden-chain/effective-endpoints');
+  // runSync waits for the realm's first override load, which start() runs in production (#1482). Run here, it
+  // covers every module registry this suite builds, isolated ones included.
+  void actual.loadEndpointOverrides();
   return { ...actual, getEffectiveRpcUrl: () => mockRpcUrl ?? actual.getEffectiveRpcUrl() };
 });
 

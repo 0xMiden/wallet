@@ -462,6 +462,44 @@ describe('getEffectiveFeeFaucetId', () => {
   });
 });
 
+// The service worker sends its state to the offscreen document only once it has loaded it (#1482).
+describe('whenEndpointOverridesLoaded', () => {
+  const isSettled = async (promise: Promise<void>) => {
+    let settled = false;
+    void promise.then(
+      () => (settled = true),
+      () => (settled = true)
+    );
+    await new Promise(resolve => setTimeout(resolve, 0));
+    return settled;
+  };
+
+  it('stays pending until the first loadEndpointOverrides() settles', async () => {
+    mockKvStore[ENDPOINT_OVERRIDE_STORAGE_KEY] = buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET);
+    const m = loadModule();
+    expect(await isSettled(m.whenEndpointOverridesLoaded())).toBe(false);
+
+    await m.loadEndpointOverrides();
+    expect(await isSettled(m.whenEndpointOverridesLoaded())).toBe(true);
+    expect(m.getEffectiveNetworkName()).toBe(MIDEN_NETWORK_NAME.MAINNET);
+  });
+
+  it('settles when the storage read throws', async () => {
+    mockThrows = true;
+    const m = loadModule();
+    await m.loadEndpointOverrides();
+    expect(await isSettled(m.whenEndpointOverridesLoaded())).toBe(true);
+    expect(m.getActiveOverride()).toBeNull();
+  });
+
+  it('settles when overrides are disabled for E2E', async () => {
+    process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES = 'true';
+    const m = loadModule();
+    await m.loadEndpointOverrides();
+    expect(await isSettled(m.whenEndpointOverridesLoaded())).toBe(true);
+  });
+});
+
 // The offscreen document has no extension storage, so it runs on the state the service worker sends (#1482).
 describe('endpoint state handed to a realm without extension storage', () => {
   const MAINNET = MIDEN_NETWORK_NAME.MAINNET;

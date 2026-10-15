@@ -45,7 +45,7 @@ import {
   WASM_LOCK_SYNC_WATCHDOG_MS
 } from 'lib/miden/sdk/wasm-client-poison';
 import { tagLockedSignReason } from 'lib/miden/transaction/sign-callback';
-import { getEndpointState } from 'lib/miden-chain/effective-endpoints';
+import { getEndpointState, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
 import type { SerializedInputNoteDetail } from 'lib/shared/types';
 
 import {
@@ -551,6 +551,9 @@ async function dispatchOp(
   } catch (error) {
     throw markErrorBeforeSubmit(error);
   }
+  // The `miden-sync` alarm can get here before start() has loaded this realm's override, when the state the
+  // envelope carries would still be the build's network. The load settles even when it fails.
+  await whenEndpointOverridesLoaded();
   let argsB64: string[];
   try {
     argsB64 = args.map(encodeArg);
@@ -738,6 +741,7 @@ export async function handleOffscreenSignRequest(
 export async function reloadOffscreenEndpointOverrides(): Promise<boolean> {
   if (!USE_OFFSCREEN_CLIENT || !isOffscreenAvailable()) return false;
   if (!(await hasOffscreenDocument())) return false;
+  await whenEndpointOverridesLoaded();
   const envelope: OffscreenReloadEndpointsRequest = {
     target: OFFSCREEN_TARGET,
     type: OFFSCREEN_RELOAD_ENDPOINTS,

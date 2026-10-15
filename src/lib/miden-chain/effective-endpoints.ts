@@ -267,6 +267,20 @@ function isEndpointOverride(value: unknown): value is EndpointOverride {
   );
 }
 
+let markOverridesLoaded: () => void = () => undefined;
+const overridesLoaded = new Promise<void>(resolve => {
+  markOverridesLoaded = resolve;
+});
+
+/**
+ * Settled by this realm's first {@link loadEndpointOverrides}, whatever its outcome (a failed read and the E2E
+ * opt-out settle it too), so a caller never waits forever. Until then every getter answers the build's network:
+ * the service worker waits on it before it sends its state to the offscreen document (#1482).
+ */
+export function whenEndpointOverridesLoaded(): Promise<void> {
+  return overridesLoaded;
+}
+
 /**
  * Load the persisted override into the sync cache.
  *
@@ -280,18 +294,22 @@ function isEndpointOverride(value: unknown): value is EndpointOverride {
  * (every production build) it has no effect.
  */
 export async function loadEndpointOverrides(): Promise<void> {
-  await loadFeeFaucetId();
-  if (process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES === 'true') {
-    overrideCache = null;
-    return;
-  }
   try {
-    const storage = getStorageProvider();
-    const items = await storage.get([ENDPOINT_OVERRIDE_STORAGE_KEY]);
-    const raw = items[ENDPOINT_OVERRIDE_STORAGE_KEY];
-    overrideCache = isEndpointOverride(raw) ? raw : null;
-  } catch {
-    // Deliberate: see the comment above applyEndpointOverride.
+    await loadFeeFaucetId();
+    if (process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES === 'true') {
+      overrideCache = null;
+      return;
+    }
+    try {
+      const storage = getStorageProvider();
+      const items = await storage.get([ENDPOINT_OVERRIDE_STORAGE_KEY]);
+      const raw = items[ENDPOINT_OVERRIDE_STORAGE_KEY];
+      overrideCache = isEndpointOverride(raw) ? raw : null;
+    } catch {
+      // Deliberate: see the comment above applyEndpointOverride.
+    }
+  } finally {
+    markOverridesLoaded();
   }
 }
 

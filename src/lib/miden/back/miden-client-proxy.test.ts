@@ -211,11 +211,18 @@ function resetControl() {
   };
 }
 
-/** Set the flag, reset module registry, and import a fresh proxy. */
-async function loadProxy(flagOn: boolean) {
+/**
+ * Set the flag, reset module registry, and import a fresh proxy. The realm starts with nothing stored and,
+ * unless `overridesLoaded` is false, has run its first override load, as start() does before any message
+ * reaches the offscreen document (#1482).
+ */
+async function loadProxy(flagOn: boolean, { overridesLoaded = true }: { overridesLoaded?: boolean } = {}) {
   if (flagOn) process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
   else delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
   jest.resetModules();
+  const endpoints = await import('lib/miden-chain/effective-endpoints');
+  await endpoints.clearEndpointOverride();
+  if (overridesLoaded) await endpoints.loadEndpointOverrides();
   return import('./miden-client-proxy');
 }
 
@@ -3427,6 +3434,37 @@ describe('MidenClientProxy - the endpoint state on every offscreen message (#148
     for (const env of envelopes) {
       expect(env.endpoints).toEqual({ override, feeFaucetId: '0xfee' });
     }
+  });
+
+  // The `miden-sync` alarm can reach a call before start() has loaded the override (#1482).
+  it('sends no call until the realm has loaded its own override, then sends that override', async () => {
+    const { midenClientProxy } = await loadProxy(true, { overridesLoaded: false });
+    const endpoints = await import('lib/miden-chain/effective-endpoints');
+    const { getStorageProvider } = await import('lib/platform/storage-adapter');
+    const { MIDEN_NETWORK_NAME } = await import('lib/miden-chain/networks-config');
+    const stored = endpoints.buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET);
+    await getStorageProvider().set({ [endpoints.ENDPOINT_OVERRIDE_STORAGE_KEY]: stored });
+    fakeChrome.runtime.sendMessage.mockImplementation(async (env: any) => ({
+      ok: true,
+      op_id: env.op_id,
+      resultB64: null,
+      durationMs: 1
+    }));
+    const calls = () =>
+      fakeChrome.runtime.sendMessage.mock.calls
+        .map(([env]: [any]) => env)
+        .filter((env: any) => env?.type === 'OFFSCREEN_CALL');
+
+    const read = midenClientProxy.getAccount('acc');
+    await flush();
+    fireReady();
+    await flush();
+    expect(calls()).toHaveLength(0);
+
+    await endpoints.loadEndpointOverrides();
+    await read;
+    expect(calls()).toHaveLength(1);
+    expect(calls()[0].endpoints.override).toEqual(stored);
   });
 
   it('sends the state with the reload, so a live document switches without reading storage', async () => {
