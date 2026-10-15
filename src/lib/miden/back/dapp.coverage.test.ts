@@ -492,6 +492,11 @@ describe('getNetworkRPC', () => {
     expect(rpc).toMatch(/^https?:\/\//);
   });
 
+  // Not refused before any prompt: the connect sheet names the wallet's own network and warns on a mismatch.
+  it('resolves a mainnet claim to the mainnet RPC', async () => {
+    await expect(dapp.getNetworkRPC('mainnet')).resolves.toBe('https://rpc.cedar.miden.io');
+  });
+
   it('throws NetworkNotGranted for an unknown network id', async () => {
     await expect(dapp.getNetworkRPC('definitely-not-a-real-net')).rejects.toThrow(MidenDAppErrorType.NetworkNotGranted);
   });

@@ -79,6 +79,12 @@ export const MIDEN_EXPLORER_ENDPOINTS = new Map<string, string>([
 
 export const MIDEN_NETWORKS: MidenNetwork[] = [
   {
+    rpcBaseURL: 'https://rpc.cedar.miden.io',
+    id: MIDEN_NETWORK_NAME.MAINNET,
+    name: 'Mainnet',
+    autoSync: true
+  },
+  {
     rpcBaseURL: 'https://rpc.testnet.miden.io',
     id: MIDEN_NETWORK_NAME.TESTNET,
     name: 'Testnet',

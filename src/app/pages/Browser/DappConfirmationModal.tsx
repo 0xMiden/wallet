@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
+import { DappNetworkMismatchNotice } from 'components/DappNetworkMismatchNotice';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { DappOrigin } from 'components/ui/DappOrigin';
 import { ErrorLine } from 'components/ui/ErrorLine';
@@ -20,6 +21,7 @@ import {
 import { formatAllowedPrivateData, grantsStandingPrivateDataAccess } from 'lib/dapp-browser/private-data-scope';
 import { probeHardwareProtector } from 'lib/miden/back/protector-probe';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
@@ -296,8 +298,15 @@ export const DappConfirmationModal: FC<DappConfirmationModalProps> = ({ request,
 
                 <div className="rounded-xl bg-fill p-4">
                   <p className="mb-1 text-xs text-text-muted">{t('network')}</p>
-                  <p className="text-sm capitalize text-ink">{request.network}</p>
+                  {/* Every request runs on the wallet's own network; `request.network` is only the dApp's claim. */}
+                  <p className="text-sm text-ink" data-testid="dapp-confirmation-network">
+                    {t(getEffectiveNetworkName())}
+                  </p>
                 </div>
+
+                {request.type === 'connect' && (
+                  <DappNetworkMismatchNotice claimedNetwork={request.network} className="mt-3" />
+                )}
 
                 {approvalError?.requestId === request.id && (
                   <ErrorLine data-testid="dapp-approval-error" className="mt-3">

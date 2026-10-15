@@ -467,6 +467,7 @@ export async function generatePromisifyRequestPermission(
       payload: {
         type: 'connect',
         origin,
+        network,
         networkRpc,
         appMeta,
         privateDataPermission: privateDataPermission || PrivateDataPermission.UponRequest,

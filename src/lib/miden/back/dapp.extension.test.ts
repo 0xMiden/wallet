@@ -1406,6 +1406,27 @@ describe('Full confirmation cycles in extension mode', () => {
     expect(res.type).toBe(MidenDAppMessageType.PermissionResponse);
   });
 
+  it("hands the connect popup the dApp's claimed network, for its mismatch warning", async () => {
+    delete (_g.__dappExtTest.storage[STORAGE_KEY] as any)['https://claims-devnet.xyz'];
+    _g.__dappExtTest.midenClient.getAccount = jest.fn().mockResolvedValue({
+      getPublicKeyCommitments: () => [{ serialize: () => new Uint8Array([1, 2, 3]) }]
+    });
+    await driveConfirmation(
+      () =>
+        dapp.requestPermission('https://claims-devnet.xyz', {
+          type: MidenDAppMessageType.PermissionRequest,
+          appMeta: { name: 'Devnet Dapp', url: 'https://claims-devnet.xyz' },
+          force: false,
+          network: 'devnet',
+          privateDataPermission: 'UPON_REQUEST',
+          allowedPrivateData: 0
+        } as never),
+      MidenMessageType.DAppPermConfirmationRequest,
+      { confirmed: true, accountPublicKey: 'miden-account-1', privateDataPermission: 'UPON_REQUEST' }
+    );
+    expect(_g.__dappExtTest.lastPayloadResponse.payload).toMatchObject({ type: 'connect', network: 'devnet' });
+  });
+
   it('requestConsumeTransaction with noteBytes imports and resolves when confirmed', async () => {
     const { queueNoteImport } = jest.requireMock('lib/miden/activity');
     const sdk = require('lib/miden/transaction');

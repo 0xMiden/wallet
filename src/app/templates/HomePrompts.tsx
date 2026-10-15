@@ -21,6 +21,7 @@ import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isGuardianDrifted } from 'lib/miden/guardian/sync-guard';
+import { isFaucetConfigured } from 'lib/miden-chain/effective-endpoints';
 import {
   FaucetAmountOverCapError,
   FaucetOutcomeUnknownError,
@@ -420,8 +421,10 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const cannotPayFee = hasNoFeeAsset(balances, feeFaucetId, verificationBaseFee);
   const faucetIsTerminal =
     !cannotPayFee && (faucetStatus === WalletPromptStatus.Dismissed || faucetStatus === WalletPromptStatus.Completed);
+  // Read on every render: a Developer Settings save swaps the network without a reload. Mainnet has no faucet.
   const showFaucetPrompt =
-    awaitingFaucetFunds || faucetFundsArrived || (isLoaded && !balancesLoading && !hasBalance && !faucetIsTerminal);
+    isFaucetConfigured() &&
+    (awaitingFaucetFunds || faucetFundsArrived || (isLoaded && !balancesLoading && !hasBalance && !faucetIsTerminal));
 
   useEffect(() => {
     if (!hotKeyPromptPending) return;

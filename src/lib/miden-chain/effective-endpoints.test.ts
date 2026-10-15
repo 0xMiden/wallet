@@ -11,6 +11,8 @@ import {
 import {
   getEffectiveAllowNoGuardian,
   buildDefaultOverrideFor,
+  buildNetworkChoiceOverride,
+  type EndpointOverride,
   loadEndpointOverrides,
   ENDPOINT_OVERRIDE_STORAGE_KEY
 } from './effective-endpoints';
@@ -265,17 +267,26 @@ describe('effective-endpoints resolver', () => {
     });
   });
 
-  describe('faucet/faucetApi URL final fallback (network with no per-network mapping)', () => {
-    it('falls back to the DEFAULT_NETWORK faucet/faucetApi endpoint when the effective network has none', async () => {
+  describe('faucet on a network with none (mainnet)', () => {
+    // Another network's faucet would mint test tokens for the mainnet address, which never reach mainnet.
+    it.each<[string, (network: MIDEN_NETWORK_NAME) => EndpointOverride]>([
+      ['the Mainnet preset', network => buildDefaultOverrideFor(network)],
+      ['the onboarding network choice', network => buildNetworkChoiceOverride(network)]
+    ])('resolves no faucet and no faucet API under %s, never the build network faucet', async (_label, build) => {
       const m = loadModule();
-      // MAINNET has no entry in MIDEN_FAUCET_ENDPOINTS / MIDEN_FAUCET_API_ENDPOINTS, and
-      // buildDefaultOverrideFor leaves faucetUrl/faucetApiUrl empty in that case, so both
-      // getters must fall through past the (falsy) override and the (undefined) per-network
-      // map entry to the DEFAULT_NETWORK map entry.
-      await m.applyEndpointOverride(m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.MAINNET));
+      await m.applyEndpointOverride(build(MIDEN_NETWORK_NAME.MAINNET));
       expect(m.getEffectiveNetworkName()).toBe(MIDEN_NETWORK_NAME.MAINNET);
-      expect(m.getEffectiveFaucetUrl()).toBe(MIDEN_FAUCET_ENDPOINTS.get(DEFAULT_NETWORK));
-      expect(m.getEffectiveFaucetApiUrl()).toBe(MIDEN_FAUCET_API_ENDPOINTS.get(DEFAULT_NETWORK));
+      expect(m.getEffectiveFaucetUrl()).toBeUndefined();
+      expect(m.getEffectiveFaucetApiUrl()).toBeUndefined();
+      expect(m.isFaucetConfigured()).toBe(false);
+    });
+
+    it('still resolves the faucet of a network that has one', async () => {
+      const m = loadModule();
+      expect(m.isFaucetConfigured()).toBe(true);
+      await m.applyEndpointOverride(buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.DEVNET));
+      expect(m.getEffectiveFaucetApiUrl()).toBe(MIDEN_FAUCET_API_ENDPOINTS.get(MIDEN_NETWORK_NAME.DEVNET));
+      expect(m.isFaucetConfigured()).toBe(true);
     });
   });
 

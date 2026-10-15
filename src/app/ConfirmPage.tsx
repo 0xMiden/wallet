@@ -12,6 +12,7 @@ import { useApprovalPrompt } from 'app/hooks/useDappApprovalTelemetry';
 import ContentContainer from 'app/layouts/ContentContainer';
 import Unlock, { useRetireLockoutOnReady } from 'app/pages/Unlock';
 import { Button, ButtonVariant } from 'components/Button';
+import { DappNetworkMismatchNotice } from 'components/DappNetworkMismatchNotice';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { DappOrigin } from 'components/ui/DappOrigin';
@@ -794,14 +795,17 @@ const ConfirmDAppForm: FC = () => {
         ) : (
           <>
             {payload.type === 'connect' ? (
-              account && (
-                <AccountBanner
-                  account={account}
-                  networkRpc={payload.networkRpc}
-                  labelIndent="sm"
-                  className="w-full my-2"
-                />
-              )
+              <>
+                {account && (
+                  <AccountBanner
+                    account={account}
+                    networkRpc={payload.networkRpc}
+                    labelIndent="sm"
+                    className="w-full my-2"
+                  />
+                )}
+                <DappNetworkMismatchNotice claimedNetwork={payload.network} className="my-2" />
+              </>
             ) : (
               <PayloadContent payload={payload} error={payloadError} account={account} viewKey={id} />
             )}

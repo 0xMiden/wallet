@@ -70,6 +70,14 @@ const mockUnresolvedRefusal = (address: string, marker: FaucetFundingMarker, rep
 };
 
 let mockBaseFee: number | null = 0;
+// The effective network's own answer unless a case puts the wallet on a network with no faucet.
+let mockFaucetConfigured: boolean | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, isFaucetConfigured: () => mockFaucetConfigured ?? actual.isFaucetConfigured() };
+});
 // The bridged price entries the testnet config names (the manual mock beside the module).
 jest.mock('lib/miden/swap/bridge-price-allowlist');
 let mockBridgeSnapshot: BridgeConfigSnapshot | undefined;
@@ -316,6 +324,7 @@ const makePromptState = ({ storage, ...overrides }: { storage?: object } & Recor
 describe('HomePrompts', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockFaucetConfigured = undefined;
     // The hidden (declined) set is module-scoped state, so a test that declines something must
     // not leave it declined for the next one.
     mockHiddenNotes.ids = new Set<string>();
@@ -403,6 +412,48 @@ describe('HomePrompts', () => {
       'verifySeedPhrasePromptTitle'
     ]);
     expect(mockSetFaucetStatus).toHaveBeenCalledWith('accountA', WalletPromptStatus.Pending);
+  });
+
+  // Mainnet has no faucet: the card would send the mainnet address to another network's faucet.
+  describe('on a network with or without a faucet', () => {
+    const renderFeeBroke = () =>
+      render(
+        <HomePrompts
+          account={account}
+          balances={[{ tokenId: NATIVE_FAUCET_ID, balance: 0 }] as TokenBalanceData[]}
+          balancesLoading={false}
+          claimableNotes={[]}
+          fundingNotes={[]}
+          tokenPrices={{}}
+        />
+      );
+    beforeEach(() => {
+      mockBaseFee = 7;
+      mockUseWalletPromptStorage.mockReturnValue(makePromptState());
+    });
+    afterEach(() => {
+      mockBaseFee = 0;
+    });
+
+    it('offers no Fund card and requests nothing where the network has no faucet (mainnet)', async () => {
+      mockFaucetConfigured = false;
+      renderFeeBroke();
+      await act(async () => {});
+
+      expect(screen.getByText('verifySeedPhrasePromptTitle')).toBeInTheDocument();
+      expect(screen.queryByText('faucetPromptTitle')).not.toBeInTheDocument();
+      expect(mockFaucet).not.toHaveBeenCalled();
+    });
+
+    it("offers the Fund card and requests on the build's network, which has one (testnet)", async () => {
+      renderFeeBroke();
+      const faucetCard = screen.getAllByTestId('prompt-card')[0]!;
+      await act(async () => {});
+
+      expect(faucetCard).toHaveAttribute('data-title', 'faucetPromptTitle');
+      fireEvent.click(within(faucetCard).getByRole('button', { name: 'faucetPromptTitle' }));
+      await waitFor(() => expect(mockFaucet).toHaveBeenCalledTimes(1));
+    });
   });
 
   it('re-offers a dismissed faucet prompt once the account can no longer pay a fee', () => {
