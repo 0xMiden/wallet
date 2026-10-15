@@ -4924,16 +4924,20 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "USDC, $source$ adresinde yakılır ve $target$ adresindeki Circle'ın yetkili temsilcisine basılır; bu temsilci de parayı Miden adına xReserve'e yatırır. Circle, tutara ek olarak kendi ücretini alır ve $target$ adresinde transferi gerçekleştirir. Circle transferin bedelini belirleyemezse, siz $target$ adresinde bir imza daha ekleyerek transferi gerçekleştirirsiniz.",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "USDC, $source$ üzerinde yakılır ve $target$ üzerinde Circle'ın yürütücüsüne basılır; bu da onu Miden için xReserve'e yatırır. Circle, tutara ek olarak ücretini alır ve Circle, $target$ üzerinde transferi gerçekleştirir.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$.",
     "placeholders": {
       "source": {
         "content": "$1"
       },
       "target": {
-        "content": "$4"
+        "content": "$3"
       }
     }
+  },
+  "usdcxForwardQuoteUnavailable": {
+    "message": "Circle şu anda bu transfer için fiyat belirleyemedi. Hiçbir şey gönderilmedi. Bir süre sonra tekrar deneyin.",
+    "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
   },
   "usdcxCctpAwaitingAttestation": {
     "message": "Yakma işlemi onaylandı. $network$ üzerinde gerçekleştirilebilmesi için Circle'ın transferi onaylamasını bekliyoruz.",

@@ -50,10 +50,9 @@ import {
   ERC20_ALLOWANCE_ABI,
   ERC20_APPROVE_ABI,
   ERC20_BALANCE_OF_ABI,
-  DEFAULT_USDCX_SOURCE_CHAIN_ID,
+  defaultUsdcxChainId,
   usdcxSourceChains,
   listUsdcxSourceChains,
-  TOKEN_MESSENGER_V2_ABI,
   TOKEN_MESSENGER_WITH_FEES_ABI,
   USDCX_DECIMALS,
   type UsdcxSourceChain,
@@ -64,6 +63,7 @@ import { isUsdcxDomainNotRegisteredError, runUsdcxDeposit, UsdcxSigner } from 'l
 import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import {
   buildExecutorBurnIntent,
+  isUsdcxForwardQuoteUnavailableError,
   quoteExecutorBurn,
   runUsdcxExecutorDeposit,
   UsdcxExecutorSigner
@@ -78,7 +78,7 @@ import {
 } from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 import { nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
-import { BridgeNetwork, DEFAULT_BRIDGE_NETWORK, getBridgeNetworkByChainId } from 'screens/send-flow/bridge-networks';
+import { BridgeNetwork, getBridgeNetworkByChainId } from 'screens/send-flow/bridge-networks';
 import { Route as RouteStep } from 'screens/send-flow/Route';
 import { BridgeRoute, UITokenWithPendingBalance } from 'screens/send-flow/types';
 
@@ -346,6 +346,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // deposit, nor change the amount, token or wallet it was confirmed with. Once the row exists the screen stays on the
   // status page until it closes, so the lock holds for the rest of the screen.
   const confirming = useRef(false);
+  // True once the user picked a token in the drawer; the document's opening token is applied only before that.
+  const tokenChosen = useRef(false);
   // Bumped by a confirm that ends without a row, so the quote effect runs over whatever it skipped during the confirm.
   const [confirmSettled, setConfirmSettled] = useState(0);
 
@@ -374,7 +376,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     const sources = usdcxSourceChains(bridgeConfig);
     return (
       (pickedChainId === undefined ? undefined : sources.get(pickedChainId)) ??
-      sources.get(DEFAULT_USDCX_SOURCE_CHAIN_ID) ??
+      sources.get(defaultUsdcxChainId()) ??
       sources.values().next().value
     );
   }, [pickedChainId, bridgeConfig]);
@@ -446,6 +448,14 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // A token or chain not named yet while the snapshot loads is a wait, not a failure.
   const usdcPending = evmUsdc === null && bridgeConfig.status === 'loading';
   const agglayerPending = agglayerChainId === undefined && bridgeConfig.status === 'loading';
+  // The document decides the token the screen opens on. A document that names no Epoch USDC but names a USDCx
+  // source (mainnet) opens on Circle USDC, not on a token it does not name. A token the user picked stands.
+  useEffect(() => {
+    if (tokenChosen.current || token !== 'USDC' || usdcPending || usdcxPending) return;
+    if (evmUsdc !== null || !usdcxAvailable || !usdcxSource) return;
+    selectToken('CIRCLE_USDC');
+    setRoute('usdcx');
+  }, [token, usdcPending, usdcxPending, evmUsdc, usdcxAvailable, usdcxSource, selectToken]);
   // The status page is the one step that leads to no route card these grey out.
   const routesAhead = activeRoute?.name !== ReceiveStep.ShowBridgePageStatus;
   const fastAvailability = useFeatureAvailability('fastBridgeIn', { hold: routesAhead, chainId: evmUsdcChainId });
@@ -633,6 +643,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const handleTokenSelect = useCallback(
     (next: DepositToken) => {
       if (confirming.current) return;
+      tokenChosen.current = true;
       setTokenDrawerOpen(false);
       selectToken(next);
       setRoute(current => routeAfterTokenChange(next, current));
@@ -735,6 +746,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   const depositErrorMessage = useCallback(
     (err: unknown): string => nativeSigningErrorMessage(err, t, errorMessage),
     [t]
+  );
+  // The two USDCx refusals that stop a deposit before any wallet prompt get their own words.
+  const usdcxDepositErrorMessage = useCallback(
+    (err: unknown): string => {
+      if (isUsdcxDomainNotRegisteredError(err)) return t('usdcxDomainNotRegistered');
+      if (isUsdcxForwardQuoteUnavailableError(err)) return t('usdcxForwardQuoteUnavailable');
+      return depositErrorMessage(err);
+    },
+    [t, depositErrorMessage]
   );
 
   const handleSlowBridge = useCallback(
@@ -1017,28 +1037,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           case 'cctp-executor': {
             // The burn mints to Circle's executor on Arc, which deposits into Arc's xReserve; the registration
             // check therefore reads Arc's xReserve, where the deposit lands.
-            const { tokenMessenger, tokenMessengerWithFees, target } = usdcxSource;
+            const { tokenMessengerWithFees, target } = usdcxSource;
             const signer: UsdcxExecutorSigner = {
               approve,
-              depositForBurnWithHook: args =>
-                lastPrompt(
-                  nativeReownAvailable
-                    ? sendNative(
-                        tokenMessenger,
-                        encodeFunctionData({
-                          abi: TOKEN_MESSENGER_V2_ABI,
-                          functionName: 'depositForBurnWithHook',
-                          args
-                        })
-                      )
-                    : writeContract.mutateAsync({
-                        chainId: usdcxChain.id,
-                        abi: TOKEN_MESSENGER_V2_ABI,
-                        address: tokenMessenger,
-                        functionName: 'depositForBurnWithHook',
-                        args
-                      })
-                ),
               depositForBurnWithHookAndFees: args =>
                 lastPrompt(
                   nativeReownAvailable
@@ -1084,7 +1085,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           return;
         }
         console.error('[EvmBridgeDepositScreen] USDCx bridge failed', err);
-        const message = isUsdcxDomainNotRegisteredError(err) ? t('usdcxDomainNotRegistered') : depositErrorMessage(err);
+        const message = usdcxDepositErrorMessage(err);
         setSlowError(message);
         setSlowStatus('failed');
         await updateBridgedReceivePhase(trackingTxId, 'failed', { error: message }).catch(() => undefined);
@@ -1092,13 +1093,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     },
     [
       amount,
-      depositErrorMessage,
       ensureBalanceCovers,
       evmAddress,
       midenAccount.publicKey,
       nativeReownAvailable,
       switchChainAsync,
-      t,
+      usdcxDepositErrorMessage,
       usdcxSource,
       walletProvider,
       writeContract
@@ -1280,7 +1280,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         return evmUsdc?.chainId ?? 0;
     }
   })();
-  const bridgeNetwork = getBridgeNetworkByChainId(sourceChainId) ?? DEFAULT_BRIDGE_NETWORK;
+  // Undefined while the route has no chain: the form then asks for a network instead of naming a compiled default.
+  const bridgeNetwork = getBridgeNetworkByChainId(sourceChainId);
   const sourceNetworks = Object.values(bridgeConfig.config?.supportedEvmChains ?? {}).flatMap(entry => {
     const enabled = route === 'agglayer' ? entry.bridges.agglayer?.depositEnabled : entry.bridges.epoch?.depositEnabled;
     const network = getBridgeNetworkByChainId(entry.chainId);
@@ -1627,8 +1628,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         open={tokenDrawerOpen}
         onOpenChange={setTokenDrawerOpen}
         selected={token}
-        ethBalance={ethBalance.formatted}
-        usdcBalance={usdcBalance.formatted}
+        // A token is offered only where the document names a route for it: ETH needs an AggLayer chain, the Epoch
+        // test USDC needs `epoch.tokens.USDC`. A mainnet document names neither, so Circle's USDC is the one row.
+        ethBalance={agglayerChain ? ethBalance.formatted : undefined}
+        usdcBalance={evmUsdc ? usdcBalance.formatted : undefined}
         usdcLabel={usdcLabel}
         ethLoading={ethBalance.loading}
         usdcLoading={usdcBalance.loading}

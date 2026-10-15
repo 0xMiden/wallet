@@ -95,7 +95,6 @@
           "domain": 0,
           "deposit": {
             "route": "executor",
-            "tokenMessenger": "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA",
             "tokenMessengerWithFees": "0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A",
             "executorChain": "arc-testnet"
           },
@@ -132,7 +131,6 @@
           "domain": 6,
           "deposit": {
             "route": "executor",
-            "tokenMessenger": "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA",
             "tokenMessengerWithFees": "0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A",
             "executorChain": "arc-testnet"
           },
@@ -153,7 +151,6 @@
           "domain": 3,
           "deposit": {
             "route": "executor",
-            "tokenMessenger": "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA",
             "tokenMessengerWithFees": "0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A",
             "executorChain": "arc-testnet"
           },

@@ -65,7 +65,8 @@ const blobToBase64 = (blob: Blob): Promise<string> =>
 interface ReceiveActionTileProps {
   icon: IconName;
   title: string;
-  caption: string;
+  /** A second line under the title; a tile with none draws only its title. */
+  caption?: string;
   onClick: () => void;
   /** Greyed out, and takes no tap, while what it opens cannot start. */
   disabled?: boolean;
@@ -105,9 +106,11 @@ const ReceiveActionTile: React.FC<ReceiveActionTileProps> = ({
           <span data-slot="title" className="truncate text-row-title text-ink">
             {title}
           </span>
-          <span data-slot="caption" className="truncate text-caption font-semibold text-muted">
-            {caption}
-          </span>
+          {caption !== undefined && (
+            <span data-slot="caption" className="truncate text-caption font-semibold text-muted">
+              {caption}
+            </span>
+          )}
         </span>
       </button>
     </Card>
@@ -337,8 +340,7 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
               <ReceiveActionTile
                 icon={IconName.CrossChain}
                 title={t('crossChain')}
-                // Name the actual source test network, not a bare "Testnet" (#875).
-                caption={t('crossChainFromNetwork', { network: t('ethereumSepolia') })}
+                // No source named here: the bridge screen lists the chains the remote config offers.
                 onClick={handleOpenEvm}
                 disabled={isFeatureBlocked(crossChain)}
                 data-testid="receive-cross-chain"

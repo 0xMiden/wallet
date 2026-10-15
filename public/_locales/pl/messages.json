@@ -4924,16 +4924,20 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "USDC jest spalane na $source$ i wybijane na rzecz wykonawcy Circle na $target$, który wpłaca je do xReserve dla Miden. Circle pobiera swoją opłatę oprócz kwoty, a Circle realizuje transfer na $target$. Jeśli Circle nie może wycenić transferu, realizujesz go na $target$ za pomocą jeszcze jednego podpisu.",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "USDC jest spalane na $source$ i emitowane na rzecz wykonawcy Circle na $target$, który wpłaca je do xReserve dla Miden. Circle pobiera swoją opłatę dodatkowo do kwoty, a Circle realizuje transfer na $target$.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$.",
     "placeholders": {
       "source": {
         "content": "$1"
       },
       "target": {
-        "content": "$4"
+        "content": "$3"
       }
     }
+  },
+  "usdcxForwardQuoteUnavailable": {
+    "message": "Circle nie może w tej chwili wycenić tego przelewu. Nic nie zostało wysłane. Spróbuj ponownie za chwilę.",
+    "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
   },
   "usdcxCctpAwaitingAttestation": {
     "message": "Spalenie zostało potwierdzone. Czekamy na poświadczenie transferu przez Circle, zanim będzie można go zrealizować w sieci $network$.",

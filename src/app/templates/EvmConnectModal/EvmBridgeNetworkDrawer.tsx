@@ -13,7 +13,8 @@ export interface EvmBridgeNetworkDrawerProps {
   onOpenChange: (open: boolean) => void;
   /** The chains the deposit can start from on the chosen route. */
   networks: readonly BridgeNetwork[];
-  selected: BridgeNetwork;
+  /** The chain the route is on, or none while the route has no chain: no row is then checked. */
+  selected?: BridgeNetwork;
   onSelect: (network: BridgeNetwork) => void;
 }
 
@@ -43,7 +44,7 @@ export const EvmBridgeNetworkDrawer: React.FC<EvmBridgeNetworkDrawerProps> = ({
               key={network.id}
               title={network.name}
               avatar={<NetworkLogo kind="ethereum" />}
-              checked={network.id === selected.id}
+              checked={network.id === selected?.id}
               onClick={() => onSelect(network)}
               data-testid={`bridge-network-${network.id}`}
             />

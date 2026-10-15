@@ -2,7 +2,6 @@ import { NoteId } from '@miden-sdk/miden-sdk/lazy';
 
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus, IUsdcxBurn } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 
 import { readWithOwnRpcClient } from './rpc-client';
@@ -44,7 +43,11 @@ async function readBurnStatus(noteId: string): Promise<BurnObservation> {
   };
 }
 
-/** Read-only network polling: errors leave the durable row eligible for the next pass. */
+/**
+ * Read-only network polling: errors leave the durable row eligible for the next pass. Every network with a
+ * USDCx row is polled: the row exists only where a burn was made, and the status is the node's own
+ * (`getNetworkNoteStatus`). A testnet-only gate here left every mainnet withdrawal at "Awaiting burn".
+ */
 export async function pollUsdcxBurn(
   tx: ITransaction,
   readStatus: (noteId: string) => Promise<BurnObservation> = readBurnStatus
@@ -52,7 +55,6 @@ export async function pollUsdcxBurn(
   const extra: IBridgedSendExtraInputs | undefined = tx.extraInputs;
   const burn = extra?.usdcxBurn;
   if (
-    getEffectiveNetworkName() !== 'testnet' ||
     tx.restoredFromBackup ||
     tx.type !== 'bridged-send' ||
     extra?.provider !== 'usdcx' ||

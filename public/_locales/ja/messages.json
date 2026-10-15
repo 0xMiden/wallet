@@ -4924,16 +4924,20 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "USDCは$source$でバーンされ、$target$でCircleの執行者にミントされます。Circleは金額に加えて手数料を請求し、$target$で送金を実行します。Circleが送金の価格設定ができない場合、$target$で署名を1つ追加して送金を実行します。",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "USDCは$source$でバーンされ、$target$のCircleの執行者にミントされます。Circleは金額に加えて手数料を請求し、$target$で送金を執行します。",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$.",
     "placeholders": {
       "source": {
         "content": "$1"
       },
       "target": {
-        "content": "$4"
+        "content": "$3"
       }
     }
+  },
+  "usdcxForwardQuoteUnavailable": {
+    "message": "Circleは現時点でこの送金の価格を算出できませんでした。何も送金されていません。しばらくしてから再度お試しください。",
+    "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
   },
   "usdcxCctpAwaitingAttestation": {
     "message": "バーンが確認されました。$network$上で実行される前に、Circleによる転送の認証を待っています。",

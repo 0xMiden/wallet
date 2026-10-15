@@ -13,7 +13,7 @@ import { BridgeDeposit } from './BridgeDeposit';
 let mockEffectiveNetwork = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getTestNetworkNameKey: () => 'testnet',
+  getTestNetworkNameKey: () => (mockEffectiveNetwork === 'mainnet' ? null : 'testnet'),
   getEffectiveNetworkName: () => mockEffectiveNetwork
 }));
 jest.mock('components/NetworkModeSheet', () => ({ NetworkModeSheet: () => null }));
@@ -133,6 +133,14 @@ describe('BridgeDeposit (#875)', () => {
     expect(warning).toHaveAttribute('data-tone', 'warning');
     expect(warning.querySelector('[data-slot="title"]')?.textContent).toBe('evmConnectTestWalletTitle');
     expect(warning.querySelector('[data-slot="body"]')?.textContent).toBe('evmConnectTestWalletBody');
+  });
+
+  it('shows no test-wallet warning on mainnet, where the funds are real', () => {
+    mockEffectiveNetwork = 'mainnet';
+    render(<BridgeDeposit />);
+
+    expect(screen.getByText('connectEvmWallet')).toBeInTheDocument();
+    expect(screen.queryByTestId('evm-connect-test-wallet-warning')).not.toBeInTheDocument();
   });
 
   it('opens a wallet while a bridge-in route can start', () => {

@@ -971,12 +971,13 @@ describe('Receive - Address', () => {
       }
     });
 
-    it('names the source network of the cross-chain route', async () => {
+    // The source chains come from the remote config and differ per network, so the tile names none.
+    it('names no source network on the cross-chain tile', async () => {
       const container = await renderReceive();
 
-      expect(container.querySelector('[data-testid="receive-cross-chain"]')?.textContent).toContain(
-        'crossChainFromNetwork:ethereumSepolia:'
-      );
+      const tile = container.querySelector('[data-testid="receive-cross-chain"]');
+      expect(tile?.textContent).toContain('crossChain');
+      expect(tile?.textContent).not.toContain('crossChainFromNetwork');
     });
   });
 });
