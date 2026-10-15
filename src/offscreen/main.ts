@@ -29,7 +29,7 @@
 //     response: { ok: true, op_id, resultB64: string | null, durationMs }
 //             | { ok: false, op_id, error: string, errorCode?: string }
 //   OFFSCREEN_RELOAD_ENDPOINTS (an endpoint change, or a client discard):
-//     request:  { target: "offscreen", type: "OFFSCREEN_RELOAD_ENDPOINTS", endpoints? }
+//     request:  { target: "offscreen", type: "OFFSCREEN_RELOAD_ENDPOINTS", endpoints }
 //     response: { ok: true } | { ok: false, error: string }
 //   See src/lib/miden/back/offscreen-codec.ts for the shared wire format, which
 //   also defines the REVERSE (offscreen → SW) families this realm posts: the sign
@@ -1630,7 +1630,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         // and waiting on a cold start would just delay the answer the SW is holding the
         // user's "Save" on.
         const request: OffscreenReloadEndpointsRequest = msg;
-        if (request.endpoints) adoptEndpoints(request.endpoints);
+        if (!request.endpoints) {
+          const refused: OffscreenReloadEndpointsResponse = {
+            ok: false,
+            error: 'endpoint reload carries no network state from the service worker'
+          };
+          sendResponse(refused);
+          return;
+        }
+        adoptEndpoints(request.endpoints);
         // Dropped even when the state did not change: seed removal sends this only to discard the client.
         clientPromise = null;
         const response: OffscreenReloadEndpointsResponse = { ok: true };

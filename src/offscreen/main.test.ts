@@ -4528,23 +4528,27 @@ describe('offscreen/main - the network comes from the service worker (#1482)', (
     expect(realm().getEffectiveRpcUrl()).toBe('https://custom.example/rpc');
     expect(realm().getEffectiveFeeFaucetId()).toBe('0xcustomfee');
     expect(G.__off.createEndpoints).toHaveLength(1);
-
-    // The same state again still drops the client: the reload is also the SW's "discard it" (seed removal).
-    expect(await reload(custom())).toEqual({ ok: true });
     expect((await call(custom())).ok).toBe(true);
     expect(G.__off.createEndpoints).toHaveLength(2);
     expect(G.__off.createEndpoints[1].rpcUrl).toBe('https://custom.example/rpc');
+
+    // The same state again still drops the client it was just rebuilt on: seed removal discards it this way.
+    expect(await reload(custom())).toEqual({ ok: true });
+    expect((await call(custom())).ok).toBe(true);
+    expect(G.__off.createEndpoints).toHaveLength(3);
+    expect(G.__off.createEndpoints[2].rpcUrl).toBe('https://custom.example/rpc');
   });
 
-  it('a reload without state drops the client and keeps the adopted state', async () => {
+  it('refuses a reload without state, keeping the adopted state and the client', async () => {
     await loadModule();
     expect((await call(custom())).ok).toBe(true);
 
-    expect(await reload()).toEqual({ ok: true });
+    const ack = await reload();
+    expect(ack).toMatchObject({ ok: false });
+    expect(ack.error).toContain('carries no network state');
     expect(realm().getEffectiveRpcUrl()).toBe('https://custom.example/rpc');
     expect((await call(custom())).ok).toBe(true);
-    expect(G.__off.createEndpoints).toHaveLength(2);
-    expect(G.__off.createEndpoints[1].rpcUrl).toBe('https://custom.example/rpc');
+    expect(G.__off.createEndpoints).toHaveLength(1);
   });
 
   it('a reload is answered ok:false, never dropped, when adopting its state throws', async () => {
@@ -4565,10 +4569,9 @@ describe('offscreen/main - the network comes from the service worker (#1482)', (
   });
 });
 
-// The SW sends OFFSCREEN_RELOAD_ENDPOINTS when the saved override changes, because BOTH the
-// override cache and the client singleton are module-scoped: the SW's own
-// loadEndpointOverrides() + resetMidenClient() reach only the SW realm, while flag-on it is
-// the client HERE that talks to the node.
+// The SW sends OFFSCREEN_RELOAD_ENDPOINTS, carrying its endpoint state, when the saved override
+// changes and when seed removal discards the client: its own resetMidenClient() reaches only the
+// SW realm, while flag-on it is the client HERE that talks to the node.
 describe('offscreen/main - OFFSCREEN_RELOAD_ENDPOINTS (endpoint overrides)', () => {
   const callReq = (extra: Record<string, unknown>) => ({
     target: 'offscreen',
@@ -4579,7 +4582,7 @@ describe('offscreen/main - OFFSCREEN_RELOAD_ENDPOINTS (endpoint overrides)', () 
     endpoints: SW_ENDPOINTS,
     ...extra
   });
-  const reloadReq = { target: 'offscreen', type: 'OFFSCREEN_RELOAD_ENDPOINTS' };
+  const reloadReq = { target: 'offscreen', type: 'OFFSCREEN_RELOAD_ENDPOINTS', endpoints: SW_ENDPOINTS };
 
   it('leaves an in-flight write untouched — it finishes on the client it already captured', async () => {
     await loadModule();

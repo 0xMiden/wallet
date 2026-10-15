@@ -188,20 +188,21 @@ export type OffscreenCallResponse =
 
 /**
  * SW → offscreen endpoint reload request. The offscreen realm cannot read
- * extension storage, so the SW sends its endpoint state: a reload carrying
- * `endpoints` adopts it and drops the client singleton, and one without it only
- * drops the client.
+ * extension storage, so every reload carries the SW's endpoint state: the realm
+ * adopts it and drops its client singleton, even when the state is unchanged
+ * (seed removal sends one only to discard the client).
  */
 export interface OffscreenReloadEndpointsRequest {
   target: typeof OFFSCREEN_TARGET;
   type: typeof OFFSCREEN_RELOAD_ENDPOINTS;
-  endpoints?: EndpointState;
+  endpoints: EndpointState;
 }
 
 /**
  * offscreen → SW acknowledgement of {@link OffscreenReloadEndpointsRequest},
- * delivered via `sendResponse`. `ok: true` means the realm adopted the state it
- * was sent, if any, and dropped its client singleton. As with an
+ * delivered via `sendResponse`. `ok: true` means the realm adopted the state and
+ * dropped its client singleton; `ok: false` means it adopted nothing and kept its
+ * client (a reload with no state, or one it could not read). As with an
  * {@link OffscreenCallResponse}, a response of `undefined` on the wire (doc
  * closed/reaped) is not part of this type: the SW treats a missing/failed ack as
  * "not acknowledged" and moves on, since a reaped document's replacement gets the
