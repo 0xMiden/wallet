@@ -14,7 +14,8 @@ import { Pill } from 'components/ui/Pill';
 import { Spinner } from 'components/ui/Spinner';
 import { TextAction } from 'components/ui/TextAction';
 import { TextField } from 'components/ui/TextField';
-import { DEFAULT_NETWORK, getGuardianEndpointsForNetwork } from 'lib/miden-chain/constants';
+import { getGuardianOptionsForNetwork } from 'lib/miden-chain/constants';
+import type { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { isValidGuardianUrl, sameGuardianEndpoint, sanitizeGuardianUrl } from 'lib/settings/helpers';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
@@ -38,6 +39,11 @@ export interface ImportRecoveryMethodScreenProps {
    * account, so the public-account option is hidden and Guardian stays pinned.
    */
   guardianOnly?: boolean;
+  /**
+   * The network the recovery restores into, whose operators are offered. Omitted => the effective network; a host
+   * that switches network only when it registers names it.
+   */
+  network?: MIDEN_NETWORK_NAME;
   onRetryProbe?: () => void;
   onSubmit: (payload: { walletType: WalletType; guardianEndpoint?: string }) => void;
 }
@@ -46,15 +52,20 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
   error,
   probe,
   guardianOnly = false,
+  network,
   onRetryProbe,
   onSubmit
 }) => {
   const { t } = useTranslation();
 
-  const [selected, setSelected] = useState<WalletType>(WalletType.Guardian);
-  // The build network's default operator, as the list stood when the screen opened: a document that lands later must
-  // not rewrite a field the user may already have read.
-  const [defaultEndpoint] = useState<string>(() => getGuardianEndpointsForNetwork(DEFAULT_NETWORK)[0] ?? '');
+  // The first entry of the list discovery probes (the network's operators, then its own custom Guardian), as it stood
+  // when the screen opened: a document that lands later must not rewrite a field the user may already have read. A
+  // network with none starts on the public account.
+  const [defaultEndpoint] = useState<string>(() => getGuardianOptionsForNetwork(network)[0]?.endpoint ?? '');
+  const guardianIsDefault = defaultEndpoint !== '';
+  const [selected, setSelected] = useState<WalletType>(
+    guardianIsDefault || guardianOnly ? WalletType.Guardian : WalletType.OnChain
+  );
   const [endpointInput, setEndpointInput] = useState<string>(defaultEndpoint);
   const [isCustomizing, setIsCustomizing] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -131,9 +142,9 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
     setDirty(true);
   };
 
-  // Guardian providers that run on the active network, resolved to their
+  // Guardian providers that run on the recovery's network, resolved to their
   // endpoint on it.
-  const guardianPresets = useGuardianOptions();
+  const guardianPresets = useGuardianOptions(network);
 
   const detectedName = useMemo(() => {
     if (!detected) return '';
@@ -152,11 +163,11 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
           id: WalletType.Guardian,
           title: t('importViaGuardian'),
           subtitle: t('importViaGuardianDescription'),
-          badge: (
+          badge: guardianIsDefault ? (
             <Pill size="xs" tone="selected" data-testid="default-badge">
               {t('default')}
             </Pill>
-          )
+          ) : undefined
         },
         {
           id: WalletType.OnChain,
@@ -164,7 +175,7 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
           subtitle: t('importPublicAccountDescription')
         }
       ].filter(option => !guardianOnly || option.id === WalletType.Guardian),
-    [t, guardianOnly]
+    [t, guardianOnly, guardianIsDefault]
   );
 
   const presetItems: ChoiceCardItem[] = guardianPresets.map(provider => ({
@@ -222,13 +233,14 @@ export const ImportRecoveryMethodScreen: React.FC<ImportRecoveryMethodScreenProp
     </TextAction>
   );
 
-  const renderEndpointReadout = () => (
-    <DetailCard>
-      <DetailRow label={t('guardianEndpoint')} stacked>
-        <span className="break-all">{endpointInput}</span>
-      </DetailRow>
-    </DetailCard>
-  );
+  const renderEndpointReadout = () =>
+    endpointInput ? (
+      <DetailCard>
+        <DetailRow label={t('guardianEndpoint')} stacked>
+          <span className="break-all">{endpointInput}</span>
+        </DetailRow>
+      </DetailCard>
+    ) : null;
 
   const renderGuardianBody = () => {
     if (isProbing) {

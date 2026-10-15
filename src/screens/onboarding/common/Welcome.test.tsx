@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { act, createEvent, render, screen, fireEvent } from '@testing-library/react';
 
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
@@ -256,6 +256,22 @@ describe('WelcomeScreen logo taps', () => {
     tapLogo(7);
     expect(mockNavigate).toHaveBeenCalledWith('/developer-settings');
     expect(screen.queryByTestId('btn-iHaveACode')).not.toBeInTheDocument();
+  });
+
+  it('opens nothing when the seventh tap comes more than two seconds after the sixth', () => {
+    const onUnlockInviteOnly = jest.fn();
+    renderComponent({ onUnlockInviteOnly });
+    const logo = screen.getByTestId('onboarding-bread-logo');
+    // The count reads the event's own time stamp; React falls back to Date.now() for a zero one.
+    const tapAt = (timeStamp: number) => {
+      const event = createEvent.click(logo);
+      Object.defineProperty(event, 'timeStamp', { value: timeStamp });
+      fireEvent(logo, event);
+    };
+    for (let i = 0; i < 6; i++) tapAt(10_000 + i * 300);
+    tapAt(10_000 + 5 * 300 + 2_001);
+    expect(onUnlockInviteOnly).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('prevents text selection on the logo tap target', () => {

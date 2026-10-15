@@ -11,6 +11,8 @@ import { stepFooterCushionClass } from 'components/flow/footer-cushion';
 import { reducedMotionTransition, tabBarMotion } from 'lib/animation';
 import { hapticLight } from 'lib/mobile/haptics';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import type { BridgeConfig } from 'lib/remote-config/schema';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
 import { Receive } from './Receive';
@@ -179,9 +181,25 @@ const mockAnyFeatureAvailability = jest.fn(
         : mockCrossChain
       : { state: 'loading' }
 );
+// The accepted document, null for none. Receive reads only whether there is one.
+const ACCEPTED_DOCUMENT: BridgeConfig = {
+  network: 'testnet',
+  version: 1,
+  'bridge-providers': { epoch: {}, agglayer: {}, usdcx: {} },
+  supportedEvmChains: {},
+  features: { earn: false }
+};
+let mockBridgeConfig: BridgeConfig | null = ACCEPTED_DOCUMENT;
 jest.mock('lib/remote-config/use-feature-availability', () => ({
   useAnyFeatureAvailability: (features: readonly string[], options?: { hold?: boolean }) =>
-    mockAnyFeatureAvailability(features, options)
+    mockAnyFeatureAvailability(features, options),
+  useBridgeConfigSnapshot: (): BridgeConfigSnapshot => ({
+    network: 'testnet',
+    status: 'ready',
+    config: mockBridgeConfig,
+    derived: null,
+    lastFetch: null
+  })
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -228,6 +246,7 @@ describe('Receive - Address', () => {
   beforeEach(() => {
     mockReduceMotion = false;
     mockCrossChain = { state: 'available' };
+    mockBridgeConfig = ACCEPTED_DOCUMENT;
     mockUsdcxDepositAvailable = false;
     mockNetworkKey = 'testnet';
     mockQRCodeProps.mockClear();
@@ -391,6 +410,36 @@ describe('Receive - Address', () => {
       fireEvent.click(crossChain);
     });
     expect(hapticLight).not.toHaveBeenCalled();
+  });
+
+  // Mainnet's document configures no bridge-in route: no tile at all, rather than a greyed one blaming a service.
+  it('draws no Cross Chain and no notice on a network that configures no bridge-in route', async () => {
+    mockNetworkKey = null;
+    mockBridgeConfig = { ...ACCEPTED_DOCUMENT, network: 'mainnet' };
+    mockCrossChain = { state: 'unavailable', reason: 'not-configured', detail: 'no listed route' };
+    const container = await renderReceive();
+
+    expect(container.querySelector('[data-testid="receive-cross-chain"]')).toBeNull();
+    expect(container.querySelector('[data-testid="feature-unavailable-notice"]')).toBeNull();
+    expect(container.querySelector('[data-testid="receive-share"]')).not.toBeNull();
+  });
+
+  // With no accepted document nothing says what the network configures: a config outage keeps the greyed tile.
+  it.each<[string, 'testnet' | null]>([
+    ['testnet', 'testnet'],
+    ['mainnet', null]
+  ])('greys out Cross Chain under the notice on %s when no document has been accepted', async (_network, key) => {
+    mockNetworkKey = key;
+    mockBridgeConfig = null;
+    mockCrossChain = { state: 'unavailable', reason: 'not-configured', detail: 'no accepted document' };
+    const container = await renderReceive();
+
+    const crossChain = container.querySelector('[data-testid="receive-cross-chain"]');
+    expect(crossChain).not.toBeNull();
+    expect(crossChain).toBeDisabled();
+    expect(container.querySelector('[data-testid="feature-unavailable-notice"]')?.textContent).toContain(
+      'bridgeFeatureUnavailableBody'
+    );
   });
 
   // Every platform draws Cross Chain, the extension included (its relay socket closed only because

@@ -32,6 +32,12 @@ describe('isFaucetOrigin', () => {
     expect(isFaucetOrigin('https://faucet.example.org')).toBe(false);
     expect(isFaucetOrigin('null')).toBe(false);
   });
+
+  it('refuses everything on a network with no faucet', () => {
+    mockFaucetUrl.mockReturnValue(undefined);
+    expect(isFaucetOrigin('https://faucet.testnet.miden.io')).toBe(false);
+    expect(isFaucetOrigin('null')).toBe(false);
+  });
 });
 
 describe('faucetNoTopInsetScript', () => {

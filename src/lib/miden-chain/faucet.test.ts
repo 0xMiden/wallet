@@ -1,12 +1,12 @@
 /**
  * Coverage tests for `lib/miden-chain/faucet.ts`.
  *
- * `getFaucetUrl` resolves a network id to its faucet endpoint, falling back to
- * the DEFAULT_NETWORK endpoint when the id is unknown. `./constants` pulls in
+ * `getFaucetUrl` resolves a network id to its faucet endpoint, and to none for a
+ * network without a faucet (mainnet) or an unknown id. `./constants` pulls in
  * `@miden-sdk/miden-sdk/lazy`, which jest's moduleNameMapper redirects to the
  * repo's wasm mock — so no additional mocking is required here.
  */
-import { DEFAULT_NETWORK, MIDEN_FAUCET_ENDPOINTS, MIDEN_NETWORK_NAME } from './constants';
+import { MIDEN_FAUCET_ENDPOINTS, MIDEN_NETWORK_NAME } from './constants';
 import { getFaucetUrl } from './faucet';
 
 describe('miden-chain/faucet', () => {
@@ -35,28 +35,14 @@ describe('miden-chain/faucet', () => {
     });
   });
 
-  describe('getFaucetUrl — unknown networks (fallback branch)', () => {
-    const fallback = MIDEN_FAUCET_ENDPOINTS.get(DEFAULT_NETWORK)!;
-
-    it('falls back to the DEFAULT_NETWORK endpoint for an unmapped id', () => {
-      expect(getFaucetUrl('does-not-exist')).toBe(fallback);
-    });
-
-    it('falls back for mainnet, which has no faucet endpoint configured', () => {
-      // MAINNET is a valid network name but is intentionally absent from
-      // MIDEN_FAUCET_ENDPOINTS, so it must exercise the nullish-coalescing fallback.
+  describe('getFaucetUrl - networks without a faucet', () => {
+    it('resolves no faucet for mainnet, never another network faucet', () => {
       expect(MIDEN_FAUCET_ENDPOINTS.has(MIDEN_NETWORK_NAME.MAINNET)).toBe(false);
-      expect(getFaucetUrl(MIDEN_NETWORK_NAME.MAINNET)).toBe(fallback);
+      expect(getFaucetUrl(MIDEN_NETWORK_NAME.MAINNET)).toBeUndefined();
     });
 
-    it('falls back for empty-string and arbitrary junk ids', () => {
-      expect(getFaucetUrl('')).toBe(fallback);
-      expect(getFaucetUrl('🙃 not a network')).toBe(fallback);
-    });
-
-    it('fallback endpoint is a non-empty string', () => {
-      expect(typeof fallback).toBe('string');
-      expect(fallback.length).toBeGreaterThan(0);
+    it.each<[string]>([['does-not-exist'], [''], ['🙃 not a network']])('resolves no faucet for the id %j', id => {
+      expect(getFaucetUrl(id)).toBeUndefined();
     });
   });
 });

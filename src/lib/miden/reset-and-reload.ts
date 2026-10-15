@@ -1,3 +1,4 @@
+import { carryMainnetAccessCode } from 'lib/carried-mainnet-code';
 import { resetStorageDestructive } from 'lib/miden/reset';
 import { applyEndpointOverride, buildNetworkChoiceOverride } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
@@ -32,11 +33,13 @@ export class ResetAndReloadError extends Error {
  * with, so the page reloads in place.
  *
  * `onWipeError` runs when the wipe rejects, before the reload. Throws `ResetAndReloadError` for the
- * `prepare` and `reload` steps.
+ * `prepare` and `reload` steps. `accessCode`, a mainnet code the node accepted before the switch, is
+ * kept past the wipe for the mainnet code step.
  */
 export async function resetWalletAndReload(
   onWipeError: (error: unknown) => Promise<void>,
-  targetNetwork?: MIDEN_NETWORK_NAME
+  targetNetwork?: MIDEN_NETWORK_NAME,
+  accessCode?: string
 ): Promise<void> {
   // Set by whichever extension reload runs first, the pagehide listener's or the one below, so it runs once.
   let reloaded = false;
@@ -59,6 +62,12 @@ export async function resetWalletAndReload(
     try {
       await resetStorageDestructive();
       if (targetNetwork) await applyEndpointOverride(buildNetworkChoiceOverride(targetNetwork));
+      // The wallet is already wiped and switched, so a code that cannot be kept is no failed reset:
+      // the code step asks for it again.
+      if (accessCode)
+        await carryMainnetAccessCode(accessCode).catch(error =>
+          console.warn('[reset-and-reload] Could not keep the accepted access code', error)
+        );
     } catch (error) {
       await onWipeError(error);
     }

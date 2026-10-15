@@ -436,7 +436,7 @@ function describeRequests(requests: readonly SinkRequest[]): string[] {
  */
 const ENVELOPE_KEYS = ['timestamp', 'sessionId', 'eventName', 'systemProps', 'props'];
 const SYSTEM_PROPS_KEYS = ['isDebug', 'osName', 'appVersion', 'sdkVersion'];
-const PROPS_KEYS = ['flowId', 'result', 'errorKind', 'durationMs', 'step'];
+const PROPS_KEYS = ['flowId', 'result', 'errorKind', 'durationMs', 'step', 'network'];
 
 function assertEnvelopeShape(request: SinkRequest): void {
   const envelope = JSON.parse(request.body) as Record<string, unknown>;

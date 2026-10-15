@@ -17,10 +17,22 @@ import { useEarnPositions } from 'screens/earn-flow/useEarnPositions';
 
 const Earn: FC = () => {
   const { t } = useTranslation();
-  const { summary, positions, vaults, isLoading, error, refetch } = useEarnPositions();
+  const { summary, positions, vaults, isLoading, error, notOnNetwork, refetch } = useEarnPositions();
   // The hook keeps a failed load's error through a retry and reports it as not loading, so the failure
   // stays said until a load succeeds and the empty state never flashes back.
   const loadFailed = Boolean(error);
+
+  // A network with no Earn has nothing to load or retry, so it gets neither the summary nor the load error.
+  if (notOnNetwork) {
+    return (
+      <HomeGroupPane paneTestId="earn-page">
+        <h1 data-testid="earn-title" className="sr-only">
+          {t('earnTitle')}
+        </h1>
+        <EmptyState icon={IconName.Earn} title={t('earnUnavailableOnNetwork')} data-testid="earn-unavailable" />
+      </HomeGroupPane>
+    );
+  }
 
   return (
     // The shared home-group pane (HomeGroupPane): the page margin, the offset to the title, the

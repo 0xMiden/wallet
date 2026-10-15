@@ -2111,8 +2111,12 @@ describe('MidenClientInterface', () => {
     // limit ends the scan (a hold per match is two holds; one hoisted around the index's matches
     // would be one). The lock mock counts holds and records labels; the adoption and the key insert
     // refuse a call made outside a hold; the hold check throws the poison error once revoked.
-    const setupRecovery = async (onLookup?: (client: MidenClientInterfaceType) => void, { finds = true } = {}) => {
+    const setupRecovery = async (
+      onLookup?: (client: MidenClientInterfaceType) => void,
+      { finds = true, network = 'testnet', endpoint = 'https://guardian.example' } = {}
+    ) => {
       const held = { count: 0, labels: [] as string[], revoked: false };
+      const lookupCalls = { count: 0 };
       let iface: MidenClientInterfaceType | undefined;
       const requireHeld = (what: string) => {
         if (held.count === 0) throw new Error(`${what} called with no WASM lock hold`);
@@ -2162,6 +2166,7 @@ describe('MidenClientInterface', () => {
       jest.doMock('@openzeppelin/miden-multisig-client', () => ({
         MultisigClient: class {
           recoverByKey = jest.fn(async () => {
+            lookupCalls.count++;
             if (iface) onLookup?.(iface);
             return finds && lookups++ === 0 ? [matchAt(1), matchAt(2)] : [];
           });
@@ -2187,10 +2192,10 @@ describe('MidenClientInterface', () => {
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
 
       const { MidenClientInterface } = await import('./miden-client-interface');
-      const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+      const client = MidenClientInterface.fromClient(fakeMidenClient as any, network);
       iface = client;
-      const recover = () => client.recoverGuardianAccountsBySeed(() => new Uint8Array(32), 'https://guardian.example');
-      return { held, insert, adopt, fakeMidenClient, recover, probes: requireProbes() };
+      const recover = () => client.recoverGuardianAccountsBySeed(() => new Uint8Array(32), endpoint);
+      return { held, insert, adopt, fakeMidenClient, client, lookupCalls, recover, probes: requireProbes() };
     };
 
     it('recoverGuardianAccountsBySeed adopts each match under the WASM lock and inserts its cold key', async () => {
@@ -2242,6 +2247,58 @@ describe('MidenClientInterface', () => {
       await expect(recover()).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
       expect(insert).not.toHaveBeenCalled();
       expect(held.count).toBe(0);
+    });
+
+    // An operator of another network holds that chain's accounts; its state must not reach this client's store, and
+    // the recovery's key must not be shown to it. One no network lists (self-hosted, local) stays allowed.
+    const OZ_TESTNET = 'https://guardian-testnet.openzeppelin.com';
+    const refusedOperators: Array<[string, string, string]> = [
+      ['a testnet operator on mainnet', 'mainnet', OZ_TESTNET],
+      ['a renamed testnet operator on mainnet', 'mainnet', 'https://guardian.openzeppelin.com'],
+      ['a testnet operator on devnet', 'devnet', OZ_TESTNET],
+      ['a devnet operator on testnet', 'testnet', 'https://guardian-devnet.openzeppelin.com']
+    ];
+    const allowedOperators: Array<[string, string, string]> = [
+      ['a testnet operator on testnet', 'testnet', OZ_TESTNET],
+      ['a self-hosted operator on mainnet', 'mainnet', 'https://guardian.example'],
+      ['a local operator on testnet', 'testnet', 'http://localhost:3000']
+    ];
+
+    it.each(refusedOperators)('seed recovery refuses %s before any lookup', async (_case, network, endpoint) => {
+      jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
+      const { insert, adopt, lookupCalls, recover } = await setupRecovery(undefined, { network, endpoint });
+
+      await expect(recover()).rejects.toThrow('guardianOtherNetwork');
+      expect(lookupCalls.count).toBe(0);
+      expect(adopt).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+    });
+
+    it.each(allowedOperators)('seed recovery adopts from %s', async (_case, network, endpoint) => {
+      const { adopt, recover } = await setupRecovery(undefined, { network, endpoint });
+
+      await expect(recover()).resolves.toHaveLength(2);
+      expect(adopt).toHaveBeenCalledTimes(2);
+    });
+
+    it('refuses a pasted hot key against an operator of another network before any lookup', async () => {
+      jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
+      const { adopt, lookupCalls, client } = await setupRecovery(undefined, { network: 'mainnet' });
+      jest.doMock('../guardian/hot-key-import', () => ({
+        deserializeHotSecretKey: () => ({
+          publicKey: () => ({
+            serialize: () => new Uint8Array([0, 0x11]),
+            toCommitment: () => ({ toHex: () => '0xaabb', free: jest.fn() }),
+            free: jest.fn()
+          })
+        })
+      }));
+
+      await expect(client.recoverGuardianAccountByHotKey('deadbeef', OZ_TESTNET)).rejects.toThrow(
+        'guardianOtherNetwork'
+      );
+      expect(lookupCalls.count).toBe(0);
+      expect(adopt).not.toHaveBeenCalled();
     });
 
     it('a guardian lookup that never answers makes the recovery reject after one attempt instead of parking the accounts queue (#878)', async () => {

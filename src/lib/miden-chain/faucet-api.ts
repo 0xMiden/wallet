@@ -26,9 +26,9 @@ const MAX_RETRY_AFTER_MS = 30_000;
 // would otherwise spin the CPU forever - bound it and fail cleanly instead.
 const POW_SOLVE_DEADLINE_MS = 30_000;
 
-export function getFaucetApiUrl(networkId: string = getEffectiveNetworkName()): string {
+export function getFaucetApiUrl(networkId: string = getEffectiveNetworkName()): string | undefined {
   if (networkId === getEffectiveNetworkName()) return getEffectiveFaucetApiUrl();
-  return MIDEN_FAUCET_API_ENDPOINTS.get(networkId) ?? getEffectiveFaucetApiUrl();
+  return MIDEN_FAUCET_API_ENDPOINTS.get(networkId);
 }
 
 /** Milliseconds to wait for a `Retry-After` header value (seconds or HTTP-date), capped, or null if absent/unparseable. */
@@ -325,6 +325,8 @@ export async function mintFromMidenFaucet(
   onMayMint?: (mayMint: boolean) => void
 ): Promise<MintedNote> {
   const baseUrl = getFaucetApiUrl();
+  // Mainnet has no faucet, and another network's would be handed this network's address.
+  if (!baseUrl) throw new Error('No faucet is configured for this network');
   const mint = async (value: bigint): Promise<MintedNote> => {
     const { challenge, target } = await getPowChallenge(baseUrl, address, value, signal);
     const nonce = await solvePowChallenge(challenge, target, { signal });

@@ -3,8 +3,8 @@ import { buildDefaultOverrideFor, EndpointOverride } from 'lib/miden-chain/effec
 
 export const CUSTOM_PRESET = 'custom';
 
-// The Mainnet preset prefills what the build configures for mainnet: the RPC, prover and note
-// transport URLs and the network id. Mainnet has no faucet, and the explorer and guardian have no
+// The Mainnet preset prefills what the build configures for mainnet: the RPC, prover, note
+// transport and explorer URLs and the network id. Mainnet has no faucet, and the guardian has no
 // mainnet value yet, so those fields come up empty.
 export const ENDPOINT_PRESETS: MIDEN_NETWORK_NAME[] = [
   MIDEN_NETWORK_NAME.MAINNET,

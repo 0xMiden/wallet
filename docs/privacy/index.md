@@ -34,6 +34,7 @@ When the setting is on, the App reports the start and the end of a small set of 
 | How far you got | For an activity, the name of the furthest screen it reached, from a fixed list — for example `select_amount` or `review`. The screen's name only, never anything you typed on it. For work the App did on your behalf, the stage it reached instead — for example `proving` or `submitting` |
 | App version | For example, `1.15.21` |
 | Platform | `extension`, `ios`, or `android` |
+| Network | `mainnet`, `testnet`, `devnet`, or `localnet` |
 | A short random number for that one activity | Explained under "Identifiers" below |
 | A short random number for that run of the App | Explained under "Identifiers" below |
 
@@ -53,9 +54,11 @@ Three more things travel with each message as part of the technical envelope our
 
 ### Crash reports
 
-Handled transaction failures are also reported when sharing is enabled, including failures after submission and transactions whose network outcome remains unknown. These reports contain only fixed transaction, stage and execution-route categories, bundled software versions, known public protocol error identities, and authentication-code compatibility, preparation, layout and commitment-match categories calculated locally. They never include the transaction request, an account or transaction identifier, addresses, amounts, signatures, salts, commitments or dApp URLs. Unknown assertion numbers and raw failure text are not sent. Historical rows imported from a backup do not generate new failure reports.
+Handled transaction failures are also reported when sharing is enabled, including failures after submission and transactions whose network outcome remains unknown. These reports contain only fixed transaction, stage and execution-route categories, bundled software versions, the network the App was on, known public protocol error identities, and authentication-code compatibility, preparation, layout and commitment-match categories calculated locally. They never include the transaction request, an account or transaction identifier, addresses, amounts, signatures, salts, commitments or dApp URLs. Unknown assertion numbers and raw failure text are not sent. Historical rows imported from a backup do not generate new failure reports.
 
 When the setting is on, a crash sends the error type, the error's message, and the stack trace — the list of code locations the error passed through — plus the app version. Where one error was caused by another, each error in that chain is included. Text is scrubbed before it leaves your device: addresses, amounts, long hex values, credentials in URLs, and values under names like `password` or `seed` are replaced with `[redacted]`. A message that scrubs down to nothing useful is dropped rather than sent as a row of markers, and if anything in the report looks like a recovery phrase, the whole report is thrown away rather than sent.
+
+Every crash report also names the network the App was on: `mainnet`, `testnet`, `devnet`, or `localnet`.
 
 Crash reports do not include the page you were on, your browser's user-agent string, your language, your timezone, or a recording of your screen or clicks. Alongside the error, each report carries the time it happened, a severity level, its own random report id generated for that one report, and the name and version of the reporting library — the standard technical envelope, with nothing about you in it.
 

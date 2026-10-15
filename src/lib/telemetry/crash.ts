@@ -172,6 +172,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function restoreDiagnostics(event: Record<string, unknown>, reportable: Error, diagnostics: DiagnosticSnapshot): void {
   event.extra = { walletDiagnostics: { ...diagnostics } };
+  // Also a tag, because Sentry can search and filter by tags but not by extra data.
+  event.tags = { ...(isRecord(event.tags) ? event.tags : {}), network: diagnostics.network };
   const exception = event.exception;
   if (!isRecord(exception) || !Array.isArray(exception.values)) return;
   let link: unknown = reportable;

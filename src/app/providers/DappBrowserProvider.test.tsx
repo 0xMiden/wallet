@@ -769,7 +769,8 @@ describe('an answer goes only to the origin that asked (#1416)', () => {
 
 describe('faucet top inset style', () => {
   const SLOT_RECT = { x: 0, y: 0, width: 375, height: 600 };
-  const FAUCET_URL = getEffectiveFaucetUrl();
+  // The suite runs on the build's network, which has a faucet.
+  const FAUCET_URL = getEffectiveFaucetUrl() ?? '';
   const FAUCET_SCRIPT = faucetNoTopInsetScript(new URL(FAUCET_URL).origin);
 
   function listenerFor(event: string): (e: unknown) => void | Promise<void> {

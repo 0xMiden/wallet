@@ -579,6 +579,10 @@
     "message": "Couldn't load your positions. Check your connection and try again.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnUnavailableOnNetwork": {
+    "message": "Earn is not available on this network",
+    "englishSource": "Earn is not available on this network"
+  },
   "earnVaultLoadError": {
     "message": "Couldn't load this vault. Check your connection and try again.",
     "englishSource": "Couldn't load this vault. Check your connection and try again."
@@ -2524,6 +2528,10 @@
     "message": "Korea Digital Asset, a digital asset custody company based in South Korea.",
     "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
   },
+  "guardianAboutPara": {
+    "message": "Para, an embedded wallet infrastructure provider.",
+    "englishSource": "Para, an embedded wallet infrastructure provider."
+  },
   "guardianKindOpenZeppelin": {
     "message": "Smart contract security and audits",
     "englishSource": "Smart contract security and audits"
@@ -2539,6 +2547,10 @@
   "guardianKindKodax": {
     "message": "Digital asset custodian",
     "englishSource": "Digital asset custodian"
+  },
+  "guardianKindPara": {
+    "message": "Embedded wallet infrastructure",
+    "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
     "message": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody.",
@@ -3254,6 +3266,10 @@
     "message": "This wallet file was created by a newer version of Bread. Update Bread and try again.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
   },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "This wallet file belongs to another network and cannot be restored on this one.",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
+  },
   "encryptedWalletFileRestoreFailed": {
     "message": "The wallet could not be restored. Check your storage and try again.",
     "englishSource": "The wallet could not be restored. Check your storage and try again."
@@ -3580,6 +3596,10 @@
   "guardianAccountNotFound": {
     "message": "We couldn't find your account on this guardian. Check the URL or import as a public account instead.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "guardianOtherNetwork": {
+    "message": "This guardian runs on another Miden network, so it cannot recover an account here.",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
   },
   "useCustomGuardianUrl": {
     "message": "Use a custom Guardian URL",
@@ -4158,6 +4178,18 @@
   "dappConnectionRequest": {
     "message": "This app wants to connect to your wallet",
     "englishSource": "This app wants to connect to your wallet"
+  },
+  "dappNetworkMismatch": {
+    "message": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "englishSource": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "placeholders": {
+      "dappnetwork": {
+        "content": "$1"
+      },
+      "walletnetwork": {
+        "content": "$2"
+      }
+    }
   },
   "dappTransactionRequest": {
     "message": "This app is requesting a transaction",
@@ -5704,8 +5736,12 @@
     "englishSource": "Reset and switch to mainnet"
   },
   "switchToMainnetConfirm": {
-    "message": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet.",
-    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
+    "message": "Your access code was accepted. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with this code or recover an existing mainnet wallet.",
+    "englishSource": "Your access code was accepted. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with this code or recover an existing mainnet wallet."
+  },
+  "mainnetSwitchCodeBody": {
+    "message": "Enter the code from your invite. Nothing is cleared until mainnet accepts it.",
+    "englishSource": "Enter the code from your invite. Nothing is cleared until mainnet accepts it."
   },
   "mainnetCountdownLabel": {
     "message": "Time left until Bread goes mainnet: $time$",

@@ -180,7 +180,7 @@ jest.mock('webextension-polyfill', () => {
       get: jest.fn(async () => ({ id: 888 })),
       remove: jest.fn(async () => {}),
       update: jest.fn(async () => {}),
-      getLastFocused: jest.fn(async () => ({ left: 0, top: 0, width: 1024, height: 768 })),
+      getLastFocused: jest.fn(async () => ({ type: 'normal', left: 0, top: 0, width: 1024, height: 768 })),
       onRemoved: {
         addListener: (cb: any) => _g.__dappConfInternals.onRemovedListeners.push(cb),
         removeListener: jest.fn()

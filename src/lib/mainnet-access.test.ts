@@ -1,4 +1,12 @@
-import { isMainnetAccountAdmitted, redeemMainnetAccessCode, type MainnetAccessTarget } from './mainnet-access';
+import { MIDEN_NETWORK_ENDPOINTS, MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
+
+import {
+  checkMainnetAccessCode,
+  checkMainnetAccessCodeBeforeSwitch,
+  isMainnetAccountAdmitted,
+  redeemMainnetAccessCode,
+  type MainnetAccessTarget
+} from './mainnet-access';
 
 const mockReady = jest.fn<Promise<void>, []>();
 const mockAllowed = jest.fn<Promise<boolean>, [string]>();
@@ -9,6 +17,8 @@ const mockClientBuild = jest.fn<Promise<void>, []>();
 let mockLiveHold: object | undefined;
 const mockFromHex = jest.fn((id: string) => id);
 const mockFromBech32 = jest.fn((id: string) => id);
+// Answers per node: the URL the RpcClient was built for, then the code.
+const mockIsValid = jest.fn<Promise<boolean>, [string, string]>();
 
 jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   MidenClient: { ready: () => mockReady() },
@@ -16,6 +26,21 @@ jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
   AccountId: {
     fromHex: (id: string) => mockFromHex(id),
     fromBech32: (id: string) => mockFromBech32(id)
+  },
+  Endpoint: class {
+    readonly url: string;
+    constructor(url: string) {
+      this.url = url;
+    }
+  },
+  RpcClient: class {
+    readonly endpoint: { url: string };
+    constructor(endpoint: { url: string }) {
+      this.endpoint = endpoint;
+    }
+    isInvitationCodeValid(code: string) {
+      return mockIsValid(this.endpoint.url, code);
+    }
   }
 }));
 
@@ -44,7 +69,8 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   }
 }));
 
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveRpcUrl: () => 'https://mainnet.example/rpc' }));
+let mockEffectiveRpcUrl = 'https://mainnet.example/rpc';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveRpcUrl: () => mockEffectiveRpcUrl }));
 
 const target: MainnetAccessTarget = { accountId: '0x1234', rpcUrl: 'https://mainnet.example/rpc' };
 const rejected = (code: string) => Object.assign(new Error('Registration failed'), { code });
@@ -215,5 +241,41 @@ describe('mainnet account admission', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('mainnet access code check', () => {
+  const MAINNET_RPC = MIDEN_NETWORK_ENDPOINTS.get(MIDEN_NETWORK_NAME.MAINNET);
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockReady.mockResolvedValue();
+    // A wallet still on testnet, whose node enforces no allowlist and accepts every code.
+    mockEffectiveRpcUrl = 'https://rpc.testnet.miden.io';
+    mockIsValid.mockImplementation(async (url: string) => url !== MAINNET_RPC);
+  });
+
+  afterAll(() => {
+    mockEffectiveRpcUrl = 'https://mainnet.example/rpc';
+  });
+
+  it("asks the wallet's own node by default", async () => {
+    await expect(checkMainnetAccessCode('8gKIgL0O6HcU')).resolves.toBe('granted');
+    expect(mockIsValid).toHaveBeenCalledWith('https://rpc.testnet.miden.io', '8gKIgL0O6HcU');
+  });
+
+  it('asks the mainnet node before a switch, never the test network the wallet is on', async () => {
+    await expect(checkMainnetAccessCodeBeforeSwitch('47291835')).resolves.toBe('rejected');
+    expect(mockIsValid.mock.calls).toEqual([[MAINNET_RPC, '47291835']]);
+  });
+
+  it('grants a code the mainnet node accepts', async () => {
+    mockIsValid.mockResolvedValue(true);
+    await expect(checkMainnetAccessCodeBeforeSwitch('8gKIgL0O6HcU')).resolves.toBe('granted');
+  });
+
+  it('throws when the mainnet node cannot answer, so no failed check reads as an outcome', async () => {
+    mockIsValid.mockRejectedValue(new Error('Failed to fetch'));
+    await expect(checkMainnetAccessCodeBeforeSwitch('8gKIgL0O6HcU')).rejects.toThrow('Failed to fetch');
   });
 });

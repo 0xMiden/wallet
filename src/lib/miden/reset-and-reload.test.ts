@@ -27,6 +27,11 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   applyEndpointOverride: (override: EndpointOverride) => mockApplyOverride(override)
 }));
 
+const mockCarryCode = jest.fn<Promise<void>, [string]>();
+jest.mock('lib/carried-mainnet-code', () => ({
+  carryMainnetAccessCode: (code: string) => mockCarryCode(code)
+}));
+
 describe('resetWalletAndReload', () => {
   const onWipeError = jest.fn<Promise<void>, [unknown]>(async () => {});
 
@@ -37,6 +42,7 @@ describe('resetWalletAndReload', () => {
     resetStorageDestructive.mockResolvedValue(undefined);
     onWipeError.mockClear();
     mockApplyOverride.mockReset().mockResolvedValue(undefined);
+    mockCarryCode.mockReset().mockResolvedValue(undefined);
   });
 
   it('wipes with the endpoint override kept, then reloads in place off the extension', async () => {
@@ -81,6 +87,42 @@ describe('resetWalletAndReload', () => {
     resetStorageDestructive.mockRejectedValueOnce(new Error('Wipe failed'));
     await resetWalletAndReload(onWipeError, MIDEN_NETWORK_NAME.MAINNET);
     expect(mockApplyOverride).not.toHaveBeenCalled();
+  });
+
+  it('carries an accepted access code past the wipe, after the network choice and before reload', async () => {
+    mockIsExtension.value = true;
+    const steps: string[] = [];
+    resetStorageDestructive.mockImplementationOnce(async () => {
+      steps.push('wipe');
+    });
+    mockApplyOverride.mockImplementationOnce(async () => {
+      steps.push('network');
+    });
+    mockCarryCode.mockImplementationOnce(async () => {
+      steps.push('code');
+    });
+    runtimeReload.mockImplementationOnce(() => {
+      steps.push('reload');
+    });
+    await resetWalletAndReload(onWipeError, MIDEN_NETWORK_NAME.MAINNET, '8gKIgL0O6HcU');
+    expect(steps).toEqual(['wipe', 'network', 'code', 'reload']);
+    expect(mockCarryCode).toHaveBeenCalledWith('8gKIgL0O6HcU');
+  });
+
+  it('carries no code when the wipe fails', async () => {
+    mockIsExtension.value = true;
+    resetStorageDestructive.mockRejectedValueOnce(new Error('Wipe failed'));
+    await resetWalletAndReload(onWipeError, MIDEN_NETWORK_NAME.MAINNET, '8gKIgL0O6HcU');
+    expect(mockCarryCode).not.toHaveBeenCalled();
+  });
+
+  it('finishes the switch when the code cannot be carried: the code step asks for it again', async () => {
+    mockIsExtension.value = true;
+    mockCarryCode.mockRejectedValueOnce(new Error('storage full'));
+    await resetWalletAndReload(onWipeError, MIDEN_NETWORK_NAME.MAINNET, '8gKIgL0O6HcU');
+    expect(onWipeError).not.toHaveBeenCalled();
+    expect(mockApplyOverride).toHaveBeenCalledTimes(1);
+    expect(runtimeReload).toHaveBeenCalledTimes(1);
   });
 
   it('reloads the extension once, through the polyfill', async () => {

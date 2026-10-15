@@ -88,6 +88,11 @@ const LOADING: BridgeConfigSnapshot = {
   derived: null,
   lastFetch: null
 };
+/** READY, with the Earn market read answered as `market`. */
+function withMarketRead(market: NonNullable<BridgeConfigSnapshot['derived']>['epoch']['market']): BridgeConfigSnapshot {
+  if (!READY.derived) throw new Error('READY carries a derivation');
+  return { ...READY, derived: { ...READY.derived, epoch: { ...READY.derived.epoch, market } } };
+}
 let mockConfigSnapshot = READY;
 const mockConfigListeners = new Set<() => void>();
 const publishConfig = (next: BridgeConfigSnapshot) => {
@@ -370,6 +375,37 @@ describe('useEarnPositions', () => {
         expect(result.current.isLoading).toBe(false);
         expect(getEarnDepositEvmAddresses).not.toHaveBeenCalled();
         expect(fetchEarnPositions).not.toHaveBeenCalled();
+      }
+    );
+
+    // A market read that failed is a configured Earn whose service is down, and keeps the error and its Retry; so is a
+    // snapshot with no accepted document, since only a document says what the network configures.
+    it.each<[string, BridgeConfigSnapshot, boolean]>([
+      ['no accepted document, a config outage', { ...READY, config: null, derived: null }, false],
+      [
+        'a document with no positions host',
+        {
+          ...READY,
+          config: { ...READY_CONFIG, 'bridge-providers': { ...READY_CONFIG['bridge-providers'], epoch: {} } }
+        },
+        true
+      ],
+      ['a document with no Epoch route, so the market read was skipped', withMarketRead({ state: 'skipped' }), true],
+      ['a market read that failed', withMarketRead({ state: 'error', message: 'positions 503' }), false],
+      ['a configured market', READY, false],
+      ['a snapshot still loading', LOADING, false]
+    ])(
+      'reports Earn as not on this network only when its document configures none: %s',
+      async (_case, snapshot, expected) => {
+        mockUseRetryableSWR.mockImplementation(realSWR);
+        jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
+        jest.mocked(fetchEarnPositions).mockRejectedValue(new Error('positions 503'));
+        publishConfig(snapshot);
+        const { result } = renderHook(() => useEarnPositions(), { wrapper });
+        await act(async () => {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        expect(result.current.notOnNetwork).toBe(expected);
       }
     );
 

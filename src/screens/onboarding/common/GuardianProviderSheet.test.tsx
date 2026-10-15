@@ -179,4 +179,15 @@ describe('GuardianProviderSheet', () => {
     const { GUARDIAN_OPTIONS } = jest.requireActual('lib/miden-chain/networks-config');
     for (const option of GUARDIAN_OPTIONS as { id: string }[]) expect(guardianOperatorCopy(option.id)).toBeDefined();
   });
+
+  // en.json is the source every locale's messages.json is generated from, so a key only in messages.json is lost.
+  it('keeps every operator word in the English source the locales are built from', () => {
+    const { GUARDIAN_OPTIONS } = jest.requireActual('lib/miden-chain/networks-config');
+    const english: Record<string, string> = jest.requireActual('../../../../public/_locales/en/en.json');
+    for (const option of GUARDIAN_OPTIONS as { id: string }[]) {
+      const copy = guardianOperatorCopy(option.id)!;
+      expect(english).toHaveProperty([copy.aboutKey]);
+      expect(english).toHaveProperty([copy.kindKey]);
+    }
+  });
 });

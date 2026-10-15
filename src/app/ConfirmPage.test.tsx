@@ -7,6 +7,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { expectDomainNeverClipped } from 'components/ui/dapp-origin-test-utils';
 import { useMidenContext, useAccount } from 'lib/miden/front';
 import { getNetworkId } from 'lib/miden-chain/constants';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useRetryableSWR } from 'lib/swr';
 import { snapshotCrashDiagnostics } from 'lib/telemetry/crash-diagnostics';
@@ -68,6 +69,15 @@ jest.mock('lib/miden-chain/constants', () => ({
 jest.mock('lib/settings/helpers', () => ({
   isDelegateProofEnabled: jest.fn(() => false)
 }));
+
+// The build's network unless a case puts the wallet on another.
+let mockWalletNetwork: MIDEN_NETWORK_NAME | undefined;
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getEffectiveNetworkName: () => mockWalletNetwork ?? actual.getEffectiveNetworkName() };
+});
 
 jest.mock('lib/store', () => ({
   useWalletStore: { getState: jest.fn(() => ({ openTransactionModal: jest.fn() })) }
@@ -442,6 +452,36 @@ describe('connect payload', () => {
     // or transition fighting the Secondary variant's own anatomy.
     expect(declineButton).toHaveClass('w-full');
     expect(declineButton.className).not.toMatch(/text-ink|font-medium|transition/);
+  });
+
+  describe('network the dApp claims', () => {
+    beforeEach(() => {
+      mockWalletNetwork = MIDEN_NETWORK_NAME.MAINNET;
+      t.mockImplementation((key: string, values?: Record<string, string>) =>
+        values ? `${key}:${Object.values(values).join(',')}` : key
+      );
+    });
+    afterEach(() => {
+      mockWalletNetwork = undefined;
+    });
+
+    it("warns when it is not the wallet's network, naming both", () => {
+      setPayload(connectPayload({ network: MIDEN_NETWORK_NAME.TESTNET }));
+      render(<ConfirmPage />);
+
+      expect(screen.getByTestId('dapp-network-mismatch')).toHaveTextContent('dappNetworkMismatch:testnet,mainnet');
+    });
+
+    it.each<[string, string | undefined]>([
+      ['claims the network the wallet is on', MIDEN_NETWORK_NAME.MAINNET],
+      ['claims no network', undefined]
+    ])('does not warn when the dApp %s', (_label, network) => {
+      setPayload(connectPayload({ network }));
+      render(<ConfirmPage />);
+
+      expect(screen.getByTestId('account-banner')).toBeInTheDocument();
+      expect(screen.queryByTestId('dapp-network-mismatch')).not.toBeInTheDocument();
+    });
   });
 
   it('auto-confirms an existing permission during render', () => {

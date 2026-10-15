@@ -10,7 +10,7 @@ jest.mock('lib/settings/helpers', () => ({
 
 const flushMicrotasks = () => new Promise(resolve => setTimeout(resolve, 0));
 
-const context: TelemetryContext = { appVersion: '1.15.21', platform: 'extension' };
+const context: TelemetryContext = { appVersion: '1.15.21', platform: 'extension', network: 'mainnet' };
 const started: TelemetryEvent = { phase: 'started', flow: 'send', flowId: 'f1', runId: 'r1' };
 
 describe('telemetry sink', () => {
@@ -93,7 +93,8 @@ describe('telemetry sink', () => {
       flowId: 'f1',
       runId: 'r1',
       appVersion: '1.15.21',
-      platform: 'extension'
+      platform: 'extension',
+      network: 'mainnet'
     });
   });
 
@@ -238,7 +239,7 @@ describe('the real Aptabase transport', () => {
       appVersion: '1.15.21',
       sdkVersion: 'miden-wallet-aptabase@1.0.0'
     });
-    expect(envelope.props).toEqual({ flowId: 'f1' });
+    expect(envelope.props).toEqual({ flowId: 'f1', network: 'mainnet' });
     expect(Object.keys(envelope).sort()).toEqual(['eventName', 'props', 'sessionId', 'systemProps', 'timestamp']);
   });
 

@@ -51,6 +51,11 @@ const AVAILABLE: FeatureAvailability = { state: 'available' };
 const LOADING: FeatureAvailability = { state: 'loading' };
 const OFF: FeatureAvailability = { state: 'unavailable', reason: 'off', detail: 'features.earn is off' };
 const DOWN: FeatureAvailability = { state: 'unavailable', reason: 'service-down', detail: 'allocator /health: 503' };
+const UNCONFIGURED: FeatureAvailability = {
+  state: 'unavailable',
+  reason: 'not-configured',
+  detail: 'no accepted document'
+};
 
 const mockFeatureAvailability = jest.fn(
   (_feature: BridgeFeature, _snapshot: unknown, _overrides: unknown): FeatureAvailability => AVAILABLE
@@ -208,6 +213,17 @@ describe('useAnyFeatureAvailability', () => {
     publish(snapshotOn('testnet'));
     expect(result.current).toEqual(OFF);
     expect(mockHold).toHaveBeenCalledTimes(1);
+  });
+
+  // One configured route makes the control the network's, so its failure is the reason, wherever it is listed.
+  it.each<[string, Partial<Record<BridgeFeature, FeatureAvailability>>, FeatureAvailability]>([
+    ['the first route is not configured and the second is down', { fastBridgeIn: UNCONFIGURED, bridgeIn: DOWN }, DOWN],
+    ['the first route is down and the second is not configured', { fastBridgeIn: DOWN, bridgeIn: UNCONFIGURED }, DOWN],
+    ['no route is configured', { fastBridgeIn: UNCONFIGURED, bridgeIn: UNCONFIGURED }, UNCONFIGURED]
+  ])('reads not configured only when no listed route is: %s', (_case, byFeature, expected) => {
+    answer(byFeature);
+    const { result } = renderHook(() => useAnyFeatureAvailability(both), { wrapper: Wrapper });
+    expect(result.current).toEqual(expected);
   });
 
   it('holds nothing for a caller that asks for no hold', () => {

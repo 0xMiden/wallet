@@ -579,6 +579,10 @@
     "message": "No se han podido cargar tus posiciones. Comprueba tu conexión e inténtalo de nuevo.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnUnavailableOnNetwork": {
+    "message": "La función «Earn» no está disponible en esta red",
+    "englishSource": "Earn is not available on this network"
+  },
   "earnVaultLoadError": {
     "message": "No se ha podido cargar esta caja fuerte. Comprueba tu conexión e inténtalo de nuevo.",
     "englishSource": "Couldn't load this vault. Check your connection and try again."
@@ -2524,6 +2528,10 @@
     "message": "Korea Digital Asset, una empresa de custodia de activos digitales con sede en Corea del Sur.",
     "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
   },
+  "guardianAboutPara": {
+    "message": "Para, un proveedor de infraestructura de carteras integradas.",
+    "englishSource": "Para, an embedded wallet infrastructure provider."
+  },
   "guardianKindOpenZeppelin": {
     "message": "Seguridad y auditorías de los contratos inteligentes",
     "englishSource": "Smart contract security and audits"
@@ -2539,6 +2547,10 @@
   "guardianKindKodax": {
     "message": "Custodio de activos digitales",
     "englishSource": "Digital asset custodian"
+  },
+  "guardianKindPara": {
+    "message": "Infraestructura de monedero integrado",
+    "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
     "message": "Un «Guardian» es un servicio independiente que <b>avala cada transacción</b> desde tu monedero, añadiendo una red de seguridad sin renunciar a la autocustodia.",
@@ -3254,6 +3266,10 @@
     "message": "Este archivo de cartera se creó con una versión más reciente de Bread. Actualiza Bread e inténtalo de nuevo.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
   },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "Este archivo de monedero pertenece a otra red y no se puede restaurar en esta.",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
+  },
   "encryptedWalletFileRestoreFailed": {
     "message": "No se pudo restaurar la cartera. Comprueba el almacenamiento e inténtalo de nuevo.",
     "englishSource": "The wallet could not be restored. Check your storage and try again."
@@ -3580,6 +3596,10 @@
   "guardianAccountNotFound": {
     "message": "No hemos podido encontrar tu cuenta en este enlace: guardian. Comprueba la URL o, en su lugar, impórtala como cuenta pública.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "guardianOtherNetwork": {
+    "message": "Este «guardian» funciona en otra red de Miden, por lo que no puede recuperar una cuenta aquí.",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
   },
   "useCustomGuardianUrl": {
     "message": "Utiliza una URL personalizada de Guardian",
@@ -4158,6 +4178,18 @@
   "dappConnectionRequest": {
     "message": "Esta aplicación quiere conectarse a tu monedero",
     "englishSource": "This app wants to connect to your wallet"
+  },
+  "dappNetworkMismatch": {
+    "message": "Esta aplicación ha solicitado «Miden $dappNetwork$», pero tu monedero está en «Miden $walletNetwork$».",
+    "englishSource": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "placeholders": {
+      "dappnetwork": {
+        "content": "$1"
+      },
+      "walletnetwork": {
+        "content": "$2"
+      }
+    }
   },
   "dappTransactionRequest": {
     "message": "Esta aplicación está solicitando una transacción",
@@ -5704,8 +5736,12 @@
     "englishSource": "Reset and switch to mainnet"
   },
   "switchToMainnetConfirm": {
-    "message": "Puedes seguir utilizando la red de pruebas. Al cambiar de red, se borrarán esta cartera, sus saldos y su historial de este dispositivo. Guarda primero tus datos de recuperación. Los tokens de prueba no se transfieren a la red principal. A continuación, crearás una cartera de la red principal con un código de invitación o recuperarás una cartera de la red principal ya existente.",
-    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
+    "message": "Tu código de acceso ha sido aceptado. El cambio borra esta cartera, sus saldos y su historial de este dispositivo. Guarda primero tus datos de recuperación. Los tokens de prueba no se transfieren a la red principal. A continuación, crearás una cartera de la red principal con este código o recuperarás una cartera de la red principal ya existente.",
+    "englishSource": "Your access code was accepted. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with this code or recover an existing mainnet wallet."
+  },
+  "mainnetSwitchCodeBody": {
+    "message": "Introduce el código de tu invitación. No se confirmará nada hasta que la red principal lo acepte.",
+    "englishSource": "Enter the code from your invite. Nothing is cleared until mainnet accepts it."
   },
   "mainnetCountdownLabel": {
     "message": "Tiempo restante hasta que Bread pase a la red principal: $time$",

@@ -80,10 +80,13 @@ const clearEndpointOverride = jest.fn();
 // opening on a SAVED custom override is a real entry path, and the one the mount-time half of the
 // restore is about, so it has to be settable.
 let activeOverride: unknown = null;
+// The effective network's test-network key; null stands for mainnet.
+let mockTestNetworkKey: 'testnet' | 'devnet' | 'localnet' | null = 'testnet';
 jest.mock('lib/miden-chain/effective-endpoints', () => {
   const { MIDEN_NETWORK_NAME } = jest.requireActual('lib/miden-chain/constants');
   return {
     getActiveOverride: () => activeOverride,
+    getTestNetworkNameKey: () => mockTestNetworkKey,
     applyEndpointOverride: (o: unknown) => applyEndpointOverride(o),
     clearEndpointOverride: () => clearEndpointOverride(),
     getEffectiveNetworkName: () => MIDEN_NETWORK_NAME.TESTNET,
@@ -174,6 +177,16 @@ jest.mock('lib/store', () => {
   };
 });
 
+// The banner's own code-first switch, rendered here as a stand-in that shows whether it is open: the
+// banner's suite drives the real sheet.
+const mockSwitchSheet = jest.fn<void, [{ open: boolean }]>();
+jest.mock('components/MainnetSwitchSheet', () => ({
+  MainnetSwitchSheet: ({ open }: { open: boolean; onOpenChange: (open: boolean) => void }) => {
+    mockSwitchSheet({ open });
+    return open ? <div data-testid="mainnet-switch-sheet" /> : null;
+  }
+}));
+
 // House components — replace with lightweight stand-ins that forward the
 // props DeveloperSettings actually passes, so testids/values stay assertable
 // without pulling in framer-motion / icon assets.
@@ -237,6 +250,7 @@ beforeEach(() => {
   mockHealthStatus.value = 'idle';
   mockIsExtension.value = false;
   mockWalletState.status = WalletStatus.Idle;
+  mockTestNetworkKey = 'testnet';
   mockClearBalances.mockReset();
   confirm.mockResolvedValue(true);
   mockUseConfirm.mockReturnValue(confirm);
@@ -374,14 +388,16 @@ describe('DeveloperSettings', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  it('neither rebuilds the client nor drops the balances on the extension once a wallet exists', async () => {
-    // The worker keeps the old network until a reload, and its balances are the ones a send spends.
+  it('offers no save on the extension once a wallet exists, which would switch only this page', () => {
+    // The worker and offscreen would keep the old network, and the wallet would look broken.
     mockIsExtension.value = true;
     mockWalletState.status = WalletStatus.Ready;
     render(<DeveloperSettings />);
-    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
 
-    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(screen.queryByTestId('dev-endpoints-save')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dev-endpoints-reset-defaults')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dev-endpoint-preset')).not.toBeInTheDocument();
+    expect(applyEndpointOverride).not.toHaveBeenCalled();
     expect(mockClearBalances).not.toHaveBeenCalled();
     expect(mockResetMidenClient).not.toHaveBeenCalled();
   });
@@ -482,14 +498,57 @@ describe('DeveloperSettings', () => {
     expect(reloadEndpointOverridesInSW).not.toHaveBeenCalled();
   });
 
-  it('does not nudge the service worker on save when a wallet already exists (live/unlocked, reachable via /developer-settings without onlyReady), even on the extension', async () => {
+  it('leaves the endpoints read-only once a wallet exists (reachable via /developer-settings without onlyReady), so nothing reaches the service worker', () => {
     mockIsExtension.value = true;
     mockWalletState.status = WalletStatus.Ready;
     render(<DeveloperSettings />);
-    fireEvent.click(screen.getByTestId('dev-endpoints-save'));
 
-    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/'));
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toBeDisabled();
+    expect(screen.getByTestId('dev-endpoint-feeFaucetId')).toBeDisabled();
+    expect(
+      within(screen.getByTestId('dev-endpoint-network-id')).getByTestId('dev-endpoint-network-mainnet')
+    ).toBeDisabled();
+    expect(screen.getByTestId('dev-allow-no-guardian')).toBeDisabled();
     expect(reloadEndpointOverridesInSW).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, boolean]>([
+    ['the standalone route', false],
+    ['the Settings sub-page', true]
+  ])('offers the code-first switch to mainnet for an existing wallet on %s', (_route, readOnly) => {
+    mockWalletState.status = WalletStatus.Ready;
+    render(<DeveloperSettings readOnly={readOnly} />);
+    expect(screen.queryByTestId('mainnet-switch-sheet')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('dev-switch-to-mainnet'));
+
+    expect(screen.getByTestId('mainnet-switch-sheet')).toBeInTheDocument();
+    expect(screen.getByTestId('dev-switch-to-mainnet')).toHaveTextContent('switchToMainnet');
+    expect(applyEndpointOverride).not.toHaveBeenCalled();
+    expect(resetStorageDestructive).not.toHaveBeenCalled();
+  });
+
+  it('keeps the standalone route free of any way back to the build network once a wallet exists', () => {
+    mockWalletState.status = WalletStatus.Ready;
+    mockTestNetworkKey = null;
+    render(<DeveloperSettings />);
+    expect(screen.queryByTestId('dev-endpoints-reset')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dev-endpoints-save')).not.toBeInTheDocument();
+  });
+
+  it('does not offer the switch on mainnet', () => {
+    mockWalletState.status = WalletStatus.Ready;
+    mockTestNetworkKey = null;
+    render(<DeveloperSettings readOnly />);
+    expect(screen.queryByTestId('dev-switch-to-mainnet')).not.toBeInTheDocument();
+    expect(screen.getByTestId('dev-endpoints-reset')).toBeInTheDocument();
+  });
+
+  it('does not offer the switch before a wallet exists, where the edit mode saves as before', () => {
+    render(<DeveloperSettings />);
+    expect(screen.queryByTestId('dev-switch-to-mainnet')).not.toBeInTheDocument();
+    expect(screen.getByTestId('dev-endpoints-save')).toBeInTheDocument();
+    expect(screen.getByTestId('dev-endpoint-rpcUrl')).toBeEnabled();
   });
 
   it('read-only mode disables inputs and shows the reset action', () => {

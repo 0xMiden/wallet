@@ -1,13 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
+import { useTapUnlock } from 'app/hooks/useTapUnlock';
 import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
 import { Button, ButtonVariant } from 'components/Button';
 import { Spinner } from 'components/ui/Spinner';
 import { SubPageLayout } from 'components/ui/SubPageLayout';
 import { TextAction } from 'components/ui/TextAction';
-import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { cn } from 'lib/ui/util';
 import { navigate } from 'lib/woozie';
@@ -30,9 +30,6 @@ export interface WelcomeScreenProps extends Omit<React.ButtonHTMLAttributes<HTML
  * step.
  */
 export type Actions = 'mainnet-access' | 'select-wallet-type' | 'select-import-type';
-
-/** The number of logo taps that unlock the invite-only Welcome, or open Developer Settings. */
-const UNLOCK_TAPS = 7;
 
 /**
  * The maximum time the actions stay hidden while the remote config loads, so that the variant the
@@ -58,30 +55,20 @@ export const WelcomeScreen = ({
   recoverOnly = false
 }: WelcomeScreenProps) => {
   const { t } = useTranslation();
-  const tapCount = useRef(0);
-  const lastTap = useRef(0);
   const snapshot = useBridgeConfigSnapshot();
   const settled = useConfigSettled(snapshot.status === 'loading');
   const [noCodeOpen, setNoCodeOpen] = useState(false);
   // Hidden, not removed, so the hero does not move when the actions show.
   const actionClassName = cn('max-w-none', !settled && 'invisible');
 
-  const handleLogoTap = (e: React.MouseEvent) => {
-    e.preventDefault();
-    window.getSelection()?.removeAllRanges();
-    const now = e.timeStamp;
-    tapCount.current = now - lastTap.current > 2000 ? 1 : tapCount.current + 1;
-    lastTap.current = now;
-    if (tapCount.current >= 4 && tapCount.current < UNLOCK_TAPS) hapticLight();
-    if (tapCount.current < UNLOCK_TAPS) return;
-    tapCount.current = 0;
-    hapticMedium();
+  // Seven logo taps unlock the invite-only Welcome, or open Developer Settings.
+  const handleLogoTap = useTapUnlock(() => {
     if (inviteOnly || !onUnlockInviteOnly) {
       navigate('/developer-settings');
       return;
     }
     onUnlockInviteOnly();
-  };
+  });
 
   const actions = inviteOnly ? (
     <>

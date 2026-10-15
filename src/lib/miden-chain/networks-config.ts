@@ -73,11 +73,18 @@ export const MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS = new Map<string, string>([
 ]);
 
 export const MIDEN_EXPLORER_ENDPOINTS = new Map<string, string>([
+  [MIDEN_NETWORK_NAME.MAINNET, 'https://explorer.cedar.miden.io'],
   [MIDEN_NETWORK_NAME.TESTNET, 'https://testnet.midenscan.com'],
   [MIDEN_NETWORK_NAME.DEVNET, 'https://devnet.midenscan.com']
 ]);
 
 export const MIDEN_NETWORKS: MidenNetwork[] = [
+  {
+    rpcBaseURL: 'https://rpc.cedar.miden.io',
+    id: MIDEN_NETWORK_NAME.MAINNET,
+    name: 'Mainnet',
+    autoSync: true
+  },
   {
     rpcBaseURL: 'https://rpc.testnet.miden.io',
     id: MIDEN_NETWORK_NAME.TESTNET,
@@ -113,10 +120,9 @@ export const GUARDIAN_BRAND_NAME = {
  * operators through `getNetworkGuardians`, or through the option getters in
  * `lib/miden-chain/constants`, never from this constant.
  *
- * Each provider maps the networks it supports to its endpoint on that network
- * (OpenZeppelin runs on both testnet and devnet; the others currently expose a
- * testnet endpoint only). Keep the testnet and devnet entries equal to the
- * published documents. Localnet has no document, so its entry is always used.
+ * Each provider maps the networks it supports to its endpoint on that network.
+ * Every network's entries equal its published document, in the document's
+ * order. Localnet has no document, so its entry is always used.
  */
 export const GUARDIAN_OPTIONS: GuardianOption[] = [
   {
@@ -155,6 +161,25 @@ export const GUARDIAN_OPTIONS: GuardianOption[] = [
     operatedBy: 'Korea Digital Asset (Koda)',
     location: 'Asia (SK)',
     endpoint: new Map<MIDEN_NETWORK_NAME, string>([[MIDEN_NETWORK_NAME.TESTNET, 'https://guardian-testnet.kodax.com']])
+  },
+  {
+    id: 'para',
+    name: 'Para',
+    operatedBy: 'Para',
+    location: 'US-EAST',
+    endpoint: new Map<MIDEN_NETWORK_NAME, string>([
+      [MIDEN_NETWORK_NAME.TESTNET, 'https://miden-guardian.beta.getpara.com']
+    ])
+  },
+  // LambdaClass runs mainnet from another region, so its mainnet operator is an entry of its own.
+  {
+    id: 'lambda-class',
+    name: GUARDIAN_BRAND_NAME.lambdaClass,
+    operatedBy: GUARDIAN_BRAND_NAME.lambdaClass,
+    location: 'US-EAST',
+    endpoint: new Map<MIDEN_NETWORK_NAME, string>([
+      [MIDEN_NETWORK_NAME.MAINNET, 'https://guardian.cedar.internal.lambdaclass.com']
+    ])
   }
 ];
 

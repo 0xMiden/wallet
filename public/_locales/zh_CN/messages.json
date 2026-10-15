@@ -579,6 +579,10 @@
     "message": "无法加载您的持仓。请检查网络连接并重试。",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnUnavailableOnNetwork": {
+    "message": "该网络不支持“赚取”功能",
+    "englishSource": "Earn is not available on this network"
+  },
   "earnVaultLoadError": {
     "message": "无法加载此保险库。请检查网络连接并重试。",
     "englishSource": "Couldn't load this vault. Check your connection and try again."
@@ -2524,6 +2528,10 @@
     "message": "Korea Digital Asset，一家总部位于韩国的数字资产托管公司。",
     "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
   },
+  "guardianAboutPara": {
+    "message": "Para，一家嵌入式钱包基础设施提供商。",
+    "englishSource": "Para, an embedded wallet infrastructure provider."
+  },
   "guardianKindOpenZeppelin": {
     "message": "智能合约安全与审计",
     "englishSource": "Smart contract security and audits"
@@ -2539,6 +2547,10 @@
   "guardianKindKodax": {
     "message": "数字资产托管人",
     "englishSource": "Digital asset custodian"
+  },
+  "guardianKindPara": {
+    "message": "嵌入式钱包基础设施",
+    "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
     "message": "Guardian 是一项独立服务，<b>对您钱包中的每笔交易</b>进行联署，在无需放弃自主托管的前提下提供安全保障。",
@@ -3254,6 +3266,10 @@
     "message": "此钱包文件由较新版本的 Bread 创建。请更新 Bread 后重试。",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
   },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "此钱包文件属于另一个网络，无法在此网络上恢复。",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
+  },
   "encryptedWalletFileRestoreFailed": {
     "message": "无法恢复钱包。请检查存储空间后重试。",
     "englishSource": "The wallet could not be restored. Check your storage and try again."
@@ -3580,6 +3596,10 @@
   "guardianAccountNotFound": {
     "message": "我们在 guardian 上找不到您的账户。请检查网址，或改用公共账户进行导入。",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "guardianOtherNetwork": {
+    "message": "该“guardian”运行在另一个 Miden 网络上，因此无法在此处恢复账户。",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
   },
   "useCustomGuardianUrl": {
     "message": "请使用自定义的 Guardian 链接",
@@ -4158,6 +4178,18 @@
   "dappConnectionRequest": {
     "message": "该应用希望连接到您的钱包",
     "englishSource": "This app wants to connect to your wallet"
+  },
+  "dappNetworkMismatch": {
+    "message": "该应用请求的是Miden $dappNetwork$，但您的钱包位于Miden $walletNetwork$。",
+    "englishSource": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "placeholders": {
+      "dappnetwork": {
+        "content": "$1"
+      },
+      "walletnetwork": {
+        "content": "$2"
+      }
+    }
   },
   "dappTransactionRequest": {
     "message": "该应用正在请求一笔交易",
@@ -5704,8 +5736,12 @@
     "englishSource": "Reset and switch to mainnet"
   },
   "switchToMainnetConfirm": {
-    "message": "您可以继续使用测试网。切换操作会将该钱包、其余额及其历史记录从本设备中清除。请先保存您的恢复信息。测试代币不会转移到主网。随后，您将使用邀请码创建一个主网钱包，或恢复现有的主网钱包。",
-    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
+    "message": "您的访问码已通过验证。切换操作将从本设备中清除该钱包及其余额和交易记录。请先保存您的恢复信息。测试代币不会转移至主网。随后，您将使用此代码创建一个主网钱包，或恢复现有的主网钱包。",
+    "englishSource": "Your access code was accepted. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with this code or recover an existing mainnet wallet."
+  },
+  "mainnetSwitchCodeBody": {
+    "message": "请输入邀请码。在主网接受该代码之前，任何内容都不会被清除。",
+    "englishSource": "Enter the code from your invite. Nothing is cleared until mainnet accepts it."
   },
   "mainnetCountdownLabel": {
     "message": "距离Bread主网上线还剩：$time$",

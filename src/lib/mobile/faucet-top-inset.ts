@@ -25,8 +25,10 @@ export function faucetNoTopInsetScript(faucetOrigin: string): string {
 
 /** Whether `origin` is the active network's faucet, the one page the script above is for. */
 export function isFaucetOrigin(origin: string): boolean {
+  const faucetUrl = getEffectiveFaucetUrl();
+  if (!faucetUrl) return false;
   try {
-    return new URL(getEffectiveFaucetUrl()).origin === origin;
+    return new URL(faucetUrl).origin === origin;
   } catch {
     return false;
   }

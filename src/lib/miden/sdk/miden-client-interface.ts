@@ -31,12 +31,14 @@ import {
   WasmWebClient
 } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
+import Dexie from 'dexie';
 
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { PublicError } from 'lib/miden/back/defaults';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
 import { computeSyncBackoffMs, monotonicNowMs } from 'lib/miden/sync-backoff';
+import { isOtherNetworkGuardian } from 'lib/miden-chain/constants';
 import {
   getEffectiveFeeFaucetId,
   getEffectiveNetworkName,
@@ -892,6 +894,11 @@ export class MidenClientInterface {
     guardianEndpoint: string,
     verifyAccount?: (acc: Account) => Promise<void>
   ): Promise<string[]> {
+    // Refused before the lookup, which would show that operator the recovery's key.
+    if (isOtherNetworkGuardian(guardianEndpoint, this.network)) {
+      const { getMessage } = await import('lib/i18n');
+      throw new Error(getMessage('guardianOtherNetwork'));
+    }
     const [{ assertWasmHoldCurrent, withWasmClientLock }, { MultisigClient, EcdsaSigner }] = await Promise.all([
       import('../sdk/miden-client'),
       import('@openzeppelin/miden-multisig-client')
@@ -2063,6 +2070,29 @@ export class MidenClientInterface {
   async importDb(dump: string) {
     const storeName = await this.client.storeIdentifier();
     await importStore(storeName, dump);
+  }
+
+  /**
+   * The genesis block header this client's store holds, as the bytes a store
+   * dump carries. Building the client writes genesis into an empty store, so
+   * after a build this is the genesis of the chain the client talks to. The SDK
+   * gives JS no read of a stored header, and exporting the whole store to find
+   * one row costs as much as the store is large, so the row is read directly.
+   */
+  async genesisHeader(): Promise<Uint8Array> {
+    // No schema is declared, so this joins the SDK's store at its own version
+    // and can neither upgrade it nor create one that does not exist.
+    const store = new Dexie(await this.client.storeIdentifier());
+    try {
+      await store.open();
+      const row: unknown = await store.table('blockHeaders').get(0);
+      if (typeof row === 'object' && row !== null && 'header' in row && row.header instanceof Uint8Array) {
+        return row.header;
+      }
+      throw new Error('The client store holds no genesis block header');
+    } finally {
+      store.close();
+    }
   }
 
   async getTransactionsForAccount(accountId: string) {

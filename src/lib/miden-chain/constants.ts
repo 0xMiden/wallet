@@ -97,7 +97,8 @@ export function getBuiltInGuardianOptionsForNetwork(
 /**
  * The providers that run a Guardian on `network`, each with its endpoint on
  * that network (in the order of {@link getBuiltInGuardianOptionsForNetwork}),
- * PLUS the developer guardian-URL override as an extra selectable option.
+ * PLUS, when `network` is the effective network the override was set on, the
+ * developer guardian-URL override as an extra selectable option.
  * Single source of truth so the create picker and import presets can't drift —
  * both of them legitimately want to offer that override, which is why anything
  * that treats the operator list as evidence rather than as a menu reads
@@ -108,8 +109,9 @@ export function getGuardianOptionsForNetwork(
 ): ResolvedGuardianOption[] {
   const options = getBuiltInGuardianOptionsForNetwork(network);
 
-  // Developer override: a custom guardian URL is offered as an extra selectable option.
-  const customGuardian = getEffectiveGuardianUrl();
+  // Developer override: a custom guardian URL is offered as an extra selectable option, only on its own network, so a
+  // recovery into another network (Forgot password's mainnet path) never probes or registers it.
+  const customGuardian = network === getEffectiveNetworkName() ? getEffectiveGuardianUrl() : '';
   if (customGuardian && !options.some(o => sameGuardianEndpoint(o.endpoint, customGuardian))) {
     options.push({
       id: 'custom',
@@ -127,10 +129,26 @@ export function getGuardianOptionsForNetwork(
  * The endpoints of the operators that are wallet configuration on `network`,
  * in list order, so index 0 is the default operator. Without the localnet E2E
  * instance and without the developer override. Empty for a network with no
- * operator (mainnet today).
+ * operator.
  */
 export function getGuardianEndpointsForNetwork(network: string = getEffectiveNetworkName()): string[] {
   return getNetworkGuardianEndpoints(network);
+}
+
+/**
+ * Whether `endpoint` is a Guardian operator another public network lists and `network` does not. The accounts it
+ * holds live on that network's chain, so a recovery must not ask it for keys or adopt its state into `network`'s
+ * store. An endpoint no network lists (a self-hosted operator, a local one) says nothing about its network.
+ */
+export function isOtherNetworkGuardian(endpoint: string, network: string): boolean {
+  const lists = (name: string) =>
+    getNetworkGuardians(name).some(option => sameGuardianEndpoint(option.endpoint, endpoint));
+  return (
+    !lists(network) &&
+    [MIDEN_NETWORK_NAME.MAINNET, MIDEN_NETWORK_NAME.TESTNET, MIDEN_NETWORK_NAME.DEVNET].some(
+      other => other !== network && lists(other)
+    )
+  );
 }
 
 /**

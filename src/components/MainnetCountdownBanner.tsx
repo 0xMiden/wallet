@@ -4,14 +4,12 @@ import { useTranslation } from 'react-i18next';
 
 import { MAINNET_EARLY_ACCESS_URL } from 'app/constants';
 import { ReactComponent as BreadLogo } from 'app/icons/brand/new-bread.svg';
+import { MainnetSwitchSheet } from 'components/MainnetSwitchSheet';
 import { TextAction } from 'components/ui/TextAction';
-import { resetWalletAndReload } from 'lib/miden/reset-and-reload';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
-import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { selectInviteOnlyOnboarding } from 'lib/remote-config/values';
-import { useAlert, useConfirm } from 'lib/ui/dialog';
 
 const SECOND_MS = 1000;
 const MINUTE_MS = 60 * SECOND_MS;
@@ -105,44 +103,21 @@ const BannerFrame: FC<{ testId: string; children: React.ReactNode }> = ({ testId
   </div>
 );
 
+// Asks for the code before anything else: the sheet wipes the wallet only for a code mainnet accepted.
 const MainnetSwitchBanner: FC = () => {
   const { t } = useTranslation();
-  const confirm = useConfirm();
-  const alert = useAlert();
-  const [pending, setPending] = useState(false);
-
-  const switchNetwork = async () => {
-    if (pending) return;
-    setPending(true);
-    try {
-      const accepted = await confirm({
-        title: t('switchToMainnet'),
-        variant: 'explanation',
-        children: t('switchToMainnetConfirm'),
-        confirmLabel: t('resetAndSwitchToMainnet'),
-        destructive: true
-      });
-      if (!accepted) return;
-      await resetWalletAndReload(async () => {
-        await alert({ title: t('error'), children: t('resetDidNotFinish') });
-      }, MIDEN_NETWORK_NAME.MAINNET);
-    } catch {
-      await alert({ title: t('error'), children: t('resetDidNotFinish') });
-    } finally {
-      setPending(false);
-    }
-  };
+  const [open, setOpen] = useState(false);
 
   return (
     <BannerFrame testId="mainnet-switch-banner">
       <TextAction
-        onClick={switchNetwork}
-        disabled={pending}
+        onClick={() => setOpen(true)}
         className="text-title-section underline decoration-1 underline-offset-[3px]"
         data-testid="mainnet-switch-link"
       >
-        {t('switchToMainnet')}
+        {t('mainnetAccessTitle')}
       </TextAction>
+      <MainnetSwitchSheet open={open} onOpenChange={setOpen} />
     </BannerFrame>
   );
 };

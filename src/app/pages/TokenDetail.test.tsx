@@ -16,6 +16,7 @@ import {
   getNativeAssetMetadataSync,
   getSdkSyncedNativeAssetIdSync
 } from 'lib/miden-chain/native-asset';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
@@ -54,15 +55,21 @@ jest.mock('lib/remote-config/runtime', () =>
 );
 // The build's network unless a case names another.
 let mockTestNetworkKey: 'testnet' | 'devnet' | undefined;
+let mockWalletNetwork: MIDEN_NETWORK_NAME | undefined;
 jest.mock('lib/miden-chain/effective-endpoints', () => {
   const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
     'lib/miden-chain/effective-endpoints'
   );
-  return { ...actual, getTestNetworkNameKey: () => mockTestNetworkKey ?? actual.getTestNetworkNameKey() };
+  return {
+    ...actual,
+    getTestNetworkNameKey: () => mockTestNetworkKey ?? actual.getTestNetworkNameKey(),
+    getEffectiveNetworkName: () => mockWalletNetwork ?? actual.getEffectiveNetworkName()
+  };
 });
 afterEach(() => {
   mockBridgeSnapshot = undefined;
   mockTestNetworkKey = undefined;
+  mockWalletNetwork = undefined;
 });
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -89,12 +96,10 @@ jest.mock('lib/platform', () => ({
 const mockUseAccount = jest.fn();
 const mockUseAllBalances = jest.fn();
 const mockUseAllTokensBaseMetadata = jest.fn();
-const mockUseNetwork = jest.fn();
 jest.mock('lib/miden/front', () => ({
   useAccount: () => mockUseAccount(),
   useAllBalances: (...args: unknown[]) => mockUseAllBalances(...args),
-  useAllTokensBaseMetadata: () => mockUseAllTokensBaseMetadata(),
-  useNetwork: () => mockUseNetwork()
+  useAllTokensBaseMetadata: () => mockUseAllTokensBaseMetadata()
 }));
 
 // `useWalletStore(s => s.tokenPrices)` — apply the selector to a controllable
@@ -374,7 +379,7 @@ type Overrides = {
   isMobile?: boolean;
   balances?: unknown;
   metadata?: Record<string, unknown>;
-  network?: { name: string };
+  network?: MIDEN_NETWORK_NAME;
   priceInfo?: { price: number; change24h: number; percentageChange24h?: number };
   tokenPrices?: Record<string, unknown>;
   klineData?: unknown;
@@ -392,7 +397,7 @@ function configure(o: Overrides = {}) {
     data: o.balances === undefined ? [{ tokenId: TOKEN_ID, balance: 12.5, metadata: { symbol: 'ETH' } }] : o.balances
   });
   mockUseAllTokensBaseMetadata.mockReturnValue(o.metadata ?? {});
-  mockUseNetwork.mockReturnValue(o.network ?? { name: 'Testnet' });
+  mockWalletNetwork = o.network;
   // The default token is ETH, so `priceInfo` is ETH's quote; `tokenPrices` replaces the whole feed.
   mockTokenPrices = o.tokenPrices ?? {
     ETH: { percentageChange24h: 0, ...(o.priceInfo ?? { price: 2000, change24h: 3.2, percentageChange24h: 0.1 }) }
@@ -972,7 +977,7 @@ describe('TokenDetail', () => {
 
   describe('token info card', () => {
     it('renders the faucet id under the name the transaction page uses, trimmed and copyable', () => {
-      renderPage({ network: { name: 'Devnet' } });
+      renderPage({ network: MIDEN_NETWORK_NAME.DEVNET });
 
       const info = screen.getByTestId('token-detail-info');
       const contract = within(info).getByTestId('token-detail-contract');
@@ -996,7 +1001,15 @@ describe('TokenDetail', () => {
       expect(copy).not.toHaveTextContent(TOKEN_ID);
 
       expect(within(info).getByText('fungible')).toBeInTheDocument();
-      expect(within(info).getByText('Devnet')).toBeInTheDocument();
+      expect(within(info).getByText('devnet')).toBeInTheDocument();
+    });
+
+    // The legacy network list and its stored id never name mainnet, so they read Testnet on a mainnet wallet.
+    it("names the wallet's own network, Mainnet on a mainnet wallet", () => {
+      renderPage({ network: MIDEN_NETWORK_NAME.MAINNET });
+
+      expect(within(screen.getByTestId('token-detail-info')).getByText('mainnet')).toBeInTheDocument();
+      expect(enMessages.mainnet).toBe('Mainnet');
     });
 
     it('copies the full faucet id, not the truncated display value', async () => {

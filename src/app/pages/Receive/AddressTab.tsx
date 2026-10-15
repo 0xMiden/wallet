@@ -21,6 +21,7 @@ import { resolveTransition, tabBarMotion } from 'lib/animation';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
 import { cn } from 'lib/ui/util';
@@ -233,6 +234,15 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
 
   // Cross Chain opens every bridge-in route, so it stays enabled while one of them can start.
   const crossChain = useBridgeInAvailability();
+  // A network whose document configures no bridge-in route (mainnet's) has no Cross Chain, and no outage to report
+  // either. With no accepted document nothing says what the network configures, so the tile stays, greyed, over its
+  // notice.
+  const hasDocument = useBridgeConfigSnapshot().config !== null;
+  const crossChainOnNetwork = !(
+    hasDocument &&
+    crossChain.state === 'unavailable' &&
+    crossChain.reason === 'not-configured'
+  );
 
   return (
     // The shared home-group pane body (HomeGroupPane): the page margin, the top offset (`visual`:
@@ -326,16 +336,18 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
             {/* Drawn on every platform. The extension once hid it because the Reown relay closed its
                 socket (code 3000): the page's placeholder Buffer encoded the relay token from zero
                 bytes. public/globals.js no longer installs one. */}
-            <ReceiveActionTile
-              icon={IconName.CrossChain}
-              title={t('crossChain')}
-              // No source named here: the bridge screen lists the chains the remote config offers.
-              onClick={handleOpenEvm}
-              disabled={isFeatureBlocked(crossChain)}
-              data-testid="receive-cross-chain"
-            />
+            {crossChainOnNetwork && (
+              <ReceiveActionTile
+                icon={IconName.CrossChain}
+                title={t('crossChain')}
+                // No source named here: the bridge screen lists the chains the remote config offers.
+                onClick={handleOpenEvm}
+                disabled={isFeatureBlocked(crossChain)}
+                data-testid="receive-cross-chain"
+              />
+            )}
           </div>
-          <FeatureUnavailableNotice availability={crossChain} variant="inline" />
+          {crossChainOnNetwork && <FeatureUnavailableNotice availability={crossChain} variant="inline" />}
           {/* The funds-safety warning (#875), last: the page reads code → address → actions, and
               this qualifies all of it. A caption with the warning glyph, not a tinted block —
               between the address and the actions it split the page in two. */}
