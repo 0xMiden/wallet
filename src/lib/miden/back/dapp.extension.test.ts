@@ -231,7 +231,8 @@ jest.mock('webextension-polyfill', () => {
       get: jest.fn(async () => ({ id: 999 })),
       remove: jest.fn(async () => {}),
       update: jest.fn(async () => {}),
-      getLastFocused: jest.fn(async () => ({ left: 0, top: 0, width: 1024, height: 768 })),
+      getLastFocused: jest.fn(async () => ({ type: 'normal', left: 0, top: 0, width: 1024, height: 768 })),
+      getAll: jest.fn(async () => []),
       onRemoved: {
         addListener: (cb: any) => removedListeners.push(cb),
         removeListener: (cb: any) => {
@@ -307,6 +308,7 @@ describe('requestConfirm window-position fallback', () => {
     const originalUpdate = update.getMockImplementation();
     focused.mockResolvedValueOnce({
       id: 1,
+      type: 'normal',
       focused: true,
       incognito: false,
       alwaysOnTop: false,
@@ -407,11 +409,13 @@ describe('requestConfirm placement Chrome refuses', () => {
   const get = jest.mocked(extensionBrowser.windows.get);
   const remove = jest.mocked(extensionBrowser.windows.remove);
   const focused = jest.mocked(extensionBrowser.windows.getLastFocused);
+  const getAll = jest.mocked(extensionBrowser.windows.getAll);
   const defaults = {
     create: create.getMockImplementation(),
     update: update.getMockImplementation(),
     get: get.getMockImplementation(),
-    focused: focused.getMockImplementation()
+    focused: focused.getMockImplementation(),
+    getAll: getAll.getMockImplementation()
   };
 
   afterEach(() => {
@@ -420,10 +424,12 @@ describe('requestConfirm placement Chrome refuses', () => {
     update.mockReset();
     get.mockReset();
     focused.mockReset();
+    getAll.mockReset();
     if (defaults.create) create.mockImplementation(defaults.create);
     if (defaults.update) update.mockImplementation(defaults.update);
     if (defaults.get) get.mockImplementation(defaults.get);
     if (defaults.focused) focused.mockImplementation(defaults.focused);
+    if (defaults.getAll) getAll.mockImplementation(defaults.getAll);
   });
 
   const windowAt = (fields: Partial<Windows.Window>): Windows.Window => ({
@@ -540,34 +546,70 @@ describe('requestConfirm placement Chrome refuses', () => {
     expect(create).toHaveBeenCalledTimes(1);
   });
 
-  it('centres the popup on the last-focused browser window, not on another popup', async () => {
-    focused.mockImplementationOnce(async getInfo =>
-      getInfo?.windowTypes?.includes('normal')
-        ? windowAt({ id: 1, type: 'normal', left: 100, top: 50, width: 1200, height: 900 })
-        : windowAt({ id: 2, type: 'popup', left: 918, top: 186, width: 1288, height: 851 })
-    );
+  const browserWindow = windowAt({
+    id: 1,
+    type: 'normal',
+    focused: false,
+    left: 100,
+    top: 50,
+    width: 1200,
+    height: 900
+  });
+  const otherBrowserWindow = windowAt({
+    id: 4,
+    type: 'normal',
+    focused: false,
+    left: 0,
+    top: 0,
+    width: 640,
+    height: 480
+  });
+  const approvalPopup = windowAt({ id: 2, type: 'popup', left: 918, top: 186, width: 1288, height: 851 });
+
+  type BrowserWindows = { anchor: string; browserWindows: Windows.Window[] };
+  it.each<BrowserWindows>([
+    { anchor: 'the focused browser window', browserWindows: [otherBrowserWindow, { ...browserWindow, focused: true }] },
+    { anchor: 'the first browser window when none is focused', browserWindows: [browserWindow, otherBrowserWindow] }
+  ])('a last-focused approval popup centres the next popup on $anchor', async ({ browserWindows }) => {
+    focused.mockResolvedValueOnce(approvalPopup);
+    getAll.mockResolvedValueOnce(browserWindows);
 
     const answer = await declineSign();
 
-    expect(focused).toHaveBeenCalledWith({ windowTypes: ['normal'] });
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ left: 510, top: 162 }));
+    expect(getAll).toHaveBeenCalledWith({ windowTypes: ['normal'] });
     expect(answer).toBe(MidenDAppErrorType.NotGranted);
   });
 
-  it('centres on the last-focused window of any type when no browser window is open', async () => {
-    focused.mockRejectedValueOnce(new Error('No last-focused window'));
-    focused.mockResolvedValueOnce(windowAt({ id: 3, type: 'app', left: 300, top: 200, width: 600, height: 800 }));
+  it('centres the popup on a last-focused browser window without listing the others', async () => {
+    focused.mockResolvedValueOnce(browserWindow);
 
-    const answer = await withoutWindowGeometry(declineSign);
+    const answer = await declineSign();
 
-    expect(focused.mock.calls).toEqual([[{ windowTypes: ['normal'] }], []]);
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ left: 410, top: 262 }));
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ left: 510, top: 162 }));
+    expect(focused.mock.calls).toEqual([[]]);
+    expect(getAll).not.toHaveBeenCalled();
     expect(answer).toBe(MidenDAppErrorType.NotGranted);
   });
 
-  it('lets the browser place the popup when no window can be read', async () => {
-    focused.mockRejectedValueOnce(new Error('No last-focused window'));
-    focused.mockRejectedValueOnce(new Error('No last-focused window'));
+  type NoBrowserWindow = { case: string; arrange: () => void };
+  it.each<NoBrowserWindow>([
+    {
+      case: 'no browser window is open',
+      arrange: () => {
+        focused.mockResolvedValueOnce(windowAt({ id: 3, type: 'app', left: 300, top: 200, width: 600, height: 800 }));
+        getAll.mockResolvedValueOnce([]);
+      }
+    },
+    {
+      case: 'no window can be read',
+      arrange: () => {
+        focused.mockRejectedValueOnce(new Error('No last-focused window'));
+        getAll.mockRejectedValueOnce(new Error('No windows'));
+      }
+    }
+  ])('lets the browser place the popup when $case', async ({ arrange }) => {
+    arrange();
 
     const answer = await withoutWindowGeometry(declineSign);
 

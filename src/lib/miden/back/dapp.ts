@@ -2918,14 +2918,17 @@ async function requestConfirm({
 
 type ConfirmWindowPosition = { left: number; top: number };
 
-// Centred on the last-focused browser window. Unfiltered, that can be another approval popup that is closing or that
-// something resized, and a popup centred on it lands off to one side. The request does not say which window the dApp
-// runs in, so a dApp in its own app or popup window gets its confirm on the browser window, and on its own window only
-// when no browser window is open.
+// Centred on the last-focused browser window. The last-focused window can be another approval popup that is closing or
+// that something resized, and a popup centred on it lands off to one side, so any other type gives way to the browser
+// windows getAll lists (the polyfill declares a type filter for getAll, not for getLastFocused). The request does not
+// say which window the dApp runs in, so a dApp in its own app or popup window gets its confirm on the browser window,
+// and with no browser window open the browser places it.
 async function confirmWindowPosition(browser: Browser): Promise<ConfirmWindowPosition | undefined> {
-  const anchor =
-    (await browser.windows.getLastFocused({ windowTypes: ['normal'] }).catch(() => undefined)) ??
-    (await browser.windows.getLastFocused().catch(() => undefined));
+  let anchor = await browser.windows.getLastFocused().catch(() => undefined);
+  if (anchor?.type !== 'normal') {
+    const browserWindows = await browser.windows.getAll({ windowTypes: ['normal'] }).catch((): Windows.Window[] => []);
+    anchor = browserWindows.find(win => win.focused) ?? browserWindows[0];
+  }
   // The service worker has no `window` to measure instead: with no anchor, the browser places the popup.
   if (!anchor) return undefined;
   const { left, top, width, height } = anchor;
