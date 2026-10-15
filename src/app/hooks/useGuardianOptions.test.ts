@@ -23,8 +23,24 @@ afterAll(() => _resetGuardianRegistryForTest());
 
 it('gives the bundled operators while the realm has no document list', () => {
   const { result } = renderHook(() => useGuardianOptions());
+  const { result: mainnet } = renderHook(() => useGuardianOptions(MIDEN_NETWORK_NAME.MAINNET));
 
-  expect(result.current.map(option => option.id)).toEqual(['open-zeppelin', 'gateway', 'lambda-class', 'kodax']);
+  expect(result.current.map(option => option.id)).toEqual([
+    'open-zeppelin',
+    'gateway',
+    'lambda-class',
+    'kodax',
+    'para'
+  ]);
+  expect(mainnet.current).toEqual([
+    {
+      id: 'lambda-class',
+      name: 'LambdaClass',
+      operatedBy: 'LambdaClass',
+      location: 'US-EAST',
+      endpoint: 'https://guardian.cedar.internal.lambdaclass.com'
+    }
+  ]);
 });
 
 it('keeps one array across renders, so a picker does not ping its options again', () => {
@@ -63,6 +79,7 @@ it('adds the developer endpoint after the document list', () => {
 });
 
 it('gives the operators of a network the caller names, not the effective one', () => {
+  setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, []);
   const { result, rerender } = renderHook(() => useGuardianOptions(MIDEN_NETWORK_NAME.MAINNET));
 
   expect(result.current).toEqual([]);

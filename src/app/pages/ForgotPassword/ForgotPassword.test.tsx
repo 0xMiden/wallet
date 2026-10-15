@@ -1150,7 +1150,7 @@ describe('ForgotPassword probes the network it recovers into', () => {
     expect(mockClearClientStorage).not.toHaveBeenCalled();
   });
 
-  it('offers no testnet operator on the recovery-method step of an invite-only reset', async () => {
+  it('starts the recovery-method step of an invite-only reset on the mainnet operator, with no testnet one', async () => {
     mockSnapshot = readySnapshot({ inviteOnly: true });
     const { rerender } = renderPage();
     await dispatch({ id: 'select-import-type' });
@@ -1161,8 +1161,11 @@ describe('ForgotPassword probes the network it recovers into', () => {
     rerender(<ForgotPassword />);
 
     expect(screen.getByTestId('import-recovery-method')).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'importPublicAccount' })).toHaveAttribute('aria-checked', 'true');
-    expect(screen.queryByRole('radio', { name: 'OpenZeppelin' })).not.toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'importViaGuardian' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /LambdaClass/ })).toHaveAttribute('aria-checked', 'true');
+    expect(document.body.textContent).toContain('https://guardian.cedar.internal.lambdaclass.com');
+    expect(screen.queryByRole('radio', { name: /OpenZeppelin/ })).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain('guardian-testnet.openzeppelin.com');
+    expect(document.body.textContent).not.toContain('miden-guardian.lambdaclass.com');
   });
 });

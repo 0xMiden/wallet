@@ -313,8 +313,9 @@ describe('useGuardianProbe network', () => {
     mockDiscoverByHotKey.mockResolvedValue(result());
   });
 
-  it.each(starters)('starts no probe for %s on mainnet, which lists no operator', async (_flow, begin, discover) => {
+  it.each(starters)('starts no probe for %s on a network that lists no operator', async (_flow, begin, discover) => {
     mockEffectiveNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, []);
     const { result: hook } = renderHook(() => useGuardianProbe());
 
     const returned = await act(async () => begin(hook.current));
@@ -339,6 +340,7 @@ describe('useGuardianProbe network', () => {
   });
 
   it.each(starters)('probes for %s at the operators of the network the host names', async (_flow, begin, discover) => {
+    setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, []);
     const { result: hook } = renderHook(() => useGuardianProbe(MIDEN_NETWORK_NAME.MAINNET));
 
     await act(async () => begin(hook.current));
@@ -377,6 +379,7 @@ describe('useGuardianProbe network', () => {
     await waitFor(() => expect(capturedSignal).toBeDefined());
 
     mockEffectiveNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, []);
     await act(async () => hook.current.start(WORDS));
 
     expect(capturedSignal?.aborted).toBe(true);

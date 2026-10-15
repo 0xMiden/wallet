@@ -592,8 +592,8 @@ describe('guardianOnly (hot-key import)', () => {
 
 /**
  * A release build is a testnet or devnet build, and mainnet is a stored choice. The screen offers the operators of the
- * network the recovery restores into (the effective one, or the one the host names), so on mainnet, which lists none
- * today, nothing points at a testnet operator.
+ * network the recovery restores into (the effective one, or the one the host names), so on a mainnet whose document
+ * lists none, nothing points at a testnet operator.
  */
 describe('on a network that lists no Guardian operator', () => {
   const MAINNET_OPERATOR = {
@@ -603,6 +603,8 @@ describe('on a network that lists no Guardian operator', () => {
     location: 'EU',
     endpoint: 'https://guardian-mainnet.example'
   };
+  beforeEach(() => setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, []));
+
   const mainnetScreens: Array<[string, () => ReturnType<typeof renderScreen>]> = [
     [
       'the effective network',

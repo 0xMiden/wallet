@@ -275,7 +275,12 @@ describe('effective-endpoints resolver', () => {
     });
 
     it("returns '' when the effective network has no configured guardian and no custom URL is set", async () => {
-      const m = loadModule();
+      let m!: typeof import('./effective-endpoints');
+      jest.isolateModules(() => {
+        const { setDocumentGuardians } = require('./guardian-registry');
+        m = require('./effective-endpoints');
+        setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, []);
+      });
       await m.applyEndpointOverride(m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.MAINNET));
       expect(m.getEffectiveNetworkName()).toBe(MIDEN_NETWORK_NAME.MAINNET);
       expect(m.getEffectiveDefaultGuardianEndpoint()).toBe('');

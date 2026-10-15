@@ -699,8 +699,9 @@ describe('the operators discovery asks when no network is named', () => {
     mockBackend.set(OZ, { accounts: ['acct-testnet'], nonces: { 'acct-testnet': 2n } });
   });
 
-  it.each(flows)('asks no operator for %s on mainnet, which lists none', async (_flow, discover) => {
+  it.each(flows)('asks no operator for %s on a network whose document lists none', async (_flow, discover) => {
     mockEffectiveNetwork = MIDEN_NETWORK_NAME.MAINNET;
+    setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, []);
 
     const result = await discover();
 

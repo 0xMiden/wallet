@@ -83,7 +83,9 @@ describe('miden-chain/constants', () => {
 
     it('returns an empty list for a network with no guardian providers', () => {
       jest.isolateModules(() => {
+        const { setDocumentGuardians } = require('./guardian-registry');
         const { getGuardianOptionsForNetwork, MIDEN_NETWORK_NAME } = require('./constants');
+        setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, []);
         expect(getGuardianOptionsForNetwork(MIDEN_NETWORK_NAME.MAINNET)).toEqual([]);
       });
     });
@@ -287,10 +289,12 @@ describe('miden-chain/constants', () => {
       });
     });
 
-    it('throws (rather than targeting staging) on an unsupported network', () => {
+    it('throws (rather than targeting staging) on a network with no operator', () => {
       process.env.MIDEN_NETWORK = 'mainnet';
       jest.isolateModules(() => {
+        const { setDocumentGuardians } = require('./guardian-registry');
         const { getDefaultGuardianEndpoint } = require('./constants');
+        setDocumentGuardians('mainnet', []);
         expect(() => getDefaultGuardianEndpoint()).toThrow('Guardian is not available on network "mainnet"');
       });
     });
@@ -334,14 +338,15 @@ describe('miden-chain/constants', () => {
           'https://guardian-testnet.openzeppelin.com',
           'https://miden-guardian.dev.eu-north-3.gateway.fm',
           'https://miden-guardian.lambdaclass.com',
-          'https://guardian-testnet.kodax.com'
+          'https://guardian-testnet.kodax.com',
+          'https://miden-guardian.beta.getpara.com'
         ]);
         // Only OpenZeppelin runs a devnet Guardian.
         expect(getGuardianEndpointsForNetwork('devnet')).toEqual(['https://guardian-devnet.openzeppelin.com']);
         // OpenZeppelin also exposes a localnet endpoint (the local guardian image).
         expect(getGuardianEndpointsForNetwork('localnet')).toEqual(['http://localhost:3000']);
-        // Mainnet has no operator, and never borrows another network's (a mainnet build must not sign against staging).
-        expect(getGuardianEndpointsForNetwork('mainnet')).toEqual([]);
+        // Mainnet has its own LambdaClass operator and never borrows another network's.
+        expect(getGuardianEndpointsForNetwork('mainnet')).toEqual(['https://guardian.cedar.internal.lambdaclass.com']);
         // The default is the effective network.
         expect(getGuardianEndpointsForNetwork()).toEqual(getGuardianEndpointsForNetwork('testnet'));
       });

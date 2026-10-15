@@ -129,7 +129,7 @@ export function getGuardianOptionsForNetwork(
  * The endpoints of the operators that are wallet configuration on `network`,
  * in list order, so index 0 is the default operator. Without the localnet E2E
  * instance and without the developer override. Empty for a network with no
- * operator (mainnet today).
+ * operator.
  */
 export function getGuardianEndpointsForNetwork(network: string = getEffectiveNetworkName()): string[] {
   return getNetworkGuardianEndpoints(network);
