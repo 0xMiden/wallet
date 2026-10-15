@@ -75,7 +75,7 @@ export interface AgglayerChainConfig extends RouteSwitches {
 
 export type UsdcxDepositConfig =
   | { route: 'xreserve'; xReserve: EvmAddress }
-  | { route: 'executor'; executorChain: string; tokenMessenger: EvmAddress; tokenMessengerWithFees: EvmAddress };
+  | { route: 'executor'; executorChain: string; tokenMessengerWithFees: EvmAddress };
 
 export interface UsdcxChainConfig extends RouteSwitches {
   domain: number;
@@ -278,7 +278,6 @@ function usdcxDeposit(value: ConfigValue): UsdcxDepositConfig | undefined {
       return {
         route: 'executor',
         executorChain: deposit.executorChain,
-        tokenMessenger: evmAddress(deposit.tokenMessenger),
         tokenMessengerWithFees: evmAddress(deposit.tokenMessengerWithFees)
       };
     default:

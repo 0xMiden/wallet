@@ -245,9 +245,9 @@ function executeStalled(row: ITransaction, leg: IUsdcxCctpLeg): boolean {
 
 /**
  * An executor-route deposit has two Circle attestations. First Iris attests the CCTP burn. A forwarded burn
- * is then executed on Arc by Circle, and the reconciler waits for the forward transaction hash; a manual
- * burn, or a forward Circle gave up on, keeps the attested message on the row, where the status screen and
- * Activity offer the execute. Once an Arc transaction hash is on the row, from either side, the reconciler
+ * is then executed on Arc by Circle, and the reconciler waits for the forward transaction hash; a forward
+ * Circle gave up on, or a burn made before every burn was forwarded, keeps the attested message on the row,
+ * where the status screen and Activity offer the execute. Once an Arc transaction hash is on the row, from either side, the reconciler
  * asks xReserve's attestation service for it, which is the deposit, and the row becomes `ready` as a direct
  * deposit would. An Arc execute that reverted, seen here or by the foreground hook, or that stayed unmined past
  * the stall window, reopens the leg for the wallet to execute, and its hash is never adopted again.
