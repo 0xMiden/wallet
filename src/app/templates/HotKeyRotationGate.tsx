@@ -21,13 +21,11 @@ import { useAllBalances, useAllTokensBaseMetadata, useMidenContext } from 'lib/m
 import { useClaimableNotes } from 'lib/miden/front/claimable-notes';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import * as Repo from 'lib/miden/repo';
-import { isVaultShortfallRow } from 'lib/miden/transaction/constants';
 import {
+  findAdoptableShortfallRow,
   hotKeyRotationLockName,
   isLiveRotationFundingRow,
   isLiveRotationRow,
-  isRotationFundingRow,
-  isRotationRow,
   selectRotationFundingNotes
 } from 'lib/miden/transaction/rotation-funding';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
@@ -43,7 +41,6 @@ import { RotationFundingPanel, useRotationFundingClaim, useRotationGateRows } fr
 import {
   describeRotationFailure,
   isBelowBaseFee,
-  newestRow,
   resolveRotationGateView,
   rotationFundingMinimum,
   type RotationFailure
@@ -93,24 +90,6 @@ export const HotKeyRotationGate: FC = () => {
 interface OverlayProps {
   accountPublicKey: string;
 }
-
-/**
- * The newest rotation of the account when it failed for want of its fee and no funding
- * claim completed after it (#805). Adopting it on mount shows the funding panel again
- * instead of queueing a rotation that must fail, minting a hot key it never uses.
- */
-const adoptableShortfallRow = async (accountPublicKey: string) => {
-  const rows = await Repo.transactions
-    .filter(r => isRotationRow(r, accountPublicKey) || isRotationFundingRow(r, accountPublicKey))
-    .toArray();
-  const rotation = newestRow(rows.filter(r => r.type === 'replace-hot-key'));
-  if (rotation === undefined || !isVaultShortfallRow(rotation)) return undefined;
-  const failedAt = rotation.completedAt ?? rotation.initiatedAt;
-  const claimedSince = rows.some(
-    r => r.type === 'consume' && r.status === ITransactionStatus.Completed && (r.completedAt ?? 0) > failedAt
-  );
-  return claimedSince ? undefined : rotation;
-};
 
 /**
  * Find (or create) the rotation transaction to track, serialized across every
@@ -163,7 +142,7 @@ const ensureRotationTx = async (accountPublicKey: string, adoptExisting: boolean
       deferred = true;
       return;
     }
-    const failed = adoptExisting ? await adoptableShortfallRow(accountPublicKey) : undefined;
+    const failed = adoptExisting ? await findAdoptableShortfallRow(accountPublicKey) : undefined;
     if (failed) {
       txId = failed.id;
       return;

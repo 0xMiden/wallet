@@ -133,6 +133,7 @@ jest.mock('lib/dexie-live-query', () => ({
 jest.mock('lib/i18n/numbers', () => jest.requireActual('lib/i18n/numbers'));
 
 jest.mock('lib/miden/activity', () => ({
+  enqueueRotationFundingClaim: (...args: unknown[]) => mockEnqueue(...args),
   initiateReplaceHotKeyTransaction: (...args: unknown[]) => mockInitiate(...args),
   requestSWTransactionProcessing: () => mockRequestSW(),
   safeGenerateTransactionsLoop: (...args: unknown[]) => mockLoop(...args)
@@ -146,11 +147,6 @@ jest.mock('lib/miden/front', () => ({
 
 jest.mock('lib/miden/front/claimable-notes', () => ({
   useClaimableNotes: () => mockClaimable
-}));
-
-jest.mock('lib/miden/transaction/rotation-funding', () => ({
-  ...jest.requireActual('lib/miden/transaction/rotation-funding'),
-  enqueueRotationFundingClaim: (...args: unknown[]) => mockEnqueue(...args)
 }));
 
 jest.mock('lib/miden/front/guardian-sync', () => ({

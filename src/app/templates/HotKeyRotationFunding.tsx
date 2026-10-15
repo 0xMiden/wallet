@@ -6,15 +6,10 @@ import { Button, ButtonVariant } from 'components/Button';
 import { CopyButton } from 'components/ui/CopyButton';
 import { ErrorDetails } from 'components/ui/ErrorDetails';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
-import { requestSWTransactionProcessing } from 'lib/miden/activity';
+import { enqueueRotationFundingClaim, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { isLiveTransaction, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import {
-  enqueueRotationFundingClaim,
-  isRotationFundingRow,
-  isRotationRow,
-  RotationFundingSelection
-} from 'lib/miden/transaction/rotation-funding';
+import { isRotationFundingRow, isRotationRow, RotationFundingSelection } from 'lib/miden/transaction/rotation-funding';
 import { ConsumableNote } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
