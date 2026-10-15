@@ -9,7 +9,8 @@ jest.mock('lib/remote-config/runtime', () => ({
       .testBridgeSnapshot()
 }));
 
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
+let mockNetworkName = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetworkName }));
 
 let stored: ITransaction;
 const mockReadContract = jest.fn();
@@ -58,7 +59,17 @@ function row(burn: Partial<NonNullable<IBridgedSendExtraInputs['usdcxBurn']>> = 
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockNetworkName = 'testnet';
   stored = row();
+});
+
+// A testnet-only gate left every mainnet withdrawal at "Burn confirmed" after the USDC had arrived.
+it('confirms a mainnet arrival like a testnet one', async () => {
+  mockNetworkName = 'mainnet';
+  stored = row({ payoutFeeAllowance: '100000' });
+  await pollUsdcxDestination(stored, read);
+  expect(read).toHaveBeenCalledTimes(1);
+  expect(stored.extraInputs.usdcxBurn).toMatchObject({ phase: 'confirmed', destinationBalanceConfirmed: arrived });
 });
 
 it('reads the recipient USDC balance at the reported block', async () => {

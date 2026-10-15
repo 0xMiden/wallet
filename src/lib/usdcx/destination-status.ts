@@ -2,7 +2,6 @@ import { createPublicClient, http, isAddress } from 'viem';
 
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus, IUsdcxBurn } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { getChain } from 'lib/walletconnect/config';
 
 import { usdcxDestinations, ERC20_BALANCE_OF_ABI, minimumUsdcxPayout } from './constant';
@@ -94,13 +93,15 @@ export function isUsdcxDestinationPending(burn: IUsdcxBurn): boolean {
   return burn.phase === 'confirmed' && !!burn.destinationBalanceBefore && !burn.destinationBalanceConfirmed;
 }
 
-/** A balance increase is an estimate of arrival; it does not identify a bridge transfer. */
+/**
+ * A balance increase is an estimate of arrival; it does not identify a bridge transfer. Every network with a
+ * USDCx row is polled; the destination's USDC and RPC come from the document for that row's chain.
+ */
 export async function pollUsdcxDestination(tx: ITransaction, readBalance = readUsdcxDestinationBalance): Promise<void> {
   const extra: IBridgedSendExtraInputs | undefined = tx.extraInputs;
   const burn = extra?.usdcxBurn;
   const before = burn?.destinationBalanceBefore;
   if (
-    getEffectiveNetworkName() !== 'testnet' ||
     tx.restoredFromBackup ||
     tx.type !== 'bridged-send' ||
     tx.status !== ITransactionStatus.Completed ||
