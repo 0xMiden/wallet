@@ -107,6 +107,7 @@ import { capitalizeFirstLetter, truncateAddress } from 'utils/string';
 import { queueNoteImport } from '../activity';
 import { isLikelyNetworkError } from '../activity/connectivity-classify';
 import { assertValidRecallBlocks, toNoteTypeString, toPersistedNoteType } from '../helpers';
+import { isWalletLockedError, lockedRefusal } from './dapp-locked';
 import { midenClientProxy } from './miden-client-proxy';
 import { getCurrentMidenNetwork } from './safe-network';
 import { simulateCustomTransaction, type SimulateCustomTxResult } from './simulate-custom-tx';
@@ -796,30 +797,28 @@ const generatePromisifyRequestPrivateNotes = async (
   req: MidenDAppPrivateNotesRequest,
   sessionId?: string
 ) => {
-  let privateNotes: InputNoteDetails[] = [];
+  const prepare = () => getPrivateNoteDetails(dApp.accountId, req.notefilterType, req.noteIds);
   if (
     dApp.privateDataPermission === PrivateDataPermission.Auto &&
     (dApp.allowedPrivateData & AllowedPrivateData.Notes) !== 0
   ) {
-    try {
-      privateNotes = await getPrivateNoteDetails(dApp.accountId, req.notefilterType, req.noteIds);
-      resolve({
-        type: MidenDAppMessageType.PrivateNotesResponse,
-        privateNotes: privateNotes
-      });
-    } catch (e) {
-      reject(e);
+    const prepared = await prepareOrReject(prepare, reject);
+    if (prepared === undefined) return;
+    if (prepared.locked) {
+      reject(lockedRefusal());
+      return;
     }
+    resolve({ type: MidenDAppMessageType.PrivateNotesResponse, privateNotes: prepared.value });
   } else {
     const id = nanoid();
     const networkRpc = await getNetworkRPC(dApp.network);
-
-    try {
-      privateNotes = await getPrivateNoteDetails(dApp.accountId, req.notefilterType, req.noteIds);
-    } catch (e) {
-      reject(e);
+    const prepared = await prepareOrReject(prepare, reject);
+    if (prepared === undefined) return;
+    if (prepared.locked) {
+      reject(lockedRefusal());
       return;
     }
+    const privateNotes = prepared.value;
 
     if (!isExtension()) {
       const confirmed = await confirmOnNonExtension(
@@ -947,8 +946,8 @@ async function getPrivateNoteDetails(
   } catch (e) {
     // A kill (a lock-recovery eviction, an offscreen abort or a terminated
     // client) is a retryable internal failure, not a parameter problem
-    // (issue #775).
-    if (isPipelineKillLink(e)) throw e;
+    // (issue #775); a locked wallet gets an Unlock step from the caller (#1414).
+    if (isPipelineKillLink(e) || isWalletLockedError(e)) throw e;
     throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
   }
 }
@@ -990,30 +989,28 @@ export const generatePromisifyRequestConsumableNotes = async (
   req: MidenDAppConsumableNotesRequest,
   sessionId?: string
 ) => {
-  let consumableNotes: InputNoteDetails[] = [];
+  const prepare = () => getConsumableNotes(dApp.accountId);
   if (
     dApp.privateDataPermission === PrivateDataPermission.Auto &&
     (dApp.allowedPrivateData & AllowedPrivateData.Notes) !== 0
   ) {
-    try {
-      consumableNotes = await getConsumableNotes(dApp.accountId);
-      resolve({
-        type: MidenDAppMessageType.ConsumableNotesResponse,
-        consumableNotes
-      });
-    } catch (e) {
-      reject(e);
+    const prepared = await prepareOrReject(prepare, reject);
+    if (prepared === undefined) return;
+    if (prepared.locked) {
+      reject(lockedRefusal());
+      return;
     }
+    resolve({ type: MidenDAppMessageType.ConsumableNotesResponse, consumableNotes: prepared.value });
   } else {
     const id = nanoid();
     const networkRpc = await getNetworkRPC(dApp.network);
-
-    try {
-      consumableNotes = await getConsumableNotes(dApp.accountId);
-    } catch (e) {
-      reject(e);
+    const prepared = await prepareOrReject(prepare, reject);
+    if (prepared === undefined) return;
+    if (prepared.locked) {
+      reject(lockedRefusal());
       return;
     }
+    const consumableNotes = prepared.value;
 
     if (!isExtension()) {
       const confirmed = await confirmOnNonExtension(
@@ -1116,8 +1113,8 @@ async function getConsumableNotes(accountId: string): Promise<InputNoteDetails[]
   } catch (e) {
     // A kill (a lock-recovery eviction, an offscreen abort or a terminated
     // client) is a retryable internal failure, not a parameter problem
-    // (issue #775).
-    if (isPipelineKillLink(e)) throw e;
+    // (issue #775); a locked wallet gets an Unlock step from the caller (#1414).
+    if (isPipelineKillLink(e) || isWalletLockedError(e)) throw e;
     throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
   }
 }
@@ -1159,31 +1156,28 @@ export const generatePromisifyRequestAssets = async (
   req: MidenDAppAssetsRequest,
   sessionId?: string
 ) => {
+  const prepare = () => getAssets(dApp.accountId);
   if (
     dApp.privateDataPermission === PrivateDataPermission.Auto &&
     (dApp.allowedPrivateData & AllowedPrivateData.Assets) !== 0
   ) {
-    let assets: Asset[] = [];
-    try {
-      assets = await getAssets(dApp.accountId);
-      resolve({
-        type: MidenDAppMessageType.AssetsResponse,
-        assets
-      });
-    } catch (e) {
-      reject(e);
+    const prepared = await prepareOrReject(prepare, reject);
+    if (prepared === undefined) return;
+    if (prepared.locked) {
+      reject(lockedRefusal());
+      return;
     }
+    resolve({ type: MidenDAppMessageType.AssetsResponse, assets: prepared.value });
   } else {
     const id = nanoid();
     const networkRpc = await getNetworkRPC(dApp.network);
-
-    let assets: Asset[] = [];
-    try {
-      assets = await getAssets(dApp.accountId);
-    } catch (e) {
-      reject(e);
+    const prepared = await prepareOrReject(prepare, reject);
+    if (prepared === undefined) return;
+    if (prepared.locked) {
+      reject(lockedRefusal());
       return;
     }
+    const assets = prepared.value;
 
     if (!isExtension()) {
       const confirmed = await confirmOnNonExtension(
@@ -1268,8 +1262,8 @@ async function getAssets(accountId: string): Promise<Asset[]> {
   } catch (e) {
     // A kill (a lock-recovery eviction, an offscreen abort or a terminated
     // client) is a retryable internal failure, not a parameter problem
-    // (issue #775).
-    if (isPipelineKillLink(e)) throw e;
+    // (issue #775); a locked wallet gets an Unlock step from the caller (#1414).
+    if (isPipelineKillLink(e) || isWalletLockedError(e)) throw e;
     throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
   }
 }
@@ -1290,10 +1284,11 @@ export async function requestGuardianInfo(
   }
   await assertRequestAccountIsCurrent(dApp.accountId);
 
-  const guardianInfo = await getGuardianInfoData(dApp.accountId);
+  const prepared = await runPrepare(() => getGuardianInfoData(dApp.accountId));
+  if (prepared.locked) throw lockedRefusal();
   return {
     type: MidenDAppMessageType.GuardianInfoResponse,
-    guardianInfo
+    guardianInfo: prepared.value
   };
 }
 
@@ -1741,12 +1736,40 @@ const dappSendFailure = (error: unknown): Error => {
 
 // A refusal reaches the dApp as NOT_GRANTED; any other failure is reported as INVALID_PARAMS.
 const dappRequestFailure = (error: unknown): Error => {
+  // A lock that lands after approval is not a malformed request (#1414).
+  if (isWalletLockedError(error)) return lockedRefusal();
   if (error instanceof Error && error.message === MidenDAppErrorType.NotGranted) return error;
   if (error instanceof Error && error.message.startsWith(`${MidenDAppErrorType.NotGranted}:`)) return error;
   return new Error(`${MidenDAppErrorType.InvalidParams}: ${error}`);
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+
+type Prepared<T> = { readonly locked: false; readonly value: T } | { readonly locked: true };
+
+// A request's pre-prompt work. Its failures are already in the dApp's terms, except a locked wallet, which the caller
+// answers with an Unlock step rather than an error (#1414).
+async function runPrepare<T>(prepare: () => Promise<T>): Promise<Prepared<T>> {
+  try {
+    return { locked: false, value: await prepare() };
+  } catch (error) {
+    if (isWalletLockedError(error)) return { locked: true };
+    throw error;
+  }
+}
+
+// `runPrepare` with any other failure answered: `undefined` means the dApp already has its answer.
+async function prepareOrReject<T>(
+  prepare: () => Promise<T>,
+  reject: (reason: unknown) => void
+): Promise<Prepared<T> | undefined> {
+  try {
+    return await runPrepare(prepare);
+  } catch (error) {
+    reject(error);
+    return undefined;
+  }
+}
 
 /**
  * The account a dApp request is AUTHORIZED for is `dApp.accountId` — the id
@@ -1845,59 +1868,70 @@ const generatePromisifyTransaction = async (
   const networkRpc = await getNetworkRPC(dApp.network);
   const customTransaction = req.transaction.payload as MidenCustomTransaction;
 
-  let transactionMessages: string[] = [];
-  try {
-    transactionMessages = await withUnlocked(async () => {
-      if (!customTransaction.address || !customTransaction.transactionRequest) {
-        throw new Error(`${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`);
-      }
-
-      return await formatCustomTransactionPreview(customTransaction);
-    });
-  } catch (e) {
-    reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
+  // Checked before the gate, so a malformed payload is reported as one while the wallet is locked. The text keeps the
+  // double prefix it had when this check threw inside the preview's catch; the E2E cell R3-customPayload pins it.
+  if (!customTransaction.address || !customTransaction.transactionRequest) {
+    reject(
+      new Error(
+        `${MidenDAppErrorType.InvalidParams}: Error: ${MidenDAppErrorType.InvalidParams}: Invalid CustomTransaction payload`
+      )
+    );
     return;
   }
 
-  // The effects go in front of the user BEFORE either sheet is raised, because the mobile/desktop
-  // sheet cannot ask for them itself - see `formatSimulatedCustomEffects`. Hoisted above the
-  // platform split because the spending-limit gate below needs the dry run's outgoing totals on
-  // BOTH paths: a custom request moves value too, and before this it reached the queue with no
-  // assessment at all, which made "send it as a custom transaction" the way around a cap.
-  // ONE dry run per custom request, shared by the effects the signer reads, the spending-limit
-  // assessment, and (on the extension arm) the confirm sheet's own simulate request. Running it
-  // twice took the single-threaded WASM lock twice and let the displayed numbers and the enforced
-  // numbers come from two different executions.
-  // A dry run that throws must not take the request down with it: the sheet still rises, saying
-  // the effects are unknown. Previously this catch lived inside the formatter; hoisting the call
-  // moved the failure out of its reach, so it is restated here as the same contract.
-  const simulated = await withUnlocked(async () => {
+  const prepare = async () => {
+    let declaredMessages: string[];
     try {
-      return await simulateCustomTransaction({
-        address: customTransaction.address,
-        transactionRequest: customTransaction.transactionRequest,
-        importNotes: customTransaction.importNotes
-      });
+      declaredMessages = await withUnlocked(async () => formatCustomTransactionPreview(customTransaction));
     } catch (e) {
-      console.error('Failed to simulate a custom transaction for approval', e);
-      return { error: consentReason(e) };
+      if (isWalletLockedError(e)) throw e;
+      throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
     }
-  });
-  const simulatedEffects = await formatSimulatedCustomEffects(simulated);
-
-  let customLimit: { totals: IConsumedAssetTotal[]; details?: SpendingLimitAssessmentDetails };
-  try {
-    customLimit = await customSpendingLimitState(customTransaction.address, simulatedEffects.outgoing);
-  } catch (e) {
-    // The dry run above already quarantined the carried notes. This refusal is the WALLET's, not a
-    // user decline, so the notes go back to the claimable list; only a decline earns staying
-    // hidden. Without this a contention refusal hid the user's own notes for the 7-day TTL.
-    await releaseNoteIds(importedNoteIds(customTransaction.importNotes));
-    // Through the same mapper as every other limit-observing path: this catch also sees a
-    // SpendingLimitPolicyUnavailableError from the configuration read or a malformed record.
-    reject(dappSendFailure(e));
+    // The effects go in front of the user BEFORE either sheet is raised, because the mobile/desktop
+    // sheet cannot ask for them itself - see `formatSimulatedCustomEffects`. Hoisted above the
+    // platform split because the spending-limit gate below needs the dry run's outgoing totals on
+    // BOTH paths: a custom request moves value too, and before this it reached the queue with no
+    // assessment at all, which made "send it as a custom transaction" the way around a cap.
+    // ONE dry run per custom request, shared by the effects the signer reads, the spending-limit
+    // assessment, and (on the extension arm) the confirm sheet's own simulate request. Running it
+    // twice took the single-threaded WASM lock twice and let the displayed numbers and the enforced
+    // numbers come from two different executions.
+    // A dry run that throws must not take the request down with it: the sheet still rises, saying
+    // the effects are unknown. Previously this catch lived inside the formatter; hoisting the call
+    // moved the failure out of its reach, so it is restated here as the same contract.
+    const simulated = await withUnlocked(async () => {
+      try {
+        return await simulateCustomTransaction({
+          address: customTransaction.address,
+          transactionRequest: customTransaction.transactionRequest,
+          importNotes: customTransaction.importNotes
+        });
+      } catch (e) {
+        console.error('Failed to simulate a custom transaction for approval', e);
+        return { error: consentReason(e) };
+      }
+    });
+    const simulatedEffects = await formatSimulatedCustomEffects(simulated);
+    try {
+      const customLimit = await customSpendingLimitState(customTransaction.address, simulatedEffects.outgoing);
+      return { transactionMessages: [...declaredMessages, ...simulatedEffects.messages], simulated, customLimit };
+    } catch (e) {
+      // The dry run above already quarantined the carried notes. This refusal is the WALLET's, not a
+      // user decline, so the notes go back to the claimable list; only a decline earns staying
+      // hidden. Without this a contention refusal hid the user's own notes for the 7-day TTL.
+      await releaseNoteIds(importedNoteIds(customTransaction.importNotes));
+      // Through the same mapper as every other limit-observing path: this catch also sees a
+      // SpendingLimitPolicyUnavailableError from the configuration read or a malformed record.
+      throw dappSendFailure(e);
+    }
+  };
+  const prepared = await prepareOrReject(prepare, reject);
+  if (prepared === undefined) return;
+  if (prepared.locked) {
+    reject(lockedRefusal());
     return;
   }
+  const { transactionMessages, simulated, customLimit } = prepared.value;
 
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
@@ -1914,7 +1948,7 @@ const generatePromisifyTransaction = async (
       privateDataPermission: dApp.privateDataPermission,
       allowedPrivateData: dApp.allowedPrivateData,
       existingPermission: true,
-      transactionMessages: [...transactionMessages, ...simulatedEffects.messages],
+      transactionMessages,
       ...(customLimit.details !== undefined && {
         spendingLimitAssessment: customLimit.details.assessment
       }),
@@ -1967,7 +2001,7 @@ const generatePromisifyTransaction = async (
       networkRpc,
       appMeta: dApp.appMeta,
       sourcePublicKey: req.sourcePublicKey,
-      transactionMessages: [...transactionMessages, ...simulatedEffects.messages],
+      transactionMessages,
       customTransaction,
       spendingLimitDetails: customLimit.details
     }),
@@ -2093,8 +2127,6 @@ const generatePromisifySendTransaction = async (
     return;
   }
 
-  let transactionMessages: string[] = [];
-  let spendingLimitDetails: SpendingLimitAssessmentDetails | undefined;
   let spends: IConsumedAssetTotal[] = [];
   try {
     // Normalize the note type ONCE, before anything reads it. It crosses
@@ -2115,20 +2147,32 @@ const generatePromisifySendTransaction = async (
     // truncates rather than rejects. Check it here so the number the approval
     // sheet renders below is the number the note is actually built with.
     assertValidRecallBlocks(req.transaction.recallBlocks);
-    transactionMessages = await withUnlocked(async () => {
-      return await formatSendTransactionPreview(req.transaction);
-    });
+    // Parsed here, before the gate, so a malformed amount is reported as one while the wallet is locked.
     spends = [{ faucetId: req.transaction.faucetId, amount: BigInt(req.transaction.amount) }];
-    spendingLimitDetails = await assessOutgoingSpendingLimitDetails({
-      accountId: senderAddress,
-      spends
-    });
   } catch (e) {
-    // Through the mapper: the assessment above can raise a policy error from a storage read or a
-    // malformed record, and a malformed REQUEST is the only thing InvalidParams should mean.
     reject(dappSendFailure(e));
     return;
   }
+
+  const prepare = async () => {
+    try {
+      const transactionMessages = await withUnlocked(async () => formatSendTransactionPreview(req.transaction));
+      const spendingLimitDetails = await assessOutgoingSpendingLimitDetails({ accountId: senderAddress, spends });
+      return { transactionMessages, spendingLimitDetails };
+    } catch (e) {
+      if (isWalletLockedError(e)) throw e;
+      // Through the mapper: the assessment above can raise a policy error from a storage read or a
+      // malformed record, and a malformed REQUEST is the only thing InvalidParams should mean.
+      throw dappSendFailure(e);
+    }
+  };
+  const prepared = await prepareOrReject(prepare, reject);
+  if (prepared === undefined) return;
+  if (prepared.locked) {
+    reject(lockedRefusal());
+    return;
+  }
+  const { transactionMessages, spendingLimitDetails } = prepared.value;
 
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
@@ -2288,15 +2332,29 @@ const generatePromisifyConsumeTransaction = async (
   const id = nanoid();
   const networkRpc = await getNetworkRPC(dApp.network);
 
-  let transactionMessages: string[] = [];
+  // Bytes that describe another note are a malformed request, refused before the gate so a locked wallet says so too.
+  let carried: ResolvedConsumeNote | null = null;
   try {
-    transactionMessages = await withUnlocked(async () => {
-      return await formatConsumeTransactionPreview(req.transaction);
-    });
+    carried = decodeCarriedConsumeNote(req.transaction);
   } catch (e) {
     reject(new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`));
     return;
   }
+  const prepare = async () => {
+    try {
+      return await withUnlocked(async () => formatConsumeTransactionPreview(req.transaction, carried));
+    } catch (e) {
+      if (isWalletLockedError(e)) throw e;
+      throw new Error(`${MidenDAppErrorType.InvalidParams}: ${e}`);
+    }
+  };
+  const prepared = await prepareOrReject(prepare, reject);
+  if (prepared === undefined) return;
+  if (prepared.locked) {
+    reject(lockedRefusal());
+    return;
+  }
+  const transactionMessages = prepared.value;
 
   // On mobile/desktop, use confirmation store to request user approval
   if (!isExtension()) {
@@ -2719,6 +2777,23 @@ function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { 
 }
 
 /**
+ * The note that carried bytes describe, or null when there are none or they do not decode yet. Bytes that decode to
+ * another note than `noteId` are refused: that note is not the one the consume reads.
+ */
+function decodeCarriedConsumeNote(transaction: MidenConsumeTransaction): ResolvedConsumeNote | null {
+  if (transaction.noteBytes) {
+    const decoded = decodeConsumeNoteBytes(transaction.noteBytes);
+    if (decoded) {
+      if (decoded.noteId !== transaction.noteId) {
+        throw new Error('noteBytes describe a different note than noteId - refusing to preview it');
+      }
+      return { assets: decoded.assets, noteType: decoded.noteType };
+    }
+  }
+  return null;
+}
+
+/**
  * Ground truth for a consume request: what the note the wallet will consume
  * actually holds.
  *
@@ -2734,15 +2809,8 @@ function decodeConsumeNoteBytes(noteBytesB64: string): (ResolvedConsumeNote & { 
  * be resolved at all, rather than prompting with unverifiable numbers.
  */
 async function resolveConsumeNote(transaction: MidenConsumeTransaction): Promise<ResolvedConsumeNote> {
-  if (transaction.noteBytes) {
-    const decoded = decodeConsumeNoteBytes(transaction.noteBytes);
-    if (decoded) {
-      if (decoded.noteId !== transaction.noteId) {
-        throw new Error('noteBytes describe a different note than noteId — refusing to preview it');
-      }
-      return { assets: decoded.assets, noteType: decoded.noteType };
-    }
-  }
+  const carried = decodeCarriedConsumeNote(transaction);
+  if (carried) return carried;
 
   const [details] = await withWasmClientLock(async hold =>
     midenClientProxy.getInputNoteDetails({ ids: [transaction.noteId] }, () =>
@@ -2758,8 +2826,13 @@ async function resolveConsumeNote(transaction: MidenConsumeTransaction): Promise
   };
 }
 
-async function formatConsumeTransactionPreview(transaction: MidenConsumeTransaction): Promise<string[]> {
-  const { assets, noteType } = await resolveConsumeNote(transaction);
+async function formatConsumeTransactionPreview(
+  transaction: MidenConsumeTransaction,
+  // Decoded before the gate; null makes this decode again, since a service worker that had not loaded the SDK
+  // before the unlock could not read the bytes then.
+  carried: ResolvedConsumeNote | null
+): Promise<string[]> {
+  const { assets, noteType } = carried ?? (await resolveConsumeNote(transaction));
   const headlineFaucet = assets[0]?.faucetId;
   const messages = [
     headlineFaucet

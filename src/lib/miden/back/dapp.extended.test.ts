@@ -301,10 +301,9 @@ describe('requestSign', () => {
 // ── Locking the wallet cuts off dApp private-data reads ────────────
 
 describe('a locked wallet serves no private data to a connected dApp', () => {
-  // `assertUnlocked` (back/store.ts) now throws once the vault is cleared; these
-  // pin that every private-data reader actually goes THROUGH `withUnlocked`, so a
-  // dApp holding `PrivateDataPermission.Auto` cannot keep polling notes and
-  // balances out of a locked wallet. (The gate itself is tested in store.test.ts.)
+  // `assertUnlocked` (back/store.ts) throws once the vault is cleared; these pin that every private-data reader goes
+  // THROUGH `withUnlocked`, so a dApp holding `PrivateDataPermission.Auto` cannot read notes or balances out of a
+  // locked wallet, and that the refusal is coded (#1414).
   const LOCKED = 'Wallet is locked';
 
   beforeEach(() => {
@@ -317,34 +316,34 @@ describe('a locked wallet serves no private data to a connected dApp', () => {
     };
   });
 
-  it('requestAssets rejects and never reads the account', async () => {
+  it('requestAssets refuses as locked and never reads the account', async () => {
     await expect(
       dapp.requestAssets('https://miden.xyz', {
         type: MidenDAppMessageType.AssetsRequest,
         sourcePublicKey: 'miden-account-1'
       } as never)
-    ).rejects.toThrow(LOCKED);
+    ).rejects.toThrow(new Error('NOT_GRANTED: Wallet is locked'));
     expect(mockGetAccount).not.toHaveBeenCalled();
   });
 
-  it('requestPrivateNotes rejects and never reads the note store', async () => {
+  it('requestPrivateNotes refuses as locked and never reads the note store', async () => {
     await expect(
       dapp.requestPrivateNotes('https://miden.xyz', {
         type: MidenDAppMessageType.PrivateNotesRequest,
         sourcePublicKey: 'miden-account-1',
         notefilterType: 'All'
       } as never)
-    ).rejects.toThrow(LOCKED);
+    ).rejects.toThrow(new Error('NOT_GRANTED: Wallet is locked'));
     expect(mockGetInputNoteDetails).not.toHaveBeenCalled();
   });
 
-  it('requestConsumableNotes rejects and never reads the note store', async () => {
+  it('requestConsumableNotes refuses as locked and never reads the note store', async () => {
     await expect(
       dapp.requestConsumableNotes('https://miden.xyz', {
         type: MidenDAppMessageType.ConsumableNotesRequest,
         sourcePublicKey: 'miden-account-1'
       } as never)
-    ).rejects.toThrow(LOCKED);
+    ).rejects.toThrow(new Error('NOT_GRANTED: Wallet is locked'));
     expect(mockGetConsumableNotes).not.toHaveBeenCalled();
   });
 });

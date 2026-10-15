@@ -327,4 +327,18 @@ describe('requestGuardianInfo', () => {
 
     expect(res.guardianInfo.guardianSyncStatus).toBe('out-of-sync');
   });
+
+  it('refuses a locked wallet with the coded NOT_GRANTED: Wallet is locked, reading no account', async () => {
+    seedDApp('https://dapp', 'miden-account-1', 'miden-account-1');
+    mockWithUnlocked.mockImplementation(async () => {
+      throw Object.assign(new Error('Wallet is locked'), { reason: 'locked' });
+    });
+    await expect(
+      dapp.requestGuardianInfo('https://dapp', {
+        type: MidenDAppMessageType.GuardianInfoRequest,
+        sourcePublicKey: 'miden-account-1'
+      } as never)
+    ).rejects.toThrow(new Error('NOT_GRANTED: Wallet is locked'));
+    expect(mockFetchAccounts).not.toHaveBeenCalled();
+  });
 });
