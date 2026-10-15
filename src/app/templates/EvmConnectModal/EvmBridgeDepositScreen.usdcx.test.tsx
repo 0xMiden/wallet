@@ -300,15 +300,18 @@ jest.mock('./EvmBridgeUsdcxRoute', () => ({
     confirmDisabled,
     onConfirm,
     fee,
+    notice,
     sourceChainId
   }: {
     confirmDisabled?: boolean;
     onConfirm: () => void;
     fee?: string;
+    notice?: string;
     sourceChainId: number;
   }) => (
     <div>
       {fee && <span data-testid="usdcx-route-fee">{fee}</span>}
+      <span data-testid="usdcx-route-notice">{notice}</span>
       <span data-testid="usdcx-route-source">{String(sourceChainId)}</span>
       <button data-testid="usdcx-route-confirm" disabled={confirmDisabled} onClick={onConfirm}>
         usdcx
@@ -349,15 +352,16 @@ const settle = () =>
     await new Promise(resolve => setTimeout(resolve, 0));
   });
 
-const renderScreen = () =>
-  render(
-    <EvmBridgeDepositScreen
-      evmAddress="0x1111111111111111111111111111111111111111"
-      midenAccount={midenAccount as never}
-      onConnectAnother={jest.fn()}
-      onClose={jest.fn()}
-    />
-  );
+const depositScreen = (evmAddress = '0x1111111111111111111111111111111111111111') => (
+  <EvmBridgeDepositScreen
+    evmAddress={evmAddress}
+    midenAccount={midenAccount as never}
+    onConnectAnother={jest.fn()}
+    onClose={jest.fn()}
+  />
+);
+
+const renderScreen = () => render(depositScreen());
 
 /** USDC is the default token: amount, continue, and the route step is up. */
 const pickToken = async (testId: 'pick-eth' | 'pick-circle-usdc' | 'pick-usdc') => {
@@ -992,5 +996,53 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
 
     expect(runUsdcxDeposit).toHaveBeenCalledTimes(1);
     expect(updateBridgedReceivePhase).not.toHaveBeenCalledWith('bridge-tx', 'failed', expect.anything());
+  });
+
+  const ANOTHER_WALLET = '0x00000000000000000000000000000000000000e2';
+  const EXECUTOR_NOTICE = `usdcxExecutorRouteNotice ${JSON.stringify({ source: 'Base Sepolia', target: 'Arc Testnet' })}`;
+  const reachRoute = (route: 'xreserve' | 'cctp-executor') =>
+    route === 'xreserve' ? reachUsdcxRoute() : reachBaseSepoliaRoute();
+
+  type HeldRead = [route: 'xreserve' | 'cctp-executor', read: string, answer: () => void, notice: string];
+  it.each<HeldRead>(
+    (['xreserve', 'cctp-executor'] as const).flatMap((route): HeldRead[] => [
+      [route, 'is pending', () => (global.fetch = jest.fn(() => new Promise(() => undefined)) as never), 'loading'],
+      [
+        route,
+        'failed',
+        () =>
+          (global.fetch = jest
+            .fn()
+            .mockResolvedValue({ json: async () => ({ error: { message: 'rpc down' } }) }) as never),
+        'rpc down'
+      ],
+      [route, 'is below the amount', () => (mockBalance = TYPED - 1n), 'amountMustBeLessThanBalance']
+    ])
+  )(
+    'says on the %s route step why Confirm is held while the Circle USDC balance read for another wallet %s',
+    async (route, _read, answer, notice) => {
+      const { rerender } = render(depositScreen());
+      await reachRoute(route);
+      expect(screen.getByTestId('usdcx-route-confirm')).toBeEnabled();
+
+      answer();
+      rerender(depositScreen(ANOTHER_WALLET));
+      await settle();
+
+      expect(screen.getByTestId('usdcx-route-notice').textContent).toBe(notice);
+      expect(screen.getByTestId('usdcx-route-confirm')).toBeDisabled();
+    }
+  );
+
+  it('keeps the executor route notice for another wallet whose Circle USDC balance covers the amount', async () => {
+    const { rerender } = render(depositScreen());
+    await reachRoute('cctp-executor');
+    expect(screen.getByTestId('usdcx-route-notice').textContent).toBe(EXECUTOR_NOTICE);
+
+    rerender(depositScreen(ANOTHER_WALLET));
+    await settle();
+
+    expect(screen.getByTestId('usdcx-route-notice').textContent).toBe(EXECUTOR_NOTICE);
+    expect(screen.getByTestId('usdcx-route-confirm')).toBeEnabled();
   });
 });

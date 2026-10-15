@@ -1288,21 +1288,19 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   });
   const networkName = getChain(sourceChainId)?.name ?? '';
 
-  // Route-screen hint below the cards: ETH on Fast wraps to WETH, which isn't available yet. A typed amount the balance
+  // Every route step holds Confirm on the selected balance, which can be re-read while the step is up: picking Slow
+  // moves it to the AggLayer chain's, and another wallet or chain re-reads it. While that read is pending or failed, or
+  // short of the typed amount, the step says so as the amount step would. One value for every step, so none drifts.
+  const balanceHoldNotice = (() => {
+    if (selectedBalance.loading) return t('loading');
+    return selectedBalance.error ?? (amountExceedsBalance ? t('amountMustBeLessThanBalance') : undefined);
+  })();
+
+  // Fast/Slow hint below the cards: ETH on Fast wraps to WETH, which isn't available yet. A typed amount the balance
   // covers can still quote a Fast deposit, fee included, above it; fastReady then holds Confirm, and this says why.
-  // Picking Slow can re-read the balance slowReady holds Confirm on, and another wallet or chain re-reads the USDC
-  // balance fastReady holds it on, so while either read is pending or failed, or Slow's is short of the typed amount,
-  // this says so as the amount step would.
   const routeNotice = (() => {
     if (token === 'ETH' && route === 'epoch') return t('fastEthWrapNotice');
-    if (route === 'agglayer') {
-      if (selectedBalance.loading) return t('loading');
-      return selectedBalance.error ?? (amountExceedsBalance ? t('amountMustBeLessThanBalance') : undefined);
-    }
-    if (route === 'epoch' && token === 'USDC') {
-      if (usdcBalance.loading) return t('loading');
-      if (usdcBalance.error) return usdcBalance.error;
-    }
+    if (balanceHoldNotice) return balanceHoldNotice;
     const balance = usdcBalance.value;
     const quoteForAmount =
       route === 'epoch' &&
@@ -1514,12 +1512,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
                 sourceChainId={sourceChainId}
                 fee={usdcxQuotedFee === undefined ? undefined : t('usdcxForwardFee', { fee: usdcxQuotedFee })}
                 notice={
-                  usdcxSource?.route === 'cctp-executor'
+                  balanceHoldNotice ??
+                  (usdcxSource?.route === 'cctp-executor'
                     ? t('usdcxExecutorRouteNotice', {
                         source: usdcxSource.chain.name,
                         target: usdcxSource.target.chain.name
                       })
-                    : undefined
+                    : undefined)
                 }
               />
             );
@@ -1564,6 +1563,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       amount,
       amountExceedsBalance,
       awaitingNextConfirmation,
+      balanceHoldNotice,
       bridgeTxId,
       reviewAmount,
       error,
