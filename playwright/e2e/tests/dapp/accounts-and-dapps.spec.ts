@@ -509,16 +509,13 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         for (const answer of [fromTwo, fromDisconnected]) {
           expect(JSON.stringify(answer)).not.toContain('Transaction result expired');
         }
-        // Q8: neither gets the result or any note bytes, and each is refused: an `ok` answer without notes still hands
-        // another origin the result. The text is not pinned until the wallet's is decided.
+        // Q8: neither gets the result or any note bytes, and each is refused as a missing id is (R6), so the answer
+        // does not say whether the row exists or whose it is (#1416).
         expect({ fromTwo: served(fromTwo), fromDisconnected: served(fromDisconnected) }).toEqual({
           fromTwo: false,
           fromDisconnected: false
         });
-        expect({ fromTwo, fromDisconnected }).toEqual({
-          fromTwo: expect.objectContaining({ ok: false }),
-          fromDisconnected: expect.objectContaining({ ok: false })
-        });
+        expect({ fromTwo, fromDisconnected }).toEqual({ fromTwo: NOT_GRANTED_RAW, fromDisconnected: NOT_GRANTED_RAW });
       }
     },
     'M8-single': {

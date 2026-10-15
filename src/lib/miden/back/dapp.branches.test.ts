@@ -9,6 +9,8 @@
  */
 
 import { MidenDAppConsumeRequest, MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
+import { ITransactionStatus, type ITransaction, type TransactionOutput } from 'lib/miden/db/types';
+import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/types';
 import { WalletStatus } from 'lib/shared/types';
@@ -587,7 +589,7 @@ describe('requestConsumeTransaction — mobile error branches', () => {
       carryRawNote(() => sdkNote('note-1'));
       mockImportNoteBytes.mockResolvedValueOnce(detailsCommitment);
       mockInitiateConsumeTransactionFromId.mockImplementationOnce(async (...args: unknown[]) => {
-        if (args[4] === true) throw new Error('This note is being consumed by another transaction');
+        if (typeof args[4] === 'string') throw new Error('This note is being consumed by another transaction');
         return 'other-dapp-transaction';
       });
 
@@ -634,7 +636,7 @@ describe('requestConsumeTransaction — mobile error branches', () => {
   it('refuses a note another transaction holds rather than answer with that transaction', async () => {
     // As the real call: a dApp's request is refused, the wallet's own claim is answered with the holding row.
     mockInitiateConsumeTransactionFromId.mockImplementationOnce(async (...args: unknown[]) => {
-      if (args[4] === true) throw new Error('This note is being consumed by another transaction');
+      if (typeof args[4] === 'string') throw new Error('This note is being consumed by another transaction');
       return 'other-dapp-transaction';
     });
     const request: MidenDAppConsumeRequest = {
@@ -800,33 +802,170 @@ describe('getCurrentPermission — edge cases', () => {
 // ── waitForTransaction edge cases ──────────────────────────────
 
 describe('waitForTransaction', () => {
-  it('returns a response when given a valid txId', async () => {
-    mockWaitForTransactionCompletion.mockResolvedValueOnce({ status: 'completed' });
-    const res = await dapp.waitForTransaction({
-      type: MidenDAppMessageType.WaitForTransactionRequest,
-      txId: 'tx-abc'
-    } as never);
-    expect(res.type).toBe(MidenDAppMessageType.WaitForTransactionResponse);
-    expect(res.transactionOutput).toEqual({ status: 'completed' });
+  const ORIGIN = 'https://miden.xyz';
+  const OTHER = 'https://other.xyz';
+  const SERVED = { txHash: '0xabc', outputNotes: ['bm90ZQ=='] };
+  const waitReq = (txId: unknown) => ({ type: MidenDAppMessageType.WaitForTransactionRequest, txId }) as never;
+  const putRow = (overrides: Partial<ITransaction> = {}) =>
+    Repo.transactions.put({
+      id: 'tx-abc',
+      type: 'send',
+      accountId: 'miden-account-1',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      displayIcon: 'SEND',
+      dappOrigins: [ORIGIN],
+      ...overrides
+    });
+  const answer = (transactionOutput: unknown) => ({
+    type: MidenDAppMessageType.WaitForTransactionResponse,
+    transactionOutput
   });
 
-  it("forwards a landed transaction's accepted-by-the-network answer to the dApp unchanged (#1233)", async () => {
+  beforeEach(async () => {
+    await Repo.transactions.clear();
+    mockWaitForTransactionCompletion.mockResolvedValue(SERVED);
+  });
+
+  afterEach(() => {
+    currentAccountPublicKey = 'miden-account-1';
+  });
+
+  it('serves the origin that created the row while it holds a session on the row account', async () => {
+    await putRow();
+    await expect(dapp.waitForTransaction(ORIGIN, waitReq('tx-abc'))).resolves.toEqual(answer(SERVED));
+    expect(mockWaitForTransactionCompletion).toHaveBeenCalledWith('tx-abc');
+  });
+
+  it("forwards a landed transaction's accepted-by-the-network answer to its dApp unchanged (#1233)", async () => {
     const landed = { errorMessage: 'Transaction 0xabc was accepted by the network, but its result is not available' };
     mockWaitForTransactionCompletion.mockResolvedValueOnce(landed);
-    const res = await dapp.waitForTransaction({
-      type: MidenDAppMessageType.WaitForTransactionRequest,
-      txId: 'tx-landed'
-    } as never);
-    expect(res.transactionOutput).toEqual(landed);
+    await putRow();
+    await expect(dapp.waitForTransaction(ORIGIN, waitReq('tx-abc'))).resolves.toEqual(answer(landed));
+  });
+
+  it('serves the creator after it disconnected and connected again', async () => {
+    await putRow();
+    await dapp.removeDApp(ORIGIN, 'miden-account-1');
+    await dapp.setDApp(ORIGIN, { ...SESSION, appMeta: { name: 'Miden Test, reconnected', url: ORIGIN } } as never);
+    await expect(dapp.waitForTransaction(ORIGIN, waitReq('tx-abc'))).resolves.toEqual(answer(SERVED));
+  });
+
+  it('matches a session stored under the composite account id to a row holding the bare address', async () => {
+    storageState[STORAGE_KEY] = {
+      [ORIGIN]: [{ ...SESSION, accountId: 'miden-account-1_hot', publicKey: 'miden-account-1_hot' }]
+    };
+    await putRow();
+    await expect(dapp.waitForTransaction(ORIGIN, waitReq('tx-abc'))).resolves.toEqual(answer(SERVED));
+  });
+
+  it('answers the creator after the user switched to another account', async () => {
+    currentAccountPublicKey = 'miden-account-2';
+    mockGetCurrentAccountPublicKey.mockResolvedValue('miden-account-2');
+    await putRow();
+    await expect(dapp.waitForTransaction(ORIGIN, waitReq('tx-abc'))).resolves.toEqual(answer(SERVED));
+  });
+
+  it('answers the creator while the wallet is locked', async () => {
+    // How this file models a locked wallet: no current account in the store or the vault.
+    currentAccountPublicKey = undefined as unknown as string;
+    mockGetCurrentAccountPublicKey.mockResolvedValue(undefined);
+    await putRow();
+    await expect(dapp.waitForTransaction(ORIGIN, waitReq('tx-abc'))).resolves.toEqual(answer(SERVED));
+  });
+
+  // The consume dedup can grant a dApp a claim row that holds other notes too; their output notes are not its to read.
+  it('answers a claim of several notes with its txHash and no output notes', async () => {
+    await putRow({ type: 'consume', displayIcon: 'RECEIVE', noteId: 'note-1', noteIds: ['note-1', 'note-2'] });
+    await expect(dapp.waitForTransaction(ORIGIN, waitReq('tx-abc'))).resolves.toEqual(
+      answer({ txHash: '0xabc', outputNotes: [] })
+    );
+  });
+
+  it("forwards a failed claim of several notes' error unchanged", async () => {
+    const failed: TransactionOutput = { errorMessage: 'Transaction failed' };
+    mockWaitForTransactionCompletion.mockResolvedValueOnce(failed);
+    await putRow({ type: 'consume', displayIcon: 'RECEIVE', noteId: 'note-1', noteIds: ['note-1', 'note-2'] });
+    await expect(dapp.waitForTransaction(ORIGIN, waitReq('tx-abc'))).resolves.toEqual(answer(failed));
+  });
+
+  it.each<[string, Partial<ITransaction>]>([
+    ['a single-note consume', { type: 'consume', displayIcon: 'RECEIVE', noteId: 'note-1', noteIds: ['note-1'] }],
+    ['a send', { type: 'send', displayIcon: 'SEND' }],
+    ['a custom (execute)', { type: 'execute', displayIcon: 'DEFAULT' }]
+  ])('answers %s row with its output notes', async (_label, row) => {
+    await putRow(row);
+    await expect(dapp.waitForTransaction(ORIGIN, waitReq('tx-abc'))).resolves.toEqual(answer(SERVED));
+  });
+
+  it.each<[string, () => Promise<unknown>, string]>([
+    [
+      'another origin, though it holds a session on the same account',
+      async () => {
+        storageState[STORAGE_KEY] = {
+          [ORIGIN]: [SESSION],
+          [OTHER]: [{ ...SESSION, appMeta: { name: 'Other', url: OTHER } }]
+        };
+        await putRow();
+      },
+      OTHER
+    ],
+    [
+      'the creating origin once its only session is on another account',
+      async () => {
+        storageState[STORAGE_KEY] = {
+          [ORIGIN]: [{ ...SESSION, accountId: 'miden-account-2', publicKey: 'miden-account-2' }]
+        };
+        await putRow();
+      },
+      ORIGIN
+    ],
+    [
+      'the creating origin with no session at all',
+      async () => {
+        storageState[STORAGE_KEY] = {};
+        await putRow();
+      },
+      ORIGIN
+    ],
+    ['a row the wallet created, which lists no origin', () => putRow({ dappOrigins: undefined }), ORIGIN],
+    ['an id with no row, the same way as a row it may not read', async () => undefined, ORIGIN],
+    ['a row restored from a backup', () => putRow({ restoredFromBackup: true }), ORIGIN],
+    ['a row rebuilt from Guardian history', () => putRow({ recovered: true }), ORIGIN]
+  ])('refuses %s with NOT_GRANTED before the wait starts', async (_label, setup, from) => {
+    await setup();
+    await expect(dapp.waitForTransaction(from, waitReq('tx-abc'))).rejects.toThrow(/^NOT_GRANTED$/);
+    expect(mockWaitForTransactionCompletion).not.toHaveBeenCalled();
+  });
+
+  it('refuses a session revoked during the wait, with no result', async () => {
+    await putRow();
+    mockWaitForTransactionCompletion.mockImplementationOnce(async () => {
+      await dapp.removeDApp(ORIGIN, 'miden-account-1');
+      return SERVED;
+    });
+    await expect(dapp.waitForTransaction(ORIGIN, waitReq('tx-abc'))).rejects.toThrow(/^NOT_GRANTED$/);
+  });
+
+  it('refuses a row a backup restore replaced during the wait, with no result', async () => {
+    await putRow();
+    mockWaitForTransactionCompletion.mockImplementationOnce(async () => {
+      await putRow({ restoredFromBackup: true });
+      return SERVED;
+    });
+    await expect(dapp.waitForTransaction(ORIGIN, waitReq('tx-abc'))).rejects.toThrow(/^NOT_GRANTED$/);
+  });
+
+  it('refuses a txId that is not a string as INVALID_PARAMS before any read', async () => {
+    await putRow();
+    await expect(dapp.waitForTransaction(ORIGIN, waitReq({ accountId: 'miden-account-1' }))).rejects.toThrow(
+      /^INVALID_PARAMS$/
+    );
+    expect(mockWaitForTransactionCompletion).not.toHaveBeenCalled();
   });
 
   it('throws InvalidParams when txId is empty', async () => {
-    await expect(
-      dapp.waitForTransaction({
-        type: MidenDAppMessageType.WaitForTransactionRequest,
-        txId: ''
-      } as never)
-    ).rejects.toThrow(MidenDAppErrorType.InvalidParams);
+    await expect(dapp.waitForTransaction(ORIGIN, waitReq(''))).rejects.toThrow(MidenDAppErrorType.InvalidParams);
   });
 });
 

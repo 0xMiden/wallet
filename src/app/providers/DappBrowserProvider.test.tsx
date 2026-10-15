@@ -623,6 +623,148 @@ describe('session origin is derived from the URL being loaded, not a carried-ove
   });
 });
 
+// #1416: a wait lasts up to five minutes and the next document numbers its requests from req_1 too.
+
+describe('an answer goes only to the origin that asked (#1416)', () => {
+  const SLOT_RECT = { x: 0, y: 0, width: 375, height: 600 };
+  const WAIT = JSON.stringify({
+    type: 'MIDEN_PAGE_REQUEST',
+    payload: { type: 'WAIT_FOR_TRANSACTION_REQUEST', txId: 'tx-1' },
+    reqId: 'req_1'
+  });
+
+  function listenerFor(event: string): (e: unknown) => void | Promise<void> {
+    const call = mockAddListener.mock.calls.find(c => c[0] === event);
+    if (!call) throw new Error(`no listener registered for ${event}`);
+    return call[1] as (e: unknown) => void | Promise<void>;
+  }
+
+  async function settle() {
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+  }
+
+  async function navigate(url: string) {
+    act(() => {
+      void listenerFor('urlChangeEvent')({ id: 'dapp-a', url });
+    });
+    await settle();
+  }
+
+  const answers = () =>
+    mockExecuteScript.mock.calls.map(c => String(c[1])).filter(code => code.includes('__midenWalletResponse'));
+
+  // Opens dapp-a with its origin confirmed and starts a wait whose answer the test releases.
+  async function startWait(): Promise<{ release: () => void; handled: Promise<void> }> {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+    await navigate('https://dapp-a.test/');
+    let release: () => void = () => undefined;
+    mockHandleWebViewMessage.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          release = () =>
+            resolve({ type: 'MIDEN_PAGE_RESPONSE', payload: { outputNotes: ['private-note'] }, reqId: 'req_1' });
+        })
+    );
+    mockExecuteScript.mockClear();
+    const handled = Promise.resolve(listenerFor('messageFromWebview')({ id: 'dapp-a', detail: WAIT }));
+    await settle();
+    return { release: () => release(), handled };
+  }
+
+  async function finish(wait: { release: () => void; handled: Promise<void> }) {
+    await act(async () => {
+      wait.release();
+      await wait.handled;
+    });
+  }
+
+  it('delivers the answer while the instance still shows the origin that asked', async () => {
+    const wait = await startWait();
+    await finish(wait);
+    expect(answers()).toHaveLength(1);
+    expect(answers()[0]).toContain('private-note');
+  });
+
+  it('still delivers it after a route change within the same origin', async () => {
+    const wait = await startWait();
+    await navigate('https://dapp-a.test/history');
+    await finish(wait);
+    expect(answers()).toHaveLength(1);
+  });
+
+  it('drops it once the instance shows another origin', async () => {
+    const wait = await startWait();
+    await navigate('https://evil.example/');
+    await finish(wait);
+    expect(mockHandleWebViewMessage).toHaveBeenCalledWith(expect.anything(), 'https://dapp-a.test', 'dapp-a');
+    expect(answers()).toEqual([]);
+  });
+
+  // Evaluates an answer script in a document of `origin`, returning the response hook it may call.
+  function runIn(code: string, origin: string): jest.Mock {
+    const hook = jest.fn();
+    // eslint-disable-next-line no-new-func -- runs the shipped script, as the WebView does
+    new Function('location', 'window', code)({ origin }, { __midenWalletResponse: hook });
+    return hook;
+  }
+
+  // A navigation can commit after the host-side check and before the script is evaluated.
+  it('hands the answer over only in a document of the origin that asked', async () => {
+    const wait = await startWait();
+    await finish(wait);
+    expect(answers()).toHaveLength(1);
+    const asked = runIn(answers()[0]!, 'https://dapp-a.test');
+    expect(asked).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(asked.mock.calls[0]![0]))).toEqual({
+      type: 'MIDEN_PAGE_RESPONSE',
+      payload: { outputNotes: ['private-note'] },
+      reqId: 'req_1'
+    });
+    expect(runIn(answers()[0]!, 'https://evil.example')).not.toHaveBeenCalled();
+  });
+
+  it('never confirms an opaque document, so its requests get the refusal', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+    await navigate('https://dapp-a.test/');
+    await navigate('data:text/html,<h1>hi</h1>');
+    mockExecuteScript.mockClear();
+    await act(async () => {
+      await listenerFor('messageFromWebview')({ id: 'dapp-a', detail: WAIT });
+    });
+    expect(answers()).toHaveLength(1);
+    expect(answers()[0]).toContain('NOT_GRANTED');
+    expect(mockHandleWebViewMessage).not.toHaveBeenCalled();
+    expect(hook.result.current.sessionStates[0]!.originConfirmed).toBe(false);
+  });
+
+  it('delivers the PONG to a PING sent before the origin is confirmed, in any document', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+    mockHandleWebViewMessage.mockResolvedValueOnce({ type: 'MIDEN_PAGE_RESPONSE', payload: 'PONG', reqId: 'p1' });
+    mockExecuteScript.mockClear();
+    await act(async () => {
+      await listenerFor('messageFromWebview')({
+        id: 'dapp-a',
+        detail: JSON.stringify({ type: 'MIDEN_PAGE_REQUEST', payload: 'PING', reqId: 'p1' })
+      });
+    });
+    expect(answers()).toHaveLength(1);
+    expect(answers()[0]).toContain('PONG');
+    // It carries no data, so it is not bound to the origin the session was opened at.
+    expect(runIn(answers()[0]!, 'https://redirected.example')).toHaveBeenCalledTimes(1);
+  });
+});
+
 // ── The faucet's top inset style ──────────────────────────────────
 
 describe('faucet top inset style', () => {

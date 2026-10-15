@@ -73,6 +73,7 @@ import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getAssetSymbol, getTokenMetadata } from 'lib/miden/metadata/utils';
 import { NETWORKS } from 'lib/miden/networks';
 import { importedNoteIds, noteIdFromBytes, releaseNoteIds } from 'lib/miden/note-quarantine';
+import * as Repo from 'lib/miden/repo';
 import { createSpendingLimitAuthorization } from 'lib/miden/spending-limits/authorization';
 import {
   assessOutgoingSpendingLimitDetails,
@@ -124,7 +125,7 @@ import { getCurrentMidenNetwork } from './safe-network';
 import { simulateCustomTransaction, type SimulateCustomTxResult } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
-import { IConsumedAssetTotal } from '../db/types';
+import { IConsumedAssetTotal, type ITransaction } from '../db/types';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
@@ -2154,7 +2155,8 @@ const generatePromisifyTransaction = async (
           delegateFromConfirmation(result),
           recipientAddress || undefined,
           customLimit.totals,
-          authorizationForDappSend(customLimit.details, result.spendingLimitAuthenticated, customLimit.totals)
+          authorizationForDappSend(customLimit.details, result.spendingLimitAuthenticated, customLimit.totals),
+          origin
         );
       });
       // Same reason as the extension branch below: the dry run above quarantined
@@ -2209,7 +2211,12 @@ const generatePromisifyTransaction = async (
                 confirmReq.delegate,
                 recipientAddress || undefined,
                 customLimit.totals,
-                authorizationForDappSend(customLimit.details, confirmReq.spendingLimitAuthenticated, customLimit.totals)
+                authorizationForDappSend(
+                  customLimit.details,
+                  confirmReq.spendingLimitAuthenticated,
+                  customLimit.totals
+                ),
+                origin
               );
             });
             // The transaction is queued and will consume these notes —
@@ -2408,7 +2415,8 @@ const generatePromisifySendTransaction = async (
           BigInt(amount),
           recallBlocks,
           delegateFromConfirmation(result),
-          spendingLimitAuthorization
+          spendingLimitAuthorization,
+          origin
         );
       });
       startDappBackgroundProcessing();
@@ -2462,7 +2470,8 @@ const generatePromisifySendTransaction = async (
                 BigInt(amount),
                 recallBlocks,
                 confirmReq.delegate,
-                spendingLimitAuthorization
+                spendingLimitAuthorization,
+                origin
               );
             });
             startDappBackgroundProcessing();
@@ -2591,14 +2600,15 @@ const generatePromisifyConsumeTransaction = async (
         // `manualRetry`: the user just approved THIS consume on the sheet, so it
         // must not be dropped by auto-consume's exponential backoff — which
         // would queue nothing and answer the dApp with the previous attempt's
-        // Failed row id. The last `true` refuses a note another transaction holds
-        // rather than answer with that transaction (see the callee).
+        // Failed row id. `origin` refuses a note another transaction holds rather
+        // than answer with that transaction, and lets this origin wait on the
+        // answer (see the callee).
         return await initiateConsumeTransactionFromId(
           req.sourcePublicKey,
           noteId,
           delegateFromConfirmation(result),
           true,
-          true
+          origin
         );
       });
       startDappBackgroundProcessing();
@@ -2640,13 +2650,13 @@ const generatePromisifyConsumeTransaction = async (
               }
               // `manualRetry`: approved on the confirm page — see the
               // non-extension branch above for why the backoff must not apply,
-              // and why the last `true`.
+              // and why `origin`.
               return await initiateConsumeTransactionFromId(
                 req.sourcePublicKey,
                 noteId,
                 confirmReq.delegate,
                 true,
-                true
+                origin
               );
             });
             startDappBackgroundProcessing();
@@ -2671,14 +2681,46 @@ const generatePromisifyConsumeTransaction = async (
   });
 };
 
-export async function waitForTransaction(req: MidenDAppWaitForTxRequest): Promise<MidenDAppWaitForTxResponse> {
-  if (!req.txId) {
+// Only an origin the wallet answered with this row's id may read its outcome, and only while it holds a session on the
+// row's account (#1416). Neither the current account nor the lock matters: the row names the account, and a dApp
+// waiting on its own transaction must survive an account switch or an auto-lock. A missing row is refused the same
+// way, so the answer never says whether an id exists.
+const assertDappMayReadTransaction = async (origin: string, txId: string): Promise<ITransaction> => {
+  const row = await Repo.transactions.get(txId);
+  if (
+    row === undefined ||
+    row.restoredFromBackup === true ||
+    row.recovered === true ||
+    !(row.dappOrigins ?? []).includes(origin)
+  ) {
+    throw new Error(MidenDAppErrorType.NotGranted);
+  }
+  const sessions = (await getAllDApps())[origin] ?? [];
+  if (!sessions.some(session => sameWalletAccountId(session.accountId, row.accountId))) {
+    throw new Error(MidenDAppErrorType.NotGranted);
+  }
+  return row;
+};
+
+export async function waitForTransaction(
+  origin: string,
+  req: MidenDAppWaitForTxRequest
+): Promise<MidenDAppWaitForTxResponse> {
+  // A non-string id would reach Dexie's `get` as a where-clause object and match some other row.
+  if (typeof req.txId !== 'string' || req.txId === '') {
     throw new Error(MidenDAppErrorType.InvalidParams);
   }
+  // Before the wait starts: its answers name the on-chain id and the raw failure text.
+  await assertDappMayReadTransaction(origin, req.txId);
   const res = await waitForTransactionCompletion(req.txId);
+  // The wait lasts up to five minutes; a disconnect or a restore meanwhile gets no result.
+  const row = await assertDappMayReadTransaction(origin, req.txId);
+  // The consume dedup can grant a dApp a claim that covers other notes too, and the output notes those emitted are not
+  // its to read: it learns the outcome alone.
+  const sharedClaim = row.type === 'consume' && (row.noteIds?.length ?? 0) > 1;
   return {
     type: MidenDAppMessageType.WaitForTransactionResponse,
-    transactionOutput: res
+    transactionOutput: sharedClaim && 'outputNotes' in res ? { txHash: res.txHash, outputNotes: [] } : res
   };
 }
 

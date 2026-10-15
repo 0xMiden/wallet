@@ -118,10 +118,45 @@ export async function applyBridgeInToConsumeRow(consumeId: string, info: IBridge
     applied = true;
   });
   if (!applied) throw new Error('Bridge receipt requires a completed local consume');
+  await settleLinkedRows(info, delivered);
+}
+
+/**
+ * Settle a registry delivery that a batch claimed at its own note's asset and the batch's transaction id. `note` is
+ * undefined for a batch that kept no per-note facts. A bridge receive whose note has no amount or faucet is released
+ * unsettled, since a retry reads the same stored facts and the batch total is no delivered amount.
+ */
+export async function applyBridgeInToBatchNote(
+  consumeId: string,
+  info: IBridgeInInfo,
+  note: AdoptableNote | undefined
+): Promise<void> {
+  const consume = await Repo.transactions.where({ id: consumeId }).first();
+  if (consume?.type !== 'consume' || consume.status !== ITransactionStatus.Completed || consume.restoredFromBackup)
+    throw new Error('Bridge receipt requires a completed local consume');
+  const delivered = { amount: note?.amount, faucetId: note?.faucetId, transactionId: consume.transactionId };
+  let linked = info;
+  if (info.bridgeReceiveTxId && (delivered.amount === undefined || !delivered.faucetId)) {
+    console.warn(
+      '[bridge-in] a batch kept no delivered amount for a bridge receive, so its intent is released',
+      consumeId,
+      info.bridgeReceiveTxId
+    );
+    linked = { ...info, bridgeReceiveTxId: undefined };
+  }
+  // Never the batch row's receipt: tagged, it would hide itself and every other note it claimed from Activity.
+  await settleLinkedRows(linked, delivered);
+}
+
+async function settleLinkedRows(
+  info: IBridgeInInfo,
+  delivered: Pick<ITransaction, 'amount' | 'faucetId' | 'transactionId'>
+): Promise<void> {
   if (!info.earnWithdrawTxId && !info.bridgeReceiveTxId) return;
   const { updateEarnWithdrawPhase, updateBridgedReceivePhase } = await import('../transaction/complete');
   if (info.earnWithdrawTxId) {
     if (!info.intentOwner) throw new Error('Bridge withdrawal has no intent owner');
+    // Epoch named this note as the delivery, so with no delivered amount the withdrawal lands at the one it asked for.
     await updateEarnWithdrawPhase(
       info.earnWithdrawTxId,
       'received',
@@ -157,7 +192,16 @@ async function tagConsumeRow(noteId: string, info: IBridgeInInfo): Promise<boole
     .filter(tx => tx.type === 'consume' && tx.status === ITransactionStatus.Completed && !tx.restoredFromBackup)
     .first();
   if (!row) return false;
-  await applyBridgeInToConsumeRow(row.id, info);
+  const notes = adoptableNotesOf(row);
+  if (claimedSeveral(row.noteIds, notes)) {
+    await applyBridgeInToBatchNote(
+      row.id,
+      info,
+      notes?.find(note => noteIdKey(note.id) === key)
+    );
+  } else {
+    await applyBridgeInToConsumeRow(row.id, info);
+  }
   return true;
 }
 
@@ -411,6 +455,11 @@ export function adoptableNotesOf(
   return [{ id: noteId, senderAddress: secondaryAccountId ?? '', faucetId: faucetId ?? '', amount }];
 }
 
+/** Whether a consume claimed more than one note; a batch from before the per-note facts has no `notes`. */
+function claimedSeveral(noteIds: readonly string[] | undefined, notes: readonly AdoptableNote[] | undefined): boolean {
+  return notes === undefined || notes.length > 1 || (noteIds?.length ?? notes.length) > 1;
+}
+
 async function takeDeliveryInfo(accountId: string, note: AdoptableNote): Promise<IBridgeInInfo | undefined> {
   const { senderAddress, faucetId, amount } = note;
   // A note missing a pairing fact can only be a registry delivery, which the registry pass pairs by id.
@@ -440,6 +489,41 @@ async function adoptedNoteKeys(notes: readonly AdoptableNote[]): Promise<Set<str
 }
 
 /**
+ * Settle every registry delivery a batch claimed, each at its own note's facts (`notes` is undefined for a batch that
+ * kept none), one intent per registry call until a call settles nothing: nothing re-runs this pass for a note the
+ * batch claimed. A delivery that fails stays registered for a replay and is not tried again here, so it holds up no
+ * other. Returns the keys of the notes tried.
+ */
+async function settleBatchRegistry(
+  consumeId: string,
+  noteIds: readonly string[],
+  notes: readonly AdoptableNote[] | undefined
+): Promise<Set<string>> {
+  const tried = new Set<string>();
+  let settled = true;
+  while (settled) {
+    const triedBefore = tried.size;
+    settled = await applyBridgeInInfoForNotes(
+      noteIds.filter(id => !tried.has(noteIdKey(id))),
+      info => {
+        const key = info.midenNoteId === undefined ? undefined : noteIdKey(info.midenNoteId);
+        if (key !== undefined) tried.add(key);
+        return applyBridgeInToBatchNote(
+          consumeId,
+          info,
+          notes?.find(note => noteIdKey(note.id) === key)
+        );
+      }
+    ).catch((err: unknown) => {
+      console.warn('[bridge-in] registry delivery of a batch not settled (kept for retry)', consumeId, err);
+      // A failure before any delivery was tried is the registry's own, which another call would meet again.
+      return tried.size > triedBefore;
+    });
+  }
+  return tried;
+}
+
+/**
  * Settle the bridge deliveries a completed consume claimed: the intent registry first, then a single note by its own
  * sender and amount, which makes the consume the deposit's receipt, then each note of a batch by its own sender,
  * faucet and amount, one at a time so two same-amount mints take two rows (only the tracking rows move). Six landing
@@ -453,27 +537,27 @@ export async function adoptBridgeDeliveries(consumeId: string, notes: readonly A
     const adopted = await adoptedNoteKeys(notes);
     const open = notes.filter(note => !adopted.has(noteIdKey(note.id)));
     if (open.length === 0) return;
-    // The registry takes at most one note; the batch below pairs every other one, by the registry's canonical id.
-    let registryNoteKey: string | undefined;
-    const applied = await applyBridgeInInfoForNotes(
-      open.map(note => note.id),
-      info => {
-        if (info.midenNoteId) registryNoteKey = noteIdKey(info.midenNoteId);
-        return applyBridgeInToConsumeRow(consumeId, info);
-      }
-    );
-    const batch = notes.length > 1 || (consume.noteIds?.length ?? notes.length) > 1;
     const [single] = open;
-    if (!batch) {
-      if (applied || !single) return;
+    if (!claimedSeveral(consume.noteIds, notes)) {
+      const registry = await applyBridgeInInfoForNotes(
+        open.map(note => note.id),
+        info => applyBridgeInToConsumeRow(consumeId, info)
+      );
+      if (registry || !single) return;
       // A note the USDCx faucet minted for an xReserve deposit is otherwise an ordinary faucet receive.
       const info = await takeDeliveryInfo(consume.accountId, single);
       if (info) await applyBridgeInToConsumeRow(consumeId, { ...info, midenNoteId: single.id });
       return;
     }
+    // The registry pairs by canonical id, so a note it tried is never paired by sender as well, settled or not.
+    const tried = await settleBatchRegistry(
+      consumeId,
+      open.map(note => note.id),
+      open
+    );
     // A batch's per-faucet total is no single delivery's amount, and native USDCx mints are auto-claimed together.
     for (const note of open) {
-      if (registryNoteKey !== undefined && noteIdKey(note.id) === registryNoteKey) continue;
+      if (tried.has(noteIdKey(note.id))) continue;
       const info = await takeDeliveryInfo(consume.accountId, note);
       if (!info?.bridgeReceiveTxId || note.amount === undefined) continue;
       const { updateBridgedReceivePhase } = await import('../transaction/complete');
@@ -500,7 +584,9 @@ export async function adoptLandedConsume(consumeId: string): Promise<void> {
       return;
     const notes = adoptableNotesOf(consume);
     if (notes === undefined) {
-      console.warn('[bridge-in] a landed batch consume kept no per-note facts, so none is adopted', consumeId);
+      // Only the registry pairs a note by its id alone.
+      console.warn('[bridge-in] a landed batch consume kept no per-note facts, so only the registry adopts', consumeId);
+      await settleBatchRegistry(consumeId, consume.noteIds ?? [], undefined);
       return;
     }
     await adoptBridgeDeliveries(consumeId, notes);
