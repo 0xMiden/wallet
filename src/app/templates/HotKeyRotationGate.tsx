@@ -34,6 +34,7 @@ import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { useWalletStore } from 'lib/store';
+import { guardianNoteScanText, useGuardianNoteRecoveryProgress } from 'lib/wallet-prompts';
 import * as Woozie from 'lib/woozie';
 import { TRANSACTION_LOOP_INTERVAL_MS } from 'screens/generating-transaction/constants';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
@@ -216,6 +217,12 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
     () => selectRotationFundingNotes({ data: claimableNotes, isFallback }, feeFaucetId, baseFee),
     [claimableNotes, isFallback, feeFaucetId, baseFee]
   );
+  // While the rotation waits for funds, the pending-note scan is what finds transfers sent before the recovery.
+  // The gate mounts only for the current account.
+  const noteRecoveryPending = useWalletStore(
+    s => s.currentAccount?.publicKey === accountPublicKey && s.currentAccount.guardianNoteRecoveryPending === true
+  );
+  const noteScan = guardianNoteScanText(useGuardianNoteRecoveryProgress(accountPublicKey, noteRecoveryPending), t);
 
   // Swallow hardware/gesture back while the wallet is blocked. Registered by
   // this component (which only mounts while blocking), so it is active exactly
@@ -346,6 +353,7 @@ const HotKeyRotationOverlay: FC<OverlayProps> = ({ accountPublicKey }) => {
             claimMessage={claimFailure.message ?? undefined}
             claimDetails={claimFailure.details}
             claimUnconfirmed={claimFailure.unconfirmed}
+            noteScan={noteScan}
             onRetryClaim={() => {
               if (gate.failedClaim) retryClaim(gate.failedClaim);
             }}
