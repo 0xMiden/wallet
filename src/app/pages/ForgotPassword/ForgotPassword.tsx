@@ -45,8 +45,16 @@ const ForgotPassword: FC = () => {
   // A new wallet on an invite-only network needs a code, which this page does not take: its
   // Welcome offers recovery only.
   const snapshot = useBridgeConfigSnapshot();
-  const recoverOnly =
+  const liveRecoverOnly =
     selectInviteOnlyOnboarding(snapshot) === true || getEffectiveNetworkName() === MIDEN_NETWORK_NAME.MAINNET;
+  // Fixed when the user leaves Welcome: a document that changes mid-reset must not move a recovery, or a fresh
+  // wallet, made for the network it started on.
+  const [startedRecoverOnly, setStartedRecoverOnly] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (step === OnboardingStep.Welcome) setStartedRecoverOnly(null);
+    else setStartedRecoverOnly(started => started ?? liveRecoverOnly);
+  }, [step, liveRecoverOnly]);
+  const recoverOnly = step === OnboardingStep.Welcome ? liveRecoverOnly : (startedRecoverOnly ?? liveRecoverOnly);
   // A recover-only reset restores into mainnet but switches there only at Confirm, so until then the wallet is still
   // on its old network: the probe and the recovery-method step are told which network the recovery restores into.
   const recoveryNetwork = recoverOnly ? MIDEN_NETWORK_NAME.MAINNET : undefined;

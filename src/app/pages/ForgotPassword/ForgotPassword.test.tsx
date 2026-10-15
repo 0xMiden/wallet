@@ -1169,3 +1169,47 @@ describe('ForgotPassword probes the network it recovers into', () => {
     expect(document.body.textContent).not.toContain('miden-guardian.lambdaclass.com');
   });
 });
+
+// The document can change while a reset is under way; each dispatch re-renders the page with the snapshot it then reads.
+describe('ForgotPassword keeps the network a reset started on', () => {
+  it('registers a recovery on its own network when the document turns invite-only after the seed', async () => {
+    renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    mockSnapshot = readySnapshot({ inviteOnly: true });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockApply).not.toHaveBeenCalled();
+    expect(mockUseGuardianProbe).toHaveBeenLastCalledWith(undefined);
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('creates no mainnet wallet when the document turns invite-only during the backup', async () => {
+    renderPage();
+    await dispatch({ id: 'choose-protection' });
+    mockSnapshot = readySnapshot({ inviteOnly: true });
+    await dispatch({ id: 'verify-seed-phrase' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockApply).not.toHaveBeenCalled();
+    expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('follows the new document once the reset is back on Welcome', async () => {
+    const { rerender } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    mockSnapshot = readySnapshot({ inviteOnly: true });
+    await dispatch({ id: 'back' });
+    await dispatch({ id: 'back' });
+    mockRealFlow = true;
+    rerender(<ForgotPassword />);
+
+    expect(mockUseGuardianProbe).toHaveBeenLastCalledWith(MIDEN_NETWORK_NAME.MAINNET);
+    expect(screen.getByTestId('onboarding-recover-account')).toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding-get-started')).not.toBeInTheDocument();
+  });
+});
