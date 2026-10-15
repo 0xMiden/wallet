@@ -146,7 +146,8 @@ export interface DappSessionState {
    * requests that arrive first are refused rather than attributed to an origin we
    * have not confirmed. Dropping a request is safe; mis-attributing one is not.
    *
-   * Cleared ONLY in `openInternal` (a load this provider starts). A soft reload
+   * Cleared ONLY in `openInternal` (a load this provider starts), and never set for
+   * an opaque document, which has no origin to bind a grant or an answer to. A soft reload
    * goes through `InAppBrowser.reload` and never clears it, which matters because
    * Android's `doUpdateVisitedHistory` deliberately skips `urlChangeEvent` on a
    * reload — clearing it there would leave the session permanently refused.
@@ -274,15 +275,23 @@ export function useForegroundDappActive(): boolean {
  * `window.__midenWalletResponse`.
  *
  * `stillTarget` is asked before every attempt, after each sleep, and the answer
- * is dropped once it says no (#1416).
+ * is dropped once it says no (#1416). A navigation can commit after it, so the
+ * script re-checks `expectedOrigin` first, on the unforgeable `location`; "null"
+ * (any opaque document) and "" never deliver, and `null` sends a dataless answer unbound.
  */
 async function sendResponseToInstance(
   instance: DappWebViewInstance,
   response: unknown,
+  expectedOrigin: string | null,
   stillTarget: () => boolean,
   retries = 3
 ): Promise<void> {
-  const code = `window.__midenWalletResponse(${JSON.stringify(JSON.stringify(response))});`;
+  if (expectedOrigin === 'null' || expectedOrigin === '') return;
+  const hand = `window.__midenWalletResponse(${JSON.stringify(JSON.stringify(response))});`;
+  const code =
+    expectedOrigin === null
+      ? hand
+      : `(function () { if (location.origin !== ${JSON.stringify(expectedOrigin)}) return; ${hand} })();`;
   // Small delay before the first attempt to give the bridge time to settle
   // after an awaited user confirmation.
   await new Promise(resolve => setTimeout(resolve, 100));
@@ -702,6 +711,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
                 reqId: walletMessage.reqId,
                 error: MidenDAppErrorType.NotGranted
               },
+              null,
               () => true
             );
             return;
@@ -711,10 +721,15 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           // the React modal routes correctly.
           const requestOrigin = state.origin;
           const response = await handleWebViewMessage(walletMessage, requestOrigin, id);
+          if (walletMessage.payload === 'PING') {
+            // A PONG carries no data either, and the origin it would be bound to may not be confirmed yet.
+            await sendResponseToInstance(state.instance, response, null, () => true);
+            return;
+          }
           // The page may have left the origin that asked while this ran (a wait lasts up to five
           // minutes), and its successor can redefine the response hook, so the answer goes only to
           // that origin (#1416).
-          await sendResponseToInstance(state.instance, response, () => {
+          await sendResponseToInstance(state.instance, response, requestOrigin, () => {
             const current = getSessionStateById(id);
             return (
               current !== undefined &&
@@ -782,7 +797,7 @@ export const DappBrowserProvider: FC<PropsWithChildren> = ({ children }) => {
           updateSession(id, s => ({
             ...s,
             origin,
-            originConfirmed: true,
+            originConfirmed: origin !== 'null',
             session: { ...s.session, url: newUrl, origin }
           }));
           // The script is a no-op in any other document, so no loading check: a later `browserPageLoaded`

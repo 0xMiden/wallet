@@ -704,6 +704,65 @@ describe('an answer goes only to the origin that asked (#1416)', () => {
     expect(mockHandleWebViewMessage).toHaveBeenCalledWith(expect.anything(), 'https://dapp-a.test', 'dapp-a');
     expect(answers()).toEqual([]);
   });
+
+  // Evaluates an answer script in a document of `origin`, returning the response hook it may call.
+  function runIn(code: string, origin: string): jest.Mock {
+    const hook = jest.fn();
+    // eslint-disable-next-line no-new-func -- runs the shipped script, as the WebView does
+    new Function('location', 'window', code)({ origin }, { __midenWalletResponse: hook });
+    return hook;
+  }
+
+  // A navigation can commit after the host-side check and before the script is evaluated.
+  it('hands the answer over only in a document of the origin that asked', async () => {
+    const wait = await startWait();
+    await finish(wait);
+    expect(answers()).toHaveLength(1);
+    const asked = runIn(answers()[0]!, 'https://dapp-a.test');
+    expect(asked).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(asked.mock.calls[0]![0]))).toEqual({
+      type: 'MIDEN_PAGE_RESPONSE',
+      payload: { outputNotes: ['private-note'] },
+      reqId: 'req_1'
+    });
+    expect(runIn(answers()[0]!, 'https://evil.example')).not.toHaveBeenCalled();
+  });
+
+  it('never confirms an opaque document, so its requests get the refusal', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+    await navigate('https://dapp-a.test/');
+    await navigate('data:text/html,<h1>hi</h1>');
+    mockExecuteScript.mockClear();
+    await act(async () => {
+      await listenerFor('messageFromWebview')({ id: 'dapp-a', detail: WAIT });
+    });
+    expect(answers()).toHaveLength(1);
+    expect(answers()[0]).toContain('NOT_GRANTED');
+    expect(mockHandleWebViewMessage).not.toHaveBeenCalled();
+    expect(hook.result.current.sessionStates[0]!.originConfirmed).toBe(false);
+  });
+
+  it('delivers the PONG to a PING sent before the origin is confirmed, in any document', async () => {
+    const hook = renderHook(() => useDappBrowser(), { wrapper });
+    act(() => hook.result.current.open(makeSession('dapp-a', 'https://dapp-a.test/')));
+    act(() => hook.result.current.setSlotRect(SLOT_RECT));
+    await settle();
+    mockHandleWebViewMessage.mockResolvedValueOnce({ type: 'MIDEN_PAGE_RESPONSE', payload: 'PONG', reqId: 'p1' });
+    mockExecuteScript.mockClear();
+    await act(async () => {
+      await listenerFor('messageFromWebview')({
+        id: 'dapp-a',
+        detail: JSON.stringify({ type: 'MIDEN_PAGE_REQUEST', payload: 'PING', reqId: 'p1' })
+      });
+    });
+    expect(answers()).toHaveLength(1);
+    expect(answers()[0]).toContain('PONG');
+    // It carries no data, so it is not bound to the origin the session was opened at.
+    expect(runIn(answers()[0]!, 'https://redirected.example')).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ── The faucet's top inset style ──────────────────────────────────

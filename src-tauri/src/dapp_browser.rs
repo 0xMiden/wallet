@@ -137,6 +137,34 @@ fn response_target_matches(expected_origin: &str, current_url: &str) -> bool {
     dapp_request_origin(current_url).as_deref() == Some(expected_origin)
 }
 
+/// The script that hands `response` to the dApp window's bridge, in a document of `expected_origin` only.
+///
+/// `response_target_matches` reads the window's URL before `eval`, and a navigation can commit between the two, so
+/// the script checks again where it runs, as its first statement: `location` is unforgeable, so page script cannot
+/// answer for it, and nothing the page defines is read before it. The origin goes in as a JSON literal. An opaque
+/// document's `location.origin` is "null" and no document's is "", so either expectation delivers nothing.
+fn response_script(response: &str, expected_origin: &str) -> String {
+    if expected_origin.is_empty() || expected_origin == "null" {
+        return String::new();
+    }
+    let origin = serde_json::to_string(expected_origin).unwrap_or_else(|_| "\"\"".to_string());
+    // `response` is already JSON, so it is passed through without re-encoding.
+    format!(
+        r#"
+        (function() {{
+            if (location.origin !== {origin}) return;
+            if (window.__midenWalletResponse) {{
+                try {{
+                    window.__midenWalletResponse({response});
+                }} catch(e) {{
+                    // Silent fail
+                }}
+            }}
+        }})();
+        "#
+    )
+}
+
 /// The dApp window's OS title for a page at `url_str`.
 ///
 /// SECURITY: this is the ONLY place the user is shown which site they are on, and
@@ -460,23 +488,9 @@ pub async fn dapp_wallet_response(
             info!("Dropping a dApp response: the window no longer shows the origin that asked");
             return Ok(());
         }
-        // Call the response handler in the dApp window
-        // Note: response is already a JSON string, so we pass it directly without re-encoding
-        let script = format!(
-            r#"
-            (function() {{
-                if (window.__midenWalletResponse) {{
-                    try {{
-                        window.__midenWalletResponse({});
-                    }} catch(e) {{
-                        // Silent fail
-                    }}
-                }}
-            }})();
-            "#,
-            response
-        );
-        dapp_window.eval(&script).map_err(|e| e.to_string())?;
+        dapp_window
+            .eval(&response_script(&response, &origin))
+            .map_err(|e| e.to_string())?;
         Ok(())
     } else {
         Err("dApp window not found".to_string())
@@ -487,8 +501,8 @@ pub async fn dapp_wallet_response(
 mod tests {
     use super::{
         bridge_token_matches, dapp_request_origin, dapp_window_title, injection_script_with_token,
-        navigate_script, new_bridge_token, response_target_matches, validate_dapp_url,
-        BRIDGE_TOKEN_GLOBAL, DAPP_INJECTION_SCRIPT,
+        navigate_script, new_bridge_token, response_script, response_target_matches,
+        validate_dapp_url, BRIDGE_TOKEN_GLOBAL, DAPP_INJECTION_SCRIPT,
     };
 
     #[test]
@@ -748,5 +762,31 @@ mod tests {
             "not a url"
         ));
         assert!(!response_target_matches("", "https://dapp.example/"));
+    }
+
+    #[test]
+    fn the_answer_script_checks_the_documents_origin_before_anything_else() {
+        // A navigation can commit after `response_target_matches` and before `eval` (#1416).
+        let response = r#"{"type":"MIDEN_PAGE_RESPONSE","reqId":"req_1"}"#;
+        let script = response_script(response, "https://a.example");
+        let check = script
+            .find("if (location.origin !== \"https://a.example\") return;")
+            .expect("the script compares the document's origin with the JSON-encoded expectation");
+        // The first statement: only the function's opening precedes it.
+        assert_eq!(
+            script[..check].split_whitespace().collect::<String>(),
+            "(function(){"
+        );
+        let hook = script
+            .find("__midenWalletResponse")
+            .expect("the script still answers");
+        assert!(check < hook);
+        assert!(script.contains(response));
+        // The expectation is a JSON literal, so it cannot end the comparison early.
+        let quoted = response_script(response, "https://a.example\"||\"");
+        assert!(quoted.contains("location.origin !== \"https://a.example\\\"||\\\"\")"));
+        // An opaque document's origin is "null", and no document's is "": neither expectation delivers.
+        assert!(!response_script(response, "null").contains("__midenWalletResponse"));
+        assert!(!response_script(response, "").contains("__midenWalletResponse"));
     }
 }
