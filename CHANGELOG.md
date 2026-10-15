@@ -22,6 +22,7 @@
 - [FIX][mobile] Fullscreen dApps publish the occupied Bread control rectangle and safe-area metrics so headers can share its row, restore retained covered pages before foreground reveal, and minimize into Bread through its logo without reloading the game when reopened. Wallet overlays and fresh paint checks retain ownership.
 - [FIX][all] The expiration calendar uses theme colors so dates, the month title and navigation arrows are visible in dark mode.
 - [FIX][mobile] The native WalletConnect plugins report the chains a session approved, and before an EVM deposit or claim signs on a chain the session did not approve, the wallet asks the connected wallet to add and switch to it (`wallet_addEthereumChain`, `wallet_switchEthereumChain`, now proposed as optional methods); if the chain is still missing, the deposit fails before any wallet prompt with "Reconnect the wallet to approve it" instead of the Sign SDK's "Invalid permissions for call.".
+- [FIX][all] A dApp can wait on a transaction's result only if it created that transaction, or its consume request was answered with it, and it is still connected to that transaction's account; other sites, disconnected sites, the wallet's own transactions and unknown ids are refused, and in the mobile and desktop dApp browser an answer is dropped once the page has moved to another site.
 
 ### Features
 

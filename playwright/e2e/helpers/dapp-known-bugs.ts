@@ -59,13 +59,6 @@ export const KNOWN_BUGS: readonly KnownBug[] = [
       (evidence.dappError?.message ?? '').includes('Wallet is locked')
   },
   {
-    id: 'K7',
-    title: 'waitForTransaction has no session or origin gate',
-    tracking: '0xMiden/wallet#1416 (open)',
-    cells: on(['M7'], BOTH),
-    signature: ({ source, evidence }) => source === 'hard' && evidence.crossOriginWaitServed === true
-  },
-  {
     id: 'K8',
     title:
       'Guardian signBytes(signingInputs) fails after approval with an opaque keystore miss instead of signing with the hot key',

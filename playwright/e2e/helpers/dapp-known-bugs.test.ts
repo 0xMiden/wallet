@@ -57,9 +57,9 @@ describe('known-bug registry', () => {
     expect(bug('K5').signature(hard('S9', { popupOpened: true, dappError: locked }))).toBe(false);
   });
 
-  it('K7 matches only its recorded fact', () => {
-    expect(bug('K7').signature(hard('M7', { crossOriginWaitServed: true }))).toBe(true);
-    expect(bug('K7').signature(hard('M7', { crossOriginWaitServed: false }))).toBe(false);
+  it('judges M7 on the origin gate, with K7 (#1416) gone', () => {
+    expect(KNOWN_BUGS.filter(entry => entry.cells.M7 !== undefined).map(entry => entry.id)).toEqual([]);
+    expect(KNOWN_BUGS.map(entry => entry.id)).not.toContain('K7');
   });
 
   it('K8 matches the opaque keystore miss after approval, and not another refusal', () => {

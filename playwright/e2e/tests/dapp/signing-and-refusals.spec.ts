@@ -448,8 +448,10 @@ function refusalCells(j: Journey, fx: RefusalFixtures): Record<string, DappCellI
     R6: {
       budget: 'read',
       run: async ctx => {
+        // A missing id is refused like another origin's row, so the answer never says whether an id exists (#1416).
+        // The adapter rethrows this call's error unwrapped (adapter.js:240-261).
         expect(await callDapp(dapp, 'waitForTransaction', { txId: 'no-such-row' }, ctx.deadline)).toEqual(
-          refusal('WalletTransactionError', 'Transaction not found')
+          NOT_GRANTED_RAW
         );
       }
     },
