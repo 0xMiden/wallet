@@ -3701,7 +3701,11 @@ describe('MidenClientInterface', () => {
     for (const specifier of readerMocks) jest.dontMock(specifier);
     readerMocks.clear();
   });
-  async function importWithReader(createClient: jest.Mock, getRpcUrl: () => string = () => 'https://rpc.example') {
+  async function importWithReader(
+    createClient: jest.Mock,
+    getRpcUrl: () => string = () => 'https://rpc.example',
+    getFeeFaucetId: () => string | undefined = () => '0xfee'
+  ) {
     // The real backoff curve with no jitter, on a test clock (as the sync-backoff tests drive it).
     const clock = { now: 0 };
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -3723,7 +3727,7 @@ describe('MidenClientInterface', () => {
       getEffectiveRpcUrl: () => getRpcUrl(),
       getEffectiveProverUrl: () => undefined,
       getEffectiveNoteTransportUrl: () => undefined,
-      getEffectiveFeeFaucetId: () => '0xfee'
+      getEffectiveFeeFaucetId: () => getFeeFaucetId()
     }));
     readerDoMock('lib/miden/activity/connectivity-state', () => ({
       markConnectivityIssue: jest.fn(),
@@ -3845,6 +3849,31 @@ describe('MidenClientInterface', () => {
     rpcUrl = 'https://rpc-c.example';
     await client.getConsumableNotes('mtst1account');
     expect(readerLines(log, 'building')[2]).toContain('(client replaced and endpoint changed)');
+  });
+
+  // An E2E-injected fee faucet or a developer override can change it under the same node (#1482).
+  it('rebuilds the reader when the fee faucet changes with the same RPC URL', async () => {
+    let feeFaucetId = '0xfee-a';
+    const createClient = jest.fn(async () => emptyReader());
+    const { makeClient, log } = await importWithReader(createClient, undefined, () => feeFaucetId);
+    const client = makeClient();
+
+    await client.getConsumableNotes('mtst1account');
+    feeFaucetId = '0xfee-b';
+    await client.getConsumableNotes('mtst1account');
+    await client.getConsumableNotes('mtst1account');
+    expect(createClient).toHaveBeenCalledTimes(2);
+    expect(createClient).toHaveBeenLastCalledWith(
+      'https://rpc.example',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      undefined,
+      '0xfee-b'
+    );
+    expect(readerLines(log, 'building')[1]).toContain('(fee faucet changed)');
   });
 
   it('logs only the host of the endpoint, never its credentials, path or query', async () => {
@@ -4260,6 +4289,25 @@ describe('MidenClientInterface', () => {
     build(0).reject(new Error('stale build failed'));
     await expect(first).rejects.toThrow('stale build failed');
     // Its key moved while it was pending, so it names no window: the next read builds at once.
+    expect(readerLines(warn, 'build ')).toEqual([expect.stringContaining('failed after the reader moved on')]);
+
+    const second = client.getConsumableNotes('mtst1account');
+    await waitForBuilds(2);
+    build(1).resolve(emptyReader());
+    await expect(second).resolves.toEqual([]);
+  });
+
+  it('a build whose fee faucet moved while it was pending backs off only its own key', async () => {
+    let feeFaucetId = '0xfee-a';
+    const { createClient, build, waitForBuilds } = deferredCreateClient();
+    const { makeClient, warn } = await importWithReader(createClient, undefined, () => feeFaucetId);
+    const client = makeClient();
+
+    const first = client.getConsumableNotes('mtst1account');
+    await waitForBuilds(1);
+    feeFaucetId = '0xfee-b';
+    build(0).reject(new Error('stale build failed'));
+    await expect(first).rejects.toThrow('stale build failed');
     expect(readerLines(warn, 'build ')).toEqual([expect.stringContaining('failed after the reader moved on')]);
 
     const second = client.getConsumableNotes('mtst1account');
