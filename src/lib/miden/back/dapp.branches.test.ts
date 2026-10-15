@@ -9,7 +9,7 @@
  */
 
 import { MidenDAppConsumeRequest, MidenDAppMessageType, MidenDAppErrorType } from 'lib/adapter/types';
-import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
+import { ITransactionStatus, type ITransaction, type TransactionOutput } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 import { SpendingLimitPriceUnavailableError } from 'lib/miden/spending-limits/types';
@@ -823,6 +823,30 @@ describe('waitForTransaction', () => {
     currentAccountPublicKey = undefined as unknown as string;
     mockGetCurrentAccountPublicKey.mockResolvedValue(undefined);
     await putRow();
+    await expect(dapp.waitForTransaction(ORIGIN, waitReq('tx-abc'))).resolves.toEqual(answer(SERVED));
+  });
+
+  // The consume dedup can grant a dApp a claim row that holds other notes too; their output notes are not its to read.
+  it('answers a claim of several notes with its txHash and no output notes', async () => {
+    await putRow({ type: 'consume', displayIcon: 'RECEIVE', noteId: 'note-1', noteIds: ['note-1', 'note-2'] });
+    await expect(dapp.waitForTransaction(ORIGIN, waitReq('tx-abc'))).resolves.toEqual(
+      answer({ txHash: '0xabc', outputNotes: [] })
+    );
+  });
+
+  it("forwards a failed claim of several notes' error unchanged", async () => {
+    const failed: TransactionOutput = { errorMessage: 'Transaction failed' };
+    mockWaitForTransactionCompletion.mockResolvedValueOnce(failed);
+    await putRow({ type: 'consume', displayIcon: 'RECEIVE', noteId: 'note-1', noteIds: ['note-1', 'note-2'] });
+    await expect(dapp.waitForTransaction(ORIGIN, waitReq('tx-abc'))).resolves.toEqual(answer(failed));
+  });
+
+  it.each<[string, Partial<ITransaction>]>([
+    ['a single-note consume', { type: 'consume', displayIcon: 'RECEIVE', noteId: 'note-1', noteIds: ['note-1'] }],
+    ['a send', { type: 'send', displayIcon: 'SEND' }],
+    ['a custom (execute)', { type: 'execute', displayIcon: 'DEFAULT' }]
+  ])('answers %s row with its output notes', async (_label, row) => {
+    await putRow(row);
     await expect(dapp.waitForTransaction(ORIGIN, waitReq('tx-abc'))).resolves.toEqual(answer(SERVED));
   });
 

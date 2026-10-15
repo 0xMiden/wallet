@@ -2431,7 +2431,7 @@ const generatePromisifyConsumeTransaction = async (
 // row's account (#1416). Neither the current account nor the lock matters: the row names the account, and a dApp
 // waiting on its own transaction must survive an account switch or an auto-lock. A missing row is refused the same
 // way, so the answer never says whether an id exists.
-const assertDappMayReadTransaction = async (origin: string, txId: string): Promise<void> => {
+const assertDappMayReadTransaction = async (origin: string, txId: string): Promise<ITransaction> => {
   const row = await Repo.transactions.get(txId);
   if (
     row === undefined ||
@@ -2445,6 +2445,7 @@ const assertDappMayReadTransaction = async (origin: string, txId: string): Promi
   if (!sessions.some(session => sameWalletAccountId(session.accountId, row.accountId))) {
     throw new Error(MidenDAppErrorType.NotGranted);
   }
+  return row;
 };
 
 export async function waitForTransaction(
@@ -2459,10 +2460,13 @@ export async function waitForTransaction(
   await assertDappMayReadTransaction(origin, req.txId);
   const res = await waitForTransactionCompletion(req.txId);
   // The wait lasts up to five minutes; a disconnect or a restore meanwhile gets no result.
-  await assertDappMayReadTransaction(origin, req.txId);
+  const row = await assertDappMayReadTransaction(origin, req.txId);
+  // The consume dedup can grant a dApp a claim that covers other notes too, and the output notes those emitted are not
+  // its to read: it learns the outcome alone.
+  const sharedClaim = row.type === 'consume' && (row.noteIds?.length ?? 0) > 1;
   return {
     type: MidenDAppMessageType.WaitForTransactionResponse,
-    transactionOutput: res
+    transactionOutput: sharedClaim && 'outputNotes' in res ? { txHash: res.txHash, outputNotes: [] } : res
   };
 }
 
