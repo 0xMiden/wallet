@@ -21,6 +21,7 @@ import { resolveTransition, tabBarMotion } from 'lib/animation';
 import { getTestNetworkNameKey } from 'lib/miden-chain/effective-endpoints';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
+import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
 import { usePrimaryPress } from 'lib/ui/usePrimaryPress';
 import { cn } from 'lib/ui/util';
@@ -230,8 +231,15 @@ export const AddressTab: React.FC<AddressTabProps> = ({ address, onBridgeDeposit
 
   // Cross Chain opens every bridge-in route, so it stays enabled while one of them can start.
   const crossChain = useBridgeInAvailability();
-  // A network that configures no bridge-in route (mainnet) has no Cross Chain, and no outage to report either.
-  const crossChainOnNetwork = !(crossChain.state === 'unavailable' && crossChain.reason === 'not-configured');
+  // A network whose document configures no bridge-in route (mainnet's) has no Cross Chain, and no outage to report
+  // either. With no accepted document nothing says what the network configures, so the tile stays, greyed, over its
+  // notice.
+  const hasDocument = useBridgeConfigSnapshot().config !== null;
+  const crossChainOnNetwork = !(
+    hasDocument &&
+    crossChain.state === 'unavailable' &&
+    crossChain.reason === 'not-configured'
+  );
 
   return (
     // The shared home-group pane body (HomeGroupPane): the page margin, the top offset (`visual`:

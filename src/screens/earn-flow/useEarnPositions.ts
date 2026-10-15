@@ -92,9 +92,10 @@ export function useEarnPositions(): {
    */
   loadError?: string;
   /**
-   * The network configures no Earn at all: no document (mainnet), or one with no positions host or no Epoch route.
+   * The network configures no Earn at all: its document (mainnet's) names no positions host or no Epoch route.
    * `error` still names what is missing, but no read or retry can succeed, so the page says Earn is not on this
-   * network. A market read that failed is a configured Earn that is down, and is not this.
+   * network. A market read that failed is a configured Earn that is down, and is not this; nor is a snapshot with no
+   * accepted document, which says nothing about the network and keeps its load error and Retry.
    */
   notOnNetwork: boolean;
   /**
@@ -111,7 +112,10 @@ export function useEarnPositions(): {
   const marketUid = selectEarnMarket(config)?.marketUid;
   // Only a loading snapshot is a wait: a loaded one that names neither settles at once, as the read would have failed.
   const unconfigured = config.status === 'ready' ? unconfiguredError(positionsUrl, marketUid) : undefined;
-  const notOnNetwork = config.status === 'ready' && (!positionsUrl || config.derived?.epoch.market.state === 'skipped');
+  const notOnNetwork =
+    config.status === 'ready' &&
+    config.config !== null &&
+    (!positionsUrl || config.derived?.epoch.market.state === 'skipped');
 
   // A covered page holds a null key, never `isPaused`: SWR sends a shared key's Retry and timed read to its first
   // subscriber, and a paused one swallows them. SWR reads `revalidateIfStale` only when the key comes back or the hook

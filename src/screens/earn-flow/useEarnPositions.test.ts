@@ -378,9 +378,10 @@ describe('useEarnPositions', () => {
       }
     );
 
-    // A market read that failed is a configured Earn whose service is down, and keeps the error and its Retry.
+    // A market read that failed is a configured Earn whose service is down, and keeps the error and its Retry; so is a
+    // snapshot with no accepted document, since only a document says what the network configures.
     it.each<[string, BridgeConfigSnapshot, boolean]>([
-      ['no accepted document, as on mainnet', { ...READY, config: null, derived: null }, true],
+      ['no accepted document, a config outage', { ...READY, config: null, derived: null }, false],
       [
         'a document with no positions host',
         {
@@ -393,17 +394,20 @@ describe('useEarnPositions', () => {
       ['a market read that failed', withMarketRead({ state: 'error', message: 'positions 503' }), false],
       ['a configured market', READY, false],
       ['a snapshot still loading', LOADING, false]
-    ])('reports Earn as not on this network only when it is not configured: %s', async (_case, snapshot, expected) => {
-      mockUseRetryableSWR.mockImplementation(realSWR);
-      jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
-      jest.mocked(fetchEarnPositions).mockRejectedValue(new Error('positions 503'));
-      publishConfig(snapshot);
-      const { result } = renderHook(() => useEarnPositions(), { wrapper });
-      await act(async () => {
-        await new Promise(resolve => setTimeout(resolve, 0));
-      });
-      expect(result.current.notOnNetwork).toBe(expected);
-    });
+    ])(
+      'reports Earn as not on this network only when its document configures none: %s',
+      async (_case, snapshot, expected) => {
+        mockUseRetryableSWR.mockImplementation(realSWR);
+        jest.mocked(getEarnDepositEvmAddresses).mockResolvedValue([]);
+        jest.mocked(fetchEarnPositions).mockRejectedValue(new Error('positions 503'));
+        publishConfig(snapshot);
+        const { result } = renderHook(() => useEarnPositions(), { wrapper });
+        await act(async () => {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        expect(result.current.notOnNetwork).toBe(expected);
+      }
+    );
 
     it('reads again at once when the config moves the positions host', async () => {
       mockUseRetryableSWR.mockImplementation(realSWR);
