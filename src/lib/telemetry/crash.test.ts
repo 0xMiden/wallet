@@ -10,6 +10,7 @@ import {
 } from './crash';
 import { annotateCrash } from './crash-diagnostics';
 import { REDACTED } from './redact';
+import packageJson from '../../../package.json';
 
 jest.mock('lib/settings/helpers', () => ({ isTelemetryEnabledAsync: jest.fn() }));
 
@@ -611,7 +612,7 @@ describe('diagnostic snapshots', () => {
         operation: 'sdk_initialize',
         stage: 'client_create',
         workerMode: 'disabled',
-        appVersion: '1.17.3'
+        appVersion: packageJson.version
       })
     });
   });

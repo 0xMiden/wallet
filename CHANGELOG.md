@@ -1,12 +1,14 @@
 # Changelog
 
-## 1.17.4 (TBD)
+## 1.17.4 (2026-10-15)
 
 ### Features
 
 - [FEATURE][all] Invite-only onboarding with a mainnet access code. The remote wallet config chooses the Welcome variant with `onboarding.inviteOnly`: true shows the invite-only Welcome directly; false, or a document without the key, shows the general Welcome, where seven logo taps unlock the invite-only one (seven more open Developer Settings). While the config loads, Welcome shows a spinner in place of its actions for at most 3 seconds. "I have a code" asks the node to check a 12-character code (or an existing 8-digit one) before the create flow, the code is kept until the final account exists, and that account is then registered with it; a refused code and a node failure each show their own message with a retry. "I don't have a code" explains the invite and offers account recovery. When the config sets `inviteOnly`, new wallet setup and recovery use mainnet. New wallets require a code; recovery does not. Existing testnet wallets stay usable without a forced reset. An optional Switch to mainnet banner with a larger, underlined link and less vertical padding replaces the countdown when invite-only mode is on; it asks for confirmation with a larger title and smaller body text before clearing the wallet and starting mainnet setup. The code field shows two rows of six characters and has a Paste button. The mainnet countdown banner underlines its early-access link and does not show on mainnet, mainnet has its RPC, prover and note transport endpoints (`rpc.`, `tx-prover.` and `transport.cedar.miden.io`), Developer Settings has a Mainnet preset, and every sheet opens and closes about 25% slower. Web SDK 0.17.3 for the code check.
 - [FEATURE][all] The Guardian operators of each network come from the `guardians` list in `0xMiden/wallet-config`, with each operator's English description, so a new or removed operator reaches every wallet within about an hour with no release; the list the wallet ships with is used only until a document names the operators.
 - [FEATURE][all] The send review page folds the transfer type and the expiration under an "Advanced options" row, closed by default with a one-line summary of both; a "Transfer type" sheet picks Private (the default) or Public, and a public send keeps a notice of what it reveals on the page and a "Send publicly" button whether or not the row is open.
+- [FEATURE][all] Send automatically selects the only visible token with a positive spendable balance and known scale for the selected destination. Explicit token links, restored drafts and manual choices take priority; loading and account or network changes cannot carry an automatic choice across contexts (#1454).
+- [FEATURE][all] Read bridge routes, service URLs, and contract addresses from the remote configuration for each EVM chain. Keep Earn under its own switch and read its market from Epoch. Use the listed chains for wallet connections, and keep saved transfer data for recovery after a route is disabled or changed.
 
 ### Fixes
 
@@ -29,11 +31,6 @@
 - [FIX][all] A dApp request made while the wallet is locked asks the user to unlock and then continues, instead of failing at once with `INVALID_PARAMS: Error: Wallet is locked`: on the extension the approval popup opens on the Unlock screen (a read the site may make without asking gets a popup that only unlocks), and on mobile and desktop the wallet's own lock screen is the Unlock step for up to two minutes. Closing it or letting it time out answers `NOT_GRANTED: Wallet is locked`, and a site whose unlock prompt ended still locked gets that answer with no prompt for 30 seconds (#1414).
 - [FIX][all] A dApp can wait on a transaction's result only if it created that transaction, or its consume request was answered with it, and it is still connected to that transaction's account; other sites, disconnected sites, the wallet's own transactions and unknown ids are refused, and in the mobile and desktop dApp browser an answer is dropped once the page has moved to another site.
 - [FIX][all] An Epoch deposit or Earn withdrawal claimed together with other notes (as native auto-consume does) is recorded at its own amount and token instead of the claim's total, and the claim keeps its own label and stays in Activity instead of turning into a hidden "Bridged from EVM" row (#1396).
-
-### Features
-
-- [FEATURE][all] Send automatically selects the only visible token with a positive spendable balance and known scale for the selected destination. Explicit token links, restored drafts and manual choices take priority; loading and account or network changes cannot carry an automatic choice across contexts (#1454).
-- [FEATURE][all] Read bridge routes, service URLs, and contract addresses from the remote configuration for each EVM chain. Keep Earn under its own switch and read its market from Epoch. Use the listed chains for wallet connections, and keep saved transfer data for recovery after a route is disabled or changed.
 
 ### Changes
 
