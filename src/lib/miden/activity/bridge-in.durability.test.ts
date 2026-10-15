@@ -1,10 +1,11 @@
 import type { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
 import { SharedEarnLocks, deferred } from 'lib/epoch/testing/earn-locks';
-import { IBridgeInInfo, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
+import { IBridgeInInfo, IConsumedNote, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
 import {
+  adoptBridgeDeliveries,
   applyBridgeInInfoForNotes,
   applyBridgeInToConsumeRow,
   findPendingBridgeInByEarnWithdrawTxId,
@@ -505,4 +506,79 @@ it('keeps an already-tagged old consume visible when a failed primary is retried
   const old = await Repo.transactions.get('consume');
   if (!old) throw new Error('missing receipt');
   expect(await suppressedLinkedConsumeIds([old])).toEqual(new Set());
+});
+
+describe('a registry delivery claimed in a batch', () => {
+  const BATCH_NOTES: IConsumedNote[] = [
+    { id: '0xAAAA', senderAddress: 'friend', faucetId: 'other-faucet', amount: 1n },
+    { id: '0xAbCd', senderAddress: 'solver', faucetId: 'faucet', amount: 2n }
+  ];
+  const batchConsume = (overrides: Partial<ITransaction> = {}): ITransaction => ({
+    ...consume(),
+    noteIds: BATCH_NOTES.map(note => note.id),
+    amount: 1n,
+    faucetId: 'other-faucet',
+    displayMessage: 'Received',
+    consumedNotes: BATCH_NOTES,
+    ...overrides
+  });
+  const executedNote = (id: string, faucetId: string, amount: bigint) => ({
+    note: () => ({
+      id: () => ({ toString: () => id }),
+      metadata: () => ({ sender: () => 'sender', noteType: () => 0 }),
+      assets: () => ({ fungibleAssets: () => [{ faucetId: () => faucetId, amount: () => amount }] })
+    })
+  });
+  const consumeResult = (notes: ReturnType<typeof executedNote>[]): TransactionResult => {
+    const result: TransactionResult = Object.create(null);
+    Object.assign(result, {
+      executedTransaction: () => ({
+        id: () => ({ toHex: () => 'chain-tx' }),
+        inputNotes: () => ({ notes: () => notes }),
+        outputNotes: () => ({ notes: () => [] })
+      }),
+      serialize: () => new Uint8Array([1])
+    });
+    return result;
+  };
+
+  it("completes a batch through the real consume path with the delivered note's own amount", async () => {
+    const queued = batchConsume({ status: ITransactionStatus.GeneratingTransaction, amount: undefined });
+    await Repo.transactions.bulkAdd([withdrawal({ withdrawIntentNonce: undefined }), queued]);
+    await registerPendingBridgeIn(OWNER, '7', info());
+    await resolveBridgeInNoteId(OWNER, '7', 'abcd');
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await completeConsumeTransaction(
+        'consume',
+        consumeResult([executedNote('0xAAAA', 'other-faucet', 1n), executedNote('0xAbCd', 'faucet', 2n)])
+      );
+    } finally {
+      warning.mockRestore();
+    }
+    expect(await Repo.transactions.get(KEY)).toMatchObject({
+      amount: 2n,
+      extraInputs: expect.objectContaining({ phase: 'received', midenNoteId: 'abcd' })
+    });
+    const receipt = await Repo.transactions.get('consume');
+    expect(receipt).toMatchObject({ status: ITransactionStatus.Completed, displayMessage: 'Received' });
+    expect(receipt?.extraInputs?.bridgeIn).toBeUndefined();
+    expect(mockRegistry.records).toEqual([]);
+  });
+
+  it('settles a batch delivery whose note id the completing consume discovers itself', async () => {
+    await Repo.transactions.bulkAdd([withdrawal({ withdrawIntentNonce: undefined }), batchConsume({ amount: 3n })]);
+    await registerPendingBridgeIn(OWNER, '7', info());
+    mockStatus.mockResolvedValue([{ midenNoteId: 'abcd' }]);
+
+    await adoptBridgeDeliveries('consume', BATCH_NOTES);
+
+    expect(mockStatus).toHaveBeenCalled();
+    expect(await Repo.transactions.get(KEY)).toMatchObject({
+      amount: 2n,
+      extraInputs: expect.objectContaining({ phase: 'received', midenNoteId: 'abcd' })
+    });
+    expect((await Repo.transactions.get('consume'))?.extraInputs?.bridgeIn).toBeUndefined();
+    expect(mockRegistry.records).toEqual([]);
+  });
 });
