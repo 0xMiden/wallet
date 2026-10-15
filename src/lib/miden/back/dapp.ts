@@ -113,7 +113,7 @@ import { getCurrentMidenNetwork } from './safe-network';
 import { simulateCustomTransaction, type SimulateCustomTxResult } from './simulate-custom-tx';
 import { store, withUnlocked } from './store';
 import { startTransactionProcessing } from './transaction-processor';
-import { IConsumedAssetTotal } from '../db/types';
+import { IConsumedAssetTotal, type ITransaction } from '../db/types';
 import { getBech32AddressFromAccountId, sameWalletAccountId } from '../sdk/helpers';
 import { assertWasmHoldCurrent, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { resolvePublicKeyCommitments } from '../sdk/resolve-public-key-commitments';
