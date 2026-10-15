@@ -610,19 +610,24 @@ describe('a registry delivery claimed in a batch', () => {
     }
   );
 
-  it("keeps a bridge receive's intent for a legacy batch that kept no per-note facts", async () => {
+  // The batch total is no delivered amount, and the stored row can never give a retry another one.
+  it("releases a bridge receive's intent for a legacy batch that kept no per-note facts", async () => {
     await Repo.transactions.bulkAdd([bridgeReceive(), batchConsume({ consumedNotes: undefined, amount: 12n })]);
     await registerPendingBridgeIn(
       OWNER,
       '7',
       info({ earnWithdrawTxId: undefined, bridgeReceiveTxId: 'bridge-receive' })
     );
-    await expect(resolveBridgeInNoteId(OWNER, '7', 'abcd')).rejects.toThrow(
-      'Bridge consume is missing delivered asset data'
-    );
-    expect(mockRegistry.records).toHaveLength(1);
-    expect(mockRegistry.records[0]?.midenNoteId).toBe('abcd');
-    expect((await Repo.transactions.get('bridge-receive'))?.extraInputs.phase).toBe('delivering');
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await expect(resolveBridgeInNoteId(OWNER, '7', 'abcd')).resolves.toBeUndefined();
+    } finally {
+      warning.mockRestore();
+    }
+    expect(mockRegistry.records).toEqual([]);
+    const receive = await Repo.transactions.get('bridge-receive');
+    expect(receive?.extraInputs.phase).toBe('delivering');
+    expect(receive?.amount).toBeUndefined();
   });
 
   it('lands an Earn withdrawal in a legacy batch at its requested amount', async () => {

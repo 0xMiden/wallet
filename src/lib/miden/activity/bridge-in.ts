@@ -123,7 +123,8 @@ export async function applyBridgeInToConsumeRow(consumeId: string, info: IBridge
 
 /**
  * Settle a registry delivery that a batch claimed at its own note's asset and the batch's transaction id. `note` is
- * undefined for a batch that kept no per-note facts.
+ * undefined for a batch that kept no per-note facts. A bridge receive whose note has no amount or faucet is released
+ * unsettled, since a retry reads the same stored facts and the batch total is no delivered amount.
  */
 export async function applyBridgeInToBatchNote(
   consumeId: string,
@@ -133,12 +134,18 @@ export async function applyBridgeInToBatchNote(
   const consume = await Repo.transactions.where({ id: consumeId }).first();
   if (consume?.type !== 'consume' || consume.status !== ITransactionStatus.Completed || consume.restoredFromBackup)
     throw new Error('Bridge receipt requires a completed local consume');
+  const delivered = { amount: note?.amount, faucetId: note?.faucetId, transactionId: consume.transactionId };
+  let linked = info;
+  if (info.bridgeReceiveTxId && (delivered.amount === undefined || !delivered.faucetId)) {
+    console.warn(
+      '[bridge-in] a batch kept no delivered amount for a bridge receive, so its intent is released',
+      consumeId,
+      info.bridgeReceiveTxId
+    );
+    linked = { ...info, bridgeReceiveTxId: undefined };
+  }
   // Never the batch row's receipt: tagged, it would hide itself and every other note it claimed from Activity.
-  await settleLinkedRows(info, {
-    amount: note?.amount,
-    faucetId: note?.faucetId,
-    transactionId: consume.transactionId
-  });
+  await settleLinkedRows(linked, delivered);
 }
 
 async function settleLinkedRows(
@@ -577,7 +584,9 @@ export async function adoptLandedConsume(consumeId: string): Promise<void> {
       return;
     const notes = adoptableNotesOf(consume);
     if (notes === undefined) {
-      console.warn('[bridge-in] a landed batch consume kept no per-note facts, so none is adopted', consumeId);
+      // Only the registry pairs a note by its id alone.
+      console.warn('[bridge-in] a landed batch consume kept no per-note facts, so only the registry adopts', consumeId);
+      await settleBatchRegistry(consumeId, consume.noteIds ?? [], undefined);
       return;
     }
     await adoptBridgeDeliveries(consumeId, notes);

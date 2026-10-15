@@ -6,6 +6,7 @@ import {
   adoptLandedConsume,
   AdoptableNote,
   type PendingBridgeInIntent,
+  resolveBridgeInNoteId,
   suppressedLinkedConsumeIds
 } from './bridge-in';
 import {
@@ -551,7 +552,8 @@ describe('a registry delivery claimed in a batch', () => {
     expect(await suppressedLinkedConsumeIds([consume])).toEqual(new Set());
   });
 
-  it('keeps the intent and moves no tracker when the batch note carried no asset', async () => {
+  // The stored row keeps the same facts, so no retry could ever settle it.
+  it('releases the intent and moves no tracker when the batch note carried no asset', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     await addEpochDeposit();
     registryHolds('note-b', EPOCH_LINK);
@@ -560,15 +562,11 @@ describe('a registry delivery claimed in a batch', () => {
     await adoptBridgeDeliveries('consume', [mint('note-a', 1n), assetless('note-b')]);
 
     expect(await phaseOf('epoch-deposit')).toMatchObject({ phase: 'delivering' });
-    expect(mockPutToStorage).not.toHaveBeenCalledWith(REGISTRY_KEY, expect.anything());
+    expect(mockPutToStorage).toHaveBeenCalledWith(REGISTRY_KEY, []);
     const consume = await Repo.transactions.get('consume');
     expect(consume?.displayMessage).toBe('Received');
     expect(consume?.extraInputs?.bridgeIn).toBeUndefined();
-    expect(warn).toHaveBeenCalledWith(
-      '[bridge-in] registry delivery of a batch not settled (kept for retry)',
-      'consume',
-      expect.any(Error)
-    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('released'), 'consume', 'epoch-deposit');
     warn.mockRestore();
   });
 
@@ -664,4 +662,80 @@ describe('a registry delivery claimed in a batch', () => {
     expect(await phaseOf('epoch-deposit')).toMatchObject({ phase: 'delivering' });
     expect(mockPutToStorage).not.toHaveBeenCalledWith(REGISTRY_KEY, expect.anything());
   });
+
+  describe('for a batch that kept no per-note facts', () => {
+    // Queued before the per-note facts, the row names its notes and nothing else about them.
+    const addLegacyBatch = () => addConsume({ noteIds: ['note-a', 'note-b'], amount: 3n });
+
+    it.each<[string, () => Promise<unknown>]>([
+      ['a landed consume', () => adoptLandedConsume('consume')],
+      ['a late note id', () => resolveBridgeInNoteId(EVM_OWNER, '7', 'note-b')]
+    ])('releases an Epoch delivery it cannot settle, through %s', async (_label, settle) => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      await addEpochDeposit();
+      registryHolds('note-b', EPOCH_LINK);
+      await addLegacyBatch();
+
+      await expect(settle()).resolves.toBeUndefined();
+
+      expect(mockPutToStorage).toHaveBeenCalledWith(REGISTRY_KEY, []);
+      expect(await phaseOf('epoch-deposit')).toMatchObject({ phase: 'delivering' });
+      expect((await Repo.transactions.get('epoch-deposit'))?.amount).toBeUndefined();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('released'), 'consume', 'epoch-deposit');
+      warn.mockRestore();
+    });
+
+    it.each<[string, () => Promise<unknown>]>([
+      ['a landed consume', () => adoptLandedConsume('consume')],
+      ['a late note id', () => resolveBridgeInNoteId(EVM_OWNER, '7', 'note-b')]
+    ])('settles an Earn withdrawal at its requested amount, through %s', async (_label, settle) => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      await addWithdrawal();
+      registryHolds('note-b', EARN_LINK);
+      await addLegacyBatch();
+
+      await expect(settle()).resolves.toBeUndefined();
+
+      expect(mockPutToStorage).toHaveBeenCalledWith(REGISTRY_KEY, []);
+      expect(await Repo.transactions.get('withdraw')).toMatchObject({
+        amount: 10n,
+        extraInputs: expect.objectContaining({ phase: 'received', midenNoteId: 'note-b' })
+      });
+      warn.mockRestore();
+    });
+  });
+
+  // A failure the note's facts do not explain may pass on a retry.
+  it.each<[string, () => Promise<unknown>]>([
+    ['a landed consume', () => adoptLandedConsume('consume')],
+    [
+      'a late note id',
+      () => expect(resolveBridgeInNoteId(EVM_OWNER, '7', 'note-b')).rejects.toThrow('database unavailable')
+    ]
+  ])(
+    'keeps the intent of a batch delivery with its facts whose settlement fails, through %s',
+    async (_label, settle) => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      await addEpochDeposit();
+      registryHolds('note-b', EPOCH_LINK);
+      await addConsume({
+        noteIds: ['note-a', 'note-b'],
+        amount: 3n,
+        consumedNotes: [mint('note-a', 1n), solverDelivery(2n)]
+      });
+      const failTracker = (_changes: object, key: unknown) => {
+        if (key === 'epoch-deposit') throw new Error('database unavailable');
+      };
+      Repo.transactions.hook('updating', failTracker);
+      try {
+        await settle();
+      } finally {
+        Repo.transactions.hook('updating').unsubscribe(failTracker);
+        warn.mockRestore();
+      }
+
+      expect(mockPutToStorage).not.toHaveBeenCalledWith(REGISTRY_KEY, expect.anything());
+      expect(await phaseOf('epoch-deposit')).toMatchObject({ phase: 'delivering' });
+    }
+  );
 });
