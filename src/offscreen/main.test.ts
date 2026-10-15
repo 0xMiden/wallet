@@ -714,6 +714,17 @@ describe('offscreen/main — startup / init()', () => {
     });
   });
 
+  // The answer crosses as JSON, so a value that is not stored arrives as a missing key.
+  it('reads a missing key in the answer as a value that is not stored', async () => {
+    await loadModule();
+    const override = { networkName: 'mainnet' };
+    G.chrome.runtime.sendMessage = jest.fn(() =>
+      Promise.resolve(JSON.parse(JSON.stringify({ ok: true, override, feeFaucetId: undefined })))
+    );
+
+    await expect(G.__off.storedSettingsReader()).resolves.toEqual({ override, feeFaucetId: undefined });
+  });
+
   it('rejects the stored-settings read when the service worker gives no answer', async () => {
     await loadModule();
     G.chrome.runtime.sendMessage = jest.fn(() => Promise.resolve({ ok: false, error: 'storage unavailable' }));

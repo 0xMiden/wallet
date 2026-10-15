@@ -265,17 +265,15 @@ setStoredEndpointSettingsReader(async () => {
     'offscreen-endpoint-settings',
     { retries: 2 }
   );
-  if (
-    !response ||
-    typeof response !== 'object' ||
-    !('ok' in response) ||
-    response.ok !== true ||
-    !('override' in response) ||
-    !('feeFaucetId' in response)
-  ) {
+  if (!response || typeof response !== 'object' || !('ok' in response) || response.ok !== true) {
     throw new Error('service worker did not answer with the stored endpoint settings');
   }
-  return { override: response.override, feeFaucetId: response.feeFaucetId };
+  // The answer crosses as JSON, which drops a key whose value is undefined: a missing key is a value
+  // that is not stored (a wallet with no fee faucet id has none), not a malformed answer.
+  return {
+    override: 'override' in response ? response.override : undefined,
+    feeFaucetId: 'feeFaucetId' in response ? response.feeFaucetId : undefined
+  };
 });
 
 // Memoized so the settings read happens once per realm. The memo is deliberately a
