@@ -203,7 +203,7 @@ export interface OffscreenReloadEndpointsRequest {
  * delivered via `sendResponse`. `ok: true` means the realm adopted the state it
  * was sent, if any, and dropped its client singleton. As with an
  * {@link OffscreenCallResponse}, a response of `undefined` on the wire (doc
- * closed/reaped) is not part of this type — the SW treats a missing/failed ack as
+ * closed/reaped) is not part of this type: the SW treats a missing/failed ack as
  * "not acknowledged" and moves on, since a reaped document's replacement gets the
  * state with its first call.
  */
