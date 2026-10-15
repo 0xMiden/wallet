@@ -9,6 +9,7 @@
 - [FEATURE][all] The send review page folds the transfer type and the expiration under an "Advanced options" row, closed by default with a one-line summary of both; a "Transfer type" sheet picks Private (the default) or Public, and a public send keeps a notice of what it reveals on the page and a "Send publicly" button whether or not the row is open.
 - [FEATURE][all] Send automatically selects the only visible token with a positive spendable balance and known scale for the selected destination. Explicit token links, restored drafts and manual choices take priority; loading and account or network changes cannot carry an automatic choice across contexts (#1454).
 - [FEATURE][all] Read bridge routes, service URLs, and contract addresses from the remote configuration for each EVM chain. Keep Earn under its own switch and read its market from Epoch. Use the listed chains for wallet connections, and keep saved transfer data for recovery after a route is disabled or changed.
+- [FEATURE][all] A testnet wallet switches to mainnet only after its invite code is accepted: once the remote config opens mainnet, the "Have a mainnet access code?" banner checks the code with the mainnet node before anything is cleared, and Developer Settings offers the same switch for an existing wallet. The accepted code is filled in on the mainnet code screen after the switch.
 
 ### Fixes
 
