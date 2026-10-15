@@ -11,7 +11,7 @@ import { getThemeSetting } from 'lib/settings/helpers';
 import { resolveTheme } from 'lib/settings/theme';
 
 import { getWalletConnectChains, prepareWalletConnectChains } from './chains';
-import { APP_METADATA, EVM_CHAIN_DEFINITIONS, getChain, WC_PROJECT_ID } from './config';
+import { APP_METADATA, copyPlainData, EVM_CHAIN_DEFINITIONS, getChain, WC_PROJECT_ID } from './config';
 
 export type AppKitInstance = ReturnType<typeof createAppKit>;
 type AppKitThemeMode = 'light' | 'dark';
@@ -20,7 +20,7 @@ type AppKitThemeMode = 'light' | 'dark';
 const [firstChain, ...otherChains] = EVM_CHAIN_DEFINITIONS;
 function appKitNetwork(chain: (typeof EVM_CHAIN_DEFINITIONS)[number]): AppKitNetwork {
   return defineChain({
-    ...chain,
+    ...copyPlainData(chain),
     rpcUrls: { default: { http: [getChain(chain.id)?.rpcUrl ?? chain.rpcUrls.default.http[0] ?? ''] } },
     chainNamespace: 'eip155',
     caipNetworkId: `eip155:${chain.id}`
