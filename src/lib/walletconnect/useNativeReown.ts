@@ -37,6 +37,9 @@ export function configureNativeReown(recoveryChainId?: number): Promise<void> {
         chainIds: chains.map(chain => chain.id),
         chains: chains.map(chain => ({ ...chain, nativeCurrency: { ...chain.nativeCurrency } })),
         methods: ['eth_sendTransaction', 'personal_sign', 'eth_signTypedData'],
+        // Optional only, so that a wallet without them still pairs. `ensureNativeSessionChain` uses
+        // them to add a chain that the session did not approve.
+        optionalMethods: ['wallet_addEthereumChain', 'wallet_switchEthereumChain'],
         events: ['chainChanged', 'accountsChanged']
       });
       configuredKey = key;

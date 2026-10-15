@@ -471,7 +471,7 @@ export async function createGuardianAccount(
 
     // Cold goes through the standard SDK keystore so the WASM client can sign
     // with it on demand; the existing insertKeyCallback wraps it under the
-    // vault key and stores it at accAuthSecretKeyStrgKey(coldPublicKey).
+    // vault key and stores it at accAuthSecretKeyStrgKey(<cold commitment>).
     // Hot is intentionally NOT inserted here — vault.ts persists the
     // returned hot ciphertext separately under its own envelope.
     assertLive('before the cold key insert');

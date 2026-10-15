@@ -119,9 +119,10 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
       password: string | undefined,
       mnemonic: string,
       ownMnemonic: boolean,
-      guardianEndpoint?: string
+      guardianEndpoint?: string,
+      accessCode?: string
     ) => {
-      await storeRegisterWallet(walletType, password, mnemonic, ownMnemonic, guardianEndpoint);
+      await storeRegisterWallet(walletType, password, mnemonic, ownMnemonic, guardianEndpoint, accessCode);
     },
     [storeRegisterWallet]
   );

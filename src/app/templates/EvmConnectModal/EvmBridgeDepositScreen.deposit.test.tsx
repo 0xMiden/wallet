@@ -12,7 +12,7 @@ import {
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import { NativeReown } from 'lib/walletconnect/native';
+import { NativeReown, NativeSessionChainNotApprovedError, prepareNativeSessionChain } from 'lib/walletconnect/native';
 import { readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
 import { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
@@ -228,7 +228,8 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
   useMobileBackHandler: () => undefined
 }));
 
-// The signer flavour: the wagmi one unless a case selects the native Reown one.
+// The signer flavour: the wagmi one unless a case selects the native Reown one. The session-chain
+// check passes unless a case refuses the chain; the error class is the real one the screen maps.
 let mockNativeReown = false;
 // The fee read hits the chain; here the wallet estimates, as it does when the read fails.
 jest.mock('lib/walletconnect/fees', () => ({ readNativeFeeFields: async () => ({}) }));
@@ -236,6 +237,10 @@ jest.mock('lib/walletconnect/fees', () => ({ readNativeFeeFields: async () => ({
 jest.mock('lib/walletconnect/native', () => ({
   isNativeReownAvailable: () => mockNativeReown,
   NativeReown: { sendTransaction: jest.fn() },
+  NativeSessionChainNotApprovedError:
+    jest.requireActual<typeof import('lib/walletconnect/native')>('lib/walletconnect/native')
+      .NativeSessionChainNotApprovedError,
+  prepareNativeSessionChain: jest.fn().mockResolvedValue(undefined),
   unwrapNativeResult: (value: unknown) => value
 }));
 
@@ -1525,6 +1530,120 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
     expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
       error: 'Could not check the USDC allowance the bridge has on Sepolia.'
     });
+  });
+});
+
+describe('EvmBridgeDepositScreen native session chain', () => {
+  const EVM_WALLET = '0x00000000000000000000000000000000000000e1';
+  const SEPOLIA = 11155111;
+  const BASE_SEPOLIA = 84532;
+
+  /** The native session did not approve Sepolia, and the add-and-switch attempt did not change that. */
+  const refuseSepolia = () =>
+    jest
+      .mocked(prepareNativeSessionChain)
+      .mockRejectedValueOnce(new NativeSessionChainNotApprovedError(SEPOLIA, 'Sepolia'));
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockAvailability = {};
+    mockAgglayerChainId = SEPOLIA;
+    mockSnapshot = READY_SNAPSHOT;
+    mockNativeReown = true;
+    jest.mocked(initiateBridgedReceiveTransaction).mockResolvedValue('bridge-tx');
+    jest.mocked(readEvmErc20Allowance).mockResolvedValue(0n);
+    jest.mocked(NativeReown.sendTransaction).mockResolvedValue({ hash: '0xhash' });
+    global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ result: '0x0' }) }) as never;
+  });
+
+  afterEach(() => {
+    Object.assign(epochState, idleEpoch);
+    mockNativeReown = false;
+  });
+
+  it('fails a Slow ETH deposit with the reconnect message and opens no wallet prompt', async () => {
+    refuseSepolia();
+    render(depositScreen(undefined, EVM_WALLET));
+
+    await reachReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(prepareNativeSessionChain).toHaveBeenCalledWith(SEPOLIA);
+    expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', { error: 'evmChainNotApproved' });
+    expect(await screen.findByTestId('deposit-status')).toBeInTheDocument();
+  });
+
+  it('fails a Slow USDC deposit with the reconnect message before the approval prompt', async () => {
+    refuseSepolia();
+    render(depositScreen(undefined, EVM_WALLET));
+
+    await reachSlowUsdcReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(readEvmErc20Allowance).not.toHaveBeenCalled();
+    expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', { error: 'evmChainNotApproved' });
+  });
+
+  it('fails a Fast deposit with the reconnect message and never starts the Epoch SDK', async () => {
+    refuseSepolia();
+    quoteFast();
+    render(depositScreen(undefined, EVM_WALLET));
+
+    await reachFastReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(prepareNativeSessionChain).toHaveBeenCalledWith(SEPOLIA);
+    expect(epochState.executeEVMToMiden).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', { error: 'evmChainNotApproved' });
+    expect(await screen.findByTestId('deposit-status')).toBeInTheDocument();
+  });
+
+  it('starts the Fast deposit once the session approved Sepolia', async () => {
+    quoteFast();
+    render(depositScreen(undefined, EVM_WALLET));
+
+    await reachFastReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(prepareNativeSessionChain).toHaveBeenCalledWith(SEPOLIA);
+    expect(epochState.executeEVMToMiden).toHaveBeenCalledWith('bridge-tx');
+    expect(updateBridgedReceivePhase).not.toHaveBeenCalledWith('bridge-tx', 'failed', expect.anything());
+  });
+
+  // The remote config names each route's chain, so the check follows it rather than Sepolia.
+  it('checks the AggLayer chain the config names before a Slow deposit', async () => {
+    mockAgglayerChainId = BASE_SEPOLIA;
+    jest
+      .mocked(prepareNativeSessionChain)
+      .mockRejectedValueOnce(new NativeSessionChainNotApprovedError(BASE_SEPOLIA, 'Base Sepolia'));
+    render(depositScreen(undefined, EVM_WALLET));
+
+    await reachReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(prepareNativeSessionChain).toHaveBeenCalledWith(BASE_SEPOLIA);
+    expect(NativeReown.sendTransaction).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', { error: 'evmChainNotApproved' });
+  });
+
+  it('checks the chain the config names for the Fast USDC before a Fast deposit', async () => {
+    mockSnapshot = { ...READY_SNAPSHOT, config: updateMockConfig(READY_SNAPSHOT.config!, { chainId: BASE_SEPOLIA }) };
+    quoteFast();
+    render(depositScreen(undefined, EVM_WALLET));
+
+    await reachFastReview();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(prepareNativeSessionChain).toHaveBeenCalledWith(BASE_SEPOLIA);
+    expect(epochState.executeEVMToMiden).toHaveBeenCalledWith('bridge-tx');
   });
 });
 

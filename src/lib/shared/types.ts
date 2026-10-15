@@ -544,6 +544,8 @@ export interface NewWalletRequest extends WalletMessageBase {
   // probed (import / recovery), threaded explicitly so a new Guardian account
   // binds to the caller's chosen endpoint. Undefined for non-guardian wallets.
   guardianEndpoint?: string;
+  /** Bind the final account before wallet setup completes. */
+  accessCode?: string;
 }
 
 export interface NewWalletResponse extends WalletMessageBase {

@@ -92,6 +92,15 @@ export function selectEarnMarket(s: BridgeConfigSnapshot): EarnMarket | null {
 }
 
 /**
+ * The Welcome variant the document sets: true for the invite-only way in, false for the create and
+ * recover flows. Null when the document has no `onboarding.inviteOnly`, or no document is accepted
+ * yet. Welcome reads false and null alike: the general variant, with the logo taps as the unlock.
+ */
+export function selectInviteOnlyOnboarding(s: BridgeConfigSnapshot): boolean | null {
+  return s.config?.onboarding?.inviteOnly ?? null;
+}
+
+/**
  * The registered token whose origin is native ETH on network 0: its faucet mints bridged ETH and sends its deliveries,
  * each a deposit of `w` wei arriving as `floor(w / 10^scale)` of the faucet's units.
  */

@@ -527,7 +527,8 @@ async function processRequest(req: WalletRequest, _port: Runtime.Port): Promise<
           req.password,
           req.mnemonic,
           req.ownMnemonic,
-          req.guardianEndpoint
+          req.guardianEndpoint,
+          req.accessCode
         );
         console.log('[processRequest] registerNewWallet completed successfully');
       } catch (err: unknown) {
