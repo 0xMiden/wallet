@@ -3254,6 +3254,10 @@
     "message": "This wallet file was created by a newer version of Bread. Update Bread and try again.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
   },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "This wallet file belongs to another network and cannot be restored on this one.",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
+  },
   "encryptedWalletFileRestoreFailed": {
     "message": "The wallet could not be restored. Check your storage and try again.",
     "englishSource": "The wallet could not be restored. Check your storage and try again."
