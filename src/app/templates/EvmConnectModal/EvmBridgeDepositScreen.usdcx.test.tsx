@@ -6,6 +6,7 @@ import { toFunctionSelector } from 'viem';
 import { TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import type { AgglayerChainConfig } from 'lib/remote-config/schema';
 import { runUsdcxDeposit } from 'lib/usdcx/deposit';
 import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import { buildExecutorBurnIntent, quoteExecutorBurn, runUsdcxExecutorDeposit } from 'lib/usdcx/executor';
@@ -416,7 +417,12 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     // ETH bridges only through AggLayer, so its balance is read on that chain, which the suite's document lacks.
     const config = TEST_BRIDGE_CONFIG_SNAPSHOT.config!;
     const sepolia = config.supportedEvmChains.sepolia!;
-    const agglayer = { contractAddress: '0x528e26b25a34a4a5d0dbda1d57d318153d2ed582', midenBridgeId: '0x187cabbc' };
+    const agglayer: AgglayerChainConfig = {
+      contractAddress: '0x528e26b25a34a4a5d0dbda1d57d318153d2ed582',
+      midenBridgeId: '0x187cabbc',
+      depositEnabled: true,
+      withdrawalEnabled: true
+    };
     mockBridgeSnapshot = {
       ...TEST_BRIDGE_CONFIG_SNAPSHOT,
       config: {
