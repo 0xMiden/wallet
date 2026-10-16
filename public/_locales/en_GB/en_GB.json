@@ -16,7 +16,7 @@
   "usdcxMinimumBurn": "Minimum burn",
   "usdcxSponsorshipFee": "Paid in $symbol$, including faucet execution sponsorship",
   "usdcxInvalidDestination": "Enter a valid address on a supported network for this withdrawal.",
-  "usdcxUnsupportedFaucet": "USDCx withdrawals are available only for the configured faucet on Miden testnet.",
+  "usdcxUnsupportedFaucet": "USDCx withdrawals are not available for this token on this network.",
   "usdcxInvalidAmount": "Enter a positive USDCx amount with at most six decimal places.",
   "usdcxBelowMinimumBurn": "The amount is below the faucet's minimum burn amount.",
   "usdcxIncompatibleBurnScript": "The wallet's burn script does not match the USDCx faucet.",

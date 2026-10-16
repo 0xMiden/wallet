@@ -16,7 +16,7 @@
   "usdcxMinimumBurn": "最低バーン量",
   "usdcxSponsorshipFee": "$symbol$で支払われる（faucetの実行スポンサーシップを含む）",
   "usdcxInvalidDestination": "この出金には、対応ネットワーク上の有効なアドレスを入力してください。",
-  "usdcxUnsupportedFaucet": "USDCxの引き出しは、Midenテストネット上で設定済みのfaucetでのみ利用可能です。",
+  "usdcxUnsupportedFaucet": "このネットワーク上では、このトークンのUSDCxによる引き出しは利用できません。",
   "usdcxInvalidAmount": "USDCxの正の金額を、小数点以下最大6桁まで入力してください。",
   "usdcxBelowMinimumBurn": "この金額は、faucetが定める最低バーン金額を下回っています。",
   "usdcxIncompatibleBurnScript": "このウォレットのバーンスクリプトは、USDCxのfaucetと一致していません。",

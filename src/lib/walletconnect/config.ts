@@ -7,7 +7,7 @@
  */
 
 import { Chain, defineChain } from 'viem';
-import { arbitrum, arbitrumSepolia, arc, base, baseSepolia, mainnet, optimism, sepolia } from 'viem/chains';
+import { arbitrum, arbitrumSepolia, base, baseSepolia, mainnet, optimism, sepolia } from 'viem/chains';
 
 export const ARC_TESTNET = defineChain({
   id: 5042002,
@@ -16,6 +16,15 @@ export const ARC_TESTNET = defineChain({
   rpcUrls: { default: { http: ['https://rpc.testnet.arc.io'] } },
   blockExplorers: { default: { name: 'Arc Explorer', url: 'https://explorer.testnet.arc.io' } },
   testnet: true
+});
+
+// viem's `arc` has no RPC and no explorer; these are Circle's, from https://docs.arc.io/arc/references/rpc-endpoints.
+const ARC_MAINNET = defineChain({
+  id: 5042,
+  name: 'Arc',
+  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+  rpcUrls: { default: { http: ['https://rpc.mainnet.arc.io'] } },
+  blockExplorers: { default: { name: 'Arc Explorer', url: 'https://explorer.arc.io' } }
 });
 
 /** The Reown project id every bundle uses unless `WALLETCONNECT_PROJECT_ID` is set at build time. */
@@ -72,7 +81,7 @@ export const EVM_CHAIN_DEFINITIONS: [Chain, ...Chain[]] = [
   mainnet,
   base,
   arbitrum,
-  arc,
+  ARC_MAINNET,
   optimism
 ];
 
@@ -94,7 +103,7 @@ export function copyPlainData(value: unknown): unknown {
 export const SUPPORTED_CHAINS: EvmChain[] = EVM_CHAIN_DEFINITIONS.map(chain => {
   switch (chain.id) {
     case ARC_TESTNET.id:
-    case arc.id:
+    case ARC_MAINNET.id:
       return {
         ...walletConnectChain(chain),
         rpcUrl: chain.rpcUrls.default.http[0] ?? RPC(chain.id)
@@ -115,4 +124,9 @@ export const APP_METADATA = {
 
 export function getChain(id: number): EvmChain | undefined {
   return SUPPORTED_CHAINS.find(c => c.id === id);
+}
+
+/** `chain`'s explorer page for a transaction or an address, or undefined when the wallet knows no explorer for it. */
+export function evmExplorerUrl(chain: EvmChain | undefined, kind: 'tx' | 'address', id: string): string | undefined {
+  return chain?.explorer ? `${chain.explorer}/${kind}/${id}` : undefined;
 }

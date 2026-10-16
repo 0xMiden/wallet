@@ -11,6 +11,7 @@ import { sepolia } from 'viem/chains';
 import {
   bridgedSendRowOf,
   bridgeOutUsdcx,
+  burnSubmitFailure,
   enText,
   expectArcPreselected,
   isArcSnapshotFailure,
@@ -21,7 +22,14 @@ import {
   usdcxPayoutRowsText,
   waitForReviewSubmitEnabled
 } from './bridge';
-import { ARC_CHAIN_ID, BURN_UNITS, USDCX_DECIMALS } from './usdcx-constants';
+import {
+  ARBITRUM_SEPOLIA_PAYOUT,
+  ARC_CHAIN_ID,
+  ARC_PAYOUT,
+  BASE_SEPOLIA_PAYOUT,
+  BURN_UNITS,
+  USDCX_DECIMALS
+} from './usdcx-constants';
 import type { ChromeWalletPageApi } from './wallet-page';
 
 const EN = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../public/_locales/en/en.json'), 'utf8'));
@@ -221,6 +229,39 @@ describe('isArcSnapshotFailure', () => {
   });
 });
 
+describe('burnSubmitFailure', () => {
+  // What viem's error.message, which the review shows, reads on Arbitrum's WalletConnect backend a few blocks behind.
+  const WALLET_RPC_ERROR =
+    'Missing or invalid parameters.\n\nURL: https://rpc.walletconnect.org/v1?chainId=eip155:421614&projectId=operator-project\n' +
+    'Details: unsupported block number 318137572';
+
+  it("keeps Arc's snapshot message as it was", () => {
+    expect(burnSubmitFailure(ARC_PAYOUT, 'HTTP request failed. Status: 429', 0)).toBe(
+      "Arc RPC unavailable for the wallet's balance snapshot (burn.ts:103), infra: review-error " +
+        '"HTTP request failed. Status: 429"'
+    );
+  });
+
+  it("fails an L2 snapshot refusal as infra naming the wallet RPC's host, never its project id", () => {
+    const message = burnSubmitFailure(ARBITRUM_SEPOLIA_PAYOUT, WALLET_RPC_ERROR, 0);
+    expect(message).toMatch(
+      /^Arbitrum Sepolia RPC rpc\.walletconnect\.org unavailable for the wallet's balance snapshot \(burn\.ts:103\), infra: review-error "/
+    );
+    expect(message).toContain('projectId=<redacted>');
+    expect(message).toContain('unsupported block number 318137572');
+    expect(message).not.toContain('operator-project');
+  });
+
+  it('calls anything else, or an RPC error once a row was queued, a refusal, still without the project id', () => {
+    expect(burnSubmitFailure(BASE_SEPOLIA_PAYOUT, 'The amount is below the minimum burn.', 0)).toBe(
+      'the review refused the burn: review-error "The amount is below the minimum burn.", 0 new usdcx rows'
+    );
+    const queued = burnSubmitFailure(BASE_SEPOLIA_PAYOUT, WALLET_RPC_ERROR, 1);
+    expect(queued).toMatch(/^the review refused the burn: review-error "/);
+    expect(queued).not.toContain('operator-project');
+  });
+});
+
 describe('readNativeDisplaySymbol', () => {
   const pageRunningHere = () =>
     ({ evaluate: async <T>(callback: (arg: T) => unknown, arg: T) => callback(arg) }) as unknown as Page;
@@ -267,6 +308,13 @@ describe('usdcxPayoutRowsText', () => {
     );
     expect(usdcxPayoutRowsText(ARC_CHAIN_ID, '0.100001').net).toBe('At least 0.000001 USDC');
   });
+
+  // A pin, green before and after: the payout rows carry no chain, so the L2 burns show Arc's text.
+  it("quotes the same rows on Base Sepolia and Arbitrum Sepolia, whose allowance is Arc's", () => {
+    for (const chain of [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT]) {
+      expect(usdcxPayoutRowsText(chain.chainId, '1')).toEqual({ fee: 'Up to 0.1 USDC', net: 'At least 0.9 USDC' });
+    }
+  });
 });
 
 describe('bridgeOutUsdcx', () => {
@@ -291,6 +339,31 @@ describe('bridgeOutUsdcx', () => {
         screenshotDir: path.join(os.tmpdir(), 'bridge-out-usdcx-refused')
       })
     ).rejects.toThrow('0.1 USDCx does not exceed the 0.1 USDC payout fee allowance on Arc Testnet');
+    expect(touched).toEqual([]);
+  });
+
+  it("refuses an amount the destination's allowance takes whole, naming that destination, before it touches the page", async () => {
+    const touched: string[] = [];
+    const page = new Proxy(
+      {},
+      {
+        get: (_target, property) => {
+          touched.push(String(property));
+          return () => Promise.reject(new Error('the page was driven'));
+        }
+      }
+    );
+    const wallet = { page, extensionId: 'abc' } as unknown as ChromeWalletPageApi;
+    await expect(
+      bridgeOutUsdcx(wallet, {
+        destAddress: '0x405b05F75F8D299FCd413a3d77F89EDDCBa78026',
+        amount: '0.1',
+        nativeTokenId: 'mtst1apxtmjhlua0s5vt5sg3ymtnyxclasaf0_qr7qqq9wr6w',
+        nativeSymbol: 'USDCX',
+        screenshotDir: path.join(os.tmpdir(), 'bridge-out-usdcx-refused-l2'),
+        payoutChain: BASE_SEPOLIA_PAYOUT
+      })
+    ).rejects.toThrow('0.1 USDCx does not exceed the 0.1 USDC payout fee allowance on Base Sepolia');
     expect(touched).toEqual([]);
   });
 });

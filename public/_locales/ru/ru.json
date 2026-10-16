@@ -16,7 +16,7 @@
   "usdcxMinimumBurn": "Минимальный объем сжигания",
   "usdcxSponsorshipFee": "Оплачено в $symbol$, включая спонсорство запуска faucet",
   "usdcxInvalidDestination": "Введите действительный адрес в поддерживаемой сети для данного вывода средств.",
-  "usdcxUnsupportedFaucet": "Вывод средств в USDCx доступен только для настроенных кошельков faucet в тестовой сети Miden.",
+  "usdcxUnsupportedFaucet": "Вывод USDCx для данного токена в этой сети недоступен.",
   "usdcxInvalidAmount": "Введите положительную сумму в USDCx с точностью до шести знаков после запятой.",
   "usdcxBelowMinimumBurn": "Сумма ниже минимальной суммы сжигания, установленной «faucet».",
   "usdcxIncompatibleBurnScript": "Скрипт сжигания кошелька не соответствует скрипту сжигания USDCx faucet.",

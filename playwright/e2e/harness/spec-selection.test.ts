@@ -75,18 +75,25 @@ const BURN_TESTS = [
   'usdcx-burn.spec.ts › USDCx burn through the Send UI after a public faucet grant › ' +
     'Guardian wallet publishes a burn, the faucet consumes it and Circle pays it out'
 ];
+const L2_BURN_TESTS = ['Base Sepolia', 'Arbitrum Sepolia'].map(
+  chain =>
+    'usdcx-burn-l2.spec.ts › USDCx L2 burn through the Send UI after a public faucet grant › ' +
+    `Guardian wallet burns to ${chain}, the faucet consumes it, Circle pays it out and the wallet confirms it`
+);
 /** Every test `playwright.usdcx.config.ts` must list, and nothing else. */
-const USDCX_LIVE_TESTS = [ROUND_TRIP_TEST, BRIDGE_IN_TEST, ...BURN_TESTS];
+const USDCX_LIVE_TESTS = [ROUND_TRIP_TEST, BRIDGE_IN_TEST, ...BURN_TESTS, ...L2_BURN_TESTS];
 /** Each runner suite's grep, compiled case-insensitive as scripts/e2e-real.mjs does, and the tests it must select. */
 const USDCX_RUNNER_GREPS: Array<[grep: string, tests: string[]]> = [
   ['USDCx round trip', [ROUND_TRIP_TEST]],
   ['funded Arc key', [BRIDGE_IN_TEST]],
-  ['USDCx burn through the Send UI', BURN_TESTS]
+  ['USDCx burn through the Send UI', BURN_TESTS],
+  ['USDCx L2 burn', L2_BURN_TESTS]
 ];
 /** Each live spec file and how many describes it guards. */
 const USDCX_LIVE_SPECS: Array<[file: string, describes: number]> = [
   ['usdcx-roundtrip.spec.ts', 2],
-  ['usdcx-burn.spec.ts', 1]
+  ['usdcx-burn.spec.ts', 1],
+  ['usdcx-burn-l2.spec.ts', 1]
 ];
 /**
  * R21 and R22: every burn to the shared harness Arc key runs `harnessPayoutLeg` (usdcx-legs.ts, unit-tested in
@@ -106,7 +113,8 @@ const USDCX_PAYOUT_WIRING: RegExp[] = [
 const USDCX_PAYOUT_PRECHECK =
   /step\('arc_state', BUDGET\.arcState, async \(\) => \{\s*const state = await readXReserveDomainState\(arc\);[^;]*\)\.toEqual\(\{ registered: true, paused: false, (?:depositsPaused: false, )?withdrawalsPaused: false \}\);[\s\S]*?'fund'[\s\S]*'burn_via_ui'/;
 /** A live USDCx spec in another config's listing, the burn spec under its old tests/bridge name included. */
-const USDCX_LIVE_SPEC = /usdcx-roundtrip\.spec\.ts|usdcx-burn\.spec\.ts|bridge-out-usdcx\.spec\.ts/;
+const USDCX_LIVE_SPEC =
+  /usdcx-roundtrip\.spec\.ts|usdcx-burn\.spec\.ts|usdcx-burn-l2\.spec\.ts|bridge-out-usdcx\.spec\.ts/;
 
 /** `playwright test --list` lines as `file › describe › test`, without the line and column. */
 const listedTests = (listing: string): string[] =>
@@ -151,7 +159,7 @@ describe('the USDCx live suites run under their own config only', () => {
     ).toHaveLength(describes);
   });
 
-  it.each(['usdcx-roundtrip.spec.ts', 'usdcx-burn.spec.ts'])(
+  it.each(['usdcx-roundtrip.spec.ts', 'usdcx-burn.spec.ts', 'usdcx-burn-l2.spec.ts'])(
     "%s waits for each burn's own payout, proven against the key read right before the burn",
     file => {
       const source = configSource(`${USDCX_TESTS_DIR}/${file}`);
@@ -159,7 +167,7 @@ describe('the USDCx live suites run under their own config only', () => {
     }
   );
 
-  it.each(['usdcx-roundtrip.spec.ts', 'usdcx-burn.spec.ts'])(
+  it.each(['usdcx-roundtrip.spec.ts', 'usdcx-burn.spec.ts', 'usdcx-burn-l2.spec.ts'])(
     '%s refuses to burn, before its faucet grant, while xReserve cannot pay the burn out',
     file => {
       expect(configSource(`${USDCX_TESTS_DIR}/${file}`)).toMatch(USDCX_PAYOUT_PRECHECK);
