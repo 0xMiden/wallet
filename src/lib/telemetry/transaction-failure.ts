@@ -1,10 +1,11 @@
 import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 import { isDesktop } from 'lib/platform';
+import { isHotKeyFailure } from 'lib/secure-hot-key/failure';
 
 import { classifyError } from './classify';
 import { resolveTelemetryContext } from './context';
 import { captureCrash } from './crash';
-import { annotateCrash, snapshotCrashDiagnostics } from './crash-diagnostics';
+import { annotateCrash, errorChain, snapshotCrashDiagnostics } from './crash-diagnostics';
 import assertions from './protocol-assertions.json';
 import { operationOfType, stepOfStage } from './transaction-operation';
 import packageJson from '../../../package.json';
@@ -16,9 +17,23 @@ export interface TransactionFailureDiagnostics {
   accountAuthCode?: 'current_guardian' | 'unrecognized' | 'unavailable';
 }
 
+const FAILURE_REASONS = [
+  'user_cancelled',
+  'interrupted_on_startup',
+  'stuck_reaped',
+  'queued_expired',
+  'rotation_gate_refusal',
+  'consume_not_landed',
+  'note_invalid'
+] as const;
+
+/** A failure the wallet itself decided, named by the caller because its stored text is never sent. */
+export type TransactionFailureReason = (typeof FAILURE_REASONS)[number];
+
 export interface TransactionFailure {
   type: ITransactionType;
   stage?: ITransactionStage;
+  reason?: TransactionFailureReason;
   error?: unknown;
   delegateTransaction?: boolean;
   outcome?: 'failed' | 'unconfirmed';
@@ -36,6 +51,96 @@ function diagnostic<T extends string>(value: unknown, allowed: readonly T[], fal
   return allowed.includes(value as T) ? (value as T) : fallback;
 }
 
+// GUARDIAN_ERROR_CODES as @openzeppelin/guardian-client 0.18.1 publishes it.
+const GUARDIAN_CODES = [
+  'account_already_exists',
+  'account_data_unavailable',
+  'account_not_found',
+  'account_paused',
+  'account_released',
+  'authentication_failed',
+  'authentication_replay',
+  'authorization_failed',
+  'candidate_landed',
+  'commitment_mismatch',
+  'configuration_error',
+  'conflict_pending_delta',
+  'conflict_pending_proposal',
+  'data_unavailable',
+  'delta_not_found',
+  'insufficient_operator_permission',
+  'insufficient_signatures',
+  'invalid_account_id',
+  'invalid_commitment',
+  'invalid_cursor',
+  'invalid_delta',
+  'invalid_evm_proposal',
+  'invalid_input',
+  'invalid_limit',
+  'invalid_network_config',
+  'invalid_proposal_signature',
+  'invalid_status_filter',
+  'invalid_timestamp',
+  'network_error',
+  'pending_proposals_limit',
+  'proposal_already_signed',
+  'proposal_not_found',
+  'rate_limit_exceeded',
+  'rpc_unavailable',
+  'rpc_validation_failed',
+  'session_expired',
+  'session_revoked',
+  'signature_scheme_not_allowed',
+  'signer_not_authorized',
+  'signing_error',
+  'state_not_found',
+  'storage_error',
+  'unsupported_evm_chain',
+  'unsupported_for_network',
+  'wallet_signature_required'
+];
+
+// Every code HotKeyPlugin.kt and HotKeyPlugin.swift reject with.
+const HOT_KEY_CODES = [
+  'AUTH_FAILED',
+  'AUTH_UNAVAILABLE',
+  'BAD_CIPHERTEXT',
+  'BIOMETRIC_BUSY',
+  'DEVICE_LOCKED',
+  'HARDWARE_UNAVAILABLE',
+  'INVALID_INPUT',
+  'KEY_INVALIDATED',
+  'KEY_NOT_FOUND',
+  'LEGACY_CIPHER_INIT_FAILED',
+  'UNWRAP_FAILED',
+  'USER_CANCELLED'
+];
+
+const listedCode = (code: unknown, allowed: readonly string[]): string =>
+  typeof code === 'string' ? diagnostic(code, allowed, 'other') : 'none';
+
+// Read structurally, never from the text: a rejection's message, body and status text can carry account ids, URLs
+// and server internals.
+function rejectionIdentity(error: unknown): string | undefined {
+  for (const link of errorChain(error)) {
+    try {
+      if (isHotKeyFailure(link)) return `hot_key; hot key code ${listedCode(Reflect.get(link, 'code'), HOT_KEY_CODES)}`;
+      if (link.name === 'GuardianHttpError') {
+        const status: unknown = Reflect.get(link, 'status');
+        const http =
+          typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599
+            ? String(status)
+            : 'other';
+        const code = Reflect.get(link, 'code') ?? Reflect.get(link, 'rawCode');
+        return `guardian_http_${http}; guardian code ${listedCode(code, GUARDIAN_CODES)}`;
+      }
+    } catch {
+      // A throwing accessor costs this link, not the report.
+    }
+  }
+  return undefined;
+}
+
 function failureIdentity(error: unknown): string {
   const message = typeof error === 'string' ? error : error instanceof Error ? error.message : '';
   const code = /assertion failed with error code:\s*(\d{1,20})(?!\d)/.exec(message)?.[1];
@@ -48,7 +153,7 @@ function failureIdentity(error: unknown): string {
   if (/advice stack read failed/i.test(message)) return 'advice_stack_read_failed';
   if (/WebClient terminated/.test(message)) return 'client_terminated';
   if (/failed to execute transaction/i.test(message)) return 'transaction_execution_failed';
-  return classifyError(error);
+  return rejectionIdentity(error) ?? classifyError(error);
 }
 
 function softwareVersion(value: string): string {
@@ -122,9 +227,13 @@ export function reportTransactionFailure(failure: TransactionFailure): void {
     const proving =
       failure.delegateTransaction === true ? 'delegated' : failure.delegateTransaction === false ? 'local' : 'unknown';
     const platform = isDesktop() ? 'desktop' : resolveTelemetryContext().platform;
+    const identity =
+      failure.reason === undefined
+        ? failureIdentity(failure.error)
+        : diagnostic<string>(failure.reason, FAILURE_REASONS, 'other');
     const report = new Error(
       [
-        `Transaction ${outcome}: ${operation}; stage ${stage}; realm ${realm}; proving preference ${proving}; platform ${platform}; point ${point}; ${failureIdentity(failure.error)}`,
+        `Transaction ${outcome}: ${operation}; stage ${stage}; realm ${realm}; proving preference ${proving}; platform ${platform}; point ${point}; ${identity}`,
         `authentication preparation ${preparation}; layout ${layout}; commitment match ${match}; account code ${accountCode}`,
         `SDK ${softwareVersion(packageJson.dependencies['@miden-sdk/miden-sdk'])}; Guardian client ${softwareVersion(packageJson.dependencies['@openzeppelin/miden-multisig-client'])}`
       ].join('. ')

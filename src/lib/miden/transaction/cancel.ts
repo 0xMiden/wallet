@@ -7,7 +7,7 @@ import { hiddenSecondsSince } from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import { classifyError } from 'lib/telemetry/classify';
 import { reportOperation } from 'lib/telemetry/report-operation';
-import { reportTransactionFailure } from 'lib/telemetry/transaction-failure';
+import { reportTransactionFailure, type TransactionFailureReason } from 'lib/telemetry/transaction-failure';
 import { elapsedMsSince, operationOfType, stepOfStage } from 'lib/telemetry/transaction-operation';
 
 import {
@@ -17,6 +17,7 @@ import {
   isUnconfirmedFailureReason,
   isWalletFailureReason,
   resolveTransactionErrorMessage,
+  RotationGateConsumeRefusal,
   TRANSACTION_EXPIRED_ERROR,
   TRANSACTION_FORCE_CANCELLED_ERROR,
   TRANSACTION_INTERRUPTED_ERROR,
@@ -55,6 +56,19 @@ export const MAX_WAIT_BEFORE_CANCEL = isMobile() ? 2 * 60 : 30 * 60; // 2 mins o
 
 // Maximum age for a queued transaction before it's considered stale and cancelled
 export const MAX_QUEUED_AGE = 30 * 60; // 30 minutes (seconds)
+
+// The failure report sends no text, so it carries the wallet's own reason as a fixed name instead.
+const REPORTED_WALLET_REASONS = new Map<unknown, TransactionFailureReason>([
+  [USER_CANCELLED_TRANSACTION_REASON, 'user_cancelled'],
+  [TRANSACTION_INTERRUPTED_ON_STARTUP, 'interrupted_on_startup'],
+  [TRANSACTION_STUCK_ERROR, 'stuck_reaped'],
+  [TRANSACTION_EXPIRED_ERROR, 'queued_expired'],
+  [TRANSACTION_INTERRUPTED_ERROR, 'consume_not_landed'],
+  [INVALID_NOTE_ERROR, 'note_invalid']
+]);
+
+const reportedWalletReason = (error: unknown): TransactionFailureReason | undefined =>
+  error instanceof RotationGateConsumeRefusal ? 'rotation_gate_refusal' : REPORTED_WALLET_REASONS.get(error);
 
 /**
  * The stored failure text for `error` on this row: the message the classifier writes (or a wallet reason verbatim)
@@ -192,6 +206,7 @@ export const cancelTransaction = async (
       stage: committed.stage,
       delegateTransaction: committed.delegateTransaction,
       diagnostics: committed.failureDiagnostics,
+      reason: reportedWalletReason(error),
       error
     });
   }

@@ -23,6 +23,7 @@
 
 import { isMobile } from 'lib/platform';
 
+import { markHotKeyFailure } from './failure';
 import * as jsFallback from './jsFallback';
 import * as nativePlugin from './nativePlugin';
 
@@ -108,6 +109,8 @@ async function withHardwareFailureReport<T>(op: () => Promise<T>): Promise<T> {
   try {
     return await op();
   } catch (error) {
+    // Lets a transaction-failure report name the plugin's code (lib/telemetry/transaction-failure).
+    markHotKeyFailure(error);
     const code = readErrorField(error, 'code');
     if (isMobile() && !(code !== undefined && BENIGN_NATIVE_CODES.has(code))) {
       try {
