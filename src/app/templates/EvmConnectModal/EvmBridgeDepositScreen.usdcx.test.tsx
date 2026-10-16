@@ -185,11 +185,20 @@ jest.mock('lib/walletconnect/receipt', () => ({
   waitForEvmReceipt: jest.fn().mockResolvedValue(undefined)
 }));
 
-jest.mock('lib/walletconnect/config', () => ({
-  ...jest.requireActual('lib/walletconnect/config'),
-  DEFAULT_CHAIN_ID: 11155111,
-  getChain: (id: number) => ({ rpcUrl: `https://rpc.test/${id}`, name: id === 5042002 ? 'Arc Testnet' : 'Sepolia' })
-}));
+// Each chain has its own name, so a message that names the wrong chain fails.
+jest.mock('lib/walletconnect/config', () => {
+  const names: Record<number, string> = {
+    84532: 'Base Sepolia',
+    421614: 'Arbitrum Sepolia',
+    11155111: 'Sepolia',
+    5042002: 'Arc Testnet'
+  };
+  return {
+    ...jest.requireActual('lib/walletconnect/config'),
+    DEFAULT_CHAIN_ID: 11155111,
+    getChain: (id: number) => ({ rpcUrl: `https://rpc.test/${id}`, name: names[id] ?? `Chain ${id}` })
+  };
+});
 
 jest.mock('./EvmBridgeDepositForm', () => ({
   EvmBridgeDepositForm: ({
@@ -883,13 +892,13 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
   });
 
   /** The refusal of a 1.5 USDC deposit and Circle's 31,908-unit fee against `balance`, as the suite's `t` prints it. */
-  const feeAboveBalance = (balance: string) =>
+  const feeAboveBalance = (balance: string, network: string) =>
     `usdcxDepositFeeAboveBalance ${JSON.stringify({
       total: '1.531908',
       fee: '0.031908',
       balance,
       token: 'USDC',
-      network: 'Sepolia'
+      network
     })}`;
   const FEE_QUOTE: CctpBurnQuote = { signedQuote: '0x01', feeTotalAmount: 31_908n };
   const BASE_SEPOLIA_USDC = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
@@ -929,7 +938,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(mockWriteContract).not.toHaveBeenCalled();
     expect(mockNativeSend).not.toHaveBeenCalled();
     expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
-      error: feeAboveBalance('1.52')
+      error: feeAboveBalance('1.52', 'Base Sepolia')
     });
   });
 
@@ -1004,7 +1013,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
 
     expect(mockWriteContract).not.toHaveBeenCalled();
     expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
-      error: feeAboveBalance('1.531907')
+      error: feeAboveBalance('1.531907', 'Base Sepolia')
     });
   });
 
@@ -1025,7 +1034,26 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     // The approval only: the burn is never asked for.
     expect(mockWriteContract).toHaveBeenCalledTimes(1);
     expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
-      error: `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network: 'Sepolia' })}`
+      error: `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network: 'Base Sepolia' })}`
+    });
+  });
+
+  it('fails the row with the balance-read message when the read after the chain step fails', async () => {
+    runRealExecutor({ readAllowance: async () => 0n });
+    renderScreen();
+    await reachBaseSepoliaRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    mockSwitchChain.mockImplementationOnce(async () => {
+      global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ error: { message: 'rpc down' } }) });
+    });
+
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(mockWriteContract).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
+      error: `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network: 'Base Sepolia' })}`
     });
   });
 
@@ -1038,7 +1066,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     await reachBaseSepoliaRoute();
 
     expect(screen.getByTestId('usdcx-route-fee')).toHaveTextContent('usdcxForwardFee');
-    expect(screen.getByTestId('usdcx-route-notice').textContent).toBe(feeAboveBalance('1.531907'));
+    expect(screen.getByTestId('usdcx-route-notice').textContent).toBe(feeAboveBalance('1.531907', 'Base Sepolia'));
     expect(screen.getByTestId('usdcx-route-confirm')).toBeDisabled();
   });
 
@@ -1061,7 +1089,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     await settle();
 
     expect(screen.getByTestId('review-fee')).toHaveTextContent('0.031908');
-    expect(screen.getByTestId('review-error').textContent).toBe(feeAboveBalance('1.531907'));
+    expect(screen.getByTestId('review-error').textContent).toBe(feeAboveBalance('1.531907', 'Base Sepolia'));
     expect(screen.getByTestId('review-can-confirm')).toHaveTextContent(/^false$/);
   });
 
@@ -1077,8 +1105,13 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     const reachFeeHold = async () => {
       jest.mocked(quoteExecutorBurn).mockResolvedValue(FEE_QUOTE);
       mockBalance = TYPED + FEE_QUOTE.feeTotalAmount - 1n;
-      renderScreen();
+      const view = renderScreen();
       await reachBaseSepoliaRoute();
+      expect(screen.getByTestId('usdcx-route-confirm')).toBeDisabled();
+      return view;
+    };
+    const expectFeeHold = () => {
+      expect(screen.getByTestId('usdcx-route-notice').textContent).toBe(feeAboveBalance('1.531907', 'Base Sepolia'));
       expect(screen.getByTestId('usdcx-route-confirm')).toBeDisabled();
     };
 
@@ -1091,6 +1124,52 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       await advance(10_000);
 
       expect(confirm).toBeEnabled();
+    });
+
+    it('stops re-reading once the hold clears', async () => {
+      await reachFeeHold();
+      mockBalance = TYPED + FEE_QUOTE.feeTotalAmount;
+      await advance(10_000);
+      expect(screen.getByTestId('usdcx-route-confirm')).toBeEnabled();
+      const reads = balanceOfRequests().length;
+
+      await advance(30_000);
+
+      expect(balanceOfRequests()).toHaveLength(reads);
+    });
+
+    it('stops re-reading on unmount', async () => {
+      const view = await reachFeeHold();
+      await advance(10_000);
+      const reads = balanceOfRequests().length;
+
+      view.unmount();
+      await advance(30_000);
+
+      expect(balanceOfRequests()).toHaveLength(reads);
+    });
+
+    // A read that never answers is aborted after RPC_TIMEOUT_MS (15 s); until then no second read is sent.
+    it('reads one balance at a time and again after the timeout', async () => {
+      await reachFeeHold();
+      global.fetch = jest.fn().mockImplementation(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            const signal = init?.signal;
+            signal?.addEventListener('abort', () => reject(signal.reason));
+          })
+      );
+
+      await advance(10_000);
+      expect(balanceOfRequests()).toHaveLength(1);
+      expectFeeHold();
+      await advance(10_000);
+      expect(balanceOfRequests()).toHaveLength(1);
+      expectFeeHold();
+      // The read timed out at 25 s, so the tick at 30 s reads again.
+      await advance(10_000);
+      expect(balanceOfRequests()).toHaveLength(2);
+      expectFeeHold();
     });
 
     it('re-reads the source balance while the amount alone is held and enables Confirm once it covers', async () => {
@@ -1120,19 +1199,13 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       expect(balanceOfRequests()).toHaveLength(reads);
     });
 
-    it.each<[string, () => void]>([
-      ['stall', () => (global.fetch = jest.fn().mockReturnValue(new Promise(() => undefined)))],
-      [
-        'fail',
-        () => (global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ error: { message: 'rpc down' } }) }))
-      ]
-    ])('keeps the held balance on screen while its re-reads %s', async (_outcome, answer) => {
+    it('keeps the held balance on screen while its re-reads fail', async () => {
       await reachFeeHold();
-      answer();
+      global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ error: { message: 'rpc down' } }) });
 
       for (const ms of [10_000, 20_000]) {
         await advance(ms);
-        expect(screen.getByTestId('usdcx-route-notice').textContent).toBe(feeAboveBalance('1.531907'));
+        expect(screen.getByTestId('usdcx-route-notice').textContent).toBe(feeAboveBalance('1.531907', 'Base Sepolia'));
         expect(screen.getByTestId('usdcx-route-confirm')).toBeDisabled();
       }
     });
@@ -1371,8 +1444,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       expect(mockSwitchChain).not.toHaveBeenCalled();
       // Adding and switching the chain is a wallet prompt too, so the balance is checked first.
       expect(prepareNativeSessionChain).not.toHaveBeenCalled();
-      // The suite's chain stub names every chain but Arc "Sepolia", Base Sepolia included.
-      const network = route === 'xreserve' ? 'Arc Testnet' : 'Sepolia';
+      const network = route === 'xreserve' ? 'Arc Testnet' : 'Base Sepolia';
       expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
         error: `bridgeDepositBalanceTooLow ${JSON.stringify({ balance: '1.4999', token: 'USDC', network })}`
       });
