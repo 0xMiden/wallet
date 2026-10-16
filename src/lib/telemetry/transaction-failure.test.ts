@@ -9,6 +9,8 @@ import { signHotDigest as fallbackSignHotDigest } from 'lib/secure-hot-key/jsFal
 
 import { captureCrash } from './crash';
 import { FAILURE_REASONS, HOT_KEY_CODES, reportTransactionFailure } from './transaction-failure';
+// The shipped class, past the stub jest maps the package to, so the fields the report reads are the ones it sets.
+import { GuardianHttpError } from '../../../node_modules/@openzeppelin/guardian-client/dist/http.js';
 
 jest.mock('./crash', () => ({ captureCrash: jest.fn() }));
 jest.mock('lib/platform', () => ({ ...jest.requireActual('lib/platform'), isIOS: jest.fn(() => false) }));
@@ -164,6 +166,33 @@ it('reports a Guardian code outside the published list as other, and a refusal w
   expect(unlisted).toContain('; guardian_http_409; guardian code other. ');
   expect(`${unknown} ${unlisted}`).not.toContain('shard_7');
   expect(none).toContain('; guardian_http_502; guardian code none. ');
+});
+
+it('reports the shipped GuardianHttpError by the status and code it sets, for a published and an unknown code', async () => {
+  const envelope = (code: string) =>
+    JSON.stringify({ code, message: 'account mtst1poison is paused', meta: { retryable: false } });
+  reportTransactionFailure({
+    type: 'consume',
+    error: new GuardianHttpError(409, 'Conflict', envelope('GUARDIAN_ACCOUNT_PAUSED'))
+  });
+  reportTransactionFailure({
+    type: 'consume',
+    error: new GuardianHttpError(503, 'Service Unavailable', envelope('shard_7_overloaded'))
+  });
+  await settle();
+  const [published, unknown] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
+  expect(published).toContain('; point pipeline; guardian_http_409; guardian code account_paused. ');
+  expect(unknown).toContain('; point pipeline; guardian_http_503; guardian code other. ');
+  for (const text of [
+    'Conflict',
+    'Service Unavailable',
+    'mtst1poison',
+    'GUARDIAN_ACCOUNT_PAUSED',
+    'shard_7',
+    'retryable'
+  ]) {
+    expect(`${published} ${unknown}`).not.toContain(text);
+  }
 });
 
 it.each([...GUARDIAN_ERROR_CODES])('reports the published Guardian code %s', async code => {
