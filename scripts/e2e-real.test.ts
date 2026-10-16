@@ -2180,10 +2180,44 @@ describe('a usdcx run', () => {
     expect(res.status).toBe(0);
   }, 35_000);
 
+  const maxFailuresOf = async (suite: string) => {
+    const home = freshHome();
+    await writeHarnessArcKey(harnessFileOf(home), ARC_KEY);
+    const res = stubbed(['--suite', suite], DOCUMENT, { HOME: home, E2E_ARC_PRIVATE_KEY: ARC_KEY });
+    const test = spawned(res.requests).find(child => child.args.includes('--grep'));
+    if (!test) throw new Error(`${res.status} ${res.stderr}${res.output}`);
+    return test?.args.filter(arg => arg.startsWith('--max-failures'));
+  };
+
+  it.each(['usdcx-in-l2', 'usdcx-burn-l2'])(
+    'lifts the failure limit for %s, whose two tests are on separate chains',
+    async suite => {
+      expect(await maxFailuresOf(suite)).toEqual(['--max-failures=0']);
+    },
+    35_000
+  );
+
+  it.each(['usdcx-in', 'usdcx-burn', 'usdcx', 'bridge-out-epoch'])(
+    'leaves the failure limit of %s alone',
+    async suite => {
+      expect(await maxFailuresOf(suite)).toEqual([]);
+    },
+    35_000
+  );
+
   it('runs usdcx-burn-l2 under its own grep with the harness key, headless', () => {
     const res = stubbed(['--suite', 'usdcx-burn-l2'], DOCUMENT, { MIDEN_CLIENT_BIN: '/operator/bin/miden-client' });
     const children = spawned(res.requests);
-    expect(children[1]?.args).toEqual(testArgs('USDCx L2 burn'));
+    expect(children[1]?.args).toEqual([
+      'playwright',
+      'test',
+      '--config',
+      'playwright.usdcx.config.ts',
+      '--retries=0',
+      '--max-failures=0',
+      '--grep',
+      'USDCx L2 burn'
+    ]);
     expect(children[1]?.env).toMatchObject({ E2E_REAL_USDCX: 'true', E2E_ARC_KEY_ROLE: 'harness', E2E_HEADLESS: '1' });
     expect(res.status).toBe(0);
   }, 35_000);

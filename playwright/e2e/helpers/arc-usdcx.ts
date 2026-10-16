@@ -696,7 +696,7 @@ async function acceptsRawTransactions(client: PublicClient): Promise<boolean> {
 
 /**
  * The first endpoint on the deps' chain that takes raw transactions: a garbage one must fail to decode, not be refused.
- * Shared with usdcx-l2-deposit.ts and usdcx-cctp-proof.ts.
+ * Shared with usdcx-l2-deposit.ts.
  */
 export async function pickWriteEndpoint(deps: ArcWriteDeps): Promise<string> {
   const { chainId, label } = chainOf(deps);

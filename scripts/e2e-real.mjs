@@ -267,6 +267,8 @@ export const SUITES = {
     spendsHarnessL2: true,
     headlessByDefault: true,
     retries: 0,
+    // Each test is on its own chain with its own key state, so stopping at the first red hides the other chain's result.
+    maxFailures: 0,
     describe:
       'Guardian wallets: a CCTP deposit the harness key signs on Base Sepolia and Arbitrum Sepolia, forwarded to Arc, minted, claimed'
   },
@@ -280,6 +282,8 @@ export const SUITES = {
     usdcx: true,
     headlessByDefault: true,
     retries: 0,
+    // Each test is on its own chain with its own key state, so stopping at the first red hides the other chain's result.
+    maxFailures: 0,
     describe:
       'Guardian wallets: faucet grant, UI burn to the harness key on Base Sepolia and Arbitrum Sepolia, payout, confirmation'
   }
@@ -2222,6 +2226,8 @@ async function runSuite(opts, suite, grep, lock) {
   }
 
   const args = ['playwright', 'test', '--config', suite.config, `--retries=${suiteRetries(suite)}`];
+  // Off localnet the config stops at the first failure; a suite may lift that (0 is no limit).
+  if (suite.maxFailures !== undefined) args.push(`--max-failures=${suite.maxFailures}`);
   // ONE --grep, always. Playwright keeps only the last one it is given, so
   // passing the suite's filter and the operator's as two flags silently drops
   // the suite's - and `--suite bridge-out-agglayer --grep 'Fast Epoch'` would
