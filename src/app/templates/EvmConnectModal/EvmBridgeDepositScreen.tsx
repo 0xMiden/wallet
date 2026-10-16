@@ -741,7 +741,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // Read again right before the first wallet prompt: the balance can move after the amount step read it, and a wallet
   // asked for more than it holds refuses only at its own simulation, after an approval has already cost gas (#1431).
   const ensureBalanceCovers = useCallback(
-    async (spend: bigint, decimals: number, chainId: number, readBalance: () => Promise<bigint>): Promise<bigint> => {
+    async (spend: bigint, decimals: number, chainId: number, readBalance: () => Promise<bigint>) => {
       const balance = await readBalanceOrFail(chainId, readBalance);
       if (balance < spend) {
         const network = getChain(chainId)?.name ?? '';
@@ -749,7 +749,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           t('bridgeDepositBalanceTooLow', { balance: formatBalance(balance, decimals), token: tokenLabel, network })
         );
       }
-      return balance;
     },
     [readBalanceOrFail, t, tokenLabel]
   );
@@ -1011,7 +1010,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         const recipient = usdcxRemoteRecipientFor(midenAccount.publicKey);
         if (!isAddress(evmAddress)) throw new Error(`Invalid EVM address: ${evmAddress}`);
         const readBalance = () => readCircleUsdcBalance(evmAddress, usdcxSource);
-        const balance = await ensureBalanceCovers(
+        await ensureBalanceCovers(
           parseUnits(amount.trim(), CIRCLE_USDC_DECIMALS),
           CIRCLE_USDC_DECIMALS,
           usdcxChain.id,
@@ -1093,7 +1092,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               isRemoteDomainRegistered: remoteDomain =>
                 readRemoteDomainRegistered(remoteDomain, target.xReserve, target.chain.id),
               readAllowance,
-              balance,
               readBalance: () => readBalanceOrFail(usdcxChain.id, readBalance),
               waitForReceipt,
               updatePhase

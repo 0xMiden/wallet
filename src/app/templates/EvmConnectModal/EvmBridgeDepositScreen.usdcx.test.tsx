@@ -933,11 +933,10 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     });
   });
 
-  it('hands the executor the balance it read before the first prompt and a read of it on the source chain', async () => {
+  it('hands the executor a read of the Circle USDC balance on the source chain, not the amount step value', async () => {
     mockBalance = 2_000_000n;
-    const read: { balance?: bigint; value?: bigint; requests?: unknown[] } = {};
+    const read: { value?: bigint; requests?: unknown[] } = {};
     jest.mocked(runUsdcxExecutorDeposit).mockImplementationOnce(async (_id, _amount, _recipient, deps) => {
-      read.balance = deps.balance;
       const before = jest.mocked(global.fetch).mock.calls.length;
       read.value = await deps.readBalance();
       read.requests = jest
@@ -950,11 +949,11 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     await reachBaseSepoliaRoute();
     fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
     await settle();
+    mockBalance = 3_000_000n;
     fireEvent.click(screen.getByTestId('confirm-deposit'));
     await settle();
 
-    expect(read.balance).toBe(2_000_000n);
-    expect(read.value).toBe(2_000_000n);
+    expect(read.value).toBe(3_000_000n);
     expect(read.requests).toEqual([
       [
         'https://rpc.test/84532',
@@ -963,16 +962,21 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     ]);
   });
 
-  it('reads the source balance once before the first prompt', async () => {
+  // Switching the chain can wait on the user, so the balance held to the fee is read after it.
+  it('reads the balance before the chain step and again after it', async () => {
     runRealExecutor();
     renderScreen();
     await reachBaseSepoliaRoute();
     fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
     await settle();
     const before = balanceOfRequests().length;
-    let balanceOfCalls: unknown[] = [];
+    const readsSinceConfirm = () => balanceOfRequests().length - before;
+    const reads: { atChainStep?: number; atBurn?: number } = {};
+    mockSwitchChain.mockImplementationOnce(async () => {
+      reads.atChainStep = readsSinceConfirm();
+    });
     mockWriteContract.mockImplementationOnce(async () => {
-      balanceOfCalls = balanceOfRequests().slice(before);
+      reads.atBurn = readsSinceConfirm();
       return `0x${'2'.repeat(64)}`;
     });
 
@@ -981,8 +985,27 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
 
     // The allowance covers the burn, so its prompt is the first one.
     expect(mockWriteContract).toHaveBeenCalledTimes(1);
-    expect(balanceOfCalls).toHaveLength(1);
+    expect(reads).toEqual({ atChainStep: 1, atBurn: 2 });
     expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'delivering', expect.anything());
+  });
+
+  it('refuses before the approval when the balance dropped during the chain step', async () => {
+    runRealExecutor({ readAllowance: async () => 0n });
+    renderScreen();
+    await reachBaseSepoliaRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    mockSwitchChain.mockImplementationOnce(async () => {
+      mockBalance = TYPED + FEE_QUOTE.feeTotalAmount - 1n;
+    });
+
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(mockWriteContract).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
+      error: feeAboveBalance('1.531907')
+    });
   });
 
   it('fails the row with the balance-read message when the read after an approval fails', async () => {

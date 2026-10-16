@@ -177,7 +177,6 @@ function makeDeps(overrides: Partial<UsdcxExecutorDepositDeps> = {}) {
       calls.push('readAllowance');
       return 0n;
     }),
-    balance: 10_000_000n,
     readBalance: jest.fn(async () => {
       calls.push('readBalance');
       return 10_000_000n;
@@ -212,12 +211,13 @@ describe('runUsdcxExecutorDeposit', () => {
 
     await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(BURN_HASH);
 
-    // The allowance read comes before the first quote and the balance read before the second, so no read sits between
-    // a quote and its burn; the approval prompt and its receipt can outlast a quote that lives about two minutes and
-    // the balance the caller read before the first prompt, so both are taken again after the approval.
+    // The allowance and balance reads come before the quote, so no read sits between a quote and its burn; the approval
+    // prompt and its receipt can outlast a quote that lives about two minutes and the balance read before it, so both
+    // are taken again after the approval, the balance first.
     expect(calls).toEqual([
       'isRemoteDomainRegistered',
       'readAllowance',
+      'readBalance',
       'quote',
       'approve',
       'receipt:approve',
@@ -286,7 +286,7 @@ describe('runUsdcxExecutorDeposit', () => {
     expect(error).toBeInstanceOf(UsdcxForwardQuoteUnavailableError);
     expect(isUsdcxForwardQuoteUnavailableError(error)).toBe(true);
     expect(error).toMatchObject({ cause: refusal });
-    expect(calls).toEqual(['isRemoteDomainRegistered', 'readAllowance', 'quote']);
+    expect(calls).toEqual(['isRemoteDomainRegistered', 'readAllowance', 'readBalance', 'quote']);
     expect(deps.signer.approve).not.toHaveBeenCalled();
     expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
     expect(deps.updatePhase).not.toHaveBeenCalled();
@@ -300,6 +300,7 @@ describe('runUsdcxExecutorDeposit', () => {
     expect(deps.signer.approve).not.toHaveBeenCalled();
     expect(calls).toEqual([
       'isRemoteDomainRegistered',
+      'readBalance',
       'quote',
       'depositForBurnWithHookAndFees',
       'phase:submitting',
@@ -411,11 +412,23 @@ describe('runUsdcxExecutorDeposit', () => {
     expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
   });
 
-  it('fails before the burn prompt when the balance read after the approval fails', async () => {
+  it('fails before the quote when the balance read fails', async () => {
     const { deps } = makeDeps({
       readBalance: jest.fn(async () => {
         throw new Error('rpc down');
       })
+    });
+
+    await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).rejects.toThrow('rpc down');
+
+    expect(deps.fetchQuote).not.toHaveBeenCalled();
+    expect(deps.signer.approve).not.toHaveBeenCalled();
+    expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
+  });
+
+  it('fails before the burn prompt when the balance read after the approval fails', async () => {
+    const { deps } = makeDeps({
+      readBalance: jest.fn().mockResolvedValueOnce(10_000_000n).mockRejectedValueOnce(new Error('rpc down'))
     });
 
     await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).rejects.toThrow('rpc down');
@@ -448,6 +461,7 @@ describe('runUsdcxExecutorDeposit', () => {
     expect(calls).toEqual([
       'isRemoteDomainRegistered',
       'readAllowance',
+      'readBalance',
       'quote',
       'approve',
       'receipt:approve',
@@ -457,12 +471,12 @@ describe('runUsdcxExecutorDeposit', () => {
     expect(deps.updatePhase).not.toHaveBeenCalled();
   });
 
-  it('reads no balance when the allowance already covers', async () => {
-    const { deps } = makeDeps({ readAllowance: jest.fn(async () => 10_000_000n) });
+  it('reads the balance once, before the quote, when the allowance already covers', async () => {
+    const { deps, calls } = makeDeps({ readAllowance: jest.fn(async () => 10_000_000n) });
 
     await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(BURN_HASH);
 
-    expect(deps.readBalance).not.toHaveBeenCalled();
+    expect(calls.filter(call => call === 'readBalance' || call === 'quote')).toEqual(['readBalance', 'quote']);
   });
 
   // The burn pulls Circle's fee on top of the amount, so a balance that covers only the amount paid gas for the
@@ -472,7 +486,10 @@ describe('runUsdcxExecutorDeposit', () => {
     ['the burn', 1_500_000n + QUOTE.feeTotalAmount]
   ])('refuses before %s when the balance covers the amount but not the fee', async (_prompt, allowance) => {
     const balance = 1_500_000n + QUOTE.feeTotalAmount - 1n;
-    const { deps, calls } = makeDeps({ readAllowance: jest.fn(async () => allowance), balance });
+    const { deps, calls } = makeDeps({
+      readAllowance: jest.fn(async () => allowance),
+      readBalance: jest.fn(async () => balance)
+    });
 
     const error: unknown = await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps).catch(caught => caught);
 
@@ -487,7 +504,7 @@ describe('runUsdcxExecutorDeposit', () => {
 
   it('approves and burns when the balance is exactly the amount plus the fee', async () => {
     const exact = 1_500_000n + QUOTE.feeTotalAmount;
-    const { deps } = makeDeps({ balance: exact, readBalance: jest.fn(async () => exact) });
+    const { deps } = makeDeps({ readBalance: jest.fn(async () => exact) });
 
     await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(BURN_HASH);
 
@@ -500,7 +517,6 @@ describe('runUsdcxExecutorDeposit', () => {
   it("refuses before the burn prompt when the second quote's fee rises past the balance", async () => {
     const rose: CctpBurnQuote = { ...REQUOTE, feeTotalAmount: 40_000n };
     const { deps, calls } = makeDeps({
-      balance: 1_535_000n,
       readBalance: jest.fn(async () => 1_535_000n),
       fetchQuote: jest.fn(async () => {
         calls.push('quote');
