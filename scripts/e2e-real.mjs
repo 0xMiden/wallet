@@ -1443,9 +1443,9 @@ async function probeL2Rpc(chain) {
  * One chain usdcx-burn-l2 pays out on, read as its spec reads it: a harness endpoint serving the chain (the first
  * healthy one is asked the rest), the GatewayMinter and the USDC with code there, and a head from the wallet's own RPC,
  * whose pre-burn snapshot read otherwise fails the burn before any row exists. That RPC is printed by host only: its
- * URL carries the build's project id.
+ * URL carries the build's project id. On Ethereum Sepolia it also reads the harness key's USDC.
  */
-async function probeL2Payout(chain) {
+async function probeL2Payout(chain, arcKey) {
   const [healthy] = await probeL2Rpc(chain);
   if (healthy !== undefined) {
     try {
@@ -1465,6 +1465,7 @@ async function probeL2Payout(chain) {
     } catch (err) {
       record(false, `${chain.name} contracts`, `${endpointHost(healthy)}: ${err.message}`);
     }
+    if (chain.chainId === SEPOLIA_CHAIN_ID) await probeSepoliaPayoutKey(chain, healthy, arcKey);
   }
   const walletRpc = walletL2RpcUrl(chain.chainId);
   try {
@@ -1472,6 +1473,36 @@ async function probeL2Payout(chain) {
     record(true, `${chain.name} wallet RPC`, `${endpointHost(walletRpc)} #${head}`);
   } catch (err) {
     record(false, `${chain.name} wallet RPC`, `${endpointHost(walletRpc)}: ${err.message}`);
+  }
+}
+
+/**
+ * The harness key must already hold USDC on Ethereum Sepolia: Circle's forwarder sends gatewayMint with a fixed 250,000
+ * gas limit, and a mint to an address that never held Sepolia USDC needs about 346,000, so it reverts out of gas on
+ * every retry. Once the key held 9,999 units, the next retry paid at 240,405 gas (2026-10-16).
+ */
+async function probeSepoliaPayoutKey(chain, endpoint, arcKey) {
+  const why = "Circle's forwarder cannot mint a payout to a recipient with no USDC under its fixed gas limit";
+  const fund = 'fund the key with any amount of Sepolia USDC first';
+  if (arcKey.missing) {
+    return record(
+      false,
+      `${chain.name} key`,
+      `no harness key yet, and ${why}: a real run creates the key and names its address here; ${fund}`
+    );
+  }
+  try {
+    const units = BigInt(
+      await arcRpc(endpoint, 'eth_call', [
+        { to: chain.usdc, data: calldata(ARC_SELECTORS.balanceOf, arcKey.address) },
+        'latest'
+      ])
+    );
+    // Every digit: formatUnits shows a balance under 0.0001 as 0, which this check passes.
+    const held = `${arcKey.address} holds ${exactUnits(units, USDCX_DECIMALS)} USDC`;
+    return record(units > 0n, `${chain.name} key`, units > 0n ? held : `${held}, and ${why}: ${fund}`);
+  } catch (err) {
+    return record(false, `${chain.name} key`, `could not read ${arcKey.address}: ${err.message}`);
   }
 }
 
@@ -2181,7 +2212,7 @@ async function runSuite(opts, suite, grep, lock) {
   if (needs.includes('usdcx-guardian')) await probeUsdcxGuardian(opts.network);
   if (needs.includes('usdcx')) await probeUsdcx(opts, needs, arcKey);
   if (needs.includes('l2-payout')) {
-    for (const chain of L2_PAYOUT_CHAINS) await probeL2Payout(chain);
+    for (const chain of L2_PAYOUT_CHAINS) await probeL2Payout(chain, arcKey);
   }
   if (needs.includes('l2-bridge-in')) {
     for (const chain of L2_BRIDGE_IN_CHAINS) await probeL2BridgeIn(chain, arcKey);

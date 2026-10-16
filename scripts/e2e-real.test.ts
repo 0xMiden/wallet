@@ -1610,6 +1610,11 @@ describe('the usdcx preflight', () => {
   // Any valid secp256k1 scalar: the stub answers every read, so nothing is ever signed or sent.
   const ARC_KEY: `0x${string}` = `0x${'11'.repeat(32)}`;
   const KEYED = { E2E_ARC_PRIVATE_KEY: ARC_KEY };
+  const keyedHome = async () => {
+    const home = freshHome();
+    await writeHarnessArcKey(path.join(home, '.miden-e2e', 'arc-keys', 'harness.json'), ARC_KEY);
+    return home;
+  };
   const VIEWS = parseAbi([
     'function paused() view returns (bool)',
     'function domainDepositsPaused(uint32) view returns (bool)',
@@ -1705,9 +1710,10 @@ describe('the usdcx preflight', () => {
     expect(res.requests).not.toContain(BALANCE_OF);
   }, 35_000);
 
-  it("asks usdcx-burn-l2 the payout questions, then on each chain the chain id, both contracts and the wallet RPC's head", () => {
-    const res = preflight('usdcx-burn-l2');
-    expect(res.output).toContain('✓ preflight passed (20 checks)');
+  it("asks usdcx-burn-l2 the payout questions, then on each chain the chain id, both contracts and the wallet RPC's head", async () => {
+    const { address } = privateKeyToAccount(ARC_KEY);
+    const res = preflight('usdcx-burn-l2', DOCUMENT, { HOME: await keyedHome() });
+    expect(res.output).toContain('✓ preflight passed (21 checks)');
     expect(res.status).toBe(0);
     expect(
       missing(res.requests, [
@@ -1735,10 +1741,47 @@ describe('the usdcx preflight', () => {
     expect(res.output).toMatch(
       /✓ Ethereum Sepolia contracts +GatewayMinter and USDC 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238 have code\n/
     );
+    // Only Ethereum Sepolia: Circle's forwarder mints there under a gas limit too low for a recipient with no USDC.
+    expect(res.requests).toContain(
+      `https://ethereum-sepolia-rpc.publicnode.com eth_call [${call(
+        harness.ETHEREUM_SEPOLIA_PAYOUT.usdc,
+        encodeFunctionData({ abi: VIEWS, functionName: 'balanceOf', args: [address] })
+      )},"latest"]`
+    );
+    expect(res.requests.match(new RegExp(BALANCE_OF, 'g'))).toHaveLength(1);
+    expect(res.output).toMatch(new RegExp(`✓ Ethereum Sepolia key +${address} holds 0\\.009999 USDC\n`));
   }, 35_000);
 
-  it('names the wallet RPC by host only, whatever project id the build bakes in', () => {
-    const res = preflight('usdcx-burn-l2', DOCUMENT, { WALLETCONNECT_PROJECT_ID: 'operator-project-id' });
+  it("fails Ethereum Sepolia key alone when the harness key holds no USDC there, naming Circle's fixed gas limit", async () => {
+    const { address } = privateKeyToAccount(ARC_KEY);
+    const res = preflight('usdcx-burn-l2', DOCUMENT, { HOME: await keyedHome() }, { sepoliaUsdcUnits: '0' });
+    expect(failedChecks(res.output)).toEqual(['Ethereum Sepolia key']);
+    expect(res.output).toContain(
+      `${address} holds 0 USDC, and Circle's forwarder cannot mint a payout to a recipient with no USDC under its ` +
+        'fixed gas limit: fund the key with any amount of Sepolia USDC first'
+    );
+    expect(res.status).toBe(1);
+    expect(res.requests).not.toContain('SPAWN');
+  }, 35_000);
+
+  // --preflight-only creates no key, and the one a real run creates holds no USDC there.
+  it('fails Ethereum Sepolia key alone when there is no harness key yet', () => {
+    const res = preflight('usdcx-burn-l2');
+    expect(failedChecks(res.output)).toEqual(['Ethereum Sepolia key']);
+    expect(res.output).toContain(
+      "no harness key yet, and Circle's forwarder cannot mint a payout to a recipient with no USDC under its fixed " +
+        'gas limit: a real run creates the key and names its address here; fund the key with any amount of Sepolia ' +
+        'USDC first'
+    );
+    expect(res.requests).not.toContain(BALANCE_OF);
+    expect(res.status).toBe(1);
+  }, 35_000);
+
+  it('names the wallet RPC by host only, whatever project id the build bakes in', async () => {
+    const res = preflight('usdcx-burn-l2', DOCUMENT, {
+      HOME: await keyedHome(),
+      WALLETCONNECT_PROJECT_ID: 'operator-project-id'
+    });
     expect(res.requests).toContain('projectId=operator-project-id');
     expect(res.output).not.toContain('operator-project-id');
     expect(res.status).toBe(0);
@@ -1754,8 +1797,8 @@ describe('the usdcx preflight', () => {
     ['Ethereum Sepolia contracts', { l2NoCode: ['0x1c7d4b196cb0c7b01d743fbc6116a902379c7238'] }]
   ])(
     'fails %s alone on --suite usdcx-burn-l2 when its answer is wrong',
-    (label, answers) => {
-      const res = preflight('usdcx-burn-l2', DOCUMENT, {}, answers);
+    async (label, answers) => {
+      const res = preflight('usdcx-burn-l2', DOCUMENT, { HOME: await keyedHome() }, answers);
       expect(failedChecks(res.output)).toEqual([label]);
       expect(res.status).toBe(1);
       expect(res.requests).not.toContain('SPAWN');
@@ -1763,11 +1806,11 @@ describe('the usdcx preflight', () => {
     35_000
   );
 
-  it('fails every wallet RPC check when rpc.walletconnect.org is down, before any build, naming it by host only', () => {
+  it('fails every wallet RPC check when rpc.walletconnect.org is down, before any build, naming it by host only', async () => {
     const res = preflight(
       'usdcx-burn-l2',
       DOCUMENT,
-      { WALLETCONNECT_PROJECT_ID: 'operator-project-id' },
+      { HOME: await keyedHome(), WALLETCONNECT_PROJECT_ID: 'operator-project-id' },
       { l2Down: ['rpc.walletconnect.org'] }
     );
     expect(failedChecks(res.output)).toEqual([
@@ -1784,8 +1827,13 @@ describe('the usdcx preflight', () => {
     expect(res.requests).not.toContain('SPAWN');
   }, 35_000);
 
-  it("passes with Base Sepolia's first endpoint down, asking the next one the contract questions", () => {
-    const res = preflight('usdcx-burn-l2', DOCUMENT, {}, { l2Down: ['base-sepolia-rpc.publicnode.com'] });
+  it("passes with Base Sepolia's first endpoint down, asking the next one the contract questions", async () => {
+    const res = preflight(
+      'usdcx-burn-l2',
+      DOCUMENT,
+      { HOME: await keyedHome() },
+      { l2Down: ['base-sepolia-rpc.publicnode.com'] }
+    );
     expect(res.status).toBe(0);
     expect(res.requests).toContain(
       'https://base-sepolia.gateway.tenderly.co eth_getCode ["0x036CbD53842c5426634e7929541eC2318f3dCF7e","latest"]'
@@ -1932,12 +1980,6 @@ describe('the usdcx preflight', () => {
     const res = preflight('usdcx', DOCUMENT, { E2E_ARC_PRIVATE_KEY: '0x01' });
     expect(res.status).toBe(0);
   }, 35_000);
-
-  const keyedHome = async () => {
-    const home = freshHome();
-    await writeHarnessArcKey(path.join(home, '.miden-e2e', 'arc-keys', 'harness.json'), ARC_KEY);
-    return home;
-  };
 
   it("asks usdcx-in-l2 the Arc deposit questions, then on each L2 the chain, a write endpoint, the fee entry point, the key's ETH and USDC, and Iris", async () => {
     const { address } = privateKeyToAccount(ARC_KEY);

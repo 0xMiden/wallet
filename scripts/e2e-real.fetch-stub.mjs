@@ -59,6 +59,8 @@ const ANSWERS = {
   l2Wei: '0x2386f26fc10000',
   l2GasPrice: '0x5b8d80',
   l2UsdcUnits: '1977802',
+  // The harness key's USDC on Ethereum Sepolia: the 9,999 units that let Circle's forwarder mint there (2026-10-16).
+  sepoliaUsdcUnits: '9999',
   // Every L2 endpoint's answer to the empty raw transaction: a decode failure, so it takes writes.
   l2RawTransaction: { code: -32602, message: 'failed to decode signed transaction' },
   irisFees: [
@@ -147,6 +149,9 @@ function l2KeyAnswer({ method, params }) {
   }
 }
 
+// Ethereum Sepolia's USDC, where usdcx-burn-l2's preflight reads the harness key's balance.
+const SEPOLIA_USDC = '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238';
+
 function l2Answer(chainId, call) {
   const { method, params } = call;
   switch (method) {
@@ -161,6 +166,9 @@ function l2Answer(chainId, call) {
     default:
       // publicnode's Sepolia is also the bridge suites' default Sepolia RPC, which reads its funded key's balances.
       if (chainId !== 11155111) return l2KeyAnswer(call);
+      if (method === 'eth_call' && String(params[0]?.to).toLowerCase() === SEPOLIA_USDC) {
+        return { result: word(BigInt(answers.sepoliaUsdcUnits).toString(16)) };
+      }
       return Object.hasOwn(RPC_RESULTS, method) ? { result: RPC_RESULTS[method] } : unavailable(method);
   }
 }
