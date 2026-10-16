@@ -75,7 +75,7 @@ const BURN_TESTS = [
   'usdcx-burn.spec.ts › USDCx burn through the Send UI after a public faucet grant › ' +
     'Guardian wallet publishes a burn, the faucet consumes it and Circle pays it out'
 ];
-const L2_BURN_TESTS = ['Base Sepolia', 'Arbitrum Sepolia'].map(
+const L2_BURN_TESTS = ['Base Sepolia', 'Arbitrum Sepolia', 'Sepolia'].map(
   chain =>
     'usdcx-burn-l2.spec.ts › USDCx L2 burn through the Send UI after a public faucet grant › ' +
     `Guardian wallet burns to ${chain}, the faucet consumes it, Circle pays it out and the wallet confirms it`

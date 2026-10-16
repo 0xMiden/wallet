@@ -5,11 +5,12 @@
  */
 import os from 'os';
 import path from 'path';
-import type { Address, Chain, Hex } from 'viem';
+import { formatUnits, type Address, type Chain, type Hex } from 'viem';
 
-import { getUsdcxExecutorSource, getUsdcxXReserveSource, USDCX_DESTINATIONS } from './usdcx-config';
+import { getUsdcxExecutorSource, getUsdcxXReserveSource, minimumUsdcxPayout, USDCX_DESTINATIONS } from './usdcx-config';
 import { evmChainSlug } from '../../../src/lib/remote-config/chains';
 import type { UsdcxExecutorSource } from '../../../src/lib/usdcx/constant';
+import { USDCX_DECIMALS } from '../../../src/lib/usdcx/protocol';
 import { ARC_TESTNET, getChain } from '../../../src/lib/walletconnect/config';
 export { USDCX_DESTINATIONS, USDCX_REMOTE_DOMAIN } from './usdcx-config';
 
@@ -78,7 +79,7 @@ export const GUARDIAN_ECDSA_SCHEME = 'ecdsa';
 
 /**
  * publicnode and tenderly on both L2s, and Arbitrum's own RPC, served 10_000-block eth_getLogs when probed
- * (2026-10-11); 1000 keeps a scan to a few calls.
+ * (2026-10-11), as publicnode and tenderly did on Ethereum Sepolia (2026-10-16); 1000 keeps a scan to a few calls.
  */
 export const L2_LOG_CHUNK = 1000;
 /** Base Sepolia's own RPC refuses an eth_getLogs over more than 200 blocks (-32614 `limited to a 200 range`). */
@@ -98,8 +99,15 @@ export const DEFAULT_ARBITRUM_SEPOLIA_RPCS: readonly string[] = [
   'https://arbitrum-sepolia-rpc.publicnode.com',
   'https://arbitrum-sepolia.gateway.tenderly.co'
 ];
-/** Ethereum Sepolia takes a burn, but Circle has never paid one out there (0xMiden/miden-usdcx#308). */
-const ETHEREUM_SEPOLIA_CHAIN_ID = 11155111;
+/**
+ * The harness's Ethereum Sepolia read endpoints, in the order the payout gate tries them. Left out when probed
+ * (2026-10-16): drpc and 1rpc refuse Sepolia on their free plans (1rpc also caps eth_getLogs at 50 blocks), and
+ * rpc.sepolia.org did not answer.
+ */
+export const DEFAULT_ETHEREUM_SEPOLIA_RPCS: readonly string[] = [
+  'https://ethereum-sepolia-rpc.publicnode.com',
+  'https://sepolia.gateway.tenderly.co'
+];
 
 /**
  * A chain a burn's payout lands on: what the harness reads there, the domains the burn and the payout carry, and what
@@ -113,7 +121,7 @@ export interface PayoutChain {
   label: string;
   rpcUrls: readonly string[];
   usdc: Address;
-  /** The destination's Circle domain, which the burn note's attachment and its row carry: 26, 6 or 3. */
+  /** The destination's Circle domain, which the burn note's attachment and its row carry: 26, 6, 3 or 0. */
   burnDomain: number;
   /** `AttestationUsed.sourceDomain`, the Gateway source: Arc's 26 for every destination, never `burnDomain`. */
   attestationSourceDomain: number;
@@ -127,6 +135,8 @@ export interface PayoutChain {
   /** The wallet's own RPC for the chain, and the name a message gives it: never the URL, which carries a project id. */
   walletRpcUrl: string;
   walletRpcName: string;
+  /** What the harness burns to this chain: BURN_UNITS unless the chain's payout fee allowance takes it whole. */
+  burnUnits: bigint;
 }
 
 const hostnameOf = (endpoint: string): string => {
@@ -144,23 +154,32 @@ function arcLogChunk(endpoint: string): number {
 
 /**
  * The payout chain of `chainId`, its values read from the config fixture (usdcx-config.ts) and the wallet's chain
- * table; `reads` is the harness's side. Refuses Ethereum Sepolia by name, and any chain the Send flow does not offer.
+ * table; `reads` is the harness's side. Refuses any chain the Send flow does not offer, and a burn (BURN_UNITS by
+ * default) that does not exceed the chain's payout fee allowance, which the Send flow refuses too.
  */
 export function payoutChainFor(
   chainId: number,
-  reads: { rpcUrls: readonly string[]; logChunk(endpoint: string): number; label?: string; walletRpcName?: string }
-): PayoutChain {
-  if (chainId === ETHEREUM_SEPOLIA_CHAIN_ID) {
-    throw new Error(
-      'Ethereum Sepolia (11155111) is no harness payout chain: Circle consumes a burn to it but never pays it out ' +
-        '(0xMiden/miden-usdcx#308)'
-    );
+  reads: {
+    rpcUrls: readonly string[];
+    logChunk(endpoint: string): number;
+    label?: string;
+    walletRpcName?: string;
+    burnUnits?: bigint;
   }
+): PayoutChain {
   const id = evmChainSlug(chainId);
   const evm = getChain(chainId);
   const destination = USDCX_DESTINATIONS.get(chainId);
   if (id === undefined || evm === undefined || destination === undefined) {
     throw new Error(`chain ${chainId} is not a Send destination`);
+  }
+  const burnUnits = reads.burnUnits ?? BURN_UNITS;
+  if (minimumUsdcxPayout(chainId, burnUnits) <= 0n) {
+    throw new Error(
+      `a ${formatUnits(burnUnits, USDCX_DECIMALS)} USDCx burn to ${evm.name} does not exceed its ` +
+        `${formatUnits(destination.payoutFeeAllowance, USDCX_DECIMALS)} USDC payout fee allowance, so the Send flow ` +
+        'refuses it'
+    );
   }
   return {
     chainId,
@@ -176,7 +195,8 @@ export function payoutChainFor(
     networkName: evm.name,
     explorer: evm.explorer,
     walletRpcUrl: evm.rpcUrl,
-    walletRpcName: reads.walletRpcName ?? hostnameOf(evm.rpcUrl)
+    walletRpcName: reads.walletRpcName ?? hostnameOf(evm.rpcUrl),
+    burnUnits
   };
 }
 
@@ -194,6 +214,13 @@ export const BASE_SEPOLIA_PAYOUT: PayoutChain = payoutChainFor(84532, {
 export const ARBITRUM_SEPOLIA_PAYOUT: PayoutChain = payoutChainFor(421614, {
   rpcUrls: DEFAULT_ARBITRUM_SEPOLIA_RPCS,
   logChunk: () => L2_LOG_CHUNK
+});
+/** Ethereum's 1.5 USDC payout fee allowance takes the faucet's 1 USDCx minimum whole, so this burns 2 USDCx. */
+export const ETHEREUM_SEPOLIA_PAYOUT: PayoutChain = payoutChainFor(11155111, {
+  rpcUrls: DEFAULT_ETHEREUM_SEPOLIA_RPCS,
+  logChunk: () => L2_LOG_CHUNK,
+  label: 'Ethereum Sepolia',
+  burnUnits: 2_000_000n
 });
 
 /**
