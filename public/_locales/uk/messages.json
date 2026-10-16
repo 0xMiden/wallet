@@ -1808,14 +1808,97 @@
     "message": "Рейтинг",
     "englishSource": "Rate"
   },
-  "swapSolverFeeNote": {
-    "message": "У суму, яку ви отримаєте, вже включено комісію за використання сервісу «$percent$».",
-    "englishSource": "Your receive amount already includes a $percent$ solver fee.",
+  "swapRateNote": {
+    "message": "Ставка — це максимальна сума, яку система виконання замовлень може заповнити на даний момент, з урахування комісії $fee$. Ваша отримана сума дорівнює цій ставці за вирахуванням прослизання $slippage$.",
+    "englishSource": "The rate is the most the solver fills at right now, with its $fee$ fee already in it. Your receive amount is that rate less your $slippage$ slippage.",
     "placeholders": {
-      "percent": {
+      "fee": {
         "content": "$1"
+      },
+      "slippage": {
+        "content": "$2"
       }
     }
+  },
+  "swapFillStatus": {
+    "message": "Виконати",
+    "englishSource": "Fill"
+  },
+  "swapVerdictSettlementDelayed": {
+    "message": "Розрахунок відкладено. Ваше замовлення буде очікувати.",
+    "englishSource": "Settlement delayed. Your order will wait."
+  },
+  "swapVerdictNoMarket": {
+    "message": "Ця пара не торгується.",
+    "englishSource": "This pair isn't traded."
+  },
+  "swapVerdictNoPrice": {
+    "message": "Ціни наразі недоступні. Спробуйте ще раз незабаром.",
+    "englishSource": "Prices are unavailable right now. Try again shortly."
+  },
+  "swapVerdictOffMarket": {
+    "message": "Ціна змінилася. Оновіть котирування.",
+    "englishSource": "The price moved. Refresh the quote."
+  },
+  "swapVerdictNoLiquidity": {
+    "message": "Наразі недостатньо заявок за поточною ціною.",
+    "englishSource": "Not enough orders at the current price right now."
+  },
+  "swapVerdictTolerated": {
+    "message": "Може зайняти більше часу: заповнюється, коли ціна трохи змінюється.",
+    "englishSource": "May take longer: fills when the price moves slightly."
+  },
+  "swapVerdictPartial": {
+    "message": "Зараз виконується лише частина цього замовлення; решта залишається в очікуванні.",
+    "englishSource": "Only part of this order fills now; the rest waits."
+  },
+  "swapVerdictFull": {
+    "message": "Виконання за поточною ціною.",
+    "englishSource": "Fills at the current price."
+  },
+  "swapVerdictExpected": {
+    "message": "Ви отримуєте приблизно $amount$ $symbol$.",
+    "englishSource": "You receive about $amount$ $symbol$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapSlippage": {
+    "message": "Прослизання",
+    "englishSource": "Slippage"
+  },
+  "percentSign": {
+    "message": "%",
+    "englishSource": "%"
+  },
+  "swapSlippageNote": {
+    "message": "Наскільки нижче поточного курсу може бути виконано ваше замовлення. У тестовій мережі замовлення, яке перевищує приблизно 0,25%, не виконується.",
+    "englishSource": "How far below the current rate your order may fill. On testnet an order above about 0.25% does not fill."
+  },
+  "swapSlippageEditedNote": {
+    "message": "Ви самостійно встановлюєте суму отримання, тому до цього замовлення не застосовується прослизання.",
+    "englishSource": "You set the receive amount yourself, so slippage does not apply to this order."
+  },
+  "swapSlippageRange": {
+    "message": "Введіть відсоток у діапазоні від $min$ до $max$ з точністю до двох знаків після коми.",
+    "englishSource": "Enter a percent from $min$ to $max$ with up to two decimals.",
+    "placeholders": {
+      "min": {
+        "content": "$1"
+      },
+      "max": {
+        "content": "$2"
+      }
+    }
+  },
+  "swapPriceMoved": {
+    "message": "Ціна змінилася. Перевірте нову суму та спробуйте ще раз.",
+    "englishSource": "The price moved. Check the new amount and try again."
   },
   "usuallyFillsIn": {
     "message": "Зазвичай заповнює",
