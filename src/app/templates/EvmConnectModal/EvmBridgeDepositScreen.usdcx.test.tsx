@@ -1199,6 +1199,20 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       expect(balanceOfRequests()).toHaveLength(reads);
     });
 
+    // Only a hold on Circle's USDC is cleared by adding it; the bridge's own USDC on the Fast route reads nothing.
+    it('sends no Circle USDC re-read while the Fast route holds the bridge USDC amount', async () => {
+      mockBalance = 1n;
+      renderScreen();
+      fireEvent.click(screen.getByTestId('set-amount'));
+      await settle();
+      expect(screen.getByTestId('form-error')).toHaveTextContent(/^amountMustBeLessThanBalance$/);
+      const reads = balanceOfRequests().length;
+
+      await advance(30_000);
+
+      expect(balanceOfRequests()).toHaveLength(reads);
+    });
+
     it('keeps the held balance on screen while its re-reads fail', async () => {
       await reachFeeHold();
       global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ error: { message: 'rpc down' } }) });
