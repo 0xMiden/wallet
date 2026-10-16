@@ -7,7 +7,16 @@ import {
   updateBridgedReceivePhase,
   updateEarnWithdrawPhase
 } from './complete';
-import { TRANSACTION_INTERRUPTED_ON_STARTUP, USER_CANCELLED_TRANSACTION_REASON } from './constants';
+import {
+  INVALID_NOTE_ERROR,
+  ROTATION_PENDING_CONSUME_ERROR,
+  RotationGateConsumeRefusal,
+  TRANSACTION_EXPIRED_ERROR,
+  TRANSACTION_INTERRUPTED_ERROR,
+  TRANSACTION_INTERRUPTED_ON_STARTUP,
+  TRANSACTION_STUCK_ERROR,
+  USER_CANCELLED_TRANSACTION_REASON
+} from './constants';
 import { updateTransactionStatus } from './helper';
 import { ITransaction, ITransactionStatus } from '../db/types';
 
@@ -82,6 +91,31 @@ describe('committed terminal transaction failure reports', () => {
       expect(report).toHaveBeenCalledWith(expect.objectContaining({ error }));
     }
   );
+
+  it.each([
+    ['a user cancel', USER_CANCELLED_TRANSACTION_REASON, 'user_cancelled'],
+    ['the startup sweep', TRANSACTION_INTERRUPTED_ON_STARTUP, 'interrupted_on_startup'],
+    ['the stuck reaper', TRANSACTION_STUCK_ERROR, 'stuck_reaped'],
+    ['the queue expiry', TRANSACTION_EXPIRED_ERROR, 'queued_expired'],
+    ['the node check of an unconsumed note', TRANSACTION_INTERRUPTED_ERROR, 'consume_not_landed'],
+    ['the node check of an invalid note', INVALID_NOTE_ERROR, 'note_invalid'],
+    ['the rotation gate', new RotationGateConsumeRefusal(ROTATION_PENDING_CONSUME_ERROR), 'rotation_gate_refusal']
+  ] as const)('names %s as the reason a claim failed at its signing proposal', async (_name, error, reason) => {
+    const claim = row({ type: 'consume', stage: 'signing-proposal' });
+    await Repo.transactions.put(claim);
+    await cancelTransaction(claim, error);
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ point: 'pipeline', type: 'consume', stage: 'signing-proposal', reason, error })
+    );
+  });
+
+  it('gives a failure the wallet did not decide no reason', async () => {
+    await Repo.transactions.put(row());
+    await cancelTransaction(row(), new Error('GUARDIAN HTTP error 409: Conflict'));
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(report.mock.calls[0]![0].reason).toBeUndefined();
+  });
 
   it('ignores duplicate cancellation, a status-guard decline and missing rows', async () => {
     await Repo.transactions.put(row());
