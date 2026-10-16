@@ -224,8 +224,8 @@ export const ETHEREUM_SEPOLIA_PAYOUT: PayoutChain = payoutChainFor(11155111, {
 });
 
 /**
- * A chain usdcx-in-l2 deposits from: where it is read (the PayoutChain usdcx-burn-l2 pays on, so both suites read the
- * same endpoints) and the executor route the fixture names for it.
+ * A chain usdcx-in-l2 deposits from, Ethereum Sepolia among them despite the name: where it is read (the PayoutChain
+ * usdcx-burn-l2 pays on, so both suites read the same endpoints) and the executor route the fixture names for it.
  */
 export interface L2BridgeInSource {
   payout: PayoutChain;
@@ -238,14 +238,17 @@ export function bridgeInSourceFor(payout: PayoutChain): L2BridgeInSource {
 
 export const L2_BRIDGE_IN_SOURCES: readonly L2BridgeInSource[] = [
   bridgeInSourceFor(BASE_SEPOLIA_PAYOUT),
-  bridgeInSourceFor(ARBITRUM_SEPOLIA_PAYOUT)
+  bridgeInSourceFor(ARBITRUM_SEPOLIA_PAYOUT),
+  bridgeInSourceFor(ETHEREUM_SEPOLIA_PAYOUT)
 ];
 
 /**
- * One bridge-in's gas on an L2: an approve (about 55k) and the forwarded burn (693-699k on Base Sepolia, 698,683 with no
- * L1 gas on Arbitrum Sepolia, read 2026-10-16), each sent at 1.2x its estimate.
+ * One bridge-in's gas on its source chain, each write sent at 1.2x its estimate: an approve (about 55k on the L2s, and
+ * on Ethereum Sepolia 140,005 estimated over an empty allowance, 40,195 over a left-over one) and the forwarded burn
+ * (693-699k on Base Sepolia, 698,683 with no L1 gas on Arbitrum Sepolia, 726,617 on Ethereum Sepolia, read 2026-10-16),
+ * so at most 1.04M.
  */
-export const L2_BRIDGE_IN_GAS = 1_000_000n;
+export const L2_BRIDGE_IN_GAS = 1_100_000n;
 
 /** viem's error text quotes the request URL, whose WalletConnect project id an operator's build may set. */
 export function redactProjectId(text: string): string {

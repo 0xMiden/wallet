@@ -51,7 +51,7 @@ export interface L2KeyFunds {
 
 export async function readL2KeyFunds(address: Address, reads: ArcReadDeps): Promise<L2KeyFunds> {
   const chain = reads.payoutChain;
-  if (!chain) throw new Error('readL2KeyFunds reads an L2: its deps name no payoutChain');
+  if (!chain) throw new Error('readL2KeyFunds reads a bridge-in source chain: its deps name no payoutChain');
   return onFirstEndpoint(reads, `${chain.label} funds of ${address}`, async client => ({
     wei: await client.getBalance({ address }),
     usdc: await client.readContract({

@@ -22,26 +22,30 @@ it('keeps the E2E payout floor equal to the configured wallet payout floor', () 
   }
 });
 
-it.each([84532, 421614])('reads the executor route of chain %i from the fixture as the wallet reads it', chainId => {
-  const harnessRoute = harness.L2_BRIDGE_IN_SOURCES.find(l2 => l2.payout.chainId === chainId)?.source;
-  const walletRoute = wallet.getUsdcxExecutorSource(chainId);
-  const comparable = (route: typeof walletRoute | undefined) =>
-    route && {
-      route: route.route,
-      chainId: route.chain.id,
-      usdc: route.usdc,
-      domain: route.domain,
-      midenDomain: route.midenDomain,
-      tokenMessengerWithFees: route.tokenMessengerWithFees,
-      irisApi: route.irisApi,
-      target: { ...route.target, chain: route.target.chain.id }
-    };
-  expect(comparable(harnessRoute)).toEqual(comparable(walletRoute));
-});
+it.each([84532, 421614, 11155111])(
+  'reads the executor route of chain %i from the fixture as the wallet reads it',
+  chainId => {
+    const harnessRoute = harness.L2_BRIDGE_IN_SOURCES.find(l2 => l2.payout.chainId === chainId)?.source;
+    const walletRoute = wallet.getUsdcxExecutorSource(chainId);
+    const comparable = (route: typeof walletRoute | undefined) =>
+      route && {
+        route: route.route,
+        chainId: route.chain.id,
+        usdc: route.usdc,
+        domain: route.domain,
+        midenDomain: route.midenDomain,
+        tokenMessengerWithFees: route.tokenMessengerWithFees,
+        irisApi: route.irisApi,
+        target: { ...route.target, chain: route.target.chain.id }
+      };
+    expect(comparable(harnessRoute)).toEqual(comparable(walletRoute));
+  }
+);
 
-it('lists Base Sepolia, then Arbitrum Sepolia, each read where usdcx-burn-l2 reads it', () => {
+it('lists Base Sepolia, Arbitrum Sepolia, then Ethereum Sepolia, each read where usdcx-burn-l2 reads it', () => {
   expect(harness.L2_BRIDGE_IN_SOURCES.map(l2 => l2.payout)).toEqual([
     harness.BASE_SEPOLIA_PAYOUT,
-    harness.ARBITRUM_SEPOLIA_PAYOUT
+    harness.ARBITRUM_SEPOLIA_PAYOUT,
+    harness.ETHEREUM_SEPOLIA_PAYOUT
   ]);
 });

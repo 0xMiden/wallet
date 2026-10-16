@@ -193,8 +193,9 @@ describe('E2E USDCx workflow', () => {
     expect(suites[0]).toMatch(/^ {8}id: usdcx_in$/m);
   });
 
-  // usdcx-in-l2 spends from the key on both L2s and usdcx-burn-l2 proves each payout as the rise of that balance from a
-  // read right before its burn: every deposit is mined before usdcx-in-l2's step ends, so order inside the job suffices.
+  // usdcx-in-l2 spends from the key on all three chains and usdcx-burn-l2 proves each payout as the rise of that
+  // balance from a read right before its burn: every deposit is mined before usdcx-in-l2's step ends, so order inside
+  // the job suffices.
   it('runs usdcx-in-l2 then usdcx-burn-l2 in the L2 job, usdcx-burn-l2 after a red usdcx-in-l2 too but never after a failed setup step', () => {
     const [inL2, burnL2, ...rest] = stepsOf(L2_JOB).filter(isSuite);
     expect([runOf(inL2 ?? ''), runOf(burnL2 ?? ''), rest]).toEqual([
@@ -220,9 +221,19 @@ describe('E2E USDCx workflow', () => {
 
   it.each([
     [ARC_JOB, `\${{ github.event_name == 'workflow_dispatch' && 240 || 210 }}`],
-    [L2_JOB, `\${{ github.event_name == 'workflow_dispatch' && 300 || 270 }}`]
+    [L2_JOB, `\${{ github.event_name == 'workflow_dispatch' && 355 || 325 }}`]
   ])('gives %s its own ceiling', (job, ceiling) => {
     expect(jobKey(job, 'timeout-minutes')).toBe(ceiling);
+  });
+
+  // GitHub ends a job on its own runner at 360 minutes, whatever its timeout-minutes says.
+  it.each([ARC_JOB, L2_JOB])("keeps both of the ceilings of %s within GitHub's 360-minute job limit", job => {
+    const minutes = /&& (\d+) \|\| (\d+) \}\}$/
+      .exec(jobKey(job, 'timeout-minutes') ?? '')
+      ?.slice(1)
+      .map(Number);
+    expect(minutes).toHaveLength(2);
+    for (const ceiling of minutes ?? []) expect(ceiling).toBeLessThanOrEqual(360);
   });
 
   it('uploads test-results after each suite that ran, whatever it did, failing no step after it, and never the key or the lock', () => {

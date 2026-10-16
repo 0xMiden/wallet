@@ -2,9 +2,9 @@
  * @jest-environment node
  */
 import { createPublicClient, custom, isHex, pad, type Chain, type Hex, type PublicClient } from 'viem';
-import { baseSepolia } from 'viem/chains';
 
 import { type ArcClock } from './arc-usdcx';
+import sepoliaVectors from './usdcx-bridge-in-ethereum-sepolia.vectors.json';
 import vectors from './usdcx-bridge-in.vectors.json';
 import {
   confirmArcForward,
@@ -24,18 +24,43 @@ function hex(value: unknown): Hex {
   return value;
 }
 
-const BASE = L2_BRIDGE_IN_SOURCES.find(l2 => l2.payout.chainId === baseSepolia.id);
-if (!BASE) throw new Error('L2_BRIDGE_IN_SOURCES lost Base Sepolia');
-const L2: L2BridgeInSource = BASE;
-const UNITS = BigInt(vectors.expected.units);
-const FEE = BigInt(vectors.expected.fee);
-const NONCE = hex(vectors.expected.nonce);
-const BURN_HASH = hex(vectors.burn.transactionHash);
-const FORWARD_HASH = hex(vectors.forward.transactionHash);
-const DEPOSITOR = hex(vectors.expected.depositor);
-const [IRIS_ENTRY] = vectors.iris.body.messages;
-if (!IRIS_ENTRY) throw new Error('the vectors lost their Iris message');
-const IRIS_MESSAGE = hex(IRIS_ENTRY.message);
+/** A third party's executor deposit from `chainId` to Arc, captured, with the bridge-in source it was sent from. */
+function captured(file: typeof vectors | typeof sepoliaVectors, chainId: number) {
+  const l2 = L2_BRIDGE_IN_SOURCES.find(source => source.payout.chainId === chainId);
+  if (!l2) throw new Error(`L2_BRIDGE_IN_SOURCES lost chain ${chainId}`);
+  const [iris] = file.iris.body.messages;
+  if (!iris) throw new Error(`the ${l2.payout.label} vectors lost their Iris message`);
+  return {
+    l2,
+    vectors: file,
+    units: BigInt(file.expected.units),
+    fee: BigInt(file.expected.fee),
+    nonce: hex(file.expected.nonce),
+    burnHash: hex(file.burn.transactionHash),
+    forwardHash: hex(file.forward.transactionHash),
+    depositor: hex(file.expected.depositor),
+    iris,
+    irisMessage: hex(iris.message)
+  };
+}
+type Captured = ReturnType<typeof captured>;
+
+const BASE = captured(vectors, 84532);
+/** Ethereum Sepolia is CCTP's domain 0, so nothing may read a source domain as unset. */
+const SEPOLIA = captured(sepoliaVectors, 11155111);
+/** Each captured deposit, with the source domain its message must carry. */
+const CAPTURED: Array<[chain: string, deposit: Captured, domain: number]> = [
+  ['Base Sepolia', BASE, 6],
+  ['Ethereum Sepolia', SEPOLIA, 0]
+];
+const L2: L2BridgeInSource = BASE.l2;
+const UNITS = BASE.units;
+const FEE = BASE.fee;
+const NONCE = BASE.nonce;
+const FORWARD_HASH = BASE.forwardHash;
+const DEPOSITOR = BASE.depositor;
+const IRIS_ENTRY = BASE.iris;
+const IRIS_MESSAGE = BASE.irisMessage;
 
 /** A client whose every receipt read answers `receipt` for the hash asked, through viem's own receipt formatter. */
 function receiptClient(chain: Chain, receipt: unknown): PublicClient {
@@ -68,10 +93,10 @@ function fakeClock(): ArcClock & { slept: number[] } {
   };
 }
 
-const baseReads = (receipt: unknown = vectors.burn.receipt) => ({
-  endpoints: L2.payout.rpcUrls,
-  payoutChain: L2.payout,
-  publicClient: () => receiptClient(baseSepolia, receipt),
+const burnReads = (deposit: Captured = BASE) => ({
+  endpoints: deposit.l2.payout.rpcUrls,
+  payoutChain: deposit.l2.payout,
+  publicClient: () => receiptClient(deposit.l2.payout.chain, deposit.vectors.burn.receipt),
   clock: fakeClock()
 });
 const arcReads = (receipt: unknown = vectors.forward.receipt) => ({
@@ -81,24 +106,26 @@ const arcReads = (receipt: unknown = vectors.forward.receipt) => ({
 });
 
 /** The captured burn's MessageSent message, read through the gate itself. */
-async function sentMessage(): Promise<Hex> {
-  const proof = await confirmL2Burn(submission(), { l2: L2, units: UNITS, depositor: DEPOSITOR }, baseReads());
+async function sentMessage(deposit: Captured = BASE): Promise<Hex> {
+  const { l2, units, depositor } = deposit;
+  const proof = await confirmL2Burn(submission({}, deposit), { l2, units, depositor }, burnReads(deposit));
   return proof.sentMessage;
 }
 
 /** The deposit as the key would have signed it: the captured burn's own hook data and fee. */
-function submission(overrides: Partial<L2DepositSubmission> = {}): L2DepositSubmission {
-  const hookData = decodeCctpMessage(IRIS_MESSAGE).body.hookData;
-  const quote = { signedQuote: hex('0x'), feeTotalAmount: FEE };
+function submission(overrides: Partial<L2DepositSubmission> = {}, deposit: Captured = BASE): L2DepositSubmission {
+  const { l2 } = deposit;
+  const hookData = decodeCctpMessage(deposit.irisMessage).body.hookData;
+  const quote = { signedQuote: hex('0x'), feeTotalAmount: deposit.fee };
   return {
-    endpoint: L2.payout.rpcUrls[0] ?? '',
-    burnHash: BURN_HASH,
-    signed: { amount: UNITS, destinationCaller: addressToBytes32(L2.source.target.executor), hookData },
+    endpoint: l2.payout.rpcUrls[0] ?? '',
+    burnHash: deposit.burnHash,
+    signed: { amount: deposit.units, destinationCaller: addressToBytes32(l2.source.target.executor), hookData },
     quotes: [quote],
     burnQuote: quote,
     submitted: {
-      usdcxRemoteRecipient: vectors.expected.remoteRecipient,
-      cctp: { sourceDomain: 6, forwarded: true, forwardFee: vectors.expected.fee }
+      usdcxRemoteRecipient: deposit.vectors.expected.remoteRecipient,
+      cctp: { sourceDomain: l2.source.domain, forwarded: true, forwardFee: deposit.vectors.expected.fee }
     },
     ...overrides
   };
@@ -141,20 +168,59 @@ describe('decodeCctpMessage', () => {
     });
   });
 
+  it.each(CAPTURED)("reads the %s message as Circle's own decoding of it reads", (_chain, deposit, domain) => {
+    const circle = deposit.iris.decodedMessage;
+    const body = circle.decodedMessageBody;
+    const word = (address: string) => pad(hex(address.toLowerCase()));
+    expect(decodeCctpMessage(deposit.irisMessage)).toEqual({
+      version: 1,
+      sourceDomain: domain,
+      destinationDomain: Number(circle.destinationDomain),
+      nonce: circle.nonce,
+      sender: word(circle.sender),
+      recipient: word(circle.recipient),
+      destinationCaller: word(circle.destinationCaller),
+      minFinalityThreshold: Number(circle.minFinalityThreshold),
+      finalityThresholdExecuted: Number(circle.finalityThresholdExecuted),
+      body: {
+        version: 1,
+        burnToken: word(body.burnToken),
+        mintRecipient: word(body.mintRecipient),
+        amount: BigInt(body.amount),
+        messageSender: word(body.messageSender),
+        maxFee: BigInt(body.maxFee),
+        feeExecuted: BigInt(body.feeExecuted),
+        expirationBlock: BigInt(body.expirationBlock),
+        hookData: body.hookData.toLowerCase()
+      }
+    });
+    expect(Number(circle.sourceDomain)).toBe(domain);
+  });
+
   it('refuses a message shorter than a burn message', () => {
     expect(() => decodeCctpMessage('0x01')).toThrow('CCTP message length: 1 bytes');
   });
 });
 
 describe('confirmL2Burn', () => {
-  it('proves the captured burn: from the depositor to the fee entry point, one MessageSent as signed, the exact debit', async () => {
-    const proof = await confirmL2Burn(submission(), { l2: L2, units: UNITS, depositor: DEPOSITOR }, baseReads());
-    expect({ debit: proof.debit, block: proof.blockNumber, sourceDomain: proof.fields.sourceDomain }).toEqual({
-      debit: UNITS + FEE,
-      block: BigInt(vectors.burn.receipt.blockNumber),
-      sourceDomain: 6
-    });
-    expect(sameBurnMessage(proof.sentMessage, IRIS_MESSAGE)).toBe(true);
+  it.each(CAPTURED)(
+    'proves the captured %s burn: from the depositor to the fee entry point, one MessageSent as signed, the exact debit',
+    async (_chain, deposit, domain) => {
+      const { l2, units, depositor } = deposit;
+      const proof = await confirmL2Burn(submission({}, deposit), { l2, units, depositor }, burnReads(deposit));
+      expect({ debit: proof.debit, block: proof.blockNumber, sourceDomain: proof.fields.sourceDomain }).toEqual({
+        debit: units + deposit.fee,
+        block: BigInt(deposit.vectors.burn.receipt.blockNumber),
+        sourceDomain: domain
+      });
+      expect(sameBurnMessage(proof.sentMessage, deposit.irisMessage)).toBe(true);
+    }
+  );
+
+  it("names the source domain when a burn from another domain is checked against Ethereum Sepolia's 0", async () => {
+    await expect(
+      confirmL2Burn(submission(), { l2: SEPOLIA.l2, units: UNITS, depositor: DEPOSITOR }, burnReads())
+    ).rejects.toThrow(/\n {2}sourceDomain: 6, expected 0\n/);
   });
 
   it('names hookData when one signed byte differs', async () => {
@@ -164,7 +230,7 @@ describe('confirmL2Burn', () => {
       confirmL2Burn(
         submission({ signed: { ...signed, hookData: flipped } }),
         { l2: L2, units: UNITS, depositor: DEPOSITOR },
-        baseReads()
+        burnReads()
       )
     ).rejects.toThrow(/hookData: 0x/);
   });
@@ -175,7 +241,7 @@ describe('confirmL2Burn', () => {
       confirmL2Burn(
         submission({ quotes: [quote], burnQuote: quote }),
         { l2: L2, units: UNITS, depositor: DEPOSITOR },
-        baseReads()
+        burnReads()
       )
     ).rejects.toThrow(`USDC debit: ${UNITS + FEE}, expected ${UNITS + FEE - 1n}`);
   });
@@ -185,7 +251,7 @@ describe('confirmL2Burn', () => {
       confirmL2Burn(
         submission(),
         { l2: L2, units: UNITS, depositor: '0x4D4A180C637a71FCB9b5BD1186C8ce23C40EBa81' },
-        baseReads()
+        burnReads()
       )
     ).rejects.toThrow(/from: 0x92a119667e0e6733116a8d6416a66b2ce8dc0e94, expected 0x4d4a/);
   });
@@ -203,18 +269,30 @@ describe('sameBurnMessage', () => {
 });
 
 describe('waitForIrisForward', () => {
-  const args = async () => ({ l2: L2, burnHash: BURN_HASH, sentMessage: await sentMessage() });
-
-  it("reads the captured message through the wallet's own Iris parser", async () => {
-    const iris = jest.fn(async () => ({ ok: true, status: 200, json: async () => vectors.iris.body }));
-    Object.defineProperty(globalThis, 'fetch', { value: iris, writable: true, configurable: true });
-    const forward = await waitForIrisForward(await args(), { timeoutMs: 60_000, clock: fakeClock() });
-    expect(forward).toEqual({ nonce: NONCE, forwardTxHash: FORWARD_HASH, forwardState: 'COMPLETE', seenAtMs: 0 });
-    expect(iris).toHaveBeenCalledWith(
-      `https://iris-api-sandbox.circle.com/v2/messages/6?transactionHash=${BURN_HASH}`,
-      expect.anything()
-    );
+  const args = async (deposit: Captured = BASE) => ({
+    l2: deposit.l2,
+    burnHash: deposit.burnHash,
+    sentMessage: await sentMessage(deposit)
   });
+
+  it.each(CAPTURED)(
+    "reads the captured %s message through the wallet's own Iris parser, under its source domain",
+    async (_chain, deposit, domain) => {
+      const iris = jest.fn(async () => ({ ok: true, status: 200, json: async () => deposit.vectors.iris.body }));
+      Object.defineProperty(globalThis, 'fetch', { value: iris, writable: true, configurable: true });
+      const forward = await waitForIrisForward(await args(deposit), { timeoutMs: 60_000, clock: fakeClock() });
+      expect(forward).toEqual({
+        nonce: deposit.nonce,
+        forwardTxHash: deposit.forwardHash,
+        forwardState: 'COMPLETE',
+        seenAtMs: 0
+      });
+      expect(iris).toHaveBeenCalledWith(
+        `https://iris-api-sandbox.circle.com/v2/messages/${domain}?transactionHash=${deposit.burnHash}`,
+        expect.anything()
+      );
+    }
+  );
 
   it('waits through pending reads and a 404, then returns the forward', async () => {
     const reads: CctpMessage[][] = [
@@ -300,19 +378,39 @@ describe('confirmArcForward', () => {
     remoteToken: hex(vectors.expected.remoteToken)
   };
 
-  it("proves the captured forward executed this burn's nonce into xReserve for its recipient", async () => {
-    const proof = await confirmArcForward(FORWARD_HASH, expected, arcReads());
-    expect({
-      block: proof.blockNumber,
-      value: proof.deposit.value,
-      depositor: proof.deposit.localDepositor.toLowerCase(),
-      recipient: proof.deposit.remoteRecipient
-    }).toEqual({
-      block: BigInt(vectors.forward.receipt.blockNumber),
-      value: UNITS,
-      depositor: L2.source.target.handler.toLowerCase(),
-      recipient: expected.remoteRecipient
-    });
+  it.each(CAPTURED)(
+    "proves the captured %s forward executed this burn's nonce into xReserve for its recipient",
+    async (_chain, deposit) => {
+      const { l2, vectors: capture } = deposit;
+      const proof = await confirmArcForward(
+        deposit.forwardHash,
+        {
+          l2,
+          nonce: deposit.nonce,
+          units: deposit.units,
+          remoteRecipient: hex(capture.expected.remoteRecipient),
+          remoteToken: hex(capture.expected.remoteToken)
+        },
+        arcReads(capture.forward.receipt)
+      );
+      expect({
+        block: proof.blockNumber,
+        value: proof.deposit.value,
+        depositor: proof.deposit.localDepositor.toLowerCase(),
+        recipient: proof.deposit.remoteRecipient
+      }).toEqual({
+        block: BigInt(capture.forward.receipt.blockNumber),
+        value: deposit.units,
+        depositor: l2.source.target.handler.toLowerCase(),
+        recipient: capture.expected.remoteRecipient
+      });
+    }
+  );
+
+  it("refuses the forward of a burn from another source domain than Ethereum Sepolia's 0", async () => {
+    await expect(confirmArcForward(FORWARD_HASH, { ...expected, l2: SEPOLIA.l2 }, arcReads())).rejects.toThrow(
+      'MessageReceived sourceDomain: 6, expected 0'
+    );
   });
 
   it("refuses an execution of another burn's nonce", async () => {
