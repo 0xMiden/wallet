@@ -1,5 +1,6 @@
 import type { ITransaction, ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
+import { isPrivateNoteType } from 'lib/miden/helpers';
 
 import type { TransactionStepDef } from './constants';
 import type { TransactionStepState } from './types';
@@ -14,13 +15,18 @@ export const getActiveStepIndex = (
   stage: ITransactionStage | undefined,
   transactionComplete: boolean
 ): number => {
-  if (transactionComplete || stage === 'complete' || stage === 'guardian-synced') return steps.length;
+  if (transactionComplete || stage === 'complete') return steps.length;
   if (!stage) return 0;
   const idx = steps.findIndex(step => step.activeStages.includes(stage));
+  if (idx !== -1) return idx;
+  // In a set where no step owns 'guardian-synced', the Guardian sync is the last
+  // step, so its end is every step done. A private send's set owns it in the
+  // delivery step after the sync, hence the lookup first (#1492).
+  if (stage === 'guardian-synced') return steps.length;
   // A stage owned by no step runs before the first shown step (e.g. a
   // non-guardian send's early 'syncing', when the standard set starts at
   // proof-generation) — treat the first step as the active one.
-  return idx === -1 ? 0 : idx;
+  return 0;
 };
 
 /**
@@ -78,6 +84,39 @@ export const isDirectGuardianSwitch = (tx: ITransaction | undefined): boolean =>
   (tx.extraInputs?.switchedDirectly === true ||
     tx.stage === 'signing-locally' ||
     tx.stageTimestamps?.['signing-locally'] !== undefined);
+
+/** These stamp 'confirming' for a commit wait of their own and relay no note; their last step owns that wait. */
+const OWN_COMMIT_WAIT_TYPES: ReadonlySet<ITransactionType> = new Set<ITransactionType>([
+  'switch-guardian',
+  'replace-hot-key',
+  'update-procedure-threshold'
+]);
+
+const DELIVERY_STAGES: readonly ITransactionStage[] = ['confirming', 'delivering'];
+
+/**
+ * A row whose completion waits for the commit and relays a private note before the row completes, so the screen
+ * shows that wait and relay as a step of their own (#1492). `completeSendTransaction` and `completeCustomTransaction`
+ * are the paths that do, and both stamp 'confirming' before the wait and 'delivering' before the relay.
+ *
+ * Read from signals that do not hang on the best-effort `noteDelivery` write: a send whose `noteType` is private
+ * (`isPrivateNoteType`, so the SDK's numeric value counts; an unreadable one answers no here), either stamp on any
+ * other type than the rotations above, or a delivery recorded 'pending' or 'relayed'. A row recorded 'undelivered'
+ * without the stamps had no note it could relay, so nothing waited.
+ */
+export const waitsToDeliverNote = (tx: ITransaction | undefined): boolean => {
+  if (!tx) return false;
+  if (tx.type === 'send') {
+    try {
+      if (isPrivateNoteType(tx.noteType)) return true;
+    } catch {
+      // Unreadable: the stamps and the delivery record still answer.
+    }
+  }
+  if (tx.noteDelivery === 'pending' || tx.noteDelivery === 'relayed') return true;
+  if (OWN_COMMIT_WAIT_TYPES.has(tx.type)) return false;
+  return DELIVERY_STAGES.some(stage => tx.stage === stage || tx.stageTimestamps?.[stage] !== undefined);
+};
 
 /**
  * A `switch-guardian` row the pipeline SUBMITTED without ever establishing that

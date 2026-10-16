@@ -211,6 +211,7 @@
   "transactionStepProofGenerated": "証明が生成されました",
   "transactionStepSubmitting": "送信",
   "transactionStepSyncingGuardian": "Guardianとの同期",
+  "transactionStepDeliveringNote": "受取人への配送",
   "guardianBusyStep": "Guardianの到着をお待ちください",
   "guardianBusyDescription": "Guardianは、まだ前回の取引を処理中です。今回の取引は自動的に続行されます。",
   "transactionStepDurationSec": "$seconds$ 秒",

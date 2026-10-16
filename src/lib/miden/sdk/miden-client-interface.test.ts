@@ -220,7 +220,7 @@ describe('MidenClientInterface', () => {
       getEffectiveNoteTransportUrl: () => undefined,
       getEffectiveFeeFaucetId: () => '0xfee'
     }));
-    jest.doMock('./constants', () => ({ NoteExportType: {} }));
+    jest.doMock('./constants', () => ({ ...jest.requireActual('./constants'), NoteExportType: {} }));
     jest.doMock('./helpers', () => ({
       getBech32AddressFromAccountId: (id: any) => String(id),
       walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
@@ -799,6 +799,26 @@ describe('MidenClientInterface', () => {
     expect(fakeMidenClient.transactions.waitFor).toHaveBeenCalledWith('tx-123', {
       timeout: 5000,
       interval: 10
+    });
+  });
+
+  // The first check runs straight after submit, before any block, so a 5 s interval ended nearly every wait on
+  // its second check, about 5 s in, however soon the block came (#1492).
+  it('polls for the commit once a second by default, within the 60 s ceiling (#1492)', async () => {
+    const fakeMidenClient = buildFakeMidenClient();
+
+    jest.doMock('lib/miden/activity/connectivity-state', () => ({
+      markConnectivityIssue: jest.fn(),
+      clearConnectivityIssue: jest.fn()
+    }));
+
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+    await client.waitForTransactionCommit('tx-123');
+    expect(fakeMidenClient.transactions.waitFor).toHaveBeenCalledWith('tx-123', {
+      timeout: 60_000,
+      interval: 1_000
     });
   });
 
@@ -3554,7 +3574,7 @@ describe('MidenClientInterface', () => {
         getEffectiveNoteTransportUrl: () => undefined,
         getEffectiveFeeFaucetId: () => '0xfee'
       }));
-      jest.doMock('./constants', () => ({ NoteExportType: {} }));
+      jest.doMock('./constants', () => ({ ...jest.requireActual('./constants'), NoteExportType: {} }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id),
         walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),

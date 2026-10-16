@@ -68,7 +68,7 @@ describe('miden-client-interface watchdog pauses', () => {
       getEffectiveNoteTransportUrl: () => undefined,
       getEffectiveFeeFaucetId: () => '0xfee'
     }));
-    jest.doMock('./constants', () => ({ NoteExportType: {} }));
+    jest.doMock('./constants', () => ({ ...jest.requireActual('./constants'), NoteExportType: {} }));
     jest.doMock('./helpers', () => ({
       getBech32AddressFromAccountId: (id: unknown) => String(id),
       walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
