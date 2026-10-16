@@ -19,20 +19,19 @@ import ts from 'typescript';
 const ROOT = path.join(__dirname, '../../../..');
 const SRC = path.join(ROOT, 'src');
 
-const STORE_CLASSES = new Set([
-  'MidenClient',
-  'MidenClientInterface',
-  'WebClient',
-  'WasmWebClient',
-  'MockWasmWebClient'
-]);
-const KEYSTORE_FACTORY = 'createClientWithExternalKeystore';
-const isStoreExport = (name: string) => STORE_CLASSES.has(name) || name === KEYSTORE_FACTORY;
+// Store classes by the SDK's naming families: every *WebClient (WasmWebClient, MockWasmWebClient and its second export
+// name MockWebClient) and *MidenClient export, and the wallet's MidenClientInterface. The two free functions write the
+// store without a client.
+const isStoreClass = (name: string) => /(?:WebClient|MidenClient)$/.test(name) || name === 'MidenClientInterface';
+const STORE_FUNCTIONS = new Set(['createClientWithExternalKeystore', 'importStore']);
+const isStoreExport = (name: string) => isStoreClass(name) || STORE_FUNCTIONS.has(name);
+const OPENS_A_CLIENT = /^create\w*Client/;
 
-/** Every expression in `source` that builds or opens a store client, spelled with the SDK's export names. */
+const scriptKindFor = (fileName: string) => (fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+
+/** Every expression in `source` that builds, opens or replaces a store client, spelled with the SDK's export names. */
 function openersIn(source: string, fileName = 'inline.ts'): string[] {
-  const kind = fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
-  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, kind);
+  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, scriptKindFor(fileName));
 
   const aliases = new Map<string, string>();
   const collectAliases = (node: ts.Node) => {
@@ -55,7 +54,7 @@ function openersIn(source: string, fileName = 'inline.ts'): string[] {
       : ts.isPropertyAccessExpression(expression)
         ? expression.name.text
         : undefined;
-    return name !== undefined && STORE_CLASSES.has(resolve(name)) ? resolve(name) : undefined;
+    return name !== undefined && isStoreClass(resolve(name)) ? resolve(name) : undefined;
   };
 
   const found: string[] = [];
@@ -66,13 +65,16 @@ function openersIn(source: string, fileName = 'inline.ts'): string[] {
     } else if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
       const method = node.expression.name.text;
       const receiver = storeClass(node.expression.expression);
-      if ((receiver === 'MidenClient' || receiver === 'MidenClientInterface') && method.startsWith('create')) {
+      if (receiver !== undefined && !receiver.endsWith('WebClient') && method.startsWith('create')) {
         found.push(`${receiver}.${method}(`);
-      } else if (method.startsWith('createClient')) {
+      } else if (OPENS_A_CLIENT.test(method)) {
         found.push(`${receiver ?? node.expression.expression.getText(file)}.${method}(`);
+      } else if (method === 'importStore') {
+        found.push('importStore(');
       }
     } else if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-      if (resolve(node.expression.text) === KEYSTORE_FACTORY) found.push(`${KEYSTORE_FACTORY}(`);
+      const called = resolve(node.expression.text);
+      if (STORE_FUNCTIONS.has(called)) found.push(`${called}(`);
     }
     ts.forEachChild(node, visit);
   };
@@ -109,14 +111,45 @@ describe('clients on the SDK store', () => {
       'const r = /^https?:\\/\\//i; MidenClient.createDevnet();',
       ['MidenClient.createDevnet(']
     ],
-    ['comments and strings', "// MidenClient.create(\nconst s = 'new WebClient()';\nMidenClient.ready();", []]
+    ['comments and strings', "// MidenClient.create(\nconst s = 'new WebClient()';\nMidenClient.ready();", []],
+    ['a raw WasmWebClient', 'new WasmWebClient();', ['new WasmWebClient(']],
+    ['a raw MockWasmWebClient', 'new MockWasmWebClient();', ['new MockWasmWebClient(']],
+    ["the SDK's second name for the mock client", 'new MockWebClient();', ['new MockWebClient(']],
+    ['an aliased mock client', "import { MockWebClient as M } from 'x';\nnew M();", ['new MockWebClient(']],
+    [
+      'an aliased raw class',
+      "import { WasmWebClient as W } from 'x';\nW.createClient(url);",
+      ['WasmWebClient.createClient(']
+    ],
+    ['an instance createMockClient', 'raw.createMockClient(seed);', ['raw.createMockClient(']],
+    [
+      'a destructured keystore factory',
+      'const { createClientWithExternalKeystore: make } = WasmWebClient;\nmake(url);',
+      ['createClientWithExternalKeystore(']
+    ],
+    [
+      'an imported keystore factory',
+      "import { createClientWithExternalKeystore as make } from 'x';\nmake(url);",
+      ['createClientWithExternalKeystore(']
+    ],
+    ['an aliased importStore', "import { importStore as load } from 'x';\nload(name, dump);", ['importStore(']],
+    ['a qualified importStore', 'sdk.importStore(name, dump);', ['importStore(']],
+    [
+      'code after a generic arrow in a .ts file',
+      'const f = <T>(x: T) => x;\nMidenClient.create({});',
+      ['MidenClient.create(']
+    ]
   ])('reads %s', (_case, source, expected) => {
     expect(openersIn(source)).toEqual(expected);
   });
 
-  it('reads past a JSX attribute that looks like a comment', () => {
-    const source = 'const a = <input accept="image/*" />;\nMidenClient.create({});\nconst b = <div>{/* c */}</div>;';
-    expect(openersIn(source, 'inline.tsx')).toEqual(['MidenClient.create(']);
+  it('parses .tsx as TSX and .ts as TS', () => {
+    expect(scriptKindFor('provider.tsx')).toBe(ts.ScriptKind.TSX);
+    expect(scriptKindFor('miden-client.ts')).toBe(ts.ScriptKind.TS);
+  });
+
+  it('reads past JSX text that a TS parse would take for an open string', () => {
+    expect(openersIn("const a = <p>it's</p>; MidenClient.create({});", 'inline.tsx')).toEqual(['MidenClient.create(']);
   });
 
   it('pins every store-client construction in wallet source', () => {
@@ -129,7 +162,9 @@ describe('clients on the SDK store', () => {
       'lib/miden/sdk/miden-client-interface.ts': [
         'MidenClient.create(',
         'MidenClient.createMock(',
-        'WasmWebClient.createClient('
+        'WasmWebClient.createClient(',
+        // importDb replaces the store with a file's contents.
+        'importStore('
       ],
       'lib/miden/sdk/miden-client.ts': ['MidenClientInterface.create('],
       'offscreen/main.ts': ['MidenClientInterface.create('],
