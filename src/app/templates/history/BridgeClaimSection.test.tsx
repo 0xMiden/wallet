@@ -419,17 +419,20 @@ describe('BridgeClaimSection', () => {
     expect(screen.getByRole('link', { name: 'explorer' })).toHaveAttribute('href', `${explorer}/address/0xdead`);
   });
 
-  it('links the destination transaction to the destination explorer', () => {
+  it.each([
+    [5042002, 'https://explorer.testnet.arc.io'],
+    [5042, 'https://explorer.arc.io']
+  ])('links the destination transaction on %s to the destination explorer', (network, explorer) => {
     const hash = `0x${'a'.repeat(64)}`;
     render(
       <BridgeClaimSection
-        entry={entry({ bridgeProvider: 'usdcx', bridgeDestinationNetwork: 5042002 })}
+        entry={entry({ bridgeProvider: 'usdcx', bridgeDestinationNetwork: network })}
         restoredFromBackup={false}
         destinationTxHash={hash}
       />
     );
     expect(screen.getAllByRole('link', { name: 'explorer' }).map(link => link.getAttribute('href'))).toContain(
-      `https://explorer.testnet.arc.io/tx/${hash}`
+      `${explorer}/tx/${hash}`
     );
   });
 
