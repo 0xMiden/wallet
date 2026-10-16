@@ -1,4 +1,154 @@
 {
+  "me": {
+    "message": "Moi",
+    "englishSource": "Me"
+  },
+  "profile": {
+    "message": "Profil",
+    "englishSource": "Profile"
+  },
+  "profileWallet": {
+    "message": "Portefeuille",
+    "englishSource": "Wallet"
+  },
+  "profilePrivacySecurity": {
+    "message": "Confidentialité et sécurité",
+    "englishSource": "Privacy & security"
+  },
+  "profileConnectedApps": {
+    "message": "Applications connectées",
+    "englishSource": "Connected apps"
+  },
+  "profileHelpSupport": {
+    "message": "Aide et assistance",
+    "englishSource": "Help & support"
+  },
+  "profileLegal": {
+    "message": "Mentions légales",
+    "englishSource": "Legal"
+  },
+  "myBadges": {
+    "message": "Mes badges",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "Ouvrir Mes badges",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "$earned$ sur $total$ obtenus",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "Les étapes privées de votre activité sur Mainnet",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "Les étapes privées de votre portefeuille.",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgeCollection": {
+    "message": "Collection de badges",
+    "englishSource": "Badge collection"
+  },
+  "mainnetOnly": {
+    "message": "Mainnet uniquement",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "Les badges se débloquent sur Mainnet",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "Les badges se débloquent sur Mainnet. Les activités de test ne comptent pas.",
+    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$, obtenu",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$, verrouillé",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "Verrouillé",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "Obtenu",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "Pas encore disponible",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "Premier dépôt",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "Ajoutez des fonds et attendez de pouvoir les dépenser.",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "Première réception",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "Acceptez et réclamez un transfert vers ce compte.",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "Premier envoi",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "Confirmez un transfert Miden sortant.",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "Premier échange",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "Effectuez un échange et recevez des fonds disponibles.",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "Récupération vérifiée",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "Vérifiez la sauvegarde de récupération de ce compte.",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "Explorateur de mini-apps",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "Terminez une activité dans une mini-app prise en charge.",
+    "englishSource": "Complete a supported mini app experience."
+  },
   "usdcxBurnTitle": {
     "message": "Brûler des USDCx",
     "englishSource": "Burn USDCx"

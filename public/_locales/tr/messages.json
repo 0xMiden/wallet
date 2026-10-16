@@ -1,4 +1,154 @@
 {
+  "me": {
+    "message": "Ben",
+    "englishSource": "Me"
+  },
+  "profile": {
+    "message": "Profil",
+    "englishSource": "Profile"
+  },
+  "profileWallet": {
+    "message": "Cüzdan",
+    "englishSource": "Wallet"
+  },
+  "profilePrivacySecurity": {
+    "message": "Gizlilik ve güvenlik",
+    "englishSource": "Privacy & security"
+  },
+  "profileConnectedApps": {
+    "message": "Bağlı uygulamalar",
+    "englishSource": "Connected apps"
+  },
+  "profileHelpSupport": {
+    "message": "Yardım ve destek",
+    "englishSource": "Help & support"
+  },
+  "profileLegal": {
+    "message": "Yasal bilgiler",
+    "englishSource": "Legal"
+  },
+  "myBadges": {
+    "message": "Rozetlerim",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "Rozetlerimi aç",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "$total$ rozetten $earned$ tanesi kazanıldı",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "Mainnet etkinliklerinizden özel dönüm noktaları",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "Cüzdanınızın özel dönüm noktaları.",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgeCollection": {
+    "message": "Rozet koleksiyonu",
+    "englishSource": "Badge collection"
+  },
+  "mainnetOnly": {
+    "message": "Yalnızca Mainnet",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "Rozetler Mainnet üzerinde açılır",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "Rozetler Mainnet üzerinde açılır. Test etkinlikleri sayılmaz.",
+    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$, kazanıldı",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$, kilitli",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "Kilitli",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "Kazanıldı",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "Henüz kullanılamıyor",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "İlk Yatırma",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "Para ekleyin ve harcanabilir hale gelmesini bekleyin.",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "İlk Alma",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "Bu hesaba gelen bir transferi kabul edip alın.",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "İlk Gönderim",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "Giden bir Miden transferini onaylayın.",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "İlk Takas",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "Bir takası tamamlayın ve harcanabilir tutarı alın.",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "Kurtarma Kontrol Edildi",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "Bu hesabın kurtarma yedeğini doğrulayın.",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "Mini Uygulama Kaşifi",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "Desteklenen bir mini uygulama deneyimini tamamlayın.",
+    "englishSource": "Complete a supported mini app experience."
+  },
   "usdcxBurnTitle": {
     "message": "USDCx'i Yak",
     "englishSource": "Burn USDCx"

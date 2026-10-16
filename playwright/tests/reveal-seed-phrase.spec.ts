@@ -5,7 +5,7 @@ import { expect, test } from '../fixtures/extension';
 
 /**
  * The recovery-phrase reveal, driven through the real Settings UI in a Chromium MV3
- * extension: bottom-nav Settings -> Recovery Phrase -> "Reveal recovery phrase" -> View
+ * extension: bottom-nav Profile -> Recovery Phrase -> "Reveal recovery phrase" -> View
  * -> password -> Continue -> the word grid -> Hide -> Reveal again, once in light mode
  * and once in dark.
  *
@@ -57,9 +57,9 @@ test.describe('reveal recovery phrase', () => {
     // account is already Ready, so it renders Home.
     await walletPage.goto(`${fullpageUrl}#/`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 
-    const settingsTab = walletPage.getByRole('button', { name: 'Settings', exact: true });
-    await settingsTab.waitFor({ state: 'visible', timeout: 20_000 });
-    await settingsTab.click({ timeout: 10_000 });
+    const profileTab = walletPage.getByRole('button', { name: 'Profile', exact: true });
+    await profileTab.waitFor({ state: 'visible', timeout: 20_000 });
+    await profileTab.click({ timeout: 10_000 });
 
     await walletPage.getByTestId('Settings/RecoveryPhraseButton').click({ timeout: 10_000 });
     await walletPage.getByTestId('recovery-phrase-settings').waitFor({ state: 'visible', timeout: 10_000 });

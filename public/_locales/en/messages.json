@@ -656,9 +656,159 @@
     "message": "Create Account",
     "englishSource": "Create Account"
   },
+  "me": {
+    "message": "Me",
+    "englishSource": "Me"
+  },
+  "profile": {
+    "message": "Profile",
+    "englishSource": "Profile"
+  },
+  "profileWallet": {
+    "message": "Wallet",
+    "englishSource": "Wallet"
+  },
+  "profilePrivacySecurity": {
+    "message": "Privacy & security",
+    "englishSource": "Privacy & security"
+  },
+  "profileConnectedApps": {
+    "message": "Connected apps",
+    "englishSource": "Connected apps"
+  },
+  "profileHelpSupport": {
+    "message": "Help & support",
+    "englishSource": "Help & support"
+  },
+  "profileLegal": {
+    "message": "Legal",
+    "englishSource": "Legal"
+  },
   "settings": {
     "message": "Settings",
     "englishSource": "Settings"
+  },
+  "myBadges": {
+    "message": "My badges",
+    "englishSource": "My badges"
+  },
+  "openMyBadges": {
+    "message": "Open My badges",
+    "englishSource": "Open My badges"
+  },
+  "badgesEarnedCount": {
+    "message": "$earned$ of $total$ earned",
+    "englishSource": "$earned$ of $total$ earned",
+    "placeholders": {
+      "earned": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "badgesProfileDescription": {
+    "message": "Private milestones from your Mainnet activity",
+    "englishSource": "Private milestones from your Mainnet activity"
+  },
+  "badgesCollectionDescription": {
+    "message": "Your private wallet milestones.",
+    "englishSource": "Your private wallet milestones."
+  },
+  "badgeCollection": {
+    "message": "Badge collection",
+    "englishSource": "Badge collection"
+  },
+  "mainnetOnly": {
+    "message": "Mainnet only",
+    "englishSource": "Mainnet only"
+  },
+  "badgesMainnetNoticeTitle": {
+    "message": "Badges unlock on Mainnet",
+    "englishSource": "Badges unlock on Mainnet"
+  },
+  "badgesMainnetNoticeDescription": {
+    "message": "Badges unlock on Mainnet. Test activity does not count.",
+    "englishSource": "Badges unlock on Mainnet. Test activity does not count."
+  },
+  "badgeEarnedLabel": {
+    "message": "$badge$, earned",
+    "englishSource": "$badge$, earned",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "badgeLockedLabel": {
+    "message": "$badge$, locked",
+    "englishSource": "$badge$, locked",
+    "placeholders": {
+      "badge": {
+        "content": "$1"
+      }
+    }
+  },
+  "locked": {
+    "message": "Locked",
+    "englishSource": "Locked"
+  },
+  "badgeEarned": {
+    "message": "Earned",
+    "englishSource": "Earned"
+  },
+  "badgeVerificationPending": {
+    "message": "Not available yet",
+    "englishSource": "Not available yet"
+  },
+  "badgeFirstDeposit": {
+    "message": "First Deposit",
+    "englishSource": "First Deposit"
+  },
+  "badgeFirstDepositDescription": {
+    "message": "Add funds and wait for them to become spendable.",
+    "englishSource": "Add funds and wait for them to become spendable."
+  },
+  "badgeFirstReceive": {
+    "message": "First Receive",
+    "englishSource": "First Receive"
+  },
+  "badgeFirstReceiveDescription": {
+    "message": "Accept and claim a transfer to this account.",
+    "englishSource": "Accept and claim a transfer to this account."
+  },
+  "badgeFirstSend": {
+    "message": "First Send",
+    "englishSource": "First Send"
+  },
+  "badgeFirstSendDescription": {
+    "message": "Confirm an outgoing Miden transfer.",
+    "englishSource": "Confirm an outgoing Miden transfer."
+  },
+  "badgeFirstSwap": {
+    "message": "First Swap",
+    "englishSource": "First Swap"
+  },
+  "badgeFirstSwapDescription": {
+    "message": "Complete a swap and receive spendable output.",
+    "englishSource": "Complete a swap and receive spendable output."
+  },
+  "badgeRecoveryChecked": {
+    "message": "Recovery Checked",
+    "englishSource": "Recovery Checked"
+  },
+  "badgeRecoveryCheckedDescription": {
+    "message": "Verify this account's recovery backup.",
+    "englishSource": "Verify this account's recovery backup."
+  },
+  "badgeMiniappExplorer": {
+    "message": "Miniapp Explorer",
+    "englishSource": "Miniapp Explorer"
+  },
+  "badgeMiniappExplorerDescription": {
+    "message": "Complete a supported mini app experience.",
+    "englishSource": "Complete a supported mini app experience."
   },
   "authorizedDApps": {
     "message": "Authorized DApps",
