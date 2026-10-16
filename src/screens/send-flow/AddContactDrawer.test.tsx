@@ -45,10 +45,10 @@ jest.mock('components/NetworkChip', () => ({
 }));
 jest.mock('./bridge-networks', () => ({
   BRIDGE_NETWORKS: [
-    { id: 'sepolia', name: 'Sepolia', chainId: 1 },
-    { id: 'base', name: 'Base', chainId: 2 }
+    { id: 'sepolia', name: 'Sepolia', chainId: 1, family: 'evm' },
+    { id: 'base', name: 'Base', chainId: 2, family: 'evm' }
   ],
-  defaultBridgeNetwork: () => ({ id: 'sepolia', name: 'Sepolia', chainId: 1 })
+  defaultBridgeNetwork: () => ({ id: 'sepolia', name: 'Sepolia', chainId: 1, family: 'evm' })
 }));
 
 const MIDEN = 'mtst1arl2mg5w4524rsfkvuvvtxtwryfdpp48_qr7qqq9wr6w';

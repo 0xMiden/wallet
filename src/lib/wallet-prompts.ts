@@ -265,6 +265,7 @@ async function pollBridgedSend(tx: ITransaction): Promise<void> {
   }
 
   if (
+    typeof inputs.destinationNetwork !== 'number' ||
     inputs.epochStatus === 'confirmed' ||
     inputs.epochStatus === 'failed' ||
     !inputs.intentNonce ||

@@ -8,6 +8,7 @@ import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
 
+import type { BridgeNetwork } from './bridge-networks';
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
 import { settleSendFlow } from './send-telemetry';
 import { SendFlow } from './SendManager';
@@ -255,17 +256,17 @@ jest.mock('./useRecentRecipients', () => ({
   useRecentRecipients: (...a: any[]) => useRecentRecipientsMock(...a)
 }));
 
-let mockBridgeNetworks: Array<{ id: string; name: string; chainId: number }> = [];
+let mockBridgeNetworks: BridgeNetwork[] = [];
 // When set, the networks every send offers, one stable array as the real list is while the snapshot holds.
-let mockOfferedNetworks: Array<{ id: string; name: string; chainId: number }> | undefined;
+let mockOfferedNetworks: BridgeNetwork[] | undefined;
 jest.mock('./bridge-networks', () => {
-  const sepolia = { id: 'sepolia', name: 'Sepolia', chainId: 11155111 };
+  const sepolia = { id: 'sepolia', name: 'Sepolia', chainId: 11155111, family: 'evm' };
   // The testnet USDCx destinations, in the destination table's order.
   const usdcxNetworks = [
-    { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 },
+    { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002, family: 'evm' },
     sepolia,
-    { id: 'arbitrum-sepolia', name: 'Arbitrum Sepolia', chainId: 421614 },
-    { id: 'base-sepolia', name: 'Base Sepolia', chainId: 84532 }
+    { id: 'arbitrum-sepolia', name: 'Arbitrum Sepolia', chainId: 421614, family: 'evm' },
+    { id: 'base-sepolia', name: 'Base Sepolia', chainId: 84532, family: 'evm' }
   ];
   const sepoliaOnly = [sepolia];
   return {
@@ -273,7 +274,9 @@ jest.mock('./bridge-networks', () => {
     get BRIDGE_NETWORKS() {
       return mockBridgeNetworks;
     },
-    getBridgeNetwork: jest.fn(),
+    getBridgeNetwork: (id: string) =>
+      mockOfferedNetworks?.find(network => network.id === id) ?? usdcxNetworks.find(network => network.id === id),
+    evmBridgeChainId: (network: { chainId: number } | undefined) => network?.chainId,
     usdcxBridgeNetworks: () => usdcxNetworks,
     defaultUsdcxBridgeNetwork: () => usdcxNetworks[0],
     isUsdcxBridgeNetwork: (id: string | undefined) => usdcxNetworks.some(n => n.id === id),
@@ -364,6 +367,9 @@ jest.mock('lib/woozie', () => ({
   useLocation: () => ({ pathname: mockPathname, search: mockSearch })
 }));
 jest.mock('utils/miden', () => {
+  const { isValidChainAddress } = jest.requireActual<typeof import('utils/chain-address')>('utils/chain-address');
+  const familyOf = (value: string) =>
+    isValidChainAddress(value, 'solana') ? 'solana' : value.startsWith('0x') ? 'evm' : 'miden';
   class MidenAddressError extends Error {
     reason: 'invalid' | 'wrong-network';
 
@@ -379,8 +385,19 @@ jest.mock('utils/miden', () => {
       return true;
     },
     isValidEthereumAddress: (a: string) => a.startsWith('0x') && a.length > 2,
-    isValidRecipientAddress: (a: string) => isValidMidenAddressMock(a),
-    detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden')
+    isValidRecipientAddress: (a: string, family = familyOf(a)) => {
+      switch (family) {
+        case 'solana':
+          return isValidChainAddress(a, 'solana');
+        case 'evm':
+          return a.startsWith('0x') && a.length > 2;
+        default:
+          return isValidMidenAddressMock(a);
+      }
+    },
+    recipientFamily: familyOf,
+    recipientAddressKey: (a: string) => a.trim().toLowerCase(),
+    detectAddressChain: (a: string) => (familyOf(a) === 'evm' ? 'ethereum' : familyOf(a))
   };
 });
 jest.mock('lib/i18n/numbers', () => ({ stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a) }));
@@ -846,7 +863,7 @@ describe('recipient address entry', () => {
   });
 
   it('selects the only bridge network for a valid 0x recipient, so Confirm is ready', () => {
-    mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+    mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111, family: 'evm' }];
     try {
       mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external' };
       renderFlow();
@@ -860,10 +877,33 @@ describe('recipient address entry', () => {
     }
   });
 
+  it('selects Solana Devnet for a wallet address and changes back to EVM for a hex address', () => {
+    mockOfferedNetworks = [
+      { id: 'sepolia', name: 'Sepolia', chainId: 11155111, family: 'evm' },
+      { id: 'solana-devnet', name: 'Solana Devnet', chainId: 'solana-devnet', family: 'solana' }
+    ];
+    try {
+      renderFlow();
+      fireEvent.change(screen.getByTestId('sr-input'), {
+        target: { value: '9fYLFVoVqwH37C3dyPi6cpeobfbQ2jtLpN5HgAYDDdkm' }
+      });
+      expect(screen.getByTestId('sr-network')).toHaveTextContent('solana-devnet');
+      expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+      expect(screen.getByTestId('sr-error')).toBeEmptyDOMElement();
+      fireEvent.change(screen.getByTestId('sr-input'), {
+        target: { value: '0x112233445566778899aabbccddeeff0011223344' }
+      });
+      expect(screen.getByTestId('sr-network')).toHaveTextContent('sepolia');
+      expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    } finally {
+      mockOfferedNetworks = undefined;
+    }
+  });
+
   it('selects the first offered network once when Sepolia is not offered', () => {
     mockOfferedNetworks = [
-      { id: 'base-sepolia', name: 'Base Sepolia', chainId: 84532 },
-      { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 }
+      { id: 'base-sepolia', name: 'Base Sepolia', chainId: 84532, family: 'evm' },
+      { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002, family: 'evm' }
     ];
     mockBridgeNetworks = mockOfferedNetworks;
     try {
@@ -882,7 +922,7 @@ describe('recipient address entry', () => {
 
   it('selects no network when none is offered', () => {
     mockOfferedNetworks = [];
-    mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+    mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111, family: 'evm' }];
     try {
       mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external' };
       renderFlow();
@@ -912,8 +952,8 @@ describe('recipient address entry', () => {
   it("starts with the recipient and saved network handed over by a contact's page", () => {
     mockSearch = '?to=0xfromcontact&network=sepolia';
     mockBridgeNetworks = [
-      { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
-      { id: 'base', name: 'Base', chainId: 84532 }
+      { id: 'sepolia', name: 'Sepolia', chainId: 11155111, family: 'evm' },
+      { id: 'base', name: 'Base', chainId: 84532, family: 'evm' }
     ];
     try {
       renderFlow();

@@ -1,6 +1,7 @@
 import type { PreparedExecution } from '@epoch-protocol/epoch-intents-sdk';
 import { v4 as uuid } from 'uuid';
 
+import type { DestinationNetworkId } from 'lib/chain/types';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import type { TransactionFailureDiagnostics } from 'lib/telemetry/transaction-failure';
 import type { UsdcxSourceChain } from 'lib/usdcx/constant';
@@ -311,7 +312,7 @@ export type IBridgeClaimStatus = 'not-applicable' | 'pending' | 'ready' | 'claim
 export interface IUsdcxBurn {
   noteId: string;
   destinationDomain: number;
-  destinationUsdc?: `0x${string}`;
+  destinationUsdc?: string;
   payoutFeeAllowance?: string;
   phase: 'pending' | 'consuming' | 'confirmed' | 'discarded';
   /** USDC balance saved before the burn is queued, in six-decimal base units. */
@@ -329,10 +330,10 @@ export interface IBridgedSendExtraInputs {
   epochAllocatorUrl?: string;
   provider: IBridgeProvider;
   usdcxBurn?: IUsdcxBurn;
-  /** 0x EVM recipient. */
+  /** The recipient wallet address. */
   destinationAddress: string;
-  /** EVM destination network: the L1 bridge's `networkID()` at creation (agglayer) or chain id (epoch). */
-  destinationNetwork: number;
+  /** EVM network id, or the Solana cluster key for a USDCx withdrawal. */
+  destinationNetwork: DestinationNetworkId;
   /** Miden faucet the bridged asset was sourced from. */
   sourceFaucetId: string;
   claimStatus: IBridgeClaimStatus;
@@ -1348,7 +1349,7 @@ export class BridgedSendTransaction implements ITransaction {
     accountId: string,
     amount: bigint,
     destinationAddress: string,
-    destinationNetwork: number,
+    destinationNetwork: DestinationNetworkId,
     provider: IBridgeProvider,
     faucetId: string,
     requestBytes?: Uint8Array,

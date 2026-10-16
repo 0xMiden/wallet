@@ -7,7 +7,24 @@
  */
 
 import { Chain, defineChain } from 'viem';
-import { arbitrum, arbitrumSepolia, base, baseSepolia, mainnet, optimism, sepolia } from 'viem/chains';
+import {
+  arbitrum,
+  arbitrumSepolia,
+  avalanche,
+  avalancheFuji,
+  base,
+  baseSepolia,
+  hyperEvm,
+  hyperliquidEvmTestnet,
+  mainnet,
+  monad,
+  monadTestnet,
+  optimism,
+  optimismSepolia,
+  polygon,
+  polygonAmoy,
+  sepolia
+} from 'viem/chains';
 
 export const ARC_TESTNET = defineChain({
   id: 5042002,
@@ -82,7 +99,16 @@ export const EVM_CHAIN_DEFINITIONS: [Chain, ...Chain[]] = [
   base,
   arbitrum,
   ARC_MAINNET,
-  optimism
+  optimism,
+  optimismSepolia,
+  avalanche,
+  avalancheFuji,
+  polygon,
+  { ...polygonAmoy, rpcUrls: { default: { http: ['https://polygon-amoy-bor-rpc.publicnode.com'] } } },
+  monad,
+  monadTestnet,
+  hyperEvm,
+  hyperliquidEvmTestnet
 ];
 
 /**
@@ -104,6 +130,15 @@ export const SUPPORTED_CHAINS: EvmChain[] = EVM_CHAIN_DEFINITIONS.map(chain => {
   switch (chain.id) {
     case ARC_TESTNET.id:
     case ARC_MAINNET.id:
+    case optimismSepolia.id:
+    case avalanche.id:
+    case avalancheFuji.id:
+    case polygon.id:
+    case polygonAmoy.id:
+    case monad.id:
+    case monadTestnet.id:
+    case hyperEvm.id:
+    case hyperliquidEvmTestnet.id:
       return {
         ...walletConnectChain(chain),
         rpcUrl: chain.rpcUrls.default.http[0] ?? RPC(chain.id)

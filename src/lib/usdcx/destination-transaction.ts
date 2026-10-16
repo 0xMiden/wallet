@@ -22,7 +22,7 @@ export async function findUsdcxDestinationTransaction({
   amount: bigint;
   beforeBlock: string;
   confirmedBlock: string;
-  savedToken?: `0x${string}`;
+  savedToken?: string;
   savedFeeAllowance?: string;
 }): Promise<string | undefined> {
   const chain = getChain(chainId);
@@ -31,7 +31,7 @@ export async function findUsdcxDestinationTransaction({
   // allowance takes whole has no such range.
   const minimum =
     savedFeeAllowance === undefined ? minimumUsdcxPayout(chainId, amount) : amount - BigInt(savedFeeAllowance);
-  if (!chain || !token || !isAddress(recipient) || minimum <= 0n) return undefined;
+  if (!chain || !token || !isAddress(token) || !isAddress(recipient) || minimum <= 0n) return undefined;
   const toBlock = BigInt(confirmedBlock);
   const firstBlock = BigInt(beforeBlock) + 1n;
   if (firstBlock > toBlock) return undefined;

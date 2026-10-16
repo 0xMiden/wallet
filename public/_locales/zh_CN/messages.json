@@ -3813,6 +3813,18 @@
     "message": "会议纪要",
     "englishSource": "Minutes"
   },
+  "usdcxSolanaAccountMissing": {
+    "message": "该钱包在所选的 Solana 网络上没有 USDC 代币账户。请在 Solana 钱包中创建该账户，然后重试。",
+    "englishSource": "This wallet has no USDC token account on the selected Solana network. Create the account in a Solana wallet, then try again."
+  },
+  "usdcxSolanaAccountUnavailable": {
+    "message": "该钱包的 USDC 代币账户无法接收资金。请在 Solana 钱包中查看该账户。",
+    "englishSource": "This wallet's USDC token account cannot receive funds. Check the account in a Solana wallet."
+  },
+  "invalidSolanaAddress": {
+    "message": "无效的 Solana 地址",
+    "englishSource": "Invalid Solana address"
+  },
   "invalidEthereumAddress": {
     "message": "以太坊地址无效",
     "englishSource": "Invalid Ethereum address"

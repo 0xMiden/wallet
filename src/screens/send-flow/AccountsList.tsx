@@ -68,6 +68,7 @@ export const AccountsListDrawer: React.FC<AccountsListDrawerProps> = ({
           name={contact.name}
           // Only a `0x` contact gets the badge: the subtitle names every network.
           network={contactNetwork(contact.id, contact.network).kind === 'ethereum' ? 'ethereum' : undefined}
+          networkId={contactNetwork(contact.id, contact.network).bridgeNetwork?.id}
         />
       }
       trailing={contact.isGuardian ? <Pill size="sm">{t('guardianBadge')}</Pill> : undefined}

@@ -51,7 +51,7 @@ describe('default bridge network', () => {
     mockNetworkName = 'localnet';
     expect(defaultBridgeNetwork().id).toBe('sepolia');
     mockNetworkName = 'mainnet';
-    expect(defaultBridgeNetwork()).toEqual({ id: 'ethereum', name: 'Ethereum', chainId: 1 });
+    expect(defaultBridgeNetwork()).toEqual({ id: 'ethereum', name: 'Ethereum', chainId: 1, family: 'evm' });
   });
 
   it('pre-selects the USDCx chain of the network, else the bridge default', () => {

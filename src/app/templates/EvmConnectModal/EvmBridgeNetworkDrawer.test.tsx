@@ -17,8 +17,8 @@ jest.mock('components/NetworkChip', () => ({
   NetworkLogo: () => <span data-testid="network-logo" />
 }));
 
-const ARC: BridgeNetwork = { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 };
-const SEPOLIA: BridgeNetwork = { id: 'sepolia', name: 'Sepolia', chainId: 11155111 };
+const ARC: BridgeNetwork = { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002, family: 'evm' };
+const SEPOLIA: BridgeNetwork = { id: 'sepolia', name: 'Sepolia', chainId: 11155111, family: 'evm' };
 
 describe('EvmBridgeNetworkDrawer', () => {
   it('lists every source network, marks the chosen one and reports a tap', () => {

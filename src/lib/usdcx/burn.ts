@@ -18,6 +18,7 @@ import {
   Word
 } from '@miden-sdk/miden-sdk/lazy';
 
+import type { DestinationNetworkId } from 'lib/chain/types';
 import { accountRefToSdk, getBech32AddressFromAccountId, randomFeeSalt } from 'lib/miden/sdk/helpers';
 import type { SpendingLimitAuthorization } from 'lib/miden/spending-limits/types';
 import { initiateBridgedSendTransaction } from 'lib/miden/transaction/initiate';
@@ -33,6 +34,7 @@ import {
 } from './constant';
 import { readUsdcxDestinationSnapshot } from './destination-status';
 import { readWithOwnRpcClient } from './rpc-client';
+import { solanaUsdcAccount } from './solana';
 import { encodeBurnWithdrawal, requireUsdcxFaucetId, UsdcxBurnError, validateUsdcxWithdrawal } from './withdrawal';
 
 /** Read faucet storage through a separate RPC client and return the minimum burn amount. */
@@ -84,7 +86,7 @@ export async function initiateUsdcxBurn(args: {
   faucetId: string;
   amount: bigint;
   destinationAddress: string;
-  destinationChainId: number;
+  destinationChainId: DestinationNetworkId;
   spendingLimitAuthorization?: SpendingLimitAuthorization;
 }): Promise<string> {
   const { senderPublicKey, faucetId, amount, destinationAddress, destinationChainId, spendingLimitAuthorization } =
@@ -96,8 +98,12 @@ export async function initiateUsdcxBurn(args: {
   const { domain } = destination;
   const minimum = await readUsdcxMinimumBurn();
   if (amount < minimum) throw new UsdcxBurnError('usdcxBelowMinimumBurn');
+  const mintRecipient =
+    destination.family === 'solana'
+      ? await solanaUsdcAccount(destinationAddress, destination.usdc)
+      : destinationAddress.trim();
   const built = {
-    ...buildUsdcxBurnRequest(senderPublicKey, amount, destinationAddress, domain),
+    ...buildUsdcxBurnRequest(senderPublicKey, amount, mintRecipient, domain),
     destinationDomain: domain,
     faucetBech32: getBech32AddressFromAccountId(accountRefToSdk(requireUsdcxFaucetId()))
   };

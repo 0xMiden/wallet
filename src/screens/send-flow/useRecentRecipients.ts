@@ -4,6 +4,7 @@ import { subscribeToLiveQuery } from 'lib/dexie-live-query';
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import type { IBridgedSendExtraInputs, ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
+import { recipientAddressKey } from 'utils/chain-address';
 import { detectAddressChain } from 'utils/miden';
 
 import { BRIDGE_NETWORKS } from './bridge-networks';
@@ -58,7 +59,7 @@ export const selectRecentRecipients = (rows: ITransaction[], accountId: string):
     const recipient = recipientOf(row);
     if (!recipient) continue;
 
-    const key = recipient.address.toLowerCase();
+    const key = recipientAddressKey(recipient.address);
     // Sending to yourself is blocked at entry, but a legacy row shouldn't
     // resurface the account's own address as a suggestion.
     if (seen.has(key) || compareAccountIds(recipient.address, accountId) || key === accountId.toLowerCase()) continue;

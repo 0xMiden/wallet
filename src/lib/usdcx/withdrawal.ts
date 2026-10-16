@@ -1,22 +1,16 @@
+import { getAddressEncoder, isAddress as isSolanaAddress } from '@solana/addresses';
 import { hexToBytes, isAddress, padHex } from 'viem';
 
+import type { DestinationNetworkId } from 'lib/chain/types';
 import { sameWalletAccountId } from 'lib/miden/sdk/helpers';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { featureAvailability } from 'lib/remote-config/availability';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 
 import { usdcxDestinations, usdcxPayoutFeeShortfall } from './constant';
+import { UsdcxBurnError } from './errors';
 
-export class UsdcxBurnError extends Error {
-  /** `values` fills the copy's placeholders, such as the fee allowance a burn must exceed. */
-  constructor(
-    readonly translationKey: string,
-    readonly values?: Record<string, string>
-  ) {
-    super(translationKey);
-    this.name = 'UsdcxBurnError';
-  }
-}
+export { UsdcxBurnError } from './errors';
 
 /**
  * The USDCx faucet id. USDCx is the chain's native asset, so the id is the one the wallet discovers
@@ -51,8 +45,8 @@ export function encodeBurnWithdrawal(destinationAddress: string, destinationDoma
   if (!Number.isInteger(destinationDomain) || destinationDomain < 0 || destinationDomain > 0xffffffff) {
     throw new UsdcxBurnError('usdcxInvalidDestination');
   }
-  if (!isAddress(destinationAddress)) throw new UsdcxBurnError('usdcxInvalidDestination');
-  const bytes = hexToBytes(padHex(destinationAddress, { size: 32 }));
+  const bytes = withdrawalRecipientBytes(destinationAddress, destinationDomain);
+
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   return [
     BigInt(destinationDomain),
@@ -63,12 +57,23 @@ export function encodeBurnWithdrawal(destinationAddress: string, destinationDoma
   ];
 }
 
+function withdrawalRecipientBytes(recipient: string, domain: number): Uint8Array {
+  switch (domain) {
+    case 5:
+      if (!isSolanaAddress(recipient)) throw new UsdcxBurnError('usdcxInvalidDestination');
+      return new Uint8Array(getAddressEncoder().encode(recipient));
+    default:
+      if (!isAddress(recipient)) throw new UsdcxBurnError('usdcxInvalidDestination');
+      return hexToBytes(padHex(recipient, { size: 32 }));
+  }
+}
+
 /**
  * Whether `destinationChainId` is a destination a burn can pay out to on the effective network:
  * a `usdcxDestinations` entry, which holds only chains of the effective network's family (testnet chains on
  * testnet), whose withdrawal is available.
  */
-export function isUsdcxDestinationChain(destinationChainId: number): boolean {
+export function isUsdcxDestinationChain(destinationChainId: DestinationNetworkId): boolean {
   const entry = usdcxDestinations().get(destinationChainId);
   return (
     !!entry &&
@@ -77,7 +82,11 @@ export function isUsdcxDestinationChain(destinationChainId: number): boolean {
   );
 }
 
-export function validateUsdcxWithdrawal(faucetId: string, destinationChainId: number, amount: bigint): void {
+export function validateUsdcxWithdrawal(
+  faucetId: string,
+  destinationChainId: DestinationNetworkId,
+  amount: bigint
+): void {
   if (!isUsdcxWithdrawalAvailable(faucetId)) throw new UsdcxBurnError('usdcxUnsupportedFaucet');
   if (!isUsdcxDestinationChain(destinationChainId)) throw new UsdcxBurnError('usdcxInvalidDestination');
   if (amount <= 0n) throw new UsdcxBurnError('usdcxInvalidAmount');

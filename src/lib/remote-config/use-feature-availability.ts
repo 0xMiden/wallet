@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 
 import { usePageActive } from 'app/layouts/page-active';
+import type { DestinationNetworkId } from 'lib/chain/types';
 
 import { type BridgeFeature, type FeatureAvailability, featureAvailability } from './availability';
 import { type E2eOverrides, getE2eOverrides, subscribeE2eOverrides } from './e2e-overrides';
@@ -44,7 +45,7 @@ export interface FeatureAvailabilityOptions {
    * while it reads unavailable. Defaults to true; a branch that draws neither passes false.
    */
   hold?: boolean;
-  chainId?: number;
+  chainId?: DestinationNetworkId;
 }
 
 // A greyed-out control on the page the user is looking at holds the 60 s cadence, whatever greyed it, so it recovers

@@ -6,10 +6,13 @@ import { ReactComponent as EthLogo } from 'app/icons/logos/eth.svg';
 import { ReactComponent as MidenLogo } from 'app/icons/logos/miden.svg';
 import { Pill } from 'components/ui';
 
+import { networkLogo } from './network-logo';
+
 export type NetworkChipKind = 'miden' | 'ethereum';
 
 export interface NetworkChipProps {
   kind: NetworkChipKind;
+  network?: string;
   /** Already-translated network name, e.g. "Miden" or "Sepolia". */
   label: string;
   /** Selectable chips take a click handler and render as a button. */
@@ -20,15 +23,18 @@ export interface NetworkChipProps {
 }
 
 /** The network's mark, sized for a pill or a badge. */
-export const NetworkLogo: React.FC<{ kind: NetworkChipKind }> = ({ kind }) =>
-  kind === 'miden' ? (
-    // The brand mark from miden.xyz: the orange glyph, no circle behind it.
-    <MidenLogo data-testid="miden-logo" aria-hidden="true" className="h-3.5 w-auto" />
-  ) : (
+export const NetworkLogo: React.FC<{ kind: NetworkChipKind; network?: string }> = ({ kind, network }) => {
+  const logo = networkLogo(network);
+  if (kind === 'miden') {
+    return <MidenLogo data-testid="miden-logo" aria-hidden="true" className="h-3.5 w-auto" />;
+  }
+  if (logo) return <img src={logo} alt="" aria-hidden="true" className="h-4 w-4" />;
+  return (
     <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#627EEA]" aria-hidden="true">
       <EthLogo className="h-2.5 w-2.5" />
     </span>
   );
+};
 
 // Literal class strings, so Tailwind generates them. A selected chip deepens its border to the
 // network's text color, so selection never changes its size.
@@ -51,6 +57,7 @@ const NETWORK_CLASSES: Record<NetworkChipKind, { base: string; border: string; s
  */
 export const NetworkChip: React.FC<NetworkChipProps> = ({
   kind,
+  network,
   label,
   onClick,
   selected = false,
@@ -61,7 +68,7 @@ export const NetworkChip: React.FC<NetworkChipProps> = ({
 
   return (
     <Pill
-      icon={<NetworkLogo kind={kind} />}
+      icon={<NetworkLogo kind={kind} network={network} />}
       tone="plain"
       onClick={onClick}
       selected={onClick ? selected : undefined}

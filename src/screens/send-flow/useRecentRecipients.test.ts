@@ -120,7 +120,7 @@ describe('selectRecentRecipients', () => {
   });
 
   it('leaves the network unnamed for an unrecognised chain id', () => {
-    const row = bridgedRow({ extraInputs: { destinationAddress: '0xabc', destinationNetwork: 999 } });
+    const row = bridgedRow({ extraInputs: { destinationAddress: '0xabc', destinationNetwork: 987654321 } });
 
     expect(selectRecentRecipients([row], ACCOUNT)[0]?.networkName).toBeUndefined();
   });

@@ -98,9 +98,9 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   };
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const selectedNetwork = network === 'miden' ? undefined : getBridgeNetwork(network);
-  const isEthereum = chain === 'ethereum';
+  const isBridge = chain !== 'miden';
   const hasAddress = address.trim().length > 0;
-  const canConfirm = isValidAddress && (!isEthereum || !!selectedNetwork);
+  const canConfirm = isValidAddress && (!isBridge || !!selectedNetwork);
   const showAddContact = canAddContact && !!onAddContact;
   const recentRecipients = hasAddress ? [] : (recents ?? []);
   const pillSet = !hasAddress ? 'empty' : showAddContact ? 'add' : 'book';
@@ -214,7 +214,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             <div className="pt-4">
               <NetworkField
                 networks={networks}
-                chain={isEthereum ? 'ethereum' : 'miden'}
+                chain={chain}
                 network={network === 'miden' ? undefined : network}
                 onSelect={onSelectNetwork}
                 testIdPrefix="send"

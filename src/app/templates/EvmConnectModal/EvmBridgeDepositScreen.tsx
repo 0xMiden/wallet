@@ -709,6 +709,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     if (confirming.current) return;
     hapticLight();
     setNetworkDrawerOpen(false);
+    if (typeof next.chainId !== 'number') return;
     setPickedChainId(next.chainId);
   }, []);
 

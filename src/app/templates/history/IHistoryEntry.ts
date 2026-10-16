@@ -1,3 +1,4 @@
+import type { DestinationNetworkId } from 'lib/chain/types';
 import {
   IBridgeClaimStatus,
   IBridgeProvider,
@@ -147,7 +148,7 @@ export interface IHistoryEntry {
   bridgeProvider?: IBridgeProvider;
   usdcxBurn?: IUsdcxBurn;
   bridgeDestinationAddress?: string;
-  bridgeDestinationNetwork?: number;
+  bridgeDestinationNetwork?: DestinationNetworkId;
   bridgeAgglayerRoute?: AgglayerRecoveryConfig;
   bridgeEpochAllocatorUrl?: string;
   bridgeClaimStatus?: IBridgeClaimStatus;

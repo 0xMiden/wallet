@@ -3813,6 +3813,18 @@
     "message": "Ata",
     "englishSource": "Minutes"
   },
+  "usdcxSolanaAccountMissing": {
+    "message": "Esta carteira não possui uma conta de tokens USDC na rede Solana selecionada. Crie a conta em uma carteira Solana e tente novamente.",
+    "englishSource": "This wallet has no USDC token account on the selected Solana network. Create the account in a Solana wallet, then try again."
+  },
+  "usdcxSolanaAccountUnavailable": {
+    "message": "A conta de tokens USDC desta carteira não pode receber fundos. Verifique a conta em uma carteira Solana.",
+    "englishSource": "This wallet's USDC token account cannot receive funds. Check the account in a Solana wallet."
+  },
+  "invalidSolanaAddress": {
+    "message": "Endereço Solana inválido",
+    "englishSource": "Invalid Solana address"
+  },
   "invalidEthereumAddress": {
     "message": "Endereço de Ethereum inválido",
     "englishSource": "Invalid Ethereum address"

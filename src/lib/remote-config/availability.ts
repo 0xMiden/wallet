@@ -1,3 +1,5 @@
+import type { DestinationNetworkId } from 'lib/chain/types';
+
 import type { Probe } from './derive';
 import { getE2eOverrides, type E2eOverrides } from './e2e-overrides';
 import type { BridgeConfig, SupportedEvmChainConfig } from './schema';
@@ -152,7 +154,7 @@ export function featureAvailability(
   feature: BridgeFeature,
   snapshot: AvailabilityInput,
   overrides: E2eOverrides = getE2eOverrides(),
-  chainId?: number
+  chainId?: DestinationNetworkId
 ): FeatureAvailability {
   if (snapshot.status === 'loading') return { state: 'loading' };
   if (!snapshot.config) return unavailable('not-configured', 'no accepted document');
@@ -163,6 +165,16 @@ export function featureAvailability(
   const enabledChains = chains.filter(chain => enabled(feature, chain));
   const candidates = enabledChains.length > 0 ? enabledChains : chains;
   const results = candidates.map(chain => chainAvailability(feature, chain, snapshot, overrides));
+  if (feature === 'usdcxWithdrawal') {
+    for (const chain of Object.values(snapshot.config.solanaChains ?? {})) {
+      if (chainId !== undefined && chain.id !== chainId) continue;
+      const provider = snapshot.config['bridge-providers'].usdcx;
+      if (!chain.withdrawalEnabled) results.push(unavailable('off', 'route is off'));
+      else if (!provider.attestationUrl || provider.midenDomain === undefined || !provider.irisUrl) {
+        results.push(unavailable('not-configured', 'USDCx provider is missing'));
+      } else results.push({ state: 'available' });
+    }
+  }
   const available = results.find(result => result.state === 'available');
   if (available) return available;
   const loading = results.find(result => result.state === 'loading');
