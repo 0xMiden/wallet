@@ -189,6 +189,16 @@ it.each([
 });
 
 it.each([
+  [100, 'Continue'],
+  [599, 'Network Connect Timeout Error']
+])('reports a Guardian status of %s, at an edge of the range, as its number', async (status, statusText) => {
+  reportTransactionFailure({ type: 'consume', error: guardianRefusal(status, statusText, 'conflict_pending_delta') });
+  expect(await reportedMessage()).toContain(
+    `; point pipeline; guardian_http_${status}; guardian code conflict_pending_delta. `
+  );
+});
+
+it.each([
   ['99', { status: 99 }],
   ['600', { status: 600 }],
   ['409.5', { status: 409.5 }],
