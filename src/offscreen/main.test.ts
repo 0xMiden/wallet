@@ -1485,6 +1485,39 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
     }
   });
 
+  // The first check runs straight after submit, before any block, so a 5 s sleep ended nearly every wait on its
+  // second check, about 5 s in, however soon the block came (#1492).
+  it('commit-wait checks again one second after a pending check (#1492)', async () => {
+    await loadModule();
+    jest.useFakeTimers();
+    try {
+      G.__off.clientTransactionsList = jest
+        .fn()
+        .mockResolvedValueOnce([G.__off.pendingStatus])
+        .mockResolvedValue([G.__off.committedStatus]);
+
+      const sendResponse = jest.fn();
+      capturedListener!(
+        callReq({ method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }),
+        {},
+        sendResponse
+      );
+      for (let i = 0; i < 6; i++) await jest.advanceTimersByTimeAsync(0);
+      expect(G.__off.clientTransactionsList).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(999);
+      expect(G.__off.clientTransactionsList).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(1);
+      for (let i = 0; i < 6; i++) await jest.advanceTimersByTimeAsync(0);
+      expect(G.__off.clientTransactionsList).toHaveBeenCalledTimes(2);
+      expect(sendResponse).toHaveBeenCalledTimes(1);
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: true, resultB64: null });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('commit-wait throws (ok:false) when the tx is DISCARDED (rejected)', async () => {
     await loadModule();
     G.__off.clientTransactionsList = jest.fn(async () => [G.__off.discardedStatus]);

@@ -589,6 +589,23 @@ describe('GeneratingTransactionPage container effects', () => {
       ])
     );
 
+  // A private send's commit wait and relay are a step of their own after the Guardian sync (#1492), so a row
+  // failed during either carries its cross there, past a finished sync.
+  it.each(['confirming', 'delivering'])('marks a private send failed at %s on its delivery step', async stage => {
+    mockRowState = { row: makeTx({ status: 3, stage, noteType: 'private', error: 'boom' }), loaded: true };
+
+    const { container, root } = await mount(<GeneratingTransactionPage txId="tx-1" />);
+
+    expect(stepStates(container)).toEqual({
+      'guardian-approving': 'complete',
+      'generating-proof': 'complete',
+      submitting: 'complete',
+      'syncing-guardian': 'complete',
+      'delivering-note': 'failed'
+    });
+    act(() => root.unmount());
+  });
+
   // The same rule Activity and the rotation gate apply (#1250): a row whose outcome is unknown
   // is not titled failed, and its classifier copy is not shown as the reason. Neither row holds an
   // entry the reconciler can check, so the hint says the wallet is not checking it (#1081).
@@ -969,6 +986,90 @@ describe('GeneratingTransaction stage + state rendering', () => {
     expect(rows[0]?.textContent).toContain('transactionStepGuardianApproved');
     expect(container.textContent).toContain('generatingTransactionDescription');
     expect(container.textContent).not.toContain('guardianBusy');
+    act(() => root.unmount());
+  });
+
+  // The commit wait and relay of a private send ran under "Syncing with Guardian", which read as a 5 s Guardian
+  // sync (#1492). They are a step of their own, and the sync finishing ticks the sync step only.
+  it.each(['guardian-synced', 'confirming', 'delivering'])(
+    'shows a private Guardian send at %s on its delivery step, past a finished Guardian sync (#1492)',
+    async stage => {
+      const { container, root } = await renderInto(
+        <GeneratingTransaction
+          isGuardian={true}
+          onDoneClick={() => {}}
+          transactionComplete={false}
+          activeStage={stage as any}
+          activeType="send"
+          activeTransaction={makeTx({ stage, noteType: 'private' }) as never}
+        />
+      );
+      const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+
+      expect(rows.map(row => row.getAttribute('data-transaction-step'))).toEqual([
+        'guardian-approving',
+        'generating-proof',
+        'submitting',
+        'syncing-guardian',
+        'delivering-note'
+      ]);
+      expect(rows.map(row => row.getAttribute('data-state'))).toEqual([
+        'complete',
+        'complete',
+        'complete',
+        'complete',
+        'active'
+      ]);
+      expect(rows[4]?.textContent).toContain('transactionStepDeliveringNote');
+      act(() => root.unmount());
+    }
+  );
+
+  it('times both the Guardian sync and the delivery of a completed private send', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete
+        activeType="send"
+        activeTransaction={
+          makeTx({
+            status: ITransactionStatus.Completed,
+            stage: 'complete',
+            noteType: 'private',
+            stageTimestamps: { 'guardian-syncing': 2_600, confirming: 2_950, complete: 8_300 }
+          }) as never
+        }
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+
+    expect(rows).toHaveLength(5);
+    expect(rows[3]?.textContent).toContain('transactionStepDurationSec');
+    expect(rows[4]?.textContent).toContain('transactionStepDurationSec');
+    act(() => root.unmount());
+  });
+
+  it('keeps a public Guardian send on the four steps, with the Guardian sync last', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete={false}
+        activeStage="guardian-syncing"
+        activeType="send"
+        activeTransaction={makeTx({ stage: 'guardian-syncing', noteType: 'public' }) as never}
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+
+    expect(rows.map(row => row.getAttribute('data-transaction-step'))).toEqual([
+      'guardian-approving',
+      'generating-proof',
+      'submitting',
+      'syncing-guardian'
+    ]);
+    expect(rows.map(row => row.getAttribute('data-state'))).toEqual(['complete', 'complete', 'complete', 'active']);
     act(() => root.unmount());
   });
 

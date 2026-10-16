@@ -376,6 +376,33 @@ describe('completeSendTransaction', () => {
     }
   });
 
+  // 'confirming' is the commit wait and 'delivering' the relay, so the screen can say which one the user waits
+  // on; stamping 'delivering' before the wait booked the wait under the relay and announced the two in reverse
+  // (#1492).
+  it('stamps confirming for the commit wait and delivering only once the relay starts', async () => {
+    const tx = makeSendTx({ noteType: NoteTypeEnum.Private });
+    txStore.push({ ...tx });
+    const snapshot = () => ({ ...txStore[0]!, stageTimestamps: { ...txStore[0]!.stageTimestamps } });
+    let rowDuringWait: ITransaction | undefined;
+    let rowDuringRelay: ITransaction | undefined;
+    mockWaitForTransactionCommit.mockImplementationOnce(async () => {
+      rowDuringWait = snapshot();
+    });
+    mockSendPrivateNote.mockImplementationOnce(async () => {
+      rowDuringRelay = snapshot();
+    });
+    const fullNote = { id: () => ({ toString: () => 'note-out-1' }), serialize: () => new Uint8Array([1]) };
+
+    await completeSendTransaction(tx, makeResult({ intoFullReturns: fullNote }));
+
+    expect(rowDuringWait!.stage).toBe('confirming');
+    expect(rowDuringWait!.stageTimestamps?.delivering).toBeUndefined();
+    // The owed relay is still on record before the wait.
+    expect(rowDuringWait!.noteDelivery).toBe('pending');
+    expect(rowDuringRelay!.stage).toBe('delivering');
+    expect(txStore[0]!.noteDelivery).toBe('relayed');
+  });
+
   it('records undelivered when the WASM client lock cannot be acquired during a private send', async () => {
     // A lock failure on this path means the relay never ran, so the note was never
     // handed to anyone, and only the row's state lets the delivery sweep retry it.

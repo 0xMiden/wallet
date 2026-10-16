@@ -1,4 +1,5 @@
 import { ITransactionStatus, type ITransactionStage, type ITransactionType } from 'lib/miden/db/types';
+import { NoteTypeEnum } from 'lib/miden/types';
 
 import {
   DIRECT_SWITCH_TRANSACTION_STEPS,
@@ -14,6 +15,7 @@ import {
   getStepDurationsMs,
   getTransactionStepState,
   isDirectGuardianSwitch,
+  isPrivateSendRow,
   isUnconfirmedGuardianSwitch
 } from './helper';
 
@@ -47,6 +49,18 @@ describe('getActiveStepIndex', () => {
     ['guardian-syncing', 3]
   ])('maps guardian stage %s onto step %i', (stage, expected) => {
     expect(getActiveStepIndex(GUARDIAN_TRANSACTION_STEPS, stage, false)).toBe(expected);
+  });
+
+  // The Guardian sync finishing is not the end of a private send: its commit wait and relay follow, as a step of
+  // their own, so the sync ticks only its own step rather than every step done and then one back (#1492).
+  it('keeps a private send on its delivery step once the Guardian sync is done (#1492)', () => {
+    const steps = stepsForFlow(true, false, true);
+    expect(steps).toHaveLength(5);
+    expect(getActiveStepIndex(steps, 'guardian-syncing', false)).toBe(3);
+    expect(getActiveStepIndex(steps, 'guardian-synced', false)).toBe(4);
+    expect(getActiveStepIndex(steps, 'confirming', false)).toBe(4);
+    expect(getActiveStepIndex(steps, 'delivering', false)).toBe(4);
+    expect(getActiveStepIndex(steps, 'complete', false)).toBe(5);
   });
 
   it('maps standard-send stages to its two steps', () => {
@@ -133,6 +147,21 @@ describe('getStepDurationsMs', () => {
       complete: 2_000
     });
     expect(durations).toEqual([300, 400, 300, 800]);
+  });
+
+  // The Guardian sync is one quick call; the commit wait and relay after it are the delivery step's time (#1492).
+  it("times a private send's Guardian sync up to its commit wait, and its delivery from there", () => {
+    const durations = getStepDurationsMs(stepsForFlow(true, false, true), {
+      'creating-proposal': 0,
+      proving: 1_700,
+      submitting: 2_300,
+      'guardian-syncing': 2_600,
+      'guardian-synced': 2_900,
+      confirming: 2_950,
+      delivering: 7_900,
+      complete: 8_300
+    });
+    expect(durations).toEqual([1_700, 600, 300, 350, 5_350]);
   });
 
   it('returns undefined for a step whose start or end stamp is missing (no fabricated value)', () => {
@@ -271,6 +300,43 @@ describe('stepsForFlow', () => {
 
   it('ignores the marker for a non-guardian account, which has no such step', () => {
     expect(stepsForFlow(false, true)).toEqual(STANDARD_TRANSACTION_STEPS);
+  });
+
+  it('gives a private send its delivery as a step after the Guardian sync (#1492)', () => {
+    const steps = stepsForFlow(true, false, true);
+    expect(steps.slice(0, 3)).toEqual(GUARDIAN_TRANSACTION_STEPS.slice(0, 3));
+    expect(steps[3]).toEqual({
+      id: 'syncing-guardian',
+      labelKey: 'transactionStepSyncingGuardian',
+      defaultLabel: 'Syncing with Guardian',
+      startStage: 'guardian-syncing',
+      activeStages: ['guardian-syncing']
+    });
+    expect(steps[4]).toEqual({
+      id: 'delivering-note',
+      labelKey: 'transactionStepDeliveringNote',
+      defaultLabel: 'Delivering to recipient',
+      startStage: 'confirming',
+      activeStages: ['guardian-synced', 'confirming', 'delivering']
+    });
+  });
+
+  // A rotation times its last step from the four-step set's `registering-guardian` fallback and shows its commit
+  // wait there, so that set stays as it is for everything but a private send.
+  it('keeps the four-step set for a public send, and a non-guardian account ignores the flag', () => {
+    expect(stepsForFlow(true, false, false)).toBe(GUARDIAN_TRANSACTION_STEPS);
+    expect(stepsForFlow(false, false, true)).toBe(STANDARD_TRANSACTION_STEPS);
+  });
+});
+
+describe('isPrivateSendRow', () => {
+  it('is true only for a send row of a private note', () => {
+    expect(isPrivateSendRow({ type: 'send', noteType: NoteTypeEnum.Private } as never)).toBe(true);
+    expect(isPrivateSendRow({ type: 'send', noteType: NoteTypeEnum.Public } as never)).toBe(false);
+    expect(isPrivateSendRow({ type: 'send' } as never)).toBe(false);
+    // Only a send's completion waits for the commit and relays the note.
+    expect(isPrivateSendRow({ type: 'bridged-send', noteType: NoteTypeEnum.Private } as never)).toBe(false);
+    expect(isPrivateSendRow(undefined)).toBe(false);
   });
 });
 
