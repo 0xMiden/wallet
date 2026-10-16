@@ -23,16 +23,27 @@ for (const theme of ['light', 'dark']) {
     await expect(page.getByTestId('badge-medallion-first-send')).toHaveAttribute('data-earned', 'true');
   });
 }
-test('bridge ready is not a deposit; the confirmed claim unlocks it', async ({ page }) => {
+test('deposit waits for consumption AND its landed balance snapshot', async ({ page }) => {
   await page.evaluate(() => window.__badgeTest.deposit('ready', false));
   await expect(page.getByTestId('my-badges-preview')).toContainText('0 of 6 earned');
   await page.evaluate(() => window.__badgeTest.deposit('received', false));
   await expect(page.getByTestId('my-badges-preview')).toContainText('0 of 6 earned');
   await page.evaluate(() => window.__badgeTest.deposit('received', true));
-  await expect(page.getByTestId('my-badges-preview')).toContainText('1 of 6 earned');
+  await expect(page.getByTestId('my-badges-preview')).toContainText('0 of 6 earned');
+  await page.evaluate(() => window.__badgeTest.balance('4'));
+  await expect(page.getByTestId('my-badges-preview')).toContainText('0 of 6 earned');
+  await page.evaluate(() => window.__badgeTest.balance('5', 'coin-a', 'testnet'));
+  await expect(page.getByTestId('my-badges-preview')).toContainText('0 of 6 earned');
+  await page.evaluate(() => window.__badgeTest.balance('5', 'coin-a', 'mainnet', 'foreign'));
+  await expect(page.getByTestId('my-badges-preview')).toContainText('0 of 6 earned');
   await page.getByRole('link', { name: /Open My badges/ }).click();
+  await expect(page.getByTestId('badge-medallion-first-deposit')).toHaveAttribute('data-earned', 'false');
+  await page.screenshot({path: test.info().outputPath('consumed-awaiting-balance.png')});
+  await page.evaluate(() => window.__badgeTest.balance('5'));
+  await expect(page.getByRole('status')).toContainText('1 of 6 earned');
   await expect(page.getByTestId('badge-medallion-first-deposit')).toHaveAttribute('data-earned', 'true');
   await expect(page.getByTestId('badge-medallion-first-receive')).toHaveAttribute('data-earned', 'false');
+  await page.screenshot({path: test.info().outputPath('deposit-balance-reflected.png')});
 });
 test('swap requires full claimed output and a filled lineage', async ({ page }) => {
   for (const [amount, filled] of [
@@ -44,6 +55,10 @@ test('swap requires full claimed output and a filled lineage', async ({ page }) 
     await expect(page.getByTestId('my-badges-preview')).toContainText('0 of 6 earned');
   }
   await page.evaluate(() => window.__badgeTest.swap(100, true));
+  await expect(page.getByTestId('my-badges-preview')).toContainText('0 of 6 earned');
+  await page.evaluate(() => window.__badgeTest.balance('7', 'coin-b'));
+  await expect(page.getByTestId('my-badges-preview')).toContainText('0 of 6 earned');
+  await page.evaluate(() => window.__badgeTest.balance('8', 'coin-b'));
   await expect(page.getByTestId('my-badges-preview')).toContainText('1 of 6 earned');
   await page.getByRole('link', { name: /Open My badges/ }).click();
   await expect(page.getByTestId('badge-medallion-first-swap')).toHaveAttribute('data-earned', 'true');

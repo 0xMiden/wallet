@@ -4,7 +4,11 @@ import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
 import { importedNoteIds } from 'lib/miden/note-quarantine';
 import * as Repo from 'lib/miden/repo';
-import { getEffectiveNetworkName, isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
+import {
+  getActiveOverride,
+  getEffectiveNetworkName,
+  isNoteTransportConfigured
+} from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
@@ -47,6 +51,9 @@ import { EARN_DEPOSIT_MISSING_REQUEST_ERROR, NOTE_HELD_BY_ANOTHER_TRANSACTION_ER
 import { getNoteHoldingTransactions } from './get';
 import { hotKeyRotationLockName, isLiveRotationRow } from './rotation-funding';
 import { holdsNotes } from './verdict-rules';
+
+// An override's preset name is not evidence of the chain it actually points to.
+const badgeNetwork = () => (getActiveOverride() === null ? getEffectiveNetworkName() : undefined);
 
 export const requestCustomTransaction = async (
   accountId: string,
@@ -517,7 +524,7 @@ const queueConsumeRows = async (
     const createdIds: string[] = [];
     const newRow = (rowNotes: ConsumableNote[]): ConsumeTransaction => {
       const row = Object.assign(new ConsumeTransaction(accountId, rowNotes, delegateTransaction), {
-        badgeNetwork: getEffectiveNetworkName()
+        badgeNetwork: badgeNetwork()
       });
       if (rotationFunding) row.rotationFunding = true;
       if (dappOrigin !== undefined) row.dappOrigins = [dappOrigin];
@@ -611,7 +618,7 @@ export const initiateSwapTransaction = async (
     autoConsume
   );
   await queueOutgoingTransaction(
-    { ...dbTransaction, badgeNetwork: getEffectiveNetworkName() },
+    { ...dbTransaction, badgeNetwork: badgeNetwork() },
     spendsOf(dbTransaction),
     spendingLimitAuthorization
   );
@@ -676,7 +683,7 @@ export const initiateSendTransaction = async (
   );
   if (dappOrigin !== undefined) dbTransaction.dappOrigins = [dappOrigin];
   await queueOutgoingTransaction(
-    { ...dbTransaction, badgeNetwork: getEffectiveNetworkName() },
+    { ...dbTransaction, badgeNetwork: badgeNetwork() },
     spendsOf(dbTransaction),
     spendingLimitAuthorization
   );
@@ -845,7 +852,7 @@ export const initiateBridgedReceiveTransaction = async (args: {
     dbTransaction.extraInputs.usdcxMidenDomain =
       dbTransaction.extraInputs.usdcxSource?.midenDomain ?? getUsdcxRemoteDomain();
   }
-  await Repo.transactions.add({ ...dbTransaction, badgeNetwork: getEffectiveNetworkName() });
+  await Repo.transactions.add({ ...dbTransaction, badgeNetwork: badgeNetwork() });
   return dbTransaction.id;
 };
 

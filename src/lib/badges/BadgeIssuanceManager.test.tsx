@@ -4,7 +4,10 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 
 import MyBadges from 'app/pages/MyBadges';
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
+import { tagBalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
+import type { TokenBalanceData } from 'lib/miden/front/balance';
+import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
 import * as Repo from 'lib/miden/repo';
 
 import { BadgeIssuanceManager } from './BadgeIssuanceManager';
@@ -20,6 +23,37 @@ let mockResetListener: () => void = () => {};
 const mockListeners = new Set<() => void>();
 const mockAccounts = [{ publicKey: 'account-a' }, { publicKey: 'account-b' }];
 const mockWrite = jest.fn();
+let mockBalances: Record<string, TokenBalanceData[]> = {};
+const mockBalanceListeners = new Set<
+  (state: { balances: typeof mockBalances }, previous: { balances: typeof mockBalances }) => void
+>();
+jest.mock('lib/store', () => ({
+  useWalletStore: {
+    getState: () => ({ balances: mockBalances }),
+    subscribe: (
+      callback: (state: { balances: typeof mockBalances }, previous: { balances: typeof mockBalances }) => void
+    ) => {
+      mockBalanceListeners.add(callback);
+      return () => mockBalanceListeners.delete(callback);
+    }
+  }
+}));
+function landBalances(nonce: string, network = 'mainnet', account = 'account-b') {
+  const previous = mockBalances;
+  const rows: TokenBalanceData[] = [
+    {
+      tokenId: 'coin-b',
+      tokenSlug: 'COIN',
+      metadata: { ...DEFAULT_TOKEN_METADATA, scaleIsUnknown: false },
+      balance: 100,
+      fiatPrice: 0,
+      change24h: 0
+    }
+  ];
+  tagBalanceSnapshot(rows, { network, accountNonce: nonce });
+  mockBalances = { [account]: rows };
+  mockBalanceListeners.forEach(callback => callback({ balances: mockBalances }, { balances: previous }));
+}
 jest.mock('lib/miden/front/client', () => ({ useMidenContext: () => ({ accounts: mockAccounts }) }));
 jest.mock('lib/miden/front', () => ({ useNetwork: () => ({ id: 'mainnet' }) }));
 jest.mock('lib/miden/front/storage', () => ({
@@ -95,6 +129,7 @@ function ProfileCounter() {
 beforeEach(async () => {
   await Repo.transactions.clear();
   mockStored = [];
+  mockBalances = {};
   mockMainnet = true;
   mockOverride = null;
   mockApprovedPair = true;
@@ -264,6 +299,9 @@ it.each([
       faucetId: 'coin-b',
       amount: 100n,
       transactionId: '0x' + '2'.repeat(64),
+      submitEvidence: [
+        { attemptId: 'claim', capturedAt: 1, source: 'stage', transactionId: '0x' + '2'.repeat(64), initialNonce: '4' }
+      ],
       noteIds: ['swap-note'],
       extraInputs: { swapOrderTxId: 'order', swapSettleKind: 'settle' }
     })
@@ -274,10 +312,16 @@ it.each([
       <ProfileCounter />
     </>
   );
-  await waitFor(() => expect(midenClientProxy.getTransactionCommitState).toHaveBeenCalled());
   await act(async () => {
     await new Promise(resolve => setTimeout(resolve, 25));
   });
+  expect(screen.getByTestId('wallet-count')).toHaveTextContent('0');
+  await act(async () => landBalances('4'));
+  await act(async () => landBalances('5', 'testnet'));
+  await act(async () => landBalances('5', 'mainnet', 'foreign-account'));
+  expect(mockWrite).not.toHaveBeenCalled();
+  await act(async () => landBalances('5'));
+  await waitFor(() => expect(midenClientProxy.getTransactionCommitState).toHaveBeenCalled());
   await waitFor(() => expect(screen.getByTestId('wallet-count')).toHaveTextContent(earned ? '1' : '0'));
   expect(mockWrite).toHaveBeenCalledTimes(earned ? 1 : 0);
   view.unmount();

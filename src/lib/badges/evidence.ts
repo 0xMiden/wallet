@@ -1,4 +1,5 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
+import type { BalanceRequirement } from 'lib/miden/balance-snapshot';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
 
 import type { BadgeId } from './types';
@@ -6,12 +7,27 @@ import type { BadgeId } from './types';
 export interface BadgeCandidate {
   badge: BadgeId;
   transactionIds: string[];
+  balances?: BalanceRequirement[];
   swap?: { orderId: string; offeredFaucetId: string; requestedFaucetId: string };
 }
 
 const positive = (value: unknown): value is bigint => typeof value === 'bigint' && value > 0n;
 const chainId = (value: unknown): value is string => typeof value === 'string' && /^(0x)?[0-9a-f]{64}$/i.test(value);
 const noteKey = (id: string) => id.toLowerCase().replace(/^0x/, '');
+
+function consumedBalance(row: ITransaction, faucetId: string): BalanceRequirement | undefined {
+  const attempts = row.submitEvidence?.filter(
+    attempt =>
+      chainId(attempt.transactionId) &&
+      chainId(row.transactionId) &&
+      noteKey(attempt.transactionId) === noteKey(row.transactionId)
+  );
+  if (!attempts?.length) return undefined;
+  const nonces = attempts.map(attempt => attempt.initialNonce);
+  const nonce = nonces[0];
+  if (nonce === undefined || !/^\d+$/.test(nonce) || nonces.some(value => value !== nonce)) return undefined;
+  return { accountId: row.accountId, faucetId, minimumNonce: String(BigInt(nonce) + 1n) };
+}
 
 /**
  * Candidate selection is deliberately weaker than issuance: every named chain transaction must
@@ -57,7 +73,8 @@ export function badgeCandidates(rows: readonly ITransaction[], accounts: readonl
             note => noteKey(note.id) === noteKey(noteId) && note.faucetId === row.faucetId && note.amount === row.amount
           )
       );
-      if (claim) result.push({ badge: 'first-deposit', transactionIds: [transactionId] });
+      const balance = claim && row.faucetId ? consumedBalance(claim, row.faucetId) : undefined;
+      if (balance) result.push({ badge: 'first-deposit', transactionIds: [transactionId], balances: [balance] });
     }
     if (row.type !== 'swap' || !positive(row.amount) || !row.faucetId) continue;
     const requested: unknown = row.extraInputs?.requestedAmount;
@@ -76,6 +93,7 @@ export function badgeCandidates(rows: readonly ITransaction[], accounts: readonl
     const seenNotes = new Set<string>();
     const seenTransactions = new Set<string>();
     const transactions = [transactionId];
+    const balances: BalanceRequirement[] = [];
     let received = 0n;
     for (const claim of claims) {
       if (claim.extraInputs?.swapSettleKind !== 'settle' || claim.faucetId !== faucet || !positive(claim.amount))
@@ -84,15 +102,19 @@ export function badgeCandidates(rows: readonly ITransaction[], accounts: readonl
       const keys = ids.map(noteKey);
       if (!keys.length || new Set(keys).size !== keys.length || keys.some(id => seenNotes.has(id))) continue;
       if (!chainId(claim.transactionId) || seenTransactions.has(claim.transactionId)) continue;
+      const balance = consumedBalance(claim, faucet);
+      if (!balance) continue;
       keys.forEach(id => seenNotes.add(id));
       seenTransactions.add(claim.transactionId);
       received += claim.amount;
       transactions.push(claim.transactionId);
+      balances.push(balance);
     }
     if (received >= requested)
       result.push({
         badge: 'first-swap',
         transactionIds: transactions,
+        balances,
         swap: { orderId: String(order), offeredFaucetId: row.faucetId, requestedFaucetId: faucet }
       });
   }

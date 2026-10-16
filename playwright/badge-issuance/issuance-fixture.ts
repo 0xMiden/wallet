@@ -1,10 +1,13 @@
 // Browser-only test harness. Never imported by the production application.
 // Separate database + mocked chain verdicts: no wallet, authentication, SDK signer or RPC.
 import Dexie, { liveQuery } from 'dexie';
-import type { ITransaction } from '../../src/lib/miden/db/types';
+
+import { fetchFromStorage, putToStorage } from './storage';
 import { createBadgeIssuer } from '../../src/lib/badges/issuance';
 import { BADGE_STORAGE_KEY, readEarnedBadges } from '../../src/lib/badges/types';
-import { fetchFromStorage, putToStorage } from './storage';
+import { isBalanceReflected, tagBalanceSnapshot } from '../../src/lib/miden/balance-snapshot';
+import type { ITransaction } from '../../src/lib/miden/db/types';
+import type { TokenBalanceData } from '../../src/lib/miden/front/balance';
 
 const hash = (n: number) => '0x' + n.toString(16).padStart(64, '0');
 const row = (patch: Partial<ITransaction> = {}): ITransaction => ({
@@ -27,11 +30,13 @@ export async function initializeBadgeFixture() {
   const events = db.table<ITransaction, string>('events');
   const committed = new Set<string>();
   let fullLineage = false;
+  let balances: Record<string, TokenBalanceData[]> = {};
   const issuer = createBadgeIssuer({
     accounts: () => ['fixture-account-a', 'fixture-account-b'],
-    isMainnet: () => new URLSearchParams(location.search).get('network') === 'mainnet',
+    isMainnet: () => new URLSearchParams(window.location.search).get('network') === 'mainnet',
     readTransactions: () => events.toArray(),
     isCommitted: async id => committed.has(id),
+    isBalanceReflected: requirement => isBalanceReflected(requirement, balances),
     isFilledApprovedSwap: async () => fullLineage,
     readAwards: fetchFromStorage,
     mergeAwards: async (ids, current) => {
@@ -67,6 +72,9 @@ export async function initializeBadgeFixture() {
             type: 'consume',
             status: 2,
             transactionId: hash(2),
+            submitEvidence: [
+              { attemptId: 'claim', capturedAt: 1, source: 'stage', transactionId: hash(2), initialNonce: '4' }
+            ],
             consumedNotes: [{ id: 'deposit-note', senderAddress: 'bridge', faucetId: 'coin-a', amount: 10n }]
           })
         );
@@ -92,6 +100,9 @@ export async function initializeBadgeFixture() {
             type: 'consume',
             status: 2,
             transactionId: hash(4),
+            submitEvidence: [
+              { attemptId: 'claim', capturedAt: 1, source: 'stage', transactionId: hash(4), initialNonce: '7' }
+            ],
             faucetId: 'coin-b',
             amount: BigInt(amount),
             noteIds: ['swap-output'],
@@ -100,11 +111,27 @@ export async function initializeBadgeFixture() {
         );
       await issuer.refresh();
     },
+    async balance(nonce: string, faucetId = 'coin-a', network = 'mainnet', account = 'fixture-account-b') {
+      const rows: TokenBalanceData[] = [
+        {
+          tokenId: faucetId,
+          tokenSlug: 'COIN',
+          balance: 100,
+          fiatPrice: 0,
+          change24h: 0,
+          metadata: { name: 'Coin', symbol: 'COIN', decimals: 0 }
+        }
+      ];
+      tagBalanceSnapshot(rows, { network, accountNonce: nonce });
+      balances = { [account]: rows };
+      await issuer.refresh();
+    },
     async reset() {
       issuer.invalidate();
       await events.clear();
       committed.clear();
       fullLineage = false;
+      balances = {};
       await putToStorage(BADGE_STORAGE_KEY, []);
     }
   };

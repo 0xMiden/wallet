@@ -3,6 +3,7 @@ import BigNumber from 'bignumber.js';
 
 import { getFaucetIdSetting } from 'lib/miden/assets';
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
+import type { BalanceSnapshot } from 'lib/miden/balance-snapshot';
 import { fetchFromStorage, putToStorage } from 'lib/miden/front';
 import { TokenBalanceData } from 'lib/miden/front/balance';
 import { isSyncFused, noteProbeFailure, noteSyncSuccess } from 'lib/miden/front/sync-fuse';
@@ -26,6 +27,7 @@ import {
   type WasmLockHold
 } from 'lib/miden/sdk/miden-client';
 import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
+import { getActiveOverride, getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetIdSync } from 'lib/miden-chain/native-asset';
 import { withRpcTimeout } from 'lib/miden-chain/rpc-timeout';
 import type { TokenPrices } from 'lib/prices';
@@ -34,6 +36,8 @@ import { balancePrice } from './balancePrice';
 import { ALL_TOKENS_BASE_METADATA_STORAGE_KEY, setTokensBaseMetadata } from '../../miden/front/assets';
 
 export interface FetchBalancesOptions {
+  /** Plain provenance of the vault read; the caller tags the final rows only when they land. */
+  onSnapshot?: (snapshot: BalanceSnapshot) => void;
   /** Callback to update asset metadata in the store */
   setAssetsMetadata?: (metadata: Record<string, AssetMetadata>) => void;
   /**
@@ -184,6 +188,7 @@ export async function fetchBalances(
     faucetMetadataOf = (faucetId: string) => tokenMetadatas[faucetId],
     onOverrideApplied,
     onDisplayFaucetId,
+    onSnapshot,
     tokenPrices = {},
     waitForLock = false
   } = options;
@@ -219,6 +224,8 @@ export async function fetchBalances(
   if (isSyncFused('balances')) return null;
 
   const readAccount = async (hold: WasmLockHold) => {
+    const network = getActiveOverride() === null ? getEffectiveNetworkName() : 'override';
+    const rpc = getEffectiveRpcUrl();
     const acc = await midenClientProxy.getAccount(address);
 
     // E2E-only: capture a Guardian account's on-chain auth structure while we
@@ -251,7 +258,12 @@ export async function fetchBalances(
     // `fungibleAssets()` is on the Account object (not the shared WebClient
     // RefCell); extract it here so the rest of the fn works off plain values.
     const acctAssets = acc ? (acc.vault().fungibleAssets() as FungibleAsset[]) : [];
-    return { account: (acc ?? null) as typeof acc | null, assets: acctAssets };
+    const accountNonce = acc && typeof acc.nonce === 'function' ? acc.nonce().asInt().toString() : undefined;
+    const snapshot: BalanceSnapshot = {
+      network: rpc === getEffectiveRpcUrl() && !getActiveOverride() ? network : 'changed',
+      accountNonce
+    };
+    return { account: (acc ?? null) as typeof acc | null, assets: acctAssets, snapshot };
   };
   const lockOptions = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'balances' };
   const reportFailure = (e: unknown): never => {
@@ -276,6 +288,7 @@ export async function fetchBalances(
   // The call went through, which is the one observation that puts this probe's fuse out.
   noteSyncSuccess('balances');
   const { account, assets } = read.value;
+  onSnapshot?.(read.value.snapshot);
 
   // This read writes the cached records back below. Clear an old-shape cache first, so they do not survive the clear.
   await ensureTokensMetadataSchema(fetchFromStorage, putToStorage).catch(error =>

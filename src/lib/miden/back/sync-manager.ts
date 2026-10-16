@@ -13,7 +13,12 @@ import {
   monotonicNowMs
 } from 'lib/miden/sync-backoff';
 import { getBlockTimestamps } from 'lib/miden-chain/block-timestamps';
-import { getEffectiveRpcUrl, whenEndpointOverridesLoaded } from 'lib/miden-chain/effective-endpoints';
+import {
+  getActiveOverride,
+  getEffectiveNetworkName,
+  getEffectiveRpcUrl,
+  whenEndpointOverridesLoaded
+} from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId, getVerificationBaseFee } from 'lib/miden-chain/native-asset';
 import {
   areBackgroundSettingsMirrored,
@@ -436,14 +441,15 @@ async function runSync(force: boolean): Promise<void> {
       // instead of the ~30s the old JS timeout bounded it to — strictly worse than
       // before the ceiling was added, on the one path (#777) that has no offscreen
       // realm to absorb it.
-      const { parsedNotes, vaultAssets, noteBlocks } = await withWasmClientLock(
+      const { parsedNotes, vaultAssets, noteBlocks, balanceSnapshot } = await withWasmClientLock(
         async hold => {
           const client = await getMidenClient();
           if (!client)
             return {
               parsedNotes: [] as SerializedConsumableNote[],
               vaultAssets: [] as SerializedVaultAsset[],
-              noteBlocks: new Map<string, number>()
+              noteBlocks: new Map<string, number>(),
+              balanceSnapshot: undefined
             };
           // The client build is an await, and on the inline path it can be the long one
           // (a genesis fetch against a parked node). If this hold was evicted while it
@@ -519,6 +525,8 @@ async function runSync(force: boolean): Promise<void> {
             .filter((note): note is SerializedConsumableNote => note !== null);
 
           // Read vault assets
+          const balanceNetwork = getActiveOverride() === null ? getEffectiveNetworkName() : 'override';
+          const balanceRpc = getEffectiveRpcUrl();
           const account = await midenClientProxy.getAccount(accountPubKey);
           // Before touching the returned Account: `vault().fungibleAssets()` is a WASM
           // call on an object borrowed from the client's RefCell, so reading it after an
@@ -535,7 +543,16 @@ async function runSync(force: boolean): Promise<void> {
             }
           }
 
-          return { parsedNotes: notes, vaultAssets: assets, noteBlocks };
+          return {
+            parsedNotes: notes,
+            vaultAssets: assets,
+            noteBlocks,
+            balanceSnapshot: {
+              network: balanceRpc === getEffectiveRpcUrl() && !getActiveOverride() ? balanceNetwork : 'changed',
+              accountNonce:
+                account && typeof account.nonce === 'function' ? account.nonce().asInt().toString() : undefined
+            }
+          };
         },
         inlineWasm ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-notes-read' } : undefined
       );
@@ -685,6 +702,7 @@ async function runSync(force: boolean): Promise<void> {
         notes: parsedNotes,
         vaultAssets,
         accountPublicKey: accountPubKey,
+        balanceSnapshot,
         syncedAt: syncSucceededAt ?? lastPublishedSyncAt
       };
       try {

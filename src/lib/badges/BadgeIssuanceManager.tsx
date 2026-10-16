@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { liveQuery } from 'dexie';
 
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
+import { isBalanceReflected } from 'lib/miden/balance-snapshot';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import { useMidenContext } from 'lib/miden/front/client';
 import { fetchFromStorage, inStorageTurn, onStorageChanged, putToStorage } from 'lib/miden/front/storage';
@@ -12,6 +13,7 @@ import { WASM_LOCK_SYNC_WATCHDOG_MS } from 'lib/miden/sdk/wasm-client-poison';
 import { isSwapPair } from 'lib/miden/swap/tokens';
 import { getActiveOverride, getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { onStorageCleared } from 'lib/storage-cleared';
+import { useWalletStore } from 'lib/store';
 
 import { createBadgeIssuer } from './issuance';
 import { BADGE_STORAGE_KEY, readEarnedBadges } from './types';
@@ -40,6 +42,7 @@ export function BadgeIssuanceManager(): null {
           watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS,
           label: 'badge-commit-verdict'
         }),
+      isBalanceReflected: requirement => isBalanceReflected(requirement, useWalletStore.getState().balances),
       isFilledApprovedSwap: swap =>
         withWasmClientLock(
           async hold => {
@@ -79,6 +82,9 @@ export function BadgeIssuanceManager(): null {
       error: error => console.warn('[badges] history unavailable', error)
     });
     const stopReset = onStorageCleared(() => issuer.stop());
+    const stopBalances = useWalletStore.subscribe((state, previous) => {
+      if (state.balances !== previous.balances) void issuer.refresh();
+    });
     // Extension resets happen in the service worker; its storage-removal event reaches this
     // document even before Ready changes. Watch presence only; never inspect/decrypt the value.
     const stopVaultRemoval = onStorageChanged<unknown>('vault_check', value => {
@@ -92,6 +98,7 @@ export function BadgeIssuanceManager(): null {
       issuer.stop();
       subscription.unsubscribe();
       stopReset();
+      stopBalances();
       stopVaultRemoval();
       clearInterval(timer);
     };

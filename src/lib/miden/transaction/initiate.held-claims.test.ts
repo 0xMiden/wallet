@@ -11,6 +11,7 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
 }));
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getActiveOverride: () => null,
   isNoteTransportConfigured: () => false,
   getEffectiveNetworkName: () => 'testnet'
 }));

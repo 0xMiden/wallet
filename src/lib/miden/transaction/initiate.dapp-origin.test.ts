@@ -7,6 +7,14 @@ import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { NoteTypeEnum } from '../types';
 import { initiateSendTransaction, requestCustomTransaction } from './initiate';
 
+let mockBadgeOverride = false;
+let mockBadgeNetwork = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getActiveOverride: () => (mockBadgeOverride ? { rpcUrl: 'https://custom-chain.example' } : null),
+  getEffectiveNetworkName: () => mockBadgeNetwork
+}));
+
 const mockAdd = jest.fn(async (_row: unknown) => undefined);
 jest.mock('lib/miden/repo', () => ({
   get transactions() {
@@ -62,9 +70,19 @@ const custom = (spent?: typeof SPENT, dappOrigin?: string) =>
     dappOrigin
   );
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockBadgeOverride = false;
+  mockBadgeNetwork = 'testnet';
+});
 
 describe('the origin a dApp row is created for', () => {
+  it('does not preserve a Mainnet-looking developer override as future badge evidence', async () => {
+    mockBadgeOverride = true;
+    mockBadgeNetwork = 'mainnet';
+    await send();
+    expect(insertedRow()).toEqual(expect.objectContaining({ badgeNetwork: undefined }));
+  });
   it('is on a dApp send from its insert', async () => {
     await send(ORIGIN);
     expect(mockAdd).toHaveBeenCalledTimes(1);

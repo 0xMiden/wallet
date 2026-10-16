@@ -1,5 +1,6 @@
 import '../../../../test/jest-mocks';
 
+import { isBalanceReflected } from 'lib/miden/balance-snapshot';
 import {
   __resetSyncFuseStateForTests,
   isSyncFused,
@@ -15,6 +16,11 @@ import { MAX_CONSECUTIVE_WATCHDOG_EVICTIONS } from 'lib/miden/sync-backoff';
 import { __resetFaucetAssetsMetadataForTest, useWalletStore } from 'lib/store';
 
 import { __resetUnresolvedFaucetsForTest, fetchBalances } from './fetchBalances';
+
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  ...jest.requireActual('lib/miden-chain/effective-endpoints'),
+  getEffectiveNetworkName: () => 'mainnet'
+}));
 
 // The testnet document's swap registry (IETH priced at ETH), in place of the one the wallet used to compile in.
 beforeAll(() => _setSwapTokensForTest(TEST_SWAP_TOKENS));
@@ -106,6 +112,19 @@ jest.mock('lib/miden/metadata/overrides', () => ({
 }));
 
 describe('fetchBalances', () => {
+  it('reads the nonce with vault assets under the same hold and tags the rows only when landed', async () => {
+    mockGetAccount.mockResolvedValue({
+      vault: () => ({ fungibleAssets: () => [] }),
+      nonce: () => {
+        expect(currentHold).not.toBeNull();
+        return { asInt: () => 5n };
+      }
+    });
+    await useWalletStore.getState().fetchBalances('snapshot-account', {});
+    const requirement = { accountId: 'snapshot-account', faucetId: 'miden-faucet-id', minimumNonce: '5' };
+    expect(isBalanceReflected(requirement, useWalletStore.getState().balances)).toBe(true);
+    expect(mockSyncState).not.toHaveBeenCalled();
+  });
   let warnSpy: jest.SpyInstance;
 
   beforeEach(() => {

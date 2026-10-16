@@ -1,3 +1,4 @@
+import type { BalanceRequirement } from 'lib/miden/balance-snapshot';
 import type { ITransaction } from 'lib/miden/db/types';
 
 import { badgeCandidates, type BadgeCandidate } from './evidence';
@@ -9,6 +10,7 @@ export interface BadgeIssuanceSource {
   isMainnet(): boolean;
   readTransactions(): Promise<ITransaction[]>;
   isCommitted(transactionId: string): Promise<boolean>;
+  isBalanceReflected(requirement: BalanceRequirement): boolean;
   isFilledApprovedSwap(swap: NonNullable<BadgeCandidate['swap']>): Promise<boolean>;
   readAwards(): Promise<unknown>;
   /** Must merge under a cross-context storage lock, rechecking `isCurrent` before writing. */
@@ -17,7 +19,12 @@ export interface BadgeIssuanceSource {
 }
 
 const candidateKey = (candidate: BadgeCandidate) =>
-  JSON.stringify([candidate.badge, [...candidate.transactionIds].sort(), candidate.swap ?? null]);
+  JSON.stringify([
+    candidate.badge,
+    [...candidate.transactionIds].sort(),
+    candidate.swap ?? null,
+    candidate.balances ?? []
+  ]);
 
 /** One flight per controller. DB commits wake it immediately; retries also cover later chain confirmation. */
 export function createBadgeIssuer(source: BadgeIssuanceSource) {
@@ -50,9 +57,12 @@ export function createBadgeIssuer(source: BadgeIssuanceSource) {
         const verified = new Map<string, boolean>();
         const additions: BadgeId[] = [];
         const verifiedCandidates = new Set<string>();
+        const reflected = (candidate: BadgeCandidate) =>
+          candidate.balances?.every(requirement => source.isBalanceReflected(requirement)) ?? true;
         for (const candidate of candidates) {
           if (!current()) break;
-          if (earned.includes(candidate.badge) || additions.includes(candidate.badge)) continue;
+          if (earned.includes(candidate.badge) || additions.includes(candidate.badge) || !reflected(candidate))
+            continue;
           let committed = true;
           for (const id of candidate.transactionIds) {
             if (!current()) {
@@ -68,7 +78,7 @@ export function createBadgeIssuer(source: BadgeIssuanceSource) {
           }
           if (!committed || !current()) continue;
           if (candidate.swap && !(await source.isFilledApprovedSwap(candidate.swap))) continue;
-          if (current()) {
+          if (current() && reflected(candidate)) {
             additions.push(candidate.badge);
             verifiedCandidates.add(candidateKey(candidate));
           }
@@ -76,10 +86,19 @@ export function createBadgeIssuer(source: BadgeIssuanceSource) {
         if (current() && additions.length) {
           // A cancellation or a failed settlement may have changed while the SDK answered.
           const fresh = badgeCandidates(await source.readTransactions(), accounts);
-          const stillEligible = additions.filter(badge =>
-            fresh.some(candidate => candidate.badge === badge && verifiedCandidates.has(candidateKey(candidate)))
+          const stillEligible = fresh.filter(
+            candidate =>
+              additions.includes(candidate.badge) &&
+              verifiedCandidates.has(candidateKey(candidate)) &&
+              reflected(candidate)
           );
-          if (current() && stillEligible.length) await source.mergeAwards(stillEligible, current);
+          // Storage locking can await another context: recheck the *displayed* snapshots there too.
+          const ready = () => current() && stillEligible.every(reflected);
+          if (ready() && stillEligible.length)
+            await source.mergeAwards(
+              stillEligible.map(candidate => candidate.badge),
+              ready
+            );
         }
       }
     } catch (error) {

@@ -17,6 +17,7 @@ const base = (patch: Partial<ITransaction> = {}): ITransaction => ({
   initiatedAt: 1,
   displayIcon: 'SEND',
   badgeNetwork: 'mainnet',
+  submitEvidence: [{ attemptId: 'claim', capturedAt: 1, source: 'stage', transactionId: hash(1), initialNonce: '4' }],
   ...patch
 });
 const deposit = (phase = 'received') =>
@@ -39,6 +40,9 @@ const fill = (n: number, amount = 50n) =>
     id: `fill-${n}`,
     type: 'consume',
     transactionId: hash(n + 1),
+    submitEvidence: [
+      { attemptId: 'claim', capturedAt: 1, source: 'stage', transactionId: hash(n + 1), initialNonce: String(n + 4) }
+    ],
     noteIds: [`payback-${n}`],
     faucetId: 'coin-b',
     amount,
@@ -52,6 +56,7 @@ function harness(rows: ITransaction[] = [base()]) {
     isMainnet: () => true,
     readTransactions: jest.fn(async () => rows),
     isCommitted: jest.fn(async () => true),
+    isBalanceReflected: jest.fn(() => true),
     isFilledApprovedSwap: jest.fn(async () => true),
     readAwards: jest.fn(async () => awards),
     mergeAwards: jest.fn(async (newAwards, current) => {
@@ -214,6 +219,45 @@ describe('verified wallet-wide badge issuance', () => {
 });
 
 describe('deposit completion evidence', () => {
+  it('keeps a confirmed consume locked until its balance snapshot has landed', async () => {
+    const h = harness([deposit(), depositClaim()]);
+    jest.mocked(h.source.isBalanceReflected).mockReturnValue(false);
+    await h.issuer.refresh();
+    expect(h.source.isCommitted).not.toHaveBeenCalled();
+    expect(h.awards()).toEqual([]);
+    expect(h.source.isBalanceReflected).toHaveBeenCalledWith({
+      accountId: 'account-a_tag',
+      faucetId: 'coin-a',
+      minimumNonce: '5'
+    });
+    jest.mocked(h.source.isBalanceReflected).mockReturnValue(true);
+    await h.issuer.refresh();
+    expect(h.awards()).toEqual(['first-deposit']);
+  });
+  it('rechecks displayed balance evidence after waiting for the storage lock', async () => {
+    const h = harness([deposit(), depositClaim()]);
+    h.source.mergeAwards = async (_ids, current) => {
+      jest.mocked(h.source.isBalanceReflected).mockReturnValue(false);
+      expect(current()).toBe(false);
+    };
+    await h.issuer.refresh();
+    expect(h.awards()).toEqual([]);
+  });
+  it.each([
+    undefined,
+    [],
+    [{ attemptId: 'a', capturedAt: 1, source: 'stage' as const, transactionId: hash(1), initialNonce: '-1' }],
+    [{ attemptId: 'a', capturedAt: 1, source: 'stage' as const, transactionId: hash(2), initialNonce: '4' }],
+    [{ attemptId: 'a', capturedAt: 1, source: 'stage' as const, transactionId: hash(1) }],
+    [
+      { attemptId: 'a', capturedAt: 1, source: 'stage' as const, transactionId: hash(1), initialNonce: '4' },
+      { attemptId: 'b', capturedAt: 1, source: 'stage' as const, transactionId: hash(1), initialNonce: '5' }
+    ]
+  ])('rejects a claim with missing, unrelated, invalid or conflicting nonce evidence %s', async submitEvidence => {
+    const h = harness([deposit(), { ...depositClaim(), submitEvidence }]);
+    await h.issuer.refresh();
+    expect(h.awards()).toEqual([]);
+  });
   it.each(['submitting', 'delivering', 'ready', 'failed'])('does not award for bridge phase %s', async phase => {
     const h = harness([deposit(phase), depositClaim()]);
     await h.issuer.refresh();
@@ -242,6 +286,15 @@ describe('deposit completion evidence', () => {
 });
 
 describe('fully settled swap evidence', () => {
+  it('waits for every claimed fill to be reflected in the displayed account balances', async () => {
+    const h = harness([swap(), fill(1), fill(2)]);
+    jest.mocked(h.source.isBalanceReflected).mockImplementation(requirement => requirement.minimumNonce === '6');
+    await h.issuer.refresh();
+    expect(h.awards()).toEqual([]);
+    jest.mocked(h.source.isBalanceReflected).mockReturnValue(true);
+    await h.issuer.refresh();
+    expect(h.awards()).toEqual(['first-swap']);
+  });
   it.each([
     { requestedAmount: 0n, requestedFaucetId: 'coin-b', orderId: '7' },
     { requestedAmount: 100n, requestedFaucetId: undefined, orderId: '7' },
