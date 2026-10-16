@@ -4541,6 +4541,41 @@
     "message": "此次兑换中打包的成交",
     "englishSource": "Fills bundled into this swap"
   },
+  "swapActivityTitle": {
+    "message": "掉期交易",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "退还资金",
+    "englishSource": "Returning funds"
+  },
+  "swapReturnedAt": {
+    "message": "已退回 · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "下单时间：$time$",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "报价$amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "swapFillNote": {
     "message": "成交 $number$",
     "englishSource": "Fill $number$",

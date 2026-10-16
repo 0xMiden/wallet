@@ -4541,6 +4541,41 @@
     "message": "Bu takasta toplanan gerçekleşmeler",
     "englishSource": "Fills bundled into this swap"
   },
+  "swapActivityTitle": {
+    "message": "Takas faaliyeti",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "Fonların iadesi",
+    "englishSource": "Returning funds"
+  },
+  "swapReturnedAt": {
+    "message": "Geri döndü · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "$time$ tarihinde verilmiştir",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "Teklif Edilen $amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "swapFillNote": {
     "message": "Gerçekleşme $number$",
     "englishSource": "Fill $number$",

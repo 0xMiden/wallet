@@ -4541,6 +4541,41 @@
     "message": "In diesen Swap gebündelte Ausführungen",
     "englishSource": "Fills bundled into this swap"
   },
+  "swapActivityTitle": {
+    "message": "Swap-Aktivitäten",
+    "englishSource": "Swap activity"
+  },
+  "swapReclaiming": {
+    "message": "Rückgabe von Geldern",
+    "englishSource": "Returning funds"
+  },
+  "swapReturnedAt": {
+    "message": "Zurückgegeben · $time$",
+    "englishSource": "Returned · $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapPlacedAt": {
+    "message": "Platziert um $time$",
+    "englishSource": "Placed $time$",
+    "placeholders": {
+      "time": {
+        "content": "$1"
+      }
+    }
+  },
+  "swapOfferedAmount": {
+    "message": "Angeboten: $amount$",
+    "englishSource": "Offered $amount$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
   "swapFillNote": {
     "message": "Ausführung $number$",
     "englishSource": "Fill $number$",
