@@ -24,8 +24,12 @@ const FAILURE_REASONS = [
   'interrupted_on_startup',
   'stuck_reaped',
   'queued_expired',
+  'rotation_key_pending',
+  'rotation_funding_note_unavailable',
+  'rotation_funding_not_native',
   'rotation_gate_refusal',
   'consume_not_landed',
+  'consume_landed_external',
   'note_invalid'
 ] as const;
 
