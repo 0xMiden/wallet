@@ -31,7 +31,7 @@ export interface BadgeMedallionProps {
   size?: 'preview' | 'card';
 }
 
-/** Bread's collectible stamp: a tinted face and double rim, with explicit ownership status. */
+/** Bread's themed medallion, with explicit ownership status rather than color alone. */
 export const BadgeMedallion: React.FC<BadgeMedallionProps> = ({ badge, earned = false, size = 'card' }) => {
   const { t } = useTranslation();
   const title = t(badge.titleI18nKey);

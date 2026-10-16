@@ -10,7 +10,10 @@ jest.mock('lib/miden/front/guardian-manager', () => ({
   getOrCreateMultisigService: jest.fn()
 }));
 jest.mock('lib/miden/guardian/account', () => ({ resolveGuardianEndpoint: jest.fn() }));
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ isNoteTransportConfigured: () => false }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  isNoteTransportConfigured: () => false,
+  getEffectiveNetworkName: () => 'testnet'
+}));
 jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: { getInputNoteSummary: async () => ({}) } }));
 jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 

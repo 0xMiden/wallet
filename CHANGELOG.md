@@ -4,7 +4,7 @@
 
 ### Changes
 
-- [CHANGE][all] Replace the Settings tab with Profile: a centered account identity, My badges, and the original settings groups below it. Use the standard tab header and Bread orange for identity and badge accents. The six candidate badges remain locked while Mainnet unlock evidence and persistence are finalized.
+- [CHANGE][all] Replace the Settings tab with Profile: a centered account identity, My badges, and the original settings groups below it. Add private, wallet-wide local badges for confirmed Mainnet sends, claimed bridge deposits, and fully filled swaps with claimed output. Ignore Testnet, imported history, incomplete actions and duplicate events. First Receive, Recovery Checked and Miniapp Explorer remain unavailable until reliable completion signals are defined. Progress survives app restarts and account switching, but resetting app data clears it; restore/reinstall carryover is not promised.
 
 ## 1.17.4 (2026-10-15)
 

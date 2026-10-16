@@ -144,6 +144,8 @@
   "badgeEarnedLabel": "$badge$, earned",
   "badgeLockedLabel": "$badge$, locked",
   "locked": "Locked",
+  "badgeEarned": "Earned",
+  "badgeVerificationPending": "Not available yet",
   "badgeFirstDeposit": "First Deposit",
   "badgeFirstDepositDescription": "Add funds and wait for them to become spendable.",
   "badgeFirstReceive": "First Receive",

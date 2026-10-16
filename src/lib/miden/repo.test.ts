@@ -10,6 +10,7 @@ import {
   transactions,
   Table,
   TRANSACTIONS_V17_STORE,
+  TRANSACTIONS_V2_STORE,
   SPENDING_LIMITS_V17_STORE,
   SPENDING_LIMITS_V19_STORE
 } from './repo';
@@ -627,10 +628,10 @@ describe('spending limits schema', () => {
     await transactions.clear();
   });
 
-  it('keys spending limits by account alone on schema version 3', () => {
+  it('keys spending limits by account alone on schema version 3.1', () => {
     const schema = spendingLimits.schema;
 
-    expect(db.verno).toBe(3);
+    expect(db.verno).toBe(3.1);
     expect(schema.primKey.keyPath).toBe('accountId');
     expect(schema.indexes.map(index => index.name)).toEqual(expect.arrayContaining(['revision']));
   });
@@ -808,7 +809,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
     const upgraded = createSchemaFor(name);
 
     await expect(upgraded.open()).resolves.toBeDefined();
-    expect(upgraded.verno).toBe(3);
+    expect(upgraded.verno).toBe(3.1);
     expect(upgraded.table(Table.SpendingLimits).schema.primKey.keyPath).toBe('accountId');
     expect(upgraded.table(Table.Transactions).schema.indexes.map(index => index.name)).toContain('type');
     await expect(upgraded.table(Table.SpendingLimits).count()).resolves.toBe(0);
@@ -859,7 +860,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
 
     const upgraded = createSchemaFor(name);
     await upgraded.open();
-    expect(upgraded.verno).toBe(3);
+    expect(upgraded.verno).toBe(3.1);
     await expect(upgraded.table(Table.SpendingLimits).get('account-a')).resolves.toMatchObject({
       revision: 'rev-1',
       limit: '100'
@@ -877,6 +878,60 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
 });
 
 describe('writing a transaction row', () => {
+  it('upgrades a populated v3 store without losing transaction blobs or spending limits', async () => {
+    const name = `badge-index-upgrade-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const seed = new Dexie(name);
+    seed
+      .version(3)
+      .stores({ [Table.Transactions]: TRANSACTIONS_V2_STORE, [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE });
+    await seed.open();
+    const legacy: ITransaction = {
+      id: 'legacy-badge-upgrade',
+      accountId: 'account-a',
+      type: 'send',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 1,
+      displayIcon: 'SEND',
+      resultBytes: new Uint8Array([1, 2, 3])
+    };
+    await seed.table(Table.Transactions).add(legacy);
+    await seed
+      .table(Table.SpendingLimits)
+      .add({ accountId: 'account-a', limit: '20', revision: 'old', createdAt: 1, updatedAt: 1 });
+    seed.close();
+    const upgraded = createSchemaFor(name);
+    try {
+      await upgraded.open();
+      expect(upgraded.verno).toBe(3.1);
+      expect(await upgraded.table(Table.Transactions).get(legacy.id)).toEqual(legacy);
+      expect(await upgraded.table(Table.Transactions).where('badgeNetwork').equals('mainnet').count()).toBe(0);
+      expect(await upgraded.table(Table.SpendingLimits).get('account-a')).toMatchObject({
+        limit: '20',
+        revision: 'old'
+      });
+    } finally {
+      upgraded.close();
+      await Dexie.delete(name);
+    }
+  });
+  it('indexes only explicitly stamped badge evidence and leaves legacy history intact', async () => {
+    await transactions.clear();
+    const old: ITransaction = {
+      id: 'badge-legacy',
+      type: 'send',
+      accountId: 'account-a',
+      initiatedAt: 1,
+      status: ITransactionStatus.Completed,
+      displayIcon: 'SEND'
+    };
+    await transactions.bulkAdd([
+      old,
+      { ...old, id: 'badge-testnet', badgeNetwork: 'testnet' },
+      { ...old, id: 'badge-mainnet', badgeNetwork: 'mainnet' }
+    ]);
+    expect(await transactions.where('badgeNetwork').equals('mainnet').primaryKeys()).toEqual(['badge-mainnet']);
+    expect(await transactions.get('badge-legacy')).toEqual(old);
+  });
   it.each([
     ['missing', undefined],
     ['NaN', Number.NaN],

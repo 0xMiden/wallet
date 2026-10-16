@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bread Profile design QA</title>
+    <style>
+      html,
+      body,
+      #root {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        overflow: hidden;
+      }
+      body {
+        -webkit-font-smoothing: antialiased;
+      }
+      #root {
+        display: flex;
+        flex-direction: column;
+        background: var(--ds-page);
+      }
+      .qa-shell {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+        flex-direction: column;
+        padding-top: 24px;
+      }
+      .qa-nav {
+        position: fixed;
+        bottom: 18px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 60;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/main.tsx"></script>
+  </body>
+</html>

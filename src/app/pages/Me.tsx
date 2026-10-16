@@ -9,6 +9,7 @@ import { ListGroup } from 'components/ui/ListGroup';
 import { ListRow } from 'components/ui/ListRow';
 import { SectionHeader } from 'components/ui/SectionHeader';
 import { TabRootHeader } from 'components/ui/TabRootHeader';
+import { useWalletBadges } from 'lib/badges/useWalletBadges';
 import { useAccount, useNetwork } from 'lib/miden/front';
 import { isMobile } from 'lib/platform';
 import { BADGE_CATALOG } from 'screens/badges/catalog';
@@ -20,6 +21,7 @@ const Me: React.FC = () => {
   const { t } = useTranslation();
   const account = useAccount();
   const network = useNetwork();
+  const earned = useWalletBadges();
 
   useEffect(() => {
     if (!isMobile()) return;
@@ -53,7 +55,7 @@ const Me: React.FC = () => {
           <ListGroup surface="plain">
             <ListRow
               title={t('openMyBadges')}
-              value={t('badgesEarnedCount', { earned: 0, total: BADGE_CATALOG.length })}
+              value={t('badgesEarnedCount', { earned: earned.length, total: BADGE_CATALOG.length })}
               to="/me/badges"
               data-testid="my-badges-preview"
             />

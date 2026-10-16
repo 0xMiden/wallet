@@ -4,7 +4,7 @@ import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
 import { GuardianRotationInProgressError } from 'lib/miden/guardian/rotation-in-progress';
 import { importedNoteIds } from 'lib/miden/note-quarantine';
 import * as Repo from 'lib/miden/repo';
-import { isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
+import { getEffectiveNetworkName, isNoteTransportConfigured } from 'lib/miden-chain/effective-endpoints';
 import { getNativeAssetId } from 'lib/miden-chain/native-asset';
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
@@ -516,7 +516,9 @@ const queueConsumeRows = async (
 
     const createdIds: string[] = [];
     const newRow = (rowNotes: ConsumableNote[]): ConsumeTransaction => {
-      const row = new ConsumeTransaction(accountId, rowNotes, delegateTransaction);
+      const row = Object.assign(new ConsumeTransaction(accountId, rowNotes, delegateTransaction), {
+        badgeNetwork: getEffectiveNetworkName()
+      });
       if (rotationFunding) row.rotationFunding = true;
       if (dappOrigin !== undefined) row.dappOrigins = [dappOrigin];
       return row;
@@ -608,7 +610,11 @@ export const initiateSwapTransaction = async (
     expirySeconds,
     autoConsume
   );
-  await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
+  await queueOutgoingTransaction(
+    { ...dbTransaction, badgeNetwork: getEffectiveNetworkName() },
+    spendsOf(dbTransaction),
+    spendingLimitAuthorization
+  );
 
   return dbTransaction.id;
 };
@@ -669,7 +675,11 @@ export const initiateSendTransaction = async (
     delegateTransaction
   );
   if (dappOrigin !== undefined) dbTransaction.dappOrigins = [dappOrigin];
-  await queueOutgoingTransaction(dbTransaction, spendsOf(dbTransaction), spendingLimitAuthorization);
+  await queueOutgoingTransaction(
+    { ...dbTransaction, badgeNetwork: getEffectiveNetworkName() },
+    spendsOf(dbTransaction),
+    spendingLimitAuthorization
+  );
 
   return dbTransaction.id;
 };
@@ -835,7 +845,7 @@ export const initiateBridgedReceiveTransaction = async (args: {
     dbTransaction.extraInputs.usdcxMidenDomain =
       dbTransaction.extraInputs.usdcxSource?.midenDomain ?? getUsdcxRemoteDomain();
   }
-  await Repo.transactions.add(dbTransaction);
+  await Repo.transactions.add({ ...dbTransaction, badgeNetwork: getEffectiveNetworkName() });
   return dbTransaction.id;
 };
 

@@ -2,6 +2,8 @@
  * Only an origin a row lists may wait on its result (#1416), so each dApp creation path writes the origin in the write
  * that creates the row, and the wallet's own paths write none.
  */
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+
 import { NoteTypeEnum } from '../types';
 import { initiateSendTransaction, requestCustomTransaction } from './initiate';
 
@@ -72,6 +74,7 @@ describe('the origin a dApp row is created for', () => {
   it("is absent from the wallet's own send", async () => {
     await send();
     expect(insertedRow()).toEqual(listsNoOrigin());
+    expect(insertedRow()).toEqual(expect.objectContaining({ badgeNetwork: getEffectiveNetworkName() }));
   });
 
   it('is on a dApp custom request that moves nothing, inserted directly', async () => {

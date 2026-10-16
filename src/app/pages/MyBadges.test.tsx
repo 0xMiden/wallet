@@ -7,6 +7,7 @@ import MyBadges from './MyBadges';
 let mockNetworkId = 'testnet';
 const mockBack = jest.fn();
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+jest.mock('lib/badges/useWalletBadges', () => ({ useWalletBadges: () => [] }));
 jest.mock('lib/miden/front', () => ({ useNetwork: () => ({ id: mockNetworkId }) }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
 jest.mock('app/hooks/useBackWithFallback', () => ({ useBackWithFallback: () => mockBack }));
@@ -51,7 +52,8 @@ it('does not award badges just because the account is on Mainnet', () => {
   mockNetworkId = 'mainnet';
   render(<MyBadges />);
   expect(screen.queryByText('badgesMainnetNoticeDescription')).not.toBeInTheDocument();
-  expect(screen.getAllByText('locked')).toHaveLength(6);
+  expect(screen.getAllByText('locked')).toHaveLength(3);
+  expect(screen.getAllByText('badgeVerificationPending')).toHaveLength(3);
 });
 
 it('returns to the profile through the shared back handler', () => {

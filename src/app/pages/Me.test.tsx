@@ -5,6 +5,7 @@ import { render, screen } from '@testing-library/react';
 import Me from './Me';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+jest.mock('lib/badges/useWalletBadges', () => ({ useWalletBadges: () => [] }));
 jest.mock('./Settings', () => ({
   __esModule: true,
   default: ({ embedded }: { embedded: boolean }) => <div data-testid="original-settings" data-embedded={embedded} />

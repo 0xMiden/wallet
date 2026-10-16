@@ -236,6 +236,13 @@ function defineSchema(target: Dexie): void {
         });
     });
 
+  // v3.1 - only newly queued Mainnet rows can supply badge evidence. An index avoids scanning
+  // old history (and its large result blobs) for private achievements; no legacy backfill.
+  target.version(3.1).stores({
+    [Table.Transactions]: indexes(TRANSACTIONS_V2_STORE, 'badgeNetwork'),
+    [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE
+  });
+
   // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check
   // (#1007) sits on `add` alone. It is a middleware, not a `creating` hook, because any hook routes
   // every put, so every `.modify()` and `.update()`, through a read of the rows it replaces.
