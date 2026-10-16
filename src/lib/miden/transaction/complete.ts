@@ -37,6 +37,7 @@ import {
   recordNoteDelivery,
   reportVerifiedLanding,
   setTransactionStage,
+  stampPostSubmitStage,
   undeliveredDisplayMessage,
   updateTransactionStatus
 } from './helper';
@@ -179,11 +180,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     //
     // The stamps are display state, as on the send path: they let the screen name the wait and the relay (#1492),
     // and a failed one must not skip either.
-    try {
-      await setTransactionStage(transaction.id, 'confirming');
-    } catch (error) {
-      console.warn('Could not stamp the confirming stage', { txId: transaction.id, error });
-    }
+    await stampPostSubmitStage(transaction.id, 'confirming');
     try {
       await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
     } catch (error) {
@@ -193,11 +190,7 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
       });
     }
 
-    try {
-      await setTransactionStage(transaction.id, 'delivering');
-    } catch (error) {
-      console.warn('Could not stamp the delivering stage', { txId: transaction.id, error });
-    }
+    await stampPostSubmitStage(transaction.id, 'delivering');
 
     for (const { noteId, fullNote } of notesToRelay) {
       try {
@@ -1111,12 +1104,8 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       console.warn('Could not record the pending note delivery', { txId: tx.id, noteId, error });
     }
 
-    // Display state, in its own try like the delivering stamp below: a failed stamp must not skip the wait.
-    try {
-      await setTransactionStage(tx.id, 'confirming');
-    } catch (error) {
-      console.warn('Could not stamp the confirming stage', { txId: tx.id, error });
-    }
+    // Display state, like the delivering stamp below: a failed stamp must not skip the wait.
+    await stampPostSubmitStage(tx.id, 'confirming');
 
     try {
       // The proof rc.5's transport verifies exists only after this commit wait
@@ -1130,11 +1119,7 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
 
     // After the wait, so 'confirming' covers the wait and 'delivering' only the relay, and the screen names the
     // one the user is waiting on (#1492). Display state only: a failed stamp must not cost the recipient the note.
-    try {
-      await setTransactionStage(tx.id, 'delivering');
-    } catch (error) {
-      console.warn('Could not stamp the delivering stage', { txId: tx.id, error });
-    }
+    await stampPostSubmitStage(tx.id, 'delivering');
 
     try {
       await midenClientProxy.sendPrivateNote(note, tx.secondaryAccountId);

@@ -107,6 +107,7 @@ import {
   recordLeafEnd,
   recordSubmitCrossing,
   setTransactionStage,
+  stampPostSubmitStage,
   updateTransactionStatus
 } from './helper';
 import type { CandidateRelease } from './reconcile-unconfirmed';
@@ -2819,7 +2820,7 @@ const generateDirectSwitchGuardianTransaction = async (
   const discardedMessage =
     `Direct guardian switch ${id} did not land: the node discarded it. ` +
     'Leaving the stored guardian endpoint untouched.';
-  await setTransactionStage(transaction.id, 'confirming');
+  await stampPostSubmitStage(transaction.id, 'confirming');
   let commitConfirmed = true;
   try {
     await midenClientProxy.waitForTransactionCommit(id);
@@ -2856,7 +2857,7 @@ const generateDirectSwitchGuardianTransaction = async (
   }
 
   await completeSwitchGuardianTransaction(transaction, result, undefined, guardianProvider, commitUnconfirmed);
-  await setTransactionStage(transaction.id, 'complete');
+  await stampPostSubmitStage(transaction.id, 'complete');
 };
 
 /**
@@ -4092,7 +4093,7 @@ const generateGuardianTransaction = async (
     transaction.type === 'replace-hot-key' ||
     transaction.type === 'update-procedure-threshold'
   ) {
-    await setTransactionStage(transaction.id, 'confirming');
+    await stampPostSubmitStage(transaction.id, 'confirming');
     // Route the commit-wait through the proxy so it polls the SAME client that
     // applied the tx: the offscreen realm flag-on (which ran the whole leaf), the
     // SW client flag-off. A raw `getMidenClient().waitForTransactionCommit(id)` here
@@ -4124,13 +4125,15 @@ const generateGuardianTransaction = async (
     transaction.type !== 'update-procedure-threshold' &&
     transaction.type !== 'switch-guardian'
   ) {
+    await stampPostSubmitStage(transaction.id, 'guardian-syncing');
+    let synced = false;
     try {
-      await setTransactionStage(transaction.id, 'guardian-syncing');
       await service.sync();
-      await setTransactionStage(transaction.id, 'guardian-synced');
+      synced = true;
     } catch (error) {
       console.warn('[Guardian] post-completion sync failed; will reconcile on next tick', error);
     }
+    if (synced) await stampPostSubmitStage(transaction.id, 'guardian-synced');
   }
 
   switch (transaction.type) {
@@ -4177,7 +4180,7 @@ const generateGuardianTransaction = async (
       break;
   }
 
-  await setTransactionStage(transaction.id, 'complete');
+  await stampPostSubmitStage(transaction.id, 'complete');
 };
 
 export const generateTransactionsLoop = async (
