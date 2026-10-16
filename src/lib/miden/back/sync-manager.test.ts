@@ -1597,23 +1597,6 @@ describe('doSync — native-note auto-consume', () => {
     expect(mockInitiateConsumeBatch.mock.calls[0]?.[1]).toEqual([expect.objectContaining({ id: 'actual-note' })]);
   });
 
-  it('hands the auto-consumed native notes their standard-payment verdicts', async () => {
-    mockIsAutoConsumeAsync.mockResolvedValue(true);
-    mockGetFaucetIdSetting.mockResolvedValue('native-faucet');
-    mockClient.getConsumableNoteDtos.mockResolvedValueOnce([
-      { ...fakeNote({ id: 'standard', faucetId: 'native-faucet' }), standardPayment: true },
-      { ...fakeNote({ id: 'custom', faucetId: 'native-faucet' }), standardPayment: false }
-    ]);
-
-    await doSync();
-
-    const batch = mockInitiateConsumeBatch.mock.calls[0]?.[1] as { id: string; standardPayment?: boolean }[];
-    expect(batch.map(note => [note.id, note.standardPayment])).toEqual([
-      ['standard', true],
-      ['custom', false]
-    ]);
-  });
-
   it('auto-consumes native notes in ONE transaction, following the user delegated-proving setting', async () => {
     mockIsAutoConsumeAsync.mockResolvedValue(true);
     mockIsDelegateProofAsync.mockResolvedValue(false); // user picked LOCAL proving

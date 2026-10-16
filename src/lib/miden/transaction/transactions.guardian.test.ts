@@ -44,7 +44,7 @@ import { WalletType } from 'screens/onboarding/types';
 
 import { cancelTransactionById } from './cancel';
 import {
-  CLAIM_FEE_SHORTFALL_ERROR,
+  CLAIM_VAULT_SHORTFALL_ERROR,
   EARN_DEPOSIT_MISSING_REQUEST_ERROR,
   ERR_FEE_CONVERSION_INFO_MISSING_CODE,
   GUARDIAN_UNREACHABLE_ERROR,
@@ -6994,7 +6994,7 @@ describe('generateTransaction — Guardian routing', () => {
     }
   });
 
-  it('Guardian consume: a claim of standard payments that cannot pay its fee says so at creating-proposal', async () => {
+  it('Guardian consume: a vault shortfall at creating-proposal stores the claim copy', async () => {
     jest.useFakeTimers();
     try {
       const txId = 'consume-fee-shortfall';
@@ -7003,8 +7003,7 @@ describe('generateTransaction — Guardian routing', () => {
         type: 'consume',
         accountId: 'guardian-acc',
         status: ITransactionStatus.Queued,
-        noteId: 'note-fee',
-        standardPaymentsOnly: true
+        noteId: 'note-fee'
       });
       const multisigService = {
         createConsumeNotesProposal: jest.fn(async () => {
@@ -7039,7 +7038,7 @@ describe('generateTransaction — Guardian routing', () => {
       expect(row.stage).toBe('creating-proposal');
       expect(row.status).toBe(ITransactionStatus.Failed);
       expect(row.error).not.toContain('amount sent');
-      expect(row.error).toBe(CLAIM_FEE_SHORTFALL_ERROR);
+      expect(row.error).toBe(CLAIM_VAULT_SHORTFALL_ERROR);
       expect(row.nextEligibleAt).toBeUndefined();
     } finally {
       jest.useRealTimers();

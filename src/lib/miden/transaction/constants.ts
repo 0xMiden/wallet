@@ -420,13 +420,13 @@ export const TRANSACTION_VAULT_SHORTFALL_ERROR =
   'amount sent, or the USDCX for the network fee. Check your balances once the wallet has synced, then try again.';
 
 /**
- * The shortfall on a claim of standard P2ID or P2IDE payments only (`standardPaymentsOnly`), which credit the vault,
- * so the network fee is the one withdrawal. Any other note script can take an asset from the vault (a SWAP note, or
- * another account's PSWAP note, pays out the requested asset), so such a claim keeps the copy above.
+ * The copy above as a claim (`consume` row) stores it: a claim has no amount sent. It names the fee as the likeliest
+ * asset, not the only one, since a note script can also pay an asset out of the vault (a SWAP note, or another
+ * account's PSWAP note), and hedges for the same reasons (`isVaultShortfallError`).
  */
-export const CLAIM_FEE_SHORTFALL_ERROR =
-  'This transfer could not be claimed because the account does not hold enough USDCX to pay the network fee. ' +
-  'Receive some USDCX, then claim it again once the wallet has synced.';
+export const CLAIM_VAULT_SHORTFALL_ERROR =
+  'This transfer could not be claimed because an asset it needed was not available in full, most often the USDCX ' +
+  'for the network fee. Check your balances once the wallet has synced, then claim it again.';
 
 /**
  * An everyday-key rotation that failed because the account could not pay its fee. A
@@ -529,8 +529,7 @@ function classifyTransactionError(
   raw: string,
   stage?: ITransactionStage,
   delegateTransaction?: boolean,
-  abandonedPreWrite?: boolean,
-  feeIsOnlyWithdrawal?: boolean
+  abandonedPreWrite?: boolean
 ): string {
   // A lock-recovery eviction is checked FIRST because every mapping below reads
   // the stage, and the stage is exactly what an eviction makes unreliable: it
@@ -589,7 +588,7 @@ function classifyTransactionError(
   // Checked AFTER the conversion-info code, since that one is the more specific
   // reading of an assertion this one deliberately declines to attribute.
   if (isVaultShortfallError(raw)) {
-    return feeIsOnlyWithdrawal ? CLAIM_FEE_SHORTFALL_ERROR : TRANSACTION_VAULT_SHORTFALL_ERROR;
+    return TRANSACTION_VAULT_SHORTFALL_ERROR;
   }
   // Proposal creation and co-signing are pre-submit, so nothing moved. A requeueable transfer never gets here (the
   // pipeline requeues it, #779); this names the failure for the operations that still end on it.
@@ -603,18 +602,10 @@ export function resolveTransactionErrorMessage(
   error: unknown,
   stage?: ITransactionStage,
   delegateTransaction?: boolean,
-  abandonedPreWrite?: boolean,
-  feeIsOnlyWithdrawal?: boolean
+  abandonedPreWrite?: boolean
 ): string {
   const raw = formatRawTransactionError(error);
-  const message = classifyTransactionError(
-    error,
-    raw,
-    stage,
-    delegateTransaction,
-    abandonedPreWrite,
-    feeIsOnlyWithdrawal
-  );
+  const message = classifyTransactionError(error, raw, stage, delegateTransaction, abandonedPreWrite);
   // Keep the raw failure reachable in logs whenever a mapping replaces it. The
   // friendly copy is deliberately non-technical, so a mapped error otherwise
   // erases the only detail that identifies it -- which procedure root a prover

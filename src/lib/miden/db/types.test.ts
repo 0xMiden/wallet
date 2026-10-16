@@ -154,27 +154,6 @@ describe('transaction models', () => {
       expect(tx.noteType).toBeUndefined();
     });
 
-    it('marks a claim whose every note is a standard payment', () => {
-      const tx = new ConsumeTransaction('acc', [
-        note({ id: 'n1', standardPayment: true }),
-        note({ id: 'n2', standardPayment: true })
-      ]);
-
-      expect(tx.standardPaymentsOnly).toBe(true);
-    });
-
-    it.each([
-      ['runs another script', false],
-      ['was queued without a verdict', undefined]
-    ])('leaves the mark off a claim with a note that %s', (_label, standardPayment) => {
-      const tx = new ConsumeTransaction('acc', [
-        note({ id: 'n1', standardPayment: true }),
-        note({ id: 'n2', standardPayment })
-      ]);
-
-      expect(tx.standardPaymentsOnly).toBeUndefined();
-    });
-
     it('rejects an empty batch rather than constructing a note-less consume', () => {
       expect(() => new ConsumeTransaction('acc', [])).toThrow('ConsumeTransaction requires at least one note');
     });
