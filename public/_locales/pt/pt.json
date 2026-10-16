@@ -16,7 +16,7 @@
   "usdcxMinimumBurn": "Queima mínima",
   "usdcxSponsorshipFee": "Pago em $symbol$, incluindo patrocínio para execução de faucet",
   "usdcxInvalidDestination": "Insira um endereço válido em uma rede compatível para este saque.",
-  "usdcxUnsupportedFaucet": "Os saques de USDCx estão disponíveis apenas para a cadeia de blocos configurada faucet na rede de testes Miden.",
+  "usdcxUnsupportedFaucet": "Retiradas de USDCx não estão disponíveis para este token nesta rede.",
   "usdcxInvalidAmount": "Insira um valor positivo em USDCx com, no máximo, seis casas decimais.",
   "usdcxBelowMinimumBurn": "O valor está abaixo do valor mínimo de queima do faucet.",
   "usdcxIncompatibleBurnScript": "O script de queima da carteira não corresponde ao faucet do USDCx.",

@@ -16,7 +16,7 @@
   "usdcxMinimumBurn": "最低銷毀量",
   "usdcxSponsorshipFee": "以 $symbol$ 支付，包含 faucet 執行贊助",
   "usdcxInvalidDestination": "請輸入支援此提領操作之網路上的有效地址。",
-  "usdcxUnsupportedFaucet": "USDCx 提領功能僅限於 Miden 測試網中已設定的 faucet。",
+  "usdcxUnsupportedFaucet": "此網路上的此代幣不支援 USDCx 提領。",
   "usdcxInvalidAmount": "請輸入正數的 USDCx 金額，小數點後最多六位。",
   "usdcxBelowMinimumBurn": "該金額低於faucet的最低銷毀門檻。",
   "usdcxIncompatibleBurnScript": "該錢包的銷毀腳本與 USDCx 的 faucet 不符。",
