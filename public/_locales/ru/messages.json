@@ -1029,6 +1029,10 @@
     "message": "Синхронизация с Guardian",
     "englishSource": "Syncing with Guardian"
   },
+  "transactionStepDeliveringNote": {
+    "message": "Доставка получателю",
+    "englishSource": "Delivering to recipient"
+  },
   "guardianBusyStep": {
     "message": "В ожидании вашего «Guardian»",
     "englishSource": "Waiting for your Guardian"

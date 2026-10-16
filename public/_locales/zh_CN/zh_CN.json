@@ -211,6 +211,7 @@
   "transactionStepProofGenerated": "已生成证明",
   "transactionStepSubmitting": "提交",
   "transactionStepSyncingGuardian": "与 Guardian 同步",
+  "transactionStepDeliveringNote": "交付给收件人",
   "guardianBusyStep": "期待您的 Guardian",
   "guardianBusyDescription": "您的Guardian仍在处理之前的交易。本次交易将自动继续进行。",
   "transactionStepDurationSec": "$seconds$ 秒",
