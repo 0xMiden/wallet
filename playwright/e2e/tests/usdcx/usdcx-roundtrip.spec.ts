@@ -17,11 +17,10 @@ import {
   type ArcWriteDeps,
   type DecodedDepositIntent,
   type DepositSubmission,
-  type GatewayPayout,
   type XReserveDomainState
 } from '../../helpers/arc-usdcx';
 import { fromBaseUnits, vaultBalanceOfCurrentAccount } from '../../helpers/balance-truth';
-import { bridgeReceiveState, createUsdcxBridgeReceive, enText, readBridgedSendRows } from '../../helpers/bridge';
+import { bridgeReceiveState, createUsdcxBridgeReceive, enText } from '../../helpers/bridge';
 import {
   describeTransactionRow,
   openHistoryDetails,
@@ -31,6 +30,7 @@ import {
 import {
   ARC_ATTESTATION_API,
   ARC_CHAIN_ID,
+  ARC_PAYOUT,
   ARC_READ_STEP_BUDGET_MS,
   ARC_USDC,
   BURN_UNITS,
@@ -51,13 +51,11 @@ import {
   harnessPayoutLeg,
   historyPill,
   pageWhere,
-  receivingTxHash,
   resolveUsdcxIds,
   settleGuardian,
   submitBurn,
   waitForConsumeOf,
-  waitForWalletPayoutConfirmation,
-  type BurnLeg,
+  walletConfirmsPayout,
   type UsdcxWalletIds
 } from '../../helpers/usdcx-legs';
 import { deriveUsdcxMintNoteId, waitForUsdcxMint, type MidenNoteRead } from '../../helpers/usdcx-miden';
@@ -109,7 +107,6 @@ const BUDGET = {
 } as const;
 
 const SETTLE_WAIT_MS = 120_000;
-const RECEIVING_TX_LINK_MS = 15_000;
 
 /**
  * A real Arc deposit Circle attested, with this token and amount, to Miden account 0x8da911727d5b53916f2c221c00c091.
@@ -497,44 +494,6 @@ function assertNegativeFailed(deposit: DepositRun, evidence: RunEvidence): void 
   ).toBeLessThanOrEqual(deposit.attestedAt + 30_000);
 }
 
-/** Spec 5 step 8b (Q6, a hard gate): the wallet's own destination check confirms the payout Circle made. */
-async function walletConfirmsPayout(
-  wallet: GuardianAwareWalletPage,
-  burn: BurnLeg,
-  payout: GatewayPayout,
-  key: ArcKey,
-  arc: ArcWriteDeps,
-  where: StepContext,
-  evidence: RunEvidence
-): Promise<number> {
-  await wallet.navigateHome();
-  const confirmedAt = await waitForWalletPayoutConfirmation({
-    readRows: () => readBridgedSendRows(wallet.page),
-    rowId: burn.row.id,
-    arcFromBlock: burn.arcFromBlock,
-    payout,
-    key,
-    arc,
-    where,
-    evidence
-  });
-  await openHistoryDetails(wallet, burn.row.id);
-  await expect(wallet.page.getByTestId('history-status-pill')).toHaveText(enText('confirmed'));
-  const linkHash = await receivingTxHash(wallet.page, RECEIVING_TX_LINK_MS);
-  if (linkHash !== null && linkHash !== payout.transactionHash.toLowerCase()) {
-    throw new Error(
-      `the receiving-tx link names ${linkHash}; the AttestationUsed transaction is ${payout.transactionHash}`
-    );
-  }
-  evidence.notes.push(
-    linkHash === null
-      ? 'receiving-tx link did not render within 15 s'
-      : 'receiving-tx link is the AttestationUsed transaction'
-  );
-  await wallet.navigateHome();
-  return confirmedAt;
-}
-
 test.describe('USDCx round trip: burn to the harness Arc key, Circle payout, deposit back', () => {
   // The injected fee faucet masks the wallet's own native-asset discovery (two-wallets.ts:840).
   test.use({ injectFeeFaucet: false });
@@ -666,7 +625,7 @@ test.describe('USDCx round trip: burn to the harness Arc key, Circle payout, dep
       // Before the deposit, which spends from the key: the wallet's confirmed balance must be exactly the pre-burn
       // read plus the payout.
       const walletConfirmedAt = await step('wallet_payout_confirmed', BUDGET.walletPayoutConfirmed, () =>
-        walletConfirmsPayout(walletA, burn, payout, key, arc, where, evidence)
+        walletConfirmsPayout(walletA, burn, payout, key, arc, ARC_PAYOUT, where, evidence)
       );
       const paidAt = burn.oracle.consumeTimestampSec * 1_000 + payout.latencyMs;
       evidence.latenciesMs.payoutToWalletConfirmation = walletConfirmedAt - paidAt;

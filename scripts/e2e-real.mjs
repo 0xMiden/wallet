@@ -93,6 +93,41 @@ export const USDCX_FUNDED_KEY_FLOOR_UNITS = 21_000n;
 export const HARNESS_ARC_KEY_FILE = path.join(os.homedir(), '.miden-e2e', 'arc-keys', 'harness.json');
 /** One usdcx run at a time (R21). Beside arc-keys, not in it, so a sweep over the key files never reads it. */
 export const USDCX_RUN_LOCK = path.join(os.homedir(), '.miden-e2e', 'usdcx-run.lock');
+/**
+ * The L2s usdcx-burn-l2 burns to: each chain's USDC and the endpoints the harness reads it through, in the order its
+ * payout gate tries them (BASE_SEPOLIA_PAYOUT and ARBITRUM_SEPOLIA_PAYOUT in usdcx-constants.ts); e2e-real.test.ts
+ * pins each copy to the harness and the wallet.
+ */
+export const L2_PAYOUT_CHAINS = [
+  {
+    name: 'Base Sepolia',
+    chainId: 84532,
+    usdc: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+    rpcs: [
+      'https://base-sepolia-rpc.publicnode.com',
+      'https://base-sepolia.gateway.tenderly.co',
+      'https://sepolia.base.org'
+    ]
+  },
+  {
+    name: 'Arbitrum Sepolia',
+    chainId: 421614,
+    usdc: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
+    rpcs: [
+      'https://sepolia-rollup.arbitrum.io/rpc',
+      'https://arbitrum-sepolia-rpc.publicnode.com',
+      'https://arbitrum-sepolia.gateway.tenderly.co'
+    ]
+  }
+];
+/** The Reown project id an E2E build bakes in unless WALLETCONNECT_PROJECT_ID is set (src/lib/walletconnect/config.ts). */
+const DEFAULT_WC_PROJECT_ID = 'd18d112eb50cbe764f03e51a90210611';
+
+/** The wallet's own RPC for an L2, built as walletconnect/config.ts builds it. Only its host is ever printed. */
+export function walletL2RpcUrl(chainId, env = process.env) {
+  const projectId = (env.WALLETCONNECT_PROJECT_ID ?? '').trim() || DEFAULT_WC_PROJECT_ID;
+  return `https://rpc.walletconnect.org/v1?chainId=eip155:${chainId}&projectId=${projectId}`;
+}
 const ARC_SELECTORS = {
   paused: '0x5c975abb',
   domainDepositsPaused: '0x4a1b13ea',
@@ -180,6 +215,19 @@ export const SUITES = {
     headlessByDefault: true,
     retries: 0,
     describe: 'standard and Guardian wallets: faucet grant, UI burn to the harness Arc key, Circle payout'
+  },
+  // Its own suite, so an L2 RPC outage stops no Arc suite, and E2E USDCx can run it after a red one: its payout windows
+  // are on Base Sepolia and Arbitrum Sepolia, where nothing an Arc suite leaves pending lands.
+  'usdcx-burn-l2': {
+    config: 'playwright.usdcx.config.ts',
+    grep: 'USDCx L2 burn',
+    probes: ['usdcx', 'usdcx-guardian', 'grant', 'arc-payout', 'l2-payout'],
+    networks: ['testnet'],
+    usdcx: true,
+    headlessByDefault: true,
+    retries: 0,
+    describe:
+      'Guardian wallets: faucet grant, UI burn to the harness key on Base Sepolia and Arbitrum Sepolia, payout, confirmation'
   }
 };
 
@@ -225,7 +273,8 @@ The usdcx suites need no secret. usdcx and usdcx-burn burn to one harness Arc
 key, ~/.miden-e2e/arc-keys/harness.json (mode 0600), which the first real run
 creates; the round trip and usdcx-in deposit from it and Circle's payouts refill
 it, so no run needs Circle's faucet. usdcx-in needs the key to hold 0.021 USDC,
-or an exported E2E_ARC_PRIVATE_KEY that does.
+or an exported E2E_ARC_PRIVATE_KEY that does. usdcx-burn-l2 burns to that key's address on Base Sepolia and Arbitrum Sepolia,
+where Circle's payouts stay: the key holds no ETH there and never spends.
 
 Bridge-out is solver-fulfilled and swap is Miden-side, so neither signs on EVM;
 E2E_SEPOLIA_PRIVATE_KEY is read so a funded account's gas and test-USDC balance
@@ -1297,6 +1346,62 @@ async function probeUsdcx(opts, needs, arcKey) {
   await probeUsdcxNativeAsset(opts.network, remoteToken);
 }
 
+/**
+ * One L2 usdcx-burn-l2 pays out on, read as its spec reads it: a harness endpoint serving the chain (the first healthy
+ * one is asked the rest), the GatewayMinter and the USDC with code there, and a head from the wallet's own RPC, whose
+ * pre-burn snapshot read otherwise fails the burn before any row exists. That RPC is printed by host only: its URL
+ * carries the build's project id.
+ */
+async function probeL2Payout(chain) {
+  const states = [];
+  let healthy;
+  for (const url of chain.rpcs) {
+    const host = endpointHost(url);
+    try {
+      const chainId = Number(await arcRpc(url, 'eth_chainId', []));
+      if (chainId !== chain.chainId) {
+        states.push(`${host} reports chain ${chainId}`);
+        continue;
+      }
+      states.push(`${host} #${Number(await arcRpc(url, 'eth_blockNumber', []))}`);
+      if (healthy === undefined) healthy = url;
+    } catch (err) {
+      states.push(`${host} ${err.message}`);
+    }
+  }
+  record(
+    healthy !== undefined,
+    `${chain.name} RPC`,
+    healthy === undefined ? `no endpoint serves chain ${chain.chainId}: ${states.join('; ')}` : states.join('; ')
+  );
+  if (healthy !== undefined) {
+    try {
+      const empty = [];
+      for (const [name, address] of [
+        ['GatewayMinter', GATEWAY_MINTER],
+        ['USDC', chain.usdc]
+      ]) {
+        if (codeBytes(await arcRpc(healthy, 'eth_getCode', [address, 'latest'])) === 0)
+          empty.push(`${name} ${address}`);
+      }
+      record(
+        empty.length === 0,
+        `${chain.name} contracts`,
+        empty.length === 0 ? `GatewayMinter and USDC ${chain.usdc} have code` : `${empty.join(' and ')} has no code`
+      );
+    } catch (err) {
+      record(false, `${chain.name} contracts`, `${endpointHost(healthy)}: ${err.message}`);
+    }
+  }
+  const walletRpc = walletL2RpcUrl(chain.chainId);
+  try {
+    const head = Number(await arcRpc(walletRpc, 'eth_blockNumber', []));
+    record(true, `${chain.name} wallet RPC`, `${endpointHost(walletRpc)} #${head}`);
+  } catch (err) {
+    record(false, `${chain.name} wallet RPC`, `${endpointHost(walletRpc)}: ${err.message}`);
+  }
+}
+
 async function probeSepolia(sepoliaRpc) {
   try {
     const chainId = Number(await rpc(sepoliaRpc, 'eth_chainId', []));
@@ -1870,6 +1975,9 @@ async function runSuite(opts, suite, grep, lock) {
   if (needs.includes('guardian')) await probeGuardian(opts.network);
   if (needs.includes('usdcx-guardian')) await probeUsdcxGuardian(opts.network);
   if (needs.includes('usdcx')) await probeUsdcx(opts, needs, arcKey);
+  if (needs.includes('l2-payout')) {
+    for (const chain of L2_PAYOUT_CHAINS) await probeL2Payout(chain);
+  }
   // Only for a suite that actually talks to Sepolia: a key handed to a swap run
   // must not make Sepolia's availability decide whether that run happens.
   if (needs.includes('sepolia') && opts.sepoliaKey) {

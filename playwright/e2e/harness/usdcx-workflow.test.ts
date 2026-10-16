@@ -146,20 +146,35 @@ describe('E2E USDCx workflow', () => {
     expect(steps.findIndex(isSuite)).toBeGreaterThan(write);
   });
 
-  it('runs the three suites through the runner in turn, with no key flag, no env, no if and no continue-on-error', () => {
+  it('runs the four suites through the runner in turn, the three on Arc with no key flag, no env, no if and no continue-on-error', () => {
     const suites = steps.filter(isSuite);
     expect(suites.map(runOf)).toEqual([
       `${RUNNER} --suite usdcx-in`,
       `${RUNNER} --suite usdcx-burn`,
-      `${RUNNER} --suite usdcx`
+      `${RUNNER} --suite usdcx`,
+      `${RUNNER} --suite usdcx-burn-l2`
     ]);
     // A red suite can leave a payout or a deposit landing on the key inside the next one's payout window.
-    for (const step of suites) expect(step).not.toMatch(/^ {8}(env|if|continue-on-error):/m);
+    for (const step of suites.slice(0, 3)) expect(step).not.toMatch(/^ {8}(env|if|continue-on-error):/m);
+  });
+
+  // The one exception to "no if": usdcx-burn-l2's payout windows read Base Sepolia and Arbitrum Sepolia, where no payout
+  // or deposit an Arc suite leaves pending can land, so it runs after a red Arc suite. Never in a cancelled run, never
+  // once a setup step failed (usdcx-in, which has no condition, is skipped exactly then; after a failed key write the
+  // runner would create a fresh key whose payouts leave with the runner), and last, so no Arc suite waits on it.
+  it('runs usdcx-burn-l2 last, after a red Arc suite too but never after a failed setup step, with no env and no continue-on-error', () => {
+    const suites = steps.filter(isSuite);
+    const l2 = suites.at(-1) ?? '';
+    expect(runOf(l2)).toBe(`${RUNNER} --suite usdcx-burn-l2`);
+    expect(l2.match(/^ {8}(env|if|continue-on-error):.*$/gm)).toEqual([
+      `        if: \${{ !cancelled() && steps.usdcx_in.outcome != 'skipped' }}`
+    ]);
+    expect(suites[0]).toMatch(/^ {8}id: usdcx_in$/m);
   });
 
   it('uploads test-results after each suite that ran, whatever it did, failing no step after it, and never the key or the lock', () => {
     const uploads = steps.filter(step => step.includes('uses: actions/upload-artifact@'));
-    expect(uploads).toHaveLength(3);
+    expect(uploads).toHaveLength(4);
     for (const upload of uploads) {
       const id = /^ {8}if: always\(\) && steps\.(\w+)\.outcome != 'skipped'$/m.exec(upload)?.[1];
       expect(steps[steps.indexOf(upload) - 1]).toMatch(new RegExp(`^ {8}id: ${id}$`, 'm'));
