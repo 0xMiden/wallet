@@ -78,6 +78,7 @@ import type {
 } from 'lib/miden/db/types';
 import { prepareGuardianTipExecution } from 'lib/miden/guardian/tip-execution';
 import { applyAfterSubmit } from 'lib/miden/sdk/apply-after-submit';
+import { COMMIT_WAIT_POLL_INTERVAL_MS } from 'lib/miden/sdk/constants';
 import { collectInputNoteDetails } from 'lib/miden/sdk/input-note-detail';
 import { reduceInputNoteSummary } from 'lib/miden/sdk/input-note-summary';
 import {
@@ -1126,7 +1127,7 @@ const DISPATCH: Record<string, DispatchFn> = {
     // not cancelled by the eviction, so it would do that on every poll.
     const { hold } = context;
     const timeout = 60_000;
-    const interval = 5_000;
+    const interval = COMMIT_WAIT_POLL_INTERVAL_MS;
     const start = Date.now();
     for (;;) {
       // Stop if this loop can no longer poll safely. Two ways in: this dispatch was

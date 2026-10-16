@@ -220,7 +220,7 @@ describe('MidenClientInterface', () => {
       getEffectiveNoteTransportUrl: () => undefined,
       getEffectiveFeeFaucetId: () => '0xfee'
     }));
-    jest.doMock('./constants', () => ({ NoteExportType: {} }));
+    jest.doMock('./constants', () => ({ ...jest.requireActual('./constants'), NoteExportType: {} }));
     jest.doMock('./helpers', () => ({
       getBech32AddressFromAccountId: (id: any) => String(id),
       walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
@@ -3574,7 +3574,7 @@ describe('MidenClientInterface', () => {
         getEffectiveNoteTransportUrl: () => undefined,
         getEffectiveFeeFaucetId: () => '0xfee'
       }));
-      jest.doMock('./constants', () => ({ NoteExportType: {} }));
+      jest.doMock('./constants', () => ({ ...jest.requireActual('./constants'), NoteExportType: {} }));
       jest.doMock('./helpers', () => ({
         getBech32AddressFromAccountId: (id: any) => String(id),
         walletAccountIdToSdk: (id: string) => ({ toString: () => `sdk-${id}` }),
