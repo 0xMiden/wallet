@@ -65,6 +65,18 @@ it('does not confuse local proving with execution in the offscreen document', as
   expect(error.message).toContain('proving preference local');
 });
 
+it('does not title a refused EVM deposit on a bridged receive as a proving failure', async () => {
+  // A bridged receive is born Completed and never proves; its failure is an EVM-side refusal.
+  reportTransactionFailure({
+    type: 'bridged-receive',
+    point: 'bridge_receive_settlement',
+    error: 'The connected wallet did not approve Ethereum Sepolia. Reconnect the wallet to approve it.'
+  });
+  await settle();
+  const error = jest.mocked(captureCrash).mock.calls[0]![0] as Error;
+  expect(error.message).toContain('point bridge_receive_settlement; unknown.');
+});
+
 it('never makes a telemetry failure escape into the transaction', async () => {
   jest.mocked(captureCrash).mockImplementationOnce(() => {
     throw new Error('Sentry unavailable');
