@@ -78,7 +78,7 @@ const listedCode = (code: unknown, allowed: readonly string[]): string =>
 
 // Read structurally, never from the text: a rejection's message, body and status text can carry account ids, URLs
 // and server internals.
-function rejectionIdentity(error: unknown, protocol: string | undefined): string | undefined {
+function rejectionIdentity(error: unknown, outer: string | undefined): string | undefined {
   for (const link of errorChain(error)) {
     try {
       if (isHotKeyFailure(link)) return `hot_key; hot key code ${listedCode(Reflect.get(link, 'code'), HOT_KEY_CODES)}`;
@@ -91,7 +91,10 @@ function rejectionIdentity(error: unknown, protocol: string | undefined): string
         const code = Reflect.get(link, 'code') ?? Reflect.get(link, 'rawCode');
         const refusal = `guardian_http_${http}; guardian code ${listedCode(code, GUARDIAN_ERROR_CODES)}`;
         // A Guardian 5xx can carry a deterministic kernel failure (isGuardianOutage in lib/miden/transaction/constants);
-        // only its closed-table identity is added, never the text.
+        // only its closed-table identity is added, never the text. It is read from the refusal itself: a wrapper's
+        // text may not repeat it, or may carry another failure's code.
+        const own: unknown = Reflect.get(link, 'message');
+        const protocol = (typeof own === 'string' ? protocolIdentity(own) : undefined) ?? outer;
         return protocol === undefined ? refusal : `${refusal}; ${protocol}`;
       }
     } catch {

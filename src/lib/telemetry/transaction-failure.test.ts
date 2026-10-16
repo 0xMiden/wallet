@@ -258,6 +258,29 @@ it('keeps the protocol identity a Guardian refusal carries after its status and 
   expect(message).not.toContain('15404814807981965102');
 });
 
+it.each([
+  ['a known code', 'claim failed', '15404814807981965102', 'ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH'],
+  ['an unknown code', 'claim failed', '9876543210123', 'kernel_assertion_unknown'],
+  [
+    'a known code under a wrapper carrying another',
+    'claim failed: assertion failed with error code: 10256002255343504776',
+    '15404814807981965102',
+    'ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH'
+  ]
+])(
+  'reports the protocol identity a wrapped Guardian refusal carries, for %s',
+  async (_name, wrapper, code, protocol) => {
+    const refusal = Object.assign(guardianRefusal(500, 'Internal Server Error', null), {
+      message: `GUARDIAN HTTP error 500: Internal Server Error - assertion failed with error code: ${code}`
+    });
+    reportTransactionFailure({ type: 'consume', error: new Error(wrapper, { cause: refusal }) });
+    const message = await reportedMessage();
+    expect(message).toContain(`; point pipeline; guardian_http_500; guardian code none; ${protocol}. `);
+    expect(message).not.toContain(code);
+    expect(message).not.toContain('ERR_PROLOGUE_KERNEL_PROCEDURE_COMMITMENT_MISMATCH');
+  }
+);
+
 it('reports a hot-key rejection whose text says the client terminated by its code', async () => {
   reportTransactionFailure({ type: 'consume', error: await hotKeyRejection('WebClient terminated', 'DEVICE_LOCKED') });
   expect(await reportedMessage()).toContain('; point pipeline; hot_key; hot key code DEVICE_LOCKED. ');
