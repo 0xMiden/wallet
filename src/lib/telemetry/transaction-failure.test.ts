@@ -178,6 +178,26 @@ it('reports a hot-key plugin rejection by its code and nothing it says', async (
   expect(message).not.toContain('Authentication cancelled');
 });
 
+it.each([
+  'failed to execute transaction',
+  'assertion failed with error code: 1',
+  'advice stack read failed',
+  'WebClient terminated'
+])('reports a Guardian refusal whose text says "%s" by its status and code', async text => {
+  const refusal = Object.assign(guardianRefusal(409, 'Conflict', 'conflict_pending_delta'), {
+    message: `GUARDIAN HTTP error 409: Conflict - ${text}`
+  });
+  reportTransactionFailure({ type: 'consume', error: new Error(`claim failed: ${text}`, { cause: refusal }) });
+  expect(await reportedMessage()).toContain(
+    '; point pipeline; guardian_http_409; guardian code conflict_pending_delta. '
+  );
+});
+
+it('reports a hot-key rejection whose text says the client terminated by its code', async () => {
+  reportTransactionFailure({ type: 'consume', error: await hotKeyRejection('WebClient terminated', 'DEVICE_LOCKED') });
+  expect(await reportedMessage()).toContain('; point pipeline; hot_key; hot key code DEVICE_LOCKED. ');
+});
+
 it('reports a hot-key code outside the plugin list as other, and a rejection without one as none', async () => {
   reportTransactionFailure({ type: 'consume', error: await hotKeyRejection('vendor fault 0x1f', 'VENDOR_TEE_FAULT') });
   reportTransactionFailure({ type: 'consume', error: await hotKeyRejection('Unwrapped hot-key has wrong length') });

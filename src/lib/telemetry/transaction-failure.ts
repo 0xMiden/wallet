@@ -95,6 +95,9 @@ function rejectionIdentity(error: unknown): string | undefined {
 }
 
 function failureIdentity(error: unknown): string {
+  // Ahead of the text arms: a Guardian refusal's message carries the server's own text, which can read as any of them.
+  const rejection = rejectionIdentity(error);
+  if (rejection !== undefined) return rejection;
   const message = typeof error === 'string' ? error : error instanceof Error ? error.message : '';
   const code = /assertion failed with error code:\s*(\d{1,20})(?!\d)/.exec(message)?.[1];
   if (code !== undefined) {
@@ -106,7 +109,7 @@ function failureIdentity(error: unknown): string {
   if (/advice stack read failed/i.test(message)) return 'advice_stack_read_failed';
   if (/WebClient terminated/.test(message)) return 'client_terminated';
   if (/failed to execute transaction/i.test(message)) return 'transaction_execution_failed';
-  return rejectionIdentity(error) ?? classifyError(error);
+  return classifyError(error);
 }
 
 function softwareVersion(value: string): string {
