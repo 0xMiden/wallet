@@ -13,8 +13,12 @@ import ts from 'typescript';
  * wallet source only, not a client that a dependency builds.
  *
  * The scan reads the syntax tree, not the text, so a comment or a string, template, JSX or regex literal can neither
- * hide an opener nor fake one, and a binding imported or destructured under another name still counts as the SDK
- * export it names.
+ * hide an opener nor fake one. It follows an import specifier or a destructuring that renames a store-class or
+ * store-function export (createClientWithExternalKeystore and importStore included, even taken off a class), and it
+ * catches any create*Client call by its method name on any receiver. It does not follow a class factory (create,
+ * createMock, createClient) destructured off its class, a class or store function assigned to a plain const, a rename
+ * made in a re-export, a computed or string-literal destructuring key, an element access, or a client that a
+ * dependency builds.
  */
 const ROOT = path.join(__dirname, '../../../..');
 const SRC = path.join(ROOT, 'src');
@@ -152,7 +156,7 @@ describe('clients on the SDK store', () => {
     expect(openersIn("const a = <p>it's</p>; MidenClient.create({});", 'inline.tsx')).toEqual(['MidenClient.create(']);
   });
 
-  it('pins every store-client construction in wallet source', () => {
+  it('pins every store-client construction the reader sees in wallet source', () => {
     const sites = Object.fromEntries(
       SOURCES.map(file => [file, openersIn(fs.readFileSync(path.join(SRC, file), 'utf8'), file)] as const).filter(
         ([, found]) => found.length
