@@ -10,6 +10,7 @@ import { hapticLight } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
 import { PRIMARY_HEX } from 'utils/brand-colors';
 
+import { BridgeNetwork } from './bridge-networks';
 import { SelectAmount, SelectAmountProps } from './SelectAmount';
 import { UIToken } from './types';
 
@@ -537,7 +538,7 @@ describe('SelectAmount', () => {
   // A cross-chain deposit swaps the Miden chip for a two-row destination
   // selector, and the CTA additionally waits on a chosen network.
   describe('bridge variant', () => {
-    const sepolia = { id: 'sepolia' as const, name: 'Sepolia', chainId: 11155111 };
+    const sepolia: BridgeNetwork = { id: 'sepolia', name: 'Sepolia', chainId: 11155111, family: 'evm' };
 
     /** The destination-network row: the last button inside the bridge selector. */
     const networkRow = (): HTMLButtonElement => {

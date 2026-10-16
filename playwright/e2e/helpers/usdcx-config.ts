@@ -1,7 +1,7 @@
 import type { Address } from 'viem';
 
 import document from '../../../src/lib/remote-config/testing/testnet.json';
-import type { UsdcxDestination, UsdcxXReserveSource } from '../../../src/lib/usdcx/constant';
+import type { UsdcxEvmDestination, UsdcxXReserveSource } from '../../../src/lib/usdcx/constant';
 import { ARC_TESTNET, EVM_CHAIN_DEFINITIONS } from '../../../src/lib/walletconnect/config';
 
 const provider = document['bridge-providers'].usdcx;
@@ -20,14 +20,15 @@ export const XRESERVE_ADDRESS = new Map<number, Address>([
   [ARC_TESTNET.id, address(arc.deposit.xReserve)],
   [11155111, address(arc.deposit.xReserve)]
 ]);
-export const USDCX_DESTINATIONS: ReadonlyMap<number, UsdcxDestination> = new Map(
-  Object.values(document.supportedEvmChains).flatMap(entry => {
+export const USDCX_DESTINATIONS: ReadonlyMap<number, UsdcxEvmDestination> = new Map<number, UsdcxEvmDestination>(
+  Object.values(document.supportedEvmChains).flatMap<[number, UsdcxEvmDestination]>(entry => {
     const chain = EVM_CHAIN_DEFINITIONS.find(chain => chain.id === entry.chainId);
     return chain
       ? [
           [
             entry.chainId,
             {
+              family: 'evm',
               chain,
               usdc: address(entry.bridges.usdcx.tokens.USDC.contractAddress),
               domain: entry.bridges.usdcx.domain,

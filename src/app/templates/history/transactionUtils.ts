@@ -2,6 +2,7 @@ import BigNumber from 'bignumber.js';
 import { format } from 'date-fns';
 
 import type { Status } from 'components/ui/StatusBadge';
+import { getSolanaNetwork } from 'lib/chain/solana';
 import { getDateFnsLocale } from 'lib/i18n';
 import { getAdaptiveDecimalPlaces, isDisplayable } from 'lib/i18n/adaptive-precision';
 import {
@@ -346,7 +347,10 @@ export const bridgeRowDisplay = (snapshot: BridgeConfigSnapshot, entry: IHistory
       outLabel: inSymbol,
       outAmount: entry.amount?.toString(),
       providerLabel: 'Circle xReserve',
-      network: getChain(entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID)?.name ?? '',
+      network:
+        (typeof entry.bridgeDestinationNetwork === 'string'
+          ? getSolanaNetwork(entry.bridgeDestinationNetwork)?.name
+          : getChain(entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID)?.name) ?? '',
       status: bridgeStatusOf(entry)
     };
   }

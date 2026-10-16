@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 
 import { Clipboard } from '@capacitor/clipboard';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -24,6 +24,7 @@ import useIsMounted from 'lib/ui/useIsMounted';
 import { BridgeNetworkId, defaultBridgeNetwork } from 'screens/send-flow/bridge-networks';
 import { NetworkField } from 'screens/send-flow/NetworkField';
 import { ScanQrDrawer } from 'screens/send-flow/ScanQrDrawer';
+import { recipientAddressKey } from 'utils/chain-address';
 import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { ADDRESS_BOOK_PATH } from './contact-paths';
@@ -60,9 +61,20 @@ export const NewContactPage: React.FC = () => {
   const trimmedAddress = address.trim();
   const trimmedName = name.trim();
   const isValid = isValidRecipientAddress(trimmedAddress);
-  const isEvm = detectAddressChain(trimmedAddress) === 'ethereum';
+  const chain = detectAddressChain(trimmedAddress);
+  const isEvm = chain !== 'miden';
+  useEffect(() => {
+    switch (chain) {
+      case 'solana':
+        setNetwork(current => (current.startsWith('solana') ? current : 'solana'));
+        break;
+      case 'ethereum':
+        setNetwork(current => (current.startsWith('solana') ? defaultBridgeNetwork().id : current));
+        break;
+    }
+  }, [chain]);
   const existing = isValid
-    ? allContacts.find(c => c.address.trim().toLowerCase() === trimmedAddress.toLowerCase())
+    ? allContacts.find(c => recipientAddressKey(c.address) === recipientAddressKey(trimmedAddress))
     : undefined;
 
   let addressError: string | undefined;
@@ -167,6 +179,7 @@ export const NewContactPage: React.FC = () => {
               address={trimmedAddress || '0'}
               name={trimmedName}
               network={isValid && isEvm ? 'ethereum' : undefined}
+              networkId={network}
               size="xl"
             />
           }
@@ -219,12 +232,7 @@ export const NewContactPage: React.FC = () => {
           {isValid && (
             // The shared `reveal` preset, which is reduced-motion aware on its own.
             <motion.div key="network" {...reveal} className="overflow-hidden">
-              <NetworkField
-                chain={isEvm ? 'ethereum' : 'miden'}
-                network={network}
-                onSelect={setNetwork}
-                testIdPrefix="new-contact"
-              />
+              <NetworkField chain={chain} network={network} onSelect={setNetwork} testIdPrefix="new-contact" />
             </motion.div>
           )}
         </AnimatePresence>

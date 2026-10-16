@@ -44,6 +44,7 @@ export interface ContactAvatarProps {
   name?: string;
   /** Adds the network's mark as a badge on the corner. */
   network?: NetworkChipKind;
+  networkId?: string;
   size?: ContactAvatarSize;
   className?: string;
 }
@@ -53,14 +54,21 @@ export interface ContactAvatarProps {
  * distinguishable at a glance instead of all wearing the same orange Miden image. A thin wrapper
  * over the canonical `Avatar`.
  */
-export const ContactAvatar: React.FC<ContactAvatarProps> = ({ address, name, network, size = 'md', className }) => (
+export const ContactAvatar: React.FC<ContactAvatarProps> = ({
+  address,
+  name,
+  network,
+  networkId,
+  size = 'md',
+  className
+}) => (
   <Avatar
     data-testid="contact-avatar"
     data-network={network}
     size={AVATAR_SIZES[size]}
     initials={avatarLabel(address, name)}
     color={tintForAddress(address)}
-    badge={network && <NetworkLogo kind={network} />}
+    badge={network && <NetworkLogo kind={network} network={networkId} />}
     className={className}
   />
 );

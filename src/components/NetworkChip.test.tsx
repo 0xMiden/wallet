@@ -47,3 +47,20 @@ it('tints each network in its own colors', () => {
   expect(screen.getByTestId('chip')).toHaveClass('bg-network-ethereum-tint', 'border-network-ethereum-border');
   expect(screen.getByTestId('chip')).not.toHaveClass('border-transparent');
 });
+
+it.each([
+  'arc-testnet',
+  'base-sepolia',
+  'arbitrum-sepolia',
+  'avalanche-fuji',
+  'optimism-sepolia',
+  'polygon-amoy',
+  'monad-testnet',
+  'hyperevm-testnet',
+  'solana-devnet'
+])('renders a bundled logo for %s', network => {
+  render(<NetworkChip kind="ethereum" network={network} label={network} data-testid="chip" />);
+  const image = screen.getByTestId('chip').querySelector('img');
+  expect(image).toHaveAttribute('src');
+  expect(image).toHaveAttribute('alt', '');
+});

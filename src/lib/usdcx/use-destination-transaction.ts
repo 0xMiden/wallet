@@ -20,7 +20,8 @@ export function useUsdcxDestinationTransaction(tx: ITransaction | undefined): st
   const [result, setResult] = useState<{ key: string; hash: string }>();
 
   useEffect(() => {
-    if (!enabled || !beforeBlock || !confirmedBlock || !chainId || !recipient || !amount) return;
+    if (typeof chainId !== 'number' || !enabled || !beforeBlock || !confirmedBlock || !chainId || !recipient || !amount)
+      return;
     let disposed = false;
     findUsdcxDestinationTransaction({
       chainId,

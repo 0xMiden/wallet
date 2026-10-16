@@ -267,7 +267,7 @@ describe('values this build does not know', () => {
   it('skips a chain this build has no name for and keeps the rest', () => {
     const body = withChains({
       ...chains,
-      'polygon-amoy': { chainId: 80002, bridges: { usdcx: chains['base-sepolia'].bridges.usdcx } }
+      'future-chain': { chainId: 987654321, bridges: { usdcx: chains['base-sepolia'].bridges.usdcx } }
     });
     const parsed = parseBridgeConfig(body, 'testnet');
     expect(parsed).not.toBeNull();
@@ -418,7 +418,9 @@ it('ignores removed market configuration', () => {
 });
 
 it('supports each chain in the wallet registry', () => {
-  expect(SUPPORTED_EVM_CHAIN_IDS).toEqual([11155111, 5042002, 84532, 421614, 1, 8453, 42161, 5042, 10]);
+  expect(SUPPORTED_EVM_CHAIN_IDS).toEqual([
+    11155111, 5042002, 84532, 421614, 1, 8453, 42161, 5042, 10, 11155420, 43114, 43113, 137, 80002, 143, 10143, 999, 998
+  ]);
 });
 
 it('takes supported ids from the wallet registry', () => {

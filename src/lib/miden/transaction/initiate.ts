@@ -1,3 +1,4 @@
+import type { DestinationNetworkId } from 'lib/chain/types';
 import { isWorthClaiming, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import { getOrCreateMultisigService, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { resolveGuardianEndpoint } from 'lib/miden/guardian/account';
@@ -689,7 +690,7 @@ export const initiateBridgedSendTransaction = async (
   amount: bigint,
   faucetId: string,
   destinationAddress: string,
-  destinationNetwork: number,
+  destinationNetwork: DestinationNetworkId,
   provider: IBridgeProvider,
   requestBytes?: Uint8Array,
   delegateTransaction?: boolean,

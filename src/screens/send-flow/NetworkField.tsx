@@ -31,7 +31,17 @@ export const NetworkField: React.FC<NetworkFieldProps> = ({
   networks = BRIDGE_NETWORKS
 }) => {
   const { t } = useTranslation();
-  const choosable = networks.length > 1;
+  const options = networks.filter(option => {
+    switch (chain) {
+      case 'ethereum':
+        return option.family === 'evm';
+      case 'solana':
+        return option.family === 'solana';
+      default:
+        return false;
+    }
+  });
+  const choosable = options.length > 1;
 
   return (
     <div className="flex flex-col gap-2" data-testid={`${testIdPrefix}-network-options`}>
@@ -40,10 +50,11 @@ export const NetworkField: React.FC<NetworkFieldProps> = ({
         {chain === 'miden' ? (
           <NetworkChip kind="miden" label={t('miden')} data-testid={`${testIdPrefix}-network-miden`} />
         ) : (
-          networks.map(option => (
+          options.map(option => (
             <NetworkChip
               key={option.id}
               kind="ethereum"
+              network={option.id}
               label={option.name}
               selected={choosable && network === option.id}
               onClick={choosable ? () => onSelect(option.id) : undefined}

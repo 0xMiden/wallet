@@ -1,8 +1,9 @@
 import { Address } from '@miden-sdk/miden-sdk/lazy';
-import { isAddress } from 'viem';
 
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+
+import { ChainFamily, isValidChainAddress } from './chain-address';
 
 export const isHexAddress = (address: string) => {
   return address.startsWith('0x');
@@ -74,33 +75,29 @@ export const isValidMidenAddress = (address: string): true => {
   return true;
 };
 
-const ETH_ADDRESS_RGX = /^0x[a-fA-F0-9]{40}$/;
+export const isValidEthereumAddress = (address: string) => isValidChainAddress(address, 'evm');
 
-/**
- * A full Ethereum hex address. Uniform-case addresses remain valid, while
- * mixed-case addresses must have a valid EIP-55 checksum.
- */
-export const isValidEthereumAddress = (address: string) => {
-  const trimmed = (address ?? '').trim();
-  if (!ETH_ADDRESS_RGX.test(trimmed)) return false;
-
-  const addressBody = trimmed.slice(2);
-  if (addressBody === addressBody.toLowerCase() || addressBody === addressBody.toUpperCase()) return true;
-
-  return isAddress(trimmed);
-};
-
-/** Chain-aware recipient validity: `0x…` checks as Ethereum, anything else as Miden. */
-export const isValidRecipientAddress = (address: string) => {
-  if (isHexAddress(address.trim())) return isValidEthereumAddress(address);
-  try {
-    return isValidMidenAddress(address);
-  } catch {
-    return false;
+/** Use the selected family. Existing callers can still infer EVM from the hex prefix. */
+export const isValidRecipientAddress = (
+  address: string,
+  family: ChainFamily | 'miden' = recipientFamily(address)
+): boolean => {
+  switch (family) {
+    case 'evm':
+    case 'solana':
+      return isValidChainAddress(address, family);
+    case 'miden':
+      try {
+        return isValidMidenAddress(address);
+      } catch {
+        return false;
+      }
+    default:
+      return false;
   }
 };
 
-export type AddressChain = 'miden' | 'ethereum';
+export type AddressChain = 'miden' | 'ethereum' | 'solana';
 
 /**
  * Detect which chain a recipient address targets, for UI affordances like the
@@ -109,5 +106,18 @@ export type AddressChain = 'miden' | 'ethereum';
  * Miden (same-chain), so the badge defaults to Miden until a `0x` is typed.
  */
 export const detectAddressChain = (address: string): AddressChain => {
-  return isHexAddress(address.trim()) ? 'ethereum' : 'miden';
+  if (isHexAddress(address.trim())) return 'ethereum';
+  if (isValidChainAddress(address, 'solana')) return 'solana';
+  return 'miden';
 };
+
+export function recipientFamily(address: string): ChainFamily | 'miden' {
+  switch (detectAddressChain(address)) {
+    case 'ethereum':
+      return 'evm';
+    case 'solana':
+      return 'solana';
+    case 'miden':
+      return 'miden';
+  }
+}

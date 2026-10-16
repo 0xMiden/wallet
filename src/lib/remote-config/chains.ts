@@ -19,6 +19,24 @@ export function evmChainSlug(chainId: number): string | undefined {
       return 'base-sepolia';
     case 421614:
       return 'arbitrum-sepolia';
+    case 43114:
+      return 'avalanche';
+    case 43113:
+      return 'avalanche-fuji';
+    case 11155420:
+      return 'optimism-sepolia';
+    case 137:
+      return 'polygon';
+    case 80002:
+      return 'polygon-amoy';
+    case 143:
+      return 'monad';
+    case 10143:
+      return 'monad-testnet';
+    case 999:
+      return 'hyperevm';
+    case 998:
+      return 'hyperevm-testnet';
     default:
       return undefined;
   }

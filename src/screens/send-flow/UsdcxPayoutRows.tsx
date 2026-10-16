@@ -4,11 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { formatUnits } from 'viem';
 
 import { DetailRow } from 'components/ui/DetailCard';
+import type { DestinationNetworkId } from 'lib/chain/types';
 import { minimumUsdcxPayout, USDCX_DECIMALS, usdcxDestinations } from 'lib/usdcx/constant';
 
 /** A USDCx burn's destination chain and its amount in USDCx base units. */
 export interface UsdcxPayoutTarget {
-  chainId: number;
+  chainId: DestinationNetworkId;
   amount: bigint;
 }
 

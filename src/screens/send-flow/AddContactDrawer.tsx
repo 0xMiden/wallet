@@ -40,9 +40,12 @@ interface SheetBodyProps {
 const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved, onBusyChange }) => {
   const { t } = useTranslation();
   const { addContact } = useContacts();
-  const isEvm = detectAddressChain(address) === 'ethereum';
+  const chain = detectAddressChain(address);
+  const isEvm = chain !== 'miden';
   const [name, setName] = useState('');
-  const [network, setNetwork] = useState<BridgeNetworkId>(() => initialNetwork ?? defaultBridgeNetwork().id);
+  const [network, setNetwork] = useState<BridgeNetworkId>(
+    () => initialNetwork ?? (chain === 'solana' ? 'solana' : defaultBridgeNetwork().id)
+  );
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const trimmedName = name.trim();
@@ -86,7 +89,12 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved,
       {/* The address is fixed here (it came from the send step), so it is a card to confirm, not
           a field to edit, and shown in full. */}
       <div className="flex items-start gap-3 rounded-2xl bg-fill p-4">
-        <ContactAvatar address={address} name={trimmedName} network={isEvm ? 'ethereum' : 'miden'} />
+        <ContactAvatar
+          address={address}
+          name={trimmedName}
+          network={isEvm ? 'ethereum' : 'miden'}
+          networkId={network}
+        />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="text-caption text-muted">{t('address')}</span>
           <p data-testid="add-contact-address" className="break-all text-value text-ink">
@@ -95,12 +103,7 @@ const SheetBody: React.FC<SheetBodyProps> = ({ address, initialNetwork, onSaved,
         </div>
       </div>
 
-      <NetworkField
-        chain={isEvm ? 'ethereum' : 'miden'}
-        network={network}
-        onSelect={setNetwork}
-        testIdPrefix="add-contact"
-      />
+      <NetworkField chain={chain} network={network} onSelect={setNetwork} testIdPrefix="add-contact" />
 
       <TextField
         label={t('name')}

@@ -15,6 +15,7 @@ import {
   isAgglayerDepositReady,
   useBridgeTracker
 } from 'lib/agglayer';
+import { getSolanaNetwork } from 'lib/chain/solana';
 import { getCurrentMidenBlock, pollEpochIntentFill } from 'lib/epoch';
 import {
   initiateConsumeTransactionFromId,
@@ -90,9 +91,12 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
   const isEpoch = entry.bridgeProvider === 'epoch';
   const isUsdcx = entry.bridgeProvider === 'usdcx';
   const destination = entry.bridgeDestinationAddress ?? '';
-  const destinationChain = getChain(
-    entry.bridgeAgglayerRoute?.chainId ?? entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID
-  );
+  const destinationId = entry.bridgeAgglayerRoute?.chainId ?? entry.bridgeDestinationNetwork ?? DEFAULT_CHAIN_ID;
+  const destinationChain = typeof destinationId === 'number' ? getChain(destinationId) : undefined;
+  const solanaChain = typeof destinationId === 'string' ? getSolanaNetwork(destinationId) : undefined;
+  const recipientExplorerUrl = solanaChain
+    ? `${solanaChain.explorer}/address/${destination}${solanaChain.testnet ? '?cluster=devnet' : ''}`
+    : evmExplorerUrl(destinationChain, 'address', destination);
   const [status, setStatus] = useState<IBridgeClaimStatus>(entry.bridgeClaimStatus ?? 'not-applicable');
   const [claimable, setClaimable] = useState<AgglayerDeposit | null>(null);
   // This panel's own claim, not the row's `claiming`: a page that died mid-claim (the extension popup closes when
@@ -228,7 +232,8 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
       const fill = await pollEpochIntentFill({
         destinationAddress: destination,
         intentNonce,
-        destinationChainId: entry.bridgeDestinationNetwork,
+        destinationChainId:
+          typeof entry.bridgeDestinationNetwork === 'number' ? entry.bridgeDestinationNetwork : undefined,
         allocatorUrl: entry.bridgeEpochAllocatorUrl
       });
       if (cancelled || !fill) return;
@@ -352,13 +357,15 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
           <DetailRow label={t('to')}>
             <ExternalLinkValue
               displayValue={<HashChip hash={destination} trimHash className="ml-2" />}
-              href={evmExplorerUrl(destinationChain, 'address', destination)}
+              href={recipientExplorerUrl}
             />
           </DetailRow>
         )}
         {/* eslint-disable-next-line i18next/no-literal-string -- network's proper name, not translatable copy */}
         <DetailRow label={t('destinationNetwork')}>
-          {destinationChain?.name ?? entry.bridgeDestinationNetwork}
+          {(typeof entry.bridgeDestinationNetwork === 'string'
+            ? getSolanaNetwork(entry.bridgeDestinationNetwork)?.name
+            : destinationChain?.name) ?? entry.bridgeDestinationNetwork}
         </DetailRow>
         <DetailRow label={isEpoch || isUsdcx ? t('status') : t('claimStatus')}>
           {/* Not confirmed only while the panel has no evidence of its own: once the tracker finds a

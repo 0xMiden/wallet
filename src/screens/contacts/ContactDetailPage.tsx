@@ -21,6 +21,7 @@ import useIsMounted from 'lib/ui/useIsMounted';
 import { navigate, Redirect } from 'lib/woozie';
 import { BridgeNetworkId } from 'screens/send-flow/bridge-networks';
 import { NetworkField } from 'screens/send-flow/NetworkField';
+import { detectAddressChain } from 'utils/miden';
 
 import { contactNetwork } from './contact-network';
 import { ADDRESS_BOOK_PATH } from './contact-paths';
@@ -169,6 +170,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
           address={contact.address}
           name={editing ? trimmedName : contact.name}
           network={kind === 'ethereum' ? kind : undefined}
+          networkId={network}
           size="xl"
         />
       }
@@ -207,7 +209,7 @@ const ContactView: React.FC<ContactViewProps> = ({ contact, onBack, onRetain, on
         {avatar}
         <ContactNameInput value={name} onChange={setName} autoFocus />
         <NetworkField
-          chain={kind === 'ethereum' ? 'ethereum' : 'miden'}
+          chain={detectAddressChain(contact.address)}
           network={network}
           onSelect={setNetwork}
           testIdPrefix="contact"

@@ -11,13 +11,13 @@ jest.mock('react-i18next', () => ({
 const ETH_ADDRESS = '0x71C7656EC7ab88b098defB751B7401B5f6d8976F';
 const MIDEN_ADDRESS = 'mtst1recipient';
 
-const mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+const mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111, family: 'evm' }];
 jest.mock('./bridge-networks', () => ({
   get BRIDGE_NETWORKS() {
     return mockBridgeNetworks;
   },
   getBridgeNetwork: (id: string | undefined) =>
-    id === 'sepolia' ? { id: 'sepolia', name: 'Sepolia', chainId: 11155111 } : undefined
+    id === 'sepolia' ? { id: 'sepolia', name: 'Sepolia', chainId: 11155111, family: 'evm' } : undefined
 }));
 
 // `components/Button` pulls in framer-motion, Capacitor haptics and the icon
@@ -129,7 +129,7 @@ describe('SelectRecipient', () => {
   });
 
   it('offers the bridge networks as chips once there is more than one', () => {
-    mockBridgeNetworks.push({ id: 'base', name: 'Base', chainId: 8453 });
+    mockBridgeNetworks.push({ id: 'base', name: 'Base', chainId: 8453, family: 'evm' });
     try {
       const props = renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum' });
 

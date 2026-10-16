@@ -1,3 +1,5 @@
+import { getSolanaNetwork } from 'lib/chain/solana';
+import type { SolanaNetworkId } from 'lib/chain/types';
 import { isRecord } from 'lib/update/guards';
 import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 
@@ -111,11 +113,21 @@ export interface BridgeProviders {
   usdcx: { midenDomain?: number; attestationUrl?: string; irisUrl?: string };
 }
 
+export interface SolanaChainConfig {
+  id: SolanaNetworkId;
+  family: 'solana';
+  cluster: 'devnet' | 'mainnet-beta';
+  domain: number;
+  mintAddress: string;
+  withdrawalEnabled: boolean;
+}
+
 export interface BridgeConfig {
   network: string;
   version: number;
   'bridge-providers': BridgeProviders;
   supportedEvmChains: Record<string, SupportedEvmChainConfig>;
+  solanaChains?: Record<string, SolanaChainConfig>;
   features: { earn: boolean; fastBridge?: boolean; bridgeIn?: boolean; bridgeOut?: boolean };
   /**
    * Only there when the document sets `onboarding.inviteOnly`. True: Welcome shows the invite-only
@@ -311,7 +323,33 @@ function usdcxChain(value: ConfigValue): UsdcxChainConfig | undefined {
   };
 }
 
-function supportedChains(value: ConfigValue): Record<string, SupportedEvmChainConfig> {
+function solanaChains(value: ConfigValue): Record<string, SolanaChainConfig> {
+  const chains: Record<string, SolanaChainConfig> = {};
+  for (const [slug, entry] of Object.entries(section(value))) {
+    const item = section(entry);
+    if (item.family !== 'solana') continue;
+    const network = getSolanaNetwork(slug);
+    if (!network) continue;
+    if (item.cluster !== network.cluster || item.chainId !== undefined) return invalid();
+    const bridge = section(section(item.bridges).usdcx);
+    if (Object.keys(bridge).length === 0) continue;
+    const routeSwitches = switches(bridge);
+    if (routeSwitches.depositEnabled || domain(bridge.domain) !== 5) return invalid();
+    const mint = section(section(bridge.tokens).USDC).mintAddress;
+    if (mint !== network.usdcMint) return invalid();
+    chains[slug] = {
+      id: network.id,
+      family: 'solana',
+      cluster: network.cluster,
+      domain: 5,
+      mintAddress: mint,
+      withdrawalEnabled: routeSwitches.withdrawalEnabled
+    };
+  }
+  return chains;
+}
+
+function supportedChains(value: ConfigValue, requireFamily = false): Record<string, SupportedEvmChainConfig> {
   const chains: Record<string, SupportedEvmChainConfig> = {};
   const ids = new Set<number>();
   // Chains skipped, or whose xreserve deposit was left out: an executor deposit through one is left out too.
@@ -319,6 +357,16 @@ function supportedChains(value: ConfigValue): Record<string, SupportedEvmChainCo
   for (const [slug, entry] of Object.entries(section(value))) {
     if (!/^[a-z][a-z0-9-]*$/.test(slug)) return invalid();
     const item = section(entry);
+    if (requireFamily) {
+      switch (item.family) {
+        case 'evm':
+          break;
+        case 'solana':
+          continue;
+        default:
+          continue;
+      }
+    }
     if (!isPositiveSafeInteger(item.chainId) || ids.has(item.chainId)) return invalid();
     // A chain id this build has no name for is a newer build's; one it names under another slug is a mistake.
     const known = evmChainSlug(item.chainId);
@@ -418,7 +466,8 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
   const irisUrl = read(usdcx, 'irisUrl', url);
   const swap = section(body.swap);
   const etaUrl = read(swap, 'etaUrl', url);
-  const supportedEvmChains = supportedChains(body.supportedEvmChains);
+  const supportedEvmChains =
+    body.chains === undefined ? supportedChains(body.supportedEvmChains) : supportedChains(body.chains, true);
   // A route without the provider values it runs on is left out; so is a token output nothing declares.
   for (const { bridges } of Object.values(supportedEvmChains)) {
     if (bridges.epoch && (!allocatorUrl || !positionsUrl)) delete bridges.epoch;
@@ -428,6 +477,7 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
     // Not Object.hasOwn: Safari before 15.4 lacks it and the build ships no polyfill.
     if (usdc) usdc.outputs = usdc.outputs.filter(name => Object.prototype.hasOwnProperty.call(outputs, name));
   }
+  const solana = solanaChains(body.chains);
   const guardians = readGuardians(body.guardians, url);
   return {
     network,
@@ -446,6 +496,7 @@ function readConfig(body: unknown, network: string, allowLocalHttp: boolean): Br
       }
     },
     supportedEvmChains,
+    ...(Object.keys(solana).length === 0 ? {} : { solanaChains: solana }),
     features: {
       earn: featureSwitch(section(body.features), 'earn'),
       ...Object.fromEntries(

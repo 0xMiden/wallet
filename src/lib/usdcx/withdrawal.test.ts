@@ -124,3 +124,23 @@ describe('USDCx withdrawal encoding', () => {
     }
   });
 });
+
+it('encodes all 32 Solana token account bytes without EVM padding', () => {
+  expect(encodeBurnWithdrawal('4YnRS2RAFHtVCdeywZiDAkoWwJBaqYxFXe3FZf2Ay7PV', 5)).toEqual([
+    5n,
+    0n,
+    0n,
+    0n,
+    0x7e6cb734n,
+    0xfee0dbe2n,
+    0xcfd6c69en,
+    0x7853df3dn,
+    0x4221d2dbn,
+    0xae4dbd45n,
+    0x5778ec0fn,
+    0x607bc9ban
+  ]);
+  expect(() => encodeBurnWithdrawal('0x112233445566778899aabbccddeeff0011223344', 5)).toThrow(
+    'usdcxInvalidDestination'
+  );
+});

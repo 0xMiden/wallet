@@ -1,6 +1,8 @@
 import { Address, Chain, formatUnits, getAddress } from 'viem';
 import { arc, mainnet, sepolia } from 'viem/chains';
 
+import { getSolanaNetwork, type SolanaNetwork } from 'lib/chain/solana';
+import type { DestinationNetworkId } from 'lib/chain/types';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -70,7 +72,18 @@ export interface UsdcxExecutorSource extends UsdcxSourceChainBase {
 export type UsdcxSourceChain = UsdcxXReserveSource | UsdcxExecutorSource;
 
 /** A chain a USDCx burn can pay out to: a direct-payout domain of Circle's withdrawal API. */
-export interface UsdcxDestination {
+export type UsdcxDestination = UsdcxEvmDestination | UsdcxSolanaDestination;
+
+export interface UsdcxSolanaDestination {
+  family: 'solana';
+  chain: SolanaNetwork;
+  domain: number;
+  usdc: string;
+  payoutFeeAllowance: bigint;
+}
+
+export interface UsdcxEvmDestination {
+  family: 'evm';
   chain: Chain;
   /** The domain word of the burn note's withdrawal attachment. */
   domain: number;
@@ -163,6 +176,7 @@ function destination(entry: SupportedEvmChainConfig): UsdcxDestination | undefin
   const usdc = tokenAddress ? getAddress(tokenAddress) : undefined;
   if (!route || !chain || !usdc || !inEffectiveFamily(chain)) return undefined;
   return {
+    family: 'evm',
     chain,
     domain: route.domain,
     usdc,
@@ -179,11 +193,22 @@ export function usdcxSourceChains(snapshot = getBridgeConfigSnapshot()): Readonl
   return sources;
 }
 
-export function usdcxDestinations(): ReadonlyMap<number, UsdcxDestination> {
-  const destinations = new Map<number, UsdcxDestination>();
+export function usdcxDestinations(): ReadonlyMap<DestinationNetworkId, UsdcxDestination> {
+  const destinations = new Map<DestinationNetworkId, UsdcxDestination>();
   for (const entry of Object.values(getBridgeConfigSnapshot().config?.supportedEvmChains ?? {})) {
     const target = destination(entry);
     if (target) destinations.set(entry.chainId, target);
+  }
+  for (const entry of Object.values(getBridgeConfigSnapshot().config?.solanaChains ?? {})) {
+    const chain = getSolanaNetwork(entry.id);
+    if (!chain || chain.testnet !== (getEffectiveNetworkName() !== 'mainnet')) continue;
+    destinations.set(chain.id, {
+      family: 'solana',
+      chain,
+      domain: entry.domain,
+      usdc: entry.mintAddress,
+      payoutFeeAllowance: USDCX_PAYOUT_FEE_ALLOWANCE
+    });
   }
   return destinations;
 }
@@ -193,7 +218,7 @@ export function usdcxDestinations(): ReadonlyMap<number, UsdcxDestination> {
  * It is not positive when the allowance takes the whole amount. Any unrelated credit meets such a floor, so the wallet
  * refuses that burn (`usdcxPayoutFeeShortfall`) and never confirms an older one by balance.
  */
-export function minimumUsdcxPayout(chainId: number, amount: bigint): bigint {
+export function minimumUsdcxPayout(chainId: DestinationNetworkId, amount: bigint): bigint {
   return amount - (usdcxDestinations().get(chainId)?.payoutFeeAllowance ?? 0n);
 }
 
@@ -202,7 +227,7 @@ export function minimumUsdcxPayout(chainId: number, amount: bigint): bigint {
  * names them; undefined once the amount exceeds it, and for no amount or an unknown chain, which other checks refuse.
  */
 export function usdcxPayoutFeeShortfall(
-  chainId: number,
+  chainId: DestinationNetworkId,
   amount: bigint
 ): { amount: string; network: string } | undefined {
   const destination = usdcxDestinations().get(chainId);
@@ -264,7 +289,7 @@ export function isUsdcxExecutorSource(chainId: number | undefined): boolean {
   return chainId !== undefined && usdcxSourceChains().get(chainId)?.route === 'cctp-executor';
 }
 
-export function getUsdcxDestination(chainId: number): UsdcxDestination {
+export function getUsdcxDestination(chainId: DestinationNetworkId): UsdcxDestination {
   const entry = usdcxDestinations().get(chainId);
   if (!entry) throw new Error(`USDCx withdrawal is not configured for chain ${chainId}`);
   return entry;
@@ -296,7 +321,13 @@ export function getUsdcxAttestationUrl(): string {
   return url;
 }
 
-export function isUsdcxRouteEnabled(chainId: number, direction: 'deposit' | 'withdrawal'): boolean {
+export function isUsdcxRouteEnabled(chainId: DestinationNetworkId, direction: 'deposit' | 'withdrawal'): boolean {
+  if (typeof chainId === 'string') {
+    return (
+      direction === 'withdrawal' &&
+      getBridgeConfigSnapshot().config?.solanaChains?.[chainId]?.withdrawalEnabled === true
+    );
+  }
   const entry = Object.values(getBridgeConfigSnapshot().config?.supportedEvmChains ?? {}).find(
     chain => chain.chainId === chainId
   );

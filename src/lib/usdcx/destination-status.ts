@@ -1,10 +1,13 @@
 import { createPublicClient, http, isAddress } from 'viem';
 
+import { getSolanaNetwork } from 'lib/chain/solana';
+import type { DestinationNetworkId } from 'lib/chain/types';
 import { IBridgedSendExtraInputs, ITransaction, ITransactionStatus, IUsdcxBurn } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import { getChain } from 'lib/walletconnect/config';
 
 import { usdcxDestinations, ERC20_BALANCE_OF_ABI, minimumUsdcxPayout } from './constant';
+import { readSolanaUsdcBalance } from './solana';
 
 export interface UsdcxBalanceSnapshot {
   balance: string;
@@ -18,14 +21,19 @@ const SNAPSHOT_BACKOFF_MS = [1_000, 2_000];
 
 /** Read USDC in six-decimal base units at one block. RPC errors stop this check. */
 export async function readUsdcxDestinationBalance(
-  chainId: number,
+  chainId: DestinationNetworkId,
   recipient: string,
   timeoutMs = DESTINATION_READ_TIMEOUT_MS,
-  savedToken?: `0x${string}`
+  savedToken?: string
 ): Promise<UsdcxBalanceSnapshot> {
+  if (typeof chainId === 'string') {
+    const mint = savedToken ?? usdcxDestinations().get(chainId)?.usdc ?? getSolanaNetwork(chainId)?.usdcMint;
+    if (!mint) throw new Error('Invalid USDC destination');
+    return readSolanaUsdcBalance(chainId, recipient, mint, timeoutMs);
+  }
   const chain = getChain(chainId);
   const token = savedToken ?? usdcxDestinations().get(chainId)?.usdc;
-  if (!chain || !token || !isAddress(recipient)) throw new Error('Invalid USDC destination');
+  if (!chain || !token || !isAddress(token) || !isAddress(recipient)) throw new Error('Invalid USDC destination');
   const client = createPublicClient({ transport: http(chain.rpcUrl, { timeout: timeoutMs, retryCount: 0 }) });
   const blockNumber = await client.getBlockNumber({ cacheTime: 0 });
   const balance = await client.readContract({
@@ -65,10 +73,10 @@ async function within<T>(work: Promise<T>, ms: number): Promise<T> {
  * used to have. The last error is rethrown: a burn whose every attempt fails still fails before any row exists.
  */
 export async function readUsdcxDestinationSnapshot(
-  chainId: number,
+  chainId: DestinationNetworkId,
   recipient: string,
   { read = readUsdcxDestinationBalance, now = Date.now, sleep = wait }: UsdcxSnapshotDeps = {},
-  savedToken?: `0x${string}`
+  savedToken?: string
 ): Promise<UsdcxBalanceSnapshot> {
   const deadline = now() + DESTINATION_READ_TIMEOUT_MS;
   const attempt = async (backoffs: readonly number[]): Promise<UsdcxBalanceSnapshot> => {

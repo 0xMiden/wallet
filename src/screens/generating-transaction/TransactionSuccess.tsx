@@ -16,7 +16,9 @@ const isBridgedSendExtraInputs = (value: unknown): value is IBridgedSendExtraInp
   const candidate = value as Partial<IBridgedSendExtraInputs>;
   return (
     typeof candidate.destinationAddress === 'string' &&
-    typeof candidate.destinationNetwork === 'number' &&
+    (typeof candidate.destinationNetwork === 'number' ||
+      candidate.destinationNetwork === 'solana' ||
+      candidate.destinationNetwork === 'solana-devnet') &&
     (candidate.provider === 'epoch' || candidate.provider === 'agglayer' || candidate.provider === 'usdcx')
   );
 };

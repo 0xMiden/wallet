@@ -57,6 +57,7 @@ import { detectAddressChain, isValidRecipientAddress } from 'utils/miden';
 
 import { approxFiatAmount } from './amount-format';
 import {
+  evmBridgeChainId,
   getBridgeNetwork,
   BridgeNetworkId,
   isBridgeNetworkId,
@@ -112,7 +113,7 @@ export const ReviewTransaction: React.FC = () => {
   }, [search]);
 
   // A 0x recipient bridges to an EVM chain instead of a same-chain Miden send.
-  const isBridge = !!to && detectAddressChain(to) === 'ethereum';
+  const isBridge = !!to && detectAddressChain(to) !== 'miden';
   const bridgeNetworkObj = getBridgeNetwork(network);
   const bridgeFeature = (): BridgeFeature => {
     switch (route) {
@@ -437,6 +438,9 @@ export const ReviewTransaction: React.FC = () => {
       reportSendStep('submitting');
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
+        if (route !== 'usdcx' && bridgeNetworkObj?.family !== 'evm') {
+          throw new UsdcxBurnError('usdcxInvalidDestination');
+        }
         if (route === 'usdcx') {
           if (!bridgeNetworkObj || !isUsdcxWithdrawalAvailable(token.id)) {
             throw new UsdcxBurnError('usdcxUnsupportedFaucet');
@@ -453,11 +457,11 @@ export const ReviewTransaction: React.FC = () => {
           goToGeneratingTransaction(txId);
         } else if (route === 'agglayer') {
           // This page also opens from its URL, so it re-checks; after the route step that costs no RPC.
-          if (!(await isAgglayerFaucetAllowed(token.id, getEffectiveRpcUrl(), bridgeNetworkObj?.chainId))) {
+          if (!(await isAgglayerFaucetAllowed(token.id, getEffectiveRpcUrl(), evmBridgeChainId(bridgeNetworkObj)))) {
             throw new Error(t('agglayerTokenUnsupported'));
           }
           const txId = await initiateB2AggBridge({
-            destinationChainId: bridgeNetworkObj?.chainId,
+            destinationChainId: evmBridgeChainId(bridgeNetworkObj),
             amount: amountBaseUnits,
             faucetId: token.id,
             destinationAddress: to as `0x${string}`,
@@ -469,7 +473,7 @@ export const ReviewTransaction: React.FC = () => {
           goToGeneratingTransaction(txId);
         } else {
           await bridgeEpochSend({
-            destinationChainId: bridgeNetworkObj?.chainId,
+            destinationChainId: evmBridgeChainId(bridgeNetworkObj),
             amount: amountBaseUnits,
             faucetId: token.id,
             destinationAddress: to as `0x${string}`,
@@ -613,7 +617,10 @@ export const ReviewTransaction: React.FC = () => {
   // recipient is valid here too: it routes through the bridge. Self-sends are
   // rejected (SendManager blocks them at entry; this covers direct routing).
   const paramsInvalid =
-    !tokenId || !(parseFloat(amount) > 0) || !isValidRecipientAddress(to) || sameWalletAccountId(to, publicKey ?? '');
+    !tokenId ||
+    !(parseFloat(amount) > 0) ||
+    !isValidRecipientAddress(to, bridgeNetworkObj?.family) ||
+    sameWalletAccountId(to, publicKey ?? '');
   // A cross-chain send must know its destination network, otherwise the review
   // rows and the submit path have nothing to act on.
   const bridgeParamsInvalid =
@@ -740,7 +747,7 @@ export const ReviewTransaction: React.FC = () => {
           {/* A plain value with the network's mark, like every other row: a chip here read as a button. */}
           <DetailRow label={t('network')}>
             <span className="flex items-center gap-1.5">
-              <NetworkLogo kind={isBridge ? 'ethereum' : 'miden'} />
+              <NetworkLogo kind={isBridge ? 'ethereum' : 'miden'} network={bridgeNetworkObj?.id} />
               {isBridge ? (bridgeNetworkObj?.name ?? t('ethereum')) : t('miden')}
             </span>
           </DetailRow>

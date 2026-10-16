@@ -27,9 +27,10 @@ import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
 import { usdcxPayoutFeeShortfall } from 'lib/usdcx/constant';
 import { isUsdcxWithdrawalAvailable, isUsdcxWithdrawalNetwork } from 'lib/usdcx/withdrawal';
 import { navigate, useLocation } from 'lib/woozie';
+import { recipientAddressKey } from 'utils/chain-address';
 import {
   detectAddressChain,
-  isValidEthereumAddress,
+  recipientFamily,
   isValidMidenAddress,
   isValidRecipientAddress,
   MidenAddressError
@@ -38,6 +39,7 @@ import {
 import { AccountsListDrawer } from './AccountsList';
 import { AddContactDrawer } from './AddContactDrawer';
 import {
+  evmBridgeChainId,
   BRIDGE_NETWORKS,
   getBridgeNetwork,
   BridgeNetworkId,
@@ -99,7 +101,10 @@ const validations = {
   recipientAddress: yup
     .string()
     .required()
-    .test('is-valid-address', 'Invalid address', value => isValidRecipientAddress(value ?? ''))
+    .test('is-valid-address', 'Invalid address', function (value) {
+      const network = this.resolve(yup.ref<string | undefined>('bridgeNetwork'));
+      return isValidRecipientAddress(value ?? '', getBridgeNetwork(network)?.family);
+    })
 };
 
 const validationSchema = yup.object().shape(validations).required();
@@ -332,21 +337,28 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   // A 0x recipient routes through the bridge instead of a same-chain Miden send.
   const chain = detectAddressChain(recipientAddress ?? '');
-  const isBridge = !!recipientAddress && chain === 'ethereum';
+  const isBridge = !!recipientAddress && chain !== 'miden';
   const displayedNetwork: SendNetworkId | undefined = recipientAddress?.trim()
     ? isBridge
       ? bridgeNetwork
       : 'miden'
     : recipientNetwork;
-  const offeredNetworks = sendBridgeNetworks(isUsdcxWithdrawalNetwork());
+  const allOfferedNetworks = sendBridgeNetworks(isUsdcxWithdrawalNetwork());
+  const offeredNetworks = useMemo(() => {
+    if (!recipientAddress?.trim() || chain === 'miden') return allOfferedNetworks;
+    const family = recipientFamily(recipientAddress);
+    return allOfferedNetworks.filter(network => network.family === family);
+  }, [allOfferedNetworks, chain, recipientAddress]);
   const usdcxOnly = !isEpochBridgeNetwork(displayedNetwork) && offeredNetworks.some(n => n.id === displayedNetwork);
   const selectedContact = useMemo(() => {
-    const normalizedAddress = recipientAddress?.trim().toLowerCase();
+    const normalizedAddress = recipientAddressKey(recipientAddress ?? '');
     if (!normalizedAddress) return undefined;
-    return allContactsList.find(contact => contact.id.trim().toLowerCase() === normalizedAddress);
+    return allContactsList.find(contact => recipientAddressKey(contact.id) === normalizedAddress);
   }, [allContactsList, recipientAddress]);
 
-  const isValidRecipient = !errors.recipientAddress && validations.recipientAddress.isValidSync(recipientAddress);
+  const isValidRecipient =
+    !errors.recipientAddress &&
+    isValidRecipientAddress(recipientAddress ?? '', getBridgeNetwork(bridgeNetwork)?.family);
   // A valid address that isn't in the wallet or the address book can be saved
   // straight from the recipient step — the pill offers "Add to contacts?".
   const canAddContact = isValidRecipient && !selectedContact;
@@ -357,7 +369,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
     () =>
       recentSendRecipients.map(recipient => ({
         ...recipient,
-        name: allContactsList.find(contact => contact.id.trim().toLowerCase() === recipient.address.toLowerCase())?.name
+        name: allContactsList.find(
+          contact => recipientAddressKey(contact.id) === recipientAddressKey(recipient.address)
+        )?.name
       })),
     [recentSendRecipients, allContactsList]
   );
@@ -405,7 +419,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   );
 
   const epochQuote = useEpochQuote({
-    destinationChainId: getBridgeNetwork(bridgeNetwork)?.chainId,
+    destinationChainId: evmBridgeChainId(getBridgeNetwork(bridgeNetwork)),
     amount: amountBaseUnits,
     faucetId: token?.id,
     destinationAddress: recipientAddress,
@@ -722,8 +736,14 @@ export const SendManager: React.FC<SendManagerProps> = ({
     (raw: string): string | null => {
       const trimmed = raw.trim();
       if (!trimmed) return null;
-      if (detectAddressChain(trimmed) === 'ethereum') {
-        return isValidEthereumAddress(trimmed) ? null : 'invalidEthereumAddress';
+      const family = getBridgeNetwork(bridgeNetwork)?.family ?? recipientFamily(trimmed);
+      switch (family) {
+        case 'evm':
+          return isValidRecipientAddress(trimmed, family) ? null : 'invalidEthereumAddress';
+        case 'solana':
+          return isValidRecipientAddress(trimmed, family) ? null : 'invalidSolanaAddress';
+        case 'miden':
+          break;
       }
       // Self-send guard: a P2IDE to yourself consumes through the kernel's
       // target branch, so recall semantics are meaningless and auto-consume
@@ -739,7 +759,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       }
       return null;
     },
-    [publicKey]
+    [publicKey, bridgeNetwork]
   );
 
   const applyRecipientValidation = useCallback(
@@ -753,6 +773,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
     },
     [recipientErrorKey, setError, clearErrors]
   );
+
+  useEffect(() => {
+    if (recipientAddress) applyRecipientValidation(recipientAddress);
+  }, [bridgeNetwork, recipientAddress, applyRecipientValidation]);
 
   const onAddressChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {
@@ -867,11 +891,16 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // contact, link or draft carries one this network does not offer (Ethereum on mainnet, Arc Testnet or Sepolia on
   // the test networks), else the first destination the document offers.
   useEffect(() => {
-    if (!isBridge || !isValidRecipient || offeredNetworks.some(n => n.id === bridgeNetwork)) return;
+    if (
+      !isBridge ||
+      !isValidRecipientAddress(recipientAddress ?? '') ||
+      offeredNetworks.some(n => n.id === bridgeNetwork)
+    )
+      return;
     const preferred = usdcxAvailable ? defaultUsdcxBridgeNetwork() : defaultBridgeNetwork();
     const next = offeredNetworks.find(n => n.id === preferred.id) ?? offeredNetworks[0];
     if (next) onSelectNetwork(next.id);
-  }, [isBridge, isValidRecipient, bridgeNetwork, offeredNetworks, onSelectNetwork, usdcxAvailable]);
+  }, [isBridge, recipientAddress, bridgeNetwork, offeredNetworks, onSelectNetwork, usdcxAvailable]);
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
   const onSelectRecent = useCallback(
@@ -985,7 +1014,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         case SendFlowStep.Route:
           return (
             <SendRoute
-              destinationChainId={getBridgeNetwork(bridgeNetwork)?.chainId}
+              destinationChainId={evmBridgeChainId(getBridgeNetwork(bridgeNetwork))}
               usdcxAvailable={usdcxAvailable}
               usdcxPayout={usdcxPayout}
               faucetId={spendableToken?.id ?? ''}

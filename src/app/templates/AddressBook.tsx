@@ -25,9 +25,14 @@ const byName = (a: WalletContact, b: WalletContact) => a.name.localeCompare(b.na
 
 /** Only a `0x` contact gets the badge: the subtitle names every network, and a Miden badge on every row is noise. */
 function avatarFor(contact: WalletContact): React.ReactNode {
-  const { kind } = contactNetwork(contact.address, contact.network);
+  const { kind, bridgeNetwork } = contactNetwork(contact.address, contact.network);
   return (
-    <ContactAvatar address={contact.address} name={contact.name} network={kind === 'ethereum' ? kind : undefined} />
+    <ContactAvatar
+      address={contact.address}
+      name={contact.name}
+      network={kind === 'ethereum' ? kind : undefined}
+      networkId={bridgeNetwork?.id}
+    />
   );
 }
 

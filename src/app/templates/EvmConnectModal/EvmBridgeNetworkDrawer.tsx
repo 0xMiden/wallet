@@ -43,7 +43,7 @@ export const EvmBridgeNetworkDrawer: React.FC<EvmBridgeNetworkDrawerProps> = ({
             <ListRow
               key={network.id}
               title={network.name}
-              avatar={<NetworkLogo kind="ethereum" />}
+              avatar={<NetworkLogo kind="ethereum" network={network.id} />}
               checked={network.id === selected?.id}
               onClick={() => onSelect(network)}
               data-testid={`bridge-network-${network.id}`}
