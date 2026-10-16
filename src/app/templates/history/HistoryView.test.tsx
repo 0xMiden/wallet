@@ -525,6 +525,82 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     expect(mockT).toHaveBeenCalledWith('bridgeRowTitle', { from: 'Test Epoch USDC', to: 'Test Epoch USDC' });
   });
 
+  it.each([
+    ['pending', undefined, 'burnPending'],
+    ['consuming', undefined, 'burnConsuming'],
+    ['confirmed', undefined, 'burnConfirmed'],
+    ['confirmed', { balance: '1000000', blockNumber: '42' }, 'confirmed'],
+    ['discarded', undefined, 'burnDiscarded']
+  ] as const)(
+    'renders a USDCx %s burn with its dedicated title and status',
+    (phase, destinationBalanceConfirmed, status) => {
+      mockBridgeRowDisplay.mockReturnValue({
+        inSymbol: 'USDCx',
+        outSymbol: 'USDC',
+        inLabel: 'Miden USDCx',
+        outLabel: 'Sepolia USDC',
+        outAmount: '10',
+        providerLabel: 'USDCx',
+        network: 'Sepolia',
+        status: 'pending'
+      });
+
+      render(
+        <HistoryView
+          {...baseProps}
+          entries={[
+            makeEntry({
+              key: `usdcx-${phase}-${status}`,
+              txType: 'bridged-send',
+              bridgeProvider: 'usdcx',
+              usdcxBurn: {
+                noteId: 'burn-note',
+                destinationDomain: 0,
+                phase,
+                destinationBalanceConfirmed
+              }
+            })
+          ]}
+          fullHistory
+        />
+      );
+
+      const row = rowByTitle('usdcxBurnTitle');
+      expect(row).toHaveAttribute('data-status', status);
+    }
+  );
+
+  it('marks a received USDCx bridge-in row completed', () => {
+    jest.mocked(isBridgeInEntry).mockReturnValue(true);
+    jest.mocked(bridgeInRowDisplay).mockReturnValue({
+      inSymbol: 'USDC',
+      outSymbol: 'USDCx',
+      inLabel: 'Sepolia USDC',
+      outLabel: 'Miden USDCx',
+      outAmount: '10',
+      providerLabel: 'USDCx',
+      network: 'Miden',
+      status: 'confirmed'
+    });
+
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          makeEntry({
+            key: 'usdcx-received',
+            txType: 'bridged-receive',
+            bridgeInProvider: 'usdcx',
+            bridgeInPhase: 'received'
+          })
+        ]}
+        fullHistory
+      />
+    );
+
+    expect(screen.getByTestId('activity-row')).toHaveAttribute('data-status', 'completed');
+  });
+
   // One render exercising every icon/title/subtitle/amount/status branch.
   const entries: IHistoryEntry[] = [
     // --- Day A group (first group → gets pt-4; set + push + push) ---
