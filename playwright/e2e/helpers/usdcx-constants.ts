@@ -7,8 +7,9 @@ import os from 'os';
 import path from 'path';
 import type { Address, Chain, Hex } from 'viem';
 
-import { getUsdcxXReserveSource, USDCX_DESTINATIONS } from './usdcx-config';
+import { getUsdcxExecutorSource, getUsdcxXReserveSource, USDCX_DESTINATIONS } from './usdcx-config';
 import { evmChainSlug } from '../../../src/lib/remote-config/chains';
+import type { UsdcxExecutorSource } from '../../../src/lib/usdcx/constant';
 import { ARC_TESTNET, getChain } from '../../../src/lib/walletconnect/config';
 export { USDCX_DESTINATIONS, USDCX_REMOTE_DOMAIN } from './usdcx-config';
 
@@ -194,6 +195,30 @@ export const ARBITRUM_SEPOLIA_PAYOUT: PayoutChain = payoutChainFor(421614, {
   rpcUrls: DEFAULT_ARBITRUM_SEPOLIA_RPCS,
   logChunk: () => L2_LOG_CHUNK
 });
+
+/**
+ * A chain usdcx-in-l2 deposits from: where it is read (the PayoutChain usdcx-burn-l2 pays on, so both suites read the
+ * same endpoints) and the executor route the fixture names for it.
+ */
+export interface L2BridgeInSource {
+  payout: PayoutChain;
+  source: UsdcxExecutorSource;
+}
+
+export function bridgeInSourceFor(payout: PayoutChain): L2BridgeInSource {
+  return { payout, source: getUsdcxExecutorSource(payout.chainId) };
+}
+
+export const L2_BRIDGE_IN_SOURCES: readonly L2BridgeInSource[] = [
+  bridgeInSourceFor(BASE_SEPOLIA_PAYOUT),
+  bridgeInSourceFor(ARBITRUM_SEPOLIA_PAYOUT)
+];
+
+/**
+ * One bridge-in's gas on an L2: an approve (about 55k) and the forwarded burn (693-699k on Base Sepolia, 698,683 with no
+ * L1 gas on Arbitrum Sepolia, read 2026-10-16), each sent at 1.2x its estimate.
+ */
+export const L2_BRIDGE_IN_GAS = 1_000_000n;
 
 /** viem's error text quotes the request URL, whose WalletConnect project id an operator's build may set. */
 export function redactProjectId(text: string): string {

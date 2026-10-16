@@ -548,6 +548,9 @@ export interface CreateUsdcxBridgeReceiveArgs {
   sourceAmount: string;
   sourceSymbol: string;
   evmTxHash: Hash;
+  /** An executor-route deposit: what runUsdcxExecutorDeposit wrote on its `submitting` step (usdcx-l2-deposit.ts). */
+  usdcxRemoteRecipient?: string;
+  cctp?: { sourceDomain: number; forwarded?: boolean; forwardFee?: string };
 }
 
 /**
@@ -582,6 +585,8 @@ export type BridgeReceiveStateSnapshot = {
   midenNoteId?: string;
   sourceChainId?: number;
   usdcxRemoteRecipient?: string;
+  /** The Arc transaction the row took as its execute: Circle's forward, on the executor route. */
+  usdcxExecuteTxHash?: string;
   /** Unix seconds the row first reached `ready`. */
   readyAt?: number;
 };
@@ -624,6 +629,7 @@ export function parseBridgeReceiveState(value: unknown): BridgeReceiveStateSnaps
     midenNoteId: text('midenNoteId'),
     sourceChainId: count('sourceChainId'),
     usdcxRemoteRecipient: text('usdcxRemoteRecipient'),
+    usdcxExecuteTxHash: text('usdcxExecuteTxHash'),
     readyAt: count('readyAt')
   };
 }

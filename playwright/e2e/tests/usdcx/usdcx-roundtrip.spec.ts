@@ -1,5 +1,3 @@
-import type { Hex } from 'viem';
-
 import { matchUsdcxDepositAttestation } from '../../../../src/lib/usdcx/attestation-protocol';
 import { CIRCLE_USDC_DECIMALS } from '../../../../src/lib/usdcx/protocol';
 import { midenAccountHexToXReserveRecipient } from '../../../../src/lib/usdcx/recipient';
@@ -20,13 +18,8 @@ import {
   type XReserveDomainState
 } from '../../helpers/arc-usdcx';
 import { fromBaseUnits, vaultBalanceOfCurrentAccount } from '../../helpers/balance-truth';
-import { bridgeReceiveState, createUsdcxBridgeReceive, enText } from '../../helpers/bridge';
-import {
-  describeTransactionRow,
-  openHistoryDetails,
-  readTransactionRow,
-  readTransactionRows
-} from '../../helpers/history';
+import { createUsdcxBridgeReceive } from '../../helpers/bridge';
+import { readTransactionRows } from '../../helpers/history';
 import {
   ARC_ATTESTATION_API,
   ARC_CHAIN_ID,
@@ -45,33 +38,25 @@ import {
   assertBurnDetails,
   attachEvidence,
   confirmBurn,
-  consumeFeeAndVault,
   createGuardianUsdcxWallet,
   fundFromPublicFaucet,
   harnessPayoutLeg,
-  historyPill,
   pageWhere,
   resolveUsdcxIds,
   settleGuardian,
   submitBurn,
-  waitForConsumeOf,
   walletConfirmsPayout,
   type UsdcxWalletIds
 } from '../../helpers/usdcx-legs';
 import { deriveUsdcxMintNoteId, waitForUsdcxMint, type MidenNoteRead } from '../../helpers/usdcx-miden';
+import { receiveLeg, trackReceiveRows, type ReceivedDeposit } from '../../helpers/usdcx-receive';
 import {
   assertUsdcxLiveRun,
   depositClaimProblem,
-  jsonObject,
-  jsonString,
   ledgerLine,
   namedSteps,
   newRunEvidence,
-  PhaseTimeline,
-  pollUntil,
-  sampleInBackground,
   takeRunArcKey,
-  type FeeTerm,
   type NamedStep,
   type RunEvidence,
   type StepContext
@@ -120,19 +105,9 @@ const FOREIGN_DEPOSIT = {
 } as const;
 const FOREIGN_RECIPIENT_ERROR = 'Circle attested this deposit to a different Miden account.';
 
-interface ReceiveTracker {
-  positive: PhaseTimeline;
-  negative: { id: string; timeline: PhaseTimeline; error(): string | undefined } | null;
-  stop(): Promise<void>;
-}
-
-interface DepositRun {
+interface DepositRun extends ReceivedDeposit {
   submission: DepositSubmission;
-  positiveId: string;
-  tracker: ReceiveTracker;
   intent: DecodedDepositIntent;
-  attestedAt: number;
-  mintNoteId: Hex;
   mint: MidenNoteRead;
 }
 
@@ -151,14 +126,6 @@ interface DepositOptions {
   accountTag?: number;
   evidence: RunEvidence;
   cleanups: Array<() => Promise<void>>;
-}
-
-interface ReceiveOptions {
-  vaultBefore: bigint;
-  terms: ReadonlyArray<readonly [string, bigint]>;
-  where: StepContext;
-  onGuardian: StepContext;
-  evidence: RunEvidence;
 }
 
 /** Spec 5 step 1: a fresh Guardian wallet on the hosted Guardian, with that Guardian's identity recorded. */
@@ -182,34 +149,6 @@ async function guardianWallet(
   evidence.ids.address = ids.address;
   evidence.ids.native = ids.native;
   return { identity, ids };
-}
-
-/**
- * Samples both tracking rows every 2 s from the moment they exist. The mint lands ~30 s after the attestation and the
- * receive step starts only then, so a POSITIVE row can pass through `ready` long before anything else looks at it.
- */
-function trackReceiveRows(
-  wallet: GuardianAwareWalletPage,
-  positiveId: string,
-  negativeId: string | undefined
-): ReceiveTracker {
-  const positive = new PhaseTimeline('POSITIVE bridged-receive', ['delivering', 'ready', 'received']);
-  const negative = new PhaseTimeline('NEGATIVE bridged-receive', ['delivering', 'failed']);
-  const negativeState: { error?: string } = {};
-  const sampler = sampleInBackground(async () => {
-    const at = Date.now();
-    positive.record((await bridgeReceiveState(wallet, positiveId)).phase, at);
-    const foreign = negativeId === undefined ? undefined : await bridgeReceiveState(wallet, negativeId);
-    negative.record(foreign?.phase, at);
-    negativeState.error = foreign?.error ?? negativeState.error;
-    return positive.last() === 'received' && (negativeId === undefined || negative.last() === 'failed');
-  }, 2_000);
-  return {
-    positive,
-    negative:
-      negativeId === undefined ? null : { id: negativeId, timeline: negative, error: () => negativeState.error },
-    stop: () => sampler.stop()
-  };
 }
 
 /** Spec 5 steps 9 to 13: a Node-signed deposit from `key`, its tracking rows, Circle's attestation and the mint. */
@@ -370,112 +309,6 @@ async function depositLeg(
     mintNoteId: mint.mintNoteId,
     mint: mint.read
   };
-}
-
-/** Spec 5 step 14: the service worker consumes the mint by itself, and the POSITIVE row ends `received` on that consume. */
-async function receiveLeg(
-  step: NamedStep,
-  wallet: GuardianAwareWalletPage,
-  ids: UsdcxWalletIds,
-  deposit: DepositRun,
-  opts: ReceiveOptions
-): Promise<{ consumeId: string; fee: FeeTerm; vault: bigint }> {
-  return step(
-    'receive',
-    BUDGET.receive,
-    async () => {
-      const page = wallet.page;
-      // A row sampled at `ready` must read Confirmed, or Completed once a re-read shows it already `received`.
-      const readyPill = deposit.tracker.positive.saw('ready') ? await historyPill(wallet, deposit.positiveId) : null;
-      const phaseAfterPill = readyPill === null ? null : (await bridgeReceiveState(wallet, deposit.positiveId)).phase;
-      if (
-        readyPill !== null &&
-        readyPill !== enText('confirmed') &&
-        !(readyPill === enText('completed') && phaseAfterPill === 'received')
-      ) {
-        throw new Error(
-          `the ready POSITIVE row's details read "${readyPill}" (phase now ${phaseAfterPill ?? 'unread'})`
-        );
-      }
-      opts.evidence.notes.push(
-        readyPill === null ? 'POSITIVE was not sampled at ready' : `ready POSITIVE details read "${readyPill}"`
-      );
-      await wallet.navigateHome();
-
-      // The service worker consumes the mint by itself; a claim call would add a second consume row.
-      const consume = await waitForConsumeOf(page, deposit.mintNoteId, 'mint', BUDGET.receive - 120_000, opts.where);
-      expect(
-        (consume.noteIds ?? []).map(id => id.toLowerCase()),
-        'the mint consume carries nothing but the mint note'
-      ).toEqual([deposit.mintNoteId.toLowerCase()]);
-      // The adoption writes the consume's `bridgeIn` and the POSITIVE's `received` right after the consume completes.
-      const adopted = await pollUntil(
-        'the mint consume adopting the POSITIVE row',
-        async () => ({
-          consume: await readTransactionRow(page, consume.id),
-          positive: await bridgeReceiveState(wallet, deposit.positiveId)
-        }),
-        ({ consume: row, positive }) =>
-          jsonObject(row?.extraInputs?.bridgeIn) !== undefined && positive.phase === 'received',
-        {
-          timeoutMs: 60_000,
-          intervalMs: 3_000,
-          describe: async last =>
-            `consume ${last?.consume ? describeTransactionRow(last.consume) : 'missing'}, ` +
-            `POSITIVE ${last?.positive.phase ?? 'unread'}; ${await opts.where()}`
-        }
-      );
-      const consumeRow = adopted.consume;
-      if (!consumeRow) throw new Error(`consume ${consume.id} disappeared`);
-      expect({
-        displayMessage: consumeRow.displayMessage,
-        bridgeReceiveTxId: jsonString(jsonObject(consumeRow.extraInputs?.bridgeIn)?.bridgeReceiveTxId)
-      }).toEqual({ displayMessage: 'Bridged from EVM', bridgeReceiveTxId: deposit.positiveId });
-
-      const { fee, vault } = await consumeFeeAndVault(page, ids, consumeRow, {
-        fee: 'f2',
-        vaultBefore: opts.vaultBefore,
-        credit: DEPOSIT_UNITS,
-        terms: [...opts.terms, ['M', DEPOSIT_UNITS]]
-      });
-      opts.evidence.notes.push(
-        `mint consume ${consumeRow.id} completed ${fee.kind === 'exact' ? 'with its result' : 'through a landed path'}`
-      );
-
-      const positiveRow = await readTransactionRow(page, deposit.positiveId);
-      expect({
-        phase: adopted.positive.phase,
-        midenNoteId: adopted.positive.midenNoteId?.toLowerCase(),
-        amount: adopted.positive.amount,
-        error: adopted.positive.error,
-        transactionId: positiveRow?.transactionId
-      }).toEqual({
-        phase: 'received',
-        midenNoteId: deposit.mintNoteId.toLowerCase(),
-        amount: DEPOSIT_UNITS.toString(),
-        error: undefined,
-        transactionId: consumeRow.transactionId
-      });
-
-      await deposit.tracker.stop();
-      const positive = deposit.tracker.positive;
-      positive.assertMonotone();
-      opts.evidence.phases.positive = positive.samples();
-      opts.evidence.notes.push(`POSITIVE ready ${positive.saw('ready') ? 'was' : 'was not'} sampled`);
-      // The watcher reconciles within one 8 s tick of the attestation, give or take Circle's API; 20 s allows two.
-      const settledAt = Math.min(positive.firstAt('ready') ?? Infinity, positive.firstAt('received') ?? Infinity);
-      expect(
-        settledAt,
-        `POSITIVE stayed delivering 20 s after the attestation: ${positive.describe()}`
-      ).toBeLessThanOrEqual(deposit.attestedAt + 20_000);
-
-      await openHistoryDetails(wallet, deposit.positiveId);
-      await expect(page.getByTestId('history-status-pill')).toHaveText(enText('completed'));
-      await wallet.navigateHome();
-      return { consumeId: consumeRow.id, fee, vault };
-    },
-    opts.onGuardian
-  );
 }
 
 /** Spec 5 step 14: the NEGATIVE row fails on the recipient within 30 s of the attestation and is never `ready`. */
@@ -655,7 +488,9 @@ test.describe('USDCx round trip: burn to the harness Arc key, Circle payout, dep
         terms,
         where,
         onGuardian,
-        evidence
+        evidence,
+        budgetMs: BUDGET.receive,
+        readyWithinMs: 20_000
       });
       evidence.fees.push(received.fee);
       evidence.ids.mintConsume = received.consumeId;
@@ -770,7 +605,9 @@ test.describe('USDCx bridge-in from a funded Arc key', () => {
         terms: [],
         where,
         onGuardian,
-        evidence
+        evidence,
+        budgetMs: BUDGET.receive,
+        readyWithinMs: 20_000
       });
       evidence.fees.push(received.fee);
       evidence.ids.mintConsume = received.consumeId;
