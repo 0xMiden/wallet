@@ -1080,7 +1080,7 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockWalletState.assessSpendingLimit).toHaveBeenCalledTimes(1);
       await act(async () => confirm(true));
       expect(mockInitiateSwap).toHaveBeenCalledTimes(1);
-      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-C', 10n, 'faucet-B', 5n, false, 120, true);
+      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-C', 10n, 'faucet-B', 5n, false, 120, true, 5);
       expect(swapFlow().complete).toHaveBeenCalledTimes(1);
       expect(swapFlow().cancel).not.toHaveBeenCalled();
       expect(screen.getByTestId('sa-offer-token')).toHaveTextContent('AAA');
@@ -1182,6 +1182,7 @@ describe('SwapFlow / SwapManager', () => {
         false,
         120,
         true,
+        5,
         expect.objectContaining({ id: 'authorization-1' })
       );
       expect(screen.getByTestId('review-swap')).toHaveAttribute('data-submitting', 'true');
@@ -1246,7 +1247,17 @@ describe('SwapFlow / SwapManager', () => {
       setRequest('2');
       expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
       await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
-      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 1n, 'faucet-B', 2n, false, 120, true);
+      expect(mockInitiateSwap).toHaveBeenCalledWith(
+        'pk-1',
+        'faucet-A',
+        1n,
+        'faucet-B',
+        2n,
+        false,
+        120,
+        true,
+        undefined
+      );
     });
 
     it('accepts a fractional display amount when the token precision gives it positive raw units', async () => {
@@ -1256,7 +1267,17 @@ describe('SwapFlow / SwapManager', () => {
       setRequest('2');
       expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
       await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
-      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 5n, 'faucet-B', 20n, false, 120, true);
+      expect(mockInitiateSwap).toHaveBeenCalledWith(
+        'pk-1',
+        'faucet-A',
+        5n,
+        'faucet-B',
+        20n,
+        false,
+        120,
+        true,
+        undefined
+      );
     });
   });
 
@@ -1371,7 +1392,7 @@ describe('SwapFlow / SwapManager', () => {
         fireEvent.click(screen.getByTestId('rs-submit'));
       });
 
-      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 300, false);
+      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 300, false, 5);
       expect(mockWalletState.assessSpendingLimit).toHaveBeenCalledWith('pk-1', [{ faucetId: 'faucet-A', amount: 10n }]);
     });
 
@@ -1404,7 +1425,7 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('rs-request-amount')).toHaveTextContent('5');
 
       await act(async () => settle(undefined));
-      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 120, true);
+      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 120, true, 5);
     });
 
     it('holds the rate and fill time with the amount while a press is in flight, then follows the quote', async () => {
@@ -1487,6 +1508,7 @@ describe('SwapFlow / SwapManager', () => {
         false,
         120,
         true,
+        5,
         expect.objectContaining({
           id: 'authorization-1',
           accountId: 'pk-1',
@@ -1809,7 +1831,7 @@ describe('SwapFlow / SwapManager', () => {
       });
 
       expect(mockWalletState.setLastCompletedTxHash).toHaveBeenCalledWith(null);
-      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, true, 120, true);
+      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, true, 120, true, 5);
       expect(mockRequestSWProcessing).toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('/generating-transaction/tx%20123', 'replace');
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('');
@@ -2052,6 +2074,7 @@ describe('SwapFlow / SwapManager', () => {
         false,
         120,
         true,
+        5,
         expect.objectContaining({ revision: 'revision-1' })
       );
     });
@@ -2089,6 +2112,7 @@ describe('SwapFlow / SwapManager', () => {
         false,
         120,
         true,
+        5,
         expect.objectContaining({ revision: 'revision-2' })
       );
     });
@@ -2152,7 +2176,7 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockQuoteNow.mock.invocationCallOrder[0]).toBeLessThan(
         mockWalletState.assessSpendingLimit.mock.invocationCallOrder[0]!
       );
-      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 120, true);
+      expect(mockInitiateSwap).toHaveBeenCalledWith('pk-1', 'faucet-A', 10n, 'faucet-B', 5n, false, 120, true, 5);
     });
 
     it('refuses an ask the price has moved past, shows the fresh quote and rebuilds the wallet-built amount', async () => {

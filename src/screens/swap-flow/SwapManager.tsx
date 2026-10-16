@@ -333,7 +333,10 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
   // A landed wallet-built ask of zero (a price too small for the receive token's precision) gives
   // the field nothing to show: it reads as unavailable, so the field leaves its skeleton for entry.
   const quoteAskIsZero =
-    !requestEdited && swapQuote.quote !== undefined && swapQuote.quote.builtAsk && swapQuote.quote.requestedAmount === 0n;
+    !requestEdited &&
+    swapQuote.quote !== undefined &&
+    swapQuote.quote.builtAsk &&
+    swapQuote.quote.requestedAmount === 0n;
   const quoteUnavailable = swapQuote.error !== undefined || quoteAskIsZero;
   const expirySecondsValue = Number(expirySeconds);
   // Whole seconds inside the wallet's own reclaim window, not merely "a positive integer":
@@ -459,7 +462,9 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
           requestAmountBaseUnits,
           isDelegateProofEnabled(),
           expirySecondsValue,
-          autoConsume
+          autoConsume,
+          // The order counts as filled at `requested × (1 − slippage)`; a typed ask has no slippage.
+          requestEdited ? undefined : slippageBps
         ] as const;
         const txId =
           authorization === undefined
@@ -508,9 +513,11 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
       openUnpricedChallenge,
       publicKey,
       requestAmountBaseUnits,
+      requestEdited,
       requestToken.faucetId,
       releaseSubmission,
       settleSwap,
+      slippageBps,
       t
     ]
   );

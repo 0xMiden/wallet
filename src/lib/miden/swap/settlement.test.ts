@@ -204,6 +204,39 @@ describe('swap order note settlement', () => {
     expect(result.has('absent')).toBe(false);
   });
 
+  it.each([
+    // 50 requested at 5 bps: the target is ceil(50 × 0.9995) = 50, so a 49 fill is short.
+    ['short of the target', { slippageBps: 5 }, '1', 'active'],
+    ['at the target', { slippageBps: 5 }, '0', 'filled'],
+    // At 100 bps the target is ceil(49.5) = 50 as well; 5000 requested shows the bound moving.
+    ['inside the slippage of a larger order', { requestedAmount: 5000n, slippageBps: 100 }, '50', 'filled'],
+    ['one unit past the slippage of a larger order', { requestedAmount: 5000n, slippageBps: 100 }, '51', 'active'],
+    ['without a stored slippage', { requestedAmount: 5000n }, '1', 'active'],
+    ['with a slippage outside the accepted range', { requestedAmount: 5000n, slippageBps: 10_000 }, '4999', 'active']
+  ])('reads an open lineage %s as %s', async (_case, extra, remainingRequested, expected) => {
+    toArray.mockResolvedValue([tx({ extraInputs: { ...tx().extraInputs, ...extra } })]);
+    jest
+      .mocked(midenClientProxy.getPswapLineages)
+      .mockResolvedValue([
+        { orderId: '77', currentTipNoteId: 'tip', currentDepth: 1, state: 0, remainingOffered: '1', remainingRequested }
+      ]);
+    const result = await withWasmClientLock(hold =>
+      classifySwapOrderNotes([note('tip')], 'account-1', undefined, hold)
+    );
+    expect(result.get('tip')).toEqual(expect.objectContaining({ lineageState: expected }));
+  });
+
+  it('claims the paybacks of an expired order that reached its fill target, and leaves the remainder tip on the note', async () => {
+    const tip = consumable('tip', 'tip', 'filled');
+    const payback = consumable('payback', 'payback', 'filled');
+
+    await reconcileSwapOrderNotes('account-1', [tip, payback], false, 300);
+
+    expect((initiateConsumeNotesTransaction as jest.Mock).mock.calls).toEqual([['account-1', [payback], false]]);
+    // One write: the settle tag on the payback consume. No expiry intent, since nothing is reclaimed.
+    expect(modify).toHaveBeenCalledTimes(1);
+  });
+
   it('leaves partial-fill paybacks untouched while active and unexpired', async () => {
     await reconcileSwapOrderNotes(
       'account-1',

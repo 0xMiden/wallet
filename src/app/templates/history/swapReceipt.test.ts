@@ -165,6 +165,40 @@ describe('deriveSwapReceipt', () => {
     expect(view.isPartialFill).toBe(true);
   });
 
+  describe('fill target', () => {
+    // 1000 requested at 100 bps: the order is filled once ceil(1000 × 0.99) = 990 arrives.
+    it('calls an open order that received requested × (1 − slippage) filled, not partial, and offers no cancel', () => {
+      const view = derive({ slippageBps: 100, tracking: tracking({ remainingRequested: 10n }) });
+
+      expect(view.orderState).toBe('filled');
+      expect(view.filledAmount).toBe(990n);
+      expect(view.isPartialFill).toBe(false);
+      expect(view.offerCancel).toBe(false);
+      expect(view.reclaimPending).toBe(false);
+    });
+
+    it('keeps an order one unit short of the target open and partial', () => {
+      const view = derive({ slippageBps: 100, tracking: tracking({ remainingRequested: 11n }) });
+
+      expect(view.orderState).toBe('active');
+      expect(view.isPartialFill).toBe(true);
+      expect(view.offerCancel).toBe(true);
+    });
+
+    it('needs the full amount when the order stored no slippage', () => {
+      const view = derive({ tracking: tracking({ remainingRequested: 1n }) });
+
+      expect(view.orderState).toBe('active');
+      expect(view.isPartialFill).toBe(true);
+    });
+
+    it('never calls an order filled with nothing received', () => {
+      const view = derive({ requestedAmount: 1n, slippageBps: 100, tracking: tracking({ remainingRequested: 1n }) });
+
+      expect(view.orderState).toBe('active');
+    });
+  });
+
   it('covers the lineage lag with the local stamp while the order reads active', () => {
     const view = derive({
       tracking: tracking({ remainingRequested: 1000n }),

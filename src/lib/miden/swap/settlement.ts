@@ -114,8 +114,12 @@ export async function reconcileSwapOrderNotes(
     const expiresAt = order.extraInputs.expiresAt;
     const expired = swapOrderExpired(expiresAt, nowSeconds);
     if (state === 'active' && !expired) continue;
+    // A 'filled' order has no tip to take back: a fully filled lineage has none, and an order
+    // that reached its fill target (see `classifySwapOrderNotes`) leaves its small remainder on
+    // the note. Only its paybacks are claimed.
+    const reclaimTip = expired && state !== 'filled';
 
-    if (expired && order.extraInputs.expiryTriggeredAt == null) {
+    if (reclaimTip && order.extraInputs.expiryTriggeredAt == null) {
       // Persist the intent before queueing. If a solver races this write, the
       // subsequent consume uses only notes still consumable after sync; retries
       // remain idempotent through consume-note deduplication.
@@ -128,7 +132,7 @@ export async function reconcileSwapOrderNotes(
       });
     }
 
-    const settleable = expired ? orderNotes : orderNotes.filter(note => note.swapOrder?.role === 'payback');
+    const settleable = reclaimTip ? orderNotes : orderNotes.filter(note => note.swapOrder?.role === 'payback');
     if (settleable.length === 0) continue;
     // The service worker cannot read the delegated-proving setting
     // (localStorage-backed), so fall back to the preference captured on the

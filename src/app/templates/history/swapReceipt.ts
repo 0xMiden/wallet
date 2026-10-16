@@ -1,5 +1,6 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
 import { swapOrderExpired } from 'lib/miden/swap/expiry';
+import { swapFillReached } from 'lib/miden/swap/fill-target';
 import type { SwapOrderState, SwapOrderTracking, SwapSettlementNotes } from 'lib/miden/transaction/get';
 
 type SwapSettlementTransaction = SwapSettlementNotes['settledTransactions'][number];
@@ -104,6 +105,8 @@ export interface SwapReceiptInputs {
   /** This wallet's own settlement consumes; null before the first read. */
   settlement: SwapSettlementNotes | null;
   autoConsume: boolean;
+  /** The slippage the ask was built with; absent means only a full fill counts as filled. */
+  slippageBps?: number;
   /** Absent on orders placed before expiry stamping; those never auto-settle. */
   expiresAt: number | null;
   /** Injectable so the expiry boundary can be tested without a clock. */
@@ -159,6 +162,7 @@ export const deriveSwapReceipt = ({
   tracking,
   settlement,
   autoConsume,
+  slippageBps,
   expiresAt,
   nowSeconds = Math.floor(Date.now() / 1000)
 }: SwapReceiptInputs): SwapReceiptView => {
@@ -191,7 +195,7 @@ export const deriveSwapReceipt = ({
   // backwards mislabels the protocol's most common partial-fill path: an expiry
   // batch carrying any payback is tagged 'settle' (see `reconcileSwapOrderNotes`),
   // so a 40%-filled order that expired — lineage 'reclaimed' — read as "Filled".
-  const orderState: SwapOrderState | null =
+  const reportedState: SwapOrderState | null =
     tracking && tracking.state !== 'active' ? tracking.state : (settledOrderState ?? tracking?.state ?? null);
 
   const fromLineage =
@@ -205,8 +209,19 @@ export const deriveSwapReceipt = ({
     locallySettledRequestedAmount(settledTransactions, requestedFaucetId),
     requestedAmount
   );
+  // An order that received `requested × (1 − slippage)` is filled, whatever small remainder is
+  // still on its note: settlement leaves that remainder there (see `classifySwapOrderNotes`).
+  const fillReached =
+    requestedAmount !== undefined &&
+    filledAmount !== undefined &&
+    swapFillReached(requestedAmount, filledAmount, slippageBps);
+  const orderState: SwapOrderState | null = fillReached ? 'filled' : reportedState;
   const isPartialFill =
-    requestedAmount !== undefined && filledAmount !== undefined && filledAmount > 0n && filledAmount < requestedAmount;
+    !fillReached &&
+    requestedAmount !== undefined &&
+    filledAmount !== undefined &&
+    filledAmount > 0n &&
+    filledAmount < requestedAmount;
 
   // `reconcileSwapOrderNotes` declines an order in exactly two situations: the
   // user chose manual consume, or it is still 'active' and not yet expired. Only

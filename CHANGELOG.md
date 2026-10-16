@@ -4,7 +4,7 @@
 
 ### Features
 
-- [FEATURE][all] Swap quotes come from the solver's Swap Quote API v2: the receive amount is built in integer arithmetic from the pair's fill price less an editable slippage (0.05% by default, up to 1%, on the review screen), the review shows the solver's verdict on the exact order (fills now, part fills, waits for the price, no orders yet, pair not traded) and the amount a full fill is expected to pay, the quote refreshes every 30 seconds while the swap screen is on screen, and a press on Swap re-checks the order with the solver first and refuses one the price has moved past instead of leaving it unfilled in the book.
+- [FEATURE][all] Swap quotes come from the solver's Swap Quote API v2: the receive amount is built in integer arithmetic from the pair's fill price less an editable slippage (0.05% by default, up to 1%, on the review screen), the review shows the solver's verdict on the exact order (fills now, part fills, waits for the price, no orders yet, pair not traded) and the amount a full fill is expected to pay, the quote refreshes every 30 seconds while the swap screen is on screen, and a press on Swap re-checks the order with the solver first and refuses one the price has moved past instead of leaving it unfilled in the book. Activity shows a swap as filled once it has received its requested amount less the slippage it was placed with, and the wallet no longer reclaims the small remainder of such an order.
 
 ### Fixes
 

@@ -2,6 +2,7 @@ import { accountIdStringToSdk } from 'lib/miden/sdk/helpers';
 import { getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { withRequestTimeout } from 'lib/remote-json';
 
+import { BPS_DENOMINATOR, isValidSlippageBps } from './slippage-bounds';
 import type { SwapToken } from './tokens';
 
 /**
@@ -19,19 +20,13 @@ import type { SwapToken } from './tokens';
 /** Abort a quote request whose response and body have not both arrived within this window. */
 const SWAP_QUOTE_FETCH_TIMEOUT_MS = 10_000;
 
-/** One basis point is 0.01 %. */
-export const BPS_DENOMINATOR = 10_000n;
-
-/** The slippage the ask opens on: 5 bps (0.05 %). On testnet an order above about 25 bps does not fill. */
-export const DEFAULT_SWAP_SLIPPAGE_BPS = 5;
-/** The least slippage the form accepts, 0.01 %. */
-export const MIN_SWAP_SLIPPAGE_BPS = 1;
-/** The most slippage the form accepts, 1 %. */
-export const MAX_SWAP_SLIPPAGE_BPS = 100;
-
-/** Is this a slippage the flow may build an ask with? A whole number of basis points inside the range. */
-export const isValidSlippageBps = (bps: number): boolean =>
-  Number.isInteger(bps) && bps >= MIN_SWAP_SLIPPAGE_BPS && bps <= MAX_SWAP_SLIPPAGE_BPS;
+export {
+  BPS_DENOMINATOR,
+  DEFAULT_SWAP_SLIPPAGE_BPS,
+  isValidSlippageBps,
+  MAX_SWAP_SLIPPAGE_BPS,
+  MIN_SWAP_SLIPPAGE_BPS
+} from './slippage-bounds';
 
 /** A quote older than this is rebuilt before it is shown again or signed. */
 export const SWAP_QUOTE_REFRESH_MS = 30_000;
