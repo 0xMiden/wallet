@@ -1441,7 +1441,8 @@ describe('waitForWalletPayoutConfirmation (usdcx-legs.ts)', () => {
     await expect(failure).rejects.not.toThrow('projectId=');
   });
 
-  // viem's error text quotes the request URL, so a failed read through the wallet's RPC would print its project id.
+  // errorText keeps only the first line of each message part, and viem carries the request URL in metaMessages, so
+  // a viem read failure prints no project id: the redaction is defense in depth, for an error whose first line has it.
   it('redacts the project id when the read through the L2 wallet RPC itself fails', async () => {
     const reads = {
       endpoints: [BASE_SEPOLIA_PAYOUT.rpcUrls[0] ?? ''],

@@ -75,7 +75,10 @@ export const ARC_ATTESTATION_API: string = ARC_SOURCE.attestationApi;
 export const ARC_CIRCLE_DOMAIN: number = ARC_SOURCE.domain;
 export const GUARDIAN_ECDSA_SCHEME = 'ecdsa';
 
-/** Every L2 endpoint below served 10_000-block eth_getLogs when probed (2026-10-11); 1000 keeps a scan to a few calls. */
+/**
+ * publicnode and tenderly on both L2s, and Arbitrum's own RPC, served 10_000-block eth_getLogs when probed
+ * (2026-10-11); 1000 keeps a scan to a few calls.
+ */
 export const L2_LOG_CHUNK = 1000;
 /** Base Sepolia's own RPC refuses an eth_getLogs over more than 200 blocks (-32614 `limited to a 200 range`). */
 export const BASE_OFFICIAL_LOG_CHUNK = 200;

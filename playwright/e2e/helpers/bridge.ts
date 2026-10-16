@@ -711,7 +711,10 @@ export function reviewQueryParam(url: string, name: string): string | null {
   return new URLSearchParams(query).get(name);
 }
 
-/** A review-error that names an RPC failure, with no burn row queued: the wallet's Arc snapshot read failed (Q14). */
+/**
+ * A review-error that names an RPC failure, with no burn row queued: the wallet's snapshot read on the destination
+ * chain failed (Q14).
+ */
 export function isArcSnapshotFailure(reviewError: string, newUsdcxRows: number): boolean {
   return newUsdcxRows === 0 && RPC_FAILURE.test(reviewError);
 }

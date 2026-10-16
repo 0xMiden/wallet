@@ -43,8 +43,7 @@ jobs:
     runs-on: warp-ubuntu-latest-x64-8x
     # The suites' own budgets come to 236 min: usdcx 60 (playwright.usdcx.config.ts), usdcx-in 30, usdcx-burn two
     # tests of 35 and usdcx-burn-l2 two of 38 (their describes). Each suite's preflight and build add about 5, and a
-    # cold setup about 30 (the CLI compile, the Playwright browsers' 12 and apt's 6), so 286; with the same headroom as
-    # before, 295.
+    # cold setup about 30 (the CLI compile, the Playwright browsers' 12 and apt's 6), so 286, rounded up to 295.
     # A dispatch may first build a linked web-sdk PR from source, and its CLI cold, on this runner (30 more).
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 325 || 295 }}
     steps:
