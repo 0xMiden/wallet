@@ -9,13 +9,14 @@ import path from 'path';
  * checkpoint. Every later sync and import then fails, permanently. The React SDK's `MidenProvider` was such an
  * instance: it built its own client and ran a full sync on every page open, beside the one the wallet's own loop drives.
  */
-const SRC = path.join(__dirname, '../../..');
+const ROOT = path.join(__dirname, '../../../..');
+const SRC = path.join(ROOT, 'src');
 const OWNER = 'lib/miden/sdk/miden-client-interface.ts';
 
-// The constructors that open the store. The prove worker's bare `new WebClient()` opens none.
+// The constructors that open the store, under every name the SDK exports them by (`WasmWebClient` is the raw client).
+// The prove worker's bare `new WebClient()` opens none.
 const STORE_CLIENT_CONSTRUCTOR =
-  /\b(?:MidenClient\.create(?:Mock)?|WebClient\.createClient|createClientWithExternalKeystore)\(/;
-const REACT_SDK_IMPORT = /(?:from|import\()\s*['"]@miden-sdk\/react(?:\/[^'"]*)?['"]/;
+  /(?:\bMidenClient\.create(?:Mock)?|\b(?:Wasm)?WebClient\.createClient(?:WithExternalKeystore)?|\bcreateClientWithExternalKeystore)\(/;
 
 const SOURCES = fs
   .readdirSync(SRC, { recursive: true, encoding: 'utf8' })
@@ -33,12 +34,25 @@ describe('clients on the SDK store', () => {
     expect(SOURCES).toContain(OWNER);
   });
 
+  it.each([
+    'MidenClient.create(',
+    'MidenClient.createMock(',
+    'WebClient.createClient(',
+    'WasmWebClient.createClient(',
+    'WebClient.createClientWithExternalKeystore(',
+    'WasmWebClient.createClientWithExternalKeystore('
+  ])('recognises %s', call => {
+    expect(STORE_CLIENT_CONSTRUCTOR.test(call)).toBe(true);
+  });
+
   it('only MidenClientInterface constructs a store client', () => {
     const builders = SOURCES.filter(file => STORE_CLIENT_CONSTRUCTOR.test(codeOf(file)));
     expect(builders).toEqual([OWNER]);
   });
 
-  it('nothing imports the React SDK, whose provider builds and syncs a client of its own', () => {
-    expect(SOURCES.filter(file => REACT_SDK_IMPORT.test(codeOf(file)))).toEqual([]);
+  it('does not depend on the React SDK, whose provider builds and syncs a client of its own', () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+    expect(manifest.dependencies).not.toHaveProperty(['@miden-sdk/react']);
+    expect(manifest.devDependencies ?? {}).not.toHaveProperty(['@miden-sdk/react']);
   });
 });

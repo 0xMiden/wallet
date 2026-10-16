@@ -21,14 +21,6 @@ jest.mock('lib/miden/front/client', () => ({
   MidenContextProvider: ({ children }: any) => <>{children}</>,
   useMidenContext: () => ({ ready: true })
 }));
-// Records any mount of the React SDK's provider, which must never happen (#1493).
-const sdkConfigs: Record<string, unknown>[] = [];
-jest.mock('@miden-sdk/react/lazy', () => ({
-  MidenProvider: ({ children, config }: any) => {
-    sdkConfigs.push(config);
-    return <>{children}</>;
-  }
-}));
 jest.mock('../sdk/miden-client', () => ({ getMidenClient: jest.fn().mockResolvedValue({}) }));
 jest.mock('lib/miden-chain/native-asset', () => ({ primeNativeAssetId: jest.fn() }));
 jest.mock('lib/remote-config/runtime', () => ({
@@ -61,7 +53,6 @@ let warn: jest.SpyInstance;
 
 beforeEach(() => {
   jest.clearAllMocks();
-  sdkConfigs.length = 0;
   warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
   loadEndpointOverrides.mockResolvedValue(undefined);
   ensureSdkWasmReady.mockResolvedValue(undefined);
@@ -129,14 +120,4 @@ it('makes the bridge config follow the effective network only AFTER endpoint ove
   resolveLoad();
   await waitFor(() => expect(followEffectiveNetwork).toHaveBeenCalledTimes(1));
   expect(warn).not.toHaveBeenCalled();
-});
-
-it("mounts no React SDK provider, whose client would sync the wallet's store beside the wallet's own", async () => {
-  render(
-    <MidenProvider>
-      <div data-testid="child" />
-    </MidenProvider>
-  );
-  await waitFor(() => expect(screen.getByTestId('child')).toBeInTheDocument());
-  expect(sdkConfigs).toEqual([]);
 });

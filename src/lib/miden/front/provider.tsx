@@ -67,9 +67,6 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
   // build defaults. The /lazy entries perform no top-level await, so a WASM
   // constructor reached before the module has initialized crashes the whole
   // tree with `__wbindgen_malloc` undefined.
-  //
-  // No React SDK `MidenProvider` here (#1493): it built a second client on
-  // the same store and synced it on every mount, beside the wallet's own.
   const [ready, setReady] = useState(false);
   useEffect(() => {
     let cancelled = false;
