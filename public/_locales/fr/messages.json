@@ -78,8 +78,8 @@
     "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
-    "message": "Les retraits d’USDCx ne sont disponibles que pour le « faucet » configuré sur le testnet Miden.",
-    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+    "message": "Les retraits en USDCx ne sont pas disponibles pour ce token sur ce réseau.",
+    "englishSource": "USDCx withdrawals are not available for this token on this network."
   },
   "usdcxInvalidAmount": {
     "message": "Saisissez un montant positif en USDCx avec au maximum six décimales.",

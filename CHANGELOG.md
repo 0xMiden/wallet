@@ -6,6 +6,7 @@
 
 - [FIX][ci] A fourth live USDCx suite, `usdcx-burn-l2`, burns 1 USDCx through Send from a fresh Guardian wallet to the harness key on Base Sepolia and on Arbitrum Sepolia, and passes only once Circle has paid each burn there and the wallet itself reads Confirmed; its preflight checks both chains and the wallet's RPC for them, and E2E USDCx runs it after the Arc suites, even when one of them failed.
 - [FIX][all] Opening the wallet no longer builds and syncs a second SDK client on the wallet's store: the React SDK provider, unused since #911, ran a full sync on every page open beside the wallet's own sync and imports, and an import interleaved with it could leave the store's chain data inconsistent, failing every later sync and import. The wallet no longer depends on `@miden-sdk/react`. This stops new damage; a store that is already damaged is not repaired by this change (#1493).
+- [FIX][all] Arc mainnet (5042) has Circle's public RPC and explorer: viem names neither, so an Arc payout's Receiving Tx link had no host and, on iOS and Android, the request to add Arc to the EVM wallet sent empty URLs. Arc mainnet reads now go through Circle's RPC, as Arc Testnet's do. A chain with no explorer shows its hashes and addresses without a link, a chain with no public RPC is refused with the reconnect message instead of an add request, and the USDCx withdrawal error no longer says withdrawals are testnet only.
 
 ## 1.17.4 (2026-10-15)
 

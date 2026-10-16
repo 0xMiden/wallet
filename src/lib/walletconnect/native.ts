@@ -228,7 +228,9 @@ export async function ensureNativeSessionChain(state: ReownState, chainId: numbe
   if (!Array.isArray(approved) || approved.includes(chainId)) return state;
   const chain = getChain(chainId);
   const requestChainId = state.chainId !== undefined && approved.includes(state.chainId) ? state.chainId : approved[0];
-  if (!chain || requestChainId === undefined) return state;
+  // The public RPC: `rpcUrl` can be the WalletConnect proxy, which carries our project id. A chain without one
+  // cannot be added, so the caller's guard refuses it.
+  if (!chain || !chain.publicRpcUrl || requestChainId === undefined) return state;
 
   const hexChainId = `0x${chainId.toString(16)}`;
   try {
@@ -240,10 +242,9 @@ export async function ensureNativeSessionChain(state: ReownState, chainId: numbe
         {
           chainId: hexChainId,
           chainName: chain.name,
-          // The public RPC: `rpcUrl` can be the WalletConnect proxy, which carries our project id.
           rpcUrls: [chain.publicRpcUrl],
           nativeCurrency: chain.nativeCurrency,
-          blockExplorerUrls: [chain.explorer]
+          ...(chain.explorer ? { blockExplorerUrls: [chain.explorer] } : {})
         }
       ]
     });
