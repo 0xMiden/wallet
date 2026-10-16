@@ -3813,6 +3813,18 @@
     "message": "Протокол",
     "englishSource": "Minutes"
   },
+  "usdcxSolanaAccountMissing": {
+    "message": "Цей гаманець не має рахунку з токенами USDC у вибраній мережі Solana. Створіть рахунок у гаманці Solana, а потім спробуйте ще раз.",
+    "englishSource": "This wallet has no USDC token account on the selected Solana network. Create the account in a Solana wallet, then try again."
+  },
+  "usdcxSolanaAccountUnavailable": {
+    "message": "Рахунок токенів USDC цього гаманця не може приймати кошти. Перевірте рахунок у гаманці Solana.",
+    "englishSource": "This wallet's USDC token account cannot receive funds. Check the account in a Solana wallet."
+  },
+  "invalidSolanaAddress": {
+    "message": "Недійсна адреса Solana",
+    "englishSource": "Invalid Solana address"
+  },
   "invalidEthereumAddress": {
     "message": "Неправильна адреса Ethereum",
     "englishSource": "Invalid Ethereum address"

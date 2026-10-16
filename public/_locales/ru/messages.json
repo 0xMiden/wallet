@@ -3813,6 +3813,18 @@
     "message": "Протокол",
     "englishSource": "Minutes"
   },
+  "usdcxSolanaAccountMissing": {
+    "message": "В этом кошельке отсутствует счет с токенами USDC в выбранной сети Solana. Создайте счет в кошельке Solana, а затем попробуйте снова.",
+    "englishSource": "This wallet has no USDC token account on the selected Solana network. Create the account in a Solana wallet, then try again."
+  },
+  "usdcxSolanaAccountUnavailable": {
+    "message": "Счёт токенов USDC в этом кошельке не может принимать средства. Проверьте счёт в кошельке Solana.",
+    "englishSource": "This wallet's USDC token account cannot receive funds. Check the account in a Solana wallet."
+  },
+  "invalidSolanaAddress": {
+    "message": "Недопустимый адрес Solana",
+    "englishSource": "Invalid Solana address"
+  },
   "invalidEthereumAddress": {
     "message": "Неверный адрес Ethereum",
     "englishSource": "Invalid Ethereum address"

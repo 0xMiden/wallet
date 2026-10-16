@@ -3813,6 +3813,18 @@
     "message": "회의록",
     "englishSource": "Minutes"
   },
+  "usdcxSolanaAccountMissing": {
+    "message": "이 지갑에는 선택한 솔라나 네트워크에 USDC 토큰 계정이 없습니다. 솔라나 지갑에서 계정을 생성한 후 다시 시도해 주세요.",
+    "englishSource": "This wallet has no USDC token account on the selected Solana network. Create the account in a Solana wallet, then try again."
+  },
+  "usdcxSolanaAccountUnavailable": {
+    "message": "이 지갑의 USDC 토큰 계좌는 자금을 수령할 수 없습니다. Solana 지갑에서 해당 계좌를 확인해 주십시오.",
+    "englishSource": "This wallet's USDC token account cannot receive funds. Check the account in a Solana wallet."
+  },
+  "invalidSolanaAddress": {
+    "message": "유효하지 않은 솔라나 주소",
+    "englishSource": "Invalid Solana address"
+  },
   "invalidEthereumAddress": {
     "message": "잘못된 이더리움 주소",
     "englishSource": "Invalid Ethereum address"

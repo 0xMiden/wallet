@@ -3813,6 +3813,18 @@
     "message": "Tutanak",
     "englishSource": "Minutes"
   },
+  "usdcxSolanaAccountMissing": {
+    "message": "Bu cüzdanın, seçilen Solana ağında USDC token hesabı bulunmamaktadır. Bir Solana cüzdanında hesap oluşturun, ardından tekrar deneyin.",
+    "englishSource": "This wallet has no USDC token account on the selected Solana network. Create the account in a Solana wallet, then try again."
+  },
+  "usdcxSolanaAccountUnavailable": {
+    "message": "Bu cüzdanın USDC token hesabı para alamaz. Solana cüzdanındaki hesabı kontrol edin.",
+    "englishSource": "This wallet's USDC token account cannot receive funds. Check the account in a Solana wallet."
+  },
+  "invalidSolanaAddress": {
+    "message": "Geçersiz Solana adresi",
+    "englishSource": "Invalid Solana address"
+  },
   "invalidEthereumAddress": {
     "message": "Geçersiz Ethereum adresi",
     "englishSource": "Invalid Ethereum address"

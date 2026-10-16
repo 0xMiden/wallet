@@ -3813,6 +3813,18 @@
     "message": "議事録",
     "englishSource": "Minutes"
   },
+  "usdcxSolanaAccountMissing": {
+    "message": "このウォレットには、選択されたSolanaネットワーク上にUSDCトークンアカウントがありません。Solanaウォレットでアカウントを作成してから、もう一度お試しください。",
+    "englishSource": "This wallet has no USDC token account on the selected Solana network. Create the account in a Solana wallet, then try again."
+  },
+  "usdcxSolanaAccountUnavailable": {
+    "message": "このウォレットのUSDCトークンアカウントは、資金を受け取ることができません。Solanaウォレットでアカウントを確認してください。",
+    "englishSource": "This wallet's USDC token account cannot receive funds. Check the account in a Solana wallet."
+  },
+  "invalidSolanaAddress": {
+    "message": "無効なSolanaアドレス",
+    "englishSource": "Invalid Solana address"
+  },
   "invalidEthereumAddress": {
     "message": "無効なイーサリアムアドレス",
     "englishSource": "Invalid Ethereum address"
