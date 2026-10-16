@@ -341,6 +341,33 @@ describe('classifyError', () => {
     expect(classifyError(new Error(message))).toBe('proving');
   });
 
+  // Copied from where each is thrown or stored. A letter before `store` puts it
+  // inside keystore or restore, and labelling these `storage` sends triage after
+  // a database that never failed.
+  it.each([
+    ['no sign callback installed in this realm - see installRealmKeystore', 'unknown'],
+    ['Transaction tx-1 was restored from a backup and cannot be resubmitted', 'unknown'],
+    ['Swap tx-1 was restored from a backup, so this wallet cannot reclaim it', 'unknown'],
+    ['Restored from a backup \u2014 delivery could not be verified.', 'unknown'],
+    ['Restored from a backup - this withdrawal could not be verified.', 'unknown'],
+    ['Wallet has no accounts an encrypted file can restore', 'unknown'],
+    ['Failed to restore imported account secret', 'unknown']
+  ])('does not read %j as a storage failure', (message, expected) => {
+    expect(classifyError(new Error(message))).toBe(expected);
+  });
+
+  // As IndexedDB, the browser and Dexie word them.
+  it.each([
+    'QuotaExceededError',
+    'object store not found',
+    "Failed to execute 'transaction' on 'IDBDatabase': One of the specified object stores was not found.",
+    "Failed to execute 'get' on 'IDBObjectStore': The transaction has finished.",
+    'store is closed',
+    'KeyPath id on object store transactions is not indexed'
+  ])('classifies the storage failure %j as storage', message => {
+    expect(classifyError(new Error(message))).toBe('storage');
+  });
+
   it.each(['restoreAccountLookupFailed', 'createAccountLookupFailed'])(
     'classifies the %s restore abort by its reason, not by its own copy',
     key => {
