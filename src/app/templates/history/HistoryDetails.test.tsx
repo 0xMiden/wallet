@@ -28,6 +28,7 @@ import {
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { formatAmount } from 'lib/shared/format';
 import { findUsdcxDestinationTransaction } from 'lib/usdcx/destination-transaction';
+import { NO_EXPLORER_CHAIN } from 'lib/walletconnect/testing/chains';
 
 // Imported after the mocks so the module graph is wired to the stubs.
 import { HistoryDetails } from './HistoryDetails';
@@ -322,6 +323,14 @@ jest.mock('lib/miden-chain/constants', () => ({
   getExplorerTxUrl: (hash: string) => `https://custom-explorer.test/tx/${hash}`,
   getExplorerAccountUrl: (address: string) => `https://custom-explorer.test/account/${address}`
 }));
+
+// The EVM registry's chains, plus one the wallet knows no explorer for.
+jest.mock('lib/walletconnect/config', () => {
+  const chains = jest.requireActual<typeof import('lib/walletconnect/testing/chains')>(
+    'lib/walletconnect/testing/chains'
+  );
+  return chains.walletConnectConfigMock([chains.NO_EXPLORER_CHAIN]);
+});
 
 // The Earn collateral comes from the bridge config: a withdrawal's redeemed side is priced through it, and a
 // deposit's summary falls back to it. The snapshot hook follows the runtime mock below, which the labels read.
@@ -3618,6 +3627,18 @@ describe('HistoryDetails', () => {
       expect(rowByLabel('noteId')?.textContent).toBe('delivered-old-note');
       expect(screen.getByText('confirmed')).toBeInTheDocument();
       expect(screen.queryByTestId('bridge-claim-section')).not.toBeInTheDocument();
+    });
+
+    it('shows the source address and transaction unlinked when the source chain has no explorer', async () => {
+      setMockRow({
+        ...bridgedReceiveTx,
+        extraInputs: { ...bridgedReceiveInputs, sourceChainId: NO_EXPLORER_CHAIN.id }
+      });
+      await renderAndLoad({ transactionId: 'bridge-in' });
+
+      expect(rowByLabel('from')?.textContent).toBe('0xffffffffffffffffffffffffffffffffffffffff');
+      expect(rowByLabel('from')?.querySelector('a')).not.toHaveAttribute('href');
+      expect(screen.getByText('0xevmhash').closest('a')).not.toHaveAttribute('href');
     });
 
     it.each([{ noteId: 'legacy-note' }, { noteIds: ['legacy-note'] }])(

@@ -16,7 +16,7 @@
   "usdcxMinimumBurn": "Minimalna kwota spalania",
   "usdcxSponsorshipFee": "Opłacone w $symbol$, w tym sponsorowanie uruchomienia fauceta",
   "usdcxInvalidDestination": "Wprowadź prawidłowy adres w sieci obsługiwanej przez tę wypłatę.",
-  "usdcxUnsupportedFaucet": "Wypłaty w USDCx są dostępne wyłącznie dla skonfigurowanego adresu faucet w sieci testowej Miden.",
+  "usdcxUnsupportedFaucet": "Wypłaty w USDCx nie są dostępne dla tego tokenu w tej sieci.",
   "usdcxInvalidAmount": "Wprowadź dodatnią kwotę w USDCx z maksymalnie sześcioma miejscami po przecinku.",
   "usdcxBelowMinimumBurn": "Kwota ta jest niższa od minimalnej kwoty spalania określonej w protokole „faucet”.",
   "usdcxIncompatibleBurnScript": "Skrypt spalania portfela nie jest zgodny z faucet dla USDCx.",

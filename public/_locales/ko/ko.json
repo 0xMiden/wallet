@@ -16,7 +16,7 @@
   "usdcxMinimumBurn": "최소 소각량",
   "usdcxSponsorshipFee": "$symbol$로 지급됨(faucet 실행 후원 포함)",
   "usdcxInvalidDestination": "이 출금을 위해 지원되는 네트워크상의 유효한 주소를 입력하십시오.",
-  "usdcxUnsupportedFaucet": "USDCx 인출은 Miden 테스트넷에서 설정된 faucet에서만 가능합니다.",
+  "usdcxUnsupportedFaucet": "이 네트워크에서는 해당 토큰에 대한 USDCx 인출이 지원되지 않습니다.",
   "usdcxInvalidAmount": "소수점 이하 최대 6자리까지의 양수 USDCx 금액을 입력하십시오.",
   "usdcxBelowMinimumBurn": "해당 금액은 faucet에서 정한 최소 소각 금액 미달입니다.",
   "usdcxIncompatibleBurnScript": "이 지갑의 소각 스크립트는 USDCx의 faucet와 일치하지 않습니다.",

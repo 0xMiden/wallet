@@ -55,7 +55,7 @@ import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
 import { useUsdcxDestinationTransaction } from 'lib/usdcx/use-destination-transaction';
-import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
+import { DEFAULT_CHAIN_ID, evmExplorerUrl, getChain } from 'lib/walletconnect/config';
 import { navigate } from 'lib/woozie';
 import {
   consumeAssetBreakdown,
@@ -816,7 +816,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     <DetailRow label={t('from')}>
                       <ExternalLinkValue
                         displayValue={<HashChip hash={entry.bridgeInSourceAddress} trimHash className="ml-2" />}
-                        href={`${getChain(entry.bridgeInSourceChainId ?? DEFAULT_CHAIN_ID)?.explorer}/address/${entry.bridgeInSourceAddress}`}
+                        href={evmExplorerUrl(
+                          getChain(entry.bridgeInSourceChainId ?? DEFAULT_CHAIN_ID),
+                          'address',
+                          entry.bridgeInSourceAddress
+                        )}
                       />
                     </DetailRow>
                   )}
@@ -1161,7 +1165,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       <DetailRow label={t('txIdLabel')}>
                         <ExternalLinkValue
                           displayValue={<HashChip hash={entry.bridgeInEvmTxHash} trimHash className="ml-2" />}
-                          href={`${getChain(entry.bridgeInSourceChainId ?? DEFAULT_CHAIN_ID)?.explorer}/tx/${entry.bridgeInEvmTxHash}`}
+                          href={evmExplorerUrl(
+                            getChain(entry.bridgeInSourceChainId ?? DEFAULT_CHAIN_ID),
+                            'tx',
+                            entry.bridgeInEvmTxHash
+                          )}
                         />
                       </DetailRow>
                     )}

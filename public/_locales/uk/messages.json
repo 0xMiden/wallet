@@ -78,8 +78,8 @@
     "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
-    "message": "Виведення коштів у USDCx доступні лише для налаштованої мережі «faucet» у тестовій мережі Miden.",
-    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+    "message": "Виведення коштів у USDCx для цього токена в цій мережі недоступні.",
+    "englishSource": "USDCx withdrawals are not available for this token on this network."
   },
   "usdcxInvalidAmount": {
     "message": "Введіть додатну суму в USDCx з не більше ніж шістьма знаками після коми.",
