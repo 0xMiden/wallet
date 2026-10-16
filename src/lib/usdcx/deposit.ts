@@ -10,6 +10,9 @@ import {
   USDCX_DEPOSIT_MAX_FEE,
   getUsdcxRemoteDomain
 } from './constant';
+import { UsdcxDomainNotRegisteredError } from './protocol';
+
+export { isUsdcxDomainNotRegisteredError, UsdcxDomainNotRegisteredError } from './protocol';
 
 /** The argument tuple of xReserve `depositToRemote`. */
 export type DepositToRemoteArgs = readonly [
@@ -37,21 +40,6 @@ export interface UsdcxDepositDeps {
   readAllowance(spender: Address): Promise<bigint>;
   waitForReceipt(hash: Hash): Promise<void>;
   updatePhase: typeof updateBridgedReceivePhase;
-}
-
-/** Circle did not register the remote domain on the xReserve contract. No gas was spent. */
-export class UsdcxDomainNotRegisteredError extends Error {
-  readonly remoteDomain: number;
-
-  constructor(remoteDomain: number) {
-    super(`xReserve remote domain ${remoteDomain} is not registered`);
-    this.name = 'UsdcxDomainNotRegisteredError';
-    this.remoteDomain = remoteDomain;
-  }
-}
-
-export function isUsdcxDomainNotRegisteredError(error: unknown): error is UsdcxDomainNotRegisteredError {
-  return error instanceof UsdcxDomainNotRegisteredError;
 }
 
 /** Build the `depositToRemote` arguments for a human USDC amount, an encoded recipient and a source chain. */

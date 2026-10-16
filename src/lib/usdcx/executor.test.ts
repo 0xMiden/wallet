@@ -577,3 +577,34 @@ describe('runUsdcxExecutorDeposit', () => {
     );
   });
 });
+
+describe('a route without its Miden domain', () => {
+  // Every route usdcxSourceChains builds carries one (schema.ts drops a usdcx route without it); the encoders no longer
+  // read the live document, which the E2E harness cannot load.
+  const { midenDomain: _targetDomain, ...target } = TARGET;
+  const { midenDomain: _sourceDomain, ...source } = SOURCE;
+
+  it('refuses to encode the xReserve deposit', () => {
+    expect(() => encodeXReserveDepositCalldata(target, RECIPIENT)).toThrow('USDCx Miden domain is not configured');
+  });
+
+  it('refuses the deposit before any read or prompt', async () => {
+    const { deps, calls } = makeDeps({ source: { ...source, target } });
+
+    await expect(runUsdcxExecutorDeposit('row-1', '1', RECIPIENT, deps)).rejects.toThrow(
+      'USDCx Miden domain is not configured'
+    );
+    expect(calls).toEqual([]);
+  });
+
+  // The target keeps its domain, so the intent builds and only the source route's own check can refuse.
+  it("refuses a source route without it before Arc's registration read", async () => {
+    const { deps, calls } = makeDeps({ source: { ...source, target: TARGET } });
+
+    await expect(runUsdcxExecutorDeposit('row-1', '1', RECIPIENT, deps)).rejects.toThrow(
+      'USDCx Miden domain is not configured'
+    );
+    expect(calls).toEqual([]);
+    expect(deps.isRemoteDomainRegistered).not.toHaveBeenCalled();
+  });
+});
