@@ -21,6 +21,7 @@ jest.mock('lib/miden/front/client', () => ({
   MidenContextProvider: ({ children }: any) => <>{children}</>,
   useMidenContext: () => ({ ready: true })
 }));
+// Records any mount of the React SDK's provider, which must never happen (#1493).
 const sdkConfigs: Record<string, unknown>[] = [];
 jest.mock('@miden-sdk/react/lazy', () => ({
   MidenProvider: ({ children, config }: any) => {
@@ -130,14 +131,12 @@ it('makes the bridge config follow the effective network only AFTER endpoint ove
   expect(warn).not.toHaveBeenCalled();
 });
 
-it("hands the SDK provider the wallet's transport with no in-call retries, as the wallet's own client has", async () => {
+it("mounts no React SDK provider, whose client would sync the wallet's store beside the wallet's own", async () => {
   render(
     <MidenProvider>
       <div data-testid="child" />
     </MidenProvider>
   );
   await waitFor(() => expect(screen.getByTestId('child')).toBeInTheDocument());
-  expect(sdkConfigs.at(-1)).toEqual(
-    expect.objectContaining({ noteTransportUrl: 'https://ntl.test', noteTransportMaxRetries: 0 })
-  );
+  expect(sdkConfigs).toEqual([]);
 });
