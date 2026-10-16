@@ -1,3 +1,4 @@
+import { GUARDIAN_ERROR_CODES } from '@openzeppelin/guardian-client';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -30,15 +31,6 @@ const guardianRefusal = (status: number, statusText: string, code: string | null
     code,
     rawCode
   });
-
-const publishedGuardianCodes = (): string[] => {
-  const source = readFileSync(
-    join(REPO_ROOT, 'node_modules/@openzeppelin/guardian-client/dist/error-codes.js'),
-    'utf8'
-  );
-  const list = /GUARDIAN_ERROR_CODES = \[([^\]]*)\]/.exec(source)?.[1] ?? '';
-  return [...list.matchAll(/'([a-z_]+)'/g)].map(match => match[1]!);
-};
 
 const hotKeyRejection = async (message: string, code?: string): Promise<unknown> => {
   jest
@@ -170,7 +162,7 @@ it('reports a Guardian code outside the published list as other, and a refusal w
   expect(none).toContain('; guardian_http_502; guardian code none. ');
 });
 
-it.each(publishedGuardianCodes())('reports the published Guardian code %s', async code => {
+it.each([...GUARDIAN_ERROR_CODES])('reports the published Guardian code %s', async code => {
   reportTransactionFailure({ type: 'send', error: guardianRefusal(400, 'Bad Request', code) });
   expect(await reportedMessage()).toContain(`; guardian_http_400; guardian code ${code}. `);
 });
@@ -202,11 +194,9 @@ it.each(nativeHotKeyCodes())('reports the native HotKey plugin code %s', async c
   expect(await reportedMessage()).toContain(`; hot_key; hot key code ${code}. `);
 });
 
-it('reads the code lists it checks against', () => {
+it('reads the native code list it checks against', () => {
   expect(nativeHotKeyCodes()).toEqual(expect.arrayContaining(['HARDWARE_UNAVAILABLE', 'USER_CANCELLED']));
   expect(nativeHotKeyCodes().length).toBeGreaterThanOrEqual(12);
-  expect(publishedGuardianCodes()).toEqual(expect.arrayContaining(['commitment_mismatch', 'account_not_found']));
-  expect(publishedGuardianCodes().length).toBeGreaterThanOrEqual(40);
 });
 
 it('never makes a telemetry failure escape into the transaction', async () => {

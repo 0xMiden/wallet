@@ -1,3 +1,5 @@
+import { GUARDIAN_ERROR_CODES } from '@openzeppelin/guardian-client';
+
 import type { ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 import { isDesktop } from 'lib/platform';
 import { isHotKeyFailure } from 'lib/secure-hot-key/failure';
@@ -51,55 +53,6 @@ function diagnostic<T extends string>(value: unknown, allowed: readonly T[], fal
   return allowed.includes(value as T) ? (value as T) : fallback;
 }
 
-// GUARDIAN_ERROR_CODES as @openzeppelin/guardian-client 0.18.1 publishes it.
-const GUARDIAN_CODES = [
-  'account_already_exists',
-  'account_data_unavailable',
-  'account_not_found',
-  'account_paused',
-  'account_released',
-  'authentication_failed',
-  'authentication_replay',
-  'authorization_failed',
-  'candidate_landed',
-  'commitment_mismatch',
-  'configuration_error',
-  'conflict_pending_delta',
-  'conflict_pending_proposal',
-  'data_unavailable',
-  'delta_not_found',
-  'insufficient_operator_permission',
-  'insufficient_signatures',
-  'invalid_account_id',
-  'invalid_commitment',
-  'invalid_cursor',
-  'invalid_delta',
-  'invalid_evm_proposal',
-  'invalid_input',
-  'invalid_limit',
-  'invalid_network_config',
-  'invalid_proposal_signature',
-  'invalid_status_filter',
-  'invalid_timestamp',
-  'network_error',
-  'pending_proposals_limit',
-  'proposal_already_signed',
-  'proposal_not_found',
-  'rate_limit_exceeded',
-  'rpc_unavailable',
-  'rpc_validation_failed',
-  'session_expired',
-  'session_revoked',
-  'signature_scheme_not_allowed',
-  'signer_not_authorized',
-  'signing_error',
-  'state_not_found',
-  'storage_error',
-  'unsupported_evm_chain',
-  'unsupported_for_network',
-  'wallet_signature_required'
-];
-
 // Every code HotKeyPlugin.kt and HotKeyPlugin.swift reject with.
 const HOT_KEY_CODES = [
   'AUTH_FAILED',
@@ -132,7 +85,7 @@ function rejectionIdentity(error: unknown): string | undefined {
             ? String(status)
             : 'other';
         const code = Reflect.get(link, 'code') ?? Reflect.get(link, 'rawCode');
-        return `guardian_http_${http}; guardian code ${listedCode(code, GUARDIAN_CODES)}`;
+        return `guardian_http_${http}; guardian code ${listedCode(code, GUARDIAN_ERROR_CODES)}`;
       }
     } catch {
       // A throwing accessor costs this link, not the report.
