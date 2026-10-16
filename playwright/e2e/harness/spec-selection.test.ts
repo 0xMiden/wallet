@@ -80,20 +80,27 @@ const L2_BURN_TESTS = ['Base Sepolia', 'Arbitrum Sepolia'].map(
     'usdcx-burn-l2.spec.ts › USDCx L2 burn through the Send UI after a public faucet grant › ' +
     `Guardian wallet burns to ${chain}, the faucet consumes it, Circle pays it out and the wallet confirms it`
 );
+const L2_BRIDGE_IN_TESTS = ['Base Sepolia', 'Arbitrum Sepolia'].map(
+  chain =>
+    'usdcx-in-l2.spec.ts › USDCx L2 bridge-in from the harness key, forwarded by Circle to Arc › ' +
+    `Guardian wallet receives a deposit from ${chain} that Circle forwards to Arc, then mints and claims it`
+);
 /** Every test `playwright.usdcx.config.ts` must list, and nothing else. */
-const USDCX_LIVE_TESTS = [ROUND_TRIP_TEST, BRIDGE_IN_TEST, ...BURN_TESTS, ...L2_BURN_TESTS];
+const USDCX_LIVE_TESTS = [ROUND_TRIP_TEST, BRIDGE_IN_TEST, ...BURN_TESTS, ...L2_BURN_TESTS, ...L2_BRIDGE_IN_TESTS];
 /** Each runner suite's grep, compiled case-insensitive as scripts/e2e-real.mjs does, and the tests it must select. */
 const USDCX_RUNNER_GREPS: Array<[grep: string, tests: string[]]> = [
   ['USDCx round trip', [ROUND_TRIP_TEST]],
   ['funded Arc key', [BRIDGE_IN_TEST]],
   ['USDCx burn through the Send UI', BURN_TESTS],
-  ['USDCx L2 burn', L2_BURN_TESTS]
+  ['USDCx L2 burn', L2_BURN_TESTS],
+  ['USDCx L2 bridge-in', L2_BRIDGE_IN_TESTS]
 ];
 /** Each live spec file and how many describes it guards. */
 const USDCX_LIVE_SPECS: Array<[file: string, describes: number]> = [
   ['usdcx-roundtrip.spec.ts', 2],
   ['usdcx-burn.spec.ts', 1],
-  ['usdcx-burn-l2.spec.ts', 1]
+  ['usdcx-burn-l2.spec.ts', 1],
+  ['usdcx-in-l2.spec.ts', 1]
 ];
 /**
  * R21 and R22: every burn to the shared harness Arc key runs `harnessPayoutLeg` (usdcx-legs.ts, unit-tested in
@@ -114,7 +121,7 @@ const USDCX_PAYOUT_PRECHECK =
   /step\('arc_state', BUDGET\.arcState, async \(\) => \{\s*const state = await readXReserveDomainState\(arc\);[^;]*\)\.toEqual\(\{ registered: true, paused: false, (?:depositsPaused: false, )?withdrawalsPaused: false \}\);[\s\S]*?'fund'[\s\S]*'burn_via_ui'/;
 /** A live USDCx spec in another config's listing, the burn spec under its old tests/bridge name included. */
 const USDCX_LIVE_SPEC =
-  /usdcx-roundtrip\.spec\.ts|usdcx-burn\.spec\.ts|usdcx-burn-l2\.spec\.ts|bridge-out-usdcx\.spec\.ts/;
+  /usdcx-roundtrip\.spec\.ts|usdcx-burn\.spec\.ts|usdcx-burn-l2\.spec\.ts|usdcx-in-l2\.spec\.ts|bridge-out-usdcx\.spec\.ts/;
 
 /** `playwright test --list` lines as `file › describe › test`, without the line and column. */
 const listedTests = (listing: string): string[] =>
