@@ -1029,6 +1029,10 @@
     "message": "Synchronisierung mit Guardian",
     "englishSource": "Syncing with Guardian"
   },
+  "transactionStepDeliveringNote": {
+    "message": "Lieferung an den Empfänger",
+    "englishSource": "Delivering to recipient"
+  },
   "guardianBusyStep": {
     "message": "Warten auf Ihren „Guardian“",
     "englishSource": "Waiting for your Guardian"
@@ -5029,6 +5033,27 @@
   "usdcxForwardQuoteUnavailable": {
     "message": "Circle konnte diesen Transfer derzeit nicht bewerten. Es wurde nichts gesendet. Bitte versuchen Sie es in Kürze erneut.",
     "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
+  },
+  "usdcxDepositFeeAboveBalance": {
+    "message": "Für diese Einzahlung werden $total$ $token$ auf $network$ benötigt: der Betrag zuzüglich der Circle-Gebühr von $fee$ $token$. Ihre verbundene Wallet enthält $balance$ $token$. Verringern Sie den Betrag um die Gebühr oder fügen Sie $token$ zu Ihrer Wallet hinzu.",
+    "englishSource": "This deposit needs $total$ $token$ on $network$: the amount plus Circle's fee of $fee$ $token$. Your connected wallet holds $balance$ $token$. Lower the amount by the fee or add $token$ to your wallet.",
+    "placeholders": {
+      "total": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$8"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "fee": {
+        "content": "$4"
+      },
+      "balance": {
+        "content": "$6"
+      }
+    }
   },
   "usdcxCctpAwaitingAttestation": {
     "message": "Die Vernichtung ist bestätigt. Es wird darauf gewartet, dass Circle die Übertragung bestätigt, bevor sie auf $network$ ausgeführt werden kann.",

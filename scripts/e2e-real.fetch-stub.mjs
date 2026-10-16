@@ -54,7 +54,17 @@ const ANSWERS = {
   // Sepolia's chain, and lowercase addresses with no code on either L2.
   l2Down: [],
   l2WrongChain: [],
-  l2NoCode: []
+  l2NoCode: [],
+  // The harness key on each L2: 0.01 ETH, the gas price Base Sepolia had on 2026-10-16, and two payouts' USDC.
+  l2Wei: '0x2386f26fc10000',
+  l2GasPrice: '0x5b8d80',
+  l2UsdcUnits: '1977802',
+  // Every L2 endpoint's answer to the empty raw transaction: a decode failure, so it takes writes.
+  l2RawTransaction: { code: -32602, message: 'failed to decode signed transaction' },
+  irisFees: [
+    { finalityThreshold: 1000, minimumFee: 1.3 },
+    { finalityThreshold: 2000, minimumFee: 0 }
+  ]
 };
 const answers = { ...ANSWERS, ...overrides };
 
@@ -123,6 +133,16 @@ function l2Answer(chainId, { method, params }) {
       return { result: '0x2' };
     case 'eth_getCode':
       return { result: answers.l2NoCode.includes(String(params[0]).toLowerCase()) ? '0x' : '0x6080' };
+    case 'eth_sendRawTransaction':
+      return { error: answers.l2RawTransaction };
+    case 'eth_getBalance':
+      return { result: answers.l2Wei };
+    case 'eth_gasPrice':
+      return { result: answers.l2GasPrice };
+    case 'eth_call':
+      return String(params[0]?.data).startsWith('0x70a08231')
+        ? { result: word(BigInt(answers.l2UsdcUnits).toString(16)) }
+        : { error: { code: 3, message: 'reverted' } };
     default:
       return { error: { code: -32601, message: `the method ${method} does not exist/is not available` } };
   }
@@ -156,6 +176,7 @@ global.fetch = async (input, init = {}) => {
   }
   if (url.endsWith('/gasless-status')) return json({ enabled: false });
   if (url.endsWith('/get_metadata')) return json(answers.faucet);
+  if (url.includes('/v2/burn/USDC/fees/')) return json(answers.irisFees);
   if (url.endsWith('/v1/info')) return json(answers.circleInfo);
   if (url.endsWith('/status')) return json(answers.guardianStatus);
   if (url.endsWith('/pubkey?scheme=ecdsa')) return json(answers.guardianPubkey);

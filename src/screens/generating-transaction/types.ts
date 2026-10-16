@@ -20,8 +20,9 @@ export interface GeneratingTransactionProps {
   activeType?: ITransactionType;
   /**
    * Whether the sending account is a Guardian account. Selects the step set:
-   * Guardian sends show co-sign → prove → submit → guardian-sync; standard
-   * sends show prove → submit (the guardian-only steps are omitted).
+   * Guardian sends show co-sign → prove → submit → guardian-sync, and a private
+   * send its delivery after that; standard sends show prove → submit (the
+   * guardian-only steps are omitted).
    */
   isGuardian: boolean;
   /** The in-flight tx, used by the summary badge under the title. */

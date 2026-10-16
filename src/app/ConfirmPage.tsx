@@ -17,8 +17,6 @@ import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { SpendingLimitChallenge } from 'components/SpendingLimitChallenge';
 import { DappOrigin } from 'components/ui/DappOrigin';
 import { Spinner } from 'components/ui/Spinner';
-import { getAllUncompletedTransactions } from 'lib/miden/activity';
-import { ITransactionStatus } from 'lib/miden/db/types';
 import { useAccount, useMidenContext } from 'lib/miden/front';
 import { parseSerializedSpendingLimitAssessment } from 'lib/miden/spending-limits/types';
 import { MidenDAppPayload } from 'lib/miden/types';
@@ -28,7 +26,7 @@ import { WalletAccount } from 'lib/shared/types';
 import { useRetryableSWR } from 'lib/swr';
 import { annotateCrash } from 'lib/telemetry/crash-diagnostics';
 import useSafeState from 'lib/ui/useSafeState';
-import { navigate, useLocation } from 'lib/woozie';
+import { useLocation } from 'lib/woozie';
 import { truncateAddress, truncateHash } from 'utils/string';
 
 import Alert from './atoms/Alert';
@@ -533,14 +531,8 @@ const ConfirmDAppForm: FC = () => {
           } else {
             await confirmDAppTransaction(id, confirmed, delegate);
           }
-          if (confirmed) {
-            // The dApp confirm response carries no txId, but the progress page
-            // is addressed by one — resolve the active row from the queue.
-            const uncompleted = await getAllUncompletedTransactions();
-            const active =
-              uncompleted.find(tx => tx.status === ITransactionStatus.GeneratingTransaction) ?? uncompleted[0];
-            navigate(active ? `/generating-transaction-full/${encodeURIComponent(active.id)}` : '/');
-          }
+          // No navigation after an approval: this window never mounts PageRouter, so a route change only
+          // drops `?id=` and crashes this form while the background closes the window.
           return;
         case 'privateNotes':
           return confirmDAppPrivateNotes(id, confirmed);
