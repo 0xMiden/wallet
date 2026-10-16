@@ -13,10 +13,12 @@ const ROOT = path.join(__dirname, '../../../..');
 const SRC = path.join(ROOT, 'src');
 const OWNER = 'lib/miden/sdk/miden-client-interface.ts';
 
-// The constructors that open the store, under every name the SDK exports them by (`WasmWebClient` is the raw client).
-// The prove worker's bare `new WebClient()` opens none.
+// Every factory family that opens a store: the static `MidenClient.create*` factories, `*WebClient.createClient*` on any
+// client class (`WasmWebClient`, `MockWasmWebClient`) and a bare `createClientWithExternalKeystore`.
 const STORE_CLIENT_CONSTRUCTOR =
-  /(?:\bMidenClient\.create(?:Mock)?|\b(?:Wasm)?WebClient\.createClient(?:WithExternalKeystore)?|\bcreateClientWithExternalKeystore)\(/;
+  /\bMidenClient\.create\w*\(|\b\w*WebClient\.createClient\w*\(|\bcreateClientWithExternalKeystore\(/;
+// A raw client, which opens a store through its instance `createClient`.
+const RAW_CLIENT = /\bnew\s+\w*WebClient\(/;
 
 const SOURCES = fs
   .readdirSync(SRC, { recursive: true, encoding: 'utf8' })
@@ -29,25 +31,43 @@ const codeOf = (file: string) =>
     .filter(line => !/^\s*(\/\/|\*|\/\*)/.test(line))
     .join('\n');
 
-describe('clients on the SDK store', () => {
-  it('scans the source tree', () => {
-    expect(SOURCES).toContain(OWNER);
-  });
+const matchesIn = (pattern: RegExp, code: string) => code.match(new RegExp(pattern.source, 'g')) ?? [];
 
+const sitesOf = (pattern: RegExp) =>
+  Object.fromEntries(
+    SOURCES.map(file => [file, matchesIn(pattern, codeOf(file)).sort()] as const).filter(([, found]) => found.length)
+  );
+
+describe('clients on the SDK store', () => {
   it.each([
     'MidenClient.create(',
+    'MidenClient.createTestnet(',
+    'MidenClient.createDevnet(',
     'MidenClient.createMock(',
-    'WebClient.createClient(',
     'WasmWebClient.createClient(',
-    'WebClient.createClientWithExternalKeystore(',
-    'WasmWebClient.createClientWithExternalKeystore('
+    'MockWasmWebClient.createClient(',
+    'WasmWebClient.createClientWithExternalKeystore(',
+    'createClientWithExternalKeystore('
   ])('recognises %s', call => {
     expect(STORE_CLIENT_CONSTRUCTOR.test(call)).toBe(true);
   });
 
-  it('only MidenClientInterface constructs a store client', () => {
-    const builders = SOURCES.filter(file => STORE_CLIENT_CONSTRUCTOR.test(codeOf(file)));
-    expect(builders).toEqual([OWNER]);
+  it('leaves a createClient that is not the SDK alone', () => {
+    expect(STORE_CLIENT_CONSTRUCTOR.test('context.createClient(account, operator)')).toBe(false);
+  });
+
+  it.each(['new WebClient()', 'new WasmWebClient()'])('recognises the raw client %s', call => {
+    expect(RAW_CLIENT.test(call)).toBe(true);
+  });
+
+  it('only miden-client-interface.ts constructs store clients, at its three known sites', () => {
+    expect(sitesOf(STORE_CLIENT_CONSTRUCTOR)).toEqual({
+      [OWNER]: ['MidenClient.create(', 'MidenClient.createMock(', 'WasmWebClient.createClient(']
+    });
+  });
+
+  it("builds no raw client but the prove worker's store-less one", () => {
+    expect(sitesOf(RAW_CLIENT)).toEqual({ 'offscreen/prove-worker.ts': ['new WebClient('] });
   });
 
   it('does not depend on the React SDK, whose provider builds and syncs a client of its own', () => {
