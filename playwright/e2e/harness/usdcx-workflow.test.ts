@@ -167,7 +167,7 @@ describe('E2E USDCx workflow', () => {
     const l2 = suites.at(-1) ?? '';
     expect(runOf(l2)).toBe(`${RUNNER} --suite usdcx-burn-l2`);
     expect(l2.match(/^ {8}(env|if|continue-on-error):.*$/gm)).toEqual([
-      "        if: ${{ !cancelled() && steps.usdcx_in.outcome != 'skipped' }}"
+      `        if: \${{ !cancelled() && steps.usdcx_in.outcome != 'skipped' }}`
     ]);
     expect(suites[0]).toMatch(/^ {8}id: usdcx_in$/m);
   });
