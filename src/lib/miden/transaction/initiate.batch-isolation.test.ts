@@ -38,7 +38,7 @@ jest.mock('../back/miden-client-proxy', () => ({ midenClientProxy: {} }));
 jest.mock('../activity/notes', () => ({ queueNoteImport: jest.fn() }));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { initiateConsumeNotesTransaction, queueConsumeNotes } = require('./initiate');
+const { initiateConsumeNotesTransaction, initiatePswapReclaimTransaction, queueConsumeNotes } = require('./initiate');
 
 const ACCOUNT = 'mtst1account';
 
@@ -66,6 +66,30 @@ describe('initiateConsumeNotesTransaction — batching', () => {
     const rows = await consumeRows();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.noteIds).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('initiatePswapReclaimTransaction', () => {
+  it('inserts the prepared request and settlement link atomically on the consume row', async () => {
+    const requestBytes = new Uint8Array([7, 4, 7, 6]);
+
+    const id = await initiatePswapReclaimTransaction(
+      ACCOUNT,
+      note('zero-fill-tip'),
+      requestBytes,
+      'swap-order-row',
+      true
+    );
+
+    const row = await Repo.transactions.get(id);
+    expect(row).toMatchObject({
+      id,
+      type: 'consume',
+      noteId: 'zero-fill-tip',
+      delegateTransaction: true,
+      requestBytes,
+      extraInputs: { swapOrderTxId: 'swap-order-row', swapSettleKind: 'reclaim' }
+    });
   });
 });
 

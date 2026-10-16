@@ -224,6 +224,37 @@ export const queueConsumeNotes = async (
     verificationBaseFee
   );
 
+/**
+ * Queue the creator-side reclaim of a zero-fill PSWAP tip. Its tip is still an
+ * output note, so the ordinary consume builder (which resolves input-note ids)
+ * cannot build it later. Persist the already fee-aware request and settlement
+ * link in the same Dexie transaction that inserts the row; an active processing
+ * loop must never observe the row in between those writes.
+ */
+export const initiatePswapReclaimTransaction = async (
+  accountId: string,
+  note: ConsumableNote,
+  requestBytes: Uint8Array,
+  swapOrderTxId: string,
+  delegateTransaction?: boolean
+): Promise<string> =>
+  (
+    await queueConsumeRows(
+      accountId,
+      [note],
+      delegateTransaction,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      row => {
+        row.requestBytes = requestBytes;
+        row.extraInputs = { swapOrderTxId, swapSettleKind: 'reclaim' };
+      }
+    )
+  ).committedId;
+
 /** Options for {@link initiateRotationFundingClaim}; each has the meaning of its `initiateConsumeNotesTransaction` twin. */
 export interface RotationFundingClaimOptions {
   delegate?: boolean;
@@ -355,7 +386,10 @@ const queueConsumeRows = async (
   rotationFunding?: boolean,
   // The dApp origin whose consume request this is (`initiateConsumeTransactionFromId`): every row this creates lists it
   // from its insert. See `ITransaction.dappOrigins`.
-  dappOrigin?: string
+  dappOrigin?: string,
+  // Applied before insertion. Used by prepared request rows whose bytes and
+  // routing metadata must become visible atomically with the queued row.
+  initializeRow?: (row: ConsumeTransaction) => void
 ): Promise<ConsumeNotesQueueResult> => {
   if (notes.length === 0) {
     throw new Error('initiateConsumeNotesTransaction requires at least one note');
@@ -519,6 +553,7 @@ const queueConsumeRows = async (
       const row = new ConsumeTransaction(accountId, rowNotes, delegateTransaction);
       if (rotationFunding) row.rotationFunding = true;
       if (dappOrigin !== undefined) row.dappOrigins = [dappOrigin];
+      initializeRow?.(row);
       return row;
     };
     // One row EACH for the isolated notes, then one shared row for the remainder. A

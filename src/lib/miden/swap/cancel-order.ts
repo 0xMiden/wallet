@@ -7,16 +7,15 @@ import { ITransactionStatus } from '../db/types';
 /**
  * Stop waiting for a fill and take the offered tip back.
  *
- * There is no protocol-level cancel to call here, and this does not invent one.
- * A swap order's expiry is entirely the WALLET's bookkeeping - `expirySeconds`
+ * A swap order's user-selected expiry is WALLET bookkeeping - `expirySeconds`
  * never reaches the SDK (`screens/swap-flow/expiry.ts`), it is stamped onto the
  * row as `extraInputs.expiresAt` at completion, and `reconcileSwapOrderNotes` is
- * the one thing that reads it: past that moment it stops waiting for a solver and
- * queues the consume that reclaims the tip. So "cancel this swap" is exactly
- * "bring that moment forward to now", and the reclaim that follows is the same
- * path, with the same solver race and the same consume dedup/backoff, that every
- * order already takes when its own expiry lapses. Nothing new is asked of the
- * chain.
+ * the one thing that acts on it. So "cancel this swap" remains exactly "bring
+ * that moment forward to now". The settlement pass then chooses the chain
+ * operation that matches the lineage: consume an imported remainder after a
+ * partial fill, or build the SDK's creator-side cancellation request from the
+ * original output note after zero fills. Both retain the same solver-race guard,
+ * consume-row deduplication and retry/backoff.
  *
  * The write is all this does. The settlement tick queues the consume on its next
  * lap (3s on mobile/desktop via `SwapSettlementManager`, the SW sync cycle on the

@@ -1905,7 +1905,7 @@ describe('HistoryDetails', () => {
           orderId: 42n,
           requestedFaucetId: 'req-faucet',
           requestedAmount: 1000n,
-          expiresAt: 1_700_000_999
+          expiresAt: Math.floor(Date.now() / 1000) + 3600
         })
       );
 
@@ -1947,7 +1947,14 @@ describe('HistoryDetails', () => {
         remainingOffered: 0n,
         remainingRequested: 400n
       });
-      setMockRow(swapTx({ orderId: 42n, requestedFaucetId: 'req-faucet', requestedAmount: 1000n }));
+      setMockRow(
+        swapTx({
+          orderId: 42n,
+          requestedFaucetId: 'req-faucet',
+          requestedAmount: 1000n,
+          expiresAt: Math.floor(Date.now() / 1000) + 3600
+        })
+      );
       await renderAndLoad();
 
       expect(screen.getByTestId('swap-order-status').textContent).toBe('orderStatusPartiallyFilled');

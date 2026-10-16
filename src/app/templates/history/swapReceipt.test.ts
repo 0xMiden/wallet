@@ -140,6 +140,70 @@ describe('filledRequestedAmount', () => {
 });
 
 describe('deriveSwapReceipt', () => {
+  it.each([null, tracking({ state: 'reclaimed', currentDepth: 1, remainingOffered: 0n, remainingRequested: 0n })])(
+    'keeps original-note reclaims at zero after restart or a cleared lineage',
+    lineage => {
+      const view = derive({
+        originalOutputNoteIds: ['original-pswap'],
+        tracking: lineage,
+        settlement: settlement({
+          reclaimed: ['original-pswap'],
+          reclaimedTransactions: [consume({ noteIds: ['original-pswap'], faucetId: OFFERED_FAUCET, amount: 1000n })]
+        })
+      });
+      expect(view.filledAmount).toBe(0n);
+      expect(view.orderState).toBe('reclaimed');
+    }
+  );
+
+  it('does not confuse a partial-fill remainder with the original order output', () => {
+    const view = derive({
+      originalOutputNoteIds: ['original-pswap'],
+      tracking: tracking({ state: 'reclaimed', currentDepth: 2, remainingRequested: 0n }),
+      settlement: settlement({
+        settledTransactions: [consume({ amount: 400n })],
+        reclaimed: ['new-remainder'],
+        reclaimedTransactions: [consume({ noteIds: ['new-remainder'], faucetId: OFFERED_FAUCET })]
+      })
+    });
+    expect(view.filledAmount).toBe(400n);
+    expect(view.isPartialFill).toBe(true);
+  });
+
+  it('keeps a zero-fill reclaim at zero when the terminal lineage clears its remainder', () => {
+    const view = derive({
+      tracking: tracking({ state: 'reclaimed', currentDepth: 0, remainingOffered: 0n, remainingRequested: 0n }),
+      settlement: settlement({
+        reclaimed: ['original-output'],
+        reclaimedTransactions: [consume({ faucetId: OFFERED_FAUCET, amount: 1000n })]
+      })
+    });
+    expect(view.orderState).toBe('reclaimed');
+    expect(view.filledAmount).toBe(0n);
+    expect(view.isPartialFill).toBe(false);
+  });
+
+  it('uses real paybacks, not the terminal zero, after reclaiming a partial fill', () => {
+    const view = derive({
+      tracking: tracking({ state: 'reclaimed', currentDepth: 2, remainingOffered: 0n, remainingRequested: 0n }),
+      settlement: settlement({
+        settledTransactions: [consume({ amount: 400n })],
+        reclaimedTransactions: [consume({ faucetId: OFFERED_FAUCET, amount: 600n })]
+      })
+    });
+    expect(view.filledAmount).toBe(400n);
+    expect(view.isPartialFill).toBe(true);
+    expect(view.orderState).toBe('reclaimed');
+  });
+
+  it('does not invent a fill amount for a cleared partial lineage without payback evidence', () => {
+    expect(
+      derive({
+        tracking: tracking({ state: 'reclaimed', currentDepth: 1, remainingOffered: 0n, remainingRequested: 0n })
+      }).filledAmount
+    ).toBeUndefined();
+  });
+
   it('says nothing it cannot support when neither signal has answered', () => {
     expect(derive()).toEqual({
       orderState: null,

@@ -1,7 +1,7 @@
 import * as Repo from 'lib/miden/repo';
 
 import {
-  classifySwapOrderNotes,
+  classifySwapOrderSnapshot,
   isSwapTransaction,
   localSwapOrders,
   orderIdString,
@@ -12,10 +12,16 @@ import { isRotationPendingAccount } from '../back/rotation-pending';
 import { ITransactionStatus } from '../db/types';
 import { isSyncFused, noteProbeFailure, noteSyncSuccess } from '../front/sync-fuse';
 import { toNoteTypeString } from '../helpers';
+import type { ConsumableNoteDto } from '../sdk/consumable-notes';
 import { assertWasmHoldCurrent, getCurrentWasmLockHold, withWasmClientLock } from '../sdk/miden-client';
-import { WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
-import { initiateConsumeNotesTransaction } from '../transaction/initiate';
-import type { ConsumableNote, SwapOrderNoteMetadata } from '../types';
+import type { WasmLockHold } from '../sdk/miden-client';
+import {
+  isWasmClientPoisonedError,
+  WASM_LOCK_SYNC_WATCHDOG_MS,
+  WasmClientPoisonedError
+} from '../sdk/wasm-client-poison';
+import { initiateConsumeNotesTransaction, initiatePswapReclaimTransaction } from '../transaction/initiate';
+import { type ConsumableNote, NoteTypeEnum, type SwapOrderNoteMetadata } from '../types';
 import { swapOrderExpired } from './expiry';
 
 export { classifySwapOrderNotes } from './classification';
@@ -30,6 +36,67 @@ const WASM_SETTLEMENT_LOCK_OPTIONS = { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, l
 export interface SwapSettlementResult {
   queuedTransactionIds: string[];
   managedNoteIds: Set<string>;
+}
+
+export interface PreparedPswapReclaim {
+  noteId: string;
+  requestBytes: Uint8Array;
+}
+
+export interface SwapSettlementSnapshot {
+  classified: Map<string, SwapOrderNoteMetadata>;
+  zeroFillReclaims: Map<string, PreparedPswapReclaim>;
+}
+
+/**
+ * Read one lineage snapshot and prepare the one class of settlement request
+ * that cannot be built from consumable input notes: an expired, still-active,
+ * zero-fill order whose depth-0 tip remains in the creator's output-note store.
+ */
+export async function classifySwapSettlementSnapshot(
+  notes: ConsumableNoteDto[],
+  accountId: string,
+  orders: SwapOrder[],
+  hold: WasmLockHold,
+  nowSeconds: number = Math.floor(Date.now() / 1000)
+): Promise<SwapSettlementSnapshot> {
+  const snapshot = await classifySwapOrderSnapshot(notes, accountId, orders, hold);
+  const zeroFillReclaims = new Map<string, PreparedPswapReclaim>();
+  if (isRotationPendingAccount(accountId)) {
+    return { classified: snapshot.notes, zeroFillReclaims };
+  }
+
+  for (const order of orders) {
+    if (order.extraInputs.autoConsume === false) continue;
+    const expiresAt = order.extraInputs.expiresAt;
+    if (!swapOrderExpired(expiresAt, nowSeconds)) continue;
+    const orderId = orderIdString(order.extraInputs.orderId);
+    const lineage = snapshot.lineages.get(orderId);
+    // Active=0. A partial fill moves the tip to depth > 0 and imports it as an
+    // input note; terminal lineages have nothing left to reclaim.
+    if (!lineage || lineage.state !== 0 || lineage.currentDepth !== 0) continue;
+    if (snapshot.notes.has(lineage.currentTipNoteId)) continue;
+
+    assertWasmHoldCurrent(hold, 'before the zero-fill PSWAP cancel-request build');
+    let requestBytes: Uint8Array;
+    try {
+      requestBytes = await midenClientProxy.buildPswapCancelRequest(accountId, lineage.currentTipNoteId, step =>
+        assertWasmHoldCurrent(hold, 'inside the zero-fill PSWAP cancel-request build', step)
+      );
+    } catch (error) {
+      if (isWasmClientPoisonedError(error)) throw error;
+      // A sync can observe the lineage just before another actor consumes the
+      // tip, or a legacy/local-store gap can leave the creator output absent.
+      // Skip only this reclaim; aborting the whole note sync would also block
+      // unrelated claims and settlements. A later sync retries from fresh state.
+      console.warn(`[Swap] Could not prepare zero-fill reclaim for order ${orderId}:`, error);
+      continue;
+    }
+    assertWasmHoldCurrent(hold, 'after the zero-fill PSWAP cancel-request build');
+    zeroFillReclaims.set(orderId, { noteId: lineage.currentTipNoteId, requestBytes });
+  }
+
+  return { classified: snapshot.notes, zeroFillReclaims };
 }
 
 /**
@@ -65,6 +132,16 @@ async function repairSettlementStamp(order: SwapOrder): Promise<void> {
   });
 }
 
+async function stampExpiryIntent(order: SwapOrder, nowSeconds: number): Promise<void> {
+  if (order.extraInputs.expiryTriggeredAt != null) return;
+  await Repo.transactions.where({ id: order.id }).modify(tx => {
+    // `false`, not a bare return - dexie re-puts the deep clone for any other value.
+    if (!isSwapTransaction(tx)) return false;
+    tx.extraInputs = { ...tx.extraInputs, expiryTriggeredAt: nowSeconds };
+    return undefined;
+  });
+}
+
 /**
  * Queue terminal swap settlement batches. Active, unexpired orders are left
  * untouched. Consume deduplication/backoff remains owned by the existing
@@ -83,7 +160,8 @@ export async function reconcileSwapOrderNotes(
   notes: Array<ConsumableNote & { swapOrder?: SwapOrderNoteMetadata }>,
   delegateTransaction?: boolean,
   nowSeconds: number = Math.floor(Date.now() / 1000),
-  preloadedOrders?: SwapOrder[]
+  preloadedOrders?: SwapOrder[],
+  zeroFillReclaims: Map<string, PreparedPswapReclaim> = new Map()
 ): Promise<SwapSettlementResult> {
   if (isRotationPendingAccount(accountId)) {
     return { queuedTransactionIds: [], managedNoteIds: new Set() };
@@ -97,6 +175,40 @@ export async function reconcileSwapOrderNotes(
     const orderId = orderIdString(order.extraInputs.orderId);
     const orderNotes = notes.filter(note => note.swapOrder?.orderId === orderId);
     if (orderNotes.length === 0) {
+      const prepared = zeroFillReclaims.get(orderId);
+      const zeroFillExpiresAt = order.extraInputs.expiresAt;
+      if (prepared && zeroFillExpiresAt !== undefined && swapOrderExpired(zeroFillExpiresAt, nowSeconds)) {
+        // Persist intent before queueing, matching the input-note reclaim path.
+        await stampExpiryIntent(order, nowSeconds);
+        const reclaimNote: ConsumableNote = {
+          id: prepared.noteId,
+          faucetId: order.faucetId,
+          amount: order.amount.toString(),
+          senderAddress: accountId,
+          isBeingClaimed: false,
+          type: NoteTypeEnum.Public,
+          swapOrder: {
+            orderId,
+            depth: 0,
+            role: 'tip',
+            lineageState: 'active',
+            expiresAt: zeroFillExpiresAt,
+            expiryTriggeredAt: order.extraInputs.expiryTriggeredAt,
+            autoConsume: true
+          }
+        };
+        const delegate = delegateTransaction ?? order.delegateTransaction;
+        const txId = await initiatePswapReclaimTransaction(
+          accountId,
+          reclaimNote,
+          prepared.requestBytes,
+          order.id,
+          delegate
+        );
+        managedNoteIds.add(prepared.noteId);
+        queuedTransactionIds.push(txId);
+        continue;
+      }
       // Nothing consumable left but no settlement stamp: either the stamp
       // write was lost after the consume completed, or nothing was tagged
       // (nothing to repair — the lookup no-ops until the state changes).
@@ -119,13 +231,7 @@ export async function reconcileSwapOrderNotes(
       // Persist the intent before queueing. If a solver races this write, the
       // subsequent consume uses only notes still consumable after sync; retries
       // remain idempotent through consume-note deduplication.
-      await Repo.transactions.where({ id: order.id }).modify(tx => {
-        // `false`, not a bare return - dexie re-puts the deep clone for any other value, and this
-        // runs off the sync tick, so a bare return rewrites the row on every cadence.
-        if (!isSwapTransaction(tx)) return false;
-        tx.extraInputs = { ...tx.extraInputs, expiryTriggeredAt: nowSeconds };
-        return undefined;
-      });
+      await stampExpiryIntent(order, nowSeconds);
     }
 
     const settleable = expired ? orderNotes : orderNotes.filter(note => note.swapOrder?.role === 'payback');
@@ -228,7 +334,8 @@ export async function settleSwapOrders(
     return { queuedTransactionIds: [], managedNoteIds: new Set() };
   }
 
-  const managedNotes = await withWasmClientLock(async hold => {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const settlementSnapshot = await withWasmClientLock(async hold => {
     // Asked AGAIN, now that the mutex is ours. The gate above runs before the
     // queue, so while the sibling claimable-notes probe sits parked for its full
     // two minutes this tick passes an unlit fuse and lines up behind it — then
@@ -251,8 +358,14 @@ export async function settleSwapOrders(
     if (getCurrentWasmLockHold() !== hold) {
       throw new WasmClientPoisonedError('watchdog', new Error('swap settlement abandoned after the note read'));
     }
-    const classified = await classifySwapOrderNotes(rawNotes, accountId, orders, hold);
-    return rawNotes.flatMap<ConsumableNote>(note => {
+    const { classified, zeroFillReclaims } = await classifySwapSettlementSnapshot(
+      rawNotes,
+      accountId,
+      orders,
+      hold,
+      nowSeconds
+    );
+    const managedNotes = rawNotes.flatMap<ConsumableNote>(note => {
       const id = note.noteId;
       const swapOrder = id ? classified.get(id) : undefined;
       if (!id || !swapOrder) return [];
@@ -269,16 +382,24 @@ export async function settleSwapOrders(
         }
       ];
     });
+    return { managedNotes, zeroFillReclaims };
   }, WASM_SETTLEMENT_LOCK_OPTIONS).catch((e: unknown) => {
     noteProbeFailure('claimable-notes', e);
     throw e;
   });
-  if (managedNotes === null) {
+  if (settlementSnapshot === null) {
     return { queuedTransactionIds: [], managedNoteIds: new Set() };
   }
   // A probe that reports only failures is a ratchet: its evidence could never be
   // withdrawn by the probe that produced it, and it relied on the claimable-notes poll
   // happening to run and clear the shared key for it.
   noteSyncSuccess('claimable-notes');
-  return reconcileSwapOrderNotes(accountId, managedNotes, delegateTransaction, undefined, orders);
+  return reconcileSwapOrderNotes(
+    accountId,
+    settlementSnapshot.managedNotes,
+    delegateTransaction,
+    nowSeconds,
+    orders,
+    settlementSnapshot.zeroFillReclaims
+  );
 }

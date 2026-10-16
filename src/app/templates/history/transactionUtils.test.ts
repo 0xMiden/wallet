@@ -1197,6 +1197,13 @@ describe('swap settlement state', () => {
   // Same minimal-shape casting as the helpers above; only these fields are read.
   const swap = (extraInputs: Record<string, unknown>, status = 2): any => ({ type: 'swap', status, extraInputs });
 
+  it('reports the queued return instead of continuing to advertise matching', () => {
+    expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 100, expiryTriggeredAt: 101 }))).toBe('reclaiming');
+    expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 100, expiryTriggeredAt: 101, reclaimedAt: 110 }))).toBe(
+      'reclaimed'
+    );
+  });
+
   it('reports pending only for an auto-consumed order with an expiry and no stamp', () => {
     expect(swapSettlementOf(swap({ orderId: 42n, expiresAt: 1_700_000_120 }))).toBe('pending');
   });

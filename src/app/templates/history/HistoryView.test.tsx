@@ -973,7 +973,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     const row = rowByTitle('swap MDN → ETH');
     expect(iconNameIn(row)).toBe('Convert');
     expect(row).toHaveAttribute('data-iconbg', 'bg-tx-swap');
-    expect(row).toHaveAttribute('data-subtitle', 'viaInProtocolDex');
+    expect(row).toHaveAttribute('data-subtitle', 'swapPlacedAt');
     expect(row).toHaveAttribute('data-amount-value', '0.5');
     expect(row).toHaveAttribute('data-amount-symbol', 'ETH');
     expect(row).toHaveAttribute('data-amount-direction', 'neutral');
@@ -1024,7 +1024,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
     renderFull();
     const row = rowByTitle('swap fallback');
     expect(iconNameIn(row)).toBe('Convert');
-    expect(row).toHaveAttribute('data-subtitle', 'viaInProtocolDex');
+    expect(row).toHaveAttribute('data-subtitle', 'swapPlacedAt');
     expect(row).toHaveAttribute('data-amount-value', '3');
     expect(row).toHaveAttribute('data-amount-direction', 'neutral');
   });
@@ -1032,7 +1032,7 @@ describe('HistoryView full-history rows (buildRowProps branches)', () => {
   it('falls back to message for a swap missing the offered token', () => {
     renderFull();
     const row = rowByTitle('swap notoken');
-    expect(row).toHaveAttribute('data-subtitle', 'viaInProtocolDex');
+    expect(row).toHaveAttribute('data-subtitle', 'swapPlacedAt');
     // No entry.amount and no requestedAmount → no amount at all.
     expect(row).toHaveAttribute('data-amount-value', '');
   });
@@ -1540,9 +1540,40 @@ describe('HistoryView Guardian switch audit trail', () => {
 
 // A completed swap row is the one trace of the whole order, so its badge follows settlement.
 describe('HistoryView swap settlement status', () => {
+  it('keeps distinct orders distinct without presenting the unreceived quote as money received', () => {
+    const base = makeEntry({
+      txType: 'swap',
+      token: 'USDCX',
+      amount: '10',
+      requestedToken: 'IUSDT',
+      requestedAmount: '99',
+      swapSettlement: 'reclaimed'
+    });
+    render(
+      <HistoryView
+        {...baseProps}
+        entries={[
+          { ...base, key: 'expiry-order', timestamp: 1_792_130_261 },
+          { ...base, key: 'cancel-order', timestamp: 1_792_130_629 }
+        ]}
+        fullHistory
+      />
+    );
+    const rows = screen.getAllByTestId('activity-row');
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row).toHaveAttribute('data-amount-value', 'swapOfferedAmount');
+      expect(row).toHaveAttribute('data-amount-symbol', 'USDCX');
+      expect(row).toHaveAttribute('data-amount-direction', 'neutral');
+    }
+    expect(mockT).toHaveBeenCalledWith('swapPlacedAt', expect.objectContaining({ time: expect.any(String) }));
+    expect(mockT).toHaveBeenCalledWith('swapOfferedAmount', { amount: '10' });
+  });
+
   it.each([
     ['pending', 'pending'],
     ['reclaimed', 'reclaimed'],
+    ['reclaiming', 'reclaiming'],
     [undefined, 'confirmed']
   ] as const)('reads %s settlement as the %s status', (swapSettlement, status) => {
     const entry = makeEntry({

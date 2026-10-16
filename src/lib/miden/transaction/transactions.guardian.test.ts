@@ -8070,6 +8070,53 @@ describe('generateTransaction — Guardian routing', () => {
     expect(multisigService.createConsumeNotesProposal).toHaveBeenLastCalledWith(['note-a', 'note-b']);
   });
 
+  it('Guardian zero-fill PSWAP reclaim: proposes and signs the prepared fee-aware request bytes', async () => {
+    const txId = 'consume-guardian-zero-fill-reclaim';
+    const requestBytes = new Uint8Array([7, 4, 7, 6]);
+    const result = makeResult();
+    const multisigService = {
+      guardianEndpoint: 'https://old.guardian',
+      priorCandidateState: jest.fn(async (_nonce: number) => 'settled'),
+      createConsumeNotesProposal: jest.fn(),
+      createCustomProposal: jest.fn(async () => ({ id: 'prop-pswap-reclaim' })),
+      signAndCreateTransactionRequest: jest.fn(async () => ({
+        serialize: () => new Uint8Array([1]),
+        authArg: () => undefined
+      })),
+      sync: jest.fn(async () => {})
+    };
+    mockGetOrCreateMultisigService.mockResolvedValue(multisigService);
+    mockGetMidenClient.mockResolvedValue({
+      getAccount: jest.fn(async () => undefined),
+      syncState: jest.fn(async () => {}),
+      client: makeClientApi(result)
+    });
+    const row = {
+      id: txId,
+      type: 'consume',
+      accountId: 'guardian-acc',
+      status: ITransactionStatus.Queued,
+      noteId: 'zero-fill-tip',
+      noteIds: ['zero-fill-tip'],
+      requestBytes,
+      extraInputs: { swapOrderTxId: 'swap-row', swapSettleKind: 'reclaim' },
+      delegateTransaction: false
+    };
+    txStore.push({ ...row });
+
+    await generateTransaction(
+      row as never,
+      jest.fn(async () => new Uint8Array([1])),
+      false,
+      makeGuardianProvider(true)
+    );
+
+    expect(multisigService.createConsumeNotesProposal).not.toHaveBeenCalled();
+    expect(multisigService.createCustomProposal).toHaveBeenCalledWith(requestBytes);
+    expect(multisigService.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop-pswap-reclaim', requestBytes);
+    expect(mockBuildColdMultisigService).not.toHaveBeenCalled();
+  });
+
   it('Guardian send: an eviction during executeRequest stops the pipeline before it proves (#777)', async () => {
     // Mobile and desktop run THIS copy of the pipeline — the platform #777 was
     // reported on. `executeRequest` is a network round trip on the normal ceiling, so

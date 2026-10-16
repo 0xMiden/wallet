@@ -261,6 +261,17 @@ const OFFSCREEN_ROUTABLE_GUARDIAN_TYPES: ReadonlySet<ITransactionType> = new Set
 ]);
 
 /**
+ * A zero-fill PSWAP reclaim is represented as a consume row for history,
+ * deduplication, retry/backoff, and completion, but its note is creator-owned
+ * output rather than an input note. Its fee-aware request is therefore built
+ * during settlement and persisted on the row.
+ */
+const preparedPswapReclaimBytes = (transaction: ITransaction): Uint8Array | undefined =>
+  transaction.type === 'consume' && transaction.extraInputs?.swapSettleKind === 'reclaim'
+    ? transaction.requestBytes
+    : undefined;
+
+/**
  * Whether a row's caller BLOCKS on `waitForTransactionCompletion(txId)` and then
  * reads `resultBytes` / `outputNoteIds` back off the finished row:
  *
@@ -1805,12 +1816,21 @@ const generateTransactionWithProvider = async (
       // Only an eligible claim is stamped: a rotation-funding claim shares this leaf, and an entry on it would decide
       // nothing while its crossing relabelled it Not confirmed with no verdict ever coming (#1081).
       const attempt = canAwaitVerdict(transaction) ? attemptContextOf(transaction) : undefined;
+      const reclaimBytes = preparedPswapReclaimBytes(transaction);
       result = await runWriteLeaf(transaction.id, attempt, writeLeafRunsOffscreen(), () =>
-        midenClientProxy.consumeNoteId(
-          transaction as ConsumeTransaction,
-          signCallback,
-          attempt && stageStampFor(transaction.id, attempt)
-        )
+        reclaimBytes
+          ? midenClientProxy.newTransaction(
+              transaction.accountId,
+              reclaimBytes,
+              transaction.delegateTransaction,
+              signCallback,
+              attempt && stageStampFor(transaction.id, attempt)
+            )
+          : midenClientProxy.consumeNoteId(
+              transaction as ConsumeTransaction,
+              signCallback,
+              attempt && stageStampFor(transaction.id, attempt)
+            )
       );
       break;
     }
@@ -3238,11 +3258,22 @@ const generateGuardianTransaction = async (
     }
     case 'consume': {
       const consumeTx = transaction as ConsumeTransaction;
-      const consumeNoteIds = consumeTx.noteIds?.length > 0 ? consumeTx.noteIds : [consumeTx.noteId];
-      service = await consumeServiceFor(transaction, consumeNoteIds, guardianProvider);
-      await releaseUnabandonedCandidate(transaction, service);
-      await assertPriorCandidateSettled(transaction, service);
-      proposalResult = await service.createConsumeNotesProposal(consumeNoteIds);
+      const reclaimBytes = preparedPswapReclaimBytes(transaction);
+      if (reclaimBytes) {
+        // The request was built from the creator's output-note record through
+        // the SDK's fee-aware PSWAP-cancel builder. Keep those exact bytes for
+        // proposal creation and the later signed request reconstruction.
+        service = await getOrCreateMultisigService(transaction.accountId, guardianProvider);
+        await releaseUnabandonedCandidate(transaction, service);
+        await assertPriorCandidateSettled(transaction, service);
+        proposalResult = await service.createCustomProposal(reclaimBytes);
+      } else {
+        const consumeNoteIds = consumeTx.noteIds?.length > 0 ? consumeTx.noteIds : [consumeTx.noteId];
+        service = await consumeServiceFor(transaction, consumeNoteIds, guardianProvider);
+        await releaseUnabandonedCandidate(transaction, service);
+        await assertPriorCandidateSettled(transaction, service);
+        proposalResult = await service.createConsumeNotesProposal(consumeNoteIds);
+      }
       break;
     }
     case 'switch-guardian': {

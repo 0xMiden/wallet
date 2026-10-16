@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.5 (TBD)
+
+### Fixes
+
+- [FIX][all] An expired or cancelled Swap order with no fills reclaims its original public order note through the Guardian-compatible, fee-aware cancellation path, instead of leaving the offered funds locked because the order never produced a consumable input note. The receipt keeps zero-fill reclaims at 0%, shows returning funds instead of matching during cancellation, and Activity labels the original offer and placement time rather than presenting an unreceived quote as funds received (#1476).
+
 ## 1.17.4 (2026-10-15)
 
 ### Features

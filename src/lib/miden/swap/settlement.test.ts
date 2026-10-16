@@ -1,7 +1,7 @@
 import { midenClientProxy } from 'lib/miden/back/miden-client-proxy';
 import { ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import { initiateConsumeNotesTransaction } from 'lib/miden/transaction/initiate';
+import { initiateConsumeNotesTransaction, initiatePswapReclaimTransaction } from 'lib/miden/transaction/initiate';
 import { NoteTypeEnum } from 'lib/miden/types';
 
 import { classifySwapOrderNotes, reconcileSwapOrderNotes, settleSwapOrders } from './settlement';
@@ -57,14 +57,16 @@ jest.mock('../sdk/helpers', () => ({
 }));
 
 jest.mock('lib/miden/transaction/initiate', () => ({
-  initiateConsumeNotesTransaction: jest.fn(async () => 'consume-1')
+  initiateConsumeNotesTransaction: jest.fn(async () => 'consume-1'),
+  initiatePswapReclaimTransaction: jest.fn(async () => 'consume-zero-fill')
 }));
 
 // Keep realm transport at the boundary while the real classifier consumes the snapshot.
 jest.mock('lib/miden/back/miden-client-proxy', () => ({
   midenClientProxy: {
     getPswapLineages: jest.fn(),
-    getConsumableNotes: jest.fn()
+    getConsumableNotes: jest.fn(),
+    buildPswapCancelRequest: jest.fn()
   }
 }));
 
@@ -73,6 +75,8 @@ const tx = (overrides: Record<string, unknown> = {}) => ({
   type: 'swap',
   status: ITransactionStatus.Completed,
   accountId: 'account-1',
+  faucetId: 'offer',
+  amount: 50n,
   initiatedAt: 10,
   completedAt: 100,
   extraInputs: {
@@ -125,6 +129,7 @@ describe('swap order note settlement', () => {
     jest.clearAllMocks();
     toArray.mockResolvedValue([tx()]);
     jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([]);
+    jest.mocked(midenClientProxy.buildPswapCancelRequest).mockResolvedValue(new Uint8Array([1, 4, 7, 6]));
     (Repo.transactions.filter as jest.Mock).mockReturnValue({ toArray });
     (Repo.transactions.where as jest.Mock).mockReturnValue({ modify });
     mockStoreAccounts = [];
@@ -214,6 +219,101 @@ describe('swap order note settlement', () => {
 
     expect(initiateConsumeNotesTransaction).not.toHaveBeenCalled();
     expect(modify).not.toHaveBeenCalled();
+  });
+
+  it('reproduces and closes the zero-fill expiry gap by reclaiming the depth-0 output note', async () => {
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+      {
+        orderId: '77',
+        currentTipNoteId: 'zero-fill-tip',
+        currentDepth: 0,
+        state: 0,
+        remainingOffered: '50',
+        remainingRequested: '50'
+      }
+    ]);
+
+    const result = await settleSwapOrders('account-1', true);
+
+    expect(midenClientProxy.buildPswapCancelRequest).toHaveBeenCalledWith(
+      'account-1',
+      'zero-fill-tip',
+      expect.any(Function)
+    );
+    expect(initiatePswapReclaimTransaction).toHaveBeenCalledWith(
+      'account-1',
+      expect.objectContaining({
+        id: 'zero-fill-tip',
+        faucetId: 'offer',
+        amount: expect.any(String),
+        swapOrder: expect.objectContaining({ depth: 0, role: 'tip', lineageState: 'active' })
+      }),
+      new Uint8Array([1, 4, 7, 6]),
+      'swap-1',
+      true
+    );
+    expect(initiateConsumeNotesTransaction).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      queuedTransactionIds: ['consume-zero-fill'],
+      managedNoteIds: new Set(['zero-fill-tip'])
+    });
+    // The expiry intent is durable before the queue write.
+    expect(modify.mock.invocationCallOrder[0]).toBeLessThan(
+      (initiatePswapReclaimTransaction as jest.Mock).mock.invocationCallOrder[0]!
+    );
+  });
+
+  it.each([
+    ['unexpired', 0, 0, Number.MAX_SAFE_INTEGER],
+    ['partial-fill', 0, 1, 1],
+    ['fully-filled', 1, 0, 1],
+    ['already-reclaimed', 2, 0, 1]
+  ])('does not build a depth-0 output reclaim for %s lineage state', async (_label, state, currentDepth, expiresAt) => {
+    toArray.mockResolvedValue([tx({ extraInputs: { ...tx().extraInputs, expiresAt } })]);
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+      {
+        orderId: '77',
+        currentTipNoteId: 'tip',
+        currentDepth,
+        state,
+        remainingOffered: '50',
+        remainingRequested: '50'
+      }
+    ]);
+
+    await settleSwapOrders('account-1');
+
+    expect(midenClientProxy.buildPswapCancelRequest).not.toHaveBeenCalled();
+    expect(initiatePswapReclaimTransaction).not.toHaveBeenCalled();
+  });
+
+  it('skips a locally unavailable zero-fill output without blocking the settlement pass', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    jest.mocked(midenClientProxy.getConsumableNotes).mockResolvedValue([]);
+    jest.mocked(midenClientProxy.getPswapLineages).mockResolvedValue([
+      {
+        orderId: '77',
+        currentTipNoteId: 'missing-output',
+        currentDepth: 0,
+        state: 0,
+        remainingOffered: '50',
+        remainingRequested: '50'
+      }
+    ]);
+    jest.mocked(midenClientProxy.buildPswapCancelRequest).mockRejectedValueOnce(new Error('not tracked'));
+
+    await expect(settleSwapOrders('account-1')).resolves.toEqual({
+      queuedTransactionIds: [],
+      managedNoteIds: new Set()
+    });
+
+    expect(initiatePswapReclaimTransaction).not.toHaveBeenCalled();
+    expect(console.warn).toHaveBeenCalledWith(
+      '[Swap] Could not prepare zero-fill reclaim for order 77:',
+      expect.any(Error)
+    );
   });
 
   it('never treats a pre-upgrade order without an explicit expiresAt as expired', async () => {

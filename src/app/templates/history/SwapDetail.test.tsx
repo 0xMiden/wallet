@@ -569,6 +569,23 @@ describe('SwapDetail cancelling a live order', () => {
 
     expect(screen.getByTestId('swap-cancel-order-pending')).toHaveTextContent('swapCancelOrderPending');
     expect(screen.queryByTestId('swap-cancel-order-button')).not.toBeInTheDocument();
+    expect(screen.getByTestId('swap-order-status')).toHaveTextContent('swapReclaiming');
+    expect(screen.queryByText('swapMatchingDex')).not.toBeInTheDocument();
+    expect(screen.queryByText('swapOpenFill')).not.toBeInTheDocument();
+    expect(screen.queryByText('swapActivityTitle')).not.toBeInTheDocument();
+  });
+
+  it('renders a reclaimed zero-fill as zero percent, not an accepted fill', () => {
+    renderDetail({
+      orderState: 'reclaimed',
+      filledAmount: 0n,
+      reclaimedTransactions: [{ id: 'return', noteIds: ['original-output'], completedAt: 1_700_000_100 }]
+    });
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
+    expect(screen.getByTestId('swap-order-amount-filled')).toHaveTextContent('swapAmountProgress_0@');
+    expect(screen.getByTestId('swap-reclaimed-notes')).toHaveTextContent('swapReturnedAt_');
+    expect(screen.getByTestId('swap-reclaimed-notes')).not.toHaveTextContent('swapConsumedAt_');
+    expect(screen.queryByText('swapMatchingDex')).not.toBeInTheDocument();
   });
 
   it('surfaces a failed cancel as a notice, keeping the button available to retry', () => {

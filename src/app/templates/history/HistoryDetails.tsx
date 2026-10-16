@@ -536,6 +536,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     orderKey !== undefined && transaction?.restoredFromBackup !== true && (trackingEntry?.loading ?? true);
 
   const receipt = deriveSwapReceipt({
+    originalOutputNoteIds: transaction?.outputNoteIds,
     requestedAmount: requestedToken?.amount,
     requestedFaucetId: requestedToken?.faucetId,
     tracking: swapTracking,

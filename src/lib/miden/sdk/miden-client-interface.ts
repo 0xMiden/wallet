@@ -1587,6 +1587,45 @@ export class MidenClientInterface {
       .map(record => record.inputNoteRecord());
   }
 
+  /**
+   * Build, but do not execute, the fee-aware cancel request for a depth-0 PSWAP
+   * tip that still lives in this client's output-note store.
+   *
+   * The SDK's `pswap.cancelByOrder` convenience path deliberately uses a bare
+   * request builder and cannot declare the fee-conversion salt a Guardian
+   * account requires. `newPswapCancelTransactionRequest` is the note-based,
+   * fee-aware builder. Output-note records do not expose `toNote()`, so rebuild
+   * the public note from the full record kept by the creator.
+   */
+  async buildPswapCancelRequest(
+    accountId: string,
+    noteId: string,
+    assertLive: AssertLive = noAssertLive
+  ): Promise<Uint8Array> {
+    const [record] = await this.client.notes.listSent({ ids: [noteId] });
+    assertLive('after the output-note listing');
+    if (!record) throw new Error(`PSWAP cancel output note ${noteId} is not tracked`);
+    if (record.isConsumed()) throw new Error(`PSWAP cancel output note ${noteId} is already consumed`);
+    if (!record.isCommitted()) throw new Error(`PSWAP cancel output note ${noteId} is not committed yet`);
+
+    const recipient = record.recipient();
+    if (!recipient) throw new Error(`PSWAP cancel output note ${noteId} has no recipient details`);
+    const creator = walletAccountIdToSdk(accountId);
+    if (record.metadata().sender().toString() !== creator.toString()) {
+      throw new Error(`PSWAP cancel output note ${noteId} was not created by account ${accountId}`);
+    }
+    const note = new Note(record.assets(), record.metadata(), recipient);
+    if (note.id().toString() !== noteId) {
+      throw new Error(`PSWAP cancel output note ${noteId} did not reconstruct to the tracked note id`);
+    }
+
+    const request = await this.innerClientAccess()._withInnerWebClient(inner =>
+      inner.newPswapCancelTransactionRequest(note, creator)
+    );
+    assertLive('after the cancel-request build');
+    return request.serialize();
+  }
+
   async sendTransaction(dbTransaction: SendTransaction, onStage?: LeafStage): Promise<TransactionResult> {
     const { accountId, secondaryAccountId, faucetId, noteType, amount, extraInputs } = dbTransaction;
 

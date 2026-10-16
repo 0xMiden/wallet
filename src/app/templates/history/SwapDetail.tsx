@@ -182,7 +182,7 @@ const SwapNoteRow = memo(function SwapNoteRow({
             <p className="font-heading text-base font-semibold text-text-primary-token">{t('reclaimed')}</p>
             {consumedAt && (
               <p className="mt-1 text-sm font-semibold text-text-tertiary-token">
-                {t('swapConsumedAt', { time: consumedAt })}
+                {t('swapReturnedAt', { time: consumedAt })}
               </p>
             )}
           </div>
@@ -295,7 +295,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
   const formattedFilled =
     filledAmount === undefined || !requestedScaleIsKnown ? '-' : formatAmount(filledAmount, requestedDecimals);
   const requestedSuffix = requestedSymbol ? ` ${requestedSymbol}` : '';
-  const showPendingRow = orderState === 'active' || (orderState === null && trackingLoading);
+  const showPendingRow = !reclaimPending && (orderState === 'active' || (orderState === null && trackingLoading));
   const showClaimRoute = showActions && onOpenPendingNotes !== undefined;
   // The footer is drawn only when it has something in it. The three order-side
   // states are mutually exclusive with the page's own Cancel/Retry footer
@@ -349,7 +349,7 @@ export const SwapDetail: FC<SwapDetailProps> = ({
               status={entry.status}
               isCancelled={entry.isCancelled}
               isUnconfirmed={entry.isUnconfirmed}
-              swapSettlement={entry.swapSettlement}
+              swapSettlement={reclaimPending ? 'reclaiming' : entry.swapSettlement}
               testId="history-status-pill"
             />
           </div>
@@ -395,58 +395,62 @@ export const SwapDetail: FC<SwapDetailProps> = ({
           </div>
 
           <StatusBadge
-            status={orderStatusOf(orderState, trackingLoading, isPartialFill)}
+            status={reclaimPending ? 'reclaiming' : orderStatusOf(orderState, trackingLoading, isPartialFill)}
             live
             className="mt-1"
             data-testid="swap-order-status"
           />
         </section>
 
-        <section className="mt-6" aria-labelledby="swap-notes-label">
-          <div
-            id="swap-notes-label"
-            className="inline-flex rounded-full bg-fill px-2.5 py-1 font-heading text-sm font-bold leading-4 text-text-secondary-token"
-          >
-            {t('swapNotesBundled')}
-          </div>
+        {(!reclaimPending || hasSettlementRows) && (
+          <section className="mt-6" aria-labelledby="swap-notes-label">
+            <div
+              id="swap-notes-label"
+              className="inline-flex rounded-full bg-fill px-2.5 py-1 font-heading text-sm font-bold leading-4 text-text-secondary-token"
+            >
+              {t('swapActivityTitle')}
+            </div>
 
-          <div className="mt-2 border-y border-rule-default">
-            {settledTransactions.length > 0 && (
-              <div data-testid="swap-settled-notes">
-                {settledTransactions.map((transaction, index) => (
-                  <SwapNoteRow
-                    key={transaction.id}
-                    number={index + 1}
-                    kind="settled"
-                    transaction={transaction}
-                    requestedDecimals={requestedDecimals}
-                    requestedScaleIsKnown={requestedScaleIsKnown}
-                    requestedSymbol={requestedSymbol}
-                    requestedFaucetId={requestedFaucetId}
-                  />
-                ))}
-              </div>
-            )}
-            {reclaimedTransactions.length > 0 && (
-              <div data-testid="swap-reclaimed-notes">
-                {reclaimedTransactions.map(transaction => (
-                  <SwapNoteRow key={transaction.id} kind="reclaimed" transaction={transaction} />
-                ))}
-              </div>
-            )}
-            {showPendingRow && <SwapNoteRow kind="pending" />}
-            {/* Only claimable while the fill is actually known. With no lineage
+            <div className="mt-2 border-y border-rule-default">
+              {settledTransactions.length > 0 && (
+                <div data-testid="swap-settled-notes">
+                  {settledTransactions.map((transaction, index) => (
+                    <SwapNoteRow
+                      key={transaction.id}
+                      number={index + 1}
+                      kind="settled"
+                      transaction={transaction}
+                      requestedDecimals={requestedDecimals}
+                      requestedScaleIsKnown={requestedScaleIsKnown}
+                      requestedSymbol={requestedSymbol}
+                      requestedFaucetId={requestedFaucetId}
+                    />
+                  ))}
+                </div>
+              )}
+              {reclaimedTransactions.length > 0 && (
+                <div data-testid="swap-reclaimed-notes">
+                  {reclaimedTransactions.map(transaction => (
+                    <SwapNoteRow key={transaction.id} kind="reclaimed" transaction={transaction} />
+                  ))}
+                </div>
+              )}
+              {showPendingRow && <SwapNoteRow kind="pending" />}
+              {/* Only claimable while the fill is actually known. With no lineage
                 and no settlement rows - a restored wallet, or consumes that
                 predate settlement tagging - "nothing has been bundled yet" is
                 an assertion the receipt cannot support, and is plainly false
                 for an order that settled before the wallet was restored. The
                 status line above already reads "Not available"; adding a
                 confident denial underneath it is worse than saying nothing. */}
-            {!showPendingRow && !hasSettlementRows && progressKnown && (
-              <p className="py-6 text-center text-sm font-medium text-text-tertiary-token">{t('swapNoBundledNotes')}</p>
-            )}
-          </div>
-        </section>
+              {!showPendingRow && !hasSettlementRows && progressKnown && (
+                <p className="py-6 text-center text-sm font-medium text-text-tertiary-token">
+                  {t('swapNoBundledNotes')}
+                </p>
+              )}
+            </div>
+          </section>
+        )}
 
         {(entry.status === ITransactionStatus.Failed || entry.status === ITransactionStatus.Unconfirmed) &&
           entry.errorMessage && (

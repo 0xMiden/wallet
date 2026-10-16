@@ -96,6 +96,8 @@ export const filledRequestedAmount = (
 };
 
 export interface SwapReceiptInputs {
+  /** Original PSWAP output; reclaiming that same note proves no fill advanced it. */
+  originalOutputNoteIds?: string[];
   /** Undefined for rows persisted without one — unknown, not zero. */
   requestedAmount?: bigint;
   requestedFaucetId?: string;
@@ -154,6 +156,7 @@ export interface SwapReceiptView {
  * order. The receipt keeps them converged by re-reading the row.
  */
 export const deriveSwapReceipt = ({
+  originalOutputNoteIds,
   requestedAmount,
   requestedFaucetId,
   tracking,
@@ -194,17 +197,31 @@ export const deriveSwapReceipt = ({
   const orderState: SwapOrderState | null =
     tracking && tracking.state !== 'active' ? tracking.state : (settledOrderState ?? tracking?.state ?? null);
 
+  // A reclaimed tip can have both remaining amounts cleared by the SDK. That
+  // means the offer is gone, not that the counter-asset arrived. Depth zero is
+  // positive evidence of no fills; a cleared partial lineage needs payback
+  // evidence instead of manufacturing 100% from the terminal zero.
   const fromLineage =
     requestedAmount !== undefined && tracking
-      ? tracking.remainingRequested > requestedAmount
-        ? 0n
-        : requestedAmount - tracking.remainingRequested
+      ? tracking.state === 'reclaimed' && tracking.remainingRequested === 0n
+        ? tracking.currentDepth === 0
+          ? 0n
+          : undefined
+        : tracking.remainingRequested > requestedAmount
+          ? 0n
+          : requestedAmount - tracking.remainingRequested
       : undefined;
-  const filledAmount = filledRequestedAmount(
-    fromLineage,
-    locallySettledRequestedAmount(settledTransactions, requestedFaucetId),
-    requestedAmount
-  );
+  // A full or partial fill consumes the original PSWAP and creates a different
+  // remainder. A completed reclaim of the original output is durable zero-fill
+  // evidence even after the SDK's tracking cache is unavailable on restart.
+  const reclaimedOriginal = originalOutputNoteIds?.some(noteId => settlement?.reclaimed.includes(noteId)) === true;
+  const filledAmount = reclaimedOriginal
+    ? 0n
+    : filledRequestedAmount(
+        fromLineage,
+        locallySettledRequestedAmount(settledTransactions, requestedFaucetId),
+        requestedAmount
+      );
   const isPartialFill =
     requestedAmount !== undefined && filledAmount !== undefined && filledAmount > 0n && filledAmount < requestedAmount;
 

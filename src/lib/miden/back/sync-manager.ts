@@ -33,8 +33,8 @@ import { Vault } from './vault';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
-import { classifySwapOrderNotes, localSwapOrders } from '../swap/classification';
-import { reconcileSwapOrderNotes } from '../swap/settlement';
+import { localSwapOrders } from '../swap/classification';
+import { classifySwapSettlementSnapshot, type PreparedPswapReclaim, reconcileSwapOrderNotes } from '../swap/settlement';
 import { getNoteHoldingTransactions } from '../transaction/get';
 import { initiateConsumeNotesTransaction, initiateConsumeTransaction } from '../transaction/initiate';
 import { sweepNoteDeliveries } from '../transaction/note-delivery-sweep';
@@ -436,14 +436,16 @@ async function runSync(force: boolean): Promise<void> {
       // instead of the ~30s the old JS timeout bounded it to — strictly worse than
       // before the ceiling was added, on the one path (#777) that has no offscreen
       // realm to absorb it.
-      const { parsedNotes, vaultAssets, noteBlocks } = await withWasmClientLock(
+      const settlementNowSeconds = Math.floor(Date.now() / 1000);
+      const { parsedNotes, vaultAssets, noteBlocks, zeroFillReclaims } = await withWasmClientLock(
         async hold => {
           const client = await getMidenClient();
           if (!client)
             return {
               parsedNotes: [] as SerializedConsumableNote[],
               vaultAssets: [] as SerializedVaultAsset[],
-              noteBlocks: new Map<string, number>()
+              noteBlocks: new Map<string, number>(),
+              zeroFillReclaims: new Map<string, PreparedPswapReclaim>()
             };
           // The client build is an await, and on the inline path it can be the long one
           // (a genesis fetch against a parked node). If this hold was evicted while it
@@ -489,7 +491,13 @@ async function runSync(force: boolean): Promise<void> {
           // buys is the window where the user DOES have open orders — covered by the
           // classifier's own per-order guard — plus an accurate attribution when it fires.
           stillOurs('after the quarantine read');
-          const swapOrders = await classifySwapOrderNotes(rawNotes, accountPubKey, swapOrderRows, hold);
+          const { classified: swapOrders, zeroFillReclaims } = await classifySwapSettlementSnapshot(
+            rawNotes,
+            accountPubKey,
+            swapOrderRows,
+            hold,
+            settlementNowSeconds
+          );
           stillOurs('after the swap-order lineage read');
           // Inclusion block of each note, dated once this hold has released the client (below).
           const noteBlocks = new Map<string, number>();
@@ -535,7 +543,7 @@ async function runSync(force: boolean): Promise<void> {
             }
           }
 
-          return { parsedNotes: notes, vaultAssets: assets, noteBlocks };
+          return { parsedNotes: notes, vaultAssets: assets, noteBlocks, zeroFillReclaims };
         },
         inlineWasm ? { watchdogMs: WASM_LOCK_SYNC_WATCHDOG_MS, label: 'sw-notes-read' } : undefined
       );
@@ -753,8 +761,9 @@ async function runSync(force: boolean): Promise<void> {
             accountPubKey,
             managedNotes,
             undefined,
-            undefined,
-            swapOrderRows
+            settlementNowSeconds,
+            swapOrderRows,
+            zeroFillReclaims
           );
           if (settlement.queuedTransactionIds.length > 0) {
             const { startTransactionProcessing } = await import('./transaction-processor');
