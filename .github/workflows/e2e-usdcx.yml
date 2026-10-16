@@ -3,18 +3,18 @@ name: E2E USDCx
 # Runs the live USDCx suites on the extension after every push to main, through the runner `yarn e2e:real` uses
 # (scripts/e2e-real.mjs): usdcx-in (a deposit from the CI Arc key into a fresh Guardian wallet), usdcx-burn (a Send
 # burn to that key from a fresh standard and a fresh Guardian wallet, each waiting for Circle's payout), usdcx (the
-# round trip: burn, payout, deposit back) and usdcx-burn-l2 (Send burns from two fresh Guardian wallets to the same
-# key's address on Base Sepolia and on Arbitrum Sepolia, each waiting for Circle's payout there and the wallet's own
-# confirmation). Nothing is a double: public Miden testnet and its faucet, the hosted Guardian, Arc Testnet, Base
-# Sepolia, Arbitrum Sepolia and Circle's xReserve, attestation service and Gateway. A red payout step can be Circle's
-# doing rather than the wallet's, and its message says so. The runner probes every service before it builds, builds
-# the extension itself for each suite and runs the browser headless.
+# round trip: burn, payout, deposit back) and usdcx-burn-l2 (Send burns from three fresh Guardian wallets to the same
+# key's address on Base Sepolia, Arbitrum Sepolia and Ethereum Sepolia, each waiting for Circle's payout there and the
+# wallet's own confirmation). Nothing is a double: public Miden testnet and its faucet, the hosted Guardian, Arc
+# Testnet, Base Sepolia, Arbitrum Sepolia, Ethereum Sepolia and Circle's xReserve, attestation service and Gateway. A
+# red payout step can be Circle's doing rather than the wallet's, and its message says so. The runner probes every
+# service before it builds, builds the extension itself for each suite and runs the browser headless.
 #
 # The suites burn to and deposit from ONE Arc key, so each burn's payout refills what the deposits spend; a green run
-# leaves the key about 2.9 USDC richer on Arc and about 0.99 USDC richer on each L2, where it never spends. CI has its
-# own, the repository secret USDCX_HARNESS_ARC_KEY: never a developer's harness key and never the iOS job's. Only the
-# step that writes it to the runner's key file reads the secret; the suites read the file through the runner, and no
-# cache or upload includes it.
+# leaves the key about 2.9 USDC richer on Arc, about 0.99 USDC richer on Base Sepolia and Arbitrum Sepolia and richer
+# by the payout of a 2 USDCx burn on Ethereum Sepolia, where it never spends. CI has its own, the repository secret
+# USDCX_HARNESS_ARC_KEY: never a developer's harness key and never the iOS job's. Only the step that writes it to the
+# runner's key file reads the secret; the suites read the file through the runner, and no cache or upload includes it.
 #
 # Not a per-PR gate: it spends public testnet funds and depends on services the project does not run.
 
@@ -41,11 +41,11 @@ jobs:
   chrome-usdcx-testnet:
     name: USDCx E2E (Chrome, live testnet)
     runs-on: warp-ubuntu-latest-x64-8x
-    # The suites' own budgets come to 236 min: usdcx 60 (playwright.usdcx.config.ts), usdcx-in 30, usdcx-burn two
-    # tests of 35 and usdcx-burn-l2 two of 38 (their describes). Each suite's preflight and build add about 5, and a
-    # cold setup about 30 (the CLI compile, the Playwright browsers' 12 and apt's 6), so 286, rounded up to 295.
+    # The suites' own budgets come to 274 min: usdcx 60 (playwright.usdcx.config.ts), usdcx-in 30, usdcx-burn two
+    # tests of 35 and usdcx-burn-l2 three of 38 (their describes). Each suite's preflight and build add about 5, and a
+    # cold setup about 30 (the CLI compile, the Playwright browsers' 12 and apt's 6), so 324, rounded up to 330.
     # A dispatch may first build a linked web-sdk PR from source, and its CLI cold, on this runner (30 more).
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 325 || 295 }}
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 360 || 330 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -154,10 +154,10 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      # Last, and after the Arc suites whatever they did: its payout windows read Base Sepolia and Arbitrum Sepolia,
-      # where no payout or deposit an Arc suite leaves pending can land. But only once every setup step passed, which
-      # usdcx-in not being skipped shows: after a failed key write the runner would create a fresh key whose payouts
-      # leave with the runner. The one suite step with a condition; the workflow's test says why.
+      # Last, and after the Arc suites whatever they did: its payout windows read Base Sepolia, Arbitrum Sepolia and
+      # Ethereum Sepolia, where no payout or deposit an Arc suite leaves pending can land. But only once every setup
+      # step passed, which usdcx-in not being skipped shows: after a failed key write the runner would create a fresh
+      # key whose payouts leave with the runner. The one suite step with a condition; the workflow's test says why.
       - name: Run usdcx-burn-l2
         id: usdcx_burn_l2
         if: ${{ !cancelled() && steps.usdcx_in.outcome != 'skipped' }}

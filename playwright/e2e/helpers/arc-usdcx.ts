@@ -42,6 +42,7 @@ import {
   ARC_XRESERVE,
   ATTESTATION_USED_TOPIC,
   DEFAULT_ARC_RPCS,
+  ETHEREUM_SEPOLIA_PAYOUT,
   GATEWAY_MINTER,
   realArcClock,
   USDCX_REMOTE_DOMAIN,
@@ -100,6 +101,9 @@ export const LATE_PAYOUT_NOTE =
 /** LATE_PAYOUT_NOTE's place on Base Sepolia and Arbitrum Sepolia, which have no history of late payouts yet. */
 export const L2_LATE_PAYOUT_NOTE =
   'Base Sepolia and Arbitrum Sepolia payouts landed 6-8 s after the consume when probed on 2026-10-11; red means a user was not paid in time';
+/** LATE_PAYOUT_NOTE's place on Ethereum Sepolia, which has no payout history yet. */
+export const SEPOLIA_LATE_PAYOUT_NOTE =
+  'Ethereum Sepolia paid no burn until Circle fixed a Gateway configuration error on 2026-10-14 (0xMiden/miden-usdcx#308), so no payout time there is known yet; red means a user was not paid in time';
 /** Ends a key-moved failure in place of LATE_PAYOUT_NOTE: a spend from the key says nothing about Circle's payout. */
 export const KEY_MOVED_NOTE =
   'something spent from the payout key while the gate watched it (a manual sweep, a deposit a killed run left pending, a run that skipped the lock), so this red does not say whether Circle paid';
@@ -430,7 +434,8 @@ function correlationReason(reason: string, balanceBefore: bigint): string {
 }
 
 function lateNote(chain: PayoutChain): string {
-  return chain.chainId === ARC_CHAIN_ID ? LATE_PAYOUT_NOTE : L2_LATE_PAYOUT_NOTE;
+  if (chain.chainId === ARC_CHAIN_ID) return LATE_PAYOUT_NOTE;
+  return chain.chainId === ETHEREUM_SEPOLIA_PAYOUT.chainId ? SEPOLIA_LATE_PAYOUT_NOTE : L2_LATE_PAYOUT_NOTE;
 }
 
 function describeRanges(ranges: readonly ScannedRange[]): string {

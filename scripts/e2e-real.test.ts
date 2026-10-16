@@ -1083,7 +1083,7 @@ describe('the usdcx suites refuse what would not apply, before any probe or buil
     35_000
   );
 
-  it('refuses an exported E2E_EVM_RPC_URL on usdcx-burn-l2, whose wallet would read both L2s through it', () => {
+  it('refuses an exported E2E_EVM_RPC_URL on usdcx-burn-l2, whose wallet would read all three chains through it', () => {
     const res = runCli(
       { E2E_EVM_RPC_URL: 'https://refused-evm-rpc.example' },
       '--suite',
@@ -1287,17 +1287,18 @@ describe('the usdcx suites', () => {
     listed = listUsdcxTests();
   }, 60_000);
 
-  it('find the four describes and six tests the contract names under playwright.usdcx.config.ts', () => {
+  it('find the four describes and seven tests the contract names under playwright.usdcx.config.ts', () => {
     expect(listed.errors).toEqual([]);
     expect([...new Set(listed.tests.map(test => test.split(' > ')[0]))].sort()).toEqual(Object.values(OWN).sort());
-    expect(listed.tests).toHaveLength(6);
+    expect(listed.tests).toHaveLength(7);
     expect(listed.tests.filter(test => test.startsWith(`${OWN['usdcx-burn']} > `))).toEqual([
       `${OWN['usdcx-burn']} > Guardian wallet publishes a burn, the faucet consumes it and Circle pays it out`,
       `${OWN['usdcx-burn']} > standard wallet publishes a burn, the faucet consumes it and Circle pays it out`
     ]);
     expect(listed.tests.filter(test => test.startsWith(`${OWN['usdcx-burn-l2']} > `))).toEqual([
       `${OWN['usdcx-burn-l2']} > Guardian wallet burns to Arbitrum Sepolia, the faucet consumes it, Circle pays it out and the wallet confirms it`,
-      `${OWN['usdcx-burn-l2']} > Guardian wallet burns to Base Sepolia, the faucet consumes it, Circle pays it out and the wallet confirms it`
+      `${OWN['usdcx-burn-l2']} > Guardian wallet burns to Base Sepolia, the faucet consumes it, Circle pays it out and the wallet confirms it`,
+      `${OWN['usdcx-burn-l2']} > Guardian wallet burns to Sepolia, the faucet consumes it, Circle pays it out and the wallet confirms it`
     ]);
   });
 
@@ -1530,13 +1531,14 @@ describe('the usdcx constants are the ones the harness and the wallet use', () =
 });
 
 describe('the usdcx-burn-l2 copies are the ones the harness and the wallet use', () => {
-  const harnessChains = [harness.BASE_SEPOLIA_PAYOUT, harness.ARBITRUM_SEPOLIA_PAYOUT];
+  const harnessChains = [harness.BASE_SEPOLIA_PAYOUT, harness.ARBITRUM_SEPOLIA_PAYOUT, harness.ETHEREUM_SEPOLIA_PAYOUT];
 
-  it('copies exactly the two L2s, in the order the harness lists them', () => {
+  it('copies exactly the three chains, in the order the harness lists them', () => {
+    expect(L2_PAYOUT_CHAINS.map(chain => chain.chainId)).toEqual([84532, 421614, 11155111]);
     expect(L2_PAYOUT_CHAINS.map(chain => chain.chainId)).toEqual(harnessChains.map(chain => chain.chainId));
   });
 
-  it.each(harnessChains.map(chain => [chain.networkName, chain]))(
+  it.each(harnessChains.map(chain => [chain.label, chain]))(
     '%s: the name, the USDC and the endpoints the harness reads, and the RPC the wallet reads',
     (name, chain) => {
       const copy = L2_PAYOUT_CHAINS.find(candidate => candidate.chainId === chain.chainId);
@@ -1646,9 +1648,9 @@ describe('the usdcx preflight', () => {
     expect(res.requests).not.toContain(BALANCE_OF);
   }, 35_000);
 
-  it("asks usdcx-burn-l2 the payout questions, then on each L2 the chain, both contracts and the wallet RPC's head", () => {
+  it("asks usdcx-burn-l2 the payout questions, then on each chain the chain id, both contracts and the wallet RPC's head", () => {
     const res = preflight('usdcx-burn-l2');
-    expect(res.output).toContain('✓ preflight passed (17 checks)');
+    expect(res.output).toContain('✓ preflight passed (20 checks)');
     expect(res.status).toBe(0);
     expect(
       missing(res.requests, [
@@ -1664,6 +1666,18 @@ describe('the usdcx preflight', () => {
     ).toEqual([]);
     expect(res.output).toContain('Arbitrum Sepolia wallet RPC');
     expect(res.output).toContain('rpc.walletconnect.org #2');
+    expect(
+      missing(res.requests, [
+        'https://ethereum-sepolia-rpc.publicnode.com eth_chainId []',
+        'https://sepolia.gateway.tenderly.co eth_chainId []',
+        'https://ethereum-sepolia-rpc.publicnode.com eth_getCode ["0x0022222ABE238Cc2C7Bb1f21003F0a260052475B","latest"]',
+        'https://ethereum-sepolia-rpc.publicnode.com eth_getCode ["0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238","latest"]',
+        'https://rpc.walletconnect.org/v1?chainId=eip155:11155111&projectId='
+      ])
+    ).toEqual([]);
+    expect(res.output).toMatch(
+      /✓ Ethereum Sepolia contracts +GatewayMinter and USDC 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238 have code\n/
+    );
   }, 35_000);
 
   it('names the wallet RPC by host only, whatever project id the build bakes in', () => {
@@ -1678,7 +1692,9 @@ describe('the usdcx preflight', () => {
       'Base Sepolia RPC',
       { l2WrongChain: ['base-sepolia-rpc.publicnode.com', 'base-sepolia.gateway.tenderly.co', 'sepolia.base.org'] }
     ],
-    ['Arbitrum Sepolia contracts', { l2NoCode: ['0x75faf114eafb1bdbe2f0316df893fd58ce46aa4d'] }]
+    ['Arbitrum Sepolia contracts', { l2NoCode: ['0x75faf114eafb1bdbe2f0316df893fd58ce46aa4d'] }],
+    ['Ethereum Sepolia RPC', { l2WrongChain: ['ethereum-sepolia-rpc.publicnode.com', 'sepolia.gateway.tenderly.co'] }],
+    ['Ethereum Sepolia contracts', { l2NoCode: ['0x1c7d4b196cb0c7b01d743fbc6116a902379c7238'] }]
   ])(
     'fails %s alone on --suite usdcx-burn-l2 when its answer is wrong',
     (label, answers) => {
@@ -1690,15 +1706,19 @@ describe('the usdcx preflight', () => {
     35_000
   );
 
-  it('fails both wallet RPC checks when rpc.walletconnect.org is down, before any build, naming it by host only', () => {
+  it('fails every wallet RPC check when rpc.walletconnect.org is down, before any build, naming it by host only', () => {
     const res = preflight(
       'usdcx-burn-l2',
       DOCUMENT,
       { WALLETCONNECT_PROJECT_ID: 'operator-project-id' },
       { l2Down: ['rpc.walletconnect.org'] }
     );
-    expect(failedChecks(res.output)).toEqual(['Base Sepolia wallet RPC', 'Arbitrum Sepolia wallet RPC']);
-    for (const chain of ['Base Sepolia', 'Arbitrum Sepolia']) {
+    expect(failedChecks(res.output)).toEqual([
+      'Base Sepolia wallet RPC',
+      'Arbitrum Sepolia wallet RPC',
+      'Ethereum Sepolia wallet RPC'
+    ]);
+    for (const chain of ['Base Sepolia', 'Arbitrum Sepolia', 'Ethereum Sepolia']) {
       expect(res.output).toMatch(new RegExp(`✗ ${chain} wallet RPC +rpc\\.walletconnect\\.org: fetch failed\\n`));
     }
     expect(res.output).not.toContain('projectId');
@@ -1720,6 +1740,7 @@ describe('the usdcx preflight', () => {
     expect(res.requests).not.toContain('rpc.walletconnect.org');
     expect(res.requests).not.toContain('base-sepolia');
     expect(res.requests).not.toContain('arbitrum');
+    expect(res.requests).not.toContain('ethereum-sepolia');
   }, 35_000);
 
   it.each([
@@ -2322,6 +2343,8 @@ describe('the usage', () => {
     expect(res.stdout).toContain('unless MIDEN_CLIENT_BIN is set');
     expect(res.stdout).toContain('A lock, ~/.miden-e2e/usdcx-run.lock, lets one usdcx run go');
     expect(res.stdout).toContain('usdcx and usdcx-burn burn to one harness Arc');
-    expect(res.stdout).toContain("usdcx-burn-l2 burns to that key's address on Base Sepolia and Arbitrum Sepolia");
+    expect(res.stdout).toContain(
+      "usdcx-burn-l2 burns to that key's address on Base Sepolia, Arbitrum Sepolia\nand Ethereum Sepolia"
+    );
   }, 35_000);
 });

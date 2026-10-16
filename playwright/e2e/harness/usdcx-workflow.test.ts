@@ -158,10 +158,11 @@ describe('E2E USDCx workflow', () => {
     for (const step of suites.slice(0, 3)) expect(step).not.toMatch(/^ {8}(env|if|continue-on-error):/m);
   });
 
-  // The one exception to "no if": usdcx-burn-l2's payout windows read Base Sepolia and Arbitrum Sepolia, where no payout
-  // or deposit an Arc suite leaves pending can land, so it runs after a red Arc suite. Never in a cancelled run, never
-  // once a setup step failed (usdcx-in, which has no condition, is skipped exactly then; after a failed key write the
-  // runner would create a fresh key whose payouts leave with the runner), and last, so no Arc suite waits on it.
+  // The one exception to "no if": usdcx-burn-l2's payout windows read Base Sepolia, Arbitrum Sepolia and Ethereum
+  // Sepolia, where no payout or deposit an Arc suite leaves pending can land, so it runs after a red Arc suite. Never
+  // in a cancelled run, never once a setup step failed (usdcx-in, which has no condition, is skipped exactly then;
+  // after a failed key write the runner would create a fresh key whose payouts leave with the runner), and last, so no
+  // Arc suite waits on it.
   it('runs usdcx-burn-l2 last, after a red Arc suite too but never after a failed setup step, with no env and no continue-on-error', () => {
     const suites = steps.filter(isSuite);
     const l2 = suites.at(-1) ?? '';

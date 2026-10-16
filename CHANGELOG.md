@@ -5,6 +5,7 @@
 ### Fixes
 
 - [FIX][ci] A fourth live USDCx suite, `usdcx-burn-l2`, burns 1 USDCx through Send from a fresh Guardian wallet to the harness key on Base Sepolia and on Arbitrum Sepolia, and passes only once Circle has paid each burn there and the wallet itself reads Confirmed; its preflight checks both chains and the wallet's RPC for them, and E2E USDCx runs it after the Arc suites, even when one of them failed.
+- [FIX][ci] `usdcx-burn-l2` also burns 2 USDCx through Send from a fresh Guardian wallet to the harness key on Ethereum Sepolia, where Circle paid no burn until it fixed a Gateway configuration error on 2026-10-14, and passes only once Circle has paid that burn and the wallet reads Confirmed; 2 USDCx because the Send flow refuses 1 USDCx against Ethereum's 1.5 USDC payout fee allowance, and E2E USDCx gets 330 minutes (360 for a dispatch) for the third test.
 - [FIX][all] Opening the wallet no longer builds and syncs a second SDK client on the wallet's store: the React SDK provider, unused since #911, ran a full sync on every page open beside the wallet's own sync and imports, and an import interleaved with it could leave the store's chain data inconsistent, failing every later sync and import. The wallet no longer depends on `@miden-sdk/react`. This stops new damage; a store that is already damaged is not repaired by this change (#1493).
 
 ## 1.17.4 (2026-10-15)

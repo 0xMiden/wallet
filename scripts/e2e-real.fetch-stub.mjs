@@ -50,8 +50,8 @@ const ANSWERS = {
   nativeAsset: { id: '0x4cbdcaffe75f0a317482224dae6436', bytes32: REMOTE_TOKEN },
   cliInstall: { status: 0, stdout: 'Installed package `miden-client-cli`\n/stub/cli/bin/miden-client\n' },
   exitCodes: { build: 0, test: 0 },
-  // L2 hosts (rpc.walletconnect.org included) whose every request fails as a network error, hosts that report
-  // Sepolia's chain, and lowercase addresses with no code on either L2.
+  // Payout chain hosts (rpc.walletconnect.org included) whose every request fails as a network error, hosts that
+  // report mainnet's chain, and lowercase addresses with no code on any of them.
   l2Down: [],
   l2WrongChain: [],
   l2NoCode: []
@@ -101,14 +101,16 @@ function arcAnswer({ method, params }) {
 
 const isArc = host => host.endsWith('.arc.io') || host.startsWith('arc-rpc.');
 
-// The harness's L2 endpoints by host; the wallet's own RPC names its chain in the query.
+// The harness's payout chain endpoints by host; the wallet's own RPC names its chain in the query.
 const L2_HOSTS = {
   'base-sepolia-rpc.publicnode.com': 84532,
   'base-sepolia.gateway.tenderly.co': 84532,
   'sepolia.base.org': 84532,
   'sepolia-rollup.arbitrum.io': 421614,
   'arbitrum-sepolia-rpc.publicnode.com': 421614,
-  'arbitrum-sepolia.gateway.tenderly.co': 421614
+  'arbitrum-sepolia.gateway.tenderly.co': 421614,
+  'ethereum-sepolia-rpc.publicnode.com': 11155111,
+  'sepolia.gateway.tenderly.co': 11155111
 };
 function l2ChainOf({ host, searchParams }) {
   if (host === 'rpc.walletconnect.org') return Number((searchParams.get('chainId') ?? '').replace('eip155:', ''));
@@ -124,7 +126,10 @@ function l2Answer(chainId, { method, params }) {
     case 'eth_getCode':
       return { result: answers.l2NoCode.includes(String(params[0]).toLowerCase()) ? '0x' : '0x6080' };
     default:
-      return { error: { code: -32601, message: `the method ${method} does not exist/is not available` } };
+      // publicnode's Sepolia is also the bridge suites' default Sepolia RPC, which reads balances.
+      return Object.hasOwn(RPC_RESULTS, method)
+        ? { result: RPC_RESULTS[method] }
+        : { error: { code: -32601, message: `the method ${method} does not exist/is not available` } };
   }
 }
 
@@ -145,7 +150,7 @@ global.fetch = async (input, init = {}) => {
   const l2 = call ? l2ChainOf(new URL(url)) : undefined;
   if (l2 !== undefined) {
     if (answers.l2Down.includes(host)) throw new TypeError('fetch failed');
-    const chainId = answers.l2WrongChain.includes(host) ? 11155111 : l2;
+    const chainId = answers.l2WrongChain.includes(host) ? 1 : l2;
     return json({ jsonrpc: '2.0', id: call.id, ...l2Answer(chainId, call) });
   }
   if (call) return json({ jsonrpc: '2.0', id: call.id, result: RPC_RESULTS[call.method] });

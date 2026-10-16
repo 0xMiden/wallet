@@ -41,6 +41,7 @@ import {
   readArcUsdcSnapshot,
   readXReserveDomainState,
   scanArcLogs,
+  SEPOLIA_LATE_PAYOUT_NOTE,
   submitDepositToMiden,
   waitForGatewayPayout,
   waitForXReserveAttestation,
@@ -70,6 +71,7 @@ import {
   BURN_UNITS,
   DEFAULT_ARC_RPCS,
   DEPOSIT_UNITS,
+  ETHEREUM_SEPOLIA_PAYOUT,
   FEE_RESERVE_MULTIPLE,
   GAS_RESERVE_UNITS,
   GATEWAY_MINTER,
@@ -85,7 +87,7 @@ import {
 } from './usdcx-constants';
 import l2Vectors from './usdcx-l2.vectors.json';
 import { burnTarget, harnessPayoutLeg, payoutLeg, waitForWalletPayoutConfirmation } from './usdcx-legs';
-import { newRunEvidence, withStepBudget, type NamedStep } from './usdcx-run';
+import { newRunEvidence, withStepBudget, type NamedStep, type RunEvidence } from './usdcx-run';
 import type { XReserveAttestation } from '../../../src/lib/usdcx/attestation-protocol';
 import attestationVectors from '../../../src/lib/usdcx/attestation.vectors.json';
 import { midenAccountHexToXReserveRecipient } from '../../../src/lib/usdcx/recipient';
@@ -807,7 +809,8 @@ describe('payout chains (usdcx-constants.ts)', () => {
       networkName: 'Arc Testnet',
       explorer: ARC_TESTNET.blockExplorers.default.url,
       walletRpcUrl: ARC_PUBLIC_URL,
-      walletRpcName: 'arc.io'
+      walletRpcName: 'arc.io',
+      burnUnits: 1_000_000n
     });
   });
 
@@ -827,7 +830,8 @@ describe('payout chains (usdcx-constants.ts)', () => {
       reviewNetwork: 'base-sepolia',
       networkName: 'Base Sepolia',
       explorer: 'https://sepolia.basescan.org',
-      walletRpcName: 'rpc.walletconnect.org'
+      walletRpcName: 'rpc.walletconnect.org',
+      burnUnits: 1_000_000n
     });
     expect(ARBITRUM_SEPOLIA_PAYOUT).toMatchObject({
       chainId: 421614,
@@ -844,24 +848,49 @@ describe('payout chains (usdcx-constants.ts)', () => {
       reviewNetwork: 'arbitrum-sepolia',
       networkName: 'Arbitrum Sepolia',
       explorer: 'https://sepolia.arbiscan.io',
-      walletRpcName: 'rpc.walletconnect.org'
+      walletRpcName: 'rpc.walletconnect.org',
+      burnUnits: 1_000_000n
     });
-    for (const chain of [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT]) {
+    for (const chain of [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT, ETHEREUM_SEPOLIA_PAYOUT]) {
       expect(chain.walletRpcUrl).toBe(
         `https://rpc.walletconnect.org/v1?chainId=eip155:${chain.chainId}&projectId=${WC_PROJECT_ID}`
       );
-      // drpc fails near the head on both L2s, and the wallet's own RPC is what the tests check.
+      // drpc fails near the head on both L2s and serves no Sepolia, and the wallet's own RPC is what the tests check.
       expect(chain.rpcUrls.filter(url => /drpc|walletconnect/.test(url))).toEqual([]);
     }
   });
 
-  it('refuses Ethereum Sepolia by name, since Circle never pays a burn out there, and a chain Send does not offer', () => {
+  it("reads Ethereum Sepolia from the wallet's tables: the burn carries domain 0, the payout Arc's 26, and it burns 2 USDCx", () => {
+    expect(ETHEREUM_SEPOLIA_PAYOUT).toMatchObject({
+      chainId: 11155111,
+      label: 'Ethereum Sepolia',
+      rpcUrls: ['https://ethereum-sepolia-rpc.publicnode.com', 'https://sepolia.gateway.tenderly.co'],
+      usdc: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+      burnDomain: 0,
+      attestationSourceDomain: 26,
+      chip: 'send-network-sepolia',
+      reviewNetwork: 'sepolia',
+      networkName: 'Sepolia',
+      explorer: 'https://sepolia.etherscan.io',
+      walletRpcName: 'rpc.walletconnect.org',
+      burnUnits: 2_000_000n
+    });
+  });
+
+  it('refuses a chain Send does not offer, and a burn its payout fee allowance takes whole, which Send refuses', () => {
     const reads = { rpcUrls: [], logChunk: () => L2_LOG_CHUNK };
-    expect(() => payoutChainFor(11155111, reads)).toThrow(
-      'Ethereum Sepolia (11155111) is no harness payout chain: Circle consumes a burn to it but never pays it out ' +
-        '(0xMiden/miden-usdcx#308)'
-    );
     expect(() => payoutChainFor(1, reads)).toThrow('chain 1 is not a Send destination');
+    // The faucet's 1 USDCx minimum, every other chain's burn, does not clear Ethereum's 1.5 USDC allowance.
+    expect(() => payoutChainFor(11155111, reads)).toThrow(
+      'a 1 USDCx burn to Sepolia does not exceed its 1.5 USDC payout fee allowance, so the Send flow refuses it'
+    );
+    expect(() => payoutChainFor(11155111, { ...reads, burnUnits: 1_500_000n })).toThrow(
+      'a 1.5 USDCx burn to Sepolia does not exceed its 1.5 USDC payout fee allowance'
+    );
+    expect(payoutChainFor(11155111, { ...reads, burnUnits: 1_500_001n }).burnUnits).toBe(1_500_001n);
+    expect(() => payoutChainFor(84532, { ...reads, burnUnits: 100_000n })).toThrow(
+      'a 0.1 USDCx burn to Base Sepolia does not exceed its 0.1 USDC payout fee allowance'
+    );
   });
 
   it("scans Base Sepolia's own RPC in 200-block windows, Arc's drpc in 100 and every other endpoint in 1000", () => {
@@ -870,11 +899,13 @@ describe('payout chains (usdcx-constants.ts)', () => {
     expect(ARBITRUM_SEPOLIA_PAYOUT.rpcUrls.map(url => ARBITRUM_SEPOLIA_PAYOUT.logChunk(url))).toEqual([
       1000, 1000, 1000
     ]);
+    // publicnode and tenderly served 10_000-block eth_getLogs on Sepolia's GatewayMinter when probed (2026-10-16).
+    expect(ETHEREUM_SEPOLIA_PAYOUT.rpcUrls.map(url => ETHEREUM_SEPOLIA_PAYOUT.logChunk(url))).toEqual([1000, 1000]);
     expect(DEFAULT_ARC_RPCS.map(url => ARC_PAYOUT.logChunk(url))).toEqual([100, 1000, 1000]);
   });
 
   it('gives an L2 read step the Arc read budget, which outlasts a stall on every L2 endpoint', () => {
-    for (const chain of [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT]) {
+    for (const chain of [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT, ETHEREUM_SEPOLIA_PAYOUT]) {
       expect(chain.rpcUrls.length * ARC_RPC_TIMEOUT_MS + 15_000).toBeLessThanOrEqual(ARC_READ_STEP_BUDGET_MS);
     }
   });
@@ -1059,6 +1090,63 @@ describe('waitForGatewayPayout on an L2', () => {
   });
 });
 
+/**
+ * No Sepolia payout was ever captured (Circle paid none there before 2026-10-14), so this is the Base Sepolia capture
+ * under Sepolia's USDC token topic with its source domain and value set: the gate reads only those, the depositor and
+ * the gatewayMint calldata.
+ */
+const asSepoliaPayout = (log: CapturedLog, set: { sourceDomain: number; value: bigint }): CapturedLog => ({
+  ...log,
+  topics: log.topics.map((topic, index) => (index === 1 ? pad(ETHEREUM_SEPOLIA_PAYOUT.usdc).toLowerCase() : topic)),
+  data:
+    `0x${set.sourceDomain.toString(16).padStart(64, '0')}${log.data.slice(66, 194)}` +
+    set.value.toString(16).padStart(64, '0')
+});
+
+describe('waitForGatewayPayout on Ethereum Sepolia', () => {
+  const CONSUME_MS = 1_791_638_693_000;
+  const BASE = l2PayoutOn(84532);
+  const args = {
+    recipient: addressOf(BASE.recipient),
+    burnNoteId: hexOf(BASE.burnNoteId),
+    burnUnits: 2_000_000n,
+    fromBlock: 66483700n,
+    consumeTsMs: CONSUME_MS,
+    deadlineMs: CONSUME_MS + PAYOUT_TIMEOUT_MS,
+    depositor: hexOf(l2Vectors.depositor),
+    minimumValue: minimumUsdcxPayout(11155111, 2_000_000n)
+  };
+  const sepoliaReads = (sourceDomain: number) => ({
+    endpoints: ['https://ethereum-sepolia-rpc.publicnode.com'],
+    publicClient: () =>
+      stubClient(
+        payoutChain({
+          balances: [988_901n],
+          logs: [movedTo(asSepoliaPayout(BASE.log, { sourceDomain, value: 988_901n }), 66483812n)]
+        })
+      ),
+    clock: fakeClock(CONSUME_MS),
+    payoutChain: ETHEREUM_SEPOLIA_PAYOUT
+  });
+
+  it("proves a payout naming Arc's 26 as its source under Sepolia's USDC, Circle keeping the rest of 2 USDCx", async () => {
+    await expect(waitForGatewayPayout(args, sepoliaReads(26))).resolves.toMatchObject({
+      value: 988_901n,
+      sourceDomain: 26,
+      fee: 1_011_099n,
+      transactionHash: BASE.transaction.hash
+    });
+  });
+
+  it("fails uncorrelated on a payout naming the burn's domain 0 as its source, ending with the Sepolia note", async () => {
+    const failure = waitForGatewayPayout(args, sepoliaReads(0));
+    await expect(failure).rejects.toMatchObject({ failure: 'uncorrelated' });
+    await expect(failure).rejects.toThrow('sourceDomain 0, expected 26');
+    await expect(failure).rejects.toThrow(SEPOLIA_LATE_PAYOUT_NOTE);
+    await expect(failure).rejects.not.toThrow(L2_LATE_PAYOUT_NOTE);
+  });
+});
+
 /** A captured log moved to `block` and paid to `recipient`, so it lands in the scan of a key this test holds. */
 const paidTo = (log: CapturedLog, recipient: Address, block: bigint): CapturedLog => ({
   ...movedTo(log, block),
@@ -1078,7 +1166,7 @@ describe('harnessPayoutLeg (usdcx-legs.ts)', () => {
   const paid = paidTo(ONE_USDCX.log, KEY, 66483823n);
   const burn = {
     burnNoteId: hexOf(ONE_USDCX.burnNoteId),
-    oracle: { consumeTimestampSec: CONSUME_MS / 1_000, consumeBlock: 412_345 }
+    oracle: { consumeTimestampSec: CONSUME_MS / 1_000, consumeBlock: 412_345, amount: 1_000_000n }
   };
   const depositor = hexOf(arcVectors.remoteDomainDepositor);
 
@@ -1167,7 +1255,7 @@ describe('harnessPayoutLeg (usdcx-legs.ts)', () => {
     const payout = await leg.waitForPayout(
       {
         burnNoteId: hexOf(base.burnNoteId),
-        oracle: { consumeTimestampSec: CONSUME_MS / 1_000, consumeBlock: 412_345 }
+        oracle: { consumeTimestampSec: CONSUME_MS / 1_000, consumeBlock: 412_345, amount: 1_000_000n }
       },
       hexOf(l2Vectors.depositor)
     );
@@ -1197,6 +1285,53 @@ describe('harnessPayoutLeg (usdcx-legs.ts)', () => {
       hashes: { payout: base.transaction.hash },
       fees: [{ name: 'circle payout fee', amount: 11_099n, kind: 'exact' }]
     });
+  });
+
+  // The floor and Circle's fee follow the burn the node consumed: a 2 USDCx burn to Sepolia less its 1.5 allowance.
+  it("proves a 2 USDCx Sepolia burn against that burn's own floor and fee, and fails a payout under its 0.5 USDC floor", async () => {
+    const base = l2PayoutOn(84532);
+    const legPaying = async (value: bigint, evidence: RunEvidence) => {
+      const sepolia = payoutChain({
+        balances: [HELD, HELD + value],
+        logs: [paidTo(asSepoliaPayout(base.log, { sourceDomain: 26, value }), KEY, 66483823n)]
+      });
+      const leg = await harnessPayoutLeg(recordingSteps().step, {
+        env: { ...ENV },
+        arc: {
+          endpoints: [ARC_DRPC_URL],
+          publicClient: () =>
+            stubClient(() => {
+              throw new Error('xReserve unread');
+            })
+        },
+        payoutReads: {
+          endpoints: [ETHEREUM_SEPOLIA_PAYOUT.rpcUrls[0] ?? ''],
+          publicClient: () => stubClient(sepolia),
+          clock: fakeClock(CONSUME_MS + 7_000),
+          payoutChain: ETHEREUM_SEPOLIA_PAYOUT
+        },
+        budget: BUDGET,
+        evidence,
+        secrets: []
+      });
+      return leg.waitForPayout(
+        {
+          burnNoteId: hexOf(base.burnNoteId),
+          oracle: { consumeTimestampSec: CONSUME_MS / 1_000, consumeBlock: 412_345, amount: 2_000_000n }
+        },
+        hexOf(l2Vectors.depositor)
+      );
+    };
+
+    const evidence = newRunEvidence('usdcx-burn-l2 sepolia');
+    await expect(legPaying(500_000n, evidence)).resolves.toMatchObject({ value: 500_000n, fee: 1_500_000n });
+    expect(evidence).toMatchObject({
+      ids: { payoutChainId: '11155111' },
+      fees: [{ name: 'circle payout fee', amount: 1_500_000n, kind: 'exact' }]
+    });
+    await expect(legPaying(499_999n, newRunEvidence('usdcx-burn-l2 sepolia'))).rejects.toThrow(
+      "value 499999 is below the wallet's minimum payout 500000"
+    );
   });
 
   it("fails an L2 payout step naming the key's read on that L2 and xReserve's flags read on Arc", async () => {

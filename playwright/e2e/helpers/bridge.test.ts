@@ -28,6 +28,7 @@ import {
   ARC_PAYOUT,
   BASE_SEPOLIA_PAYOUT,
   BURN_UNITS,
+  ETHEREUM_SEPOLIA_PAYOUT,
   USDCX_DECIMALS
 } from './usdcx-constants';
 import type { ChromeWalletPageApi } from './wallet-page';
@@ -309,11 +310,25 @@ describe('usdcxPayoutRowsText', () => {
     expect(usdcxPayoutRowsText(ARC_CHAIN_ID, '0.100001').net).toBe('At least 0.000001 USDC');
   });
 
-  // A pin, green before and after: the payout rows carry no chain, so the L2 burns show Arc's text.
-  it("quotes the same rows on Base Sepolia and Arbitrum Sepolia, whose allowance is Arc's", () => {
+  // The payout rows carry no chain, so the L2 burns show Arc's text for their own 1 USDCx.
+  it("quotes the same rows on Base Sepolia and Arbitrum Sepolia for each one's own burn, whose allowance is Arc's", () => {
     for (const chain of [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT]) {
-      expect(usdcxPayoutRowsText(chain.chainId, '1')).toEqual({ fee: 'Up to 0.1 USDC', net: 'At least 0.9 USDC' });
+      expect(usdcxPayoutRowsText(chain.chainId, formatUnits(chain.burnUnits, USDCX_DECIMALS))).toEqual({
+        fee: 'Up to 0.1 USDC',
+        net: 'At least 0.9 USDC'
+      });
     }
+  });
+
+  it("quotes Ethereum's 1.5 USDC allowance for Sepolia's own 2 USDCx burn, and refuses the 1 USDCx the others burn", () => {
+    const sepolia = ETHEREUM_SEPOLIA_PAYOUT.chainId;
+    expect(usdcxPayoutRowsText(sepolia, formatUnits(ETHEREUM_SEPOLIA_PAYOUT.burnUnits, USDCX_DECIMALS))).toEqual({
+      fee: 'Up to 1.5 USDC',
+      net: 'At least 0.5 USDC'
+    });
+    expect(() => usdcxPayoutRowsText(sepolia, formatUnits(BASE_SEPOLIA_PAYOUT.burnUnits, USDCX_DECIMALS))).toThrow(
+      '1 USDCx does not exceed the 1.5 USDC payout fee allowance on Sepolia'
+    );
   });
 });
 
