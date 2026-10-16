@@ -1117,6 +1117,7 @@
   "usdcxReceived": "USDCx zostało wyemitowane na platformie Miden, a Twój portfel je otrzymał.",
   "usdcxExecutorRouteNotice": "USDC jest spalane na $source$ i emitowane na rzecz wykonawcy Circle na $target$, który wpłaca je do xReserve dla Miden. Circle pobiera swoją opłatę dodatkowo do kwoty, a Circle realizuje transfer na $target$.",
   "usdcxForwardQuoteUnavailable": "Circle nie może w tej chwili wycenić tego przelewu. Nic nie zostało wysłane. Spróbuj ponownie za chwilę.",
+  "usdcxDepositFeeAboveBalance": "Ta wpłata wymaga $total$ $token$ w sieci $network$: kwota plus opłata Circle w wysokości $fee$ $token$. Twój podłączony portfel zawiera $balance$ $token$. Zmniejsz kwotę o wysokość opłaty lub dodaj $token$ do swojego portfela.",
   "usdcxCctpAwaitingAttestation": "Spalenie zostało potwierdzone. Czekamy na poświadczenie transferu przez Circle, zanim będzie można go zrealizować w sieci $network$.",
   "usdcxExecuteNeeded": "Circle potwierdziło transfer. Wykonaj go w sieci $network$, aby zdeponować USDC w xReserve dla Miden. Wymaga to niewielkiej ilości gazu w sieci $network$.",
   "usdcxExecuteOnNetwork": "Wykonaj na $network$",
