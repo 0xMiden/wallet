@@ -25,6 +25,7 @@ import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { useWalletStore } from 'lib/store';
 import { useRouteDwell } from 'lib/telemetry/use-route-dwell';
 import { usdcxPayoutFeeShortfall } from 'lib/usdcx/constant';
+import { useBurnFeeReserve } from 'lib/usdcx/use-burn-fee-reserve';
 import { isUsdcxWithdrawalAvailable, isUsdcxWithdrawalNetwork } from 'lib/usdcx/withdrawal';
 import { navigate, useLocation } from 'lib/woozie';
 import {
@@ -391,14 +392,22 @@ export const SendManager: React.FC<SendManagerProps> = ({
     if (!usdcxAvailable && bridgeRoute === 'usdcx') setValue('bridgeRoute', 'epoch');
   }, [usdcxAvailable, bridgeRoute, setValue]);
 
-  // A USDCx burn's destination and amount. Circle takes its fee from the payout there, so the amount must exceed it.
-  const usdcxPayout = useMemo(() => {
-    const chainId =
+  // The destination chain of a USDCx burn, or undefined when this send is not one.
+  const usdcxChainId = useMemo(
+    () =>
       usdcxAvailable && isBridge
         ? usdcxBridgeNetworks().find(network => network.id === bridgeNetwork)?.chainId
-        : undefined;
-    return chainId === undefined || amountBaseUnits === undefined ? undefined : { chainId, amount: amountBaseUnits };
-  }, [usdcxAvailable, isBridge, bridgeNetwork, amountBaseUnits]);
+        : undefined,
+    [usdcxAvailable, isBridge, bridgeNetwork]
+  );
+  // A USDCx burn's destination and amount. Circle takes its fee from the payout there, so the amount must exceed it.
+  const usdcxPayout = useMemo(
+    () =>
+      usdcxChainId === undefined || amountBaseUnits === undefined
+        ? undefined
+        : { chainId: usdcxChainId, amount: amountBaseUnits },
+    [usdcxChainId, amountBaseUnits]
+  );
   const payoutFeeShortfall = useMemo(
     () => usdcxPayout && usdcxPayoutFeeShortfall(usdcxPayout.chainId, usdcxPayout.amount),
     [usdcxPayout]
@@ -582,12 +591,33 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // Non-native tokens are unaffected (their fee comes out of a different asset), and
   // `maxSendableNative` fails open on an unknown or zero fee, so a zero-fee chain and
   // the pre-discovery window both keep the full balance.
+  //
+  // A USDCx burn of the native token costs more than that static reserve (a mainnet burn paid 36
+  // base fees against a reserve of 30, so "Max" failed with a vault shortfall). Its cost is measured
+  // by a dry run of the burn, and the cap holds back the larger of the two reserves. While the dry
+  // run runs, or when it failed, the static reserve applies.
+  const burnFeeTarget = useMemo(
+    () =>
+      publicKey &&
+      token &&
+      nativeFaucetId !== null &&
+      token.id === nativeFaucetId &&
+      isValidRecipient &&
+      recipientAddress &&
+      usdcxChainId !== undefined
+        ? { accountPublicKey: publicKey, destinationAddress: recipientAddress, destinationChainId: usdcxChainId }
+        : undefined,
+    [publicKey, token, nativeFaucetId, isValidRecipient, recipientAddress, usdcxChainId]
+  );
+  const burnFeeReserve = useBurnFeeReserve(burnFeeTarget);
   const spendableBalance = useMemo(() => {
     if (!token) return 0;
-    return nativeFaucetId !== null && token.id === nativeFaucetId
-      ? maxSendableNative(token.balance, verificationBaseFee, token.decimals)
-      : token.balance;
-  }, [token, nativeFaucetId, verificationBaseFee]);
+    if (nativeFaucetId === null || token.id !== nativeFaucetId) return token.balance;
+    const staticCap = maxSendableNative(token.balance, verificationBaseFee, token.decimals);
+    if (burnFeeReserve === undefined) return staticCap;
+    const burnCap = Math.max(0, token.balance - Number(burnFeeReserve) / 10 ** token.decimals);
+    return Math.min(staticCap, burnCap);
+  }, [token, nativeFaucetId, verificationBaseFee, burnFeeReserve]);
 
   // Shown on the Amount step so the quoted "Available" is the number the validation
   // below actually enforces. The form's own `token` keeps the true balance, which is

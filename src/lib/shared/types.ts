@@ -161,7 +161,10 @@ export enum WalletMessageType {
   GetInputNoteDetailsRequest = 'GET_INPUT_NOTE_DETAILS_REQUEST',
   GetInputNoteDetailsResponse = 'GET_INPUT_NOTE_DETAILS_RESPONSE',
   ReportTelemetryEventRequest = 'REPORT_TELEMETRY_EVENT_REQUEST',
-  ReportTelemetryEventResponse = 'REPORT_TELEMETRY_EVENT_RESPONSE'
+  ReportTelemetryEventResponse = 'REPORT_TELEMETRY_EVENT_RESPONSE',
+  // USDCx burn fee dry run (popup → backend)
+  EstimateUsdcxBurnFeeRequest = 'ESTIMATE_USDCX_BURN_FEE_REQUEST',
+  EstimateUsdcxBurnFeeResponse = 'ESTIMATE_USDCX_BURN_FEE_RESPONSE'
 }
 
 export type WalletNotification = StateUpdated | SyncCompleted | NoteClaimStarted;
@@ -354,6 +357,21 @@ export interface ReportTelemetryEventResponse extends WalletMessageBase {
 export interface GetInputNoteDetailsResponse extends WalletMessageBase {
   type: WalletMessageType.GetInputNoteDetailsResponse;
   notes: SerializedInputNoteDetail[];
+}
+
+export interface EstimateUsdcxBurnFeeRequest extends WalletMessageBase {
+  type: WalletMessageType.EstimateUsdcxBurnFeeRequest;
+  /** The account that burns. */
+  accountPublicKey: string;
+  /** The 0x recipient on the destination chain. */
+  destinationAddress: string;
+  destinationChainId: number;
+}
+
+export interface EstimateUsdcxBurnFeeResponse extends WalletMessageBase {
+  type: WalletMessageType.EstimateUsdcxBurnFeeResponse;
+  /** Native-asset base units to hold back for the burn's cost, as a decimal string; null when the dry run failed. */
+  feeReserve: string | null;
 }
 
 export interface GetStateRequest extends WalletMessageBase {
@@ -1286,7 +1304,8 @@ export type WalletRequest =
   | RetryDeadletteredNotesRequest
   | ExportNoteRequest
   | GetInputNoteDetailsRequest
-  | ReportTelemetryEventRequest;
+  | ReportTelemetryEventRequest
+  | EstimateUsdcxBurnFeeRequest;
 
 export type WalletResponse =
   | MidenResponse
@@ -1359,4 +1378,5 @@ export type WalletResponse =
   | RetryDeadletteredNotesResponse
   | ExportNoteResponse
   | GetInputNoteDetailsResponse
-  | ReportTelemetryEventResponse;
+  | ReportTelemetryEventResponse
+  | EstimateUsdcxBurnFeeResponse;

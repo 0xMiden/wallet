@@ -77,6 +77,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
   const storeGetAuthSecretKey = useWalletStore(s => s.getAuthSecretKey);
   const storeGetDAppPayload = useWalletStore(s => s.getDAppPayload);
   const storeSimulateCustomTransaction = useWalletStore(s => s.simulateCustomTransaction);
+  const estimateUsdcxBurnFee = useWalletStore(s => s.estimateUsdcxBurnFee);
   const storeConfirmDAppPermission = useWalletStore(s => s.confirmDAppPermission);
   const storeConfirmDAppSign = useWalletStore(s => s.confirmDAppSign);
   const storeConfirmDAppPrivateNotes = useWalletStore(s => s.confirmDAppPrivateNotes);
@@ -447,6 +448,7 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     getAuthSecretKey,
     getDAppPayload,
     simulateCustomTransaction,
+    estimateUsdcxBurnFee,
     confirmDAppPermission,
     confirmDAppSign,
     confirmDAppDecrypt,

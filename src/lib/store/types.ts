@@ -227,6 +227,12 @@ export interface WalletActions {
   // DApp actions
   getDAppPayload: (id: string) => Promise<any>;
   simulateCustomTransaction: (id: string) => Promise<{ summaryBytes?: string; executedBytes?: string; error?: string }>;
+  /** Native-asset base units a USDCx burn needs for its cost, from a dry run; null when the dry run failed. */
+  estimateUsdcxBurnFee: (
+    accountPublicKey: string,
+    destinationAddress: string,
+    destinationChainId: number
+  ) => Promise<bigint | null>;
   confirmDAppPermission: (
     id: string,
     confirmed: boolean,

@@ -63,6 +63,8 @@ import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
   GuardianRecoveryAction,
   GuardianSyncStatus,
+  EstimateUsdcxBurnFeeRequest,
+  EstimateUsdcxBurnFeeResponse,
   ImportedAccountBackup,
   ReportTelemetryEventRequest,
   ReportTelemetryEventResponse,
@@ -76,6 +78,7 @@ import {
 } from 'lib/shared/types';
 import { resolveTelemetryContext } from 'lib/telemetry/context';
 import { sendEvent } from 'lib/telemetry/sink';
+import { estimateUsdcxBurnFeeReserve } from 'lib/usdcx/burn-fee';
 import { WalletType } from 'screens/onboarding/types';
 
 import { clearRecoveryAuthorization, clearRecoveryAuthorizations } from './recovery-authorization';
@@ -1070,6 +1073,21 @@ export async function handleReportTelemetryEvent(
     await sendEvent(req.event, resolveTelemetryContext());
   }
   return { type: WalletMessageType.ReportTelemetryEventResponse };
+}
+
+/** Dry-run a USDCx burn and answer how much of the native asset its cost needs. Signs and submits nothing. */
+export function estimateUsdcxBurnFee(req: EstimateUsdcxBurnFeeRequest): Promise<EstimateUsdcxBurnFeeResponse> {
+  return withInited(async (): Promise<EstimateUsdcxBurnFeeResponse> => {
+    const feeReserve = await estimateUsdcxBurnFeeReserve(
+      req.accountPublicKey,
+      req.destinationAddress,
+      req.destinationChainId
+    );
+    return {
+      type: WalletMessageType.EstimateUsdcxBurnFeeResponse,
+      feeReserve: feeReserve === null ? null : feeReserve.toString()
+    };
+  });
 }
 
 const VALID_PHASES: readonly string[] = ['started', 'ended', 'settled'];

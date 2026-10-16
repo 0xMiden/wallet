@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.5 (TBD)
+
+### Fixes
+
+- [FIX][all] Max on a USDCx bridge-out holds back the burn's real cost, measured by a dry run of the burn, so a full-balance burn no longer fails with a vault shortfall when it costs more than the static fee reserve.
+
 ## 1.17.4 (2026-10-15)
 
 ### Features

@@ -761,6 +761,17 @@ export const useWalletStore = create<WalletStore>()(
       return { summaryBytes: res.summaryBytes, executedBytes: res.executedBytes, error: res.error };
     },
 
+    estimateUsdcxBurnFee: async (accountPublicKey, destinationAddress, destinationChainId) => {
+      const res = await request({
+        type: WalletMessageType.EstimateUsdcxBurnFeeRequest,
+        accountPublicKey,
+        destinationAddress,
+        destinationChainId
+      });
+      assertResponse(res.type === WalletMessageType.EstimateUsdcxBurnFeeResponse);
+      return res.feeReserve === null ? null : BigInt(res.feeReserve);
+    },
+
     confirmDAppPermission: async (id, confirmed, accountId, privateDataPermission, allowedPrivateData) => {
       const res = await request({
         type: MidenMessageType.DAppPermConfirmationRequest,
