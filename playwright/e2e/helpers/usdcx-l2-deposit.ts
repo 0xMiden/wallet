@@ -12,6 +12,7 @@ import {
   ERC20_ABI,
   onFirstEndpoint,
   pickWriteEndpoint,
+  pinAfterApprove,
   readXReserveDomainState,
   sendSigned,
   simulate,
@@ -121,11 +122,12 @@ export interface L2DepositSubmission {
 }
 
 /**
- * Deposits `units` from the key on `l2` to the Miden account `recipientHex` through runUsdcxExecutorDeposit. Writes go to
- * one endpoint that takes raw transactions, with a local nonce; reads and receipts fail over. Each send is simulated
- * first; after an approve, the burn's simulation and gas estimate run at the approve's block. Returns once the burn is
- * mined. Nothing more is sent once `signal` is aborted. A key whose USDC does not cover the amount plus the quoted fee is
- * refused by the product before the approve, and again after it before the burn.
+ * Deposits `units` from the key on `l2` to the Miden account `recipientHex` through runUsdcxExecutorDeposit. Writes go
+ * to one endpoint that takes raw transactions, with a local nonce; reads and receipts fail over. Each send is simulated
+ * first; after an approve, the burn's simulation and gas estimate run at the later of the approve's block and the write
+ * endpoint's head. Returns once the burn is mined. Nothing more is sent once `signal` is aborted. A key whose USDC does
+ * not cover the amount plus the quoted fee is refused by the product before the approve, and again after it before the
+ * burn.
  */
 export async function submitL2Deposit(
   args: { privateKey: Hex; l2: L2BridgeInSource; units: bigint; recipientHex: string; arc: ArcReadDeps },
@@ -151,7 +153,7 @@ export async function submitL2Deposit(
     return hash;
   };
   let approveHash: Hash | undefined;
-  // Set once the approve is mined; the burn reads state at it (arc-usdcx.ts simulate).
+  // Set once the approve is mined; the burn reads state at it or later (arc-usdcx.ts pinAfterApprove).
   let approveBlock: bigint | undefined;
   // An array, not a `let`: TypeScript keeps a `let` assigned in a callback narrowed to its initial undefined.
   const signedBurns: DepositForBurnWithHookAndFeesArgs[] = [];
@@ -174,6 +176,7 @@ export async function submitL2Deposit(
       return approveHash;
     },
     depositForBurnWithHookAndFees: async burn => {
+      const atBlock = await pinAfterApprove(endpoints.write, reads, approveBlock);
       await simulate(
         'forwarded burn',
         endpoints.write,
@@ -187,7 +190,7 @@ export async function submitL2Deposit(
             args: burn,
             blockNumber
           }),
-        approveBlock
+        atBlock
       );
       signedBurns.push(burn);
       return send(
@@ -198,7 +201,7 @@ export async function submitL2Deposit(
           functionName: 'depositForBurnWithHookAndFees',
           args: burn
         }),
-        approveBlock
+        atBlock
       );
     }
   };

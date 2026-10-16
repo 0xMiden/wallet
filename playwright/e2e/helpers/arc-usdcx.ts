@@ -744,7 +744,7 @@ async function withTransientRetry<T>(
   }
 }
 
-/** Where a failed call ran, for its message: the endpoint, and for a pinned call its block and a node still behind it. */
+/** Where a failed call ran: the endpoint, and for a pinned call its block and a node still behind it. */
 function ranAt(endpoint: string, atBlock: bigint | undefined, error: unknown): string {
   if (atBlock === undefined) return `on ${arcHost(endpoint)}`;
   const behind = isBlockNotReached(error) ? `, still behind it after ${TRANSIENT_RETRIES} retries` : '';
@@ -759,7 +759,7 @@ export function startingAt(endpoints: readonly string[], first: string): string[
   return [first, ...endpoints.filter(endpoint => endpoint !== first)];
 }
 
-/** `read` through withTransientRetry; pinned to `atBlock` (`read`'s blockNumber), also asked again while a node lags. */
+/** `read` through withTransientRetry; pinned to `atBlock` (`read`'s blockNumber), asked again while a node lags. */
 export function chainRead<T>(
   what: string,
   endpoints: readonly string[],
@@ -778,9 +778,9 @@ export function chainRead<T>(
 
 /**
  * `run` on the write endpoint alone, retried there on a transient error. One endpoint URL can be a pool of nodes at
- * different heights, so a call that depends on an approve runs at the approve's block, `atBlock` (`run`'s
- * blockNumber): a node behind it then answers that it lacks the block, which is retried, instead of a revert read from
- * a state without the approve. Shared with usdcx-l2-deposit.ts.
+ * different heights, so a call that depends on an approve runs at `atBlock` (`run`'s blockNumber, from
+ * pinAfterApprove): a node behind it then answers that it lacks the block, which is retried, instead of a revert read
+ * from a state without the approve. Shared with usdcx-l2-deposit.ts.
  */
 export async function simulate(
   what: string,
@@ -802,6 +802,22 @@ export async function simulate(
   );
 }
 
+/**
+ * The block a call that depends on an approve mined in `approveBlock` runs at, read just before its simulation: the
+ * write endpoint's head, or the approve's block when the node that answered is behind the one that gave the receipt. At
+ * the head the call meets the state it will be sent into, so a quote whose deadline passed since the approve is refused
+ * unsent. Undefined, with no read, when there was no approve. Shared with usdcx-l2-deposit.ts.
+ */
+export async function pinAfterApprove(
+  write: string,
+  deps: ArcReadDeps,
+  approveBlock: bigint | undefined
+): Promise<bigint | undefined> {
+  if (approveBlock === undefined) return undefined;
+  const head = await chainRead(`${chainOf(deps).label} head`, [write], deps, client => client.getBlockNumber());
+  return head > approveBlock ? head : approveBlock;
+}
+
 /** Throws in place of a send once `signal` is aborted: an overrun step runs on after its test failed, sending nothing. */
 function refuseSendIfAborted(signal: AbortSignal | undefined, what: string): void {
   if (!signal?.aborted) return;
@@ -812,10 +828,10 @@ function refuseSendIfAborted(signal: AbortSignal | undefined, what: string): voi
 
 /**
  * Signs `tx` and sends it to `endpoints.write`, which takes writes and estimates its gas. The estimate executes the
- * call, so one that depends on an approve runs at the approve's block, `tx.atBlock`, as `simulate` does; the signed
- * transaction names no block. Its fees are reads that fail over across `endpoints.reads`. A send that fails
- * transiently is sent again as the same signed bytes, so the hash cannot change. Nothing is sent, first time or again,
- * once `signal` is aborted.
+ * call, so one that depends on an approve runs at `tx.atBlock`, the block its simulation ran at; the signed transaction
+ * names no block. Its fees are reads that fail over across `endpoints.reads`. A send that fails transiently is sent
+ * again as the same signed bytes, so the hash cannot change. Nothing is sent, first time or again, once `signal` is
+ * aborted.
  */
 export async function sendSigned(
   deps: ArcWriteDeps,
@@ -917,9 +933,9 @@ export async function waitForReceipt(
  * Approve (when asked) and `depositToRemote(units, 10007, recipient, USDC, 0, 0x)` from the key, sent to one write
  * endpoint with a local nonce; reads and receipts fail over to the other endpoints on a rate limit or a timeout. Each
  * call is simulated and its gas estimated on the write endpoint first, so a revert decodes; after an approve, the
- * deposit's simulation and estimate run at the approve's block, so a node of that endpoint still behind it never
- * reports a false one. 'exact' always approves exactly `units`; 'if-short' only when the allowance is short. Once
- * `signal` is aborted (the step ran out of budget) nothing more is sent.
+ * deposit's simulation and estimate run at the later of the approve's block and that endpoint's head, so a node still
+ * behind the approve never reports a false revert. 'exact' always approves exactly `units`; 'if-short' only when the
+ * allowance is short. Once `signal` is aborted (the step ran out of budget) nothing more is sent.
  */
 export async function submitDepositToMiden(
   args: { privateKey: Hex; units: bigint; recipientHex: string; approve: 'exact' | 'if-short' },
@@ -970,6 +986,7 @@ export async function submitDepositToMiden(
     nonce += 1;
     approveBlock = (await waitForReceipt(endpoints.reads, deps, approveHash)).blockNumber;
   }
+  const atBlock = await pinAfterApprove(endpoints.write, deps, approveBlock);
   const depositArgs: readonly [bigint, number, Hex, Address, bigint, Hex] = [
     args.units,
     USDCX_REMOTE_DOMAIN,
@@ -991,7 +1008,7 @@ export async function submitDepositToMiden(
         args: depositArgs,
         blockNumber
       }),
-    approveBlock
+    atBlock
   );
   const depositHash = await sendSigned(
     deps,
@@ -1002,7 +1019,7 @@ export async function submitDepositToMiden(
       to: ARC_XRESERVE,
       data: encodeFunctionData({ abi: XRESERVE_HARNESS_ABI, functionName: 'depositToRemote', args: depositArgs }),
       nonce,
-      atBlock: approveBlock
+      atBlock
     },
     signal
   );

@@ -1521,21 +1521,27 @@ const timedOut = () => new TimeoutError({ body: {}, url: ARC_DRPC_URL });
 /** A node's JSON-RPC error answer, as viem's http transport throws it. */
 const nodeAnswer = (code: number, message: string) =>
   new RpcRequestError({ body: {}, error: { code, message }, url: ARC_DRPC_URL });
-/** The block of every receipt depositChain answers: an approve's, which the deposit's simulation and estimate pin. */
+/** The block of every receipt depositChain answers, so an approve's. */
 const APPROVE_BLOCK = hexToBigInt(hexOf(DEPOSIT_RECEIPT.blockNumber));
+/** depositChain's head by default: past the approve's block, so the deposit's simulation and estimate run at it. */
+const HEAD = APPROVE_BLOCK + 4n;
 
 /**
  * The write side of Arc: a read-only endpoint first, which answers reads but refuses raw transactions, then drpc, which
  * takes them. `faults` lists what drpc answers, in order, before it answers a method normally (an eth_call or
- * eth_estimateGas by its function as `<method> <function>`); `sent` holds every raw transaction drpc was handed, faulted
- * or not, `calls` every request as `<endpoint> <method>`, `pins` each simulation and estimate of an approve or a deposit
- * as `<method> <function> <block>` (`none` when it names no block), and `onCall` sees each request as it arrives.
+ * eth_estimateGas by its function as `<method> <function>`); `sent` holds every raw transaction drpc was handed,
+ * faulted or not, `calls` every request as `<endpoint> <method>`, `pins` each head read as `eth_blockNumber` and each
+ * simulation and estimate of an approve or a deposit as `<method> <function> <block>` (`none` when it names no block),
+ * and `onCall` sees each request as it arrives. The head is `heads` in turn, the last one repeating; `revert` answers a
+ * deposit's eth_call, only past `revertPast` (or at latest) when that is set.
  */
 function depositChain(opts: {
   allowance: bigint;
   revert?: Hex;
+  revertPast?: bigint;
   alreadyKnown?: boolean;
   faults?: Record<string, Error[]>;
+  heads?: bigint[];
   onCall?: (call: string) => void;
 }) {
   const sent: Hex[] = [];
@@ -1543,6 +1549,9 @@ function depositChain(opts: {
   const calls: string[] = [];
   const pins: string[] = [];
   const faults = new Map(Object.entries(opts.faults ?? {}).map(([method, errors]) => [method, [...errors]]));
+  const heads = [...(opts.heads ?? [HEAD])];
+  const reverts = (block: unknown) =>
+    opts.revertPast === undefined || !isHex(block) || hexToBigInt(block) > opts.revertPast;
   const answer =
     (at: 'read-only' | 'drpc'): Rpc =>
     (method, params) => {
@@ -1560,10 +1569,13 @@ function depositChain(opts: {
       if (call && (call.functionName === 'approve' || call.functionName === 'depositToRemote')) {
         pins.push(`${method} ${call.functionName} ${call.block === undefined ? 'none' : String(call.block)}`);
       }
+      if (method === 'eth_blockNumber') pins.push(method);
       const faultKey = call ? `${method} ${call.functionName}` : method;
       const fault = probe ? undefined : (faults.get(faultKey) ?? faults.get(method))?.shift();
       if (fault) throw fault;
       switch (method) {
+        case 'eth_blockNumber':
+          return toHex((heads.length > 1 ? heads.shift() : heads[0]) ?? HEAD);
         case 'eth_chainId':
           return toHex(ARC_CHAIN_ID);
         case 'eth_getTransactionCount':
@@ -1584,7 +1596,7 @@ function depositChain(opts: {
           const call = callOf(params);
           if (call.functionName === 'allowance') return encodeUint(opts.allowance);
           if (call.functionName === 'approve') return encodeBool(true);
-          if (opts.revert) throw rpcError(3, 'execution reverted', opts.revert);
+          if (opts.revert && reverts(call.block)) throw rpcError(3, 'execution reverted', opts.revert);
           return '0x';
         }
         case 'eth_sendRawTransaction': {
@@ -1661,13 +1673,43 @@ describe('submitDepositToMiden', () => {
     expect(chain.pins).toEqual(['eth_call depositToRemote latest', 'eth_estimateGas depositToRemote none']);
   });
 
-  // One endpoint URL is a pool of nodes, and one behind the approve reads a short allowance at its own latest.
-  it("simulates and estimates the deposit at the approve's block, the approve itself at latest", async () => {
-    const chain = depositChain({ allowance: 0n });
+  // Only a pinned call can meet a node that lacks its block; unpinned, the answer is the node's own failure.
+  it("fails an unpinned deposit simulation answered 'block not found' at once, as a revert", async () => {
+    const chain = depositChain({
+      allowance: DEPOSIT_UNITS,
+      faults: { 'eth_call depositToRemote': [nodeAnswer(-32001, 'block not found')] }
+    });
+    await expect(
+      submitDepositToMiden({ privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'if-short' }, chain.deps)
+    ).rejects.toThrow('xReserve depositToRemote would revert on rpc.drpc.testnet.arc.io: ');
+    expect(chain.pins).toEqual(['eth_call depositToRemote latest']);
+    expect([chain.sent, chain.clock.slept]).toEqual([[], []]);
+  });
+
+  // One endpoint URL is a pool of nodes: one behind the approve reads a short allowance at its own latest, and the
+  // approve's block alone misses state changed since. The head is read once, so the estimate runs where the
+  // simulation did.
+  it("simulates and estimates the deposit at the head past the approve's block, the approve at latest", async () => {
+    const chain = depositChain({ allowance: 0n, heads: [HEAD, HEAD + 3n] });
     await submitDepositToMiden({ privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'exact' }, chain.deps);
     expect(chain.pins).toEqual([
       'eth_call approve latest',
       'eth_estimateGas approve none',
+      'eth_blockNumber',
+      `eth_call depositToRemote ${toHex(HEAD)}`,
+      `eth_estimateGas depositToRemote ${toHex(HEAD)}`
+    ]);
+    expect(chain.calls.filter(call => call.endsWith('eth_blockNumber'))).toEqual(['drpc eth_blockNumber']);
+  });
+
+  // The receipt came from a node ahead of the one that answered the head read.
+  it("simulates and estimates the deposit at the approve's block when the head read is behind it", async () => {
+    const chain = depositChain({ allowance: 0n, heads: [APPROVE_BLOCK - 2n] });
+    await submitDepositToMiden({ privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'exact' }, chain.deps);
+    expect(chain.pins).toEqual([
+      'eth_call approve latest',
+      'eth_estimateGas approve none',
+      'eth_blockNumber',
       `eth_call depositToRemote ${toHex(APPROVE_BLOCK)}`,
       `eth_estimateGas depositToRemote ${toHex(APPROVE_BLOCK)}`
     ]);
@@ -1676,7 +1718,7 @@ describe('submitDepositToMiden', () => {
   // What Arc's endpoints answered on 2026-10-16 for a block past their head.
   it.each([
     ['drpc', 26, 'Unknown block'],
-    ['QuickNode and arc.io', -32001, `block not found: ${toHex(APPROVE_BLOCK)}`]
+    ['QuickNode and arc.io', -32001, `block not found: ${toHex(HEAD)}`]
   ])(
     "asks the deposit's simulation and estimate again while a node on %s lacks the block",
     async (_on, code, message) => {
@@ -1693,8 +1735,8 @@ describe('submitDepositToMiden', () => {
       );
       expect(submission.depositHash).toBe(keccak256(chain.sent[1] ?? '0x'));
       expect(chain.pins.filter(pin => pin.includes('depositToRemote'))).toEqual([
-        ...Array(2).fill(`eth_call depositToRemote ${toHex(APPROVE_BLOCK)}`),
-        ...Array(2).fill(`eth_estimateGas depositToRemote ${toHex(APPROVE_BLOCK)}`)
+        ...Array(2).fill(`eth_call depositToRemote ${toHex(HEAD)}`),
+        ...Array(2).fill(`eth_estimateGas depositToRemote ${toHex(HEAD)}`)
       ]);
       expect(chain.clock.slept).toEqual([2_000, 2_000]);
     }
@@ -1703,19 +1745,17 @@ describe('submitDepositToMiden', () => {
   it.each([
     ['simulation', 'eth_call depositToRemote', 'xReserve depositToRemote could not be simulated'],
     ['gas estimate', 'eth_estimateGas depositToRemote', 'Arc gas estimate']
-  ])("fails a deposit %s whose node stays behind the approve's block, naming the block", async (_what, call, head) => {
+  ])('fails a deposit %s whose node stays behind its pinned block, naming the block', async (_what, call, head) => {
     const behind = () => nodeAnswer(26, 'Unknown block');
     const chain = depositChain({ allowance: 0n, faults: { [call]: [behind(), behind(), behind(), behind()] } });
     await expect(
       submitDepositToMiden({ privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'exact' }, chain.deps)
-    ).rejects.toThrow(
-      `${head} at block ${APPROVE_BLOCK} on rpc.drpc.testnet.arc.io, still behind it after 3 retries: `
-    );
+    ).rejects.toThrow(`${head} at block ${HEAD} on rpc.drpc.testnet.arc.io, still behind it after 3 retries: `);
     expect(chain.sent).toHaveLength(1);
     expect(chain.clock.slept).toEqual([2_000, 4_000, 8_000]);
   });
 
-  it("reports an allowance revert at the approve's block as a revert, at once", async () => {
+  it('reports an allowance revert at the pinned block as a revert, at once', async () => {
     const short = nodeAnswer(3, 'execution reverted: ERC20: transfer amount exceeds allowance');
     const chain = depositChain({ allowance: 0n, faults: { 'eth_call depositToRemote': [short] } });
     const failure = submitDepositToMiden(
@@ -1723,10 +1763,28 @@ describe('submitDepositToMiden', () => {
       chain.deps
     );
     await expect(failure).rejects.toThrow(
-      `xReserve depositToRemote would revert at block ${APPROVE_BLOCK} on rpc.drpc.testnet.arc.io: `
+      `xReserve depositToRemote would revert at block ${HEAD} on rpc.drpc.testnet.arc.io: `
     );
     await expect(failure).rejects.toThrow('transfer amount exceeds allowance');
     expect(chain.pins.filter(pin => pin.startsWith('eth_call depositToRemote'))).toHaveLength(1);
+    expect([chain.sent.length, chain.clock.slept]).toEqual([1, []]);
+  });
+
+  // The node runs the deposit at its head, so a refusal that began after the approve's block must fail here, unsent.
+  it("reports a refusal that came after the approve's block as a revert at the head, sending no deposit", async () => {
+    const paused = encodeErrorResult({ abi: XRESERVE_HARNESS_ABI, errorName: 'DomainDepositsPaused', args: [10007] });
+    const chain = depositChain({ allowance: 0n, revert: paused, revertPast: APPROVE_BLOCK });
+    const failure = submitDepositToMiden(
+      { privateKey: key, units: DEPOSIT_UNITS, recipientHex, approve: 'exact' },
+      chain.deps
+    );
+    await expect(failure).rejects.toThrow(
+      `xReserve depositToRemote would revert at block ${HEAD} on rpc.drpc.testnet.arc.io: `
+    );
+    await expect(failure).rejects.toThrow('DomainDepositsPaused(10007)');
+    expect(chain.pins.filter(pin => pin.includes('depositToRemote'))).toEqual([
+      `eth_call depositToRemote ${toHex(HEAD)}`
+    ]);
     expect([chain.sent.length, chain.clock.slept]).toEqual([1, []]);
   });
 
