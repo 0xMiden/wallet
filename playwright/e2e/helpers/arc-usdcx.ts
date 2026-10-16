@@ -88,7 +88,10 @@ const PAYOUT_POLL_MS = 5_000;
 const HEAD_LAG_BUDGET_MS = 60_000;
 const RECEIPT_TIMEOUT_MS = 120_000;
 const RECEIPT_POLL_MS = 1_000;
-/** A deposit leg's call is asked again at most this often after a transient error, 2, 4 and 8 s apart. */
+/**
+ * A deposit leg's call is asked again at most this often, 2, 4 and 8 s apart, after a transient error or, when it is
+ * pinned to a block, a node behind that block.
+ */
 const TRANSIENT_RETRIES = 3;
 const TRANSIENT_BACKOFF_MS = 2_000;
 const DEPOSIT_INTENT_MAGIC: Hex = '0x5a2e0acd';
@@ -148,6 +151,19 @@ function isTransientArcError(error: unknown): boolean {
     if (code === -32005 || code === 429) return true;
   }
   return false;
+}
+
+/**
+ * A call pinned to a block the answering node has not reached, as the harness's endpoints word it (2026-10-16): `block
+ * not found` (Base Sepolia's three, QuickNode, arc.io), `unsupported block number` (Arbitrum's own RPC), `header not
+ * found` (Arbitrum's publicnode, and Tenderly as code 3, which viem reports as a revert), `Unknown block` (drpc).
+ */
+function isBlockNotReached(error: unknown): boolean {
+  return /block not found|unsupported block number|header not found|unknown block/i.test(errorText(error));
+}
+
+function retriesAt(atBlock: bigint | undefined): (error: unknown) => boolean {
+  return error => isTransientArcError(error) || (atBlock !== undefined && isBlockNotReached(error));
 }
 
 /** An Arc endpoint as evidence and messages name it: an operator's URL may carry its API key in the path or query. */
@@ -700,17 +716,20 @@ export async function pickWriteEndpoint(deps: ArcWriteDeps): Promise<string> {
 }
 
 /**
- * `call` on `endpoints[0]`, asked again at most TRANSIENT_RETRIES times after a transient error, each time after a
- * doubling backoff and on the next of `endpoints` (the same one when there is one). Any other error, and the last
- * transient one, is thrown at once through `failure`, which names the endpoint. `before` runs ahead of each attempt,
- * outside the retry, so what it throws ends the call as it is.
+ * `call` on `endpoints[0]`, asked again at most TRANSIENT_RETRIES times after an error `retryable` takes (by default a
+ * transient one), each time after a doubling backoff and on the next of `endpoints` (the same one when there is one).
+ * Any other error, and the last retried one, is thrown at once through `failure`, which names the endpoint. `before`
+ * runs ahead of each attempt, outside the retry, so what it throws ends the call as it is.
  */
 async function withTransientRetry<T>(
   endpoints: readonly string[],
   deps: ArcReadDeps,
   call: (client: PublicClient, attempt: number) => Promise<T>,
   failure: (endpoint: string, error: unknown) => Error,
-  before?: (attempt: number) => void
+  {
+    before,
+    retryable = isTransientArcError
+  }: { before?: (attempt: number) => void; retryable?: (error: unknown) => boolean } = {}
 ): Promise<T> {
   const clock = deps.clock ?? realArcClock;
   for (let attempt = 0; ; attempt++) {
@@ -719,10 +738,17 @@ async function withTransientRetry<T>(
     try {
       return await call(clientFor(deps)(endpoint), attempt);
     } catch (error) {
-      if (!isTransientArcError(error) || attempt >= TRANSIENT_RETRIES) throw failure(endpoint, error);
+      if (!retryable(error) || attempt >= TRANSIENT_RETRIES) throw failure(endpoint, error);
       await clock.sleep(TRANSIENT_BACKOFF_MS * 2 ** attempt);
     }
   }
+}
+
+/** Where a failed call ran, for its message: the endpoint, and for a pinned call its block and a node still behind it. */
+function ranAt(endpoint: string, atBlock: bigint | undefined, error: unknown): string {
+  if (atBlock === undefined) return `on ${arcHost(endpoint)}`;
+  const behind = isBlockNotReached(error) ? `, still behind it after ${TRANSIENT_RETRIES} retries` : '';
+  return `at block ${atBlock} on ${arcHost(endpoint)}${behind}`;
 }
 
 /**
@@ -733,34 +759,47 @@ export function startingAt(endpoints: readonly string[], first: string): string[
   return [first, ...endpoints.filter(endpoint => endpoint !== first)];
 }
 
+/** `read` through withTransientRetry; pinned to `atBlock` (`read`'s blockNumber), also asked again while a node lags. */
 export function chainRead<T>(
   what: string,
   endpoints: readonly string[],
   deps: ArcReadDeps,
-  read: (client: PublicClient) => Promise<T>
+  read: (client: PublicClient, blockNumber: bigint | undefined) => Promise<T>,
+  atBlock?: bigint
 ): Promise<T> {
   return withTransientRetry(
     endpoints,
     deps,
-    read,
-    (endpoint, error) => new Error(`${what} on ${arcHost(endpoint)}: ${errorText(error)}`, { cause: error })
+    client => read(client, atBlock),
+    (endpoint, error) => new Error(`${what} ${ranAt(endpoint, atBlock, error)}: ${errorText(error)}`, { cause: error }),
+    { retryable: retriesAt(atBlock) }
   );
 }
 
 /**
- * `run` on the write endpoint alone, retried there on a transient error: another endpoint may not hold the approve.
- * Shared with usdcx-l2-deposit.ts and usdcx-cctp-proof.ts.
+ * `run` on the write endpoint alone, retried there on a transient error. One endpoint URL can be a pool of nodes at
+ * different heights, so a call that depends on an approve runs at the approve's block, `atBlock` (`run`'s
+ * blockNumber): a node behind it then answers that it lacks the block, which is retried, instead of a revert read from
+ * a state without the approve. Shared with usdcx-l2-deposit.ts.
  */
 export async function simulate(
   what: string,
   write: string,
   deps: ArcReadDeps,
-  run: (client: PublicClient) => Promise<unknown>
+  run: (client: PublicClient, blockNumber: bigint | undefined) => Promise<unknown>,
+  atBlock?: bigint
 ): Promise<void> {
-  await withTransientRetry([write], deps, run, (endpoint, error) => {
-    const outcome = isTransientArcError(error) ? 'could not be simulated' : 'would revert';
-    return new Error(`${what} ${outcome} on ${arcHost(endpoint)}: ${errorText(error)}`, { cause: error });
-  });
+  const retryable = retriesAt(atBlock);
+  await withTransientRetry(
+    [write],
+    deps,
+    client => run(client, atBlock),
+    (endpoint, error) => {
+      const outcome = retryable(error) ? 'could not be simulated' : 'would revert';
+      return new Error(`${what} ${outcome} ${ranAt(endpoint, atBlock, error)}: ${errorText(error)}`, { cause: error });
+    },
+    { retryable }
+  );
 }
 
 /** Throws in place of a send once `signal` is aborted: an overrun step runs on after its test failed, sending nothing. */
@@ -772,20 +811,26 @@ function refuseSendIfAborted(signal: AbortSignal | undefined, what: string): voi
 }
 
 /**
- * Signs `tx` and sends it to `endpoints.write`, which takes writes and estimates its gas, since the estimate executes
- * it; its fees are reads that fail over across `endpoints.reads`. A send that fails transiently is sent again as the
- * same signed bytes, so the hash cannot change. Nothing is sent, first time or again, once `signal` is aborted.
+ * Signs `tx` and sends it to `endpoints.write`, which takes writes and estimates its gas. The estimate executes the
+ * call, so one that depends on an approve runs at the approve's block, `tx.atBlock`, as `simulate` does; the signed
+ * transaction names no block. Its fees are reads that fail over across `endpoints.reads`. A send that fails
+ * transiently is sent again as the same signed bytes, so the hash cannot change. Nothing is sent, first time or again,
+ * once `signal` is aborted.
  */
 export async function sendSigned(
   deps: ArcWriteDeps,
   endpoints: { write: string; reads: readonly string[] },
   account: PrivateKeyAccount,
-  tx: { what: string; to: Address; data: Hex; nonce: number },
+  tx: { what: string; to: Address; data: Hex; nonce: number; atBlock?: bigint },
   signal: AbortSignal | undefined
 ): Promise<Hash> {
   const { chainId, label } = chainOf(deps);
-  const gas = await chainRead(`${label} gas estimate`, [endpoints.write], deps, client =>
-    client.estimateGas({ account: account.address, to: tx.to, data: tx.data })
+  const gas = await chainRead(
+    `${label} gas estimate`,
+    [endpoints.write],
+    deps,
+    (client, blockNumber) => client.estimateGas({ account: account.address, to: tx.to, data: tx.data, blockNumber }),
+    tx.atBlock
   );
   const fees = await chainRead(`${label} fee estimate`, endpoints.reads, deps, client => client.estimateFeesPerGas());
   const serializedTransaction = await account.signTransaction({
@@ -819,7 +864,7 @@ export async function sendSigned(
       new Error(`${label} transaction ${hash} was not sent on ${arcHost(endpoint)}: ${errorText(error)}`, {
         cause: error
       }),
-    attempt => refuseSendIfAborted(signal, attempt === 0 ? tx.what : `${tx.what} resend of ${hash}`)
+    { before: attempt => refuseSendIfAborted(signal, attempt === 0 ? tx.what : `${tx.what} resend of ${hash}`) }
   );
   return hash;
 }
@@ -871,10 +916,10 @@ export async function waitForReceipt(
 /**
  * Approve (when asked) and `depositToRemote(units, 10007, recipient, USDC, 0, 0x)` from the key, sent to one write
  * endpoint with a local nonce; reads and receipts fail over to the other endpoints on a rate limit or a timeout. Each
- * call is simulated and its gas estimated on the write endpoint first, so a revert decodes and an endpoint behind the
- * approve never reports a false one; the approve is mined before the deposit's simulation reads its allowance. 'exact'
- * always approves exactly `units`; 'if-short' only when the allowance is short. Once `signal` is aborted (the step ran
- * out of budget) nothing more is sent.
+ * call is simulated and its gas estimated on the write endpoint first, so a revert decodes; after an approve, the
+ * deposit's simulation and estimate run at the approve's block, so a node of that endpoint still behind it never
+ * reports a false one. 'exact' always approves exactly `units`; 'if-short' only when the allowance is short. Once
+ * `signal` is aborted (the step ran out of budget) nothing more is sent.
  */
 export async function submitDepositToMiden(
   args: { privateKey: Hex; units: bigint; recipientHex: string; approve: 'exact' | 'if-short' },
@@ -899,6 +944,7 @@ export async function submitDepositToMiden(
   );
   const approved = args.approve === 'exact' || allowance < args.units;
   let approveHash: Hash | undefined;
+  let approveBlock: bigint | undefined;
   if (approved) {
     await simulate('USDC approve', endpoints.write, deps, client =>
       client.simulateContract({
@@ -922,7 +968,7 @@ export async function submitDepositToMiden(
       signal
     );
     nonce += 1;
-    await waitForReceipt(endpoints.reads, deps, approveHash);
+    approveBlock = (await waitForReceipt(endpoints.reads, deps, approveHash)).blockNumber;
   }
   const depositArgs: readonly [bigint, number, Hex, Address, bigint, Hex] = [
     args.units,
@@ -932,14 +978,20 @@ export async function submitDepositToMiden(
     0n,
     '0x'
   ];
-  await simulate('xReserve depositToRemote', endpoints.write, deps, client =>
-    client.simulateContract({
-      account: account.address,
-      address: ARC_XRESERVE,
-      abi: XRESERVE_HARNESS_ABI,
-      functionName: 'depositToRemote',
-      args: depositArgs
-    })
+  await simulate(
+    'xReserve depositToRemote',
+    endpoints.write,
+    deps,
+    (client, blockNumber) =>
+      client.simulateContract({
+        account: account.address,
+        address: ARC_XRESERVE,
+        abi: XRESERVE_HARNESS_ABI,
+        functionName: 'depositToRemote',
+        args: depositArgs,
+        blockNumber
+      }),
+    approveBlock
   );
   const depositHash = await sendSigned(
     deps,
@@ -949,7 +1001,8 @@ export async function submitDepositToMiden(
       what: 'xReserve depositToRemote',
       to: ARC_XRESERVE,
       data: encodeFunctionData({ abi: XRESERVE_HARNESS_ABI, functionName: 'depositToRemote', args: depositArgs }),
-      nonce
+      nonce,
+      atBlock: approveBlock
     },
     signal
   );

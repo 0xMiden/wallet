@@ -11,6 +11,7 @@ import {
   isHex,
   keccak256,
   parseTransaction,
+  RpcRequestError,
   toHex,
   type Hex,
   type PublicClient
@@ -34,11 +35,17 @@ const RECIPIENT = midenAccountHexToXReserveRecipient(RECIPIENT_HEX);
 const QUOTE: CctpBurnQuote = { signedQuote: '0x0102', feeTotalAmount: 22_404n };
 const REQUOTE: CctpBurnQuote = { signedQuote: '0x0304', feeTotalAmount: 22_500n };
 const CALL_ABI = [...ERC20_ABI, ...TOKEN_MESSENGER_WITH_FEES_ABI];
+const RECEIPT_BLOCK = 48_206_800n;
+const PINNED = toHex(RECEIPT_BLOCK);
+
+function l2On(chainId: number): L2BridgeInSource {
+  const found = L2_BRIDGE_IN_SOURCES.find(l2 => l2.payout.chainId === chainId);
+  if (!found) throw new Error(`L2_BRIDGE_IN_SOURCES lost chain ${chainId}`);
+  return found;
+}
 
 function baseSepolia(): L2BridgeInSource {
-  const found = L2_BRIDGE_IN_SOURCES.find(l2 => l2.payout.chainId === 84532);
-  if (!found) throw new Error('L2_BRIDGE_IN_SOURCES lost Base Sepolia');
-  return found;
+  return l2On(84532);
 }
 
 function dataOf(params: readonly unknown[]): Hex {
@@ -48,14 +55,46 @@ function dataOf(params: readonly unknown[]): Hex {
   return data;
 }
 
+/** A node's JSON-RPC error answer, as viem's http transport throws it. */
+function nodeAnswer(code: number, message: string): RpcRequestError {
+  return new RpcRequestError({ body: {}, error: { code, message }, url: 'https://l2.example' });
+}
+
+function fakeClock() {
+  const slept: number[] = [];
+  return {
+    slept,
+    now: () => 0,
+    sleep: async (ms: number) => {
+      slept.push(ms);
+    }
+  };
+}
+
 /**
  * One L2 behind a stub EIP-1193 provider: viem's own encoding, signing and decoding run, the chain answers are canned.
- * `balanceReads` keeps the calldata of every balanceOf read, so a test can tell whose balance the deposit read.
+ * `balanceReads` keeps the calldata of every balanceOf read, so a test can tell whose balance the deposit read. `pins`
+ * lists each simulation and estimate of an approve or a burn as `<method> <function> <block>`, the block `none` when the
+ * call names none; `faults`, keyed `<method> <function>`, are thrown in order before such a call answers normally.
+ * Every receipt is in RECEIPT_BLOCK.
  */
-function l2Chain(l2: L2BridgeInSource, opts: { allowance: bigint; usdc?: bigint; servedChainId?: number }) {
+function l2Chain(
+  l2: L2BridgeInSource,
+  opts: { allowance: bigint; usdc?: bigint; servedChainId?: number; faults?: Record<string, Error[]> }
+) {
   const sent: Hex[] = [];
   const balanceReads: Hex[] = [];
+  const pins: string[] = [];
+  const faults = new Map(Object.entries(opts.faults ?? {}).map(([call, errors]) => [call, [...errors]]));
   const rpc = (method: string, params: readonly unknown[]): unknown => {
+    if (method === 'eth_call' || method === 'eth_estimateGas') {
+      const { functionName } = decodeFunctionData({ abi: CALL_ABI, data: dataOf(params) });
+      if (functionName === 'approve' || functionName === 'depositForBurnWithHookAndFees') {
+        pins.push(`${method} ${functionName} ${params[1] === undefined ? 'none' : String(params[1])}`);
+        const fault = faults.get(`${method} ${functionName}`)?.shift();
+        if (fault) throw fault;
+      }
+    }
     switch (method) {
       case 'eth_chainId':
         return toHex(opts.servedChainId ?? l2.payout.chainId);
@@ -94,7 +133,13 @@ function l2Chain(l2: L2BridgeInSource, opts: { allowance: bigint; usdc?: bigint;
         return keccak256(raw);
       }
       case 'eth_getTransactionReceipt':
-        return { ...arcVectors.deposit.receipt, transactionHash: params[0], logs: [], status: '0x1' };
+        return {
+          ...arcVectors.deposit.receipt,
+          transactionHash: params[0],
+          blockNumber: toHex(RECEIPT_BLOCK),
+          logs: [],
+          status: '0x1'
+        };
       default:
         throw new Error(`unexpected ${method}`);
     }
@@ -111,7 +156,7 @@ function l2Chain(l2: L2BridgeInSource, opts: { allowance: bigint; usdc?: bigint;
       { retryCount: 0 }
     )
   });
-  return { sent, balanceReads, publicClient: () => client };
+  return { sent, balanceReads, pins, publicClient: () => client };
 }
 
 function quotesInTurn(...quotes: CctpBurnQuote[]) {
@@ -182,6 +227,101 @@ describe('submitL2Deposit', () => {
 
     expect(chain.sent.map(raw => parseTransaction(raw).nonce)).toEqual([7]);
     expect([submission.approveHash, submission.quotes, chain.balanceReads.length]).toEqual([undefined, [QUOTE], 1]);
+    expect(chain.pins).toEqual([
+      'eth_call depositForBurnWithHookAndFees latest',
+      'eth_estimateGas depositForBurnWithHookAndFees none'
+    ]);
+  });
+
+  const depositOn = (l2: L2BridgeInSource, chain: ReturnType<typeof l2Chain>, clock = fakeClock()) =>
+    submitL2Deposit(
+      { privateKey: KEY, l2, units: DEPOSIT_UNITS, recipientHex: RECIPIENT_HEX, arc: { endpoints: [] } },
+      {
+        publicClient: chain.publicClient,
+        clock,
+        isRemoteDomainRegistered: async () => true,
+        fetchQuote: quotesInTurn(QUOTE, REQUOTE)
+      }
+    );
+
+  // One endpoint URL is a pool of nodes, and one behind the approve reads a short allowance at its own latest.
+  it("simulates and estimates the burn at the approve's block, the approve itself at latest", async () => {
+    const l2 = baseSepolia();
+    const chain = l2Chain(l2, { allowance: 0n });
+
+    await depositOn(l2, chain);
+
+    expect(chain.pins).toEqual([
+      'eth_call approve latest',
+      'eth_estimateGas approve none',
+      `eth_call depositForBurnWithHookAndFees ${PINNED}`,
+      `eth_estimateGas depositForBurnWithHookAndFees ${PINNED}`
+    ]);
+  });
+
+  // What each L2 endpoint answered on 2026-10-16 for a block past its head; Tenderly's code 3 reads as a revert to viem.
+  it.each([
+    ['Base Sepolia', 84532, -32001, `block not found: ${PINNED}`],
+    ["Arbitrum Sepolia's own RPC", 421614, -32000, `unsupported block number ${RECEIPT_BLOCK}`],
+    ["Arbitrum Sepolia's publicnode", 421614, -32000, 'header not found'],
+    ["Arbitrum Sepolia's Tenderly", 421614, 3, 'header not found']
+  ])(
+    "asks the burn's simulation and estimate again while a node on %s lacks the block",
+    async (_on, chainId, code, message) => {
+      const l2 = l2On(chainId);
+      const chain = l2Chain(l2, {
+        allowance: 0n,
+        faults: {
+          'eth_call depositForBurnWithHookAndFees': [nodeAnswer(code, message)],
+          'eth_estimateGas depositForBurnWithHookAndFees': [nodeAnswer(code, message)]
+        }
+      });
+      const clock = fakeClock();
+
+      const submission = await depositOn(l2, chain, clock);
+
+      expect(submission.burnHash).toBe(keccak256(chain.sent[1] ?? '0x'));
+      expect(chain.pins.filter(pin => pin.includes('depositForBurnWithHookAndFees'))).toEqual([
+        `eth_call depositForBurnWithHookAndFees ${PINNED}`,
+        `eth_call depositForBurnWithHookAndFees ${PINNED}`,
+        `eth_estimateGas depositForBurnWithHookAndFees ${PINNED}`,
+        `eth_estimateGas depositForBurnWithHookAndFees ${PINNED}`
+      ]);
+      expect(clock.slept).toEqual([2_000, 2_000]);
+    }
+  );
+
+  it("fails a burn whose node stays behind the approve's block, naming the block and the endpoint", async () => {
+    const l2 = baseSepolia();
+    const behind = () => nodeAnswer(-32001, `block not found: ${PINNED}`);
+    const chain = l2Chain(l2, {
+      allowance: 0n,
+      faults: { 'eth_call depositForBurnWithHookAndFees': [behind(), behind(), behind(), behind()] }
+    });
+    const clock = fakeClock();
+
+    await expect(depositOn(l2, chain, clock)).rejects.toThrow(
+      `forwarded burn could not be simulated at block ${RECEIPT_BLOCK} on base-sepolia-rpc.publicnode.com, ` +
+        'still behind it after 3 retries: '
+    );
+    expect(chain.sent).toHaveLength(1);
+    expect(clock.slept).toEqual([2_000, 4_000, 8_000]);
+  });
+
+  it("reports an allowance revert at the approve's block as a revert, at once", async () => {
+    const l2 = baseSepolia();
+    const short = nodeAnswer(3, 'execution reverted: ERC20: transfer amount exceeds allowance');
+    const chain = l2Chain(l2, { allowance: 0n, faults: { 'eth_call depositForBurnWithHookAndFees': [short] } });
+    const clock = fakeClock();
+
+    const failure = depositOn(l2, chain, clock);
+
+    await expect(failure).rejects.toThrow(
+      `forwarded burn would revert at block ${RECEIPT_BLOCK} on base-sepolia-rpc.publicnode.com: `
+    );
+    await expect(failure).rejects.toThrow('transfer amount exceeds allowance');
+    expect(chain.pins.filter(pin => pin.startsWith('eth_call depositForBurnWithHookAndFees'))).toHaveLength(1);
+    expect([chain.sent.length, clock.slept]).toEqual([1, []]);
   });
 
   // The product's own check (#1498), past the spec's l2_key step: the burn pulls Circle's fee on top of the amount.

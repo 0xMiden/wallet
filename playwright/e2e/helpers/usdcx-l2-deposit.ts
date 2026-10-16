@@ -123,8 +123,9 @@ export interface L2DepositSubmission {
 /**
  * Deposits `units` from the key on `l2` to the Miden account `recipientHex` through runUsdcxExecutorDeposit. Writes go to
  * one endpoint that takes raw transactions, with a local nonce; reads and receipts fail over. Each send is simulated
- * first. Returns once the burn is mined. Nothing more is sent once `signal` is aborted. A key whose USDC does not cover
- * the amount plus the quoted fee is refused by the product before the approve, and again after it before the burn.
+ * first; after an approve, the burn's simulation and gas estimate run at the approve's block. Returns once the burn is
+ * mined. Nothing more is sent once `signal` is aborted. A key whose USDC does not cover the amount plus the quoted fee is
+ * refused by the product before the approve, and again after it before the burn.
  */
 export async function submitL2Deposit(
   args: { privateKey: Hex; l2: L2BridgeInSource; units: bigint; recipientHex: string; arc: ArcReadDeps },
@@ -144,12 +145,14 @@ export async function submitL2Deposit(
   let nonce = await chainRead(`${l2.payout.label} nonce`, endpoints.reads, reads, client =>
     client.getTransactionCount({ address: account.address, blockTag: 'pending' })
   );
-  const send = async (what: string, to: Address, data: Hex): Promise<Hash> => {
-    const hash = await sendSigned(reads, endpoints, account, { what, to, data, nonce }, signal);
+  const send = async (what: string, to: Address, data: Hex, atBlock?: bigint): Promise<Hash> => {
+    const hash = await sendSigned(reads, endpoints, account, { what, to, data, nonce, atBlock }, signal);
     nonce += 1;
     return hash;
   };
   let approveHash: Hash | undefined;
+  // Set once the approve is mined; the burn reads state at it (arc-usdcx.ts simulate).
+  let approveBlock: bigint | undefined;
   // An array, not a `let`: TypeScript keeps a `let` assigned in a callback narrowed to its initial undefined.
   const signedBurns: DepositForBurnWithHookAndFeesArgs[] = [];
   const signer: UsdcxExecutorSigner = {
@@ -171,14 +174,20 @@ export async function submitL2Deposit(
       return approveHash;
     },
     depositForBurnWithHookAndFees: async burn => {
-      await simulate('forwarded burn', endpoints.write, reads, client =>
-        client.simulateContract({
-          account: account.address,
-          address: l2.source.tokenMessengerWithFees,
-          abi: TOKEN_MESSENGER_WITH_FEES_ABI,
-          functionName: 'depositForBurnWithHookAndFees',
-          args: burn
-        })
+      await simulate(
+        'forwarded burn',
+        endpoints.write,
+        reads,
+        (client, blockNumber) =>
+          client.simulateContract({
+            account: account.address,
+            address: l2.source.tokenMessengerWithFees,
+            abi: TOKEN_MESSENGER_WITH_FEES_ABI,
+            functionName: 'depositForBurnWithHookAndFees',
+            args: burn,
+            blockNumber
+          }),
+        approveBlock
       );
       signedBurns.push(burn);
       return send(
@@ -188,7 +197,8 @@ export async function submitL2Deposit(
           abi: TOKEN_MESSENGER_WITH_FEES_ABI,
           functionName: 'depositForBurnWithHookAndFees',
           args: burn
-        })
+        }),
+        approveBlock
       );
     }
   };
@@ -221,7 +231,8 @@ export async function submitL2Deposit(
         })
       ),
     waitForReceipt: async hash => {
-      await waitForReceipt(endpoints.reads, reads, hash);
+      const { blockNumber } = await waitForReceipt(endpoints.reads, reads, hash);
+      if (hash === approveHash) approveBlock = blockNumber;
     },
     updatePhase: async (...write) => {
       writes.push(write);
