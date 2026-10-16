@@ -144,6 +144,28 @@ export function isUsdcxForwardQuoteUnavailableError(error: unknown): error is Us
   return error instanceof UsdcxForwardQuoteUnavailableError;
 }
 
+/**
+ * The source USDC balance does not cover the amount plus Circle's quoted fee, which the burn pulls on top of the
+ * amount. Raised before the approval and the burn prompt, so no gas was spent. All three values are in base units.
+ */
+export class UsdcxExecutorBalanceTooLowError extends Error {
+  readonly needed: bigint;
+  readonly fee: bigint;
+  readonly balance: bigint;
+
+  constructor(needed: bigint, fee: bigint, balance: bigint) {
+    super(`The burn needs ${needed} USDC base units, the amount plus a fee of ${fee}, but the balance is ${balance}`);
+    this.name = 'UsdcxExecutorBalanceTooLowError';
+    this.needed = needed;
+    this.fee = fee;
+    this.balance = balance;
+  }
+}
+
+export function isUsdcxExecutorBalanceTooLowError(error: unknown): error is UsdcxExecutorBalanceTooLowError {
+  return error instanceof UsdcxExecutorBalanceTooLowError;
+}
+
 /** The argument tuple of `TokenMessengerWithFees.depositForBurnWithHookAndFees`. */
 export type DepositForBurnWithHookAndFeesArgs = readonly [
   amount: bigint,
@@ -226,6 +248,8 @@ export interface UsdcxExecutorDepositDeps {
   isRemoteDomainRegistered(remoteDomain: number): Promise<boolean>;
   /** The source USDC allowance the depositor gave `spender`, in base units. */
   readAllowance(spender: Address): Promise<bigint>;
+  /** The depositor's source USDC balance, in base units. */
+  readBalance(): Promise<bigint>;
   waitForReceipt(hash: Hash): Promise<void>;
   updatePhase: typeof updateBridgedReceivePhase;
   /** Circle's quote for the forwarded burn; `quoteExecutorBurn` unless a test supplies one. */
@@ -236,14 +260,16 @@ export interface UsdcxExecutorDepositDeps {
  * Run the source-chain leg of an executor-route bridge-in against the tracking row `trackingTxId`.
  *
  * Order: check Arc's xReserve has Miden registered (the executor would otherwise revert the whole execution
- * after the burn), read the fee entry point's allowance, ask Circle for a quote, then approve and burn. The burn
- * goes through the fee entry point for the amount plus the fee and Circle forwards and executes it on Arc. When
- * Circle refuses or cannot be reached, the deposit fails with `UsdcxForwardQuoteUnavailableError` before any
- * wallet prompt, since a burn through the plain token messenger is not forwarded and would stop at the executor.
- * The approval is sent only when the allowance is short, the hash and the signed recipient are recorded on the
- * row before the receipt is awaited, and the row then moves to `delivering`.
+ * after the burn), read the fee entry point's allowance and the balance, ask Circle for a quote, then approve and
+ * burn. The burn goes through the fee entry point for the amount plus the fee and Circle forwards and executes it on
+ * Arc. When Circle refuses or cannot be reached, the deposit fails with `UsdcxForwardQuoteUnavailableError` before
+ * any wallet prompt, since a burn through the plain token messenger is not forwarded and would stop at the executor.
+ * A balance short of the amount plus the quoted fee fails it with `UsdcxExecutorBalanceTooLowError`, also before any
+ * prompt. The approval is sent only when the allowance is short, the hash and the signed recipient are recorded on
+ * the row before the receipt is awaited, and the row then moves to `delivering`.
  * Nothing here waits for Circle. A quote lives about two minutes, so after an approval the burn signs a second
- * quote; the approval covers twice the quoted fee, and a fee beyond that fails the deposit the same way.
+ * quote; the approval covers twice the quoted fee, and a fee beyond that fails the deposit the same way. The second
+ * fee is held to the balance again before the burn prompt.
  */
 export async function runUsdcxExecutorDeposit(
   trackingTxId: string,
@@ -255,6 +281,7 @@ export async function runUsdcxExecutorDeposit(
     signer,
     isRemoteDomainRegistered,
     readAllowance,
+    readBalance,
     waitForReceipt,
     updatePhase,
     fetchQuote = intent => quoteExecutorBurn(source, intent)
@@ -275,16 +302,24 @@ export async function runUsdcxExecutorDeposit(
     }
   };
 
-  // The allowance is read before the quote, so after a quote only an approval (followed by a second quote), the
-  // signer's bounded fee read and the burn prompt remain. At most one approval goes to the fee entry point, for twice
-  // the quoted fee so a fee that moved by the second quote is still covered; a fee beyond that, or no second quote,
-  // fails the deposit before the burn prompt.
+  // The allowance and the balance are read before the quote, so after a quote only an approval (followed by a second
+  // quote), the signer's bounded fee read and the burn prompt remain. At most one approval goes to the fee entry point,
+  // for twice the quoted fee so a fee that moved by the second quote is still covered; a fee beyond that, or no second
+  // quote, fails the deposit before the burn prompt. An approval moves no USDC, so one balance read serves both quotes.
   const feeAllowance = await readAllowance(source.tokenMessengerWithFees);
+  const balance = await readBalance();
+  const ensureBalanceCovers = ({ feeTotalAmount }: CctpBurnQuote) => {
+    if (balance < intent.value + feeTotalAmount) {
+      throw new UsdcxExecutorBalanceTooLowError(intent.value + feeTotalAmount, feeTotalAmount, balance);
+    }
+  };
   let quote = await quoteOrFail();
+  ensureBalanceCovers(quote);
   if (feeAllowance < intent.value + quote.feeTotalAmount) {
     const approvedSpend = intent.value + 2n * quote.feeTotalAmount;
     await waitForReceipt(await signer.approve(source.tokenMessengerWithFees, approvedSpend));
     quote = await quoteOrFail();
+    ensureBalanceCovers(quote);
     if (intent.value + quote.feeTotalAmount > approvedSpend) {
       throw new UsdcxForwardQuoteUnavailableError('the fee of the second quote is more than the approval covers');
     }

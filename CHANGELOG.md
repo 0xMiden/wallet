@@ -5,6 +5,7 @@
 ### Fixes
 
 - [FIX][all] Opening the wallet no longer builds and syncs a second SDK client on the wallet's store: the React SDK provider, unused since #911, ran a full sync on every page open beside the wallet's own sync and imports, and an import interleaved with it could leave the store's chain data inconsistent, failing every later sync and import. The wallet no longer depends on `@miden-sdk/react`. This stops new damage; a store that is already damaged is not repaired by this change (#1493).
+- [FIX][all] A USDCx bridge-in from Ethereum, Base or Arbitrum whose USDC balance does not cover the amount plus Circle's quoted fee is refused before the approval and the burn prompt, instead of paying gas for the approval and then failing at the burn. Once the fee is shown, the route and review steps hold Confirm and say to lower the amount by the fee or add USDC.
 
 ## 1.17.4 (2026-10-15)
 

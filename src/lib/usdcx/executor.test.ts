@@ -19,8 +19,10 @@ import {
   encodeExecutorPayload,
   encodeHookFrame,
   encodeXReserveDepositCalldata,
+  isUsdcxExecutorBalanceTooLowError,
   isUsdcxForwardQuoteUnavailableError,
   runUsdcxExecutorDeposit,
+  UsdcxExecutorBalanceTooLowError,
   UsdcxExecutorDepositDeps,
   UsdcxForwardQuoteUnavailableError
 } from './executor';
@@ -173,6 +175,10 @@ function makeDeps(overrides: Partial<UsdcxExecutorDepositDeps> = {}) {
       calls.push('readAllowance');
       return 0n;
     }),
+    readBalance: jest.fn(async () => {
+      calls.push('readBalance');
+      return 10_000_000n;
+    }),
     waitForReceipt: jest.fn(async (hash: string) => {
       calls.push(`receipt:${hash === APPROVE_HASH ? 'approve' : 'burn'}`);
     }),
@@ -190,11 +196,12 @@ describe('runUsdcxExecutorDeposit', () => {
 
     await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(BURN_HASH);
 
-    // The allowance read comes before the quote, so no read sits between a quote and its burn; the approval prompt and
-    // its receipt can outlast a quote that lives about two minutes, so it is asked again after the approval.
+    // The allowance and balance reads come before the quote, so no read sits between a quote and its burn; the approval
+    // prompt and its receipt can outlast a quote that lives about two minutes, so it is asked again after the approval.
     expect(calls).toEqual([
       'isRemoteDomainRegistered',
       'readAllowance',
+      'readBalance',
       'quote',
       'approve',
       'receipt:approve',
@@ -262,7 +269,7 @@ describe('runUsdcxExecutorDeposit', () => {
     expect(error).toBeInstanceOf(UsdcxForwardQuoteUnavailableError);
     expect(isUsdcxForwardQuoteUnavailableError(error)).toBe(true);
     expect(error).toMatchObject({ cause: refusal });
-    expect(calls).toEqual(['isRemoteDomainRegistered', 'readAllowance', 'quote']);
+    expect(calls).toEqual(['isRemoteDomainRegistered', 'readAllowance', 'readBalance', 'quote']);
     expect(deps.signer.approve).not.toHaveBeenCalled();
     expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
     expect(deps.updatePhase).not.toHaveBeenCalled();
@@ -276,6 +283,7 @@ describe('runUsdcxExecutorDeposit', () => {
     expect(deps.signer.approve).not.toHaveBeenCalled();
     expect(calls).toEqual([
       'isRemoteDomainRegistered',
+      'readBalance',
       'quote',
       'depositForBurnWithHookAndFees',
       'phase:submitting',
@@ -385,6 +393,75 @@ describe('runUsdcxExecutorDeposit', () => {
     expect(deps.fetchQuote).not.toHaveBeenCalled();
     expect(deps.signer.approve).not.toHaveBeenCalled();
     expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
+  });
+
+  it('fails before the quote when the balance read fails', async () => {
+    const { deps } = makeDeps({
+      readBalance: jest.fn(async () => {
+        throw new Error('rpc down');
+      })
+    });
+
+    await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).rejects.toThrow('rpc down');
+
+    expect(deps.fetchQuote).not.toHaveBeenCalled();
+    expect(deps.signer.approve).not.toHaveBeenCalled();
+    expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
+  });
+
+  // The burn pulls Circle's fee on top of the amount, so a balance that covers only the amount paid gas for the
+  // approval and then failed at the burn. Refused before the first prompt, whether that is the approval or the burn.
+  it.each([
+    ['the approval', 0n],
+    ['the burn', 1_500_000n + QUOTE.feeTotalAmount]
+  ])('refuses before %s when the balance covers the amount but not the fee', async (_prompt, allowance) => {
+    const balance = 1_500_000n + QUOTE.feeTotalAmount - 1n;
+    const { deps, calls } = makeDeps({
+      readAllowance: jest.fn(async () => allowance),
+      readBalance: jest.fn(async () => balance)
+    });
+
+    const error: unknown = await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps).catch(caught => caught);
+
+    expect(error).toBeInstanceOf(UsdcxExecutorBalanceTooLowError);
+    expect(isUsdcxExecutorBalanceTooLowError(error)).toBe(true);
+    expect(error).toMatchObject({ needed: 1_500_000n + QUOTE.feeTotalAmount, fee: QUOTE.feeTotalAmount, balance });
+    expect(calls).toEqual(['isRemoteDomainRegistered', 'quote']);
+    expect(deps.signer.approve).not.toHaveBeenCalled();
+    expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
+    expect(deps.updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('approves and burns when the balance is exactly the amount plus the fee', async () => {
+    const { deps } = makeDeps({ readBalance: jest.fn(async () => 1_500_000n + QUOTE.feeTotalAmount) });
+
+    await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(BURN_HASH);
+
+    expect(deps.signer.approve).toHaveBeenCalledTimes(1);
+    expect(deps.signer.depositForBurnWithHookAndFees).toHaveBeenCalledTimes(1);
+  });
+
+  // The fee can move between the two quotes: a second fee the approval still covers but the balance does not is
+  // refused before the burn prompt.
+  it("refuses before the burn prompt when the second quote's fee rises past the balance", async () => {
+    const rose: CctpBurnQuote = { ...REQUOTE, feeTotalAmount: 40_000n };
+    const { deps, calls } = makeDeps({
+      readBalance: jest.fn(async () => 1_535_000n),
+      fetchQuote: jest.fn(async () => {
+        calls.push('quote');
+        return calls.filter(call => call === 'quote').length > 1 ? rose : QUOTE;
+      })
+    });
+
+    const error: unknown = await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps).catch(caught => caught);
+
+    expect(error).toBeInstanceOf(UsdcxExecutorBalanceTooLowError);
+    expect(error).toMatchObject({ needed: 1_540_000n, fee: 40_000n, balance: 1_535_000n });
+    expect(jest.mocked(deps.signer.approve).mock.calls).toEqual([
+      [SOURCE.tokenMessengerWithFees, 1_500_000n + 2n * QUOTE.feeTotalAmount]
+    ]);
+    expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
+    expect(deps.updatePhase).not.toHaveBeenCalled();
   });
 
   it('approves when the allowance covers the amount but not the fee', async () => {

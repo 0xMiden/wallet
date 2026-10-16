@@ -7,12 +7,14 @@ import { TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { AgglayerChainConfig } from 'lib/remote-config/schema';
+import type { CctpBurnQuote } from 'lib/usdcx/cctp';
 import { runUsdcxDeposit } from 'lib/usdcx/deposit';
 import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import {
   buildExecutorBurnIntent,
   quoteExecutorBurn,
   runUsdcxExecutorDeposit,
+  UsdcxExecutorBalanceTooLowError,
   UsdcxForwardQuoteUnavailableError
 } from 'lib/usdcx/executor';
 import { NativeSessionChainNotApprovedError, prepareNativeSessionChain } from 'lib/walletconnect/native';
@@ -141,11 +143,15 @@ jest.mock('lib/usdcx/executor', () => ({
   // The route card's display quote; Circle is not reached from this suite.
   buildExecutorBurnIntent: jest.fn().mockReturnValue({ value: 1_500_000n, destinationCaller: '0x', hookData: '0x' }),
   quoteExecutorBurn: jest.fn().mockRejectedValue(new Error('no quote in tests')),
-  // The real refusal, so the screen's error mapping can be tested with the real error class.
+  // The real refusals, so the screen's error mapping can be tested with the real error classes.
   isUsdcxForwardQuoteUnavailableError:
     jest.requireActual<typeof import('lib/usdcx/executor')>('lib/usdcx/executor').isUsdcxForwardQuoteUnavailableError,
   UsdcxForwardQuoteUnavailableError:
-    jest.requireActual<typeof import('lib/usdcx/executor')>('lib/usdcx/executor').UsdcxForwardQuoteUnavailableError
+    jest.requireActual<typeof import('lib/usdcx/executor')>('lib/usdcx/executor').UsdcxForwardQuoteUnavailableError,
+  isUsdcxExecutorBalanceTooLowError:
+    jest.requireActual<typeof import('lib/usdcx/executor')>('lib/usdcx/executor').isUsdcxExecutorBalanceTooLowError,
+  UsdcxExecutorBalanceTooLowError:
+    jest.requireActual<typeof import('lib/usdcx/executor')>('lib/usdcx/executor').UsdcxExecutorBalanceTooLowError
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -233,7 +239,9 @@ jest.mock('./EvmBridgeDepositReview', () => {
       label,
       route,
       fee,
-      sourceChainId
+      sourceChainId,
+      canConfirm,
+      error
     }: {
       onConfirm: () => void;
       symbol: string;
@@ -241,9 +249,13 @@ jest.mock('./EvmBridgeDepositReview', () => {
       route: Parameters<typeof actual.arrivingTokenName>[0];
       fee?: string;
       sourceChainId?: number;
+      canConfirm?: boolean;
+      error?: string;
     }) => (
       <div>
         {fee && <span data-testid="review-fee">{fee}</span>}
+        <span data-testid="review-error">{error}</span>
+        <span data-testid="review-can-confirm">{String(canConfirm)}</span>
         <span data-testid="review-source">{String(sourceChainId)}</span>
         <span data-testid="review-symbols">{`${symbol}->${actual.arrivingTokenName(route, symbol, label ?? symbol)}`}</span>
         <button data-testid="confirm-deposit" onClick={onConfirm}>
@@ -865,6 +877,142 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       expect.anything()
     );
     expect(screen.queryByTestId('usdcx-route-fee')).toBeNull();
+  });
+
+  /** The refusal of a 1.5 USDC deposit and Circle's 31,908-unit fee against `balance`, as the suite's `t` prints it. */
+  const feeAboveBalance = (balance: string) =>
+    `usdcxDepositFeeAboveBalance ${JSON.stringify({
+      total: '1.531908',
+      fee: '0.031908',
+      balance,
+      token: 'USDC',
+      network: 'Sepolia'
+    })}`;
+  const FEE_QUOTE: CctpBurnQuote = { signedQuote: '0x01', feeTotalAmount: 31_908n };
+  const BASE_SEPOLIA_USDC = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
+  const BALANCE_OF_SELECTOR = toFunctionSelector('balanceOf(address)');
+
+  // The executor refuses a balance short of the amount plus the fee before any prompt; the row says what the deposit
+  // needs and what to do about it.
+  it("fails the row with the fee-above-balance message when the balance cannot pay Circle's fee", async () => {
+    jest
+      .mocked(runUsdcxExecutorDeposit)
+      .mockRejectedValueOnce(new UsdcxExecutorBalanceTooLowError(1_531_908n, 31_908n, 1_520_000n));
+    renderScreen();
+    await reachBaseSepoliaRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(mockWriteContract).not.toHaveBeenCalled();
+    expect(mockNativeSend).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
+      error: feeAboveBalance('1.52')
+    });
+  });
+
+  it('hands the executor a read of the Circle USDC balance on the source chain', async () => {
+    mockBalance = 2_000_000n;
+    const read: { value?: bigint; requests?: unknown[] } = {};
+    jest.mocked(runUsdcxExecutorDeposit).mockImplementationOnce(async (_id, _amount, _recipient, deps) => {
+      const before = jest.mocked(global.fetch).mock.calls.length;
+      read.value = await deps.readBalance();
+      read.requests = jest
+        .mocked(global.fetch)
+        .mock.calls.slice(before)
+        .map(([url, init]) => [url, JSON.parse(String(init?.body ?? '{}')).params?.[0]]);
+      return `0x${'2'.repeat(64)}`;
+    });
+    renderScreen();
+    await reachBaseSepoliaRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(read.value).toBe(2_000_000n);
+    expect(read.requests).toEqual([
+      [
+        'https://rpc.test/84532',
+        { to: BASE_SEPOLIA_USDC, data: expect.stringMatching(new RegExp(`^${BALANCE_OF_SELECTOR}`)) }
+      ]
+    ]);
+  });
+
+  // The burn pulls Circle's fee on top of the amount, so once the fee is on screen Confirm holds on a balance that
+  // covers only the amount, with the words the deposit would fail with.
+  it('holds the route card on an amount whose displayed fee takes it past the balance', async () => {
+    jest.mocked(quoteExecutorBurn).mockResolvedValue(FEE_QUOTE);
+    mockBalance = TYPED + FEE_QUOTE.feeTotalAmount - 1n;
+    renderScreen();
+    await reachBaseSepoliaRoute();
+
+    expect(screen.getByTestId('usdcx-route-fee')).toHaveTextContent('usdcxForwardFee');
+    expect(screen.getByTestId('usdcx-route-notice').textContent).toBe(feeAboveBalance('1.531907'));
+    expect(screen.getByTestId('usdcx-route-confirm')).toBeDisabled();
+  });
+
+  it('holds the review and says why when the fee lands after the route card', async () => {
+    let answerQuote: (quote: CctpBurnQuote) => void = () => undefined;
+    jest.mocked(quoteExecutorBurn).mockImplementation(
+      () =>
+        new Promise<CctpBurnQuote>(resolve => {
+          answerQuote = resolve;
+        })
+    );
+    mockBalance = TYPED + FEE_QUOTE.feeTotalAmount - 1n;
+    renderScreen();
+    await reachBaseSepoliaRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    expect(screen.getByTestId('review-can-confirm')).toHaveTextContent(/^true$/);
+
+    await act(async () => answerQuote(FEE_QUOTE));
+    await settle();
+
+    expect(screen.getByTestId('review-fee')).toHaveTextContent('0.031908');
+    expect(screen.getByTestId('review-error').textContent).toBe(feeAboveBalance('1.531907'));
+    expect(screen.getByTestId('review-can-confirm')).toHaveTextContent(/^false$/);
+  });
+
+  it('runs an executor deposit whose amount plus the displayed fee is exactly the balance', async () => {
+    jest.mocked(quoteExecutorBurn).mockResolvedValue(FEE_QUOTE);
+    mockBalance = TYPED + FEE_QUOTE.feeTotalAmount;
+    renderScreen();
+    await reachBaseSepoliaRoute();
+
+    expect(screen.getByTestId('usdcx-route-notice').textContent).toBe(
+      `usdcxExecutorRouteNotice ${JSON.stringify({ source: 'Base Sepolia', target: 'Arc Testnet' })}`
+    );
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    expect(screen.getByTestId('review-error')).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(runUsdcxExecutorDeposit).toHaveBeenCalledTimes(1);
+    expect(updateBridgedReceivePhase).not.toHaveBeenCalledWith('bridge-tx', 'failed', expect.anything());
+  });
+
+  // xReserve takes no fee: Circle is never asked, and a deposit of the whole balance runs.
+  it('runs an Arc deposit of the whole balance with no Circle fee to cover', async () => {
+    jest.mocked(quoteExecutorBurn).mockResolvedValue(FEE_QUOTE);
+    mockBalance = TYPED;
+    renderScreen();
+    await reachUsdcxRoute();
+
+    expect(screen.queryByTestId('usdcx-route-fee')).toBeNull();
+    expect(screen.getByTestId('usdcx-route-confirm')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(quoteExecutorBurn).not.toHaveBeenCalled();
+    expect(runUsdcxDeposit).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(runUsdcxDeposit).mock.calls[0][3]).not.toHaveProperty('readBalance');
+    expect(updateBridgedReceivePhase).not.toHaveBeenCalledWith('bridge-tx', 'failed', expect.anything());
   });
 
   // The reconciler re-derives the recipient with the same helper, so the bytes a deposit signs are the bytes Circle's
