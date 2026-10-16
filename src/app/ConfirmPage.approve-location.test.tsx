@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { useAccount, useMidenContext } from 'lib/miden/front';
+import { useRetryableSWR } from 'lib/swr';
 import { captureCrash } from 'lib/telemetry/crash';
 import { Provider as WoozieProvider } from 'lib/woozie';
 
@@ -24,6 +25,9 @@ jest.mock('lib/miden/front', () => ({
   useAccount: jest.fn(),
   MIDEN_METADATA: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
 }));
+
+// The payload is served synchronously, so the test waits on nothing but the approval itself.
+jest.mock('lib/swr', () => ({ useRetryableSWR: jest.fn() }));
 
 // The window is unlocked here, so its unlock screen and lockout bookkeeping are off this path.
 jest.mock('app/pages/Unlock', () => ({
@@ -62,11 +66,8 @@ let consoleErrorSpy: jest.SpyInstance;
 beforeEach(() => {
   jest.clearAllMocks();
   confirmDAppTransaction.mockResolvedValue(undefined);
-  (useMidenContext as jest.Mock).mockReturnValue({
-    ready: true,
-    getDAppPayload: async ([id]: [string]) => payloads[id],
-    confirmDAppTransaction
-  });
+  (useMidenContext as jest.Mock).mockReturnValue({ ready: true, confirmDAppTransaction });
+  (useRetryableSWR as jest.Mock).mockImplementation(([id]: [string]) => ({ data: payloads[id] }));
   (useAccount as jest.Mock).mockReturnValue({ name: 'Main', publicKey: 'mtst1account_ABCDpub', isPublic: true });
   consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -88,7 +89,7 @@ describe('ConfirmPage after an approved transaction', () => {
       </WoozieProvider>
     );
 
-    const accept = await screen.findByTestId(acceptId);
+    const accept = screen.getByTestId(acceptId);
     await act(async () => {
       fireEvent.click(accept);
     });

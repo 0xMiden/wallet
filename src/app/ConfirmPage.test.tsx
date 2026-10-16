@@ -55,13 +55,6 @@ jest.mock('lib/miden/front', () => ({
   MIDEN_METADATA: { decimals: 6, symbol: 'MIDEN', name: 'Miden' }
 }));
 
-const mockGetAllUncompletedTransactions = jest.fn(async () => [] as unknown[]);
-// `lib/miden/activity` re-exports the whole transaction pipeline (guardian +
-// miden-chain constants); mock it so this UI test doesn't drag that graph in.
-jest.mock('lib/miden/activity', () => ({
-  getAllUncompletedTransactions: () => mockGetAllUncompletedTransactions()
-}));
-
 jest.mock('lib/miden-chain/constants', () => ({
   getNetworkId: jest.fn(() => 'testnet')
 }));
@@ -88,8 +81,7 @@ jest.mock('lib/swr', () => ({
 }));
 
 jest.mock('lib/woozie', () => ({
-  useLocation: jest.fn(),
-  navigate: jest.fn()
+  useLocation: jest.fn()
 }));
 
 // Layout/boundary wrappers: render children so `ConfirmDAppForm` mounts.
