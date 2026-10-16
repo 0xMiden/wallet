@@ -50,8 +50,8 @@ const ANSWERS = {
   nativeAsset: { id: '0x4cbdcaffe75f0a317482224dae6436', bytes32: REMOTE_TOKEN },
   cliInstall: { status: 0, stdout: 'Installed package `miden-client-cli`\n/stub/cli/bin/miden-client\n' },
   exitCodes: { build: 0, test: 0 },
-  // L2 hosts (rpc.walletconnect.org included) whose every request fails as a network error, hosts that report
-  // Sepolia's chain, and lowercase addresses with no code on either L2.
+  // Payout chain hosts (rpc.walletconnect.org included) whose every request fails as a network error, hosts that
+  // report mainnet's chain, and lowercase addresses with no code on any of them.
   l2Down: [],
   l2WrongChain: [],
   l2NoCode: [],
@@ -59,6 +59,8 @@ const ANSWERS = {
   l2Wei: '0x2386f26fc10000',
   l2GasPrice: '0x5b8d80',
   l2UsdcUnits: '1977802',
+  // The harness key's USDC on Ethereum Sepolia: the 9,999 units that let Circle's forwarder mint there (2026-10-16).
+  sepoliaUsdcUnits: '9999',
   // Every L2 endpoint's answer to the empty raw transaction: a decode failure, so it takes writes.
   l2RawTransaction: { code: -32602, message: 'failed to decode signed transaction' },
   irisFees: [
@@ -111,30 +113,29 @@ function arcAnswer({ method, params }) {
 
 const isArc = host => host.endsWith('.arc.io') || host.startsWith('arc-rpc.');
 
-// The harness's L2 endpoints by host; the wallet's own RPC names its chain in the query.
+// The harness's payout chain endpoints by host; the wallet's own RPC names its chain in the query.
 const L2_HOSTS = {
   'base-sepolia-rpc.publicnode.com': 84532,
   'base-sepolia.gateway.tenderly.co': 84532,
   'sepolia.base.org': 84532,
   'sepolia-rollup.arbitrum.io': 421614,
   'arbitrum-sepolia-rpc.publicnode.com': 421614,
-  'arbitrum-sepolia.gateway.tenderly.co': 421614
+  'arbitrum-sepolia.gateway.tenderly.co': 421614,
+  'ethereum-sepolia-rpc.publicnode.com': 11155111,
+  'sepolia.gateway.tenderly.co': 11155111
 };
 function l2ChainOf({ host, searchParams }) {
   if (host === 'rpc.walletconnect.org') return Number((searchParams.get('chainId') ?? '').replace('eip155:', ''));
   return L2_HOSTS[host];
 }
 
-function l2Answer(chainId, { method, params }) {
+const unavailable = method => ({
+  error: { code: -32601, message: `the method ${method} does not exist/is not available` }
+});
+
+/** The harness key's reads on an L2 usdcx-in-l2 deposits from. */
+function l2KeyAnswer({ method, params }) {
   switch (method) {
-    case 'eth_chainId':
-      return { result: `0x${chainId.toString(16)}` };
-    case 'eth_blockNumber':
-      return { result: '0x2' };
-    case 'eth_getCode':
-      return { result: answers.l2NoCode.includes(String(params[0]).toLowerCase()) ? '0x' : '0x6080' };
-    case 'eth_sendRawTransaction':
-      return { error: answers.l2RawTransaction };
     case 'eth_getBalance':
       return { result: answers.l2Wei };
     case 'eth_gasPrice':
@@ -144,7 +145,31 @@ function l2Answer(chainId, { method, params }) {
         ? { result: word(BigInt(answers.l2UsdcUnits).toString(16)) }
         : { error: { code: 3, message: 'reverted' } };
     default:
-      return { error: { code: -32601, message: `the method ${method} does not exist/is not available` } };
+      return unavailable(method);
+  }
+}
+
+// Ethereum Sepolia's USDC, where usdcx-burn-l2's preflight reads the harness key's balance.
+const SEPOLIA_USDC = '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238';
+
+function l2Answer(chainId, call) {
+  const { method, params } = call;
+  switch (method) {
+    case 'eth_chainId':
+      return { result: `0x${chainId.toString(16)}` };
+    case 'eth_blockNumber':
+      return { result: '0x2' };
+    case 'eth_getCode':
+      return { result: answers.l2NoCode.includes(String(params[0]).toLowerCase()) ? '0x' : '0x6080' };
+    case 'eth_sendRawTransaction':
+      return { error: answers.l2RawTransaction };
+    default:
+      // publicnode's Sepolia is also the bridge suites' default Sepolia RPC, which reads its funded key's balances.
+      if (chainId !== 11155111) return l2KeyAnswer(call);
+      if (method === 'eth_call' && String(params[0]?.to).toLowerCase() === SEPOLIA_USDC) {
+        return { result: word(BigInt(answers.sepoliaUsdcUnits).toString(16)) };
+      }
+      return Object.hasOwn(RPC_RESULTS, method) ? { result: RPC_RESULTS[method] } : unavailable(method);
   }
 }
 
@@ -165,7 +190,7 @@ global.fetch = async (input, init = {}) => {
   const l2 = call ? l2ChainOf(new URL(url)) : undefined;
   if (l2 !== undefined) {
     if (answers.l2Down.includes(host)) throw new TypeError('fetch failed');
-    const chainId = answers.l2WrongChain.includes(host) ? 11155111 : l2;
+    const chainId = answers.l2WrongChain.includes(host) ? 1 : l2;
     return json({ jsonrpc: '2.0', id: call.id, ...l2Answer(chainId, call) });
   }
   if (call) return json({ jsonrpc: '2.0', id: call.id, result: RPC_RESULTS[call.method] });

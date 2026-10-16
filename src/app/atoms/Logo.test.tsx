@@ -12,15 +12,8 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
-// The title logo is a PNG. The jest `\.(png|...)$` moduleNameMapper resolves it
-// to the shared file stub ('test-file-stub'), so no explicit mock is needed -
-// but we assert against that value below.
-//
-// The plain logo is imported as `app/misc/logo.svg?url`, which resolves through
-// jest's `\.svg\?url$` mapper to that same file stub. The virtual mock is kept
-// so the import has a distinct, assertable value and the two branches can be
-// told apart.
-jest.mock('app/misc/logo.svg?url', () => 'plain-logo-url-stub', { virtual: true });
+// The title logo is a PNG, which jest's `\.(png|...)$` mapper resolves to 'test-file-stub'. The plain logo is
+// `app/misc/logo.svg?url`, which the `\.svg\?url$` mapper resolves to 'svg-url-stub', so the two branches differ.
 
 const getImg = (container: HTMLElement) => container.querySelector('img') as HTMLImageElement;
 
@@ -30,8 +23,8 @@ describe('Logo', () => {
 
     const img = getImg(container);
     expect(img).toBeInTheDocument();
-    // hasTitle falsy → PlainLogo (the virtual svg?url stub).
-    expect(img).toHaveAttribute('src', 'plain-logo-url-stub');
+    // hasTitle falsy → PlainLogo (the svg?url stub).
+    expect(img).toHaveAttribute('src', 'svg-url-stub');
     // t('appName') → 'appName' via the mocked translator.
     expect(img).toHaveAttribute('title', 'appName');
     expect(img).toHaveAttribute('alt', 'appName');
