@@ -1117,6 +1117,7 @@
   "usdcxReceived": "O USDCx foi cunhado no Miden e sua carteira o recebeu.",
   "usdcxExecutorRouteNotice": "O USDC é queimado em $source$ e cunhado para o executor da Circle em $target$, que o deposita na xReserve para a Miden. A Circle cobra sua taxa além do valor, e a Circle executa a transferência em $target$.",
   "usdcxForwardQuoteUnavailable": "A Circle não conseguiu calcular o valor dessa transferência no momento. Nada foi enviado. Tente novamente daqui a pouco.",
+  "usdcxDepositFeeAboveBalance": "Este depósito requer $total$ $token$ na $network$: o valor mais a taxa da Circle de $fee$ $token$. Sua carteira conectada contém $balance$ $token$. Reduza o valor pela taxa ou adicione $token$ à sua carteira.",
   "usdcxCctpAwaitingAttestation": "A queima foi confirmada. Aguardando que a Circle ateste a transferência antes que ela possa ser executada na $network$.",
   "usdcxExecuteNeeded": "A Circle atestou a transferência. Execute-a na $network$ para depositar o USDC na xReserve para Miden. Isso requer uma pequena quantidade de gas na $network$.",
   "usdcxExecuteOnNetwork": "Executar em $network$",

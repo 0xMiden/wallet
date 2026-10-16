@@ -1117,6 +1117,7 @@
   "usdcxReceived": "USDCx, Miden'de basıldı ve cüzdanınıza aktarıldı.",
   "usdcxExecutorRouteNotice": "USDC, $source$ üzerinde yakılır ve $target$ üzerinde Circle'ın yürütücüsüne basılır; bu da onu Miden için xReserve'e yatırır. Circle, tutara ek olarak ücretini alır ve Circle, $target$ üzerinde transferi gerçekleştirir.",
   "usdcxForwardQuoteUnavailable": "Circle şu anda bu transfer için fiyat belirleyemedi. Hiçbir şey gönderilmedi. Bir süre sonra tekrar deneyin.",
+  "usdcxDepositFeeAboveBalance": "Bu para yatırma işlemi için $network$ ağında $total$ $token$ gereklidir: bu tutara Circle’ın $fee$ $token$ tutarındaki ücreti eklenir. Bağlı cüzdanınızda $balance$ $token$ bulunmaktadır. Tutarı ücret kadar azaltın veya cüzdanınıza $token$ ekleyin.",
   "usdcxCctpAwaitingAttestation": "Yakma işlemi onaylandı. $network$ üzerinde gerçekleştirilebilmesi için Circle'ın transferi onaylamasını bekliyoruz.",
   "usdcxExecuteNeeded": "Circle, transferi onayladı. Miden için USDC'yi xReserve'e yatırmak üzere bunu $network$ üzerinde gerçekleştirin. Bunun için $network$ üzerinde az miktarda gaz gereklidir.",
   "usdcxExecuteOnNetwork": "$network$ üzerinde yürüt",
