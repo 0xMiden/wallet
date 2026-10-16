@@ -7,7 +7,7 @@ import { signHotDigest as fallbackSignHotDigest } from 'lib/secure-hot-key/jsFal
 import { signHotDigest as nativeSignHotDigest } from 'lib/secure-hot-key/nativePlugin';
 
 import { captureCrash } from './crash';
-import { reportTransactionFailure } from './transaction-failure';
+import { FAILURE_REASONS, HOT_KEY_CODES, reportTransactionFailure } from './transaction-failure';
 
 jest.mock('./crash', () => ({ captureCrash: jest.fn() }));
 jest.mock('lib/secure-hot-key/nativePlugin', () => ({ signHotDigest: jest.fn() }));
@@ -230,6 +230,25 @@ it.each(nativeHotKeyCodes())('reports the native HotKey plugin code %s', async c
 it('reads the native code list it checks against', () => {
   expect(nativeHotKeyCodes()).toEqual(expect.arrayContaining(['HARDWARE_UNAVAILABLE', 'USER_CANCELLED']));
   expect(nativeHotKeyCodes().length).toBeGreaterThanOrEqual(12);
+});
+
+const crashReportPolicy = (): string => {
+  const policy = readFileSync(join(REPO_ROOT, 'docs/privacy/index.md'), 'utf8');
+  const section = policy.slice(policy.indexOf('### Crash reports'));
+  return section.slice(0, section.indexOf('\n#', 1));
+};
+
+it.each([...FAILURE_REASONS, ...GUARDIAN_ERROR_CODES, ...HOT_KEY_CODES, 'other', 'none'])(
+  'the privacy policy lists the reportable value %s',
+  value => {
+    expect(crashReportPolicy()).toContain(`\`${value}\``);
+  }
+);
+
+it('the privacy policy states the Guardian HTTP status range and its fallback', () => {
+  const sentence = /[^.]*\bHTTP status\b[^.]*\./.exec(crashReportPolicy())?.[0] ?? '';
+  expect(sentence).toMatch(/\b100\b[^.]*\b599\b/);
+  expect(sentence).toContain('`other`');
 });
 
 it('never makes a telemetry failure escape into the transaction', async () => {

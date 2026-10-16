@@ -19,7 +19,7 @@ export interface TransactionFailureDiagnostics {
   accountAuthCode?: 'current_guardian' | 'unrecognized' | 'unavailable';
 }
 
-const FAILURE_REASONS = [
+export const FAILURE_REASONS = [
   'user_cancelled',
   'interrupted_on_startup',
   'stuck_reaped',
@@ -58,7 +58,7 @@ function diagnostic<T extends string>(value: unknown, allowed: readonly T[], fal
 }
 
 // Every code HotKeyPlugin.kt and HotKeyPlugin.swift reject with.
-const HOT_KEY_CODES = [
+export const HOT_KEY_CODES = [
   'AUTH_FAILED',
   'AUTH_UNAVAILABLE',
   'BAD_CIPHERTEXT',
