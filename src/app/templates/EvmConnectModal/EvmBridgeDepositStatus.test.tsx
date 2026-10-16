@@ -8,6 +8,7 @@ import { ITransactionStatus } from 'lib/miden/db/types';
 import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
+import { NO_EXPLORER_CHAIN } from 'lib/walletconnect/testing/chains';
 
 import { EvmBridgeDepositStatus } from './EvmBridgeDepositStatus';
 
@@ -61,6 +62,14 @@ jest.mock('components/ui/Spinner', () => ({
 }));
 
 jest.mock('lib/mobile/external-browser', () => ({ openExternalUrl: jest.fn() }));
+
+// The registry's chains, plus one the wallet knows no explorer for.
+jest.mock('lib/walletconnect/config', () => {
+  const chains = jest.requireActual<typeof import('lib/walletconnect/testing/chains')>(
+    'lib/walletconnect/testing/chains'
+  );
+  return chains.walletConnectConfigMock([chains.NO_EXPLORER_CHAIN]);
+});
 
 // The step list animates with framer; here only its inputs matter.
 jest.mock('./UsdcxDepositSteps', () => ({
@@ -303,6 +312,14 @@ describe('EvmBridgeDepositStatus', () => {
         url: `https://explorer.testnet.arc.io/tx/${DEPOSIT_HASH}`,
         title: 'Arc Testnet'
       });
+    });
+
+    it('offers no explorer for a source chain the wallet knows no explorer for', () => {
+      mockRowState = { row: makeRow(usdcxInputs({ sourceChainId: NO_EXPLORER_CHAIN.id })), loaded: true };
+      render(<EvmBridgeDepositStatus txId="bridge-1" onDone={onDone} />);
+
+      expect(screen.getByTestId('receipt-rows')).toHaveTextContent('usdcxRouteName · No Explorer → Miden');
+      expect(screen.queryByText('viewOnBlockExplorer')).not.toBeInTheDocument();
     });
 
     // The app-root watcher writes the phase; the screen reads the row and polls nothing.
