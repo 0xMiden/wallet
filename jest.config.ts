@@ -117,9 +117,10 @@ export default {
     // Asset stubs must come BEFORE the `^app/` / `^lib/` path mappers so
     // `import icon from 'app/misc/dapp-icons/foo.png'` resolves to the
     // stub instead of trying to execute the PNG bytes as JavaScript.
-    // A `?url` import is the asset's URL, not a component, and `\.svg$` cannot match past the query.
+    // A `?url` import is the asset's URL, not a component, and `\.svg$` cannot match past the query. Its stub differs
+    // from the raster one, so a test tells an svg URL from a PNG without a virtual mock, which this mapper can bypass.
     '\\.svg\\?raw$': '<rootDir>/__mocks__/svgRawMock.js',
-    '\\.svg\\?url$': '<rootDir>/__mocks__/fileMock.js',
+    '\\.svg\\?url$': '<rootDir>/__mocks__/svgUrlMock.js',
     '\\.svg$': '<rootDir>/__mocks__/svgMock.js',
     '\\.(png|jpg|jpeg|gif|webp)$': '<rootDir>/__mocks__/fileMock.js',
     '\\.(css|less|scss|sass)$': '<rootDir>/__mocks__/styleMock.ts',
