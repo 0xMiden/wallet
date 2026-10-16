@@ -33,7 +33,6 @@ import { waitForPublicNoteCommitment } from './public-note-commitment';
 import {
   ARC_PAYOUT,
   BURN_UNITS,
-  GRANT_MARGIN_UNITS,
   GRANT_UNITS,
   HARNESS_ARC_KEY_FILE,
   minimumUsdcxPayout,
@@ -65,6 +64,7 @@ import {
   evidenceJson,
   exactlyOne,
   explainSettleFailure,
+  grantFundingProblem,
   ledgerLine,
   PhaseTimeline,
   pollUntil,
@@ -281,13 +281,15 @@ export interface GrantFunding {
 
 /**
  * Spec 5 step 3: one public faucet grant of the 10 USDCx tier (R19), which the service worker consumes by itself (a
- * claim call would add a second consume row). The grant consume is also the account's deploy.
+ * claim call would add a second consume row), and which must fund the run's burn of `burnUnits`. The grant consume is
+ * also the account's deploy.
  */
 export async function fundFromPublicFaucet(
   page: Page,
   ids: UsdcxWalletIds,
   rpcUrl: string,
-  where: StepContext
+  where: StepContext,
+  burnUnits: bigint = BURN_UNITS
 ): Promise<GrantFunding> {
   const faucetApi = publicFaucetApiUrl('testnet');
   if (!faucetApi) throw new Error('the harness names no public faucet for testnet');
@@ -312,11 +314,9 @@ export async function fundFromPublicFaucet(
     credit: asset.amount,
     terms: [['G', asset.amount]]
   });
-  if (vault < BURN_UNITS + GRANT_MARGIN_UNITS) {
-    throw new Error(
-      `faucet granted ${asset.amount}, need >= ${fromBaseUnits(BURN_UNITS + GRANT_MARGIN_UNITS, USDCX_DECIMALS)} ` +
-        `USDCx after the ${f0.amount} fee`
-    );
+  const shortfall = grantFundingProblem(vault, burnUnits);
+  if (shortfall !== undefined) {
+    throw new Error(`faucet granted ${asset.amount}; after the ${f0.amount} fee ${shortfall}`);
   }
   return { grantNoteId: noteId, grant: asset.amount, grantTag: grantNote.tag, consumeId: consume.id, f0, vault };
 }
@@ -373,7 +373,7 @@ export interface ConfirmBurnOptions {
 
 /**
  * What a burn to `destination` on `chain` carries, on the node and on its row: the recipient, the chain id and the
- * destination's Circle domain (26, 6 or 3). The payout names Arc's domain instead, so the two are never compared.
+ * destination's Circle domain (26, 6, 3 or 0). The payout names Arc's domain instead, so the two are never compared.
  */
 export function burnTarget(
   chain: PayoutChain,
@@ -572,9 +572,9 @@ export async function confirmBurn(
   };
 }
 
-/** What the payout step reads of a confirmed burn: its note id and the faucet's consume of it. */
+/** What the payout step reads of a confirmed burn: its note id, its amount on the node and the faucet's consume. */
 export type ConsumedBurn = Pick<BurnLeg, 'burnNoteId'> & {
-  oracle: Pick<BurnEvidence, 'consumeBlock' | 'consumeTimestampSec'>;
+  oracle: Pick<BurnEvidence, 'amount' | 'consumeBlock' | 'consumeTimestampSec'>;
 };
 
 /** Spec 5 step 8 failure body: the payout key and its pre-burn read, the burn's consume and xReserve's pause flags. */
@@ -656,6 +656,8 @@ export async function payoutLeg(
 
   const waitForPayout = async (burn: ConsumedBurn, depositor: Hex): Promise<GatewayPayout> => {
     const consumeTsMs = burn.oracle.consumeTimestampSec * 1_000;
+    // The burn the node consumed sets the floor and Circle's fee: 1 USDCx, or 2 on Ethereum Sepolia.
+    const burnUnits = burn.oracle.amount;
     const payout = await step(
       'payout',
       opts.budget.payout,
@@ -664,13 +666,13 @@ export async function payoutLeg(
           {
             recipient: key.address,
             burnNoteId: burn.burnNoteId,
-            burnUnits: BURN_UNITS,
+            burnUnits,
             fromBlock: snapshot.blockNumber,
             balanceBefore: snapshot.balance,
             consumeTsMs,
             deadlineMs: consumeTsMs + PAYOUT_TIMEOUT_MS,
             depositor,
-            minimumValue: minimumUsdcxPayout(chain.chainId, BURN_UNITS)
+            minimumValue: minimumUsdcxPayout(chain.chainId, burnUnits)
           },
           reads
         ),
@@ -678,7 +680,7 @@ export async function payoutLeg(
     );
     expect({ domain: payout.sourceDomain, total: payout.value + payout.fee }).toEqual({
       domain: chain.attestationSourceDomain,
-      total: BURN_UNITS
+      total: burnUnits
     });
     evidence.hashes.payout = payout.transactionHash;
     evidence.fees.push({ name: 'circle payout fee', amount: payout.fee, kind: 'exact' });
@@ -844,7 +846,8 @@ export async function walletConfirmsPayout(
   });
   await openHistoryDetails(wallet, burn.row.id);
   await expect(wallet.page.getByTestId('history-status-pill')).toHaveText(enText('confirmed'));
-  // The lookup covers 2000 blocks, about 8.6 min on Arbitrum, an accepted limit, so a missing link is only recorded.
+  // The lookup covers 2000 blocks, about 8.6 min on Arbitrum and 6.7 h on Sepolia's 12 s blocks, in one request on the
+  // wallet's own RPC: an accepted limit, so a missing link is only recorded.
   const linkHash = await receivingTxHash(wallet.page, RECEIVING_TX_LINK_MS, chain);
   if (linkHash !== null && linkHash !== payout.transactionHash.toLowerCase()) {
     throw new Error(

@@ -209,9 +209,9 @@ describe('E2E USDCx workflow', () => {
     ]);
   });
 
-  // Its suites read Base Sepolia and Arbitrum Sepolia, where nothing an Arc suite leaves pending lands, so it runs after a
-  // red Arc job, never in a cancelled run. Its own setup guards the key: a failed step there skips usdcx-in-l2, which has
-  // no condition, and with it usdcx-burn-l2, so no L2 suite runs on a missing key file.
+  // Its suites read Base Sepolia, Arbitrum Sepolia and Ethereum Sepolia, where nothing an Arc suite leaves pending lands,
+  // so it runs after a red Arc job, never in a cancelled run. Its own setup guards the key: a failed step there skips
+  // usdcx-in-l2, which has no condition, and with it usdcx-burn-l2, so no L2 suite runs on a missing key file.
   it('starts the L2 job after the Arc job, red or green, but never in a cancelled run', () => {
     expect(jobKey(L2_JOB, 'needs')).toBe(ARC_JOB);
     expect(jobKey(L2_JOB, 'if')).toBe(`\${{ !cancelled() }}`);
@@ -220,7 +220,7 @@ describe('E2E USDCx workflow', () => {
 
   it.each([
     [ARC_JOB, `\${{ github.event_name == 'workflow_dispatch' && 240 || 210 }}`],
-    [L2_JOB, `\${{ github.event_name == 'workflow_dispatch' && 260 || 230 }}`]
+    [L2_JOB, `\${{ github.event_name == 'workflow_dispatch' && 300 || 270 }}`]
   ])('gives %s its own ceiling', (job, ceiling) => {
     expect(jobKey(job, 'timeout-minutes')).toBe(ceiling);
   });
