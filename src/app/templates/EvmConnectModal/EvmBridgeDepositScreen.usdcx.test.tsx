@@ -1011,7 +1011,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
 
     expect(quoteExecutorBurn).not.toHaveBeenCalled();
     expect(runUsdcxDeposit).toHaveBeenCalledTimes(1);
-    expect(jest.mocked(runUsdcxDeposit).mock.calls[0][3]).not.toHaveProperty('readBalance');
+    expect(jest.mocked(runUsdcxDeposit).mock.calls[0]?.[3]).not.toHaveProperty('readBalance');
     expect(updateBridgedReceivePhase).not.toHaveBeenCalledWith('bridge-tx', 'failed', expect.anything());
   });
 
