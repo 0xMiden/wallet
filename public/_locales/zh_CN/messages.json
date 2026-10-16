@@ -1029,6 +1029,10 @@
     "message": "与 Guardian 同步",
     "englishSource": "Syncing with Guardian"
   },
+  "transactionStepDeliveringNote": {
+    "message": "交付给收件人",
+    "englishSource": "Delivering to recipient"
+  },
   "guardianBusyStep": {
     "message": "期待您的 Guardian",
     "englishSource": "Waiting for your Guardian"

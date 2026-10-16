@@ -211,6 +211,7 @@
   "transactionStepProofGenerated": "Доказательство сгенерировано",
   "transactionStepSubmitting": "Отправка",
   "transactionStepSyncingGuardian": "Синхронизация с Guardian",
+  "transactionStepDeliveringNote": "Доставка получателю",
   "guardianBusyStep": "В ожидании вашего «Guardian»",
   "guardianBusyDescription": "Ваш «Guardian» все еще завершает вашу предыдущую транзакцию. Эта транзакция продолжается автоматически.",
   "transactionStepDurationSec": "$seconds$ сек",

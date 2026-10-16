@@ -1029,6 +1029,10 @@
     "message": "Guardian와의 동기화",
     "englishSource": "Syncing with Guardian"
   },
+  "transactionStepDeliveringNote": {
+    "message": "수취인에게 전달",
+    "englishSource": "Delivering to recipient"
+  },
   "guardianBusyStep": {
     "message": "Guardian를 기다리는 중",
     "englishSource": "Waiting for your Guardian"
