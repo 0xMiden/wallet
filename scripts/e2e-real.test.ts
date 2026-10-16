@@ -37,6 +37,7 @@ import {
   DEFAULT_ARC_RPCS,
   GATEWAY_MINTER,
   HARNESS_ARC_KEY_FILE,
+  L2_PAYOUT_CHAINS,
   SUITES,
   USDCX_DECIMALS,
   USDCX_FUNDED_KEY_FLOOR_UNITS,
@@ -58,7 +59,8 @@ import {
   resolveOperatorInput,
   run,
   suiteRetries,
-  usdcxGrantProblem
+  usdcxGrantProblem,
+  walletL2RpcUrl
 } from './e2e-real.mjs';
 import * as harness from '../playwright/e2e/helpers/usdcx-constants';
 import * as wallet from '../src/lib/usdcx/constant';
@@ -99,7 +101,8 @@ function cleanEnv() {
     'E2E_HEADLESS',
     'E2E_NETWORK',
     'E2E_REAL_EPOCH',
-    'E2E_REAL_USDCX'
+    'E2E_REAL_USDCX',
+    'WALLETCONNECT_PROJECT_ID'
   ]) {
     delete env[name];
   }
@@ -1037,7 +1040,7 @@ describe('the usdcx suites refuse what would not apply, before any probe or buil
   const MALFORMED = `0x${'5a'.repeat(31)}zz`;
   const printed = (res: { stdout: string; stderr: string }) => `${res.stdout}${res.stderr}`;
 
-  it.each(['usdcx', 'usdcx-in', 'usdcx-burn'])(
+  it.each(['usdcx', 'usdcx-in', 'usdcx-burn', 'usdcx-burn-l2'])(
     'refuses --network devnet for --suite %s',
     suite => {
       const res = runCli('--suite', suite, '--network', 'devnet', '--preflight-only');
@@ -1048,7 +1051,7 @@ describe('the usdcx suites refuse what would not apply, before any probe or buil
     35_000
   );
 
-  it.each(['usdcx', 'usdcx-in', 'usdcx-burn'])(
+  it.each(['usdcx', 'usdcx-in', 'usdcx-burn', 'usdcx-burn-l2'])(
     'refuses --skip-build for --suite %s',
     suite => {
       const res = runCli({ E2E_ARC_PRIVATE_KEY: ARC_KEY }, '--suite', suite, '--skip-build', '--preflight-only');
@@ -1079,6 +1082,18 @@ describe('the usdcx suites refuse what would not apply, before any probe or buil
     },
     35_000
   );
+
+  it('refuses an exported E2E_EVM_RPC_URL on usdcx-burn-l2, whose wallet would read both L2s through it', () => {
+    const res = runCli(
+      { E2E_EVM_RPC_URL: 'https://refused-evm-rpc.example' },
+      '--suite',
+      'usdcx-burn-l2',
+      '--preflight-only'
+    );
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain('E2E_EVM_RPC_URL is set, and --suite usdcx-burn-l2 refuses it');
+    expect(res.stdout).not.toContain('Preflight');
+  }, 35_000);
 
   it('refuses usdcx-in with no key and no harness key, naming both ways to give one', () => {
     const res = runCli('--suite', 'usdcx-in', '--preflight-only');
@@ -1179,6 +1194,7 @@ describe('resolveOperatorInput on the usdcx suites', () => {
   it.each([
     ['usdcx', {}],
     ['usdcx-burn', {}],
+    ['usdcx-burn-l2', {}],
     ['usdcx-in', {}],
     ['usdcx-in', { arcKey: ARC_KEY }],
     ['usdcx-in', { arcKey: 'ab'.repeat(32) }],
@@ -1262,7 +1278,8 @@ describe('the usdcx suites', () => {
   const OWN: Record<string, string> = {
     usdcx: 'USDCx round trip: burn to the harness Arc key, Circle payout, deposit back',
     'usdcx-in': 'USDCx bridge-in from a funded Arc key',
-    'usdcx-burn': 'USDCx burn through the Send UI after a public faucet grant'
+    'usdcx-burn': 'USDCx burn through the Send UI after a public faucet grant',
+    'usdcx-burn-l2': 'USDCx L2 burn through the Send UI after a public faucet grant'
   };
   let listed: ReturnType<typeof listUsdcxTests>;
 
@@ -1270,13 +1287,17 @@ describe('the usdcx suites', () => {
     listed = listUsdcxTests();
   }, 60_000);
 
-  it('find the three describes and four tests the contract names under playwright.usdcx.config.ts', () => {
+  it('find the four describes and six tests the contract names under playwright.usdcx.config.ts', () => {
     expect(listed.errors).toEqual([]);
     expect([...new Set(listed.tests.map(test => test.split(' > ')[0]))].sort()).toEqual(Object.values(OWN).sort());
-    expect(listed.tests).toHaveLength(4);
+    expect(listed.tests).toHaveLength(6);
     expect(listed.tests.filter(test => test.startsWith(`${OWN['usdcx-burn']} > `))).toEqual([
       `${OWN['usdcx-burn']} > Guardian wallet publishes a burn, the faucet consumes it and Circle pays it out`,
       `${OWN['usdcx-burn']} > standard wallet publishes a burn, the faucet consumes it and Circle pays it out`
+    ]);
+    expect(listed.tests.filter(test => test.startsWith(`${OWN['usdcx-burn-l2']} > `))).toEqual([
+      `${OWN['usdcx-burn-l2']} > Guardian wallet burns to Arbitrum Sepolia, the faucet consumes it, Circle pays it out and the wallet confirms it`,
+      `${OWN['usdcx-burn-l2']} > Guardian wallet burns to Base Sepolia, the faucet consumes it, Circle pays it out and the wallet confirms it`
     ]);
   });
 
@@ -1508,6 +1529,24 @@ describe('the usdcx constants are the ones the harness and the wallet use', () =
   });
 });
 
+describe('the usdcx-burn-l2 copies are the ones the harness and the wallet use', () => {
+  const harnessChains = [harness.BASE_SEPOLIA_PAYOUT, harness.ARBITRUM_SEPOLIA_PAYOUT];
+
+  it('copies exactly the two L2s, in the order the harness lists them', () => {
+    expect(L2_PAYOUT_CHAINS.map(chain => chain.chainId)).toEqual(harnessChains.map(chain => chain.chainId));
+  });
+
+  it.each(harnessChains.map(chain => [chain.networkName, chain]))(
+    '%s: the name, the USDC and the endpoints the harness reads, and the RPC the wallet reads',
+    (name, chain) => {
+      const copy = L2_PAYOUT_CHAINS.find(candidate => candidate.chainId === chain.chainId);
+      expect(copy).toEqual({ name, chainId: chain.chainId, usdc: chain.usdc, rpcs: [...chain.rpcUrls] });
+      expect(wallet.getUsdcxDestination(chain.chainId).usdc).toBe(chain.usdc);
+      expect(walletL2RpcUrl(chain.chainId, process.env)).toBe(chain.walletRpcUrl);
+    }
+  );
+});
+
 describe('the usdcx preflight', () => {
   // Any valid secp256k1 scalar: the stub answers every read, so nothing is ever signed or sent.
   const ARC_KEY: `0x${string}` = `0x${'11'.repeat(32)}`;
@@ -1605,6 +1644,82 @@ describe('the usdcx preflight', () => {
       ])
     ).toEqual([]);
     expect(res.requests).not.toContain(BALANCE_OF);
+  }, 35_000);
+
+  it("asks usdcx-burn-l2 the payout questions, then on each L2 the chain, both contracts and the wallet RPC's head", () => {
+    const res = preflight('usdcx-burn-l2');
+    expect(res.output).toContain('✓ preflight passed (17 checks)');
+    expect(res.status).toBe(0);
+    expect(
+      missing(res.requests, [
+        XRESERVE_CALLS.withdrawalsPaused,
+        XRESERVE_CALLS.gatewayMinter,
+        ...L2_PAYOUT_CHAINS.flatMap(chain => [
+          `${chain.rpcs[0]} eth_chainId []`,
+          `${chain.rpcs[0]} eth_getCode ["${GATEWAY_MINTER}","latest"]`,
+          `${chain.rpcs[0]} eth_getCode ["${chain.usdc}","latest"]`,
+          `${walletL2RpcUrl(chain.chainId, {})} eth_blockNumber []`
+        ])
+      ])
+    ).toEqual([]);
+    expect(res.output).toContain('Arbitrum Sepolia wallet RPC');
+    expect(res.output).toContain('rpc.walletconnect.org #2');
+  }, 35_000);
+
+  it('names the wallet RPC by host only, whatever project id the build bakes in', () => {
+    const res = preflight('usdcx-burn-l2', DOCUMENT, { WALLETCONNECT_PROJECT_ID: 'operator-project-id' });
+    expect(res.requests).toContain('projectId=operator-project-id');
+    expect(res.output).not.toContain('operator-project-id');
+    expect(res.status).toBe(0);
+  }, 35_000);
+
+  it.each([
+    [
+      'Base Sepolia RPC',
+      { l2WrongChain: ['base-sepolia-rpc.publicnode.com', 'base-sepolia.gateway.tenderly.co', 'sepolia.base.org'] }
+    ],
+    ['Arbitrum Sepolia contracts', { l2NoCode: ['0x75faf114eafb1bdbe2f0316df893fd58ce46aa4d'] }]
+  ])(
+    'fails %s alone on --suite usdcx-burn-l2 when its answer is wrong',
+    (label, answers) => {
+      const res = preflight('usdcx-burn-l2', DOCUMENT, {}, answers);
+      expect(failedChecks(res.output)).toEqual([label]);
+      expect(res.status).toBe(1);
+      expect(res.requests).not.toContain('SPAWN');
+    },
+    35_000
+  );
+
+  it('fails both wallet RPC checks when rpc.walletconnect.org is down, before any build, naming it by host only', () => {
+    const res = preflight(
+      'usdcx-burn-l2',
+      DOCUMENT,
+      { WALLETCONNECT_PROJECT_ID: 'operator-project-id' },
+      { l2Down: ['rpc.walletconnect.org'] }
+    );
+    expect(failedChecks(res.output)).toEqual(['Base Sepolia wallet RPC', 'Arbitrum Sepolia wallet RPC']);
+    for (const chain of ['Base Sepolia', 'Arbitrum Sepolia']) {
+      expect(res.output).toMatch(new RegExp(`✗ ${chain} wallet RPC +rpc\\.walletconnect\\.org: fetch failed\\n`));
+    }
+    expect(res.output).not.toContain('projectId');
+    expect(res.output).not.toContain('operator-project-id');
+    expect(res.status).toBe(1);
+    expect(res.requests).not.toContain('SPAWN');
+  }, 35_000);
+
+  it("passes with Base Sepolia's first endpoint down, asking the next one the contract questions", () => {
+    const res = preflight('usdcx-burn-l2', DOCUMENT, {}, { l2Down: ['base-sepolia-rpc.publicnode.com'] });
+    expect(res.status).toBe(0);
+    expect(res.requests).toContain(
+      'https://base-sepolia.gateway.tenderly.co eth_getCode ["0x036CbD53842c5426634e7929541eC2318f3dCF7e","latest"]'
+    );
+  }, 35_000);
+
+  it('asks usdcx-burn no L2 question: the Arc suites preflight as they did', () => {
+    const res = preflight('usdcx-burn');
+    expect(res.requests).not.toContain('rpc.walletconnect.org');
+    expect(res.requests).not.toContain('base-sepolia');
+    expect(res.requests).not.toContain('arbitrum');
   }, 35_000);
 
   it.each([
@@ -1932,6 +2047,14 @@ describe('a usdcx run', () => {
     expect(res.status).toBe(0);
   }, 35_000);
 
+  it('runs usdcx-burn-l2 under its own grep with the harness key, headless', () => {
+    const res = stubbed(['--suite', 'usdcx-burn-l2'], DOCUMENT, { MIDEN_CLIENT_BIN: '/operator/bin/miden-client' });
+    const children = spawned(res.requests);
+    expect(children[1]?.args).toEqual(testArgs('USDCx L2 burn'));
+    expect(children[1]?.env).toMatchObject({ E2E_REAL_USDCX: 'true', E2E_ARC_KEY_ROLE: 'harness', E2E_HEADLESS: '1' });
+    expect(res.status).toBe(0);
+  }, 35_000);
+
   it('runs headed under --headed, over an exported E2E_HEADLESS', () => {
     const res = stubbed(['--suite', 'usdcx', '--headed'], DOCUMENT, { E2E_HEADLESS: '1' });
     const test = spawned(res.requests)[2];
@@ -2199,5 +2322,6 @@ describe('the usage', () => {
     expect(res.stdout).toContain('unless MIDEN_CLIENT_BIN is set');
     expect(res.stdout).toContain('A lock, ~/.miden-e2e/usdcx-run.lock, lets one usdcx run go');
     expect(res.stdout).toContain('usdcx and usdcx-burn burn to one harness Arc');
+    expect(res.stdout).toContain("usdcx-burn-l2 burns to that key's address on Base Sepolia and Arbitrum Sepolia");
   }, 35_000);
 });

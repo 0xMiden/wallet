@@ -25,6 +25,7 @@ import {
   toHex,
   TransactionReceiptNotFoundError,
   type Address,
+  type Chain,
   type Hash,
   type Hex,
   type Log,
@@ -35,9 +36,7 @@ import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
 
 import {
   ARC_CHAIN_ID,
-  ARC_CIRCLE_DOMAIN,
-  ARC_DRPC_LOG_CHUNK,
-  ARC_LOG_CHUNK,
+  ARC_PAYOUT,
   ARC_RPC_TIMEOUT_MS,
   ARC_USDC,
   ARC_XRESERVE,
@@ -46,11 +45,11 @@ import {
   GATEWAY_MINTER,
   realArcClock,
   USDCX_REMOTE_DOMAIN,
-  type ArcClock
+  type ArcClock,
+  type PayoutChain
 } from './usdcx-constants';
 import { fetchXReserveAttestations, type XReserveAttestation } from '../../../src/lib/usdcx/attestation-protocol';
 import { midenAccountHexToXReserveRecipient } from '../../../src/lib/usdcx/recipient';
-import { ARC_TESTNET } from '../../../src/lib/walletconnect/config';
 
 export { realArcClock, type ArcClock } from './usdcx-constants';
 
@@ -98,6 +97,9 @@ const DEPOSIT_INTENT_HEADER_BYTES = 240;
 /** Appended to every payout failure but key-moved (spec section 11). */
 export const LATE_PAYOUT_NOTE =
   'Arc payouts have arrived up to ~17 h late and one 1 USDCx burn of 2026-10-08 was still unpaid after 45 h; red means a user was not paid in time';
+/** LATE_PAYOUT_NOTE's place on Base Sepolia and Arbitrum Sepolia, which have no history of late payouts yet. */
+export const L2_LATE_PAYOUT_NOTE =
+  'Base Sepolia and Arbitrum Sepolia payouts landed 6-8 s after the consume when probed on 2026-10-11; red means a user was not paid in time';
 /** Ends a key-moved failure in place of LATE_PAYOUT_NOTE: a spend from the key says nothing about Circle's payout. */
 export const KEY_MOVED_NOTE =
   'something spent from the payout key while the gate watched it (a manual sweep, a deposit a killed run left pending, a run that skipped the lock), so this red does not say whether Circle paid';
@@ -186,22 +188,34 @@ export interface ArcReadDeps {
   endpoints: readonly string[];
   publicClient?: ArcPublicClientFactory;
   clock?: ArcClock;
+  /** The chain the key's balance and payout are read on; absent is Arc. xReserve and the deposit refuse any other. */
+  payoutChain?: PayoutChain;
 }
 
 /** Writes sign locally with the key and send raw through the read client, so they need nothing more. */
 export type ArcWriteDeps = ArcReadDeps;
 
-function defaultPublicClient(endpoint: string): PublicClient {
+function defaultPublicClient(endpoint: string, chain: Chain): PublicClient {
   // cacheTime 0: viem caches eth_blockNumber for its polling interval, and every payout cycle needs a fresh head.
   return createPublicClient({
-    chain: ARC_TESTNET,
+    chain,
     cacheTime: 0,
     transport: http(endpoint, { retryCount: 0, timeout: ARC_RPC_TIMEOUT_MS })
   });
 }
 
+function chainOf(deps: ArcReadDeps): PayoutChain {
+  return deps.payoutChain ?? ARC_PAYOUT;
+}
+
+/** xReserve and the deposit exist on Arc alone, and a deposit signs with Arc's chain id: an L2 endpoint is refused. */
+function arcOnly(deps: ArcReadDeps, what: string): void {
+  const chain = chainOf(deps);
+  if (chain.chainId !== ARC_CHAIN_ID) throw new Error(`${what} runs on Arc only, not on ${chain.networkName}`);
+}
+
 function clientFor(deps: ArcReadDeps): ArcPublicClientFactory {
-  return deps.publicClient ?? defaultPublicClient;
+  return deps.publicClient ?? (endpoint => defaultPublicClient(endpoint, chainOf(deps).chain));
 }
 
 async function onFirstEndpoint<T>(
@@ -217,13 +231,14 @@ async function onFirstEndpoint<T>(
       failures.push(`${arcHost(endpoint)}: ${errorText(error)}`);
     }
   }
-  throw new Error(`${what}: no Arc endpoint answered\n  ${failures.join('\n  ') || 'no endpoints'}`);
+  throw new Error(`${what}: no ${chainOf(deps).label} endpoint answered\n  ${failures.join('\n  ') || 'no endpoints'}`);
 }
 
 /** USDC balance of `address` at `blockNumber` (default latest), from the first endpoint that answers. */
 export async function readArcUsdc(address: Address, deps: ArcReadDeps, blockNumber?: bigint): Promise<bigint> {
-  return onFirstEndpoint(deps, `Arc USDC balance of ${address}`, client =>
-    client.readContract({ address: ARC_USDC, abi: ERC20_ABI, functionName: 'balanceOf', args: [address], blockNumber })
+  const { label, usdc } = chainOf(deps);
+  return onFirstEndpoint(deps, `${label} USDC balance of ${address}`, client =>
+    client.readContract({ address: usdc, abi: ERC20_ABI, functionName: 'balanceOf', args: [address], blockNumber })
   );
 }
 
@@ -238,10 +253,11 @@ export interface ArcUsdcSnapshot {
  * gate's `fromBlock` and `balanceBefore` must come from one read, or a credit between two reads breaks the delta.
  */
 export async function readArcUsdcSnapshot(address: Address, deps: ArcReadDeps): Promise<ArcUsdcSnapshot> {
-  return onFirstEndpoint(deps, `Arc USDC snapshot of ${address}`, async (client, endpoint) => {
+  const { label, usdc } = chainOf(deps);
+  return onFirstEndpoint(deps, `${label} USDC snapshot of ${address}`, async (client, endpoint) => {
     const blockNumber = await client.getBlockNumber();
     const balance = await client.readContract({
-      address: ARC_USDC,
+      address: usdc,
       abi: ERC20_ABI,
       functionName: 'balanceOf',
       args: [address],
@@ -266,6 +282,7 @@ export interface XReserveDomainState {
 
 /** Miden's domain on Arc's xReserve, all reads on one endpoint. */
 export async function readXReserveDomainState(deps: ArcReadDeps): Promise<XReserveDomainState> {
+  arcOnly(deps, 'xReserve domain state');
   return onFirstEndpoint(deps, 'xReserve domain state', async (client, endpoint) => {
     const registered = await client.readContract({
       address: ARC_XRESERVE,
@@ -412,12 +429,8 @@ function correlationReason(reason: string, balanceBefore: bigint): string {
   return balanceBefore > 0n ? `${reason}; ${PREFUNDED_KEY_NOTE}` : reason;
 }
 
-function logChunkFor(endpoint: string): number {
-  try {
-    return new URL(endpoint).hostname.includes('drpc') ? ARC_DRPC_LOG_CHUNK : ARC_LOG_CHUNK;
-  } catch {
-    return ARC_LOG_CHUNK;
-  }
+function lateNote(chain: PayoutChain): string {
+  return chain.chainId === ARC_CHAIN_ID ? LATE_PAYOUT_NOTE : L2_LATE_PAYOUT_NOTE;
 }
 
 function describeRanges(ranges: readonly ScannedRange[]): string {
@@ -437,7 +450,7 @@ export interface GatewayPayoutArgs {
   /** `usdcxBurn.noteId`: Circle's TransferSpec carries it as the salt, so it is in the gatewayMint calldata. */
   burnNoteId: Hex;
   burnUnits: bigint;
-  /** The Arc block `balanceBefore` was read at, before the burn was queued; only logs after it count. */
+  /** The payout chain's block `balanceBefore` was read at, before the burn was queued; only logs after it count. */
   fromBlock: bigint;
   /** The key's USDC at `fromBlock` (R20(d)); default 0n, an empty key. The payout must be exactly the rise above it. */
   balanceBefore?: bigint;
@@ -447,7 +460,7 @@ export interface GatewayPayoutArgs {
   deadlineMs: number;
   /** `readXReserveDomainState().depositor`. */
   depositor: Hex;
-  /** `minimumUsdcxPayout(ARC_CHAIN_ID, burnUnits)`, the floor the wallet's own confirmation uses. */
+  /** `minimumUsdcxPayout(<payout chain id>, burnUnits)`, the floor the wallet's own confirmation uses. */
   minimumValue: bigint;
 }
 
@@ -463,13 +476,14 @@ async function payoutCycle(
   client: PublicClient,
   endpoint: string,
   args: GatewayPayoutArgs,
+  chain: PayoutChain,
   clock: ArcClock,
   state: PayoutState,
   base: Record<string, string>
 ): Promise<GatewayPayout | undefined> {
   const balanceBlock = await client.getBlockNumber();
   const balance = await client.readContract({
-    address: ARC_USDC,
+    address: chain.usdc,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: [args.recipient],
@@ -497,11 +511,12 @@ async function payoutCycle(
   }
   const scan = await scanArcLogs(client, endpoint, {
     address: GATEWAY_MINTER,
-    topics: [ATTESTATION_USED_TOPIC, lowerHex(pad(ARC_USDC)), lowerHex(pad(args.recipient))],
+    // The token topic is the paid chain's USDC: under Arc's, an L2 payout finds no log.
+    topics: [ATTESTATION_USED_TOPIC, lowerHex(pad(chain.usdc)), lowerHex(pad(args.recipient))],
     // balanceOf at fromBlock already counts a log in that block, so the window starts after it.
     fromBlock: args.fromBlock + 1n,
     toBlock: balanceBlock,
-    chunk: logChunkFor(endpoint)
+    chunk: chain.logChunk(endpoint)
   });
   state.ranges.push(...scan.ranges);
   if (scan.logs.length === 0) {
@@ -518,7 +533,8 @@ async function payoutCycle(
     new PayoutGateError(
       'uncorrelated',
       `payout received but not correlated: ${correlationReason(reason, before)}`,
-      where
+      where,
+      lateNote(chain)
     );
   const decoded = parseEventLogs({ abi: GATEWAY_MINTER_ABI, logs: scan.logs });
   if (scan.logs.length > 1 || decoded.length !== 1) {
@@ -535,8 +551,9 @@ async function payoutCycle(
   if (!log || log.transactionHash === null || log.blockNumber === null)
     throw uncorrelated('the log has no transaction');
   const { sourceDomain, sourceDepositor, value } = log.args;
-  if (sourceDomain !== ARC_CIRCLE_DOMAIN)
-    throw uncorrelated(`sourceDomain ${sourceDomain}, expected ${ARC_CIRCLE_DOMAIN}`);
+  // The Gateway source (26) on every chain, never the destination domain the burn carried.
+  if (sourceDomain !== chain.attestationSourceDomain)
+    throw uncorrelated(`sourceDomain ${sourceDomain}, expected ${chain.attestationSourceDomain}`);
   if (sourceDepositor.toLowerCase() !== args.depositor.toLowerCase()) {
     throw uncorrelated(`sourceDepositor ${sourceDepositor}, expected ${args.depositor}`);
   }
@@ -575,7 +592,8 @@ async function payoutCycle(
  * once. An endpoint error moves to the next endpoint with a fresh B. Throws a PayoutGateError at `deadlineMs`.
  */
 export async function waitForGatewayPayout(args: GatewayPayoutArgs, deps: ArcReadDeps): Promise<GatewayPayout> {
-  if (deps.endpoints.length === 0) throw new Error('waitForGatewayPayout: no Arc endpoints');
+  const chain = chainOf(deps);
+  if (deps.endpoints.length === 0) throw new Error(`waitForGatewayPayout: no ${chain.label} endpoints`);
   const clock = deps.clock ?? realArcClock;
   const before = args.balanceBefore ?? 0n;
   const base = {
@@ -591,7 +609,7 @@ export async function waitForGatewayPayout(args: GatewayPayoutArgs, deps: ArcRea
   for (;;) {
     const endpoint = deps.endpoints[index % deps.endpoints.length] ?? '';
     try {
-      const payout = await payoutCycle(clientFor(deps)(endpoint), endpoint, args, clock, state, base);
+      const payout = await payoutCycle(clientFor(deps)(endpoint), endpoint, args, chain, clock, state, base);
       if (payout) return payout;
       failuresInRow = 0;
     } catch (error) {
@@ -617,12 +635,27 @@ export async function waitForGatewayPayout(args: GatewayPayoutArgs, deps: ArcRea
   };
   if (state.firstPaidMs !== undefined && state.lastMiss !== undefined) {
     const reason = correlationReason(state.lastMiss, before);
-    throw new PayoutGateError('uncorrelated', `payout received but not correlated: ${reason}`, details);
+    throw new PayoutGateError(
+      'uncorrelated',
+      `payout received but not correlated: ${reason}`,
+      details,
+      lateNote(chain)
+    );
   }
   if (state.firstPaidMs !== undefined || !state.readOk) {
-    throw new PayoutGateError('scan-gaps', `unknown: scan gaps ${describeRanges(state.ranges)}`, details);
+    throw new PayoutGateError(
+      'scan-gaps',
+      `unknown: scan gaps ${describeRanges(state.ranges)}`,
+      details,
+      lateNote(chain)
+    );
   }
-  throw new PayoutGateError('no-mint', `no destination mint for this key by ${base.deadline}`, details);
+  throw new PayoutGateError(
+    'no-mint',
+    `no destination mint for this key by ${base.deadline}`,
+    details,
+    lateNote(chain)
+  );
 }
 
 export interface DepositSubmission {
@@ -833,6 +866,7 @@ export async function submitDepositToMiden(
   deps: ArcWriteDeps,
   signal?: AbortSignal
 ): Promise<DepositSubmission> {
+  arcOnly(deps, 'the xReserve deposit');
   const account = privateKeyToAccount(args.privateKey);
   const remoteRecipient = midenAccountHexToXReserveRecipient(args.recipientHex);
   const endpoint = await pickWriteEndpoint(deps);
@@ -926,6 +960,7 @@ export async function confirmDepositToMiden(
   submission: DepositSubmission,
   deps: ArcReadDeps
 ): Promise<{ approveBlock?: bigint; depositBlock: bigint; event: DepositedToRemoteEvent; gasCostWei: bigint }> {
+  arcOnly(deps, 'the xReserve deposit receipt');
   const reads = startingAt(deps.endpoints, submission.endpoint);
   const approveReceipt = submission.approveHash ? await waitForReceipt(reads, deps, submission.approveHash) : undefined;
   const depositReceipt = await waitForReceipt(reads, deps, submission.depositHash);
