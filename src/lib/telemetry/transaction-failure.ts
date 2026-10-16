@@ -78,7 +78,7 @@ const listedCode = (code: unknown, allowed: readonly string[]): string =>
 
 // Read structurally, never from the text: a rejection's message, body and status text can carry account ids, URLs
 // and server internals.
-function rejectionIdentity(error: unknown): string | undefined {
+function rejectionIdentity(error: unknown, protocol: string | undefined): string | undefined {
   for (const link of errorChain(error)) {
     try {
       if (isHotKeyFailure(link)) return `hot_key; hot key code ${listedCode(Reflect.get(link, 'code'), HOT_KEY_CODES)}`;
@@ -89,7 +89,10 @@ function rejectionIdentity(error: unknown): string | undefined {
             ? String(status)
             : 'other';
         const code = Reflect.get(link, 'code') ?? Reflect.get(link, 'rawCode');
-        return `guardian_http_${http}; guardian code ${listedCode(code, GUARDIAN_ERROR_CODES)}`;
+        const refusal = `guardian_http_${http}; guardian code ${listedCode(code, GUARDIAN_ERROR_CODES)}`;
+        // A Guardian 5xx can carry a deterministic kernel failure (isGuardianOutage in lib/miden/transaction/constants);
+        // only its closed-table identity is added, never the text.
+        return protocol === undefined ? refusal : `${refusal}; ${protocol}`;
       }
     } catch {
       // A throwing accessor costs this link, not the report.
@@ -98,18 +101,22 @@ function rejectionIdentity(error: unknown): string | undefined {
   return undefined;
 }
 
-function failureIdentity(error: unknown): string {
-  // Ahead of the text arms: a Guardian refusal's message carries the server's own text, which can read as any of them.
-  const rejection = rejectionIdentity(error);
-  if (rejection !== undefined) return rejection;
-  const message = typeof error === 'string' ? error : error instanceof Error ? error.message : '';
+function protocolIdentity(message: string): string | undefined {
   const code = /assertion failed with error code:\s*(\d{1,20})(?!\d)/.exec(message)?.[1];
-  if (code !== undefined) {
-    // Only identities in the shipped public protocol sources survive. Arbitrary numbers can be user data.
-    return Object.prototype.hasOwnProperty.call(assertions, code)
-      ? assertions[code as keyof typeof assertions]
-      : 'kernel_assertion_unknown';
-  }
+  if (code === undefined) return undefined;
+  // Only identities in the shipped public protocol sources survive. Arbitrary numbers can be user data.
+  return Object.prototype.hasOwnProperty.call(assertions, code)
+    ? assertions[code as keyof typeof assertions]
+    : 'kernel_assertion_unknown';
+}
+
+function failureIdentity(error: unknown): string {
+  const message = typeof error === 'string' ? error : error instanceof Error ? error.message : '';
+  const protocol = protocolIdentity(message);
+  // Ahead of the text arms: a Guardian refusal's message carries the server's own text, which can read as any of them.
+  const rejection = rejectionIdentity(error, protocol);
+  if (rejection !== undefined) return rejection;
+  if (protocol !== undefined) return protocol;
   if (/advice stack read failed/i.test(message)) return 'advice_stack_read_failed';
   if (/WebClient terminated/.test(message)) return 'client_terminated';
   if (/failed to execute transaction/i.test(message)) return 'transaction_execution_failed';

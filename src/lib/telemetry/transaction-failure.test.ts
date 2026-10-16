@@ -229,18 +229,30 @@ it('reports a hot-key plugin rejection by its code and nothing it says', async (
 });
 
 it.each([
-  'failed to execute transaction',
-  'assertion failed with error code: 1',
-  'advice stack read failed',
-  'WebClient terminated'
-])('reports a Guardian refusal whose text says "%s" by its status and code', async text => {
+  ['failed to execute transaction', ''],
+  ['assertion failed with error code: 1', '; kernel_assertion_unknown'],
+  ['advice stack read failed', ''],
+  ['WebClient terminated', '']
+])('reports a Guardian refusal whose text says "%s" by its status and code', async (text, protocol) => {
   const refusal = Object.assign(guardianRefusal(409, 'Conflict', 'conflict_pending_delta'), {
     message: `GUARDIAN HTTP error 409: Conflict - ${text}`
   });
   reportTransactionFailure({ type: 'consume', error: new Error(`claim failed: ${text}`, { cause: refusal }) });
   expect(await reportedMessage()).toContain(
-    '; point pipeline; guardian_http_409; guardian code conflict_pending_delta. '
+    `; point pipeline; guardian_http_409; guardian code conflict_pending_delta${protocol}. `
   );
+});
+
+it('keeps the protocol identity a Guardian refusal carries after its status and code', async () => {
+  const refusal = Object.assign(guardianRefusal(500, 'Internal Server Error', null), {
+    message: 'GUARDIAN HTTP error 500: Internal Server Error - assertion failed with error code: 15404814807981965102'
+  });
+  reportTransactionFailure({ type: 'consume', error: refusal });
+  const message = await reportedMessage();
+  expect(message).toContain(
+    '; point pipeline; guardian_http_500; guardian code none; ERR_FEE_CONVERSION_INFO_COMMITMENT_MISMATCH. '
+  );
+  expect(message).not.toContain('15404814807981965102');
 });
 
 it('reports a hot-key rejection whose text says the client terminated by its code', async () => {
