@@ -3,7 +3,7 @@
  * xReserve, and Circle's attestation of it. Clients and the clock are injectable, so the unit tests replay captured
  * chain data with no network.
  *
- * Never imports usdcx/deposit.ts or executor.ts: they pull in lib/miden/activity and with it the wallet's SDK.
+ * Never imports usdcx/deposit.ts, which pulls in lib/miden/activity and with it the wallet's SDK.
  */
 import {
   createPublicClient,
@@ -53,7 +53,7 @@ import { midenAccountHexToXReserveRecipient } from '../../../src/lib/usdcx/recip
 
 export { realArcClock, type ArcClock } from './usdcx-constants';
 
-const ERC20_ABI = parseAbi([
+export const ERC20_ABI = parseAbi([
   'function balanceOf(address account) view returns (uint256)',
   'function allowance(address owner, address spender) view returns (uint256)',
   'function approve(address spender, uint256 amount) returns (bool)'
@@ -218,7 +218,7 @@ function clientFor(deps: ArcReadDeps): ArcPublicClientFactory {
   return deps.publicClient ?? (endpoint => defaultPublicClient(endpoint, chainOf(deps).chain));
 }
 
-async function onFirstEndpoint<T>(
+export async function onFirstEndpoint<T>(
   deps: ArcReadDeps,
   what: string,
   read: (client: PublicClient, endpoint: string) => Promise<T>
@@ -678,21 +678,25 @@ async function acceptsRawTransactions(client: PublicClient): Promise<boolean> {
   }
 }
 
-/** The first endpoint on Arc Testnet that takes raw transactions: a garbage one must fail to decode, not be refused. */
-async function pickWriteEndpoint(deps: ArcWriteDeps): Promise<string> {
+/**
+ * The first endpoint on the deps' chain that takes raw transactions: a garbage one must fail to decode, not be refused.
+ * Shared with usdcx-l2-deposit.ts and usdcx-cctp-proof.ts.
+ */
+export async function pickWriteEndpoint(deps: ArcWriteDeps): Promise<string> {
+  const { chainId, label } = chainOf(deps);
   const failures: string[] = [];
   for (const endpoint of deps.endpoints) {
     const client = clientFor(deps)(endpoint);
     try {
-      const chainId = await client.getChainId();
-      if (chainId !== ARC_CHAIN_ID) failures.push(`${arcHost(endpoint)}: chain ${chainId}`);
+      const served = await client.getChainId();
+      if (served !== chainId) failures.push(`${arcHost(endpoint)}: chain ${served}`);
       else if (await acceptsRawTransactions(client)) return endpoint;
       else failures.push(`${arcHost(endpoint)}: refuses eth_sendRawTransaction`);
     } catch (error) {
       failures.push(`${arcHost(endpoint)}: ${errorText(error)}`);
     }
   }
-  throw new Error(`no Arc endpoint takes writes\n  ${failures.join('\n  ') || 'no endpoints'}`);
+  throw new Error(`no ${label} endpoint takes writes\n  ${failures.join('\n  ') || 'no endpoints'}`);
 }
 
 /**
@@ -721,12 +725,15 @@ async function withTransientRetry<T>(
   }
 }
 
-/** `endpoints` with `first` in front: a deposit leg's reads start on its write endpoint and fail over to the rest. */
-function startingAt(endpoints: readonly string[], first: string): string[] {
+/**
+ * `endpoints` with `first` in front: a deposit leg's reads start on its write endpoint and fail over to the rest.
+ * Shared with usdcx-l2-deposit.ts and usdcx-cctp-proof.ts.
+ */
+export function startingAt(endpoints: readonly string[], first: string): string[] {
   return [first, ...endpoints.filter(endpoint => endpoint !== first)];
 }
 
-function arcRead<T>(
+export function chainRead<T>(
   what: string,
   endpoints: readonly string[],
   deps: ArcReadDeps,
@@ -740,8 +747,11 @@ function arcRead<T>(
   );
 }
 
-/** `run` on the write endpoint alone, retried there on a transient error: another endpoint may not hold the approve. */
-async function simulate(
+/**
+ * `run` on the write endpoint alone, retried there on a transient error: another endpoint may not hold the approve.
+ * Shared with usdcx-l2-deposit.ts and usdcx-cctp-proof.ts.
+ */
+export async function simulate(
   what: string,
   write: string,
   deps: ArcReadDeps,
@@ -766,19 +776,20 @@ function refuseSendIfAborted(signal: AbortSignal | undefined, what: string): voi
  * it; its fees are reads that fail over across `endpoints.reads`. A send that fails transiently is sent again as the
  * same signed bytes, so the hash cannot change. Nothing is sent, first time or again, once `signal` is aborted.
  */
-async function sendSigned(
+export async function sendSigned(
   deps: ArcWriteDeps,
   endpoints: { write: string; reads: readonly string[] },
   account: PrivateKeyAccount,
   tx: { what: string; to: Address; data: Hex; nonce: number },
   signal: AbortSignal | undefined
 ): Promise<Hash> {
-  const gas = await arcRead('Arc gas estimate', [endpoints.write], deps, client =>
+  const { chainId, label } = chainOf(deps);
+  const gas = await chainRead(`${label} gas estimate`, [endpoints.write], deps, client =>
     client.estimateGas({ account: account.address, to: tx.to, data: tx.data })
   );
-  const fees = await arcRead('Arc fee estimate', endpoints.reads, deps, client => client.estimateFeesPerGas());
+  const fees = await chainRead(`${label} fee estimate`, endpoints.reads, deps, client => client.estimateFeesPerGas());
   const serializedTransaction = await account.signTransaction({
-    chainId: ARC_CHAIN_ID,
+    chainId,
     type: 'eip1559',
     to: tx.to,
     data: tx.data,
@@ -805,7 +816,9 @@ async function sendSigned(
       }
     },
     (endpoint, error) =>
-      new Error(`Arc transaction ${hash} was not sent on ${arcHost(endpoint)}: ${errorText(error)}`, { cause: error }),
+      new Error(`${label} transaction ${hash} was not sent on ${arcHost(endpoint)}: ${errorText(error)}`, {
+        cause: error
+      }),
     attempt => refuseSendIfAborted(signal, attempt === 0 ? tx.what : `${tx.what} resend of ${hash}`)
   );
   return hash;
@@ -814,12 +827,14 @@ async function sendSigned(
 /**
  * Polls `hash`'s receipt from `endpoints[0]` for RECEIPT_TIMEOUT_MS. A transient error counts as no receipt yet and
  * moves the poll to the next endpoint; a revert, or any other error, fails at once.
+ * Shared with usdcx-l2-deposit.ts and usdcx-cctp-proof.ts.
  */
-async function waitForReceipt(
+export async function waitForReceipt(
   endpoints: readonly string[],
   deps: ArcReadDeps,
   hash: Hash
 ): Promise<TransactionReceipt> {
+  const { label } = chainOf(deps);
   const clock = deps.clock ?? realArcClock;
   const deadline = clock.now() + RECEIPT_TIMEOUT_MS;
   let index = 0;
@@ -834,19 +849,19 @@ async function waitForReceipt(
         lastTransient = `${arcHost(endpoint)}: ${errorText(error)}`;
         index += 1;
       } else if (!(error instanceof TransactionReceiptNotFoundError)) {
-        throw new Error(`Arc transaction ${hash} receipt on ${arcHost(endpoint)}: ${errorText(error)}`, {
+        throw new Error(`${label} transaction ${hash} receipt on ${arcHost(endpoint)}: ${errorText(error)}`, {
           cause: error
         });
       }
     }
     if (receipt) {
       if (receipt.status !== 'success')
-        throw new Error(`Arc transaction ${hash} reverted in block ${receipt.blockNumber}`);
+        throw new Error(`${label} transaction ${hash} reverted in block ${receipt.blockNumber}`);
       return receipt;
     }
     if (clock.now() >= deadline) {
       throw new Error(
-        `Arc transaction ${hash} has no receipt after ${RECEIPT_TIMEOUT_MS} ms (last transient error: ${lastTransient})`
+        `${label} transaction ${hash} has no receipt after ${RECEIPT_TIMEOUT_MS} ms (last transient error: ${lastTransient})`
       );
     }
     await clock.sleep(RECEIPT_POLL_MS);
@@ -871,10 +886,10 @@ export async function submitDepositToMiden(
   const remoteRecipient = midenAccountHexToXReserveRecipient(args.recipientHex);
   const endpoint = await pickWriteEndpoint(deps);
   const endpoints = { write: endpoint, reads: startingAt(deps.endpoints, endpoint) };
-  let nonce = await arcRead('Arc nonce', endpoints.reads, deps, client =>
+  let nonce = await chainRead('Arc nonce', endpoints.reads, deps, client =>
     client.getTransactionCount({ address: account.address, blockTag: 'pending' })
   );
-  const allowance = await arcRead('USDC allowance', endpoints.reads, deps, client =>
+  const allowance = await chainRead('USDC allowance', endpoints.reads, deps, client =>
     client.readContract({
       address: ARC_USDC,
       abi: ERC20_ABI,

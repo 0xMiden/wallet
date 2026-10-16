@@ -27,3 +27,8 @@ it("loads the wallet's executor-route deposit without the wallet runtime, its ac
   expect(typeof executor.runUsdcxExecutorDeposit).toBe('function');
   expect(typeof executor.encodeExecutorHookData).toBe('function');
 });
+
+it('loads the L2 bridge-in deposit helper without the wallet runtime or the SDK', () => {
+  const helper = jest.requireActual<typeof import('./usdcx-l2-deposit')>('./usdcx-l2-deposit');
+  expect(typeof helper.submitL2Deposit).toBe('function');
+});
