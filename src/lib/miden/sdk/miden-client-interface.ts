@@ -31,12 +31,14 @@ import {
   WasmWebClient
 } from '@miden-sdk/miden-sdk/lazy';
 import { Buffer } from 'buffer';
+import Dexie from 'dexie';
 
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import { clearConnectivityIssue, markConnectivityIssue } from 'lib/miden/activity/connectivity-state';
 import { PublicError } from 'lib/miden/back/defaults';
 import { isOffscreenAvailable, proveViaOffscreen } from 'lib/miden/back/offscreen-prover';
 import { computeSyncBackoffMs, monotonicNowMs } from 'lib/miden/sync-backoff';
+import { isOtherNetworkGuardian } from 'lib/miden-chain/constants';
 import {
   getEffectiveFeeFaucetId,
   getEffectiveNetworkName,
@@ -58,7 +60,7 @@ import { createWalletSdkObserver } from 'lib/telemetry/sdk-observer';
 import { WalletType } from 'screens/onboarding/types';
 
 import { applyAfterSubmit } from './apply-after-submit';
-import { NoteExportType } from './constants';
+import { COMMIT_WAIT_POLL_INTERVAL_MS, NoteExportType } from './constants';
 import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
 import { decodeGuardianSummary, guardianResultCommitment } from './guardian-history';
 import { NoGuardianAccountsFoundError } from './guardian-recovery-errors';
@@ -400,8 +402,9 @@ function hostOf(url: string): string {
 type RealmReader = {
   generation: number;
   rpcUrl: string;
+  feeFaucetId: string | undefined;
   client: Promise<WasmWebClient>;
-  /** Consecutive failed builds for this generation and URL. */
+  /** Consecutive failed builds for this generation, URL and fee faucet. */
   failures: number;
   /** When a failed entry's window ends and the next build may start; unset while pending or built. */
   retryAtMs?: number;
@@ -430,7 +433,9 @@ let realmReader: RealmReader | undefined;
  * - the effective RPC URL, the ONLY rebuild trigger after an endpoint change in
  *   the offscreen document and on mobile and desktop, none of which bump the
  *   generation (the SW sees a new URL only at start-up or through a reset
- *   that bumps it). It is not redundant.
+ *   that bumps it). It is not redundant;
+ * - the fee faucet it is built with, which an E2E injection or a developer
+ *   override can change while the URL stays (#1482).
  * Each successful rebuild strands the previous reader: one per client
  * replacement or endpoint change, not one per read. A build that fails is
  * terminated by the SDK's `createClient` (since 0.17.3), so it strands
@@ -460,8 +465,13 @@ let realmReader: RealmReader | undefined;
 export function getRealmReaderClient(): Promise<WasmWebClient> {
   const generation = wasmClientGeneration();
   const rpcUrl = getEffectiveRpcUrl();
+  const feeFaucetId = getEffectiveFeeFaucetId();
   const cached = realmReader;
-  const sameKey = cached !== undefined && cached.generation === generation && cached.rpcUrl === rpcUrl;
+  const sameKey =
+    cached !== undefined &&
+    cached.generation === generation &&
+    cached.rpcUrl === rpcUrl &&
+    cached.feeFaucetId === feeFaucetId;
   // A pending or built reader is shared; a failed one answers with its own error until its window ends.
   if (cached && sameKey && (cached.retryAtMs === undefined || monotonicNowMs() < cached.retryAtMs)) {
     return cached.client;
@@ -475,7 +485,11 @@ export function getRealmReaderClient(): Promise<WasmWebClient> {
     ? 'first build'
     : sameKey
       ? 'backoff window ended'
-      : [cached.generation !== generation ? 'client replaced' : '', cached.rpcUrl !== rpcUrl ? 'endpoint changed' : '']
+      : [
+          cached.generation !== generation ? 'client replaced' : '',
+          cached.rpcUrl !== rpcUrl ? 'endpoint changed' : '',
+          cached.feeFaucetId !== feeFaucetId ? 'fee faucet changed' : ''
+        ]
           .filter(part => part !== '')
           .join(' and ');
   console.log(
@@ -488,6 +502,7 @@ export function getRealmReaderClient(): Promise<WasmWebClient> {
   const entry: RealmReader = {
     generation,
     rpcUrl,
+    feeFaucetId,
     client: WasmWebClient.createClient(
       rpcUrl,
       undefined,
@@ -496,7 +511,7 @@ export function getRealmReaderClient(): Promise<WasmWebClient> {
       undefined,
       false,
       undefined,
-      getEffectiveFeeFaucetId()
+      feeFaucetId
     ),
     failures: cached && sameKey ? cached.failures : 0
   };
@@ -518,7 +533,11 @@ export function getRealmReaderClient(): Promise<WasmWebClient> {
       // The stamp is unconditional on purpose: the lookup reads an unstamped entry as pending or built, and a build
       // whose URL moved away and back before any read is its key's entry again. The window is named only while the
       // build still governs its key; a replaced build, or one whose generation moved, is rebuilt on the next read.
-      const governs = realmReader === entry && wasmClientGeneration() === generation && getEffectiveRpcUrl() === rpcUrl;
+      const governs =
+        realmReader === entry &&
+        wasmClientGeneration() === generation &&
+        getEffectiveRpcUrl() === rpcUrl &&
+        getEffectiveFeeFaucetId() === feeFaucetId;
       const outcome = governs
         ? `failed (${entry.failures} in a row) - next build in ${Math.round(windowMs / 1000)}s`
         : 'failed after the reader moved on to another client or endpoint';
@@ -892,6 +911,11 @@ export class MidenClientInterface {
     guardianEndpoint: string,
     verifyAccount?: (acc: Account) => Promise<void>
   ): Promise<string[]> {
+    // Refused before the lookup, which would show that operator the recovery's key.
+    if (isOtherNetworkGuardian(guardianEndpoint, this.network)) {
+      const { getMessage } = await import('lib/i18n');
+      throw new Error(getMessage('guardianOtherNetwork'));
+    }
     const [{ assertWasmHoldCurrent, withWasmClientLock }, { MultisigClient, EcdsaSigner }] = await Promise.all([
       import('../sdk/miden-client'),
       import('@openzeppelin/miden-multisig-client')
@@ -2065,6 +2089,29 @@ export class MidenClientInterface {
     await importStore(storeName, dump);
   }
 
+  /**
+   * The genesis block header this client's store holds, as the bytes a store
+   * dump carries. Building the client writes genesis into an empty store, so
+   * after a build this is the genesis of the chain the client talks to. The SDK
+   * gives JS no read of a stored header, and exporting the whole store to find
+   * one row costs as much as the store is large, so the row is read directly.
+   */
+  async genesisHeader(): Promise<Uint8Array> {
+    // No schema is declared, so this joins the SDK's store at its own version
+    // and can neither upgrade it nor create one that does not exist.
+    const store = new Dexie(await this.client.storeIdentifier());
+    try {
+      await store.open();
+      const row: unknown = await store.table('blockHeaders').get(0);
+      if (typeof row === 'object' && row !== null && 'header' in row && row.header instanceof Uint8Array) {
+        return row.header;
+      }
+      throw new Error('The client store holds no genesis block header');
+    } finally {
+      store.close();
+    }
+  }
+
   async getTransactionsForAccount(accountId: string) {
     const transactions = await this.client.transactions.list();
     return transactions.filter(tx => getBech32AddressFromAccountId(tx.accountId()) === accountId);
@@ -2106,7 +2153,7 @@ export class MidenClientInterface {
   async waitForTransactionCommit(
     transactionId: string,
     maxWaitMs: number = 60_000,
-    delayMs: number = 5_000
+    delayMs: number = COMMIT_WAIT_POLL_INTERVAL_MS
   ): Promise<void> {
     await this.client.transactions.waitFor(transactionId, { timeout: maxWaitMs, interval: delayMs });
   }

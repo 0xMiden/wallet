@@ -1,3 +1,5 @@
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
 
 import {
@@ -13,6 +15,12 @@ import { REDACTED } from './redact';
 import packageJson from '../../../package.json';
 
 jest.mock('lib/settings/helpers', () => ({ isTelemetryEnabledAsync: jest.fn() }));
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getEffectiveNetworkName: jest.fn(actual.getEffectiveNetworkName) };
+});
 
 interface ClientOptions {
   dsn?: string;
@@ -615,6 +623,19 @@ describe('diagnostic snapshots', () => {
         appVersion: packageJson.version
       })
     });
+  });
+
+  it('names the network the crash happened on, in the diagnostics and as a tag beside any other', async () => {
+    consentOn();
+    initCrashReporting();
+    // Only the capture sees mainnet: the report is sent after a switch back, and still says where it happened.
+    jest.mocked(getEffectiveNetworkName).mockReturnValueOnce(MIDEN_NETWORK_NAME.MAINNET);
+    captureCrash(new Error('sync failed'));
+    await flushMicrotasks();
+    const event: Record<string, unknown> = { tags: { kept: 'yes' }, exception: { values: [{ type: 'Error' }] } };
+    scrubEvent(event, { originalException: captured[0] });
+    expect(event.extra).toEqual({ walletDiagnostics: expect.objectContaining({ network: 'mainnet' }) });
+    expect(event.tags).toEqual({ kept: 'yes', network: 'mainnet' });
   });
 
   it('reads each raw error field only once before asynchronous consent', async () => {

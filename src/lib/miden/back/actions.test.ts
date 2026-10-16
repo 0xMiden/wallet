@@ -2505,7 +2505,8 @@ describe('handleReportTelemetryEvent', () => {
     expect(response.type).toBe(WalletMessageType.ReportTelemetryEventResponse);
     expect(jest.mocked(sendEvent).mock.calls[0]?.[1]).toEqual({
       appVersion: packageJson.version,
-      platform: expect.any(String)
+      platform: expect.any(String),
+      network: expect.any(String)
     });
   });
 });

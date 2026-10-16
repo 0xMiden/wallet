@@ -445,8 +445,8 @@ describe('processRequest', () => {
     await dispatch({ type: WalletMessageType.ReloadEndpointOverridesRequest });
 
     expect(proxyMock.reloadOffscreenEndpointOverrides).toHaveBeenCalledTimes(1);
-    // Ordering: the SW's own cache is refreshed first, so both realms end up reading
-    // the same freshly-saved override.
+    // Ordering: the SW's own cache is refreshed first, so the state it sends the
+    // offscreen realm is the freshly-saved override.
     expect(mockLoadEndpointOverrides.mock.invocationCallOrder[0]).toBeLessThan(
       proxyMock.reloadOffscreenEndpointOverrides.mock.invocationCallOrder[0]
     );

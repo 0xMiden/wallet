@@ -1,6 +1,13 @@
 import { getChain } from 'lib/walletconnect/config';
 
-import { BRIDGE_NETWORKS, isEpochBridgeNetwork, sendBridgeNetworks, usdcxBridgeNetworks } from './bridge-networks';
+import {
+  BRIDGE_NETWORKS,
+  defaultBridgeNetwork,
+  defaultUsdcxBridgeNetwork,
+  isEpochBridgeNetwork,
+  sendBridgeNetworks,
+  usdcxBridgeNetworks
+} from './bridge-networks';
 
 let mockEpochChains = new Set([11155111]);
 const mockUsdcxChainIds = [5042002, 11155111, 84532, 421614];
@@ -17,7 +24,8 @@ const setChains = (chains: Set<number>) => {
   mockEpochChains = chains;
   mockSnapshot = snapshotOf(chains);
 };
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'testnet' }));
+let mockNetworkName = 'testnet';
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetworkName }));
 jest.mock('lib/remote-config/runtime', () => ({
   getBridgeConfigSnapshot: () => mockSnapshot
 }));
@@ -27,12 +35,28 @@ jest.mock('lib/remote-config/availability', () => ({
   })
 }));
 jest.mock('lib/usdcx/constant', () => ({
-  DEFAULT_USDCX_DESTINATION_CHAIN_ID: 5042002,
+  defaultUsdcxChainId: () => 5042002,
   listUsdcxDestinations: () => mockUsdcxChainIds.map(id => ({ chain: getChain(id) }))
 }));
 
 beforeEach(() => {
+  mockNetworkName = 'testnet';
   setChains(new Set([11155111]));
+});
+
+// The default is keyed per Miden network as the RPC endpoints are, so a wallet switched to mainnet opens on Ethereum.
+describe('default bridge network', () => {
+  it('is Sepolia on the test networks and Ethereum on mainnet', () => {
+    expect(defaultBridgeNetwork().id).toBe('sepolia');
+    mockNetworkName = 'localnet';
+    expect(defaultBridgeNetwork().id).toBe('sepolia');
+    mockNetworkName = 'mainnet';
+    expect(defaultBridgeNetwork()).toEqual({ id: 'ethereum', name: 'Ethereum', chainId: 1 });
+  });
+
+  it('pre-selects the USDCx chain of the network, else the bridge default', () => {
+    expect(defaultUsdcxBridgeNetwork().id).toBe('arc-testnet');
+  });
 });
 
 describe('send destinations', () => {

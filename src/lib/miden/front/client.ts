@@ -103,8 +103,6 @@ export const [MidenContextProvider, useMidenContext] = constate(() => {
     [status, accounts, currentAccount, networks, settings, ownMnemonic]
   );
 
-  // AutoSync is now handled by the React SDK's MidenProvider — no manual state push needed.
-
   // Derive convenience booleans
   const idle = status === WalletStatus.Idle;
   const locked = status === WalletStatus.Locked;

@@ -11,6 +11,8 @@ import {
 import {
   getEffectiveAllowNoGuardian,
   buildDefaultOverrideFor,
+  buildNetworkChoiceOverride,
+  type EndpointOverride,
   loadEndpointOverrides,
   ENDPOINT_OVERRIDE_STORAGE_KEY
 } from './effective-endpoints';
@@ -20,19 +22,23 @@ const mockKvStore: Record<string, unknown> = {};
 // without a second jest.mock for the whole file.
 let mockThrows = false;
 let mockWriteThrows = false;
+let mockStorageCalls = 0;
 jest.mock('lib/platform/storage-adapter', () => ({
   getStorageProvider: () => ({
     get: async (keys: string[]) => {
+      mockStorageCalls++;
       if (mockThrows) throw new Error('storage unavailable');
       const out: Record<string, unknown> = {};
       for (const k of keys) if (k in mockKvStore) out[k] = mockKvStore[k];
       return out;
     },
     set: async (obj: Record<string, unknown>) => {
+      mockStorageCalls++;
       if (mockWriteThrows) throw new Error('storage write failed');
       Object.assign(mockKvStore, obj);
     },
     remove: async (keys: string[]) => {
+      mockStorageCalls++;
       if (mockWriteThrows) throw new Error('storage write failed');
       for (const k of keys) delete mockKvStore[k];
     }
@@ -62,6 +68,7 @@ beforeEach(() => {
   for (const k of Object.keys(mockKvStore)) delete mockKvStore[k];
   mockThrows = false;
   mockWriteThrows = false;
+  mockStorageCalls = 0;
   delete process.env.MIDEN_E2E_TEST;
   delete process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES;
   delete process.env.MIDEN_FEE_FAUCET_ID;
@@ -126,6 +133,21 @@ describe('effective-endpoints resolver', () => {
 
     expect(helpers.getExplorerTxUrl('0xabc')).toBe('https://my-explorer.example/tx/0xabc');
     expect(helpers.getExplorerAccountUrl('mtst1acc')).toBe('https://my-explorer.example/account/mtst1acc');
+  });
+
+  // The network choice onboarding stores has no explorer URL of its own, so a mainnet wallet's links
+  // come from the build's mainnet entry: transactions, accounts, and tokens (a faucet is an account).
+  it('links a mainnet wallet to the mainnet explorer', async () => {
+    let eff!: typeof import('./effective-endpoints');
+    let helpers!: typeof import('./constants');
+    jest.isolateModules(() => {
+      eff = require('./effective-endpoints');
+      helpers = require('./constants');
+    });
+    await eff.applyEndpointOverride(eff.buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET));
+
+    expect(helpers.getExplorerTxUrl('0xa84b')).toBe('https://explorer.cedar.miden.io/tx/0xa84b');
+    expect(helpers.getExplorerAccountUrl('mm1azc87wvsq')).toBe('https://explorer.cedar.miden.io/account/mm1azc87wvsq');
   });
 
   it('loadEndpointOverrides is a no-op under MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES', async () => {
@@ -258,24 +280,38 @@ describe('effective-endpoints resolver', () => {
     });
 
     it("returns '' when the effective network has no configured guardian and no custom URL is set", async () => {
-      const m = loadModule();
+      let m!: typeof import('./effective-endpoints');
+      jest.isolateModules(() => {
+        const { setDocumentGuardians } = require('./guardian-registry');
+        m = require('./effective-endpoints');
+        setDocumentGuardians(MIDEN_NETWORK_NAME.MAINNET, []);
+      });
       await m.applyEndpointOverride(m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.MAINNET));
       expect(m.getEffectiveNetworkName()).toBe(MIDEN_NETWORK_NAME.MAINNET);
       expect(m.getEffectiveDefaultGuardianEndpoint()).toBe('');
     });
   });
 
-  describe('faucet/faucetApi URL final fallback (network with no per-network mapping)', () => {
-    it('falls back to the DEFAULT_NETWORK faucet/faucetApi endpoint when the effective network has none', async () => {
+  describe('faucet on a network with none (mainnet)', () => {
+    // Another network's faucet would mint test tokens for the mainnet address, which never reach mainnet.
+    it.each<[string, (network: MIDEN_NETWORK_NAME) => EndpointOverride]>([
+      ['the Mainnet preset', network => buildDefaultOverrideFor(network)],
+      ['the onboarding network choice', network => buildNetworkChoiceOverride(network)]
+    ])('resolves no faucet and no faucet API under %s, never the build network faucet', async (_label, build) => {
       const m = loadModule();
-      // MAINNET has no entry in MIDEN_FAUCET_ENDPOINTS / MIDEN_FAUCET_API_ENDPOINTS, and
-      // buildDefaultOverrideFor leaves faucetUrl/faucetApiUrl empty in that case, so both
-      // getters must fall through past the (falsy) override and the (undefined) per-network
-      // map entry to the DEFAULT_NETWORK map entry.
-      await m.applyEndpointOverride(m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.MAINNET));
+      await m.applyEndpointOverride(build(MIDEN_NETWORK_NAME.MAINNET));
       expect(m.getEffectiveNetworkName()).toBe(MIDEN_NETWORK_NAME.MAINNET);
-      expect(m.getEffectiveFaucetUrl()).toBe(MIDEN_FAUCET_ENDPOINTS.get(DEFAULT_NETWORK));
-      expect(m.getEffectiveFaucetApiUrl()).toBe(MIDEN_FAUCET_API_ENDPOINTS.get(DEFAULT_NETWORK));
+      expect(m.getEffectiveFaucetUrl()).toBeUndefined();
+      expect(m.getEffectiveFaucetApiUrl()).toBeUndefined();
+      expect(m.isFaucetConfigured()).toBe(false);
+    });
+
+    it('still resolves the faucet of a network that has one', async () => {
+      const m = loadModule();
+      expect(m.isFaucetConfigured()).toBe(true);
+      await m.applyEndpointOverride(buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.DEVNET));
+      expect(m.getEffectiveFaucetApiUrl()).toBe(MIDEN_FAUCET_API_ENDPOINTS.get(MIDEN_NETWORK_NAME.DEVNET));
+      expect(m.isFaucetConfigured()).toBe(true);
     });
   });
 
@@ -287,8 +323,8 @@ describe('effective-endpoints resolver', () => {
       expect(m.getActiveOverride()).toBeNull();
     });
 
-    // The SW and offscreen realms re-read after a Save; when that read fails, the realm keeps the
-    // override it had instead of falling back to build defaults.
+    // The service worker re-reads after a Save; when that read fails, it keeps the override it had
+    // instead of falling back to build defaults.
     it('keeps a loaded override when a later read fails', async () => {
       const m = loadModule();
       const saved = m.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET);
@@ -406,7 +442,7 @@ describe('getEffectiveFeeFaucetId', () => {
     expect(m.getEffectiveFeeFaucetId()).toBe('0xoverride');
   });
 
-  it('persists the injector into storage so other realms can load it', async () => {
+  it('persists the injector into storage so another realm with storage can load it', async () => {
     const m = loadModule();
     await m.setFeeFaucetIdForTest('0xe2e');
     expect(mockKvStore[m.FEE_FAUCET_STORAGE_KEY]).toBe('0xe2e');
@@ -423,6 +459,120 @@ describe('getEffectiveFeeFaucetId', () => {
     };
     await m.loadEndpointOverrides();
     expect(m.getEffectiveFeeFaucetId()).toBe('0xstored');
+  });
+});
+
+// The service worker sends its state to the offscreen document only once it has loaded it (#1482).
+describe('whenEndpointOverridesLoaded', () => {
+  const isSettled = async (promise: Promise<void>) => {
+    let settled = false;
+    void promise.then(
+      () => (settled = true),
+      () => (settled = true)
+    );
+    await new Promise(resolve => setTimeout(resolve, 0));
+    return settled;
+  };
+
+  it('stays pending until the first loadEndpointOverrides() settles', async () => {
+    mockKvStore[ENDPOINT_OVERRIDE_STORAGE_KEY] = buildNetworkChoiceOverride(MIDEN_NETWORK_NAME.MAINNET);
+    const m = loadModule();
+    expect(await isSettled(m.whenEndpointOverridesLoaded())).toBe(false);
+
+    await m.loadEndpointOverrides();
+    expect(await isSettled(m.whenEndpointOverridesLoaded())).toBe(true);
+    expect(m.getEffectiveNetworkName()).toBe(MIDEN_NETWORK_NAME.MAINNET);
+  });
+
+  it('settles when the storage read throws', async () => {
+    mockThrows = true;
+    const m = loadModule();
+    await m.loadEndpointOverrides();
+    expect(await isSettled(m.whenEndpointOverridesLoaded())).toBe(true);
+    expect(m.getActiveOverride()).toBeNull();
+  });
+
+  it('settles when overrides are disabled for E2E', async () => {
+    process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES = 'true';
+    const m = loadModule();
+    await m.loadEndpointOverrides();
+    expect(await isSettled(m.whenEndpointOverridesLoaded())).toBe(true);
+  });
+});
+
+// The offscreen document has no extension storage, so it runs on the state the service worker sends (#1482).
+describe('endpoint state handed to a realm without extension storage', () => {
+  const MAINNET = MIDEN_NETWORK_NAME.MAINNET;
+
+  it('adopts the override and fee faucet without a storage call', () => {
+    mockThrows = true;
+    mockWriteThrows = true;
+    const m = loadModule();
+    m.adoptEndpointState({ override: buildNetworkChoiceOverride(MAINNET), feeFaucetId: 'x' });
+
+    expect(m.getEffectiveNetworkName()).toBe(MAINNET);
+    expect(m.getEffectiveRpcUrl()).toBe(MIDEN_NETWORK_ENDPOINTS.get(MAINNET));
+    expect(m.getEffectiveProverUrl()).toBe(MIDEN_PROVING_ENDPOINTS.get(MAINNET));
+    expect(m.getEffectiveNoteTransportUrl()).toBe(MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS.get(MAINNET));
+    expect(m.getEffectiveFeeFaucetId()).toBe('x');
+    expect(mockStorageCalls).toBe(0);
+  });
+
+  it('replaces an adopted state, back to the build defaults', () => {
+    mockThrows = true;
+    const m = loadModule();
+    m.adoptEndpointState({ override: buildNetworkChoiceOverride(MAINNET), feeFaucetId: 'x' });
+    m.adoptEndpointState({ override: null, feeFaucetId: undefined });
+
+    expect(m.getEffectiveNetworkName()).toBe(DEFAULT_NETWORK);
+    expect(m.getEffectiveRpcUrl()).toBe(MIDEN_NETWORK_ENDPOINTS.get(DEFAULT_NETWORK));
+    expect(m.getEffectiveFeeFaucetId()).toBeUndefined();
+  });
+
+  it('round-trips the service worker state, the E2E fee faucet included', async () => {
+    const sw = loadModule();
+    const override = { ...sw.buildDefaultOverrideFor(MIDEN_NETWORK_NAME.DEVNET), rpcUrl: 'https://custom.example/rpc' };
+    await sw.applyEndpointOverride(override);
+    await sw.setFeeFaucetIdForTest('0xe2e');
+    const state = sw.getEndpointState();
+    expect(state).toEqual({ override, feeFaucetId: '0xe2e' });
+
+    mockThrows = true;
+    mockWriteThrows = true;
+    const offscreen = loadModule();
+    offscreen.adoptEndpointState(state);
+    expect(offscreen.getEndpointState()).toEqual(state);
+    expect(offscreen.getEffectiveRpcUrl()).toBe('https://custom.example/rpc');
+    expect(offscreen.getEffectiveFeeFaucetId()).toBe('0xe2e');
+  });
+
+  it('sameEndpointState compares by value, whatever the key order', () => {
+    const m = loadModule();
+    const state = { override: buildNetworkChoiceOverride(MAINNET), feeFaucetId: 'x' };
+    const o = state.override;
+    const reordered: EndpointOverride = {
+      presetName: o.presetName,
+      networkName: o.networkName,
+      allowNoGuardian: o.allowNoGuardian,
+      guardianUrl: o.guardianUrl,
+      explorerUrl: o.explorerUrl,
+      faucetApiUrl: o.faucetApiUrl,
+      faucetUrl: o.faucetUrl,
+      noteTransportUrl: o.noteTransportUrl,
+      proverUrl: o.proverUrl,
+      rpcUrl: o.rpcUrl
+    };
+    expect(Object.keys(reordered)).not.toEqual(Object.keys(o));
+
+    expect(m.sameEndpointState(state, { feeFaucetId: 'x', override: reordered })).toBe(true);
+    expect(
+      m.sameEndpointState({ override: null, feeFaucetId: undefined }, { override: null, feeFaucetId: undefined })
+    ).toBe(true);
+    expect(m.sameEndpointState(state, { ...state, feeFaucetId: 'y' })).toBe(false);
+    expect(
+      m.sameEndpointState(state, { ...state, override: { ...state.override, rpcUrl: 'https://other.example' } })
+    ).toBe(false);
+    expect(m.sameEndpointState(state, { ...state, override: null })).toBe(false);
   });
 });
 

@@ -42,8 +42,8 @@ import {
   BRIDGE_NETWORKS,
   getBridgeNetwork,
   BridgeNetworkId,
-  DEFAULT_BRIDGE_NETWORK,
-  DEFAULT_USDCX_BRIDGE_NETWORK,
+  defaultBridgeNetwork,
+  defaultUsdcxBridgeNetwork,
   isEpochBridgeNetwork,
   SendNetworkId,
   sendBridgeNetworks,
@@ -893,11 +893,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
     [onAction]
   );
 
-  // Keep an offered destination the user chose. Select the default when there is none, or when a contact,
-  // link or draft carries one this network does not offer.
+  // Keep an offered destination the user chose. Select the effective network's default when there is none, or when a
+  // contact, link or draft carries one this network does not offer (Ethereum on mainnet, Arc Testnet or Sepolia on
+  // the test networks), else the first destination the document offers.
   useEffect(() => {
     if (!isBridge || !isValidRecipient || offeredNetworks.some(n => n.id === bridgeNetwork)) return;
-    const preferred = usdcxAvailable ? DEFAULT_USDCX_BRIDGE_NETWORK : DEFAULT_BRIDGE_NETWORK;
+    const preferred = usdcxAvailable ? defaultUsdcxBridgeNetwork() : defaultBridgeNetwork();
     const next = offeredNetworks.find(n => n.id === preferred.id) ?? offeredNetworks[0];
     if (next) onSelectNetwork(next.id);
   }, [isBridge, isValidRecipient, bridgeNetwork, offeredNetworks, onSelectNetwork, usdcxAvailable]);

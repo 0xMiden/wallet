@@ -1,7 +1,11 @@
+import { mainnet, sepolia } from 'viem/chains';
+
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { featureAvailability } from 'lib/remote-config/availability';
 import { evmChainSlug } from 'lib/remote-config/chains';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from 'lib/remote-config/runtime';
-import { DEFAULT_USDCX_DESTINATION_CHAIN_ID, listUsdcxDestinations } from 'lib/usdcx/constant';
+import { defaultUsdcxChainId, listUsdcxDestinations } from 'lib/usdcx/constant';
 import { SUPPORTED_CHAINS } from 'lib/walletconnect/config';
 
 export type BridgeNetworkId = string;
@@ -16,9 +20,28 @@ export const BRIDGE_NETWORKS: readonly BridgeNetwork[] = SUPPORTED_CHAINS.flatMa
   const id = evmChainSlug(chain.id);
   return id ? [{ id, name: chain.name, chainId: chain.id }] : [];
 });
-export const DEFAULT_BRIDGE_NETWORK: BridgeNetwork = { id: 'sepolia', name: 'Sepolia', chainId: 11155111 };
-export const DEFAULT_USDCX_BRIDGE_NETWORK: BridgeNetwork =
-  getBridgeNetworkByChainId(DEFAULT_USDCX_DESTINATION_CHAIN_ID) ?? DEFAULT_BRIDGE_NETWORK;
+/**
+ * The EVM chain the bridge surfaces default to, per Miden network, keyed as `MIDEN_NETWORK_ENDPOINTS` keys the RPCs:
+ * Ethereum on mainnet, Sepolia on the test networks.
+ */
+export const DEFAULT_BRIDGE_CHAIN_IDS = new Map<string, number>([
+  [MIDEN_NETWORK_NAME.MAINNET, mainnet.id],
+  [MIDEN_NETWORK_NAME.TESTNET, sepolia.id],
+  [MIDEN_NETWORK_NAME.DEVNET, sepolia.id],
+  [MIDEN_NETWORK_NAME.LOCALNET, sepolia.id]
+]);
+const SEPOLIA_BRIDGE_NETWORK: BridgeNetwork = { id: 'sepolia', name: 'Sepolia', chainId: sepolia.id };
+
+/** The bridge network of the effective Miden network: a new 0x contact's network until the user picks one. */
+export function defaultBridgeNetwork(): BridgeNetwork {
+  const chainId = DEFAULT_BRIDGE_CHAIN_IDS.get(getEffectiveNetworkName());
+  return (chainId === undefined ? undefined : getBridgeNetworkByChainId(chainId)) ?? SEPOLIA_BRIDGE_NETWORK;
+}
+
+/** The USDCx destination a withdrawal pre-selects on the effective network, when the document offers it. */
+export function defaultUsdcxBridgeNetwork(): BridgeNetwork {
+  return getBridgeNetworkByChainId(defaultUsdcxChainId()) ?? defaultBridgeNetwork();
+}
 
 export function isBridgeNetworkId(value: string | null | undefined): value is BridgeNetworkId {
   return BRIDGE_NETWORKS.some(network => network.id === value);

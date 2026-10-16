@@ -269,13 +269,13 @@ jest.mock('./bridge-networks', () => {
   ];
   const sepoliaOnly = [sepolia];
   return {
-    DEFAULT_BRIDGE_NETWORK: sepolia,
+    defaultBridgeNetwork: () => sepolia,
     get BRIDGE_NETWORKS() {
       return mockBridgeNetworks;
     },
     getBridgeNetwork: jest.fn(),
     usdcxBridgeNetworks: () => usdcxNetworks,
-    DEFAULT_USDCX_BRIDGE_NETWORK: usdcxNetworks[0],
+    defaultUsdcxBridgeNetwork: () => usdcxNetworks[0],
     isUsdcxBridgeNetwork: (id: string | undefined) => usdcxNetworks.some(n => n.id === id),
     isEpochBridgeNetwork: (id: string | undefined) => id === sepolia.id,
     sendBridgeNetworks: (usdcxWithdrawals: boolean) =>

@@ -54,6 +54,7 @@ import {
   selectAccountIfNeeded,
   sessionWithin,
   unwrap,
+  waitForNoConfirmPages,
   type DappHandle
 } from '../../helpers/test-dapp';
 import type { ConnectedView, Outcome, RawArg, SessionView } from '../../test-dapp/protocol';
@@ -429,6 +430,8 @@ function accountCells(j: Journey, fx: AccountFixtures): Record<string, DappCellI
         expect(await popupConnect.getByTestId('connect-origin').getAttribute('title')).toBe(dapp.origin);
         await popupConnect.getByTestId(CONFIRM_ACTIONS.connect.decline).click();
         expect(await connectOne).toEqual(NOT_GRANTED_RAW);
+        // A declined popup the wallet failed to close fails here, not later as a refused placement or a stray page.
+        await ctx.deadline.race(waitForNoConfirmPages(dapp.context), 'declined connect popup closed');
         const txTwo = unwrap(await sendTwo, "dApp two's send", ctx).txId;
         expect(maxConcurrentConfirmPages(j.confirmLog.events.slice(mark))).toBe(1);
 

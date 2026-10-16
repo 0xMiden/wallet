@@ -12,24 +12,30 @@ import {
   toHex
 } from 'viem';
 
-import { updateBridgedReceivePhase } from 'lib/miden/activity';
+import type { updateBridgedReceivePhase } from 'lib/miden/activity';
 
 import { CctpBurnQuote, fetchCctpBurnQuote } from './cctp';
+import type { UsdcxExecutorSource, UsdcxExecutorTarget } from './constant';
 import {
   CCTP_EXECUTOR_HOOK_NAME,
   CCTP_EXECUTOR_PAYLOAD_VERSION,
   CCTP_FORWARD_HOOK_NAME,
   CCTP_HOOK_VERSION,
-  CCTP_STANDARD_FINALITY_THRESHOLD,
   CIRCLE_USDC_DECIMALS,
   USDCX_DEPOSIT_HOOK_DATA,
   USDCX_DEPOSIT_MAX_FEE,
-  getUsdcxRemoteDomain,
-  UsdcxExecutorSource,
-  UsdcxExecutorTarget,
+  UsdcxDomainNotRegisteredError,
   XRESERVE_ABI
-} from './constant';
-import { UsdcxDomainNotRegisteredError } from './deposit';
+} from './protocol';
+
+// The live L2 bridge-in suite runs this module in Node (playwright/e2e/helpers/usdcx-l2-deposit.ts), so nothing here may
+// load the wallet's configuration runtime or the SDK at runtime; usdcx-node-imports.test.ts fails on either.
+
+/** The route's Miden domain. Every route usdcxSourceChains builds has one: schema.ts drops a usdcx route without it. */
+function midenDomainOf(route: { midenDomain?: number }): number {
+  if (route.midenDomain === undefined) throw new Error('USDCx Miden domain is not configured');
+  return route.midenDomain;
+}
 
 /** `depositToRemote(value, ...)`: the amount is the first argument, right after the 4-byte selector. */
 const DEPOSIT_AMOUNT_CALLDATA_INDEX = 4n;
@@ -63,14 +69,7 @@ export function encodeXReserveDepositCalldata(target: UsdcxExecutorTarget, remot
   return encodeFunctionData({
     abi: XRESERVE_ABI,
     functionName: 'depositToRemote',
-    args: [
-      0n,
-      target.midenDomain ?? getUsdcxRemoteDomain(),
-      remoteRecipient,
-      target.usdc,
-      USDCX_DEPOSIT_MAX_FEE,
-      USDCX_DEPOSIT_HOOK_DATA
-    ]
+    args: [0n, midenDomainOf(target), remoteRecipient, target.usdc, USDCX_DEPOSIT_MAX_FEE, USDCX_DEPOSIT_HOOK_DATA]
   });
 }
 
@@ -113,59 +112,76 @@ export function encodeExecutorPayload(
 }
 
 /**
- * The hook data of an executor-route burn. A forwarded burn (one with a signed quote) carries an empty
- * `cctp-forward` frame ahead of the `circle-generic-executor` frame, which is what Circle's forwarder looks
- * for; the fee entry point refuses a forward hook without a forward fee and a forward fee without the hook,
- * so the frame is present exactly when the quote is. The executor ignores the forward frame on Arc.
+ * The hook data of an executor-route burn: an empty `cctp-forward` frame ahead of the `circle-generic-executor`
+ * frame. The forward frame is what Circle's forwarder looks for; the fee entry point refuses a forward hook
+ * without a forward fee and a forward fee without the hook, so every burn carries both the frame and a signed
+ * quote. The executor ignores the forward frame on Arc.
  */
 export function encodeExecutorHookData(
   target: UsdcxExecutorTarget,
   remoteRecipient: Hex,
-  recoveryAddress: Address,
-  { forward }: { forward: boolean }
+  recoveryAddress: Address
 ): Hex {
   const executorFrame = encodeHookFrame(
     CCTP_EXECUTOR_HOOK_NAME,
     encodeExecutorPayload(target, remoteRecipient, recoveryAddress)
   );
-  return forward ? concatHex([encodeHookFrame(CCTP_FORWARD_HOOK_NAME, '0x'), executorFrame]) : executorFrame;
+  return concatHex([encodeHookFrame(CCTP_FORWARD_HOOK_NAME, '0x'), executorFrame]);
 }
 
-/** The argument tuple of `TokenMessengerV2.depositForBurnWithHook`. */
-export type DepositForBurnWithHookArgs = readonly [
-  amount: bigint,
-  destinationDomain: number,
-  mintRecipient: Hex,
-  burnToken: Address,
-  destinationCaller: Hex,
-  maxFee: bigint,
-  minFinalityThreshold: number,
-  hookData: Hex
-];
+/**
+ * Circle did not sign a quote the burn can use: the quote request was refused or could not be made, or the fee
+ * of the second quote is more than the one approval covers. The burn is not sent; the user can try again.
+ */
+export class UsdcxForwardQuoteUnavailableError extends Error {
+  constructor(reason: string, options?: ErrorOptions) {
+    super(`Circle did not quote the forwarded burn: ${reason}`, options);
+    this.name = 'UsdcxForwardQuoteUnavailableError';
+  }
+}
+
+export function isUsdcxForwardQuoteUnavailableError(error: unknown): error is UsdcxForwardQuoteUnavailableError {
+  return error instanceof UsdcxForwardQuoteUnavailableError;
+}
 
 /**
- * Build the manual burn for a human USDC amount: a standard transfer to Arc that mints to the executor and
- * binds the executor as its destination caller, which `TransportUtils.validateExecutorHookBinding` requires.
- * The wallet executes this message on Arc itself.
+ * The source USDC balance does not cover the amount plus Circle's quoted fee, which the burn pulls on top of the
+ * amount. Raised before any prompt, or after a paid approval when the balance read after it falls short, but always
+ * before the burn prompt. All three values are in base units.
  */
-export function buildDepositForBurnWithHookArgs(
-  amount: string,
-  source: UsdcxExecutorSource,
-  remoteRecipient: Hex,
-  recoveryAddress: Address
-): DepositForBurnWithHookArgs {
-  if (!isAddress(recoveryAddress)) throw new Error(`Invalid EVM address: ${recoveryAddress}`);
-  const executor = addressToBytes32(source.target.executor);
-  return [
-    parseUnits(amount.trim(), CIRCLE_USDC_DECIMALS),
-    source.target.domain,
-    executor,
-    source.usdc,
-    executor,
-    0n,
-    CCTP_STANDARD_FINALITY_THRESHOLD,
-    encodeExecutorHookData(source.target, remoteRecipient, recoveryAddress, { forward: false })
-  ];
+export class UsdcxExecutorBalanceTooLowError extends Error {
+  readonly needed: bigint;
+  readonly fee: bigint;
+  readonly balance: bigint;
+
+  constructor(needed: bigint, fee: bigint, balance: bigint) {
+    super(`The burn needs ${needed} USDC base units, the amount plus a fee of ${fee}, but the balance is ${balance}`);
+    this.name = 'UsdcxExecutorBalanceTooLowError';
+    this.needed = needed;
+    this.fee = fee;
+    this.balance = balance;
+  }
+}
+
+export function isUsdcxExecutorBalanceTooLowError(error: unknown): error is UsdcxExecutorBalanceTooLowError {
+  return error instanceof UsdcxExecutorBalanceTooLowError;
+}
+
+/** What a burn of `value` plus Circle's `fee` needs from `balance`, all in base units. */
+export interface UsdcxExecutorFeeShortfall {
+  needed: bigint;
+  fee: bigint;
+  balance: bigint;
+}
+
+/** The shortfall when `balance` does not cover `value` plus the fee the burn pulls on top of it, else undefined. */
+export function usdcxExecutorFeeShortfall(
+  value: bigint,
+  fee: bigint,
+  balance: bigint
+): UsdcxExecutorFeeShortfall | undefined {
+  const needed = value + fee;
+  return balance < needed ? { needed, fee, balance } : undefined;
 }
 
 /** The argument tuple of `TokenMessengerWithFees.depositForBurnWithHookAndFees`. */
@@ -197,7 +213,7 @@ export function buildExecutorBurnIntent(
   return {
     value: parseUnits(amount.trim(), CIRCLE_USDC_DECIMALS),
     destinationCaller: addressToBytes32(source.target.executor),
-    hookData: encodeExecutorHookData(source.target, remoteRecipient, recoveryAddress, { forward: true })
+    hookData: encodeExecutorHookData(source.target, remoteRecipient, recoveryAddress)
   };
 }
 
@@ -237,8 +253,6 @@ export function buildDepositForBurnWithHookAndFeesArgs(
 /** Signs and broadcasts the source-chain transactions. The screen supplies the native or wagmi flavour. */
 export interface UsdcxExecutorSigner {
   approve(spender: Address, value: bigint): Promise<Hash>;
-  /** The manual burn, through the plain token messenger. */
-  depositForBurnWithHook(args: DepositForBurnWithHookArgs): Promise<Hash>;
   /** The forwarded burn, through the fee entry point. */
   depositForBurnWithHookAndFees(args: DepositForBurnWithHookAndFeesArgs): Promise<Hash>;
 }
@@ -252,6 +266,8 @@ export interface UsdcxExecutorDepositDeps {
   isRemoteDomainRegistered(remoteDomain: number): Promise<boolean>;
   /** The source USDC allowance the depositor gave `spender`, in base units. */
   readAllowance(spender: Address): Promise<bigint>;
+  /** The depositor's source USDC balance, in base units; read before the first quote and again after an approval. */
+  readBalance(): Promise<bigint>;
   waitForReceipt(hash: Hash): Promise<void>;
   updatePhase: typeof updateBridgedReceivePhase;
   /** Circle's quote for the forwarded burn; `quoteExecutorBurn` unless a test supplies one. */
@@ -262,14 +278,18 @@ export interface UsdcxExecutorDepositDeps {
  * Run the source-chain leg of an executor-route bridge-in against the tracking row `trackingTxId`.
  *
  * Order: check Arc's xReserve has Miden registered (the executor would otherwise revert the whole execution
- * after the burn), read the fee entry point's allowance, ask Circle for a quote, then approve and burn. With a
- * quote the burn goes through the fee entry point for the amount plus the fee and Circle forwards and executes
- * it on Arc; when Circle refuses or cannot be reached the burn goes through the plain token messenger for the
- * amount and the wallet executes it on Arc itself. Either way the approval is sent only when the allowance is
- * short, the hash and the signed recipient are recorded on the row before the receipt is awaited, and the row then
- * moves to `delivering`.
+ * after the burn), read the fee entry point's allowance and the balance, ask Circle for a quote, then approve and
+ * burn. The burn goes through the fee entry point for the amount plus the fee and Circle forwards and executes it on
+ * Arc. When Circle refuses or cannot be reached, the deposit fails with `UsdcxForwardQuoteUnavailableError` before
+ * any wallet prompt, since a burn through the plain token messenger is not forwarded and would stop at the executor.
+ * A balance short of the amount plus the quoted fee fails it with `UsdcxExecutorBalanceTooLowError`, also before any
+ * prompt. The approval is sent only when the allowance is short, the hash and the signed recipient are recorded on
+ * the row before the receipt is awaited, and the row then moves to `delivering`.
  * Nothing here waits for Circle. A quote lives about two minutes, so after an approval the burn signs a second
- * quote; the approval covers twice the quoted fee, and a fee beyond that takes the manual route.
+ * quote; the approval covers twice the quoted fee, and a fee beyond that fails the deposit the same way. The
+ * approval wait can outlast the balance read too, so the balance is read again once the approval confirms, before the
+ * second quote, and a balance short of the second fee fails the deposit after the paid approval with
+ * `UsdcxExecutorBalanceTooLowError`, before the burn prompt.
  */
 export async function runUsdcxExecutorDeposit(
   trackingTxId: string,
@@ -281,6 +301,7 @@ export async function runUsdcxExecutorDeposit(
     signer,
     isRemoteDomainRegistered,
     readAllowance,
+    readBalance,
     waitForReceipt,
     updatePhase,
     fetchQuote = intent => quoteExecutorBurn(source, intent)
@@ -288,54 +309,51 @@ export async function runUsdcxExecutorDeposit(
 ): Promise<Hash> {
   const intent = buildExecutorBurnIntent(amount, source, remoteRecipient, depositor);
 
-  const remoteDomain = source.midenDomain ?? getUsdcxRemoteDomain();
+  const remoteDomain = midenDomainOf(source);
   if (!(await isRemoteDomainRegistered(remoteDomain))) {
     throw new UsdcxDomainNotRegisteredError(remoteDomain);
   }
 
-  const tryQuote = async (): Promise<CctpBurnQuote | undefined> => {
+  const quoteOrFail = async (): Promise<CctpBurnQuote> => {
     try {
       return await fetchQuote(intent);
     } catch (error) {
-      console.warn('[usdcx] Circle did not quote the forwarded burn; the wallet will execute on Arc', error);
-      return undefined;
+      throw new UsdcxForwardQuoteUnavailableError('the quote request failed', { cause: error });
     }
   };
-  /** Approve `spender` for `spend` when its allowance is short. */
-  const ensureAllowance = async (spender: Address, spend: bigint): Promise<void> => {
-    if ((await readAllowance(spender)) >= spend) return;
-    await waitForReceipt(await signer.approve(spender, spend));
-  };
 
-  // The allowance is read before the quote, so after a quote only an approval (followed by a second quote), the
-  // signer's bounded fee read and the burn prompt remain. At most one approval goes to the fee entry point, for twice
-  // the quoted fee so a fee that moved by the second quote is still covered; a fee beyond that, or no second quote,
-  // takes the manual route, which may ask for its own approval to the plain messenger.
-  // A failed read of that allowance takes the manual route, as a refused quote does.
-  const feeAllowance = await readAllowance(source.tokenMessengerWithFees).catch((error: unknown) => {
-    console.warn('[usdcx] could not read the fee entry point allowance; the wallet will execute on Arc', error);
-    return undefined;
-  });
-  let quote = feeAllowance === undefined ? undefined : await tryQuote();
-  if (quote && feeAllowance !== undefined && feeAllowance < intent.value + quote.feeTotalAmount) {
+  // The allowance and the balance are read before the quote, so after a quote only an approval (followed by a balance
+  // read and a second quote), the signer's bounded fee read and the burn prompt remain. The balance is read here, not
+  // taken from the caller, because the caller's chain switch before this can wait on the user. At most one approval
+  // goes to the fee entry point, for twice the quoted fee so a fee that moved by the second quote is still covered; a
+  // fee beyond that, or no second quote, fails the deposit before the burn prompt. The approval prompt and its receipt
+  // can take minutes too, so the balance is read again after them, before the second quote.
+  const feeAllowance = await readAllowance(source.tokenMessengerWithFees);
+  const balance = await readBalance();
+  const ensureBalanceCovers = ({ feeTotalAmount }: CctpBurnQuote, held: bigint) => {
+    const shortfall = usdcxExecutorFeeShortfall(intent.value, feeTotalAmount, held);
+    if (shortfall) throw new UsdcxExecutorBalanceTooLowError(shortfall.needed, shortfall.fee, shortfall.balance);
+  };
+  let quote = await quoteOrFail();
+  ensureBalanceCovers(quote, balance);
+  if (feeAllowance < intent.value + quote.feeTotalAmount) {
     const approvedSpend = intent.value + 2n * quote.feeTotalAmount;
     await waitForReceipt(await signer.approve(source.tokenMessengerWithFees, approvedSpend));
-    quote = await tryQuote();
-    if (quote && intent.value + quote.feeTotalAmount > approvedSpend) quote = undefined;
+    const freshBalance = await readBalance();
+    quote = await quoteOrFail();
+    ensureBalanceCovers(quote, freshBalance);
+    if (intent.value + quote.feeTotalAmount > approvedSpend) {
+      throw new UsdcxForwardQuoteUnavailableError('the fee of the second quote is more than the approval covers');
+    }
   }
-  if (!quote) await ensureAllowance(source.tokenMessenger, intent.value);
 
-  const burnHash = quote
-    ? await signer.depositForBurnWithHookAndFees(
-        buildDepositForBurnWithHookAndFeesArgs(source, intent, quote, depositor)
-      )
-    : await signer.depositForBurnWithHook(buildDepositForBurnWithHookArgs(amount, source, remoteRecipient, depositor));
+  const burnHash = await signer.depositForBurnWithHookAndFees(
+    buildDepositForBurnWithHookAndFeesArgs(source, intent, quote, depositor)
+  );
   await updatePhase(trackingTxId, 'submitting', {
     evmTxHash: burnHash,
     usdcxRemoteRecipient: remoteRecipient.toLowerCase(),
-    cctp: quote
-      ? { sourceDomain: source.domain, forwarded: true, forwardFee: quote.feeTotalAmount.toString() }
-      : { sourceDomain: source.domain, forwarded: false }
+    cctp: { sourceDomain: source.domain, forwarded: true, forwardFee: quote.feeTotalAmount.toString() }
   });
   await waitForReceipt(burnHash);
   await updatePhase(trackingTxId, 'delivering', { evmTxHash: burnHash });

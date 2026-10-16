@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { TabRootHeader } from 'components/ui/TabRootHeader';
 import { getCurrentLocale } from 'lib/i18n/core';
@@ -367,6 +367,47 @@ describe('Settings page — root menu (non-guardian)', () => {
     view.rerender(<Settings tabSlug={null} />);
 
     expect(screen.queryByTestId('row-recoveryPhrase')).not.toBeInTheDocument();
+  });
+
+  describe('the version line', () => {
+    // The count reads the event's own time stamp; React falls back to Date.now() for a zero one.
+    const tapVersionAt = (timeStamp: number) => {
+      const line = screen.getByText('settingsVersion');
+      const event = createEvent.click(line);
+      Object.defineProperty(event, 'timeStamp', { value: timeStamp });
+      fireEvent(line, event);
+    };
+    const tapVersion = (times: number, start: number, gap: number) => {
+      for (let i = 0; i < times; i++) tapVersionAt(start + i * gap);
+    };
+
+    it('opens Developer Settings after seven taps, each within two seconds of the one before', () => {
+      render(<Settings tabSlug={null} />);
+      tapVersion(7, 10_000, 2_000);
+      expect(navigate).toHaveBeenCalledWith('/developer-settings');
+    });
+
+    it('opens nothing after six taps', () => {
+      render(<Settings tabSlug={null} />);
+      tapVersion(6, 10_000, 300);
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('opens nothing when the seventh tap comes more than two seconds after the sixth', () => {
+      render(<Settings tabSlug={null} />);
+      tapVersion(6, 10_000, 300);
+      tapVersionAt(10_000 + 5 * 300 + 2_001);
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('looks and reads as plain text: no style, role or focus stop of a control', () => {
+      render(<Settings tabSlug={null} />);
+      const line = screen.getByText('settingsVersion');
+      expect(line.tagName).toBe('P');
+      expect(line).toHaveAttribute('class', 'px-1 text-caption text-muted');
+      expect(line).not.toHaveAttribute('role');
+      expect(line).not.toHaveAttribute('tabindex');
+    });
   });
 
   it('renders the settings header and version footer', () => {

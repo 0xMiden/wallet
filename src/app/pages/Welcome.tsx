@@ -7,6 +7,7 @@ import AwaitFonts from 'app/a11y/AwaitFonts';
 import { formatMnemonic } from 'app/defaults';
 import { markOnboardingFinishing, navigateOnFromOnboarding } from 'app/onboarding-finish';
 import { OnboardingNetwork } from 'app/templates/OnboardingNetwork';
+import { forgetCarriedMainnetAccessCode } from 'lib/carried-mainnet-code';
 import { canHandoffToSidePanel, postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { isLikelyNetworkError } from 'lib/miden/activity/connectivity-classify';
 import type { DecryptedWalletFile } from 'lib/miden/backup-file';
@@ -321,8 +322,10 @@ const Welcome: FC<{ inviteOnly: boolean; onUnlockInviteOnly: () => void }> = ({ 
       if (target !== '/') return;
       settleOnboardingFlow(handle => handle.cancel());
       resetFlowState();
+      // A code a switch to mainnet carried here is single use: it ends with the create flow it was offered to.
+      if (onboardingType === OnboardingType.Create) void forgetCarriedMainnetAccessCode();
     },
-    [settleOnboardingFlow, resetFlowState]
+    [settleOnboardingFlow, resetFlowState, onboardingType]
   );
 
   // An unmount with the flow still open is an abandonment we can actually see,

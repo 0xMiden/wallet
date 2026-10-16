@@ -18,8 +18,8 @@ import { ImportWalletFileScreen } from './ImportWalletFile';
  *     (`errors` / `isSubmitting` / `isValid`), `register` and `handleSubmit`
  *     are steered by hand. `handleSubmit(cb)` always invokes `cb`, which is the
  *     only way to reach `handleImportSubmit`'s guards and try/catch on demand.
- *   - `@miden-sdk/react/lazy`'s `useImportStore`, `lib/miden/passworder`'s
- *     crypto primitives, and `lib/miden/repo`'s `importDb` are jest.fn()s so we
+ *   - `lib/miden/passworder`'s crypto primitives and `lib/miden/repo`'s
+ *     `importDb` are jest.fn()s so we
  *     can trace exactly what the component threads through the decrypt pipeline
  *     and drive the wrong-password / thrown-error arms.
  *   - `TextField` / `components/Button` / the v2 icon barrel are thin harnesses
@@ -54,6 +54,7 @@ const mockRegister = jest.fn((name: string, _opts?: unknown) => ({
 }));
 
 const mockImportStore = jest.fn();
+const mockGenesisHeader = jest.fn();
 const mockImportDb = jest.fn();
 const mockStoreIdentifier = jest.fn();
 const mockGetMidenClient = jest.fn();
@@ -63,6 +64,7 @@ const mockGenerateKey = jest.fn();
 const mockDeriveKey = jest.fn();
 const mockDecrypt = jest.fn();
 const mockDecryptJson = jest.fn();
+let mockEffectiveNetwork = 'testnet';
 
 // ---------------------------------------------------------------------------
 // Module mocks.
@@ -107,6 +109,10 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   getMidenClient: (...args: unknown[]) => mockGetMidenClient(...args),
   withWasmClientLock: (...args: unknown[]) => mockWithWasmClientLock(...args),
   assertWasmHoldCurrent: (...args: unknown[]) => mockAssertWasmHoldCurrent(...args)
+}));
+
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: () => mockEffectiveNetwork
 }));
 
 jest.mock('app/icons/v2', () => ({
@@ -228,10 +234,23 @@ const VALID_ACCOUNT = {
   authScheme: 'ecdsa' as const
 };
 
+// The active store's genesis header, and a store dump that carries the same one.
+const GENESIS = [1, 2, 3, 4];
+const storeDump = (genesis: number[] | null) =>
+  JSON.stringify({
+    accountCodes: [],
+    blockHeaders:
+      genesis === null
+        ? []
+        : [{ blockNum: 0, header: { __type: 'Uint8Array', data: Buffer.from(genesis).toString('base64') } }]
+  });
+const MIDEN_CLIENT_DUMP = storeDump(GENESIS);
+
 const VERSION_TWO_PAYLOAD: DecryptedWalletFile = {
   formatVersion: 2,
+  network: 'testnet',
   seedPhrase: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
-  midenClientDbContent: 'miden-client-db',
+  midenClientDbContent: MIDEN_CLIENT_DUMP,
   walletDbContent: 'wallet-db',
   accounts: [VALID_ACCOUNT],
   importedAccounts: []
@@ -267,6 +286,7 @@ beforeEach(() => {
   fileReaderQueue = [];
   pendingReads = [];
   mockWatchPassword = 'pw';
+  mockEffectiveNetwork = 'testnet';
   mockFormState = { errors: {}, isSubmitting: false, isValid: true };
 
   mockGenerateKey.mockResolvedValue('pass-key');
@@ -274,9 +294,14 @@ beforeEach(() => {
   mockDecrypt.mockResolvedValue(ENCRYPTED_WALLET_FILE_PASSWORD_CHECK);
   mockDecryptJson.mockResolvedValue(VERSION_TWO_PAYLOAD);
   mockImportStore.mockResolvedValue(undefined);
+  mockGenesisHeader.mockResolvedValue(new Uint8Array(GENESIS));
   mockImportDb.mockResolvedValue(undefined);
   mockStoreIdentifier.mockResolvedValue('MidenClientDB_mtst');
-  mockGetMidenClient.mockResolvedValue({ importDb: mockImportStore, client: { storeIdentifier: mockStoreIdentifier } });
+  mockGetMidenClient.mockResolvedValue({
+    importDb: mockImportStore,
+    genesisHeader: mockGenesisHeader,
+    client: { storeIdentifier: mockStoreIdentifier }
+  });
   mockWithWasmClientLock.mockImplementation(async (run: (hold: unknown) => Promise<unknown>) => run({ id: 'hold' }));
   mockAssertWasmHoldCurrent.mockImplementation(() => undefined);
 
@@ -598,7 +623,7 @@ describe('decryption flow', () => {
     expect(mockDeriveKey).toHaveBeenCalledWith('pass-key', new Uint8Array([10, 20, 30]));
     expect(mockDecrypt).toHaveBeenCalledWith({ dt: 'check-dt', iv: 'check-iv' }, 'derived-key');
     expect(mockDecryptJson).toHaveBeenCalledWith({ dt: 'payload-dt', iv: 'payload-iv' }, 'derived-key');
-    expect(mockImportStore).toHaveBeenCalledWith('miden-client-db');
+    expect(mockImportStore).toHaveBeenCalledWith(MIDEN_CLIENT_DUMP);
     expect(mockImportDb).toHaveBeenCalledWith('wallet-db');
   });
 
@@ -799,7 +824,11 @@ describe('decryption flow', () => {
       () =>
         new Promise(resolve => {
           finishClientBuild = () =>
-            resolve({ importDb: mockImportStore, client: { storeIdentifier: mockStoreIdentifier } });
+            resolve({
+              importDb: mockImportStore,
+              genesisHeader: mockGenesisHeader,
+              client: { storeIdentifier: mockStoreIdentifier }
+            });
         })
     );
     const { container } = renderScreen({ onSubmit });
@@ -860,7 +889,7 @@ describe('decryption flow', () => {
     await submit(container);
 
     await waitFor(() => expect(mockImportStore).toHaveBeenCalled());
-    expect(mockImportStore).toHaveBeenCalledWith('miden-client-db');
+    expect(mockImportStore).toHaveBeenCalledWith(MIDEN_CLIENT_DUMP);
     expect(mockWithWasmClientLock).toHaveBeenCalledWith(expect.any(Function), {
       label: 'onboarding-restore-import-store'
     });
@@ -1010,6 +1039,128 @@ describe('decryption flow', () => {
     expect(mockGetMidenClient).not.toHaveBeenCalled();
     expect(mockImportStore).not.toHaveBeenCalled();
     expect(mockImportDb).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Network placement: a file from another chain must never reach either store.
+// ---------------------------------------------------------------------------
+describe('network placement', () => {
+  const loadFile = (container: HTMLElement) =>
+    uploadViaInput(container, 'wallet.json', { mode: 'load', content: VALID_WALLET_JSON });
+  const errorCaption = () => within(screen.getByTestId('form-field')).getByTestId('ff-error');
+
+  it('refuses a dump of another chain before either database import', async () => {
+    // A testnet store dump restored on mainnet would replace mainnet's genesis
+    // header, and every later client build would send the node the wrong chain.
+    const onSubmit = jest.fn();
+    mockGenesisHeader.mockResolvedValueOnce(new Uint8Array([9, 9, 9, 9]));
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+
+    await submit(container);
+
+    await waitFor(() => expect(errorCaption()).toHaveTextContent('encryptedWalletFileWrongNetwork'));
+    expect(mockGenesisHeader).toHaveBeenCalledTimes(1);
+    expect(mockImportStore).not.toHaveBeenCalled();
+    expect(mockImportDb).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('refuses a file recorded on another network before the genesis check', async () => {
+    const onSubmit = jest.fn();
+    mockEffectiveNetwork = 'mainnet';
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+
+    await submit(container);
+
+    await waitFor(() => expect(errorCaption()).toHaveTextContent('encryptedWalletFileWrongNetwork'));
+    expect(mockGetMidenClient).not.toHaveBeenCalled();
+    expect(mockGenesisHeader).not.toHaveBeenCalled();
+    expect(mockImportStore).not.toHaveBeenCalled();
+    expect(mockImportDb).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('restores a same-network file as before, reading the active genesis before the store swap', async () => {
+    const onSubmit = jest.fn();
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+
+    await submit(container);
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(VERSION_TWO_PAYLOAD));
+    expect(mockImportStore).toHaveBeenCalledWith(MIDEN_CLIENT_DUMP);
+    expect(mockImportDb).toHaveBeenCalledWith('wallet-db');
+    expect(mockGenesisHeader.mock.invocationCallOrder[0]).toBeLessThan(mockImportStore.mock.invocationCallOrder[0]!);
+  });
+
+  it('restores a file written before the network was recorded when its genesis matches', async () => {
+    const onSubmit = jest.fn();
+    const { network: _recorded, ...olderFile } = VERSION_TWO_PAYLOAD;
+    mockDecryptJson.mockResolvedValueOnce(olderFile);
+    // Nothing in this file names a network, so the genesis is all that places it.
+    mockEffectiveNetwork = 'mainnet';
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+
+    await submit(container);
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(olderFile));
+    expect(mockImportStore).toHaveBeenCalledWith(MIDEN_CLIENT_DUMP);
+    expect(mockImportDb).toHaveBeenCalledWith('wallet-db');
+  });
+
+  it('refuses a dump with no genesis row as malformed before the client is built', async () => {
+    const onSubmit = jest.fn();
+    mockDecryptJson.mockResolvedValueOnce({ ...VERSION_TWO_PAYLOAD, midenClientDbContent: storeDump(null) });
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+
+    await submit(container);
+
+    await waitFor(() => expect(errorCaption()).toHaveTextContent('encryptedWalletFileMalformed'));
+    expect(mockGetMidenClient).not.toHaveBeenCalled();
+    expect(mockImportStore).not.toHaveBeenCalled();
+    expect(mockImportDb).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('shows the restore error when the active store cannot be placed on a chain', async () => {
+    const onSubmit = jest.fn();
+    mockGenesisHeader.mockRejectedValueOnce(new Error('The client store holds no genesis block header'));
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+
+    await submit(container);
+
+    await waitFor(() => expect(errorCaption()).toHaveTextContent('encryptedWalletFileRestoreFailed'));
+    expect(mockImportStore).not.toHaveBeenCalled();
+    expect(mockImportDb).not.toHaveBeenCalled();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('stops before the store swap when the file is cleared during the genesis read', async () => {
+    const onSubmit = jest.fn();
+    let finishGenesisRead!: () => void;
+    mockGenesisHeader.mockImplementationOnce(
+      () => new Promise<Uint8Array>(resolve => (finishGenesisRead = () => resolve(new Uint8Array(GENESIS))))
+    );
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+    await submit(container);
+
+    await waitFor(() => expect(mockGenesisHeader).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+    await act(async () => finishGenesisRead());
+
+    expect(mockAssertWasmHoldCurrent).toHaveBeenCalledWith(
+      { id: 'hold' },
+      'in the encrypted-file restore after the genesis read'
+    );
+    expect(mockImportStore).not.toHaveBeenCalled();
     expect(onSubmit).not.toHaveBeenCalled();
   });
 });

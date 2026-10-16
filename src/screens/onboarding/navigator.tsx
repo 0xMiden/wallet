@@ -7,6 +7,7 @@ import { ProgressIndicator } from 'components/ProgressIndicator';
 import { pageSlideEntrance, usePreset } from 'lib/animation';
 import type { DecryptedWalletFile } from 'lib/miden/backup-file';
 import { getEffectiveAllowNoGuardian } from 'lib/miden-chain/effective-endpoints';
+import type { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isMobile } from 'lib/platform';
 import { cn } from 'lib/ui/util';
 
@@ -72,6 +73,11 @@ export interface OnboardingFlowProps {
    * recovery-method screen fall back to its classic manual picker.
    */
   guardianProbe?: GuardianProbeState;
+  /**
+   * The network a recovery restores into, whose Guardian operators the recovery-method step offers. Omitted => the
+   * effective network.
+   */
+  guardianNetwork?: MIDEN_NETWORK_NAME;
   /** Side panel handoff (Chrome): wallet is being registered (created or restored) in the background. */
   confirmCreating?: boolean;
   /**
@@ -154,6 +160,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
   guardianLookupFailure = null,
   recoveryError = null,
   guardianProbe,
+  guardianNetwork,
   confirmCreating = false,
   importViaKey = false,
   canGoBack = true,
@@ -365,6 +372,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
             error={guardianLookupFailure}
             probe={guardianProbe}
             guardianOnly={importViaKey}
+            network={guardianNetwork}
             onRetryProbe={guardianProbe ? () => onForwardAction?.({ id: 'retry-guardian-probe' }) : undefined}
             onSubmit={payload => onForwardAction?.({ id: 'import-select-recovery-method', payload })}
           />
@@ -409,6 +417,7 @@ export const OnboardingFlow: FC<OnboardingFlowProps> = ({
     // Without this the recovery-method screen keeps rendering the first probe
     // state it saw and freezes on "detecting your guardian".
     guardianProbe,
+    guardianNetwork,
     confirmCreating,
     importViaKey,
     onboardingType

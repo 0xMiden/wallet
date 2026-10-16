@@ -6,15 +6,10 @@ import { Button, ButtonVariant } from 'components/Button';
 import { CopyButton } from 'components/ui/CopyButton';
 import { ErrorDetails } from 'components/ui/ErrorDetails';
 import { subscribeToLiveQuery } from 'lib/dexie-live-query';
-import { requestSWTransactionProcessing } from 'lib/miden/activity';
+import { enqueueRotationFundingClaim, requestSWTransactionProcessing } from 'lib/miden/activity';
 import { isLiveTransaction, ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
-import {
-  enqueueRotationFundingClaim,
-  isRotationFundingRow,
-  isRotationRow,
-  RotationFundingSelection
-} from 'lib/miden/transaction/rotation-funding';
+import { isRotationFundingRow, isRotationRow, RotationFundingSelection } from 'lib/miden/transaction/rotation-funding';
 import { ConsumableNote } from 'lib/miden/types';
 import { hapticLight } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
@@ -194,6 +189,11 @@ interface PanelProps {
   claimDetails?: string;
   /** The failed claim may have reached the network, so its outcome is unknown rather than failed. */
   claimUnconfirmed?: boolean;
+  /**
+   * The pending-note scan's current step, while it runs. It is the only way to find transfers that arrived before
+   * the recovery, so the user sees why funds that were already sent are not listed yet.
+   */
+  noteScan?: string | null;
   onRetryClaim: () => void;
   onCheckAgain: () => void;
 }
@@ -211,6 +211,7 @@ export const RotationFundingPanel: FC<PanelProps> = ({
   claimMessage,
   claimDetails,
   claimUnconfirmed,
+  noteScan,
   onRetryClaim,
   onCheckAgain
 }) => {
@@ -241,6 +242,11 @@ export const RotationFundingPanel: FC<PanelProps> = ({
           status === 'claim-failed' && claimUnconfirmed ? 'hotKeyRotationFundingClaimUnconfirmed' : STATUS_KEYS[status]
         )}
       </p>
+      {noteScan && (
+        <p data-testid="hot-key-rotation-funding-note-scan" className="text-sm text-muted select-text">
+          {noteScan}
+        </p>
+      )}
       {status === 'claim-failed' && (
         <>
           {claimMessage && <p className="w-full text-sm text-ink wrap-anywhere select-text">{claimMessage}</p>}

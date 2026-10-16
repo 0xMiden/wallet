@@ -78,8 +78,8 @@
     "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
-    "message": "USDCx 提領功能僅限於 Miden 測試網中已設定的 faucet。",
-    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+    "message": "此網路上的此代幣不支援 USDCx 提領。",
+    "englishSource": "USDCx withdrawals are not available for this token on this network."
   },
   "usdcxInvalidAmount": {
     "message": "請輸入正數的 USDCx 金額，小數點後最多六位。",
@@ -579,6 +579,10 @@
     "message": "無法載入您的持倉。請檢查網路連線並重新嘗試。",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnUnavailableOnNetwork": {
+    "message": "此網路不提供「賺取」功能",
+    "englishSource": "Earn is not available on this network"
+  },
   "earnVaultLoadError": {
     "message": "無法載入此金庫。請檢查您的連線並重試。",
     "englishSource": "Couldn't load this vault. Check your connection and try again."
@@ -1024,6 +1028,10 @@
   "transactionStepSyncingGuardian": {
     "message": "與 Guardian 同步",
     "englishSource": "Syncing with Guardian"
+  },
+  "transactionStepDeliveringNote": {
+    "message": "交付給收件人",
+    "englishSource": "Delivering to recipient"
   },
   "guardianBusyStep": {
     "message": "等待您的 Guardian",
@@ -2524,6 +2532,10 @@
     "message": "Korea Digital Asset，一家總部位於南韓的數位資產託管公司。",
     "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
   },
+  "guardianAboutPara": {
+    "message": "Para，一家嵌入式錢包基礎設施供應商。",
+    "englishSource": "Para, an embedded wallet infrastructure provider."
+  },
   "guardianKindOpenZeppelin": {
     "message": "智慧合約的安全性與審計",
     "englishSource": "Smart contract security and audits"
@@ -2539,6 +2551,10 @@
   "guardianKindKodax": {
     "message": "數位資產託管機構",
     "englishSource": "Digital asset custodian"
+  },
+  "guardianKindPara": {
+    "message": "嵌入式錢包基礎架構",
+    "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
     "message": "Guardian 是一項獨立服務，<b>會為您錢包中的每筆交易</b>進行共同簽署，在無需放棄自主保管的前提下，為您增添一道安全保障。",
@@ -3254,6 +3270,10 @@
     "message": "此錢包檔案由較新版本的 Bread 建立。請更新 Bread 後再試一次。",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
   },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "此錢包檔案屬於另一個網路，無法在此網路中還原。",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
+  },
   "encryptedWalletFileRestoreFailed": {
     "message": "無法還原錢包。請檢查儲存空間後再試一次。",
     "englishSource": "The wallet could not be restored. Check your storage and try again."
@@ -3580,6 +3600,10 @@
   "guardianAccountNotFound": {
     "message": "我們無法在 guardian 上找到您的帳戶。請檢查網址，或改為以公開帳戶形式匯入。",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "guardianOtherNetwork": {
+    "message": "此位「guardian」運行於另一個 Miden 網路，因此無法在此處恢復該帳戶。",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
   },
   "useCustomGuardianUrl": {
     "message": "請使用自訂的 Guardian 網址",
@@ -4158,6 +4182,18 @@
   "dappConnectionRequest": {
     "message": "此應用程式想要連線至您的錢包",
     "englishSource": "This app wants to connect to your wallet"
+  },
+  "dappNetworkMismatch": {
+    "message": "此應用程式要求使用 Miden $dappNetwork$，但您的錢包位於 Miden $walletNetwork$。",
+    "englishSource": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "placeholders": {
+      "dappnetwork": {
+        "content": "$1"
+      },
+      "walletnetwork": {
+        "content": "$2"
+      }
+    }
   },
   "dappTransactionRequest": {
     "message": "此應用程式正在請求一筆交易",
@@ -4900,14 +4936,39 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "USDC 會在 $source$ 上被銷毀，並在 $target$ 上鑄造給 Circle 的執行人，該執行人會將其存入 Miden 的 xReserve 中。Circle 會除金額外另行收取手續費，並在 $target$ 上執行轉帳。若 Circle 無法為該筆轉帳定價，您需在 $target$ 上透過額外一個簽名來執行轉帳。",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "USDC 會在 $source$ 上被銷毀，並在 $target$ 上鑄造給 Circle 的執行人，該執行人會將其存入 Miden 的 xReserve 中。Circle 會除金額外另行收取手續費，並在 $target$ 上執行轉帳。",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$.",
     "placeholders": {
       "source": {
         "content": "$1"
       },
       "target": {
+        "content": "$3"
+      }
+    }
+  },
+  "usdcxForwardQuoteUnavailable": {
+    "message": "Circle 目前無法為此轉帳進行定價。尚未發送任何款項。請稍後再試。",
+    "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
+  },
+  "usdcxDepositFeeAboveBalance": {
+    "message": "此筆存款需在 $network$ 上存入 $total$ $token$：該金額加上 Circle 的手續費 $fee$ $token$。您已連結的錢包內持有 $balance$ $token$。請將金額減少手續費的金額，或向您的錢包中追加 $token$。",
+    "englishSource": "This deposit needs $total$ $token$ on $network$: the amount plus Circle's fee of $fee$ $token$. Your connected wallet holds $balance$ $token$. Lower the amount by the fee or add $token$ to your wallet.",
+    "placeholders": {
+      "total": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$8"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "fee": {
         "content": "$4"
+      },
+      "balance": {
+        "content": "$6"
       }
     }
   },
@@ -5700,8 +5761,12 @@
     "englishSource": "Reset and switch to mainnet"
   },
   "switchToMainnetConfirm": {
-    "message": "您可以繼續使用測試網。切換操作會將此錢包、其餘額及交易紀錄從本裝置中清除。請先備份您的復原資訊。測試代幣不會轉移至主網。隨後，您將使用邀請碼建立主網錢包，或復原現有的主網錢包。",
-    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
+    "message": "您的存取碼已獲接受。切換操作將從本裝置中清除此錢包、其餘額及交易紀錄。請先備份您的復原資訊。測試代幣不會轉移至主網。隨後，您將使用此代碼建立主網錢包，或復原現有的主網錢包。",
+    "englishSource": "Your access code was accepted. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with this code or recover an existing mainnet wallet."
+  },
+  "mainnetSwitchCodeBody": {
+    "message": "請輸入邀請碼。在主網接受該碼之前，任何資料均不會被清除。",
+    "englishSource": "Enter the code from your invite. Nothing is cleared until mainnet accepts it."
   },
   "mainnetCountdownLabel": {
     "message": "距離 Bread 正式上線還剩：$time$",

@@ -68,12 +68,20 @@ jest.mock(
   { virtual: true }
 );
 
+import { CARRIED_MAINNET_CODE_STORAGE_KEY } from 'lib/carried-mainnet-code';
 import { primeNativeAssetId, resetNativeAssetCache } from 'lib/miden-chain/native-asset';
 import { isDesktop, isExtension, isMobile } from 'lib/platform';
 import { ACTIVITY_READ_STORAGE_KEY } from 'lib/settings/constants';
 import { onStorageCleared } from 'lib/storage-cleared';
 
-import { clearClientStorage, clearStorage, PRESERVED_STORAGE_KEYS, resetStorageDestructive } from './reset';
+import {
+  clearClientStorage,
+  clearStorage,
+  PENDING_ADMISSION_STORAGE_KEY,
+  PRESERVED_STORAGE_KEYS,
+  resetStorageDestructive,
+  SETUP_WIPE_KEPT_KEYS
+} from './reset';
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -197,6 +205,20 @@ describe('clearStorage', () => {
     mockBrowserStorageRemove.mockRejectedValue(new Error('quota'));
 
     await expect(clearStorage()).rejects.toThrow('quota');
+  });
+
+  // The registration that uses a carried mainnet code starts with this wipe, which is what makes the code single use.
+  it("takes the code a switch to mainnet carried with a wallet setup's wipe", async () => {
+    jest.mocked(isExtension).mockReturnValue(true);
+    mockBrowserStorageGet.mockResolvedValue({
+      endpoint_overrides: OVERRIDE,
+      [PENDING_ADMISSION_STORAGE_KEY]: [],
+      [CARRIED_MAINNET_CODE_STORAGE_KEY]: { code: '8gKIgL0O6HcU' }
+    });
+
+    await clearStorage(true, SETUP_WIPE_KEPT_KEYS);
+
+    expect(mockBrowserStorageRemove.mock.calls).toEqual([[[CARRIED_MAINNET_CODE_STORAGE_KEY]]]);
   });
 
   it('keeps only the list its caller passes', async () => {

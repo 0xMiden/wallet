@@ -96,6 +96,8 @@ export interface MidenDAppPayloadBase {
 
 export interface MidenDAppConnectPayload extends MidenDAppPayloadBase {
   type: 'connect';
+  // The network the dApp claimed; the request runs on the wallet's own whatever it says.
+  network?: string;
   privateDataPermission: PrivateDataPermission;
   existingPermission: boolean;
   allowedPrivateData: AllowedPrivateData;

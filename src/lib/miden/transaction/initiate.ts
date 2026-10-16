@@ -45,6 +45,7 @@ import { SpendingLimitAuthorization } from '../spending-limits/types';
 import { ConsumableNote, NoteTypeEnum, NoteType as NoteTypeString } from '../types';
 import { EARN_DEPOSIT_MISSING_REQUEST_ERROR, NOTE_HELD_BY_ANOTHER_TRANSACTION_ERROR } from './constants';
 import { getNoteHoldingTransactions } from './get';
+import { hotKeyRotationLockName, isLiveRotationRow } from './rotation-funding';
 import { holdsNotes } from './verdict-rules';
 
 export const requestCustomTransaction = async (
@@ -245,7 +246,7 @@ export interface RotationFundingClaimOptions {
  * nothing but earlier flagged failures (see `queueConsumeRows`).
  *
  * Callers must hold the `hotKeyRotationLockName` Web Lock for the account before calling
- * this; only `rotation-funding.ts`'s `enqueueRotationFundingClaim` does.
+ * this; only `enqueueRotationFundingClaim` below does.
  */
 export const initiateRotationFundingClaim = async (
   accountId: string,
@@ -280,6 +281,25 @@ export const initiateRotationFundingClaim = async (
   );
   return committedId;
 };
+
+/**
+ * Queue the gate's funding claim unless the rotation is live, under the rotation's own
+ * lock. Resolves to the id `initiateRotationFundingClaim` returns, or `null` when a
+ * rotation row blocked it.
+ */
+export async function enqueueRotationFundingClaim(
+  accountPublicKey: string,
+  notes: ConsumableNote[],
+  opts: RotationFundingClaimOptions
+): Promise<string | null> {
+  let txId: string | null = null;
+  await navigator.locks.request(hotKeyRotationLockName(accountPublicKey), async () => {
+    const rotation = await Repo.transactions.filter(row => isLiveRotationRow(row, accountPublicKey)).first();
+    if (rotation) return;
+    txId = await initiateRotationFundingClaim(accountPublicKey, notes, opts);
+  });
+  return txId;
+}
 
 const queueConsumeRows = async (
   accountId: string,

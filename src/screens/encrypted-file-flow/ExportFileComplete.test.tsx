@@ -89,6 +89,11 @@ jest.mock('lib/miden/sdk/miden-client', () => ({
   withWasmClientLock: (cb: () => unknown) => cb()
 }));
 
+// Not the build default, so a payload that carries it can only have read it here.
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: () => 'mainnet'
+}));
+
 const mockIsMobile = jest.fn();
 
 jest.mock('lib/platform', () => ({
@@ -281,6 +286,7 @@ describe('ExportFileComplete', () => {
     expect(mockEncryptJson).toHaveBeenCalledWith(
       {
         formatVersion: 2,
+        network: 'mainnet',
         seedPhrase: 'seed words twelve',
         midenClientDbContent: 'MIDEN_DB_DUMP',
         walletDbContent: 'WALLET_DB_DUMP',
@@ -330,8 +336,11 @@ describe('ExportFileComplete', () => {
     });
     const encryptedFile = JSON.parse(fileContent);
     const payload = await passworder.decryptJson({ dt: encryptedFile.dt, iv: encryptedFile.iv }, derivedKey!);
+    // The network travels inside the encrypted payload, so a restore on another
+    // network can refuse the file before it reads the store dump.
     expect(payload).toEqual({
       formatVersion: 2,
+      network: 'mainnet',
       seedPhrase: 'seed words twelve',
       midenClientDbContent: 'MIDEN_DB_DUMP',
       walletDbContent: 'WALLET_DB_DUMP',

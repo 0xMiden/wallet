@@ -99,32 +99,9 @@ export const ERC20_BALANCE_OF_ABI = [
 ] as const;
 
 /**
- * The CCTP V2 `TokenMessengerV2` entry point the executor route burns through: a standard transfer whose
- * mint recipient and destination caller are both the executor, with the xReserve deposit as hook data.
- */
-export const TOKEN_MESSENGER_V2_ABI = [
-  {
-    type: 'function',
-    name: 'depositForBurnWithHook',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'amount', type: 'uint256' },
-      { name: 'destinationDomain', type: 'uint32' },
-      { name: 'mintRecipient', type: 'bytes32' },
-      { name: 'burnToken', type: 'address' },
-      { name: 'destinationCaller', type: 'bytes32' },
-      { name: 'maxFee', type: 'uint256' },
-      { name: 'minFinalityThreshold', type: 'uint32' },
-      { name: 'hookData', type: 'bytes' }
-    ],
-    outputs: []
-  }
-] as const;
-
-/**
  * Circle's Generic Executor on Arc (`GenericExecutor.execute`): receives the attested CCTP message, which
  * mints to the executor, then hands the minted USDC to the handler named in the executor hook. Anyone may
- * call it, so the wallet does when Circle's forwarder does not.
+ * call it, so the wallet does when Circle's forwarder gave up on a burn, or its execute reverted or stalled.
  */
 export const GENERIC_EXECUTOR_ABI = [
   {
@@ -180,3 +157,18 @@ export const TOKEN_MESSENGER_WITH_FEES_ABI = [
     outputs: []
   }
 ] as const;
+
+/** Circle did not register the remote domain on the xReserve contract. No gas was spent. */
+export class UsdcxDomainNotRegisteredError extends Error {
+  readonly remoteDomain: number;
+
+  constructor(remoteDomain: number) {
+    super(`xReserve remote domain ${remoteDomain} is not registered`);
+    this.name = 'UsdcxDomainNotRegisteredError';
+    this.remoteDomain = remoteDomain;
+  }
+}
+
+export function isUsdcxDomainNotRegisteredError(error: unknown): error is UsdcxDomainNotRegisteredError {
+  return error instanceof UsdcxDomainNotRegisteredError;
+}

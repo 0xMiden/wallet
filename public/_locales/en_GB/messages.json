@@ -78,8 +78,8 @@
     "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
-    "message": "USDCx withdrawals are available only for the configured faucet on Miden testnet.",
-    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+    "message": "USDCx withdrawals are not available for this token on this network.",
+    "englishSource": "USDCx withdrawals are not available for this token on this network."
   },
   "usdcxInvalidAmount": {
     "message": "Enter a positive USDCx amount with at most six decimal places.",
@@ -579,6 +579,10 @@
     "message": "Couldn't load your positions. Check your connection and try again.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnUnavailableOnNetwork": {
+    "message": "Earn is not available on this network",
+    "englishSource": "Earn is not available on this network"
+  },
   "earnVaultLoadError": {
     "message": "Couldn't load this vault. Check your connection and try again.",
     "englishSource": "Couldn't load this vault. Check your connection and try again."
@@ -1024,6 +1028,10 @@
   "transactionStepSyncingGuardian": {
     "message": "Syncing with Guardian",
     "englishSource": "Syncing with Guardian"
+  },
+  "transactionStepDeliveringNote": {
+    "message": "Delivering to recipient",
+    "englishSource": "Delivering to recipient"
   },
   "guardianBusyStep": {
     "message": "Waiting for your Guardian",
@@ -2524,6 +2532,10 @@
     "message": "Korea Digital Asset, a digital asset custody company based in South Korea.",
     "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
   },
+  "guardianAboutPara": {
+    "message": "Para, an embedded wallet infrastructure provider.",
+    "englishSource": "Para, an embedded wallet infrastructure provider."
+  },
   "guardianKindOpenZeppelin": {
     "message": "Smart contract security and audits",
     "englishSource": "Smart contract security and audits"
@@ -2539,6 +2551,10 @@
   "guardianKindKodax": {
     "message": "Digital asset custodian",
     "englishSource": "Digital asset custodian"
+  },
+  "guardianKindPara": {
+    "message": "Embedded wallet infrastructure",
+    "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
     "message": "A Guardian is an independent service that <b>cosigns every transaction</b> from your wallet, adding a safety net without giving up self-custody.",
@@ -3254,6 +3270,10 @@
     "message": "This wallet file was created by a newer version of Bread. Update Bread and try again.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
   },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "This wallet file belongs to another network and cannot be restored on this one.",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
+  },
   "encryptedWalletFileRestoreFailed": {
     "message": "The wallet could not be restored. Check your storage and try again.",
     "englishSource": "The wallet could not be restored. Check your storage and try again."
@@ -3580,6 +3600,10 @@
   "guardianAccountNotFound": {
     "message": "We couldn't find your account on this guardian. Check the URL or import as a public account instead.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "guardianOtherNetwork": {
+    "message": "This guardian runs on another Miden network, so it cannot recover an account here.",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
   },
   "useCustomGuardianUrl": {
     "message": "Use a custom Guardian URL",
@@ -4158,6 +4182,18 @@
   "dappConnectionRequest": {
     "message": "This app wants to connect to your wallet",
     "englishSource": "This app wants to connect to your wallet"
+  },
+  "dappNetworkMismatch": {
+    "message": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "englishSource": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "placeholders": {
+      "dappnetwork": {
+        "content": "$1"
+      },
+      "walletnetwork": {
+        "content": "$2"
+      }
+    }
   },
   "dappTransactionRequest": {
     "message": "This app is requesting a transaction",
@@ -4900,14 +4936,39 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$.",
     "placeholders": {
       "source": {
         "content": "$1"
       },
       "target": {
+        "content": "$3"
+      }
+    }
+  },
+  "usdcxForwardQuoteUnavailable": {
+    "message": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment.",
+    "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
+  },
+  "usdcxDepositFeeAboveBalance": {
+    "message": "This deposit needs $total$ $token$ on $network$: the amount plus Circle's fee of $fee$ $token$. Your connected wallet holds $balance$ $token$. Lower the amount by the fee or add $token$ to your wallet.",
+    "englishSource": "This deposit needs $total$ $token$ on $network$: the amount plus Circle's fee of $fee$ $token$. Your connected wallet holds $balance$ $token$. Lower the amount by the fee or add $token$ to your wallet.",
+    "placeholders": {
+      "total": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$8"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "fee": {
         "content": "$4"
+      },
+      "balance": {
+        "content": "$6"
       }
     }
   },
@@ -5700,8 +5761,12 @@
     "englishSource": "Reset and switch to mainnet"
   },
   "switchToMainnetConfirm": {
-    "message": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet.",
-    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
+    "message": "Your access code was accepted. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with this code or recover an existing mainnet wallet.",
+    "englishSource": "Your access code was accepted. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with this code or recover an existing mainnet wallet."
+  },
+  "mainnetSwitchCodeBody": {
+    "message": "Enter the code from your invite. Nothing is cleared until mainnet accepts it.",
+    "englishSource": "Enter the code from your invite. Nothing is cleared until mainnet accepts it."
   },
   "mainnetCountdownLabel": {
     "message": "Time left until Bread goes mainnet: $time$",

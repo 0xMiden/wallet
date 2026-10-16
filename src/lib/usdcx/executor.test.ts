@@ -13,15 +13,20 @@ import { isUsdcxDomainNotRegisteredError, UsdcxDomainNotRegisteredError } from '
 import {
   addressToBytes32,
   buildDepositForBurnWithHookAndFeesArgs,
-  buildDepositForBurnWithHookArgs,
   buildExecutorBurnIntent,
   encodeDepositForHandlerData,
   encodeExecutorHookData,
   encodeExecutorPayload,
   encodeHookFrame,
   encodeXReserveDepositCalldata,
+  isUsdcxExecutorBalanceTooLowError,
+  isUsdcxForwardQuoteUnavailableError,
   runUsdcxExecutorDeposit,
-  UsdcxExecutorDepositDeps
+  UsdcxExecutorBalanceTooLowError,
+  UsdcxExecutorDepositDeps,
+  UsdcxExecutorFeeShortfall,
+  usdcxExecutorFeeShortfall,
+  UsdcxForwardQuoteUnavailableError
 } from './executor';
 
 jest.mock('lib/remote-config/runtime', () => ({
@@ -110,42 +115,13 @@ describe('executor hook data', () => {
     expect(size(payload)).toBe(160 + ceil32(size(handlerCalldata)));
   });
 
-  it('wraps the payload in one executor frame for a manual burn', () => {
-    const hookData = encodeExecutorHookData(TARGET, RECIPIENT, DEPOSITOR, { forward: false });
-    const payload = encodeExecutorPayload(TARGET, RECIPIENT, DEPOSITOR);
-    expect(hookData).toBe(encodeHookFrame(CCTP_EXECUTOR_HOOK_NAME, payload));
-    expect(size(hookData)).toBe(32 + size(payload));
-    expect(hookData.includes(Buffer.from('cctp-forward').toString('hex'))).toBe(false);
-  });
-
   // Circle's forwarder looks for an empty `cctp-forward` frame; the executor frame follows it unchanged.
-  it('puts an empty forward frame ahead of the executor frame for a forwarded burn', () => {
-    const hookData = encodeExecutorHookData(TARGET, RECIPIENT, DEPOSITOR, { forward: true });
-    const manual = encodeExecutorHookData(TARGET, RECIPIENT, DEPOSITOR, { forward: false });
+  it('puts an empty forward frame ahead of the executor frame', () => {
+    const hookData = encodeExecutorHookData(TARGET, RECIPIENT, DEPOSITOR);
+    const payload = encodeExecutorPayload(TARGET, RECIPIENT, DEPOSITOR);
     expect(slice(hookData, 0, 32)).toBe(encodeHookFrame(CCTP_FORWARD_HOOK_NAME, '0x'));
-    expect(slice(hookData, 32)).toBe(manual);
-  });
-});
-
-describe('buildDepositForBurnWithHookArgs', () => {
-  it('burns a standard transfer to Arc that mints to the executor and binds it as destination caller', () => {
-    const executor = addressToBytes32(TARGET.executor);
-    expect(buildDepositForBurnWithHookArgs('1.5', SOURCE, RECIPIENT, DEPOSITOR)).toEqual([
-      1_500_000n,
-      26,
-      executor,
-      SOURCE.usdc,
-      executor,
-      0n,
-      2000,
-      encodeExecutorHookData(TARGET, RECIPIENT, DEPOSITOR, { forward: false })
-    ]);
-  });
-
-  it('refuses a depositor that is not an address', () => {
-    expect(() => buildDepositForBurnWithHookArgs('1', SOURCE, RECIPIENT, '0xnope' as never)).toThrow(
-      'Invalid EVM address'
-    );
+    expect(slice(hookData, 32)).toBe(encodeHookFrame(CCTP_EXECUTOR_HOOK_NAME, payload));
+    expect(size(hookData)).toBe(64 + size(payload));
   });
 });
 
@@ -155,7 +131,7 @@ describe('forwarded burn', () => {
     expect(intent).toEqual({
       value: 1_500_000n,
       destinationCaller: addressToBytes32(TARGET.executor),
-      hookData: encodeExecutorHookData(TARGET, RECIPIENT, DEPOSITOR, { forward: true })
+      hookData: encodeExecutorHookData(TARGET, RECIPIENT, DEPOSITOR)
     });
     expect(buildDepositForBurnWithHookAndFeesArgs(SOURCE, intent, QUOTE, DEPOSITOR)).toEqual([
       1_500_000n,
@@ -166,6 +142,10 @@ describe('forwarded burn', () => {
       intent.hookData,
       { signedQuote: QUOTE.signedQuote, refundAddress: DEPOSITOR }
     ]);
+  });
+
+  it('refuses a depositor that is not an address', () => {
+    expect(() => buildExecutorBurnIntent('1', SOURCE, RECIPIENT, '0xnope' as never)).toThrow('Invalid EVM address');
   });
 });
 
@@ -179,10 +159,6 @@ function makeDeps(overrides: Partial<UsdcxExecutorDepositDeps> = {}) {
       approve: jest.fn(async () => {
         calls.push('approve');
         return APPROVE_HASH;
-      }),
-      depositForBurnWithHook: jest.fn(async () => {
-        calls.push('depositForBurnWithHook');
-        return BURN_HASH;
       }),
       depositForBurnWithHookAndFees: jest.fn(async () => {
         calls.push('depositForBurnWithHookAndFees');
@@ -201,6 +177,10 @@ function makeDeps(overrides: Partial<UsdcxExecutorDepositDeps> = {}) {
       calls.push('readAllowance');
       return 0n;
     }),
+    readBalance: jest.fn(async () => {
+      calls.push('readBalance');
+      return 10_000_000n;
+    }),
     waitForReceipt: jest.fn(async (hash: string) => {
       calls.push(`receipt:${hash === APPROVE_HASH ? 'approve' : 'burn'}`);
     }),
@@ -212,20 +192,36 @@ function makeDeps(overrides: Partial<UsdcxExecutorDepositDeps> = {}) {
   return { deps, calls };
 }
 
+describe('usdcxExecutorFeeShortfall', () => {
+  const VALUE = 1_500_000n;
+  const FEE = QUOTE.feeTotalAmount;
+
+  it.each<[string, bigint, UsdcxExecutorFeeShortfall | undefined]>([
+    ['falls one unit short of', VALUE + FEE - 1n, { needed: VALUE + FEE, fee: FEE, balance: VALUE + FEE - 1n }],
+    ['is exactly', VALUE + FEE, undefined],
+    ['is one unit over', VALUE + FEE + 1n, undefined]
+  ])('holds a balance that %s the amount plus the fee', (_case, balance, shortfall) => {
+    expect(usdcxExecutorFeeShortfall(VALUE, FEE, balance)).toEqual(shortfall);
+  });
+});
+
 describe('runUsdcxExecutorDeposit', () => {
   it('checks Arc, reads the allowance, quotes, approves with headroom, re-quotes, burns and writes the phases', async () => {
     const { deps, calls } = makeDeps();
 
     await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(BURN_HASH);
 
-    // The allowance read comes before the quote, so no read sits between a quote and its burn; the approval prompt and
-    // its receipt can outlast a quote that lives about two minutes, so it is asked again after the approval.
+    // The allowance and balance reads come before the quote, so no read sits between a quote and its burn; the approval
+    // prompt and its receipt can outlast a quote that lives about two minutes and the balance read before it, so both
+    // are taken again after the approval, the balance first.
     expect(calls).toEqual([
       'isRemoteDomainRegistered',
       'readAllowance',
+      'readBalance',
       'quote',
       'approve',
       'receipt:approve',
+      'readBalance',
       'quote',
       'depositForBurnWithHookAndFees',
       'phase:submitting',
@@ -244,7 +240,6 @@ describe('runUsdcxExecutorDeposit', () => {
     expect(deps.signer.depositForBurnWithHookAndFees).toHaveBeenCalledWith(
       buildDepositForBurnWithHookAndFeesArgs(SOURCE, intent, REQUOTE, DEPOSITOR)
     );
-    expect(deps.signer.depositForBurnWithHook).not.toHaveBeenCalled();
     // The burn's domain and the fact it was forwarded are written with the hash, so the reconciler waits
     // for Circle's forward transaction instead of offering the execute.
     expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', {
@@ -275,38 +270,26 @@ describe('runUsdcxExecutorDeposit', () => {
     ]);
   });
 
-  it('falls back to a manual burn through the plain token messenger when Circle does not quote', async () => {
+  // A burn through the plain token messenger is not forwarded by Circle and stops at the executor, so there is no
+  // fallback: a refused quote fails the deposit before any wallet prompt, with the refusal as its cause.
+  it('fails before any wallet prompt when Circle does not quote', async () => {
+    const refusal = new Error('UNSUPPORTED_WORKFLOW');
     const { deps, calls } = makeDeps({
       fetchQuote: jest.fn(async () => {
         calls.push('quote');
-        throw new Error('UNSUPPORTED_WORKFLOW');
+        throw refusal;
       })
     });
 
-    await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(BURN_HASH);
+    const error: unknown = await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps).catch(caught => caught);
 
-    expect(calls).toEqual([
-      'isRemoteDomainRegistered',
-      'readAllowance',
-      'quote',
-      'readAllowance',
-      'approve',
-      'receipt:approve',
-      'depositForBurnWithHook',
-      'phase:submitting',
-      'receipt:burn',
-      'phase:delivering'
-    ]);
-    expect(deps.readAllowance).toHaveBeenCalledWith(SOURCE.tokenMessenger);
-    expect(deps.signer.approve).toHaveBeenCalledWith(SOURCE.tokenMessenger, 1_500_000n);
-    expect(deps.signer.depositForBurnWithHook).toHaveBeenCalledWith(
-      buildDepositForBurnWithHookArgs('1.5', SOURCE, RECIPIENT, DEPOSITOR)
-    );
-    expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', {
-      evmTxHash: BURN_HASH,
-      usdcxRemoteRecipient: RECIPIENT,
-      cctp: { sourceDomain: 6, forwarded: false }
-    });
+    expect(error).toBeInstanceOf(UsdcxForwardQuoteUnavailableError);
+    expect(isUsdcxForwardQuoteUnavailableError(error)).toBe(true);
+    expect(error).toMatchObject({ cause: refusal });
+    expect(calls).toEqual(['isRemoteDomainRegistered', 'readAllowance', 'readBalance', 'quote']);
+    expect(deps.signer.approve).not.toHaveBeenCalled();
+    expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
+    expect(deps.updatePhase).not.toHaveBeenCalled();
   });
 
   it('skips the approval when the allowance covers the amount and the fee', async () => {
@@ -317,6 +300,7 @@ describe('runUsdcxExecutorDeposit', () => {
     expect(deps.signer.approve).not.toHaveBeenCalled();
     expect(calls).toEqual([
       'isRemoteDomainRegistered',
+      'readBalance',
       'quote',
       'depositForBurnWithHookAndFees',
       'phase:submitting',
@@ -350,8 +334,8 @@ describe('runUsdcxExecutorDeposit', () => {
     );
   });
 
-  // At most one approval goes to the fee entry point: a fee beyond the headroom takes the manual route.
-  it('falls back to the manual burn when the fee rises beyond the approved headroom', async () => {
+  // At most one approval goes to the fee entry point: a fee beyond the headroom fails the deposit before the burn.
+  it('fails before the burn prompt when the fee rises beyond the approved headroom', async () => {
     const { deps, calls } = makeDeps({
       fetchQuote: jest.fn(async () => {
         calls.push('quote');
@@ -359,20 +343,19 @@ describe('runUsdcxExecutorDeposit', () => {
       })
     });
 
-    await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps);
+    await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).rejects.toBeInstanceOf(
+      UsdcxForwardQuoteUnavailableError
+    );
 
     expect(deps.fetchQuote).toHaveBeenCalledTimes(2);
     expect(jest.mocked(deps.signer.approve).mock.calls).toEqual([
-      [SOURCE.tokenMessengerWithFees, 1_500_000n + 2n * QUOTE.feeTotalAmount],
-      [SOURCE.tokenMessenger, 1_500_000n]
+      [SOURCE.tokenMessengerWithFees, 1_500_000n + 2n * QUOTE.feeTotalAmount]
     ]);
     expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
-    expect(deps.signer.depositForBurnWithHook).toHaveBeenCalledWith(
-      buildDepositForBurnWithHookArgs('1.5', SOURCE, RECIPIENT, DEPOSITOR)
-    );
+    expect(deps.updatePhase).not.toHaveBeenCalled();
   });
 
-  // Circle's expiry is never compared with the device clock: a fast clock must not push every deposit to the manual route.
+  // Circle's expiry is never compared with the device clock: a fast clock must not refuse every deposit.
   it('signs a fresh first quote whose expiry already reads as past on the device clock', async () => {
     const skewed = { ...QUOTE, expiresAt: Math.floor(Date.now() / 1000) - 100 };
     const { deps } = makeDeps({
@@ -394,7 +377,7 @@ describe('runUsdcxExecutorDeposit', () => {
     );
   });
 
-  it('falls back to the manual burn when Circle does not quote again after the approval', async () => {
+  it('fails after the approval when Circle does not quote again', async () => {
     const { deps, calls } = makeDeps({
       fetchQuote: jest.fn(async () => {
         calls.push('quote');
@@ -403,34 +386,153 @@ describe('runUsdcxExecutorDeposit', () => {
       })
     });
 
-    await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps);
+    await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).rejects.toBeInstanceOf(
+      UsdcxForwardQuoteUnavailableError
+    );
 
     expect(jest.mocked(deps.signer.approve).mock.calls).toEqual([
-      [SOURCE.tokenMessengerWithFees, 1_500_000n + 2n * QUOTE.feeTotalAmount],
-      [SOURCE.tokenMessenger, 1_500_000n]
+      [SOURCE.tokenMessengerWithFees, 1_500_000n + 2n * QUOTE.feeTotalAmount]
     ]);
     expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
-    expect(deps.signer.depositForBurnWithHook).toHaveBeenCalledWith(
-      buildDepositForBurnWithHookArgs('1.5', SOURCE, RECIPIENT, DEPOSITOR)
-    );
+    expect(deps.updatePhase).not.toHaveBeenCalled();
   });
 
-  // The fee entry point's allowance is read before the quote; a failed read takes the manual route, as a refused quote does.
-  it('burns manually when the fee entry point allowance read fails', async () => {
+  // The fee entry point's allowance is read before the quote; a failed read fails the deposit before any prompt.
+  it('fails before the quote when the fee entry point allowance read fails', async () => {
     const { deps } = makeDeps({
-      readAllowance: jest.fn(async (spender: string) => {
-        if (spender === SOURCE.tokenMessengerWithFees) throw new Error('rpc down');
-        return 0n;
+      readAllowance: jest.fn(async () => {
+        throw new Error('rpc down');
       })
     });
 
-    await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(BURN_HASH);
+    await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).rejects.toThrow('rpc down');
 
     expect(deps.fetchQuote).not.toHaveBeenCalled();
-    expect(jest.mocked(deps.signer.approve).mock.calls).toEqual([[SOURCE.tokenMessenger, 1_500_000n]]);
-    expect(deps.signer.depositForBurnWithHook).toHaveBeenCalledWith(
-      buildDepositForBurnWithHookArgs('1.5', SOURCE, RECIPIENT, DEPOSITOR)
-    );
+    expect(deps.signer.approve).not.toHaveBeenCalled();
+    expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
+  });
+
+  it('fails before the quote when the balance read fails', async () => {
+    const { deps } = makeDeps({
+      readBalance: jest.fn(async () => {
+        throw new Error('rpc down');
+      })
+    });
+
+    await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).rejects.toThrow('rpc down');
+
+    expect(deps.fetchQuote).not.toHaveBeenCalled();
+    expect(deps.signer.approve).not.toHaveBeenCalled();
+    expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
+  });
+
+  it('fails before the burn prompt when the balance read after the approval fails', async () => {
+    const { deps } = makeDeps({
+      readBalance: jest.fn().mockResolvedValueOnce(10_000_000n).mockRejectedValueOnce(new Error('rpc down'))
+    });
+
+    await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).rejects.toThrow('rpc down');
+
+    expect(deps.signer.approve).toHaveBeenCalledTimes(1);
+    expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
+    expect(deps.updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('re-reads the balance after an approval and refuses the burn when it dropped', async () => {
+    const dropped = 1_500_000n;
+    const { deps, calls } = makeDeps({
+      readBalance: jest.fn(async () => {
+        calls.push('readBalance');
+        // Enough until the approval, so only a read after it can refuse the burn.
+        return calls.includes('approve') ? dropped : 10_000_000n;
+      })
+    });
+
+    const error: unknown = await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps).catch(caught => caught);
+
+    expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
+    expect(error).toBeInstanceOf(UsdcxExecutorBalanceTooLowError);
+    expect(error).toMatchObject({
+      needed: 1_500_000n + REQUOTE.feeTotalAmount,
+      fee: REQUOTE.feeTotalAmount,
+      balance: dropped
+    });
+    expect(deps.signer.approve).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual([
+      'isRemoteDomainRegistered',
+      'readAllowance',
+      'readBalance',
+      'quote',
+      'approve',
+      'receipt:approve',
+      'readBalance',
+      'quote'
+    ]);
+    expect(deps.updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('reads the balance once, before the quote, when the allowance already covers', async () => {
+    const { deps, calls } = makeDeps({ readAllowance: jest.fn(async () => 10_000_000n) });
+
+    await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(BURN_HASH);
+
+    expect(calls.filter(call => call === 'readBalance' || call === 'quote')).toEqual(['readBalance', 'quote']);
+  });
+
+  // The burn pulls Circle's fee on top of the amount, so a balance that covers only the amount paid gas for the
+  // approval and then failed at the burn. Refused before the first prompt, whether that is the approval or the burn.
+  it.each([
+    ['the approval', 0n],
+    ['the burn', 1_500_000n + QUOTE.feeTotalAmount]
+  ])('refuses before %s when the balance covers the amount but not the fee', async (_prompt, allowance) => {
+    const balance = 1_500_000n + QUOTE.feeTotalAmount - 1n;
+    const { deps, calls } = makeDeps({
+      readAllowance: jest.fn(async () => allowance),
+      readBalance: jest.fn(async () => balance)
+    });
+
+    const error: unknown = await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps).catch(caught => caught);
+
+    expect(error).toBeInstanceOf(UsdcxExecutorBalanceTooLowError);
+    expect(isUsdcxExecutorBalanceTooLowError(error)).toBe(true);
+    expect(error).toMatchObject({ needed: 1_500_000n + QUOTE.feeTotalAmount, fee: QUOTE.feeTotalAmount, balance });
+    expect(calls).toEqual(['isRemoteDomainRegistered', 'quote']);
+    expect(deps.signer.approve).not.toHaveBeenCalled();
+    expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
+    expect(deps.updatePhase).not.toHaveBeenCalled();
+  });
+
+  it('approves and burns when the balance is exactly the amount plus the fee', async () => {
+    const exact = 1_500_000n + QUOTE.feeTotalAmount;
+    const { deps } = makeDeps({ readBalance: jest.fn(async () => exact) });
+
+    await expect(runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps)).resolves.toBe(BURN_HASH);
+
+    expect(deps.signer.approve).toHaveBeenCalledTimes(1);
+    expect(deps.signer.depositForBurnWithHookAndFees).toHaveBeenCalledTimes(1);
+  });
+
+  // The fee can move between the two quotes: a second fee the approval still covers but the balance does not is
+  // refused before the burn prompt.
+  it("refuses before the burn prompt when the second quote's fee rises past the balance", async () => {
+    const rose: CctpBurnQuote = { ...REQUOTE, feeTotalAmount: 40_000n };
+    const { deps, calls } = makeDeps({
+      readBalance: jest.fn(async () => 1_535_000n),
+      fetchQuote: jest.fn(async () => {
+        calls.push('quote');
+        return calls.filter(call => call === 'quote').length > 1 ? rose : QUOTE;
+      })
+    });
+
+    const error: unknown = await runUsdcxExecutorDeposit('row-1', '1.5', RECIPIENT, deps).catch(caught => caught);
+
+    expect(error).toBeInstanceOf(UsdcxExecutorBalanceTooLowError);
+    expect(error).toMatchObject({ needed: 1_540_000n, fee: 40_000n, balance: 1_535_000n });
+    expect(jest.mocked(deps.signer.approve).mock.calls).toEqual([
+      [SOURCE.tokenMessengerWithFees, 1_500_000n + 2n * QUOTE.feeTotalAmount]
+    ]);
+    expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
+    expect(deps.updatePhase).not.toHaveBeenCalled();
   });
 
   it('approves when the allowance covers the amount but not the fee', async () => {
@@ -454,7 +556,6 @@ describe('runUsdcxExecutorDeposit', () => {
     expect(isUsdcxDomainNotRegisteredError(error)).toBe(true);
     expect(deps.fetchQuote).not.toHaveBeenCalled();
     expect(deps.signer.approve).not.toHaveBeenCalled();
-    expect(deps.signer.depositForBurnWithHook).not.toHaveBeenCalled();
     expect(deps.signer.depositForBurnWithHookAndFees).not.toHaveBeenCalled();
     expect(deps.updatePhase).not.toHaveBeenCalled();
   });
@@ -474,5 +575,36 @@ describe('runUsdcxExecutorDeposit', () => {
       'submitting',
       expect.objectContaining({ evmTxHash: BURN_HASH })
     );
+  });
+});
+
+describe('a route without its Miden domain', () => {
+  // Every route usdcxSourceChains builds carries one (schema.ts drops a usdcx route without it); the encoders no longer
+  // read the live document, which the E2E harness cannot load.
+  const { midenDomain: _targetDomain, ...target } = TARGET;
+  const { midenDomain: _sourceDomain, ...source } = SOURCE;
+
+  it('refuses to encode the xReserve deposit', () => {
+    expect(() => encodeXReserveDepositCalldata(target, RECIPIENT)).toThrow('USDCx Miden domain is not configured');
+  });
+
+  it('refuses the deposit before any read or prompt', async () => {
+    const { deps, calls } = makeDeps({ source: { ...source, target } });
+
+    await expect(runUsdcxExecutorDeposit('row-1', '1', RECIPIENT, deps)).rejects.toThrow(
+      'USDCx Miden domain is not configured'
+    );
+    expect(calls).toEqual([]);
+  });
+
+  // The target keeps its domain, so the intent builds and only the source route's own check can refuse.
+  it("refuses a source route without it before Arc's registration read", async () => {
+    const { deps, calls } = makeDeps({ source: { ...source, target: TARGET } });
+
+    await expect(runUsdcxExecutorDeposit('row-1', '1', RECIPIENT, deps)).rejects.toThrow(
+      'USDCx Miden domain is not configured'
+    );
+    expect(calls).toEqual([]);
+    expect(deps.isRemoteDomainRegistered).not.toHaveBeenCalled();
   });
 });

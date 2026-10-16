@@ -7,9 +7,17 @@ import { TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { AgglayerChainConfig } from 'lib/remote-config/schema';
+import type { CctpBurnQuote } from 'lib/usdcx/cctp';
 import { runUsdcxDeposit } from 'lib/usdcx/deposit';
 import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
-import { buildExecutorBurnIntent, quoteExecutorBurn, runUsdcxExecutorDeposit } from 'lib/usdcx/executor';
+import {
+  buildExecutorBurnIntent,
+  quoteExecutorBurn,
+  runUsdcxExecutorDeposit,
+  UsdcxExecutorBalanceTooLowError,
+  type UsdcxExecutorDepositDeps,
+  UsdcxForwardQuoteUnavailableError
+} from 'lib/usdcx/executor';
 import { NativeSessionChainNotApprovedError, prepareNativeSessionChain } from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
@@ -135,7 +143,18 @@ jest.mock('lib/usdcx/executor', () => ({
   runUsdcxExecutorDeposit: jest.fn().mockResolvedValue(`0x${'2'.repeat(64)}`),
   // The route card's display quote; Circle is not reached from this suite.
   buildExecutorBurnIntent: jest.fn().mockReturnValue({ value: 1_500_000n, destinationCaller: '0x', hookData: '0x' }),
-  quoteExecutorBurn: jest.fn().mockRejectedValue(new Error('no quote in tests'))
+  quoteExecutorBurn: jest.fn().mockRejectedValue(new Error('no quote in tests')),
+  usdcxExecutorFeeShortfall:
+    jest.requireActual<typeof import('lib/usdcx/executor')>('lib/usdcx/executor').usdcxExecutorFeeShortfall,
+  // The real refusals, so the screen's error mapping can be tested with the real error classes.
+  isUsdcxForwardQuoteUnavailableError:
+    jest.requireActual<typeof import('lib/usdcx/executor')>('lib/usdcx/executor').isUsdcxForwardQuoteUnavailableError,
+  UsdcxForwardQuoteUnavailableError:
+    jest.requireActual<typeof import('lib/usdcx/executor')>('lib/usdcx/executor').UsdcxForwardQuoteUnavailableError,
+  isUsdcxExecutorBalanceTooLowError:
+    jest.requireActual<typeof import('lib/usdcx/executor')>('lib/usdcx/executor').isUsdcxExecutorBalanceTooLowError,
+  UsdcxExecutorBalanceTooLowError:
+    jest.requireActual<typeof import('lib/usdcx/executor')>('lib/usdcx/executor').UsdcxExecutorBalanceTooLowError
 }));
 
 jest.mock('lib/mobile/haptics', () => ({
@@ -166,11 +185,20 @@ jest.mock('lib/walletconnect/receipt', () => ({
   waitForEvmReceipt: jest.fn().mockResolvedValue(undefined)
 }));
 
-jest.mock('lib/walletconnect/config', () => ({
-  ...jest.requireActual('lib/walletconnect/config'),
-  DEFAULT_CHAIN_ID: 11155111,
-  getChain: (id: number) => ({ rpcUrl: `https://rpc.test/${id}`, name: id === 5042002 ? 'Arc Testnet' : 'Sepolia' })
-}));
+// Each chain has its own name, so a message that names the wrong chain fails.
+jest.mock('lib/walletconnect/config', () => {
+  const names: Record<number, string> = {
+    84532: 'Base Sepolia',
+    421614: 'Arbitrum Sepolia',
+    11155111: 'Sepolia',
+    5042002: 'Arc Testnet'
+  };
+  return {
+    ...jest.requireActual('lib/walletconnect/config'),
+    DEFAULT_CHAIN_ID: 11155111,
+    getChain: (id: number) => ({ rpcUrl: `https://rpc.test/${id}`, name: names[id] ?? `Chain ${id}` })
+  };
+});
 
 jest.mock('./EvmBridgeDepositForm', () => ({
   EvmBridgeDepositForm: ({
@@ -182,7 +210,7 @@ jest.mock('./EvmBridgeDepositForm', () => ({
     isValidAmount,
     error
   }: {
-    network: { chainId: number };
+    network?: { chainId: number };
     isValidAmount: boolean;
     error?: string;
     onAmountChange: (value?: string) => void;
@@ -191,7 +219,7 @@ jest.mock('./EvmBridgeDepositForm', () => ({
     onSelectNetwork?: () => void;
   }) => (
     <div>
-      <span data-testid="form-network">{String(network.chainId)}</span>
+      <span data-testid="form-network">{String(network?.chainId)}</span>
       <span data-testid="form-ready">{String(isValidAmount)}</span>
       <span data-testid="form-error">{error}</span>
       <button data-testid="set-amount" onClick={() => onAmountChange('1.5')}>
@@ -223,7 +251,9 @@ jest.mock('./EvmBridgeDepositReview', () => {
       label,
       route,
       fee,
-      sourceChainId
+      sourceChainId,
+      canConfirm,
+      error
     }: {
       onConfirm: () => void;
       symbol: string;
@@ -231,9 +261,13 @@ jest.mock('./EvmBridgeDepositReview', () => {
       route: Parameters<typeof actual.arrivingTokenName>[0];
       fee?: string;
       sourceChainId?: number;
+      canConfirm?: boolean;
+      error?: string;
     }) => (
       <div>
         {fee && <span data-testid="review-fee">{fee}</span>}
+        <span data-testid="review-error">{error}</span>
+        <span data-testid="review-can-confirm">{String(canConfirm)}</span>
         <span data-testid="review-source">{String(sourceChainId)}</span>
         <span data-testid="review-symbols">{`${symbol}->${actual.arrivingTokenName(route, symbol, label ?? symbol)}`}</span>
         <button data-testid="confirm-deposit" onClick={onConfirm}>
@@ -415,6 +449,66 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
 
     expect(screen.getByTestId('usdcx-route-confirm')).toBeEnabled();
     expect(screen.queryByTestId('fast-slow-route-confirm')).not.toBeInTheDocument();
+  });
+
+  /** The suite's document with no Epoch USDC on any chain, as a mainnet document that names only USDCx routes. */
+  const withoutEpochUsdc = (): BridgeConfigSnapshot => {
+    const config = TEST_BRIDGE_CONFIG_SNAPSHOT.config!;
+    return {
+      ...TEST_BRIDGE_CONFIG_SNAPSHOT,
+      config: {
+        ...config,
+        supportedEvmChains: Object.fromEntries(
+          Object.entries(config.supportedEvmChains).map(([slug, chain]) => {
+            const { epoch: _epoch, ...bridges } = chain.bridges;
+            return [slug, { ...chain, bridges }];
+          })
+        )
+      }
+    };
+  };
+
+  // A mainnet document names no Epoch USDC, only USDCx sources: the screen opens on Circle USDC and the first source
+  // the document lists, not on a token it does not name over a compiled Sepolia label.
+  it('opens on Circle USDC and a listed source when the document names no Epoch USDC', async () => {
+    mockBridgeSnapshot = withoutEpochUsdc();
+    renderScreen();
+    await settle();
+
+    expect(screen.getByTestId('form-network')).toHaveTextContent(/^5042002$/);
+    expect(screen.getByTestId('form-error')).toHaveTextContent(/^$/);
+    await reachRouteStep();
+    expect(screen.getByTestId('usdcx-route-confirm')).toBeInTheDocument();
+  });
+
+  it('keeps the token the user picked over the document opening token', async () => {
+    mockBridgeSnapshot = withoutEpochUsdc();
+    renderScreen();
+    await settle();
+
+    await pickToken('pick-usdc');
+
+    expect(screen.getByTestId('form-error')).toHaveTextContent(/^The bridge config names no USDC token\.$/);
+  });
+
+  it('asks for a network instead of naming Sepolia when no route has a chain', async () => {
+    const snapshot = withoutEpochUsdc();
+    mockBridgeSnapshot = {
+      ...snapshot,
+      config: {
+        ...snapshot.config!,
+        supportedEvmChains: Object.fromEntries(
+          Object.entries(snapshot.config!.supportedEvmChains).map(([slug, chain]) => {
+            const { usdcx: _usdcx, ...bridges } = chain.bridges;
+            return [slug, { ...chain, bridges }];
+          })
+        )
+      }
+    };
+    renderScreen();
+    await settle();
+
+    expect(screen.getByTestId('form-network')).toHaveTextContent(/^undefined$/);
   });
 
   it('shows the Fast/Slow picker again once ETH is chosen', async () => {
@@ -607,20 +701,19 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(screen.getByTestId('pick-network-arbitrum-sepolia')).toBeInTheDocument();
   });
 
-  it.each([false, true])('burns through the token messenger on an executor source (native=%s)', async native => {
+  it.each([false, true])('burns through the fee entry point on an executor source (native=%s)', async native => {
     mockNativeAvailable = native;
     jest.mocked(runUsdcxExecutorDeposit).mockImplementationOnce(async (_id, _amount, recipient, deps) => {
       await deps.isRemoteDomainRegistered(10007);
-      await deps.signer.approve('0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA', 1_500_000n);
-      const hash = await deps.signer.depositForBurnWithHook([
+      await deps.signer.approve('0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A', 1_600_000n);
+      const hash = await deps.signer.depositForBurnWithHookAndFees([
         1_500_000n,
         26,
         `0x${'0'.repeat(24)}edc81040756accff070c21d37b265b9d0b5ba45e`,
         '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
         `0x${'0'.repeat(24)}edc81040756accff070c21d37b265b9d0b5ba45e`,
-        0n,
-        2000,
-        `0x${recipient.slice(2)}`
+        `0x${recipient.slice(2)}`,
+        { signedQuote: '0x0102', refundAddress: deps.depositor }
       ]);
       await deps.waitForReceipt(hash);
       return hash;
@@ -662,7 +755,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       2,
       expect.objectContaining({
         chainId: 84532,
-        [native ? 'to' : 'address']: '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA'
+        [native ? 'to' : 'address']: '0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A'
       })
     );
     expect(waitForEvmReceipt).toHaveBeenCalledWith(`0x${'2'.repeat(64)}`, expect.objectContaining({ id: 84532 }));
@@ -677,16 +770,15 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       mockNativeAvailable = native;
       jest.mocked(runUsdcxExecutorDeposit).mockImplementationOnce(async (_id, _amount, recipient, deps) => {
         await deps.isRemoteDomainRegistered(10007);
-        await deps.signer.approve('0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA', 1_500_000n);
-        const hash = await deps.signer.depositForBurnWithHook([
+        await deps.signer.approve('0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A', 1_600_000n);
+        const hash = await deps.signer.depositForBurnWithHookAndFees([
           1_500_000n,
           26,
           `0x${'0'.repeat(24)}edc81040756accff070c21d37b265b9d0b5ba45e`,
           '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
           `0x${'0'.repeat(24)}edc81040756accff070c21d37b265b9d0b5ba45e`,
-          0n,
-          2000,
-          `0x${recipient.slice(2)}`
+          `0x${recipient.slice(2)}`,
+          { signedQuote: '0x0102', refundAddress: deps.depositor }
         ]);
         await deps.waitForReceipt(hash);
         return hash;
@@ -729,7 +821,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
         2,
         expect.objectContaining({
           chainId: 11155111,
-          [native ? 'to' : 'address']: '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA'
+          [native ? 'to' : 'address']: '0x8745D906D67C346E5eb1aEEED38Eb87F34DF0C0A'
         })
       );
       expect(waitForEvmReceipt).toHaveBeenCalledWith(`0x${'2'.repeat(64)}`, expect.objectContaining({ id: 11155111 }));
@@ -745,6 +837,25 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     await settle();
     await reachRouteStep();
   };
+
+  // There is no burn without a quote: the refusal fails the row with its own words and raises no wallet prompt.
+  it('fails the row with the quote-unavailable message when Circle does not quote the burn', async () => {
+    jest
+      .mocked(runUsdcxExecutorDeposit)
+      .mockRejectedValueOnce(new UsdcxForwardQuoteUnavailableError('the quote request failed'));
+    renderScreen();
+    await reachBaseSepoliaRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(mockWriteContract).not.toHaveBeenCalled();
+    expect(mockNativeSend).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
+      error: 'usdcxForwardQuoteUnavailable'
+    });
+  });
 
   it('shows the fee Circle quoted for the amount on screen on the route and the review', async () => {
     jest.mocked(quoteExecutorBurn).mockResolvedValue({ signedQuote: '0x01', feeTotalAmount: 31_908n });
@@ -778,6 +889,379 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       expect.anything()
     );
     expect(screen.queryByTestId('usdcx-route-fee')).toBeNull();
+  });
+
+  /** The refusal of a 1.5 USDC deposit and Circle's 31,908-unit fee against `balance`, as the suite's `t` prints it. */
+  const feeAboveBalance = (balance: string, network: string) =>
+    `usdcxDepositFeeAboveBalance ${JSON.stringify({
+      total: '1.531908',
+      fee: '0.031908',
+      balance,
+      token: 'USDC',
+      network
+    })}`;
+  const FEE_QUOTE: CctpBurnQuote = { signedQuote: '0x01', feeTotalAmount: 31_908n };
+  const BASE_SEPOLIA_USDC = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
+  const BALANCE_OF_SELECTOR = toFunctionSelector('balanceOf(address)');
+  const balanceOfRequests = () =>
+    jest
+      .mocked(global.fetch)
+      .mock.calls.filter(([, init]) =>
+        String(JSON.parse(String(init?.body ?? '{}')).params?.[0]?.data).startsWith(BALANCE_OF_SELECTOR)
+      );
+  /** The next executor deposit runs the real executor, with Circle's quote and Arc's registration answered here. */
+  const runRealExecutor = (overrides: Partial<UsdcxExecutorDepositDeps> = {}) =>
+    jest.mocked(runUsdcxExecutorDeposit).mockImplementationOnce((id, amount, recipient, deps) =>
+      jest
+        .requireActual<typeof import('lib/usdcx/executor')>('lib/usdcx/executor')
+        .runUsdcxExecutorDeposit(id, amount, recipient, {
+          ...deps,
+          isRemoteDomainRegistered: async () => true,
+          fetchQuote: async () => FEE_QUOTE,
+          ...overrides
+        })
+    );
+
+  // The executor refuses a balance short of the amount plus the fee before any prompt; the row says what the deposit
+  // needs and what to do about it.
+  it("fails the row with the fee-above-balance message when the balance cannot pay Circle's fee", async () => {
+    jest
+      .mocked(runUsdcxExecutorDeposit)
+      .mockRejectedValueOnce(new UsdcxExecutorBalanceTooLowError(1_531_908n, 31_908n, 1_520_000n));
+    renderScreen();
+    await reachBaseSepoliaRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(mockWriteContract).not.toHaveBeenCalled();
+    expect(mockNativeSend).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
+      error: feeAboveBalance('1.52', 'Base Sepolia')
+    });
+  });
+
+  it('hands the executor a read of the Circle USDC balance on the source chain, not the amount step value', async () => {
+    mockBalance = 2_000_000n;
+    const read: { value?: bigint; requests?: unknown[] } = {};
+    jest.mocked(runUsdcxExecutorDeposit).mockImplementationOnce(async (_id, _amount, _recipient, deps) => {
+      const before = jest.mocked(global.fetch).mock.calls.length;
+      read.value = await deps.readBalance();
+      read.requests = jest
+        .mocked(global.fetch)
+        .mock.calls.slice(before)
+        .map(([url, init]) => [url, JSON.parse(String(init?.body ?? '{}')).params?.[0]]);
+      return `0x${'2'.repeat(64)}`;
+    });
+    renderScreen();
+    await reachBaseSepoliaRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    mockBalance = 3_000_000n;
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(read.value).toBe(3_000_000n);
+    expect(read.requests).toEqual([
+      [
+        'https://rpc.test/84532',
+        { to: BASE_SEPOLIA_USDC, data: expect.stringMatching(new RegExp(`^${BALANCE_OF_SELECTOR}`)) }
+      ]
+    ]);
+  });
+
+  // Switching the chain can wait on the user, so the balance held to the fee is read after it.
+  it('reads the balance before the chain step and again after it', async () => {
+    runRealExecutor();
+    renderScreen();
+    await reachBaseSepoliaRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    const before = balanceOfRequests().length;
+    const readsSinceConfirm = () => balanceOfRequests().length - before;
+    const reads: { atChainStep?: number; atBurn?: number } = {};
+    mockSwitchChain.mockImplementationOnce(async () => {
+      reads.atChainStep = readsSinceConfirm();
+    });
+    mockWriteContract.mockImplementationOnce(async () => {
+      reads.atBurn = readsSinceConfirm();
+      return `0x${'2'.repeat(64)}`;
+    });
+
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    // The allowance covers the burn, so its prompt is the first one.
+    expect(mockWriteContract).toHaveBeenCalledTimes(1);
+    expect(reads).toEqual({ atChainStep: 1, atBurn: 2 });
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'delivering', expect.anything());
+  });
+
+  it('refuses before the approval when the balance dropped during the chain step', async () => {
+    runRealExecutor({ readAllowance: async () => 0n });
+    renderScreen();
+    await reachBaseSepoliaRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    mockSwitchChain.mockImplementationOnce(async () => {
+      mockBalance = TYPED + FEE_QUOTE.feeTotalAmount - 1n;
+    });
+
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(mockWriteContract).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
+      error: feeAboveBalance('1.531907', 'Base Sepolia')
+    });
+  });
+
+  it('fails the row with the balance-read message when the read after an approval fails', async () => {
+    runRealExecutor({ readAllowance: async () => 0n });
+    renderScreen();
+    await reachBaseSepoliaRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    mockWriteContract.mockImplementationOnce(async () => {
+      global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ error: { message: 'rpc down' } }) });
+      return `0x${'1'.repeat(64)}`;
+    });
+
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    // The approval only: the burn is never asked for.
+    expect(mockWriteContract).toHaveBeenCalledTimes(1);
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
+      error: `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network: 'Base Sepolia' })}`
+    });
+  });
+
+  it('fails the row with the balance-read message when the read after the chain step fails', async () => {
+    runRealExecutor({ readAllowance: async () => 0n });
+    renderScreen();
+    await reachBaseSepoliaRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    mockSwitchChain.mockImplementationOnce(async () => {
+      global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ error: { message: 'rpc down' } }) });
+    });
+
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(mockWriteContract).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenLastCalledWith('bridge-tx', 'failed', {
+      error: `bridgeDepositBalanceReadFailed ${JSON.stringify({ token: 'USDC', network: 'Base Sepolia' })}`
+    });
+  });
+
+  // The burn pulls Circle's fee on top of the amount, so once the fee is on screen Confirm holds on a balance that
+  // covers only the amount, with the words the deposit would fail with.
+  it('holds the route card on an amount whose displayed fee takes it past the balance', async () => {
+    jest.mocked(quoteExecutorBurn).mockResolvedValue(FEE_QUOTE);
+    mockBalance = TYPED + FEE_QUOTE.feeTotalAmount - 1n;
+    renderScreen();
+    await reachBaseSepoliaRoute();
+
+    expect(screen.getByTestId('usdcx-route-fee')).toHaveTextContent('usdcxForwardFee');
+    expect(screen.getByTestId('usdcx-route-notice').textContent).toBe(feeAboveBalance('1.531907', 'Base Sepolia'));
+    expect(screen.getByTestId('usdcx-route-confirm')).toBeDisabled();
+  });
+
+  it('holds the review and says why when the fee lands after the route card', async () => {
+    let answerQuote: (quote: CctpBurnQuote) => void = () => undefined;
+    jest.mocked(quoteExecutorBurn).mockImplementation(
+      () =>
+        new Promise<CctpBurnQuote>(resolve => {
+          answerQuote = resolve;
+        })
+    );
+    mockBalance = TYPED + FEE_QUOTE.feeTotalAmount - 1n;
+    renderScreen();
+    await reachBaseSepoliaRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    expect(screen.getByTestId('review-can-confirm')).toHaveTextContent(/^true$/);
+
+    await act(async () => answerQuote(FEE_QUOTE));
+    await settle();
+
+    expect(screen.getByTestId('review-fee')).toHaveTextContent('0.031908');
+    expect(screen.getByTestId('review-error').textContent).toBe(feeAboveBalance('1.531907', 'Base Sepolia'));
+    expect(screen.getByTestId('review-can-confirm')).toHaveTextContent(/^false$/);
+  });
+
+  // A hold that tells the user to add USDC has to see it arrive.
+  describe('while Confirm is held on the Circle USDC balance', () => {
+    // The suite's settle() waits on a timer, so the fake clock also runs with real time.
+    beforeEach(() => jest.useFakeTimers({ advanceTimers: true }));
+
+    const advance = (ms: number) =>
+      act(async () => {
+        await jest.advanceTimersByTimeAsync(ms);
+      });
+    const reachFeeHold = async () => {
+      jest.mocked(quoteExecutorBurn).mockResolvedValue(FEE_QUOTE);
+      mockBalance = TYPED + FEE_QUOTE.feeTotalAmount - 1n;
+      const view = renderScreen();
+      await reachBaseSepoliaRoute();
+      expect(screen.getByTestId('usdcx-route-confirm')).toBeDisabled();
+      return view;
+    };
+    const expectFeeHold = () => {
+      expect(screen.getByTestId('usdcx-route-notice').textContent).toBe(feeAboveBalance('1.531907', 'Base Sepolia'));
+      expect(screen.getByTestId('usdcx-route-confirm')).toBeDisabled();
+    };
+
+    it('re-reads the source balance while a hold is up and enables Confirm once it covers', async () => {
+      await reachFeeHold();
+      const confirm = screen.getByTestId('usdcx-route-confirm');
+
+      mockBalance = TYPED + FEE_QUOTE.feeTotalAmount;
+      expect(confirm).toBeDisabled();
+      await advance(10_000);
+
+      expect(confirm).toBeEnabled();
+    });
+
+    it('stops re-reading once the hold clears', async () => {
+      await reachFeeHold();
+      mockBalance = TYPED + FEE_QUOTE.feeTotalAmount;
+      await advance(10_000);
+      expect(screen.getByTestId('usdcx-route-confirm')).toBeEnabled();
+      const reads = balanceOfRequests().length;
+
+      await advance(30_000);
+
+      expect(balanceOfRequests()).toHaveLength(reads);
+    });
+
+    it('stops re-reading on unmount', async () => {
+      const view = await reachFeeHold();
+      await advance(10_000);
+      const reads = balanceOfRequests().length;
+
+      view.unmount();
+      await advance(30_000);
+
+      expect(balanceOfRequests()).toHaveLength(reads);
+    });
+
+    // A read that never answers is aborted after RPC_TIMEOUT_MS (15 s); until then no second read is sent.
+    it('reads one balance at a time and again after the timeout', async () => {
+      await reachFeeHold();
+      global.fetch = jest.fn().mockImplementation(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            const signal = init?.signal;
+            signal?.addEventListener('abort', () => reject(signal.reason));
+          })
+      );
+
+      await advance(10_000);
+      expect(balanceOfRequests()).toHaveLength(1);
+      expectFeeHold();
+      await advance(10_000);
+      expect(balanceOfRequests()).toHaveLength(1);
+      expectFeeHold();
+      // The read timed out at 25 s, so the tick at 30 s reads again.
+      await advance(10_000);
+      expect(balanceOfRequests()).toHaveLength(2);
+      expectFeeHold();
+    });
+
+    it('re-reads the source balance while the amount alone is held and enables Confirm once it covers', async () => {
+      mockBalance = TYPED - 1n;
+      renderScreen();
+      await reachUsdcxRoute();
+      expect(screen.getByTestId('form-error')).toHaveTextContent(/^amountMustBeLessThanBalance$/);
+
+      mockBalance = TYPED;
+      await advance(10_000);
+      expect(screen.getByTestId('form-error')).toBeEmptyDOMElement();
+      fireEvent.click(screen.getByTestId('continue'));
+      await settle();
+
+      expect(screen.getByTestId('usdcx-route-confirm')).toBeEnabled();
+    });
+
+    it('sends no balance re-read while no hold is up', async () => {
+      jest.mocked(quoteExecutorBurn).mockResolvedValue(FEE_QUOTE);
+      renderScreen();
+      await reachBaseSepoliaRoute();
+      expect(screen.getByTestId('usdcx-route-confirm')).toBeEnabled();
+      const reads = balanceOfRequests().length;
+
+      await advance(30_000);
+
+      expect(balanceOfRequests()).toHaveLength(reads);
+    });
+
+    // Only a hold on Circle's USDC is cleared by adding it; the bridge's own USDC on the Fast route reads nothing.
+    it('sends no Circle USDC re-read while the Fast route holds the bridge USDC amount', async () => {
+      mockBalance = 1n;
+      renderScreen();
+      fireEvent.click(screen.getByTestId('set-amount'));
+      await settle();
+      expect(screen.getByTestId('form-error')).toHaveTextContent(/^amountMustBeLessThanBalance$/);
+      const reads = balanceOfRequests().length;
+
+      await advance(30_000);
+
+      expect(balanceOfRequests()).toHaveLength(reads);
+    });
+
+    it('keeps the held balance on screen while its re-reads fail', async () => {
+      await reachFeeHold();
+      global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ error: { message: 'rpc down' } }) });
+
+      for (const ms of [10_000, 20_000]) {
+        await advance(ms);
+        expect(screen.getByTestId('usdcx-route-notice').textContent).toBe(feeAboveBalance('1.531907', 'Base Sepolia'));
+        expect(screen.getByTestId('usdcx-route-confirm')).toBeDisabled();
+      }
+    });
+  });
+
+  it('runs an executor deposit whose amount plus the displayed fee is exactly the balance', async () => {
+    jest.mocked(quoteExecutorBurn).mockResolvedValue(FEE_QUOTE);
+    mockBalance = TYPED + FEE_QUOTE.feeTotalAmount;
+    renderScreen();
+    await reachBaseSepoliaRoute();
+
+    expect(screen.getByTestId('usdcx-route-notice').textContent).toBe(
+      `usdcxExecutorRouteNotice ${JSON.stringify({ source: 'Base Sepolia', target: 'Arc Testnet' })}`
+    );
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    expect(screen.getByTestId('review-error')).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(runUsdcxExecutorDeposit).toHaveBeenCalledTimes(1);
+    expect(updateBridgedReceivePhase).not.toHaveBeenCalledWith('bridge-tx', 'failed', expect.anything());
+  });
+
+  // xReserve takes no fee: Circle is never asked, and a deposit of the whole balance runs.
+  it('runs an Arc deposit of the whole balance with no Circle fee to cover', async () => {
+    jest.mocked(quoteExecutorBurn).mockResolvedValue(FEE_QUOTE);
+    mockBalance = TYPED;
+    renderScreen();
+    await reachUsdcxRoute();
+
+    expect(screen.queryByTestId('usdcx-route-fee')).toBeNull();
+    expect(screen.getByTestId('usdcx-route-confirm')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(quoteExecutorBurn).not.toHaveBeenCalled();
+    expect(runUsdcxDeposit).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(runUsdcxDeposit).mock.calls[0]?.[3]).not.toHaveProperty('readBalance');
+    expect(updateBridgedReceivePhase).not.toHaveBeenCalledWith('bridge-tx', 'failed', expect.anything());
   });
 
   // The reconciler re-derives the recipient with the same helper, so the bytes a deposit signs are the bytes Circle's
@@ -868,7 +1352,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     return { promise, resolve, reject };
   };
 
-  // The executor's manual route approves the fee entry point and then the plain messenger before its burn.
+  // Both routes approve once before their deposit prompt.
   it.each(
     (['xreserve', 'cctp-executor'] as const).flatMap(route =>
       [false, true].flatMap(native =>
@@ -880,7 +1364,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     async (route, native, outcome) => {
       mockNativeAvailable = native;
       const signed = `0x${'2'.repeat(64)}` as const;
-      const approvals = route === 'xreserve' ? 1 : 2;
+      const approvals = 1;
       const receipt = deferred<void>();
       const prompt = deferred<`0x${string}`>();
       jest.mocked(waitForEvmReceipt).mockReturnValueOnce(receipt.promise);
@@ -905,16 +1389,14 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       } else {
         jest.mocked(runUsdcxExecutorDeposit).mockImplementationOnce(async (_id, _amount, recipient, deps) => {
           await deps.waitForReceipt(await deps.signer.approve(deps.source.tokenMessengerWithFees, 1_600_000n));
-          await deps.waitForReceipt(await deps.signer.approve(deps.source.tokenMessenger, 1_500_000n));
-          return deps.signer.depositForBurnWithHook([
+          return deps.signer.depositForBurnWithHookAndFees([
             1_500_000n,
             26,
             `0x${'0'.repeat(24)}edc81040756accff070c21d37b265b9d0b5ba45e`,
             '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
             `0x${'0'.repeat(24)}edc81040756accff070c21d37b265b9d0b5ba45e`,
-            0n,
-            2000,
-            `0x${recipient.slice(2)}`
+            `0x${recipient.slice(2)}`,
+            { signedQuote: '0x0102', refundAddress: deps.depositor }
           ]);
         });
       }
@@ -976,8 +1458,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
       expect(mockSwitchChain).not.toHaveBeenCalled();
       // Adding and switching the chain is a wallet prompt too, so the balance is checked first.
       expect(prepareNativeSessionChain).not.toHaveBeenCalled();
-      // The suite's chain stub names every chain but Arc "Sepolia", Base Sepolia included.
-      const network = route === 'xreserve' ? 'Arc Testnet' : 'Sepolia';
+      const network = route === 'xreserve' ? 'Arc Testnet' : 'Base Sepolia';
       expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', {
         error: `bridgeDepositBalanceTooLow ${JSON.stringify({ balance: '1.4999', token: 'USDC', network })}`
       });

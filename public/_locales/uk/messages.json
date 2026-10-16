@@ -78,8 +78,8 @@
     "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
-    "message": "Виведення коштів у USDCx доступні лише для налаштованої мережі «faucet» у тестовій мережі Miden.",
-    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+    "message": "Виведення коштів у USDCx для цього токена в цій мережі недоступні.",
+    "englishSource": "USDCx withdrawals are not available for this token on this network."
   },
   "usdcxInvalidAmount": {
     "message": "Введіть додатну суму в USDCx з не більше ніж шістьма знаками після коми.",
@@ -579,6 +579,10 @@
     "message": "Не вдалося завантажити ваші позиції. Перевірте з’єднання та спробуйте ще раз.",
     "englishSource": "Couldn't load your positions. Check your connection and try again."
   },
+  "earnUnavailableOnNetwork": {
+    "message": "Функція «Earn» недоступна в цій мережі",
+    "englishSource": "Earn is not available on this network"
+  },
   "earnVaultLoadError": {
     "message": "Не вдалося завантажити це сховище. Перевірте підключення та спробуйте ще раз.",
     "englishSource": "Couldn't load this vault. Check your connection and try again."
@@ -1024,6 +1028,10 @@
   "transactionStepSyncingGuardian": {
     "message": "Синхронізація з Guardian",
     "englishSource": "Syncing with Guardian"
+  },
+  "transactionStepDeliveringNote": {
+    "message": "Доставка одержувачу",
+    "englishSource": "Delivering to recipient"
   },
   "guardianBusyStep": {
     "message": "Очікування вашого «Guardian»",
@@ -2524,6 +2532,10 @@
     "message": "Korea Digital Asset — компанія з зберігання цифрових активів, що базується в Південній Кореї.",
     "englishSource": "Korea Digital Asset, a digital asset custody company based in South Korea."
   },
+  "guardianAboutPara": {
+    "message": "Para — постачальник інфраструктури вбудованих гаманців.",
+    "englishSource": "Para, an embedded wallet infrastructure provider."
+  },
   "guardianKindOpenZeppelin": {
     "message": "Безпека та аудит смарт-контрактів",
     "englishSource": "Smart contract security and audits"
@@ -2539,6 +2551,10 @@
   "guardianKindKodax": {
     "message": "Зберігач цифрових активів",
     "englishSource": "Digital asset custodian"
+  },
+  "guardianKindPara": {
+    "message": "Інфраструктура вбудованих гаманців",
+    "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
     "message": "Guardian — це незалежна служба, яка <b>підписує кожну транзакцію</b> з вашого гаманця, додаючи захисний механізм без відмови від самостійного зберігання активів.",
@@ -3254,6 +3270,10 @@
     "message": "Цей файл гаманця створено в новішій версії Bread. Оновіть Bread і повторіть спробу.",
     "englishSource": "This wallet file was created by a newer version of Bread. Update Bread and try again."
   },
+  "encryptedWalletFileWrongNetwork": {
+    "message": "Цей файл гаманця належить іншій мережі і не може бути відновлений у цій мережі.",
+    "englishSource": "This wallet file belongs to another network and cannot be restored on this one."
+  },
   "encryptedWalletFileRestoreFailed": {
     "message": "Не вдалося відновити гаманець. Перевірте сховище й повторіть спробу.",
     "englishSource": "The wallet could not be restored. Check your storage and try again."
@@ -3580,6 +3600,10 @@
   "guardianAccountNotFound": {
     "message": "Ми не змогли знайти ваш обліковий запис за цим посиланням: guardian. Перевірте URL-адресу або спробуйте імпортувати його як публічний обліковий запис.",
     "englishSource": "We couldn't find your account on this guardian. Check the URL or import as a public account instead."
+  },
+  "guardianOtherNetwork": {
+    "message": "Цей «guardian» працює в іншій мережі Miden, тому він не може відновити обліковий запис тут.",
+    "englishSource": "This guardian runs on another Miden network, so it cannot recover an account here."
   },
   "useCustomGuardianUrl": {
     "message": "Використовуйте власний URL-адресу Guardian",
@@ -4158,6 +4182,18 @@
   "dappConnectionRequest": {
     "message": "Цей додаток хоче підключитися до вашого гаманця",
     "englishSource": "This app wants to connect to your wallet"
+  },
+  "dappNetworkMismatch": {
+    "message": "Цей додаток запитував мережу Miden $dappNetwork$, але ваш гаманець знаходиться в мережі Miden $walletNetwork$.",
+    "englishSource": "This app asked for Miden $dappNetwork$, but your wallet is on Miden $walletNetwork$.",
+    "placeholders": {
+      "dappnetwork": {
+        "content": "$1"
+      },
+      "walletnetwork": {
+        "content": "$2"
+      }
+    }
   },
   "dappTransactionRequest": {
     "message": "Цей додаток надсилає запит на транзакцію",
@@ -4900,14 +4936,39 @@
     "englishSource": "USDCx was minted on Miden and your wallet received it."
   },
   "usdcxExecutorRouteNotice": {
-    "message": "USDC спалюються на $source$ і випускаються на ім’я виконавця Circle на $target$, який депонує їх у xReserve для Miden. Circle стягує свою комісію на додаток до суми, і Circle здійснює переказ на $target$. Якщо Circle не може визначити вартість переказу, ви здійснюєте його на $target$ за допомогою ще одного підпису.",
-    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$. If Circle cannot price the transfer, you execute it on $target$ with one more signature.",
+    "message": "USDC спалюються на $source$ і випускаються на ім’я виконавця Circle на $target$, який депонує їх у xReserve для Miden. Circle стягує свою комісію додатково до суми, і Circle здійснює переказ на $target$.",
+    "englishSource": "USDC is burned on $source$ and minted to Circle's executor on $target$, which deposits it into xReserve for Miden. Circle charges its fee in addition to the amount, and Circle executes the transfer on $target$.",
     "placeholders": {
       "source": {
         "content": "$1"
       },
       "target": {
+        "content": "$3"
+      }
+    }
+  },
+  "usdcxForwardQuoteUnavailable": {
+    "message": "Circle наразі не може визначити вартість цього переказу. Нічого не було надіслано. Спробуйте ще раз через деякий час.",
+    "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
+  },
+  "usdcxDepositFeeAboveBalance": {
+    "message": "Для цього депозиту потрібно $total$ $token$ на $network$: сума плюс комісія Circle у розмірі $fee$ $token$. У вашому підключеному гаманці знаходиться $balance$ $token$. Зменшіть суму на суму комісії або додайте $token$ до вашого гаманця.",
+    "englishSource": "This deposit needs $total$ $token$ on $network$: the amount plus Circle's fee of $fee$ $token$. Your connected wallet holds $balance$ $token$. Lower the amount by the fee or add $token$ to your wallet.",
+    "placeholders": {
+      "total": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$8"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "fee": {
         "content": "$4"
+      },
+      "balance": {
+        "content": "$6"
       }
     }
   },
@@ -5700,8 +5761,12 @@
     "englishSource": "Reset and switch to mainnet"
   },
   "switchToMainnetConfirm": {
-    "message": "Ви можете продовжувати користуватися тестовою мережею. Перемикання очищає цей гаманець, його залишки та історію з цього пристрою. Спочатку збережіть свої дані для відновлення. Тестові токени не переносяться до основної мережі. Потім ви створите гаманець основної мережі за допомогою коду запрошення або відновите існуючий гаманець основної мережі.",
-    "englishSource": "You can keep using testnet. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with an invite code or recover an existing mainnet wallet."
+    "message": "Ваш код доступу було прийнято. Перехід очистить цей гаманець, його залишки та історію з цього пристрою. Спочатку збережіть свої дані для відновлення. Тестові токени не переносяться в основну мережу. Потім ви створите гаманець в основній мережі за допомогою цього коду або відновите існуючий гаманець в основній мережі.",
+    "englishSource": "Your access code was accepted. Switching clears this wallet, its balances and its history from this device. Save your recovery details first. Test tokens do not transfer to mainnet. You will then create a mainnet wallet with this code or recover an existing mainnet wallet."
+  },
+  "mainnetSwitchCodeBody": {
+    "message": "Введіть код із вашого запрошення. Ніщо не вважається підтвердженим, доки мережа mainnet не прийме його.",
+    "englishSource": "Enter the code from your invite. Nothing is cleared until mainnet accepts it."
   },
   "mainnetCountdownLabel": {
     "message": "Час, що залишився до запуску Bread у мейннеті: $time$",

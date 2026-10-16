@@ -254,6 +254,12 @@ jest.mock('lib/miden-chain/effective-endpoints', () => ({
   getTestNetworkNameKey: () => mockTestNetworkKey
 }));
 
+// The code a switch to mainnet carried to the code step; the code step itself reads it.
+const mockForgetCarriedCode = jest.fn<Promise<void>, []>();
+jest.mock('lib/carried-mainnet-code', () => ({
+  forgetCarriedMainnetAccessCode: () => mockForgetCarriedCode()
+}));
+
 const READY = 2;
 const IDLE = 0;
 const HOT_KEY_HEX = 'ab'.repeat(32) + ':' + 'cd'.repeat(32);
@@ -1162,6 +1168,32 @@ describe('Welcome - mainnet access and the network notice (#875)', () => {
     mockNavigate.mockClear();
     await dispatch({ id: 'back' });
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('keeps the code a switch carried while the invite flow goes on, and forgets it once the flow is left', async () => {
+    mockInviteOnly = true;
+    await renderWelcome();
+    await dispatch({ id: 'mainnet-access' });
+    await setHash('#mainnet-access');
+    await dispatch({ id: 'mainnet-access-granted', payload: '8gKIgL0O6HcU' });
+    await setHash('#create-password');
+    expect(mockForgetCarriedCode).not.toHaveBeenCalled();
+
+    await dispatch({ id: 'back' });
+    await setHash('');
+    expect(mockForgetCarriedCode).toHaveBeenCalled();
+  });
+
+  it('keeps the code a switch carried when a recovery is left: only the create flow it was offered to ends it', async () => {
+    mockInviteOnly = true;
+    mockTestNetworkKey = null;
+    await renderWelcome();
+    await dispatch({ id: 'select-import-type' });
+    await setHash('#select-import-type');
+    await dispatch({ id: 'back' });
+    await setHash('');
+    expect(mockNavigate).toHaveBeenLastCalledWith('/');
+    expect(mockForgetCarriedCode).not.toHaveBeenCalled();
   });
 
   it('skips the notice on mainnet', async () => {

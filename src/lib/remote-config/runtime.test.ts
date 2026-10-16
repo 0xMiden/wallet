@@ -1166,7 +1166,7 @@ describe('the poll schedule', () => {
 describe('the Guardian operators', () => {
   const KODA = { id: 'kodax', name: 'Koda', operatedBy: 'Koda', location: 'Asia', endpoint: 'https://koda.example' };
   const NEW = { id: 'new-one', name: 'New', operatedBy: 'New Co', location: 'EU', endpoint: 'https://new.example' };
-  const BUNDLED_TESTNET = ['open-zeppelin', 'gateway', 'lambda-class', 'kodax'];
+  const BUNDLED_TESTNET = ['open-zeppelin', 'gateway', 'lambda-class', 'kodax', 'para'];
   // A stored document of `version` that lists `guardians`, with its derivation, as a fetch leaves them.
   const seedGuardians = (version: number, guardians: GuardianConfig[] | undefined, network = 'testnet') => {
     const document = { ...config(version, network), ...(guardians === undefined ? {} : { guardians }) };

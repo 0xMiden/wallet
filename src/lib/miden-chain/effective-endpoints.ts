@@ -90,8 +90,8 @@ export function getEffectiveNoteTransportUrl(): string | undefined {
  * Is a note-transport endpoint resolvable for the effective network?
  *
  * There is no fallback here, deliberately, and that is what makes this worth
- * asking. Every other endpoint getter can degrade to a default: an absent faucet
- * URL falls back to the build network's, an absent explorer just hides a link.
+ * asking. An absent faucet only hides the Fund prompt, and an absent explorer
+ * just hides a link.
  * Transport has no equivalent — a network with no entry in
  * `MIDEN_NOTE_TRANSPORT_LAYER_ENDPOINTS` and no override resolves to `undefined`, and
  * the SDK client is built with no transport at all.
@@ -106,20 +106,18 @@ export function isNoteTransportConfigured(): boolean {
   return !!getEffectiveNoteTransportUrl();
 }
 
-export function getEffectiveFaucetUrl(): string {
-  return (
-    overrideCache?.faucetUrl ||
-    MIDEN_FAUCET_ENDPOINTS.get(getEffectiveNetworkName()) ||
-    MIDEN_FAUCET_ENDPOINTS.get(DEFAULT_NETWORK)!
-  );
+// No fallback to the build network's faucet: on mainnet, which has none, it would be handed a mainnet address.
+export function getEffectiveFaucetUrl(): string | undefined {
+  return overrideCache?.faucetUrl || MIDEN_FAUCET_ENDPOINTS.get(getEffectiveNetworkName());
 }
 
-export function getEffectiveFaucetApiUrl(): string {
-  return (
-    overrideCache?.faucetApiUrl ||
-    MIDEN_FAUCET_API_ENDPOINTS.get(getEffectiveNetworkName()) ||
-    MIDEN_FAUCET_API_ENDPOINTS.get(DEFAULT_NETWORK)!
-  );
+export function getEffectiveFaucetApiUrl(): string | undefined {
+  return overrideCache?.faucetApiUrl || MIDEN_FAUCET_API_ENDPOINTS.get(getEffectiveNetworkName());
+}
+
+/** Whether the effective network has a faucet to fund an account from. Mainnet has none. */
+export function isFaucetConfigured(): boolean {
+  return !!getEffectiveFaucetApiUrl();
 }
 
 export function getEffectiveExplorerUrl(): string | undefined {
@@ -169,6 +167,35 @@ async function loadFeeFaucetId(): Promise<void> {
   } catch {
     // Keep whatever the in-memory cache already holds.
   }
+}
+
+/**
+ * What a realm without extension storage (the offscreen document) needs from the realm that read it: the
+ * override object itself, never a re-derived URL or scope, and the fee faucet as that realm resolves it, so
+ * the stored id and the E2E injector reach it too (#1482).
+ */
+export interface EndpointState {
+  override: EndpointOverride | null;
+  feeFaucetId: string | undefined;
+}
+
+export function getEndpointState(): EndpointState {
+  return { override: overrideCache, feeFaucetId: getEffectiveFeeFaucetId() };
+}
+
+// Only a realm that cannot read extension storage calls this; every other realm loads its own.
+export function adoptEndpointState(state: EndpointState): void {
+  overrideCache = state.override;
+  feeFaucetCache = state.feeFaucetId;
+}
+
+const sameOverride = (a: EndpointOverride, b: EndpointOverride) =>
+  [...new Set([...Object.keys(a), ...Object.keys(b)])].every(key => Reflect.get(a, key) === Reflect.get(b, key));
+
+export function sameEndpointState(a: EndpointState, b: EndpointState): boolean {
+  if (a.feeFaucetId !== b.feeFaucetId) return false;
+  if (a.override === null || b.override === null) return a.override === b.override;
+  return sameOverride(a.override, b.override);
 }
 
 /**
@@ -240,6 +267,20 @@ function isEndpointOverride(value: unknown): value is EndpointOverride {
   );
 }
 
+let markOverridesLoaded: () => void = () => undefined;
+const overridesLoaded = new Promise<void>(resolve => {
+  markOverridesLoaded = resolve;
+});
+
+/**
+ * Settled by this realm's first {@link loadEndpointOverrides}, whatever its outcome (a failed read and the E2E
+ * opt-out settle it too), so a caller never waits forever. Until then every getter answers the build's network:
+ * the service worker waits on it before it sends its state to the offscreen document (#1482).
+ */
+export function whenEndpointOverridesLoaded(): Promise<void> {
+  return overridesLoaded;
+}
+
 /**
  * Load the persisted override into the sync cache.
  *
@@ -253,18 +294,22 @@ function isEndpointOverride(value: unknown): value is EndpointOverride {
  * (every production build) it has no effect.
  */
 export async function loadEndpointOverrides(): Promise<void> {
-  await loadFeeFaucetId();
-  if (process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES === 'true') {
-    overrideCache = null;
-    return;
-  }
   try {
-    const storage = getStorageProvider();
-    const items = await storage.get([ENDPOINT_OVERRIDE_STORAGE_KEY]);
-    const raw = items[ENDPOINT_OVERRIDE_STORAGE_KEY];
-    overrideCache = isEndpointOverride(raw) ? raw : null;
-  } catch {
-    // Deliberate: see the comment above applyEndpointOverride.
+    await loadFeeFaucetId();
+    if (process.env.MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES === 'true') {
+      overrideCache = null;
+      return;
+    }
+    try {
+      const storage = getStorageProvider();
+      const items = await storage.get([ENDPOINT_OVERRIDE_STORAGE_KEY]);
+      const raw = items[ENDPOINT_OVERRIDE_STORAGE_KEY];
+      overrideCache = isEndpointOverride(raw) ? raw : null;
+    } catch {
+      // Deliberate: see the comment above applyEndpointOverride.
+    }
+  } finally {
+    markOverridesLoaded();
   }
 }
 

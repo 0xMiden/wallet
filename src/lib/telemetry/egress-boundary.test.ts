@@ -6,6 +6,8 @@ import { useAppLifecycleTelemetry } from 'app/hooks/useAppLifecycleTelemetry';
 import { useFundTelemetry } from 'app/hooks/useFundTelemetry';
 import { request } from 'lib/miden/front';
 import { reportNoteClaim } from 'lib/miden/front/claim-telemetry';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { isTelemetryEnabledAsync } from 'lib/settings/helpers';
 import { WalletMessageType } from 'lib/shared/types';
 import { enterSendFlow, settleSendFlow } from 'screens/send-flow/send-telemetry';
@@ -74,6 +76,28 @@ jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
   isMobile: () => true
 }));
+
+// Real unless a test moves it: the network is read from here on every event, and a test that moves it has to see the
+// wire follow.
+jest.mock('lib/miden-chain/effective-endpoints', () => {
+  const actual = jest.requireActual<typeof import('lib/miden-chain/effective-endpoints')>(
+    'lib/miden-chain/effective-endpoints'
+  );
+  return { ...actual, getEffectiveNetworkName: jest.fn(actual.getEffectiveNetworkName) };
+});
+const { getEffectiveNetworkName: buildNetwork } = jest.requireActual<
+  typeof import('lib/miden-chain/effective-endpoints')
+>('lib/miden-chain/effective-endpoints');
+
+/** Every event sent while `run` is out reads `network` as the effective one. */
+async function onNetwork(network: MIDEN_NETWORK_NAME, run: () => Promise<void>): Promise<void> {
+  jest.mocked(getEffectiveNetworkName).mockReturnValue(network);
+  try {
+    await run();
+  } finally {
+    jest.mocked(getEffectiveNetworkName).mockImplementation(buildNetwork);
+  }
+}
 
 jest.mock('@capacitor/app', () => ({
   App: { addListener: jest.fn(() => Promise.resolve({ remove: jest.fn() })) }
@@ -740,7 +764,19 @@ describe('product-event egress', () => {
     const sent = envelopes();
     expect(sent.length).toBeGreaterThan(0);
     const observed = new Set(sent.flatMap(envelope => Object.keys(objectAt(envelope, 'props'))));
-    expect([...observed].sort()).toEqual(['durationMs', 'errorKind', 'flowId', 'result']);
+    expect([...observed].sort()).toEqual(['durationMs', 'errorKind', 'flowId', 'network', 'result']);
+  });
+
+  it('names the effective network on every event, flows and settled operations alike', async () => {
+    consentOn();
+    await onNetwork(MIDEN_NETWORK_NAME.MAINNET, async () => {
+      await driveEveryInstrumentedFlow();
+      await sendEveryDeclaredOperation();
+    });
+
+    const sent = envelopes();
+    expect(sent.some(envelope => stringAt(envelope, 'eventName') === 'tx_send_settled')).toBe(true);
+    expect(sent.filter(envelope => objectAt(envelope, 'props').network !== 'mainnet')).toEqual([]);
   });
 
   it('includes a finite nonnegative duration on every completed product flow', async () => {
@@ -811,6 +847,8 @@ describe('product-event egress', () => {
     ]);
     const propValues = new Set<string>([...RESULTS, ...ERROR_KINDS, ...STEPS]);
     const platforms = new Set<string>(['extension', 'ios', 'android']);
+    // Restated rather than read from the network enum: the closed set is the claim this checks.
+    const networks = new Set<string>(['mainnet', 'testnet', 'devnet', 'localnet']);
 
     const sent = envelopes();
     expect(sent.length).toBeGreaterThan(0);
@@ -843,6 +881,10 @@ describe('product-event egress', () => {
           if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,32}$/.test(value)) {
             problems.push(`props.flowId=${String(value)}`);
           }
+          continue;
+        }
+        if (key === 'network') {
+          if (typeof value !== 'string' || !networks.has(value)) problems.push(`props.network=${String(value)}`);
           continue;
         }
         if (typeof value === 'string' && propValues.has(value)) continue;
@@ -1223,6 +1265,26 @@ describe('crash-report egress', () => {
     expect(text).not.toContain('"lineno":7');
     expect(text).not.toContain('"colno":777');
     expect(text.includes('"colno":5000')).toBe(location === 'cause');
+  });
+
+  it('names the network the crash happened on, as a tag and in the diagnostics', async () => {
+    // Consent answers only once the network is back on the build's, so the report is sent from there.
+    let allow = (_granted: boolean) => {};
+    jest.mocked(isTelemetryEnabledAsync).mockReturnValue(
+      new Promise<boolean>(resolve => {
+        allow = resolve;
+      })
+    );
+    initCrashReporting();
+    await onNetwork(MIDEN_NETWORK_NAME.MAINNET, async () => captureCrash(poisonedError('send failed')));
+    allow(true);
+    await flushEgress();
+
+    const text = wireText();
+    expect(captured.length).toBeGreaterThan(0);
+    expect(text).toContain('"tags":{"network":"mainnet"}');
+    expect(text).toMatch(/"walletDiagnostics":\{[^}]*"network":"mainnet"/);
+    expect(leaksIn(text)).toEqual([]);
   });
 
   it('reaches only the configured Sentry host', async () => {

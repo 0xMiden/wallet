@@ -21,6 +21,7 @@ import { hasNoFeeAsset } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front';
 import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { isGuardianDrifted } from 'lib/miden/guardian/sync-guard';
+import { isFaucetConfigured } from 'lib/miden-chain/effective-endpoints';
 import {
   FaucetAmountOverCapError,
   FaucetOutcomeUnknownError,
@@ -50,6 +51,7 @@ import {
   FaucetRequestUnresolvedError,
   getInFlightFaucetRequest,
   getPendingNotesUsdTotal,
+  guardianNoteScanText,
   isFaucetFundingMarkerLive,
   type PendingNoteValue,
   setFaucetFundingMarker,
@@ -386,19 +388,9 @@ export const HomePrompts: FC<HomePromptsProps> = ({
       case 'history-partial':
         return t('guardianHistoryPartial', { count: noteRecoveryProgress.restored ?? 0 });
       case 'transport':
-        return t('guardianNoteRecoveryTransportStep');
       case 'proposals':
-        return t('guardianNoteRecoveryProposalsStep');
-      case 'public': {
-        const { syncedToBlock, latestBlock } = noteRecoveryProgress;
-        if (syncedToBlock === undefined || latestBlock === undefined) {
-          return t('guardianNoteRecoveryPublicPreparingStep');
-        }
-        return t('guardianNoteRecoveryPublicStep', {
-          current: syncedToBlock.toLocaleString(),
-          latest: latestBlock.toLocaleString()
-        });
-      }
+      case 'public':
+        return guardianNoteScanText(noteRecoveryProgress, t) ?? undefined;
     }
   }, [noteRecoveryProgress, t]);
 
@@ -420,8 +412,10 @@ export const HomePrompts: FC<HomePromptsProps> = ({
   const cannotPayFee = hasNoFeeAsset(balances, feeFaucetId, verificationBaseFee);
   const faucetIsTerminal =
     !cannotPayFee && (faucetStatus === WalletPromptStatus.Dismissed || faucetStatus === WalletPromptStatus.Completed);
+  // Read on every render: a Developer Settings save swaps the network without a reload. Mainnet has no faucet.
   const showFaucetPrompt =
-    awaitingFaucetFunds || faucetFundsArrived || (isLoaded && !balancesLoading && !hasBalance && !faucetIsTerminal);
+    isFaucetConfigured() &&
+    (awaitingFaucetFunds || faucetFundsArrived || (isLoaded && !balancesLoading && !hasBalance && !faucetIsTerminal));
 
   useEffect(() => {
     if (!hotKeyPromptPending) return;

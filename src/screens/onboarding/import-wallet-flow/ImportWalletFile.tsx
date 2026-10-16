@@ -11,14 +11,19 @@ import { IconButton } from 'components/ui/IconButton';
 import { TextAction } from 'components/ui/TextAction';
 import { TextField } from 'components/ui/TextField';
 import {
+  assertBackupNetwork,
+  assertSameGenesis,
+  backupGenesisHeader,
   type DecryptedWalletFile,
   isRecord,
   parseDecryptedWalletFile,
-  UnsupportedBackupVersionError
+  UnsupportedBackupVersionError,
+  WrongNetworkBackupError
 } from 'lib/miden/backup-file';
 import { decrypt, decryptJson, deriveKey, generateKey } from 'lib/miden/passworder';
 import { importDb } from 'lib/miden/repo';
 import { assertWasmHoldCurrent, getMidenClient, withWasmClientLock } from 'lib/miden/sdk/miden-client';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { ENCRYPTED_WALLET_FILE_PASSWORD_CHECK, EncryptedWalletFile } from 'screens/shared';
 
 import { OnboardingStepLayout } from '../common/OnboardingStepLayout';
@@ -40,7 +45,7 @@ type WalletFile = Omit<EncryptedWalletFile, 'salt'> & {
   salt: Record<string, number> | number[];
 };
 
-type ImportError = 'wrong-password' | 'malformed' | 'unsupported' | 'restore';
+type ImportError = 'wrong-password' | 'malformed' | 'unsupported' | 'wrong-network' | 'restore';
 
 // A backup carries two base64 database dumps, so the ceiling is generous; it
 // exists to stop an unrelated or hostile file from being decoded and parsed on
@@ -133,7 +138,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
     // land on whatever is staged now.
     const current = () => generation === restoreGeneration.current;
 
-    const importParsedWallet = async (payload: DecryptedWalletFile) => {
+    const importParsedWallet = async (payload: DecryptedWalletFile, fileGenesis: Uint8Array) => {
       // A discarded file must reach none of the three steps below, so each one
       // is gated immediately before it runs rather than after it finishes.
       const current = () => generation === restoreGeneration.current;
@@ -148,6 +153,14 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
             const midenClient = await getMidenClient();
             assertWasmHoldCurrent(hold, 'in the encrypted-file restore after the client build');
             if (!current()) return;
+            // The import replaces the store's genesis header with the file's, and
+            // every later client build sends that one to the node, which refuses a
+            // client of another chain on every call. So the file's genesis must be
+            // the one this store already holds before anything is written.
+            const activeGenesis = await midenClient.genesisHeader();
+            assertWasmHoldCurrent(hold, 'in the encrypted-file restore after the genesis read');
+            if (!current()) return;
+            assertSameGenesis(fileGenesis, activeGenesis);
             await midenClient.importDb(payload.midenClientDbContent);
           },
           { label: 'onboarding-restore-import-store' }
@@ -158,7 +171,7 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
         onSubmit(payload);
       } catch (error) {
         console.error('Wallet restore failed:', error);
-        if (current()) setImportError('restore');
+        if (current()) setImportError(error instanceof WrongNetworkBackupError ? 'wrong-network' : 'restore');
       }
     };
 
@@ -190,19 +203,32 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
       }
 
       let parsedWallet: DecryptedWalletFile;
+      let fileGenesis: Uint8Array;
       try {
         parsedWallet = parseDecryptedWalletFile(decryptedWallet);
+        // A recorded network refuses a file of another network without reading
+        // its dump; an older file without one is placed by its genesis alone.
+        assertBackupNetwork(parsedWallet, getEffectiveNetworkName());
+        fileGenesis = backupGenesisHeader(parsedWallet.midenClientDbContent);
       } catch (error) {
         // The other three failure arms log their cause; a malformed backup is the
         // one a support report is most likely to be about.
         console.error('Wallet file parse failed:', error);
-        if (current()) setImportError(error instanceof UnsupportedBackupVersionError ? 'unsupported' : 'malformed');
+        if (current()) {
+          setImportError(
+            error instanceof UnsupportedBackupVersionError
+              ? 'unsupported'
+              : error instanceof WrongNetworkBackupError
+                ? 'wrong-network'
+                : 'malformed'
+          );
+        }
         return;
       }
 
       if (!current()) return;
 
-      await importParsedWallet(parsedWallet);
+      await importParsedWallet(parsedWallet, fileGenesis);
     } finally {
       // Released by the run that took it, so a cleared file does not free the
       // lane while its own writes are still landing.
@@ -296,9 +322,11 @@ export const ImportWalletFileScreen: React.FC<ImportWalletFileScreenProps> = ({ 
         ? t('encryptedWalletFileMalformed')
         : importError === 'unsupported'
           ? t('encryptedWalletFileUnsupportedVersion')
-          : importError === 'restore'
-            ? t('encryptedWalletFileRestoreFailed')
-            : errors.password?.message;
+          : importError === 'wrong-network'
+            ? t('encryptedWalletFileWrongNetwork')
+            : importError === 'restore'
+              ? t('encryptedWalletFileRestoreFailed')
+              : errors.password?.message;
 
   return (
     // The form wraps the whole step so the pinned Import button submits it.
