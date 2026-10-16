@@ -11876,7 +11876,7 @@ describe('generateTransaction — Guardian routing', () => {
     });
 
     it("a rotation whose 'confirming' write fails still waits for its commit and completes the rotation", async () => {
-      const waitForTransactionCommit = jest.fn(async (_id: string) => {});
+      const waitForTransactionCommit = jest.fn(async () => {});
       const { tx, row, swapHotKey, provider } = arrangeRotation(proposalFor(), waitForTransactionCommit);
       const failing = failRowWriteOnce(stamping('confirming'));
 
