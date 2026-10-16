@@ -437,7 +437,13 @@ describe('scanArcLogs', () => {
 type CapturedLog = (typeof arcVectors.payouts)[number]['log'];
 
 /** The payout gate's Arc: a head that moves, a scripted balance, and the captured logs and gatewayMint transactions. */
-function payoutChain(world: { balances: readonly bigint[]; logs: readonly CapturedLog[]; failLogs?: boolean }): Rpc {
+function payoutChain(world: {
+  balances: readonly bigint[];
+  logs: readonly CapturedLog[];
+  failLogs?: boolean;
+  /** Each balance read's token address, lowercase. */
+  tokens?: string[];
+}): Rpc {
   let head = 66483820n;
   let balanceReads = 0;
   const transactions = new Map<string, unknown>(
@@ -449,6 +455,10 @@ function payoutChain(world: { balances: readonly bigint[]; logs: readonly Captur
         head += 2n;
         return toHex(head);
       case 'eth_call': {
+        const [request] = params;
+        world.tokens?.push(
+          String(request !== null && typeof request === 'object' ? Reflect.get(request, 'to') : '').toLowerCase()
+        );
         const balance = world.balances[Math.min(balanceReads, world.balances.length - 1)] ?? 0n;
         balanceReads += 1;
         return encodeUint(balance);
@@ -895,6 +905,21 @@ describe('reads on an L2 payout chain', () => {
     );
   });
 
+  it("snapshots the key's balance of the L2's own USDC at the L2's head", async () => {
+    const tokens: string[] = [];
+    const reads = {
+      endpoints: ['https://base-sepolia-rpc.publicnode.com'],
+      publicClient: () => stubClient(payoutChain({ balances: [988_901n], logs: [], tokens })),
+      payoutChain: BASE_SEPOLIA_PAYOUT
+    };
+    await expect(readArcUsdcSnapshot(RECIPIENT, reads)).resolves.toEqual({
+      endpoint: 'https://base-sepolia-rpc.publicnode.com',
+      blockNumber: 66483822n,
+      balance: 988_901n
+    });
+    expect(tokens).toEqual([BASE_SEPOLIA_PAYOUT.usdc.toLowerCase()]);
+  });
+
   it('refuses an L2 deps object where only Arc applies: the xReserve state and both deposit legs, building no client', async () => {
     const built: string[] = [];
     const l2 = {
@@ -1124,7 +1149,8 @@ describe('harnessPayoutLeg (usdcx-legs.ts)', () => {
           throw new Error('the L2 leg read Arc');
         })
     };
-    const l2 = payoutChain({ balances: [HELD, HELD + 988_901n], logs: [paidTo(base.log, KEY, 66483823n)] });
+    const tokens: string[] = [];
+    const l2 = payoutChain({ balances: [HELD, HELD + 988_901n], logs: [paidTo(base.log, KEY, 66483823n)], tokens });
     const payoutReads = {
       endpoints: [BASE_SEPOLIA_PAYOUT.rpcUrls[0] ?? ''],
       publicClient: () => stubClient(l2),
@@ -1154,6 +1180,8 @@ describe('harnessPayoutLeg (usdcx-legs.ts)', () => {
       latencyMs: 7_000
     });
     expect(arcReads).toEqual([]);
+    // The key snapshot and the payout cycle each read the key's balance of the L2's own USDC.
+    expect(tokens).toEqual([BASE_SEPOLIA_PAYOUT.usdc.toLowerCase(), BASE_SEPOLIA_PAYOUT.usdc.toLowerCase()]);
     expect(taken).toEqual([
       ['key_snapshot', BUDGET.keySnapshot],
       ['payout', BUDGET.payout]
