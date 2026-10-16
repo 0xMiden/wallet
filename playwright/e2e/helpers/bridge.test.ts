@@ -151,6 +151,7 @@ describe('parseBridgeReceiveState', () => {
         midenNoteId: '0xbf20',
         sourceChainId: 5042002,
         usdcxRemoteRecipient: '0x000000000000000000000000000000008da911727d5b53916f2c221c00c09100',
+        usdcxExecuteTxHash: '0x4247d8f8e4786467aad025ce514b2cdcd72bc7fe3757a8f6aa7273ef48256116',
         readyAt: 1791663100
       })
     ).toEqual({
@@ -165,6 +166,7 @@ describe('parseBridgeReceiveState', () => {
       midenNoteId: '0xbf20',
       sourceChainId: 5042002,
       usdcxRemoteRecipient: '0x000000000000000000000000000000008da911727d5b53916f2c221c00c09100',
+      usdcxExecuteTxHash: '0x4247d8f8e4786467aad025ce514b2cdcd72bc7fe3757a8f6aa7273ef48256116',
       readyAt: 1791663100
     });
   });

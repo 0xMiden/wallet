@@ -1029,6 +1029,10 @@
     "message": "與 Guardian 同步",
     "englishSource": "Syncing with Guardian"
   },
+  "transactionStepDeliveringNote": {
+    "message": "交付給收件人",
+    "englishSource": "Delivering to recipient"
+  },
   "guardianBusyStep": {
     "message": "等待您的 Guardian",
     "englishSource": "Waiting for your Guardian"
@@ -4946,6 +4950,27 @@
   "usdcxForwardQuoteUnavailable": {
     "message": "Circle 目前無法為此轉帳進行定價。尚未發送任何款項。請稍後再試。",
     "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
+  },
+  "usdcxDepositFeeAboveBalance": {
+    "message": "此筆存款需在 $network$ 上存入 $total$ $token$：該金額加上 Circle 的手續費 $fee$ $token$。您已連結的錢包內持有 $balance$ $token$。請將金額減少手續費的金額，或向您的錢包中追加 $token$。",
+    "englishSource": "This deposit needs $total$ $token$ on $network$: the amount plus Circle's fee of $fee$ $token$. Your connected wallet holds $balance$ $token$. Lower the amount by the fee or add $token$ to your wallet.",
+    "placeholders": {
+      "total": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$8"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "fee": {
+        "content": "$4"
+      },
+      "balance": {
+        "content": "$6"
+      }
+    }
   },
   "usdcxCctpAwaitingAttestation": {
     "message": "銷毀已確認。正在等待 Circle 驗證轉帳，之後才能在 $network$ 上執行。",

@@ -1029,6 +1029,10 @@
     "message": "Guardian와의 동기화",
     "englishSource": "Syncing with Guardian"
   },
+  "transactionStepDeliveringNote": {
+    "message": "수취인에게 전달",
+    "englishSource": "Delivering to recipient"
+  },
   "guardianBusyStep": {
     "message": "Guardian를 기다리는 중",
     "englishSource": "Waiting for your Guardian"
@@ -4946,6 +4950,27 @@
   "usdcxForwardQuoteUnavailable": {
     "message": "Circle은 현재 이 이체에 대한 가격을 산정할 수 없습니다. 전송된 내역이 없습니다. 잠시 후 다시 시도해 주세요.",
     "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
+  },
+  "usdcxDepositFeeAboveBalance": {
+    "message": "이 입금에는 $network$에서 $total$ $token$이 필요합니다: 해당 금액에 Circle의 수수료 $fee$ $token$을 더한 금액입니다. 연결된 지갑에는 $balance$ $token$이 있습니다. 수수료만큼 금액을 줄이거나 지갑에 $token$을 추가하십시오.",
+    "englishSource": "This deposit needs $total$ $token$ on $network$: the amount plus Circle's fee of $fee$ $token$. Your connected wallet holds $balance$ $token$. Lower the amount by the fee or add $token$ to your wallet.",
+    "placeholders": {
+      "total": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$8"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "fee": {
+        "content": "$4"
+      },
+      "balance": {
+        "content": "$6"
+      }
+    }
   },
   "usdcxCctpAwaitingAttestation": {
     "message": "소각이 확인되었습니다. $network$에서 이체가 실행되기 전에 Circle이 이체를 인증할 때까지 대기 중입니다.",

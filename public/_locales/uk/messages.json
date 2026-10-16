@@ -1029,6 +1029,10 @@
     "message": "Синхронізація з Guardian",
     "englishSource": "Syncing with Guardian"
   },
+  "transactionStepDeliveringNote": {
+    "message": "Доставка одержувачу",
+    "englishSource": "Delivering to recipient"
+  },
   "guardianBusyStep": {
     "message": "Очікування вашого «Guardian»",
     "englishSource": "Waiting for your Guardian"
@@ -4946,6 +4950,27 @@
   "usdcxForwardQuoteUnavailable": {
     "message": "Circle наразі не може визначити вартість цього переказу. Нічого не було надіслано. Спробуйте ще раз через деякий час.",
     "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
+  },
+  "usdcxDepositFeeAboveBalance": {
+    "message": "Для цього депозиту потрібно $total$ $token$ на $network$: сума плюс комісія Circle у розмірі $fee$ $token$. У вашому підключеному гаманці знаходиться $balance$ $token$. Зменшіть суму на суму комісії або додайте $token$ до вашого гаманця.",
+    "englishSource": "This deposit needs $total$ $token$ on $network$: the amount plus Circle's fee of $fee$ $token$. Your connected wallet holds $balance$ $token$. Lower the amount by the fee or add $token$ to your wallet.",
+    "placeholders": {
+      "total": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$8"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "fee": {
+        "content": "$4"
+      },
+      "balance": {
+        "content": "$6"
+      }
+    }
   },
   "usdcxCctpAwaitingAttestation": {
     "message": "Спалення підтверджено. Очікуємо, поки Circle засвідчить переказ, перш ніж його можна буде виконати в мережі $network$.",

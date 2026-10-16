@@ -1470,16 +1470,49 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
         sendResponse
       );
 
-      // Advance through the 5s inter-poll sleeps until the commit is observed.
+      // Advance through the 1 s inter-poll sleeps until the commit is observed.
       for (let i = 0; i < 6 && sendResponse.mock.calls.length === 0; i++) {
         // eslint-disable-next-line no-await-in-loop
-        await jest.advanceTimersByTimeAsync(5_000);
+        await jest.advanceTimersByTimeAsync(1_000);
       }
 
       expect(G.__off.clientTransactionsList).toHaveBeenCalledTimes(3);
       const resp = sendResponse.mock.calls[0][0];
       expect(resp.ok).toBe(true);
       expect(resp.resultB64).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // The first check runs straight after submit, before any block, so a 5 s sleep ended nearly every wait on its
+  // second check, about 5 s in, however soon the block came (#1492).
+  it('commit-wait checks again one second after a pending check (#1492)', async () => {
+    await loadModule();
+    jest.useFakeTimers();
+    try {
+      G.__off.clientTransactionsList = jest
+        .fn()
+        .mockResolvedValueOnce([G.__off.pendingStatus])
+        .mockResolvedValue([G.__off.committedStatus]);
+
+      const sendResponse = jest.fn();
+      capturedListener!(
+        callReq({ method: 'waitForTransactionCommit', argsB64: [encodeArg('0xtxid')] }),
+        {},
+        sendResponse
+      );
+      for (let i = 0; i < 6; i++) await jest.advanceTimersByTimeAsync(0);
+      expect(G.__off.clientTransactionsList).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(999);
+      expect(G.__off.clientTransactionsList).toHaveBeenCalledTimes(1);
+
+      await jest.advanceTimersByTimeAsync(1);
+      for (let i = 0; i < 6; i++) await jest.advanceTimersByTimeAsync(0);
+      expect(G.__off.clientTransactionsList).toHaveBeenCalledTimes(2);
+      expect(sendResponse).toHaveBeenCalledTimes(1);
+      expect(sendResponse.mock.calls[0][0]).toMatchObject({ ok: true, resultB64: null });
     } finally {
       jest.useRealTimers();
     }
@@ -1515,10 +1548,10 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
         sendResponse
       );
 
-      // 60s / 5s = 12 sleeps before the timeout check throws.
-      for (let i = 0; i < 15 && sendResponse.mock.calls.length === 0; i++) {
+      // 60 s / 1 s = 60 sleeps before the timeout check throws.
+      for (let i = 0; i < 65 && sendResponse.mock.calls.length === 0; i++) {
         // eslint-disable-next-line no-await-in-loop
-        await jest.advanceTimersByTimeAsync(5_000);
+        await jest.advanceTimersByTimeAsync(1_000);
       }
 
       const resp = sendResponse.mock.calls[0][0];
@@ -1566,7 +1599,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
 
       // Let op1 commit and finish so nothing is left dangling.
       G.__off.clientTransactionsList = jest.fn(async () => [G.__off.committedStatus]);
-      await jest.advanceTimersByTimeAsync(5_000);
+      await jest.advanceTimersByTimeAsync(1_000);
       expect(r1).toHaveBeenCalledTimes(1);
       expect(r1.mock.calls[0][0].ok).toBe(true);
     } finally {
@@ -1627,7 +1660,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       // global on completion). Advance into op1's next sleep, then drive a sign
       // directly: it must carry op1's id — proof the invariant was restored. Without
       // the re-assert the ambient id would be null here and this sign would throw.
-      await jest.advanceTimersByTimeAsync(5_000);
+      await jest.advanceTimersByTimeAsync(1_000);
       await jest.advanceTimersByTimeAsync(0);
       const signCb = G.__off.createOptions[0].signCallback;
       await signCb(new Uint8Array([8]), new Uint8Array([8]));
@@ -1644,7 +1677,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
   it('an EVICTED commit-wait stops re-asserting its op_id, so the live successor keeps its own (#775)', async () => {
     // The mirror image of follow-up #2, and the reason that re-assert is
     // conditional. The eviction rejects the SW-side caller but does not stop this
-    // loop — the corpse keeps polling every 5 s for up to a minute. Re-asserting
+    // loop - the corpse keeps polling every second for up to a minute. Re-asserting
     // unconditionally means each of those polls stamps a dead op's id over
     // whoever is genuinely running, and the ambient id is what tags a reverse-IPC
     // sign. The SW pauses the WRITE DEADLINE of the op a sign is tagged with, so
@@ -1789,7 +1822,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       await jest.advanceTimersByTimeAsync(30_000);
 
       // The corpse ran its parked poll to completion and then stopped: no further
-      // laps, at 5 s apiece across 30 s.
+      // laps, at a second apiece across 30 s.
       expect(polls).toBe(1);
       expect(G.__off.clientSyncChain.mock.calls.length).toBe(syncsBefore);
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('abandoning a confirmation poll'));
@@ -1991,7 +2024,7 @@ describe('offscreen/main — OFFSCREEN_CALL dispatch (issue #260)', () => {
       });
 
       // Second lap: takes the rebuild branch and parks there.
-      await jest.advanceTimersByTimeAsync(5_000);
+      await jest.advanceTimersByTimeAsync(1_000);
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('rebuilding and continuing'));
 
       // Evicted while the rebuild is in flight, then the rebuild succeeds.
