@@ -310,6 +310,21 @@ it.each([
   }
 );
 
+it("reports a wrapper's protocol identity after a Guardian refusal whose own message carries none", async () => {
+  reportTransactionFailure({
+    type: 'consume',
+    error: new Error('claim failed: assertion failed with error code: 10256002255343504776', {
+      cause: guardianRefusal(500, 'Internal Server Error', 'storage_error')
+    })
+  });
+  const message = await reportedMessage();
+  expect(message).toContain(
+    '; point pipeline; guardian_http_500; guardian code storage_error; ERR_PROLOGUE_KERNEL_PROCEDURE_COMMITMENT_MISMATCH. '
+  );
+  expect(message).not.toContain('10256002255343504776');
+  expect(message).not.toContain('guardian.example.org');
+});
+
 it('reports a hot-key rejection whose text says the client terminated by its code', async () => {
   reportTransactionFailure({ type: 'consume', error: await hotKeyRejection('WebClient terminated', 'DEVICE_LOCKED') });
   expect(await reportedMessage()).toContain('; point pipeline; hot_key; hot key code DEVICE_LOCKED. ');
