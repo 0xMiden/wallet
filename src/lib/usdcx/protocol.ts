@@ -157,3 +157,18 @@ export const TOKEN_MESSENGER_WITH_FEES_ABI = [
     outputs: []
   }
 ] as const;
+
+/** Circle did not register the remote domain on the xReserve contract. No gas was spent. */
+export class UsdcxDomainNotRegisteredError extends Error {
+  readonly remoteDomain: number;
+
+  constructor(remoteDomain: number) {
+    super(`xReserve remote domain ${remoteDomain} is not registered`);
+    this.name = 'UsdcxDomainNotRegisteredError';
+    this.remoteDomain = remoteDomain;
+  }
+}
+
+export function isUsdcxDomainNotRegisteredError(error: unknown): error is UsdcxDomainNotRegisteredError {
+  return error instanceof UsdcxDomainNotRegisteredError;
+}

@@ -12,9 +12,10 @@ import {
   toHex
 } from 'viem';
 
-import { updateBridgedReceivePhase } from 'lib/miden/activity';
+import type { updateBridgedReceivePhase } from 'lib/miden/activity';
 
 import { CctpBurnQuote, fetchCctpBurnQuote } from './cctp';
+import type { UsdcxExecutorSource, UsdcxExecutorTarget } from './constant';
 import {
   CCTP_EXECUTOR_HOOK_NAME,
   CCTP_EXECUTOR_PAYLOAD_VERSION,
@@ -23,12 +24,18 @@ import {
   CIRCLE_USDC_DECIMALS,
   USDCX_DEPOSIT_HOOK_DATA,
   USDCX_DEPOSIT_MAX_FEE,
-  getUsdcxRemoteDomain,
-  UsdcxExecutorSource,
-  UsdcxExecutorTarget,
+  UsdcxDomainNotRegisteredError,
   XRESERVE_ABI
-} from './constant';
-import { UsdcxDomainNotRegisteredError } from './deposit';
+} from './protocol';
+
+// The live L2 bridge-in suite runs this module in Node (playwright/e2e/helpers/usdcx-l2-deposit.ts), so nothing here may
+// load the wallet's configuration runtime or the SDK at runtime; usdcx-node-imports.test.ts fails on either.
+
+/** The route's Miden domain. Every route usdcxSourceChains builds has one: schema.ts drops a usdcx route without it. */
+function midenDomainOf(route: { midenDomain?: number }): number {
+  if (route.midenDomain === undefined) throw new Error('USDCx Miden domain is not configured');
+  return route.midenDomain;
+}
 
 /** `depositToRemote(value, ...)`: the amount is the first argument, right after the 4-byte selector. */
 const DEPOSIT_AMOUNT_CALLDATA_INDEX = 4n;
@@ -62,14 +69,7 @@ export function encodeXReserveDepositCalldata(target: UsdcxExecutorTarget, remot
   return encodeFunctionData({
     abi: XRESERVE_ABI,
     functionName: 'depositToRemote',
-    args: [
-      0n,
-      target.midenDomain ?? getUsdcxRemoteDomain(),
-      remoteRecipient,
-      target.usdc,
-      USDCX_DEPOSIT_MAX_FEE,
-      USDCX_DEPOSIT_HOOK_DATA
-    ]
+    args: [0n, midenDomainOf(target), remoteRecipient, target.usdc, USDCX_DEPOSIT_MAX_FEE, USDCX_DEPOSIT_HOOK_DATA]
   });
 }
 
@@ -309,7 +309,7 @@ export async function runUsdcxExecutorDeposit(
 ): Promise<Hash> {
   const intent = buildExecutorBurnIntent(amount, source, remoteRecipient, depositor);
 
-  const remoteDomain = source.midenDomain ?? getUsdcxRemoteDomain();
+  const remoteDomain = midenDomainOf(source);
   if (!(await isRemoteDomainRegistered(remoteDomain))) {
     throw new UsdcxDomainNotRegisteredError(remoteDomain);
   }
