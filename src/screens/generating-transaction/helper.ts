@@ -1,6 +1,6 @@
 import type { ITransaction, ITransactionStage, ITransactionType } from 'lib/miden/db/types';
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
-import { NoteTypeEnum } from 'lib/miden/types';
+import { isPrivateNoteType } from 'lib/miden/helpers';
 
 import type { TransactionStepDef } from './constants';
 import type { TransactionStepState } from './types';
@@ -85,14 +85,38 @@ export const isDirectGuardianSwitch = (tx: ITransaction | undefined): boolean =>
     tx.stage === 'signing-locally' ||
     tx.stageTimestamps?.['signing-locally'] !== undefined);
 
+/** These stamp 'confirming' for a commit wait of their own and relay no note; their last step owns that wait. */
+const OWN_COMMIT_WAIT_TYPES: ReadonlySet<ITransactionType> = new Set<ITransactionType>([
+  'switch-guardian',
+  'replace-hot-key',
+  'update-procedure-threshold'
+]);
+
+const DELIVERY_STAGES: readonly ITransactionStage[] = ['confirming', 'delivering'];
+
 /**
- * A send of a private note, whose completion waits for the commit and relays the
- * note before the row completes, so the screen shows that delivery as a step of
- * its own. Reads the persisted `noteType`, the row's answer that
- * `completeSendTransaction` starts from.
+ * A row whose completion waits for the commit and relays a private note before the row completes, so the screen
+ * shows that wait and relay as a step of their own (#1492). `completeSendTransaction` and `completeCustomTransaction`
+ * are the paths that do, and both stamp 'confirming' before the wait and 'delivering' before the relay.
+ *
+ * Read from signals that do not hang on the best-effort `noteDelivery` write: a send whose `noteType` is private
+ * (`isPrivateNoteType`, so the SDK's numeric value counts; an unreadable one answers no here), either stamp on any
+ * other type than the rotations above, or a delivery recorded 'pending' or 'relayed'. A row recorded 'undelivered'
+ * without the stamps had no note it could relay, so nothing waited.
  */
-export const isPrivateSendRow = (tx: ITransaction | undefined): boolean =>
-  tx?.type === 'send' && tx.noteType === NoteTypeEnum.Private;
+export const waitsToDeliverNote = (tx: ITransaction | undefined): boolean => {
+  if (!tx) return false;
+  if (tx.type === 'send') {
+    try {
+      if (isPrivateNoteType(tx.noteType)) return true;
+    } catch {
+      // Unreadable: the stamps and the delivery record still answer.
+    }
+  }
+  if (tx.noteDelivery === 'pending' || tx.noteDelivery === 'relayed') return true;
+  if (OWN_COMMIT_WAIT_TYPES.has(tx.type)) return false;
+  return DELIVERY_STAGES.some(stage => tx.stage === stage || tx.stageTimestamps?.[stage] !== undefined);
+};
 
 /**
  * A `switch-guardian` row the pipeline SUBMITTED without ever establishing that
