@@ -5,7 +5,12 @@ import { ApplyAfterSubmitError } from 'lib/miden/sdk/sdk-error-code';
 import { WasmClientPoisonedError } from 'lib/miden/sdk/wasm-client-poison';
 
 import { cancelTransaction, cancelTransactionAfterPipelineStopped, isTransactionStuck } from './cancel';
-import { TRANSACTION_STUCK_ERROR, USER_CANCELLED_TRANSACTION_REASON } from './constants';
+import {
+  CLAIM_FEE_SHORTFALL_ERROR,
+  TRANSACTION_STUCK_ERROR,
+  TRANSACTION_VAULT_SHORTFALL_ERROR,
+  USER_CANCELLED_TRANSACTION_REASON
+} from './constants';
 import { clearCancelledInFlight, markCancelledInFlight, markMayHaveSubmitted, recordKillEnd } from './helper';
 import {
   notifyBackgroundTransactionFailed,
@@ -270,5 +275,61 @@ describe('cancelTransactionAfterPipelineStopped with a kill wrapped in another e
     expect(markMayHaveSubmitted).not.toHaveBeenCalled();
     expect(markCancelledInFlight).not.toHaveBeenCalled();
     expect(clearCancelledInFlight).toHaveBeenCalledWith('tx-1');
+  });
+});
+
+// A claim of standard P2ID or P2IDE payments only credits the vault, so its one withdrawal is the network fee.
+describe('cancelTransactionAfterPipelineStopped storing a vault shortfall', () => {
+  const byCode = new Error('assertion failed with error code: 644413868907058392');
+  const byText = new Error(
+    'failed to execute transaction kernel program: failed to remove the fungible asset from the vault since the ' +
+      'amount of the asset in the vault is less than the amount to remove'
+  );
+  const failingRow = (fields: Record<string, unknown>): Transaction => {
+    const row = {
+      id: 'tx-1',
+      accountId: 'acc-1',
+      status: ITransactionStatus.GeneratingTransaction,
+      stage: 'creating-proposal',
+      processingStartedAt: 1,
+      initiatedAt: 0,
+      ...fields
+    };
+    mockRows.set('tx-1', row);
+    return row as unknown as Transaction;
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRows.clear();
+    mockRaceRow = undefined;
+  });
+
+  it.each([
+    ['its kernel code', byCode],
+    ['its kernel text', byText]
+  ])('stores the fee copy on a claim of standard payments failing with %s', async (_label, error) => {
+    await cancelTransactionAfterPipelineStopped(failingRow({ type: 'consume', standardPaymentsOnly: true }), error);
+
+    const row = mockRows.get('tx-1');
+    expect(row?.error).not.toContain('amount sent');
+    expect(row?.error).toBe(CLAIM_FEE_SHORTFALL_ERROR);
+    expect(row?.rawError).toBe(`Error: ${error.message}`);
+    expect(row?.status).toBe(ITransactionStatus.Failed);
+    expect(notifyBackgroundTransactionFailed).toHaveBeenCalledTimes(1);
+    expect(notifyBackgroundTransactionNotConfirmed).not.toHaveBeenCalled();
+  });
+
+  it('keeps the generic copy on a send, which withdraws the amount sent as well as the fee', async () => {
+    await cancelTransactionAfterPipelineStopped(failingRow({ type: 'send' }), byCode);
+
+    expect(mockRows.get('tx-1')?.error).toBe(TRANSACTION_VAULT_SHORTFALL_ERROR);
+  });
+
+  it('keeps the generic copy on a claim whose notes may run another script', async () => {
+    // A SWAP note, or another account's PSWAP note, pays its requested asset out of the vault.
+    await cancelTransactionAfterPipelineStopped(failingRow({ type: 'consume' }), byCode);
+
+    expect(mockRows.get('tx-1')?.error).toBe(TRANSACTION_VAULT_SHORTFALL_ERROR);
   });
 });
