@@ -1,14 +1,5 @@
-import { expect, test, type GuardianAwareWalletPage } from '../../fixtures/two-wallets';
-import {
-  arcEndpoints,
-  arcHost,
-  readXReserveDomainState,
-  type ArcKey,
-  type ArcReadDeps,
-  type GatewayPayout
-} from '../../helpers/arc-usdcx';
-import { enText, readBridgedSendRows } from '../../helpers/bridge';
-import { openHistoryDetails } from '../../helpers/history';
+import { expect, test } from '../../fixtures/two-wallets';
+import { arcEndpoints, arcHost, readXReserveDomainState, type ArcReadDeps } from '../../helpers/arc-usdcx';
 import {
   ARBITRUM_SEPOLIA_PAYOUT,
   ARC_READ_STEP_BUDGET_MS,
@@ -28,19 +19,16 @@ import {
   fundFromPublicFaucet,
   harnessPayoutLeg,
   pageWhere,
-  receivingTxHash,
   resolveUsdcxIds,
   settleGuardian,
   submitBurn,
-  waitForWalletPayoutConfirmation,
-  type BurnLeg
+  walletConfirmsPayout
 } from '../../helpers/usdcx-legs';
 import {
   assertUsdcxLiveRun,
   namedSteps,
   newRunEvidence,
   takeRunArcKey,
-  type RunEvidence,
   type StepContext
 } from '../../helpers/usdcx-run';
 
@@ -60,52 +48,8 @@ const BUDGET = {
 } as const;
 
 const SETTLE_WAIT_MS = 120_000;
-const RECEIVING_TX_LINK_MS = 15_000;
 /** Ethereum Sepolia stays out: Circle never pays a burn out there, and payoutChainFor refuses it. */
 const DESTINATIONS: readonly PayoutChain[] = [BASE_SEPOLIA_PAYOUT, ARBITRUM_SEPOLIA_PAYOUT];
-
-/**
- * Spec 5 step 8b on an L2: the wallet's own destination check, which reads the L2 through the WalletConnect RPC no Arc
- * test exercises, confirms the payout the harness proved, and the receiving-tx link, when it renders, names it.
- */
-async function walletConfirmsPayout(
-  wallet: GuardianAwareWalletPage,
-  burn: BurnLeg,
-  payout: GatewayPayout,
-  key: ArcKey,
-  reads: ArcReadDeps,
-  chain: PayoutChain,
-  where: StepContext,
-  evidence: RunEvidence
-): Promise<number> {
-  await wallet.navigateHome();
-  const confirmedAt = await waitForWalletPayoutConfirmation({
-    readRows: () => readBridgedSendRows(wallet.page),
-    rowId: burn.row.id,
-    arcFromBlock: burn.arcFromBlock,
-    payout,
-    key,
-    arc: reads,
-    where,
-    evidence
-  });
-  await openHistoryDetails(wallet, burn.row.id);
-  await expect(wallet.page.getByTestId('history-status-pill')).toHaveText(enText('confirmed'));
-  // The lookup covers 2000 blocks, about 8.6 min on Arbitrum, an accepted limit, so a missing link is only recorded.
-  const linkHash = await receivingTxHash(wallet.page, RECEIVING_TX_LINK_MS, chain);
-  if (linkHash !== null && linkHash !== payout.transactionHash.toLowerCase()) {
-    throw new Error(
-      `the receiving-tx link names ${linkHash}; the AttestationUsed transaction is ${payout.transactionHash}`
-    );
-  }
-  evidence.notes.push(
-    linkHash === null
-      ? 'receiving-tx link did not render within 15 s'
-      : 'receiving-tx link is the AttestationUsed transaction'
-  );
-  await wallet.navigateHome();
-  return confirmedAt;
-}
 
 /**
  * A burn through Send from a fresh Guardian wallet to the harness key's address on Base Sepolia, and one on Arbitrum

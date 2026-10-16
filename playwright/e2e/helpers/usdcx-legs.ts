@@ -86,6 +86,7 @@ import type { GuardianAwareWalletPage } from '../fixtures/two-wallets';
  */
 
 const VAULT_TIMEOUT_MS = 120_000;
+const RECEIVING_TX_LINK_MS = 15_000;
 
 /** A wallet's ids in each form the run needs: composite for the wallet, bare bech32 and hex for the Node oracle. */
 export interface UsdcxWalletIds {
@@ -813,6 +814,50 @@ export async function receivingTxHash(
   if (!rendered) return null;
   const href = (await link.getAttribute('href')) ?? '';
   return href.slice(href.lastIndexOf('/') + 1).toLowerCase();
+}
+
+/**
+ * Spec 5 step 8b (Q6, a hard gate): the wallet's own destination check, which on an L2 reads the L2 through the
+ * WalletConnect RPC no Arc test exercises, confirms the payout the harness proved, and the receiving-tx link, when it
+ * renders, names it. `reads` and `chain` are the payout chain's: Arc's for the round trip, the L2's for usdcx-burn-l2.
+ */
+export async function walletConfirmsPayout(
+  wallet: GuardianAwareWalletPage,
+  burn: BurnLeg,
+  payout: GatewayPayout,
+  key: ArcKey,
+  reads: ArcReadDeps,
+  chain: PayoutChain,
+  where: StepContext,
+  evidence: RunEvidence
+): Promise<number> {
+  await wallet.navigateHome();
+  const confirmedAt = await waitForWalletPayoutConfirmation({
+    readRows: () => readBridgedSendRows(wallet.page),
+    rowId: burn.row.id,
+    arcFromBlock: burn.arcFromBlock,
+    payout,
+    key,
+    arc: reads,
+    where,
+    evidence
+  });
+  await openHistoryDetails(wallet, burn.row.id);
+  await expect(wallet.page.getByTestId('history-status-pill')).toHaveText(enText('confirmed'));
+  // The lookup covers 2000 blocks, about 8.6 min on Arbitrum, an accepted limit, so a missing link is only recorded.
+  const linkHash = await receivingTxHash(wallet.page, RECEIVING_TX_LINK_MS, chain);
+  if (linkHash !== null && linkHash !== payout.transactionHash.toLowerCase()) {
+    throw new Error(
+      `the receiving-tx link names ${linkHash}; the AttestationUsed transaction is ${payout.transactionHash}`
+    );
+  }
+  evidence.notes.push(
+    linkHash === null
+      ? 'receiving-tx link did not render within 15 s'
+      : 'receiving-tx link is the AttestationUsed transaction'
+  );
+  await wallet.navigateHome();
+  return confirmedAt;
 }
 
 /** Attaches the run's evidence; throws instead when a private key would be written. */
