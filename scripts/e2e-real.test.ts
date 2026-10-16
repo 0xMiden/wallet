@@ -1690,9 +1690,19 @@ describe('the usdcx preflight', () => {
     35_000
   );
 
-  it('fails both wallet RPC checks when rpc.walletconnect.org is down, before any build', () => {
-    const res = preflight('usdcx-burn-l2', DOCUMENT, {}, { l2Down: ['rpc.walletconnect.org'] });
+  it('fails both wallet RPC checks when rpc.walletconnect.org is down, before any build, naming it by host only', () => {
+    const res = preflight(
+      'usdcx-burn-l2',
+      DOCUMENT,
+      { WALLETCONNECT_PROJECT_ID: 'operator-project-id' },
+      { l2Down: ['rpc.walletconnect.org'] }
+    );
     expect(failedChecks(res.output)).toEqual(['Base Sepolia wallet RPC', 'Arbitrum Sepolia wallet RPC']);
+    for (const chain of ['Base Sepolia', 'Arbitrum Sepolia']) {
+      expect(res.output).toMatch(new RegExp(`✗ ${chain} wallet RPC +rpc\\.walletconnect\\.org: fetch failed\\n`));
+    }
+    expect(res.output).not.toContain('projectId');
+    expect(res.output).not.toContain('operator-project-id');
     expect(res.status).toBe(1);
     expect(res.requests).not.toContain('SPAWN');
   }, 35_000);
