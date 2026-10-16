@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { signHotDigest } from 'lib/secure-hot-key';
+import { signHotDigest as fallbackSignHotDigest } from 'lib/secure-hot-key/jsFallback';
 import { signHotDigest as nativeSignHotDigest } from 'lib/secure-hot-key/nativePlugin';
 
 import { captureCrash } from './crash';
@@ -10,7 +11,7 @@ import { reportTransactionFailure } from './transaction-failure';
 
 jest.mock('./crash', () => ({ captureCrash: jest.fn() }));
 jest.mock('lib/secure-hot-key/nativePlugin', () => ({ signHotDigest: jest.fn() }));
-jest.mock('lib/secure-hot-key/jsFallback', () => ({}));
+jest.mock('lib/secure-hot-key/jsFallback', () => ({ signHotDigest: jest.fn() }));
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 
@@ -207,6 +208,18 @@ it('reports a hot-key code outside the plugin list as other, and a rejection wit
   expect(other).not.toContain('VENDOR_TEE_FAULT');
   expect(none).toContain('; hot_key; hot key code none. ');
   expect(none).not.toContain('wrong length');
+});
+
+it('reports a JS-fallback signing failure by its own identity, and only a native rejection as a device-key refusal', async () => {
+  jest.mocked(fallbackSignHotDigest).mockRejectedValueOnce(new Error('invalid hot key blob'));
+  const fallback = await signHotDigest('0a0b0c', '0x01').catch((error: unknown) => error);
+  reportTransactionFailure({ type: 'consume', error: fallback });
+  reportTransactionFailure({ type: 'consume', error: await hotKeyRejection('rejected', 'KEY_NOT_FOUND') });
+  await settle();
+  const [js, native] = jest.mocked(captureCrash).mock.calls.map(([error]) => (error as Error).message);
+  expect(js).toContain('; point pipeline; validation. ');
+  expect(js).not.toContain('hot_key');
+  expect(native).toContain('; point pipeline; hot_key; hot key code KEY_NOT_FOUND. ');
 });
 
 it.each(nativeHotKeyCodes())('reports the native HotKey plugin code %s', async code => {

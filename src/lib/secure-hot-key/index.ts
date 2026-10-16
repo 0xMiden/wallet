@@ -109,8 +109,6 @@ async function withHardwareFailureReport<T>(op: () => Promise<T>): Promise<T> {
   try {
     return await op();
   } catch (error) {
-    // Lets a transaction-failure report name the plugin's code (lib/telemetry/transaction-failure).
-    markHotKeyFailure(error);
     const code = readErrorField(error, 'code');
     if (isMobile() && !(code !== undefined && BENIGN_NATIVE_CODES.has(code))) {
       try {
@@ -143,11 +141,30 @@ function implFor(ciphertext: string) {
   return ciphertext.includes(':') ? nativePlugin : jsFallback;
 }
 
+/**
+ * Marks a native plugin's rejection so a transaction-failure report names the plugin's code
+ * (lib/telemetry/transaction-failure). A JS-fallback failure, on any platform, is not a device-key refusal, so it is
+ * never marked and keeps its own identity.
+ */
+async function nativeCall<T>(op: () => Promise<T>): Promise<T> {
+  try {
+    return await op();
+  } catch (error) {
+    markHotKeyFailure(error);
+    throw error;
+  }
+}
+
+function callImpl<T>(ciphertext: string, op: (impl: ReturnType<typeof implFor>) => Promise<T>): Promise<T> {
+  const impl = implFor(ciphertext);
+  return impl === nativePlugin ? nativeCall(() => op(impl)) : op(impl);
+}
+
 export async function generateHotKey() {
   if (!isMobile()) return jsFallback.generateHotKey();
   return withHardwareFailureReport(async () => {
     try {
-      return await nativePlugin.generateHotKey();
+      return await nativeCall(() => nativePlugin.generateHotKey());
     } catch (error) {
       if (!isHardwareUnavailable(error)) throw error;
       console.warn('[secure-hot-key] secure hardware unavailable, generating JS-fallback hot key:', error);
@@ -157,7 +174,7 @@ export async function generateHotKey() {
 }
 
 export async function signHotDigest(ciphertext: string, wordHex: string): Promise<string> {
-  return withHardwareFailureReport(() => implFor(ciphertext).signHotDigest(ciphertext, wordHex));
+  return withHardwareFailureReport(() => callImpl(ciphertext, impl => impl.signHotDigest(ciphertext, wordHex)));
 }
 
 export async function deleteHotKey(ciphertext: string): Promise<void> {
@@ -172,5 +189,5 @@ export async function deleteHotKey(ciphertext: string): Promise<void> {
  * so the format matches the native return.
  */
 export async function revealHotKey(ciphertext: string): Promise<string> {
-  return withHardwareFailureReport(() => implFor(ciphertext).revealHotKey(ciphertext));
+  return withHardwareFailureReport(() => callImpl(ciphertext, impl => impl.revealHotKey(ciphertext)));
 }
