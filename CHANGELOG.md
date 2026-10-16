@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.5 (TBD)
+
+### Fixes
+
+- [FIX][ci] A fourth live USDCx suite, `usdcx-burn-l2`, burns 1 USDCx through Send from a fresh Guardian wallet to the harness key on Base Sepolia and on Arbitrum Sepolia, and passes only once Circle has paid each burn there and the wallet itself reads Confirmed; its preflight checks both chains and the wallet's RPC for them, and E2E USDCx runs it after the Arc suites, even when one of them failed.
+
 ## 1.17.4 (2026-10-15)
 
 ### Features
