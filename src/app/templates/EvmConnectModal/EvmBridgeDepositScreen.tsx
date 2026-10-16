@@ -139,6 +139,7 @@ const EMPTY_BALANCE: BridgeBalance = { value: null, formatted: '0', loading: tru
 // Continue and the check before the first wallet prompt wait on these reads, so an RPC that never answers has to fail
 // them rather than hold the step or the row forever.
 const RPC_TIMEOUT_MS = 15_000;
+const HELD_BALANCE_REREAD_MS = 10_000;
 
 async function rpcRequest(method: string, params: unknown[], chainId = DEFAULT_CHAIN_ID): Promise<unknown> {
   const chain = getChain(chainId);
@@ -1241,6 +1242,35 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       ? { needed: typedUnits + usdcxQuotedFeeUnits, fee: usdcxQuotedFeeUnits, balance: heldUnits }
       : undefined;
   const usdcxFeeHoldNotice = usdcxFeeShortfall ? usdcxFeeAboveBalanceMessage(usdcxFeeShortfall) : undefined;
+  // A user clears either hold by adding USDC, so the balance is re-read in place until it covers; a failed read keeps it.
+  const usdcxBalanceHeld =
+    usdcxFeeShortfall !== undefined || (route === 'usdcx' && token === 'CIRCLE_USDC' && amountExceedsBalance);
+  useEffect(() => {
+    if (!usdcxBalanceHeld || !usdcxSource) return;
+    let cancelled = false;
+    let reading = false;
+    const id = setInterval(() => {
+      if (reading) return;
+      reading = true;
+      readCircleUsdcBalance(evmAddress, usdcxSource)
+        .then(value => {
+          if (cancelled) return;
+          setCircleUsdcBalance(current =>
+            current.value === value
+              ? current
+              : { value, formatted: formatBalance(value, CIRCLE_USDC_DECIMALS), loading: false, error: null }
+          );
+        })
+        .catch(err => console.warn('[EvmBridgeDepositScreen] Circle USDC balance re-read failed', err))
+        .finally(() => {
+          reading = false;
+        });
+    }, HELD_BALANCE_REREAD_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [usdcxBalanceHeld, evmAddress, usdcxSource]);
   const usdcxReady =
     route === 'usdcx' &&
     token === 'CIRCLE_USDC' &&

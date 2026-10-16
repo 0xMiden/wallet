@@ -976,6 +976,85 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(screen.getByTestId('review-can-confirm')).toHaveTextContent(/^false$/);
   });
 
+  // A hold that tells the user to add USDC has to see it arrive.
+  describe('while Confirm is held on the Circle USDC balance', () => {
+    // The suite's settle() waits on a timer, so the fake clock also runs with real time.
+    beforeEach(() => jest.useFakeTimers({ advanceTimers: true }));
+
+    const advance = (ms: number) =>
+      act(async () => {
+        await jest.advanceTimersByTimeAsync(ms);
+      });
+    const balanceOfReads = () =>
+      jest
+        .mocked(global.fetch)
+        .mock.calls.filter(([, init]) =>
+          String(JSON.parse(String(init?.body ?? '{}')).params?.[0]?.data).startsWith(BALANCE_OF_SELECTOR)
+        ).length;
+    const reachFeeHold = async () => {
+      jest.mocked(quoteExecutorBurn).mockResolvedValue(FEE_QUOTE);
+      mockBalance = TYPED + FEE_QUOTE.feeTotalAmount - 1n;
+      renderScreen();
+      await reachBaseSepoliaRoute();
+      expect(screen.getByTestId('usdcx-route-confirm')).toBeDisabled();
+    };
+
+    it('re-reads the source balance while a hold is up and enables Confirm once it covers', async () => {
+      await reachFeeHold();
+      const confirm = screen.getByTestId('usdcx-route-confirm');
+
+      mockBalance = TYPED + FEE_QUOTE.feeTotalAmount;
+      expect(confirm).toBeDisabled();
+      await advance(10_000);
+
+      expect(confirm).toBeEnabled();
+    });
+
+    it('re-reads the source balance while the amount alone is held and enables Confirm once it covers', async () => {
+      mockBalance = TYPED - 1n;
+      renderScreen();
+      await reachUsdcxRoute();
+      expect(screen.getByTestId('form-error')).toHaveTextContent(/^amountMustBeLessThanBalance$/);
+
+      mockBalance = TYPED;
+      await advance(10_000);
+      expect(screen.getByTestId('form-error')).toBeEmptyDOMElement();
+      fireEvent.click(screen.getByTestId('continue'));
+      await settle();
+
+      expect(screen.getByTestId('usdcx-route-confirm')).toBeEnabled();
+    });
+
+    it('sends no balance re-read while no hold is up', async () => {
+      jest.mocked(quoteExecutorBurn).mockResolvedValue(FEE_QUOTE);
+      renderScreen();
+      await reachBaseSepoliaRoute();
+      expect(screen.getByTestId('usdcx-route-confirm')).toBeEnabled();
+      const reads = balanceOfReads();
+
+      await advance(30_000);
+
+      expect(balanceOfReads()).toBe(reads);
+    });
+
+    it.each<[string, () => void]>([
+      ['stall', () => (global.fetch = jest.fn().mockReturnValue(new Promise(() => undefined)))],
+      [
+        'fail',
+        () => (global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ error: { message: 'rpc down' } }) }))
+      ]
+    ])('keeps the held balance on screen while its re-reads %s', async (_outcome, answer) => {
+      await reachFeeHold();
+      answer();
+
+      for (const ms of [10_000, 20_000]) {
+        await advance(ms);
+        expect(screen.getByTestId('usdcx-route-notice').textContent).toBe(feeAboveBalance('1.531907'));
+        expect(screen.getByTestId('usdcx-route-confirm')).toBeDisabled();
+      }
+    });
+  });
+
   it('runs an executor deposit whose amount plus the displayed fee is exactly the balance', async () => {
     jest.mocked(quoteExecutorBurn).mockResolvedValue(FEE_QUOTE);
     mockBalance = TYPED + FEE_QUOTE.feeTotalAmount;
