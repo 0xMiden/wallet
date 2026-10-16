@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import type { AgglayerRecoveryConfig } from 'lib/remote-config/schema';
 import { NativeSessionChainNotApprovedError } from 'lib/walletconnect/native';
+import { NO_EXPLORER_CHAIN } from 'lib/walletconnect/testing/chains';
 
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { IHistoryEntry } from './IHistoryEntry';
@@ -120,6 +121,14 @@ jest.mock('./DetailSection', () => ({
 jest.mock('./TransactionStatus', () => ({
   ExternalLinkValue: ({ href }: { href?: string }) => <a href={href}>explorer</a>
 }));
+
+// The registry's chains, plus one the wallet knows no explorer for.
+jest.mock('lib/walletconnect/config', () => {
+  const chains = jest.requireActual<typeof import('lib/walletconnect/testing/chains')>(
+    'lib/walletconnect/testing/chains'
+  );
+  return chains.walletConnectConfigMock([chains.NO_EXPLORER_CHAIN]);
+});
 
 const FAILED = 3;
 const UNCONFIRMED = 4;
@@ -422,6 +431,21 @@ describe('BridgeClaimSection', () => {
     expect(screen.getAllByRole('link', { name: 'explorer' }).map(link => link.getAttribute('href'))).toContain(
       `https://explorer.testnet.arc.io/tx/${hash}`
     );
+  });
+
+  it('shows the recipient and the receiving transaction unlinked on a chain with no explorer', () => {
+    render(
+      <BridgeClaimSection
+        entry={entry({ bridgeProvider: 'usdcx', bridgeDestinationNetwork: NO_EXPLORER_CHAIN.id })}
+        restoredFromBackup={false}
+        destinationTxHash={`0x${'a'.repeat(64)}`}
+      />
+    );
+
+    expect(screen.getByText('t:destinationNetworkNo Explorer')).toBeInTheDocument();
+    expect(screen.getByText('t:to')).toHaveTextContent('explorer');
+    expect(screen.getByText('t:receivingTx')).toHaveTextContent('explorer');
+    expect(screen.queryAllByRole('link', { name: 'explorer' })).toEqual([]);
   });
 
   describe('USDCx faucet consumption', () => {

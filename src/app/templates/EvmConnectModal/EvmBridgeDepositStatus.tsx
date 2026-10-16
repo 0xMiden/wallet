@@ -19,7 +19,7 @@ import { evmUsdcLabel, midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
 import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
-import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
+import { DEFAULT_CHAIN_ID, evmExplorerUrl, getChain } from 'lib/walletconnect/config';
 import { TransactionHeroIcon } from 'screens/generating-transaction/components';
 import { ReceiptRows, TransactionSuccessLayout } from 'screens/generating-transaction/success/TransactionSuccessLayout';
 import { TransactionSummaryBadge } from 'screens/generating-transaction/TransactionSummaryBadge';
@@ -159,14 +159,9 @@ export const EvmBridgeDepositStatus: React.FC<EvmBridgeDepositStatusProps> = ({
   const sourceChain = getChain(inputs.sourceChainId ?? DEFAULT_CHAIN_ID);
 
   if (submitted) {
+    const sourceTxUrl = inputs.evmTxHash ? evmExplorerUrl(sourceChain, 'tx', inputs.evmTxHash) : undefined;
     const viewExplorer =
-      inputs.evmTxHash && sourceChain
-        ? () =>
-            openExternalUrl({
-              url: `${sourceChain.explorer}/tx/${inputs.evmTxHash}`,
-              title: sourceChain.name
-            })
-        : undefined;
+      sourceTxUrl && sourceChain ? () => openExternalUrl({ url: sourceTxUrl, title: sourceChain.name }) : undefined;
     const { statusValue, footerDescription } = submittedCopyOf(inputs, t);
     return (
       <TransactionSuccessLayout

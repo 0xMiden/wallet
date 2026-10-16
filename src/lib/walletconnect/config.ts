@@ -116,3 +116,8 @@ export const APP_METADATA = {
 export function getChain(id: number): EvmChain | undefined {
   return SUPPORTED_CHAINS.find(c => c.id === id);
 }
+
+/** `chain`'s explorer page for a transaction or an address, or undefined when the wallet knows no explorer for it. */
+export function evmExplorerUrl(chain: EvmChain | undefined, kind: 'tx' | 'address', id: string): string | undefined {
+  return chain?.explorer ? `${chain.explorer}/${kind}/${id}` : undefined;
+}
