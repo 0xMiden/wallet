@@ -967,6 +967,29 @@ export interface DepositedToRemoteEvent {
   blockNumber: bigint;
 }
 
+/** The one DepositedToRemote Arc's xReserve emitted in `receipt`; throws naming `what` and the count otherwise. */
+export function depositedToRemoteOf(receipt: TransactionReceipt, what: string): DepositedToRemoteEvent {
+  const events = parseEventLogs({
+    abi: XRESERVE_HARNESS_ABI,
+    eventName: 'DepositedToRemote',
+    logs: receipt.logs
+  }).filter(log => isAddressEqual(log.address, ARC_XRESERVE));
+  const [event] = events;
+  if (!event || events.length !== 1) {
+    throw new Error(`${what}: ${events.length} DepositedToRemote events from xReserve, expected 1`);
+  }
+  return {
+    value: event.args.value,
+    localDepositor: event.args.localDepositor,
+    remoteRecipient: lowerHex(event.args.remoteRecipient),
+    remoteDomain: event.args.remoteDomain,
+    remoteToken: lowerHex(event.args.remoteToken),
+    maxFee: event.args.maxFee,
+    hookData: event.args.hookData,
+    blockNumber: receipt.blockNumber
+  };
+}
+
 /**
  * The submission's receipts, read from its write endpoint first and failing over to the others, and the one
  * DepositedToRemote xReserve emitted.
@@ -979,30 +1002,11 @@ export async function confirmDepositToMiden(
   const reads = startingAt(deps.endpoints, submission.endpoint);
   const approveReceipt = submission.approveHash ? await waitForReceipt(reads, deps, submission.approveHash) : undefined;
   const depositReceipt = await waitForReceipt(reads, deps, submission.depositHash);
-  const events = parseEventLogs({
-    abi: XRESERVE_HARNESS_ABI,
-    eventName: 'DepositedToRemote',
-    logs: depositReceipt.logs
-  }).filter(log => isAddressEqual(log.address, ARC_XRESERVE));
-  const [event] = events;
-  if (!event || events.length !== 1) {
-    throw new Error(
-      `deposit ${submission.depositHash}: ${events.length} DepositedToRemote events from xReserve, expected 1`
-    );
-  }
+  const event = depositedToRemoteOf(depositReceipt, `deposit ${submission.depositHash}`);
   return {
     approveBlock: approveReceipt?.blockNumber,
     depositBlock: depositReceipt.blockNumber,
-    event: {
-      value: event.args.value,
-      localDepositor: event.args.localDepositor,
-      remoteRecipient: lowerHex(event.args.remoteRecipient),
-      remoteDomain: event.args.remoteDomain,
-      remoteToken: lowerHex(event.args.remoteToken),
-      maxFee: event.args.maxFee,
-      hookData: event.args.hookData,
-      blockNumber: depositReceipt.blockNumber
-    },
+    event,
     gasCostWei: [approveReceipt, depositReceipt].reduce(
       (sum, receipt) => (receipt ? sum + receipt.gasUsed * receipt.effectiveGasPrice : sum),
       0n
