@@ -228,8 +228,8 @@
     "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
-    "message": "Wypłaty w USDCx są dostępne wyłącznie dla skonfigurowanego adresu faucet w sieci testowej Miden.",
-    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+    "message": "Wypłaty w USDCx nie są dostępne dla tego tokenu w tej sieci.",
+    "englishSource": "USDCx withdrawals are not available for this token on this network."
   },
   "usdcxInvalidAmount": {
     "message": "Wprowadź dodatnią kwotę w USDCx z maksymalnie sześcioma miejscami po przecinku.",
@@ -1178,6 +1178,10 @@
   "transactionStepSyncingGuardian": {
     "message": "Synchronizacja z Guardian",
     "englishSource": "Syncing with Guardian"
+  },
+  "transactionStepDeliveringNote": {
+    "message": "Dostarczenie do odbiorcy",
+    "englishSource": "Delivering to recipient"
   },
   "guardianBusyStep": {
     "message": "Czekasz na swój Guardian",
@@ -5096,6 +5100,27 @@
   "usdcxForwardQuoteUnavailable": {
     "message": "Circle nie może w tej chwili wycenić tego przelewu. Nic nie zostało wysłane. Spróbuj ponownie za chwilę.",
     "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
+  },
+  "usdcxDepositFeeAboveBalance": {
+    "message": "Ta wpłata wymaga $total$ $token$ w sieci $network$: kwota plus opłata Circle w wysokości $fee$ $token$. Twój podłączony portfel zawiera $balance$ $token$. Zmniejsz kwotę o wysokość opłaty lub dodaj $token$ do swojego portfela.",
+    "englishSource": "This deposit needs $total$ $token$ on $network$: the amount plus Circle's fee of $fee$ $token$. Your connected wallet holds $balance$ $token$. Lower the amount by the fee or add $token$ to your wallet.",
+    "placeholders": {
+      "total": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$8"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "fee": {
+        "content": "$4"
+      },
+      "balance": {
+        "content": "$6"
+      }
+    }
   },
   "usdcxCctpAwaitingAttestation": {
     "message": "Spalenie zostało potwierdzone. Czekamy na poświadczenie transferu przez Circle, zanim będzie można go zrealizować w sieci $network$.",

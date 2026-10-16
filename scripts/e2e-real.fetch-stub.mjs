@@ -49,7 +49,22 @@ const ANSWERS = {
   // `{ error: '<stderr>' }` makes the discovery fail.
   nativeAsset: { id: '0x4cbdcaffe75f0a317482224dae6436', bytes32: REMOTE_TOKEN },
   cliInstall: { status: 0, stdout: 'Installed package `miden-client-cli`\n/stub/cli/bin/miden-client\n' },
-  exitCodes: { build: 0, test: 0 }
+  exitCodes: { build: 0, test: 0 },
+  // L2 hosts (rpc.walletconnect.org included) whose every request fails as a network error, hosts that report
+  // Sepolia's chain, and lowercase addresses with no code on either L2.
+  l2Down: [],
+  l2WrongChain: [],
+  l2NoCode: [],
+  // The harness key on each L2: 0.01 ETH, the gas price Base Sepolia had on 2026-10-16, and two payouts' USDC.
+  l2Wei: '0x2386f26fc10000',
+  l2GasPrice: '0x5b8d80',
+  l2UsdcUnits: '1977802',
+  // Every L2 endpoint's answer to the empty raw transaction: a decode failure, so it takes writes.
+  l2RawTransaction: { code: -32602, message: 'failed to decode signed transaction' },
+  irisFees: [
+    { finalityThreshold: 1000, minimumFee: 1.3 },
+    { finalityThreshold: 2000, minimumFee: 0 }
+  ]
 };
 const answers = { ...ANSWERS, ...overrides };
 
@@ -96,6 +111,43 @@ function arcAnswer({ method, params }) {
 
 const isArc = host => host.endsWith('.arc.io') || host.startsWith('arc-rpc.');
 
+// The harness's L2 endpoints by host; the wallet's own RPC names its chain in the query.
+const L2_HOSTS = {
+  'base-sepolia-rpc.publicnode.com': 84532,
+  'base-sepolia.gateway.tenderly.co': 84532,
+  'sepolia.base.org': 84532,
+  'sepolia-rollup.arbitrum.io': 421614,
+  'arbitrum-sepolia-rpc.publicnode.com': 421614,
+  'arbitrum-sepolia.gateway.tenderly.co': 421614
+};
+function l2ChainOf({ host, searchParams }) {
+  if (host === 'rpc.walletconnect.org') return Number((searchParams.get('chainId') ?? '').replace('eip155:', ''));
+  return L2_HOSTS[host];
+}
+
+function l2Answer(chainId, { method, params }) {
+  switch (method) {
+    case 'eth_chainId':
+      return { result: `0x${chainId.toString(16)}` };
+    case 'eth_blockNumber':
+      return { result: '0x2' };
+    case 'eth_getCode':
+      return { result: answers.l2NoCode.includes(String(params[0]).toLowerCase()) ? '0x' : '0x6080' };
+    case 'eth_sendRawTransaction':
+      return { error: answers.l2RawTransaction };
+    case 'eth_getBalance':
+      return { result: answers.l2Wei };
+    case 'eth_gasPrice':
+      return { result: answers.l2GasPrice };
+    case 'eth_call':
+      return String(params[0]?.data).startsWith('0x70a08231')
+        ? { result: word(BigInt(answers.l2UsdcUnits).toString(16)) }
+        : { error: { code: 3, message: 'reverted' } };
+    default:
+      return { error: { code: -32601, message: `the method ${method} does not exist/is not available` } };
+  }
+}
+
 global.fetch = async (input, init = {}) => {
   const url = String(input);
   const call = typeof init.body === 'string' && init.body.includes('"jsonrpc"') ? JSON.parse(init.body) : null;
@@ -110,6 +162,12 @@ global.fetch = async (input, init = {}) => {
     }
     return json({ jsonrpc: '2.0', id: call.id, ...arcAnswer(call) });
   }
+  const l2 = call ? l2ChainOf(new URL(url)) : undefined;
+  if (l2 !== undefined) {
+    if (answers.l2Down.includes(host)) throw new TypeError('fetch failed');
+    const chainId = answers.l2WrongChain.includes(host) ? 11155111 : l2;
+    return json({ jsonrpc: '2.0', id: call.id, ...l2Answer(chainId, call) });
+  }
   if (call) return json({ jsonrpc: '2.0', id: call.id, result: RPC_RESULTS[call.method] });
   if (url.endsWith('.json')) return json(document);
   if (url.endsWith('/health')) return json({ status: 'healthy', allocatorAddresses: { 999999999: '0xa110c' } });
@@ -118,6 +176,7 @@ global.fetch = async (input, init = {}) => {
   }
   if (url.endsWith('/gasless-status')) return json({ enabled: false });
   if (url.endsWith('/get_metadata')) return json(answers.faucet);
+  if (url.includes('/v2/burn/USDC/fees/')) return json(answers.irisFees);
   if (url.endsWith('/v1/info')) return json(answers.circleInfo);
   if (url.endsWith('/status')) return json(answers.guardianStatus);
   if (url.endsWith('/pubkey?scheme=ecdsa')) return json(answers.guardianPubkey);

@@ -89,6 +89,35 @@ export const GUARDIAN_TRANSACTION_STEPS = [
 ] as const satisfies readonly TransactionStepDef[];
 
 /**
+ * Guardian row that relays a PRIVATE note (a private send, or an execute with private outputs): the guardian steps
+ * with what follows the guardian sync as a step of its own. After that one quick call the pipeline waits for the
+ * block that commits the transaction and relays the note to its recipient (the transport takes it only once this
+ * client holds its inclusion proof), and the row completes only after both. Under "Syncing with Guardian" that wait
+ * read as a slow Guardian (#1492).
+ *
+ * A set of its own rather than a change to {@link GUARDIAN_TRANSACTION_STEPS}: a rotation times its last step
+ * from that set's `registering-guardian` fallback and shows its commit wait (`confirming`) there.
+ */
+export const PRIVATE_SEND_GUARDIAN_STEPS = [
+  ...GUARDIAN_TRANSACTION_STEPS.slice(0, 3),
+  {
+    id: 'syncing-guardian',
+    labelKey: 'transactionStepSyncingGuardian',
+    defaultLabel: 'Syncing with Guardian',
+    startStage: 'guardian-syncing',
+    activeStages: ['guardian-syncing']
+  },
+  {
+    id: 'delivering-note',
+    labelKey: 'transactionStepDeliveringNote',
+    defaultLabel: 'Delivering to recipient',
+    // `confirming` (the commit wait) comes before `delivering` (the relay), and the step covers both.
+    startStage: 'confirming',
+    activeStages: ['guardian-synced', 'confirming', 'delivering']
+  }
+] as const satisfies readonly TransactionStepDef[];
+
+/**
  * The guardian steps as an offline direct switch actually performs them.
  *
  * Only the first step differs, and it has to: on this path no operator approves
@@ -137,7 +166,9 @@ export const STANDARD_TRANSACTION_STEPS = [
     labelKey: 'transactionStepSubmitting',
     defaultLabel: 'Submitting',
     startStage: 'submitting',
-    activeStages: ['submitting']
+    // A row that relays a private note waits for its commit and relays after the submit; with no step of its own
+    // for that, the last step stays active rather than the screen falling back to the first.
+    activeStages: ['submitting', 'confirming', 'delivering']
   }
 ] as const satisfies readonly TransactionStepDef[];
 
@@ -149,9 +180,16 @@ export const TRANSACTION_STEPS = GUARDIAN_TRANSACTION_STEPS;
  *
  * `signedLocally` is the row's `switchedDirectly` marker, which the direct path
  * stamps before it signs — so the relabelled first step is on screen while that
- * step is the active one, not only in hindsight.
+ * step is the active one, not only in hindsight. `deliversNote` is a row that waits
+ * for its commit to relay a private note (`waitsToDeliverNote`), whose delivery is a
+ * step of its own.
  */
-export const stepsForFlow = (isGuardian: boolean, signedLocally = false): readonly TransactionStepDef[] => {
+export const stepsForFlow = (
+  isGuardian: boolean,
+  signedLocally = false,
+  deliversNote = false
+): readonly TransactionStepDef[] => {
   if (!isGuardian) return STANDARD_TRANSACTION_STEPS;
-  return signedLocally ? DIRECT_SWITCH_TRANSACTION_STEPS : GUARDIAN_TRANSACTION_STEPS;
+  if (signedLocally) return DIRECT_SWITCH_TRANSACTION_STEPS;
+  return deliversNote ? PRIVATE_SEND_GUARDIAN_STEPS : GUARDIAN_TRANSACTION_STEPS;
 };

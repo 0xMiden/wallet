@@ -228,8 +228,8 @@
     "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
-    "message": "USDCx para çekme işlemleri, yalnızca Miden test ağında yapılandırılmış faucet adresi için kullanılabilir.",
-    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+    "message": "Bu ağda bu token için USDCx para çekme işlemleri mevcut değildir.",
+    "englishSource": "USDCx withdrawals are not available for this token on this network."
   },
   "usdcxInvalidAmount": {
     "message": "En fazla altı ondalık basamaklı pozitif bir USDCx tutarı girin.",
@@ -1178,6 +1178,10 @@
   "transactionStepSyncingGuardian": {
     "message": "Guardian ile senkronizasyon",
     "englishSource": "Syncing with Guardian"
+  },
+  "transactionStepDeliveringNote": {
+    "message": "Alıcıya teslimat",
+    "englishSource": "Delivering to recipient"
   },
   "guardianBusyStep": {
     "message": "Guardian'ınızı bekliyorsunuz",
@@ -5096,6 +5100,27 @@
   "usdcxForwardQuoteUnavailable": {
     "message": "Circle şu anda bu transfer için fiyat belirleyemedi. Hiçbir şey gönderilmedi. Bir süre sonra tekrar deneyin.",
     "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
+  },
+  "usdcxDepositFeeAboveBalance": {
+    "message": "Bu para yatırma işlemi için $network$ ağında $total$ $token$ gereklidir: bu tutara Circle’ın $fee$ $token$ tutarındaki ücreti eklenir. Bağlı cüzdanınızda $balance$ $token$ bulunmaktadır. Tutarı ücret kadar azaltın veya cüzdanınıza $token$ ekleyin.",
+    "englishSource": "This deposit needs $total$ $token$ on $network$: the amount plus Circle's fee of $fee$ $token$. Your connected wallet holds $balance$ $token$. Lower the amount by the fee or add $token$ to your wallet.",
+    "placeholders": {
+      "total": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$8"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "fee": {
+        "content": "$4"
+      },
+      "balance": {
+        "content": "$6"
+      }
+    }
   },
   "usdcxCctpAwaitingAttestation": {
     "message": "Yakma işlemi onaylandı. $network$ üzerinde gerçekleştirilebilmesi için Circle'ın transferi onaylamasını bekliyoruz.",

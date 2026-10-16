@@ -37,6 +37,7 @@ import {
   recordNoteDelivery,
   reportVerifiedLanding,
   setTransactionStage,
+  stampPostSubmitStage,
   undeliveredDisplayMessage,
   updateTransactionStatus
 } from './helper';
@@ -176,6 +177,10 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
     // flag it runs on the offscreen client that applied the transaction. The relays
     // run on the SW client (see `midenClientProxy.sendPrivateNote`), whose store
     // holds the output notes the offscreen client applied.
+    //
+    // The stamps are display state, as on the send path: they let the screen name the wait and the relay (#1492),
+    // and a failed one must not skip either.
+    await stampPostSubmitStage(transaction.id, 'confirming');
     try {
       await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
     } catch (error) {
@@ -184,6 +189,8 @@ export const completeCustomTransaction = async (transaction: ITransaction, resul
         error
       });
     }
+
+    await stampPostSubmitStage(transaction.id, 'delivering');
 
     for (const { noteId, fullNote } of notesToRelay) {
       try {
@@ -1081,8 +1088,6 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
   let noteDelivery: INoteDeliveryState | undefined;
 
   if (isPrivateSend && note && noteId) {
-    await setTransactionStage(tx.id, 'delivering');
-
     // Record that a relay is OWED before attempting it, together with the landed
     // transaction id and the note it produced.
     //
@@ -1099,16 +1104,22 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
       console.warn('Could not record the pending note delivery', { txId: tx.id, noteId, error });
     }
 
+    // Display state, like the delivering stamp below: a failed stamp must not skip the wait.
+    await stampPostSubmitStage(tx.id, 'confirming');
+
     try {
       // The proof rc.5's transport verifies exists only after this commit wait
       // syncs past the block. The wait routes through `midenClientProxy` (issue
       // #260, slice 7b) and runs on the client that applied the transaction; the
       // relay runs on the SW client, whose store holds that output note too.
-      await setTransactionStage(tx.id, 'confirming');
       await midenClientProxy.waitForTransactionCommit(executedTx.id().toHex());
     } catch (error) {
       console.warn('Commit wait failed during private send; the relay may find no proof', { txId: tx.id, error });
     }
+
+    // After the wait, so 'confirming' covers the wait and 'delivering' only the relay, and the screen names the
+    // one the user is waiting on (#1492). Display state only: a failed stamp must not cost the recipient the note.
+    await stampPostSubmitStage(tx.id, 'delivering');
 
     try {
       await midenClientProxy.sendPrivateNote(note, tx.secondaryAccountId);

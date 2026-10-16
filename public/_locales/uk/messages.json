@@ -228,8 +228,8 @@
     "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
-    "message": "Виведення коштів у USDCx доступні лише для налаштованої мережі «faucet» у тестовій мережі Miden.",
-    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+    "message": "Виведення коштів у USDCx для цього токена в цій мережі недоступні.",
+    "englishSource": "USDCx withdrawals are not available for this token on this network."
   },
   "usdcxInvalidAmount": {
     "message": "Введіть додатну суму в USDCx з не більше ніж шістьма знаками після коми.",
@@ -1178,6 +1178,10 @@
   "transactionStepSyncingGuardian": {
     "message": "Синхронізація з Guardian",
     "englishSource": "Syncing with Guardian"
+  },
+  "transactionStepDeliveringNote": {
+    "message": "Доставка одержувачу",
+    "englishSource": "Delivering to recipient"
   },
   "guardianBusyStep": {
     "message": "Очікування вашого «Guardian»",
@@ -5096,6 +5100,27 @@
   "usdcxForwardQuoteUnavailable": {
     "message": "Circle наразі не може визначити вартість цього переказу. Нічого не було надіслано. Спробуйте ще раз через деякий час.",
     "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
+  },
+  "usdcxDepositFeeAboveBalance": {
+    "message": "Для цього депозиту потрібно $total$ $token$ на $network$: сума плюс комісія Circle у розмірі $fee$ $token$. У вашому підключеному гаманці знаходиться $balance$ $token$. Зменшіть суму на суму комісії або додайте $token$ до вашого гаманця.",
+    "englishSource": "This deposit needs $total$ $token$ on $network$: the amount plus Circle's fee of $fee$ $token$. Your connected wallet holds $balance$ $token$. Lower the amount by the fee or add $token$ to your wallet.",
+    "placeholders": {
+      "total": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$8"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "fee": {
+        "content": "$4"
+      },
+      "balance": {
+        "content": "$6"
+      }
+    }
   },
   "usdcxCctpAwaitingAttestation": {
     "message": "Спалення підтверджено. Очікуємо, поки Circle засвідчить переказ, перш ніж його можна буде виконати в мережі $network$.",

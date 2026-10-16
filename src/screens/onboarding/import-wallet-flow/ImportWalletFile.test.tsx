@@ -18,8 +18,8 @@ import { ImportWalletFileScreen } from './ImportWalletFile';
  *     (`errors` / `isSubmitting` / `isValid`), `register` and `handleSubmit`
  *     are steered by hand. `handleSubmit(cb)` always invokes `cb`, which is the
  *     only way to reach `handleImportSubmit`'s guards and try/catch on demand.
- *   - `@miden-sdk/react/lazy`'s `useImportStore`, `lib/miden/passworder`'s
- *     crypto primitives, and `lib/miden/repo`'s `importDb` are jest.fn()s so we
+ *   - `lib/miden/passworder`'s crypto primitives and `lib/miden/repo`'s
+ *     `importDb` are jest.fn()s so we
  *     can trace exactly what the component threads through the decrypt pipeline
  *     and drive the wrong-password / thrown-error arms.
  *   - `TextField` / `components/Button` / the v2 icon barrel are thin harnesses

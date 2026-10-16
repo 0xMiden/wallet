@@ -7,7 +7,14 @@ import { captureEpochTraffic, fastFeeExpectation, waitForFastQuote } from './epo
 import { readTransactionRowsWithBytes, type JsonValue, type TransactionRowSnapshot } from './history';
 import type { MidenCli } from './miden-cli';
 import { swOf } from './swap';
-import { ARC_CHAIN_ID, minimumUsdcxPayout, USDCX_DECIMALS, USDCX_DESTINATIONS } from './usdcx-constants';
+import {
+  ARC_PAYOUT,
+  minimumUsdcxPayout,
+  redactProjectId,
+  USDCX_DECIMALS,
+  USDCX_DESTINATIONS,
+  type PayoutChain
+} from './usdcx-constants';
 import type { ChromeWalletPageApi } from './wallet-page';
 import type { TimelineRecorder } from '../harness/timeline-recorder';
 
@@ -541,6 +548,9 @@ export interface CreateUsdcxBridgeReceiveArgs {
   sourceAmount: string;
   sourceSymbol: string;
   evmTxHash: Hash;
+  /** An executor-route deposit: what runUsdcxExecutorDeposit wrote on its `submitting` step (usdcx-l2-deposit.ts). */
+  usdcxRemoteRecipient?: string;
+  cctp?: { sourceDomain: number; forwarded?: boolean; forwardFee?: string };
 }
 
 /**
@@ -575,6 +585,8 @@ export type BridgeReceiveStateSnapshot = {
   midenNoteId?: string;
   sourceChainId?: number;
   usdcxRemoteRecipient?: string;
+  /** The Arc transaction the row took as its execute: Circle's forward, on the executor route. */
+  usdcxExecuteTxHash?: string;
   /** Unix seconds the row first reached `ready`. */
   readyAt?: number;
 };
@@ -617,6 +629,7 @@ export function parseBridgeReceiveState(value: unknown): BridgeReceiveStateSnaps
     midenNoteId: text('midenNoteId'),
     sourceChainId: count('sourceChainId'),
     usdcxRemoteRecipient: text('usdcxRemoteRecipient'),
+    usdcxExecuteTxHash: text('usdcxExecuteTxHash'),
     readyAt: count('readyAt')
   };
 }
@@ -704,9 +717,30 @@ export function reviewQueryParam(url: string, name: string): string | null {
   return new URLSearchParams(query).get(name);
 }
 
-/** A review-error that names an RPC failure, with no burn row queued: the wallet's Arc snapshot read failed (Q14). */
+/**
+ * A review-error that names an RPC failure, with no burn row queued: the wallet's snapshot read on the destination
+ * chain failed (Q14).
+ */
 export function isArcSnapshotFailure(reviewError: string, newUsdcxRows: number): boolean {
   return newUsdcxRows === 0 && RPC_FAILURE.test(reviewError);
+}
+
+/**
+ * Why a submit that never reached the generating screen failed. An RPC-shaped review-error with no burn row queued is
+ * the wallet's destination snapshot read (burn.ts:103) failing on that chain's RPC: infra, never retried, the RPC
+ * named by host.
+ */
+export function burnSubmitFailure(payoutChain: PayoutChain, reviewError: string, newUsdcxRows: number): string {
+  const shown = redactProjectId(reviewError);
+  if (!isArcSnapshotFailure(reviewError, newUsdcxRows)) {
+    return `the review refused the burn: review-error "${shown}", ${newUsdcxRows} new usdcx rows`;
+  }
+  // Arc's message predates the L2 destinations and stays as it was.
+  const rpc =
+    payoutChain.chainId === ARC_PAYOUT.chainId
+      ? 'Arc RPC'
+      : `${payoutChain.networkName} RPC ${payoutChain.walletRpcName}`;
+  return `${rpc} unavailable for the wallet's balance snapshot (burn.ts:103), infra: review-error "${shown}"`;
 }
 
 /** The value cell of the review's detail row labelled `label` (`DetailRow`: a label span beside a value div). */
@@ -809,6 +843,8 @@ export interface BridgeOutUsdcxOptions {
   stepTimeoutMs?: number;
   /** Where usdcx-route.png, usdcx-review-light.png and usdcx-review-dark.png go. */
   screenshotDir: string;
+  /** Where Circle pays the burn (default Arc Testnet): the chip clicked, the review's network and the payout rows. */
+  payoutChain?: PayoutChain;
 }
 
 export interface BridgeOutUsdcxResult {
@@ -817,18 +853,19 @@ export interface BridgeOutUsdcxResult {
 }
 
 /**
- * Burn the native USDCx to an Arc Testnet address through the real Send UI (spec section 5 step 6), ending on the
- * generating-transaction screen. Checks on the way: exactly the four USDCx destination chips with Arc pressed, the
- * route subtitle and fee row naming the native symbol, the payout rows and the burn notice on route and review, and
- * the review's network.
+ * Burn the native USDCx to an address on `opts.payoutChain` (default Arc Testnet) through the real Send UI (spec
+ * section 5 step 6), ending on the generating-transaction screen. Checks on the way: exactly the four USDCx
+ * destination chips with Arc pressed by default and then the destination's alone, the route subtitle and fee row
+ * naming the native symbol, the payout rows and the burn notice on route and review, and the review's network.
  */
 export async function bridgeOutUsdcx(wallet: Wallet, opts: BridgeOutUsdcxOptions): Promise<BridgeOutUsdcxResult> {
   const { page, extensionId } = wallet;
   const step = opts.stepTimeoutMs ?? STEP_TIMEOUT_MS;
+  const payoutChain = opts.payoutChain ?? ARC_PAYOUT;
   if (opts.nativeSymbol.trim() === '' || opts.nativeSymbol.trim().toUpperCase() === 'MIDEN') {
     throw new Error(`bridgeOutUsdcx: "${opts.nativeSymbol}" cannot name USDCx, the asset a USDCx burn spends`);
   }
-  const payout = usdcxPayoutRowsText(ARC_CHAIN_ID, opts.amount);
+  const payout = usdcxPayoutRowsText(payoutChain.chainId, opts.amount);
   const routeFees = enText('usdcxMidenFees', { symbol: opts.nativeSymbol });
   const sponsorshipFee = enText('usdcxSponsorshipFee', { symbol: opts.nativeSymbol });
   const notice = enText('usdcxWithdrawalNotice');
@@ -842,9 +879,9 @@ export async function bridgeOutUsdcx(wallet: Wallet, opts: BridgeOutUsdcxOptions
   await expect(flow).toBeVisible({ timeout: step });
   await flow.getByTestId('send-recipient-input').fill(opts.destAddress);
   await expectArcPreselected(page, step);
-  await page.getByTestId(ARC_CHIP).click({ timeout: step });
+  await page.getByTestId(payoutChain.chip).click({ timeout: step });
   await expect
-    .poll(async () => usdcxChipsProblem(await readNetworkChips(page), ARC_CHIP) ?? 'ok', { timeout: step })
+    .poll(async () => usdcxChipsProblem(await readNetworkChips(page), payoutChain.chip) ?? 'ok', { timeout: step })
     .toBe('ok');
   await flow.getByTestId('send-recipient-confirm').click({ timeout: step });
   await flow.getByTestId('send-amount-input').fill(opts.amount);
@@ -871,8 +908,10 @@ export async function bridgeOutUsdcx(wallet: Wallet, opts: BridgeOutUsdcxOptions
 
   await page.waitForURL(/#\/send\/review\?/, { timeout: step });
   const reviewUrl = page.url();
-  expect(reviewQueryParam(reviewUrl, 'network'), 'the review is for Arc Testnet').toBe('arc-testnet');
-  await expect(detailRowValue(page, enText('network'))).toHaveText('Arc Testnet', { timeout: step });
+  expect(reviewQueryParam(reviewUrl, 'network'), `the review is for ${payoutChain.networkName}`).toBe(
+    payoutChain.reviewNetwork
+  );
+  await expect(detailRowValue(page, enText('network'))).toHaveText(payoutChain.networkName, { timeout: step });
   await expect(detailRowValue(page, enText('networkFee')), 'the fee row names the native fee asset').toHaveText(
     sponsorshipFee
   );
@@ -909,11 +948,7 @@ export async function bridgeOutUsdcx(wallet: Wallet, opts: BridgeOutUsdcxOptions
     const fresh = (await readBridgedSendRows(page)).filter(
       row => row.extraInputs?.provider === 'usdcx' && !rowsBefore.has(row.id)
     );
-    throw new Error(
-      isArcSnapshotFailure(reviewError, fresh.length)
-        ? `Arc RPC unavailable for the wallet's balance snapshot (burn.ts:103), infra: review-error "${reviewError}"`
-        : `the review refused the burn: review-error "${reviewError}", ${fresh.length} new usdcx rows`
-    );
+    throw new Error(burnSubmitFailure(payoutChain, reviewError, fresh.length));
   }
   return { reviewUrl, generatingUrl: page.url() };
 }

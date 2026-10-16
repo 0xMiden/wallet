@@ -2,6 +2,11 @@ import fs from 'fs';
 import path from 'path';
 
 import { request } from 'lib/miden/front';
+import {
+  LOCAL_PROVER_FAILED_ERROR,
+  PROVER_PROCEDURE_MISMATCH_ERROR,
+  REMOTE_PROVER_FAILED_ERROR
+} from 'lib/miden/transaction/constants';
 import { WalletMessageType } from 'lib/shared/types';
 
 import { beginFlow, classifyError } from './report-flow';
@@ -290,6 +295,77 @@ describe('classifyError', () => {
     ['something nobody predicted', 'unknown']
   ])('classifies %s as %s', (message, expected) => {
     expect(classifyError(new Error(message))).toBe(expected);
+  });
+
+  // Approval and provider failures share the letters `prov` with proving, and an
+  // EVM deposit refusal labelled `proving` sends triage after a prover that never ran.
+  it.each([
+    ['The connected WalletConnect session did not approve Base Sepolia (eip155:84532).', 'unknown'],
+    ['Aprove a rede na carteira conectada.', 'unknown'],
+    ['The connected EVM wallet provider is unavailable.', 'unknown'],
+    ['Guardian account acc not found in provider', 'unknown'],
+    ['Account not found. Please provide an account.', 'unknown'],
+    ['Some of the parameters you provided are invalid', 'validation'],
+    ['the fee of the second quote is more than the approval covers', 'unknown'],
+    ['number of approvers cannot be greater than 255', 'unknown'],
+    ['account provisioning failed', 'unknown']
+  ])('does not read %j as a proving failure', (message, expected) => {
+    expect(classifyError(new Error(message))).toBe(expected);
+  });
+
+  const localesDir = path.join(__dirname, '../../../public/_locales');
+  it.each(fs.readdirSync(localesDir))('does not read the %s chain-approval refusal as a proving failure', locale => {
+    // The deposit screen stores this localized copy on the failed row, and the reporter classifies it.
+    const copy = JSON.parse(fs.readFileSync(path.join(localesDir, locale, `${locale}.json`), 'utf8'));
+    expect(classifyError(copy.evmChainNotApproved.replace('$network$', 'Ethereum Sepolia'))).not.toBe('proving');
+  });
+
+  // As the wallet, the SDK and the native prover word them.
+  it.each([
+    'Offscreen prove failed: worker crashed',
+    'Offscreen prover returned no response (doc may have been closed or reaped)',
+    'Local prove failed in the prove worker (crashed)',
+    LOCAL_PROVER_FAILED_ERROR,
+    REMOTE_PROVER_FAILED_ERROR,
+    PROVER_PROCEDURE_MISMATCH_ERROR,
+    'proveInWorker called in a realm with no local prove transport',
+    'operation abandoned before the send remote re-prove',
+    'operation abandoned after the send prove',
+    'worker prove refused: no live hold',
+    'buildNativeProverCallback called outside a mobile context',
+    'unsupported prover descriptor',
+    'failed to prove transaction: transaction proving failed',
+    'callback prover promise rejected: MidenNativeProver: prover rejected the transaction',
+    'Remote prover requires an endpoint'
+  ])('classifies the proving failure %j as proving', message => {
+    expect(classifyError(new Error(message))).toBe('proving');
+  });
+
+  // Copied from where each is thrown or stored. A letter before `store` puts it
+  // inside keystore or restore, and labelling these `storage` sends triage after
+  // a database that never failed.
+  it.each([
+    ['no sign callback installed in this realm - see installRealmKeystore', 'unknown'],
+    ['Transaction tx-1 was restored from a backup and cannot be resubmitted', 'unknown'],
+    ['Swap tx-1 was restored from a backup, so this wallet cannot reclaim it', 'unknown'],
+    ['Restored from a backup \u2014 delivery could not be verified.', 'unknown'],
+    ['Restored from a backup - this withdrawal could not be verified.', 'unknown'],
+    ['Wallet has no accounts an encrypted file can restore', 'unknown'],
+    ['Failed to restore imported account secret', 'unknown']
+  ])('does not read %j as a storage failure', (message, expected) => {
+    expect(classifyError(new Error(message))).toBe(expected);
+  });
+
+  // As IndexedDB, the browser and Dexie word them.
+  it.each([
+    'QuotaExceededError',
+    'object store not found',
+    "Failed to execute 'transaction' on 'IDBDatabase': One of the specified object stores was not found.",
+    "Failed to execute 'get' on 'IDBObjectStore': The transaction has finished.",
+    'store is closed',
+    'KeyPath id on object store transactions is not indexed'
+  ])('classifies the storage failure %j as storage', message => {
+    expect(classifyError(new Error(message))).toBe('storage');
   });
 
   it.each(['restoreAccountLookupFailed', 'createAccountLookupFailed'])(

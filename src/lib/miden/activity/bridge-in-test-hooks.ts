@@ -3,7 +3,7 @@ import { ensureBridgeConfig } from 'lib/remote-config/runtime';
 
 import { setAgglayerSenderForE2E } from './bridge-in';
 import { startBridgeReceiveSubmission } from './bridge-receive';
-import { IBridgedReceiveExtraInputs, IBridgeProvider, ITransactionStatus } from '../db/types';
+import { IBridgedReceiveExtraInputs, IBridgeProvider, ITransactionStatus, IUsdcxCctpLeg } from '../db/types';
 import { updateBridgedReceivePhase } from '../transaction/complete';
 import { initiateBridgedReceiveTransaction } from '../transaction/initiate';
 
@@ -35,6 +35,12 @@ interface CreateBridgeReceiveArgs {
   outputSymbol?: string;
   /** The deposit's EVM hash; the row is moved to `delivering` with it, as the deposit screen does after its EVM tx. */
   evmTxHash: string;
+  /**
+   * An executor-route deposit signed outside the deposit screen: what runUsdcxExecutorDeposit (usdcx/executor.ts) wrote on
+   * its `submitting` step. Without the forwarded CCTP leg the reconciler never asks Circle about the burn.
+   */
+  usdcxRemoteRecipient?: string;
+  cctp?: Pick<IUsdcxCctpLeg, 'sourceDomain' | 'forwarded' | 'forwardFee'>;
 }
 
 /** The deposit facts a spec checks a bridged-receive row against. */
@@ -46,6 +52,8 @@ interface BridgeReceiveDepositFields {
   usdcxRemoteRecipient?: string;
   /** Unix seconds the row first reached `ready`. */
   readyAt?: number;
+  /** The Arc transaction the row took as its execute: Circle's forward, or the wallet's own execute. */
+  usdcxExecuteTxHash?: string;
 }
 
 interface BridgeReceiveState extends BridgeReceiveDepositFields {
@@ -87,14 +95,20 @@ function depositFields(inputs: IBridgedReceiveExtraInputs | undefined): BridgeRe
     midenNoteId: inputs?.midenNoteId,
     sourceChainId: inputs?.sourceChainId,
     usdcxRemoteRecipient: inputs?.usdcxRemoteRecipient,
-    readyAt: inputs?.readyAt
+    readyAt: inputs?.readyAt,
+    usdcxExecuteTxHash: inputs?.cctp?.executeTxHash
   };
 }
 
 export function installBridgeInTestHooks(): void {
   // Created and advanced inside the submission lock, as the deposit screen does: a `submitting` row with no hash and
   // no live submission is failed as an orphan by the app-root reconciler.
-  globalThis.__TEST_CREATE_BRIDGE_RECEIVE__ = async ({ evmTxHash, ...args }: CreateBridgeReceiveArgs) => {
+  globalThis.__TEST_CREATE_BRIDGE_RECEIVE__ = async ({
+    evmTxHash,
+    usdcxRemoteRecipient,
+    cctp,
+    ...args
+  }: CreateBridgeReceiveArgs) => {
     // A USDCx row reads the document's source route and Miden domain. A profile that never stored a document has
     // nothing to hydrate, and initBridgeConfig never waits for the network, so this waits for the first document.
     await ensureBridgeConfig();
@@ -102,7 +116,11 @@ export function installBridgeInTestHooks(): void {
     const txId = await startBridgeReceiveSubmission(
       () => initiateBridgedReceiveTransaction({ ...args, amount: BigInt(args.amount) }),
       id => {
-        advanced = updateBridgedReceivePhase(id, 'delivering', { evmTxHash });
+        advanced = updateBridgedReceivePhase(id, 'delivering', {
+          evmTxHash,
+          ...(usdcxRemoteRecipient === undefined ? {} : { usdcxRemoteRecipient }),
+          ...(cctp === undefined ? {} : { cctp })
+        });
         return advanced;
       }
     );
