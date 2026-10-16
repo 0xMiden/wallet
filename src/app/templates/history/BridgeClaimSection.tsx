@@ -27,7 +27,7 @@ import { useAccount } from 'lib/miden/front';
 import { hapticMedium } from 'lib/mobile/haptics';
 import { isExtension } from 'lib/platform';
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
-import { DEFAULT_CHAIN_ID, getChain } from 'lib/walletconnect/config';
+import { DEFAULT_CHAIN_ID, evmExplorerUrl, getChain } from 'lib/walletconnect/config';
 import { nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
 import { useEvmWalletProvider } from 'lib/walletconnect/useEvmWalletProvider';
 import { navigate } from 'lib/woozie';
@@ -352,7 +352,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
           <DetailRow label={t('to')}>
             <ExternalLinkValue
               displayValue={<HashChip hash={destination} trimHash className="ml-2" />}
-              href={destinationChain ? `${destinationChain.explorer}/address/${destination}` : undefined}
+              href={evmExplorerUrl(destinationChain, 'address', destination)}
             />
           </DetailRow>
         )}
@@ -404,7 +404,7 @@ export const BridgeClaimSection: FC<BridgeClaimSectionProps> = ({ entry, restore
           <DetailRow label={t('receivingTx')}>
             <ExternalLinkValue
               displayValue={<HashChip hash={destinationTxHash} trimHash className="ml-2" />}
-              href={`${destinationChain.explorer}/tx/${destinationTxHash}`}
+              href={evmExplorerUrl(destinationChain, 'tx', destinationTxHash)}
             />
           </DetailRow>
         )}

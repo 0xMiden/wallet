@@ -374,6 +374,19 @@ export const setTransactionStage = async (
   });
 };
 
+/**
+ * {@link setTransactionStage} for a stamp written after the transaction was submitted. Such a stamp is display state:
+ * a failed write is logged and never aborts the work it labels (a commit wait, a relay, the Guardian sync or the
+ * completion), and never sends a transaction that is on chain down a failure path. Never throws.
+ */
+export const stampPostSubmitStage = async (id: string, stage: ITransactionStage): Promise<void> => {
+  try {
+    await setTransactionStage(id, stage);
+  } catch (error) {
+    console.warn(`Could not stamp the ${stage} stage`, { txId: id, error });
+  }
+};
+
 const UNDELIVERED_SEPARATOR = ' - ';
 // 1.16.2 and earlier joined the wording with an em dash, and the sweep still delivers those rows.
 const LEGACY_UNDELIVERED_SEPARATOR = ' \u2014 ';

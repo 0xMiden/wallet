@@ -1,5 +1,16 @@
 import { TelemetryErrorKind } from './types';
 
+// prove, prover, proven, proving, re-prove, proveInWorker. Not approve or approval
+// (nor Portuguese aprovar), which put an `a` or `p` before `prov`, and not provide,
+// provider or provision, which put neither `e` nor `ing` after it. A character
+// class rather than a lookbehind, which older WebKit cannot parse.
+const PROVING = /(?:^|[^ap])prov(?:e|ing)/;
+
+// quota, IndexedDB, object store, IDBObjectStore and any word that starts with
+// `store`. Not keystore, restore or restored, which put a letter before `store`.
+// A character class rather than a lookbehind, as for PROVING.
+const STORAGE = /quota|indexeddb|objectstore|(?:^|[^a-z])store/;
+
 /**
  * Map an error to a broad category. The message is inspected but NEVER
  * returned — the return type is a closed union, so no caught text can reach
@@ -21,8 +32,8 @@ export function classifyError(error: unknown): TelemetryErrorKind {
   if (message.includes('timed out') || message.includes('timeout')) return 'timeout';
   if (message.includes('failed to fetch') || message.includes('network')) return 'network';
   if (message.includes('rpc')) return 'rpc';
-  if (message.includes('prov')) return 'proving';
-  if (message.includes('quota') || message.includes('store') || message.includes('indexeddb')) return 'storage';
+  if (PROVING.test(message)) return 'proving';
+  if (STORAGE.test(message)) return 'storage';
   if (message.includes('password') || message.includes('unauthor') || message.includes('biometric')) return 'auth';
   if (message.includes('invalid') || message.includes('must be') || message.includes('required')) return 'validation';
   return 'unknown';

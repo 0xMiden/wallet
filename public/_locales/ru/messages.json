@@ -78,8 +78,8 @@
     "englishSource": "Enter a valid address on a supported network for this withdrawal."
   },
   "usdcxUnsupportedFaucet": {
-    "message": "Вывод средств в USDCx доступен только для настроенных кошельков faucet в тестовой сети Miden.",
-    "englishSource": "USDCx withdrawals are available only for the configured faucet on Miden testnet."
+    "message": "Вывод USDCx для данного токена в этой сети недоступен.",
+    "englishSource": "USDCx withdrawals are not available for this token on this network."
   },
   "usdcxInvalidAmount": {
     "message": "Введите положительную сумму в USDCx с точностью до шести знаков после запятой.",
@@ -1028,6 +1028,10 @@
   "transactionStepSyncingGuardian": {
     "message": "Синхронизация с Guardian",
     "englishSource": "Syncing with Guardian"
+  },
+  "transactionStepDeliveringNote": {
+    "message": "Доставка получателю",
+    "englishSource": "Delivering to recipient"
   },
   "guardianBusyStep": {
     "message": "В ожидании вашего «Guardian»",
@@ -4981,6 +4985,27 @@
   "usdcxForwardQuoteUnavailable": {
     "message": "Circle не может определить стоимость этого перевода в данный момент. Ничего не было отправлено. Попробуйте снова через некоторое время.",
     "englishSource": "Circle could not price this transfer right now. Nothing was sent. Try again in a moment."
+  },
+  "usdcxDepositFeeAboveBalance": {
+    "message": "Для этого депозита требуется $total$ $token$ в сети $network$: сумма плюс комиссия Circle в размере $fee$ $token$. В вашем подключенном кошельке находится $balance$ $token$. Уменьшите сумму на величину комиссии или добавьте $token$ в свой кошелек.",
+    "englishSource": "This deposit needs $total$ $token$ on $network$: the amount plus Circle's fee of $fee$ $token$. Your connected wallet holds $balance$ $token$. Lower the amount by the fee or add $token$ to your wallet.",
+    "placeholders": {
+      "total": {
+        "content": "$1"
+      },
+      "token": {
+        "content": "$8"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "fee": {
+        "content": "$4"
+      },
+      "balance": {
+        "content": "$6"
+      }
+    }
   },
   "usdcxCctpAwaitingAttestation": {
     "message": "Сжигание подтверждено. Ожидается подтверждение перевода со стороны Circle, после чего он будет выполнен в сети $network$.",

@@ -60,7 +60,7 @@ import { createWalletSdkObserver } from 'lib/telemetry/sdk-observer';
 import { WalletType } from 'screens/onboarding/types';
 
 import { applyAfterSubmit } from './apply-after-submit';
-import { NoteExportType } from './constants';
+import { COMMIT_WAIT_POLL_INTERVAL_MS, NoteExportType } from './constants';
 import { type ConsumableNoteDto, reduceConsumableNoteRecords } from './consumable-notes';
 import { decodeGuardianSummary, guardianResultCommitment } from './guardian-history';
 import { NoGuardianAccountsFoundError } from './guardian-recovery-errors';
@@ -2192,7 +2192,7 @@ export class MidenClientInterface {
   async waitForTransactionCommit(
     transactionId: string,
     maxWaitMs: number = 60_000,
-    delayMs: number = 5_000
+    delayMs: number = COMMIT_WAIT_POLL_INTERVAL_MS
   ): Promise<void> {
     await this.client.transactions.waitFor(transactionId, { timeout: maxWaitMs, interval: delayMs });
   }

@@ -17,6 +17,7 @@ import testnet from 'lib/remote-config/testing/testnet.json';
 import { getUsdcxRemoteDomain } from 'lib/usdcx/constant';
 
 import { installBridgeInTestHooks } from './bridge-in-test-hooks';
+import { reconcileBridgedReceives } from './bridge-receive';
 import type { IBridgedReceiveExtraInputs } from '../db/types';
 
 const ARC_TESTNET_CHAIN_ID = 5_042_002;
@@ -145,4 +146,76 @@ it.each([
 
   expect(getUsdcxRemoteDomain()).toBe(10007);
   expect(mockFetch).not.toHaveBeenCalled();
+});
+
+const BASE_SEPOLIA_CHAIN_ID = 84_532;
+const BURN_HASH = '0x2222222222222222222222222222222222222222222222222222222222222222';
+const FORWARD_HASH = '0x3333333333333333333333333333333333333333333333333333333333333333';
+// What runUsdcxExecutorDeposit (usdcx/executor.ts) writes on its `submitting` step.
+const SUBMITTED = {
+  usdcxRemoteRecipient: '0x00000000000000000000000000000000b64e1827414584510723cad8e145a400',
+  cctp: { sourceDomain: 6, forwarded: true, forwardFee: '22404' }
+};
+
+const createExecutorReceive = () =>
+  globalThis.__TEST_CREATE_BRIDGE_RECEIVE__({
+    accountId: 'mtst1account',
+    amount: '1000',
+    faucetId: 'mtst1usdcx',
+    provider: 'usdcx',
+    sourceChainId: BASE_SEPOLIA_CHAIN_ID,
+    sourceAddress: '0x4D4A180C637a71FCB9b5BD1186C8ce23C40EBa81',
+    sourceAmount: '0.001',
+    sourceSymbol: 'USDC',
+    evmTxHash: BURN_HASH,
+    ...SUBMITTED
+  });
+
+it("keeps an executor deposit's submitting write on the row it moves to delivering", async () => {
+  installBridgeInTestHooks();
+
+  const id = await createExecutorReceive();
+
+  const inputs: IBridgedReceiveExtraInputs | undefined = (await Repo.transactions.where({ id }).first())?.extraInputs;
+  expect(inputs).toMatchObject({
+    phase: 'delivering',
+    evmTxHash: BURN_HASH,
+    usdcxRemoteRecipient: SUBMITTED.usdcxRemoteRecipient,
+    cctp: SUBMITTED.cctp,
+    usdcxSource: { route: 'cctp-executor', chain: { id: BASE_SEPOLIA_CHAIN_ID } }
+  });
+});
+
+it('hands the row to the reconciler, which asks Circle about the burn and takes its Arc forward as the execute', async () => {
+  installBridgeInTestHooks();
+  const id = await createExecutorReceive();
+  // Iris, as bridge-receive.usdcx.test.ts stands it in: the only fetch this pass makes.
+  const iris = jest.fn(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      messages: [
+        {
+          message: '0x01',
+          attestation: '0x02',
+          status: 'complete',
+          eventNonce: '0x03',
+          forwardState: 'COMPLETE',
+          forwardTxHash: FORWARD_HASH
+        }
+      ]
+    })
+  }));
+  Object.defineProperty(globalThis, 'fetch', { value: iris, writable: true, configurable: true });
+
+  await reconcileBridgedReceives();
+
+  expect(iris).toHaveBeenCalledWith(
+    `https://iris-api-sandbox.circle.com/v2/messages/6?transactionHash=${BURN_HASH}`,
+    expect.anything()
+  );
+  expect(await globalThis.__TEST_BRIDGE_RECEIVE_STATE__(id)).toMatchObject({
+    phase: 'delivering',
+    usdcxExecuteTxHash: FORWARD_HASH
+  });
 });

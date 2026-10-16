@@ -63,9 +63,11 @@ import { isUsdcxDomainNotRegisteredError, runUsdcxDeposit, UsdcxSigner } from 'l
 import { usdcxRemoteRecipientFor } from 'lib/usdcx/deposit-target';
 import {
   buildExecutorBurnIntent,
+  isUsdcxExecutorBalanceTooLowError,
   isUsdcxForwardQuoteUnavailableError,
   quoteExecutorBurn,
   runUsdcxExecutorDeposit,
+  usdcxExecutorFeeShortfall,
   UsdcxExecutorSigner
 } from 'lib/usdcx/executor';
 import { DEFAULT_CHAIN_ID, EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
@@ -138,6 +140,7 @@ const EMPTY_BALANCE: BridgeBalance = { value: null, formatted: '0', loading: tru
 // Continue and the check before the first wallet prompt wait on these reads, so an RPC that never answers has to fail
 // them rather than hold the step or the row forever.
 const RPC_TIMEOUT_MS = 15_000;
+const HELD_BALANCE_REREAD_MS = 10_000;
 
 async function rpcRequest(method: string, params: unknown[], chainId = DEFAULT_CHAIN_ID): Promise<unknown> {
   const chain = getChain(chainId);
@@ -383,7 +386,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // Circle's fee for a forwarded executor-route burn, shown on the route card. A display quote only: the
   // burn fetches its own right before signing, since a quote lives about two minutes. Kept with the amount it
   // was quoted for, so a fee for an earlier amount is never shown.
-  const [usdcxQuote, setUsdcxQuote] = useState<{ amount: string; fee: string } | undefined>(undefined);
+  const [usdcxQuote, setUsdcxQuote] = useState<{ amount: string; fee: bigint } | undefined>(undefined);
   const [amount, setAmount] = useState('');
   const [usdcBalance, setUsdcBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
   const [circleUsdcBalance, setCircleUsdcBalance] = useState<BridgeBalance>(EMPTY_BALANCE);
@@ -483,7 +486,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   })();
   // Circle's display quote follows the amount the user settled on, not every keystroke.
   const [debouncedUsdcxAmount] = useDebounce(route === 'usdcx' && isValidAmount(amount) ? amount.trim() : '', 500);
-  const usdcxQuotedFee = usdcxQuote && usdcxQuote.amount === amount.trim() ? usdcxQuote.fee : undefined;
+  const usdcxQuotedFeeUnits = usdcxQuote && usdcxQuote.amount === amount.trim() ? usdcxQuote.fee : undefined;
+  const usdcxQuotedFee =
+    usdcxQuotedFeeUnits === undefined ? undefined : formatUnits(usdcxQuotedFeeUnits, CIRCLE_USDC_DECIMALS);
   // Only USDC on the Fast (Epoch) route is quotable today; ETH-fast wraps to WETH
   // (not implemented yet) and Slow (Agglayer) needs no quote.
   const [debouncedAmount] = useDebounce(
@@ -683,7 +688,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           buildExecutorBurnIntent(quotedAmount, source, recipient, evmAddress)
         );
         if (!cancelled) {
-          setUsdcxQuote({ amount: quotedAmount, fee: formatUnits(quote.feeTotalAmount, CIRCLE_USDC_DECIMALS) });
+          setUsdcxQuote({ amount: quotedAmount, fee: quote.feeTotalAmount });
         }
       } catch (err) {
         // No quote on the card: the burn tries again and falls back to the manual execute if Circle refuses.
@@ -725,21 +730,27 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     [resetEpoch, route]
   );
 
+  const readBalanceOrFail = useCallback(
+    (chainId: number, readBalance: () => Promise<bigint>): Promise<bigint> =>
+      readBalance().catch((cause: unknown) => {
+        const network = getChain(chainId)?.name ?? '';
+        throw new Error(t('bridgeDepositBalanceReadFailed', { token: tokenLabel, network }), { cause });
+      }),
+    [t, tokenLabel]
+  );
   // Read again right before the first wallet prompt: the balance can move after the amount step read it, and a wallet
   // asked for more than it holds refuses only at its own simulation, after an approval has already cost gas (#1431).
   const ensureBalanceCovers = useCallback(
     async (spend: bigint, decimals: number, chainId: number, readBalance: () => Promise<bigint>) => {
-      const network = getChain(chainId)?.name ?? '';
-      const balance = await readBalance().catch((cause: unknown) => {
-        throw new Error(t('bridgeDepositBalanceReadFailed', { token: tokenLabel, network }), { cause });
-      });
+      const balance = await readBalanceOrFail(chainId, readBalance);
       if (balance < spend) {
+        const network = getChain(chainId)?.name ?? '';
         throw new Error(
           t('bridgeDepositBalanceTooLow', { balance: formatBalance(balance, decimals), token: tokenLabel, network })
         );
       }
     },
-    [t, tokenLabel]
+    [readBalanceOrFail, t, tokenLabel]
   );
 
   // Every other failure keeps the screen's own wording.
@@ -747,14 +758,27 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     (err: unknown): string => nativeSigningErrorMessage(err, t, errorMessage),
     [t]
   );
-  // The two USDCx refusals that stop a deposit before any wallet prompt get their own words.
+  // The route step holds an amount its displayed fee takes past the balance in the words the deposit refuses it with.
+  const usdcxFeeAboveBalanceMessage = useCallback(
+    ({ needed, fee, balance }: { needed: bigint; fee: bigint; balance: bigint }): string =>
+      t('usdcxDepositFeeAboveBalance', {
+        total: formatUnits(needed, CIRCLE_USDC_DECIMALS),
+        fee: formatUnits(fee, CIRCLE_USDC_DECIMALS),
+        balance: formatUnits(balance, CIRCLE_USDC_DECIMALS),
+        token: tokenLabel,
+        network: (usdcxSource && getChain(usdcxSource.chain.id)?.name) ?? ''
+      }),
+    [t, tokenLabel, usdcxSource]
+  );
+  // The USDCx refusals that stop a deposit before any wallet prompt get their own words.
   const usdcxDepositErrorMessage = useCallback(
     (err: unknown): string => {
       if (isUsdcxDomainNotRegisteredError(err)) return t('usdcxDomainNotRegistered');
       if (isUsdcxForwardQuoteUnavailableError(err)) return t('usdcxForwardQuoteUnavailable');
+      if (isUsdcxExecutorBalanceTooLowError(err)) return usdcxFeeAboveBalanceMessage(err);
       return depositErrorMessage(err);
     },
-    [t, depositErrorMessage]
+    [t, depositErrorMessage, usdcxFeeAboveBalanceMessage]
   );
 
   const handleSlowBridge = useCallback(
@@ -985,11 +1009,12 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
         // instead of throwing out of the flow.
         const recipient = usdcxRemoteRecipientFor(midenAccount.publicKey);
         if (!isAddress(evmAddress)) throw new Error(`Invalid EVM address: ${evmAddress}`);
+        const readBalance = () => readCircleUsdcBalance(evmAddress, usdcxSource);
         await ensureBalanceCovers(
           parseUnits(amount.trim(), CIRCLE_USDC_DECIMALS),
           CIRCLE_USDC_DECIMALS,
           usdcxChain.id,
-          () => readCircleUsdcBalance(evmAddress, usdcxSource)
+          readBalance
         );
         // Native Reown signs on the source chain: a session that did not approve it fails here, before the first
         // wallet prompt, instead of with the Sign SDK's "Invalid permissions for call.".
@@ -1067,6 +1092,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               isRemoteDomainRegistered: remoteDomain =>
                 readRemoteDomainRegistered(remoteDomain, target.xReserve, target.chain.id),
               readAllowance,
+              readBalance: () => readBalanceOrFail(usdcxChain.id, readBalance),
               waitForReceipt,
               updatePhase
             });
@@ -1097,6 +1123,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       evmAddress,
       midenAccount.publicKey,
       nativeReownAvailable,
+      readBalanceOrFail,
       switchChainAsync,
       usdcxDepositErrorMessage,
       usdcxSource,
@@ -1212,9 +1239,54 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     slowAvailability.state === 'available' &&
     setupReady &&
     slowStatus !== 'signing';
-  // USDCx has no quote: the deposit is 1:1, so the amount step's checks are the only ones.
+  // The deposit is 1:1, but an executor-route burn pulls Circle's fee on top of the amount, so once the fee is on
+  // screen Confirm holds an amount it takes past the balance. The deposit checks the fee it signs before any prompt,
+  // and again after an approval, before the burn prompt.
+  const usdcxFeeShortfall =
+    route === 'usdcx' &&
+    token === 'CIRCLE_USDC' &&
+    typedUnits !== null &&
+    heldUnits !== null &&
+    usdcxQuotedFeeUnits !== undefined
+      ? usdcxExecutorFeeShortfall(typedUnits, usdcxQuotedFeeUnits, heldUnits)
+      : undefined;
+  const usdcxFeeHoldNotice = usdcxFeeShortfall ? usdcxFeeAboveBalanceMessage(usdcxFeeShortfall) : undefined;
+  // A user clears either hold by adding USDC, so the balance is re-read in place until it covers; a failed read keeps it.
+  const usdcxBalanceHeld =
+    usdcxFeeShortfall !== undefined || (route === 'usdcx' && token === 'CIRCLE_USDC' && amountExceedsBalance);
+  useEffect(() => {
+    if (!usdcxBalanceHeld || !usdcxSource) return;
+    let cancelled = false;
+    let reading = false;
+    const id = setInterval(() => {
+      if (reading) return;
+      reading = true;
+      readCircleUsdcBalance(evmAddress, usdcxSource)
+        .then(value => {
+          if (cancelled) return;
+          setCircleUsdcBalance(current =>
+            current.value === value
+              ? current
+              : { value, formatted: formatBalance(value, CIRCLE_USDC_DECIMALS), loading: false, error: null }
+          );
+        })
+        .catch(err => console.warn('[EvmBridgeDepositScreen] Circle USDC balance re-read failed', err))
+        .finally(() => {
+          reading = false;
+        });
+    }, HELD_BALANCE_REREAD_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [usdcxBalanceHeld, evmAddress, usdcxSource]);
   const usdcxReady =
-    route === 'usdcx' && token === 'CIRCLE_USDC' && usdcxAvailable && setupReady && slowStatus !== 'signing';
+    route === 'usdcx' &&
+    token === 'CIRCLE_USDC' &&
+    usdcxAvailable &&
+    setupReady &&
+    !usdcxFeeShortfall &&
+    slowStatus !== 'signing';
   const canConfirmRoute = (() => {
     switch (route) {
       case 'epoch':
@@ -1498,7 +1570,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               isSubmitting={submitting}
               canConfirm={reviewCanConfirm}
               confirmLabel={reviewConfirmLabel}
-              error={error ?? undefined}
+              error={error ?? usdcxFeeHoldNotice}
               onConfirm={handleConfirm}
               onBack={goBack}
             />
@@ -1514,6 +1586,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
                 fee={usdcxQuotedFee === undefined ? undefined : t('usdcxForwardFee', { fee: usdcxQuotedFee })}
                 notice={
                   balanceHoldNotice ??
+                  usdcxFeeHoldNotice ??
                   (usdcxSource?.route === 'cctp-executor'
                     ? t('usdcxExecutorRouteNotice', {
                         source: usdcxSource.chain.name,
@@ -1586,6 +1659,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       route,
       token,
       routeNotice,
+      usdcxFeeHoldNotice,
       usdcxQuotedFee,
       canConfirmRoute,
       outputAmount,
