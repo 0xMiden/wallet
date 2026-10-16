@@ -1,3 +1,5 @@
+import { NoteType } from '@miden-sdk/miden-sdk/lazy';
+
 import { ITransactionStatus, type ITransactionStage, type ITransactionType } from 'lib/miden/db/types';
 import { NoteTypeEnum } from 'lib/miden/types';
 
@@ -15,9 +17,15 @@ import {
   getStepDurationsMs,
   getTransactionStepState,
   isDirectGuardianSwitch,
-  isPrivateSendRow,
-  isUnconfirmedGuardianSwitch
+  isUnconfirmedGuardianSwitch,
+  waitsToDeliverNote
 } from './helper';
+
+// The SDK's real values: `Private` is 0, which a string compare reads as public.
+jest.mock('@miden-sdk/miden-sdk/lazy', () => ({
+  ...jest.requireActual('../../../__mocks__/wasmMock.js'),
+  NoteType: { Private: 0, Public: 1 }
+}));
 
 describe('getActiveStepIndex', () => {
   it('returns steps.length once the tx is complete', () => {
@@ -66,6 +74,13 @@ describe('getActiveStepIndex', () => {
   it('maps standard-send stages to its two steps', () => {
     expect(getActiveStepIndex(STANDARD_TRANSACTION_STEPS, 'proving', false)).toBe(0);
     expect(getActiveStepIndex(STANDARD_TRANSACTION_STEPS, 'submitting', false)).toBe(1);
+  });
+
+  // A standard send or execute also waits for the commit and relays a private note, and falling back to the first
+  // step would show the proof as being generated again.
+  it('keeps a standard row on its last step through the commit wait and the relay', () => {
+    expect(getActiveStepIndex(STANDARD_TRANSACTION_STEPS, 'confirming', false)).toBe(1);
+    expect(getActiveStepIndex(STANDARD_TRANSACTION_STEPS, 'delivering', false)).toBe(1);
   });
 
   it('falls back to the first step for an undefined or unowned stage', () => {
@@ -329,14 +344,62 @@ describe('stepsForFlow', () => {
   });
 });
 
-describe('isPrivateSendRow', () => {
-  it('is true only for a send row of a private note', () => {
-    expect(isPrivateSendRow({ type: 'send', noteType: NoteTypeEnum.Private } as never)).toBe(true);
-    expect(isPrivateSendRow({ type: 'send', noteType: NoteTypeEnum.Public } as never)).toBe(false);
-    expect(isPrivateSendRow({ type: 'send' } as never)).toBe(false);
-    // Only a send's completion waits for the commit and relays the note.
-    expect(isPrivateSendRow({ type: 'bridged-send', noteType: NoteTypeEnum.Private } as never)).toBe(false);
-    expect(isPrivateSendRow(undefined)).toBe(false);
+describe('waitsToDeliverNote', () => {
+  it('is true for a send of a private note, in either note-type form', () => {
+    expect(waitsToDeliverNote({ type: 'send', noteType: NoteTypeEnum.Private } as never)).toBe(true);
+    expect(waitsToDeliverNote({ type: 'send', noteType: NoteType.Private } as never)).toBe(true);
+  });
+
+  // The pipeline relays for a send whose note metadata says private whatever the row's `noteType`, and for an
+  // execute's private outputs; the delivery record and the stamps are what say so.
+  it.each(['pending', 'relayed'])('is true for a row whose note delivery is %s', noteDelivery => {
+    expect(waitsToDeliverNote({ type: 'send', noteType: NoteTypeEnum.Public, noteDelivery } as never)).toBe(true);
+    expect(waitsToDeliverNote({ type: 'execute', noteDelivery } as never)).toBe(true);
+  });
+
+  // The delivery record is a best-effort write, so the stamps the commit wait and the relay leave count on their own.
+  it('is true for a row stamped for the commit wait or the relay, with no delivery recorded', () => {
+    expect(waitsToDeliverNote({ type: 'execute', stage: 'confirming' } as never)).toBe(true);
+    expect(waitsToDeliverNote({ type: 'execute', stage: 'delivering' } as never)).toBe(true);
+    expect(
+      waitsToDeliverNote({ type: 'execute', stage: 'complete', stageTimestamps: { confirming: 1 } } as never)
+    ).toBe(true);
+    expect(waitsToDeliverNote({ type: 'send', stage: 'complete', stageTimestamps: { delivering: 1 } } as never)).toBe(
+      true
+    );
+    // A relay that failed still waited and relayed.
+    expect(
+      waitsToDeliverNote({ type: 'execute', noteDelivery: 'undelivered', stageTimestamps: { confirming: 1 } } as never)
+    ).toBe(true);
+  });
+
+  // These wait for their own commit at 'confirming' and relay nothing; their last step owns that wait.
+  it.each(['switch-guardian', 'replace-hot-key', 'update-procedure-threshold'])(
+    'is false for a %s row waiting for its commit',
+    type => {
+      expect(waitsToDeliverNote({ type, stage: 'confirming' } as never)).toBe(false);
+      expect(waitsToDeliverNote({ type, stage: 'complete', stageTimestamps: { confirming: 1 } } as never)).toBe(false);
+    }
+  );
+
+  it('is false for a row that waits for no relay', () => {
+    expect(waitsToDeliverNote({ type: 'send', noteType: NoteTypeEnum.Public } as never)).toBe(false);
+    expect(waitsToDeliverNote({ type: 'send' } as never)).toBe(false);
+    expect(waitsToDeliverNote({ type: 'execute', stage: 'guardian-synced' } as never)).toBe(false);
+    // Only a send's note type says it relays; a bridged send's note is not relayed.
+    expect(waitsToDeliverNote({ type: 'bridged-send', noteType: NoteTypeEnum.Private } as never)).toBe(false);
+    expect(waitsToDeliverNote(undefined)).toBe(false);
+  });
+
+  it('is false for an unreadable note type, without throwing', () => {
+    const row = { type: 'send', noteType: 'bogus' } as never;
+    expect(() => waitsToDeliverNote(row)).not.toThrow();
+    expect(waitsToDeliverNote(row)).toBe(false);
+  });
+
+  // Notes that could not be made relayable are recorded undelivered with no wait and no relay.
+  it('is false for a row recorded undelivered that never waited or relayed', () => {
+    expect(waitsToDeliverNote({ type: 'execute', noteDelivery: 'undelivered' } as never)).toBe(false);
   });
 });
 

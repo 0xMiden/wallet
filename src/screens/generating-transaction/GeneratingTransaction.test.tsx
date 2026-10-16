@@ -1073,6 +1073,87 @@ describe('GeneratingTransaction stage + state rendering', () => {
     act(() => root.unmount());
   });
 
+  // An execute with private outputs waits for the commit and relays its notes after the Guardian sync too, and its
+  // stamps say so when the best-effort delivery record was not written.
+  it.each([undefined, 'pending'])(
+    'shows a Guardian execute row at confirming on its delivery step (noteDelivery %s)',
+    async noteDelivery => {
+      const { container, root } = await renderInto(
+        <GeneratingTransaction
+          isGuardian={true}
+          onDoneClick={() => {}}
+          transactionComplete={false}
+          activeStage="confirming"
+          activeType="execute"
+          activeTransaction={
+            makeTx({ type: 'execute', stage: 'confirming', stageTimestamps: { confirming: 1 }, noteDelivery }) as never
+          }
+        />
+      );
+      const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+
+      expect(rows.map(row => row.getAttribute('data-transaction-step'))).toEqual([
+        'guardian-approving',
+        'generating-proof',
+        'submitting',
+        'syncing-guardian',
+        'delivering-note'
+      ]);
+      expect(rows.map(row => row.getAttribute('data-state'))).toEqual([
+        'complete',
+        'complete',
+        'complete',
+        'complete',
+        'active'
+      ]);
+      act(() => root.unmount());
+    }
+  );
+
+  // A rotation waits for its own commit at 'confirming' and relays nothing, so that wait stays its last step.
+  it('keeps a replace-hot-key row waiting for its commit on the four steps', async () => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        isGuardian={true}
+        onDoneClick={() => {}}
+        transactionComplete={false}
+        activeStage="confirming"
+        activeType="replace-hot-key"
+        activeTransaction={
+          makeTx({ type: 'replace-hot-key', stage: 'confirming', stageTimestamps: { confirming: 1 } }) as never
+        }
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+
+    expect(rows.map(row => row.getAttribute('data-transaction-step'))).toEqual([
+      'guardian-approving',
+      'generating-proof',
+      'submitting',
+      'syncing-guardian'
+    ]);
+    expect(rows.map(row => row.getAttribute('data-state'))).toEqual(['complete', 'complete', 'complete', 'active']);
+    act(() => root.unmount());
+  });
+
+  it.each(['confirming', 'delivering'])('keeps a standard row at %s on its last step', async stage => {
+    const { container, root } = await renderInto(
+      <GeneratingTransaction
+        onDoneClick={() => {}}
+        transactionComplete={false}
+        isGuardian={false}
+        activeStage={stage as any}
+        activeType="send"
+        activeTransaction={makeTx({ stage, noteType: 'private' }) as never}
+      />
+    );
+    const rows = Array.from(container.querySelectorAll('[data-transaction-step]'));
+
+    expect(rows.map(r => r.getAttribute('data-transaction-step'))).toEqual(['generating-proof', 'submitting']);
+    expect(rows.map(r => r.getAttribute('data-state'))).toEqual(['complete', 'active']);
+    act(() => root.unmount());
+  });
+
   it('non-guardian send shows only the generic proof + submit steps', async () => {
     const { container, root } = await renderInto(
       <GeneratingTransaction
