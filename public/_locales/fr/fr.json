@@ -16,7 +16,7 @@
   "usdcxMinimumBurn": "Quantité minimale à brûler",
   "usdcxSponsorshipFee": "Payé en $symbol$, y compris le parrainage de l’exécution d’un « faucet »",
   "usdcxInvalidDestination": "Saisissez une adresse valide sur un réseau pris en charge pour ce retrait.",
-  "usdcxUnsupportedFaucet": "Les retraits d’USDCx ne sont disponibles que pour le « faucet » configuré sur le testnet Miden.",
+  "usdcxUnsupportedFaucet": "Les retraits en USDCx ne sont pas disponibles pour ce token sur ce réseau.",
   "usdcxInvalidAmount": "Saisissez un montant positif en USDCx avec au maximum six décimales.",
   "usdcxBelowMinimumBurn": "Le montant est inférieur au montant minimum de « burn » du « faucet ».",
   "usdcxIncompatibleBurnScript": "Le script de destruction du portefeuille ne correspond pas à la «faucet» USDCx.",
