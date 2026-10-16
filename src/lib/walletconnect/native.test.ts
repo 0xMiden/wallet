@@ -8,6 +8,7 @@ import {
   prepareNativeSessionChain,
   ReownState
 } from './native';
+import { NO_EXPLORER_CHAIN, NO_PUBLIC_RPC_CHAIN } from './testing/chains';
 
 const mockStateListeners: Array<(state: ReownState) => void> = [];
 const mockRemoveListener = jest.fn(async () => undefined);
@@ -30,24 +31,25 @@ jest.mock('./fees', () => ({ readNativeFeeFields: jest.fn() }));
 
 const SEPOLIA = 11155111;
 const ARC = 5042002;
+const NO_PUBLIC_RPC = NO_PUBLIC_RPC_CHAIN.id;
+const NO_EXPLORER = NO_EXPLORER_CHAIN.id;
 
-// Arc Testnet with a public RPC that differs from its `rpcUrl`; every other chain is the registry's own.
+// Arc Testnet with a public RPC that differs from its `rpcUrl`, and two chains that lack a public RPC or an
+// explorer; every other chain is the registry's own.
 jest.mock('./config', () => {
-  const actual = jest.requireActual<typeof import('./config')>('./config');
-  return {
-    ...actual,
-    getChain: (id: number) =>
-      id === 5042002
-        ? {
-            id: 5042002,
-            name: 'Arc Testnet',
-            rpcUrl: 'https://rpc.walletconnect.org/v1?chainId=eip155:5042002&projectId=secret',
-            publicRpcUrl: 'https://rpc.testnet.arc.network',
-            explorer: 'https://testnet.arcscan.app',
-            nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 }
-          }
-        : actual.getChain(id)
-  };
+  const chains = jest.requireActual<typeof import('./testing/chains')>('./testing/chains');
+  return chains.walletConnectConfigMock([
+    {
+      id: 5042002,
+      name: 'Arc Testnet',
+      rpcUrl: 'https://rpc.walletconnect.org/v1?chainId=eip155:5042002&projectId=secret',
+      publicRpcUrl: 'https://rpc.testnet.arc.network',
+      explorer: 'https://testnet.arcscan.app',
+      nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 }
+    },
+    chains.NO_PUBLIC_RPC_CHAIN,
+    chains.NO_EXPLORER_CHAIN
+  ]);
 });
 
 const sessionState = (chainIds?: number[]): ReownState => ({
@@ -210,6 +212,41 @@ describe('ensureNativeSessionChain', () => {
 
     expect(NativeReown.request).toHaveBeenCalledTimes(1);
     expect(NativeReown.request).toHaveBeenCalledWith(expect.objectContaining({ method: 'wallet_addEthereumChain' }));
+  });
+
+  // A wallet that does not know the chain rejects an add request with an empty RPC URL.
+  it('refuses a missing chain with no public RPC without asking the wallet to add it', async () => {
+    jest.mocked(NativeReown.request).mockRejectedValue(new Error('rpcUrls must contain a valid URL'));
+    jest.mocked(NativeReown.getState).mockResolvedValue(sessionState([SEPOLIA]));
+
+    await expect(prepareNativeSessionChain(NO_PUBLIC_RPC)).rejects.toMatchObject({
+      name: 'NativeSessionChainNotApprovedError',
+      chainId: NO_PUBLIC_RPC,
+      networkName: 'No Public RPC'
+    });
+
+    expect(NativeReown.request).not.toHaveBeenCalled();
+  });
+
+  it('asks the wallet to add a missing chain with no explorer without an explorer URL', async () => {
+    jest.mocked(NativeReown.request).mockResolvedValue({ result: null });
+    jest.mocked(NativeReown.getState).mockResolvedValue(sessionState([SEPOLIA, NO_EXPLORER]));
+
+    await ensureNativeSessionChain(sessionState([SEPOLIA]), NO_EXPLORER);
+
+    expect(NativeReown.request).toHaveBeenNthCalledWith(1, {
+      topic: 'topic-1',
+      chainId: SEPOLIA,
+      method: 'wallet_addEthereumChain',
+      params: [
+        {
+          chainId: '0xf1b32',
+          chainName: 'No Explorer',
+          rpcUrls: ['https://rpc.example'],
+          nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 }
+        }
+      ]
+    });
   });
 });
 
